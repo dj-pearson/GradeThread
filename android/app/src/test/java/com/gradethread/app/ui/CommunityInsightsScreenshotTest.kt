@@ -180,7 +180,7 @@ class CommunityInsightsScreenshotTest {
                 args = listOf(subject, "$128.00"),
             )
         },
-        detail = UiMessage(
+        detail = UiMessage.plural(
             R.plurals.community_source_detail,
             args = listOf(cohort, "62%"),
             quantity = cohort,

@@ -93,15 +93,20 @@ object Automations {
 
     fun triggerSummary(trigger: AutomationTrigger): UiMessage = when (trigger.type) {
         "no_views_in_days" ->
-            UiMessage(R.string.automation_trigger_summary_no_views, args = listOf(trigger.days))
+            UiMessage.plural(
+                R.plurals.automation_trigger_summary_no_views,
+                quantity = trigger.days,
+                args = listOf(trigger.days),
+            )
 
         "watchers_lt_after_days" -> UiMessage(
             R.string.automation_trigger_summary_watchers,
             args = listOf(trigger.watchers ?: 0, trigger.days),
         )
 
-        else -> UiMessage(
-            R.string.automation_trigger_summary_days_listed,
+        else -> UiMessage.plural(
+            R.plurals.automation_trigger_summary_days_listed,
+            quantity = trigger.days,
             args = listOf(trigger.days),
         )
     }

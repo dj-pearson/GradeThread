@@ -191,16 +191,20 @@ object ScoutDisplay {
      * SERVER's sentence for an empty result and is preferred when there is one,
      * so this returns a UiMessage-shaped pair rather than a string.
      */
-    fun summary(response: ScoutScanResponse?, shown: Int): Summary = when {
-        response == null -> Summary(R.string.scout_summary_idle)
+    fun summary(response: ScoutScanResponse?, shown: Int): UiMessage = when {
+        response == null -> UiMessage(R.string.scout_summary_idle)
         response.candidates.isEmpty() ->
-            Summary(R.string.scout_summary_empty, detail = response.note)
+            UiMessage(R.string.scout_summary_empty, detail = response.note)
         shown == 0 ->
-            Summary(R.string.scout_summary_none_cleared, listOf(response.scanned))
+            UiMessage(R.string.scout_summary_none_cleared, args = listOf(response.scanned))
         else ->
-            Summary(R.string.scout_summary_showing, listOf(response.scanned, shown))
+            UiMessage(R.string.scout_summary_showing, args = listOf(response.scanned, shown))
     }
 
-    /** A resource, its integer arguments, and the server's own sentence if any. */
-    data class Summary(@StringRes val res: Int, val args: List<Int> = emptyList(), val detail: String? = null)
+    // US-3115: this was a `data class Summary(@StringRes res, args, detail)` -
+    // the THIRD copy of UiMessage's shape in this app, after BulkPricing's, and
+    // its own KDoc already called it "a UiMessage-shaped pair". Each copy also
+    // carried the @StringRes-on-a-union bug waiting to happen, and each screen
+    // that rendered one hand-rolled `detail ?: stringResource(res, ...)`,
+    // which is what text() does and is where the plurals support lives.
 }

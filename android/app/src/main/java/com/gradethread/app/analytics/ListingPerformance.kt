@@ -139,7 +139,7 @@ object ListingPerformance {
     fun summary(rows: List<ListingPerformanceRow>, nowMs: Long): UiMessage {
         if (rows.isEmpty()) return UiMessage(R.string.perf_no_listings)
         val views = rows.sumOf { it.viewsTotal }
-        val base = UiMessage(
+        val base = UiMessage.plural(
             R.plurals.perf_active_listings,
             args = listOf(rows.size, views),
             quantity = rows.size,

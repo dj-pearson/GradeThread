@@ -675,6 +675,11 @@ if (on("android")) {
     // shape 570 of them are in.
     run("android: no new unlocalized copy", `${py} scripts/no-unlocalized-copy.py`, a);
     run("android: string format arity", `${py} scripts/check-string-formats.py`, a);
+    // US-3115: lint already checks this through @StringRes/@PluralsRes on the
+    // two UiMessage factories, but a six-minute lint run that could not be
+    // completed is how 31 of these accumulated. Two seconds here.
+    run("android: plurals ids stay off the string factory", `${py} scripts/no-plurals-as-string.py`, a);
+    run("android: that guard still detects", `${py} scripts/no-plurals-as-string.py --self-test`, a);
     // US-2502: a Room version whose schema JSON was never committed cannot be
     // migration-tested, ever. Catch it while the file can still be produced.
     run("android: room schemas exported", "node scripts/check-room-schemas.mjs", a);

@@ -152,7 +152,7 @@ data class PassportChainStrength(
                     //
                     // US-2976: pluralised on the TOTAL, because "links are" is
                     // agreeing with the five, not with the three.
-                    UiMessage(
+                    UiMessage.plural(
                         R.plurals.passport_verified_links,
                         args = listOf(det, total),
                         quantity = total,

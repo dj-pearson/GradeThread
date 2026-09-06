@@ -124,7 +124,7 @@ class RepricingScreenshotTest {
             loaded.copy(
                 banner = UiMessage(R.string.repricing_scan_actionable, args = listOf(41, 1)),
                 caveat = listOf(
-                    UiMessage(
+                    UiMessage.plural(
                         R.plurals.repricing_skipped_no_category,
                         args = listOf(12),
                         quantity = 12,

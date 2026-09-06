@@ -43,7 +43,7 @@ class ScoutViewModel @Inject constructor(private val service: ScoutScanning) : V
         val categoryLabel: String
             get() = resolvedCategory?.categoryName ?: ScoutDisplay.APPAREL_ROOT_NAME
 
-        val summary: ScoutDisplay.Summary
+        val summary: UiMessage
             get() = ScoutDisplay.summary(response, candidates.size)
 
         /** A retry can only help when the wall isn't the plan. */

@@ -32,7 +32,7 @@ class BulkPricingViewModel @Inject constructor(
         /** Per-listing failures from the last push. */
         val rowErrors: Map<String, UiMessage> = emptyMap(),
         val busy: Boolean = false,
-        val banner: BulkPricing.Summary? = null,
+        val banner: UiMessage? = null,
         val errorMessage: String? = null,
         /**
          * US-1216: every bulk edit routes through the PRIMARY store, and

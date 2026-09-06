@@ -66,7 +66,7 @@ class BulkActionTest {
 
     @Test
     fun `an undo with nothing to restore is empty`() {
-        val label = UiMessage(R.plurals.bulk_undo_label, quantity = 1)
+        val label = UiMessage.plural(R.plurals.bulk_undo_label, quantity = 1)
         assertTrue(BulkUndo(label).isEmpty)
         assertFalse(BulkUndo(label, statuses = mapOf("a" to "sold")).isEmpty)
         assertFalse(BulkUndo(label, targetPrices = mapOf("a" to null)).isEmpty)

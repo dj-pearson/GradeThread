@@ -215,7 +215,7 @@ fun ProspectContent(
                 ),
                 // US-2976: the server's sentence when there is one, ours when
                 // there is not, with the plan name substituted either way.
-                it.detail ?: stringResource(it.res, *it.args.toTypedArray()),
+                it.text(),
                 tone = if (state.planWall != null) InfoTone.Warning else InfoTone.Error,
             )
         }

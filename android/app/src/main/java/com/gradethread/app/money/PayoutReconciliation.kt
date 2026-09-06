@@ -146,13 +146,13 @@ object PayoutReconciliation {
         // said "All 1 payouts match" on a single payout; the singular form is
         // written now rather than being a rounding error nobody filed.
         return if (off == 0) {
-            UiMessage(
+            UiMessage.plural(
                 R.plurals.payout_summary_all_match,
                 args = listOf(reconciled.size),
                 quantity = reconciled.size,
             )
         } else {
-            UiMessage(
+            UiMessage.plural(
                 R.plurals.payout_summary_mismatch,
                 args = listOf(off, reconciled.size),
                 quantity = reconciled.size,

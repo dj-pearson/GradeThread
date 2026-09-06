@@ -75,7 +75,7 @@ class BulkActionExecutor @Inject constructor(private val client: SupabaseClient,
 
         val undo = if (action.reversible && (statusSnapshot.isNotEmpty() || priceSnapshot.isNotEmpty())) {
             BulkUndo(
-                label = UiMessage(
+                label = UiMessage.plural(
                     R.plurals.bulk_undo_label,
                     args = listOf(action.label, succeeded),
                     quantity = succeeded,

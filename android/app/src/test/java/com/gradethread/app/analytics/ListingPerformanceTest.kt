@@ -175,7 +175,7 @@ class ListingPerformanceTest {
         assertEquals(R.string.perf_summary_stale, stale.res)
         assertEquals(
             listOf<Any>(
-                UiMessage(R.plurals.perf_active_listings, args = listOf(2, 12), quantity = 2),
+                UiMessage.plural(R.plurals.perf_active_listings, args = listOf(2, 12), quantity = 2),
                 1,
             ),
             stale.args,

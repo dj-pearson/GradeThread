@@ -152,13 +152,13 @@ object CommunityRecommendations {
             // translator sees, so they can move it, and the seller count picks
             // the plural form for the whole line rather than for a fragment.
             detail = if (avg == null) {
-                UiMessage(
+                UiMessage.plural(
                     R.plurals.community_source_detail,
                     args = listOf(b.sellers, pct(st)),
                     quantity = b.sellers,
                 )
             } else {
-                UiMessage(
+                UiMessage.plural(
                     R.plurals.community_source_detail_avg,
                     args = listOf(b.sellers, pct(st), Money.format(avg)),
                     quantity = b.sellers,
@@ -186,13 +186,13 @@ object CommunityRecommendations {
                 args = listOf(b.brand, Money.format(avg)),
             ),
             detail = if (st == null) {
-                UiMessage(
+                UiMessage.plural(
                     R.plurals.community_price_detail,
                     args = listOf(b.sellers),
                     quantity = b.sellers,
                 )
             } else {
-                UiMessage(
+                UiMessage.plural(
                     R.plurals.community_price_detail_st,
                     args = listOf(b.sellers, pct(st)),
                     quantity = b.sellers,
@@ -216,7 +216,7 @@ object CommunityRecommendations {
             kind = RecommendationKind.SOURCE,
             subject = c.category,
             title = UiMessage(R.string.community_category_title, args = listOf(c.category)),
-            detail = UiMessage(
+            detail = UiMessage.plural(
                 R.plurals.community_category_detail,
                 args = listOf(c.sellers, pct(growth)),
                 quantity = c.sellers,

@@ -33,11 +33,7 @@ import java.io.File
  * the server's own `IDENTIFYING_PHOTO_ROLES`; a role nobody recognises is not
  * permission, it is the no-usable-role branch.
  */
-enum class ProspectPhotoRole(
-    val wire: String,
-    @StringRes val label: Int,
-    @StringRes val hint: Int,
-) {
+enum class ProspectPhotoRole(val wire: String, @StringRes val label: Int, @StringRes val hint: Int) {
     /** The garment itself. The case eBay visual search measured best on. */
     FRONT("front", R.string.prospect_role_item_label, R.string.prospect_role_item_hint),
 
@@ -232,7 +228,7 @@ object ProspectDisplay {
             !stats.sufficient && stats.count == 0 ->
                 UiMessage(R.string.prospect_caveat_no_comps)
 
-            !stats.sufficient -> UiMessage(
+            !stats.sufficient -> UiMessage.plural(
                 R.plurals.prospect_caveat_few_comps,
                 args = listOf(stats.count),
                 quantity = stats.count,

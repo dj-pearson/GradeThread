@@ -181,25 +181,27 @@ object BulkPricing {
      * A partial batch is named as a partial: "18 of 20" tells the seller two
      * listings still carry the old price, which "done" would hide.
      */
-    fun summary(response: BulkPriceResponse): Summary = when {
-        response.total == 0 -> Summary(R.string.bulkpricing_summary_none)
-        response.succeeded == response.total ->
-            Summary(R.string.bulkpricing_summary_all, listOf(response.total))
-        response.succeeded == 0 ->
-            Summary(R.string.bulkpricing_summary_zero, listOf(response.total))
-        else -> Summary(
+    fun summary(response: BulkPriceResponse): UiMessage = when {
+        response.total == 0 -> UiMessage(R.string.bulkpricing_summary_none)
+        response.succeeded == response.total -> UiMessage.plural(
+            R.plurals.bulkpricing_summary_all,
+            quantity = response.total,
+            args = listOf(response.total),
+        )
+        response.succeeded == 0 -> UiMessage.plural(
+            R.plurals.bulkpricing_summary_zero,
+            quantity = response.total,
+            args = listOf(response.total),
+        )
+        else -> UiMessage(
             R.string.bulkpricing_summary_partial,
-            listOf(response.succeeded, response.total),
+            args = listOf(response.succeeded, response.total),
         )
     }
 
-    /**
-     * The outcome line, as a resource plus its numbers.
-     *
-     * US-2976: the SENTENCE cannot be built here. "18 of 20" puts the numbers
-     * in an order English chose, and a translator has to be free to move them -
-     * which is only possible if what leaves this object is the resource and the
-     * arguments, not a finished string.
-     */
-    data class Summary(@StringRes val res: Int, val args: List<Int> = emptyList())
+    // US-3115: this used to be its own `data class Summary(@StringRes res,
+    // args)`. It said the same thing UiMessage says - the SENTENCE cannot be
+    // built here, because "18 of 20" puts the numbers in an order English chose
+    // and a translator has to be free to move them - and it carried the same
+    // @StringRes-on-a-union bug waiting to happen. One type, one renderer.
 }

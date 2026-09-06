@@ -214,7 +214,7 @@ class FulfillmentTest {
         assertEquals(R.string.fulfillment_summary_late, late.res)
         assertEquals(
             listOf<Any>(
-                UiMessage(R.plurals.fulfillment_parcels, args = listOf(2), quantity = 2),
+                UiMessage.plural(R.plurals.fulfillment_parcels, args = listOf(2), quantity = 2),
                 1,
                 Fulfillment.SHIP_BY_DAYS,
             ),

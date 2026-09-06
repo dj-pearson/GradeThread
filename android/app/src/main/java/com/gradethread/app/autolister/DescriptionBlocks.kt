@@ -460,7 +460,7 @@ object DescriptionBlocks {
                 val unit = block.unit ?: ctx.unit
                 RowSummary(
                     listOf(
-                        UiMessage(
+                        UiMessage.plural(
                             if (unit == "cm") {
                                 R.plurals.block_measurement_count_cm
                             } else {

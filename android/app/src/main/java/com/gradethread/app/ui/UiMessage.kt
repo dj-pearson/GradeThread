@@ -1,6 +1,7 @@
 package com.gradethread.app.ui
 
 import android.content.Context
+import androidx.annotation.PluralsRes
 import androidx.annotation.StringRes
 import com.gradethread.app.R
 import androidx.compose.runtime.Composable
@@ -22,8 +23,25 @@ import androidx.compose.ui.res.stringResource
  * a ViewModel returning English reaches a Spanish seller untranslated.
  */
 @Immutable
-data class UiMessage(
-    @StringRes val res: Int,
+@ConsistentCopyVisibility
+data class UiMessage private constructor(
+    /**
+     * A string id when [quantity] is null, a plurals id when it is not.
+     *
+     * ⚠ DELIBERATELY UNANNOTATED, AND THE CONSTRUCTOR IS PRIVATE BECAUSE OF IT
+     * (US-3115). This field held `@StringRes` until the type was documented to
+     * carry either kind of id, which made lint right and the class wrong in
+     * both directions at once: every plurals caller was an `Expected resource
+     * of type string` error, and [text] calling `pluralStringResource(res, …)`
+     * was an `Expected resource of type plurals` error on the very same field.
+     * 31 errors, and `:app:lintDebug` red on main for anyone.
+     *
+     * An annotation cannot describe a union, so the checking moved OUT to the
+     * two factories below, where each id is checked as its own kind. That is
+     * why nothing may construct this directly: a public constructor here is an
+     * unchecked back door around both.
+     */
+    val res: Int,
     val detail: String? = null,
     /**
      * Format arguments for [res], when it takes any.
@@ -35,14 +53,36 @@ data class UiMessage(
      */
     val args: List<Any> = emptyList(),
     /**
-     * The count that picks a plural form, when [res] is a PLURALS resource.
-     *
-     * US-2976: three screens had each grown their own `res + count` pair
-     * within a day of one another. One shape means one renderer, and a
-     * screen cannot call stringResource on a plurals id by accident.
+     * The count that picks a plural form. Non-null exactly when [res] is a
+     * plurals id, which is what [plural] guarantees and [text] relies on.
      */
     val quantity: Int? = null,
-)
+) {
+    companion object {
+        /**
+         * A message from a STRING resource.
+         *
+         * `operator invoke` rather than a named factory so the 260-odd
+         * existing `UiMessage(R.string.x, …)` call sites keep reading the way
+         * they always did while gaining the check they never had.
+         */
+        operator fun invoke(@StringRes res: Int, detail: String? = null, args: List<Any> = emptyList()): UiMessage =
+            UiMessage(res, detail, args, null)
+
+        /**
+         * A message from a PLURALS resource.
+         *
+         * [quantity] is required, not defaulted: a plurals id with no count is
+         * the bug this split exists to make unrepresentable.
+         */
+        fun plural(
+            @PluralsRes res: Int,
+            quantity: Int,
+            args: List<Any> = emptyList(),
+            detail: String? = null,
+        ): UiMessage = UiMessage(res, detail, args, quantity)
+    }
+}
 
 /**
  * The sentence to show: the server's when there is one, ours otherwise.

@@ -89,7 +89,7 @@ object Fulfillment {
     fun waitingLabel(order: FulfillmentOrder, nowMs: Long): UiMessage = when (val days = daysWaiting(order, nowMs)) {
         0 -> UiMessage(R.string.fulfillment_sold_today)
         1 -> UiMessage(R.string.fulfillment_sold_yesterday)
-        else -> UiMessage(
+        else -> UiMessage.plural(
             R.plurals.fulfillment_waiting_days,
             args = listOf(days),
             quantity = days,
@@ -120,7 +120,7 @@ object Fulfillment {
     /** The line above the queue, so an empty one still says something. */
     fun summary(orders: List<FulfillmentOrder>, nowMs: Long): UiMessage {
         if (orders.isEmpty()) return UiMessage(R.string.fulfillment_nothing_waiting)
-        val base = UiMessage(
+        val base = UiMessage.plural(
             R.plurals.fulfillment_parcels,
             args = listOf(orders.size),
             quantity = orders.size,

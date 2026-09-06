@@ -112,6 +112,14 @@ jobs:
       - name: String format arity
         run: python3 scripts/check-string-formats.py
 
+      # US-3115: `@StringRes val res` on a class documented to hold plurals
+      # made lint right in both directions and the build red for everyone.
+      # The type split fixed it; this keeps it fixed without a six-minute run.
+      - name: Plurals ids stay off the string factory
+        run: |
+          python3 scripts/no-plurals-as-string.py --self-test
+          python3 scripts/no-plurals-as-string.py
+
       # US-2502: a Room version whose schema JSON was never committed can never
       # be migration-tested, and the file cannot be produced after the fact.
       # Versions 3 and 4 were already lost that way; this stops the next one.

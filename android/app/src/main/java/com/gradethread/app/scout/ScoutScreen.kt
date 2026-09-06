@@ -31,6 +31,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import com.gradethread.app.marketplaces.CustomTabsLauncher
 import com.gradethread.app.ui.components.InfoCard
 import com.gradethread.app.ui.components.InfoTone
+import com.gradethread.app.ui.text
 import com.gradethread.app.ui.theme.BrandPrimaryButton
 import com.gradethread.app.ui.theme.BrandSecondaryButton
 import com.gradethread.app.money.TripQuickLogButton
@@ -157,7 +158,7 @@ fun ScoutContent(
                 ),
                 // US-2976: the server's sentence when there is one, ours when
                 // there is not, with the plan name substituted either way.
-                it.detail ?: stringResource(it.res, *it.args.toTypedArray()),
+                it.text(),
                 tone = if (state.planWall != null) InfoTone.Warning else InfoTone.Error,
             )
         }
@@ -185,11 +186,7 @@ fun ScoutContent(
         // otherwise - and "Scanned 40, showing 12" is a format string, because
         // that order is English's.
         Text(
-            state.summary.detail
-                ?: stringResource(
-                    state.summary.res,
-                    *state.summary.args.toTypedArray(),
-                ),
+            state.summary.text(),
             style = MaterialTheme.typography.bodySmall,
         )
 

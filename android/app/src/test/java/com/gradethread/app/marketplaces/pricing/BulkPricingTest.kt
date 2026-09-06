@@ -2,6 +2,7 @@ package com.gradethread.app.marketplaces.pricing
 
 import com.gradethread.app.R
 
+import com.gradethread.app.ui.UiMessage
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Test
@@ -149,15 +150,23 @@ class BulkPricingTest {
         // US-2976: the resource and its NUMBERS. The sentence is assembled
         // on screen, because "18 of 20" puts them in an order English chose.
         assertEquals(
-            BulkPricing.Summary(R.string.bulkpricing_summary_all, listOf(20)),
+            UiMessage.plural(
+                R.plurals.bulkpricing_summary_all,
+                quantity = 20,
+                args = listOf(20),
+            ),
             BulkPricing.summary(BulkPriceResponse(succeeded = 20, total = 20)),
         )
         assertEquals(
-            BulkPricing.Summary(R.string.bulkpricing_summary_partial, listOf(18, 20)),
+            UiMessage(R.string.bulkpricing_summary_partial, args = listOf(18, 20)),
             BulkPricing.summary(BulkPriceResponse(succeeded = 18, total = 20)),
         )
         assertEquals(
-            BulkPricing.Summary(R.string.bulkpricing_summary_zero, listOf(20)),
+            UiMessage.plural(
+                R.plurals.bulkpricing_summary_zero,
+                quantity = 20,
+                args = listOf(20),
+            ),
             BulkPricing.summary(BulkPriceResponse(succeeded = 0, total = 20)),
         )
     }

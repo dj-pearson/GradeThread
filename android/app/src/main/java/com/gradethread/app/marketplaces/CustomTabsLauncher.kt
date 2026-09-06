@@ -6,6 +6,7 @@ import android.content.Intent
 import android.net.Uri
 import android.os.Build
 import androidx.browser.customtabs.CustomTabsIntent
+import androidx.core.net.toUri
 import com.gradethread.app.platform.telemetry.Telemetry
 
 /**
@@ -19,7 +20,7 @@ import com.gradethread.app.platform.telemetry.Telemetry
 object CustomTabsLauncher {
 
     fun open(context: Context, url: String) {
-        val uri = runCatching { Uri.parse(url) }.getOrNull() ?: return
+        val uri = runCatching { url.toUri() }.getOrNull() ?: return
         val intent = CustomTabsIntent.Builder()
             .setShowTitle(true)
             .build()
@@ -57,7 +58,7 @@ object CustomTabsLauncher {
      * on 26-29 we go straight to the Custom Tab rather than risk a chooser.
      */
     fun openInMarketplaceApp(context: Context, url: String) {
-        val uri = runCatching { Uri.parse(url) }.getOrNull() ?: return
+        val uri = runCatching { url.toUri() }.getOrNull() ?: return
         val appOnly = marketplaceAppIntent(uri)
         if (appOnly != null) {
             try {

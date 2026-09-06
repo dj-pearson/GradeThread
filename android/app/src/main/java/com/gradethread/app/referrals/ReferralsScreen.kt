@@ -35,6 +35,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.gradethread.app.ui.a11y.A11yAnnouncer
 import com.gradethread.app.ui.a11y.rememberA11yAnnouncer
+import com.gradethread.app.ui.text
 import com.gradethread.app.ui.theme.BrandPrimaryButton
 import com.gradethread.app.ui.theme.BrandSecondaryButton
 import com.gradethread.app.ui.theme.Spacing
@@ -286,7 +287,7 @@ private fun RedeemSection(state: ReferralsViewModel.State, actions: ReferralsAct
         )
         state.redeemError?.let {
             Text(
-                it.detail ?: stringResource(it.res),
+                it.text(),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.error,
                 modifier = Modifier.padding(top = Spacing.xs),

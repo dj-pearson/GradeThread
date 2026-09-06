@@ -52,7 +52,11 @@ object Autolister {
      */
     fun summary(batch: AutolisterBatch): UiMessage = when (batch.status) {
         BatchStatus.PENDING ->
-            UiMessage(R.string.autolister_queued, args = listOf(batch.itemCount))
+            UiMessage.plural(
+                R.plurals.autolister_queued,
+                quantity = batch.itemCount,
+                args = listOf(batch.itemCount),
+            )
 
         BatchStatus.RUNNING -> UiMessage(
             R.string.autolister_generating,
@@ -60,12 +64,16 @@ object Autolister {
         )
 
         BatchStatus.COMPLETED ->
-            UiMessage(R.string.autolister_done, args = listOf(batch.succeededCount))
+            UiMessage.plural(
+                R.plurals.autolister_done,
+                quantity = batch.succeededCount,
+                args = listOf(batch.succeededCount),
+            )
 
         // US-2976: "failure" versus "failures" was an `if (count == 1)` written
         // in English. A plurals resource is the only form that survives a
         // language with more than two.
-        BatchStatus.PARTIAL -> UiMessage(
+        BatchStatus.PARTIAL -> UiMessage.plural(
             R.plurals.autolister_partial,
             args = listOf(batch.failedCount, batch.succeededCount),
             quantity = batch.failedCount,
@@ -131,8 +139,14 @@ object Autolister {
      *
      * US-2976: the tail clause ("no issues" / "2 issues") is its own message,
      * because it is a plural in the middle of a sentence and the two cannot be
-     * one resource. The screen resolves both and joins with
-     * R.string.autolister_qa_score.
+     * one resource.
+     *
+     * ⚠ US-3115: this used to end "the screen resolves both and joins with
+     * R.string.autolister_qa_score", and no screen ever did - that resource was
+     * referenced by this sentence and nothing else, which is how lint found it
+     * unused. [QaSummary.score] is still carried and still not shown anywhere.
+     * Whether the band line should show the score is a product question; what
+     * is fixed here is a comment that described a screen nobody wrote.
      */
     fun qaSummary(result: PhotoQaResult): QaSummary {
         val band = band(result)
@@ -150,7 +164,7 @@ object Autolister {
             if (issues == 0) {
                 UiMessage(R.string.autolister_qa_no_issues)
             } else {
-                UiMessage(
+                UiMessage.plural(
                     R.plurals.autolister_qa_issues,
                     args = listOf(issues),
                     quantity = issues,

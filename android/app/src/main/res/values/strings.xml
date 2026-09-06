@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<resources>
+<resources xmlns:tools="http://schemas.android.com/tools">
     <string name="app_name">GradeThread</string>
     <string name="placeholder_tagline">Android shell — features land per the US-1299 conversion backlog.</string>
     <!-- US-1380: shown in the system widget picker. -->
@@ -2134,7 +2134,8 @@
     <string name="pipeline_completed_label">Completed</string>
     <string name="pipeline_completed_next">Archive</string>
     <string name="pipeline_returned_label">Returned</string>
-    <string name="pipeline_returned_next">Relist or write off</string>
+    <!-- Not the noun: this is the imperative of `republicar`, which takes no accent. -->
+    <string name="pipeline_returned_next" tools:ignore="Typos">Relist or write off</string>
     <string name="merge_field_title">Title</string>
     <string name="merge_field_brand">Brand</string>
     <string name="merge_field_style">Style</string>
@@ -2231,7 +2232,8 @@
     <string name="activation_notifications_detail">We\'ll tell you the moment something sells or a grade is ready.</string>
     <string name="activation_ebay_title">Connect eBay</string>
     <string name="activation_ebay_detail">Sync your listings, orders, and payouts both ways.</string>
-    <string name="onboarding_progress">%1$d of %2$d done</string>
+    <!-- PluralsCandidate is wrong here: two counts in one sentence, and a plurals resource selects on one quantity. -->
+    <string name="onboarding_progress" tools:ignore="PluralsCandidate">%1$d of %2$d done</string>
     <string name="cert_integrity_verifying">Verifying certificate&#8230;</string>
     <string name="cert_integrity_verifying_detail">Confirming this grade matches its sealed record.</string>
     <string name="cert_integrity_verified">Certificate verified</string>
@@ -2259,8 +2261,14 @@
     <string name="bulkpricing_below_cent">That would price this under a cent &#8212; lower the reduction.</string>
     <string name="bulkpricing_row_rejected">eBay rejected this one.</string>
     <string name="bulkpricing_summary_none">Nothing to update.</string>
-    <string name="bulkpricing_summary_all">Updated %1$d listings on eBay.</string>
-    <string name="bulkpricing_summary_zero">None of the %1$d updates went through.</string>
+    <plurals name="bulkpricing_summary_all">
+        <item quantity="one">Updated %1$d listing on eBay.</item>
+        <item quantity="other">Updated %1$d listings on eBay.</item>
+    </plurals>
+    <plurals name="bulkpricing_summary_zero">
+        <item quantity="one">The %1$d update did not go through.</item>
+        <item quantity="other">None of the %1$d updates went through.</item>
+    </plurals>
     <string name="bulkpricing_summary_partial">Updated %1$d of %2$d. The rest are marked below with what eBay said.</string>
     <string name="grade_tier_standard">Standard</string>
     <string name="grade_tier_standard_turnaround">~48 hr</string>
@@ -2317,7 +2325,8 @@
     <string name="referral_error_suspended">Your account can\'t redeem a referral code right now.</string>
     <string name="referral_error_missing">Enter a code to continue.</string>
     <string name="referral_share_text">Grade and list your clothes faster with GradeThread. Use my code %1$s when you sign up: %2$s</string>
-    <string name="referral_next_milestone">%1$d more to unlock %2$d bonus credits</string>
+    <!-- PluralsCandidate is wrong here: two counts in one sentence, and a plurals resource selects on one quantity. -->
+    <string name="referral_next_milestone" tools:ignore="PluralsCandidate">%1$d more to unlock %2$d bonus credits</string>
     <string name="referral_referred_granted">You were referred with code %1$s. The bonus has been applied.</string>
     <string name="referral_referred_qualified">You were referred with code %1$s. Your bonus is on its way.</string>
     <string name="referral_referred_pending">You were referred with code %1$s. The bonus lands once your first grade goes through.</string>
@@ -2347,7 +2356,8 @@
     <string name="prospect_no_price_data">No price data</string>
     <string name="prospect_price_median">%1$s</string>
     <string name="prospect_price_range">%1$s (usually %2$s to %3$s)</string>
-    <string name="prospect_sell_through">Sells %1$s &#183; around %2$d to %3$d days</string>
+    <!-- PluralsCandidate is wrong here: two counts in one sentence, and a plurals resource selects on one quantity. -->
+    <string name="prospect_sell_through" tools:ignore="PluralsCandidate">Sells %1$s &#183; around %2$d to %3$d days</string>
     <string name="prospect_sells_fast">fast</string>
     <string name="prospect_sells_slow">slow</string>
     <string name="prospect_sells_average">at an average pace</string>
@@ -2384,9 +2394,16 @@
     <string name="automation_op_lte">&#8804;</string>
     <string name="automation_op_isnull">is empty</string>
     <string name="automation_op_notnull">is set</string>
-    <string name="automation_trigger_summary_no_views">no views after %1$d days</string>
-    <string name="automation_trigger_summary_watchers">fewer than %1$d watchers after %2$d days</string>
-    <string name="automation_trigger_summary_days_listed">listed more than %1$d days</string>
+    <plurals name="automation_trigger_summary_no_views">
+        <item quantity="one">no views after %1$d day</item>
+        <item quantity="other">no views after %1$d days</item>
+    </plurals>
+    <!-- PluralsCandidate is wrong here: two counts in one sentence, and a plurals resource selects on one quantity. -->
+    <string name="automation_trigger_summary_watchers" tools:ignore="PluralsCandidate">fewer than %1$d watchers after %2$d days</string>
+    <plurals name="automation_trigger_summary_days_listed">
+        <item quantity="one">listed more than %1$d day</item>
+        <item quantity="other">listed more than %1$d days</item>
+    </plurals>
     <string name="automation_action_summary_promo">set promo rate to %1$s%%</string>
     <string name="automation_action_summary_end">end the listing</string>
     <string name="automation_action_summary_drop">drop price %1$s%%</string>
@@ -2398,7 +2415,8 @@
     <string name="automation_sentence">When %1$s, %2$s (%3$s).</string>
     <string name="automation_scope_warning">This ends EVERY active listing that matches the trigger. Add a filter if you meant a subset.</string>
     <string name="automation_error_name_required">Give the rule a name.</string>
-    <string name="automation_error_name_too_long">That name is too long &#8212; keep it under %1$d characters.</string>
+    <!-- PluralsCandidate is wrong here: the number is a compile-time constant, so the `one` form is unreachable. -->
+    <string name="automation_error_name_too_long" tools:ignore="PluralsCandidate">That name is too long &#8212; keep it under %1$d characters.</string>
     <string name="automation_error_pct_min">Set a percentage of at least 1.</string>
     <string name="automation_error_price_drop_max">A price drop can\'t be more than %1$s%%.</string>
     <string name="automation_error_promo_max">A promo rate can\'t be more than %1$s%%.</string>
@@ -2426,7 +2444,8 @@
     <string name="automation_scope_widened">Those filters were empty, so this rule now applies to every active listing.</string>
     <string name="automation_unreachable">Couldn\'t reach the automations service.</string>
     <string name="repricing_error_name_required">Give the rule a name.</string>
-    <string name="repricing_error_name_too_long">That name is too long &#8212; keep it under %1$d characters.</string>
+    <!-- PluralsCandidate is wrong here: the number is a compile-time constant, so the `one` form is unreachable. -->
+    <string name="repricing_error_name_too_long" tools:ignore="PluralsCandidate">That name is too long &#8212; keep it under %1$d characters.</string>
     <string name="repricing_error_no_effect">Set a drop percentage or turn on auto-accept, so the rule does something.</string>
     <string name="repricing_action_drop">Drop %1$s%% every %2$dd</string>
     <string name="repricing_action_auto_accept">auto-accept &#8805; %1$d%%</string>
@@ -2447,7 +2466,8 @@
     <string name="repricing_change_down">%1$s &#8594; %2$s (&#8722;%3$d%%)</string>
     <string name="repricing_scan_none">No active listings to scan.</string>
     <string name="repricing_scan_nothing">Scanned %1$d. Nothing worth changing.</string>
-    <string name="repricing_scan_actionable">Scanned %1$d, %2$d worth a look.</string>
+    <!-- PluralsCandidate is wrong here: two counts in one sentence, and a plurals resource selects on one quantity. -->
+    <string name="repricing_scan_actionable" tools:ignore="PluralsCandidate">Scanned %1$d, %2$d worth a look.</string>
     <string name="repricing_rule_saved">Rule saved.</string>
     <string name="repricing_rule_updated">Rule updated.</string>
     <string name="repricing_rule_deleted">Rule deleted.</string>
@@ -2473,9 +2493,15 @@
         <item quantity="one">%1$d couldn\'t be checked</item>
         <item quantity="other">%1$d couldn\'t be checked</item>
     </plurals>
-    <string name="autolister_queued">Queued &#8212; %1$d items.</string>
+    <plurals name="autolister_queued">
+        <item quantity="one">Queued &#8212; %1$d item.</item>
+        <item quantity="other">Queued &#8212; %1$d items.</item>
+    </plurals>
     <string name="autolister_generating">Generating %1$d of %2$d&#8230;</string>
-    <string name="autolister_done">Done &#8212; %1$d drafts ready.</string>
+    <plurals name="autolister_done">
+        <item quantity="one">Done &#8212; %1$d draft ready.</item>
+        <item quantity="other">Done &#8212; %1$d drafts ready.</item>
+    </plurals>
     <string name="autolister_failed">The batch failed.</string>
     <string name="autolister_failed_reason">The batch failed: %1$s</string>
     <string name="autolister_stalled">This batch hasn\'t moved in a while. It may still finish on its own &#8212; Resume asks the server to pick the remaining items back up.</string>
@@ -2486,7 +2512,6 @@
     <string name="autolister_qa_unchecked">Couldn\'t check these photos.</string>
     <string name="autolister_qa_unchecked_reason">Couldn\'t check these photos: %1$s</string>
     <string name="autolister_qa_no_issues">no issues</string>
-    <string name="autolister_qa_score">%1$s &#183; %2$d/100 &#183; %3$s</string>
     <plurals name="autolister_partial">
         <item quantity="one">Finished with %1$d failure &#8212; %2$d drafts ready.</item>
         <item quantity="other">Finished with %1$d failures &#8212; %2$d drafts ready.</item>
@@ -2496,11 +2521,15 @@
         <item quantity="other">%1$d issues</item>
     </plurals>
     <string name="autolister_drafts_load_failed">Couldn\'t load your drafts.</string>
-    <string name="autolister_batch_started">Generating %1$d drafts. You can leave this screen.</string>
+    <plurals name="autolister_batch_started">
+        <item quantity="one">Generating %1$d draft. You can leave this screen.</item>
+        <item quantity="other">Generating %1$d drafts. You can leave this screen.</item>
+    </plurals>
     <string name="autolister_retrying">Retrying the failed items.</string>
     <string name="autolister_resumed">Asked the server to pick it back up.</string>
     <string name="autolister_qa_all_good">Photos look good on all %1$d.</string>
-    <string name="autolister_qa_some_need">%1$d of %2$d could use better photos.</string>
+    <!-- PluralsCandidate is wrong here: two counts in one sentence, and a plurals resource selects on one quantity. -->
+    <string name="autolister_qa_some_need" tools:ignore="PluralsCandidate">%1$d of %2$d could use better photos.</string>
     <string name="autolister_draft_saved">Draft saved.</string>
     <string name="autolister_draft_deleted">Draft deleted. The item is still here.</string>
     <string name="autolister_scheduled_for">Scheduled for %1$s.</string>
@@ -2673,14 +2702,17 @@
     <string name="auth_email_required">Enter your email address.</string>
     <string name="auth_email_shape">That doesn\'t look like an email address.</string>
     <string name="auth_password_required">Enter your password.</string>
-    <string name="auth_password_too_short">Password must be at least %1$d characters.</string>
+    <!-- PluralsCandidate is wrong here: the number is a compile-time constant, so the `one` form is unreachable. -->
+    <string name="auth_password_too_short" tools:ignore="PluralsCandidate">Password must be at least %1$d characters.</string>
     <string name="auth_password_needs_lower">Password must include a lower-case letter.</string>
     <string name="auth_password_needs_upper">Password must include an upper-case letter.</string>
     <string name="auth_password_needs_digit">Password must include a number.</string>
     <string name="support_subject_required">Give it a subject so we know what it\'s about.</string>
-    <string name="support_subject_too_long">That subject is too long &#8212; keep it under %1$d characters.</string>
+    <!-- PluralsCandidate is wrong here: the number is a compile-time constant, so the `one` form is unreachable. -->
+    <string name="support_subject_too_long" tools:ignore="PluralsCandidate">That subject is too long &#8212; keep it under %1$d characters.</string>
     <string name="support_body_required">Tell us what\'s happening.</string>
-    <string name="support_body_too_long">That\'s longer than we can send &#8212; keep it under %1$d characters.</string>
+    <!-- PluralsCandidate is wrong here: the number is a compile-time constant, so the `one` form is unreachable. -->
+    <string name="support_body_too_long" tools:ignore="PluralsCandidate">That\'s longer than we can send &#8212; keep it under %1$d characters.</string>
     <string name="support_status_open">Open</string>
     <string name="support_status_with_support">With support</string>
     <string name="support_status_in_progress">Being worked on</string>
@@ -2729,7 +2761,8 @@
     <string name="fulfillment_sold_today">Sold today</string>
     <string name="fulfillment_sold_yesterday">Sold yesterday</string>
     <string name="fulfillment_nothing_waiting">Nothing waiting to be posted.</string>
-    <string name="fulfillment_summary_late">%1$s &#183; %2$d past the %3$d-day window</string>
+    <!-- PluralsCandidate is wrong here: two counts in one sentence, and a plurals resource selects on one quantity. -->
+    <string name="fulfillment_summary_late" tools:ignore="PluralsCandidate">%1$s &#183; %2$d past the %3$d-day window</string>
     <string name="fulfillment_queued_named">Saved to %1$s. We\'ll tell eBay when you\'re back online.</string>
     <string name="fulfillment_queued_unnamed">Saved for this order. We\'ll tell eBay when you\'re back online.</string>
     <string name="fulfillment_shipped_named">Marked shipped to %1$s. No tracking recorded.</string>
@@ -2775,7 +2808,8 @@
     <string name="perf_sort_days_listed">Days listed</string>
     <string name="perf_sort_title">Title</string>
     <string name="perf_no_listings">No active eBay listings with metrics yet.</string>
-    <string name="perf_summary_stale">%1$s &#183; %2$d with no views after two weeks</string>
+    <!-- PluralsCandidate is wrong here: the count has no noun after it; lint matched the next English word. -->
+    <string name="perf_summary_stale" tools:ignore="PluralsCandidate">%1$s &#183; %2$d with no views after two weeks</string>
     <plurals name="perf_active_listings">
         <item quantity="one">%1$d active listing &#183; %2$d total views</item>
         <item quantity="other">%1$d active listings &#183; %2$d total views</item>
@@ -2861,7 +2895,8 @@
     <string name="import_mapping_needs_title">Point one column at &quot;Item title&quot; &#8212; we can\'t import a row without it.</string>
     <string name="import_reject_no_title">No item title</string>
     <string name="import_reject_duplicate_sku">SKU %1$s is already in your inventory</string>
-    <string name="import_summary_ready">%1$d of %2$d rows ready</string>
+    <!-- PluralsCandidate is wrong here: two counts in one sentence, and a plurals resource selects on one quantity. -->
+    <string name="import_summary_ready" tools:ignore="PluralsCandidate">%1$d of %2$d rows ready</string>
     <plurals name="import_summary_duplicates">
         <item quantity="one">%1$d already in your inventory</item>
         <item quantity="other">%1$d already in your inventory</item>

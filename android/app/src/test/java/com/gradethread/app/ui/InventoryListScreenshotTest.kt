@@ -211,7 +211,7 @@ class InventoryListScreenshotTest {
             ui(
                 bulkUndo = BulkUndo(
                     // The real shape: the action's own label, then the count.
-                    label = UiMessage(
+                    label = UiMessage.plural(
                         R.plurals.bulk_undo_label,
                         args = listOf(BulkAction.MarkShipped.label, 3),
                         quantity = 3,

@@ -14,6 +14,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import com.gradethread.app.R
 import com.gradethread.app.ui.UiMessage
+import com.gradethread.app.ui.text
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -90,7 +91,7 @@ fun TripQuickLogButton(
 
     // Resolved outside the effect: showSnackbar is suspend and not composable,
     // so the sentence has to be built while a Context is still in scope.
-    val noticeText = notice?.let { it.detail ?: stringResource(it.res) }
+    val noticeText = notice?.text()
 
     LaunchedEffect(noticeText) {
         val message = noticeText ?: return@LaunchedEffect

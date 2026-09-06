@@ -85,8 +85,9 @@ class AutolisterViewModel @Inject constructor(
                     Telemetry.event("autolister_batch_started", mapOf("items" to it.itemCount))
                     _state.value = _state.value.copy(
                         busy = false,
-                        banner = UiMessage(
-                            R.string.autolister_batch_started,
+                        banner = UiMessage.plural(
+                            R.plurals.autolister_batch_started,
+                            quantity = it.itemCount,
                             args = listOf(it.itemCount),
                         ),
                     )
@@ -316,7 +317,7 @@ class AutolisterViewModel @Inject constructor(
      * English. A plurals resource is the only form that survives a language
      * with more than two.
      */
-    private fun updatedBanner(updated: Int) = UiMessage(
+    private fun updatedBanner(updated: Int) = UiMessage.plural(
         R.plurals.autolister_updated_drafts,
         args = listOf(updated),
         quantity = updated,

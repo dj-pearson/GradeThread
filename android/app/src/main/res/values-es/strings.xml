@@ -8,7 +8,7 @@
   throws MissingFormatArgumentException on the screen that uses it, in that
   language only, which is the hardest kind of crash to notice.
 -->
-<resources>
+<resources xmlns:tools="http://schemas.android.com/tools">
     <string name="app_name">GradeThread</string>
     <string name="placeholder_tagline">Base de Android — las funciones llegan según el backlog de conversión US-1299.</string>
     <string name="widget_snapshot_label">Resumen del vendedor</string>
@@ -118,22 +118,27 @@
     <string name="settings_language_system">Igual que mi teléfono</string>
     <plurals name="rows_found">
         <item quantity="one">Se encontró %1$d fila. Revisa las columnas de abajo.</item>
+        <item quantity="many">Se encontraron %1$d de filas. Revisa las columnas de abajo.</item>
         <item quantity="other">Se encontraron %1$d filas. Revisa las columnas de abajo.</item>
     </plurals>
     <plurals name="photo_count">
         <item quantity="one">%1$d foto</item>
+        <item quantity="many">%1$d de fotos</item>
         <item quantity="other">%1$d fotos</item>
     </plurals>
     <plurals name="sale_count">
         <item quantity="one">%1$d venta</item>
+        <item quantity="many">%1$d de ventas</item>
         <item quantity="other">%1$d ventas</item>
     </plurals>
     <plurals name="grade_count">
         <item quantity="one">%1$d calificación</item>
+        <item quantity="many">%1$d de calificaciones</item>
         <item quantity="other">%1$d calificaciones</item>
     </plurals>
     <plurals name="item_count">
         <item quantity="one">%1$d artículo</item>
+        <item quantity="many">%1$d de artículos</item>
         <item quantity="other">%1$d artículos</item>
     </plurals>
     <string name="analytics_analytics">Analíticas</string>
@@ -204,10 +209,12 @@
     <string name="home_step_done_spoken">%1$s, hecho</string>
     <plurals name="home_on_hand">
         <item quantity="one">%1$d en existencia</item>
+        <item quantity="many">%1$d en existencia</item>
         <item quantity="other">%1$d en existencia</item>
     </plurals>
     <plurals name="home_aging_body">
         <item quantity="one">%1$d artículo en existencia no se ha movido en %2$d días. Cámbiale el precio o vuelve a publicarlo.</item>
+        <item quantity="many">%1$d de artículos en existencia no se han movido en %2$d días. Cámbiales el precio o vuelve a publicarlos.</item>
         <item quantity="other">%1$d artículos en existencia no se han movido en %2$d días. Cámbiales el precio o vuelve a publicarlos.</item>
     </plurals>
     <string name="money_expenses">Gastos</string>
@@ -228,6 +235,7 @@
     </plurals>
     <plurals name="money_aging_oldest">
         <item quantity="one">%1$d artículo guardado más de 60 días (%2$s del costo).</item>
+        <item quantity="many">%1$d de artículos guardados más de 60 días (%2$s del costo).</item>
         <item quantity="other">%1$d artículos guardados más de 60 días (%2$s del costo).</item>
     </plurals>
     <string name="money_time_on_market_title">Tiempo en el mercado</string>
@@ -374,6 +382,7 @@
     <string name="automations_scope_widened">Esos filtros aún no tienen valores, así que esto se aplicaría a todas las publicaciones activas.</string>
     <plurals name="automations_cooldown">
         <item quantity="one">Espera %1$d día antes de tocar la misma publicación otra vez.</item>
+        <item quantity="many">Espera %1$d de días antes de tocar la misma publicación otra vez.</item>
         <item quantity="other">Espera %1$d días antes de tocar la misma publicación otra vez.</item>
     </plurals>
     <string name="drafts_draft_listings">Borradores de publicaciones</string>
@@ -816,14 +825,17 @@
     <string name="graderequest_tier_detail">%1$s · %2$s</string>
     <plurals name="graderequest_credit_cost">
         <item quantity="one">%1$d crédito</item>
+        <item quantity="many">%1$d de créditos</item>
         <item quantity="other">%1$d créditos</item>
     </plurals>
     <plurals name="graderequest_spend_title">
         <item quantity="one">¿Usar %1$d crédito?</item>
+        <item quantity="many">¿Usar %1$d de créditos?</item>
         <item quantity="other">¿Usar %1$d créditos?</item>
     </plurals>
     <plurals name="graderequest_spend_body">
         <item quantity="one">La calificación %1$s cuesta %2$d crédito. Tienes %3$d. Solo se te cobra cuando la calificación sale bien.</item>
+        <item quantity="many">La calificación %1$s cuesta %2$d de créditos. Tienes %3$d. Solo se te cobra cuando la calificación sale bien.</item>
         <item quantity="other">La calificación %1$s cuesta %2$d créditos. Tienes %3$d. Solo se te cobra cuando la calificación sale bien.</item>
     </plurals>
     <string name="aifill_ai_fill">Relleno con AI</string>
@@ -901,6 +913,7 @@
     <string name="gradereport_below_threshold">La confianza de esta calificación está por debajo de nuestro umbral para certificar, así que un revisor la está mirando. Podrás compartir un certificado público cuando quede lista.</string>
     <plurals name="gradereport_dispute_days">
         <item quantity="one">Disputar esta calificación (queda %1$d día)</item>
+        <item quantity="many">Disputar esta calificación (quedan %1$d de días)</item>
         <item quantity="other">Disputar esta calificación (quedan %1$d días)</item>
     </plurals>
     <string name="consignors_intro">Añade a quien le vendas, luego asígnalo en la página de un artículo y llevamos la cuenta de lo que le debes.</string>
@@ -972,6 +985,7 @@
     <string name="inventorylist_grade_label_suffix">, %1$s</string>
     <plurals name="inventorylist_items">
         <item quantity="one">%1$d artículo</item>
+        <item quantity="many">%1$d de artículos</item>
         <item quantity="other">%1$d artículos</item>
     </plurals>
     <string name="bulkgrade_counts">%1$d listos · %2$d bloqueados · %3$d créditos</string>
@@ -985,18 +999,22 @@
     <string name="bulkgrade_and_more">…y %1$d más</string>
     <plurals name="bulkgrade_title">
         <item quantity="one">Calificar %1$d artículo</item>
+        <item quantity="many">Calificar %1$d de artículos</item>
         <item quantity="other">Calificar %1$d artículos</item>
     </plurals>
     <plurals name="bulkgrade_confirm_title">
         <item quantity="one">¿Calificar %1$d artículo?</item>
+        <item quantity="many">¿Calificar %1$d de artículos?</item>
         <item quantity="other">¿Calificar %1$d artículos?</item>
     </plurals>
     <plurals name="bulkgrade_confirm_body">
         <item quantity="one">La calificación %1$s cuesta %2$d crédito por artículo. Tienes %3$d. Solo se te cobra por las calificaciones que salen bien.</item>
+        <item quantity="many">La calificación %1$s cuesta %2$d de créditos por artículo. Tienes %3$d. Solo se te cobra por las calificaciones que salen bien.</item>
         <item quantity="other">La calificación %1$s cuesta %2$d créditos por artículo. Tienes %3$d. Solo se te cobra por las calificaciones que salen bien.</item>
     </plurals>
     <plurals name="bulkgrade_tier_cost">
         <item quantity="one">%1$d crédito</item>
+        <item quantity="many">%1$d de créditos</item>
         <item quantity="other">%1$d créditos</item>
     </plurals>
     <string name="promotion_ad_rate_range">eBay acepta %1$s–%2$s%%. Solo lo pagas cuando el anuncio logra la venta.</string>
@@ -1112,10 +1130,12 @@
     <string name="bulkpricing_qty">   Cant. %1$s</string>
     <plurals name="bulkpricing_push_count">
         <item quantity="one">Enviar %1$d cambio de precio</item>
+        <item quantity="many">Enviar %1$d de cambios de precio</item>
         <item quantity="other">Enviar %1$d cambios de precio</item>
     </plurals>
     <plurals name="disclosure_preview_spoken">
         <item quantity="one">Foto con %1$d defecto marcado</item>
+        <item quantity="many">Foto con %1$d de defectos marcados</item>
         <item quantity="other">Foto con %1$d defectos marcados</item>
     </plurals>
     <string name="common_couldnt_load">No se pudo cargar</string>
@@ -1188,46 +1208,57 @@
     <string name="dispute_file">Enviar disputa</string>
     <plurals name="sales_summary">
         <item quantity="one">%1$d completada · %2$s de ingresos · %3$s neto</item>
+        <item quantity="many">%1$d completadas · %2$s de ingresos · %3$s neto</item>
         <item quantity="other">%1$d completadas · %2$s de ingresos · %3$s neto</item>
     </plurals>
     <plurals name="sales_summary_spoken">
         <item quantity="one">%1$d venta completada, %2$s de ingresos, %3$s de ganancia neta</item>
+        <item quantity="many">%1$d de ventas completadas, %2$s de ingresos, %3$s de ganancia neta</item>
         <item quantity="other">%1$d ventas completadas, %2$s de ingresos, %3$s de ganancia neta</item>
     </plurals>
     <plurals name="sales_excluded">
         <item quantity="one">%1$d reembolsada, cancelada o pendiente — se muestra abajo, excluida de los totales.</item>
+        <item quantity="many">%1$d reembolsadas, canceladas o pendientes — se muestran abajo, excluidas de los totales.</item>
         <item quantity="other">%1$d reembolsadas, canceladas o pendientes — se muestran abajo, excluidas de los totales.</item>
     </plurals>
     <plurals name="comps_count">
         <item quantity="one">%1$d comparable · %2$s</item>
+        <item quantity="many">%1$d de comparables · %2$s</item>
         <item quantity="other">%1$d comparables · %2$s</item>
     </plurals>
     <plurals name="perf_days_live">
         <item quantity="one">%1$d día publicado</item>
+        <item quantity="many">%1$d de días publicado</item>
         <item quantity="other">%1$d días publicado</item>
     </plurals>
     <plurals name="perf_views">
         <item quantity="one">%1$d vista</item>
+        <item quantity="many">%1$d de vistas</item>
         <item quantity="other">%1$d vistas</item>
     </plurals>
     <plurals name="perf_watchers">
         <item quantity="one"> · %1$d seguidor</item>
+        <item quantity="many"> · %1$d de seguidores</item>
         <item quantity="other"> · %1$d seguidores</item>
     </plurals>
     <plurals name="perf_impressions">
         <item quantity="one"> · %1$d impresión</item>
+        <item quantity="many"> · %1$d de impresiones</item>
         <item quantity="other"> · %1$d impresiones</item>
     </plurals>
     <plurals name="perf_no_view_days">
         <item quantity="one">Ninguna publicación ha pasado %1$d día sin una vista.</item>
+        <item quantity="many">Ninguna publicación ha pasado %1$d de días sin una vista.</item>
         <item quantity="other">Ninguna publicación ha pasado %1$d días sin una vista.</item>
     </plurals>
     <plurals name="dispute_photos_failed">
         <item quantity="one">No se pudo adjuntar %1$d foto de evidencia.</item>
+        <item quantity="many">No se pudieron adjuntar %1$d de fotos de evidencia.</item>
         <item quantity="other">No se pudieron adjuntar %1$d fotos de evidencia.</item>
     </plurals>
     <plurals name="dispute_more_characters">
         <item quantity="one">Falta %1$d carácter más.</item>
+        <item quantity="many">Faltan %1$d de caracteres más.</item>
         <item quantity="other">Faltan %1$d caracteres más.</item>
     </plurals>
     <string name="common_close">Cerrar</string>
@@ -1357,6 +1388,7 @@
     <string name="payouts_more_sales">…y %1$d más.</string>
     <plurals name="payouts_entry_summary">
         <item quantity="one">%1$d venta · registrada %2$s</item>
+        <item quantity="many">%1$d de ventas · registradas %2$s</item>
         <item quantity="other">%1$d ventas · registradas %2$s</item>
     </plurals>
     <string name="common_clear">Borrar</string>
@@ -1390,6 +1422,7 @@
     <string name="aspects_truncated">eBay limita esto a %1$d caracteres — el resto se cortará.</string>
     <plurals name="consignment_row_summary">
         <item quantity="one">%1$d artículo · %2$s en ventas · %3$s en comisiones</item>
+        <item quantity="many">%1$d de artículos · %2$s en ventas · %3$s en comisiones</item>
         <item quantity="other">%1$d artículos · %2$s en ventas · %3$s en comisiones</item>
     </plurals>
     <string name="common_clear_all">Borrar todo</string>
@@ -1418,6 +1451,7 @@
     <string name="import_list">lista %1$s</string>
     <plurals name="filters_added_last_days">
         <item quantity="one">Último %1$d día</item>
+        <item quantity="many">Últimos %1$d de días</item>
         <item quantity="other">Últimos %1$d días</item>
     </plurals>
     <string name="filters_graded_only">Solo calificados</string>
@@ -1438,14 +1472,17 @@
     <string name="specifics_truncated">eBay corta los detalles del artículo en %1$d caracteres — este se acortará.</string>
     <plurals name="credits_needed">
         <item quantity="one">Esta calificación necesita %1$d crédito y tienes %2$d.</item>
+        <item quantity="many">Esta calificación necesita %1$d de créditos y tienes %2$d.</item>
         <item quantity="other">Esta calificación necesita %1$d créditos y tienes %2$d.</item>
     </plurals>
     <plurals name="credits_granted">
         <item quantity="one">Créditos agregados — ahora tienes %1$d.</item>
+        <item quantity="many">Créditos agregados — ahora tienes %1$d.</item>
         <item quantity="other">Créditos agregados — ahora tienes %1$d.</item>
     </plurals>
     <plurals name="filters_show_items">
         <item quantity="one">Mostrar %1$d artículo</item>
+        <item quantity="many">Mostrar %1$d de artículos</item>
         <item quantity="other">Mostrar %1$d artículos</item>
     </plurals>
     <string name="planstep_title">Elige un plan</string>
@@ -1525,15 +1562,18 @@
     <string name="widget_listed">Publicados</string>
     <plurals name="sync_needs_attention">
         <item quantity="one">%1$d cambio necesita atención</item>
+        <item quantity="many">%1$d de cambios necesitan atención</item>
         <item quantity="other">%1$d cambios necesitan atención</item>
     </plurals>
     <string name="sync_offline">Sin conexión</string>
     <plurals name="sync_offline_queued">
         <item quantity="one">Sin conexión — %1$d cambio en cola</item>
+        <item quantity="many">Sin conexión — %1$d de cambios en cola</item>
         <item quantity="other">Sin conexión — %1$d cambios en cola</item>
     </plurals>
     <plurals name="sync_waiting">
         <item quantity="one">%1$d cambio esperando sincronizar</item>
+        <item quantity="many">%1$d de cambios esperando sincronizar</item>
         <item quantity="other">%1$d cambios esperando sincronizar</item>
     </plurals>
     <!-- US-2407: team management. -->
@@ -1664,6 +1704,7 @@
     <string name="canvas_ai_copy_use">Usar esto</string>
     <plurals name="canvas_ai_aspects_filled">
         <item quantity="one">Se llenó %1$d detalle. Guarda para conservarlo.</item>
+        <item quantity="many">Se llenaron %1$d de detalles. Guarda para conservarlos.</item>
         <item quantity="other">Se llenaron %1$d detalles. Guarda para conservarlos.</item>
     </plurals>
     <!-- US-2412: account data export. -->
@@ -1715,6 +1756,7 @@
     <string name="equity_not_loaded">Desliza para cargar el valor de tu inventario.</string>
     <plurals name="equity_valued_count">
         <item quantity="one">Con base en %1$d artículo que pudimos valorar.</item>
+        <item quantity="many">Con base en %1$d de artículos que pudimos valorar.</item>
         <item quantity="other">Con base en %1$d artículos que pudimos valorar.</item>
     </plurals>
     <!-- US-2495: the personal half of Sourcing Radar. -->
@@ -2000,7 +2042,8 @@
     <string name="pipeline_completed_label">Completado</string>
     <string name="pipeline_completed_next">Archívalo</string>
     <string name="pipeline_returned_label">Devuelto</string>
-    <string name="pipeline_returned_next">Republica o da de baja</string>
+    <!-- Not the noun: this is the imperative of `republicar`, which takes no accent. -->
+    <string name="pipeline_returned_next" tools:ignore="Typos">Republica o da de baja</string>
     <string name="merge_field_title">Título</string>
     <string name="merge_field_brand">Marca</string>
     <string name="merge_field_style">Estilo</string>
@@ -2061,6 +2104,7 @@
     <string name="verified_req_embed_todo">Opcional. Añade tu historial a los anuncios que publiques.</string>
     <plurals name="verified_req_graded_met">
         <item quantity="one">%1$d certificado hasta ahora.</item>
+        <item quantity="many">%1$d de certificados hasta ahora.</item>
         <item quantity="other">%1$d certificados hasta ahora.</item>
     </plurals>
     <string name="category_clothing">Ropa</string>
@@ -2097,7 +2141,8 @@
     <string name="activation_notifications_detail">Te avisamos en cuanto se venda algo o esté lista una nota.</string>
     <string name="activation_ebay_title">Conecta eBay</string>
     <string name="activation_ebay_detail">Sincroniza tus anuncios, pedidos y pagos en ambos sentidos.</string>
-    <string name="onboarding_progress">%1$d de %2$d hechos</string>
+    <!-- PluralsCandidate is wrong here: two counts in one sentence, and a plurals resource selects on one quantity. -->
+    <string name="onboarding_progress" tools:ignore="PluralsCandidate">%1$d de %2$d hechos</string>
     <string name="cert_integrity_verifying">Verificando el certificado&#8230;</string>
     <string name="cert_integrity_verifying_detail">Comprobando que esta nota coincide con su registro sellado.</string>
     <string name="cert_integrity_verified">Certificado verificado</string>
@@ -2125,8 +2170,16 @@
     <string name="bulkpricing_below_cent">Eso lo dejaría por debajo de un céntimo &#8212; baja la reducción.</string>
     <string name="bulkpricing_row_rejected">eBay rechazó este.</string>
     <string name="bulkpricing_summary_none">Nada que actualizar.</string>
-    <string name="bulkpricing_summary_all">%1$d anuncios actualizados en eBay.</string>
-    <string name="bulkpricing_summary_zero">Ninguna de las %1$d actualizaciones se aplicó.</string>
+    <plurals name="bulkpricing_summary_all">
+        <item quantity="one">%1$d anuncio actualizado en eBay.</item>
+        <item quantity="many">%1$d de anuncios actualizados en eBay.</item>
+        <item quantity="other">%1$d anuncios actualizados en eBay.</item>
+    </plurals>
+    <plurals name="bulkpricing_summary_zero">
+        <item quantity="one">La %1$d actualización no se aplicó.</item>
+        <item quantity="many">Ninguna de las %1$d de actualizaciones se aplicó.</item>
+        <item quantity="other">Ninguna de las %1$d actualizaciones se aplicó.</item>
+    </plurals>
     <string name="bulkpricing_summary_partial">%1$d de %2$d actualizados. El resto están marcados abajo con lo que dijo eBay.</string>
     <string name="grade_tier_standard">Estándar</string>
     <string name="grade_tier_standard_turnaround">~48 h</string>
@@ -2169,10 +2222,12 @@
     <string name="widget_action_money">%1$s. Abre dinero.</string>
     <plurals name="widget_sales">
         <item quantity="one">%1$d venta</item>
+        <item quantity="many">%1$d de ventas</item>
         <item quantity="other">%1$d ventas</item>
     </plurals>
     <plurals name="widget_active_listings">
         <item quantity="one">%1$d anuncio activo</item>
+        <item quantity="many">%1$d de anuncios activos</item>
         <item quantity="other">%1$d anuncios activos</item>
     </plurals>
     <string name="referral_error_generic">Ese código no es válido. Revísalo e inténtalo de nuevo.</string>
@@ -2183,12 +2238,14 @@
     <string name="referral_error_suspended">Tu cuenta no puede canjear un código ahora mismo.</string>
     <string name="referral_error_missing">Introduce un código para continuar.</string>
     <string name="referral_share_text">Evalúa y publica tu ropa más rápido con GradeThread. Usa mi código %1$s al registrarte: %2$s</string>
-    <string name="referral_next_milestone">%1$d más para desbloquear %2$d créditos de regalo</string>
+    <!-- PluralsCandidate is wrong here: two counts in one sentence, and a plurals resource selects on one quantity. -->
+    <string name="referral_next_milestone" tools:ignore="PluralsCandidate">%1$d más para desbloquear %2$d créditos de regalo</string>
     <string name="referral_referred_granted">Te invitaron con el código %1$s. Ya tienes el bono.</string>
     <string name="referral_referred_qualified">Te invitaron con el código %1$s. Tu bono está en camino.</string>
     <string name="referral_referred_pending">Te invitaron con el código %1$s. El bono llega en cuanto se procese tu primera nota.</string>
     <plurals name="referral_credits_summary">
         <item quantity="one">Consigues %1$d crédito de evaluación por cada amigo que se registre.</item>
+        <item quantity="many">Consigues %1$d de créditos de evaluación por cada amigo que se registre.</item>
         <item quantity="other">Consigues %1$d créditos de evaluación por cada amigo que se registre.</item>
     </plurals>
     <string name="referral_redeem_failed">No se pudo aplicar ese código. Inténtalo en un momento.</string>
@@ -2213,7 +2270,8 @@
     <string name="prospect_no_price_data">Sin datos de precio</string>
     <string name="prospect_price_median">%1$s</string>
     <string name="prospect_price_range">%1$s (normalmente entre %2$s y %3$s)</string>
-    <string name="prospect_sell_through">Se vende %1$s &#183; en unos %2$d a %3$d días</string>
+    <!-- PluralsCandidate is wrong here: two counts in one sentence, and a plurals resource selects on one quantity. -->
+    <string name="prospect_sell_through" tools:ignore="PluralsCandidate">Se vende %1$s &#183; en unos %2$d a %3$d días</string>
     <string name="prospect_sells_fast">rápido</string>
     <string name="prospect_sells_slow">despacio</string>
     <string name="prospect_sells_average">a un ritmo normal</string>
@@ -2222,6 +2280,7 @@
     <string name="prospect_untitled_item">Artículo prospectado</string>
     <plurals name="prospect_caveat_few_comps">
         <item quantity="one">Solo %1$d venta comparable. Tómalo como una guía aproximada.</item>
+        <item quantity="many">Solo %1$d de ventas comparables. Tómalo como una guía aproximada.</item>
         <item quantity="other">Solo %1$d ventas comparables. Tómalo como una guía aproximada.</item>
     </plurals>
     <string name="automation_trigger_days_listed">Publicado hace más de&#8230;</string>
@@ -2250,9 +2309,18 @@
     <string name="automation_op_lte">&#8804;</string>
     <string name="automation_op_isnull">está vacío</string>
     <string name="automation_op_notnull">tiene valor</string>
-    <string name="automation_trigger_summary_no_views">sin visitas tras %1$d días</string>
-    <string name="automation_trigger_summary_watchers">menos de %1$d seguidores tras %2$d días</string>
-    <string name="automation_trigger_summary_days_listed">publicado hace más de %1$d días</string>
+    <plurals name="automation_trigger_summary_no_views">
+        <item quantity="one">sin visitas tras %1$d día</item>
+        <item quantity="many">sin visitas tras %1$d de días</item>
+        <item quantity="other">sin visitas tras %1$d días</item>
+    </plurals>
+    <!-- PluralsCandidate is wrong here: two counts in one sentence, and a plurals resource selects on one quantity. -->
+    <string name="automation_trigger_summary_watchers" tools:ignore="PluralsCandidate">menos de %1$d seguidores tras %2$d días</string>
+    <plurals name="automation_trigger_summary_days_listed">
+        <item quantity="one">publicado hace más de %1$d día</item>
+        <item quantity="many">publicado hace más de %1$d de días</item>
+        <item quantity="other">publicado hace más de %1$d días</item>
+    </plurals>
     <string name="automation_action_summary_promo">fijar la tarifa de promo al %1$s%%</string>
     <string name="automation_action_summary_end">finalizar el anuncio</string>
     <string name="automation_action_summary_drop">bajar el precio un %1$s%%</string>
@@ -2264,7 +2332,8 @@
     <string name="automation_sentence">Cuando %1$s, %2$s (%3$s).</string>
     <string name="automation_scope_warning">Esto finaliza TODOS los anuncios activos que cumplan la condición. Añade un filtro si querías solo algunos.</string>
     <string name="automation_error_name_required">Ponle un nombre a la regla.</string>
-    <string name="automation_error_name_too_long">Ese nombre es demasiado largo &#8212; que no pase de %1$d caracteres.</string>
+    <!-- PluralsCandidate is wrong here: the number is a compile-time constant, so the `one` form is unreachable. -->
+    <string name="automation_error_name_too_long" tools:ignore="PluralsCandidate">Ese nombre es demasiado largo &#8212; que no pase de %1$d caracteres.</string>
     <string name="automation_error_pct_min">Pon un porcentaje de al menos 1.</string>
     <string name="automation_error_price_drop_max">Una bajada de precio no puede pasar del %1$s%%.</string>
     <string name="automation_error_promo_max">Una tarifa de promo no puede pasar del %1$s%%.</string>
@@ -2282,6 +2351,7 @@
     <string name="automation_run_changed">%1$d de %2$d cambiados.</string>
     <plurals name="automation_unsynced">
         <item quantity="one">%1$d cambio no llegó a eBay &#8212; esos anuncios siguen mostrando el valor anterior.</item>
+        <item quantity="many">%1$d de cambios no llegaron a eBay &#8212; esos anuncios siguen mostrando el valor anterior.</item>
         <item quantity="other">%1$d cambios no llegaron a eBay &#8212; esos anuncios siguen mostrando el valor anterior.</item>
     </plurals>
     <string name="automation_saved">Regla guardada.</string>
@@ -2292,7 +2362,8 @@
     <string name="automation_scope_widened">Esos filtros estaban vacíos, así que la regla se aplica ahora a todos los anuncios activos.</string>
     <string name="automation_unreachable">No se pudo conectar con el servicio de automatizaciones.</string>
     <string name="repricing_error_name_required">Ponle un nombre a la regla.</string>
-    <string name="repricing_error_name_too_long">Ese nombre es demasiado largo &#8212; que no pase de %1$d caracteres.</string>
+    <!-- PluralsCandidate is wrong here: the number is a compile-time constant, so the `one` form is unreachable. -->
+    <string name="repricing_error_name_too_long" tools:ignore="PluralsCandidate">Ese nombre es demasiado largo &#8212; que no pase de %1$d caracteres.</string>
     <string name="repricing_error_no_effect">Pon un porcentaje de bajada o activa la aceptación automática, para que la regla haga algo.</string>
     <string name="repricing_action_drop">Bajar un %1$s%% cada %2$d días</string>
     <string name="repricing_action_auto_accept">aceptar solo &#8805; %1$d%%</string>
@@ -2313,7 +2384,8 @@
     <string name="repricing_change_down">%1$s &#8594; %2$s (&#8722;%3$d%%)</string>
     <string name="repricing_scan_none">No hay anuncios activos que revisar.</string>
     <string name="repricing_scan_nothing">%1$d revisados. Nada que merezca cambiarse.</string>
-    <string name="repricing_scan_actionable">%1$d revisados, %2$d merecen un vistazo.</string>
+    <!-- PluralsCandidate is wrong here: two counts in one sentence, and a plurals resource selects on one quantity. -->
+    <string name="repricing_scan_actionable" tools:ignore="PluralsCandidate">%1$d revisados, %2$d merecen un vistazo.</string>
     <string name="repricing_rule_saved">Regla guardada.</string>
     <string name="repricing_rule_updated">Regla actualizada.</string>
     <string name="repricing_rule_deleted">Regla eliminada.</string>
@@ -2325,23 +2397,35 @@
     <string name="repricing_caveat_separator">, </string>
     <plurals name="repricing_evidence">
         <item quantity="one">Según %1$d anuncio comparable</item>
+        <item quantity="many">Según %1$d de anuncios comparables</item>
         <item quantity="other">Según %1$d anuncios comparables</item>
     </plurals>
     <plurals name="repricing_evidence_median">
         <item quantity="one">Según %1$d anuncio comparable &#183; mediana %2$s</item>
+        <item quantity="many">Según %1$d de anuncios comparables &#183; mediana %2$s</item>
         <item quantity="other">Según %1$d anuncios comparables &#183; mediana %2$s</item>
     </plurals>
     <plurals name="repricing_skipped_no_category">
         <item quantity="one">%1$d omitido por no tener categoría de eBay</item>
+        <item quantity="many">%1$d omitidos por no tener categoría de eBay</item>
         <item quantity="other">%1$d omitidos por no tener categoría de eBay</item>
     </plurals>
     <plurals name="repricing_scan_errors">
         <item quantity="one">No se pudo comprobar %1$d</item>
+        <item quantity="many">No se pudieron comprobar %1$d</item>
         <item quantity="other">No se pudieron comprobar %1$d</item>
     </plurals>
-    <string name="autolister_queued">En cola &#8212; %1$d artículos.</string>
+    <plurals name="autolister_queued">
+        <item quantity="one">En cola &#8212; %1$d artículo.</item>
+        <item quantity="many">En cola &#8212; %1$d de artículos.</item>
+        <item quantity="other">En cola &#8212; %1$d artículos.</item>
+    </plurals>
     <string name="autolister_generating">Generando %1$d de %2$d&#8230;</string>
-    <string name="autolister_done">Listo &#8212; %1$d borradores preparados.</string>
+    <plurals name="autolister_done">
+        <item quantity="one">Listo &#8212; %1$d borrador preparado.</item>
+        <item quantity="many">Listo &#8212; %1$d de borradores preparados.</item>
+        <item quantity="other">Listo &#8212; %1$d borradores preparados.</item>
+    </plurals>
     <string name="autolister_failed">El lote falló.</string>
     <string name="autolister_failed_reason">El lote falló: %1$s</string>
     <string name="autolister_stalled">Este lote lleva un rato sin moverse. Puede que aún termine solo &#8212; Reanudar le pide al servidor que retome los artículos que faltan.</string>
@@ -2352,21 +2436,27 @@
     <string name="autolister_qa_unchecked">No se pudieron comprobar estas fotos.</string>
     <string name="autolister_qa_unchecked_reason">No se pudieron comprobar estas fotos: %1$s</string>
     <string name="autolister_qa_no_issues">sin problemas</string>
-    <string name="autolister_qa_score">%1$s &#183; %2$d/100 &#183; %3$s</string>
     <plurals name="autolister_partial">
         <item quantity="one">Terminó con %1$d fallo &#8212; %2$d borradores preparados.</item>
+        <item quantity="many">Terminó con %1$d de fallos &#8212; %2$d borradores preparados.</item>
         <item quantity="other">Terminó con %1$d fallos &#8212; %2$d borradores preparados.</item>
     </plurals>
     <plurals name="autolister_qa_issues">
         <item quantity="one">%1$d problema</item>
+        <item quantity="many">%1$d de problemas</item>
         <item quantity="other">%1$d problemas</item>
     </plurals>
     <string name="autolister_drafts_load_failed">No se pudieron cargar tus borradores.</string>
-    <string name="autolister_batch_started">Generando %1$d borradores. Puedes salir de esta pantalla.</string>
+    <plurals name="autolister_batch_started">
+        <item quantity="one">Generando %1$d borrador. Puedes salir de esta pantalla.</item>
+        <item quantity="many">Generando %1$d de borradores. Puedes salir de esta pantalla.</item>
+        <item quantity="other">Generando %1$d borradores. Puedes salir de esta pantalla.</item>
+    </plurals>
     <string name="autolister_retrying">Reintentando los artículos fallidos.</string>
     <string name="autolister_resumed">Le pedimos al servidor que lo retome.</string>
     <string name="autolister_qa_all_good">Las fotos están bien en los %1$d.</string>
-    <string name="autolister_qa_some_need">%1$d de %2$d podrían tener mejores fotos.</string>
+    <!-- PluralsCandidate is wrong here: two counts in one sentence, and a plurals resource selects on one quantity. -->
+    <string name="autolister_qa_some_need" tools:ignore="PluralsCandidate">%1$d de %2$d podrían tener mejores fotos.</string>
     <string name="autolister_draft_saved">Borrador guardado.</string>
     <string name="autolister_draft_deleted">Borrador eliminado. El artículo sigue aquí.</string>
     <string name="autolister_scheduled_for">Programado para %1$s.</string>
@@ -2380,6 +2470,7 @@
     <string name="schedule_publishes">Se publica el %1$s.</string>
     <plurals name="autolister_updated_drafts">
         <item quantity="one">%1$d borrador actualizado.</item>
+        <item quantity="many">%1$d de borradores actualizados.</item>
         <item quantity="other">%1$d borradores actualizados.</item>
     </plurals>
     <string name="autolister_upload_failed">No se pudo subir ninguna de esas fotos.</string>
@@ -2418,10 +2509,12 @@
     <string name="block_separator">, </string>
     <plurals name="block_measurement_count_in">
         <item quantity="one">%1$d medida, en pulgadas</item>
+        <item quantity="many">%1$d de medidas, en pulgadas</item>
         <item quantity="other">%1$d medidas, en pulgadas</item>
     </plurals>
     <plurals name="block_measurement_count_cm">
         <item quantity="one">%1$d medida, en centímetros</item>
+        <item quantity="many">%1$d de medidas, en centímetros</item>
         <item quantity="other">%1$d medidas, en centímetros</item>
     </plurals>
     <string name="slot_label_front">Frente</string>
@@ -2539,14 +2632,17 @@
     <string name="auth_email_required">Escribe tu correo electr&#243;nico.</string>
     <string name="auth_email_shape">Eso no parece un correo electr&#243;nico.</string>
     <string name="auth_password_required">Escribe tu contrase&#241;a.</string>
-    <string name="auth_password_too_short">La contrase&#241;a debe tener al menos %1$d caracteres.</string>
+    <!-- PluralsCandidate is wrong here: the number is a compile-time constant, so the `one` form is unreachable. -->
+    <string name="auth_password_too_short" tools:ignore="PluralsCandidate">La contrase&#241;a debe tener al menos %1$d caracteres.</string>
     <string name="auth_password_needs_lower">La contrase&#241;a debe incluir una min&#250;scula.</string>
     <string name="auth_password_needs_upper">La contrase&#241;a debe incluir una may&#250;scula.</string>
     <string name="auth_password_needs_digit">La contrase&#241;a debe incluir un n&#250;mero.</string>
     <string name="support_subject_required">Ponle un asunto para saber de qu&#233; se trata.</string>
-    <string name="support_subject_too_long">Ese asunto es demasiado largo &#8212; que no pase de %1$d caracteres.</string>
+    <!-- PluralsCandidate is wrong here: the number is a compile-time constant, so the `one` form is unreachable. -->
+    <string name="support_subject_too_long" tools:ignore="PluralsCandidate">Ese asunto es demasiado largo &#8212; que no pase de %1$d caracteres.</string>
     <string name="support_body_required">Cu&#233;ntanos qu&#233; est&#225; pasando.</string>
-    <string name="support_body_too_long">Eso es m&#225;s largo de lo que podemos enviar &#8212; que no pase de %1$d caracteres.</string>
+    <!-- PluralsCandidate is wrong here: the number is a compile-time constant, so the `one` form is unreachable. -->
+    <string name="support_body_too_long" tools:ignore="PluralsCandidate">Eso es m&#225;s largo de lo que podemos enviar &#8212; que no pase de %1$d caracteres.</string>
     <string name="support_status_open">Abierta</string>
     <string name="support_status_with_support">Con soporte</string>
     <string name="support_status_in_progress">En curso</string>
@@ -2562,40 +2658,49 @@
     <string name="bulk_label_delete">Eliminar</string>
     <plurals name="bulk_confirm_create_draft">
         <item quantity="one">&#191;Crear %1$d art&#237;culo como borrador?</item>
+        <item quantity="many">&#191;Crear %1$d de art&#237;culos como borradores?</item>
         <item quantity="other">&#191;Crear %1$d art&#237;culos como borradores?</item>
     </plurals>
     <plurals name="bulk_confirm_mark_shipped">
         <item quantity="one">&#191;Marcar %1$d art&#237;culo como enviado?</item>
+        <item quantity="many">&#191;Marcar %1$d de art&#237;culos como enviados?</item>
         <item quantity="other">&#191;Marcar %1$d art&#237;culos como enviados?</item>
     </plurals>
     <plurals name="bulk_confirm_drop_price">
         <item quantity="one">&#191;Bajar el precio un -%2$d%% en %1$d art&#237;culo?</item>
+        <item quantity="many">&#191;Bajar el precio un -%2$d de%% en %1$d art&#237;culos?</item>
         <item quantity="other">&#191;Bajar el precio un -%2$d%% en %1$d art&#237;culos?</item>
     </plurals>
     <plurals name="bulk_confirm_grade">
         <item quantity="one">&#191;Evaluar %1$d art&#237;culo?</item>
+        <item quantity="many">&#191;Evaluar %1$d de art&#237;culos?</item>
         <item quantity="other">&#191;Evaluar %1$d art&#237;culos?</item>
     </plurals>
     <plurals name="bulk_confirm_delete">
         <item quantity="one">&#191;Eliminar %1$d art&#237;culo? Sus fotos tambi&#233;n se van, y esto no se puede deshacer.</item>
+        <item quantity="many">&#191;Eliminar %1$d de art&#237;culos? Sus fotos tambi&#233;n se van, y esto no se puede deshacer.</item>
         <item quantity="other">&#191;Eliminar %1$d art&#237;culos? Sus fotos tambi&#233;n se van, y esto no se puede deshacer.</item>
     </plurals>
     <plurals name="bulk_result_updated">
         <item quantity="one">%1$d art&#237;culo actualizado.</item>
+        <item quantity="many">%1$d de art&#237;culos actualizados.</item>
         <item quantity="other">%1$d art&#237;culos actualizados.</item>
     </plurals>
     <plurals name="bulk_result_all_failed">
         <item quantity="one">Fall&#243; %1$d art&#237;culo.</item>
+        <item quantity="many">Fallaron los %1$d de art&#237;culos.</item>
         <item quantity="other">Fallaron los %1$d art&#237;culos.</item>
     </plurals>
     <plurals name="bulk_result_partial">
         <item quantity="one">%1$d de %2$d art&#237;culo actualizado; %3$d fallaron.</item>
+        <item quantity="many">%1$d de %2$d art&#237;culos actualizados; %3$d fallaron.</item>
         <item quantity="other">%1$d de %2$d art&#237;culos actualizados; %3$d fallaron.</item>
     </plurals>
     <string name="fulfillment_sold_today">Vendido hoy</string>
     <string name="fulfillment_sold_yesterday">Vendido ayer</string>
     <string name="fulfillment_nothing_waiting">No hay nada pendiente de enviar.</string>
-    <string name="fulfillment_summary_late">%1$s &#183; %2$d fuera del plazo de %3$d d&#237;as</string>
+    <!-- PluralsCandidate is wrong here: two counts in one sentence, and a plurals resource selects on one quantity. -->
+    <string name="fulfillment_summary_late" tools:ignore="PluralsCandidate">%1$s &#183; %2$d fuera del plazo de %3$d d&#237;as</string>
     <string name="fulfillment_queued_named">Guardado para %1$s. Se lo diremos a eBay cuando vuelvas a tener conexi&#243;n.</string>
     <string name="fulfillment_queued_unnamed">Guardado para este pedido. Se lo diremos a eBay cuando vuelvas a tener conexi&#243;n.</string>
     <string name="fulfillment_shipped_named">Marcado como enviado a %1$s. Sin n&#250;mero de seguimiento.</string>
@@ -2604,10 +2709,12 @@
     <string name="fulfillment_shipped_unnamed_tracking">Marcado como enviado para este pedido con el seguimiento %1$s.</string>
     <plurals name="fulfillment_waiting_days">
         <item quantity="one">Esperando %1$d d&#237;a</item>
+        <item quantity="many">Esperando %1$d de d&#237;as</item>
         <item quantity="other">Esperando %1$d d&#237;as</item>
     </plurals>
     <plurals name="fulfillment_parcels">
         <item quantity="one">%1$d paquete por enviar</item>
+        <item quantity="many">%1$d de paquetes por enviar</item>
         <item quantity="other">%1$d paquetes por enviar</item>
     </plurals>
     <string name="fulfillment_waiting_with_buyer">%1$s &#183; %2$s</string>
@@ -2631,6 +2738,7 @@
     <string name="passport_event_other">Evento del pasaporte</string>
     <plurals name="passport_verified_links">
         <item quantity="one">%1$d de %2$d eslab&#243;n est&#225; verificado de forma independiente.</item>
+        <item quantity="many">%1$d de %2$d eslabones est&#225;n verificados de forma independiente.</item>
         <item quantity="other">%1$d de %2$d eslabones est&#225;n verificados de forma independiente.</item>
     </plurals>
     <string name="perf_untitled_listing">Anuncio sin t&#237;tulo</string>
@@ -2641,9 +2749,11 @@
     <string name="perf_sort_days_listed">D&#237;as publicado</string>
     <string name="perf_sort_title">T&#237;tulo</string>
     <string name="perf_no_listings">A&#250;n no hay anuncios activos de eBay con datos.</string>
-    <string name="perf_summary_stale">%1$s &#183; %2$d sin visitas tras dos semanas</string>
+    <!-- PluralsCandidate is wrong here: the count has no noun after it; lint matched the next English word. -->
+    <string name="perf_summary_stale" tools:ignore="PluralsCandidate">%1$s &#183; %2$d sin visitas tras dos semanas</string>
     <plurals name="perf_active_listings">
         <item quantity="one">%1$d anuncio activo &#183; %2$d visitas en total</item>
+        <item quantity="many">%1$d de anuncios activos &#183; %2$d visitas en total</item>
         <item quantity="other">%1$d anuncios activos &#183; %2$d visitas en total</item>
     </plurals>
     <string name="community_confidence_high">Confianza alta</string>
@@ -2656,22 +2766,27 @@
     <string name="community_no_peers">A&#250;n no hay suficientes vendedores con un ritmo comparable. Vuelve pronto.</string>
     <plurals name="community_source_detail">
         <item quantity="one">Se vende al %2$s entre %1$d vendedor</item>
+        <item quantity="many">Se vende al %2$s entre %1$d de vendedores</item>
         <item quantity="other">Se vende al %2$s entre %1$d vendedores</item>
     </plurals>
     <plurals name="community_source_detail_avg">
         <item quantity="one">Se vende al %2$s entre %1$d vendedor &#183; venta media %3$s</item>
+        <item quantity="many">Se vende al %2$s entre %1$d de vendedores &#183; venta media %3$s</item>
         <item quantity="other">Se vende al %2$s entre %1$d vendedores &#183; venta media %3$s</item>
     </plurals>
     <plurals name="community_price_detail">
         <item quantity="one">Venta media de la comunidad entre %1$d vendedor</item>
+        <item quantity="many">Venta media de la comunidad entre %1$d de vendedores</item>
         <item quantity="other">Venta media de la comunidad entre %1$d vendedores</item>
     </plurals>
     <plurals name="community_price_detail_st">
         <item quantity="one">Venta media de la comunidad entre %1$d vendedor &#183; %2$s de ritmo de venta</item>
+        <item quantity="many">Venta media de la comunidad entre %1$d de vendedores &#183; %2$s de ritmo de venta</item>
         <item quantity="other">Venta media de la comunidad entre %1$d vendedores &#183; %2$s de ritmo de venta</item>
     </plurals>
     <plurals name="community_category_detail">
         <item quantity="one">Ventas al alza un %2$s en los &#250;ltimos 30 d&#237;as &#183; %1$d vendedor</item>
+        <item quantity="many">Ventas al alza un %2$s en los &#250;ltimos 30 d&#237;as &#183; %1$d de vendedores</item>
         <item quantity="other">Ventas al alza un %2$s en los &#250;ltimos 30 d&#237;as &#183; %1$d vendedores</item>
     </plurals>
     <string name="promotion_summary_opted_out">Sin promocionar &#8212; este anuncio est&#225; excluido.</string>
@@ -2691,10 +2806,12 @@
     <string name="sold_today_no_payouts">No hay pagos pendientes.</string>
     <plurals name="sold_today_sold">
         <item quantity="one">Hoy has vendido %1$d art&#237;culo por %2$s. %3$s</item>
+        <item quantity="many">Hoy has vendido %1$d de art&#237;culos por %2$s. %3$s</item>
         <item quantity="other">Hoy has vendido %1$d art&#237;culos por %2$s. %3$s</item>
     </plurals>
     <plurals name="sold_today_payout_waiting">
         <item quantity="one">Faltan %2$s de %1$d venta.</item>
+        <item quantity="many">Faltan %2$s de %1$d de ventas.</item>
         <item quantity="other">Faltan %2$s de %1$d ventas.</item>
     </plurals>
     <string name="payout_delta_matches">Coincide con tus registros.</string>
@@ -2704,10 +2821,12 @@
     <string name="payout_estimate_note">Algunas de estas ventas no ten&#237;an un pago informado, as&#237; que su parte se estim&#243; a partir del precio menos las comisiones.</string>
     <plurals name="payout_summary_all_match">
         <item quantity="one">El %1$d pago coincide con tus registros.</item>
+        <item quantity="many">Los %1$d de pagos coinciden con tus registros.</item>
         <item quantity="other">Los %1$d pagos coinciden con tus registros.</item>
     </plurals>
     <plurals name="payout_summary_mismatch">
         <item quantity="one">%1$d de %2$d pago no coincide.</item>
+        <item quantity="many">%1$d de %2$d pagos no coinciden.</item>
         <item quantity="other">%1$d de %2$d pagos no coinciden.</item>
     </plurals>
     <string name="status_other">Estado</string>
@@ -2719,6 +2838,7 @@
     <string name="bulk_error_generic">No se pudo actualizar este art&#237;culo.</string>
     <plurals name="bulk_undo_label">
         <item quantity="one">%1$s &#183; %2$d actualizado</item>
+        <item quantity="many">%1$s &#183; %2$d actualizados</item>
         <item quantity="other">%1$s &#183; %2$d actualizados</item>
     </plurals>
     <string name="ui_join_2">%1$s &#183; %2$s</string>
@@ -2727,29 +2847,36 @@
     <string name="import_mapping_needs_title">Asigna una columna a &quot;T&#237;tulo del art&#237;culo&quot;: no podemos importar una fila sin ella.</string>
     <string name="import_reject_no_title">Falta el t&#237;tulo del art&#237;culo</string>
     <string name="import_reject_duplicate_sku">El SKU %1$s ya est&#225; en tu inventario</string>
-    <string name="import_summary_ready">%1$d de %2$d filas listas</string>
+    <!-- PluralsCandidate is wrong here: two counts in one sentence, and a plurals resource selects on one quantity. -->
+    <string name="import_summary_ready" tools:ignore="PluralsCandidate">%1$d de %2$d filas listas</string>
     <plurals name="import_summary_duplicates">
         <item quantity="one">%1$d ya est&#225; en tu inventario</item>
+        <item quantity="many">%1$d ya est&#225;n en tu inventario</item>
         <item quantity="other">%1$d ya est&#225;n en tu inventario</item>
     </plurals>
     <plurals name="import_summary_rejected">
         <item quantity="one">a %1$d le falta el t&#237;tulo</item>
+        <item quantity="many">a %1$d les falta el t&#237;tulo</item>
         <item quantity="other">a %1$d les falta el t&#237;tulo</item>
     </plurals>
     <plurals name="import_outcome_inserted">
         <item quantity="one">%1$d art&#237;culo importado</item>
+        <item quantity="many">%1$d de art&#237;culos importados</item>
         <item quantity="other">%1$d art&#237;culos importados</item>
     </plurals>
     <plurals name="import_outcome_queued">
         <item quantity="one">%1$d esperando a que vuelvas a tener conexi&#243;n</item>
+        <item quantity="many">%1$d esperando a que vuelvas a tener conexi&#243;n</item>
         <item quantity="other">%1$d esperando a que vuelvas a tener conexi&#243;n</item>
     </plurals>
     <plurals name="import_outcome_skipped">
         <item quantity="one">%1$d omitido por duplicado</item>
+        <item quantity="many">%1$d omitidos por duplicados</item>
         <item quantity="other">%1$d omitidos por duplicados</item>
     </plurals>
     <plurals name="import_outcome_failed">
         <item quantity="one">%1$d no se pudo guardar</item>
+        <item quantity="many">%1$d no se pudieron guardar</item>
         <item quantity="other">%1$d no se pudieron guardar</item>
     </plurals>
     <string name="import_error_signed_out">Has cerrado sesi&#243;n: inicia sesi&#243;n y vuelve a intentarlo.</string>
@@ -2778,10 +2905,12 @@
     <string name="item_photos_error_with_detail">%1$s (%2$s)</string>
     <plurals name="grades_summary_total">
         <item quantity="one">%1$d evaluado</item>
+        <item quantity="many">%1$d evaluados</item>
         <item quantity="other">%1$d evaluados</item>
     </plurals>
     <plurals name="grades_summary_pending">
         <item quantity="one">%1$d pendiente de revisi&#243;n</item>
+        <item quantity="many">%1$d pendientes de revisi&#243;n</item>
         <item quantity="other">%1$d pendientes de revisi&#243;n</item>
     </plurals>
     <string name="grades_summary_average">media %1$s</string>

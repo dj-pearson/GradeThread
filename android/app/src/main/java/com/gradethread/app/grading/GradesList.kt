@@ -83,7 +83,7 @@ object GradesList {
                 // the separator is a resource, so a language can reorder or
                 // repunctuate the line without touching this code.
                 val parts = mutableListOf(
-                    UiMessage(
+                    UiMessage.plural(
                         R.plurals.grades_summary_total,
                         args = listOf(total),
                         quantity = total,
@@ -91,7 +91,7 @@ object GradesList {
                 )
                 val pending = total - certified
                 if (pending > 0) {
-                    parts += UiMessage(
+                    parts += UiMessage.plural(
                         R.plurals.grades_summary_pending,
                         args = listOf(pending),
                         quantity = pending,

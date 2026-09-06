@@ -1,5 +1,6 @@
 package com.gradethread.app.inventory
 
+import androidx.annotation.PluralsRes
 import com.gradethread.app.R
 import com.gradethread.app.ui.UiMessage
 
@@ -55,7 +56,7 @@ sealed class BulkAction {
         }
 
     /** A plurals resource whose count is also the number in the sentence. */
-    private fun plural(res: Int, count: Int) = UiMessage(res, args = listOf(count), quantity = count)
+    private fun plural(@PluralsRes res: Int, count: Int) = UiMessage.plural(res, args = listOf(count), quantity = count)
 
     /** Destructive actions confirm before running. */
     val destructive: Boolean get() = this == Delete
@@ -86,7 +87,7 @@ sealed class BulkAction {
     fun confirmationTitle(count: Int): UiMessage = when (this) {
         CreateDraft -> plural(R.plurals.bulk_confirm_create_draft, count)
         MarkShipped -> plural(R.plurals.bulk_confirm_mark_shipped, count)
-        is DropPrice -> UiMessage(
+        is DropPrice -> UiMessage.plural(
             R.plurals.bulk_confirm_drop_price,
             args = listOf(count, percent),
             quantity = count,
@@ -140,13 +141,13 @@ data class BulkActionResult(val action: BulkAction, val succeeded: Int, val fail
      */
     val summary: UiMessage
         get() = when {
-            failures.isEmpty() -> UiMessage(
+            failures.isEmpty() -> UiMessage.plural(
                 R.plurals.bulk_result_updated,
                 args = listOf(succeeded),
                 quantity = succeeded,
             )
 
-            succeeded == 0 -> UiMessage(
+            succeeded == 0 -> UiMessage.plural(
                 R.plurals.bulk_result_all_failed,
                 args = listOf(failures.size),
                 quantity = failures.size,
@@ -154,7 +155,7 @@ data class BulkActionResult(val action: BulkAction, val succeeded: Int, val fail
 
             // The partial case pluralises on the TOTAL, which is the noun the
             // sentence is about - "Updated 1 of 9 items" is nine items, not one.
-            else -> UiMessage(
+            else -> UiMessage.plural(
                 R.plurals.bulk_result_partial,
                 args = listOf(succeeded, total, failures.size),
                 quantity = total,

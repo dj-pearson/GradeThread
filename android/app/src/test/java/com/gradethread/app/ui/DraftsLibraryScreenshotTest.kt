@@ -181,7 +181,7 @@ class DraftsLibraryScreenshotTest {
     fun banner_light() = capture("screen-drafts-banner-light") {
         DraftsLibraryContent(
             loaded.copy(
-                banner = UiMessage(
+                banner = UiMessage.plural(
                     R.plurals.autolister_updated_drafts,
                     args = listOf(2),
                     quantity = 2,

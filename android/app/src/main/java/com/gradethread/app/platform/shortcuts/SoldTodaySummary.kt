@@ -38,7 +38,7 @@ object SoldTodaySummary {
             return UiMessage(R.string.sold_today_nothing_yet, args = listOf(payout))
         }
 
-        return UiMessage(
+        return UiMessage.plural(
             R.plurals.sold_today_sold,
             args = listOf(
                 snapshot.soldTodayCount,
@@ -69,7 +69,7 @@ object SoldTodaySummary {
 
     private fun payoutClause(count: Int, net: Double): UiMessage {
         if (count <= 0) return UiMessage(R.string.sold_today_no_payouts)
-        return UiMessage(
+        return UiMessage.plural(
             R.plurals.sold_today_payout_waiting,
             args = listOf(count, Money.format(net)),
             quantity = count,

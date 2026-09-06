@@ -3,6 +3,7 @@ package com.gradethread.app.scout
 import com.gradethread.app.R
 
 import com.gradethread.app.platform.net.EdgeApiError
+import com.gradethread.app.ui.UiMessage
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -156,11 +157,11 @@ class ScoutDisplayTest {
         // Candidates exist, the filter hid them all — and that IS the answer.
         val filtered = ScoutScanResponse(scanned = 8, candidates = listOf(candidate("a")))
         assertEquals(
-            ScoutDisplay.Summary(R.string.scout_summary_none_cleared, listOf(8)),
+            UiMessage(R.string.scout_summary_none_cleared, args = listOf(8)),
             ScoutDisplay.summary(filtered, 0),
         )
         assertEquals(
-            ScoutDisplay.Summary(R.string.scout_summary_showing, listOf(8, 1)),
+            UiMessage(R.string.scout_summary_showing, args = listOf(8, 1)),
             ScoutDisplay.summary(filtered, 1),
         )
         val cases = listOf(

@@ -1,5 +1,6 @@
 package com.gradethread.app.importer
 
+import androidx.annotation.PluralsRes
 import com.gradethread.app.R
 import com.gradethread.app.ui.UiMessage
 import com.gradethread.app.ui.joinMessages
@@ -165,14 +166,14 @@ object Importer {
             ),
         )
         if (plan.duplicates.isNotEmpty()) {
-            parts += UiMessage(
+            parts += UiMessage.plural(
                 R.plurals.import_summary_duplicates,
                 args = listOf(plan.duplicates.size),
                 quantity = plan.duplicates.size,
             )
         }
         if (plan.rejected.isNotEmpty()) {
-            parts += UiMessage(
+            parts += UiMessage.plural(
                 R.plurals.import_summary_rejected,
                 args = listOf(plan.rejected.size),
                 quantity = plan.rejected.size,
@@ -197,5 +198,5 @@ object Importer {
     }
 
     /** A plurals resource whose count is also the number in the clause. */
-    private fun plural(res: Int, count: Int) = UiMessage(res, args = listOf(count), quantity = count)
+    private fun plural(@PluralsRes res: Int, count: Int) = UiMessage.plural(res, args = listOf(count), quantity = count)
 }

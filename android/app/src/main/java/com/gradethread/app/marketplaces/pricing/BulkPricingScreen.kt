@@ -35,6 +35,7 @@ import com.gradethread.app.ui.theme.BrandSecondaryButton
 import com.gradethread.app.ui.theme.Spacing
 import com.gradethread.app.ui.theme.cardStyle
 import com.gradethread.app.ui.UiMessage
+import com.gradethread.app.ui.text
 
 /**
  * US-1355: bulk price editor — pick listings, choose an adjustment, see the new
@@ -278,7 +279,7 @@ private fun ListingRow(
             // not. Only the second half is translatable and only the second
             // half is ours.
             Text(
-                it.detail ?: stringResource(it.res),
+                it.text(),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.error,
             )
@@ -321,7 +322,7 @@ private fun BulkPricingNotices(state: BulkPricingViewModel.State) {
         // in an order English chose; a translator has to be free to move them.
         InfoCard(
             stringResource(R.string.bulkpricing_pushed),
-            stringResource(it.res, *it.args.toTypedArray()),
+            it.text(),
             tone = InfoTone.Success,
         )
     }

@@ -43,6 +43,7 @@ import com.gradethread.app.ui.components.GroupedBarChart
 import com.gradethread.app.ui.theme.ContentMaxWidth
 import com.gradethread.app.ui.theme.Spacing
 import com.gradethread.app.ui.UiMessage
+import com.gradethread.app.ui.text
 import java.time.Instant
 import java.time.format.DateTimeFormatter
 import java.time.format.FormatStyle
@@ -629,7 +630,7 @@ private fun LazyListScope.messageBanners(refreshError: UiMessage?, notice: UiMes
     refreshError?.let { message ->
         item {
             Banner(
-                message.detail ?: stringResource(message.res),
+                message.text(),
                 onDismiss = actions.onDismissRefreshError,
             )
         }
@@ -637,7 +638,7 @@ private fun LazyListScope.messageBanners(refreshError: UiMessage?, notice: UiMes
     notice?.let { message ->
         item {
             Banner(
-                message.detail ?: stringResource(message.res),
+                message.text(),
                 onDismiss = actions.onDismissNotice,
             )
         }

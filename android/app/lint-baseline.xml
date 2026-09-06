@@ -74,7 +74,7 @@
         errorLine2="    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/gradethread/app/measure/MeasurementPhotoEditorSheet.kt"
-            line="167"
+            line="168"
             column="5"/>
     </issue>
 
@@ -118,7 +118,7 @@
         errorLine2="    ~~~~~~~~">
         <location
             file="src/main/java/com/gradethread/app/grading/GradeReportScreen.kt"
-            line="53"
+            line="56"
             column="5"/>
     </issue>
 
@@ -129,7 +129,7 @@
         errorLine2="    ~~~~~~~~">
         <location
             file="src/main/java/com/gradethread/app/inventory/ItemCanvasScreen.kt"
-            line="80"
+            line="81"
             column="5"/>
     </issue>
 
@@ -140,7 +140,7 @@
         errorLine2="    ~~~~~~~~">
         <location
             file="src/main/java/com/gradethread/app/money/MoneyScreen.kt"
-            line="61"
+            line="68"
             column="5"/>
     </issue>
 
@@ -151,7 +151,7 @@
         errorLine2="    ~~~~~~~~">
         <location
             file="src/main/java/com/gradethread/app/settings/SettingsScreen.kt"
-            line="62"
+            line="63"
             column="5"/>
     </issue>
 
@@ -162,469 +162,7 @@
         errorLine2="    ~~~~~~~~">
         <location
             file="src/main/java/com/gradethread/app/ui/shell/SyncStatusBar.kt"
-            line="39"
-            column="5"/>
-    </issue>
-
-    <issue
-        id="MissingQuantity"
-        message="For locale &quot;es&quot; (Spanish) the following quantity should also be defined: `many`"
-        errorLine1="    &lt;plurals name=&quot;rows_found&quot;>"
-        errorLine2="    ^">
-        <location
-            file="src/main/res/values-es/strings.xml"
-            line="119"
-            column="5"/>
-    </issue>
-
-    <issue
-        id="MissingQuantity"
-        message="For locale &quot;es&quot; (Spanish) the following quantity should also be defined: `many`"
-        errorLine1="    &lt;plurals name=&quot;photo_count&quot;>"
-        errorLine2="    ^">
-        <location
-            file="src/main/res/values-es/strings.xml"
-            line="123"
-            column="5"/>
-    </issue>
-
-    <issue
-        id="MissingQuantity"
-        message="For locale &quot;es&quot; (Spanish) the following quantity should also be defined: `many`"
-        errorLine1="    &lt;plurals name=&quot;sale_count&quot;>"
-        errorLine2="    ^">
-        <location
-            file="src/main/res/values-es/strings.xml"
-            line="127"
-            column="5"/>
-    </issue>
-
-    <issue
-        id="MissingQuantity"
-        message="For locale &quot;es&quot; (Spanish) the following quantity should also be defined: `many`"
-        errorLine1="    &lt;plurals name=&quot;grade_count&quot;>"
-        errorLine2="    ^">
-        <location
-            file="src/main/res/values-es/strings.xml"
-            line="131"
-            column="5"/>
-    </issue>
-
-    <issue
-        id="MissingQuantity"
-        message="For locale &quot;es&quot; (Spanish) the following quantity should also be defined: `many`"
-        errorLine1="    &lt;plurals name=&quot;item_count&quot;>"
-        errorLine2="    ^">
-        <location
-            file="src/main/res/values-es/strings.xml"
-            line="135"
-            column="5"/>
-    </issue>
-
-    <issue
-        id="MissingQuantity"
-        message="For locale &quot;es&quot; (Spanish) the following quantity should also be defined: `many`"
-        errorLine1="    &lt;plurals name=&quot;home_on_hand&quot;>"
-        errorLine2="    ^">
-        <location
-            file="src/main/res/values-es/strings.xml"
-            line="205"
-            column="5"/>
-    </issue>
-
-    <issue
-        id="MissingQuantity"
-        message="For locale &quot;es&quot; (Spanish) the following quantity should also be defined: `many`"
-        errorLine1="    &lt;plurals name=&quot;home_aging_body&quot;>"
-        errorLine2="    ^">
-        <location
-            file="src/main/res/values-es/strings.xml"
-            line="209"
-            column="5"/>
-    </issue>
-
-    <issue
-        id="MissingQuantity"
-        message="For locale &quot;es&quot; (Spanish) the following quantity should also be defined: `many`"
-        errorLine1="    &lt;plurals name=&quot;money_aging_oldest&quot;>"
-        errorLine2="    ^">
-        <location
-            file="src/main/res/values-es/strings.xml"
-            line="229"
-            column="5"/>
-    </issue>
-
-    <issue
-        id="MissingQuantity"
-        message="For locale &quot;es&quot; (Spanish) the following quantity should also be defined: `many`"
-        errorLine1="    &lt;plurals name=&quot;automations_cooldown&quot;>"
-        errorLine2="    ^">
-        <location
-            file="src/main/res/values-es/strings.xml"
-            line="375"
-            column="5"/>
-    </issue>
-
-    <issue
-        id="MissingQuantity"
-        message="For locale &quot;es&quot; (Spanish) the following quantity should also be defined: `many`"
-        errorLine1="    &lt;plurals name=&quot;graderequest_credit_cost&quot;>"
-        errorLine2="    ^">
-        <location
-            file="src/main/res/values-es/strings.xml"
-            line="811"
-            column="5"/>
-    </issue>
-
-    <issue
-        id="MissingQuantity"
-        message="For locale &quot;es&quot; (Spanish) the following quantity should also be defined: `many`"
-        errorLine1="    &lt;plurals name=&quot;graderequest_spend_title&quot;>"
-        errorLine2="    ^">
-        <location
-            file="src/main/res/values-es/strings.xml"
-            line="815"
-            column="5"/>
-    </issue>
-
-    <issue
-        id="MissingQuantity"
-        message="For locale &quot;es&quot; (Spanish) the following quantity should also be defined: `many`"
-        errorLine1="    &lt;plurals name=&quot;graderequest_spend_body&quot;>"
-        errorLine2="    ^">
-        <location
-            file="src/main/res/values-es/strings.xml"
-            line="819"
-            column="5"/>
-    </issue>
-
-    <issue
-        id="MissingQuantity"
-        message="For locale &quot;es&quot; (Spanish) the following quantity should also be defined: `many`"
-        errorLine1="    &lt;plurals name=&quot;gradereport_dispute_days&quot;>"
-        errorLine2="    ^">
-        <location
-            file="src/main/res/values-es/strings.xml"
-            line="896"
-            column="5"/>
-    </issue>
-
-    <issue
-        id="MissingQuantity"
-        message="For locale &quot;es&quot; (Spanish) the following quantity should also be defined: `many`"
-        errorLine1="    &lt;plurals name=&quot;inventorylist_items&quot;>"
-        errorLine2="    ^">
-        <location
-            file="src/main/res/values-es/strings.xml"
-            line="967"
-            column="5"/>
-    </issue>
-
-    <issue
-        id="MissingQuantity"
-        message="For locale &quot;es&quot; (Spanish) the following quantity should also be defined: `many`"
-        errorLine1="    &lt;plurals name=&quot;bulkgrade_title&quot;>"
-        errorLine2="    ^">
-        <location
-            file="src/main/res/values-es/strings.xml"
-            line="980"
-            column="5"/>
-    </issue>
-
-    <issue
-        id="MissingQuantity"
-        message="For locale &quot;es&quot; (Spanish) the following quantity should also be defined: `many`"
-        errorLine1="    &lt;plurals name=&quot;bulkgrade_confirm_title&quot;>"
-        errorLine2="    ^">
-        <location
-            file="src/main/res/values-es/strings.xml"
-            line="984"
-            column="5"/>
-    </issue>
-
-    <issue
-        id="MissingQuantity"
-        message="For locale &quot;es&quot; (Spanish) the following quantity should also be defined: `many`"
-        errorLine1="    &lt;plurals name=&quot;bulkgrade_confirm_body&quot;>"
-        errorLine2="    ^">
-        <location
-            file="src/main/res/values-es/strings.xml"
-            line="988"
-            column="5"/>
-    </issue>
-
-    <issue
-        id="MissingQuantity"
-        message="For locale &quot;es&quot; (Spanish) the following quantity should also be defined: `many`"
-        errorLine1="    &lt;plurals name=&quot;bulkgrade_tier_cost&quot;>"
-        errorLine2="    ^">
-        <location
-            file="src/main/res/values-es/strings.xml"
-            line="992"
-            column="5"/>
-    </issue>
-
-    <issue
-        id="MissingQuantity"
-        message="For locale &quot;es&quot; (Spanish) the following quantity should also be defined: `many`"
-        errorLine1="    &lt;plurals name=&quot;bulkpricing_push_count&quot;>"
-        errorLine2="    ^">
-        <location
-            file="src/main/res/values-es/strings.xml"
-            line="1107"
-            column="5"/>
-    </issue>
-
-    <issue
-        id="MissingQuantity"
-        message="For locale &quot;es&quot; (Spanish) the following quantity should also be defined: `many`"
-        errorLine1="    &lt;plurals name=&quot;disclosure_preview_spoken&quot;>"
-        errorLine2="    ^">
-        <location
-            file="src/main/res/values-es/strings.xml"
-            line="1111"
-            column="5"/>
-    </issue>
-
-    <issue
-        id="MissingQuantity"
-        message="For locale &quot;es&quot; (Spanish) the following quantity should also be defined: `many`"
-        errorLine1="    &lt;plurals name=&quot;sales_summary&quot;>"
-        errorLine2="    ^">
-        <location
-            file="src/main/res/values-es/strings.xml"
-            line="1183"
-            column="5"/>
-    </issue>
-
-    <issue
-        id="MissingQuantity"
-        message="For locale &quot;es&quot; (Spanish) the following quantity should also be defined: `many`"
-        errorLine1="    &lt;plurals name=&quot;sales_summary_spoken&quot;>"
-        errorLine2="    ^">
-        <location
-            file="src/main/res/values-es/strings.xml"
-            line="1187"
-            column="5"/>
-    </issue>
-
-    <issue
-        id="MissingQuantity"
-        message="For locale &quot;es&quot; (Spanish) the following quantity should also be defined: `many`"
-        errorLine1="    &lt;plurals name=&quot;sales_excluded&quot;>"
-        errorLine2="    ^">
-        <location
-            file="src/main/res/values-es/strings.xml"
-            line="1191"
-            column="5"/>
-    </issue>
-
-    <issue
-        id="MissingQuantity"
-        message="For locale &quot;es&quot; (Spanish) the following quantity should also be defined: `many`"
-        errorLine1="    &lt;plurals name=&quot;comps_count&quot;>"
-        errorLine2="    ^">
-        <location
-            file="src/main/res/values-es/strings.xml"
-            line="1195"
-            column="5"/>
-    </issue>
-
-    <issue
-        id="MissingQuantity"
-        message="For locale &quot;es&quot; (Spanish) the following quantity should also be defined: `many`"
-        errorLine1="    &lt;plurals name=&quot;perf_days_live&quot;>"
-        errorLine2="    ^">
-        <location
-            file="src/main/res/values-es/strings.xml"
-            line="1199"
-            column="5"/>
-    </issue>
-
-    <issue
-        id="MissingQuantity"
-        message="For locale &quot;es&quot; (Spanish) the following quantity should also be defined: `many`"
-        errorLine1="    &lt;plurals name=&quot;perf_views&quot;>"
-        errorLine2="    ^">
-        <location
-            file="src/main/res/values-es/strings.xml"
-            line="1203"
-            column="5"/>
-    </issue>
-
-    <issue
-        id="MissingQuantity"
-        message="For locale &quot;es&quot; (Spanish) the following quantity should also be defined: `many`"
-        errorLine1="    &lt;plurals name=&quot;perf_watchers&quot;>"
-        errorLine2="    ^">
-        <location
-            file="src/main/res/values-es/strings.xml"
-            line="1207"
-            column="5"/>
-    </issue>
-
-    <issue
-        id="MissingQuantity"
-        message="For locale &quot;es&quot; (Spanish) the following quantity should also be defined: `many`"
-        errorLine1="    &lt;plurals name=&quot;perf_impressions&quot;>"
-        errorLine2="    ^">
-        <location
-            file="src/main/res/values-es/strings.xml"
-            line="1211"
-            column="5"/>
-    </issue>
-
-    <issue
-        id="MissingQuantity"
-        message="For locale &quot;es&quot; (Spanish) the following quantity should also be defined: `many`"
-        errorLine1="    &lt;plurals name=&quot;perf_no_view_days&quot;>"
-        errorLine2="    ^">
-        <location
-            file="src/main/res/values-es/strings.xml"
-            line="1215"
-            column="5"/>
-    </issue>
-
-    <issue
-        id="MissingQuantity"
-        message="For locale &quot;es&quot; (Spanish) the following quantity should also be defined: `many`"
-        errorLine1="    &lt;plurals name=&quot;dispute_photos_failed&quot;>"
-        errorLine2="    ^">
-        <location
-            file="src/main/res/values-es/strings.xml"
-            line="1219"
-            column="5"/>
-    </issue>
-
-    <issue
-        id="MissingQuantity"
-        message="For locale &quot;es&quot; (Spanish) the following quantity should also be defined: `many`"
-        errorLine1="    &lt;plurals name=&quot;dispute_more_characters&quot;>"
-        errorLine2="    ^">
-        <location
-            file="src/main/res/values-es/strings.xml"
-            line="1223"
-            column="5"/>
-    </issue>
-
-    <issue
-        id="MissingQuantity"
-        message="For locale &quot;es&quot; (Spanish) the following quantity should also be defined: `many`"
-        errorLine1="    &lt;plurals name=&quot;payouts_entry_summary&quot;>"
-        errorLine2="    ^">
-        <location
-            file="src/main/res/values-es/strings.xml"
-            line="1351"
-            column="5"/>
-    </issue>
-
-    <issue
-        id="MissingQuantity"
-        message="For locale &quot;es&quot; (Spanish) the following quantity should also be defined: `many`"
-        errorLine1="    &lt;plurals name=&quot;consignment_row_summary&quot;>"
-        errorLine2="    ^">
-        <location
-            file="src/main/res/values-es/strings.xml"
-            line="1384"
-            column="5"/>
-    </issue>
-
-    <issue
-        id="MissingQuantity"
-        message="For locale &quot;es&quot; (Spanish) the following quantity should also be defined: `many`"
-        errorLine1="    &lt;plurals name=&quot;filters_added_last_days&quot;>"
-        errorLine2="    ^">
-        <location
-            file="src/main/res/values-es/strings.xml"
-            line="1412"
-            column="5"/>
-    </issue>
-
-    <issue
-        id="MissingQuantity"
-        message="For locale &quot;es&quot; (Spanish) the following quantity should also be defined: `many`"
-        errorLine1="    &lt;plurals name=&quot;credits_needed&quot;>"
-        errorLine2="    ^">
-        <location
-            file="src/main/res/values-es/strings.xml"
-            line="1432"
-            column="5"/>
-    </issue>
-
-    <issue
-        id="MissingQuantity"
-        message="For locale &quot;es&quot; (Spanish) the following quantity should also be defined: `many`"
-        errorLine1="    &lt;plurals name=&quot;credits_granted&quot;>"
-        errorLine2="    ^">
-        <location
-            file="src/main/res/values-es/strings.xml"
-            line="1436"
-            column="5"/>
-    </issue>
-
-    <issue
-        id="MissingQuantity"
-        message="For locale &quot;es&quot; (Spanish) the following quantity should also be defined: `many`"
-        errorLine1="    &lt;plurals name=&quot;filters_show_items&quot;>"
-        errorLine2="    ^">
-        <location
-            file="src/main/res/values-es/strings.xml"
-            line="1440"
-            column="5"/>
-    </issue>
-
-    <issue
-        id="MissingQuantity"
-        message="For locale &quot;es&quot; (Spanish) the following quantity should also be defined: `many`"
-        errorLine1="    &lt;plurals name=&quot;sync_needs_attention&quot;>"
-        errorLine2="    ^">
-        <location
-            file="src/main/res/values-es/strings.xml"
-            line="1519"
-            column="5"/>
-    </issue>
-
-    <issue
-        id="MissingQuantity"
-        message="For locale &quot;es&quot; (Spanish) the following quantity should also be defined: `many`"
-        errorLine1="    &lt;plurals name=&quot;sync_offline_queued&quot;>"
-        errorLine2="    ^">
-        <location
-            file="src/main/res/values-es/strings.xml"
-            line="1524"
-            column="5"/>
-    </issue>
-
-    <issue
-        id="MissingQuantity"
-        message="For locale &quot;es&quot; (Spanish) the following quantity should also be defined: `many`"
-        errorLine1="    &lt;plurals name=&quot;sync_waiting&quot;>"
-        errorLine2="    ^">
-        <location
-            file="src/main/res/values-es/strings.xml"
-            line="1528"
-            column="5"/>
-    </issue>
-
-    <issue
-        id="MissingQuantity"
-        message="For locale &quot;es&quot; (Spanish) the following quantity should also be defined: `many`"
-        errorLine1="    &lt;plurals name=&quot;canvas_ai_aspects_filled&quot;>"
-        errorLine2="    ^">
-        <location
-            file="src/main/res/values-es/strings.xml"
-            line="1658"
-            column="5"/>
-    </issue>
-
-    <issue
-        id="MissingQuantity"
-        message="For locale &quot;es&quot; (Spanish) the following quantity should also be defined: `many`"
-        errorLine1="    &lt;plurals name=&quot;equity_valued_count&quot;>"
-        errorLine2="    ^">
-        <location
-            file="src/main/res/values-es/strings.xml"
-            line="1709"
+            line="40"
             column="5"/>
     </issue>
 
@@ -712,7 +250,7 @@
         errorLine2="    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/res/values/strings.xml"
-            line="854"
+            line="860"
             column="5"/>
     </issue>
 
@@ -723,7 +261,7 @@
         errorLine2="    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/res/values/strings.xml"
-            line="864"
+            line="870"
             column="5"/>
     </issue>
 
@@ -734,7 +272,7 @@
         errorLine2="    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/res/values/strings.xml"
-            line="882"
+            line="892"
             column="5"/>
     </issue>
 
@@ -745,7 +283,7 @@
         errorLine2="    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/res/values/strings.xml"
-            line="964"
+            line="974"
             column="5"/>
     </issue>
 
@@ -756,7 +294,7 @@
         errorLine2="    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/res/values/strings.xml"
-            line="1066"
+            line="1076"
             column="5"/>
     </issue>
 
@@ -767,7 +305,7 @@
         errorLine2="    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/res/values/strings.xml"
-            line="1073"
+            line="1083"
             column="5"/>
     </issue>
 
@@ -778,7 +316,7 @@
         errorLine2="    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/res/values/strings.xml"
-            line="1098"
+            line="1108"
             column="5"/>
     </issue>
 
@@ -789,7 +327,7 @@
         errorLine2="    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/res/values/strings.xml"
-            line="1103"
+            line="1113"
             column="5"/>
     </issue>
 
@@ -800,7 +338,7 @@
         errorLine2="    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/res/values/strings.xml"
-            line="1105"
+            line="1115"
             column="5"/>
     </issue>
 
@@ -811,7 +349,7 @@
         errorLine2="    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/res/values/strings.xml"
-            line="1114"
+            line="1124"
             column="5"/>
     </issue>
 
@@ -822,7 +360,7 @@
         errorLine2="    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/res/values/strings.xml"
-            line="1173"
+            line="1183"
             column="5"/>
     </issue>
 
@@ -833,7 +371,7 @@
         errorLine2="    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/res/values/strings.xml"
-            line="1209"
+            line="1219"
             column="5"/>
     </issue>
 
@@ -844,7 +382,7 @@
         errorLine2="    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/res/values/strings.xml"
-            line="1461"
+            line="1472"
             column="5"/>
     </issue>
 
@@ -855,7 +393,7 @@
         errorLine2="    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/res/values/strings.xml"
-            line="1480"
+            line="1491"
             column="5"/>
     </issue>
 
@@ -866,7 +404,7 @@
         errorLine2="    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/res/values/strings.xml"
-            line="1499"
+            line="1510"
             column="5"/>
     </issue>
 
@@ -877,7 +415,7 @@
         errorLine2="    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/res/values/strings.xml"
-            line="1513"
+            line="1524"
             column="5"/>
     </issue>
 
@@ -888,7 +426,7 @@
         errorLine2="    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/res/values/strings.xml"
-            line="1527"
+            line="1538"
             column="5"/>
     </issue>
 
@@ -899,7 +437,7 @@
         errorLine2="    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/res/values/strings.xml"
-            line="1565"
+            line="1576"
             column="5"/>
     </issue>
 
@@ -910,7 +448,7 @@
         errorLine2="    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/res/values/strings.xml"
-            line="1650"
+            line="1661"
             column="5"/>
     </issue>
 
@@ -921,7 +459,7 @@
         errorLine2="    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/res/values/strings.xml"
-            line="1736"
+            line="1747"
             column="5"/>
     </issue>
 
@@ -932,7 +470,7 @@
         errorLine2="    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/res/values/strings.xml"
-            line="1806"
+            line="1817"
             column="5"/>
     </issue>
 
@@ -943,7 +481,7 @@
         errorLine2="    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/res/values/strings.xml"
-            line="1816"
+            line="1827"
             column="5"/>
     </issue>
 
@@ -954,7 +492,7 @@
         errorLine2="    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/res/values/strings.xml"
-            line="1817"
+            line="1828"
             column="5"/>
     </issue>
 
@@ -965,7 +503,7 @@
         errorLine2="    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/res/values/strings.xml"
-            line="1839"
+            line="1850"
             column="5"/>
     </issue>
 
@@ -976,7 +514,7 @@
         errorLine2="    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/res/values/strings.xml"
-            line="1860"
+            line="1871"
             column="5"/>
     </issue>
 
@@ -987,7 +525,7 @@
         errorLine2="    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/res/values/strings.xml"
-            line="1863"
+            line="1874"
             column="5"/>
     </issue>
 
@@ -998,7 +536,7 @@
         errorLine2="    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/res/values/strings.xml"
-            line="1888"
+            line="1899"
             column="5"/>
     </issue>
 
@@ -1009,7 +547,7 @@
         errorLine2="    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/res/values/strings.xml"
-            line="1914"
+            line="1925"
             column="5"/>
     </issue>
 
@@ -1020,11 +558,11 @@
         errorLine2="    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/res/values-es/strings.xml"
-            line="854"
+            line="872"
             column="5"/>
         <location
             file="src/main/res/values/strings.xml"
-            line="935"
+            line="945"
             column="5"
             message="Conflicting number of arguments (0) here"/>
     </issue>
@@ -1047,7 +585,7 @@
         errorLine2="                                      ~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/gradethread/app/inventory/BulkActionBar.kt"
-            line="117"
+            line="121"
             column="39"/>
     </issue>
 
@@ -1058,7 +596,7 @@
         errorLine2="                                    ~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/gradethread/app/measure/MeasurementPhotoEditorSheet.kt"
-            line="233"
+            line="241"
             column="37"/>
     </issue>
 
@@ -1168,7 +706,7 @@
         errorLine2="            ~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/res/values/strings.xml"
-            line="623"
+            line="624"
             column="13"/>
     </issue>
 
@@ -1179,7 +717,7 @@
         errorLine2="                                  ~~~~~~~~~~~">
         <location
             file="src/main/res/values-es/strings.xml"
-            line="1734"
+            line="1783"
             column="35"/>
     </issue>
 
@@ -1190,7 +728,7 @@
         errorLine2="                                  ~~~~~~~~~~~">
         <location
             file="src/main/res/values/strings.xml"
-            line="1870"
+            line="1881"
             column="35"/>
     </issue>
 
@@ -1201,30 +739,19 @@
         errorLine2="            ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/gradethread/app/platform/shortcuts/AppShortcuts.kt"
-            line="85"
+            line="88"
             column="13"/>
     </issue>
 
     <issue
         id="UseKtx"
         message="Use the KTX extension function `String.toUri` instead?"
-        errorLine1="                Intent(Intent.ACTION_VIEW, Uri.parse(spec.uri))"
-        errorLine2="                                           ~~~~~~~~~~~~~~~~~~~">
+        errorLine1="            Intent(Intent.ACTION_VIEW, Uri.parse(spec.uri))"
+        errorLine2="                                       ~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/gradethread/app/platform/shortcuts/AppShortcuts.kt"
-            line="100"
-            column="44"/>
-    </issue>
-
-    <issue
-        id="UseKtx"
-        message="Use the KTX extension function `String.toUri` instead?"
-        errorLine1="        val uri = runCatching { Uri.parse(url) }.getOrNull() ?: return"
-        errorLine2="                                ~~~~~~~~~~~~~~">
-        <location
-            file="src/main/java/com/gradethread/app/marketplaces/CustomTabsLauncher.kt"
-            line="21"
-            column="33"/>
+            line="102"
+            column="40"/>
     </issue>
 
     <issue
@@ -1344,7 +871,7 @@
         errorLine2="                                   ~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/gradethread/app/widget/SellerSnapshotWidget.kt"
-            line="207"
+            line="206"
             column="36"/>
     </issue>
 
@@ -1395,55 +922,11 @@
     <issue
         id="ComposeModifierMissing"
         message="This @Composable function emits content but doesn&apos;t have a modifier parameter.See https://slackhq.github.io/compose-lints/rules/#when-should-i-expose-modifier-parameters for more information."
-        errorLine1="fun AnalyticsScreen("
-        errorLine2="    ~~~~~~~~~~~~~~~">
-        <location
-            file="src/main/java/com/gradethread/app/analytics/AnalyticsScreen.kt"
-            line="53"
-            column="5"/>
-    </issue>
-
-    <issue
-        id="ComposeModifierMissing"
-        message="This @Composable function emits content but doesn&apos;t have a modifier parameter.See https://slackhq.github.io/compose-lints/rules/#when-should-i-expose-modifier-parameters for more information."
         errorLine1="fun AppShell("
         errorLine2="    ~~~~~~~~">
         <location
             file="src/main/java/com/gradethread/app/ui/shell/AppShell.kt"
             line="65"
-            column="5"/>
-    </issue>
-
-    <issue
-        id="ComposeModifierMissing"
-        message="This @Composable function emits content but doesn&apos;t have a modifier parameter.See https://slackhq.github.io/compose-lints/rules/#when-should-i-expose-modifier-parameters for more information."
-        errorLine1="fun AuthScreen(viewModel: AuthViewModel = hiltViewModel()) {"
-        errorLine2="    ~~~~~~~~~~">
-        <location
-            file="src/main/java/com/gradethread/app/auth/AuthScreen.kt"
-            line="47"
-            column="5"/>
-    </issue>
-
-    <issue
-        id="ComposeModifierMissing"
-        message="This @Composable function emits content but doesn&apos;t have a modifier parameter.See https://slackhq.github.io/compose-lints/rules/#when-should-i-expose-modifier-parameters for more information."
-        errorLine1="fun AutolisterSessionScreen(onClose: () -> Unit, viewModel: AutolisterSessionViewModel = hiltViewModel()) {"
-        errorLine2="    ~~~~~~~~~~~~~~~~~~~~~~~">
-        <location
-            file="src/main/java/com/gradethread/app/autolister/AutolisterSessionScreen.kt"
-            line="58"
-            column="5"/>
-    </issue>
-
-    <issue
-        id="ComposeModifierMissing"
-        message="This @Composable function emits content but doesn&apos;t have a modifier parameter.See https://slackhq.github.io/compose-lints/rules/#when-should-i-expose-modifier-parameters for more information."
-        errorLine1="fun AutomationsScreen("
-        errorLine2="    ~~~~~~~~~~~~~~~~~">
-        <location
-            file="src/main/java/com/gradethread/app/automations/AutomationsScreen.kt"
-            line="48"
             column="5"/>
     </issue>
 
@@ -1461,44 +944,11 @@
     <issue
         id="ComposeModifierMissing"
         message="This @Composable function emits content but doesn&apos;t have a modifier parameter.See https://slackhq.github.io/compose-lints/rules/#when-should-i-expose-modifier-parameters for more information."
-        errorLine1="fun BulkPricingScreen("
-        errorLine2="    ~~~~~~~~~~~~~~~~~">
-        <location
-            file="src/main/java/com/gradethread/app/marketplaces/pricing/BulkPricingScreen.kt"
-            line="42"
-            column="5"/>
-    </issue>
-
-    <issue
-        id="ComposeModifierMissing"
-        message="This @Composable function emits content but doesn&apos;t have a modifier parameter.See https://slackhq.github.io/compose-lints/rules/#when-should-i-expose-modifier-parameters for more information."
         errorLine1="fun CaptureScreen("
         errorLine2="    ~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/gradethread/app/capture/CaptureScreen.kt"
-            line="71"
-            column="5"/>
-    </issue>
-
-    <issue
-        id="ComposeModifierMissing"
-        message="This @Composable function emits content but doesn&apos;t have a modifier parameter.See https://slackhq.github.io/compose-lints/rules/#when-should-i-expose-modifier-parameters for more information."
-        errorLine1="fun CommunityInsightsScreen("
-        errorLine2="    ~~~~~~~~~~~~~~~~~~~~~~~">
-        <location
-            file="src/main/java/com/gradethread/app/analytics/CommunityInsightsScreen.kt"
-            line="40"
-            column="5"/>
-    </issue>
-
-    <issue
-        id="ComposeModifierMissing"
-        message="This @Composable function emits content but doesn&apos;t have a modifier parameter.See https://slackhq.github.io/compose-lints/rules/#when-should-i-expose-modifier-parameters for more information."
-        errorLine1="fun ConsignmentReportScreen("
-        errorLine2="    ~~~~~~~~~~~~~~~~~~~~~~~">
-        <location
-            file="src/main/java/com/gradethread/app/consignment/ConsignmentReportScreen.kt"
-            line="109"
+            line="73"
             column="5"/>
     </issue>
 
@@ -1510,50 +960,6 @@
         <location
             file="src/main/java/com/gradethread/app/consignment/ConsignorPicker.kt"
             line="77"
-            column="5"/>
-    </issue>
-
-    <issue
-        id="ComposeModifierMissing"
-        message="This @Composable function emits content but doesn&apos;t have a modifier parameter.See https://slackhq.github.io/compose-lints/rules/#when-should-i-expose-modifier-parameters for more information."
-        errorLine1="fun ConsignorsScreen("
-        errorLine2="    ~~~~~~~~~~~~~~~~">
-        <location
-            file="src/main/java/com/gradethread/app/consignment/ConsignorsScreen.kt"
-            line="43"
-            column="5"/>
-    </issue>
-
-    <issue
-        id="ComposeModifierMissing"
-        message="This @Composable function emits content but doesn&apos;t have a modifier parameter.See https://slackhq.github.io/compose-lints/rules/#when-should-i-expose-modifier-parameters for more information."
-        errorLine1="fun DisclosureScreen(itemId: String, onClose: () -> Unit = {}, viewModel: DisclosureViewModel = hiltViewModel()) {"
-        errorLine2="    ~~~~~~~~~~~~~~~~">
-        <location
-            file="src/main/java/com/gradethread/app/disclosure/DisclosureScreen.kt"
-            line="38"
-            column="5"/>
-    </issue>
-
-    <issue
-        id="ComposeModifierMissing"
-        message="This @Composable function emits content but doesn&apos;t have a modifier parameter.See https://slackhq.github.io/compose-lints/rules/#when-should-i-expose-modifier-parameters for more information."
-        errorLine1="fun DraftsLibraryScreen(onClose: () -> Unit = {}, viewModel: AutolisterViewModel = hiltViewModel()) {"
-        errorLine2="    ~~~~~~~~~~~~~~~~~~~">
-        <location
-            file="src/main/java/com/gradethread/app/autolister/DraftsLibraryScreen.kt"
-            line="52"
-            column="5"/>
-    </issue>
-
-    <issue
-        id="ComposeModifierMissing"
-        message="This @Composable function emits content but doesn&apos;t have a modifier parameter.See https://slackhq.github.io/compose-lints/rules/#when-should-i-expose-modifier-parameters for more information."
-        errorLine1="fun EbayCasesScreen(onClose: () -> Unit = {}, viewModel: EbayCasesViewModel = hiltViewModel()) {"
-        errorLine2="    ~~~~~~~~~~~~~~~">
-        <location
-            file="src/main/java/com/gradethread/app/marketplaces/postsale/EbayCasesScreen.kt"
-            line="48"
             column="5"/>
     </issue>
 
@@ -1582,28 +988,6 @@
     <issue
         id="ComposeModifierMissing"
         message="This @Composable function emits content but doesn&apos;t have a modifier parameter.See https://slackhq.github.io/compose-lints/rules/#when-should-i-expose-modifier-parameters for more information."
-        errorLine1="fun FulfillmentScreen("
-        errorLine2="    ~~~~~~~~~~~~~~~~~">
-        <location
-            file="src/main/java/com/gradethread/app/fulfillment/FulfillmentScreen.kt"
-            line="150"
-            column="5"/>
-    </issue>
-
-    <issue
-        id="ComposeModifierMissing"
-        message="This @Composable function emits content but doesn&apos;t have a modifier parameter.See https://slackhq.github.io/compose-lints/rules/#when-should-i-expose-modifier-parameters for more information."
-        errorLine1="fun ImportScreen(onDone: () -> Unit, viewModel: ImportViewModel = hiltViewModel()) {"
-        errorLine2="    ~~~~~~~~~~~~">
-        <location
-            file="src/main/java/com/gradethread/app/importer/ImportScreen.kt"
-            line="50"
-            column="5"/>
-    </issue>
-
-    <issue
-        id="ComposeModifierMissing"
-        message="This @Composable function emits content but doesn&apos;t have a modifier parameter.See https://slackhq.github.io/compose-lints/rules/#when-should-i-expose-modifier-parameters for more information."
         errorLine1="fun LanguagePicker(onDismiss: () -> Unit) {"
         errorLine2="    ~~~~~~~~~~~~~~">
         <location
@@ -1626,17 +1010,6 @@
     <issue
         id="ComposeModifierMissing"
         message="This @Composable function emits content but doesn&apos;t have a modifier parameter.See https://slackhq.github.io/compose-lints/rules/#when-should-i-expose-modifier-parameters for more information."
-        errorLine1="fun ListingPerformanceScreen("
-        errorLine2="    ~~~~~~~~~~~~~~~~~~~~~~~~">
-        <location
-            file="src/main/java/com/gradethread/app/analytics/ListingPerformanceScreen.kt"
-            line="39"
-            column="5"/>
-    </issue>
-
-    <issue
-        id="ComposeModifierMissing"
-        message="This @Composable function emits content but doesn&apos;t have a modifier parameter.See https://slackhq.github.io/compose-lints/rules/#when-should-i-expose-modifier-parameters for more information."
         errorLine1="fun LockScreen(onUnlock: () -> Unit) {"
         errorLine2="    ~~~~~~~~~~">
         <location
@@ -1652,73 +1025,7 @@
         errorLine2="    ~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/gradethread/app/measure/MeasurementPhotoEditorSheet.kt"
-            line="69"
-            column="5"/>
-    </issue>
-
-    <issue
-        id="ComposeModifierMissing"
-        message="This @Composable function emits content but doesn&apos;t have a modifier parameter.See https://slackhq.github.io/compose-lints/rules/#when-should-i-expose-modifier-parameters for more information."
-        errorLine1="fun MyStoresScreen("
-        errorLine2="    ~~~~~~~~~~~~~~">
-        <location
-            file="src/main/java/com/gradethread/app/radar/MyStoresScreen.kt"
-            line="39"
-            column="5"/>
-    </issue>
-
-    <issue
-        id="ComposeModifierMissing"
-        message="This @Composable function emits content but doesn&apos;t have a modifier parameter.See https://slackhq.github.io/compose-lints/rules/#when-should-i-expose-modifier-parameters for more information."
-        errorLine1="fun NegotiationInboxScreen("
-        errorLine2="    ~~~~~~~~~~~~~~~~~~~~~~">
-        <location
-            file="src/main/java/com/gradethread/app/marketplaces/negotiation/NegotiationInboxScreen.kt"
-            line="47"
-            column="5"/>
-    </issue>
-
-    <issue
-        id="ComposeModifierMissing"
-        message="This @Composable function emits content but doesn&apos;t have a modifier parameter.See https://slackhq.github.io/compose-lints/rules/#when-should-i-expose-modifier-parameters for more information."
-        errorLine1="fun OnboardingHost("
-        errorLine2="    ~~~~~~~~~~~~~~">
-        <location
-            file="src/main/java/com/gradethread/app/onboarding/OnboardingHost.kt"
-            line="53"
-            column="5"/>
-    </issue>
-
-    <issue
-        id="ComposeModifierMissing"
-        message="This @Composable function emits content but doesn&apos;t have a modifier parameter.See https://slackhq.github.io/compose-lints/rules/#when-should-i-expose-modifier-parameters for more information."
-        errorLine1="fun PassportScreen(itemId: String, onClose: () -> Unit = {}, viewModel: PassportViewModel = hiltViewModel()) {"
-        errorLine2="    ~~~~~~~~~~~~~~">
-        <location
-            file="src/main/java/com/gradethread/app/passport/PassportScreen.kt"
-            line="166"
-            column="5"/>
-    </issue>
-
-    <issue
-        id="ComposeModifierMissing"
-        message="This @Composable function emits content but doesn&apos;t have a modifier parameter.See https://slackhq.github.io/compose-lints/rules/#when-should-i-expose-modifier-parameters for more information."
-        errorLine1="fun PayoutReconciliationScreen("
-        errorLine2="    ~~~~~~~~~~~~~~~~~~~~~~~~~~">
-        <location
-            file="src/main/java/com/gradethread/app/money/PayoutReconciliationScreen.kt"
-            line="39"
-            column="5"/>
-    </issue>
-
-    <issue
-        id="ComposeModifierMissing"
-        message="This @Composable function emits content but doesn&apos;t have a modifier parameter.See https://slackhq.github.io/compose-lints/rules/#when-should-i-expose-modifier-parameters for more information."
-        errorLine1="fun PaywallScreen("
-        errorLine2="    ~~~~~~~~~~~~~">
-        <location
-            file="src/main/java/com/gradethread/app/billing/PaywallScreen.kt"
-            line="44"
+            line="70"
             column="5"/>
     </issue>
 
@@ -1747,55 +1054,11 @@
     <issue
         id="ComposeModifierMissing"
         message="This @Composable function emits content but doesn&apos;t have a modifier parameter.See https://slackhq.github.io/compose-lints/rules/#when-should-i-expose-modifier-parameters for more information."
-        errorLine1="fun PostSaleScreen("
-        errorLine2="    ~~~~~~~~~~~~~~">
-        <location
-            file="src/main/java/com/gradethread/app/marketplaces/postsale/PostSaleScreen.kt"
-            line="41"
-            column="5"/>
-    </issue>
-
-    <issue
-        id="ComposeModifierMissing"
-        message="This @Composable function emits content but doesn&apos;t have a modifier parameter.See https://slackhq.github.io/compose-lints/rules/#when-should-i-expose-modifier-parameters for more information."
         errorLine1="fun PromotionSheet("
         errorLine2="    ~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/gradethread/app/marketplaces/promotions/PromotionSheet.kt"
-            line="35"
-            column="5"/>
-    </issue>
-
-    <issue
-        id="ComposeModifierMissing"
-        message="This @Composable function emits content but doesn&apos;t have a modifier parameter.See https://slackhq.github.io/compose-lints/rules/#when-should-i-expose-modifier-parameters for more information."
-        errorLine1="fun ProspectScreen("
-        errorLine2="    ~~~~~~~~~~~~~~">
-        <location
-            file="src/main/java/com/gradethread/app/scout/ProspectScreen.kt"
-            line="51"
-            column="5"/>
-    </issue>
-
-    <issue
-        id="ComposeModifierMissing"
-        message="This @Composable function emits content but doesn&apos;t have a modifier parameter.See https://slackhq.github.io/compose-lints/rules/#when-should-i-expose-modifier-parameters for more information."
-        errorLine1="fun RadarNearbyScreen("
-        errorLine2="    ~~~~~~~~~~~~~~~~~">
-        <location
-            file="src/main/java/com/gradethread/app/radar/RadarNearbyScreen.kt"
-            line="58"
-            column="5"/>
-    </issue>
-
-    <issue
-        id="ComposeModifierMissing"
-        message="This @Composable function emits content but doesn&apos;t have a modifier parameter.See https://slackhq.github.io/compose-lints/rules/#when-should-i-expose-modifier-parameters for more information."
-        errorLine1="fun RadarVenueDetailScreen("
-        errorLine2="    ~~~~~~~~~~~~~~~~~~~~~~">
-        <location
-            file="src/main/java/com/gradethread/app/radar/RadarVenueDetailScreen.kt"
-            line="41"
+            line="36"
             column="5"/>
     </issue>
 
@@ -1813,50 +1076,6 @@
     <issue
         id="ComposeModifierMissing"
         message="This @Composable function emits content but doesn&apos;t have a modifier parameter.See https://slackhq.github.io/compose-lints/rules/#when-should-i-expose-modifier-parameters for more information."
-        errorLine1="fun ReconciliationScreen(onClose: () -> Unit = {}, viewModel: ReconciliationViewModel = hiltViewModel()) {"
-        errorLine2="    ~~~~~~~~~~~~~~~~~~~~">
-        <location
-            file="src/main/java/com/gradethread/app/marketplaces/reconciliation/ReconciliationScreen.kt"
-            line="45"
-            column="5"/>
-    </issue>
-
-    <issue
-        id="ComposeModifierMissing"
-        message="This @Composable function emits content but doesn&apos;t have a modifier parameter.See https://slackhq.github.io/compose-lints/rules/#when-should-i-expose-modifier-parameters for more information."
-        errorLine1="fun ReferralsScreen(viewModel: ReferralsViewModel = hiltViewModel()) {"
-        errorLine2="    ~~~~~~~~~~~~~~~">
-        <location
-            file="src/main/java/com/gradethread/app/referrals/ReferralsScreen.kt"
-            line="49"
-            column="5"/>
-    </issue>
-
-    <issue
-        id="ComposeModifierMissing"
-        message="This @Composable function emits content but doesn&apos;t have a modifier parameter.See https://slackhq.github.io/compose-lints/rules/#when-should-i-expose-modifier-parameters for more information."
-        errorLine1="fun RepricingScreen("
-        errorLine2="    ~~~~~~~~~~~~~~~">
-        <location
-            file="src/main/java/com/gradethread/app/pricing/RepricingScreen.kt"
-            line="44"
-            column="5"/>
-    </issue>
-
-    <issue
-        id="ComposeModifierMissing"
-        message="This @Composable function emits content but doesn&apos;t have a modifier parameter.See https://slackhq.github.io/compose-lints/rules/#when-should-i-expose-modifier-parameters for more information."
-        errorLine1="fun ScoutScreen("
-        errorLine2="    ~~~~~~~~~~~">
-        <location
-            file="src/main/java/com/gradethread/app/scout/ScoutScreen.kt"
-            line="41"
-            column="5"/>
-    </issue>
-
-    <issue
-        id="ComposeModifierMissing"
-        message="This @Composable function emits content but doesn&apos;t have a modifier parameter.See https://slackhq.github.io/compose-lints/rules/#when-should-i-expose-modifier-parameters for more information."
         errorLine1="fun SpecificsSection("
         errorLine2="    ~~~~~~~~~~~~~~~~">
         <location
@@ -1868,66 +1087,11 @@
     <issue
         id="ComposeModifierMissing"
         message="This @Composable function emits content but doesn&apos;t have a modifier parameter.See https://slackhq.github.io/compose-lints/rules/#when-should-i-expose-modifier-parameters for more information."
-        errorLine1="fun SupportScreen(onOpenTicket: (String) -> Unit, viewModel: SupportViewModel = hiltViewModel()) {"
-        errorLine2="    ~~~~~~~~~~~~~">
-        <location
-            file="src/main/java/com/gradethread/app/support/SupportScreen.kt"
-            line="47"
-            column="5"/>
-    </issue>
-
-    <issue
-        id="ComposeModifierMissing"
-        message="This @Composable function emits content but doesn&apos;t have a modifier parameter.See https://slackhq.github.io/compose-lints/rules/#when-should-i-expose-modifier-parameters for more information."
-        errorLine1="fun SupportThreadScreen("
-        errorLine2="    ~~~~~~~~~~~~~~~~~~~">
-        <location
-            file="src/main/java/com/gradethread/app/support/SupportThreadScreen.kt"
-            line="40"
-            column="5"/>
-    </issue>
-
-    <issue
-        id="ComposeModifierMissing"
-        message="This @Composable function emits content but doesn&apos;t have a modifier parameter.See https://slackhq.github.io/compose-lints/rules/#when-should-i-expose-modifier-parameters for more information."
-        errorLine1="fun TeamScreen(onClose: () -> Unit, viewModel: TeamViewModel = hiltViewModel()) {"
-        errorLine2="    ~~~~~~~~~~">
-        <location
-            file="src/main/java/com/gradethread/app/workspace/TeamScreen.kt"
-            line="50"
-            column="5"/>
-    </issue>
-
-    <issue
-        id="ComposeModifierMissing"
-        message="This @Composable function emits content but doesn&apos;t have a modifier parameter.See https://slackhq.github.io/compose-lints/rules/#when-should-i-expose-modifier-parameters for more information."
-        errorLine1="fun TemplatesScreen("
-        errorLine2="    ~~~~~~~~~~~~~~~">
-        <location
-            file="src/main/java/com/gradethread/app/templates/TemplatesScreen.kt"
-            line="48"
-            column="5"/>
-    </issue>
-
-    <issue
-        id="ComposeModifierMissing"
-        message="This @Composable function emits content but doesn&apos;t have a modifier parameter.See https://slackhq.github.io/compose-lints/rules/#when-should-i-expose-modifier-parameters for more information."
-        errorLine1="fun VerifiedScreen("
-        errorLine2="    ~~~~~~~~~~~~~~">
-        <location
-            file="src/main/java/com/gradethread/app/verified/VerifiedScreen.kt"
-            line="306"
-            column="5"/>
-    </issue>
-
-    <issue
-        id="ComposeModifierMissing"
-        message="This @Composable function emits content but doesn&apos;t have a modifier parameter.See https://slackhq.github.io/compose-lints/rules/#when-should-i-expose-modifier-parameters for more information."
         errorLine1="fun WorkspaceSwitcherRow(viewModel: WorkspaceViewModel = hiltViewModel()) {"
         errorLine2="    ~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/gradethread/app/workspace/WorkspaceSwitcherRow.kt"
-            line="37"
+            line="38"
             column="5"/>
     </issue>
 
@@ -1960,7 +1124,7 @@
         errorLine2="^">
         <location
             file="src/main/java/com/gradethread/app/measure/MeasurementPhotoEditorSheet.kt"
-            line="121"
+            line="122"
             column="1"/>
     </issue>
 
@@ -1993,7 +1157,7 @@
         errorLine2="^">
         <location
             file="src/main/java/com/gradethread/app/radar/RadarVenueDetailScreen.kt"
-            line="109"
+            line="140"
             column="1"/>
     </issue>
 
@@ -2004,7 +1168,7 @@
         errorLine2="                     ^">
         <location
             file="src/main/java/com/gradethread/app/grading/GradeReportScreen.kt"
-            line="48"
+            line="51"
             column="22"/>
     </issue>
 
@@ -2015,7 +1179,7 @@
         errorLine2="                    ^">
         <location
             file="src/main/java/com/gradethread/app/inventory/ItemCanvasScreen.kt"
-            line="71"
+            line="72"
             column="21"/>
     </issue>
 
@@ -2026,7 +1190,7 @@
         errorLine2="               ^">
         <location
             file="src/main/java/com/gradethread/app/money/MoneyScreen.kt"
-            line="58"
+            line="65"
             column="16"/>
     </issue>
 
@@ -2037,7 +1201,7 @@
         errorLine2="                  ^">
         <location
             file="src/main/java/com/gradethread/app/settings/SettingsScreen.kt"
-            line="56"
+            line="57"
             column="19"/>
     </issue>
 
@@ -2048,7 +1212,7 @@
         errorLine2="                 ^">
         <location
             file="src/main/java/com/gradethread/app/ui/shell/SyncStatusBar.kt"
-            line="34"
+            line="35"
             column="18"/>
     </issue>
 
@@ -2059,7 +1223,7 @@
         errorLine2="                              ~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/gradethread/app/analytics/AnalyticsScreen.kt"
-            line="412"
+            line="475"
             column="31"/>
     </issue>
 
@@ -2121,11 +1285,22 @@
     <issue
         id="ComposeUnstableCollections"
         message="The Compose Compiler cannot infer the stability of a parameter if a Set&lt;String> is used in it, even if the item type is stable.&#xA;You should use Kotlinx Immutable Collections instead: `selected: ImmutableSet&lt;String>` or create an `@Immutable` wrapper for this class: `@Immutable data class SelectedSet(val items: Set&lt;String>)`&#xA;See https://slackhq.github.io/compose-lints/rules/#avoid-using-unstable-collections for more information."
+        errorLine1="    selected: Set&lt;String> = emptySet(),"
+        errorLine2="              ~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/gradethread/app/autolister/AutolisterSessionScreen.kt"
+            line="134"
+            column="15"/>
+    </issue>
+
+    <issue
+        id="ComposeUnstableCollections"
+        message="The Compose Compiler cannot infer the stability of a parameter if a Set&lt;String> is used in it, even if the item type is stable.&#xA;You should use Kotlinx Immutable Collections instead: `selected: ImmutableSet&lt;String>` or create an `@Immutable` wrapper for this class: `@Immutable data class SelectedSet(val items: Set&lt;String>)`&#xA;See https://slackhq.github.io/compose-lints/rules/#avoid-using-unstable-collections for more information."
         errorLine1="    selected: Set&lt;String>,"
         errorLine2="              ~~~~~~~~~~~">
         <location
             file="src/main/java/com/gradethread/app/autolister/AutolisterSessionScreen.kt"
-            line="310"
+            line="378"
             column="15"/>
     </issue>
 
@@ -2136,7 +1311,7 @@
         errorLine2="                               ~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/gradethread/app/autolister/AutolisterSessionScreen.kt"
-            line="359"
+            line="427"
             column="32"/>
     </issue>
 
@@ -2147,7 +1322,7 @@
         errorLine2="                                                             ~~~~~~~~~~~">
         <location
             file="src/main/java/com/gradethread/app/autolister/AutolisterSessionScreen.kt"
-            line="359"
+            line="427"
             column="62"/>
     </issue>
 
@@ -2158,7 +1333,7 @@
         errorLine2="             ~~~~~~~~~~~~">
         <location
             file="src/main/java/com/gradethread/app/grading/BulkGradeScreen.kt"
-            line="45"
+            line="46"
             column="14"/>
     </issue>
 
@@ -2257,7 +1432,7 @@
         errorLine2="                                 ~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/gradethread/app/grading/GradeReportScreen.kt"
-            line="292"
+            line="296"
             column="34"/>
     </issue>
 
@@ -2290,7 +1465,7 @@
         errorLine2="           ~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/gradethread/app/inventory/InventoryListScreen.kt"
-            line="441"
+            line="486"
             column="12"/>
     </issue>
 
@@ -2301,7 +1476,7 @@
         errorLine2="                  ~~~~~~~~~~~">
         <location
             file="src/main/java/com/gradethread/app/inventory/InventoryListScreen.kt"
-            line="442"
+            line="487"
             column="19"/>
     </issue>
 
@@ -2312,7 +1487,7 @@
         errorLine2="               ~~~~~~~~~~~">
         <location
             file="src/main/java/com/gradethread/app/inventory/InventoryListScreen.kt"
-            line="446"
+            line="491"
             column="16"/>
     </issue>
 
@@ -2323,7 +1498,7 @@
         errorLine2="           ~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/gradethread/app/inventory/InventoryListScreen.kt"
-            line="472"
+            line="517"
             column="12"/>
     </issue>
 
@@ -2334,7 +1509,7 @@
         errorLine2="                  ~~~~~~~~~~~">
         <location
             file="src/main/java/com/gradethread/app/inventory/InventoryListScreen.kt"
-            line="473"
+            line="518"
             column="19"/>
     </issue>
 
@@ -2345,7 +1520,7 @@
         errorLine2="               ~~~~~~~~~~~">
         <location
             file="src/main/java/com/gradethread/app/inventory/InventoryListScreen.kt"
-            line="477"
+            line="522"
             column="16"/>
     </issue>
 
@@ -2367,7 +1542,7 @@
         errorLine2="                  ~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/gradethread/app/inventory/MeasurementsSection.kt"
-            line="42"
+            line="43"
             column="19"/>
     </issue>
 
@@ -2378,7 +1553,7 @@
         errorLine2="                ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/gradethread/app/marketplaces/reconciliation/ReconciliationScreen.kt"
-            line="295"
+            line="373"
             column="17"/>
     </issue>
 

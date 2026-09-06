@@ -43,11 +43,13 @@ class AutomationsTest {
     @Test
     fun `each trigger reads as the condition it actually checks`() {
         val listed = Automations.triggerSummary(AutomationTrigger("days_listed_gt", 30, 7))
-        assertEquals(R.string.automation_trigger_summary_days_listed, listed.res)
+        assertEquals(R.plurals.automation_trigger_summary_days_listed, listed.res)
+        assertEquals(30, listed.quantity)
         assertEquals(listOf<Any>(30), listed.args)
 
         val views = Automations.triggerSummary(AutomationTrigger("no_views_in_days", 14, 7))
-        assertEquals(R.string.automation_trigger_summary_no_views, views.res)
+        assertEquals(R.plurals.automation_trigger_summary_no_views, views.res)
+        assertEquals(14, views.quantity)
         assertEquals(listOf<Any>(14), views.args)
 
         // Watchers first, then days: swap them and the rule reads as a
@@ -77,7 +79,7 @@ class AutomationsTest {
     @Test
     fun `the whole rule is three clauses the screen joins`() {
         val parts = Automations.sentenceParts(rule())
-        assertEquals(R.string.automation_trigger_summary_days_listed, parts.trigger.res)
+        assertEquals(R.plurals.automation_trigger_summary_days_listed, parts.trigger.res)
         assertEquals(R.string.automation_action_summary_drop, parts.action.res)
         assertEquals(R.string.automation_scope_all, parts.scope.res)
     }

@@ -1,5 +1,6 @@
 package com.gradethread.app.pricing
 
+import androidx.annotation.PluralsRes
 import androidx.annotation.StringRes
 import com.gradethread.app.R
 import com.gradethread.app.capture.CurrencyAmount
@@ -192,12 +193,12 @@ object Repricing {
         val count = suggestion.compCount ?: return null
         if (count <= 0) return null
         val median = suggestion.compMedianCents?.let { Money.format(it / 100.0) }
-            ?: return UiMessage(
+            ?: return UiMessage.plural(
                 R.plurals.repricing_evidence,
                 args = listOf(count),
                 quantity = count,
             )
-        return UiMessage(
+        return UiMessage.plural(
             R.plurals.repricing_evidence_median,
             args = listOf(count, median),
             quantity = count,
@@ -230,7 +231,7 @@ object Repricing {
     }
 
     /** A plurals resource whose count is also the number in the sentence. */
-    private fun plural(res: Int, count: Int) = UiMessage(res, args = listOf(count), quantity = count)
+    private fun plural(@PluralsRes res: Int, count: Int) = UiMessage.plural(res, args = listOf(count), quantity = count)
 
     fun formatPct(pct: Double): String =
         if (pct == Math.floor(pct)) pct.toInt().toString() else String.format(Locale.US, "%.1f", pct)
