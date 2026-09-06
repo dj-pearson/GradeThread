@@ -31,7 +31,22 @@ const OAUTH_TOKEN_URI = "https://oauth2.googleapis.com/token";
 //     -d '{"query":"select customer.id from customer"}' \
 //     https://googleads.googleapis.com/v21/customers/1234567890/googleAds:search
 // Measured 2026-08-18: v17/v18/v19 sunset (404 HTML), v20-v24 live (401 JSON).
-export const GOOGLE_ADS_API_VERSION = "v21";
+//
+// ⚠ RE-MEASURED 2026-09-06 AND IT HAD HAPPENED AGAIN: v19, v20 AND v21 all
+// answer 404 now; v22-v26 answer 401. So this constant sat on a sunset version
+// for a second time, and production said so the whole while - ads-sync recorded
+// 18 consecutive `error` runs in cron_runs over three days, and
+// keyword_research_runs holds `generateKeywordIdeas failed (404): <!DOCTYPE
+// html>` from 2026-08-31. The paragraph above describes this exact failure;
+// what was missing was anybody re-running the probe.
+//
+// A VERSION GOING QUIET IS THE DEFAULT HERE, NOT AN INCIDENT. Google sunsets
+// roughly quarterly, so this WILL recur - scripts/ops/google-ads-version-check.mjs
+// runs the probe and fails when this constant is not live.
+//
+// Bump to the LOWEST live version, not the newest: every version carries
+// breaking changes, and the smaller hop is the one you can reason about.
+export const GOOGLE_ADS_API_VERSION = "v22";
 const ADS_API_BASE = "https://googleads.googleapis.com";
 
 /** Resolved Google Ads secrets. `null` from config() when ANY required one is unset. */
