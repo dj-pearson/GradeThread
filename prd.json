@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-3121",
+  "nextId": "US-3122",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -3565,6 +3565,19 @@
         "A note or a check makes it visible that main's CI is red, since it stayed red for four runs with nobody acting on it."
       ],
       "priority": 3
+    },
+    {
+      "id": "US-3121",
+      "passes": false,
+      "title": "Android CI cannot finish: verifyRoborazziDebug is 37+ minutes of a 45-minute job, and nobody knew because lint failed first",
+      "description": "MEASURED 2026-09-06 on Android CI run 34015840531, which is the FIRST run to get past lint in over a week.\n\nWHY IT WAS INVISIBLE. Every Android CI run on main from 2026-08-31 to 2026-09-04 failed in 2 to 8 minutes, all of them at the lint step US-3115 fixed. So the rest of the workflow had not executed at all, and its cost was unmeasured. The first run that got past lint went 45m24s against timeout-minutes: 45 and was killed.\n\nWHERE THE TIME WENT, from the step timings on that run:\n  Screenshot tests (Roborazzi)   37m15s   cancelled, not finished\n  Android Lint                    3m56s\n  Unit tests                      1m52s\n  everything else                ~2m\nThe release APK, the release bundle, the ABI budget and the 16 KB page-size check never ran, and the instrumented emulator job needs build-and-test so it never ran either.\n\nWHY ROBORAZZI IS THAT SLOW. verifyRoborazziDebug re-runs the WHOLE unit suite - 2,550 tests - and then renders and compares 55 screenshot classes. Four of those classes take 5m26s on the Windows dev box, so the full set is over an hour of rendering on top of the suite.\n\nDONE IN THIS COMMIT: split into its own screenshots job with timeout-minutes: 90. It stays BLOCKING, which matters - it was made blocking on 2026-08-29 after continue-on-error rewrote its conclusion to success for four straight runs whose logs said BUILD FAILED. A separate job keeps it visible and fatal while letting the builds finish.\n\nTHAT IS A HOLDING FIX AND THE STORY IS THE REAL ONE. 90 minutes of runner time per push for screenshots is a lot, and the split has not been observed yet - the numbers above are from a run that was killed mid-step, so the true full duration is still unknown.\n\n\u26a0 TWO THINGS THAT MISLED ME, WORTH KEEPING. \"gh run watch --exit-status\" EXITED 0 on this cancelled run: it reported success on a build that timed out. And the run's own annotation list contains 'X The operation was canceled' mixed in with unrelated CodeQL permission warnings, so reading the log tail suggests a permissions problem rather than a timeout. The conclusion is only visible from \"gh run view --json jobs\" step by step.",
+      "acceptanceCriteria": [
+        "The screenshots job completes rather than timing out, and its real duration is recorded here - the 90-minute timeout was a guess made from a killed run.",
+        "The release APK, release bundle, ABI budget and 16 KB page-size steps are observed passing on main at least once, since none of them has run since 2026-08-31.",
+        "The instrumented emulator job runs, having been blocked behind build-and-test this whole time.",
+        "Decide whether 55 screenshot classes must all render on every push, or whether the set can be cut, sharded across runners, or run only when UI files change. Record the reasoning; do not silently make it non-blocking again."
+      ],
+      "priority": 4
     }
   ]
 }

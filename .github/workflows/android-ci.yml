@@ -222,75 +222,9 @@ jobs:
       - name: Coverage floor (kover)
         run: ./gradlew :app:koverVerifyDebug --stacktrace
 
-      # US-2502 / US-2902: rendered-UI diffs. BLOCKING as of 2026-08-29.
-      #
-      # IT WAS NON-BLOCKING BECAUSE OF A WORRY THAT TURNED OUT TO BE WRONG, and
-      # it spent 2026-08-25 to 2026-08-29 RED without anyone seeing it.
-      #
-      # THE WORRY: sub-pixel antialiasing might differ between a Windows
-      # checkout and this runner, so the gate would be red for a reason nobody
-      # could fix. It does not: the runner failed the SAME single test as a
-      # Windows checkout, at the same assertion line. The host was never the
-      # variable.
-      #
-      # THE REAL CAUSE: 540d9648d (US-2891, target API 36) bumped Robolectric
-      # 4.14.1 -> 4.16.1, and its native graphics round alpha compositing one
-      # bit differently. Pixel diff against the pre-bump goldens: FOUR of the
-      # seven moved, every one of them by a MAXIMUM per-channel delta of 1 or 2
-      # — buttons-dark 245 pixels, error-state 6, status-badges-light 67093,
-      # status-badges-dark 75176. Not a layout, colour or font change: a
-      # rounding change no eye can see, and the compare image confirms it.
-      #
-      # ⚠ ONLY ONE CROSSED THE THRESHOLD, AND THAT IS WHY "0.000000" MISLED ME
-      # FIRST TIME. Roborazzi's diff_percentage is a WEIGHTED metric, not the
-      # fraction of differing pixels: status-badges-light had 31% of its pixels
-      # differ and still reported 0.000000, because every delta there is 1.
-      # status-badges-dark reported 0.022547 because 4832 of its deltas are 2.
-      # A Roborazzi 0.000000 means "below its weighting", NOT "identical" —
-      # do not read it as byte-equality the way an earlier version of this
-      # comment did.
-      #
-      # The goldens were re-recorded on 4.16.1 in that same commit. That is
-      # allowed HERE and not in general: "a golden re-recorded on its own is the
-      # assertion deleted" is about hiding a real change, and this one is
-      # measured, explained, and bounded at 2/255.
-      #
-      # AND IT WAS INVISIBLE, WHICH IS WHY IT IS BLOCKING NOW. `gh run view <id>
-      # --json jobs` reported this step's conclusion as "success" for four
-      # straight runs whose own logs say "2088 tests completed, 1 failed" and
-      # "BUILD FAILED" — continue-on-error rewrites a STEP's conclusion. A
-      # non-blocking step is meant to be visible and merely not fatal; this one
-      # could not be seen from the API at all.
-      - name: Screenshot tests (Roborazzi)
-        if: ${{ !inputs.record_screenshots }}
-        run: ./gradlew :app:verifyRoborazziDebug --stacktrace
-
-      - name: Re-record the screenshot goldens
-        if: ${{ inputs.record_screenshots }}
-        run: ./gradlew :app:recordRoborazziDebug --stacktrace
-
-      - name: Upload the re-recorded goldens
-        if: ${{ inputs.record_screenshots }}
-        uses: actions/upload-artifact@v4
-        with:
-          name: roborazzi-goldens
-          path: android/app/src/test/screenshots/
-          if-no-files-found: error
-          retention-days: 7
-
-      - name: Upload the screenshot diff report
-        # One expression, not `failure() || ${{ ... }}` — literal text beside a
-        # replacement token makes the whole condition truthy, which would run
-        # this on the record path too and upload an empty diff directory.
-        if: ${{ always() && !inputs.record_screenshots }}
-        continue-on-error: true
-        uses: actions/upload-artifact@v4
-        with:
-          name: roborazzi-report
-          path: android/app/build/outputs/roborazzi/
-          if-no-files-found: ignore
-          retention-days: 7
-
+      # US-3115: the screenshot steps moved to their own `screenshots` job.
+      # This job could not finish with them in it - see that job for the
+      # measurement.
       # ---------------------------------------------------------------- builds
       - name: Build debug APK
         run: ./gradlew assembleDebug --stacktrace
@@ -420,6 +354,122 @@ jobs:
           name: app-debug-apk
           path: android/app/build/outputs/apk/debug/app-debug.apk
           retention-days: 7
+  # US-3115: screenshots are their own job because they do not fit in anyone
+  # else's.
+  #
+  # MEASURED 2026-09-06 on run 34015840531, the FIRST Android CI run to get past
+  # lint in over a week - every run from 2026-08-31 to 2026-09-04 died at the
+  # lint step in 2 to 8 minutes, so the rest of this workflow had not actually
+  # executed and nobody knew what it cost. It ran 45m24s against a 45-minute
+  # timeout and was killed. `Screenshot tests (Roborazzi)` alone accounted for
+  # 37m15s of it and had not finished; every other step in the job totalled
+  # about 8 minutes, and the release build, the bundle and the ABI budget never
+  # ran at all.
+  #
+  # WHY IT IS THAT SLOW: `verifyRoborazziDebug` re-runs the WHOLE unit suite -
+  # 2,550 tests - and then renders and compares 55 screenshot classes. Four of
+  # those classes take 5m26s on a developer machine, so the full set is over an
+  # hour of rendering on top of the suite. There is no timeout that fits this
+  # inside a job that also has to build a release bundle.
+  #
+  # STILL BLOCKING, deliberately. It was made blocking on 2026-08-29 after
+  # `continue-on-error` rewrote its conclusion to "success" for four straight
+  # runs whose logs said BUILD FAILED. A separate job keeps it both visible and
+  # fatal while letting everything else finish; what it must never go back to is
+  # green-when-red.
+  screenshots:
+    name: Screenshot tests (Roborazzi)
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    # The same block build-and-test carries, and for the same reason: the tests
+    # build the real Hilt graph and NetworkModule asserts this is non-blank.
+    env:
+      SUPABASE_ANON_KEY: ci-placeholder-anon-key
+    defaults:
+      run:
+        working-directory: android
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Set up Gradle (cached)
+        uses: gradle/actions/setup-gradle@v4
+
+      # US-2502 / US-2902: rendered-UI diffs. BLOCKING as of 2026-08-29.
+      #
+      # IT WAS NON-BLOCKING BECAUSE OF A WORRY THAT TURNED OUT TO BE WRONG, and
+      # it spent 2026-08-25 to 2026-08-29 RED without anyone seeing it.
+      #
+      # THE WORRY: sub-pixel antialiasing might differ between a Windows
+      # checkout and this runner, so the gate would be red for a reason nobody
+      # could fix. It does not: the runner failed the SAME single test as a
+      # Windows checkout, at the same assertion line. The host was never the
+      # variable.
+      #
+      # THE REAL CAUSE: 540d9648d (US-2891, target API 36) bumped Robolectric
+      # 4.14.1 -> 4.16.1, and its native graphics round alpha compositing one
+      # bit differently. Pixel diff against the pre-bump goldens: FOUR of the
+      # seven moved, every one of them by a MAXIMUM per-channel delta of 1 or 2
+      # — buttons-dark 245 pixels, error-state 6, status-badges-light 67093,
+      # status-badges-dark 75176. Not a layout, colour or font change: a
+      # rounding change no eye can see, and the compare image confirms it.
+      #
+      # ⚠ ONLY ONE CROSSED THE THRESHOLD, AND THAT IS WHY "0.000000" MISLED ME
+      # FIRST TIME. Roborazzi's diff_percentage is a WEIGHTED metric, not the
+      # fraction of differing pixels: status-badges-light had 31% of its pixels
+      # differ and still reported 0.000000, because every delta there is 1.
+      # status-badges-dark reported 0.022547 because 4832 of its deltas are 2.
+      # A Roborazzi 0.000000 means "below its weighting", NOT "identical" —
+      # do not read it as byte-equality the way an earlier version of this
+      # comment did.
+      #
+      # The goldens were re-recorded on 4.16.1 in that same commit. That is
+      # allowed HERE and not in general: "a golden re-recorded on its own is the
+      # assertion deleted" is about hiding a real change, and this one is
+      # measured, explained, and bounded at 2/255.
+      #
+      # AND IT WAS INVISIBLE, WHICH IS WHY IT IS BLOCKING NOW. `gh run view <id>
+      # --json jobs` reported this step's conclusion as "success" for four
+      # straight runs whose own logs say "2088 tests completed, 1 failed" and
+      # "BUILD FAILED" — continue-on-error rewrites a STEP's conclusion. A
+      # non-blocking step is meant to be visible and merely not fatal; this one
+      # could not be seen from the API at all.
+      - name: Screenshot tests (Roborazzi)
+        if: ${{ !inputs.record_screenshots }}
+        run: ./gradlew :app:verifyRoborazziDebug --stacktrace
+
+      - name: Re-record the screenshot goldens
+        if: ${{ inputs.record_screenshots }}
+        run: ./gradlew :app:recordRoborazziDebug --stacktrace
+
+      - name: Upload the re-recorded goldens
+        if: ${{ inputs.record_screenshots }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: roborazzi-goldens
+          path: android/app/src/test/screenshots/
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Upload the screenshot diff report
+        # One expression, not `failure() || ${{ ... }}` — literal text beside a
+        # replacement token makes the whole condition truthy, which would run
+        # this on the record path too and upload an empty diff directory.
+        if: ${{ always() && !inputs.record_screenshots }}
+        continue-on-error: true
+        uses: actions/upload-artifact@v4
+        with:
+          name: roborazzi-report
+          path: android/app/build/outputs/roborazzi/
+          if-no-files-found: ignore
+          retention-days: 7
+
+
 
   # US-1395 AC3: the instrumented lane, NON-BLOCKING by design.
   #
