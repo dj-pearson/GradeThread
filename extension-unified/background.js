@@ -52,6 +52,10 @@ if (typeof importScripts === "function") {
     // US-3070: the label reader is pure and shared - the worker needs it for the
     // size cap and the url check, the content script needs it to draw.
     "research/label-reader.js",
+    // US-3070: the card the worker injects with scripting.executeScript. Its
+    // render function is SERIALISED into the page, so it closes over nothing.
+    // NOTE: no close-paren in this comment - see the warning above.
+    "research/label-card.js",
     // US-2701: the poll's decisions and the adapters it reads them against.
     // The DRIVER is in this file; these two only decide and describe.
     "sync/selectors.js",
@@ -3418,6 +3422,53 @@ async function readLabelFromImage(srcUrl) {
   }
 }
 
+/**
+ * Put the answer on the page the person right-clicked in.
+ *
+ * ⚠ scripting.executeScript, NOT a content script. A context-menu click is a
+ * qualifying gesture for `activeTab`, which this extension already holds, so
+ * this reaches ANY page with no host permission and no <all_urls> match — the
+ * alternative would have read as "read and change all your data on all
+ * websites" at update time.
+ *
+ * ⚠ AND THE SHAPING HAPPENS HERE, not in the page. GT_LABEL_READER does not
+ * exist in the page: executeScript sends render()'s SOURCE, so everything it
+ * needs arrives as plain data in `args`.
+ */
+async function showLabelCard(tabId, res) {
+  const LR = self.GT_LABEL_READER;
+  const CARD = self.GT_LABEL_CARD;
+  if (!LR || !CARD || !ext.scripting || typeof tabId !== "number") return;
+  // A transport failure renders nothing at all. Absence is not a claim, and a
+  // card reading "something went wrong" on somebody else's page is worse than
+  // no card: the person did not ask that page for anything.
+  if (!res || !res.ok) return;
+  const answer = LR.readAnswer(res.data);
+  if (!answer) return;
+
+  const rnPath = LR.rnLookupPath(answer.fields);
+  try {
+    await ext.scripting.executeScript({
+      target: { tabId: tabId },
+      func: CARD.render,
+      args: [
+        answer,
+        {
+          rows: LR.copyableRows(answer),
+          siteUrl: rnPath && self.GT_ATTRIBUTION
+            ? self.GT_ATTRIBUTION.siteUrl(rnPath, "label-reader")
+            : null,
+          ttlMs: LR.CARD_TTL_MS,
+          hostId: "gt-label-card",
+        },
+      ],
+    });
+  } catch (_e) {
+    // No activeTab grant, a restricted page (chrome://, the Web Store), or the
+    // tab closed. Nothing to say and nowhere to say it.
+  }
+}
+
 function blobToDataUri(blob) {
   return new Promise(function (resolve) {
     try {
@@ -3510,11 +3561,7 @@ if (ext.contextMenus && ext.contextMenus.create) {
         const src = info.srcUrl;
         if (!self.GT_LABEL_READER || !self.GT_LABEL_READER.isReadableImageUrl(src)) return;
         void readLabelFromImage(src).then(function (res) {
-          return ext.tabs.sendMessage(tab.id, {
-            type: "GT_LABEL_RESULT",
-            ok: res.ok,
-            data: res.data,
-          }).catch(function () { /* no content script here */ });
+          return showLabelCard(tab.id, res);
         });
         return;
       }

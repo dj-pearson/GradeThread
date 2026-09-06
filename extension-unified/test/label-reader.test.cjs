@@ -188,8 +188,235 @@ const BG = fs.readFileSync(path.resolve(root, "background.js"), "utf8");
   assert.strictEqual(LR.CARD_TTL_MS, 60 * 1000, "the card no longer expires after 60s");
 })();
 
+
+// ── the card (US-3070 AC2/AC3) ─────────────────────────────────────────────
+
+const CARD = load("research/label-card.js", "GT_LABEL_CARD");
+const CARD_SRC = fs.readFileSync(path.resolve(root, "research/label-card.js"), "utf8");
+
+(function renderClosesOverNothing() {
+  // ⚠ THE ONE THAT IS INVISIBLE FROM THE WORKER. executeScript sends this
+  // function's SOURCE to the page and runs it there. The page has no
+  // GT_LABEL_READER, no chrome.runtime, no `ext` — a reference to any of them
+  // is a ReferenceError inside somebody else's page, which surfaces as the card
+  // silently never appearing. Nothing in the worker would log.
+  const body = CARD.render.toString();
+  for (const forbidden of [
+    "GT_LABEL_READER", "GT_CC_", "GT_ATTRIBUTION", "chrome.", "browser.",
+    "ext.", "self.", "module.exports", "require(",
+  ]) {
+    assert.ok(
+      !body.includes(forbidden),
+      `label-card render() references ${forbidden} — it is serialised into the ` +
+        `page, where that does not exist`,
+    );
+  }
+  // Everything it needs arrives as arguments.
+  assert.strictEqual(CARD.render.length, 2, "render() takes (answer, opts)");
+})();
+
+// A DOM small enough to hand-roll and big enough to prove what the card builds.
+// The extension suite is zero-dependency by rule, so there is no jsdom here.
+function fakeDom() {
+  const listeners = [];
+  const timers = [];
+  const mk = (tag) => {
+    const el = {
+      tagName: String(tag).toUpperCase(),
+      children: [],
+      attrs: {},
+      style: {},
+      className: "",
+      id: "",
+      textContent: "",
+      shadow: null,
+      removed: false,
+      appendChild(c) { this.children.push(c); return c; },
+      append(...cs) { for (const c of cs) this.children.push(c); },
+      setAttribute(k, v) { this.attrs[k] = v; },
+      addEventListener(type, fn) { listeners.push({ on: el, type, fn }); },
+      removeEventListener() {},
+      remove() { this.removed = true; doc._mounted = doc._mounted.filter((m) => m !== this); },
+      attachShadow() { this.shadow = mk("shadow-root"); return this.shadow; },
+    };
+    return el;
+  };
+  const doc = {
+    _mounted: [],
+    body: { appendChild(el) { doc._mounted.push(el); return el; } },
+    createElement: mk,
+    getElementById(id) { return doc._mounted.find((m) => m.id === id) || null; },
+    addEventListener(type, fn) { listeners.push({ on: doc, type, fn }); },
+    removeEventListener() {},
+  };
+  return { doc, listeners, timers };
+}
+
+function runRender(answer, opts) {
+  const { doc, listeners, timers } = fakeDom();
+  const prevDoc = global.document;
+  const prevTimeout = global.setTimeout;
+  const prevNav = global.navigator;
+  global.document = doc;
+  global.setTimeout = (fn, ms) => { timers.push({ fn, ms }); return 0; };
+  global.navigator = { clipboard: { writeText: () => Promise.resolve() } };
+  try {
+    CARD.render(answer, opts);
+  } finally {
+    global.document = prevDoc;
+    global.setTimeout = prevTimeout;
+    global.navigator = prevNav;
+  }
+  const flatten = (el, out = []) => {
+    out.push(el);
+    for (const c of el.children || []) flatten(c, out);
+    if (el.shadow) flatten(el.shadow, out);
+    return out;
+  };
+  const all = doc._mounted.flatMap((m) => flatten(m));
+  // The dismiss path calls document.getElementById and removeEventListener, so
+  // a handler fired AFTER the globals were restored throws on a missing
+  // `document`. `act` reinstalls the fake for the duration of an interaction.
+  const act = (fn) => {
+    const prev = global.document;
+    global.document = doc;
+    try { fn(); } finally { global.document = prev; }
+  };
+  return { doc, listeners, timers, all, act, text: all.map((e) => e.textContent).join(" ") };
+}
+
+const OK_ANSWER = {
+  state: "ok",
+  fields: { brand: "Patagonia", size: "M", fiberContent: "100% cotton", styleCode: "25528", rn: "RN 51884" },
+  disclaimer: "Read from one photo by AI.",
+};
+const OK_OPTS = {
+  rows: [
+    { key: "brand", label: "Brand", value: "Patagonia" },
+    { key: "rn", label: "RN", value: "RN 51884" },
+  ],
+  siteUrl: "https://gradethread.com/tools/rn-lookup?rn=51884",
+  ttlMs: 60000,
+  hostId: "gt-label-card",
+};
+
+(function aReadRendersItsRowsAndOneCopyButton() {
+  const r = runRender(OK_ANSWER, OK_OPTS);
+  assert.ok(r.text.includes("Patagonia"), "the brand never reached the card");
+  assert.ok(r.text.includes("RN 51884"));
+  const buttons = r.all.filter((e) => e.tagName === "BUTTON");
+  // The close button and Copy all. Not one per row: a card with five copy
+  // buttons is five things to aim at for a result you mostly read.
+  assert.strictEqual(buttons.length, 2, "unexpected button count");
+  // rel/target/href are set as PROPERTIES by the card, not through
+  // setAttribute, so they land on the element rather than in attrs.
+  const link = r.all.find((e) => e.tagName === "A");
+  assert.ok(link, "the RN lookup link never rendered");
+  assert.strictEqual(link.rel, "noopener", "the outbound link is not rel=noopener");
+  assert.strictEqual(link.target, "_blank");
+  assert.ok(String(link.href).includes("rn-lookup"), link.href);
+})();
+
+(function aRefusalRendersTheSentenceAndNothingToCopy() {
+  // AC3. Rendered as itself, never retried.
+  for (const state of ["rate_limited", "at_capacity", "error"]) {
+    const r = runRender({ state, message: "Try again in an hour." }, { rows: [], ttlMs: 1000 });
+    assert.ok(r.text.includes("Try again in an hour."), state);
+    const buttons = r.all.filter((e) => e.tagName === "BUTTON");
+    assert.strictEqual(buttons.length, 1, `${state} offered something to copy`);
+    assert.ok(!r.all.some((e) => e.tagName === "A"), `${state} rendered a link`);
+  }
+})();
+
+(function anEmptyReadSaysSoRatherThanShowingBlanks() {
+  const r = runRender({ state: "empty", fields: {} }, { rows: [], ttlMs: 1000 });
+  assert.ok(/Nothing readable/i.test(r.text));
+  assert.ok(!/undefined|null/.test(r.text), r.text);
+})();
+
+(function itLeavesOnItsOwn() {
+  // Escape, the close button, or the TTL — whichever comes first. A card that
+  // outlives the moment is a thing somebody else's page has to live with, and
+  // this one was never asked for by the site.
+  const r = runRender(OK_ANSWER, OK_OPTS);
+  const host = r.doc._mounted[0];
+  assert.ok(host, "nothing was mounted");
+
+  const escape = r.listeners.find((l) => l.type === "keydown");
+  assert.ok(escape, "no Escape handler");
+  r.act(() => escape.fn({ key: "Escape" }));
+  assert.strictEqual(host.removed, true, "Escape did not dismiss the card");
+
+  // And a TTL is always armed, at the reader's own constant.
+  const r2 = runRender(OK_ANSWER, OK_OPTS);
+  const ttl = r2.timers.find((t) => t.ms === 60000);
+  assert.ok(ttl, "no 60s teardown armed");
+  const mounted = r2.doc._mounted[0];
+  r2.act(() => ttl.fn());
+  assert.strictEqual(mounted.removed, true, "the TTL did not dismiss");
+})();
+
+(function aSecondCardReplacesTheFirst() {
+  // Two cards on one page is worse than a stale one.
+  assert.ok(
+    CARD_SRC.includes("if (existing) existing.remove()"),
+    "a second right-click stacks a second card",
+  );
+})();
+
+// ── the injection, and what it is NOT ──────────────────────────────────────
+
+(function theWorkerInjectsRatherThanMatchingEveryPage() {
+  const manifest = JSON.parse(
+    fs.readFileSync(path.resolve(root, "manifest.json"), "utf8"),
+  );
+  // ⚠ activeTab + scripting, NOT <all_urls>. A context-menu click is a
+  // qualifying gesture for activeTab, which this extension already held, so the
+  // card reaches any page with no host permission at all. The alternative reads
+  // as "read and change all your data on all websites" at update time.
+  assert.ok(manifest.permissions.includes("scripting"), "no scripting permission");
+  assert.ok(manifest.permissions.includes("activeTab"), "activeTab was dropped");
+  for (const p of manifest.permissions) {
+    assert.ok(p !== "tabs", "the broad tabs permission was added");
+  }
+  for (const h of manifest.host_permissions) {
+    assert.ok(!/^\*:\/\/\*\/\*|<all_urls>/.test(h), `host_permissions gained ${h}`);
+  }
+  for (const cs of manifest.content_scripts || []) {
+    for (const m of cs.matches) {
+      assert.ok(
+        !/<all_urls>|^\*:\/\/\*\//.test(m),
+        `a content script now matches ${m} — the card is injected on demand instead`,
+      );
+    }
+  }
+
+  // And the worker really does inject, with the shaping done on its side.
+  const fn = BG.slice(
+    BG.indexOf("async function showLabelCard"),
+    BG.indexOf("function blobToDataUri"),
+  );
+  assert.ok(fn.length > 200, "showLabelCard not found where expected");
+  assert.ok(/ext\.scripting\.executeScript\(/.test(fn), "the card is not injected");
+  assert.ok(/func: CARD\.render/.test(fn), "executeScript does not run the card's render");
+  assert.ok(/target: \{ tabId: tabId \}/.test(fn), "the injection is not scoped to the clicked tab");
+  // A transport failure renders NOTHING. A card saying "something went wrong"
+  // on a page the person did not ask anything of is worse than no card.
+  assert.ok(/if \(!res \|\| !res\.ok\) return;/.test(fn), "a failed read still draws");
+})();
+
+(function theStoreListingJustifiesTheNewPermission() {
+  // US-1874 shipped `alarms` unjustified and it was a review rejection.
+  const sub = fs.readFileSync(path.resolve(root, "SUBMISSION.md"), "utf8");
+  assert.ok(/`scripting`/.test(sub), "scripting has no justification in SUBMISSION.md");
+  const para = sub.slice(sub.indexOf("- `scripting`"), sub.indexOf("- `scripting`") + 900);
+  assert.ok(/activeTab/.test(para), "the justification does not say where the access comes from");
+  assert.ok(/right-click|right click/i.test(para), "it does not say what triggers it");
+})();
+
 console.log(
   "label-reader.test.cjs: srcUrl is the only input, no token and no page url travel, " +
     "the 8MB check precedes the upload, refusals render as answers and are never " +
-    "retried, and nothing is stored",
+    "retried, nothing is stored, and the card is INJECTED on a right-click rather " +
+    "than matched on every page",
 );
