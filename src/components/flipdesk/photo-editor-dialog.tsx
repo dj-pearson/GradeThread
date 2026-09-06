@@ -401,8 +401,14 @@ export function PhotoEditorDialog({
       const out = await removeImageBackground(blob, "white", setBgProgress);
       await loadBitmaps(out.full);
       setBgRemoved(true);
-    } catch {
-      setNotice("Background removal failed. The photo is unchanged.");
+    } catch (err) {
+      // US-3069: tell the two failures apart. "Failed" on a missing model
+      // blames the photo, and the seller retries with a better one forever.
+      setNotice(
+        (err as Error)?.name === "NoLocalSegmenter"
+          ? "On-device background removal isn't available in this build. Use Remove background from the photo grid, which runs on the server."
+          : "Background removal failed. The photo is unchanged.",
+      );
     } finally {
       setBgBusy(false);
     }

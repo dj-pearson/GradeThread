@@ -9,12 +9,18 @@ code_refs:
   - services/edge-functions/src/tests/plan-gate-coverage_test.ts
   - services/edge-functions/src/routes/flipdesk-closet-import.ts
   - src/lib/constants.ts
-reviewed: 2026-09-04
+reviewed: 2026-09-05
 tags: [flipdesk, plans, billing, contract]
 summary: Every FlipDesk endpoint touching a gated capacity or feature calls requireFlipdesk; the 80%-warning and 402 responses are a protocol two frontends depend on.
 ---
 
 # FlipDesk plan gating contract
+
+> **Re-reviewed 2026-09-05, no change.** Drift flagged `src/lib/constants.ts`
+> for US-3071, which added `relist` to `MARKETPLACE_EXTENSION_FLOWS` and a
+> per-flow capability label map beside it. That is the extension cross-listing
+> surface only: no grading weight, photo rule, plan gate or price moved, and
+> the constants this note names are untouched.
 
 > **Re-reviewed 2026-09-02.** Drift flagged `flipdesk-closet-import.ts` and
 > `constants.ts`. The closet-import gate is already documented below (US-9201:

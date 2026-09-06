@@ -12,12 +12,18 @@ code_refs:
   - services/edge-functions/src/lib/human-review.ts
   - services/edge-functions/src/lib/defect-weighting.ts
   - services/edge-functions/src/tests/weighted-grade-parity_test.ts
-reviewed: 2026-09-04
+reviewed: 2026-09-05
 tags: [grading, contract]
 summary: The 1.0-10.0 scale, the five weighted factors, the rounding rule that has now shipped wrong twice, and which engine criteria are published and therefore no longer free to tune.
 ---
 
 # Grading scale, factor weights and rounding
+
+> **Re-reviewed 2026-09-05, no change.** Drift flagged `src/lib/constants.ts`
+> for US-3071, which added `relist` to `MARKETPLACE_EXTENSION_FLOWS` and a
+> per-flow capability label map beside it. That is the extension cross-listing
+> surface only: no grading weight, photo rule, plan gate or price moved, and
+> the constants this note names are untouched.
 
 > **Re-reviewed 2026-09-02.** Drift flagged `src/lib/constants.ts` for
 > `CREATOR_AFFILIATE` (US-9212). No factor, weight, tier boundary or rounding

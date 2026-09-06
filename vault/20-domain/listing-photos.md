@@ -19,12 +19,18 @@ code_refs:
   - supabase/migrations/00587_item_photo_role_qualifier.sql
   - supabase/migrations/00589_submission_image_role.sql
   - services/edge-functions/src/routes/flipdesk-grading.ts
-reviewed: 2026-09-04
+reviewed: 2026-09-05
 tags: [flipdesk, photos, listings, ebay, contract]
 summary: Two independent levers (canonical order and required set) duplicated across ~7 surfaces, plus the separate path photo edits take to reach eBay.
 ---
 
 # Listing photos — order, required set, and how edits reach eBay
+
+> **Re-reviewed 2026-09-05, no change.** Drift flagged `src/lib/constants.ts`
+> for US-3071, which added `relist` to `MARKETPLACE_EXTENSION_FLOWS` and a
+> per-flow capability label map beside it. That is the extension cross-listing
+> surface only: no grading weight, photo rule, plan gate or price moved, and
+> the constants this note names are untouched.
 
 > **Re-reviewed 2026-09-02.** Drift flagged three refs for changes that leave
 > the photo contract alone. `photo-manager.tsx` gained the US-9202 queueing hook,

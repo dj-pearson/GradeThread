@@ -2,21 +2,26 @@
 title: On-device background removal is AGPL, and it is already shipping
 aliases: [imgly, background-removal licence, AGPL, remove-bg local]
 type: decision
-status: current
+status: accepted
 source_of_truth: code
 code_refs:
   - src/lib/background-removal.ts
   - package.json
 reviewed: 2026-09-05
 tags: [licensing, legal, images, extension, open-question]
-summary: "@imgly/background-removal is AGPL-3.0 and its JavaScript is served from gradethread.com to every seller who opens the photo editor. Live since US-535, never recorded until now, and US-3069 would make it the default path."
+summary: "@imgly/background-removal is AGPL-3.0 and shipped from gradethread.com from US-535. RESOLVED 2026-09-05 by swapping to U^2-Net (Apache 2.0) through onnxruntime-web (MIT); the weights are the one step left."
 ---
 
 # On-device background removal is AGPL, and it is already shipping
 
-> [!warning] This is an OPEN question for the owner, not a settled decision.
+> [!success] DECIDED 2026-09-05: swap it out. Done in code the same day.
+> The owner chose to replace the library rather than buy a licence or revert to
+> the server. `@imgly/background-removal` is gone from package.json and imported
+> nowhere; `src/lib/segment-u2net.ts` runs U^2-Net (Apache 2.0) through
+> onnxruntime-web (MIT), both same-origin. See "What was done" at the foot.
+>
 > Nothing here is a legal opinion. It is the set of facts somebody with a legal
-> opinion would need, measured rather than assumed, on 2026-09-05.
+> opinion would need, measured rather than assumed.
 
 ## What was measured
 
@@ -96,3 +101,55 @@ product was in before US-535.
 
 - [[states-that-look-normal]] — a dependency whose licence npm reports as
   "SEE LICENSE IN LICENSE.md" reads exactly like one with no licence problem.
+
+## What was done (2026-09-05)
+
+`@imgly/background-removal` is removed from `package.json` and imported from no
+file. `src/lib/segment-u2net.ts` replaces it: U^2-Net through onnxruntime-web,
+with the preprocessing, the min-max mask rescale and the bilinear resample
+written out and unit-tested, because each of those is a silent failure that
+produces a plausible-looking mask cut in the wrong place.
+
+**Both replacement licences were checked, not assumed.**
+
+| Component | Licence | How it was checked |
+|---|---|---|
+| `onnxruntime-web` 1.21.0 | MIT | its own package.json; it was already installed as a transitive dep of the removed library, so this is a promotion to direct rather than a new dependency |
+| U^2-Net | Apache 2.0 | the LICENSE file in `github.com/xuebinqin/U-2-Net`, read 2026-09-05; no clause restricting commercial use |
+
+> [!warning] The obvious alternative is worse, and it is named in the source
+> BRIA's **RMBG-1.4** is the model most background-removal examples reach for
+> and it is explicitly **non-commercial**. Swapping one licence problem for a
+> second is the failure this change exists to undo, so the model was chosen on
+> its licence first and its quality second.
+
+Nothing is fetched from a vendor CDN any more either. The old library pulled its
+ONNX runtime and model from `staticimgly.com`; both replacements are served from
+our own origin, and a test asserts the paths are absolute and same-origin.
+
+## The one step left, and it needs a person
+
+**The weights are not vendored.** `available()` answers false while
+`/models/u2netp.onnx` is not served, `removeImageBackground` throws the named
+`NoLocalSegmenter`, and both call sites say so in words rather than reporting a
+failed removal — a generic "background removal failed" on a missing model blames
+the photo, and a seller retries with a better one forever.
+
+So on-device removal is OFF until somebody vendors two things into `public/`:
+
+1. `public/models/u2netp.onnx` — the small U^2-Net variant, about 4.7 MB.
+2. `public/models/ort/` — the `.wasm` files from
+   `node_modules/onnxruntime-web/dist/`, which `ORT_WASM_PATH` points at.
+
+⚠ **Whoever does it should pick the artifact deliberately.** An ONNX export is a
+binary from a third party, and committing one is a supply-chain decision rather
+than a copy: record where it came from and its SHA-256 next to it. That is why
+this was left rather than done automatically.
+
+**What still works meanwhile:** the server route
+(`POST /api/flipdesk/images/remove-bg`, `use-remove-bg.ts`) is untouched and is
+what the photo grid uses. It takes a persisted `item_photo_id` rather than a
+blob, so it is NOT a drop-in for the editor dialog or the AutoLister staging
+path — those two are the surfaces that lose the feature until the weights land.
+That asymmetry was checked rather than assumed; the first draft of this note
+claimed the server was a general fallback, and it is not.

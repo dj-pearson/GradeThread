@@ -9,11 +9,17 @@ code_refs:
   - scripts/setup-stripe-pricing.mjs
   - src/pages/legal/refund.tsx
   - src/pages/legal/terms.tsx
-reviewed: 2026-09-04
+reviewed: 2026-09-05
 tags: [pricing, billing, stripe, contract]
 summary: The single source of truth for every price; src/lib/constants.ts is its machine-readable mirror and must change in the same commit.
 ---
 # GradeThread + FlipDesk Pricing — Canonical Model (US-200)
+
+> **Re-reviewed 2026-09-05, no change.** Drift flagged `src/lib/constants.ts`
+> for US-3071, which added `relist` to `MARKETPLACE_EXTENSION_FLOWS` and a
+> per-flow capability label map beside it. That is the extension cross-listing
+> surface only: no grading weight, photo rule, plan gate or price moved, and
+> the constants this note names are untouched.
 
 > **Re-reviewed 2026-09-02.** Drift flagged `src/lib/constants.ts` and
 > `src/pages/legal/terms.tsx`. The constants change is this note's own creator
