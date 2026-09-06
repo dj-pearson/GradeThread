@@ -10,12 +10,19 @@ code_refs:
   - services/edge-functions/src/middleware/mcp-auth.ts
   - services/edge-functions/src/routes/oauth.ts
   - services/edge-functions/src/routes/health.ts
-reviewed: 2026-08-22
+reviewed: 2026-09-05
 tags: [ops, connector, launch, runbook]
 summary: The two flags that gate the connector, the order to flip them in, and the checks that prove each step before the next one.
 ---
 
 # Turning the connector on
+
+> **Re-reviewed 2026-09-05, no change.** Drift flagged `health.ts` for the
+> GoTrue OTP-expiry read (US-2351 AC7), which adds a field this note does not
+> describe. The one thing this note asks of that file is still there:
+> `connectorReadiness()` populates `features.connector`, so the curl below
+> still names which of the two kill switches is holding the connector dark.
+
 
 > Everything the connector needs is built and tested. It is dark in production
 > behind two environment variables, on purpose. This is the order to open it in,

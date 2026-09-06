@@ -9,7 +9,7 @@ code_refs:
   - wrangler.toml
   - lighthouserc.json
   - functions/_shared/sitemap.ts
-reviewed: 2026-08-31
+reviewed: 2026-09-05
 tags: [seo, performance, images, cwv]
 summary: The shipped performance levers, how responsive images are gated (ON since US-2333), and how the edge SSR cache and its purges actually work.
 ---
@@ -224,15 +224,22 @@ emits from `ROUTE_OG_IMAGES` at build (US-2111), so new cards arrive on their ow
 > This note used to call that a mandatory second edit "in lockstep", on the
 > reasoning that Pages Functions cannot import from `src/`. True, and irrelevant:
 > the manifest is how the value crosses that boundary. The array is now
-> `FALLBACK_MARKETING_IMAGES` (`sitemap.ts:720`) and exists only for a
-> manifest-fetch failure — its own comment at `sitemap.ts:718` says "Do not add
-> new cards here". Following the old step adds a line to a fallback list that is
+> `FALLBACK_MARKETING_IMAGES` (grep the name; it is NOT at `sitemap.ts:720`
+> any more) and exists only for a manifest-fetch failure. The comment
+> directly above it says "Do not add new cards here". Following the old step adds a line to a fallback list that is
 > **expected** to drift, and teaches the next person that the two must match.
 >
 > Re-read 2026-08-31 because drift flagged `sitemap.ts` for the RN lookup work
 > (US-9032). Nothing to carry: that commit adds `rnUrls()` for the new
 > `sitemap-rn.xml` segment and does not touch `FALLBACK_MARKETING_IMAGES`, the
-> manifest read, or anything this section describes. The flag is file-level, so
+> manifest read, or anything this section describes.
+>
+> **Re-read again 2026-09-05.** Drift flagged the `/buying` buyer-trust cluster
+> (US-3093), which adds routes and touches nothing here. The re-read still paid
+> for itself: the two line numbers above had slid about 300 lines and pointed at
+> unrelated code, so they are gone now, for the reason
+> [[ebay-orders-backfill]] gives at length. A line number is a claim that
+> expires without anyone touching the note. The flag is file-level, so
 > it fires on any edit to a 700-line shared module; that is the check working
 > coarsely rather than a claim going stale.
 

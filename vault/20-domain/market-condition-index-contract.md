@@ -161,6 +161,12 @@ assumption: the terms clause that governs automated processing of listing data b
 a browser extension acting for a logged-in shopper. That is a specific question
 to put to counsel once, covering all six, rather than six separate readings.
 
+**That question is now written and sendable**:
+[[counsel-question-extension-terms]]. It is a brief a lawyer can answer without
+repo access or a call, and it states what we do with each possible answer,
+including that an uncleared marketplace is excluded rather than included
+quietly. It does not answer the question and nothing in it changes this table.
+
 ## 7. What this note does NOT decide
 
 - The bucket keys and their widths — US-2710.

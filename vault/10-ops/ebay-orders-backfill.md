@@ -7,13 +7,19 @@ code_refs:
   - services/edge-functions/src/routes/flipdesk-ebay.ts
   - services/edge-functions/src/lib/sync-watermark.ts
   - services/edge-functions/src/routes/jobs-ebay-order-backstop.ts
-reviewed: 2026-09-04
+reviewed: 2026-09-05
 tags: [ebay, flipdesk, sync, recovery]
 summary: How to recover eBay orders that a pre-US-2320 sync skipped past, how to tell whether a seller lost any, and why the run status field is the wrong thing to check.
 ---
 
 # eBay orders backfill after a lost sync window
 
+> **Re-reviewed 2026-09-05, no change.** Drift flagged `flipdesk-ebay.ts` for
+> the return-id evidence-pack mount (US-3068). It touches no part of the
+> backfill, and this note's pointers survived it because they are anchored by
+> symbol and grep-able string rather than by line. That is the callout below
+> doing its job.
+>
 > **Re-reviewed 2026-09-02.** Drift flagged `flipdesk-ebay.ts` for the size
 > enforcement work: a publish or revise rejected for a custom size value now
 > heals itself (invalidate the category-aspect cache, refetch fresh, refit the

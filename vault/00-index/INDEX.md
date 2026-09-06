@@ -47,7 +47,7 @@ New here? Read [[CONTRACT]] before adding a note.
 
 ## 50-business — pricing and economics
 
-17 notes — see [[moc-business]].
+18 notes — see [[moc-business]].
 
 ## 60-decisions — ADRs
 
