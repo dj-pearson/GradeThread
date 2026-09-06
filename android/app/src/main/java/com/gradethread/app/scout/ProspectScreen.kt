@@ -24,6 +24,7 @@ import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.res.stringResource
@@ -35,6 +36,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.gradethread.app.capture.PhotoProcessor
 import com.gradethread.app.marketplaces.CustomTabsLauncher
 import com.gradethread.app.platform.rememberHapticFeedback
 import com.gradethread.app.ui.text
@@ -45,6 +47,7 @@ import com.gradethread.app.ui.theme.BrandSecondaryButton
 import com.gradethread.app.ui.theme.Spacing
 import com.gradethread.app.ui.theme.cardStyle
 import java.io.File
+import kotlinx.coroutines.launch
 
 /**
  * US-1374: in-store prospecting — snap it, don't type it.
@@ -70,13 +73,20 @@ fun ProspectScreen(
     // this screen exists to stop (US-3027).
     var pendingRole by remember { mutableStateOf(ProspectPhotoRole.FRONT) }
     var cameraDenied by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
 
     val takePicture = rememberLauncherForActivityResult(
         ActivityResultContracts.TakePicture(),
     ) { saved ->
-        val file = pendingCapture
+        val raw = pendingCapture
+        val role = pendingRole
         pendingCapture = null
-        if (saved && file != null) viewModel.setPhoto(pendingRole, file)
+        // US-2658 AC3 / US-3027: the RAW camera file never reaches the wire.
+        // PhotoProcessor is what downsizes and what destroys EXIF - a fresh
+        // Bitmap.compress copies none of it - and these bytes are base64'd
+        // straight into the scan request, so a raw file here ships the seller's
+        // GPS coordinates to identify a jumper.
+        if (saved && raw != null) scope.launch { useProcessed(viewModel, role, raw) }
     }
 
     fun launchCamera() {
@@ -95,7 +105,14 @@ fun ProspectScreen(
     val pickPhoto = rememberLauncherForActivityResult(
         ActivityResultContracts.PickVisualMedia(),
     ) { uri ->
-        uri?.let { viewModel.setPhoto(pendingRole, stageProspectPhoto(context, it)) }
+        val role = pendingRole
+        uri?.let {
+            scope.launch {
+                // Staged into our own cache first, because PhotoProcessor reads
+                // a File and the picker hands back a content:// uri.
+                useProcessed(viewModel, role, stageProspectPhoto(context, it))
+            }
+        }
     }
 
     ProspectContent(
@@ -452,7 +469,22 @@ private fun ResultCard(response: ProspectResponse, state: ProspectViewModel.Stat
     }
 }
 
-/** Copy a picked image into our own cache so the edge upload has a real file. */
+/**
+ * Process [raw] and hand the RESULT to the ViewModel, or say it failed.
+ *
+ * Fails CLOSED, the same way CaptureScreen does: the raw file is deleted either
+ * way, so a later change cannot pick it up, and a failure sets an error rather
+ * than quietly falling back to the unprocessed bytes. A fallback here would be
+ * indistinguishable from success and would ship exactly what this exists to
+ * stop.
+ */
+private suspend fun useProcessed(viewModel: ProspectViewModel, role: ProspectPhotoRole, raw: File) {
+    val processed = runCatching { PhotoProcessor.process(raw, raw.parentFile ?: raw) }.getOrNull()
+    raw.delete()
+    if (processed == null) viewModel.photoUnreadable() else viewModel.setPhoto(role, processed.file)
+}
+
+/** Copy a picked image into our own cache so the processor has a real file. */
 private fun stageProspectPhoto(context: android.content.Context, uri: android.net.Uri): File {
     val dir = File(context.cacheDir, "prospect-capture").apply { mkdirs() }
     val file = File(dir, "prospect_${System.nanoTime()}.jpg")

@@ -23,6 +23,14 @@ import java.io.File
  * no roles at all, so every Android scan read the tag and could never reach eBay
  * visual search however good a garment shot the seller took.
  *
+ * ⚠ THE DISPATCHER IS PASSED IN, AND THAT IS NOT COSMETIC (US-3027). Four of
+ * these cases were red on main for months because the ViewModel did its file
+ * read under `withContext(Dispatchers.IO)`: `advanceUntilIdle()` advances the
+ * TEST scheduler, the real IO pool is not on it, so the assertions ran before
+ * the ViewModel had called anything and the failure read as "no roles were
+ * sent" - a bug in code that was correct on that point. Not one assertion below
+ * changed; only the dispatcher the ViewModel is given.
+ *
  * ⚠ AND POSITION IS NOT THE ROLE. Deriving "photo 0 is the front" from the list
  * order is the tempting shortcut and the wrong one: a seller who photographs
  * only the care label would have it labelled `front`, and US-2758 measured a
@@ -38,7 +46,10 @@ class ProspectRolesTest {
     @get:Rule
     val folder = TemporaryFolder()
 
-    private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true }
+    private val json = Json {
+        ignoreUnknownKeys = true
+        encodeDefaults = true
+    }
 
     /** Captures what the ViewModel actually put on the wire. */
     private class RecordingScout : ScoutScanning {
@@ -47,17 +58,10 @@ class ProspectRolesTest {
 
         override suspend fun suggestCategory(query: String): CategorySuggestion? = null
 
-        override suspend fun scan(
-            categoryId: String,
-            q: String?,
-            brand: String?,
-            limit: Int,
-        ): ScoutScanResponse = ScoutScanResponse()
+        override suspend fun scan(categoryId: String, q: String?, brand: String?, limit: Int): ScoutScanResponse =
+            ScoutScanResponse()
 
-        override suspend fun prospect(
-            photos: List<ProspectPhotoBytes>,
-            costCents: Int?,
-        ): ProspectResponse {
+        override suspend fun prospect(photos: List<ProspectPhotoBytes>, costCents: Int?): ProspectResponse {
             sent = photos
             this.costCents = costCents
             return ProspectResponse(identified = true)
@@ -128,7 +132,7 @@ class ProspectRolesTest {
 
     @Test
     fun eachSlotHoldsOnePhotoAndReshootingReplacesIt() {
-        val vm = ProspectViewModel(RecordingScout())
+        val vm = ProspectViewModel(RecordingScout(), mainDispatcher.dispatcher)
         val first = photoFile("front-1.jpg")
         val second = photoFile("front-2.jpg")
 
@@ -141,7 +145,7 @@ class ProspectRolesTest {
 
     @Test
     fun theWireOrderIsRoleOrderWhicheverSlotWasFilledFirst() {
-        val vm = ProspectViewModel(RecordingScout())
+        val vm = ProspectViewModel(RecordingScout(), mainDispatcher.dispatcher)
         vm.setPhoto(ProspectPhotoRole.TAG, photoFile("tag.jpg"))
         vm.setPhoto(ProspectPhotoRole.FRONT, photoFile("front.jpg"))
 
@@ -153,7 +157,7 @@ class ProspectRolesTest {
 
     @Test
     fun removingASlotLeavesTheOtherAlone() {
-        val vm = ProspectViewModel(RecordingScout())
+        val vm = ProspectViewModel(RecordingScout(), mainDispatcher.dispatcher)
         vm.setPhoto(ProspectPhotoRole.FRONT, photoFile("front.jpg"))
         vm.setPhoto(ProspectPhotoRole.TAG, photoFile("tag.jpg"))
 
@@ -168,7 +172,7 @@ class ProspectRolesTest {
     @Test
     fun aTagOnlyScanSendsOnePhotoWhoseRoleIsTag() = runTest(mainDispatcher.dispatcher) {
         val service = RecordingScout()
-        val vm = ProspectViewModel(service)
+        val vm = ProspectViewModel(service, mainDispatcher.dispatcher)
         vm.setPhoto(ProspectPhotoRole.TAG, photoFile("tag.jpg"))
 
         vm.run()
@@ -178,20 +182,19 @@ class ProspectRolesTest {
     }
 
     @Test
-    fun aGarmentOnlyScanSendsTheFrontRoleThatVisualSearchNeeds() =
-        runTest(mainDispatcher.dispatcher) {
-            // prospect-identify.ts checks TAG_ROLES first, so a front-only scan
-            // is the one that reaches visual search - and therefore the one
-            // that costs no AI action for identification (US-2760).
-            val service = RecordingScout()
-            val vm = ProspectViewModel(service)
-            vm.setPhoto(ProspectPhotoRole.FRONT, photoFile("front.jpg"))
+    fun aGarmentOnlyScanSendsTheFrontRoleThatVisualSearchNeeds() = runTest(mainDispatcher.dispatcher) {
+        // prospect-identify.ts checks TAG_ROLES first, so a front-only scan
+        // is the one that reaches visual search - and therefore the one
+        // that costs no AI action for identification (US-2760).
+        val service = RecordingScout()
+        val vm = ProspectViewModel(service, mainDispatcher.dispatcher)
+        vm.setPhoto(ProspectPhotoRole.FRONT, photoFile("front.jpg"))
 
-            vm.run()
-            advanceUntilIdle()
+        vm.run()
+        advanceUntilIdle()
 
-            assertEquals(listOf("front"), service.sent?.map { it.role.wire })
-        }
+        assertEquals(listOf("front"), service.sent?.map { it.role.wire })
+    }
 
     @Test
     fun anUnreadablePhotoDropsItsRoleWithIt() = runTest(mainDispatcher.dispatcher) {
@@ -201,7 +204,7 @@ class ProspectRolesTest {
         // garment shot. The pair is filtered as one object, so the surviving
         // photo keeps its own role.
         val service = RecordingScout()
-        val vm = ProspectViewModel(service)
+        val vm = ProspectViewModel(service, mainDispatcher.dispatcher)
         vm.setPhoto(ProspectPhotoRole.FRONT, File(folder.root, "never-written.jpg"))
         vm.setPhoto(ProspectPhotoRole.TAG, photoFile("tag.jpg"))
 
@@ -214,7 +217,7 @@ class ProspectRolesTest {
     @Test
     fun noPhotoReadableIsAnErrorRatherThanARolelessScan() = runTest(mainDispatcher.dispatcher) {
         val service = RecordingScout()
-        val vm = ProspectViewModel(service)
+        val vm = ProspectViewModel(service, mainDispatcher.dispatcher)
         vm.setPhoto(ProspectPhotoRole.FRONT, File(folder.root, "never-written.jpg"))
 
         vm.run()

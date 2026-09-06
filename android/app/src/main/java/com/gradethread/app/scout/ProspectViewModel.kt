@@ -4,11 +4,12 @@ import androidx.annotation.StringRes
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.gradethread.app.capture.CurrencyAmount
+import com.gradethread.app.platform.di.IoDispatcher
 import com.gradethread.app.platform.telemetry.Telemetry
 import com.gradethread.app.R
 import com.gradethread.app.ui.UiMessage
 import dagger.hilt.android.lifecycle.HiltViewModel
-import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -25,7 +26,13 @@ import javax.inject.Inject
  * costs them cash.
  */
 @HiltViewModel
-class ProspectViewModel @Inject constructor(private val service: ScoutScanning) : ViewModel() {
+class ProspectViewModel @Inject constructor(
+    private val service: ScoutScanning,
+    // US-3027: injected rather than reached for inline. See [IoDispatcher] -
+    // the inline form is why four of this screen's tests sat red on main
+    // describing a bug that was not in the code they were testing.
+    @IoDispatcher private val io: CoroutineDispatcher,
+) : ViewModel() {
 
     data class State(
         /**
@@ -49,8 +56,7 @@ class ProspectViewModel @Inject constructor(private val service: ScoutScanning) 
         val canRun: Boolean get() = photos.isNotEmpty() && !running
 
         /** The photo in a slot, or null when that slot is still empty. */
-        fun photoFor(role: ProspectPhotoRole): File? =
-            photos.firstOrNull { it.role == role }?.file
+        fun photoFor(role: ProspectPhotoRole): File? = photos.firstOrNull { it.role == role }?.file
 
         val canBuy: Boolean
             get() = ProspectDisplay.canBuy(response) && !buying && boughtItemId == null
@@ -88,6 +94,18 @@ class ProspectViewModel @Inject constructor(private val service: ScoutScanning) 
         )
     }
 
+    /**
+     * A photo could not be processed, so no photo was taken.
+     *
+     * Separate from a failed SCAN: nothing left the phone, and the seller's
+     * next move is to shoot it again rather than to retry a request.
+     */
+    fun photoUnreadable() {
+        _state.value = _state.value.copy(
+            errorMessage = UiMessage(R.string.prospect_photos_unreadable),
+        )
+    }
+
     fun removePhoto(role: ProspectPhotoRole) {
         _state.value = _state.value.copy(
             photos = _state.value.photos.filterNot { it.role == role },
@@ -119,7 +137,7 @@ class ProspectViewModel @Inject constructor(private val service: ScoutScanning) 
         )
 
         viewModelScope.launch {
-            val bytes = withContext(Dispatchers.IO) {
+            val bytes = withContext(io) {
                 // mapNotNull over the PAIR: a photo that will not read off disk
                 // takes its role with it. Reading the files and the roles as two
                 // separate lists is what would slide the tag's role onto the
