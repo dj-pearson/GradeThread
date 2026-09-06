@@ -42,6 +42,11 @@ export function BuyingGuidePage({ slug: slugProp }: { slug?: string }) {
       description={guide.description}
       canonicalPath={buyingGuidePath(guide.slug)}
       breadcrumbs={buyingGuideBreadcrumbItems(guide)}
+      // US-3093 AC6: the header nav AND the footer grid both link /pricing,
+      // /flipdesk and /for-resellers on every marketing page, which is where
+      // this cluster's containment leaked. Both are dropped here; the logo, the
+      // account buttons and the legal bar stay.
+      contained
       jsonLd={buyingGuideJsonLd(guide)}
     >
       <section className="px-6 py-16 lg:py-20">

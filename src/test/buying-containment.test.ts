@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
+import { requireDist } from "./dist-required";
 import { resolve } from "node:path";
 import { PUBLIC_ROUTES } from "@/lib/seo/public-routes";
 import { BUYING_GUIDES, buyingGuidePath } from "@/lib/seo/buying-guides";
@@ -143,6 +144,40 @@ describe("buying links OUT to one product surface only (US-3093 AC6)", () => {
     for (const bad of BUYING_FORBIDDEN_TARGETS) {
       expect(registry.includes(`](${bad}`), `the copy links at ${bad}`).toBe(false);
     }
+  });
+
+  it("⚠ and the RENDERED page carries none of them either", () => {
+    // The assertion this file used to stop short of, and the reason AC6 was
+    // recorded as unmet: the page COMPONENT linked nothing forbidden, while the
+    // shared chrome linked all three on every marketing page. The header nav
+    // was the more visible half — a buyer reading "am I about to be scammed"
+    // meets Pricing and FlipDesk before the article — and it was the half a
+    // grep for /pricing in the page source could never find.
+    //
+    // Skips locally without a build, fails loudly in CI, per US-2038/US-2637.
+    if (!requireDist(resolve(process.cwd(), "dist/index.html"), "buying containment")) return;
+    const page = resolve(process.cwd(), "dist/buying/is-vinted-legit.html");
+    if (!existsSync(page)) return;
+    const html = readFileSync(page, "utf8");
+
+    for (const bad of BUYING_FORBIDDEN_TARGETS) {
+      expect(
+        new RegExp(`href="[^"]*${bad}"`).test(html),
+        `the rendered /buying page links ${bad}`,
+      ).toBe(false);
+    }
+
+    // And the things that MUST survive the lean chrome. Dropping the footer
+    // wholesale would have taken these with it, which on a page about not being
+    // scammed is the wrong trade.
+    for (const kept of ["/privacy", "/terms", "/dmca"]) {
+      expect(
+        new RegExp(`href="[^"]*${kept}"`).test(html),
+        `the rendered /buying page lost ${kept}`,
+      ).toBe(true);
+    }
+    // The one product surface it is allowed.
+    expect(html).toContain("chromewebstore.google.com");
   });
 
   it("offers the extension install, with buyer copy naming the marketplace", () => {

@@ -31,6 +31,30 @@ interface MarketingLayoutProps {
    * answer engines as a finding.
    */
   noindex?: boolean;
+  /**
+   * US-3093: drop the SELLER NAVIGATION from the header and the footer,
+   * keeping the logo, the account buttons and the legal bar.
+   *
+   * ⚠ THE HEADER WAS THE HALF I MISSED. The first pass at this named only the
+   * footer, because that is where a grep for /pricing found the most hits. The
+   * top nav carries Pricing, For Resellers and FlipDesk on every marketing page
+   * too, and it is the MORE visible of the two — a buyer reading "am I about to
+   * be scammed" meets it before the article. Dropping one and not the other
+   * would have left the containment measurably better and still wrong.
+   *
+   * For a CONTAINED cluster — /buying today — where the reader is a buyer on a
+   * site whose customer is a seller. The five-column grid is the seller
+   * surface: FlipDesk, Pricing, For Resellers. Showing it to somebody who
+   * arrived asking "am I about to be scammed" answers a question nobody asked,
+   * and it is the half of that containment the interlink rules cannot reach,
+   * because a footer is chrome rather than a link the page chose to make.
+   *
+   * ⚠ THE LEGAL BAR STAYS, and that is the point of doing it this way rather
+   * than dropping the footer. Privacy, Terms and DMCA are exactly the links a
+   * trust page should carry — a page about not being scammed with no route to
+   * the privacy policy is the wrong trade.
+   */
+  contained?: boolean;
   children: React.ReactNode;
 }
 
@@ -47,6 +71,7 @@ export function MarketingLayout({
   jsonLd = [],
   breadcrumbs,
   noindex = false,
+  contained = false,
   children,
 }: MarketingLayoutProps) {
   const trail = breadcrumbs ?? [
@@ -81,6 +106,11 @@ export function MarketingLayout({
             className="h-8 w-auto"
           />
         </Link>
+        {/* US-3093: every link in here is a seller surface, so a contained
+            cluster renders none of them. The logo still goes home and the
+            account buttons stay — a buyer needs an account for the watchlist
+            just as a seller does. */}
+        {!contained && (
         <nav className="hidden items-center gap-6 text-sm text-muted-foreground md:flex">
           {/* viewTransition (US-1961): cross-page cross-fade where supported. */}
           <Link to="/how-it-works" viewTransition className="hover:text-foreground">
@@ -105,6 +135,7 @@ export function MarketingLayout({
             What's It Worth?
           </Link>
         </nav>
+        )}
         <div className="flex items-center gap-3">
           <Link to="/login">
             <Button variant="ghost" size="sm">
@@ -141,6 +172,9 @@ export function MarketingLayout({
               the trust/social-proof pages (Verified, Leaderboard, Buyer
               Guarantee, What's It Worth) were previously reachable only by
               direct URL. */}
+          {/* US-3093: the site-navigation grid, dropped on a contained cluster.
+              The legal bar below it always renders. */}
+          {!contained && (
           <div className="flex flex-col gap-8 sm:flex-row sm:justify-between">
             <Image
               src="/logo_primary.png"
@@ -201,6 +235,7 @@ export function MarketingLayout({
               </FooterColumn>
             </div>
           </div>
+          )}
           <div className="flex flex-col gap-3 border-t pt-6 sm:flex-row sm:items-center sm:justify-between">
             <nav className="flex flex-wrap gap-4 text-xs text-muted-foreground sm:gap-6">
               <Link to="/about" className="hover:text-foreground">
