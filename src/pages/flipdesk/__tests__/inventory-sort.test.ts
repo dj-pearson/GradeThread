@@ -61,6 +61,20 @@ describe("sortOptionsForTab", () => {
     }
   });
 
+  it("every tab can sort by who sourced the item, both ways (US-3122)", () => {
+    for (const tab of ALL_TABS) {
+      const options = sortOptionsForTab(tab);
+      const az = options.find((o) => o.id === "sourcer_az");
+      const za = options.find((o) => o.id === "sourcer_za");
+      expect(az?.column, tab).toEqual({ field: "sourced_by", dir: "asc" });
+      expect(za?.column, tab).toEqual({ field: "sourced_by", dir: "desc" });
+      // A column sort, never a preset: the server only scores presets on
+      // Unlisted, so a preset here would silently do nothing on five tabs.
+      expect(az?.preset, tab).toBeUndefined();
+      expect(za?.preset, tab).toBeUndefined();
+    }
+  });
+
   it("price means the column that tab actually has a value in", () => {
     expect(priceFieldForTab("unlisted")).toBe("target_price");
     expect(priceFieldForTab("active")).toBe("list_price");
@@ -113,6 +127,14 @@ describe("sortRequestFor", () => {
     expect(sortRequestFor(preset, null)).toEqual({
       preset: "best_roi",
       columnSort: null,
+    });
+  });
+
+  it("the sourcer sort reaches the server as a column sort on sourced_by", () => {
+    const opt = resolveSortOption("sourcer_az", "sold");
+    expect(sortRequestFor(opt, null)).toEqual({
+      preset: "listability",
+      columnSort: { field: "sourced_by", dir: "asc" },
     });
   });
 

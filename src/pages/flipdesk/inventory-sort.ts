@@ -45,7 +45,9 @@ export type SortOptionId =
   | "most_watchers"
   | "oldest_sale"
   | "profit_high"
-  | "profit_low";
+  | "profit_low"
+  | "sourcer_az"
+  | "sourcer_za";
 
 export interface SortOption {
   id: SortOptionId;
@@ -99,6 +101,20 @@ const NAME_OPTIONS: SortOption[] = [
   { id: "sku", label: "SKU", column: col("item_number", "asc") },
 ];
 
+/**
+ * Who bought the item (US-3122).
+ *
+ * `sourced_by` holds the NAME as text on every platform — the 00672 roster
+ * picks it, it does not replace it — so this is a plain column sort and works
+ * on every tab. The server's NULLS LAST puts items with nobody recorded at the
+ * end in BOTH directions, which is where "nobody yet" belongs rather than at
+ * the top of Z to A.
+ */
+const SOURCER_OPTIONS: SortOption[] = [
+  { id: "sourcer_az", label: "Sourced by A to Z", column: col("sourced_by", "asc") },
+  { id: "sourcer_za", label: "Sourced by Z to A", column: col("sourced_by", "desc") },
+];
+
 const NEWEST: SortOption = { id: "newest", label: "Newest added", column: col("created_at", "desc") };
 const OLDEST: SortOption = { id: "oldest", label: "Oldest added", column: col("created_at", "asc") };
 const RECENTLY_UPDATED: SortOption = {
@@ -133,6 +149,7 @@ export function sortOptionsForTab(tab: TabId): SortOption[] {
         ...priceOptions(tab),
         ...COST_OPTIONS,
         ...NAME_OPTIONS,
+        ...SOURCER_OPTIONS,
       ];
     case "active":
       return [
@@ -143,6 +160,7 @@ export function sortOptionsForTab(tab: TabId): SortOption[] {
         ...priceOptions(tab),
         ...COST_OPTIONS,
         ...NAME_OPTIONS,
+        ...SOURCER_OPTIONS,
       ];
     case "sold":
     case "shipped":
@@ -154,6 +172,7 @@ export function sortOptionsForTab(tab: TabId): SortOption[] {
         ...priceOptions(tab),
         ...COST_OPTIONS,
         ...NAME_OPTIONS,
+        ...SOURCER_OPTIONS,
       ];
     case "returned":
     case "archived":
@@ -164,6 +183,7 @@ export function sortOptionsForTab(tab: TabId): SortOption[] {
         OLDEST,
         ...priceOptions(tab),
         ...NAME_OPTIONS,
+        ...SOURCER_OPTIONS,
       ];
     case "all":
     default:
@@ -175,6 +195,7 @@ export function sortOptionsForTab(tab: TabId): SortOption[] {
         ...priceOptions(tab),
         ...COST_OPTIONS,
         ...NAME_OPTIONS,
+        ...SOURCER_OPTIONS,
       ];
   }
 }

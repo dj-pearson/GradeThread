@@ -31,6 +31,7 @@ export function ItemCardList({
   selectedIds,
   onToggleSelect,
   onQuickEdit,
+  showSourcer = false,
 }: {
   items: ItemFullRow[];
   onOpen: (item: ItemFullRow) => void;
@@ -38,6 +39,12 @@ export function ItemCardList({
   selectedIds?: Set<string>;
   onToggleSelect?: (id: string) => void;
   onQuickEdit?: (item: ItemFullRow) => void;
+  /**
+   * US-3122: show who sourced the item. The caller turns this on while the
+   * list is ORDERED by `sourced_by`, so the ordering is legible on a phone
+   * too; off, the card carries the same fields it always did.
+   */
+  showSourcer?: boolean;
 }) {
   return (
     <ul className="divide-y">
@@ -113,6 +120,8 @@ export function ItemCardList({
                   )}
                   <div className="mt-0.5 text-[11px] text-muted-foreground">
                     SKU {it.item_number ?? "—"}
+                    {showSourcer &&
+                      ` · Sourced by ${it.sourced_by?.trim() || "nobody yet"}`}
                   </div>
                 </div>
                 <div className="flex shrink-0 flex-col items-end gap-1">

@@ -1404,6 +1404,9 @@ export function FlipdeskListingsPage() {
                   selectedIds={selected}
                   onToggleSelect={toggleSelected}
                   onQuickEdit={setQuickEditItem}
+                  // US-3122: the phone list shows the sourcer while the page is
+                  // ordered by it, the same rule the desktop column follows.
+                  showSourcer={columnSort?.field === "sourced_by"}
                 />
               </div>
               {/* US-2173 AC3: the desktop table is its own component now. The

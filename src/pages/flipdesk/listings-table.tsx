@@ -279,6 +279,10 @@ export function ListingsTable({
       toastError(err, "Could not start the relist.");
     }
   }
+  // US-3122: the Sourced by column rides the ACTIVE sort, whether it came from
+  // the menu or a header click — `columnSort` here is already the resolved one
+  // (the header wins, then the menu's column).
+  const showSourcer = columnSort?.field === "sourced_by";
   const staleByItem = new Map<string, { platform: string; label: string }[]>();
   for (const p of pendingRevises) {
     const list = staleByItem.get(p.item_id) ?? [];
@@ -347,6 +351,22 @@ export function ListingsTable({
                   Brand · Size
                 </SortHeader>
               </TableHead>
+              {/* US-3122: the sourcer's name, shown only while the table is
+                  ORDERED by it. A sort you cannot see reads as a shuffled
+                  list, and a column every tab carries all the time would cost
+                  width on a table that already scrolls. The header still
+                  toggles the direction, like every other sortable column. */}
+              {showSourcer && (
+                <TableHead className="w-28">
+                  <SortHeader
+                    field="sourced_by"
+                    columnSort={columnSort}
+                    onToggle={toggleColumnSort}
+                  >
+                    Sourced by
+                  </SortHeader>
+                </TableHead>
+              )}
               {isSold ? (
                 <>
                   <TableHead className="w-20 text-right">
@@ -788,6 +808,11 @@ export function ListingsTable({
                   <TableCell className="max-w-[140px] truncate text-muted-foreground">
                     {[it.brand, it.size].filter(Boolean).join(" · ")}
                   </TableCell>
+                  {showSourcer && (
+                    <TableCell className="max-w-[120px] truncate text-muted-foreground">
+                      {it.sourced_by?.trim() || "—"}
+                    </TableCell>
+                  )}
                   {isSold ? (
                     <>
                       <TableCell className="text-right tabular-nums">
