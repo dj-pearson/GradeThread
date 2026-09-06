@@ -378,9 +378,17 @@ jobs:
   # fatal while letting everything else finish; what it must never go back to is
   # green-when-red.
   screenshots:
-    name: Screenshot tests (Roborazzi)
+    name: Screenshots ${{ matrix.shard }}/4
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    # Each shard is about a quarter of the rendering, on its own runner with its
+    # own cores. 45 is the same ceiling build-and-test has.
+    timeout-minutes: 45
+    strategy:
+      # Every shard reports. fail-fast would cancel three of them the moment one
+      # golden moved, which is exactly when you want to see the other three.
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2, 3]
     # The same block build-and-test carries, and for the same reason: the tests
     # build the real Hilt graph and NetworkModule asserts this is non-blank.
     env:
@@ -439,16 +447,46 @@ jobs:
       # "BUILD FAILED" — continue-on-error rewrites a STEP's conclusion. A
       # non-blocking step is meant to be visible and merely not fatal; this one
       # could not be seen from the API at all.
+      # ⚠ SHARDED BECAUSE ONE RUNNER CANNOT DO IT, MEASURED TWICE (US-3121).
+      # Its own job with a 90-minute timeout was still killed at 90m19s, and
+      # that was WITH maxParallelForks added in the same session - which did
+      # work, taking build-and-test from 24m11s to 18m52s, and did not rescue
+      # this. 393 goldens across 55 classes is roughly 13 seconds each, so the
+      # rendering is simply bigger than one job.
+      #
+      # The split is by class over `find`, not a hand-kept list: a new
+      # *ScreenshotTest lands in a shard automatically, and `awk NR % 4` is a
+      # complete partition of the sorted set, so no class can fall between two
+      # shards. The step fails if its share is empty, which is what a broken
+      # glob looks like - and a broken glob would otherwise report four green
+      # shards that rendered nothing.
       - name: Screenshot tests (Roborazzi)
         if: ${{ !inputs.record_screenshots }}
-        run: ./gradlew :app:verifyRoborazziDebug --stacktrace
+        run: |
+          set -euo pipefail
+          classes=$(find app/src/test -name '*ScreenshotTest.kt' | sed 's|.*/java/||; s|/|.|g; s|[.]kt$||' | sort)
+          total=$(echo "$classes" | grep -c . || true)
+          mine=$(echo "$classes" | awk 'NR % 4 == '"${{ matrix.shard }}")
+          count=$(echo "$mine" | grep -c . || true)
+          echo "shard ${{ matrix.shard }}: $count of $total screenshot classes"
+          echo "$mine" | sed 's/^/  /'
+          if [ "$count" -eq 0 ]; then
+            echo "::error::shard ${{ matrix.shard }} matched no screenshot classes"
+            exit 1
+          fi
+          args=""
+          for c in $mine; do args="$args --tests $c"; done
+          ./gradlew :app:verifyRoborazziDebug $args --stacktrace
 
+      # Recording stays WHOLE, and only on shard 0: it rewrites every golden and
+      # uploads the directory, so four shards would race and upload a quarter
+      # of the set each.
       - name: Re-record the screenshot goldens
-        if: ${{ inputs.record_screenshots }}
+        if: ${{ inputs.record_screenshots && matrix.shard == 0 }}
         run: ./gradlew :app:recordRoborazziDebug --stacktrace
 
       - name: Upload the re-recorded goldens
-        if: ${{ inputs.record_screenshots }}
+        if: ${{ inputs.record_screenshots && matrix.shard == 0 }}
         uses: actions/upload-artifact@v4
         with:
           name: roborazzi-goldens
@@ -464,7 +502,7 @@ jobs:
         continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
-          name: roborazzi-report
+          name: roborazzi-report-${{ matrix.shard }}
           path: android/app/build/outputs/roborazzi/
           if-no-files-found: ignore
           retention-days: 7
