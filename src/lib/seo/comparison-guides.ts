@@ -204,12 +204,24 @@ const PLATFORM_FACTS: Record<string, PlatformFacts> = {
     // The figure, not just the shape. US-3091: three Vinted comparisons said
     // "no seller fee" without ever naming what the buyer pays, which is the
     // number a seller is actually comparing against Poshmark's 20% or eBay's
-    // 13.6%. Vinted's own help page says "usually 5% + $0.70" and the "usually"
-    // is theirs — it varies by order — so it is carried rather than rounded off
-    // into a certainty the source does not claim.
+    // 13.6%.
+    //
+    // ⚠ THE HEDGE CAME OFF 2026-09-05, and which SOURCE you read is the reason.
+    // This said "usually 5% + $0.70", carrying a help page's "usually" as
+    // fidelity. vinted.com/pricelist — the US fee schedule, which is the
+    // contractual statement rather than a support article — says it flatly: "A
+    // fixed amount of $0.70; plus 5% of the item price agreed to between the
+    // Buyer and the Seller, not including the shipping costs". The "usually" is
+    // cross-market variation across Vinted's ~22 country domains, not
+    // uncertainty about the US number these pages compare against US fees.
+    //
+    // It also made the site say two different things about one fee: the three
+    // guides shipped today (/reselling/how-to-sell-on-vinted,
+    // /reselling/vinted-scams-and-disputes, /buying/is-vinted-legit) state it
+    // plainly from the same pricelist.
     fees:
-      "No seller selling fee. Buyers pay a Buyer Protection fee instead, " +
-      "usually 5% + $0.70 of the item price, excluding shipping and tax.",
+      "No seller selling fee. Buyers pay a Buyer Protection fee instead: " +
+      "$0.70 plus 5% of the item price, excluding shipping.",
     audience: "A large European-rooted and growing-US casual audience.",
     categoryFit: "Everyday casualwear, kids' clothing, and mid-market brands.",
     shipping: "Integrated prepaid labels chosen at checkout.",
@@ -220,8 +232,18 @@ const PLATFORM_FACTS: Record<string, PlatformFacts> = {
       "Photos and copy. Vinted's form is simple, and there is no seller fee, so the cost of relisting is your time only.",
     leftBehind:
       "Ratings and any following. Vinted's search leans on freshness, so a new seller is not penalised the way an eBay one is.",
+    // ⚠ CORRECTED 2026-09-05 (US-3091). This said "from new with tags to
+    // satisfactory", which is eBay's and Poshmark's vocabulary rather than
+    // Vinted's. Vinted's own options are New / Like new / Very good / Good /
+    // Satisfactory (vinted.com/help/50-choosing-item-condition), and its two
+    // unworn options split on PACKAGING, not on tags: New is unopened in its
+    // original packaging, Like new is unused but opened. A seller told to look
+    // for "new with tags" is looking for a dropdown entry that is not there.
+    //
+    // The same wrong pair was corrected in marketplace-specs.ts and
+    // platform-standards.ts earlier today; this was the fourth place it lived.
     conditionWording:
-      "A five-step condition dropdown from new with tags to satisfactory, plus free text. The dropdown is a filter, so the wrong pick hides the item.",
+      "A five-step condition dropdown from New to Satisfactory, plus free text. Its two unworn options split on packaging rather than tags. The dropdown is a filter, so the wrong pick hides the item.",
   },
   whatnot: {
     name: "Whatnot",
