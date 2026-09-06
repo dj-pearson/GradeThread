@@ -34,7 +34,16 @@ import { Button } from "@/components/ui/button";
 import { supabase } from "@/lib/supabase";
 import { useAuthStore } from "@/stores/auth-store";
 import { cn } from "@/lib/utils";
-import { useUrlSearchInput } from "@/hooks/use-url-param-state";
+import {
+  useUrlParamState,
+  useUrlSearchInput,
+} from "@/hooks/use-url-param-state";
+import { SortMenu } from "@/components/flipdesk/sort-menu";
+import {
+  columnSortForMode,
+  resolveSortOptionForMode,
+  sortOptionsForMode,
+} from "@/pages/flipdesk/inventory-sort";
 import { InventoryViewSwitcher } from "@/components/flipdesk/inventory-view-switcher";
 import type { ItemFullRow } from "@/types/database";
 
@@ -106,6 +115,19 @@ const COLS: GridCol[] = [
     get: (it) => (it.target_price == null ? "" : String(it.target_price)),
   },
   {
+    // US-3122: who bought the item. The spreadsheet is the surface where a
+    // seller assigns twenty of these at once, and it is what makes the new
+    // "Sourced by" sort and filter worth having — both are useless while the
+    // column is empty. It writes the NAME as text, exactly as intake and the
+    // composer do; the 00672 roster picks the name, it does not replace it.
+    key: "sourced_by",
+    label: "Sourced by",
+    field: "sourced_by",
+    numeric: false,
+    width: "w-32",
+    get: (it) => it.sourced_by ?? "",
+  },
+  {
     key: "notes",
     label: "Notes",
     field: "condition_notes",
@@ -122,7 +144,8 @@ const PAGE_SIZE = 100;
 // per page is wasteful (US-404). Selecting a slim projection lets Postgres
 // prune the unused view columns from the plan.
 const GRID_COLUMNS =
-  "id,item_number,item_title,brand,style,size,purchase_price,target_price,notes,status";
+  "id,item_number,item_title,brand,style,size,purchase_price,target_price," +
+  "sourced_by,notes,status";
 
 // Minimal typed view of the PostgREST builder for the (untyped) items_full
 // view — supports the count + search + range chain this page needs.
@@ -130,7 +153,7 @@ interface ItemsFullPageBuilder {
   or: (filter: string) => ItemsFullPageBuilder;
   order: (
     col: string,
-    opts?: { ascending?: boolean },
+    opts?: { ascending?: boolean; nullsFirst?: boolean },
   ) => ItemsFullPageBuilder;
   range: (
     from: number,
@@ -179,6 +202,12 @@ export function FlipdeskGridPage() {
     draft: searchDraft,
     setDraft: setSearch,
   } = useUrlSearchInput("q", "");
+  // US-3122: the spreadsheet had no sort at all — it was created_at desc and
+  // nothing else. Same `?sort=` param the table uses, so an order survives a
+  // view switch; the menu is the All tab's, since the grid has no tabs.
+  const [sortParam, setSortParam] = useUrlParamState("sort", "default");
+  const sortOption = resolveSortOptionForMode(sortParam, "grid");
+  const sortColumn = columnSortForMode(sortOption, "grid");
   const [page, setPage] = useState(1);
   const [staged, setStaged] = useState<Staged>(new Map());
   const [history, setHistory] = useState<EditLog[]>([]);
@@ -186,7 +215,7 @@ export function FlipdeskGridPage() {
 
   useEffect(() => {
     setPage(1);
-  }, [search]);
+  }, [search, sortParam]);
 
   // US-404: server-side pagination. Only the current page (PAGE_SIZE rows) of a
   // slim column projection is ever loaded, with a grouped exact count for the
@@ -194,7 +223,15 @@ export function FlipdeskGridPage() {
   // entire wide view on every render. Search is pushed to the server too.
   const { data, isLoading, isError, isPlaceholderData, refetch, isFetching } =
     useQuery({
-    queryKey: ["items_full", "grid", user?.id, page, search.trim()],
+    queryKey: [
+      "items_full",
+      "grid",
+      user?.id,
+      page,
+      search.trim(),
+      sortColumn.field,
+      sortColumn.dir,
+    ],
     enabled: !!user,
     // 15-min freshness — mutations invalidate items_full explicitly (US-735).
     staleTime: 15 * 60 * 1000,
@@ -214,7 +251,15 @@ export function FlipdeskGridPage() {
         error,
         count,
       } = await builder
-        .order("created_at", { ascending: false })
+        // NULLS LAST in BOTH directions, which is what flipdesk_listing_page
+        // does for the table and what the client comparator does for the
+        // Kanban. Postgres' own default puts NULLs FIRST on a descending sort,
+        // so leaving this off would order the same items differently in two
+        // views of the same list.
+        .order(sortColumn.field, {
+          ascending: sortColumn.dir === "asc",
+          nullsFirst: false,
+        })
         .range(from, from + PAGE_SIZE - 1);
       if (error) throw error;
       return { rows: rows ?? [], total: count ?? 0 };
@@ -543,6 +588,13 @@ export function FlipdeskGridPage() {
           placeholder="Search title, brand, SKU…"
           className="w-64"
         />
+        <SortMenu
+          options={sortOptionsForMode("grid")}
+          value={sortOption.id}
+          onChange={setSortParam}
+          className="w-52"
+          label="Sort rows by"
+        />
         {history.length > 0 && (
           <Button variant="ghost" size="sm" onClick={undo}>
             <Undo2 className="mr-2 h-4 w-4" />
@@ -555,8 +607,9 @@ export function FlipdeskGridPage() {
         <CardHeader>
           <CardTitle>{total.toLocaleString()} rows</CardTitle>
           <CardDescription>
-            Click a cell to edit. Enter / ↑ ↓ move between rows; Esc reverts a
-            cell. Changed cells turn amber.
+            Sorted by {sortOption.label.toLowerCase()}. Click a cell to edit.
+            Enter / ↑ ↓ move between rows; Esc reverts a cell. Changed cells
+            turn amber.
           </CardDescription>
         </CardHeader>
         <CardContent className="px-0">

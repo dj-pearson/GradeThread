@@ -122,9 +122,8 @@ import {
   sortOptionsForTab,
   sortRequestFor,
   type ColumnSort,
-  type SortOption,
-  type SortOptionId,
 } from "@/pages/flipdesk/inventory-sort";
+import { SortMenu } from "@/components/flipdesk/sort-menu";
 import {
   initialInventoryTab,
   readLastInventoryTab,
@@ -174,35 +173,6 @@ import { PageHelp } from "@/components/help/page-help";
  * placeholder rather than a stale pick, and picking anything hands control
  * back to the menu.
  */
-function SortMenu({
-  options,
-  value,
-  headerActive,
-  onChange,
-  className,
-}: {
-  options: SortOption[];
-  value: SortOptionId;
-  headerActive: boolean;
-  onChange: (id: string) => void;
-  className?: string;
-}) {
-  return (
-    <Select value={headerActive ? "" : value} onValueChange={onChange}>
-      <SelectTrigger aria-label="Sort listings by" className={className}>
-        <SelectValue placeholder="Sorted by column" />
-      </SelectTrigger>
-      <SelectContent>
-        {options.map((o) => (
-          <SelectItem key={o.id} value={o.id}>
-            {o.label}
-          </SelectItem>
-        ))}
-      </SelectContent>
-    </Select>
-  );
-}
-
 const SOLD_FILTER_LABELS: Record<SoldFilter, string> = {
   all: "All",
   awaiting_payout: "Awaiting payout",
@@ -1104,6 +1074,7 @@ export function FlipdeskListingsPage() {
                   headerActive={headerSort != null}
                   onChange={pickSort}
                   className="w-full"
+                  label="Sort listings by"
                 />
               </div>
               <div className="space-y-1.5">
@@ -1170,6 +1141,7 @@ export function FlipdeskListingsPage() {
           headerActive={headerSort != null}
           onChange={pickSort}
           className="w-52"
+          label="Sort listings by"
         />
         <div className="ml-auto flex flex-wrap items-center gap-2">
           <FilterBuilder query={filterQuery} onChange={setFilterQuery} />

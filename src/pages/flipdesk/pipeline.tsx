@@ -65,7 +65,17 @@ import { supabase } from "@/lib/supabase";
 import { bulkBatchKey } from "@/lib/bulk-batch-key";
 import { useAuthStore } from "@/stores/auth-store";
 import { useItemsList, itemsListQueryKey } from "@/hooks/use-items-full";
-import { useUrlSearchInput } from "@/hooks/use-url-param-state";
+import {
+  useUrlParamState,
+  useUrlSearchInput,
+} from "@/hooks/use-url-param-state";
+import { SortMenu } from "@/components/flipdesk/sort-menu";
+import {
+  columnSortForMode,
+  resolveSortOptionForMode,
+  sortOptionsForMode,
+} from "@/pages/flipdesk/inventory-sort";
+import { sortByField } from "@/pages/flipdesk/listings-filter";
 import { useInventorySelection } from "@/stores/inventory-selection";
 import { useInventoryStatusCounts } from "@/hooks/use-inventory-status-counts";
 import {
@@ -165,6 +175,12 @@ export function FlipdeskPipelinePage() {
     draft: searchDraft,
     setDraft: setSearch,
   } = useUrlSearchInput("q", "");
+  // US-3122: the board's card order. Same `?sort=` param as the other three
+  // views, applied INSIDE each column — the columns themselves are the pipeline
+  // stages and never move.
+  const [sortParam, setSortParam] = useUrlParamState("sort", "default");
+  const sortOption = resolveSortOptionForMode(sortParam, "kanban");
+  const sortColumn = columnSortForMode(sortOption, "kanban");
   const [categoryFilter, setCategoryFilter] = useState<ItemCategory | "all">(
     "all",
   );
@@ -294,8 +310,22 @@ export function FlipdeskPipelinePage() {
       if (filterQuery.rules.length > 0 && !evalQuery(it, filterQuery)) continue;
       col.push(it);
     }
+    // The same comparator the table gets from SQL (nulls last both ways,
+    // "10" after "9"), so "sorted by brand" means one thing across the views.
+    for (const arr of map.values()) {
+      sortByField(arr, sortColumn.field, sortColumn.dir);
+    }
     return map;
-  }, [items, search, categoryFilter, brandFilter, sourceFilter, filterQuery]);
+  }, [
+    items,
+    search,
+    categoryFilter,
+    brandFilter,
+    sourceFilter,
+    filterQuery,
+    sortColumn.field,
+    sortColumn.dir,
+  ]);
 
   // Every item currently visible across the kanban columns (i.e. the whole
   // filtered set), flattened — backs the matching count + "select all" action.
@@ -569,6 +599,13 @@ export function FlipdeskPipelinePage() {
           onChange={(e) => setSearch(e.target.value)}
           placeholder="Search title, brand, SKU…"
           className="w-64"
+        />
+        <SortMenu
+          options={sortOptionsForMode("kanban")}
+          value={sortOption.id}
+          onChange={setSortParam}
+          className="w-52"
+          label="Sort cards by"
         />
         <Select
           value={categoryFilter}

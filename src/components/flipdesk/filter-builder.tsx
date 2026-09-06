@@ -16,6 +16,7 @@ import {
 import { cn } from "@/lib/utils";
 import {
   FIELD_LABELS,
+  FILTER_FIELDS,
   DATE_FIELDS,
   ENUM_FIELDS,
   ENUM_FIELD_OPTIONS,
@@ -35,28 +36,6 @@ function newRule(): FilterRule {
     value: "",
   };
 }
-
-// Grouped so the dropdown reads in a sensible order: text facets, then the
-// marketplace/photo enums, then numeric, then date facets.
-const ALL_FIELDS: FilterField[] = [
-  "brand",
-  "category",
-  "size",
-  "source",
-  "color",
-  "location_bin",
-  "sku",
-  "status",
-  "marketplace",
-  "photo_state",
-  "cost",
-  "target_price",
-  "grade",
-  "days_in_status",
-  "purchase_date",
-  "created_at",
-  "sale_date",
-];
 
 export function FilterBuilder({
   query,
@@ -163,7 +142,7 @@ export function FilterBuilder({
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    {ALL_FIELDS.map((f) => (
+                    {FILTER_FIELDS.map((f) => (
                       <SelectItem key={f} value={f}>
                         {FIELD_LABELS[f]}
                       </SelectItem>

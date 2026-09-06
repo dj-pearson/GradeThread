@@ -45021,6 +45021,20 @@
       ],
       "priority": 3,
       "notes": "Done 2026-09-06. 'Sourced by A to Z' and 'Sourced by Z to A' are in the sort menu on all seven Inventory tabs (src/pages/flipdesk/inventory-sort.ts SOURCER_OPTIONS). No server work: sourced_by is a real items_full column, so the options ride the existing p_column_sort argument that flipdesk_listing_page (00515/00721) validates against information_schema, and its NULLS LAST puts items with no name at the end in both directions. Legibility, so the order does not read as a shuffle: the desktop table grows a 'Sourced by' column and the phone card list appends the name to its SKU line, both gated on the EFFECTIVE sort being sourced_by (a header click counts, not just the menu), so neither costs width otherwise. Tests: two cases in __tests__/inventory-sort.test.ts (every tab offers both ways as a column sort, never a preset; sortRequestFor sends it as p_column_sort). tsc -b, eslint, ui:check and 222 flipdesk tests clean. NOT done: filtering to one sourcer, which needs a new FilterField and matching SQL in flipdesk_listing_page (a migration)."
+    },
+    {
+      "id": "US-3123",
+      "passes": true,
+      "title": "Filter Inventory by sourcer, and sort in Grid, Kanban and Prep",
+      "description": "Follow-on to US-3122. Sorting by who sourced an item existed only in the table view, and there was no way to filter to one person at all. Adds sourced_by to the advanced filter (client plus the SQL mirror, migration 00728) and gives the three tabless Inventory views their first sort menu.",
+      "acceptanceCriteria": [
+        "The advanced filter offers a 'Sourced by' field with the text operators, and flipdesk_filter_matches evaluates it identically (pinned by the SQL parity test).",
+        "Grid, Kanban and Prep each have a sort menu driving the same ?sort= param the table uses, including the sourcer options; grid orders server-side with NULLS LAST both ways, Kanban and Prep use the shared client comparator.",
+        "Prep keeps oldest-first as its default and Grid/Kanban keep newest-added; an id from another view's menu resolves to the current view's default.",
+        "The Grid gains an editable 'Sourced by' column, so names can be assigned in bulk."
+      ],
+      "priority": 3,
+      "notes": "Done 2026-09-06. FILTER: 'Sourced by' is a FilterField (src/lib/item-filter.ts) reading inventory_items.sourced_by, with the text operators. The field menu moved out of filter-builder.tsx into FILTER_FIELDS so a test can hold it against FIELD_LABELS — a field in the type but not that list is a working feature nobody can reach. SQL mirror is migration 00728 (owner applied it to prod 2026-09-06; health/ready read back applied=00728). Without it the rule was not a no-op but an empty list: the CASE falls through, txt stays NULL, and an eq rule matches zero rows. VIEWS: SortMenu moved to src/components/flipdesk/sort-menu.tsx and all four Inventory views use it over the same ?sort= param. Grid orders server-side (.order with nullsFirst:false, so NULLS LAST both ways like the RPC) and gained an editable 'Sourced by' column, which is how a seller fills the column the sort and filter read. Kanban sorts inside each stage column and Prep sorts the queue, both through sortByField() in listings-filter.ts, now generic over the ItemListRow projection so one comparator serves every view. Prep keeps oldest-first as its default (columnSortForMode) and resets to the top of the queue on a re-sort. VERIFIED: 8,806 web tests (1 guard updated — listings-sortable-columns.test.ts now expects sourced_by), npm run build, tsc -b, eslint 0 errors, ui:check clean, edge schema-version_test 22/22, and the SQL parity suite RUN AGAINST THE LOCAL DATABASE at 84/84 with six new sourced_by cases — which fail 6/6 against the pre-00728 function, so they are load-bearing."
     }
   ]
 }

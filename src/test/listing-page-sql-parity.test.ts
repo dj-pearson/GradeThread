@@ -89,6 +89,10 @@ function corpusSql(): string {
     "shipped", "returned", "archived",
   ];
   const brands = ["Nike", "nike", "Adidas", "item9", "item10", "Item2", "", null];
+  // US-3122: who bought it. Mixed case, an empty string and NULLs, because the
+  // filter's isnull/notnull split and the sort's NULLS LAST both key on exactly
+  // those, and a corpus of one name per row would prove neither.
+  const sourcers = ["Dan", "dan", "Sam", "Alex Q", "", null];
   // `comp_set` is NOT NULL, so the "no comps" cases are JSON null and a JSON
   // object rather than SQL NULL — both are non-arrays, which is the branch that
   // matters to Array.isArray() on one side and jsonb_typeof() on the other.
@@ -113,6 +117,7 @@ function corpusSql(): string {
         ${q(i % 6 === 0 ? null : ["S", "M", "L", "XL"][i % 4]!)},
         ${q(i % 5 === 0 ? null : ["red", "Blue", "green"][i % 3]!)},
         ${q(i % 7 === 0 ? null : `Bin-${i % 4}`)},
+        ${q(sourcers[i % sourcers.length]!)},
         '${comp}'::jsonb,
         ${n(i % 3 === 0 ? null : i * 1.5)},
         ${n(i % 4 === 0 ? null : i * 4)},
@@ -137,7 +142,8 @@ function corpusSql(): string {
 
     insert into public.inventory_items
       (user_id, sku, container, title, brand, style, size, color, location_bin,
-       comp_set, acquired_price, target_price, grade_value, status, created_at, updated_at)
+       sourced_by, comp_set, acquired_price, target_price, grade_value, status,
+       created_at, updated_at)
     values ${rows.join(",")};
 
     -- Sales for every sold/shipped/returned item, cycling the states the Sold
@@ -201,7 +207,7 @@ function cases(): Case[] {
     const field of [
       "brand", "item_title", "size", "status", "purchase_price",
       "target_price", "grade_value", "created_at", "updated_at",
-      "sale_date", "list_price", "item_number",
+      "sale_date", "list_price", "item_number", "sourced_by",
     ]
   ) {
     for (const dir of ["asc", "desc"] as const) {
@@ -232,6 +238,15 @@ function cases(): Case[] {
     ["cost lte 20", { combinator: "and", rules: [rule("cost", "lte", "20")] }],
     ["grade gte 5", { combinator: "and", rules: [rule("grade", "gte", "5")] }],
     ["size eq m", { combinator: "and", rules: [rule("size", "eq", "M")] }],
+    // US-3122. `sourced_by` is the field the SQL learned in 00728; before it,
+    // every one of these returned the empty set on the SQL side while the
+    // TypeScript returned rows, which is the failure this case exists to catch.
+    ["sourced_by eq dan", { combinator: "and", rules: [rule("sourced_by", "eq", "dan")] }],
+    ["sourced_by contains a", { combinator: "and", rules: [rule("sourced_by", "contains", "a")] }],
+    ["sourced_by in list", { combinator: "and", rules: [rule("sourced_by", "in", "dan, sam")] }],
+    ["sourced_by nin list", { combinator: "and", rules: [rule("sourced_by", "nin", "dan, sam")] }],
+    ["sourced_by isnull", { combinator: "and", rules: [rule("sourced_by", "isnull", "")] }],
+    ["sourced_by notnull", { combinator: "and", rules: [rule("sourced_by", "notnull", "")] }],
     ["photo_state incomplete", { combinator: "and", rules: [rule("photo_state", "eq", "incomplete")] }],
     ["status eq listed", { combinator: "and", rules: [rule("status", "eq", "listed")] }],
     ["days_in_status gt 5", { combinator: "and", rules: [rule("days_in_status", "gt", "5")] }],

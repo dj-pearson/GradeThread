@@ -7,6 +7,7 @@ export type FilterField =
   | "category"
   | "size"
   | "source"
+  | "sourced_by"
   | "color"
   | "location_bin"
   | "sku"
@@ -55,6 +56,7 @@ export const FIELD_LABELS: Record<FilterField, string> = {
   category: "Category",
   size: "Size",
   source: "Source",
+  sourced_by: "Sourced by",
   color: "Color",
   location_bin: "Location / bin",
   sku: "SKU",
@@ -69,6 +71,36 @@ export const FIELD_LABELS: Record<FilterField, string> = {
   sale_date: "Sale date",
   photo_state: "Photo state",
 };
+
+/**
+ * Every field the filter builder offers, in menu order: text facets first, then
+ * the marketplace/photo enums, then numeric, then dates.
+ *
+ * It lives here rather than in the builder component so a test can hold it
+ * against FIELD_LABELS (src/test/item-filter-fields.test.ts). A field added to
+ * the type but not to this list type-checks, evaluates correctly, and is
+ * invisible in the UI — a feature nobody can reach.
+ */
+export const FILTER_FIELDS: FilterField[] = [
+  "brand",
+  "category",
+  "size",
+  "source",
+  "sourced_by",
+  "color",
+  "location_bin",
+  "sku",
+  "status",
+  "marketplace",
+  "photo_state",
+  "cost",
+  "target_price",
+  "grade",
+  "days_in_status",
+  "purchase_date",
+  "created_at",
+  "sale_date",
+];
 
 // Which field is numeric — drives the operator set the UI offers.
 const NUMERIC_FIELDS: ReadonlySet<FilterField> = new Set<FilterField>([
@@ -185,6 +217,11 @@ function fieldValue(it: ItemListRow, field: FilterField): string | number | null
       return it.size;
     case "source":
       return it.source_name;
+    // US-3122: WHO bought it, not WHERE it came from. Both words start with
+    // "source", so the two rules sit next to each other in the menu with
+    // labels that say which is which.
+    case "sourced_by":
+      return it.sourced_by;
     case "color":
       return it.color;
     case "location_bin":

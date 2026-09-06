@@ -1,5 +1,47 @@
 # PENDING MIGRATIONS — applied to prod separately from the push
 
+## ✅ APPLIED 2026-09-06: 00728 — the filter learns "Sourced by" (US-3122)
+
+**Applied by the owner 2026-09-06.** `GET https://functions.gradethread.com/health/ready`
+reports `schema: {"expected":"00727","applied":"00728","status":"ahead"}` — the
+database has the record and the running container is the previous build, which
+is the ordinary mid-deploy state. The `applied_migrations` row IS the evidence
+the whole file ran: the self-record footer is its last statement.
+
+**What it does.** Restates `public.flipdesk_filter_matches(jsonb, jsonb)` with
+one new field:
+
+```
+when 'sourced_by' then txt := f ->> 'sourced_by';
+```
+
+plus a partial index on `(user_id, lower(btrim(sourced_by)))` for the sort and
+the filter that now both read that column.
+
+**Risk: LOW.** `CREATE OR REPLACE` on the same signature, and every other branch
+is byte-identical to 00515's. `CREATE INDEX IF NOT EXISTS` (not concurrent —
+`inventory_items` is small and this runs in the apply step, not under load).
+Re-running is safe.
+
+**Why the field had to reach the database at all.** This function is the SQL
+mirror of `evalQuery()` in `src/lib/item-filter.ts`, and the client is what
+sends the rule. A field the TypeScript knows and the function does not is NOT a
+no-op: `field` falls through the CASE, `txt` stays NULL, and an `eq` rule
+matches ZERO rows. The seller would get an empty Inventory list with no error.
+That failure mode is why the frontend half of US-3122 was held with it.
+
+**Verified before the apply**, against the local stack with the file applied:
+`LISTING_PARITY_DB=1 npx vitest run src/test/listing-page-sql-parity.test.ts` →
+84 passed, including six new `sourced_by` cases. Re-running those six against
+the PRE-00728 function fails all six, so the cases are load-bearing rather than
+vacuous.
+
+**`NOTIFY pgrst, 'reload schema';`** — not strictly required (no table or column
+that PostgREST serves changed shape; the function is called from inside
+`flipdesk_listing_page`, not over the wire), but harmless.
+
+---
+
 ## ✅ APPLIED 2026-09-05: 00727 - the seller's off switch for the on-marketplace badge (US-3060)
 
 **Applied by the owner 2026-09-05, verified read-only the same minute.**

@@ -35,6 +35,15 @@ import { PhotoUploader } from "@/components/flipdesk/photo-uploader";
 import { MeasurementForm } from "@/components/flipdesk/measurement-form";
 import { SoldCompRecommendation } from "@/components/flipdesk/sold-comp-recommendation";
 import { InventoryViewSwitcher } from "@/components/flipdesk/inventory-view-switcher";
+import { SortMenu } from "@/components/flipdesk/sort-menu";
+import { useUrlParamState } from "@/hooks/use-url-param-state";
+import {
+  columnSortForMode,
+  resolveSortOptionForMode,
+  sortOptionsForMode,
+  type SortOptionId,
+} from "@/pages/flipdesk/inventory-sort";
+import { sortByField } from "@/pages/flipdesk/listings-filter";
 import { useGradeBandedPrice } from "@/hooks/use-ebay";
 import { ebaySoldSearchUrl } from "@/lib/comps";
 import { inferDepartment } from "@/lib/ebay-prefill";
@@ -63,6 +72,13 @@ export function FlipdeskPrepPage() {
   const navigate = useNavigate();
   const location = useLocation();
   const [index, setIndex] = useState(0);
+  // US-3122: the order of the queue. The default is still oldest first — the
+  // item sitting longest is the one to finish — but a seller working a bin, or
+  // everything one person sourced, can now say so. Shares `?sort=` with the
+  // other three views.
+  const [sortParam, setSortParam] = useUrlParamState("sort", "default");
+  const sortOption = resolveSortOptionForMode(sortParam, "prep");
+  const sortColumn = columnSortForMode(sortOption, "prep");
   const [draft, setDraft] = useState<PrepState | null>(null);
   const [saving, setSaving] = useState(false);
 
@@ -71,17 +87,20 @@ export function FlipdeskPrepPage() {
   // nothing here reads a description, a note or a comp set.
   const { data: items = [], isLoading } = useItemsList();
 
-  // Items still in the prep phase (before drafted), oldest first. The shared
-  // cache is ordered newest-first, so sort to oldest-first here.
+  // Items still in the prep phase (before drafted). The shared cache is ordered
+  // newest-first; the menu's default (`created_at asc`) puts it back to
+  // oldest-first, which is the order this queue has always been handed out in.
   const queue = useMemo(
     () =>
-      items
-        .filter((it) => {
+      sortByField(
+        items.filter((it) => {
           const r = rankOf(it.status);
           return r >= 0 && r < DRAFTED_RANK;
-        })
-        .sort((a, b) => (a.created_at ?? "").localeCompare(b.created_at ?? "")),
-    [items],
+        }),
+        sortColumn.field,
+        sortColumn.dir,
+      ),
+    [items, sortColumn.field, sortColumn.dir],
   );
 
   const current: ItemListRow | undefined = queue[index];
@@ -108,6 +127,12 @@ export function FlipdeskPrepPage() {
   // of keeping it on every row of the queue. It is a hint — the card renders
   // fine while this is still in flight.
   const { data: currentDetail } = useItemFull(current?.id);
+
+  // A re-sort is a request for a different FIRST item, so start there rather
+  // than leaving the seller on whatever landed at their old position.
+  useEffect(() => {
+    setIndex(0);
+  }, [sortParam]);
 
   // Clamp index if the queue shrinks (e.g. an item advances out of prep).
   useEffect(() => {
@@ -175,7 +200,12 @@ export function FlipdeskPrepPage() {
   if (queue.length === 0 || !current || !draft) {
     return (
       <div className="space-y-6">
-        <PrepHeader queueLength={0} index={0} />
+        <PrepHeader
+          queueLength={0}
+          index={0}
+          sortValue={sortOption.id}
+          onSortChange={setSortParam}
+        />
         <Card>
           <CardContent className="space-y-3 py-16 text-center">
             <CircleCheck className="mx-auto h-10 w-10 text-emerald-600 dark:text-emerald-400" />
@@ -210,7 +240,12 @@ export function FlipdeskPrepPage() {
 
   return (
     <div className="space-y-5 pb-10">
-      <PrepHeader queueLength={queue.length} index={index} />
+      <PrepHeader
+        queueLength={queue.length}
+        index={index}
+        sortValue={sortOption.id}
+        onSortChange={setSortParam}
+      />
 
       {/* Item header + nav */}
       <Card>
@@ -448,9 +483,13 @@ function PrepPriceRecommendation({
 function PrepHeader({
   queueLength,
   index,
+  sortValue,
+  onSortChange,
 }: {
   queueLength: number;
   index: number;
+  sortValue: SortOptionId;
+  onSortChange: (id: string) => void;
 }) {
   return (
     <div className="space-y-3">
@@ -466,10 +505,19 @@ function PrepHeader({
               : "Assembly-line prep for items that need photos, measurements, or pricing."}
           </p>
         </div>
+        {/* Nothing to order when the queue is clear, so the menu goes with
+            the count rather than sitting over an empty screen. */}
         {queueLength > 0 && (
-          <Badge variant="secondary" className="ml-auto">
-            {queueLength} in queue
-          </Badge>
+          <div className="ml-auto flex items-center gap-2">
+            <SortMenu
+              options={sortOptionsForMode("prep")}
+              value={sortValue}
+              onChange={onSortChange}
+              className="w-48"
+              label="Sort the prep queue by"
+            />
+            <Badge variant="secondary">{queueLength} in queue</Badge>
+          </div>
         )}
       </div>
       <InventoryViewSwitcher current="prep" />

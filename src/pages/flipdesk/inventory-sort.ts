@@ -201,6 +201,66 @@ export function sortOptionsForTab(tab: TabId): SortOption[] {
 }
 
 /**
+ * The Inventory views that have no tabs (US-3122).
+ *
+ * Grid and Kanban both show the whole account, so their menu is the All tab's
+ * menu and their default is the order they already had: newest added. Prep is
+ * a QUEUE — it has always handed the seller the oldest unfinished item first,
+ * on the reasoning that the thing sitting longest is the thing to finish — so
+ * its default stays that, and the rest of the menu is what a prep queue can
+ * actually be reordered by. Neither list carries the scored presets, which the
+ * server only computes for the Unlisted tab.
+ */
+export type SortableViewMode = "grid" | "kanban" | "prep";
+
+export function sortOptionsForMode(mode: SortableViewMode): SortOption[] {
+  if (mode === "prep") {
+    return [
+      { id: "default", label: "Oldest first" },
+      NEWEST,
+      LEAST_RECENTLY_UPDATED,
+      RECENTLY_UPDATED,
+      ...COST_OPTIONS,
+      ...NAME_OPTIONS,
+      ...SOURCER_OPTIONS,
+    ];
+  }
+  return sortOptionsForTab("all");
+}
+
+/**
+ * The option a raw `?sort=` value names in a tabless view, or that view's
+ * default. Same contract as resolveSortOption: an id from another menu (a
+ * `best_roi` link opened on the Kanban) lands on the default rather than on a
+ * neighbouring option.
+ */
+export function resolveSortOptionForMode(
+  raw: string | null | undefined,
+  mode: SortableViewMode,
+): SortOption {
+  const options = sortOptionsForMode(mode);
+  const found = raw ? options.find((o) => o.id === raw) : undefined;
+  return found ?? options[0]!;
+}
+
+/**
+ * The column a tabless view orders by, including its default.
+ *
+ * The table sends `null` for a default and lets the server apply the tab's own
+ * ORDER BY. These views have no server-side default to fall back to, so the
+ * default names its column here instead.
+ */
+export function columnSortForMode(
+  option: SortOption,
+  mode: SortableViewMode,
+): ColumnSort {
+  if (option.column) return option.column;
+  return mode === "prep"
+    ? col("created_at", "asc")
+    : col("created_at", "desc");
+}
+
+/**
  * The option a raw `?sort=` value names on this tab, or the tab's default when
  * the value is absent, unknown, or belongs to a different tab's menu.
  */

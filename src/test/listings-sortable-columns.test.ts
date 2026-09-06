@@ -34,6 +34,10 @@ const EXPECTED_SORTABLE = [
   "item_title", // Title — the A-to-Z the request started from
   "item_number", // SKU
   "brand", // Brand · Size (sorts on brand; size is free text)
+  // US-3122. This header only RENDERS while the table is already ordered by
+  // sourced_by, but it is a real items_full column either way, and clicking it
+  // flips the direction like any other.
+  "sourced_by",
   "status",
   "notes",
   "updated_at", // Age, which is rendered as days-since-updated

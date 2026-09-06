@@ -267,12 +267,18 @@ function roiOf(it: ItemFullRow): number {
  * The shared comparator. Nulls sort LAST in both directions — a row missing the
  * value being sorted on is not "smallest", it is "unknown", and burying it is
  * what a seller expects either way.
+ *
+ * Generic over the row since US-3122: the Kanban and Prep views sort
+ * `ItemListRow` (the projection, a Pick<> of this) with the same rules the
+ * table gets from SQL, so all four Inventory views agree on what "sorted by
+ * brand" means. It sorts IN PLACE and returns the same array, so a caller
+ * holding a query result copies first.
  */
-function sortByField(
-  rows: ItemFullRow[],
+export function sortByField<T extends Partial<ItemFullRow>>(
+  rows: T[],
   field: keyof ItemFullRow,
   dir: "asc" | "desc",
-): ItemFullRow[] {
+): T[] {
   const sign = dir === "asc" ? 1 : -1;
   rows.sort((a, b) => {
     const av = a[field];
