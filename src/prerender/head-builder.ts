@@ -1,6 +1,7 @@
 // Deterministic <head> builder for the build-time prerender (US-292).
 //
-// Why not react-helmet-async? The v3 fork in use renders NOTHING server-side
+// Why not a head library? react-helmet-async, used here until US-3120 removed
+// it, rendered NOTHING server-side
 // (its SSR `context.helmet` sink comes back empty) and injects no <script>
 // client-side either — verified directly. So the crawlable <head> for each
 // static route is assembled here from the route registry + JSON-LD builders,
@@ -160,7 +161,8 @@ function escapeAttr(s: string): string {
     .replace(/"/g, "&quot;");
 }
 
-// The <SEO> component renders react-helmet-async <Helmet> children, and this
+// The <SEO> component writes the same tags into document.head on the client
+// (US-3120; it was <Helmet> children until then), and this
 // fork emits those tags INLINE into the SSR body instead of collecting them
 // into a head sink. <title>/<meta>/<link rel=canonical> are never valid inside
 // <body>, and the canonical <head> is built separately by buildHeadTags(), so

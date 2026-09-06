@@ -7,7 +7,6 @@
 import { describe, expect, it } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import { MemoryRouter } from "react-router";
-import { HelmetProvider } from "react-helmet-async";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 import { SignupPage } from "@/pages/signup";
@@ -17,13 +16,11 @@ function render(path: string) {
     defaultOptions: { queries: { retry: false } },
   });
   return renderToStaticMarkup(
-    <HelmetProvider>
       <QueryClientProvider client={queryClient}>
         <MemoryRouter initialEntries={[path]}>
           <SignupPage />
         </MemoryRouter>
       </QueryClientProvider>
-    </HelmetProvider>,
   );
 }
 

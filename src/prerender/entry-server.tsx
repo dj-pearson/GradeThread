@@ -19,7 +19,6 @@
 import { StrictMode } from "react";
 import { renderToString } from "react-dom/server";
 import { StaticRouter } from "react-router";
-import { HelmetProvider } from "react-helmet-async";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 import { LandingPage } from "@/pages/landing";
@@ -412,11 +411,9 @@ export function renderRoute(path: string): string {
   const queryClient = new QueryClient();
   return renderToString(
     <StrictMode>
-      <HelmetProvider>
         <QueryClientProvider client={queryClient}>
           <StaticRouter location={path}>{page}</StaticRouter>
         </QueryClientProvider>
-      </HelmetProvider>
     </StrictMode>,
   );
 }

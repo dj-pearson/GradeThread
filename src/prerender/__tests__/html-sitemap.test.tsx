@@ -1,7 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { renderToString } from "react-dom/server";
 import { createElement as h, StrictMode } from "react";
-import { HelmetProvider } from "react-helmet-async";
 import { MemoryRouter } from "react-router";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
@@ -17,9 +16,8 @@ function ssr(): string {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return renderToString(
     h(StrictMode, null,
-      h(HelmetProvider, null,
-        h(QueryClientProvider, { client: qc },
-          h(MemoryRouter, { initialEntries: ["/sitemap"] }, h(HtmlSitemapPage))))),
+      h(QueryClientProvider, { client: qc },
+        h(MemoryRouter, { initialEntries: ["/sitemap"] }, h(HtmlSitemapPage)))),
   );
 }
 

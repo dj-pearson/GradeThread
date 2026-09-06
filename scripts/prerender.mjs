@@ -8,9 +8,9 @@
 //      outPath note below for why directory-form output deadlocks redirects)
 //
 // No headless browser is needed (none is available in CI/Cloudflare builds, and
-// a Chromium download would be fragile). react-helmet-async v3 renders no head
-// server-side, so the <head> is assembled deterministically from the same data
-// the client <SEO> uses. The SAME HTML is served to humans and crawlers (no
+// a Chromium download would be fragile). Nothing renders a <head> server-side -
+// react-helmet-async never did and was removed in US-3120 - so the <head> is
+// assembled deterministically from the same data the client <SEO> uses. The SAME HTML is served to humans and crawlers (no
 // cloaking); the SPA mounts over it with createRoot.
 //
 // Run: node scripts/prerender.mjs   (wired into `npm run build`)
@@ -58,8 +58,8 @@ function fail(msg) {
 
 // US-432: post-prerender head-integrity guard. Asserts each generated document
 // has exactly one <title> and one rel=canonical, and that no <title>,
-// rel=canonical, or <meta name="description"> leaked into the SSR <body> (i.e.
-// the Helmet strip worked). Called per route in the write loop; fails the build.
+// rel=canonical, or <meta name="description"> leaked into the SSR <body>.
+// Called per route in the write loop; fails the build.
 function countMatches(s, re) {
   return (s.match(re) ?? []).length;
 }
@@ -335,10 +335,14 @@ try {
     html = html.replace(BODY_MARKER, body);
 
     // US-432: assert head integrity on the FINAL document before writing it.
-    // react-helmet-async (v3 fork) leaks <title>/<meta>/<link> into the SSR body;
-    // stripHeadTagsFromBody removes them, but a brittle regex could silently
-    // miss one — yielding duplicate <title>s or a <meta name=description> inside
-    // <body> (both hurt indexing). Fail the build (CI) on any violation.
+    //
+    // ⚠ US-3120: THE LEAK THIS WAS WRITTEN FOR IS GONE, AND THE CHECK STAYS.
+    // react-helmet-async (v3 fork) leaked <title>/<meta>/<link> into the SSR
+    // body and stripHeadTagsFromBody removed them; the library is no longer a
+    // dependency and <SEO> returns null, so there is nothing left to strip.
+    // What this still catches is a PAGE that renders a head tag in its own
+    // markup - duplicate <title>s or a <meta name=description> inside <body>,
+    // both of which hurt indexing. Fail the build (CI) on any violation.
     validateHeadIntegrity(html, body, route.path);
 
     // "/" → dist/index.html; "/privacy" → dist/privacy.html (FLAT file, not a

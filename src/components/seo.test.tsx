@@ -1,7 +1,6 @@
 import { describe, it, expect, afterEach } from "vitest";
 import { createElement as h, act } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { HelmetProvider } from "react-helmet-async";
 import { SEO } from "./seo";
 
 // React 19 requires this flag for act() to flush effects in a test env.
@@ -9,8 +8,12 @@ import { SEO } from "./seo";
   true;
 
 // No @testing-library in this repo — render into jsdom the way the app does
-// (HelmetProvider + createRoot) and read the resulting document <head>.
-// react-helmet-async batches head writes via rAF, so flush a macrotask.
+// (createRoot) and read the resulting document <head>.
+//
+// US-3120: <SEO> used to go through react-helmet-async, which batched its head
+// writes via rAF; the macrotask flush below was for that. It writes the tags in
+// a useEffect now, so act() alone is enough — the flush stays because the
+// JSON-LD effect has always needed it and removing it proves nothing.
 
 let root: Root | null = null;
 let container: HTMLDivElement | null = null;
@@ -20,7 +23,7 @@ async function renderSEO(props: Parameters<typeof SEO>[0]) {
   document.body.appendChild(container);
   root = createRoot(container);
   await act(async () => {
-    root!.render(h(HelmetProvider, null, h(SEO, props)));
+    root!.render(h(SEO, props));
   });
   await act(async () => {
     await new Promise((r) => setTimeout(r, 0));

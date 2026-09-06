@@ -1,5 +1,4 @@
 import { useEffect } from "react";
-import { Helmet } from "react-helmet-async";
 import {
   SITE_URL,
   normalizePath,
@@ -86,8 +85,9 @@ export function SEO({
   // Stable dependency for the effect: re-run only when the payload changes.
   const ldKey = serialized.join(" ");
 
-  // react-helmet-async (v3 fork) does not inject <script> tags into the DOM
-  // head on the client, so manage JSON-LD ourselves. Appending real <script
+  // JSON-LD is managed here directly. It always was: react-helmet-async (the
+  // v3 fork, removed in US-3120) injected no <script> on the client, which is
+  // the reason this effect predates the one below rather than joining it. Appending real <script
   // type="application/ld+json"> nodes works at runtime for the live SPA.
   //
   // IMPORTANT (US-423): the build-time prerender is STRING-BASED
@@ -114,77 +114,119 @@ export function SEO({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ldKey]);
 
-  return (
-    <Helmet>
-      <title>{fullTitle}</title>
-      <meta name="description" content={description} />
-      <meta
-        name="robots"
-        content={
-          noindex
-            ? "noindex, nofollow"
-            : "index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1"
-        }
-      />
-      {keywords && keywords.length > 0 && (
-        <meta name="keywords" content={keywords.join(", ")} />
-      )}
-      {resolvedCanonical && <link rel="canonical" href={resolvedCanonical} />}
+  // ── The head tags, written directly (US-3120) ────────────────────────────
+  //
+  // ⚠ THIS USED TO BE <Helmet>. react-helmet-async is gone, and the reason is
+  // not only its weight - it was doing half a job in both directions.
+  //
+  // On the SERVER it renders NO head at all (the v3 fork), so every crawlable
+  // <head> already comes from src/prerender/head-builder.ts. What it DID emit
+  // server-side was <title>/<meta>/<link> leaking into the SSR BODY, which
+  // scripts/prerender.mjs carries a dedicated strip step and leak check for.
+  // On the CLIENT it injects no <script>, which is why the JSON-LD above is
+  // already a useEffect. So the component had two mechanisms for one job and
+  // the library was the one that could not do all of it.
+  //
+  // It also cost more than it looked: one eager module that drags
+  // react-fast-compare, invariant and shallowequal into the entry chunk, which
+  // is on a hard byte budget.
+  //
+  // WHAT THIS DOES NOT CHANGE: crawlers still read head-builder's output. This
+  // effect only keeps the LIVE SPA's head correct as the seller navigates.
+  useEffect(() => {
+    const managed: Element[] = [];
 
-      {/* Open Graph */}
-      <meta property="og:type" content={ogType} />
-      <meta property="og:title" content={fullTitle} />
-      <meta property="og:description" content={description} />
-      <meta property="og:site_name" content="GradeThread" />
-      {resolvedCanonical && <meta property="og:url" content={resolvedCanonical} />}
-      {/* US-427: explicit image dimensions/type/alt so unfurls render the card
-          without a pre-fetch round-trip. Every OG image we ship is 1200×630 PNG. */}
-      <meta property="og:image" content={ogImage} />
-      <meta property="og:image:secure_url" content={ogImage} />
-      <meta property="og:image:type" content={OG_IMAGE_TYPE} />
-      <meta property="og:image:width" content={String(OG_IMAGE_WIDTH)} />
-      <meta property="og:image:height" content={String(OG_IMAGE_HEIGHT)} />
-      <meta property="og:image:alt" content={ogImageAlt} />
+    const set = (selector: string, make: () => Element) => {
+      // Replace rather than update: the prerendered head already carries a tag
+      // for most of these, and leaving it beside ours is how a page ends up
+      // with two canonicals.
+      document.head.querySelector(selector)?.remove();
+      const el = make();
+      el.setAttribute("data-seo-managed", "true");
+      document.head.appendChild(el);
+      managed.push(el);
+    };
 
-      {/* Article metadata */}
-      {article?.publishedTime && (
-        <meta property="article:published_time" content={article.publishedTime} />
-      )}
-      {article?.modifiedTime && (
-        <meta property="article:modified_time" content={article.modifiedTime} />
-      )}
-      {article?.author && (
-        <meta property="article:author" content={article.author} />
-      )}
+    const meta = (key: "name" | "property", value: string, content: string) =>
+      set(`meta[${key}="${value}"]`, () => {
+        const el = document.createElement("meta");
+        el.setAttribute(key, value);
+        el.setAttribute("content", content);
+        return el;
+      });
 
-      {/* Twitter. US-428: default twitter:site (the brand X handle) from the
-          shared social config so EVERY page carries it for entity recognition,
-          while a caller can still override per-page (e.g. a blog author). Both
-          tags are emitted only when a real handle is configured — never a
-          placeholder. twitter:creator falls back to the site handle. */}
-      <meta name="twitter:card" content="summary_large_image" />
-      <meta name="twitter:title" content={fullTitle} />
-      <meta name="twitter:description" content={description} />
-      <meta name="twitter:image" content={ogImage} />
-      <meta name="twitter:image:alt" content={ogImageAlt} />
-      {resolvedTwitterSite && (
-        <meta name="twitter:site" content={resolvedTwitterSite} />
-      )}
-      {resolvedTwitterCreator && (
-        <meta name="twitter:creator" content={resolvedTwitterCreator} />
-      )}
+    const previousTitle = document.title;
+    document.title = fullTitle;
 
-      {/* US-308: Search Console + Bing Webmaster verification tags. Values
-          come from the build-time env (Vite). The string verification flow
-          for both engines accepts a meta tag on the homepage with no
-          interaction required after verification — keep these site-wide so
-          adding a new public route doesn't break verification. */}
-      {VERIFY_GOOGLE && (
-        <meta name="google-site-verification" content={VERIFY_GOOGLE} />
-      )}
-      {VERIFY_BING && <meta name="msvalidate.01" content={VERIFY_BING} />}
-    </Helmet>
-  );
+    meta("name", "description", description);
+    meta(
+      "name",
+      "robots",
+      noindex
+        ? "noindex, nofollow"
+        : "index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1",
+    );
+    if (keywords && keywords.length > 0) {
+      meta("name", "keywords", keywords.join(", "));
+    }
+    if (resolvedCanonical) {
+      set('link[rel="canonical"]', () => {
+        const el = document.createElement("link");
+        el.setAttribute("rel", "canonical");
+        el.setAttribute("href", resolvedCanonical);
+        return el;
+      });
+    }
+
+    meta("property", "og:type", ogType);
+    meta("property", "og:title", fullTitle);
+    meta("property", "og:description", description);
+    meta("property", "og:site_name", "GradeThread");
+    if (resolvedCanonical) meta("property", "og:url", resolvedCanonical);
+    // US-427: explicit dimensions/type/alt so an unfurl renders the card with
+    // no pre-fetch round-trip. Every OG image we ship is 1200x630 PNG.
+    meta("property", "og:image", ogImage);
+    meta("property", "og:image:secure_url", ogImage);
+    meta("property", "og:image:type", OG_IMAGE_TYPE);
+    meta("property", "og:image:width", String(OG_IMAGE_WIDTH));
+    meta("property", "og:image:height", String(OG_IMAGE_HEIGHT));
+    meta("property", "og:image:alt", ogImageAlt);
+
+    if (article?.publishedTime) {
+      meta("property", "article:published_time", article.publishedTime);
+    }
+    if (article?.modifiedTime) {
+      meta("property", "article:modified_time", article.modifiedTime);
+    }
+    if (article?.author) meta("property", "article:author", article.author);
+
+    // US-428: twitter:site is the brand handle on EVERY page for entity
+    // recognition, overridable per page; creator falls back to it. Both are
+    // emitted only when a real handle is configured, never a placeholder.
+    meta("name", "twitter:card", "summary_large_image");
+    meta("name", "twitter:title", fullTitle);
+    meta("name", "twitter:description", description);
+    meta("name", "twitter:image", ogImage);
+    meta("name", "twitter:image:alt", ogImageAlt);
+    if (resolvedTwitterSite) meta("name", "twitter:site", resolvedTwitterSite);
+    if (resolvedTwitterCreator) {
+      meta("name", "twitter:creator", resolvedTwitterCreator);
+    }
+
+    // US-308: Search Console and Bing verification, site-wide so adding a
+    // public route cannot break verification.
+    if (VERIFY_GOOGLE) {
+      meta("name", "google-site-verification", VERIFY_GOOGLE);
+    }
+    if (VERIFY_BING) meta("name", "msvalidate.01", VERIFY_BING);
+
+    return () => {
+      for (const el of managed) el.remove();
+      document.title = previousTitle;
+    };
+  });
+
+  return null;
 }
 
 // Read once at module load so a render isn't paying the env lookup cost.

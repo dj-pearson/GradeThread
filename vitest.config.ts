@@ -130,8 +130,14 @@ export default defineConfig({
     //
     // So the ratio cannot be raised by writing tests, only by writing tests for
     // modules already imported - a rule nobody should have to discover twice.
-    // 56 sits ~0.9 under today's 56.90, which is tight enough to still catch a
-    // real deletion and loose enough to stop failing commits that add tests.
+    //
+    // ⚠ AND THE FLOOR STAYS AT 56 EVEN THOUGH THE NUMBER IS NOW 57.02. Dropping
+    // react-helmet-async in the same story took ITS functions out of the
+    // denominator (6,179 -> 6,167) and the ratio cleared 57 on its own, so 57
+    // would pass today. It is left at 56 deliberately: 0.02 of margin is not a
+    // ratchet, it is a tripwire, and the next test that imports a new module
+    // puts CI back where it was for the four red runs this story exists to fix.
+    // A floor is meant to sit BELOW current and catch a deletion.
     coverage: {
       provider: "v8",
       reporter: ["text-summary", "json-summary"],

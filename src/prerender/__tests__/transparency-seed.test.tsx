@@ -1,7 +1,6 @@
 import { describe, it, expect, afterEach } from "vitest";
 import { renderToString } from "react-dom/server";
 import { createElement as h, StrictMode } from "react";
-import { HelmetProvider } from "react-helmet-async";
 import { MemoryRouter } from "react-router";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
@@ -22,10 +21,9 @@ function ssr(): string {
   });
   return renderToString(
     h(StrictMode, null,
-      h(HelmetProvider, null,
-        h(QueryClientProvider, { client: qc },
-          h(MemoryRouter, { initialEntries: ["/transparency"] },
-            h(TransparencyPage))))),
+      h(QueryClientProvider, { client: qc },
+        h(MemoryRouter, { initialEntries: ["/transparency"] },
+          h(TransparencyPage)))),
   );
 }
 

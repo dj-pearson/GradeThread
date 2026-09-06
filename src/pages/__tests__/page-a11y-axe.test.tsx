@@ -12,7 +12,6 @@
 import { describe, expect, it } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import { MemoryRouter } from "react-router";
-import { HelmetProvider } from "react-helmet-async";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import axe from "axe-core";
 
@@ -34,11 +33,9 @@ async function violations(node: React.ReactNode) {
     defaultOptions: { queries: { retry: false } },
   });
   const html = renderToStaticMarkup(
-    <HelmetProvider>
       <QueryClientProvider client={queryClient}>
         <MemoryRouter>{node}</MemoryRouter>
       </QueryClientProvider>
-    </HelmetProvider>,
   );
   document.body.innerHTML = html;
   const results = await axe.run(document.body, {

@@ -1,7 +1,6 @@
 import { describe, it, expect, afterEach } from "vitest";
 import { createElement as h, act, Suspense } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { HelmetProvider } from "react-helmet-async";
 import { MemoryRouter } from "react-router";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ComponentType } from "react";
@@ -56,21 +55,17 @@ async function renderAt(
   await act(async () => {
     root!.render(
       h(
-        HelmetProvider,
-        null,
+        QueryClientProvider,
+        { client: queryClient },
         h(
-          QueryClientProvider,
-          { client: queryClient },
-          h(
-            MemoryRouter,
-            { initialEntries: [path] },
-            h(Suspense, { fallback: null }, h(Page, props)),
-          ),
+          MemoryRouter,
+          { initialEntries: [path] },
+          h(Suspense, { fallback: null }, h(Page, props)),
         ),
       ),
     );
   });
-  // Flush the rAF/macrotask the SEO effect + helmet use.
+  // Flush the macrotask the SEO effects use.
   await act(async () => {
     await new Promise((r) => setTimeout(r, 0));
   });

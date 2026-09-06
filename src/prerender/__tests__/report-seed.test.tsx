@@ -1,7 +1,6 @@
 import { describe, it, expect, afterEach } from "vitest";
 import { renderToString } from "react-dom/server";
 import { createElement as h, StrictMode } from "react";
-import { HelmetProvider } from "react-helmet-async";
 import { MemoryRouter } from "react-router";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
@@ -18,9 +17,8 @@ function ssr(node: React.ReactElement, path: string): string {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return renderToString(
     h(StrictMode, null,
-      h(HelmetProvider, null,
-        h(QueryClientProvider, { client: qc },
-          h(MemoryRouter, { initialEntries: [path] }, node)))),
+      h(QueryClientProvider, { client: qc },
+        h(MemoryRouter, { initialEntries: [path] }, node))),
   );
 }
 
