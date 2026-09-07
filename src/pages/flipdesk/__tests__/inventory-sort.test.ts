@@ -79,6 +79,25 @@ describe("sortOptionsForTab", () => {
     }
   });
 
+  it("every tab can ask for the newest item added (US-3129)", () => {
+    // The whole point of a filter is what you do AFTER it: narrow to one
+    // person, then read their newest. Three tabs had no newest-added order at
+    // all — Unlisted defaults to a score, Active to the listing date, Sold to
+    // the sale date, and none of those is the date the item arrived.
+    for (const tab of ALL_TABS) {
+      const options = sortOptionsForTab(tab);
+      const newest =
+        options.find((o) => o.id === "newest") ??
+        (options[0]!.id === "default" && options[0]!.label === "Newest added"
+          ? options[0]
+          : undefined);
+      expect(newest, `${tab} has no newest-added order`).toBeDefined();
+      if (newest?.column) {
+        expect(newest.column).toEqual({ field: "created_at", dir: "desc" });
+      }
+    }
+  });
+
   it("price means the column that tab actually has a value in", () => {
     expect(priceFieldForTab("unlisted")).toBe("target_price");
     expect(priceFieldForTab("active")).toBe("list_price");

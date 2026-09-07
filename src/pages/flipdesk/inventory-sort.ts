@@ -144,6 +144,10 @@ export function sortOptionsForTab(tab: TabId): SortOption[] {
         OLDEST,
         { id: "best_roi", label: "Best ROI", preset: "best_roi" },
         { id: "highest_comp", label: "Highest comp", preset: "highest_comp" },
+        // US-3129: this tab's default is a score, and until now the only way
+        // to reach the newest item was to leave the tab. Filtering to one
+        // person and then reading their newest is a normal thing to want.
+        NEWEST,
         LEAST_RECENTLY_UPDATED,
         RECENTLY_UPDATED,
         ...priceOptions(tab),
@@ -157,6 +161,8 @@ export function sortOptionsForTab(tab: TabId): SortOption[] {
         { id: "longest_listed", label: "Longest listed first", column: col("list_date", "asc") },
         { id: "most_views", label: "Most views", column: col("listing_views", "desc") },
         { id: "most_watchers", label: "Most watchers", column: col("listing_watchers", "desc") },
+        NEWEST,
+        OLDEST,
         ...priceOptions(tab),
         ...COST_OPTIONS,
         ...NAME_OPTIONS,
@@ -169,6 +175,8 @@ export function sortOptionsForTab(tab: TabId): SortOption[] {
         { id: "oldest_sale", label: "Oldest sale first", column: col("sale_date", "asc") },
         { id: "profit_high", label: "Profit: high to low", column: col("net_profit", "desc") },
         { id: "profit_low", label: "Profit: low to high", column: col("net_profit", "asc") },
+        NEWEST,
+        OLDEST,
         ...priceOptions(tab),
         ...COST_OPTIONS,
         ...NAME_OPTIONS,

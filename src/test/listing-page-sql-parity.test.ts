@@ -272,6 +272,22 @@ function cases(): Case[] {
   for (const [name, filter] of filters) {
     out.push({ name: `filter ${name}`, tab: "all", filter });
   }
+
+  // US-3129, the whole point of the pair: narrow to one person, then read
+  // their newest. The filter and the sort are applied in different halves of
+  // flipdesk_listing_page, so composing them is its own case.
+  out.push({
+    name: "filter sourced_by eq dan + newest added",
+    tab: "all",
+    filter: { combinator: "and", rules: [rule("sourced_by", "eq", "dan")] },
+    columnSort: { field: "created_at", dir: "desc" },
+  });
+  out.push({
+    name: "filter sourced_by eq dan + sourced_by sort (redundant but legal)",
+    tab: "unlisted",
+    filter: { combinator: "and", rules: [rule("sourced_by", "eq", "dan")] },
+    columnSort: { field: "sourced_by", dir: "asc" },
+  });
   return out;
 }
 

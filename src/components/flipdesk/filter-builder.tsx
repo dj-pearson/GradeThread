@@ -14,6 +14,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
+import { useSourcers } from "@/hooks/use-sourcers";
 import {
   FIELD_LABELS,
   FILTER_FIELDS,
@@ -45,6 +46,11 @@ export function FilterBuilder({
   onChange: (q: FilterQuery) => void;
 }) {
   const ruleCount = query.rules.length;
+  // US-3129: the "Sourced by" rule picks a person instead of asking the seller
+  // to spell one. The roster is the same list the intake picker offers
+  // (US-2886), and `inventory_items.sourced_by` stores the NAME, so the name IS
+  // the filter value — no id to resolve.
+  const { sourcers } = useSourcers();
 
   function patchRule(id: string, patch: Partial<FilterRule>) {
     onChange({
@@ -58,7 +64,12 @@ export function FilterBuilder({
           const ops = opsForField(patch.field);
           if (!ops.includes(next.op)) next.op = ops[0]!;
           // Switching to/from an enum field invalidates a free-text value.
-          if (ENUM_FIELDS.has(patch.field) || ENUM_FIELDS.has(r.field)) {
+          // `sourced_by` counts as one (US-3129): it is picked from the
+          // roster, and carrying "Nike" over from a brand rule would leave a
+          // person filter that matches nobody and looks deliberate.
+          const picked = (f: FilterField) =>
+            ENUM_FIELDS.has(f) || f === "sourced_by";
+          if (picked(patch.field) || picked(r.field)) {
             next.value = "";
           }
         }
@@ -128,6 +139,19 @@ export function FilterBuilder({
             const ops = opsForField(rule.field);
             const needsValue = rule.op !== "isnull" && rule.op !== "notnull";
             const isEnum = ENUM_FIELDS.has(rule.field);
+            const isSourcer =
+              rule.field === "sourced_by" &&
+              (rule.op === "eq" || rule.op === "neq");
+            // A name the roster no longer offers (archived, or renamed since
+            // the view was saved) still has to appear, or the menu would read
+            // as empty and silently drop the rule the seller is looking at.
+            const sourcerOptions = isSourcer
+              ? Array.from(
+                  new Set(
+                    [...sourcers.map((s) => s.name), rule.value].filter(Boolean),
+                  ),
+                )
+              : [];
             const isDate = DATE_FIELDS.has(rule.field);
             const enumOptions = ENUM_FIELD_OPTIONS[rule.field];
             return (
@@ -168,6 +192,25 @@ export function FilterBuilder({
                 </Select>
                 {!needsValue ? (
                   <div className="flex-1" />
+                ) : isSourcer && sourcerOptions.length > 0 ? (
+                  // Only for the one-value operators. "is any of" takes a
+                  // comma list and "contains" takes a fragment, and neither is
+                  // a single pick — those keep the text box below.
+                  <Select
+                    value={rule.value}
+                    onValueChange={(v) => patchRule(rule.id, { value: v })}
+                  >
+                    <SelectTrigger className="h-8 flex-1 text-xs" aria-label={`Value for rule ${ruleIndex + 1}`}>
+                      <SelectValue placeholder="Pick a person…" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {sourcerOptions.map((name) => (
+                        <SelectItem key={name} value={name}>
+                          {name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 ) : isEnum && enumOptions ? (
                   <Select
                     value={rule.value}
