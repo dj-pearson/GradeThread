@@ -125,10 +125,11 @@ assumption that has to be dropped. Draft answer:
 honestly.** A number a reviewer can disprove is worse than a small one. Same
 rule as the Depop application: see [[adr-depop-partner-application]].
 
-⚠ **Sender name.** [[adr-depop-partner-application]] signs as "Dan Pearson".
-The git identity on this repo is "Dj Pearson". Use whichever is real and use the
-same one on both, because these are two applications from one company and a
-reviewer who searches will find both.
+**Sender: `support@gradethread.com`, signed Dj Pearson.** Settled by the founder
+2026-09-06. That is the address the Depop application went out from, and both
+applications use it for the same reason: a reviewer who searches finds both, and
+one company writing under two addresses is a question rather than a fact. See
+[[adr-depop-partner-application]].
 
 ---
 

@@ -44,7 +44,7 @@ welcomed partner segment.
 
 > Hi Depop Partnerships team,
 >
-> I'm Dan Pearson, founder of **GradeThread** (Pearson Media LLC, gradethread.com) — a
+> I'm Dj Pearson, founder of **GradeThread** (Pearson Media LLC, gradethread.com) — a
 > SaaS platform for pre-owned clothing resellers. We provide standardized, AI-powered
 > condition grading (a 1.0–10.0 grade + condition report) and a full reselling workflow:
 > source → catalog → measure → photograph → grade → comp → draft → list → sell → ship →
@@ -81,9 +81,9 @@ welcomed partner segment.
 >
 > Thanks very much,
 >
-> Dan Pearson
+> Dj Pearson
 > Founder, GradeThread (Pearson Media LLC)
-> dan@gradethread.com · gradethread.com
+> support@gradethread.com · gradethread.com
 
 > **Before sending — fill the two `[INSERT ...]` placeholders** with real numbers. Do not
 > send fabricated figures; if exact counts aren't handy, state a defensible range or
@@ -140,14 +140,25 @@ without repeating it.
 >
 > Thanks,
 >
-> [NAME]
+> Dj Pearson
 > Founder, GradeThread (Pearson Media LLC)
-> [EMAIL] · gradethread.com
+> support@gradethread.com · gradethread.com
 
-⚠ **Name and address must match the first email.** This ADR's §2 signs as "Dan
-Pearson / dan@gradethread.com"; the git identity on this repo is "Dj Pearson".
-Use whatever actually went out, and use the same on the Etsy application, since
-a reviewer who searches will find both. See [[adr-etsy-api-application]].
+**Sender, settled 2026-09-06 by the founder: `support@gradethread.com`.** The
+§2 draft above said `dan@gradethread.com`, which was never a real address, and
+signed "Dan Pearson", which no other record in this repo uses. Both were
+corrected to the verified identity so the two emails read as one thread. **If
+"Dan" is what actually went out, change it back here rather than in the
+follow-up** — a chase that renames the sender is worse than an inconsistent
+archive. Use the same address on the Etsy application: a reviewer who searches
+finds both, and two applications from one company under two addresses is a
+question you have to answer instead of a fact they never notice. See
+[[adr-etsy-api-application]].
+
+One judgement call left to the founder, not a blocker: `support@` is a role
+address, and some partner teams read a founder address as a stronger signal on a
+BD email. The first email already went from `support@`, so the follow-up should
+match it. If a third contact ever happens, that is the moment to switch.
 
 ⚠ **Nothing in the email above is a claim we cannot back.** Every capability
 listed is real code in `services/edge-functions/src/lib/depop-api.ts` and
@@ -164,7 +175,7 @@ ever needs to.
 | Field | Value |
 |---|---|
 | Date application sent | sent, exact date not recorded (founder, 2026-09-06: "a while ago") |
-| Sent from | _fill in — needed so the follow-up threads correctly_ |
+| Sent from | `support@gradethread.com` (founder, 2026-09-06) |
 | Date of Depop reply | **none as of 2026-09-06** |
 | Outcome | ☐ Approved ☐ Waitlisted ☐ Declined ☑ No response |
 | Flow granted | n/a |
