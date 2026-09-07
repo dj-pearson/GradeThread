@@ -1,5 +1,25 @@
 # PENDING MIGRATIONS — applied to prod separately from the push
 
+## ✅ APPLIED 2026-09-06: 00736 + 00737 — Herschel's decoder, and colour buckets (US-3125)
+
+**00736** — Herschel SKU decoder plus the 224 colour codes attached to colorway
+aliases. Data only.
+
+**00737** — ⚠ **SCHEMA CHANGE.** Adds `brand_colorways.base_color` and
+`.shade`, then populates 1,314 rows.
+
+> [!warning] 00737 must be applied as `supabase_admin`, not `postgres`
+> The tables are owned by `supabase_admin`, so `ALTER TABLE` as `postgres`
+> fails with `must be owner of table brand_colorways`. Every earlier brand
+> migration was data-only and did not hit this.
+>
+> `NOTIFY pgrst, 'reload schema'` IS required here — two new columns — and was
+> run. Earlier packs in this series needed none.
+
+**Applied and verified.** 2,294 colorways: 1,281 with a `base_color`, 164 with a
+`shade`.
+
+
 ## ✅ APPLIED 2026-09-06: 00735 — denim fit names for 7FAM and MOTHER (US-3125)
 
 **Risk: LOW.** 39 inserts into `brand_styles`, `ON CONFLICT DO NOTHING`.

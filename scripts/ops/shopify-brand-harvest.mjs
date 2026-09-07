@@ -101,6 +101,7 @@ export function summarise(products) {
   const types = new Map();
   const styles = new Map();
   const skuPrefixes = new Map();
+  const skus = [];
   const bump = (m, k) => k && m.set(k, (m.get(k) ?? 0) + 1);
 
   for (const p of products) {
@@ -115,8 +116,17 @@ export function summarise(products) {
       if (m) bump(styles, m[2].trim());
     }
     for (const v of p.variants ?? []) {
-      const m = /^([A-Z]{2,5})\d/.exec(String(v.sku ?? ""));
+      const sku = String(v.sku ?? "");
+      const m = /^([A-Z]{2,5})\d/.exec(sku);
       if (m) bump(skuPrefixes, m[1]);
+      // ⚠ THE SKU IS KEPT WITH ITS COLOUR AND SIZE, not on its own. A decoder is
+      // only worth writing if a segment RESOLVES to something, and the only way
+      // to know whether the digits in the middle are a colourway id is to check
+      // the same code against the colour it shipped with across styles. Free
+      // Fly's looked like one and was not (US-3125, 00732).
+      if (sku && skus.length < 4000) {
+        skus.push({ sku, colour: v.option1 ?? null, size: v.option2 ?? null });
+      }
     }
   }
   const top = (m, n) =>
@@ -128,6 +138,7 @@ export function summarise(products) {
     types: top(types, 30),
     styles: top(styles, 200),
     skuPrefixes: top(skuPrefixes, 40),
+    skus,
   };
 }
 
