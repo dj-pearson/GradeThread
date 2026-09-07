@@ -13,11 +13,17 @@
 // AND provides the OAuth creds. Every Whatnot edge endpoint 503s while it's off,
 // so there is no fake connect flow before partner access is granted.
 //
-// ⚠️ MODELED: Whatnot's partner API has no public docs. The auth/token URLs,
-// scopes, and token shape below are MODELED on a standard OAuth 2.0 + PKCE
-// partner app (the Depop pattern) and MUST be reconciled against the live API
-// once partner access lands. Everything is overridable via env so a shape change
-// is config, not code.
+// ⚠️ MODELED. Re-checked 2026-09-06 against developers.whatnot.com/docs, which
+// exists now and did not when US-1661 was written. The docs confirm OAuth 2.0,
+// so this file's shape holds; the exact authorize/token URLs, the scope strings
+// and the token lifetime are still MODELED and still have to be reconciled once
+// access lands. All of it is env-overridable, so that reconciliation is config.
+//
+// The DATA client is a different story: the Seller API is GraphQL on one
+// endpoint, not REST resource paths, so whatnot-api.ts needs rewriting rather
+// than reconfiguring. See the header there.
+//
+// Access is closed to new applicants with no waitlist, so this stays flag-off.
 //
 // PKCE (RFC 7636): /oauth/start generates a random code_verifier, stashes it on
 // the single-use oauth_states row (migration 00175), and sends the S256

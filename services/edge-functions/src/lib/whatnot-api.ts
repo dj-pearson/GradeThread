@@ -2,10 +2,28 @@
 // primitive (whatnotFetch) + connect-time shop identity. The LISTING + ORDER
 // write/read path is US-1662 and lands on top of this.
 //
-// ⚠️ MODELED: Whatnot's partner API is private with no public docs. The base URL,
-// endpoints, and field names here are MODELED and MUST be reconciled against the
-// live API once partner access lands. Kept narrow + tolerant so a rename is a
-// one-line change, not a refactor (mirrors the depop-api approach).
+// ⚠️ MODELED, AND NOW KNOWN TO BE THE WRONG SHAPE (verified 2026-09-06).
+//
+// US-1661 modeled this on the Depop REST pattern because Whatnot's partner API
+// had no public docs. It does now: developers.whatnot.com/docs. The Seller API
+// is **GraphQL**, one POST endpoint, not the REST resource paths whatnotFetch()
+// builds:
+//     production  https://api.whatnot.com/seller-api/graphql
+//     staging     https://api.stage.whatnot.com/seller-api/graphql
+// Auth is OAuth 2.0, which is the one thing the model got right, so
+// whatnot-client.ts survives and this file does not. It also has webhooks
+// (product sold, listing changes, order updates, livestream events), bulk
+// import/export, and shipment/label calls, none of which are modeled here.
+//
+// So this is NOT a rename away from working, which is what the paragraph above
+// used to promise. Treat every path-shaped call below as a placeholder to
+// DELETE when access lands, not to reconcile: one graphqlFetch(token, query,
+// vars) against the endpoint above replaces the lot, and WHATNOT_API_BASE stops
+// being the only thing that needs to change.
+//
+// Access is closed: "We are not accepting new applicants for access at this
+// time." There is no waitlist to join, so the connector stays flag-off and
+// nobody should spend a day rewriting this until that sentence changes.
 //
 // SECURITY (US-268): transport-only — takes a token + ids and talks to Whatnot.
 // No tenant-scoped DB access; the caller loads owner-scoped rows and passes the
