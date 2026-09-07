@@ -1,5 +1,23 @@
 # PENDING MIGRATIONS — applied to prod separately from the push
 
+## ✅ APPLIED 2026-09-07: 00760 — validate the brand provenance constraints (US-3126)
+
+**Risk: LOW.** Fixes 45 rows, then validates three existing constraints.
+`VALIDATE CONSTRAINT` takes SHARE UPDATE EXCLUSIVE — it does not block reads or
+writes. Guarded on `convalidated` so a re-run is a no-op.
+
+⚠ **APPLY AS `psql -U supabase_admin`, NOT `-U postgres`.** `brand_knowledge`
+and `brand_colorways` are owned by `supabase_admin`, and `VALIDATE CONSTRAINT`
+requires ownership. As `postgres` it fails with *must be owner of table
+brand_knowledge*, and `set local role supabase_admin` is refused as well.
+
+**Applied and verified.** All five CHECK constraints on the two tables now read
+`convalidated = t`; rows failing `tag_eras_all_sourced` 45 → **0**.
+
+Closes US-3126, whose stated "11 blocking rows" was an estimate: the real count
+was 90 at 00748, 45 after 00757, 0 here. The two `brand_fact_is_sourced`
+constraints failed on zero rows the whole time and were simply never validated.
+
 ## ✅ APPLIED 2026-09-07: 00759 — house colour vocabulary (US-3125)
 
 **Risk: LOW.** UPDATEs guarded by `base_color is null`, so a re-run is a no-op.

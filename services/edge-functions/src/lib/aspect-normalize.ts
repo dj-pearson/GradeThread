@@ -15,9 +15,17 @@
 // no confident match exists we return null (leave it for manual entry) and we
 // NEVER touch FREE_TEXT aspects (the original value passes straight through).
 //
-// This file is MIRRORED verbatim at src/lib/aspect-normalize.ts (the web
-// composer copy) so the edge publish path, the web prefill preview, and iOS
-// (server-driven) all normalize identically. Keep the two in sync.
+// TWO COPIES OF THIS FILE EXIST and their TABLES must agree: this one (the edge
+// publish path) and src/lib/aspect-normalize.ts (the web composer preview). iOS
+// is server-driven off this one. If the tables drift, the same garment gets a
+// different eBay Color in the preview than on the listing.
+//
+// ⚠ THEY ARE NOT BYTE-IDENTICAL AND MUST NOT BE MADE SO. The header here used
+// to claim they were byte-for-byte copies, which is false and actively harmful: the web copy
+// exports isSizeAspect and isClosedAspect that this one does not have, so
+// copying either file over the other breaks `tsc -b`. Patch the tables in both
+// by hand. src/test/aspect-normalize-mirror-parity.test.ts compares the shared
+// tables and fails on drift.
 
 /** The minimal, platform-agnostic shape of an aspect spec we normalize against. */
 export interface AspectValueSpec {
