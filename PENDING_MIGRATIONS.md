@@ -1,5 +1,23 @@
 # PENDING MIGRATIONS — applied to prod separately from the push
 
+## ✅ APPLIED 2026-09-06: 00731 — six brands sellers hold that the KB lacked (US-3125)
+
+**Risk: LOW.** Six `INSERT`s into `brand_knowledge` with `ON CONFLICT DO UPDATE`,
+so it is safe to re-run. No schema change, no `NOTIFY pgrst`.
+
+**Applied and verified.** Brands 230 → **236**; brands carrying an RN 15 → **21**.
+`applied_migrations` tops out at 00731.
+
+prAna, Pact, Mizzen+Main, Free Fly, Peruvian Connection and BYLT, each with an
+FTC-sourced registered number.
+
+> [!warning] These are MINIMAL packs and the empty columns are deliberate
+> `tag_eras`, `country_patterns` and `authentication_tells` are empty arrays and
+> every row's notes say so. An empty array here means NOT RESEARCHED — it does
+> not mean "researched and there is nothing", which is what an unexplained empty
+> column reads as.
+
+
 ## ✅ APPLIED 2026-09-06: 00730 — Peter Millar's registrant, and Johnnie-O's RN (US-3128)
 
 **Risk: LOW.** Data only, three `UPDATE`s on `brand_knowledge`. No table, column,
