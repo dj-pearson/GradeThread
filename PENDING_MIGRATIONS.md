@@ -1,5 +1,18 @@
 # PENDING MIGRATIONS — applied to prod separately from the push
 
+## ✅ APPLIED 2026-09-06: 00732 — Free Fly, a full pack (US-3125)
+
+**Risk: LOW.** Inserts only, all `ON CONFLICT DO NOTHING`, plus one guarded
+`UPDATE` to the brand's notes. No schema change, no `NOTIFY pgrst`.
+
+**Applied and verified.** 56 colorways, 10 product lines, 1 style-code decoder.
+Corpus totals: brand_colorways 159 → **215**, brands with any colorway 40 → **41**,
+brand_styles 763 → **773**, brand_style_codes 32 → **33**.
+
+Sourced from the brand's own Shopify `/products.json` (1,008 products) via
+`scripts/ops/shopify-brand-harvest.mjs`.
+
+
 ## ✅ APPLIED 2026-09-06: 00731 — six brands sellers hold that the KB lacked (US-3125)
 
 **Risk: LOW.** Six `INSERT`s into `brand_knowledge` with `ON CONFLICT DO UPDATE`,

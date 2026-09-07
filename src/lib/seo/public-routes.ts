@@ -189,6 +189,9 @@ const ROUTE_LAST_MODIFIED: Record<string, string> = {
   "/reselling/vendoo-alternative": "2026-07-20",
   "/reselling/list-perfectly-alternative": "2026-07-20",
   "/reselling/crosslist-alternative": "2026-07-20",
+  "/reselling/nifty-alternative": "2026-09-06",
+  // US-3130: the credential-model page.
+  "/reselling/crosslisting-without-passwords": "2026-09-06",
   "/reselling/switch-from-vendoo": "2026-09-01",
   "/reselling/crosslist/mercari-to-grailed": "2026-09-01",
   "/reselling/crosslist/grailed-to-mercari": "2026-09-01",
@@ -299,6 +302,20 @@ export const PUBLIC_ROUTES: PublicRoute[] = [
     title: "Creator Partner Programme",
     description:
       "Reseller creators earn a share of the subscription revenue from sellers they bring to FlipDesk, for a year, capped per account. The terms and how to apply.",
+    changefreq: "monthly",
+    priority: 0.6,
+  },
+  {
+    // US-3130: the credential-model page. "Is it safe to give a crosslister my
+    // password" is a real query with no honest answer published anywhere in
+    // this category, because the answer is uncomfortable for a tool that holds
+    // one. It is not uncomfortable for us. No jsonLdType for the same reason
+    // as /partners above: the prerenderer emits Organization + BreadcrumbList
+    // and nothing else, and declaring more fails the US-2044 parity guard.
+    path: "/reselling/crosslisting-without-passwords",
+    title: "Crosslisting Without Sharing Your Passwords",
+    description:
+      "How FlipDesk connects to marketplaces: OAuth where a seller API exists, an extension in your own browser where one does not, and never a stored login.",
     changefreq: "monthly",
     priority: 0.6,
   },

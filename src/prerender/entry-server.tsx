@@ -39,6 +39,7 @@ import { PricingPage } from "@/pages/marketing/pricing";
 import { ForResellersPage } from "@/pages/marketing/for-resellers";
 import { FlipDeskPage } from "@/pages/marketing/flipdesk";
 import { PartnersPage } from "@/pages/marketing/partners";
+import { NoPasswordsPage } from "@/pages/marketing/no-passwords";
 import { SellUsedClothesEbayPage } from "@/pages/marketing/sell-used-clothes-ebay";
 import { FaqPage } from "@/pages/marketing/faq";
 import { ConditionGradingPage } from "@/pages/marketing/condition-grading";
@@ -212,6 +213,7 @@ const PAGES: Record<string, React.ReactNode> = {
   "/for-resellers": <ForResellersPage />,
   "/flipdesk": <FlipDeskPage />,
   "/partners": <PartnersPage />,
+  "/reselling/crosslisting-without-passwords": <NoPasswordsPage />,
   "/sell-used-clothes-ebay": <SellUsedClothesEbayPage />,
   "/faq": <FaqPage />,
   "/condition-grading": <ConditionGradingPage />,
@@ -444,6 +446,7 @@ export const ROUTE_PAGE_MODULES: Record<string, string> = {
   "/for-resellers": `${M}marketing/for-resellers`,
   "/flipdesk": `${M}marketing/flipdesk`,
   "/partners": `${M}marketing/partners`,
+  "/reselling/crosslisting-without-passwords": `${M}marketing/no-passwords`,
   "/sell-used-clothes-ebay": `${M}marketing/sell-used-clothes-ebay`,
   "/faq": `${M}marketing/faq`,
   "/condition-grading": `${M}marketing/condition-grading`,

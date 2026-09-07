@@ -25,6 +25,7 @@ export const COMPETITOR_ALTERNATIVE_SLUGS = [
   "vendoo",
   "list-perfectly",
   "crosslist",
+  "nifty",
 ] as const;
 
 /** The public path for a competitor-alternative page. */

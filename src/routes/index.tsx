@@ -99,6 +99,7 @@ const PricingPage = lazy(() => import("@/pages/marketing/pricing").then(m => ({ 
 const ForResellersPage = lazy(() => import("@/pages/marketing/for-resellers").then(m => ({ default: m.ForResellersPage })));
 const FlipDeskPage = lazy(() => import("@/pages/marketing/flipdesk").then(m => ({ default: m.FlipDeskPage })));
 const PartnersPage = lazy(() => import("@/pages/marketing/partners").then(m => ({ default: m.PartnersPage })));
+const NoPasswordsPage = lazy(() => import("@/pages/marketing/no-passwords").then(m => ({ default: m.NoPasswordsPage })));
 const FlipdeskLandingPage = lazy(() => import("@/pages/marketing/flipdesk-landing").then(m => ({ default: m.FlipdeskLandingPage })));
 const ResellingPillarPage = lazy(() => import("@/pages/marketing/reselling").then(m => ({ default: m.ResellingPillarPage })));
 const ResellingGuidePage = lazy(() => import("@/pages/marketing/reselling").then(m => ({ default: m.ResellingGuidePage })));
@@ -389,6 +390,9 @@ export const router = createBrowserRouter([
         path: alternativePath(slug),
         element: <SuspenseWrapper><CompetitorAlternativePage slug={slug} /></SuspenseWrapper>,
       })),
+      // US-3130: the credential-model page. Explicit ahead of
+      // /reselling/:slug for the same reason as the block above.
+      { path: "/reselling/crosslisting-without-passwords", element: <SuspenseWrapper><NoPasswordsPage /></SuspenseWrapper> },
       // US-9214: crosslist pair pages, explicit ahead of /reselling/:slug.
       ...CROSSLIST_PAIR_SLUGS.map((slug) => ({
         path: crosslistPairPath(slug),

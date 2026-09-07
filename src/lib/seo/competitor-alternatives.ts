@@ -231,6 +231,65 @@ export const COMPETITOR_ALTERNATIVES: CompetitorAlternative[] = [
       },
     ],
   },
+  {
+    slug: "nifty",
+    competitor: "Nifty",
+    title: "Nifty Alternatives for Resellers (2026)",
+    description:
+      "Nifty alternatives compared for 2026 - Vendoo, List Perfectly, Crosslist and FlipDesk - on the credential model, cost-basis accuracy and condition disputes.",
+    h1: "Nifty alternatives: what to switch to, and when to stay",
+    definition:
+      "Nifty runs its crosslisting and its marketplace bots in the cloud, so sharing, relisting, offers and sale-detection keep working when your computer is off. That is the reason most sellers pick it and the reason to stay. Resellers commonly look elsewhere over the pricing structure, over how much account access a cloud bot needs on marketplaces that have no public API, or because profit reporting comes out empty until cost basis is entered by hand. Vendoo and List Perfectly lead on marketplace breadth; FlipDesk is the option when condition disputes and unpriced inventory are what is eating the margin.",
+    intro:
+      "Searching for a Nifty alternative usually means one specific thing is bothering you: the tier you have to buy, how much of your marketplace account a cloud service is holding, or a profit number that does not match your bank. Those are three different problems with three different answers. Here is which tool addresses which, and when staying put is the right call.",
+    strengths: [
+      "Cloud automation, so sharing, relisting and offers run while your computer is off - the single most cited reason sellers move to it",
+      "Sale detection that delists the other copies quickly, which is what sellers leaving other tools most often say they were missing",
+      "A real rule engine on eBay offers - ordered rules with include and exclude logic on listing age, price band, condition and title keywords",
+      "Deep Poshmark automation, inherited from its years as a sharing tool",
+      "A genuinely good per-order fee breakdown: sale price, collected shipping, refunds, standard fee, shipping fee and promoted fee, line by line",
+    ],
+    switchReasons: [
+      "Needing both crosslisting and automation, which most sellers do, so the single-product tiers rarely apply and the bundle becomes the real price",
+      "Wanting a credential model where no server ever holds a live session to your marketplace account - cloud automation on marketplaces with no public API requires somebody to hold one",
+      "Profit and loss reports that read as revenue minus fees until cost basis is entered by hand, because an imported marketplace account cannot say what you paid",
+      "Measurements living in description prose rather than as fields, so they are only captured if you photograph a ruler or a written card",
+      "Condition as a short list of self-reported buttons, with no score, no factors and nothing a buyer can check when a dispute starts",
+    ],
+    options: [
+      {
+        name: "Vendoo",
+        bestFor: "sellers who want the widest marketplace list with per-item inventory control, and accept that posting runs through their own browser",
+      },
+      {
+        name: "List Perfectly",
+        bestFor: "sellers who want maximum marketplace coverage and an established community to lean on",
+      },
+      {
+        name: "Crosslist",
+        bestFor: "sellers whose bottleneck is raw posting speed on a simple, easy-to-reason-about plan",
+      },
+      FLIPDESK_OPTION,
+    ],
+    faqs: [
+      {
+        q: "What is the best Nifty alternative?",
+        a: "It depends which part is not working. For marketplace breadth, Vendoo or List Perfectly. For posting speed on a simpler plan, Crosslist. If the issue is that returns and condition disputes are eating the margin, or that your profit numbers are wrong because cost basis was never captured, FlipDesk is the one built around those two things rather than around listing volume.",
+      },
+      {
+        q: "Does a cloud crosslisting tool need my marketplace password?",
+        a: "On eBay, Etsy and Shopify, no - those have real OAuth, so you approve access on the marketplace's own site and no password is shared. Poshmark, Mercari, Depop and Whatnot have no public seller API, so a cloud tool has only two ways in: you hand over the password, or the tool takes your browser session and replays it from its servers. Both mean a server outside your control can act as you until that access expires. The third option is an extension that acts inside your own browser, where the session never leaves your machine - that is what FlipDesk does, and it is why we can say we never hold a marketplace login.",
+      },
+      {
+        q: "Why does my profit report show no cost of goods?",
+        a: "Because a marketplace can tell a tool what an item sold for, but never what you paid for it. Any tool that starts by importing your existing listings begins with a cost basis of zero, so its headline profit is really revenue minus fees until you backfill every item. The fix is capturing cost at sourcing rather than after the sale - which is why FlipDesk's pipeline starts at the buy, not at the listing.",
+      },
+      {
+        q: "Should I stay on Nifty?",
+        a: "Yes, if cloud automation is the thing keeping your Poshmark and Mercari numbers up and you are comfortable with the access that requires. Sharing and relisting bots genuinely move sell-through, and no local-browser tool matches them while your computer is off. Move when the problem is something automation cannot fix: returns, disputed condition, or books that do not reconcile.",
+      },
+    ],
+  },
 ];
 
 // US-2600: the path builder moved to ./competitor-alternative-slugs so the
