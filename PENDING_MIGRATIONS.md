@@ -1,5 +1,18 @@
 # PENDING MIGRATIONS — applied to prod separately from the push
 
+## ✅ APPLIED 2026-09-07: 00750 — twenty-five sleep, baby and hosiery brands (US-3125)
+
+**Risk: LOW.** Inserts only, `ON CONFLICT DO NOTHING`. No schema change.
+
+**Applied and verified.** brands 414 → **439**; colorways 7,941 → **8,566**;
+with a `base_color` 4,979 → **5,320**; brands with any colorway 158 → **171**;
+brands with an RN 84 → **92**. `NOTIFY pgrst, 'reload schema'` sent.
+
+Eight registered numbers sourced, seventeen refused. Sheertex is a new kind of
+refusal: RN 14756 SHEERTEX HOSIERY MILL INC matches the name and the industry
+exactly, but RNs are issued in sequence and 14756 was issued decades before
+Sheertex existed (2017). It is an older namesake.
+
 ## ✅ APPLIED 2026-09-07: 00749 — twenty-three outdoor, field and formal brands (US-3125)
 
 **Risk: LOW.** Inserts only, `ON CONFLICT DO NOTHING`. No schema change.
