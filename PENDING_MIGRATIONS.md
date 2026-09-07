@@ -1,5 +1,13 @@
 # PENDING MIGRATIONS — applied to prod separately from the push
 
+## ✅ APPLIED 2026-09-06: 00743 — nineteen heritage, workwear and surf brands (US-3125)
+
+**Risk: LOW.** Inserts only, `ON CONFLICT DO NOTHING`. No schema change.
+
+**Applied and verified.** brands 296 → **315**; colorways 5,041 → **5,140**;
+brands with an RN 41 → **45**.
+
+
 ## ✅ APPLIED 2026-09-06: 00742 — nineteen more brands (US-3125)
 
 **Risk: LOW.** Inserts only, `ON CONFLICT DO NOTHING`. No schema change.
