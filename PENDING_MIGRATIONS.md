@@ -1,5 +1,20 @@
 # PENDING MIGRATIONS — applied to prod separately from the push
 
+## ✅ APPLIED 2026-09-07: 00758 — colorways read from product titles (US-3134)
+
+**Risk: LOW.** Colorway inserts only, `ON CONFLICT (brand_key, color_name) DO
+NOTHING`. No schema change, no `brand_knowledge` rows.
+
+**Applied and verified.** colorways 11,555 → **17,311**; with a `base_color`
+7,352 → **11,307**; brands with any colorway 248 → **272**. Brand count
+unchanged at 527. `NOTIFY pgrst, 'reload schema'` sent.
+
+5,756 rows at confidence **0.55**, not the 0.75 option-derived rows carry: a
+title suffix is a heuristic, a variant option is a declaration.
+
+Closes US-3134. `shopify-brand-harvest.mjs` gained title parsing plus a
+`colourSource` of `option` / `title` / `none`.
+
 ## ✅ APPLIED 2026-09-07: 00757 — registered numbers for 80 held brands (US-3125)
 
 **Risk: LOW.** UPDATEs only, guarded by `cardinality(registered_numbers) = 0`

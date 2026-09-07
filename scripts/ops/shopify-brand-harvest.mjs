@@ -94,6 +94,64 @@ const optionValues = (product, name) => {
   return o ? o.values : [];
 };
 
+// Size tokens, which are the commonest thing sitting where a colour would sit.
+const SIZE_LIKE =
+  /^(x{0,3}s|s|m|l|x{0,3}l|xxl|one size|os|petite|tall|regular|short|long|\d{1,3}(\.\d)?|\d{1,2}(w|l)|\d{1,2}\s*[x/]\s*\d{1,2})$/i;
+
+const stripParen = (s) => s.replace(/\s*[({[][^)}\]]*[)}\]]\s*$/g, "").trim();
+
+/**
+ * Colour read from the PRODUCT TITLE, for brands that model each colourway as
+ * its own product instead of as a Color variant option (US-3134).
+ *
+ * Everlane titles read "The Box-Cut Tee in Essential Cotton | Bone Brown";
+ * Allbirds "Men's Strider - Natural Black (Dark Grey Sole)". Blundstone's read
+ * "Men's Classics #2640" and carry no colour at all -- so this decides PER
+ * BRAND whether a separator is really the colour position before trusting any
+ * of it, rather than splitting every title and hoping.
+ */
+export function titleColours(products) {
+  const SEPS = [" | ", "|", " - ", " – ", " — "];
+  let best = null;
+  for (const sep of SEPS) {
+    const counts = new Map();
+    let withSep = 0;
+    for (const p of products) {
+      const title = String(p.title ?? "");
+      const i = title.lastIndexOf(sep);
+      if (i <= 0) continue;
+      const tail = stripParen(title.slice(i + sep.length)).replace(/\s+/g, " ").trim();
+      if (!tail || tail.length > 40) continue;
+      if (SIZE_LIKE.test(tail)) continue;
+      if (/^#?\d+$/.test(tail)) continue;      // a style number, not a colour
+      if (!/[a-z]/i.test(tail)) continue;
+      // A colour name is short. Wax London's titles split into "Black Organic
+      // Cotton Twill Shorts" -- a whole product description sitting where a
+      // colour would be, which passes coverage and cardinality easily and is
+      // entirely wrong. Three words is the ceiling: "Trench Coat Khaki" and
+      // "Dark Olive Suede" are real, five-word tails never are.
+      if (tail.split(" ").length > 3) continue;
+      withSep += 1;
+      counts.set(tail, (counts.get(tail) ?? 0) + 1);
+    }
+    const coverage = products.length ? withSep / products.length : 0;
+    if (!best || coverage > best.coverage) {
+      best = { separator: sep, coverage, counts };
+    }
+  }
+  // Both bars matter. Coverage says the separator is the brand's convention
+  // rather than an accident in a few titles; cardinality says the tail VARIES,
+  // which is what makes it a colour instead of a repeated marketing suffix.
+  const ok = best && best.coverage >= 0.5 && best.counts.size >= 8;
+  return {
+    separator: ok ? best.separator : null,
+    coverage: best ? Number(best.coverage.toFixed(3)) : 0,
+    colours: ok
+      ? [...best.counts.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+      : [],
+  };
+}
+
 /** Everything the KB cares about, counted. */
 export function summarise(products) {
   const colours = new Map();
@@ -161,9 +219,24 @@ export function summarise(products) {
   }
   const top = (m, n) =>
     [...m.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).slice(0, n);
+  const fromTitle = titleColours(products);
+  // Three states, not two. "The feed declares no Color option" and "this tool
+  // could not read one" are different claims and the KB records different
+  // things for them (US-3134).
+  const hasColorOption = products.some((p) =>
+    (p.options ?? []).some((o) => String(o.name).toLowerCase() === "color"),
+  );
   return {
     productCount: products.length,
     colours: top(colours, 400),
+    // Where `colours` came from: a declared variant option, a parsed title, or
+    // nowhere. A title is a heuristic and an option is a declaration, so a
+    // consumer must be able to tell them apart and price them differently.
+    colourSource: colours.size ? "option" : fromTitle.colours.length ? "title" : "none",
+    hasColorOption,
+    titleColours: fromTitle.colours.slice(0, 400),
+    titleSeparator: fromTitle.separator,
+    titleCoverage: fromTitle.coverage,
     sizes: top(sizes, 60),
     types: top(types, 30),
     styles: top(styles, 200),
@@ -203,6 +276,80 @@ function selfTest() {
   const bbb = s.skuPrefixes.find(([p]) => p === "BBB");
   if (!bbb || bbb[1] !== 2) problems.push("BBB prefix");
   if (!s.types.some(([t]) => t === "Women's")) problems.push("product_type");
+  if (s.colourSource !== "option") problems.push(`colourSource ${s.colourSource}`);
+  if (!s.hasColorOption) problems.push("hasColorOption false on an option feed");
+
+  // US-3134: the three feed shapes, each of which must be told apart.
+  //
+  // 1. Colour in the TITLE, one product per colourway (Everlane, Allbirds).
+  const titleFeed = Array.from({ length: 10 }, (_, i) => ({
+    title: `The Cotton Crew | ${["Bone Brown", "Deep Navy", "Black", "Optical White",
+      "Sage", "Rust", "Clay", "Sand", "Ink", "Moss"][i]}`,
+    options: [{ name: "Size", values: ["S", "M"] }],
+  }));
+  const t = summarise(titleFeed);
+  if (t.colourSource !== "title") problems.push(`title feed colourSource ${t.colourSource}`);
+  if (t.hasColorOption) problems.push("title feed claimed a Color option");
+  if (t.titleColours.length !== 10) problems.push(`title colours ${t.titleColours.length}`);
+  if (!t.titleColours.some(([c]) => c === "Bone Brown")) problems.push("Bone Brown");
+
+  // A parenthetical after the colour is stripped, and a size-shaped tail is not
+  // a colour however consistently it appears.
+  const parenFeed = Array.from({ length: 10 }, (_, i) => ({
+    title: `Men's Strider - ${["Natural Black", "Medium Grey", "Blizzard", "Anthracite",
+      "Rust", "Fern", "Chalk", "Hazy Indigo", "Thunder", "Lux Beige"][i]} (Dark Grey Sole)`,
+    options: [{ name: "Size", values: ["9"] }],
+  }));
+  const pf = summarise(parenFeed);
+  if (!pf.titleColours.some(([c]) => c === "Natural Black")) {
+    problems.push(`paren strip: ${JSON.stringify(pf.titleColours.slice(0, 3))}`);
+  }
+  // Every tail here is a WORD, so the numeric reject and the 8-distinct bar
+  // both pass it through -- SIZE_LIKE is the only rule that can catch this one.
+  // (An earlier version used numeric sizes and stayed green with SIZE_LIKE
+  // deleted, which made it a test of the cardinality bar wearing a size label.)
+  const sizeFeed = Array.from({ length: 10 }, (_, i) => ({
+    title: `The Jean - ${["XS", "S", "M", "L", "XL", "XXL", "One Size", "Petite",
+      "Tall", "Regular"][i]}`,
+    options: [{ name: "Waist", values: ["28"] }],
+  }));
+  if (summarise(sizeFeed).colourSource !== "none") problems.push("size tails read as colour");
+
+  // 2. Neither: a style-number catalogue (Blundstone) must stay "none", so the
+  //    KB never records a parsed colour that is really a product code.
+  const noneFeed = Array.from({ length: 10 }, (_, i) => ({
+    title: `Men's Classics #${2600 + i}`,
+    options: [{ name: "Size", values: ["8"] }],
+  }));
+  const nf = summarise(noneFeed);
+  if (nf.colourSource !== "none") problems.push(`style-number feed read as ${nf.colourSource}`);
+  if (nf.titleColours.length) problems.push("style numbers parsed as colours");
+
+  // 3. A separator that appears in only a FEW titles is not the brand's
+  //    convention and must not be trusted.
+  const rareFeed = Array.from({ length: 20 }, (_, i) => ({
+    title: i < 3 ? `Thing | Colour${i}` : `Plain Thing ${i}`,
+    options: [{ name: "Size", values: ["M"] }],
+  }));
+  if (summarise(rareFeed).colourSource !== "none") problems.push("rare separator trusted");
+
+  // 4. A separator that splits off a whole PRODUCT DESCRIPTION rather than a
+  //    colour. This is Wax London, and it clears coverage and cardinality with
+  //    room to spare -- only the word-count ceiling catches it.
+  const describedFeed = Array.from({ length: 12 }, (_, i) => ({
+    title: `Wax London - ${["Black Organic Cotton Twill Shorts",
+      "Ecru Diamond Stripe Knitted Polo", "Navy Textured Organic Cotton Polo Shirt",
+      "Beige Washed Linen Loose Fit Trousers", "Green Slub Cotton Overshirt",
+      "Brown Corduroy Wide Leg Trouser", "Blue Herringbone Linen Jacket",
+      "Grey Merino Wool Crew Knit", "Cream Waffle Cotton Long Sleeve",
+      "Rust Garment Dyed Cotton Tee", "Sage Ripstop Cotton Cap",
+      "Stone Washed Denim Chore Jacket"][i]}`,
+    options: [{ name: "Size", values: ["M"] }],
+  }));
+  const df = summarise(describedFeed);
+  if (df.colourSource !== "none") {
+    problems.push(`product descriptions read as colours: ${JSON.stringify(df.titleColours.slice(0, 2))}`);
+  }
 
   // A 200 carrying a bot challenge must THROW, not read as an empty catalogue.
   let threw = false;
