@@ -1,5 +1,19 @@
 # PENDING MIGRATIONS — applied to prod separately from the push
 
+## ✅ APPLIED 2026-09-07: 00747 — seventeen skate, surf and streetwear brands (US-3125)
+
+**Risk: LOW.** Inserts only, `ON CONFLICT DO NOTHING`. No schema change.
+
+**Applied and verified.** brands 354 → **371**; colorways 6,635 → **7,034**;
+with a `base_color` 4,078 → **4,346**; brands with any colorway 129 → **136**;
+brands with an RN 55 → **62**. `NOTIFY pgrst, 'reload schema'` sent.
+
+Seven registered numbers sourced from the FTC register, two of them decided by
+product line (Hurley against five people named Hurley, Noah against eighteen
+other registrants). Ten refused: six return nothing, Emerica and Roxy are the
+substring trap, Billabong returns a registrant sharing no token with the label,
+and Primitive returns two equally good candidates.
+
 ## ✅ APPLIED 2026-09-07: 00746 — eighteen outdoor, running, maternity and kids brands (US-3125)
 
 **Risk: LOW.** Inserts only, `ON CONFLICT DO NOTHING`. No schema change.
