@@ -1,5 +1,35 @@
 # PENDING MIGRATIONS — applied to prod separately from the push
 
+## ✅ APPLIED 2026-09-06: 00730 — Peter Millar's registrant, and Johnnie-O's RN (US-3128)
+
+**Risk: LOW.** Data only, three `UPDATE`s on `brand_knowledge`. No table, column,
+function or policy changes, so no `NOTIFY pgrst`. Idempotent: each write is
+guarded on the value not already being present.
+
+**Applied and verified.** `applied_migrations` tops out at 00730, brands carrying
+an RN went 14 to 15, and `tag_eras_all_sourced('petermillar')` now returns true
+where it returned false.
+
+**What it does.**
+1. Sources Peter Millar's one datable `tag_era`. That era had no `source_url`
+   and no `confidence`, which froze the entire row — `brand_knowledge_tag_eras_sourced`
+   is NOT VALID so it never checked existing rows, but it checks any row an
+   UPDATE touches. Nothing about Peter Millar could be edited until this ran.
+2. Records the confirmed registrant for RN 100308: **CHESTER GREGG, L.L.C.**,
+   product line KNIT SHIRTS. 00467 seeded that number from Peter Millar's own
+   help centre and stated it could not confirm the registrant.
+3. Seeds Johnnie-O **RN 121927** (registrant "JOHNNIE-O").
+
+**Verify:**
+
+```sql
+select canonical_brand, registered_numbers
+from public.brand_knowledge where brand_key in ('petermillar','johnnieo');
+select public.tag_eras_all_sourced(tag_eras)
+from public.brand_knowledge where brand_key = 'petermillar';   -- expect t
+```
+
+
 ## ✅ APPLIED 2026-09-06: 00729 — registered numbers from the FTC register (US-3128)
 
 **Applied and verified.** `applied_migrations` now tops out at 00729, and the
