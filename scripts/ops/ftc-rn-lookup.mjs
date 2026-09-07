@@ -51,9 +51,14 @@ const strip = (html) =>
     .replace(/<[^>]+>/g, " ")
     .replace(/&nbsp;/g, " ")
     .replace(/&amp;/g, "&")
-    .replace(/&#039;|&apos;/g, "'")
-    .replace(/&quot;/g, '"')
-    .replace(/&#8217;|’/g, "'")
+    // The register emits SOME entities without their closing semicolon --
+    // "WOMEN&#039 S APPAREL" is a real row. So the semicolon is optional
+    // everywhere, and any numeric entity that survives is decoded generically
+    // rather than needing its own line here.
+    .replace(/&#0?39;?|&apos;?/g, "'")
+    .replace(/&quot;?/g, '"')
+    .replace(/&#8217;?|’/g, "'")
+    .replace(/&#(\d+);?/g, (_, n) => String.fromCodePoint(Number(n)))
     .replace(/\s+/g, " ")
     .trim();
 

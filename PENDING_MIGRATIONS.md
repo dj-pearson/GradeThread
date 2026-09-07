@@ -1,5 +1,25 @@
 # PENDING MIGRATIONS — applied to prod separately from the push
 
+## ✅ APPLIED 2026-09-07: 00748 — twenty-two workwear, sleepwear and sport brands, plus a repair (US-3125)
+
+**Risk: LOW.** Inserts plus a narrow repair of two rows 00747 duplicated. No
+schema change.
+
+**Applied and verified.** brands 371 → **391** (22 in, 2 duplicates removed);
+colorways 7,034 → **7,500**; with a `base_color` 4,346 → **4,689**; brands with
+any colorway 136 → **146**; brands with an RN 62 → **73**.
+`NOTIFY pgrst, 'reload schema'` sent.
+
+Eleven registered numbers sourced. Eleven refused: six return nothing, and five
+return a registrant sharing no token with the label (Smartwool → VF OUTDOOR,
+Eberjey → WORLD THREADS, BRUNT → Maverick Work Wear, Pair of Thieves →
+Stateside Merchancts, Lo & Sons → seventeen unrelated "& Sons" registrants).
+
+**The repair:** 00747 minted `stussy` and `aimeleondore`, not knowing 00456/00462
+had deliberately stripped the accents to `stssy` and `aimleondore` — keys pinned
+by `brand-knowledge-golden_test.ts`. The two new rows are folded back into the
+established keys; the RNs and the 26 Aimé Leon Dore colorways survive.
+
 ## ✅ APPLIED 2026-09-07: 00747 — seventeen skate, surf and streetwear brands (US-3125)
 
 **Risk: LOW.** Inserts only, `ON CONFLICT DO NOTHING`. No schema change.
