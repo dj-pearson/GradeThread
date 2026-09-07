@@ -1,5 +1,52 @@
 # PENDING MIGRATIONS — applied to prod separately from the push
 
+## ⏳ PENDING: 00729 — registered numbers, sourced from the FTC register (US-3128)
+
+**Risk: LOW.** Data only. It `UPDATE`s `registered_numbers` on eight existing
+`brand_knowledge` rows and appends one provenance sentence to their `notes`. It
+creates nothing, drops nothing, and changes no function or policy. No `NOTIFY
+pgrst` is needed: no table, column or RPC changes shape.
+
+**Idempotent.** `registered_numbers` is SET rather than appended, and the notes
+sentence is added only when that RN is not already named there, so a second run
+is a no-op.
+
+**Apply order.** DB first, then the edge, as usual — but nothing in the running
+container reads these values in a way that breaks either way round.
+`EXPECTED_SCHEMA_VERSION` moves 00728 → 00729 in the same commit.
+
+**Dry-run against prod inside a transaction that rolled back**, before this was
+committed. Result: brands carrying an RN go from 6 to 14.
+
+> [!warning] The first dry run FAILED, and that is why this note exists
+> The file originally seeded ten brands. Two of them — `vineyardvines` and
+> `bonobos` — were refused by `brand_knowledge_tag_eras_sourced`:
+>
+> ```
+> ERROR: new row for relation "brand_knowledge" violates check constraint
+>        "brand_knowledge_tag_eras_sourced"
+> ```
+>
+> That constraint is `NOT VALID`, so it never checked the existing rows — but it
+> DOES check any row an `UPDATE` touches. Both brands carry datable `tag_eras`
+> with no `source_url` or `confidence`, so old unsourced data blocked a new,
+> properly sourced edit to the same row.
+>
+> **Both RNs are confirmed and are held back, not abandoned** (RN 134578
+> VINEYARD VINES, LLC and RN 128054 BONOBOS, INC.). They land once US-3126
+> sources those eras. The other eight were each checked against
+> `public.tag_eras_all_sourced()` individually before being included.
+
+**Verify after applying:**
+
+```sql
+select canonical_brand, registered_numbers
+from public.brand_knowledge
+where array_length(registered_numbers, 1) > 0
+order by canonical_brand;   -- expect 14 rows
+```
+
+
 ## ✅ APPLIED 2026-09-06: 00728 — the filter learns "Sourced by" (US-3122)
 
 **Applied by the owner 2026-09-06.** `GET https://functions.gradethread.com/health/ready`
