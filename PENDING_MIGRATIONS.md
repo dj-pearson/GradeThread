@@ -1,5 +1,14 @@
 # PENDING MIGRATIONS — applied to prod separately from the push
 
+## ✅ APPLIED 2026-09-06: 00742 — nineteen more brands (US-3125)
+
+**Risk: LOW.** Inserts only, `ON CONFLICT DO NOTHING`. No schema change.
+
+**Applied and verified.** brands 277 → **296**; colorways 4,552 → **5,041**;
+with a `base_color` 2,743 → **3,048**; brands with any colorway 92 → **104**;
+brands with an RN 34 → **41**.
+
+
 ## ✅ APPLIED 2026-09-06: 00741 — fifteen more brands (US-3125)
 
 **Risk: LOW.** Inserts only, `ON CONFLICT DO NOTHING`. No schema change.
