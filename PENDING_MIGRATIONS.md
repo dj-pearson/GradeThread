@@ -1,5 +1,21 @@
 # PENDING MIGRATIONS — applied to prod separately from the push
 
+## ✅ APPLIED 2026-09-07: 00756 — palettes for 40 brands that had none (US-3125)
+
+**Risk: LOW.** Colorway inserts only, `ON CONFLICT (brand_key, color_name) DO
+NOTHING`. No schema change, no `brand_knowledge` rows.
+
+**Applied and verified.** colorways 10,660 → **11,555**; with a `base_color`
+6,610 → **7,352**; brands with any colorway 208 → **248**. Brand count unchanged
+at 527, as intended. `NOTIFY pgrst, 'reload schema'` sent.
+
+First DEEPENING migration rather than a widening one: 319 held brands had no
+colour at all, 173 of those answer an open feed, and all 173 were harvested.
+
+Deliberately does NOT apply 00734's "no more than 35% plain colour words" rule —
+that rule rejected all 40 brands and is about whether a palette is worth adding
+to a brand that already has one. See the migration header.
+
 ## ✅ APPLIED 2026-09-07: 00755 — nineteen merino, cashmere and slow-fashion brands (US-3125)
 
 **Risk: LOW.** Inserts only, `ON CONFLICT DO NOTHING`. No schema change.

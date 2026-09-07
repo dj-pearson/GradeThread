@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-3134",
+  "nextId": "US-3135",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -3685,6 +3685,21 @@
         "US-3132"
       ],
       "notes": "Filed 2026-09-06 from docs/superpowers/specs/2026-09-06-resale-supply-index-design.md. Stage 1 deliberately ships nothing visible: the product is a 30-day trend and there are zero days of history, so the job's only job is to start the clock. Public surfaces (/tools/market-check and /resale-supply-index) are stage 2 and belong in prd-seo.json, not here."
+    },
+    {
+      "id": "US-3134",
+      "passes": false,
+      "title": "Harvester reads colour from variant options only, missing 76 brands that model colour as separate products",
+      "description": "scripts/ops/shopify-brand-harvest.mjs extracts colour from the Shopify Color VARIANT OPTION. A large class of brands does not use that shape: each colourway is a separate PRODUCT and the colour lives in the product title (\"The Cotton Crew - Black\"). For those brands the harvester reports zero colours, which reads identically to a brand that publishes no colour at all. Measured 2026-09-07 while building 00756: of 173 held brands with an open feed, 76 returned an empty Color option despite large catalogues - Everlane (8,879 products), Boden (10,000), American Giant (957), Allbirds, Blundstone, 2XU, Belstaff, 3sixteen. A further 25 publish a Color option whose values never recur across five products, which is the same cause seen from the other side: one product per colour means a count of one. These brands are not colourless and their colours are recoverable.",
+      "acceptanceCriteria": [
+        "harvest JSON distinguishes 'no Color option present' from 'Color option present but empty', so a consumer can tell a genuinely colourless feed from an unreadable one",
+        "when a feed has no usable Color option, colour is parsed from product titles (separator-delimited suffix is the common shape) and the source of each colour is recorded as title-derived rather than option-derived",
+        "title-derived colours carry a LOWER confidence than option-derived ones in brand_colorways, because a title suffix is a heuristic and a variant option is a declaration",
+        "the >=5-products threshold is not applied to title-derived colours, since one product per colour is the defining property of this shape",
+        "self-test covers a feed of each shape: option-based, title-based, and one with neither",
+        "re-run against the 101 brands 00756 could not read and report how many gain a palette"
+      ],
+      "priority": 40
     }
   ]
 }
