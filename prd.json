@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-3131",
+  "nextId": "US-3132",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -3622,6 +3622,25 @@
         "2026-09-06: Shipped. Page at src/pages/marketing/no-passwords.tsx, data entry in src/lib/seo/competitor-alternatives.ts + competitor-alternative-slugs.ts, wired through PUBLIC_ROUTES, ROUTE_LAST_MODIFIED, entry-server (element + module map) and routes/index.tsx ahead of /reselling/:slug. Build prerenders both (276 routes). 1029 SEO tests pass, tsc -b clean, ui:check 0 blocking.",
         "2026-09-06: The three claims were VERIFIED against the code before they were written, not asserted: extension-unified/manifest.json declares no cookies permission and no source in extension-unified/ reads chrome.cookies or document.cookie; migration 00588 defines public.jsonb_has_credential_key() as a suffix-matched, depth-walking check and the extension_work_queue CHECK uses it; crypto-aes.ts binds AES-GCM additionalData to the owning user_id. If any of those three change, the page changes in the same commit.",
         "2026-09-06: Deliberately NOT claimed on the page: that we hold nothing. We hold OAuth tokens for eBay/Etsy/Depop/Shopify/Whatnot, the page says so in the first FAQ, and the credibility of the rest depends on that admission being there."
+      ]
+    },
+    {
+      "id": "US-3131",
+      "title": "[OPERATOR] Register the Etsy Seller App and chase Depop partner access",
+      "description": "Both connectors are finished code sitting behind a flag. The only thing missing is a credential, and neither can be obtained by an agent. Etsy turns out not to be one gate but three tiers, the first of which is automatic, so the Seller App can be registered today and Commercial Access applied for later from a working integration. Depop was applied to once with no reply and needs one chase that carries a new fact.",
+      "acceptanceCriteria": [
+        "GIVEN the Etsy developer portal WHEN the founder registers a Seller App with the field values in vault/60-decisions/adr-etsy-api-application.md THEN a keystring is issued and recorded in that note's section 4",
+        "GIVEN a Seller App keystring WHEN ETSY_KEYSTRING and ETSY_ENABLED are set in a non-prod environment THEN the founder's own-shop flow completes end to end: OAuth consent, listing publish, shipping-profile read, receipt-driven delist",
+        "GIVEN a validated own-shop flow WHEN Request Commercial Access is submitted with the section-3 justification THEN the outcome is recorded in section 4, and ETSY_ENABLED stays OFF in prod until it is approved (a Seller App forbids commercial use)",
+        "GIVEN the Depop application had no reply WHEN the section-2b follow-up is sent in the original thread THEN the outcome is recorded in adr-depop-partner-application.md section 3, and if a second email also goes unanswered the marketplace is logged as no-response rather than chased again"
+      ],
+      "priority": 44,
+      "passes": false,
+      "notes": [
+        "2026-09-06: Both drafts written and committed. Etsy: vault/60-decisions/adr-etsy-api-application.md (new). Depop: section 2b added to the existing adr-depop-partner-application.md, whose outcome table now records no-response rather than pending. Nothing here is code; both are ready to paste.",
+        "2026-09-06: The Etsy finding that unstuck this. It was assumed to be blocked like Shopify, which needs a demo video and promo shots. Etsy is three tiers: a Seller App is automated and near-instant for an active seller on their own shop, a Personal App is a deeper review, and Commercial Access is a separate manual review on top. isEtsyEnabled() only wants ETSY_KEYSTRING, so tier one satisfies the code today. The order matters: applying for Commercial Access from a running integration is a different application from applying with a plan.",
+        "2026-09-06: Whatnot was checked in the same pass and is NOT actionable. developers.whatnot.com exists now and states that they are not accepting new applicants for access at this time, with no waitlist. Two corrections came out of reading it, both committed: the Seller API is GraphQL on one endpoint, so whatnot-api.ts is a rewrite rather than a reconfiguration, and marketplace-connector-contract.md contradicted itself, citing the vendor docs in one section and calling them nonexistent forty lines later.",
+        "2026-09-06: Also corrected while here, because the same stale sentence was in two places: depop-client.ts and the connector contract both said the Depop publish path returns 501 pending approval. US-714 shipped it. Every adapter method returns 503 while the flag is off, and product upsert, delete, order sync, addresses, shipping providers, mark-as-shipped and signed webhook receipt are all real. That matters for the follow-up email, which claims exactly this."
       ]
     }
   ]
