@@ -1,5 +1,18 @@
 # PENDING MIGRATIONS — applied to prod separately from the push
 
+## ✅ APPLIED 2026-09-07: 00761 — fifteen brands whose feeds refused us (US-3125)
+
+**Risk: LOW.** Inserts only, `ON CONFLICT DO NOTHING`. No schema change.
+
+**Applied and verified.** brands 527 → **542**; colorways 17,311 → **17,813**;
+with a `base_color` 13,491 → **13,746**; brands with any colorway 272 → **282**;
+brands with an RN 196 → **201**. `NOTIFY pgrst, 'reload schema'` sent.
+
+Every brand here was probed earlier and answered with a catalog it would not
+serve (429, 503, bot challenge), recorded as "refused, retry" rather than "no
+feed". 15 of 30 answered on the retry — which is why that distinction was worth
+keeping.
+
 ## ✅ APPLIED 2026-09-07: 00760 — validate the brand provenance constraints (US-3126)
 
 **Risk: LOW.** Fixes 45 rows, then validates three existing constraints.
