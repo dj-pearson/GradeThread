@@ -1,5 +1,18 @@
 # PENDING MIGRATIONS — applied to prod separately from the push
 
+## ✅ APPLIED 2026-09-07: 00752 — seventeen DTC womenswear and training brands (US-3125)
+
+**Risk: LOW.** Inserts only, `ON CONFLICT DO NOTHING`. No schema change.
+
+**Applied and verified.** brands 457 → **474**; colorways 9,125 → **9,418**;
+with a `base_color` 5,693 → **5,953**; brands with any colorway 182 → **189**;
+brands with an RN 100 → **102**. `NOTIFY pgrst, 'reload schema'` sent.
+
+Only two registered numbers, and that is the finding: this batch is social-first
+DTC brands founded mostly after 2015, and the RN hit rate collapses from roughly
+half to two in seventeen. An absent RN reflects a brand's age and supply chain,
+not its legitimacy.
+
 ## ✅ APPLIED 2026-09-07: 00751 — eighteen running, intimates and bag brands (US-3125)
 
 **Risk: LOW.** Inserts only, `ON CONFLICT DO NOTHING`. No schema change.
