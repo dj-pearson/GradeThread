@@ -1,5 +1,21 @@
 # PENDING MIGRATIONS — applied to prod separately from the push
 
+## ✅ APPLIED 2026-09-07: 00749 — twenty-three outdoor, field and formal brands (US-3125)
+
+**Risk: LOW.** Inserts only, `ON CONFLICT DO NOTHING`. No schema change.
+
+**Applied and verified.** brands 391 → **414**; colorways 7,500 → **7,941**;
+with a `base_color` 4,689 → **4,979**; brands with any colorway 146 → **158**;
+brands with an RN 73 → **84**. `NOTIFY pgrst, 'reload schema'` sent.
+
+Eleven registered numbers sourced, including the first personal-name acceptance
+(Ulla Johnson → ULLA VASILIA JOHNSON). Twelve refused: six return nothing, Huk
+and Rouje are the substring trap, three return an unrelated registrant, and
+Monos returns an exact name in the wrong industry.
+
+NOBULL appears for its colours only — 00748 seeded the brand row but its feed
+answered 503 that day. The brand insert is a no-op.
+
 ## ✅ APPLIED 2026-09-07: 00748 — twenty-two workwear, sleepwear and sport brands, plus a repair (US-3125)
 
 **Risk: LOW.** Inserts plus a narrow repair of two rows 00747 duplicated. No
