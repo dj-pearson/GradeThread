@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-3135",
+  "nextId": "US-3136",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -3671,6 +3671,20 @@
         "US-3132"
       ],
       "notes": "Filed 2026-09-06 from docs/superpowers/specs/2026-09-06-resale-supply-index-design.md. Stage 1 deliberately ships nothing visible: the product is a 30-day trend and there are zero days of history, so the job's only job is to start the clock. Public surfaces (/tools/market-check and /resale-supply-index) are stage 2 and belong in prd-seo.json, not here."
+    },
+    {
+      "id": "US-3135",
+      "passes": false,
+      "title": "Decode the 4,067 brand colorways whose house names no shared vocabulary can resolve",
+      "description": "brand_colorways holds 17,813 rows and 13,746 carry a base_color. The remaining 4,067 are single-brand house names that no shared table will ever resolve, and the work to date proves it rather than assumes it. 00737 resolved what aspect-normalize already knew. 00738 added the brands' own wash/color facet tags. 00759 added a house-vocabulary lexicon to COLOR_FAMILY, chosen by counting words across the corpus and keeping only those several brands use independently. Each pass took the cheap wins; what is left has no shared signal. Worst offenders: Rothy's 192, FRAME 163, Dakine 142, Alice + Olivia 136, Carve Designs 121, Cotopaxi 104. These are names like Kalamata, Halona, Cisco and Coldspring - a 7 For All Mankind wash name carries no color information by design. THE OPEN QUESTION IS WHETHER THIS IS WORTH DOING AT ALL, and that is a judgement call for the owner rather than a technical one. An LLM pass over the ~3,500 distinct names would be accurate and cheap, and it is what LLMs are genuinely good at, but it changes the provenance story this corpus has been careful about: every base_color to date is derived by a rule someone can re-run and check, and an AI-assigned one is not. If it goes ahead, the provenance must say so plainly.",
+      "acceptanceCriteria": [
+        "OWNER DECISION FIRST: decide whether AI-assigned base_color is acceptable in this corpus at all, given every existing value is rule-derived and reproducible",
+        "if yes, rows written this way carry a confidence BELOW the 0.55 used for title-derived colors and an updated_by that names the method, so they are separable and reversible",
+        "a sample of at least 100 is checked by hand before the rest are written, and the error rate is recorded in the migration",
+        "names that are genuinely not colors (a wash name like Halona, a product line) are left NULL rather than forced into a bucket - the existing rule that a guessed bucket is worse than a missing one still holds",
+        "if the decision is no, close this story and record in vault/20-domain that 4,067 rows are permanently unresolved by design, so nobody re-opens it"
+      ],
+      "priority": 60
     }
   ]
 }
