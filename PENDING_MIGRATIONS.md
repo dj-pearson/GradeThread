@@ -1,5 +1,21 @@
 # PENDING MIGRATIONS — applied to prod separately from the push
 
+## ✅ APPLIED 2026-09-06: 00744 — twenty-one womenswear, swim and merino brands (US-3125)
+
+**Risk: LOW.** Inserts only, `ON CONFLICT DO NOTHING`. No schema change.
+
+**Applied and verified.** brands 315 → **336**; colorways 5,140 → **6,027**;
+with a `base_color` 3,121 → **3,693**; brands with any colorway 107 → **119**;
+brands with an RN 45 → **51**.
+
+> [!warning] This file collided with 00744_marketplace_supply_index.sql
+> Two agents minted 00744 within minutes of each other. This one was already
+> APPLIED to prod when the collision was found, which is the tiebreaker — an
+> applied migration is the least editable artifact in the repo. The other was
+> renamed to 00745 by its own author and `EXPECTED_SCHEMA_VERSION` now tracks
+> that. `migrations-lint` is what caught it; nothing reached prod twice.
+
+
 ## ✅ APPLIED 2026-09-06: 00743 — nineteen heritage, workwear and surf brands (US-3125)
 
 **Risk: LOW.** Inserts only, `ON CONFLICT DO NOTHING`. No schema change.
