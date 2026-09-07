@@ -1,5 +1,18 @@
 # PENDING MIGRATIONS — applied to prod separately from the push
 
+## ✅ APPLIED 2026-09-06: 00733 — Faherty, Peruvian Connection, UNTUCKit (US-3125)
+
+**Risk: LOW.** Inserts with `ON CONFLICT DO NOTHING` plus three guarded note
+updates. No schema change, no `NOTIFY pgrst`.
+
+**Applied and verified.** 125 colorways and 6 product lines.
+`brand_colorways` 215 → **340**, brands with any colorway 41 → **43**,
+`brand_styles` 773 → **779**.
+
+Sourced from each brand's own Shopify feed: Faherty 1,250 products, Peruvian
+Connection 3,000, UNTUCKit 549.
+
+
 ## ✅ APPLIED 2026-09-06: 00732 — Free Fly, a full pack (US-3125)
 
 **Risk: LOW.** Inserts only, all `ON CONFLICT DO NOTHING`, plus one guarded
