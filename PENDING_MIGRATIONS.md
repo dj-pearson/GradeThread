@@ -1,5 +1,18 @@
 # PENDING MIGRATIONS — applied to prod separately from the push
 
+## ✅ APPLIED 2026-09-06: 00738 — colour buckets from each brand's own facet tags (US-3125)
+
+**Risk: LOW.** Data only, and it touches ONLY rows where `base_color IS NULL`,
+so nothing 00737 derived is overwritten and a re-run changes nothing. No schema
+change, no `NOTIFY pgrst`.
+
+**Applied and verified.** `base_color` 1,281 → **1,354**, `shade` 164 → **200**.
+
+The qualitative win rather than the count: denim wash names now resolve.
+`Coffee Bean` → Brown, `Optical White` → White, `Halona` → Blue/Dark,
+`Arizona` → Blue/Light, `Hilo` → Blue/Medium.
+
+
 ## ✅ APPLIED 2026-09-06: 00736 + 00737 — Herschel's decoder, and colour buckets (US-3125)
 
 **00736** — Herschel SKU decoder plus the 224 colour codes attached to colorway

@@ -102,6 +102,8 @@ export function summarise(products) {
   const styles = new Map();
   const skuPrefixes = new Map();
   const skus = [];
+  const facets = new Map();
+  const colourFamily = {};
   const bump = (m, k) => k && m.set(k, (m.get(k) ?? 0) + 1);
 
   for (const p of products) {
@@ -111,9 +113,37 @@ export function summarise(products) {
     // Shopify tags carry a brand's own taxonomy far more often than
     // product_type does. `product_style: X` is Free Fly's; other brands differ,
     // so anything shaped `key: value` is collected rather than one hard-coded key.
+    // ⚠ NAMESPACED TAGS ARE WHERE THE ANSWERS ARE, and the first version of this
+    // tool only looked for `*style*:`. Brands namespace their own filter facets
+    // — 7 For All Mankind carries `wash::Grey`, `fit::Flare`, `fabric::Denim`,
+    // `age_group::Womens`. `wash::` is the colour FAMILY for a denim wash name,
+    // which no colour table can ever derive from "Halona" or "Coffee Bean". It
+    // was sitting in the feed the whole time.
+    const tagColours = [];
     for (const t of p.tags ?? []) {
-      const m = /^([a-z_]*style[a-z_]*)\s*:\s*(.+)$/i.exec(String(t));
-      if (m) bump(styles, m[2].trim());
+      const raw = String(t);
+      const m = /^([a-z_]+)\s*::?\s*(.+)$/i.exec(raw);
+      if (!m) continue;
+      const ns = m[1].toLowerCase();
+      const val = m[2].trim();
+      if (!val) continue;
+      bump(facets, `${ns}::${val}`);
+      if (ns.includes("style")) bump(styles, val);
+      // A wash or colour-family facet, kept beside the colour it shipped with.
+      if (ns === "wash" || ns === "color" || ns === "colour" || ns === "colorfamily" ||
+          ns === "color_family" || ns === "colour_family") {
+        tagColours.push(val);
+      }
+    }
+    if (tagColours.length) {
+      for (const c of optionValues(p, "color")) {
+        const key = String(c).trim();
+        if (!key) continue;
+        if (!colourFamily[key]) colourFamily[key] = {};
+        for (const f of tagColours) {
+          colourFamily[key][f] = (colourFamily[key][f] ?? 0) + 1;
+        }
+      }
     }
     for (const v of p.variants ?? []) {
       const sku = String(v.sku ?? "");
@@ -139,6 +169,8 @@ export function summarise(products) {
     styles: top(styles, 200),
     skuPrefixes: top(skuPrefixes, 40),
     skus,
+    facets: top(facets, 400),
+    colourFamily,
   };
 }
 
