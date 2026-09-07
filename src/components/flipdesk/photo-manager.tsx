@@ -475,7 +475,7 @@ export function PhotoManager({
             type="button"
             onClick={() => setToneMatchOpen(true)}
             className="inline-flex items-center gap-1.5 rounded-md border px-2 py-1 text-xs font-medium text-muted-foreground hover:bg-muted hover:text-foreground"
-            title="Even out colour and brightness across all of this item's photos"
+            title="Even out color and brightness across all of this item's photos"
           >
             <SunMedium className="h-3.5 w-3.5" />
             Match tone

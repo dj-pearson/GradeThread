@@ -104,7 +104,7 @@ export function ExamplePage() {
           {[
             ["Brand", EXAMPLE_ITEM.brand],
             ["Size", EXAMPLE_ITEM.size],
-            ["Colour", EXAMPLE_ITEM.colorway],
+            ["Color", EXAMPLE_ITEM.colorway],
             ["Category", EXAMPLE_ITEM.category],
             ["Found at", EXAMPLE_ITEM.source],
             ["Paid", money(EXAMPLE_ITEM.acquiredPriceCents)],

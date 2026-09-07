@@ -50,7 +50,7 @@ const WHERE = [
   {
     icon: Tag,
     title: "Read the six characters",
-    body: "The style number is six characters starting with W for women's or M for men's, like W6AMYS. There is sometimes an L in front of it, and often a colour letter and a date after it. Type the whole thing — we work out which part is the style.",
+    body: "The style number is six characters starting with W for women's or M for men's, like W6AMYS. There is sometimes an L in front of it, and often a color letter and a date after it. Type the whole thing — we work out which part is the style.",
   },
 ];
 
