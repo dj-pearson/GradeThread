@@ -1,6 +1,9 @@
 # PENDING MIGRATIONS — applied to prod separately from the push
 
-## ⏳ PENDING: 00729 — registered numbers, sourced from the FTC register (US-3128)
+## ✅ APPLIED 2026-09-06: 00729 — registered numbers from the FTC register (US-3128)
+
+**Applied and verified.** `applied_migrations` now tops out at 00729, and the
+verification query below returns **14 rows** (was 6).
 
 **Risk: LOW.** Data only. It `UPDATE`s `registered_numbers` on eight existing
 `brand_knowledge` rows and appends one provenance sentence to their `notes`. It
