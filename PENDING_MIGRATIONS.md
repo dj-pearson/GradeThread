@@ -1,5 +1,12 @@
 # PENDING MIGRATIONS — applied to prod separately from the push
 
+## ✅ APPLIED 2026-09-06: 00735 — denim fit names for 7FAM and MOTHER (US-3125)
+
+**Risk: LOW.** 39 inserts into `brand_styles`, `ON CONFLICT DO NOTHING`.
+
+**Applied and verified.** `brand_styles` 779 → **818**.
+
+
 ## ✅ APPLIED 2026-09-06: 00734 — colorways for 26 brands, from their own catalogues (US-3125)
 
 **Risk: LOW.** 1,954 inserts into `brand_colorways`, `ON CONFLICT DO NOTHING`.
