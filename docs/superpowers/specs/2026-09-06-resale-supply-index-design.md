@@ -74,7 +74,28 @@ panel has 30 days in it.
 
 ## The data model
 
-One new table. One row per cell per day.
+Two new tables. One defines the cells, one holds a day's measurement of each.
+
+### The cell definitions
+
+```
+public.marketplace_supply_cells
+  cell_key      text primary key   -- brand + category + marketplace, normalized
+  marketplace   text not null      -- 'ebay' at stage 1
+  brand_key     text               -- null for a category-only cell
+  category_id   text not null      -- eBay leaf category
+  query_terms   text               -- Browse `q`; null means category-only
+  is_active     boolean not null default true
+  created_at    timestamptz not null default now()
+```
+
+Rows, not code, so the list is reviewable in a diff and a cell can be retired by
+flipping `is_active` without a deploy. Seeded by the same migration as the
+samples table.
+
+### The daily measurements
+
+One row per cell per day.
 
 ```
 public.marketplace_supply_samples
@@ -121,8 +142,7 @@ About 200 cells, seeded as data rather than discovered. Two kinds:
 2. **Category only** for the top clothing leaves. These are the cells that make
    the stage 2 index legible to somebody who does not sell that brand.
 
-Seeded in the same migration, as rows, so the list is reviewable in a diff and
-changeable without a deploy.
+They live in `marketplace_supply_cells` above, seeded by the migration.
 
 **Size the crawl against real headroom.** Do not assume a Browse quota. The
 limits cron already snapshots eBay's own reported ceiling into
