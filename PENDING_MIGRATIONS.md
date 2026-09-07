@@ -1,5 +1,18 @@
 # PENDING MIGRATIONS — applied to prod separately from the push
 
+## ✅ APPLIED 2026-09-07: 00757 — registered numbers for 80 held brands (US-3125)
+
+**Risk: LOW.** UPDATEs only, guarded by `cardinality(registered_numbers) = 0`
+so a re-run is a no-op. No schema change, no new rows.
+
+**Applied and verified.** brands with an RN 116 → **196**; 91 numbers across 80
+brands. Brand and colorway counts unchanged. `NOTIFY pgrst, 'reload schema'`
+sent.
+
+Side effect worth knowing: rows failing `brand_knowledge_tag_eras_sourced` fell
+88 → **45**, because every RN write is an UPDATE and had to carry the same
+narrow provenance fix 00748 used. US-3126 updated.
+
 ## ✅ APPLIED 2026-09-07: 00756 — palettes for 40 brands that had none (US-3125)
 
 **Risk: LOW.** Colorway inserts only, `ON CONFLICT (brand_key, color_name) DO
