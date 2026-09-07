@@ -1,5 +1,18 @@
 # PENDING MIGRATIONS — applied to prod separately from the push
 
+## ✅ APPLIED 2026-09-06: 00739 — eight new brands, and colorways for ten (US-3125)
+
+**Risk: LOW.** Inserts only, `ON CONFLICT DO NOTHING`. No schema change, no
+`NOTIFY pgrst`.
+
+**Applied and verified.** brands 236 → **244**; colorways 2,294 → **3,139**;
+with a `base_color` 1,354 → **1,908**; brands with any colorway 69 → **76**;
+brands with an RN 21 → **23**.
+
+New: Alice + Olivia, TravisMathew, Robert Graham, St. John, Sundry, Toad&Co,
+Veronica Beard, David Donahue.
+
+
 ## ✅ APPLIED 2026-09-06: 00738 — colour buckets from each brand's own facet tags (US-3125)
 
 **Risk: LOW.** Data only, and it touches ONLY rows where `base_color IS NULL`,
