@@ -1,5 +1,18 @@
 # PENDING MIGRATIONS — applied to prod separately from the push
 
+## ✅ APPLIED 2026-09-07: 00755 — nineteen merino, cashmere and slow-fashion brands (US-3125)
+
+**Risk: LOW.** Inserts only, `ON CONFLICT DO NOTHING`. No schema change.
+
+**Applied and verified.** brands 508 → **527**; colorways 10,371 → **10,660**;
+with a `base_color` 6,435 → **6,610**; brands with any colorway 201 → **208**;
+brands with an RN 113 → **116**. `NOTIFY pgrst, 'reload schema'` sent.
+
+Icebreaker settles a question 00748 left open: VF Outdoor registered it as
+"Icebreaker, A Division of VF Outdoor LLC", naming the label, while Smartwool's
+only hit was a bare "VF OUTDOOR, LLC". Same parent, opposite verdicts, and the
+rule reads both correctly from the registrant string alone.
+
 ## ✅ APPLIED 2026-09-07: 00754 — seventeen golf, denim and British menswear brands (US-3125)
 
 **Risk: LOW.** Inserts only, `ON CONFLICT DO NOTHING`. No schema change.
