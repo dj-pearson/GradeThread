@@ -1,5 +1,17 @@
 # PENDING MIGRATIONS — applied to prod separately from the push
 
+## ✅ APPLIED 2026-09-07: 00751 — eighteen running, intimates and bag brands (US-3125)
+
+**Risk: LOW.** Inserts only, `ON CONFLICT DO NOTHING`. No schema change.
+
+**Applied and verified.** brands 439 → **457**; colorways 8,566 → **9,125**;
+with a `base_color` 5,320 → **5,693**; brands with any colorway 171 → **182**;
+brands with an RN 92 → **100**. `NOTIFY pgrst, 'reload schema'` sent.
+
+Eight registered numbers sourced, ten refused. The vintage rule written down in
+00750 caught its first live case one run later: ALTRA CORP., INC. at RN 73198
+is an exact name plus a generic word, issued long before Altra Running existed.
+
 ## ✅ APPLIED 2026-09-07: 00750 — twenty-five sleep, baby and hosiery brands (US-3125)
 
 **Risk: LOW.** Inserts only, `ON CONFLICT DO NOTHING`. No schema change.
