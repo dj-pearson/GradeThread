@@ -1,5 +1,15 @@
 # PENDING MIGRATIONS — applied to prod separately from the push
 
+## ✅ APPLIED 2026-09-06: 00741 — fifteen more brands (US-3125)
+
+**Risk: LOW.** Inserts only, `ON CONFLICT DO NOTHING`. No schema change.
+
+**Applied and verified.** brands 263 → **277** (14 inserted; Girlfriend
+Collective already existed from 00465 and was left alone); colorways 4,160 →
+**4,552**; with a `base_color` 2,517 → **2,743**; brands with any colorway
+87 → **92**; brands with an RN 28 → **34**.
+
+
 ## ✅ APPLIED 2026-09-06: 00740 — nineteen more brands (US-3125)
 
 **Risk: LOW.** Inserts only, `ON CONFLICT DO NOTHING`. No schema change.
