@@ -26,8 +26,28 @@
 // Exactly SIX brands in the entire KB carry a seeded RN (alo yoga, zara, urban
 // outfitters, lucky brand, brooks brothers' pack-mate, and one handbag brand
 // with two). Every other pack omitted them DELIBERATELY as unsourced — 00466
-// records why: the FTC RN database is auth-gated, so most circulating RNs trace
-// only to eBay listing text, and 00467 refuses two on exactly that ground.
+// records why, and half of its reason turns out to be wrong.
+//
+// ⚠ CORRECTED 2026-09-06 (US-3128): "THE FTC RN DATABASE IS AUTH-GATED" IS
+// FALSE, and it has suppressed this column for months. https://www.ftc.gov/
+// rn-database/search answers 200 to a plain unauthenticated GET, takes a
+// `search=` query string, and returns RN, registrant and product line as an
+// ordinary HTML table. Measured: `search=Vuori` returns RN 156509 / Vuori, Inc.
+// / Women's + Men's apparel; `search=Faherty` returns RN 140476 / FAHERTY
+// BRAND, LLC. There is no gate to get past.
+//
+// WHAT IS STILL TRUE, AND IS THE REAL REASON THIS COLUMN IS THIN: attribution.
+// The register was used to CHECK the two recorded traps and it confirmed both -
+// 17257 returns LONGCHAMP FABRICS CORP, 13765 returns UNION UNDERWEAR COMPANY.
+// And the trap reproduces immediately on new lookups: `search=Vince` returns
+// RN 100566 / VINCENT-POWER INC / "LADIES CLOTHING", which is NOT the Vince
+// label, and a scraper taking the first hit would seed exactly the
+// authoritative-looking lie the corpus exists to refuse. `search=Peter Millar`
+// returns nothing at all, while this KB already carries RN 100308 for it.
+//
+// So the sourcing bar stands and the access excuse does not. Seeding an RN
+// needs the registrant matched to the LABEL, which is the decoder bar's fourth
+// question; it does not need permission.
 //
 // So an unmatched RN means "we have no reference for this", which is the normal
 // case, and it must never read as "this RN is wrong". `no_reference` is a

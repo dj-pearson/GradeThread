@@ -9,7 +9,7 @@ code_refs:
   - src/prerender/entry-server.tsx
   - src/prerender/head-builder.ts
   - src/routes/index.tsx
-reviewed: 2026-09-05
+reviewed: 2026-09-06
 tags: [seo, prerender, routing]
 summary: A new indexable page must be registered in several places in lockstep; CI guards catch some omissions but not all.
 ---
@@ -271,14 +271,25 @@ route declares a `jsonLdType` that `jsonLdForRoute()` does not emit.
 > mechanism was wrong, and a wrong mechanism sends the next reader looking for a
 > bug that is not there.
 
-## The Helmet trap
+## The two-path rule (was "the Helmet trap")
 
-`react-helmet-async` v3 renders **no** server-side head and injects **no**
-client-side `<script>`. Structured data therefore has two independent paths:
+> **`react-helmet-async` was REMOVED on 2026-09-06 (US-3120).** It rendered no
+> server-side head and injected no client-side `<script>`, so it was doing half
+> the job in both directions while costing an eager module that dragged three
+> more into the entry chunk. `<SEO>` now writes every tag itself in the same
+> `useEffect` that already handled JSON-LD, and returns `null` — so nothing
+> leaks into the SSR body any more and there is nothing to strip.
+>
+> **The rule below did not change, and that is the point of keeping this
+> section.** It never depended on Helmet; it depends on the prerenderer being
+> string-based with no headless browser, so no `useEffect` of any kind runs at
+> build time.
+
+Structured data has two independent paths:
 
 - `<SEO jsonLd={...}>` injects JSON-LD via `useEffect` for the live SPA.
 - The prerenderer builds the crawlable `<head>` from the registry and
-  `src/lib/seo/json-ld.ts`, and strips Helmet tags that leak into the SSR body.
+  `src/lib/seo/json-ld.ts`.
 
 **Adding structured data means doing both** — `<SEO jsonLd>` *and* mirroring it in
 `head-builder.ts`'s `jsonLdForRoute()`. Doing only the first means crawlers never

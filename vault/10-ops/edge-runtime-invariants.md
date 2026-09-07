@@ -7,13 +7,18 @@ code_refs:
   - services/edge-functions/src/lib/coherent-cache.ts
   - services/edge-functions/src/lib/schema-version.ts
   - services/edge-functions/src/lib/circuit-breaker.ts
-reviewed: 2026-09-05
+reviewed: 2026-09-06
 tags: [edge, caching, deploy, contract]
 summary: The edge runs N replicas, migrations apply separately from the code roll, and a deadline must cover the response body — three facts that constrain what any edge module may assume.
 ---
 
 # Edge runtime invariants
 
+> **Re-reviewed 2026-09-06, no change.** Drift flagged `schema-version.ts` for
+> US-3123. The whole diff is one line, `EXPECTED_SCHEMA_VERSION` 00727 to 00728,
+> which is the US-1108 triple doing exactly what it is for. Nothing this note
+> says about the boot guard's mechanism is affected.
+>
 > **Re-reviewed 2026-09-05.** Drift flagged `schema-version.ts` for the US-3060
 > migration: EXPECTED_SCHEMA_VERSION moved 00726 to 00727, which is the US-1108
 > triple working rather than a change to anything this note describes. The boot

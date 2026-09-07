@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-3128",
+  "nextId": "US-3129",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -3590,6 +3590,21 @@
         "brand-kb-provenance.md's baseline table is corrected, since it is now stale in five of five rows."
       ],
       "priority": 9
+    },
+    {
+      "id": "US-3128",
+      "passes": false,
+      "title": "The FTC RN register is open, not auth-gated: source registered numbers properly instead of refusing them",
+      "description": "THE PREMISE THAT KEPT THIS COLUMN AT 6 OF 230 BRANDS IS FALSE. registered-numbers.ts and vault/20-domain/brands/brand-kb-negative-findings.md both stated 'the FTC RN database is auth-gated', tracing to migration 00466. The owner said that was wrong on 2026-09-06 and the register settled it.\n\nhttps://www.ftc.gov/rn-database/search answers 200 to a plain unauthenticated GET, takes a  query string, and returns RN, registrant and product line as an ordinary HTML table. No key, no login, no gate.\n\nMEASURED THE SAME DAY, brands our sellers actually hold and none of which had an RN:\n  search=Vuori          RN 156509  Vuori, Inc.          Women's + Men's apparel   (17 items held)\n  search=Faherty        RN 140476  FAHERTY BRAND, LLC   CLOTHING                  (6 items)\n  search=Eileen Fisher  RN 78121   EILEEN FISHER, INC.                            (10 items)\n\nTHE REGISTER ALSO CONFIRMED BOTH RECORDED TRAPS, which is why this story is an expansion of the corpus rather than a repudiation of it:\n  search=17257  ->  LONGCHAMP FABRICS CORP        exactly what the negative finding says\n  search=13765  ->  UNION UNDERWEAR COMPANY, INC. exactly what the Screen Stars finding says\nThose findings are not weakened. They are now CHECKABLE rather than remembered.\n\n⚠ AND THE TRAP REPRODUCED ON THE THIRD BRAND I TRIED, which is the whole reason this is a sourcing story and not a scraping ticket:\n  search=Vince        ->  RN 100566  VINCENT-POWER INC  'LADIES CLOTHING'\nVINCENT-POWER INC is not the Vince label. A scraper taking the first hit would seed precisely the authoritative-looking lie brand-kb-negative-findings.md exists to prevent - the same shape as RN 17257.\n  search=Peter Millar ->  NO RESULTS\n...while brand_knowledge already carries 'RN 100308' for Peter Millar. So an existing seeded value does not reconcile with the register by name, and needs re-checking rather than assuming.\n\nWHAT CHANGES: access was never the blocker, so 'we cannot look it up' stops being a reason to leave the column empty. WHAT DOES NOT CHANGE: an RN names a REGISTRANT, not a brand; it is public and a counterfeit prints it too; and it never mints or rewrites a brand. The decoder bar's fourth question - which entity does this identifier name - governs every seed.",
+      "acceptanceCriteria": [
+        "A lookup helper queries the register by brand name and by RN and returns registrant plus product line, with the parsing pinned by a fixture so a page-shape change fails loudly rather than returning nothing and reading as 'no such brand'.",
+        "Every candidate RN is matched to the LABEL, not just to a name that resembles it. A hit whose registrant does not clearly correspond is REFUSED and the refusal recorded, following the Vince / VINCENT-POWER case above; a parent-wide registrant is recorded as ambiguous, following URBN's RN 66170.",
+        "The existing six seeded RNs are re-checked against the register. Peter Millar's RN 100308 returns nothing by name and must be resolved or retired.",
+        "Newly sourced RNs are seeded with full provenance and prioritised by what sellers hold, using the same inventory_items join as US-3125 - not by brand fame.",
+        "No verdict changes. registered-numbers.ts still emits no resolvedBrand, no_reference stays distinct from contradicts, and the test pinning the returned key set still passes.",
+        "The corrected premise stays corrected: a guard or test fails if the phrase 'auth-gated' returns to describe this register, since it survived months in two places and set the column's coverage."
+      ],
+      "priority": 7
     }
   ]
 }

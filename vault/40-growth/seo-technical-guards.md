@@ -7,7 +7,7 @@ code_refs:
   - src/prerender/head-builder.ts
   - src/prerender/entry-server.tsx
   - src/lib/seo/json-ld.ts
-reviewed: 2026-09-05
+reviewed: 2026-09-06
 tags: [seo, prerender, ci, contract]
 summary: What CI enforces about the HTML crawlers actually receive, and how to read each failure.
 ---
@@ -72,10 +72,16 @@ a browser-only condition. Move it above that gate, or provide an SSR-safe
 fallback. If the copy legitimately changed, update the `must` needle.
 
 **"expected exactly 1 `<title>` / rel=canonical"**
-Something injected a second one. The `<SEO>` component's Helmet tags are stripped
-from the SSR body by `stripHeadTagsFromBody()`; the canonical head is built by
+Something injected a second one. The canonical head is built by
 `head-builder.ts`. A duplicate means new markup emitted a raw `<title>`/canonical
 in the body — remove it and let `head-builder` own the head.
+
+> **Changed 2026-09-06 (US-3120):** this used to add "the `<SEO>` component's
+> Helmet tags are stripped from the SSR body by `stripHeadTagsFromBody()`".
+> `react-helmet-async` is gone and `<SEO>` returns `null`, so it emits nothing
+> server-side and there is nothing to strip. The guard STAYS — what it catches
+> now is a page rendering a head tag in its own markup, which is the case that
+> was always the real bug.
 
 **"a `<meta http-equiv=refresh>` would redirect crawlers"**
 Never prerender a client-side redirect. Use a real HTTP 301/302 (`_redirects`)

@@ -115,12 +115,35 @@ a **distinct outcome from `contradicts`** for that reason. Collapsing the two �
 treating "we have no reference" as "this RN is wrong" — would turn the emptiest
 column in the KB into a fake fraud signal on almost every graded garment.
 
-The three sections above are why the column is nearly empty, and none of them is
-fixable by trying harder: the FTC register is auth-gated to automation, most
-circulating RNs trace only to eBay listing text (00467 refuses Vineyard Vines'
-and Brooks Brothers' on exactly that ground), and for handbags there is
-**statutorily no RN to find**. Seeding more is a sourcing problem, not a scraping
-one.
+The three sections above are why the column is nearly empty. Seeding more is a
+sourcing problem, not a scraping one — for handbags there is **statutorily no RN
+to find**, and most circulating RNs trace only to eBay listing text (00467
+refuses Vineyard Vines' and Brooks Brothers' on exactly that ground).
+
+> [!warning] "The FTC register is auth-gated to automation" was FALSE, corrected 2026-09-06
+> This sentence stood here and in `registered-numbers.ts`, and it was wrong. The
+> owner said so, and the register settled it:
+> `https://www.ftc.gov/rn-database/search` answers **200** to a plain
+> unauthenticated GET, takes a `search=` query string, and returns RN,
+> registrant and product line in an ordinary HTML table.
+>
+> Measured the same day: `search=Vuori` → **RN 156509, Vuori, Inc.**, women's and
+> men's apparel. `search=Faherty` → **RN 140476, FAHERTY BRAND, LLC**.
+> `search=Eileen Fisher` → **RN 78121, EILEEN FISHER, INC.** All three are brands
+> our sellers hold and none of them had an RN.
+>
+> **The register also CONFIRMED both traps on this page**, which is the useful
+> half: `17257` returns LONGCHAMP FABRICS CORP and `13765` returns UNION
+> UNDERWEAR COMPANY, INC. The findings above are not weakened by the correction;
+> they are now checkable rather than remembered.
+>
+> **And the trap reproduces on the very next lookup.** `search=Vince` returns
+> **RN 100566, VINCENT-POWER INC, "LADIES CLOTHING"** — not the Vince label, and
+> a scraper taking the first hit would seed the exact shape this page exists to
+> refuse. `search=Peter Millar` returns **nothing**, while the KB already carries
+> RN 100308 for it, so a seeded value here needs re-checking too.
+>
+> So the bar stands and the excuse does not. See US-3128.
 
 Two further rules the checker encodes, both from the corpus:
 

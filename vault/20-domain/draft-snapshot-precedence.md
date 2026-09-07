@@ -10,11 +10,19 @@ code_refs:
   - src/pages/flipdesk/grid.tsx
   - src/lib/title-sync-patch.ts
   - services/edge-functions/src/routes/flipdesk-ebay.ts
-reviewed: 2026-09-05
+reviewed: 2026-09-06
 tags: [flipdesk, listings, publishing, contract]
 summary: Publish prefers the listings-row snapshot over the item, so any surface writing the item's title, description or price must reach the draft row too.
 ---
 
+# The draft snapshot shadows the item
+
+> **Re-reviewed 2026-09-06, no change.** Drift flagged `grid.tsx` for US-3123's
+> sourcer sort. Checked against this note's actual claim - that any surface
+> WRITING the item's title, description or price must reach the draft row too -
+> and the diff writes none of them: the only lines touching those words extend a
+> SELECT column list to fetch `sourced_by`. A read is not a write, and a column
+> list growing is not a second editor.
 # The draft snapshot shadows the item
 
 > **Re-reviewed 2026-09-05, no change.** Drift flagged `flipdesk-ebay.ts`
