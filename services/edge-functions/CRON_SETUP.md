@@ -619,21 +619,28 @@ curl -fsS -X POST -H "X-Internal-Job-Secret: $FLIPDESK_INTERNAL_JOB_SECRET" http
 curl -fsS -X POST -H "X-Internal-Job-Secret: $FLIPDESK_INTERNAL_JOB_SECRET" http://localhost:8787/api/jobs/style-code-sweep
 ```
 
-### 86. sync-reaper
+### 86. supply-sample
+**Frequency:** `10 4 * * *`  ·  _200 with {ok:true, cells, sampled, failed, basis}; basis 'headroom' or 'no_snapshot' means the pass was capped and the rest roll to tomorrow, which is normal_
+
+```bash
+curl -fsS -X POST -H "X-Internal-Job-Secret: $FLIPDESK_INTERNAL_JOB_SECRET" http://localhost:8787/api/jobs/supply-sample
+```
+
+### 87. sync-reaper
 **Frequency:** `*/15 * * * *`
 
 ```bash
 curl -fsS -X POST -H "X-Internal-Job-Secret: $FLIPDESK_INTERNAL_JOB_SECRET" http://localhost:8787/api/jobs/sync-reaper
 ```
 
-### 87. thumbnail-backfill
+### 88. thumbnail-backfill
 **Frequency:** `*/5 * * * *`
 
 ```bash
 curl -fsS -X POST -H "X-Internal-Job-Secret: $FLIPDESK_INTERNAL_JOB_SECRET" http://localhost:8787/api/jobs/thumbnail-backfill
 ```
 
-### 88. trial-expiry
+### 89. trial-expiry
 **Frequency:** `15 0 * * *`
 
 ```bash

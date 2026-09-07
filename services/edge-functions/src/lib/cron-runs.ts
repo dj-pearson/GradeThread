@@ -204,6 +204,11 @@ export const CRON_REGISTRY: CronDef[] = [
   // disagree, so this task not running turns a public commitment into an untrue
   // statement. A 500 here is a real incident, not a retry-tomorrow.
   { name: "ebay-retention", label: "eBay data retention sweep", schedule: "40 3 * * *", category: "maintenance", endpoint: "/api/jobs/ebay-retention", recorded: true, healthy: "200 with {ok:true, results:[...]}; totalRows 0 is normal once the backlog drains. ok:false means a table was skipped and the published policy is only half-applied" },
+  // US-3133: the resale supply index panel. Runs after the retention sweep and
+  // after the rate-limit snapshot, so it sizes its pass against a reading taken
+  // today rather than yesterday. A tick that samples nothing because eBay has
+  // no headroom left is a correct tick, not a failure.
+  { name: "supply-sample", label: "Resale supply index sampling", schedule: "10 4 * * *", category: "maintenance", endpoint: "/api/jobs/supply-sample", recorded: true, healthy: "200 with {ok:true, cells, sampled, failed, basis}; basis 'headroom' or 'no_snapshot' means the pass was capped and the rest roll to tomorrow, which is normal" },
   { name: "gsc-sync", label: "Search Console sync", schedule: "30 6 * * *", category: "seo", endpoint: "/api/jobs/gsc-sync", recorded: true },
   { name: "growth-dispatch", label: "Scheduled-campaign dispatch", schedule: "*/15 * * * *", category: "growth", endpoint: "/api/jobs/growth-dispatch", recorded: true },
   { name: "north-star-digest", label: "North Star weekly digest", schedule: "0 14 * * 1", category: "growth", endpoint: "/api/jobs/north-star-digest", recorded: true },

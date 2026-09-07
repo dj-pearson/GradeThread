@@ -889,6 +889,15 @@ export function PrivacyPage() {
               attached to them.
             </td>
           </tr>
+          <tr data-retention-rule="marketplace_supply_samples:730">
+            <td>Daily counts of how many items are listed in a market</td>
+            <td>
+              Two years, so a season can be compared with the same season last
+              year, then deleted. These are counts of public listings across a
+              whole brand or category, taken from the marketplace itself. No
+              seller, listing, link or title is recorded, including yours.
+            </td>
+          </tr>
           {/* US-2643: this row used to read "Server & security logs — Up to 90
               days, then purged or aggregated", and no part of that was true of
               anything we store. Measured, not assumed: not one application audit

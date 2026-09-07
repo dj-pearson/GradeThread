@@ -46,6 +46,17 @@ export interface RetentionRule {
   action: "delete" | "clear";
   /** For action 'clear': the columns nulled. */
   columns?: string[];
+  /**
+   * True when `ageColumn` is a Postgres DATE rather than a timestamptz.
+   *
+   * ⚠ NOT COSMETIC. cutoffFor sends a plain `YYYY-MM-DD` for a DATE column and
+   * a full ISO string for a timestamptz, because Postgres silently truncates an
+   * ISO timestamp compared against a DATE and shifts the boundary by up to a
+   * day. This used to be inferred from the column being literally named "day",
+   * which was true of the only DATE rule at the time and quietly wrong for the
+   * next one.
+   */
+  ageColumnIsDate?: boolean;
   /** One line, in plain words, matching what the privacy page tells users. */
   rationale: string;
 }
@@ -100,8 +111,28 @@ export const EBAY_RETENTION_RULES: readonly RetentionRule[] = [
     table: "ebay_api_call_daily",
     ageColumn: "day",
     maxAgeDays: 730,
+    ageColumnIsDate: true,
     action: "delete",
     rationale: "Daily eBay API call counts are kept for two years.",
+  },
+  {
+    // US-3132: the supply index panel. Two years keeps a year-over-year read,
+    // which is the most useful question a seasonality answer can ask, and
+    // discards the rest.
+    //
+    // The measure is observed_on, unlike the last_seen_at rules above. Those
+    // age on re-confirmation because a re-seen observation is current data with
+    // an old row. Here every row IS a dated measurement, so its own date is the
+    // only honest thing to age it on.
+    table: "marketplace_supply_samples",
+    ageColumn: "observed_on",
+    maxAgeDays: 730,
+    ageColumnIsDate: true,
+    action: "delete",
+    rationale:
+      "Daily counts of how many items are listed in a market are kept for two " +
+      "years so a season can be compared with the same season last year, then " +
+      "deleted.",
   },
 ];
 
@@ -111,7 +142,7 @@ export function cutoffFor(rule: RetentionRule, now: Date = new Date()): string {
   // A DATE column compares against a plain date; a timestamptz wants the full
   // ISO string. Sending an ISO timestamp to a DATE column silently truncates in
   // Postgres, which would shift the boundary by up to a day.
-  return rule.ageColumn === "day"
+  return rule.ageColumnIsDate || rule.ageColumn === "day"
     ? cutoff.toISOString().slice(0, 10)
     : cutoff.toISOString();
 }

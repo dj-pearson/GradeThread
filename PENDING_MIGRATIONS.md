@@ -1,5 +1,45 @@
 # PENDING MIGRATIONS — applied to prod separately from the push
 
+## ⏳ HELD 2026-09-06: 00745: the resale supply index tables (US-3132)
+
+**Risk: LOW-MEDIUM.** Two NEW tables, no change to an existing one, no data
+migrated, nothing dropped. The medium half is only that it is the first schema
+change in this run of otherwise insert-only brand migrations.
+
+**What it creates**
+
+- `marketplace_supply_cells`: the ~204 market cells we measure. Seeded by the
+  migration: 12 category-only rows, plus the 32 brands with the deepest
+  colorway coverage crossed with 6 garment terms.
+- `marketplace_supply_samples`: one live-listing count per cell per day.
+  `unique (cell_key, observed_on)` so a re-run cannot double-count a day.
+
+Both are deny-all: RLS on, zero policies, `revoke all from anon, authenticated`,
+copied from `00663`. Table revokes only, and no function revoke anywhere in the
+file, per the `00609` rule.
+
+**Verified before holding.** Applied twice against a real Postgres 15 on a
+scratch database: second run inserted 0 rows and the cell count held at 72 (10
+stub brands rather than prod's 32). The unique constraint refused a duplicate
+`(cell_key, observed_on)`, and the check constraint refused a negative listing
+count. The seeded `cell_key` values were read back and match `normalizeItemKey`
+exactly (`levi's|11450|jeans`, `|11450|jacket`), which is the join the whole
+index rests on.
+
+**Apply order:** after 00744. Nothing else depends on it.
+
+**No client reads this.** Both tables are service-role only and no frontend code
+touches them, so the Cloudflare Pages auto-deploy on push is safe here; the
+usual "the SPA breaks the moment you push" hazard does not apply.
+
+**After applying:** `NOTIFY pgrst, 'reload schema';` (two new tables).
+
+**The cron does nothing until you register it.** `supply-sample` is entry 86 in
+`services/edge-functions/CRON_SETUP.md` (`10 4 * * *`). Until it is added in
+Coolify the tables stay empty, which is harmless but means the 30-day clock has
+not started.
+
+
 ## ✅ APPLIED 2026-09-06: 00744 — twenty-one womenswear, swim and merino brands (US-3125)
 
 **Risk: LOW.** Inserts only, `ON CONFLICT DO NOTHING`. No schema change.

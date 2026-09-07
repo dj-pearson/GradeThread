@@ -1,10 +1,9 @@
 # Resale Supply Index: design (stage 1)
 
 **Date:** 2026-09-06
-**Status:** approved in chat, not yet planned
-**Backlog:** stories not yet filed. Product/edge stories go in `prd.json` (next
-id `US-3132`); the public-page and sitemap stories go in `prd-seo.json` (next id
-`US-9037`). Stage 1 is edge-only and files no SEO story.
+**Status:** stage 1 built 2026-09-06. Migration held, not pushed.
+**Backlog:** `US-3132` (tables + retention) and `US-3133` (the cron), both in
+`prd.json`. Stage 2's public pages go in `prd-seo.json` and are not filed yet.
 
 ## The question this answers
 
@@ -80,7 +79,7 @@ Two new tables. One defines the cells, one holds a day's measurement of each.
 
 ```
 public.marketplace_supply_cells
-  cell_key      text primary key   -- brand + category + marketplace, normalized
+  cell_key      text primary key   -- normalizeItemKey: brand|category|q
   marketplace   text not null      -- 'ebay' at stage 1
   brand_key     text               -- null for a category-only cell
   category_id   text not null      -- eBay leaf category
@@ -100,7 +99,7 @@ One row per cell per day.
 ```
 public.marketplace_supply_samples
   id                 uuid pk
-  cell_key           text not null    -- brand + category + marketplace, normalized
+  cell_key           text not null    -- normalizeItemKey: brand|category|q
   marketplace        text not null    -- 'ebay' at stage 1
   brand_key          text             -- null for a category-only cell
   category_id        text not null    -- eBay leaf category
@@ -113,9 +112,18 @@ public.marketplace_supply_samples
   unique (cell_key, observed_on)
 ```
 
-`cell_key` reuses the existing normalization so a supply row and a
-`comp_condition_reads` row describe the same cell. It is the join that makes
-stage 2 able to say "supply up, asking prices down" in one sentence.
+`cell_key` is `normalizeItemKey` verbatim (`lib/condition-item-key.ts`), the key
+`comp_condition_reads`, `condition_price_curves` and `condition_value_shadow_samples`
+already use. It is the join that makes stage 2 able to say "supply up, asking
+prices down" in one sentence.
+
+**Marketplace is a column, not part of the key** -- corrected during
+implementation, where this section first said the key was "brand + category +
+marketplace". Folding the marketplace in would have produced a key that joins to
+none of those three tables, which is the entire reason for reusing theirs.
+`supply-cell-key-agreement_test.ts` now pins the two spellings together, because
+the failure is silent: the join simply returns nothing, which reads like a
+market with no comps rather than like a bug.
 
 **What never reaches this table:** no seller, no listing id, no URL, no title,
 no image. Same standing constraint as `comp_condition_reads` (US-2841), and for
@@ -130,7 +138,9 @@ retry after a partial failure, must not double-count a day into the trend.
 no-REVOKE-on-function rule (`00609`) does not apply and is not triggered.
 
 **Migration triple (US-1108):** idempotent SQL, `EXPECTED_SCHEMA_VERSION` bumped
-in the same commit, self-record footer. Next number is `00743`.
+in the same commit, self-record footer. The number ended up `00745`: a
+concurrent agent minted `00743` and then `00744` for unrelated brand work while
+this was being written, and theirs reached prod first.
 
 ## The cell list
 

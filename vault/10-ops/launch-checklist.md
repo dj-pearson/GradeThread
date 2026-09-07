@@ -218,11 +218,12 @@ A healthy run returns `{"ok":true,...}`. Reference: `services/edge-functions/COO
 | stuck-submissions | `*/10 * * * *` | `/api/jobs/stuck-submissions` | `$FLIPDESK_INTERNAL_JOB_SECRET` |  |
 | style-code-discovery | `10 3 * * *` | `/api/jobs/style-code-discovery` | `$FLIPDESK_INTERNAL_JOB_SECRET` | 200 with {ok:true, considered, crawled, deferred, scanned, inspected, declared, codes, newCodes, names}; newCodes falls toward 0 as a brand's pages are exhausted, and deferred is non-zero whenever more brands are eligible than the budget covers |
 | style-code-sweep | `35 * * * *` | `/api/jobs/style-code-sweep` | `$FLIPDESK_INTERNAL_JOB_SECRET` | 200 with {ok:true, considered, swept, deferred, learned, noHits}; swept is 0 once every known code is confirmed or cooling off |
+| supply-sample | `10 4 * * *` | `/api/jobs/supply-sample` | `$FLIPDESK_INTERNAL_JOB_SECRET` | 200 with {ok:true, cells, sampled, failed, basis}; basis 'headroom' or 'no_snapshot' means the pass was capped and the rest roll to tomorrow, which is normal |
 | sync-reaper | `*/15 * * * *` | `/api/jobs/sync-reaper` | `$FLIPDESK_INTERNAL_JOB_SECRET` |  |
 | thumbnail-backfill | `*/5 * * * *` | `/api/jobs/thumbnail-backfill` | `$FLIPDESK_INTERNAL_JOB_SECRET` |  |
 | trial-expiry | `15 0 * * *` | `/api/jobs/trial-expiry` | `$FLIPDESK_INTERNAL_JOB_SECRET` |  |
 
-_88 scheduled jobs. Default healthy response: 200 `{"ok":true,...}` (idle runs report skipped/zero counts). Generated from `src/lib/cron-runs.ts` CRON_REGISTRY — do not hand-edit._
+_89 scheduled jobs. Default healthy response: 200 `{"ok":true,...}` (idle runs report skipped/zero counts). Generated from `src/lib/cron-runs.ts` CRON_REGISTRY — do not hand-edit._
 <!-- cron-registry:end -->
 
 **One-off at launch (not scheduled):** POST `/api/jobs/cert-integrity-backfill`

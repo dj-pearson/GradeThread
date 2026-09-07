@@ -680,6 +680,17 @@ const SERVICE_ROLE_ONLY = new Set([
   // public page prints and a seller prices against; readable through the
   // client, it would hand out the coverage map before the pages exist.
   "garment_measurement_stats",
+  // US-3132 the resale supply index. NON-TENANT aggregate market data in the
+  // comp_condition_reads posture: the cells we measure, and one live-listing
+  // count per cell per day. No seller, no listing id, no URL, no title and no
+  // owner column at all, because the row is a statement about a market rather
+  // than about anybody in it. Deny-all in both directions. Readable, the cell
+  // table IS the coverage map -- which markets we watch and how closely -- and
+  // the samples table would hand a competitor the panel a public page is built
+  // on before the page exists. Writable, anyone could move a number sellers
+  // price against.
+  "marketplace_supply_cells",
+  "marketplace_supply_samples",
 ]);
 
 // Service-role-only tables with NO user_id and NO parent FK (pure operator /
@@ -714,6 +725,12 @@ const SERVICE_ONLY_FORCED = [
   // above), so hasUserId never discovers it and without this line the guard
   // would check nothing while appearing to pass.
   "garment_measurement_stats",
+  // US-3132. Same reason as garment_measurement_stats directly above: neither
+  // table has an owner column or a parent FK, so hasUserId discovers neither
+  // and without these two lines the guard would check nothing here while
+  // appearing to pass.
+  "marketplace_supply_cells",
+  "marketplace_supply_samples",
 ];
 
 // Tokens that signal a policy is tenant/role scoped rather than wide open.
