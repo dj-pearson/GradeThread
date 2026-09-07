@@ -318,7 +318,214 @@ const COLOR_FAMILY: FamilyTable = {
   tiedye: ["Multicolor"],
   assorted: ["Multicolor"],
   various: ["Multicolor"],
-};
+
+  // ---------------------------------------------------------------------------
+  // HOUSE COLOUR VOCABULARY (US-3125).
+  //
+  // Everything above is the language a BUYER searches in. Everything below is
+  // the language BRANDS write on their own tags, and it is the reason 6,004 of
+  // 17,311 colorways in brand_knowledge had no eBay bucket: no table knew that
+  // Everlane's "Kalamata" or 7 For All Mankind's "Coffee Bean" is a colour at
+  // all.
+  //
+  // Each word here was counted across the real corpus before being added, and
+  // the ones kept are those several brands use independently -- "coffee" in 21
+  // brands, "cocoa" in 15, "orchid" in 29. A word one brand uses once is a
+  // per-brand fact and belongs in brand_colorways, not in a shared table.
+  //
+  // ⚠ WHAT IS DELIBERATELY ABSENT MATTERS AS MUCH AS WHAT IS HERE. "Ice",
+  // "garden", "wild", "vintage", "clear", "sea" and "mist" all cleared the
+  // frequency bar and are NOT included, because each is ambiguous on its own
+  // ("Ice Blue" is blue, plain "Ice" is white-ish, "Sea Salt" is off-white and
+  // "Sea Green" is green). The resolver reads right-to-left and takes the last
+  // colour-bearing token, so leaving a modifier out lets the real colour win.
+  // Adding it would make the modifier win instead, which is worse than a NULL.
+
+  // Browns -- the largest house family by far.
+  coffee: ["Brown"],
+  cocoa: ["Brown"],
+  tobacco: ["Brown"],
+  latte: ["Brown", "Beige"],
+  hazelnut: ["Brown"],
+  pecan: ["Brown"],
+  acorn: ["Brown"],
+  oak: ["Brown", "Tan"],
+  birch: ["Beige", "Tan"],
+  driftwood: ["Brown", "Gray"],
+  whiskey: ["Brown"],
+  bourbon: ["Brown"],
+  umber: ["Brown"],
+  sepia: ["Brown"],
+  earth: ["Brown"],
+  soil: ["Brown"],
+  bison: ["Brown"],
+  saddle: ["Brown"],
+  cinnamon: ["Brown"],
+  nutmeg: ["Brown"],
+  clay: ["Brown", "Orange"],
+  spice: ["Brown", "Orange"],
+  honey: ["Brown", "Yellow"],
+  fudge: ["Brown"],
+  truffle: ["Brown"],
+  hickory: ["Brown"],
+  teak: ["Brown"],
+
+  // Beiges, sands and greiges.
+  oat: ["Beige", "Ivory"],
+  dune: ["Beige", "Tan"],
+  pebble: ["Beige", "Gray"],
+  sandstone: ["Beige", "Tan"],
+  desert: ["Beige", "Tan"],
+  wheat: ["Beige", "Tan"],
+  flax: ["Beige", "Ivory"],
+  biscuit: ["Beige", "Tan"],
+  putty: ["Beige", "Gray"],
+  mushroom: ["Beige", "Brown"],
+  greige: ["Beige", "Gray"],
+  parchment: ["Ivory", "Beige"],
+  linen: ["Beige", "Ivory"],
+  canvas: ["Beige", "Tan"],
+  dust: ["Beige", "Gray"],
+
+  // Whites and ivories.
+  coconut: ["White", "Ivory"],
+  salt: ["White", "Ivory"],
+  snow: ["White"],
+  chalk: ["White", "Ivory"],
+  alabaster: ["Ivory", "White"],
+  porcelain: ["White", "Ivory"],
+  milk: ["White", "Ivory"],
+  optic: ["White"],
+  blanc: ["White"],
+  lily: ["White", "Ivory"],
+
+  // Blacks.
+  midnight: ["Black", "Blue"],
+  noir: ["Black"],
+  ink: ["Black", "Blue"],
+  obsidian: ["Black"],
+  raven: ["Black"],
+  coal: ["Black"],
+  pitch: ["Black"],
+  soot: ["Black"],
+  licorice: ["Black"],
+  caviar: ["Black"],
+
+  // Grays.
+  anthracite: ["Gray"],
+  carbon: ["Gray", "Black"],
+  shadow: ["Gray"],
+  storm: ["Gray"],
+  iron: ["Gray"],
+  granite: ["Gray"],
+  steel: ["Gray"],
+  concrete: ["Gray"],
+  flint: ["Gray"],
+  fog: ["Gray"],
+  cloud: ["Gray", "White"],
+  dove: ["Gray"],
+  heather: ["Gray"],
+  marl: ["Gray"],
+  zinc: ["Gray"],
+  magnet: ["Gray"],
+
+  // Greens.
+  pine: ["Green"],
+  evergreen: ["Green"],
+  fern: ["Green"],
+  thyme: ["Green"],
+  basil: ["Green"],
+  juniper: ["Green"],
+  cypress: ["Green"],
+  spruce: ["Green"],
+  clover: ["Green"],
+  avocado: ["Green"],
+  matcha: ["Green"],
+  pistachio: ["Green"],
+  seaweed: ["Green"],
+  kelp: ["Green"],
+  leaf: ["Green"],
+  loden: ["Green"],
+  verde: ["Green"],
+  eucalyptus: ["Green"],
+  cactus: ["Green"],
+
+  // Blues.
+  ocean: ["Blue"],
+  lagoon: ["Blue"],
+  marine: ["Blue"],
+  atlantic: ["Blue"],
+  harbor: ["Blue"],
+  glacier: ["Blue"],
+  arctic: ["Blue"],
+  chambray: ["Blue"],
+  dusk: ["Blue", "Purple"],
+  twilight: ["Blue", "Purple"],
+  bluestone: ["Blue"],
+
+  // Reds.
+  berry: ["Red", "Purple"],
+  raspberry: ["Red", "Pink"],
+  poppy: ["Red"],
+  garnet: ["Red"],
+  cranberry: ["Red"],
+  currant: ["Red", "Purple"],
+  paprika: ["Red", "Orange"],
+  chili: ["Red"],
+  pomegranate: ["Red"],
+
+  // Pinks.
+  peony: ["Pink"],
+  petal: ["Pink"],
+  flamingo: ["Pink"],
+  bubblegum: ["Pink"],
+  ballet: ["Pink"],
+  guava: ["Pink", "Orange"],
+
+  // Purples.
+  orchid: ["Purple", "Pink"],
+  grape: ["Purple"],
+  iris: ["Purple"],
+  wisteria: ["Purple"],
+  fig: ["Purple", "Brown"],
+  boysenberry: ["Purple"],
+
+  // Yellows, golds and oranges.
+  straw: ["Yellow", "Beige"],
+  marigold: ["Yellow", "Orange"],
+  honeycomb: ["Yellow"],
+  golden: ["Gold", "Yellow"],
+  ember: ["Orange", "Red"],
+  papaya: ["Orange"],
+  clementine: ["Orange"],
+  persimmon: ["Orange", "Red"],
+
+  // Denim finishing terms. A wash is a DEPTH applied to blue, not a colour of
+  // its own -- see 00738, where the brands' own `wash::` facets said the same.
+  wash: ["Blue"],
+  rinse: ["Blue"],
+  stonewash: ["Blue"],
+  acidwash: ["Blue"],
+
+  // Patterns. eBay's Color list has no "leopard", and Multicolor is what it
+  // offers for a patterned garment.
+  camo: ["Multicolor"],
+  camouflage: ["Multicolor"],
+  leopard: ["Multicolor"],
+  cheetah: ["Multicolor"],
+  zebra: ["Multicolor"],
+  animal: ["Multicolor"],
+  floral: ["Multicolor"],
+  ditsy: ["Multicolor"],
+  paisley: ["Multicolor"],
+  plaid: ["Multicolor"],
+  tartan: ["Multicolor"],
+  gingham: ["Multicolor"],
+  houndstooth: ["Multicolor"],
+  stripe: ["Multicolor"],
+  striped: ["Multicolor"],
+  bloom: ["Multicolor"],
+  confetti: ["Multicolor"],};
 
 // Hem length on a dress, skirt, coat or pair of shorts. eBay runs two different
 // vocabularies depending on the category (Short/Knee Length/Midi/Long/Hi-Low

@@ -1,5 +1,21 @@
 # PENDING MIGRATIONS — applied to prod separately from the push
 
+## ✅ APPLIED 2026-09-07: 00759 — house colour vocabulary (US-3125)
+
+**Risk: LOW.** UPDATEs guarded by `base_color is null`, so a re-run is a no-op.
+No schema change, no new rows.
+
+**Applied and verified.** colorways with a `base_color` 11,307 → **13,491**
+(2,184 resolved of 6,004); with a `shade` → **1,437**. Row and brand counts
+unchanged. `NOTIFY pgrst, 'reload schema'` sent.
+
+⚠ **This migration ships a CODE change with it.** The vocabulary went into
+`COLOR_FAMILY` in `services/edge-functions/src/lib/aspect-normalize.ts` (and its
+web mirror `src/lib/aspect-normalize.ts`), not into a table inside the SQL, so
+the KB and the live normaliser cannot disagree. The listing path gets the same
+benefit: a garment described as "Espresso" now normalises to Brown for eBay's
+Color aspect whether or not its brand is in this KB.
+
 ## ✅ APPLIED 2026-09-07: 00758 — colorways read from product titles (US-3134)
 
 **Risk: LOW.** Colorway inserts only, `ON CONFLICT (brand_key, color_name) DO
