@@ -3,9 +3,14 @@
 // ↳ SHARED CONTRACT: vault/30-platform/marketplace-connector-contract.md —
 //   the kill-switch / PKCE / token-encryption / refresh shape all connectors use.
 // Code + PKCE, encrypted token storage, and proactive token refresh. This module
-// owns the CONNECTION lifecycle only (connect → store → refresh → disconnect);
-// the publish/order-sync write path is US-714 (the adapter's listing methods
-// still return 501 until then).
+// owns the CONNECTION lifecycle only (connect → store → refresh → disconnect).
+//
+// ⚠ CORRECTED 2026-09-06: this used to say the write path "is US-714 (the
+// adapter's listing methods still return 501 until then)". US-714 SHIPPED —
+// product upsert/delete, order sync, seller addresses, shipping providers,
+// mark-as-shipped and signed webhook receipt are all in depop-api.ts. Nothing
+// returns 501; the adapter returns 503 "partner access is pending" while
+// DEPOP_ENABLED is off. The only thing still missing is a client id.
 //
 // GATING (US-713 AC#3): the ENTIRE connector is gated behind DEPOP_ENABLED.
 // Depop's partner API is private and access is pending the US-712 application,

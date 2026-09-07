@@ -44,15 +44,29 @@ export async function fetchAll(origin, fetchImpl = fetch) {
   const products = [];
   for (let page = 1; page <= 40; page++) {
     const url = `${origin.replace(/\/$/, "")}/products.json?limit=${PAGE}&page=${page}`;
-    const res = await fetchImpl(url, {
-      headers: { "User-Agent": UA, Accept: "application/json" },
-      redirect: "follow",
-      signal: AbortSignal.timeout(30_000),
-    });
+    // ⚠ BACK OFF ON 429 RATHER THAN GIVING UP. Shopify rate-limits by IP across
+    // ALL its stores, so harvesting brands back to back gets the whole run
+    // throttled — 34 of 45 brands failed this way on the first attempt, and not
+    // one of them was actually unavailable. Retrying politely is both the
+    // correct behaviour and the one that works.
+    let res;
+    for (let attempt = 0; ; attempt++) {
+      res = await fetchImpl(url, {
+        headers: { "User-Agent": UA, Accept: "application/json" },
+        redirect: "follow",
+        signal: AbortSignal.timeout(30_000),
+      });
+      if (res.status !== 429 || attempt >= 4) break;
+      const retryAfter = Number(res.headers?.get?.("retry-after")) || 0;
+      const wait = retryAfter > 0 ? retryAfter * 1000 : 2000 * 2 ** attempt;
+      await new Promise((r) => setTimeout(r, wait));
+    }
     if (!res.ok) {
       if (page === 1) throw new NotAShopifyFeed(`${url} answered HTTP ${res.status}`);
       break;
     }
+    // One page per second is plenty for a catalogue that changes seasonally.
+    await new Promise((r) => setTimeout(r, 1000));
     const text = await res.text();
     let body;
     try {

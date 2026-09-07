@@ -10,7 +10,7 @@ code_refs:
   - services/edge-functions/src/lib/crypto-aes.ts
   - services/edge-functions/src/lib/token-refresh-race.ts
   - services/edge-functions/src/lib/rewards-engine.ts
-reviewed: 2026-08-28
+reviewed: 2026-09-06
 tags: [marketplaces, oauth, contract, security]
 summary: Every marketplace connector shares one kill-switch, PKCE, token-encryption and refresh shape; new connectors copy it rather than inventing one.
 ---
@@ -152,12 +152,33 @@ etsy, shopify, whatnot) and fails if one stops granting.
 | Marketplace | Delta |
 |---|---|
 | **Etsy** | Requires an `x-api-key` header alongside the bearer token — the only one that does |
-| **Whatnot** | Auth URLs and scopes are **MODELED, not documented** — there is no public spec, so they are informed guesses and may be wrong |
-| **Depop** | The original of the pattern; publish routes return 501 pending partner approval |
+| **Whatnot** | Auth URLs and scopes are **MODELED**, and the data API is a different protocol entirely — see below |
+| **Depop** | The original of the pattern. Write path is BUILT; every adapter method returns 503 while the flag is off, not 501 |
 
 The Whatnot caveat is worth reading before debugging an auth failure there: a
 401 may mean the modelled URL is simply wrong rather than that the credentials
 are bad.
+
+> [!warning] Whatnot's docs exist, and the data client is the wrong shape (2026-09-06)
+> This row read "there is no public spec" while the refresh-token section forty
+> lines above already cited developers.whatnot.com by name. Both cannot be true,
+> and the stale half is the one a reader hits first when they are debugging.
+>
+> The docs are real. What they say is that the Seller API is **GraphQL on one
+> endpoint** — `https://api.whatnot.com/seller-api/graphql`, with a stage host at
+> `api.stage.whatnot.com` — not the REST resource paths `whatnot-api.ts` builds.
+> Auth is OAuth 2.0, so `whatnot-client.ts` and this contract hold; the auth URLs
+> and scope strings in it are still modeled and still need reconciling.
+>
+> The consequence for planning: `whatnot-api.ts` is a **rewrite, not a
+> reconfiguration**, and its own header used to promise the opposite. There are
+> also webhooks (product sold, listing changes, order updates, livestream
+> events), bulk import/export and shipment labels, none of it modeled.
+>
+> None of this is urgent. Access is closed — *"We are not accepting new
+> applicants for access at this time"* — with no waitlist, so the connector stays
+> flag-off. See [[adr-etsy-api-application]] for the marketplace where the door
+> IS open.
 
 ## Related
 

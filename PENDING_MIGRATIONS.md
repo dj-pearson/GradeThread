@@ -1,5 +1,14 @@
 # PENDING MIGRATIONS — applied to prod separately from the push
 
+## ✅ APPLIED 2026-09-06: 00734 — colorways for 26 brands, from their own catalogues (US-3125)
+
+**Risk: LOW.** 1,954 inserts into `brand_colorways`, `ON CONFLICT DO NOTHING`.
+No schema change, no `NOTIFY pgrst`.
+
+**Applied and verified.** `brand_colorways` 340 → **2,294**; brands with any
+colorway 43 → **69** of 236.
+
+
 ## ✅ APPLIED 2026-09-06: 00733 — Faherty, Peruvian Connection, UNTUCKit (US-3125)
 
 **Risk: LOW.** Inserts with `ON CONFLICT DO NOTHING` plus three guarded note

@@ -4,7 +4,7 @@ type: decision
 status: accepted
 source_of_truth: vault
 code_refs: []
-reviewed: 2026-07-19
+reviewed: 2026-09-06
 tags: [decision, marketplaces, depop, bizdev]
 summary: The Depop API partnership application, what it requires and what it unlocks.
 ---
@@ -91,18 +91,87 @@ welcomed partner segment.
 
 ---
 
+---
+
+## 2b. Follow-up email (2026-09-06)
+
+The §2 email was sent and Depop did not reply. That is their normal pattern for
+`business@` and it is not a decline, so this chases it once, from a different
+angle: the integration is no longer a plan, it is finished code waiting on a
+key. That is the only new fact since the first email and it is the whole reason
+to write again.
+
+**Rules for a chase that works:** short, one question, easy to redirect, and it
+must carry something the first email could not. Do not re-argue the original
+ask. Do not apologise for following up. Reply in the same thread if you still
+have it, because a threaded reply keeps the original detail one scroll away
+without repeating it.
+
+**To:** business@depop.com (reply in the original thread if it exists)
+**Subject:** Re: Partner API access request — GradeThread
+**If starting a new thread:** Partner API access — GradeThread, integration now built
+
+> Hi,
+>
+> Following up on my note about Depop Selling API partner access for GradeThread
+> (Pearson Media LLC, gradethread.com). One thing has changed since I wrote, and
+> it is the reason I am writing again rather than just chasing.
+>
+> The Depop integration is built. Not planned: written, tested and sitting
+> behind a feature flag waiting on credentials. OAuth 2.0 authorization code
+> with PKCE, encrypted token storage with proactive refresh, product create and
+> update, delete, order sync, seller addresses and shipping providers, parcel
+> mark-as-shipped, and webhook receipt with signature and timestamp
+> verification. It was built against your published OpenAPI spec. The day a
+> client id lands it goes live; nothing else is in the way.
+>
+> Since the first email we have also shipped live integrations with eBay, Etsy
+> and Shopify on the same pattern, all official APIs, no scraping anywhere in
+> the product. For the marketplaces that publish no API we use a browser
+> extension that fills their own form in the seller's own browser, and our
+> servers never hold a marketplace password or session. We are the kind of
+> integrator that stays inside the lines, which I think is the thing worth
+> knowing about us.
+>
+> One question, and any answer is useful: is the partner program open right now?
+> If it is closed or paused, I would rather know and check back later than keep
+> emailing. If it is open and this is the wrong address, pointing me at the right
+> one would be a real help.
+>
+> Thanks,
+>
+> [NAME]
+> Founder, GradeThread (Pearson Media LLC)
+> [EMAIL] · gradethread.com
+
+⚠ **Name and address must match the first email.** This ADR's §2 signs as "Dan
+Pearson / dan@gradethread.com"; the git identity on this repo is "Dj Pearson".
+Use whatever actually went out, and use the same on the Etsy application, since
+a reviewer who searches will find both. See [[adr-etsy-api-application]].
+
+⚠ **Nothing in the email above is a claim we cannot back.** Every capability
+listed is real code in `services/edge-functions/src/lib/depop-api.ts` and
+`depop-client.ts`. If that stops being true, this draft changes with it.
+
+**If there is still no reply:** stop emailing. Two unanswered emails is a
+closed door, and Depop is not load-bearing. Log it in §3 as "no response" and
+revisit when Depop next announces partner news. The extension path
+([[adr-poshmark-via-extension]]) already covers Depop for cross-listing if it
+ever needs to.
+
 ## 3. Outcome (record here when Depop responds — this is acceptance criterion #3)
 
 | Field | Value |
 |---|---|
-| Date application sent | _pending_ |
-| Sent from | _pending_ |
-| Date of Depop reply | _pending_ |
-| Outcome | ☐ Approved ☐ Waitlisted ☐ Declined |
-| Flow granted | ☐ OAuth multi-seller (PKCE) ☐ single-shop `pak_` only |
-| Sandbox key issued | ☐ Yes ☐ No |
-| Commercial terms | _pending (per-Order-Form $ / rev-share)_ |
-| Notes | _pending_ |
+| Date application sent | sent, exact date not recorded (founder, 2026-09-06: "a while ago") |
+| Sent from | _fill in — needed so the follow-up threads correctly_ |
+| Date of Depop reply | **none as of 2026-09-06** |
+| Outcome | ☐ Approved ☐ Waitlisted ☐ Declined ☑ No response |
+| Flow granted | n/a |
+| Sandbox key issued | ☐ Yes ☑ No |
+| Commercial terms | n/a |
+| Follow-up sent | _pending — draft in §2b_ |
+| Notes | US-713/US-714 are BUILT and flag-off, so approval is the only remaining step. |
 
 **Unblock logic:**
 - **Approved (multi-seller + sandbox)** → confirm OpenAPI spec access at
@@ -122,6 +191,7 @@ welcomed partner segment.
 
 ## Related
 
+- [[adr-etsy-api-application]] — the same shape, one marketplace over
 - [[adr-poshmark-via-extension]] — the contrasting call for no-API marketplaces
 - [[cross-listing]] — where Depop sits in the channel model
 - [[INDEX]]

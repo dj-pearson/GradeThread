@@ -193,11 +193,15 @@ export function NoPasswordsPage() {
             <table className="w-full min-w-[36rem] border-collapse text-left text-sm">
               <thead>
                 <tr className="border-b">
-                  <th className="py-3 pr-4 font-semibold">How it connects</th>
-                  <th className="py-3 pr-4 font-semibold">
+                  <th scope="col" className="py-3 pr-4 font-semibold">
+                    How it connects
+                  </th>
+                  <th scope="col" className="py-3 pr-4 font-semibold">
                     Holds your credential?
                   </th>
-                  <th className="py-3 font-semibold">Computer must be on?</th>
+                  <th scope="col" className="py-3 font-semibold">
+                    Computer must be on?
+                  </th>
                 </tr>
               </thead>
               <tbody>

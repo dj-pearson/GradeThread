@@ -7,7 +7,7 @@ source_of_truth: code
 code_refs:
   - src/components/breadcrumbs.tsx
   - src/lib/seo/public-routes.ts
-reviewed: 2026-09-05
+reviewed: 2026-09-06
 tags: [accessibility, compliance, wcag, vpat]
 summary: WCAG 2.1 AA, Section 508 and EN 301 549 conformance claims — a published artifact that must stay true, not a snapshot.
 ---
@@ -25,6 +25,27 @@ summary: WCAG 2.1 AA, Section 508 and EN 301 549 conformance claims — a publis
 > flags it when the accessibility surface changes. It should be re-reviewed on
 > any a11y-affecting change, not on a schedule.
 # Accessibility Conformance Report — GradeThread & FlipDesk
+
+> **Re-reviewed 2026-09-06.** Drift flagged `public-routes.ts` for `f23fb4c34`
+> (US-3130), which registers two indexable pages: `/reselling/nifty-alternative`
+> and `/reselling/crosslisting-without-passwords`. The first adds nothing at all
+> — it is a fourth row of data behind the existing `CompetitorAlternativePage`
+> component, already covered below.
+>
+> The second is a new page and it did move something, which is the drift guard
+> earning its keep rather than a formality. It carries a three-column comparison
+> table, and the first draft shipped `<th>` with no `scope`. Implicit column
+> association is what most screen readers infer from a `<th>` inside a single
+> `<thead>` row, so it was not broken, but "usually inferred" is not the claim
+> this document makes and every other marketing table in the repo sets it
+> explicitly (`condition-grading.tsx` is the pattern). `scope="col"` was added on
+> all three headers in the same commit. The table is also inside an
+> `overflow-x-auto` container, which keeps the page off a horizontal body scroll
+> at 320px without hiding content.
+>
+> Nothing else on the page is new: MarketingLayout, Button, prose, and a
+> definition list. No widget, no interaction pattern, no canvas or drag surface,
+> so the conformance claims below stand unchanged.
 
 > **Re-reviewed 2026-09-05.** Drift flagged `public-routes.ts` for `b159b4b3c`
 > (US-3089), which adds one indexable page, `/tools/listing-generator`. Nothing
