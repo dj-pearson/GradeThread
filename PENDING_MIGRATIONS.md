@@ -1,5 +1,19 @@
 # PENDING MIGRATIONS — applied to prod separately from the push
 
+## ✅ APPLIED 2026-09-07: 00754 — seventeen golf, denim and British menswear brands (US-3125)
+
+**Risk: LOW.** Inserts only, `ON CONFLICT DO NOTHING`. No schema change.
+
+**Applied and verified.** brands 491 → **508**; colorways 10,268 → **10,371**;
+with a `base_color` 6,378 → **6,435**; brands with any colorway 199 → **201**;
+brands with an RN 108 → **113**. `NOTIFY pgrst, 'reload schema'` sent.
+
+**This run passes the loop's colour goal: 201 brands with real colour data.**
+
+Five registered numbers sourced. Fair Harbor is the first time the 00750
+vintage rule has been used to CHOOSE between two same-name registrants rather
+than to reject one.
+
 ## ✅ APPLIED 2026-09-07: 00753 — seventeen snow, surf and bike brands (US-3125)
 
 **Risk: LOW.** Inserts only, `ON CONFLICT DO NOTHING`. No schema change.
