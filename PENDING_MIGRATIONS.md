@@ -1,5 +1,14 @@
 # PENDING MIGRATIONS — applied to prod separately from the push
 
+## ✅ APPLIED 2026-09-07: 00746 — eighteen outdoor, running, maternity and kids brands (US-3125)
+
+**Risk: LOW.** Inserts only, `ON CONFLICT DO NOTHING`. No schema change.
+
+**Applied and verified.** brands 336 → **354**; colorways 6,027 → **6,635**;
+with a `base_color` 3,693 → **4,078**; brands with any colorway 119 → **129**;
+brands with an RN 51 → **55**.
+
+
 ## ⏳ HELD 2026-09-06: 00745: the resale supply index tables (US-3132)
 
 **Risk: LOW-MEDIUM.** Two NEW tables, no change to an existing one, no data
