@@ -1,5 +1,18 @@
 # PENDING MIGRATIONS — applied to prod separately from the push
 
+## ✅ APPLIED 2026-09-07: 00753 — seventeen snow, surf and bike brands (US-3125)
+
+**Risk: LOW.** Inserts only, `ON CONFLICT DO NOTHING`. No schema change.
+
+**Applied and verified.** brands 474 → **491**; colorways 9,418 → **10,268**;
+with a `base_color` 5,953 → **6,378**; brands with any colorway 189 → **199**;
+brands with an RN 102 → **108**. `NOTIFY pgrst, 'reload schema'` sent.
+
+Six brands, nine registered numbers — Dakine and Jetty each hold two, one
+company registered twice decades apart. Eleven refused, three of them a new
+shape: a founder registering in their own name for exactly the goods the brand
+makes.
+
 ## ✅ APPLIED 2026-09-07: 00752 — seventeen DTC womenswear and training brands (US-3125)
 
 **Risk: LOW.** Inserts only, `ON CONFLICT DO NOTHING`. No schema change.
