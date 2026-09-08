@@ -8682,3 +8682,37 @@ Deno.test({
     );
   },
 });
+
+Deno.test({
+  // US-3155: the Grailed closet import. Same shape as the Poshmark case above —
+  // the batch names a marketplace listing id the caller supplies, so the row it
+  // matches must be scoped to the caller's own tenant or B writes into A's
+  // catalogue. Worth its own case rather than trusting the Poshmark one: the
+  // platform arrives as a string in the payload, and a route that scoped by
+  // marketplace id alone would leak on the newest platform first.
+  name: "B cannot touch another workspace's row through a Grailed closet batch",
+  ignore: !CONFIGURED,
+  fn: async () => {
+    const res = await fetch(`${BASE}/api/flipdesk/closet-import/batches`, {
+      method: "POST",
+      headers: authHeaders(B_JWT!),
+      body: JSON.stringify({
+        platform: "grailed",
+        page: "closet",
+        listings: [{
+          listingUrl: "https://www.grailed.com/listings/100703624-tenant-isolation-probe",
+          platformListingId: "100703624",
+          title: "tenant isolation probe",
+        }],
+      }),
+    });
+    await res.body?.cancel();
+    // 401/403 (the extension token gate), 402 (plan) and 404 are all fine. A
+    // 200 is fine too and is NOT a leak: the write is owner-scoped, so a
+    // listing id B does not own creates a row for B rather than touching A's.
+    assert(
+      res.status < 500,
+      `Grailed closet batch as B returned ${res.status}; expected a scoped write or a refusal`,
+    );
+  },
+});

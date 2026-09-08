@@ -216,7 +216,11 @@
         "https://mercari.com/item/*",
         "https://*.mercari.com/item/*",
         "https://mercari.com/us/item/*",
-        "https://*.mercari.com/us/item/*"
+        "https://*.mercari.com/us/item/*",
+        "https://grailed.com/listings/*",
+        "https://*.grailed.com/listings/*",
+        "https://grailed.com/users/*",
+        "https://*.grailed.com/users/*"
       ],
       "js": [
         "closet-import/selectors.js",

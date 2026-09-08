@@ -117,6 +117,84 @@ const GT_CLOSET_IMPORT_SELECTORS = {
       gallery: 'img[data-testid="ItemImage"], [data-testid="image-0"] img, article img, main img[src*="mercdn"]',
     },
   },
+
+  // -- Grailed (US-3155) -------------------------------------------------
+  //
+  // Every selector below was read off the LIVE site on 2026-09-08 with a
+  // browser, not guessed: the tile shape from a public shop feed, the detail
+  // fields from a real listing page, and the owner-only tells from the
+  // founder's own "For sale" page. `verified` is still false, because that flag
+  // means one thing only -- a human watched the shipped selectors produce
+  // full-size photos on a real import -- and nobody has run one yet.
+  //
+  // GRAILED CLASS NAMES ARE CSS-MODULE HASHED: `UserItem_root__8Q2R_`,
+  // `Details_title__xxxxx`. The hash changes on their next deploy, so every
+  // selector here matches the STABLE prefix with [class*="Name_part"] and never
+  // the whole class. A selector written against the full hash would work in
+  // testing and break silently within weeks.
+  grailed: {
+    label: "Grailed",
+    enabled: true,
+    verified: false,
+    version: "2026.09.1",
+    hosts: ["grailed.com"],
+
+    login: { urlPattern: "grailed\\.com/(users/sign_up|login|auth)" },
+    humanCheck: 'iframe[src*="recaptcha"], iframe[title*="challenge"], #px-captcha',
+
+    // Grailed sizes its renders with a ?w= QUERY parameter, not a path segment
+    // (media-assets.grailed.com/.../<id>?w=240 at 1x, ?w=500 at 2x). 1400 is
+    // comfortably above the server's 500px refusal floor without asking their
+    // CDN for an original nobody needs.
+    urlUpgrade: { pattern: "([?&]w=)\\d+", replacement: "$11400", flags: "i" },
+    assetIdPattern: "/([a-f0-9]{8,})(?:\\?|$)",
+    imageAttrs: ["src", "srcset", "data-src"],
+
+    closet: {
+      // Grailed's seller pages live under /users/. This started out permissive,
+      // matching all of grailed.com, and closet-import-manifest's guard
+      // rejected it -- correctly. Every path the manifest matches has to be one
+      // an adapter flow actually reads, or it is reach nobody can justify to a
+      // store reviewer. If the founder's own For-sale page turns out to sit
+      // somewhere else, this line and the manifest match change together.
+      urlPattern: "grailed\\.com/users/",
+      // Owner-only controls, taken from the founder's own For-sale page: the
+      // per-listing seller actions and the "search YOUR listings" box. Someone
+      // browsing another seller's shop sees none of them.
+      ownClosetTell:
+        'input[placeholder*="Search your listings"], [class*="SellerScore_root"], [class*="Following_root"]',
+      tile: '[class*="UserItem_root"]',
+      fields: {
+        listingUrl: 'a[class*="UserItem_link"], a[href*="/listings/"]',
+        title: '[class*="UserItem_title"]',
+        priceText: '[data-testid="Current"], [class*="Price_root"]',
+        sizeText: '[class*="UserItem_size"]',
+        brandText: '[class*="UserItem_designer"]',
+        image: '[class*="UserItem_listingCoverPhoto"] img, img[class*="CoverPhoto_root"]',
+      },
+      soldBadge: '[class*="UserItem_sold"], [class*="Sold_root"]',
+      pagination: { infiniteScroll: true, endMarker: '[class*="FeedAndFilters_feed"] + [class*="end"]' },
+    },
+
+    detail: {
+      urlPattern: "grailed\\.com/listings/",
+      ownListingTell: 'a[href*="/sell/edit"], [data-testid="edit-listing"]',
+      title: '[class*="Details_title"]',
+      description: '[class*="Description_description"]',
+      priceText: '[data-testid="Current"]',
+      // NOT `Details_metadata`. That one node reads "Men's US 11 / EU 44*Gently
+      // Used" -- size and condition joined by a bullet, which no CSS selector
+      // can split. The clean size is on the tile, so the tile wins and this
+      // stays unset rather than writing a joined string into the size column.
+      brandText: '[class*="Designers_designer"], [class*="Details_designers"]',
+      // Grailed's Product JSON-LD carries no itemCondition, and the only place
+      // the condition appears is the joined node above. Left unmapped on
+      // purpose; a wrong condition note is worse than none.
+      gallery:
+        'img[class*="Photo_picture"], img[class*="Thumbnails_thumbnail"], [class*="ListingPage_layout"] img[class*="Image_"]',
+    },
+  },
+
 };
 
 // Content scripts share one isolated world per frame, so the global makes this

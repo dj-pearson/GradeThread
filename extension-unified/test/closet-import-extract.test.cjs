@@ -145,3 +145,78 @@ const POSH_ID = "5f1e2d3c4b5a69788796a5b4";
 }
 
 console.log("closet-import-extract.test.cjs: allowlist holds, ids/prices/photos parse, batch dedupes");
+
+// ── 8. Grailed (US-3155) ─────────────────────────────────────────────────
+//
+// Every selector and URL shape below was read off the LIVE site on 2026-09-08,
+// so a case that starts failing is a Grailed change, not a guess that was
+// always wrong.
+{
+  assert.strictEqual(
+    X.listingIdFromUrl("grailed", "https://www.grailed.com/listings/100703624-ann-demeulemeester-jean-boots"),
+    "100703624",
+    "the numeric id LEADS the slug, unlike Poshmark's",
+  );
+  assert.strictEqual(
+    X.listingIdFromUrl("grailed", "https://www.grailed.com/listings/100703624?g_aidx=Listing_by_quality"),
+    "100703624",
+    "a tracking query does not change the key",
+  );
+  // Not a listing: a shop page, a browse feed, or a slug carrying no id.
+  assert.strictEqual(X.listingIdFromUrl("grailed", "https://www.grailed.com/users/someone"), null);
+  assert.strictEqual(X.listingIdFromUrl("grailed", "https://www.grailed.com/shop/mens"), null);
+  assert.strictEqual(X.listingIdFromUrl("grailed", "https://www.grailed.com/listings/ann-demeulemeester"), null);
+  assert.strictEqual(X.listingIdFromUrl("grailed", "javascript:alert(1)"), null);
+}
+
+// ── 9. A Grailed tile becomes a listing, at the LARGE render ─────────────
+{
+  const built = X.buildListing("grailed", {
+    listingUrl: "https://www.grailed.com/listings/100703624-ann-demeulemeester-jean-boots?g_aidx=x",
+    title: "Ann Demeulemeester Jean Boots Santiago",
+    priceText: "$283",
+    sizeText: "11",
+    brandText: "Ann Demeulemeester",
+    photoUrls: ["https://media-assets.grailed.com/prd/listing/abc123def456?w=240"],
+  }, SEL.grailed);
+
+  assert.ok(built, "a well-formed Grailed tile builds");
+  assert.strictEqual(built.platformListingId, "100703624");
+  assert.strictEqual(
+    built.listingUrl,
+    "https://www.grailed.com/listings/100703624-ann-demeulemeester-jean-boots",
+    "query dropped, canonical",
+  );
+  assert.strictEqual(built.priceCents, 28300);
+  assert.strictEqual(built.size, "11");
+  assert.strictEqual(built.brand, "Ann Demeulemeester");
+  // Grailed sizes with a ?w= QUERY, so the upgrade rewrites the width in place
+  // rather than a path segment. A thumbnail passing as a photo is the exact
+  // failure vault/10-ops/extension-adapter-verification.md was written about.
+  assert.ok(
+    built.photoUrls.every((u) => /[?&]w=1400(?!\d)/.test(u)),
+    `every emitted URL is the large render, got ${JSON.stringify(built.photoUrls)}`,
+  );
+
+  assert.strictEqual(
+    X.buildListing("grailed", { listingUrl: "https://www.grailed.com/users/someone", title: "x" }, SEL.grailed),
+    null,
+    "a shop page is not a listing",
+  );
+}
+
+// ── 10. The Grailed adapter claims only what was verified ────────────────
+{
+  assert.deepStrictEqual(SEL.grailed.hosts, ["grailed.com"]);
+  assert.strictEqual(SEL.grailed.enabled, true);
+  // `verified` means a human watched a real import produce full-size photos.
+  // Reading the markup off the live site is not that, and this stays false
+  // until somebody runs one.
+  assert.strictEqual(SEL.grailed.verified, false);
+  // The owner-only tell is the control that stops another seller's shop being
+  // read into the catalogue. An enabled adapter must never have an empty one.
+  assert.ok(
+    SEL.grailed.closet.ownClosetTell && SEL.grailed.closet.ownClosetTell.length > 10,
+    "an enabled closet adapter needs an owner-only tell",
+  );
+}

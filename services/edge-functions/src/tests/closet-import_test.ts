@@ -6,12 +6,14 @@ import { assert, assertEquals } from "@std/assert";
 import {
   closetFillPatch,
   closetListingPatch,
+  isClosetImportPlatform,
   listingIdFromUrl,
   MAX_CLOSET_IMPORT_PHOTOS,
   MAX_CLOSET_IMPORT_ROWS,
   normalizeClosetRows,
   photoHostAllowed,
   photoTypeForIndex,
+  platformLabel,
 } from "../lib/closet-import.ts";
 
 const POSH_ID = "5f1e2d3c4b5a69788796a5b4";
@@ -179,4 +181,35 @@ Deno.test("the first copied photo is the cover, the rest are details", () => {
   assertEquals(photoTypeForIndex(0), "front");
   assertEquals(photoTypeForIndex(1), "detail");
   assertEquals(photoTypeForIndex(7), "detail");
+});
+
+// US-3155: Grailed. Read off the live site 2026-09-08.
+Deno.test("grailed listing ids lead the slug, and only Grailed's own CDN serves its photos", () => {
+  assertEquals(
+    listingIdFromUrl("grailed", "https://www.grailed.com/listings/100703624-ann-demeulemeester-jean-boots"),
+    "100703624",
+  );
+  // Poshmark's 24-hex id TRAILS the slug; Grailed's numeric one LEADS it. The
+  // two parsers are not interchangeable and this is what says so.
+  assertEquals(listingIdFromUrl("grailed", "https://www.grailed.com/listings/ann-demeulemeester"), null);
+  assertEquals(listingIdFromUrl("grailed", "https://www.grailed.com/users/someone"), null);
+  assertEquals(listingIdFromUrl("grailed", "https://www.grailed.com/shop/mens"), null);
+
+  assert(photoHostAllowed("grailed", "https://media-assets.grailed.com/prd/listing/abc123?w=1400"));
+  assert(photoHostAllowed("grailed", "https://grailed.com/x.jpg"));
+  // A batch names the photo URLs, so the edge would otherwise download from
+  // anywhere the extension said. These are the look-alikes that a naive
+  // `includes` or a dotless suffix check would let through.
+  assert(!photoHostAllowed("grailed", "https://evilgrailed.com/x.jpg"));
+  assert(!photoHostAllowed("grailed", "https://grailed.com.attacker.test/x.jpg"));
+  assert(!photoHostAllowed("grailed", "https://media-photos.depop.com/x.jpg"));
+  // http is refused for every platform, Grailed included.
+  assert(!photoHostAllowed("grailed", "http://media-assets.grailed.com/x.jpg"));
+});
+
+Deno.test("grailed is a known platform with a label, and an unknown one still is not", () => {
+  assert(isClosetImportPlatform("grailed"));
+  assertEquals(platformLabel("grailed"), "Grailed");
+  assert(!isClosetImportPlatform("depop"), "depop lands in US-3154, not here");
+  assert(!isClosetImportPlatform("etsy"));
 });

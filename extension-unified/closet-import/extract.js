@@ -75,6 +75,14 @@
       const m = path.match(/\/(?:us\/)?item\/(m\d{6,})(?:\/|$)/i);
       return m ? m[1].toLowerCase() : null;
     }
+    if (platform === "grailed") {
+      // /listings/100703624-ann-demeulemeester-jean-boots. The numeric id LEADS
+      // the slug here, where Poshmark's trails it -- read off a live listing on
+      // 2026-09-08. Must stay identical to the edge's copy in
+      // lib/closet-import.ts, which re-derives it and drops what it cannot key.
+      const m = path.match(/\/listings\/(\d{5,})(?:-|\/|$)/i);
+      return m ? m[1] : null;
+    }
     return null;
   }
 

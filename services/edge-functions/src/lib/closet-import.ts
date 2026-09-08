@@ -14,7 +14,7 @@
 // away.
 
 /** The marketplaces the extension can read a closet from. */
-export const CLOSET_IMPORT_PLATFORMS = ["poshmark", "mercari"] as const;
+export const CLOSET_IMPORT_PLATFORMS = ["poshmark", "mercari", "grailed"] as const;
 export type ClosetImportPlatform = (typeof CLOSET_IMPORT_PLATFORMS)[number];
 
 export function isClosetImportPlatform(v: unknown): v is ClosetImportPlatform {
@@ -44,6 +44,10 @@ export const MAX_CLOSET_IMPORT_PHOTOS = 8;
 export const CLOSET_IMPORT_PHOTO_HOSTS: Record<ClosetImportPlatform, readonly string[]> = {
   poshmark: ["cloudfront.net", "poshmark.com"],
   mercari: ["mercdn.net", "mercari.com"],
+  // US-3155: Grailed serves every listing render from media-assets.grailed.com.
+  // The bare apex is listed too so a future host under it still resolves, and
+  // nothing else on grailed.com serves photos.
+  grailed: ["grailed.com"],
 };
 
 export function photoHostAllowed(platform: ClosetImportPlatform, url: string): boolean {
@@ -78,6 +82,13 @@ export function listingIdFromUrl(platform: ClosetImportPlatform, url: unknown): 
   if (platform === "poshmark") {
     const m = path.match(/\/listing\/(?:[^/]*-)?([a-f0-9]{24})(?:\/|$)/i);
     return m ? m[1]!.toLowerCase() : null;
+  }
+  if (platform === "grailed") {
+    // US-3155: /listings/100703624-ann-demeulemeester-jean-boots. The numeric
+    // id LEADS the slug, unlike Poshmark's, where it trails it. Read off a live
+    // listing 2026-09-08.
+    const m = path.match(/\/listings\/(\d{5,})(?:-|\/|$)/i);
+    return m ? m[1]! : null;
   }
   const m = path.match(/\/(?:us\/)?item\/(m\d{6,})(?:\/|$)/i);
   return m ? m[1]!.toLowerCase() : null;
@@ -279,7 +290,12 @@ export function closetListingPatch(
 }
 
 export function platformLabel(platform: ClosetImportPlatform): string {
-  return platform === "poshmark" ? "Poshmark" : "Mercari";
+  const labels: Record<ClosetImportPlatform, string> = {
+    poshmark: "Poshmark",
+    mercari: "Mercari",
+    grailed: "Grailed",
+  };
+  return labels[platform];
 }
 
 /** item_photos.photo_type for the n-th copied photo: cover first, then details. */
