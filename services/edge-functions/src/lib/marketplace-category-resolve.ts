@@ -13,7 +13,7 @@
 // eBay (Taxonomy API) and Shopify (free-form) never enter this path.
 
 import { supabaseAdmin } from "./supabase.ts";
-import { getAnthropicClient, getLightweightModel } from "./ai-config.ts";
+import { effortParams, getAnthropicClient, getLightweightModel } from "./ai-config.ts";
 import { withRetry } from "./retry.ts";
 import type { MarketplacePlatform } from "./marketplace-specs.ts";
 import {
@@ -134,6 +134,7 @@ async function defaultAiSuggest(
       client.messages.create({
         model,
         max_tokens: 256,
+        ...effortParams(model, "category_resolve", "low"),
         system: [
           {
             type: "text",

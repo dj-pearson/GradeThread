@@ -17,7 +17,7 @@
 // parseable result.
 
 import Anthropic from "@anthropic-ai/sdk";
-import { getAnthropicClient } from "./ai-config.ts";
+import { effortParams, getAnthropicClient } from "./ai-config.ts";
 import { enterAiFeature } from "./ai-feature-context.ts";
 import {
   getActionCascadeConfig,
@@ -278,6 +278,7 @@ export async function verifyGroupBoundaries(
         client.messages.create({
           model,
           max_tokens: 1024,
+          ...effortParams(model, "autolister_verify_groups", "low"),
           system: SYSTEM,
           tools: [SUGGEST_TOOL],
           tool_choice: { type: "tool", name: "suggest_group_fixes" },

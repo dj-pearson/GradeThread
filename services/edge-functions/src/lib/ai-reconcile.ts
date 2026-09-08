@@ -9,7 +9,12 @@
 // Both accept images either as public URLs or inline base64 (the reconcile
 // board sends downscaled base64 because dump photos aren't uploaded yet).
 import Anthropic from "@anthropic-ai/sdk";
-import { getAnthropicClient, getDefaultModel, getAiTemperature } from "./ai-config.ts";
+import {
+  effortParams,
+  getAiTemperature,
+  getAnthropicClient,
+  getDefaultModel,
+} from "./ai-config.ts";
 import { enterAiFeature } from "./ai-feature-context.ts";
 
 export interface VisionImage {
@@ -112,9 +117,11 @@ export async function classifyPhotoTypes(images: VisionImage[]): Promise<PhotoCl
   enterAiFeature("reconcile"); // US-894 spend attribution
   const client = getAnthropicClient();
   const temperature = getAiTemperature();
+  const model = getDefaultModel();
   const response = await client.messages.create({
-    model: getDefaultModel(),
+    model,
     max_tokens: 1024,
+    ...effortParams(model, "reconcile", "low"),
     ...(temperature !== undefined ? { temperature } : {}),
     tools: [CLASSIFY_TOOL],
     tool_choice: { type: "tool", name: "classify_photos" },
@@ -157,9 +164,11 @@ export async function groupSimilarPhotos(images: VisionImage[]): Promise<number[
   enterAiFeature("reconcile"); // US-894 spend attribution
   const client = getAnthropicClient();
   const temperature = getAiTemperature();
+  const model = getDefaultModel();
   const response = await client.messages.create({
-    model: getDefaultModel(),
+    model,
     max_tokens: 1024,
+    ...effortParams(model, "reconcile", "low"),
     ...(temperature !== undefined ? { temperature } : {}),
     tools: [SIMILAR_TOOL],
     tool_choice: { type: "tool", name: "group_same_garment" },
@@ -233,9 +242,11 @@ export async function extractMatchHints(images: VisionImage[]): Promise<MatchHin
   enterAiFeature("reconcile"); // US-894 spend attribution
   const client = getAnthropicClient();
   const temperature = getAiTemperature();
+  const model = getDefaultModel();
   const response = await client.messages.create({
-    model: getDefaultModel(),
+    model,
     max_tokens: 512,
+    ...effortParams(model, "reconcile", "low"),
     ...(temperature !== undefined ? { temperature } : {}),
     tools: [MATCH_HINTS_TOOL],
     tool_choice: { type: "tool", name: "item_match_hints" },

@@ -13,7 +13,7 @@
 // unit-tested without hitting the API.
 
 import Anthropic from "@anthropic-ai/sdk";
-import { getAnthropicClient, getDefaultModel } from "./ai-config.ts";
+import { effortParams, getAnthropicClient, getDefaultModel } from "./ai-config.ts";
 import { enterAiFeature } from "./ai-feature-context.ts";
 import { withRetry } from "./retry.ts";
 
@@ -445,6 +445,7 @@ export async function extractTagGroundTruth(
       client.messages.create({
         model,
         max_tokens: 512,
+        ...effortParams(model, "tag_ocr", "low"),
         system: SYSTEM,
         tools: [READ_TAG_TOOL],
         tool_choice: { type: "tool", name: "read_garment_tag" },

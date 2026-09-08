@@ -8,7 +8,7 @@
 // scoring/coercion is unit-testable without the API.
 
 import Anthropic from "@anthropic-ai/sdk";
-import { getAnthropicClient, getPhotoQaModel } from "./ai-config.ts";
+import { effortParams, getAnthropicClient, getPhotoQaModel } from "./ai-config.ts";
 import { enterAiFeature } from "./ai-feature-context.ts";
 import { withRetry } from "./retry.ts";
 
@@ -217,6 +217,7 @@ export async function assessPhotoQuality(
       client.messages.create({
         model,
         max_tokens: 900,
+        ...effortParams(model, "photo_qa", "low"),
         system: SYSTEM,
         tools: [QA_TOOL],
         tool_choice: { type: "tool", name: "report_photo_quality" },

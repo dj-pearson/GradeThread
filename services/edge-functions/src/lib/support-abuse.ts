@@ -18,6 +18,7 @@
 // what SETS it.
 
 import type Anthropic from "@anthropic-ai/sdk";
+import { effortParams } from "./ai-config.ts";
 import type { AbuseSeverity, AbuseEventType } from "./support-metering.ts";
 import type { FlipdeskPlan } from "./pricing-config.ts";
 
@@ -320,6 +321,7 @@ export function makeHaikuClassifier(
       const msg = await client.messages.create({
         model,
         max_tokens: 64,
+        ...effortParams(model, "support_abuse", "low"),
         system: CLASSIFIER_SYSTEM,
         messages: [
           {

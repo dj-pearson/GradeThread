@@ -15,7 +15,7 @@
 // bundling contract, see ai-metering-coverage_test.ts).
 
 import Anthropic from "@anthropic-ai/sdk";
-import { getAnthropicClient, getDefaultModel } from "./ai-config.ts";
+import { effortParams, getAnthropicClient, getDefaultModel } from "./ai-config.ts";
 import { enterAiFeature } from "./ai-feature-context.ts";
 import { withRetry } from "./retry.ts";
 import { applyHomography, type GrayImage } from "./measure-detect.ts";
@@ -387,6 +387,7 @@ export async function extractMeasurements(
     client.messages.create({
       model,
       max_tokens: 1500,
+      ...effortParams(model, "measure_extract", "low"),
       tools: [tool],
       tool_choice: { type: "tool", name: "report_measurement_endpoints" },
       messages: [{

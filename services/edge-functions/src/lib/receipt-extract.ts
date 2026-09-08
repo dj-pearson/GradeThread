@@ -1,4 +1,4 @@
-import { getAnthropicClient, getLightweightModel } from "./ai-config.ts";
+import { effortParams, getAnthropicClient, getLightweightModel } from "./ai-config.ts";
 import { enterAiFeature } from "./ai-feature-context.ts";
 
 // US-2993 — read a receipt.
@@ -324,9 +324,11 @@ export async function extractReceipt(
   enterAiFeature("receipt-extract", userId);
 
   const client = getAnthropicClient();
+  const model = getLightweightModel();
   const response = await client.messages.create({
-    model: getLightweightModel(),
+    model,
     max_tokens: 600,
+    ...effortParams(model, "receipt_extract", "low"),
     messages: [
       {
         role: "user",

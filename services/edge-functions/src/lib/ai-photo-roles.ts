@@ -10,7 +10,7 @@
 // are unit-testable without hitting the API.
 
 import Anthropic from "@anthropic-ai/sdk";
-import { getAnthropicClient, getDefaultModel } from "./ai-config.ts";
+import { effortParams, getAnthropicClient, getDefaultModel } from "./ai-config.ts";
 import { enterAiFeature } from "./ai-feature-context.ts";
 import { withRetry } from "./retry.ts";
 
@@ -144,6 +144,7 @@ export async function classifyPhotoRoles(
       client.messages.create({
         model,
         max_tokens: 512,
+        ...effortParams(model, "photo_roles", "low"),
         system: SYSTEM,
         tools: [TAG_PHOTOS_TOOL],
         tool_choice: { type: "tool", name: "tag_photos" },

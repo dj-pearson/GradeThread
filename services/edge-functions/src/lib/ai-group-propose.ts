@@ -12,7 +12,7 @@
 // (lightweight model first, escalate to default only on an unparseable result).
 
 import Anthropic from "@anthropic-ai/sdk";
-import { getAnthropicClient } from "./ai-config.ts";
+import { effortParams, getAnthropicClient } from "./ai-config.ts";
 import { enterAiFeature } from "./ai-feature-context.ts";
 import {
   getActionCascadeConfig,
@@ -174,6 +174,7 @@ export async function proposeItemGroups(
         client.messages.create({
           model,
           max_tokens: 1024,
+          ...effortParams(model, "autolister_propose_groups", "low"),
           system: SYSTEM,
           tools: [PROPOSE_TOOL],
           tool_choice: { type: "tool", name: "propose_item_boundaries" },

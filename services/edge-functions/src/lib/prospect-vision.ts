@@ -25,7 +25,12 @@
 // read a silhouette out of it.
 
 import Anthropic from "@anthropic-ai/sdk";
-import { getAiTemperature, getAnthropicClient, getDefaultModel } from "./ai-config.ts";
+import {
+  effortParams,
+  getAiTemperature,
+  getAnthropicClient,
+  getDefaultModel,
+} from "./ai-config.ts";
 import { enterAiFeature } from "./ai-feature-context.ts";
 import type { VisionImage } from "./ai-reconcile.ts";
 import { emptyIdentity, type GarmentIdentity } from "./prospect-query.ts";
@@ -153,9 +158,11 @@ export async function identifyProspectGarment(
       "If you cannot read something, leave that field out rather than guessing.",
   });
 
+  const model = getDefaultModel();
   const response = await client.messages.create({
-    model: getDefaultModel(),
+    model,
     max_tokens: 512,
+    ...effortParams(model, "prospect_identify", "low"),
     ...(temperature !== undefined ? { temperature } : {}),
     tools: [IDENTIFY_TOOL],
     tool_choice: { type: "tool", name: IDENTIFY_TOOL.name },

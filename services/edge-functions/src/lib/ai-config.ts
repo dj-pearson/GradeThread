@@ -344,6 +344,80 @@ export function getGradingEffort(): GradingEffort {
     : GRADING_DEFAULT_EFFORT;
 }
 
+// ── Effort for NON-grading calls (US-3146) ───────────────────────────────────
+//
+// THE DEFAULT IS NOT A CHOICE ANYBODY MADE. Sonnet 5 runs adaptive thinking,
+// and omitting output_config means effort `high`. Measured on production over
+// 2026-08-09..09-08 (US-3145): 39 of 45 messages.create sites in this service
+// send no output_config at all, so every one of them buys the deliberation
+// depth of a hard reasoning problem for jobs like "read this care label into a
+// fixed schema". Thinking bills as OUTPUT tokens, which is why the profile's
+// out/call column is the thing this moves.
+//
+// ⚠ THIS IS NOT gradingSamplingParams AND MUST NOT BECOME IT. Grading has its
+// own effort knob (GRADING_AI_EFFORT), its own allowlist, and a prompt-version
+// lifecycle that attributes a grade to the exact configuration that produced
+// it. A shared helper reaching into the grading path would let a per-feature
+// env var move grades with no shadow compare and no version suffix. The grading
+// call sites deliberately do not use anything below.
+export type AiEffort = "low" | "medium" | "high" | "xhigh" | "max";
+
+const AI_EFFORTS: ReadonlySet<string> = new Set<AiEffort>([
+  "low",
+  "medium",
+  "high",
+  "xhigh",
+  "max",
+]);
+
+/**
+ * Turn a feature slug into its env var name: `catalog_extract` ->
+ * `AI_EFFORT_CATALOG_EXTRACT`. Exported so a test can assert the mapping rather
+ * than restate it, and so an operator can be told the exact name to set.
+ */
+export function effortEnvVar(feature: string): string {
+  return `AI_EFFORT_${feature.toUpperCase().replace(/[^A-Z0-9]+/g, "_")}`;
+}
+
+/**
+ * The effort for one feature: the AI_EFFORT_<FEATURE> override if it names a
+ * supported level, else the fallback the call site chose.
+ *
+ * Per-feature rather than global, for the same reason getSizeEstimateModel and
+ * getPhotoQaModel are separate knobs: a bad week on ONE feature has to be
+ * rollable without moving every other caller, and the reason for each choice
+ * has to stay attached to the thing it justified. A typo'd value falls back
+ * rather than throwing, because a bad env var must not take a feature down.
+ */
+export function getFeatureEffort(feature: string, fallback: AiEffort): AiEffort {
+  const raw = Deno.env.get(effortEnvVar(feature))?.trim().toLowerCase();
+  return raw && AI_EFFORTS.has(raw) ? (raw as AiEffort) : fallback;
+}
+
+/**
+ * Spread into a messages.create body:
+ *   ...effortParams(model, "tag_ocr", "low"),
+ *
+ * Returns `{}` on any model that does not take output_config.effort, which is
+ * what makes this safe to add everywhere. Haiku 4.5 is the case that matters:
+ * it REJECTS `effort`, and US-2924 routed size_estimate and photo_qa to it, so
+ * on those two the helper is deliberately a no-op today and becomes live only
+ * if they are ever routed back to an effort-taking model.
+ *
+ * ⚠ IT DOES NOT MERGE. A call site that already builds its own output_config
+ * (a structured-output `format`, say) must compose the two itself rather than
+ * spreading both and letting the second silently win. Only ai-grading.ts does
+ * that today, and it does not use this helper.
+ */
+export function effortParams(
+  model: string,
+  feature: string,
+  fallback: AiEffort,
+): { output_config: { effort: AiEffort } } | Record<never, never> {
+  if (!modelUsesEffort(model)) return {};
+  return { output_config: { effort: getFeatureEffort(feature, fallback) } };
+}
+
 // Per-call sampling knobs for grading, model-family-aware (US-1033). Spread into
 // the messages.create body in place of a hardcoded `temperature`.
 export type GradingSamplingParams =

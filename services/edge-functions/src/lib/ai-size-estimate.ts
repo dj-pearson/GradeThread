@@ -12,7 +12,7 @@
 
 import Anthropic from "@anthropic-ai/sdk";
 import { tagImageSource } from "./ai-tag-ocr.ts";
-import { getAnthropicClient, getSizeEstimateModel } from "./ai-config.ts";
+import { effortParams, getAnthropicClient, getSizeEstimateModel } from "./ai-config.ts";
 import { enterAiFeature } from "./ai-feature-context.ts";
 import { withRetry } from "./retry.ts";
 import {
@@ -203,6 +203,7 @@ export async function estimateSize(input: {
       client.messages.create({
         model,
         max_tokens: 512,
+        ...effortParams(model, "size_estimate", "low"),
         system: SYSTEM,
         tools: [ESTIMATE_SIZE_TOOL],
         tool_choice: { type: "tool", name: "estimate_size" },
