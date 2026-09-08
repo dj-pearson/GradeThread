@@ -16,6 +16,12 @@ export interface SourcingCeiling {
   maxPriceCents: number | null;
   targetRoi: number;
   netResaleCents: number | null;
+  /**
+   * US-3193: postage + supplies + grading, subtracted before the target was
+   * applied. Optional so a response from an edge that predates the field still
+   * renders; absent reads as zero and the clause is simply omitted.
+   */
+  costsCents?: number;
   absentReason: "no_measured_curve" | "insufficient_comps" | "no_headroom" | null;
 }
 
@@ -65,7 +71,19 @@ export function SourcingCeilingNote({
           {" "}
           to clear your {targetPct}% target. It resells around{" "}
           <span className="tabular-nums">{dollars(ceiling.netResaleCents)}</span> after
-          fees at the condition it is in.
+          fees at the condition it is in
+          {/* US-3193: the ceiling used to price postage, packaging and grading
+              at zero, so it sat higher than any price that actually cleared the
+              target. Now that they are subtracted, the sentence has to say so —
+              a number that moved down with no explanation reads as a bug. */}
+          {(ceiling.costsCents ?? 0) > 0 ? (
+            <>
+              , less{" "}
+              <span className="tabular-nums">{dollars(ceiling.costsCents ?? 0)}</span> to
+              post, pack and grade it
+            </>
+          ) : null}
+          .
         </span>
       </div>
     </div>

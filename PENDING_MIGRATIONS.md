@@ -1,5 +1,36 @@
 # PENDING MIGRATIONS — applied to prod separately from the push
 
+## ⏳ HELD: 00770 — flipdesk_settings sourcing cost defaults (US-3193)
+
+**Risk: LOW.** Three nullable integer columns on a settings table, plus one
+CHECK. No backfill; every existing row reads null, which means "use the code
+default" and is exactly the behaviour the new code ships with.
+
+**Apply order:** after 00769. Run `NOTIFY pgrst, 'reload schema';` afterwards,
+then redeploy the edge.
+
+**What it adds**
+- `sourcing_shipping_cost_cents`, `sourcing_supplies_cost_cents`,
+  `sourcing_grading_cost_cents` — what the seller expects to pay to post, pack
+  and grade one garment. The buy ceiling subtracts them before dividing by the
+  target ROI.
+- `flipdesk_settings_sourcing_costs_sane` — bounds each at 0..100000 cents.
+
+**BEHAVIOUR CHANGE WORTH KNOWING BEFORE YOU APPLY IT.** Buy ceilings across
+Scout, the appraisal and Prospect all move DOWN once the edge deploys, because
+they previously priced postage, packaging and grading at zero. On a $100 median
+at a 30% target the ceiling goes from $66.15 to $57.96. That is the fix, not a
+regression, and the seller-facing sentence now says what was subtracted.
+
+**DEPLOY ORDER MATTERS ONE WAY ONLY.** The edge SELECTs the three columns when
+it computes a ceiling; without them the Scout appraisal throws on 42703. The
+schema-version boot guard enforces it — EXPECTED_SCHEMA_VERSION moves to 00770
+in the same commit.
+
+**No operator step**, though you may want to set your own figures once it is
+live rather than running on the defaults ($8.30 postage, $0.35 supplies, $2.00
+grading).
+
 ## ⏳ HELD: 00769 — inventory_items.floor_price + items_full (US-3192)
 
 **Risk: LOW-MEDIUM.** One nullable column and a CHECK constraint, plus a

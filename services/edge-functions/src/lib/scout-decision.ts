@@ -60,6 +60,13 @@ export interface BuyDecision {
  * working to, which is a different and much lower number: at a 30% target on an
  * item that nets $40, breakeven says $40 and the ceiling says $30.
  *
+ * US-3193: IT SUBTRACTS WHAT SHIPPING THE THING ACTUALLY COSTS. Until this it
+ * subtracted eBay's fees and nothing else — no postage, no mailer, no grading
+ * fee — while estimateListingProfit on the very next screen subtracted all
+ * three. The two disagreed in the buyer's favour, on the one screen where cash
+ * leaves the seller's hand, and the ceiling was the higher of the two. The cost
+ * set here is deliberately the SAME set that function uses.
+ *
  * IT IS ABSENT, NOT GUESSED, WITHOUT A MEASURED CURVE. A ceiling is the most
  * committal number the product gives a seller: they hand over cash on the
  * strength of it. Derived from the plain comp median it would be a ceiling on a
@@ -68,11 +75,60 @@ export interface BuyDecision {
  * with a publishable measured curve, and the surface says nothing rather than
  * something shakier.
  */
+/**
+ * US-3193: what it costs to turn this garment into a completed sale, beyond
+ * eBay's cut. All in cents, all optional; an omitted field costs nothing, which
+ * is the pre-US-3193 behaviour for that line only.
+ */
+export interface SourcingCosts {
+  /** Postage for one parcel. */
+  shippingCents?: number | null;
+  /** Mailer, tape, label. */
+  suppliesCents?: number | null;
+  /** One GradeThread grade, when the seller grades what they source. */
+  gradingCents?: number | null;
+}
+
+/**
+ * Fallbacks when the seller has set no figure of their own.
+ *
+ * SHIPPING is the cheapest band in the real published Ground Advantage table
+ * (src/lib/shipping-rates.ts, 8 oz at $8.30). It is a genuine LOWER BOUND on
+ * posting any garment rather than an average, which matters for a ceiling: too
+ * low a cost estimate raises the ceiling and is the failure this story exists
+ * to fix, and too high a one blocks buys that were fine. The true lower bound is
+ * the only figure that cannot do the first.
+ *
+ * SUPPLIES is a poly mailer, tape and a label.
+ *
+ * GRADING is one grade at the published rate. A seller who does not grade
+ * everything they source sets it to 0, which is honoured literally.
+ */
+export const DEFAULT_SOURCING_SHIPPING_CENTS = 830;
+export const DEFAULT_SOURCING_SUPPLIES_CENTS = 35;
+export const DEFAULT_SOURCING_GRADING_CENTS = 200;
+
+/** A cost line as cents, or null when the value is not a usable figure. */
+function costCents(value: number | null | undefined): number | null {
+  if (typeof value !== "number" || !Number.isFinite(value) || value < 0) return null;
+  return Math.round(value);
+}
+
+/** The three lines summed, each falling back to its documented default. */
+export function sourcingCostsTotalCents(costs: SourcingCosts | undefined): number {
+  const shipping = costCents(costs?.shippingCents) ?? DEFAULT_SOURCING_SHIPPING_CENTS;
+  const supplies = costCents(costs?.suppliesCents) ?? DEFAULT_SOURCING_SUPPLIES_CENTS;
+  const grading = costCents(costs?.gradingCents) ?? DEFAULT_SOURCING_GRADING_CENTS;
+  return shipping + supplies + grading;
+}
+
 export interface SourcingCeilingInput {
   value: ValueRange;
   /** Target return on cost, as a fraction. 0.3 = 30%. */
   targetRoi: number;
   feeRate?: number;
+  /** US-3193: postage, packaging and grading. Defaults apply per line when absent. */
+  costs?: SourcingCosts;
 }
 
 export interface SourcingCeiling {
@@ -80,8 +136,13 @@ export interface SourcingCeiling {
   maxPriceCents: number | null;
   /** The target actually applied, echoed so a surface can name it. */
   targetRoi: number;
-  /** Net-of-fees resale at the condition-adjusted median. */
+  /** Net-of-fees resale at the condition-adjusted median, BEFORE the cost lines. */
   netResaleCents: number | null;
+  /**
+   * US-3193: postage + supplies + grading, subtracted before the target is
+   * applied. Echoed so a surface can say what moved the number.
+   */
+  costsCents: number;
   /** Why there is no ceiling, when there isn't one. Null when there is. */
   absentReason: "no_measured_curve" | "insufficient_comps" | "no_headroom" | null;
 }
@@ -101,10 +162,13 @@ export function sourcingCeiling(
   const target = Number.isFinite(input.targetRoi) ? Math.max(0, input.targetRoi) : 0;
   const value = input.value;
 
+  const costs = sourcingCostsTotalCents(input.costs);
+
   const absent = (reason: SourcingCeiling["absentReason"]): SourcingCeiling => ({
     maxPriceCents: null,
     targetRoi: target,
     netResaleCents: null,
+    costsCents: costs,
     absentReason: reason,
   });
 
@@ -120,13 +184,20 @@ export function sourcingCeiling(
   const net = ebayNetProceedsCents(value.medianCents, { feeRate });
   if (net <= 0) return absent("no_headroom");
 
-  const max = Math.floor(net / (1 + target));
+  // US-3193: the money left after eBay AND after sending the thing. A cost set
+  // that eats the whole margin is no_headroom, which is the truthful answer —
+  // never a negative ceiling, and never the pre-cost number as a consolation.
+  const afterCosts = net - costs;
+  if (afterCosts <= 0) return absent("no_headroom");
+
+  const max = Math.floor(afterCosts / (1 + target));
   if (max <= 0) return absent("no_headroom");
 
   return {
     maxPriceCents: max,
     targetRoi: target,
     netResaleCents: net,
+    costsCents: costs,
     absentReason: null,
   };
 }
