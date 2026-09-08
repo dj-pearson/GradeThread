@@ -26,6 +26,7 @@ import {
   type CaptureFetch,
   type CapturePhoto,
   type CaptureStartResult,
+  CAPTURE_POLL_MS,
   endCapture,
   readCaptureStatus,
   startCapture,
@@ -48,9 +49,6 @@ export interface PhoneCaptureDialogProps {
   /** Each newly arrived photo. Awaited, so the poll waits for the item to save. */
   onPhotos: (photos: CapturePhoto[]) => void | Promise<void>;
 }
-
-/** How often the desktop asks whether anything arrived. */
-const POLL_MS = 3000;
 
 export function PhoneCaptureDialog({
   open,
@@ -106,12 +104,12 @@ export function PhoneCaptureDialog({
           await onPhotosRef.current(fresh);
         }
       } catch {
-        // A dropped poll is not worth a message; the next one is three seconds
+        // A dropped poll is not worth a message; the next one is CAPTURE_POLL_MS
         // away and the phone is still uploading regardless.
       }
     };
     void tick();
-    const id = setInterval(() => void tick(), POLL_MS);
+    const id = setInterval(() => void tick(), CAPTURE_POLL_MS);
     return () => {
       alive = false;
       clearInterval(id);

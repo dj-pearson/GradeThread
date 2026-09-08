@@ -15,6 +15,7 @@ import {
   hashCaptureToken,
   isCaptureTargetKind,
   isWellFormedCaptureToken,
+  missingPhotoTypes,
   newCaptureToken,
   publicView,
   refuseCapture,
@@ -115,13 +116,18 @@ Deno.test("the phone is told what it needs and nothing about the seller", () => 
   assertEquals(view.photosLeft, CAPTURE_MAX_PHOTOS - 3);
   assertEquals(view.targetKind, "item");
   // No owner, no item id, no name, no workspace. Whatever is added to this
-  // shape reaches a page anybody holding the link can open.
+  // shape reaches a page anybody holding the link can open. US-3162 added
+  // missingTypes, which is a fixed vocabulary shared by every seller and so
+  // names nothing about this one.
   assertEquals(Object.keys(view).sort(), [
     "expiresAt",
+    "missingTypes",
     "photosLeft",
     "photosTaken",
     "targetKind",
   ]);
+  // Called with no list at all, it is empty rather than undefined.
+  assertEquals(view.missingTypes, []);
 });
 
 Deno.test("an unknown target kind reads as an item rather than crashing the page", () => {
@@ -134,4 +140,50 @@ Deno.test("an unknown target kind reads as an item rather than crashing the page
 Deno.test("the code's life is short, and the story says fifteen minutes", () => {
   assertEquals(CAPTURE_TTL_MS, 15 * 60 * 1000);
   assert(CAPTURE_TTL_MS <= 15 * 60 * 1000, "US-3161 AC1: expiry of 15 minutes or less");
+});
+
+// ── US-3162: what the phone is told to shoot next ───────────────────
+
+Deno.test("the missing list is the required shots this item has none of", () => {
+  const required = ["front", "back", "tag"];
+  assertEquals(missingPhotoTypes(required, []), ["front", "back", "tag"]);
+  assertEquals(missingPhotoTypes(required, ["front"]), ["back", "tag"]);
+  assertEquals(missingPhotoTypes(required, ["front", "back", "tag"]), []);
+  // Order is the required list's, because "front, back, tag" is the order a
+  // seller shoots in and re-sorting reads as a different instruction.
+  assertEquals(missingPhotoTypes(required, ["tag"]), ["front", "back"]);
+});
+
+Deno.test("a photo type that is not required does not satisfy one that is", () => {
+  assertEquals(missingPhotoTypes(["front", "back"], ["detail", "flatlay", "defect"]), [
+    "front",
+    "back",
+  ]);
+});
+
+Deno.test("casing from the database does not make a shot look missing", () => {
+  assertEquals(missingPhotoTypes(["front", "tag"], ["FRONT", "Tag"]), []);
+});
+
+Deno.test("a batch capture is told nothing about missing shots, having no one item", () => {
+  const view = publicView(
+    { ...live(), target_kind: "batch" },
+    ["front", "back"],
+  );
+  assertEquals(view.targetKind, "batch");
+  // Passing a list for a batch is a caller mistake, not a reason to leak a
+  // prompt about an item this session is not bound to.
+  assertEquals(view.missingTypes, []);
+});
+
+Deno.test("an item capture carries the missing list and still names nothing else", () => {
+  const view = publicView({ ...live({ photo_count: 1 }), target_kind: "item" }, ["back", "tag"]);
+  assertEquals(view.missingTypes, ["back", "tag"]);
+  assertEquals(Object.keys(view).sort(), [
+    "expiresAt",
+    "missingTypes",
+    "photosLeft",
+    "photosTaken",
+    "targetKind",
+  ]);
 });

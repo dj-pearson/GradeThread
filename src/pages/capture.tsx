@@ -24,8 +24,9 @@ import {
   type CaptureFetch,
   type CapturePublicState,
   captureClientKey,
+  missingSentence,
   readCapturePublic,
-  sendCapturePhoto,
+  sendCapturePhotoWithRetry,
   timeLeft,
 } from "@/lib/phone-capture-client";
 
@@ -81,24 +82,23 @@ export function CapturePage() {
         const key = captureClientKey();
         setSent((prev) => [...prev, { key, name: file.name, state: "sending" }]);
 
-        let result = await sendCapturePhoto(fetchEdge, token, file, key);
-        // One automatic retry, and only for a failure worth retrying. The SAME
-        // client key goes back, so a photo that actually landed before the
-        // connection dropped is recognised rather than added twice.
-        if (!result.ok && !result.gone) {
-          result = await sendCapturePhoto(fetchEdge, token, file, key);
-        }
+        // One automatic retry on a failure worth retrying, with the SAME client
+        // key — see sendCapturePhotoWithRetry for why that is what makes it safe.
+        const result = await sendCapturePhotoWithRetry(fetchEdge, token, file, key);
 
         setSent((prev) =>
           prev.map((s) => (s.key === key ? { ...s, state: result.ok ? "sent" : "failed" } : s))
         );
-        if (result.ok && result.photosTaken !== null) {
+        if (result.ok) {
           setState((prev) =>
             prev
               ? {
                 ...prev,
-                photosTaken: result.photosTaken!,
+                photosTaken: result.photosTaken ?? prev.photosTaken,
                 photosLeft: result.photosLeft ?? prev.photosLeft,
+                // US-3162: the server recomputes this per upload, so the prompt
+                // updates as shots land without a second round trip.
+                missingTypes: result.missingTypes ?? prev.missingTypes,
               }
               : prev
           );
@@ -115,6 +115,7 @@ export function CapturePage() {
   );
 
   const remaining = state ? timeLeft(state.expiresAt, now) : null;
+  const stillNeeded = state ? missingSentence(state.missingTypes) : null;
   const failed = sent.filter((s) => s.state === "failed");
 
   return (
@@ -143,6 +144,21 @@ export function CapturePage() {
               {remaining ? ` This code works for another ${remaining}.` : ""}
             </p>
           </header>
+
+          {/* US-3162: what is still missing, in the words the rest of FlipDesk
+              uses, so the phone tells the seller what to shoot NEXT rather than
+              leaving them to remember. It updates as shots land. */}
+          {stillNeeded && (
+            <p className="rounded-md bg-muted px-3 py-2 text-sm font-medium">
+              {stillNeeded}
+            </p>
+          )}
+          {state && state.targetKind === "item" && state.missingTypes.length === 0 &&
+            state.photosTaken > 0 && (
+            <p className="rounded-md bg-muted px-3 py-2 text-sm font-medium">
+              That is every shot this item needs. Keep going if you want more.
+            </p>
+          )}
 
           <input
             ref={inputRef}

@@ -38,6 +38,38 @@ export interface CapturePublicState {
   photosLeft: number;
   expiresAt: string;
   targetKind: "item" | "batch";
+  /** US-3162: required shots this item still has none of, in shooting order. */
+  missingTypes: string[];
+}
+
+/**
+ * US-3162 AC1: a photo finished on the phone appears on the desktop within five
+ * seconds without a manual refresh. This is the poll that makes that true, and
+ * it is a constant rather than a literal so the criterion can be asserted.
+ */
+export const CAPTURE_POLL_MS = 3000;
+
+/** Names a shot type the way a seller would say it out loud. */
+export function photoTypeLabel(type: string): string {
+  const known: Record<string, string> = {
+    front: "front",
+    back: "back",
+    tag: "tag",
+    tag_2: "second tag",
+    detail: "close-up",
+    flatlay: "flat lay",
+    defect: "flaw",
+  };
+  return known[type] ?? type.replace(/_/g, " ");
+}
+
+/** "front and back" / "front, back and tag". A sentence, not a list widget. */
+export function missingSentence(types: readonly string[]): string | null {
+  const names = types.map(photoTypeLabel);
+  if (names.length === 0) return null;
+  if (names.length === 1) return `Still need the ${names[0]} shot.`;
+  const last = names[names.length - 1];
+  return `Still need the ${names.slice(0, -1).join(", ")} and ${last} shots.`;
 }
 
 export interface CaptureFetchResponse {
@@ -116,6 +148,8 @@ export async function readCapturePublic(
 
 export interface CaptureSendResult {
   ok: boolean;
+  /** The refreshed missing list, when the server sent one. */
+  missingTypes: string[] | null;
   /** True when the server recognised this as a retry of one that already landed. */
   duplicate: boolean;
   photosTaken: number | null;
@@ -149,12 +183,19 @@ export async function sendCapturePhoto(
     unauthenticated: true,
   });
   const body = await res.json().catch(() => null) as
-    | { duplicate?: boolean; photosTaken?: number; photosLeft?: number; error?: string }
+    | {
+      duplicate?: boolean;
+      photosTaken?: number;
+      photosLeft?: number;
+      error?: string;
+      missingTypes?: string[];
+    }
     | null;
 
   if (!res.ok) {
     return {
       ok: false,
+      missingTypes: null,
       duplicate: false,
       photosTaken: null,
       photosLeft: null,
@@ -166,12 +207,34 @@ export async function sendCapturePhoto(
   }
   return {
     ok: true,
+    missingTypes: Array.isArray(body?.missingTypes) ? body.missingTypes : null,
     duplicate: body?.duplicate === true,
     photosTaken: typeof body?.photosTaken === "number" ? body.photosTaken : null,
     photosLeft: typeof body?.photosLeft === "number" ? body.photosLeft : null,
     error: null,
     gone: false,
   };
+}
+
+/**
+ * Send one photo, retrying ONCE on a failure worth retrying.
+ *
+ * The retry carries the SAME client key, which is the whole point: a photo that
+ * actually landed before a phone connection dropped comes back as a duplicate
+ * rather than being added twice and counted twice against the session's caps.
+ *
+ * A `gone` result is never retried. The code is finished or full, and asking
+ * again would only spend the seller's time on the same refusal.
+ */
+export async function sendCapturePhotoWithRetry(
+  fetchEdge: CaptureFetch,
+  token: string,
+  file: File,
+  clientKey: string,
+): Promise<CaptureSendResult> {
+  const first = await sendCapturePhoto(fetchEdge, token, file, clientKey);
+  if (first.ok || first.gone) return first;
+  return await sendCapturePhoto(fetchEdge, token, file, clientKey);
 }
 
 /** A key for one shot, stable across a retry of the same file. */

@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-3185",
+  "nextId": "US-3186",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -3942,24 +3942,6 @@
       "notes": "NOT STARTED 2026-09-08, deliberately reordered behind US-3159 and US-3160, and AC1 is wrong in a way worth fixing before anyone starts.\n\nAC1 SAYS \"adding only the drive.readonly scope\". That is the one thing this story must NOT do. drive.readonly is a Google RESTRICTED scope: it needs app verification plus an annual CASA security assessment, and until that clears an unverified app is capped at 100 users behind an unverified-app warning screen. This repo already made exactly this call once and wrote it down - flipdesk-google.ts line 18 says the Sheets grant uses drive.file \"per-file ... No full-Drive access is requested.\" Adding drive.readonly to that same OAuth client would drag the existing Sheets and Photos grants into the verification too.\n\nTHE NON-RESTRICTED PATH, and what it actually costs. Google splits Drive access into drive.file (per-file, granted by the user picking the file in a Google-hosted Picker) and the restricted full-read scopes. So a folder import means the client-side Drive Picker, and that is three real changes, not one:\n  1. A NEW CONNECTION TABLE, google_drive_connections, holding a refresh token whose scope is drive.file and NOTHING else - so a migration and the US-1108 triple. It cannot reuse google_connections: the Picker needs an access token IN THE BROWSER, and the google_connections token also carries the spreadsheets scope, so handing that one to the page would let any XSS reach the sellers FlipDesk Sync sheet. Separate grant, separate table, same reason google_photos_connections is already separate.\n  2. THREE CSP WIDENINGS in public/_headers: script-src apis.google.com, frame-src docs.google.com (the Picker is an iframe), connect-src www.googleapis.com. Comparable to what challenges.cloudflare.com cost for Turnstile, but it is a security-posture change and belongs to the founder, not to a loop.\n  3. OPERATOR: enable the Picker API in the Cloud console and set GOOGLE_PICKER_API_KEY plus the project number.\n\nWHY DROPBOX AND ONEDRIVE WENT FIRST: neither has this problem. Dropbox lists folders server-side with files.metadata.read, Microsoft Graph with Files.Read, both ordinary delegated permissions, no client JS, no CSP change, no picker. They also prove the US-3157 shared core against a second and third provider, which is the whole point of having built it. Drive is the odd one out because of how Google splits its scopes, not because it is harder.\n\nDECISION NEEDED FROM THE FOUNDER before this starts: approve the Picker plus the three CSP entries, or accept the restricted-scope verification instead. Do not start on drive.readonly without that answer."
     },
     {
-      "id": "US-3162",
-      "passes": false,
-      "title": "Phone shots appear on the desktop as they are taken",
-      "description": "As a seller shooting with my phone, I want the desktop to fill in as I shoot and to tell me which angle is still missing, so that I know I am done before I put the item down.",
-      "acceptanceCriteria": [
-        "A photo finished on the phone appears on the desktop item within 5 seconds with no manual refresh",
-        "The phone page shows a running shot count and which photo types are still missing for the item, using the existing front, back, tag, detail vocabulary rather than a new one",
-        "A session bound to an AutoLister batch can advance to the next item on the phone without rescanning the code",
-        "A failed upload retries once automatically and then names the shot that did not send, rather than reporting a generic error",
-        "The phone page is verified working on current iOS Safari and current Android Chrome, and the check is recorded in the story notes with the versions tested",
-        "npm run ui:check stays at zero findings for the new pages"
-      ],
-      "priority": 22,
-      "dependsOn": [
-        "US-3161"
-      ]
-    },
-    {
       "id": "US-3163",
       "passes": false,
       "title": "EPIC: four more ways to get inventory and photos in",
@@ -4397,6 +4379,26 @@
         "The ledger can answer 'which model wrote this row' for operator backfills going forward. ai_usage_events already stores `model` per call; confirm the backfill's rows carry it (they did, which is how this was found) and note that as the reason the guard reports rather than the reason it is unnecessary."
       ],
       "priority": 12
+    },
+    {
+      "id": "US-3185",
+      "passes": false,
+      "title": "Phone capture for an AutoLister batch: shoot several items on one code",
+      "description": "As a seller photographing a bin of twenty items, I want one scanned code to carry me through all of them, so that I am not walking back to the computer between every garment.",
+      "acceptanceCriteria": [
+        "SPLIT OUT OF US-3162 AC3 on 2026-09-08. Everything else in that story shipped; this did not, because it is not phone work. The capture side already accepts targetKind batch and ownership-checks a listing_generation_batches row; what is missing is the AutoLister side, and guessing at that surface is how a half-bridge gets built",
+        "The phone can mark a group boundary (a Next item control) without rescanning, and each phone_capture_photos row carries the group index it was taken in",
+        "A migration adds the group column and follows the US-1108 triple: idempotent SQL, EXPECTED_SCHEMA_VERSION bumped in the same commit, self-record footer",
+        "AutoLister can START a batch capture: the entry point exists in the AutoLister upload surface (src/pages/flipdesk/autolister/upload-panels.tsx), alongside the Google Photos import, not as a separate page",
+        "Photos arriving from a batch capture land in the AutoLister staged-photo model (src/stores/autolister-upload-store.ts) with one group per item, so the existing grouping and generation flow takes them unchanged",
+        "The one-target rule from US-3161 still holds: a batch session writes only to the batch it was bound to and cannot be repointed, with a tenant-isolation_test.ts case (US-268)",
+        "The phone still shows a running count; it does NOT show missing photo types for a batch, since a batch has no one item to be missing them (publicView already returns an empty list for batch and a test pins that)"
+      ],
+      "priority": 24,
+      "dependsOn": [
+        "US-3161",
+        "US-3162"
+      ]
     }
   ]
 }

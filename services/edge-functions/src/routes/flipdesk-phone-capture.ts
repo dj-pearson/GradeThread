@@ -36,9 +36,11 @@ import {
   isCaptureTargetKind,
   isWellFormedCaptureToken,
   newCaptureToken,
+  missingPhotoTypes,
   publicView,
   refuseCapture,
 } from "../lib/phone-capture.ts";
+import { REQUIRED_GRADING_PHOTO_TYPES } from "../lib/grading-submit.ts";
 
 type CaptureEnv = {
   Variables: {
@@ -224,6 +226,24 @@ async function sessionForToken(
   return { ok: true, session };
 }
 
+/**
+ * US-3162: the required shots this item still has none of.
+ *
+ * A photo type is a fixed vocabulary word every seller shares, so this tells
+ * the phone what to shoot next without telling it whose item it is. The
+ * required set is the GRADING gate's, so the prompt and the thing that will
+ * later refuse a submission cannot disagree.
+ */
+async function missingForTarget(session: SessionRow): Promise<string[]> {
+  if (session.target_kind !== "item") return [];
+  const { data } = await supabaseAdmin
+    .from("item_photos")
+    .select("photo_type")
+    .eq("item_id", session.target_id);
+  const present = (data ?? []).map((r) => String((r as { photo_type: string }).photo_type ?? ""));
+  return missingPhotoTypes(REQUIRED_GRADING_PHOTO_TYPES, present);
+}
+
 // GET /s/:token — what the phone page renders itself from.
 flipdeskPhoneCaptureRoutes.get("/s/:token", async (c) => {
   const found = await sessionForToken(c.req.param("token"));
@@ -232,7 +252,10 @@ flipdeskPhoneCaptureRoutes.get("/s/:token", async (c) => {
   const refusal = refuseCapture(found.session, 0);
   if (refusal) return c.json({ error: refusal.error, live: false }, refusal.status);
 
-  return c.json({ live: true, ...publicView(found.session) });
+  return c.json({
+    live: true,
+    ...publicView(found.session, await missingForTarget(found.session)),
+  });
 });
 
 // POST /s/:token/photos — one photo, multipart, from a phone camera.
@@ -326,5 +349,10 @@ flipdeskPhoneCaptureRoutes.post("/s/:token/photos", async (c) => {
     url,
     photosTaken: session.photo_count + 1,
     photosLeft: Math.max(0, CAPTURE_MAX_PHOTOS - (session.photo_count + 1)),
+    // US-3162: recomputed here so the phone's "still need a back shot" updates
+    // as shots land, without a second round trip after every photo. It reflects
+    // what the DESKTOP has tagged so far, which is the honest answer — the
+    // phone does not decide what a shot is.
+    missingTypes: await missingForTarget(session),
   });
 });

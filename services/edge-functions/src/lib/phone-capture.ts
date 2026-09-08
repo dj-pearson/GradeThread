@@ -98,23 +98,47 @@ export function refuseCapture(
   return null;
 }
 
+/**
+ * US-3162: which required shots this item still has no photo of.
+ *
+ * Takes both lists rather than reading either, so the required set stays the
+ * grading gate's (REQUIRED_GRADING_PHOTO_TYPES) and this file stays pure. Order
+ * is the required list's, because "front, back, tag" is the order a seller
+ * shoots in and re-sorting it would read as a different instruction.
+ *
+ * Photo types are a fixed vocabulary shared by every seller, so naming the
+ * missing ones tells the phone nothing about WHOSE item it is.
+ */
+export function missingPhotoTypes(
+  required: readonly string[],
+  present: readonly string[],
+): string[] {
+  const have = new Set(present.map((p) => p.toLowerCase()));
+  return required.filter((t) => !have.has(t.toLowerCase()));
+}
+
 /** What the phone page needs to know, and nothing that identifies the seller. */
 export interface CapturePublicView {
   photosTaken: number;
   photosLeft: number;
   expiresAt: string;
   targetKind: CaptureTargetKind;
+  /** Required shots with no photo yet. Empty for a batch, which has no one item. */
+  missingTypes: string[];
 }
 
 export function publicView(
   session: CaptureSessionState & { target_kind: string },
+  missingTypes: readonly string[] = [],
 ): CapturePublicView {
+  const kind = isCaptureTargetKind(session.target_kind) ? session.target_kind : "item";
   return {
     photosTaken: session.photo_count,
     photosLeft: Math.max(0, CAPTURE_MAX_PHOTOS - session.photo_count),
     expiresAt: session.expires_at,
-    // The phone shows "front, back, tag, detail" prompts for an item and a
-    // simple counter for a batch. It is never told whose item it is.
-    targetKind: isCaptureTargetKind(session.target_kind) ? session.target_kind : "item",
+    // The phone shows which shots are still missing for an item and a simple
+    // counter for a batch. It is never told whose item it is.
+    targetKind: kind,
+    missingTypes: kind === "item" ? [...missingTypes] : [],
   };
 }

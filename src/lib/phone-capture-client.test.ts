@@ -2,7 +2,11 @@ import { describe, expect, it } from "vitest";
 import {
   type CaptureFetch,
   type CaptureFetchResponse,
+  CAPTURE_POLL_MS,
   endCapture,
+  missingSentence,
+  photoTypeLabel,
+  sendCapturePhotoWithRetry,
   readCapturePublic,
   sendCapturePhoto,
   startCapture,
@@ -112,5 +116,68 @@ describe("phone capture (US-3161)", () => {
     expect(timeLeft("2026-09-08T12:00:00Z", now)).toBeNull();
     expect(timeLeft("2026-09-08T11:59:00Z", now)).toBeNull();
     expect(timeLeft("not a date", now)).toBeNull();
+  });
+
+  // ── US-3162 ──────────────────────────────────────────────────────
+
+  it("the desktop poll is fast enough to meet the five-second promise", () => {
+    // AC1: a photo finished on the phone appears on the desktop within five
+    // seconds with no manual refresh. The poll is the whole mechanism.
+    expect(CAPTURE_POLL_MS).toBeLessThanOrEqual(5000);
+    expect(CAPTURE_POLL_MS).toBeGreaterThanOrEqual(1000);
+  });
+
+  it("the retry sends the SAME key, which is what stops a double count", async () => {
+    const { f, calls } = fetcher([
+      res({ error: "hiccup" }, false, 502),
+      res({ ok: true, photosTaken: 1, missingTypes: ["back"] }),
+    ]);
+    const sent = await sendCapturePhotoWithRetry(f, "tok", new File(["x"], "a.jpg"), "key-9");
+    expect(sent.ok).toBe(true);
+    expect(calls).toHaveLength(2);
+    for (const c of calls) {
+      const init = c.init as unknown as { body?: FormData };
+      expect(init.body?.get("clientKey")).toBe("key-9");
+    }
+  });
+
+  it("a gone result is never retried, because the answer will not change", async () => {
+    const { f, calls } = fetcher([res({ error: "This code has expired." }, false, 410)]);
+    const sent = await sendCapturePhotoWithRetry(f, "tok", new File(["x"], "a.jpg"), "k");
+    expect(sent.gone).toBe(true);
+    expect(calls).toHaveLength(1);
+  });
+
+  it("the retry happens once, not until it works", async () => {
+    const { f, calls } = fetcher([
+      res({ error: "hiccup" }, false, 502),
+      res({ error: "hiccup" }, false, 502),
+      res({ ok: true }),
+    ]);
+    const sent = await sendCapturePhotoWithRetry(f, "tok", new File(["x"], "a.jpg"), "k");
+    expect(sent.ok).toBe(false);
+    expect(calls).toHaveLength(2);
+  });
+
+  it("an upload carries the refreshed missing list, so the prompt keeps up", async () => {
+    const { f } = fetcher([res({ ok: true, photosTaken: 2, missingTypes: ["tag"] })]);
+    const sent = await sendCapturePhoto(f, "tok", new File(["x"], "a.jpg"), "k");
+    expect(sent.missingTypes).toEqual(["tag"]);
+    // A server that said nothing must not be read as "nothing is missing".
+    const { f: f2 } = fetcher([res({ ok: true, photosTaken: 2 })]);
+    expect((await sendCapturePhoto(f2, "tok", new File(["x"], "a.jpg"), "k")).missingTypes).toBeNull();
+  });
+
+  it("the missing shots read as a sentence a person would say", () => {
+    expect(missingSentence([])).toBeNull();
+    expect(missingSentence(["front"])).toBe("Still need the front shot.");
+    expect(missingSentence(["front", "back"])).toBe("Still need the front and back shots.");
+    expect(missingSentence(["front", "back", "tag"])).toBe(
+      "Still need the front, back and tag shots.",
+    );
+    // An unknown type is printed readably rather than dropped, so a new photo
+    // type added elsewhere cannot silently vanish from the prompt.
+    expect(photoTypeLabel("tag_2")).toBe("second tag");
+    expect(photoTypeLabel("some_new_type")).toBe("some new type");
   });
 });
