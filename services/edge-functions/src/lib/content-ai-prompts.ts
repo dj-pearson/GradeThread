@@ -6,6 +6,7 @@
 // Versioning: the `_v1` suffix is recorded with each generation in
 // case we want to A/B prompts later. Bump the suffix on material changes.
 
+import type Anthropic from "@anthropic-ai/sdk";
 import type { ContentProduct, ContentSurface } from "./content-history.ts";
 
 interface ResearchCandidate {
@@ -22,6 +23,44 @@ interface ResearchCandidate {
 // Assembles a system message from the curated knowledge docs +
 // the distilled history context. Keeps the per-call user prompts
 // small (just the topic) and keeps voice rules in one durable place.
+//
+// ── WHY THIS RETURNS TWO STRINGS AND NOT ONE (US-3149) ────────────────────────
+//
+// It used to return one joined string, and every content call sent it with no
+// cache_control at all. Measured on production over 2026-08-09..09-08 (US-3145):
+// `content` was $55.84 of a $98.38 bill - 57% - across 738 calls at 5,488 median
+// INPUT tokens each, with a cache hit rate of ZERO. Every one of those calls
+// re-billed the brand voice, the surface style and the whole pillar map at full
+// rate.
+//
+// Splitting is what makes caching POSSIBLE, not just cheaper. Anthropic's cache
+// is a prefix cache, and a breakpoint caches everything before it. `historyContext`
+// changes every time a post publishes, and it sat in the MIDDLE of the joined
+// string - so a breakpoint after the whole thing would have hit on nothing, and a
+// breakpoint before it would have excluded the output rules. Neither is a
+// caching bug you could fix by adding cache_control; the layout had to change.
+//
+// So: everything the knowledge pack decides goes in `stable`, the history index
+// goes in `volatile`, and contentSystemBlocks() puts the breakpoint between them.
+//
+// THE OUTPUT RULES MOVED UP, above the history, and that is a real reordering of
+// what the model reads. It has to be: they are stable, and anything after the
+// breakpoint is billed in full on every call. Content is gated by the pre-publish
+// reviewer in content-safety.ts before anything reaches the site, which is why
+// this is a reordering worth making rather than one to be nervous about.
+
+/**
+ * A content system prompt, split at the cache breakpoint.
+ *
+ * `stable` is byte-identical for every call sharing a knowledge pack, so it is
+ * the cached prefix. `volatile` is the history index, which changes as posts
+ * publish and therefore must sit after the breakpoint. Empty `volatile` is
+ * normal - the streaming prompts carry no history at all.
+ */
+export interface ContentSystemPrompt {
+  stable: string;
+  volatile: string;
+}
 
 export function buildSystemPrompt(input: {
   brandVoice: string;
@@ -34,7 +73,7 @@ export function buildSystemPrompt(input: {
     | "research-topics"
     | "regenerate-section"
     | "refresh-article";
-}): string {
+}): ContentSystemPrompt {
   const taskHeader =
     {
       "write-blog-article":
@@ -49,7 +88,7 @@ export function buildSystemPrompt(input: {
         "Your task is to refresh and improve an existing, already-published blog article so it stays accurate, current, and competitive — without rewriting it from scratch.",
     }[input.task];
 
-  return [
+  const stable = [
     "# Role",
     "You write content for GradeThread (AI clothing condition grading) and FlipDesk (reseller management for thrifters/eBay sellers). " +
       taskHeader,
@@ -63,14 +102,18 @@ export function buildSystemPrompt(input: {
     "# SEO pillar map (territory we cover)",
     input.pillarMap,
     "",
-    "# What we have already covered (do not duplicate)",
-    input.historyContext || "(no prior posts)",
-    "",
     "# Output rules",
     "- Respond with ONLY valid JSON matching the schema in the user message.",
     "- No markdown fences, no preamble, no explanation outside the JSON.",
     "- If a field is optional and you have nothing to say, return an empty string or empty array — never omit the key.",
   ].join("\n");
+
+  const volatile = [
+    "# What we have already covered (do not duplicate)",
+    input.historyContext || "(no prior posts)",
+  ].join("\n");
+
+  return { stable, volatile };
 }
 
 // ──────────────────────────────────────────────────────────
@@ -80,18 +123,85 @@ export function buildSystemPrompt(input: {
 // the editor mid-stream. For the live-streaming features we want the model to
 // emit clean HTML directly, so the deltas are insertable as they arrive.
 
+/**
+ * Turn a split prompt into the `system` array to send.
+ *
+ * The breakpoint goes on the STABLE block only. Anthropic renders tools, then
+ * system, then messages, and a breakpoint caches everything before it - so one
+ * breakpoint here covers the whole stable half and nothing after it. A second
+ * breakpoint on `volatile` would be worse than useless: it would write a cache
+ * entry on every call that no later call can ever read, since the text that
+ * defines it has changed by then.
+ *
+ * `caching` false returns the same two blocks with no breakpoint, so
+ * AI_ENABLE_CACHING=0 changes what is billed and nothing else about the prompt.
+ *
+ * An empty `volatile` is dropped rather than sent as an empty text block, which
+ * the API rejects.
+ *
+ * ── MEASURED 2026-09-08, against Anthropic's own tokenizer (count_tokens) ─────
+ * Below the per-model minimum cacheable prefix a breakpoint is IGNORED with no
+ * error and no warning - cache_read_tokens stays 0 forever, which reads exactly
+ * like a breakpoint in the wrong place (the trap US-3047 fell into). So the
+ * prefix was counted rather than estimated:
+ *
+ *   blog.gradethread   on claude-sonnet-5   2,532 tok   min 1,024   caches
+ *   blog.flipdesk      on claude-sonnet-5   2,502 tok   min 1,024   caches
+ *   social             on claude-sonnet-5   2,585 tok   min 1,024   caches
+ *   social             on claude-haiku-4-5  1,908 tok   min 2,048   IGNORED
+ *
+ * ⚠ SOCIAL ON HAIKU GETS NO CACHING, and it is not a mistake to fix here. Haiku
+ * has the HIGHER minimum and a tokenizer that renders the same text in fewer
+ * tokens, so the same prompt clears the bar on Sonnet and misses it on Haiku.
+ * CONTENT_MODEL_SOCIAL routes social to Haiku, and social was 136 calls and
+ * $0.84 of a $98.38 month - so the answer is to know this, not to pad the
+ * prompt with filler to reach 2,048 or to move social back to a model that
+ * costs three times as much. An ignored breakpoint is a no-op, not a charge.
+ * If social volume ever makes that $0.84 material, the lever is the model.
+ */
+export function contentSystemBlocks(
+  prompt: ContentSystemPrompt,
+  caching: boolean,
+): Anthropic.TextBlockParam[] {
+  const blocks: Anthropic.TextBlockParam[] = [
+    caching
+      ? {
+        type: "text",
+        text: prompt.stable,
+        cache_control: { type: "ephemeral" },
+      }
+      : { type: "text", text: prompt.stable },
+  ];
+  if (prompt.volatile.trim()) {
+    blocks.push({ type: "text", text: prompt.volatile });
+  }
+  return blocks;
+}
+
+/** The two halves as one string, for anything that cannot take a block list. */
+export function joinContentSystem(prompt: ContentSystemPrompt): string {
+  return prompt.volatile.trim()
+    ? `${prompt.stable}\n\n${prompt.volatile}`
+    : prompt.stable;
+}
+
+/**
+ * The streaming prompts carry no history index, so their whole system message
+ * is stable and `volatile` is always empty. Returning the same shape as
+ * buildSystemPrompt keeps one idiom at the call sites rather than two.
+ */
 export function buildStreamSystemPrompt(input: {
   brandVoice: string;
   surfaceStyle: string;
   pillarMap: string;
   task: "compose-article" | "regenerate-section";
-}): string {
+}): ContentSystemPrompt {
   const taskHeader =
     input.task === "compose-article"
       ? "Your task is to write a single SEO-targeted blog article, streamed as HTML."
       : "Your task is to rewrite a specific passage of an existing article, streamed as HTML.";
 
-  return [
+  const stable = [
     "# Role",
     "You write content for GradeThread (AI clothing condition grading) and FlipDesk (reseller management for thrifters/eBay sellers). " +
       taskHeader,
@@ -110,6 +220,8 @@ export function buildStreamSystemPrompt(input: {
     "- Use semantic tags: <h2>, <h3>, <p>, <ul><li>, <ol><li>, <blockquote>, <table>. Do NOT emit <html>, <head>, <body>, <script>, inline style, or on* handlers.",
     "- Begin output immediately with the first content tag.",
   ].join("\n");
+
+  return { stable, volatile: "" };
 }
 
 // US-251: stream a full article body (HTML) for the given topic. No title/SEO

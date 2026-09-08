@@ -43,6 +43,10 @@ const EXEMPT: Record<string, string> = {
  * lowering effort could actually be felt, so each needs a quality check rather
  * than a bulk edit.
  *
+ * content-ai-stream.ts left this list early: US-3149 had to touch its request
+ * builder anyway to pass a cached system block, so setting an effort there was
+ * one line rather than a second visit.
+ *
  * ⚠ ADD NOTHING HERE. A new entry means a new call site shipped at the default
  * without anybody deciding, which is the exact regression this file exists to
  * catch. Remove entries as US-3147 converts them.
@@ -57,7 +61,6 @@ const REMAINING = new Set<string>([
   "src/lib/content-ai-email.ts",
   "src/lib/content-ai-refresh.ts",
   "src/lib/content-ai-research.ts",
-  "src/lib/content-ai-stream.ts",
   "src/lib/content-image-alt.ts",
   "src/lib/description-regenerate.ts",
   "src/lib/garment-baselines.ts",

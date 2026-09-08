@@ -2,6 +2,7 @@ import {
   getAiTemperature,
   getAnthropicClient,
   getContentModel,
+  isCachingEnabled,
 } from "./ai-config.ts";
 import { extractTextBlock, jsonParseError } from "./ai-response-text.ts";
 import { enterAiFeature } from "./ai-feature-context.ts";
@@ -10,6 +11,7 @@ import { buildHistoryContext, type ContentProduct } from "./content-history.ts";
 import {
   buildSocialPostUserPrompt,
   buildSystemPrompt,
+  contentSystemBlocks,
   SOCIAL_POST_PROMPT_VERSION,
   type SocialPostOutput,
   type SocialTopicInput,
@@ -275,7 +277,7 @@ export async function generateSocialPost(
     // cap and AI_TIMEOUT_MS (120s).
     output_config: { effort: "medium" },
     ...(temperature !== undefined ? { temperature } : {}),
-    system: systemPrompt,
+    system: contentSystemBlocks(systemPrompt, isCachingEnabled()),
     messages: [{ role: "user", content: userPrompt }],
   });
   const latencyMs = Date.now() - startTime;

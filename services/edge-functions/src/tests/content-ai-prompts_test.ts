@@ -114,8 +114,12 @@ Deno.test("US-251/252: stream system prompt is HTML-only (no JSON envelope)", ()
     pillarMap: "p",
     task: "compose-article",
   });
-  assert(sys.includes("ONLY the HTML"));
-  assert(!sys.includes("valid JSON"));
+  // US-3149: the builder now returns the two halves of the prompt. The stream
+  // prompt has no history index, so all of it is the cacheable half - which is
+  // itself worth asserting: an empty stable half would cache nothing.
+  assert(sys.stable.includes("ONLY the HTML"));
+  assert(!sys.stable.includes("valid JSON"));
+  assertEquals(sys.volatile, "");
 });
 
 Deno.test("US-251: compose stream prompt carries topic + extra direction", () => {

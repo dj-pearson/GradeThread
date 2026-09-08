@@ -200,8 +200,20 @@ export function servingModelForStage(stage: string): string {
 // Content-generation model, resolved per content KIND so an operator can route
 // low-stakes short-form (social, email) to the cheaper model while keeping
 // authority long-form (blog, refresh) on the default. `content` is the #1 AI
-// spend slice and is OUTPUT-bound, so prompt caching can't help it — the model
-// tier is the only lever. Config-driven via CONTENT_MODEL_<KIND> Coolify vars;
+// spend slice.
+//
+// ⚠ CORRECTED 2026-09-08 (US-3149). This line used to say content "is
+// OUTPUT-bound, so prompt caching can't help it — the model tier is the only
+// lever", and that was measurably wrong in a way that cost the most of any
+// single claim in this file. The 30-day ledger to 2026-09-08 put content at
+// $55.84 of a $98.38 bill across 738 calls, at 5,488 median INPUT tokens each
+// with a cache hit rate of ZERO. Output-bound it may be, but 4 MTok of input
+// was still being re-billed at full rate every month. Caching could not help it
+// because buildSystemPrompt returned one uncached string with the volatile
+// history index sitting in the middle of it - a layout problem, not a property
+// of the workload. The tier was never the only lever.
+//
+// Config-driven via CONTENT_MODEL_<KIND> Coolify vars;
 // the DEFAULT for every kind is getDefaultModel(), so behavior is UNCHANGED
 // until a var is set. An unknown/typo'd override is refused (warn + fall back)
 // so a bad env value can't take content generation down.

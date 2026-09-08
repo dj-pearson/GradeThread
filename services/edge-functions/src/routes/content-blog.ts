@@ -8,10 +8,12 @@ import { applyInterlinks } from "../lib/content-interlink.ts";
 import { generateBlogArticle, loadKnowledge } from "../lib/content-ai-blog.ts";
 import { ensureHeroImage } from "../lib/openai-images.ts";
 import { streamAnthropicText } from "../lib/content-ai-stream.ts";
+import { isCachingEnabled } from "../lib/ai-config.ts";
 import {
   buildBlogComposeStreamUserPrompt,
   buildSectionRegenStreamUserPrompt,
   buildStreamSystemPrompt,
+  contentSystemBlocks,
 } from "../lib/content-ai-prompts.ts";
 import { sanitizeHtml } from "../lib/content-sanitize.ts";
 import {
@@ -698,7 +700,10 @@ contentBlogRoutes.post("/:id/compose-stream", async (c) => {
   }
 
   const knowledge = await loadKnowledge(post.product_focus);
-  const system = buildStreamSystemPrompt({ ...knowledge, task: "compose-article" });
+  const system = contentSystemBlocks(
+    buildStreamSystemPrompt({ ...knowledge, task: "compose-article" }),
+    isCachingEnabled(),
+  );
   const user = buildBlogComposeStreamUserPrompt({
     title: post.title,
     angle,
@@ -760,10 +765,10 @@ contentBlogRoutes.post("/:id/regenerate-section", async (c) => {
   if (!post) return c.json({ error: "Not found" }, 404);
 
   const knowledge = await loadKnowledge(post.product_focus);
-  const system = buildStreamSystemPrompt({
-    ...knowledge,
-    task: "regenerate-section",
-  });
+  const system = contentSystemBlocks(
+    buildStreamSystemPrompt({ ...knowledge, task: "regenerate-section" }),
+    isCachingEnabled(),
+  );
   const user = buildSectionRegenStreamUserPrompt({
     mode,
     selection_html: selectionHtml,

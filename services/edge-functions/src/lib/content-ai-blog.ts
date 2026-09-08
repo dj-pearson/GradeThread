@@ -2,6 +2,7 @@ import {
   getAiTemperature,
   getAnthropicClient,
   getContentModel,
+  isCachingEnabled,
 } from "./ai-config.ts";
 import { extractTextBlock, jsonParseError } from "./ai-response-text.ts";
 import { enterAiFeature } from "./ai-feature-context.ts";
@@ -11,6 +12,7 @@ import {
   BLOG_ARTICLE_PROMPT_VERSION,
   buildBlogArticleUserPrompt,
   buildSystemPrompt,
+  contentSystemBlocks,
   normalizeTitleSuggestions,
   type BlogArticleOutput,
   type BlogTopicInput,
@@ -190,7 +192,7 @@ export async function generateBlogArticle(
     model,
     max_tokens: 8192,
     ...(temperature !== undefined ? { temperature } : {}),
-    system: systemPrompt,
+    system: contentSystemBlocks(systemPrompt, isCachingEnabled()),
     messages: [{ role: "user", content: userPrompt }],
   });
   const latencyMs = Date.now() - startTime;

@@ -2,6 +2,7 @@ import {
   getAiTemperature,
   getAnthropicClient,
   getLightweightModel,
+  isCachingEnabled,
 } from "./ai-config.ts";
 import { extractTextBlock, jsonParseError } from "./ai-response-text.ts";
 import { enterAiFeature } from "./ai-feature-context.ts";
@@ -15,6 +16,7 @@ import {
 import {
   buildResearchUserPrompt,
   buildSystemPrompt,
+  contentSystemBlocks,
   TOPIC_RESEARCH_PROMPT_VERSION,
 } from "./content-ai-prompts.ts";
 
@@ -139,7 +141,7 @@ export async function researchTopics(
     // caused. Size it for the worst-case output PLUS reasoning headroom.
     max_tokens: 4096,
     ...(temperature !== undefined ? { temperature } : {}),
-    system: systemPrompt,
+    system: contentSystemBlocks(systemPrompt, isCachingEnabled()),
     messages: [{ role: "user", content: userPrompt }],
   });
   const latencyMs = Date.now() - startTime;

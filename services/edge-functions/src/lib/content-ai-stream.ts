@@ -1,4 +1,6 @@
+import type Anthropic from "@anthropic-ai/sdk";
 import {
+  effortParams,
   getAiTemperature,
   getAnthropicClient,
   getDefaultModel,
@@ -15,7 +17,10 @@ import {
 // the content directly.
 
 export interface StreamTextInput {
-  system: string;
+  // US-3149: a block list so the caller can put a cache breakpoint on the
+  // stable half. A bare string is still accepted, and is what a caller with
+  // nothing worth caching should pass.
+  system: string | Anthropic.TextBlockParam[];
   user: string;
   model?: string;
   maxTokens?: number;
@@ -37,6 +42,7 @@ export async function* streamAnthropicText(
       model,
       max_tokens: input.maxTokens ?? 4096,
       ...(temperature !== undefined ? { temperature } : {}),
+      ...effortParams(model, "content_stream", "medium"),
       system: input.system,
       messages: [{ role: "user", content: input.user }],
     },
