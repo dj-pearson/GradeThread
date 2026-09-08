@@ -8,9 +8,11 @@ code_refs:
   - android/app/src/main/java/com/gradethread/app/money/CalendarDateField.kt
   - android/app/src/main/java/com/gradethread/app/money/ExpenseDraft.kt
   - ios/GradeThread/Money/ExpenseStore.swift
+  - ios/GradeThread/Money/MoneyDate.swift
+  - ios/GradeThread/Money/TripDraft.swift
   - services/edge-functions/src/lib/expense-recurrence.ts
   - scripts/audit-expense-date-drift.mjs
-reviewed: 2026-08-30
+reviewed: 2026-09-07
 tags: [money, flipdesk, timezone, contract]
 summary: flipdesk_expenses.spent_on is a date-only column, so every client reads and writes it in UTC — a device-zone read of any one surface walks the date backwards one day per save, and it has shipped that way on both mobile platforms.
 ---
@@ -28,8 +30,12 @@ name the zone once and route everything through it:
 
 | Platform | The one place the zone is decided |
 |---|---|
-| Android | `ExpenseDraft.EXPENSE_ZONE = ZoneOffset.UTC` |
-| iOS | `ExpenseStore.bucketingCalendar` (a Gregorian calendar pinned to UTC) |
+| Android | `CalendarDateField.ZONE = ZoneOffset.UTC` (`ExpenseDraft.EXPENSE_ZONE` is an alias) |
+| iOS | `MoneyDate` — the calendar, the wire formatter, `parse`, `iso`, `today` |
+
+`ExpenseStore.bucketingCalendar` is still the name the month-bucketing code uses
+and still pinned to UTC; `MoneyDate.calendar` is the same definition, moved so
+that trips and expenses share one instance rather than two that agree today.
 
 Every surface uses it: entry, display, the wire format, and month bucketing. A
 device-zone read of **any one** of them re-opens the drift, which is why it is a
@@ -87,6 +93,22 @@ a threshold.
 device on an older build keeps drifting. Run the audit after the release has had
 time to roll out, and run it more than once.
 
+## It covers a second column now (US-3014, 2026-09-07)
+
+`mileage_trips.trip_date` is a `date` column too, and everything above applies to
+it unchanged. iOS reaches it through `MoneyDate`, the same way Android reaches it
+through `CalendarDateField`.
+
+`MoneyDate.parse` returns **nil** on an unreadable date rather than falling back
+to today. A silent fallback here would put a trip in the wrong tax year and look
+like it worked, which is the same class of failure as the drift below: correct
+on screen, wrong in the record.
+
+`MoneyDate.today()` is UTC midnight of the current day, **not** `Date()`. A
+seller in Sydney tapping "log a trip" at 9am on the 8th has a `Date()` whose UTC
+day is still the 7th; anchoring it through the same calendar keeps the date shown
+in the picker and the date sent to the server the same day.
+
 ## The rule moved, and is now shared (US-3000, 2026-08-30)
 
 `ExpenseDraft` no longer owns the conversion. It lives in `CalendarDateField`,
@@ -98,7 +120,12 @@ every caller and every sentence above still reads true.
 ⚠ **The audit script still points at expenses only.** A trip logged at 8pm west
 of Greenwich has the same failure mode, and `scripts/audit-expense-date-drift.mjs`
 would not see it. Sharing the implementation makes the bug less likely; it does
-not extend the detection.
+not extend the detection. That is now true on both mobile platforms.
+
+⚠ **US-2339 is still open**: Android expense dates walk back one day per
+edit-sync cycle. The shared implementation is the answer, and the story is where
+the remaining work is tracked — do not read "the rule moved" as "the bug is
+fixed".
 
 ## Related
 

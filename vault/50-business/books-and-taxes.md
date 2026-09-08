@@ -1348,6 +1348,9 @@ as a negative profit in March.
 
 ### Env, and the fact that none of it is on
 
+Turning it on is [[quickbooks-turn-on]] — the Intuit-side setup, the four vars,
+and how to prove the container can see them.
+
 `QBO_CLIENT_ID`, `QBO_CLIENT_SECRET`, `QBO_REDIRECT_URI` and `QBO_ENVIRONMENT`
 are all new and all optional. Unset -- which is the state today -- every route
 answers 503 and the card says QuickBooks is not switched on for this server.
