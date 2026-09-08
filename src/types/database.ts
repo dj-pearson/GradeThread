@@ -1106,6 +1106,9 @@ export interface InventoryItemRow {
   item_category: ItemCategory | null;
   source_id: string | null;
   target_price: number | null;
+  // US-3192 (00769): seller's hard floor. Every automated price change composes
+  // it as max(rule floor, this); null is the absence of a floor, not zero.
+  floor_price: number | null;
   location_bin: string | null;
   measurements: Record<string, number | string> | null;
   material: string | null;
@@ -2133,6 +2136,8 @@ export interface ItemFullRow {
   days_to_sell: number | null;
   tracking: string | null;
   target_price: number | null;
+  // US-3192 (00769): seller's hard floor on the garment. Null = none set.
+  floor_price: number | null;
   grade_value: number | null;
   grade_label: string | null;
   certificate_url: string | null;

@@ -164,6 +164,8 @@ interface AutomationListingRow {
     garment_category: string | null;
     acquired_price: number | null;
     target_price: number | null;
+    /** US-3192: seller's hard floor. Null when none is set. */
+    floor_price: number | null;
     status: string | null;
     grade_value: number | null;
     updated_at: string | null;
@@ -265,7 +267,7 @@ async function loadOwnerExtensionListings(
       "id, inventory_item_id, platform, listing_status, listing_url, listing_title, listing_description, platform_fields, " +
         "listing_price, listed_at, watchers, views, last_metrics_synced_at, platform_offer_id, platform_listing_id, promo_rate_pct, " +
         "compliance_violation_count, price_range_low_cents, price_range_high_cents, draft_id, marketplace_connection_id, " +
-        "inventory_items!inner(user_id, title, brand, size, item_category, garment_category, acquired_price, target_price, status, grade_value, updated_at, exclude_from_automations, sources(name))",
+        "inventory_items!inner(user_id, title, brand, size, item_category, garment_category, acquired_price, target_price, floor_price, status, grade_value, updated_at, exclude_from_automations, sources(name))",
     )
     .in("platform", [...EXTENSION_RELIST_PLATFORMS])
     .eq("listing_status", "active")
@@ -287,7 +289,7 @@ async function loadOwnerListings(
     .select(
       "id, inventory_item_id, listing_price, listed_at, watchers, views, last_metrics_synced_at, platform_offer_id, platform_listing_id, promo_rate_pct, " +
         "compliance_violation_count, price_range_low_cents, price_range_high_cents, draft_id, marketplace_connection_id, " +
-        "inventory_items!inner(user_id, title, brand, size, item_category, garment_category, acquired_price, target_price, status, grade_value, updated_at, exclude_from_automations, sources(name))",
+        "inventory_items!inner(user_id, title, brand, size, item_category, garment_category, acquired_price, target_price, floor_price, status, grade_value, updated_at, exclude_from_automations, sources(name))",
     )
     .eq("platform", "ebay")
     .eq("listing_status", "active")
@@ -720,6 +722,11 @@ async function evaluateRules(
       const planned = planAction(rule.action_json, {
         currentCents: Math.round(listing.listing_price * 100),
         costBasisDollars: listing.inventory_items.acquired_price,
+        // US-3192: composed with the rule's margin floor as the higher of the two.
+        itemFloorCents:
+          typeof listing.inventory_items.floor_price === "number"
+            ? Math.round(listing.inventory_items.floor_price * 100)
+            : null,
         currentPromoRatePct: listing.promo_rate_pct,
         currentStatus: listing.inventory_items.status,
         existingPlatforms: bundle.platformsByGroupId.get(
@@ -1512,6 +1519,8 @@ flipdeskAutomationsRoutes.post("/run", async (c) => {
 interface OfferContext {
   listPrice: number | null;
   itemCost: number | null;
+  /** US-3192: the seller's hard floor on the garment, in dollars. */
+  itemFloorPrice: number | null;
   connectionId: string | undefined;
 }
 
@@ -1534,7 +1543,7 @@ async function loadOfferContext(
   const { data } = await supabaseAdmin
     .from("listings")
     .select(
-      "platform_listing_id, listing_price, marketplace_connection_id, inventory_items!inner(user_id, acquired_price)",
+      "platform_listing_id, listing_price, marketplace_connection_id, inventory_items!inner(user_id, acquired_price, floor_price)",
     )
     .eq("user_id", ownerId)
     .eq("platform", "ebay")
@@ -1547,8 +1556,8 @@ async function loadOfferContext(
     // PostgREST returns a to-one embed as an object; supabase-js types it as an
     // array. Accept either (same shape as the /negotiation/offers reader).
     inventory_items:
-      | { acquired_price: number | null }
-      | { acquired_price: number | null }[]
+      | { acquired_price: number | null; floor_price: number | null }
+      | { acquired_price: number | null; floor_price: number | null }[]
       | null;
   };
   for (const r of (data ?? []) as unknown as Row[]) {
@@ -1557,6 +1566,10 @@ async function loadOfferContext(
     out.set(r.platform_listing_id, {
       listPrice: typeof r.listing_price === "number" ? r.listing_price : null,
       itemCost: typeof inv?.acquired_price === "number" ? inv.acquired_price : null,
+      // US-3192: the seller's hard floor on the garment. Unlike itemCost it is
+      // useful even when the cost basis is unknown, which is the case the
+      // percentage margin floor cannot cover at all.
+      itemFloorPrice: typeof inv?.floor_price === "number" ? inv.floor_price : null,
       connectionId: r.marketplace_connection_id ?? undefined,
     });
   }
@@ -1653,6 +1666,7 @@ export async function runOfferRulesForOwner(
         offerPrice: offer.price,
         listPrice: c.listPrice,
         itemCost: c.itemCost,
+        itemFloorPrice: c.itemFloorPrice,
       });
       if (outcome.decision !== "skip") {
         decision = outcome.decision;

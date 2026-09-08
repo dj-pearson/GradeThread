@@ -263,6 +263,13 @@ export type ComposerItemState = {
   storageSku: string;
   storageLocation: string;
   storageContainer: string;
+  /**
+   * US-3192: the seller's hard floor on this garment, as typed. Empty clears it.
+   * A string rather than a number because it comes straight off an input, and
+   * parsing at the edge is what keeps "" distinguishable from 0 — a floor of
+   * zero and no floor at all are different instructions to the price automation.
+   */
+  floorPrice: string;
   /** Already run through resolveStatus() by the caller. */
   resolvedStatus: ItemStatus;
 };
@@ -275,6 +282,21 @@ export type ComposerItemState = {
  * `extra` folds in the caller's derived patches (aspect write-back, category
  * cascade) which need hooks/registries this pure module shouldn't reach for.
  */
+/**
+ * US-3192: a typed floor price as a number, or null.
+ *
+ * Null for blank, negative or unparseable input. Zero is preserved, because a
+ * seller who types 0 is saying "any price", which is a different instruction
+ * from leaving the field empty and is worth honouring literally.
+ */
+export function parseFloorPrice(raw: string): number | null {
+  const trimmed = raw.trim();
+  if (trimmed === "") return null;
+  const n = Number(trimmed);
+  if (!Number.isFinite(n) || n < 0) return null;
+  return Math.round(n * 100) / 100;
+}
+
 export function buildItemPatch(
   state: ComposerItemState,
   extra: Record<string, unknown> = {},
@@ -300,6 +322,9 @@ export function buildItemPatch(
     sku: trimOrNull(state.storageSku),
     location_bin: trimOrNull(state.storageLocation),
     container: trimOrNull(state.storageContainer),
+    // US-3192: written unconditionally, including back to null when cleared, so
+    // a seller can REMOVE a floor. A blank or unparseable value is null, never 0.
+    floor_price: parseFloorPrice(state.floorPrice),
     ...extra,
   };
 }

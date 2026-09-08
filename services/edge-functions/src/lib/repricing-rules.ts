@@ -84,14 +84,47 @@ export function normalizeRuleInput(body: unknown): NormalizeResult {
   };
 }
 
-/** Drop `currentCents` by `dropPct`%, never below the floor (or 0). */
+/**
+ * US-3192: the one floor every automated price change answers to.
+ *
+ * Two floors can apply to the same listing: the rule's own (a percentage of
+ * cost, or a flat figure on the rule) and the seller's hard floor on the item.
+ * The binding one is the HIGHER of the two, and a null is not a floor of zero —
+ * it is the absence of a floor, so it never lowers the other one. Composing
+ * here rather than at each call site is deliberate: there are four callers now
+ * (markdown, comp auto-accept, offer rules, bulk reduce), and a floor honoured
+ * by three of them is a floor the seller cannot trust at all.
+ */
+export function effectiveFloorCents(
+  ruleFloorCents: number | null,
+  itemFloorCents: number | null,
+): number | null {
+  const a = ruleFloorCents != null && Number.isFinite(ruleFloorCents) && ruleFloorCents >= 0
+    ? ruleFloorCents
+    : null;
+  const b = itemFloorCents != null && Number.isFinite(itemFloorCents) && itemFloorCents >= 0
+    ? itemFloorCents
+    : null;
+  if (a == null) return b;
+  if (b == null) return a;
+  return Math.max(a, b);
+}
+
+/**
+ * Drop `currentCents` by `dropPct`%, never below the floor (or 0).
+ *
+ * `itemFloorCents` is the seller's hard floor on the garment; it composes with
+ * the rule's floor rather than replacing it.
+ */
 export function computeMarkdownCents(
   currentCents: number,
   dropPct: number,
   floorCents: number | null,
+  itemFloorCents: number | null = null,
 ): number {
+  const floor = effectiveFloorCents(floorCents, itemFloorCents);
   const dropped = Math.floor(currentCents * (1 - dropPct / 100));
-  return Math.max(dropped, floorCents ?? 0);
+  return Math.max(dropped, floor ?? 0);
 }
 
 /** True when `intervalDays` have elapsed since the last action (or listing date). */
@@ -148,6 +181,8 @@ export interface RuleDecisionInput {
   currentCents: number;
   dropPct: number;
   floorCents: number | null;
+  /** US-3192: the seller's hard floor on the item, composed with floorCents. */
+  itemFloorCents?: number | null;
   autoAcceptConfidence: number | null;
   suggestion?: { suggestedPriceCents: number; confidence: number | null } | null;
 }
@@ -166,20 +201,24 @@ export interface RuleDecision {
 export function decideNewPriceCents(i: RuleDecisionInput): RuleDecision | null {
   if (i.currentCents <= 0) return null;
 
+  // US-3192: composed once, so the comp auto-accept below cannot honour a
+  // different floor from the scheduled markdown underneath it.
+  const floor = effectiveFloorCents(i.floorCents, i.itemFloorCents ?? null);
+
   if (
     i.autoAcceptConfidence != null &&
     i.suggestion &&
     (i.suggestion.confidence ?? 0) >= i.autoAcceptConfidence &&
     i.suggestion.suggestedPriceCents < i.currentCents
   ) {
-    const clamped = i.floorCents != null
-      ? Math.max(i.suggestion.suggestedPriceCents, i.floorCents)
+    const clamped = floor != null
+      ? Math.max(i.suggestion.suggestedPriceCents, floor)
       : i.suggestion.suggestedPriceCents;
     if (clamped < i.currentCents) return { newCents: clamped, reason: "auto_accept" };
   }
 
   if (i.dropPct > 0) {
-    const next = computeMarkdownCents(i.currentCents, i.dropPct, i.floorCents);
+    const next = computeMarkdownCents(i.currentCents, i.dropPct, floor);
     if (next < i.currentCents) return { newCents: next, reason: "scheduled_markdown" };
   }
 

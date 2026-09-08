@@ -1,5 +1,38 @@
 # PENDING MIGRATIONS — applied to prod separately from the push
 
+## ⏳ HELD: 00769 — inventory_items.floor_price + items_full (US-3192)
+
+**Risk: LOW-MEDIUM.** One nullable column and a CHECK constraint, plus a
+CREATE OR REPLACE of the `items_full` view. The view change is the part to read
+twice: it appends `floor_price` as the LAST column and every existing column
+keeps its name, order and type, so the analytics RPCs that select from it are
+unaffected. There is no DROP — that would fail against those dependents.
+
+**Apply order:** after 00768. Run `NOTIFY pgrst, 'reload schema';` afterwards
+(a new column AND a changed view), then redeploy the edge.
+
+**What it adds**
+- `inventory_items.floor_price decimal(10,2)` — the seller's hard floor on one
+  garment. Composed with every rule floor as max(rule floor, this), nulls
+  ignored, so it can only ever narrow what automation may do.
+- `inventory_items_floor_price_nonneg` — a CHECK, because there are now four
+  callers (markdown, offer rules, bulk reduce, the composer) and one missed
+  clamp would let automation price an item negative.
+- `items_full.floor_price` — so the item grid and saved views can filter on it.
+
+**DEPLOY ORDER MATTERS ONE WAY ONLY.** The edge SELECTs `floor_price` when it
+plans a markdown (`routes/flipdesk-pricing.ts`, `routes/flipdesk-automations.ts`)
+and when it answers an offer. Against a database without the column those
+selects fail with 42703 and the repricing and automation runs throw. The
+schema-version boot guard enforces it — EXPECTED_SCHEMA_VERSION moves to 00769
+in the same commit.
+
+**⚠️ THE FRONTEND READS IT TOO, AND Pages AUTO-DEPLOYS ON PUSH.** The composer,
+the bulk-pricing grid and the item filter all select `floor_price`. Apply the
+SQL first.
+
+**No operator step.** No new environment variable, no third-party registration.
+
 ## ⏳ HELD: 00768 — sales.ship_by + sales.handling_days (US-3189)
 
 **Risk: LOW.** Two nullable columns on an existing table plus one partial index.

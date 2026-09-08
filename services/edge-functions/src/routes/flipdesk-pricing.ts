@@ -93,6 +93,8 @@ interface ListingJoinRow {
     title: string | null;
     // US-962: cost basis for the margin floor on bulk reprice.
     acquired_price: number | null;
+    /** US-3192: seller's hard floor on the garment. Null when none is set. */
+    floor_price: number | null;
   };
 }
 
@@ -100,7 +102,7 @@ interface ListingJoinRow {
 // scan and the bulk match-to-comp flow (US-962).
 const REPRICE_LISTING_COLUMNS =
   "id, inventory_item_id, listing_price, listed_at, watchers, views, watchers_count, impressions_7d, click_through_rate, platform_offer_id, platform_category_id, listing_title, " +
-  "inventory_items!inner(user_id, ebay_category_id, grade_value, brand, size, title, acquired_price)";
+  "inventory_items!inner(user_id, ebay_category_id, grade_value, brand, size, title, acquired_price, floor_price)";
 
 interface ScanResult {
   scanned: number;
@@ -715,6 +717,8 @@ interface RuleListingRow {
     user_id: string;
     brand: string | null;
     ebay_category_id: string | null;
+    /** US-3192: seller's hard floor on the garment. Null when none is set. */
+    floor_price: number | null;
   };
 }
 
@@ -781,7 +785,7 @@ async function runRulesForOwner(ownerId: string): Promise<RuleRunResult> {
     .from("listings")
     .select(
       "id, inventory_item_id, listing_price, price_set_by, listed_at, platform_offer_id, platform_listing_id, platform_category_id, platform_fields, " +
-        "inventory_items!inner(user_id, brand, ebay_category_id)",
+        "inventory_items!inner(user_id, brand, ebay_category_id, floor_price)",
     )
     .eq("platform", "ebay")
     .eq("listing_status", "active")
@@ -865,6 +869,12 @@ async function runRulesForOwner(ownerId: string): Promise<RuleRunResult> {
       currentCents,
       dropPct: rule.drop_pct,
       floorCents: rule.floor_price_cents,
+      // US-3192: the rule's floor and the seller's floor on this garment both
+      // apply; decideNewPriceCents takes the higher.
+      itemFloorCents:
+        typeof listing.inventory_items.floor_price === "number"
+          ? Math.round(listing.inventory_items.floor_price * 100)
+          : null,
       autoAcceptConfidence: rule.auto_accept_confidence,
       suggestion: suggestionByListing.get(listing.id) ?? null,
     });

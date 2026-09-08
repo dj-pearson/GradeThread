@@ -12,6 +12,7 @@ import {
   buildDraftListingPayload,
   buildLiveListingPatch,
   buildItemPatch,
+  parseFloorPrice,
   buildFormatPayload,
   resolveQuantity,
   type ComposerListingState,
@@ -65,6 +66,7 @@ const itemState = (over: Partial<ComposerItemState> = {}): ComposerItemState => 
   storageSku: "  FD-1a2b  ",
   storageLocation: "  Tote A3  ",
   storageContainer: "  Bin 7  ",
+  floorPrice: "",
   resolvedStatus: "drafted",
   ...over,
 });
@@ -355,5 +357,42 @@ describe("buildItemPatch (US-2249)", () => {
     expect(p.item_category).toBe("shoes");
     expect(p.garment_type).toBe("footwear");
     expect(p.brand).toBe("Nike");
+  });
+});
+
+// ── US-3192: the seller's hard floor on one garment ──────────────────────────
+describe("parseFloorPrice", () => {
+  it("keeps a typed floor to the cent", () => {
+    expect(parseFloorPrice("28")).toBe(28);
+    expect(parseFloorPrice(" 28.50 ")).toBe(28.5);
+    expect(parseFloorPrice("28.499")).toBe(28.5);
+  });
+
+  it("treats blank as no floor, not a floor of zero", () => {
+    // The distinction the whole feature rests on: an empty field means the
+    // seller set no floor, and a floor of 0 would be a real instruction.
+    expect(parseFloorPrice("")).toBeNull();
+    expect(parseFloorPrice("   ")).toBeNull();
+  });
+
+  it("honours a literal zero", () => {
+    expect(parseFloorPrice("0")).toBe(0);
+  });
+
+  it("refuses a negative or unparseable value rather than storing it", () => {
+    expect(parseFloorPrice("-5")).toBeNull();
+    expect(parseFloorPrice("cheap")).toBeNull();
+  });
+});
+
+describe("buildItemPatch floor price", () => {
+  it("writes the floor onto the item patch", () => {
+    const patch = buildItemPatch(itemState({ floorPrice: "28.00" }));
+    expect(patch.floor_price).toBe(28);
+  });
+
+  it("writes null when cleared, so a floor can be removed", () => {
+    const patch = buildItemPatch(itemState({ floorPrice: "" }));
+    expect(patch.floor_price).toBeNull();
   });
 });

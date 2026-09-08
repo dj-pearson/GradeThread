@@ -36,6 +36,8 @@ interface BulkRow {
   price: number;
   quantity: number | null;
   listedAt: string | null;
+  /** US-3192: the seller's hard floor on this garment. Null when none is set. */
+  floorPrice: number | null;
 }
 
 // US-2229: reduce drives prices down, increase drives them up, set is absolute.
@@ -53,12 +55,21 @@ interface RawListingRow {
   listing_price: number;
   quantity: number | null;
   listed_at: string | null;
-  inventory_items: { brand: string | null } | { brand: string | null }[] | null;
+  inventory_items:
+    | { brand: string | null; floor_price: number | null }
+    | { brand: string | null; floor_price: number | null }[]
+    | null;
 }
 
 function rawBrand(inv: RawListingRow["inventory_items"]): string | null {
   if (!inv) return null;
   return Array.isArray(inv) ? (inv[0]?.brand ?? null) : inv.brand;
+}
+
+function rawFloor(inv: RawListingRow["inventory_items"]): number | null {
+  if (!inv) return null;
+  const v = Array.isArray(inv) ? (inv[0]?.floor_price ?? null) : inv.floor_price;
+  return typeof v === "number" && Number.isFinite(v) ? v : null;
 }
 
 // US-1046 + US-2229: select active eBay listings and update price and/or
@@ -91,7 +102,7 @@ export function FlipdeskBulkPricingPage() {
         const { data, error } = await supabase
           .from("listings")
           .select(
-            "id, listing_title, listing_price, quantity, listed_at, platform_offer_id, inventory_items(brand)",
+            "id, listing_title, listing_price, quantity, listed_at, platform_offer_id, inventory_items(brand, floor_price)",
           )
           .eq("platform", "ebay")
           .eq("listing_status", "active")
@@ -108,6 +119,7 @@ export function FlipdeskBulkPricingPage() {
         price: l.listing_price,
         quantity: l.quantity,
         listedAt: l.listed_at,
+        floorPrice: rawFloor(l.inventory_items),
       }));
     },
   });
@@ -234,12 +246,29 @@ export function FlipdeskBulkPricingPage() {
 
   async function apply() {
     const updates: BulkPriceQtyUpdate[] = [];
+    // US-3192: a garment the seller drew a line under is not priced through it
+    // by a bulk operation. The row is SKIPPED and named, rather than the whole
+    // batch failing or the price being silently clamped to the floor: the
+    // seller asked for a specific number, and quietly substituting a different
+    // one is the behaviour that makes a bulk tool untrustworthy.
+    const flooredOut: BulkRow[] = [];
     for (const row of rows) {
       if (!selected.has(row.id)) continue;
       const price = targetPrice(row);
       const quantity = qtyActive ? qtyNum : undefined;
       if (price == null && quantity == null) continue;
+      if (price != null && row.floorPrice != null && price < row.floorPrice) {
+        flooredOut.push(row);
+        continue;
+      }
       updates.push({ listing_id: row.id, price, quantity });
+    }
+    if (flooredOut.length > 0) {
+      const names = flooredOut.slice(0, 3).map((r) => r.title).join(", ");
+      const more = flooredOut.length > 3 ? ` and ${flooredOut.length - 3} more` : "";
+      toast.warning(
+        `Skipped ${flooredOut.length} listing${flooredOut.length === 1 ? "" : "s"} priced below their floor: ${names}${more}.`,
+      );
     }
     if (updates.length === 0) return;
 
