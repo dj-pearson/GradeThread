@@ -151,6 +151,53 @@
   }
 
   /**
+   * US-3142: the same pair for an API permission rather than an origin.
+   *
+   * `notifications` is the only one, and it is in `optional_permissions` so
+   * that asking for it is legal — Chrome throws on a request for a permission
+   * that is not declared there. It lives in this file because the source
+   * guard in test/host-permissions.test.cjs allows permissions.request() in
+   * exactly one shipped file, so every request the extension makes can be read
+   * in one place. It fails the same way the origin pair does: contains() fails
+   * OPEN, request() resolves true only on an explicit grant.
+   */
+  function hasApiPermission(api, name) {
+    if (!supportsPermissionsApi(api)) return Promise.resolve(true);
+    try {
+      return Promise.resolve(api.permissions.contains({ permissions: [name] })).then(
+        (v) => (typeof v === "boolean" ? v : true),
+        () => true,
+      );
+    } catch (_e) {
+      return Promise.resolve(true);
+    }
+  }
+
+  function requestApiPermission(api, name) {
+    if (!supportsPermissionsApi(api)) return Promise.resolve(false);
+    try {
+      return Promise.resolve(api.permissions.request({ permissions: [name] })).then(
+        (v) => v === true,
+        () => false,
+      );
+    } catch (_e) {
+      return Promise.resolve(false);
+    }
+  }
+
+  function removeApiPermission(api, name) {
+    if (!supportsPermissionsApi(api)) return Promise.resolve(false);
+    try {
+      return Promise.resolve(api.permissions.remove({ permissions: [name] })).then(
+        (v) => v === true,
+        () => false,
+      );
+    } catch (_e) {
+      return Promise.resolve(false);
+    }
+  }
+
+  /**
    * Re-run the content scripts on a tab a grant has just widened. Firefox only
    * injects on the next navigation, so without this the page the person is
    * looking at stays exactly as dead as it was before they said yes.
@@ -178,6 +225,9 @@
     requestHostAccess,
     hasSiteAccess,
     requestSiteAccess,
+    hasApiPermission,
+    requestApiPermission,
+    removeApiPermission,
     reloadTab,
   };
 });

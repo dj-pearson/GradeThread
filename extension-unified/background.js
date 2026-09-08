@@ -2329,6 +2329,180 @@ if (ext.runtime.onStartup) {
   ext.runtime.onStartup.addListener(function () { void drainQueue(); });
 }
 
+// ── US-3142: the push wake ────────────────────────────────────────────────
+//
+// The queue drains on a 5-minute alarm. That is fine for a seller who is away
+// and slow for the one at their desk watching a listing they know is sold. A
+// push from the server wakes this worker the moment the sale lands.
+//
+// WHAT THE PUSH CONTAINS: {"type":"gt-drain"}. No listing, no marketplace, no
+// URL, no token. It is a signal to re-read a queue this extension already owns
+// and already reads every five minutes with its own credentials. That is the
+// whole reason it is safe for a server to be able to send it — the worst a
+// forged or replayed push can do is make the drain happen early.
+//
+// BROWSER SUPPORT. Chromium only. Chrome has had the Push API in extension
+// service workers since MV3, and silent pushes (userVisibleOnly:false) since
+// Chrome 121 — without that this would have to show the seller a notification
+// every time one of their items sold on another channel. Firefox exposes no
+// Push API to a WebExtension background at all (bugzilla 1378096, blocked on
+// MV3 background service workers), so a Firefox seller never subscribes, is
+// never sent one, and keeps the alarm. Nothing in this file degrades on that
+// path; there is simply no subscription.
+//
+// THE PERMISSION IS OPTIONAL, DELIBERATELY. `notifications` in `permissions`
+// would show an install warning AND disable the extension for every existing
+// user until they re-approved it. For a feature whose entire benefit is
+// "sooner", that trade is not close. It sits in `optional_permissions` and the
+// seller grants it from the popup.
+const PUSH_SUB_KEY = "gtPushSubscription";
+
+/** The one payload this worker acts on. Anything else is ignored. */
+const PUSH_WAKE_TYPE = "gt-drain";
+
+if (typeof self.addEventListener === "function") {
+  self.addEventListener("push", function (event) {
+    let type = "";
+    try {
+      // A push with no body, or a body that is not our JSON, is not ours.
+      // Reading it defensively rather than optimistically matters here: this
+      // handler is reachable by anyone who obtains the endpoint.
+      type = (event.data && event.data.json && event.data.json().type) || "";
+    } catch (_e) {
+      type = "";
+    }
+    if (type !== PUSH_WAKE_TYPE) return;
+    // waitUntil, or Chrome may suspend the worker mid-drain — the drain opens
+    // tabs and awaits the claim, both of which outlive the event itself.
+    if (event.waitUntil) event.waitUntil(drainQueue());
+    else void drainQueue();
+  });
+}
+
+/** base64url (what VAPID keys ship as) → the Uint8Array subscribe() wants. */
+function vapidKeyToBytes(base64) {
+  const padded = (base64 + "=".repeat((4 - (base64.length % 4)) % 4))
+    .replace(/-/g, "+")
+    .replace(/_/g, "/");
+  const raw = atob(padded);
+  const out = new Uint8Array(raw.length);
+  for (let i = 0; i < raw.length; i++) out[i] = raw.charCodeAt(i);
+  return out;
+}
+
+async function pushPermissionGranted() {
+  try {
+    if (!ext.permissions || !ext.permissions.contains) return false;
+    return await ext.permissions.contains({ permissions: ["notifications"] });
+  } catch (_e) {
+    return false;
+  }
+}
+
+/**
+ * Subscribe (or re-subscribe) and register the subscription with GradeThread.
+ *
+ * Called after the seller grants the permission AND on every startup, because a
+ * push service can rotate an endpoint at any time. Re-registering an unchanged
+ * endpoint is an upsert on the server, so running it every start is cheap and
+ * is the only thing that keeps a rotated endpoint from silently going dead.
+ */
+async function subscribeToWake() {
+  if (!(await pushPermissionGranted())) return { ok: false, reason: "no-permission" };
+  if (!self.registration || !self.registration.pushManager) {
+    return { ok: false, reason: "unsupported" };
+  }
+
+  const keyResp = await queueFetch("/push-key");
+  const key = keyResp && keyResp.key;
+  // Push is not provisioned on this deploy. Not an error the seller caused, and
+  // not one they can fix.
+  if (!key) return { ok: false, reason: "unprovisioned" };
+
+  let sub;
+  try {
+    sub = await self.registration.pushManager.getSubscription();
+    if (!sub) {
+      sub = await self.registration.pushManager.subscribe({
+        // Chrome 121+. The wake is machinery, not a message — a notification
+        // per sold cross-listing would be the seller's own success story
+        // interrupting them.
+        userVisibleOnly: false,
+        applicationServerKey: vapidKeyToBytes(key),
+      });
+    }
+  } catch (_e) {
+    return { ok: false, reason: "subscribe-failed" };
+  }
+
+  const json = sub.toJSON ? sub.toJSON() : null;
+  if (!json || !json.endpoint || !json.keys) return { ok: false, reason: "subscribe-failed" };
+
+  const saved = await queueFetch("/push-subscription", {
+    method: "POST",
+    body: JSON.stringify({ endpoint: json.endpoint, keys: json.keys }),
+  });
+  if (!saved || saved.ok !== true) return { ok: false, reason: "register-failed" };
+
+  await ext.storage.local.set({ [PUSH_SUB_KEY]: json.endpoint });
+  return { ok: true };
+}
+
+/** Drop the subscription here and on the server. Idempotent. */
+async function unsubscribeFromWake() {
+  let endpoint = null;
+  try {
+    const sub = self.registration && self.registration.pushManager
+      ? await self.registration.pushManager.getSubscription()
+      : null;
+    if (sub) {
+      endpoint = sub.endpoint;
+      await sub.unsubscribe();
+    }
+  } catch (_e) { /* already gone locally */ }
+
+  if (!endpoint) {
+    const stored = await ext.storage.local.get(PUSH_SUB_KEY);
+    endpoint = stored[PUSH_SUB_KEY] || null;
+  }
+  // Server first-or-last does not matter; both are best-effort. What matters is
+  // that a subscription we can no longer receive on stops being sent to, or the
+  // server accumulates dead endpoints and counts their failures forever.
+  if (endpoint) {
+    await queueFetch("/push-subscription", {
+      method: "DELETE",
+      body: JSON.stringify({ endpoint: endpoint }),
+    });
+  }
+  await ext.storage.local.remove(PUSH_SUB_KEY);
+  return { ok: true };
+}
+
+/** What the popup renders: granted, and whether we hold a live subscription. */
+async function wakeState() {
+  const granted = await pushPermissionGranted();
+  let subscribed = false;
+  try {
+    subscribed = Boolean(
+      self.registration && self.registration.pushManager &&
+        (await self.registration.pushManager.getSubscription()),
+    );
+  } catch (_e) { /* treat as not subscribed */ }
+  // `supported` is what lets the popup say "your browser cannot do this" rather
+  // than offering a switch that will never work. Firefox lands here.
+  return {
+    supported: Boolean(self.registration && self.registration.pushManager),
+    granted: granted,
+    subscribed: subscribed,
+  };
+}
+
+// Re-register on every start: a push service may have rotated the endpoint
+// while the browser was closed, and a dead endpoint fails silently forever.
+if (ext.runtime.onStartup) {
+  ext.runtime.onStartup.addListener(function () { void subscribeToWake(); });
+}
+
 function handleListRequest(payload, sender, sendResponse, clientRef) {
   return startJob("list", payload, sender, sendResponse, clientRef);
 }
@@ -2671,9 +2845,43 @@ ext.runtime.onMessage.addListener(function (msg, sender, sendResponse) {
   }
 
   if (msg.type === "GT_LISTER_LOG") {
-     
+
     console.debug("[GradeThread Lister][content]", msg.message);
     return false;
+  }
+
+  // ── US-3142: the popup's instant-delist switch ───────────────────────────
+  //
+  // INTERNAL ONLY, and not in EXTERNAL_TYPES. Two reasons, and the second is
+  // the one that matters:
+  //
+  //   1. chrome.permissions.request() needs a user gesture, which a message
+  //      from a web page does not carry. The popup asks; this only acts after.
+  //   2. The same rule the poll clickwrap follows (see GT_POLL_ACCEPT's absence
+  //      above): a permission the seller grants must be granted to the
+  //      extension's own words in the extension's own surface, never to a
+  //      sentence gradethread.com rendered.
+  if (
+    msg.type === "GT_WAKE_STATE" ||
+    msg.type === "GT_WAKE_ENABLE" ||
+    msg.type === "GT_WAKE_DISABLE"
+  ) {
+    (async () => {
+      try {
+        if (msg.type === "GT_WAKE_ENABLE") {
+          const res = await subscribeToWake();
+          sendResponse({ ok: res.ok, reason: res.reason, state: await wakeState() });
+        } else if (msg.type === "GT_WAKE_DISABLE") {
+          await unsubscribeFromWake();
+          sendResponse({ ok: true, state: await wakeState() });
+        } else {
+          sendResponse({ ok: true, state: await wakeState() });
+        }
+      } catch (_e) {
+        sendResponse({ ok: false, reason: "error" });
+      }
+    })();
+    return true;
   }
 
   // ── US-2482: Poshmark engagement (share / follow / send offer) ───────────

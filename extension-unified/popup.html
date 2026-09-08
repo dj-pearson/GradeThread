@@ -317,6 +317,27 @@
           </div>
         </div>
 
+        <!-- US-3142: the instant-delist switch.
+             Not a clickwrap. The other two blocks ask permission to DO
+             something on the seller's marketplace account on a schedule; this
+             only asks whether GradeThread may wake the browser sooner to do
+             the delist it is already going to do. The Chrome permission
+             prompt is the consent, and it is requested from this button so
+             the gesture is the seller's own. -->
+        <div class="pop-delists" id="wakeBlock" hidden>
+          <div class="pop-lastjob-head">
+            <span class="pop-lastjob-label">Delist the moment it sells</span>
+            <span class="pop-lastjob-when" id="wakeStatus"></span>
+          </div>
+          <p class="pop-hint" id="wakeHint"></p>
+          <button class="pop-cta" id="wakeEnable" type="button" hidden>
+            Turn on instant delisting
+          </button>
+          <button class="pop-linkbtn quiet" id="wakeDisable" type="button" hidden>
+            Turn instant delisting off
+          </button>
+        </div>
+
         <!-- US-2482: Poshmark engagement. A SEPARATE block with a SEPARATE
              clickwrap — the Lister consent covers "fill in my own listing
              form", which is not the same thing to agree to as sharing five

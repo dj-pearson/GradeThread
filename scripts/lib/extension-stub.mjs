@@ -102,6 +102,12 @@ export function installStub(fx) {
     ] }),
     GT_POLL_STATE: () => ({ ok: true, available: true, accepted: true, enabled: true, intervalMin: 60, terms: [] }),
     GT_POLL_ACCEPT: () => ({ ok: true }),
+    // US-3142: the instant-delist switch, shown ON. The off and unsupported
+    // states are asserted in push-wake.test.cjs; the screenshot wants the state
+    // a seller who has set it up actually sees.
+    GT_WAKE_STATE: () => ({ ok: true, state: { supported: true, granted: true, subscribed: true } }),
+    GT_WAKE_ENABLE: () => ({ ok: true, state: { supported: true, granted: true, subscribed: true } }),
+    GT_WAKE_DISABLE: () => ({ ok: true, state: { supported: true, granted: false, subscribed: false } }),
     GT_POLL_REVOKE: () => ({ ok: true }),
     GT_POLL_INTERVAL: () => ({ ok: true }),
     GT_ENGAGE_STATE: () => ({ ok: true, accepted: true, engageEnabled: true, meter: { label: "Shares today", pct: 34, atCap: false, note: "1,700 of 5,000. At 5,000 GradeThread stops for the day, well short of share jail." }, settings: { pacingFloorMs: 1400 }, lastRun: { ok: true, done: 120, action: "share" } }),

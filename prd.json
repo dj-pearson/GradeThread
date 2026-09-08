@@ -3742,21 +3742,6 @@
       "priority": 40
     },
     {
-      "id": "US-3142",
-      "passes": false,
-      "title": "Wake the extension the moment a sale lands, instead of waiting for the 5-minute alarm",
-      "description": "US-3141 puts the sale-triggered delist into extension_work_queue, but the drain only runs on the SWEEP_ALARM (periodInMinutes: 5, background.js) and on browser start. Worst case the sibling stays live for five minutes after the sale. Push the wake instead: the sale notifies the extension's service worker directly so the drain starts in seconds. The mechanism is NOT settled — chrome.gcm is Chrome-only and this extension also ships a Firefox build (browser_specific_settings.gecko), and Push API support inside an extension service worker differs by browser and version. Spike it before building, and keep the alarm as the floor: a browser where the wake does not work must degrade to today's 5-minute drain, never to nothing.",
-      "acceptanceCriteria": [
-        "SPIKE FIRST: determine, per target browser (Chrome, Edge, Firefox 140+), whether the extension service worker can receive a server-initiated wake, and which of chrome.gcm / the Push API / neither applies. Record the answer in the story notes before writing the implementation.",
-        "A cross-listing sale that enqueues a delist (US-3141) also sends the wake to that seller's registered extension instances.",
-        "On receiving the wake the service worker runs drainQueue() through the SAME gates as the alarm path: sellerAllowed(), tosAccepted(), the re-entrancy guard, and the host-pinned delist URL check. A wake is a trigger, never a bypass.",
-        "The wake carries no listing data, no marketplace URL and no token. It says 'there is work' and nothing else, so a spoofed or replayed wake can only cause an authenticated queue read.",
-        "The 5-minute SWEEP_ALARM and the onStartup drain both stay. A browser with no wake channel keeps today's behaviour exactly.",
-        "A wake that arrives while a drain is already in flight is a no-op, not a second drain."
-      ],
-      "priority": 2
-    },
-    {
       "id": "US-3144",
       "passes": false,
       "title": "Push the seller a delist prompt on iOS and Android with a tap-through to each marketplace",

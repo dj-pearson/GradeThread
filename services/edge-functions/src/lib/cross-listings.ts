@@ -10,7 +10,7 @@ import { getDepopConnection } from "./depop-client.ts";
 import { deleteDepopProduct } from "./depop-api.ts";
 import { getEtsyConnection, isEtsyEnabled } from "./etsy-client.ts";
 import { setEtsyListingState } from "./etsy-api.ts";
-import { notifyUser } from "./notify.ts";
+import { deliverExtensionWake, notifyUser } from "./notify.ts";
 import {
   delistMethodFor,
   planCrossListingSale,
@@ -296,7 +296,17 @@ async function queueExtensionDelist(ownerId: string, row: SiblingRow): Promise<v
           `extension (${result.status}): ${result.error}. The listing is stamped, ` +
           `so the seller still sees it in their pending delists.`,
       );
+      return;
     }
+
+    // US-3142: the row is in the queue; now wake the browser that drains it.
+    // Only on a real enqueue — a wake sent after a refusal would start a drain
+    // that finds nothing, which is the one way this can become noise.
+    //
+    // Not awaited, and it cannot throw: deliverExtensionWake swallows every
+    // failure. The queue row is what makes the delist happen; the wake only
+    // decides whether it happens now or within five minutes.
+    void deliverExtensionWake(ownerId);
   } catch (err) {
     console.warn(
       "[cross-listings] queueing the extension delist threw:",

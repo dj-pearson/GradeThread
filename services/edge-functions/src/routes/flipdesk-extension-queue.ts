@@ -22,6 +22,7 @@ import {
   QUEUE_SELECT_COLS,
 } from "../lib/extension-enqueue.ts";
 import { getMarketplaceSpec } from "../lib/marketplace-specs.ts";
+import { getVapidConfig } from "../lib/web-push.ts";
 import { renderPlatformDescriptionsForListing } from "../lib/platform-description.ts";
 
 // US-2481: queue extension work from mobile, drain it on the desktop.
@@ -370,6 +371,106 @@ async function hydrateListRows(
   const refusedIds = new Set(refused.map((r) => r.row.id));
   return { rows: out.filter((r) => !refusedIds.has(r.id)), refused };
 }
+
+// ── US-3142: the extension's own push subscription ────────────────────────
+//
+// WHY THESE LIVE HERE AND NOT IN routes/push.ts. That router is mounted behind
+// authMiddleware, which speaks Supabase JWTs. The extension holds an HMAC
+// extension token and reaches the server only through this router's
+// extension-or-user auth. Registering its subscription there would mean either
+// teaching the push router a second auth dialect or giving the extension a
+// session it has no other use for.
+//
+// WHAT THE SUBSCRIPTION IS FOR. One thing: waking the service worker so it
+// drains the queue it already owns. The payload it will receive says "there is
+// work" and carries no listing, no marketplace and no token — see
+// EXTENSION_WAKE_PAYLOAD. Nothing here can be used to send the seller a message.
+
+// GET /push-key — the VAPID application-server key.
+//
+// Not secret (it is the public half, and the web already serves it from
+// /api/push/vapid-public-key), but the extension cannot reach that route, and
+// baking a key into a shipped extension build means a key rotation needs a
+// store review. So it asks.
+flipdeskExtensionQueueRoutes.get("/push-key", (c) => {
+  const vapid = getVapidConfig();
+  if (!vapid) return c.json({ key: null, enabled: false });
+  return c.json({ key: vapid.publicKey, enabled: true });
+});
+
+// POST /push-subscription { endpoint, keys: { p256dh, auth } }
+flipdeskExtensionQueueRoutes.post("/push-subscription", async (c) => {
+  const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
+  const body = await c.req.json().catch(() => null) as
+    | { endpoint?: string; keys?: { p256dh?: string; auth?: string } }
+    | null;
+
+  const endpoint = body?.endpoint?.trim();
+  const p256dh = body?.keys?.p256dh?.trim();
+  const auth = body?.keys?.auth?.trim();
+  if (!endpoint || !p256dh || !auth) {
+    return c.json({ error: "endpoint + keys.p256dh + keys.auth are required" }, 400);
+  }
+
+  // Upserts on the globally-unique endpoint, and re-homes it to this owner, for
+  // the reason routes/push.ts gives: whoever presents the endpoint AND its keys
+  // is the browser that holds them. `kind` is stamped by the server and never
+  // read from the body — a client that could name its own kind could register a
+  // silent subscription that then received the seller's real notifications.
+  const { error } = await supabaseAdmin
+    .from("push_subscriptions")
+    .upsert(
+      {
+        user_id: ownerId,
+        endpoint,
+        p256dh,
+        auth,
+        kind: "extension",
+        user_agent: c.req.header("User-Agent") ?? null,
+        last_used_at: new Date().toISOString(),
+        failure_count: 0,
+      },
+      { onConflict: "endpoint" },
+    );
+  if (error) {
+    return failSafe(
+      c,
+      500,
+      "Could not save the push subscription.",
+      error,
+      "flipdesk.queue.push-subscribe",
+    );
+  }
+  return c.json({ ok: true });
+});
+
+// DELETE /push-subscription { endpoint } — the seller switched the wake off.
+flipdeskExtensionQueueRoutes.delete("/push-subscription", async (c) => {
+  const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
+  const body = await c.req.json().catch(() => null) as { endpoint?: string } | null;
+  const endpoint = body?.endpoint?.trim();
+  if (!endpoint) return c.json({ error: "endpoint is required" }, 400);
+
+  // US-268: the endpoint comes from the client, so it is filtered TOGETHER with
+  // the owner. A foreign endpoint matches zero rows rather than deleting
+  // someone else's subscription.
+  const { error } = await supabaseAdmin
+    .from("push_subscriptions")
+    .delete()
+    .eq("user_id", ownerId)
+    .eq("endpoint", endpoint)
+    .eq("kind", "extension");
+  if (error) {
+    return failSafe(
+      c,
+      500,
+      "Could not remove the push subscription.",
+      error,
+      "flipdesk.queue.push-unsubscribe",
+    );
+  }
+  return c.json({ ok: true });
+});
 
 // POST /claim — the desktop extension takes the next batch.
 //

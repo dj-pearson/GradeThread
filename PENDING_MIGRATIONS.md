@@ -1,5 +1,35 @@
 # PENDING MIGRATIONS — applied to prod separately from the push
 
+## ⏳ 00764 — push_subscriptions.kind (US-3142)
+
+**Risk: LOW.** One additive column with a default, one CHECK, one index. No
+existing row changes and no existing behaviour changes: every current row
+defaults to `'browser'`, which is exactly the set `deliverPush` used to send to
+before it started filtering.
+
+**Apply order:** after 00763. Then `NOTIFY pgrst, 'reload schema';` (new column),
+then redeploy the edge.
+
+**What it adds**
+- `push_subscriptions.kind text not null default 'browser'`, constrained to
+  `'browser' | 'extension'`.
+- `push_subscriptions_user_kind_idx` on `(user_id, kind)`.
+
+**Why**
+The browser extension now registers a push subscription of its own, used only to
+wake its service worker so it drains the delist queue the moment a cross-listed
+item sells. That subscription is silent (`userVisibleOnly: false`) and its worker
+shows nothing, so the two kinds must never receive each other's traffic — a real
+notification sent to it would vanish, and a silent wake sent to a browser
+subscription surfaces as Chrome's generic "updated in the background" notice.
+
+**Deploy-order note.** The edge reads the new column (`deliverPush` filters
+`kind = 'browser'`), so the migration must land BEFORE the edge redeploy. If the
+edge went first, every push query would 42703 and all web push would stop — the
+boot guard is what prevents that, and it is why the order above is not optional.
+Nothing on the client side reads it, so a Cloudflare Pages deploy is harmless
+either way.
+
 ## ⏳ HELD: 00763 — Action Credits wallet (US-3138)
 
 **Risk: MEDIUM.** Two new tables plus one new `users` column, all additive. The

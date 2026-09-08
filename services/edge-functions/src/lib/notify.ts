@@ -214,6 +214,34 @@ export interface PushPayload {
   url: string;
 }
 
+/**
+ * US-3142: the wake sent to the extension's own service worker.
+ *
+ * It says THERE IS WORK and nothing else. No listing, no marketplace, no URL,
+ * no token — the extension answers it by re-reading its own queue with its own
+ * credentials, so a wake that leaked or was replayed buys an attacker one
+ * authenticated queue read the extension was going to make anyway.
+ *
+ * `type` is the whole contract. The extension's push handler matches on it and
+ * ignores anything else, so a future payload cannot start meaning something
+ * to an older build.
+ */
+export const EXTENSION_WAKE_PAYLOAD = { type: "gt-drain" } as const;
+
+/**
+ * Wake the seller's extension so it drains its queue now instead of at the next
+ * 5-minute tick.
+ *
+ * Chrome only. Firefox exposes no Push API to a WebExtension background
+ * (bugzilla 1378096, still blocked on MV3 background service workers), so a
+ * Firefox seller has no 'extension' subscription row, this sends to nobody, and
+ * the alarm keeps doing the work. That degradation is silent on purpose: there
+ * is nothing a Firefox seller could do about it.
+ */
+export async function deliverExtensionWake(userId: string): Promise<void> {
+  await fanOutPush(userId, "extension", EXTENSION_WAKE_PAYLOAD);
+}
+
 // Fan a single notification out to every browser subscription for `userId`.
 // Tenant-safe: the caller passes the already-resolved recipient/owner id, and
 // the query is scoped `.eq("user_id", userId)`. Best-effort throughout: no-ops
@@ -222,6 +250,18 @@ export interface PushPayload {
 export async function deliverPush(
   userId: string,
   payload: PushPayload,
+): Promise<void> {
+  // US-3142: 'browser' only. An extension subscription is silent
+  // (userVisibleOnly: false) and its worker shows no notification, so a
+  // user-facing notice delivered there would either vanish or surface as
+  // Chrome's generic "updated in the background" notice.
+  await fanOutPush(userId, "browser", payload);
+}
+
+async function fanOutPush(
+  userId: string,
+  kind: "browser" | "extension",
+  payload: unknown,
 ): Promise<void> {
   try {
     if (!userId) return;
@@ -235,7 +275,8 @@ export async function deliverPush(
     const { data: subs, error } = await supabaseAdmin
       .from("push_subscriptions")
       .select("id, endpoint, p256dh, auth")
-      .eq("user_id", userId);
+      .eq("user_id", userId)
+      .eq("kind", kind); // US-3142 (00764)
     if (error) {
       console.error(`[push] could not load subscriptions for ${userId}: ${error.message}`);
       return;

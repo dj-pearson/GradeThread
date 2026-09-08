@@ -15,6 +15,18 @@ const path = require("node:path");
 
 const root = path.resolve(__dirname, "..", "..");
 
+/** Every .js the extension actually ships, tests and node_modules excluded. */
+function walkJs(dir) {
+  const out = [];
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    if (entry.name === "test" || entry.name === "node_modules") continue;
+    const full = path.join(dir, entry.name);
+    if (entry.isDirectory()) out.push(...walkJs(full));
+    else if (entry.name.endsWith(".js")) out.push(full);
+  }
+  return out;
+}
+
 function loadConfig() {
   const src = fs.readFileSync(
     path.join(root, "extension-unified", "research", "selectors.js"),
@@ -517,10 +529,36 @@ const FLIP = (function () {
     !manifest.permissions.includes("notifications"),
     "a notifications permission was added; AC6 says a badge count and nothing more",
   );
-  assert.ok(
-    !(manifest.optional_permissions || []).includes("notifications"),
-    "notifications was added as an optional permission",
-  );
+
+  // US-3142 NARROWED THIS, and the narrowing is deliberate — read before
+  // widening it back.
+  //
+  // The old assertion was "notifications appears nowhere, in either list". Its
+  // PURPOSE was AC6: a watched lot gets a badge count and never a desktop
+  // popup, because an extension that pops a toast when a lot is ending is one
+  // an auction-watcher uninstalls.
+  //
+  // US-3142 needs the permission for something that shows nothing: Chrome gates
+  // registration.pushManager on `notifications`, so a silent push
+  // (userVisibleOnly:false) that only wakes the service worker to drain the
+  // delist queue still requires it. It is in `optional_permissions`, which
+  // shows no install warning and disables nobody, and the seller grants it from
+  // the popup or not at all.
+  //
+  // So the ban moved from the permission to the BEHAVIOUR, which is what AC6
+  // was ever about. Nothing in this extension may call the notifications API.
+  // That is a stricter test than the old one, not a looser one: before, the
+  // permission being absent was the only thing stopping a popup, and nothing
+  // checked the call sites at all.
+  for (const file of walkJs(path.join(root, "extension-unified"))) {
+    const src = fs.readFileSync(file, "utf8");
+    assert.ok(
+      !/\b(chrome|browser|ext)\.notifications\b/.test(src),
+      `${path.relative(root, file)} calls the notifications API — AC6 says a ` +
+        "badge count and nothing more. The permission exists only so the Push " +
+        "API can wake the worker silently (US-3142).",
+    );
+  }
 
   // And the count rides the existing 5-minute sweep rather than adding an alarm.
   const alarmNames = bg.match(/alarms\.create\(/g) || [];

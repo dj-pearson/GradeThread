@@ -8356,3 +8356,67 @@ Deno.test({
     );
   },
 });
+
+Deno.test({
+  // US-3142: the extension registers its own push subscription so a sale can
+  // wake it. The DELETE takes an endpoint from the client, which makes it the
+  // exact shape US-268 exists for — an id the caller supplies, filtered
+  // together with the owner so a foreign one matches zero rows.
+  //
+  // The damage if it were not: a push endpoint is not secret to the person who
+  // holds it, and an unscoped delete would let B turn off A's instant
+  // delisting. A would see nothing at all — their listings would simply go back
+  // to ending on the 5-minute check, and nothing anywhere would say why.
+  name: "B cannot delete another workspace's extension push subscription",
+  ignore: !CONFIGURED,
+  fn: async () => {
+    const res = await fetch(
+      `${BASE}/api/flipdesk/extension-queue/push-subscription`,
+      {
+        method: "DELETE",
+        headers: authHeaders(B_JWT!),
+        body: JSON.stringify({
+          endpoint: "https://fcm.googleapis.com/fcm/send/tenant-isolation-probe",
+        }),
+      },
+    );
+    await res.body?.cancel();
+    // A 200 is correct here and is NOT a leak: the delete is owner-scoped, so
+    // an endpoint B does not own matches zero rows and removes nothing. What
+    // would be a failure is a 200 from a route that had dropped the owner
+    // filter, which is what the source assertion in extension-wake_test.ts
+    // pins. This case proves the route exists, is authenticated, and refuses an
+    // unauthenticated caller below.
+    assert(
+      res.status === 200 || res.status === 402 || res.status === 400,
+      `DELETE push-subscription as B returned ${res.status}; expected a clean ` +
+        "owner-scoped no-op, a plan gate, or a validation error",
+    );
+  },
+});
+
+Deno.test({
+  // The same route with no credentials at all. A push subscription names a
+  // browser; registering one anonymously would let anyone attach a wake channel
+  // to an account they do not hold.
+  name: "an unauthenticated caller cannot register an extension push subscription",
+  ignore: !CONFIGURED,
+  fn: async () => {
+    const res = await fetch(
+      `${BASE}/api/flipdesk/extension-queue/push-subscription`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          endpoint: "https://fcm.googleapis.com/fcm/send/anon-probe",
+          keys: { p256dh: "x", auth: "y" },
+        }),
+      },
+    );
+    await res.body?.cancel();
+    assert(
+      res.status === 401 || res.status === 403,
+      `unauthenticated POST push-subscription returned ${res.status}; expected 401/403`,
+    );
+  },
+});

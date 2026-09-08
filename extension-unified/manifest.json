@@ -11,6 +11,9 @@
     "contextMenus",
     "sidePanel"
   ],
+  "optional_permissions": [
+    "notifications"
+  ],
   "host_permissions": [
     "https://gradethread.com/*",
     "https://*.gradethread.com/*",

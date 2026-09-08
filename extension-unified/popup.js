@@ -1165,6 +1165,95 @@ async function renderSyncStatus(caps) {
   }
 }
 
+// ── US-3142: the instant-delist switch ────────────────────────────────────
+//
+// Three states, and the third is the one worth getting right:
+//   ON      — a live subscription; the sale wakes the browser.
+//   OFF     — offer to turn it on.
+//   CAN'T   — this browser has no Push API for an extension (Firefox). Say so
+//             plainly instead of showing a switch that will silently do
+//             nothing, and say what still happens, because the delist is not
+//             lost — it runs on the 5-minute check either way.
+//
+// The permission is requested HERE, from the click. chrome.permissions.request
+// needs a user gesture, which a message to the worker does not carry, so the
+// popup asks and the worker subscribes afterwards.
+async function renderWakeSwitch(caps) {
+  const block = document.getElementById("wakeBlock");
+  if (!block) return;
+  if (!caps || !caps.sellerEnabled) {
+    block.hidden = true;
+    return;
+  }
+
+  const res = await send({ type: "GT_WAKE_STATE" });
+  const state = (res && res.state) || null;
+  if (!state) {
+    block.hidden = true;
+    return;
+  }
+  block.hidden = false;
+
+  const status = document.getElementById("wakeStatus");
+  const hint = document.getElementById("wakeHint");
+  const enable = document.getElementById("wakeEnable");
+  const disable = document.getElementById("wakeDisable");
+
+  if (!state.supported) {
+    if (status) status.textContent = "Not available here";
+    if (hint) {
+      hint.textContent =
+        "This browser cannot wake an extension from the web. Your sold " +
+        "cross-listings are still ended automatically, on the 5-minute check.";
+    }
+    if (enable) enable.hidden = true;
+    if (disable) disable.hidden = true;
+    return;
+  }
+
+  const on = state.granted && state.subscribed;
+  if (status) status.textContent = on ? "On" : "Off";
+  if (hint) {
+    hint.textContent = on
+      ? "When an item sells on one marketplace, GradeThread ends the others " +
+        "within seconds instead of waiting for the next check."
+      : "GradeThread ends your other listings on a 5-minute check. Turn this " +
+        "on and it happens the moment the sale lands.";
+  }
+  if (enable) enable.hidden = on;
+  if (disable) disable.hidden = !on;
+}
+
+try {
+  const _wakeEnable = document.getElementById("wakeEnable");
+  if (_wakeEnable) {
+    _wakeEnable.addEventListener("click", function () {
+      void (async function () {
+        // The gesture is this click. Asking from the worker would be refused.
+        const granted = await PERMS.requestApiPermission(ext, "notifications");
+        // A declined prompt is an answer, not an error. Re-render and say
+        // nothing: the seller just said no and does not need telling twice.
+        if (granted) await send({ type: "GT_WAKE_ENABLE" });
+        const caps = await send({ type: "GT_GET_CAPABILITIES", force: true });
+        await renderWakeSwitch(caps);
+      })();
+    });
+  }
+  const _wakeDisable = document.getElementById("wakeDisable");
+  if (_wakeDisable) {
+    _wakeDisable.addEventListener("click", function () {
+      void (async function () {
+        await send({ type: "GT_WAKE_DISABLE" });
+        // Hand the permission back too. Keeping a permission we have stopped
+        // using is how an extension's permission list stops meaning anything.
+        await PERMS.removeApiPermission(ext, "notifications");
+        const caps = await send({ type: "GT_GET_CAPABILITIES", force: true });
+        await renderWakeSwitch(caps);
+      })();
+    });
+  }
+} catch (_e) { /* no popup markup in this context */ }
+
 // US-2701: bind the scheduled-poll consent controls.
 try {
   const _pollCheck = document.getElementById("pollCheck");
@@ -2276,6 +2365,7 @@ function renderSellerSections(caps) {
     ]).then(renderWorkSummary);
     void renderSyncStatus(caps);
     void renderPollConsent(caps);
+    void renderWakeSwitch(caps); // US-3142
     renderConsent();
     void renderEngagement();
   } else if (caps && caps.authenticated) {
