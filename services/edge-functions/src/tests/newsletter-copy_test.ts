@@ -57,10 +57,29 @@ Deno.test("parseNewsletterCopy validates + normalizes a good response", () => {
   assertEquals(copy.sections[1].ctaUrl, "https://gradethread.com/x");
 });
 
-Deno.test("parseNewsletterCopy strips markdown fences", () => {
-  const raw = "```json\n" + JSON.stringify({ subject: "S", sections: [{ body_html: "<p>x</p>" }] }) + "\n```";
-  const copy = parseNewsletterCopy(raw, 5);
-  assertEquals(copy.subject, "S");
+Deno.test("parseNewsletterCopy no longer repairs a fenced body - it throws", () => {
+  // US-3151 removed the fence-stripping here. The newsletter copy call now
+  // sends output_config.format (newsletter-copy.ts), so a markdown fence cannot
+  // arrive: the API returns a schema-conformant object or nothing.
+  //
+  // THROWING IS THE IMPROVEMENT, not a regression. Silently repairing a fenced
+  // body would hide the only condition that can now produce one - the schema
+  // stopped being sent, or the model stopped honouring it - and hide it behind
+  // a newsletter that still goes out looking fine.
+  const fenced = "```json" + String.fromCharCode(10) +
+    JSON.stringify({ subject: "S", sections: [{ body_html: "<p>x</p>" }] }) +
+    String.fromCharCode(10) + "```";
+  let threw = false;
+  try {
+    parseNewsletterCopy(fenced, 5);
+  } catch {
+    threw = true;
+  }
+  assert(threw, "a fenced body must fail loudly now that the schema guarantees none");
+
+  // And the unfenced body it would have arrived as still parses.
+  const clean = JSON.stringify({ subject: "S", sections: [{ body_html: "<p>x</p>" }] });
+  assertEquals(parseNewsletterCopy(clean, 5).subject, "S");
 });
 
 Deno.test("parseNewsletterCopy drops a CTA with a non-URL", () => {

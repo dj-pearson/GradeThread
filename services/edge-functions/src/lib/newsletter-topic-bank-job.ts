@@ -11,6 +11,7 @@
 //                         fresh evergreen angles with the lightweight model
 //                         (Haiku), dedup against existing rows, and insert.
 
+import { NEWSLETTER_TOPIC_REFILL_SCHEMA } from "./content-output-schemas.ts";
 import { supabaseAdmin } from "./supabase.ts";
 import { getSetting } from "./system-settings.ts";
 import {
@@ -198,7 +199,7 @@ export async function refillEmailTopicBank(): Promise<RefillResult> {
 
   // Generate via the lightweight model — dynamic import so a future pure caller of
   // this module's siblings never eagerly pulls in ai-config → lib/supabase env.
-  const { effortParams, getAiTemperature, getAnthropicClient, getLightweightModel } =
+  const { outputConfigParams, getAiTemperature, getAnthropicClient, getLightweightModel } =
     await import("./ai-config.ts");
   const { enterAiFeature } = await import("./ai-feature-context.ts");
   enterAiFeature("content"); // US-894 spend attribution (counts toward AI budget)
@@ -214,7 +215,7 @@ export async function refillEmailTopicBank(): Promise<RefillResult> {
 
   const response = await getAnthropicClient().messages.create({
     model,
-    ...effortParams(model, "newsletter_topics", "medium"),
+    ...outputConfigParams(model, "newsletter_topics", "medium", NEWSLETTER_TOPIC_REFILL_SCHEMA),
     max_tokens: 2048,
     ...(temperature !== undefined ? { temperature } : {}),
     system,

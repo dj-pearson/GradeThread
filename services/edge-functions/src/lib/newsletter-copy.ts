@@ -9,6 +9,7 @@
 // failure it degrades to the deterministic evergreen copy rather than skipping
 // the issue or inventing content (AC3).
 
+import { NEWSLETTER_COPY_SCHEMA } from "./content-output-schemas.ts";
 import type { NewsletterSection } from "./newsletter-issue.ts";
 import type { NewsletterTopic, SubjectStyle } from "./newsletter-tuning.ts";
 
@@ -72,11 +73,15 @@ export function buildCopySystemPrompt(input: {
     `reference a REAL GradeThread capability from the approved list or the inputs — ` +
     `when in doubt, teach the general principle instead of asserting a feature.` +
     `${voice}${claims}\n\n` +
-    `Respond with ONLY a JSON object (no markdown fences) of the form:\n` +
+    // US-3151: the shape is enforced by output_config.format, so the "ONLY a
+    // JSON object, no markdown fences" rule is gone. The FIELD LIST stays -
+    // a schema cannot say "a short run of <p>/<ul>/<li> only", and that is the
+    // half that carries the quality.
+    `Return this shape:\n` +
     `{"subject": string, "preheader": string, "sections": ` +
-    `[{"heading": string, "body_html": string, "cta_label"?: string, "cta_url"?: string}]}\n` +
+    `[{"heading": string, "body_html": string, "cta_label": string, "cta_url": string}]}\n` +
     `body_html is a short run of <p>/<ul>/<li>/<strong>/<em> only. Only include a ` +
-    `cta_url you are certain is a real gradethread.com URL; otherwise omit both cta fields.`
+    `cta_url you are certain is a real gradethread.com URL; otherwise leave BOTH cta fields as empty strings.`
   );
 }
 
@@ -111,9 +116,6 @@ export function buildCopyUserPrompt(input: NewsletterCopyInput): string {
 
 // ── Pure parsing ─────────────────────────────────────────────────────────────
 
-function stripCodeFence(s: string): string {
-  return s.trim().replace(/^```(?:json)?\s*\n?/i, "").replace(/\n?```\s*$/i, "");
-}
 
 function isLikelyUrl(v: unknown): v is string {
   return typeof v === "string" && /^https?:\/\//i.test(v.trim());
@@ -127,7 +129,8 @@ function isLikelyUrl(v: unknown): v is string {
 export function parseNewsletterCopy(raw: string, maxSections: number): Omit<NewsletterCopy, "degraded"> {
   let parsed: unknown;
   try {
-    parsed = JSON.parse(stripCodeFence(raw));
+    // US-3151: format-enforced, so there is no fence to strip.
+    parsed = JSON.parse(raw);
   } catch {
     throw new Error("copy JSON parse failed");
   }
@@ -208,7 +211,7 @@ function escapeText(s: string): string {
  */
 export async function generateNewsletterCopy(input: NewsletterCopyInput): Promise<NewsletterCopy> {
   try {
-    const { effortParams, getAiTemperature, getAnthropicClient, getDefaultModel } =
+    const { outputConfigParams, getAiTemperature, getAnthropicClient, getDefaultModel } =
       await import("./ai-config.ts");
     const { enterAiFeature } = await import("./ai-feature-context.ts");
     enterAiFeature("content"); // US-894 spend attribution (counts toward AI budget)
@@ -225,7 +228,7 @@ export async function generateNewsletterCopy(input: NewsletterCopyInput): Promis
     const model = getDefaultModel();
     const response = await getAnthropicClient().messages.create({
       model,
-      ...effortParams(model, "newsletter_copy", "medium"),
+      ...outputConfigParams(model, "newsletter_copy", "medium", NEWSLETTER_COPY_SCHEMA),
       max_tokens: 2048,
       ...(temperature !== undefined ? { temperature } : {}),
       system,

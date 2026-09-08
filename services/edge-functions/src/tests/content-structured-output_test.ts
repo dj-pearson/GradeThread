@@ -12,6 +12,9 @@ import { assert, assertEquals } from "@std/assert";
 import {
   BLOG_ARTICLE_SCHEMA,
   BLOG_REFRESH_SCHEMA,
+  NEWSLETTER_COPY_SCHEMA,
+  NEWSLETTER_REVIEW_SCHEMA,
+  NEWSLETTER_TOPIC_REFILL_SCHEMA,
   SOCIAL_POST_SCHEMA,
   TOPIC_RESEARCH_SCHEMA,
 } from "../lib/content-output-schemas.ts";
@@ -25,6 +28,9 @@ const ALL: Array<[string, Schema]> = [
   ["BLOG_REFRESH_SCHEMA", BLOG_REFRESH_SCHEMA],
   ["SOCIAL_POST_SCHEMA", SOCIAL_POST_SCHEMA],
   ["TOPIC_RESEARCH_SCHEMA", TOPIC_RESEARCH_SCHEMA],
+  ["NEWSLETTER_COPY_SCHEMA", NEWSLETTER_COPY_SCHEMA],
+  ["NEWSLETTER_REVIEW_SCHEMA", NEWSLETTER_REVIEW_SCHEMA],
+  ["NEWSLETTER_TOPIC_REFILL_SCHEMA", NEWSLETTER_TOPIC_REFILL_SCHEMA],
 ];
 
 /** Every object node in a schema, including nested array items. */
@@ -171,19 +177,28 @@ Deno.test("no content generator asks in prose for what the API enforces", async 
 Deno.test("the fence-stripping and its callers are gone together", async () => {
   // A removal is complete only when everything referencing it goes too. A dead
   // stripCodeFence left behind is the invitation to wire it back in.
-  for (
-    const f of [
-      "src/lib/content-ai-blog.ts",
-      "src/lib/content-ai-social.ts",
-      "src/lib/content-ai-refresh.ts",
-      "src/lib/content-ai-research.ts",
-    ]
-  ) {
-    const src = await Deno.readTextFile(f);
-    assert(!src.includes("stripCodeFence"), `${f} still has stripCodeFence`);
+  //
+  // The map is parser -> the file that SENDS the schema, because they are not
+  // always the same file: newsletter-topic-bank.ts owns the prompt and the
+  // parse while newsletter-topic-bank-job.ts owns the request. Asserting the
+  // parser sends its own schema would have been a wrong test that looked right.
+  const SENDER: Record<string, string> = {
+    "src/lib/content-ai-blog.ts": "src/lib/content-ai-blog.ts",
+    "src/lib/content-ai-social.ts": "src/lib/content-ai-social.ts",
+    "src/lib/content-ai-refresh.ts": "src/lib/content-ai-refresh.ts",
+    "src/lib/content-ai-research.ts": "src/lib/content-ai-research.ts",
+    "src/lib/newsletter-copy.ts": "src/lib/newsletter-copy.ts",
+    "src/lib/newsletter-ai-editor.ts": "src/lib/newsletter-ai-editor.ts",
+    "src/lib/newsletter-topic-bank.ts": "src/lib/newsletter-topic-bank-job.ts",
+  };
+  for (const [parser, sender] of Object.entries(SENDER)) {
+    const src = await Deno.readTextFile(parser);
+    assert(!src.includes("stripCodeFence"), `${parser} still has stripCodeFence`);
+    const sendSrc = parser === sender ? src : await Deno.readTextFile(sender);
     assert(
-      src.includes("outputConfigParams("),
-      `${f} must send a schema, or the parse below it is unguarded`,
+      sendSrc.includes("outputConfigParams("),
+      `${parser} parses a reply that ${sender} must enforce with a schema, and ` +
+        `${sender} sends none - the parse below it is unguarded`,
     );
   }
 });

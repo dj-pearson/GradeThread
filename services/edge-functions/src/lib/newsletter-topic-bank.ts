@@ -252,7 +252,9 @@ export function buildRefillSystemPrompt(input: {
     `trust/authenticity. Topics must be TIMELESS (no dated news, no seasonal hooks), ` +
     `genuinely useful, and grounded ONLY in real platform capabilities — never invent ` +
     `features, statistics, prices, or customer counts.${voice}${claims}${existing}\n\n` +
-    `Respond with ONLY a JSON object (no markdown fences):\n` +
+    // US-3151: shape enforced by output_config.format; the field MEANINGS
+    // below are what a schema cannot express, so they stay.
+    `Return this shape:\n` +
     `{"candidates":[{"pillar":string,"angle":string,"label":string,"summary":string,"key_points":[string]}]}\n` +
     `pillar is a short lowercase slug; angle is a short lowercase kebab-case slug ` +
     `unique within its pillar; label is a working title; summary is one sentence; ` +
@@ -296,15 +298,14 @@ export function normalizeRefillCandidate(raw: unknown): RefillCandidate | null {
   };
 }
 
-function stripCodeFence(s: string): string {
-  return s.trim().replace(/^```(?:json)?\s*\n?/i, "").replace(/\n?```\s*$/i, "");
-}
 
 /** Parse the model's JSON into clean candidates. Throws on unparseable output. Pure. */
 export function parseRefillCandidates(raw: string): RefillCandidate[] {
   let parsed: { candidates?: unknown[] };
   try {
-    parsed = JSON.parse(stripCodeFence(raw));
+    // US-3151: output_config.format enforces the shape on the caller
+    // (newsletter-topic-bank-job.ts), so there is no fence to strip.
+    parsed = JSON.parse(raw);
   } catch {
     throw new Error("topic-refill JSON parse failed");
   }

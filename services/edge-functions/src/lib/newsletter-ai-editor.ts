@@ -13,6 +13,7 @@
 // error returns { ran: false }, which the gate treats as "inconclusive" and
 // routes to human review rather than auto-approving an unverified issue.
 
+import { NEWSLETTER_REVIEW_SCHEMA } from "./content-output-schemas.ts";
 import type { NewsletterSection, RenderableIssue } from "./newsletter-issue.ts";
 
 // NOTE: ai-config.ts / ai-feature-context.ts are imported DYNAMICALLY inside
@@ -64,8 +65,10 @@ export function buildEditorSystemPrompt(): string {
     "A merely off-tone but honest issue is severity \"soft\". Vague aspirational",
     "language is NOT a hallucination.",
     "",
-    "Respond with ONLY a JSON object, no markdown:",
-    '{"brandVoiceOk": boolean, "flags": [{"type": "hallucination"|"factual"|"brand_voice", "severity": "hard"|"soft", "detail": string}], "summary": string}',
+    // US-3151: shape enforced by output_config.format. The field list stays,
+    // because the enum MEANINGS spelled out above are what make the verdict
+    // usable - a schema can list "hard"|"soft", not what each one means.
+    "Return: {brandVoiceOk, flags: [{type, severity, detail}], summary}",
   ].join("\n");
 }
 
@@ -88,9 +91,6 @@ export function buildEditorUserPrompt(issue: RenderableIssue): string {
   ].join("\n");
 }
 
-function stripCodeFence(s: string): string {
-  return s.trim().replace(/^```(?:json)?\s*\n?/i, "").replace(/\n?```\s*$/i, "");
-}
 
 /**
  * Parse the editor model's JSON response into a normalized result. Defensive:
@@ -98,7 +98,8 @@ function stripCodeFence(s: string): string {
  * Throws only on unparseable JSON (the runner converts that to ran:false).
  */
 export function parseEditorResult(text: string): AiEditorResult {
-  const parsed = JSON.parse(stripCodeFence(text)) as Record<string, unknown>;
+  // US-3151: format-enforced, so there is no fence to strip.
+  const parsed = JSON.parse(text) as Record<string, unknown>;
   const rawFlags = Array.isArray(parsed.flags) ? parsed.flags : [];
   const flags: AiEditorFlag[] = [];
   for (const f of rawFlags) {
@@ -135,7 +136,7 @@ export async function runAiEditorPass(
   issue: RenderableIssue,
   opts: AiEditorOptions = {},
 ): Promise<AiEditorResult> {
-  const { effortParams, getAiTemperature, getAnthropicClient, getLightweightModel } =
+  const { outputConfigParams, getAiTemperature, getAnthropicClient, getLightweightModel } =
     await import("./ai-config.ts");
   const { enterAiFeature } = await import("./ai-feature-context.ts");
   enterAiFeature("newsletter_editor", opts.userId ?? null); // spend attribution
@@ -147,7 +148,7 @@ export async function runAiEditorPass(
     const client = getAnthropicClient();
     const response = await client.messages.create({
       model,
-      ...effortParams(model, "newsletter_editor", "medium"),
+      ...outputConfigParams(model, "newsletter_editor", "medium", NEWSLETTER_REVIEW_SCHEMA),
       max_tokens: 1024,
       ...(temperature !== undefined ? { temperature } : {}),
       system: buildEditorSystemPrompt(),
