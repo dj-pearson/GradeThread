@@ -418,7 +418,7 @@ flipdeskScoutRoutes.post("/", async (c) => {
         // US-619: atomically reserve one AI action; stop cleanly when the cap is
         // hit. The reservation is atomic, so concurrent workers cannot together
         // reserve past the cap.
-        const reserved = await reserveAiActionSafe(userId, quota.limit);
+        const reserved = await reserveAiActionSafe(userId, quota);
         if (reserved !== true) {
           capHit = true;
           return;
@@ -610,7 +610,7 @@ flipdeskScoutRoutes.post("/appraise", async (c) => {
   let needsHumanReview = false;
   let imagesAnalyzed = 0;
   if (image) {
-    const reserved = await reserveAiActionSafe(userId, quota.limit);
+    const reserved = await reserveAiActionSafe(userId, quota);
     if (reserved !== true) {
       return jsonError(
         c,
@@ -877,7 +877,7 @@ flipdeskScoutRoutes.post("/appraise-url", async (c) => {
 
   // 1) PRIVATE shadow grade from the listing's own photos. One AI action,
   //    reserved atomically and refunded if the grade fails.
-  const reserved = await reserveAiActionSafe(userId, quota.limit);
+  const reserved = await reserveAiActionSafe(userId, quota);
   if (reserved !== true) {
     return jsonError(
       c,
@@ -1221,7 +1221,7 @@ flipdeskScoutRoutes.post("/prospect", async (c) => {
   let gradeActionReserved = false;
   const analysisPromise: Promise<QuickGradeAnalysis | null> = (async () => {
     if (!frontDataUri || isRepull) return null;
-    const reserved = await reserveAiActionSafe(userId, quota.limit);
+    const reserved = await reserveAiActionSafe(userId, quota);
     if (reserved !== true) return null;
     gradeActionReserved = true;
     try {
@@ -1331,7 +1331,7 @@ flipdeskScoutRoutes.post("/prospect", async (c) => {
     // nothing. Falling back is silent to the seller and costs the ordinary AI
     // action.
     {
-      const reserved = await reserveAiActionSafe(userId, quota.limit);
+      const reserved = await reserveAiActionSafe(userId, quota);
       if (reserved !== true) {
         await releaseGradeAction();
         return jsonError(

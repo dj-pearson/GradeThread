@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-3138",
+  "nextId": "US-3139",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -3685,6 +3685,24 @@
         "if the decision is no, close this story and record in vault/20-domain that 4,067 rows are permanently unresolved by design, so nobody re-opens it"
       ],
       "priority": 60
+    },
+    {
+      "id": "US-3138",
+      "passes": false,
+      "title": "Action Credits: prepaid top-ups so a small shortfall does not force a tier upgrade",
+      "description": "A seller who exhausts their monthly AI-action allowance has two options today: pay for the next tier, or stop working until the month rolls over. ai-quota.ts returns a 429 that says exactly that. The same wall exists on connector actions. This adds a third option: one prepaid Action Credit wallet that any metered action falls back to when its allowance is empty. Packs are 50/$4.99, 150/$13.99, 400/$34.99, 1000/$79.99, never expire, sold on Stripe, StoreKit and Play. Grade credits, listing capacity and buyer meters are deliberately out of v1. Design: docs/superpowers/specs/2026-09-07-action-credits-design.md. Plan: docs/superpowers/plans/2026-09-07-action-credits.md.",
+      "acceptanceCriteria": [
+        "Migration 00763 adds action_credit_wallet, action_credit_transactions and five RPCs; reserve_ai_action falls back to the wallet inside its own users-row lock so every route already calling withAiAction inherits it with no edit",
+        "Hitting the seller's OWN cap (users.ai_action_limit) never spends credits: it refuses with a message pointing at Settings, because that cap exists to stop runaway spend",
+        "refund_ai_action returns a failed action to whichever pocket paid, decided in SQL from ai_actions_credit_paid_this_month, so the ~30 existing call sites need no change",
+        "Every pack prices at or above Pro's implied per-action rate (5900/750), enforced by a test, so topping up never beats upgrading at volume and the plan ladder cannot invert",
+        "A plan that does not include the connector at all (limit 0) is never offered credits: no number of credits opens a tier's feature",
+        "POST /api/payments/action-credits/checkout plus a webhook grant branch keyed on the Stripe session id, and a charge.refunded clawback that clamps at zero",
+        "billing-summary exposes balance and a low flag; the AI 429 becomes an offer (top up or upgrade) rather than an error toast",
+        "iOS and Android carry the four consumables with their own ProductMapping kind, so an action-credit purchase can never grant GRADE credits; iap-catalog-drift_test covers the ids",
+        "OPERATOR: create four Stripe prices and set STRIPE_PRICE_ACTION_CREDITS_50/150/400/1000; create four App Store Connect consumables; create four Play Console products. The checkout returns 503 until the Stripe prices exist"
+      ],
+      "priority": 20
     }
   ]
 }

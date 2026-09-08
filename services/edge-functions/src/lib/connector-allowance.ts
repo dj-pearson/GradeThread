@@ -32,6 +32,7 @@ import { supabaseAdmin } from "./supabase.ts";
 import { getPlanMatrix } from "./pricing-config.ts";
 import { effectivePlanFor } from "./grade-pricing.ts";
 import { redactError } from "./log-redact.ts";
+import { debitActionCredits } from "./action-credits.ts";
 
 // deno-lint-ignore no-explicit-any
 export type AllowanceDb = any;
@@ -44,6 +45,20 @@ export interface AllowanceVerdict {
   /** ISO time the month rolls over, so a caller can say when to come back. */
   resetsAt: string;
   message?: string;
+  /**
+   * US-3138: which pocket paid. "credits" means the monthly allowance was gone
+   * and an Action Credit covered this call, so the caller should tell the
+   * seller -- silently spending a credit they bought is still spending money.
+   */
+  paidWith?: "allowance" | "credits";
+  /**
+   * True only when buying Action Credits would actually unblock this call.
+   *
+   * FALSE when the plan does not include the connector at all: no number of
+   * credits opens a feature the tier does not carry, and offering them would be
+   * taking money for nothing.
+   */
+  canTopUp?: boolean;
 }
 
 /** The first instant of the next calendar month, in UTC. */
@@ -90,11 +105,31 @@ export async function connectorActionsUsed(
  * allowance is zero, so a downgrade actually stops the connector rather than
  * grandfathering it.
  */
+/**
+ * The wallet fallback, injectable for tests. It goes through supabaseAdmin
+ * rather than the `db` above, so without this seam every stubbed test in
+ * connector-allowance_test.ts would make a real rpc call to whatever
+ * SUPABASE_URL happened to be set to.
+ */
+export interface AllowanceDeps {
+  debit: (ownerUserId: string) => Promise<boolean>;
+}
+
+const defaultDeps: AllowanceDeps = {
+  debit: (ownerUserId) =>
+    debitActionCredits(
+      ownerUserId,
+      "connector_action",
+      "monthly connector allowance exhausted",
+    ),
+};
+
 export async function checkConnectorAllowance(
   ownerUserId: string,
   writeToolNames: readonly string[],
   nowMs: number = Date.now(),
   db: AllowanceDb = supabaseAdmin,
+  deps: AllowanceDeps = defaultDeps,
 ): Promise<AllowanceVerdict> {
   const { resetsAtIso } = monthWindow(nowMs);
 
@@ -135,22 +170,47 @@ export async function checkConnectorAllowance(
   const limit = matrix[plan as keyof typeof matrix]?.connectorActionsPerMonth ?? 0;
 
   if (limit === -1) {
-    return { allowed: true, used: 0, limit: -1, resetsAt: resetsAtIso };
+    return { allowed: true, used: 0, limit: -1, resetsAt: resetsAtIso, paidWith: "allowance" };
+  }
+
+  // US-3138: the plan does not carry the connector at all. This is a FEATURE
+  // gate, not a volume wall, so it must never reach the wallet -- a credit
+  // cannot buy a capability the tier does not include, and charging for one
+  // would be taking money for nothing. Handled before the count so a Free
+  // seller is not billed a query either.
+  if (limit === 0) {
+    return {
+      allowed: false,
+      used: 0,
+      limit: 0,
+      resetsAt: resetsAtIso,
+      canTopUp: false,
+      message:
+        "The Claude connector is not included in this plan. See https://gradethread.com/pricing.",
+    };
   }
 
   const used = await connectorActionsUsed(ownerUserId, writeToolNames, nowMs, db);
   if (used + 1 > limit) {
+    // US-3138: the allowance is gone, but the seller may have prepaid for this.
+    // Debiting HERE rather than returning a refusal for the caller to retry is
+    // deliberate: this meter has no counter row to lock (the count is a query
+    // over mcp_tool_calls), so there is no atomic reserve to push the fallback
+    // into. The wallet debit is itself atomic and is the reservation.
+    if (await deps.debit(ownerUserId)) {
+      return { allowed: true, used, limit, resetsAt: resetsAtIso, paidWith: "credits" };
+    }
     return {
       allowed: false,
       used,
       limit,
       resetsAt: resetsAtIso,
-      message: limit === 0
-        ? "The Claude connector is not included in this plan. See https://gradethread.com/pricing."
-        : `You have used all ${limit} connector actions for this month. ` +
-          `They reset on ${resetsAtIso.slice(0, 10)}, or you can upgrade for more.`,
+      canTopUp: true,
+      message: `You have used all ${limit} connector actions for this month. ` +
+        `They reset on ${resetsAtIso.slice(0, 10)}. Top up with Action Credits, ` +
+        `or upgrade for a bigger monthly allowance.`,
     };
   }
 
-  return { allowed: true, used, limit, resetsAt: resetsAtIso };
+  return { allowed: true, used, limit, resetsAt: resetsAtIso, paidWith: "allowance" };
 }

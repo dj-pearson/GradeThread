@@ -685,7 +685,7 @@ flipdeskAiRoutes.post("/extract-aspects", async (c) => {
       : {};
 
   // US-387: reserve the action atomically before spending it.
-  if (!(await reserveAiAction(userId, quota.limit))) {
+  if (!(await reserveAiAction(userId, quota))) {
     return c.json(QUOTA_EXHAUSTED_429, 429);
   }
 
@@ -1343,7 +1343,7 @@ flipdeskAiRoutes.post("/listing-copy", async (c) => {
   const photos = await loadItemPhotos(itemId);
 
   // US-387: reserve the action atomically before spending it.
-  if (!(await reserveAiAction(userId, quota.limit))) {
+  if (!(await reserveAiAction(userId, quota))) {
     return c.json(QUOTA_EXHAUSTED_429, 429);
   }
 
@@ -1478,7 +1478,7 @@ flipdeskAiRoutes.post("/rewrite", async (c) => {
     action === "description_regen" ? await loadItemPhotos(itemId) : [];
 
   // US-387: reserve the action atomically before spending it.
-  if (!(await reserveAiAction(userId, quota.limit))) {
+  if (!(await reserveAiAction(userId, quota))) {
     return c.json(QUOTA_EXHAUSTED_429, 429);
   }
 
@@ -2046,7 +2046,7 @@ flipdeskAiRoutes.post("/embed-photos", async (c) => {
   if (!quota.ok) return c.json(quota.body, quota.status);
 
   // US-387: reserve the action atomically before spending it.
-  if (!(await reserveAiAction(userId, quota.limit))) {
+  if (!(await reserveAiAction(userId, quota))) {
     return c.json(QUOTA_EXHAUSTED_429, 429);
   }
 
@@ -2114,7 +2114,7 @@ flipdeskAiRoutes.post("/classify-photos", async (c) => {
     const images: VisionImage[] = resolved.map(({ url }) => ({ url }));
 
     // US-387: reserve the action atomically before the vision call.
-    if (!(await reserveAiAction(userId, quota.limit))) {
+    if (!(await reserveAiAction(userId, quota))) {
       return c.json(QUOTA_EXHAUSTED_429, 429);
     }
 
@@ -2157,7 +2157,7 @@ flipdeskAiRoutes.post("/classify-photos", async (c) => {
     return c.json({ error: "Too many photos in one batch (max 40)." }, 400);
   }
   // US-387: reserve the action atomically before the vision call.
-  if (!(await reserveAiAction(userId, quota.limit))) {
+  if (!(await reserveAiAction(userId, quota))) {
     return c.json(QUOTA_EXHAUSTED_429, 429);
   }
   try {
@@ -2202,7 +2202,7 @@ flipdeskAiRoutes.post("/suggest-item-match", async (c) => {
   if (!quota.ok) return c.json(quota.body, quota.status);
 
   // US-387: reserve the action atomically before spending it.
-  if (!(await reserveAiAction(userId, quota.limit))) {
+  if (!(await reserveAiAction(userId, quota))) {
     return c.json(QUOTA_EXHAUSTED_429, 429);
   }
 
@@ -2293,7 +2293,7 @@ flipdeskAiRoutes.post("/negotiate", async (c) => {
   );
 
   // US-387: reserve atomically before the billable AI call.
-  if (!(await reserveAiAction(userId, quota.limit))) {
+  if (!(await reserveAiAction(userId, quota))) {
     return c.json(QUOTA_EXHAUSTED_429, 429);
   }
 
@@ -2418,7 +2418,7 @@ flipdeskAiRoutes.post("/analytics-narrative", async (c) => {
   }
 
   // US-387: reserve atomically before the billable AI call.
-  if (!(await reserveAiAction(userId, quota.limit))) {
+  if (!(await reserveAiAction(userId, quota))) {
     return c.json(QUOTA_EXHAUSTED_429, 429);
   }
 

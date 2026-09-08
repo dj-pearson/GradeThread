@@ -14,7 +14,6 @@
 // ladder (grade-pricing.ts, users.grade_credit_balance), deliberately.
 
 import { supabaseAdmin } from "./supabase.ts";
-import { AI_ACTION_LIMITS } from "./ai-quota.ts";
 
 // ── The meters a credit can pay for ─────────────────────────────────
 
@@ -76,7 +75,11 @@ export interface ActionCreditPack {
  * fails if any pack crosses it.
  */
 export const PRO_MONTHLY_CENTS = 5900;
-export const PRO_IMPLIED_CENTS_PER_ACTION = PRO_MONTHLY_CENTS / AI_ACTION_LIMITS.pro!;
+// Duplicated rather than imported from ai-quota.ts on purpose: that module now
+// imports this one, and a cycle here would be a boot-order bug in the money
+// path. action-credits_test.ts asserts this stays equal to AI_ACTION_LIMITS.pro.
+export const PRO_AI_ACTIONS_PER_MONTH = 750;
+export const PRO_IMPLIED_CENTS_PER_ACTION = PRO_MONTHLY_CENTS / PRO_AI_ACTIONS_PER_MONTH;
 
 export const ACTION_CREDIT_PACKS: Record<ActionCreditPackKey, ActionCreditPack> = {
   "50": {

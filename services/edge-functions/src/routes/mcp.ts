@@ -669,6 +669,11 @@ async function callTool(
             used: verdict.used,
             limit: verdict.limit,
             resets_at: verdict.resetsAt,
+            // US-3138: whether buying Action Credits would actually unblock
+            // this. False when the plan does not carry the connector at all, so
+            // a model relaying the error never tells a seller to buy something
+            // that would not help.
+            can_top_up: verdict.canTopUp ?? false,
           },
         },
       };

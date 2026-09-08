@@ -83,11 +83,11 @@ ALTER TABLE public.action_credit_transactions ENABLE ROW LEVEL SECURITY;
 
 DROP POLICY IF EXISTS "Users read own action credit wallet" ON public.action_credit_wallet;
 CREATE POLICY "Users read own action credit wallet"
-  ON public.action_credit_wallet FOR SELECT USING (auth.uid() = user_id);
+  ON public.action_credit_wallet FOR SELECT USING ((select auth.uid()) = user_id);
 
 DROP POLICY IF EXISTS "Users read own action credit transactions" ON public.action_credit_transactions;
 CREATE POLICY "Users read own action credit transactions"
-  ON public.action_credit_transactions FOR SELECT USING (auth.uid() = user_id);
+  ON public.action_credit_transactions FOR SELECT USING ((select auth.uid()) = user_id);
 
 -- The LIFO refund counter. Rolls over with ai_actions_used_this_month, lazily,
 -- inside reserve_ai_action_v2 -- nothing zeroes either column at midnight.
@@ -98,6 +98,27 @@ COMMENT ON COLUMN public.users.ai_actions_credit_paid_this_month IS
   'US-3138: how many of this month''s AI actions were paid from the Action Credit wallet rather than the plan allowance. Lets refund_ai_action return a failed action to the source that actually paid for it.';
 
 -- ── Wallet functions ────────────────────────────────────────────────
+--
+-- EVERY function below opens with the same four lines:
+--
+--   IF auth.role() IS NOT NULL AND auth.role() <> 'service_role' THEN
+--     RAISE EXCEPTION '...: service role only' USING ERRCODE = '42501';
+--   END IF;
+--
+-- US-3008/US-2282. RLS does not apply inside SECURITY DEFINER, and the GRANT
+-- cannot be the control on this image: CREATE FUNCTION grants EXECUTE to
+-- PUBLIC, a targeted grant only ADDS to that, and a REVOKE restarts the
+-- database (US-2403). So the body is the only place the check can live.
+--
+-- This is STRICTER than the "may only act on your own row" shape 00686 and
+-- 00688 use, and deliberately so: these functions MINT AND SPEND MONEY. A
+-- seller calling grant_action_credits with their own id is not a harmless
+-- self-service operation, it is a free wallet. Nothing but the service role may
+-- move this balance.
+--
+-- `auth.role() IS NOT NULL` keeps a direct psql session (no JWT, as in the
+-- migration and ops paths) working, which is how these are exercised by
+-- scripts/prove-action-credits.sql.
 
 -- Add credits (a storefront purchase, or an admin grant). Idempotent on
 -- (source, external_id): a replayed purchase notification grants once and
@@ -111,6 +132,9 @@ AS $$
 DECLARE
   v_balance int;
 BEGIN
+  IF auth.role() IS NOT NULL AND auth.role() <> 'service_role' THEN
+    RAISE EXCEPTION 'grant_action_credits: service role only' USING ERRCODE = '42501';
+  END IF;
   IF p_credits <= 0 THEN
     SELECT balance INTO v_balance FROM public.action_credit_wallet WHERE user_id = p_user_id;
     RETURN COALESCE(v_balance, 0);
@@ -147,6 +171,9 @@ AS $$
 DECLARE
   v_balance int;
 BEGIN
+  IF auth.role() IS NOT NULL AND auth.role() <> 'service_role' THEN
+    RAISE EXCEPTION 'debit_action_credits: service role only' USING ERRCODE = '42501';
+  END IF;
   IF p_credits <= 0 THEN RETURN -1; END IF;
 
   SELECT balance INTO v_balance
@@ -175,6 +202,9 @@ AS $$
 DECLARE
   v_balance int;
 BEGIN
+  IF auth.role() IS NOT NULL AND auth.role() <> 'service_role' THEN
+    RAISE EXCEPTION 'refund_action_credits: service role only' USING ERRCODE = '42501';
+  END IF;
   IF p_credits <= 0 THEN
     SELECT balance INTO v_balance FROM public.action_credit_wallet WHERE user_id = p_user_id;
     RETURN COALESCE(v_balance, 0);
@@ -205,6 +235,9 @@ DECLARE
   v_balance int;
   v_taken   int;
 BEGIN
+  IF auth.role() IS NOT NULL AND auth.role() <> 'service_role' THEN
+    RAISE EXCEPTION 'clawback_action_credits: service role only' USING ERRCODE = '42501';
+  END IF;
   IF p_credits <= 0 THEN
     SELECT balance INTO v_balance FROM public.action_credit_wallet WHERE user_id = p_user_id;
     RETURN COALESCE(v_balance, 0);
@@ -257,6 +290,9 @@ DECLARE
   v_rolled      boolean;
   v_balance     int;
 BEGIN
+  IF auth.role() IS NOT NULL AND auth.role() <> 'service_role' THEN
+    RAISE EXCEPTION 'reserve_ai_action_v2: service role only' USING ERRCODE = '42501';
+  END IF;
   SELECT ai_actions_used_this_month,
          COALESCE(ai_actions_credit_paid_this_month, 0),
          ai_actions_reset_at
@@ -306,9 +342,14 @@ $$;
 -- the correct default for every caller that predates the self-cap distinction.
 CREATE OR REPLACE FUNCTION public.reserve_ai_action(p_user_id uuid, p_limit int)
 RETURNS boolean
-LANGUAGE sql SECURITY DEFINER SET search_path = public
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = public
 AS $$
-  SELECT public.reserve_ai_action_v2(p_user_id, p_limit, true) <> 'exhausted';
+BEGIN
+  IF auth.role() IS NOT NULL AND auth.role() <> 'service_role' THEN
+    RAISE EXCEPTION 'reserve_ai_action: service role only' USING ERRCODE = '42501';
+  END IF;
+  RETURN public.reserve_ai_action_v2(p_user_id, p_limit, true) <> 'exhausted';
+END;
 $$;
 
 -- Give a reserved action back when the work it paid for failed, to whichever
@@ -320,6 +361,9 @@ AS $$
 DECLARE
   v_credit_used int;
 BEGIN
+  IF auth.role() IS NOT NULL AND auth.role() <> 'service_role' THEN
+    RAISE EXCEPTION 'refund_ai_action: service role only' USING ERRCODE = '42501';
+  END IF;
   SELECT COALESCE(ai_actions_credit_paid_this_month, 0) INTO v_credit_used
     FROM public.users WHERE id = p_user_id FOR UPDATE;
   IF NOT FOUND THEN RETURN; END IF;

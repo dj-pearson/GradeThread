@@ -305,7 +305,7 @@ flipdeskMeasureRoutes.post("/extract", async (c) => {
   const { gray, scale } = toGray(decoded);
 
   try {
-    const result = await withAiAction(ownerId, quota.limit, () =>
+    const result = await withAiAction(ownerId, quota, () =>
       extractMeasurements({
         photoUrl: publicUrl,
         gray,
@@ -457,7 +457,7 @@ flipdeskMeasureRoutes.post("/autofill", async (c) => {
   if (!quota.ok) return c.json(quota.body, quota.status);
 
   try {
-    const result = await withAiAction(ownerId, quota.limit, () =>
+    const result = await withAiAction(ownerId, quota, () =>
       autofillMeasurementsFromCard(itemId, ownerId, item));
     if (!result.ran) await refundAiAction(ownerId);
     return c.json({

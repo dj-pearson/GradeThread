@@ -111,7 +111,15 @@ Deno.test("calibration is free; extraction is the billed AI action (US-1573)", (
   // /extract: exactly the US-1581 contract — quota gate + atomic reserve
   // around the single vision call, 429 mapping included.
   assert(extractBlock.includes("checkQuota(ownerId)"));
-  assert(extractBlock.includes("withAiAction(ownerId, quota.limit"));
+  // US-3138: the WHOLE quota, not quota.limit. The limit alone has already
+  // collapsed the plan cap and the seller's self-cap into one number, so
+  // passing it drops the decision about whether Action Credits may cover an
+  // overrun -- and silently drains the wallet of a seller who capped themselves.
+  assert(extractBlock.includes("withAiAction(ownerId, quota,"));
+  assert(
+    !extractBlock.includes("withAiAction(ownerId, quota.limit"),
+    "passing quota.limit loses the self-cap decision (US-3138)",
+  );
   assert(extractBlock.includes("AiQuotaExhaustedError"));
 });
 

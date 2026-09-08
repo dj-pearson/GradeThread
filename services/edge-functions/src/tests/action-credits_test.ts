@@ -10,6 +10,7 @@
 // If a pack ever prices below that, buying top-ups beats upgrading on the pure
 // per-action metric and the plan ladder inverts. That is a pricing mistake a
 // reviewer cannot see by reading four dollar amounts, so it is a test.
+import "./_env.ts";
 import { assertEquals } from "@std/assert";
 import {
   ACTION_CREDIT_COSTS,
@@ -18,6 +19,7 @@ import {
   isActionCreditPackKey,
   isLowBalance,
   LOW_BALANCE_THRESHOLD,
+  PRO_AI_ACTIONS_PER_MONTH,
   PRO_IMPLIED_CENTS_PER_ACTION,
   pricePerCredit,
 } from "../lib/action-credits.ts";
@@ -106,6 +108,13 @@ Deno.test("low balance: the threshold is exclusive", () => {
   assertEquals(isLowBalance(19), true);
   assertEquals(isLowBalance(20), false);
   assertEquals(isLowBalance(1000), false);
+});
+
+Deno.test("the ladder guard's premise has not drifted from the plan matrix", () => {
+  // action-credits.ts duplicates Pro's monthly action count to avoid an import
+  // cycle. If the plan changes and this does not, the ladder guard silently
+  // starts measuring against a rate nobody charges.
+  assertEquals(PRO_AI_ACTIONS_PER_MONTH, AI_ACTION_LIMITS.pro);
 });
 
 Deno.test("the smallest pack is worth more than a Free plan's whole month", () => {

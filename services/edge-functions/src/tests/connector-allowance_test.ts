@@ -154,7 +154,7 @@ Deno.test("the boundary: the last action fits, the next does not", async () => {
   assert((await checkConnectorAllowance(USER, WRITE_TOOL_NAMES, NOW, at.db)).allowed);
 
   const over = stubDb({ plan: "pro", count: 500 });
-  assert(!(await checkConnectorAllowance(USER, WRITE_TOOL_NAMES, NOW, over.db)).allowed);
+  assert(!(await checkConnectorAllowance(USER, WRITE_TOOL_NAMES, NOW, over.db, brokeWallet())).allowed);
 });
 
 Deno.test("a starter seller has no allowance, and is told what to do", async () => {
@@ -167,10 +167,91 @@ Deno.test("a starter seller has no allowance, and is told what to do", async () 
 
 Deno.test("an exhausted allowance names the number and when it resets", async () => {
   const { db } = stubDb({ plan: "pro", count: 500 });
-  const verdict = await checkConnectorAllowance(USER, WRITE_TOOL_NAMES, NOW, db);
+  const verdict = await checkConnectorAllowance(USER, WRITE_TOOL_NAMES, NOW, db, brokeWallet());
   assert(!verdict.allowed);
   assert(verdict.message!.includes("500"));
   assert(verdict.message!.includes("2026-04-01"), `no reset date: ${verdict.message}`);
+});
+
+// ── US-3138: the Action Credit fallback ──────────────────────────────
+//
+// The distinction these cases exist to hold: an exhausted VOLUME allowance is a
+// top-up opportunity, a plan that does not carry the connector at all is not.
+// Selling credits for the second is taking money for a capability they still
+// would not get.
+
+/** A wallet with nothing in it (or an unreachable one, which reads the same). */
+function brokeWallet() {
+  return { debit: () => Promise.resolve(false) };
+}
+
+/** A funded wallet, recording who it was asked to charge. */
+function fundedWallet() {
+  const charged: string[] = [];
+  return {
+    charged,
+    deps: {
+      debit: (ownerUserId: string) => {
+        charged.push(ownerUserId);
+        return Promise.resolve(true);
+      },
+    },
+  };
+}
+
+Deno.test("US-3138: an exhausted allowance is carried by a funded wallet", async () => {
+  const { db } = stubDb({ plan: "pro", count: 500 });
+  const wallet = fundedWallet();
+  const verdict = await checkConnectorAllowance(USER, WRITE_TOOL_NAMES, NOW, db, wallet.deps);
+  assert(verdict.allowed, "a seller who prepaid was still refused");
+  assertEquals(verdict.paidWith, "credits");
+  assertEquals(wallet.charged, [USER], "the OWNER's wallet is the one charged");
+});
+
+Deno.test("US-3138: inside the allowance, the wallet is never touched", async () => {
+  const { db } = stubDb({ plan: "pro", count: 10 });
+  const wallet = fundedWallet();
+  const verdict = await checkConnectorAllowance(USER, WRITE_TOOL_NAMES, NOW, db, wallet.deps);
+  assert(verdict.allowed);
+  assertEquals(verdict.paidWith, "allowance");
+  assertEquals(wallet.charged, [], "spent a credit while the allowance had room");
+});
+
+Deno.test("US-3138: business exhausts its 2000 and then draws on the wallet", async () => {
+  // No plan carries -1 connector actions today, so there is nothing honest to
+  // assert about the unlimited branch here. What IS worth pinning is that the
+  // TOP tier is not accidentally exempt from the fallback: a business seller who
+  // burns 2000 should be carried by credits like anyone else.
+  const { db } = stubDb({ plan: "business", count: 2000 });
+  const wallet = fundedWallet();
+  const verdict = await checkConnectorAllowance(USER, WRITE_TOOL_NAMES, NOW, db, wallet.deps);
+  assert(verdict.allowed);
+  assertEquals(verdict.limit, 2000);
+  assertEquals(verdict.paidWith, "credits");
+  assertEquals(wallet.charged, [USER]);
+});
+
+Deno.test("US-3138: a plan without the connector must NOT be sold credits", async () => {
+  // limit === 0 is a FEATURE gate. No number of credits opens a tier's feature,
+  // so charging for one would be taking money for nothing.
+  const { db } = stubDb({ plan: "starter", count: 0 });
+  const wallet = fundedWallet();
+  const verdict = await checkConnectorAllowance(USER, WRITE_TOOL_NAMES, NOW, db, wallet.deps);
+  assert(!verdict.allowed);
+  assertEquals(verdict.canTopUp, false);
+  assertEquals(wallet.charged, [], "charged a credit for a feature the plan does not include");
+  assert(/pricing/.test(verdict.message ?? ""));
+});
+
+Deno.test("US-3138: an empty wallet refuses, and says a top-up would work", async () => {
+  const { db } = stubDb({ plan: "pro", count: 500 });
+  const verdict = await checkConnectorAllowance(USER, WRITE_TOOL_NAMES, NOW, db, brokeWallet());
+  assert(!verdict.allowed);
+  assertEquals(verdict.canTopUp, true);
+  assert(
+    /Action Credits/.test(verdict.message ?? ""),
+    `the refusal should name the way out: ${verdict.message}`,
+  );
 });
 
 Deno.test("an unresolvable user FAILS CLOSED", async () => {

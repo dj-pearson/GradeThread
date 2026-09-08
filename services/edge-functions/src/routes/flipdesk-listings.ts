@@ -164,7 +164,7 @@ async function resolvePlatformVariants(
       // cross-push itself must never block on AI.
       const quota = await checkQuota(ownerId);
       if (!quota.ok) throw new Error("AI quota unavailable for lazy variant fill");
-      await withAiAction(ownerId, quota.limit, () =>
+      await withAiAction(ownerId, quota, () =>
         generatePlatformVariants(itemId, ownerId, missing));
       fields = await read();
     } catch (err) {

@@ -1411,7 +1411,7 @@ flipdeskAutolisterRoutes.post("/classify-photos", async (c) => {
   try {
     // One billed action, reserved atomically BEFORE the vision call and
     // refunded if it throws (US-1581).
-    const result = await withAiAction(ownerId, quota.limit, () =>
+    const result = await withAiAction(ownerId, quota, () =>
       classifyPhotoRoles(photos));
     return c.json({ cover_id: result.coverId, roles: result.roles });
   } catch (err) {
@@ -1504,7 +1504,7 @@ flipdeskAutolisterRoutes.post("/verify-groups", async (c) => {
   // increment could race past the cap). Fewer than two coverable groups
   // short-circuits without touching the model — refund that reservation so a
   // no-op stays free, exactly like the old model!=="none" metering.
-  if (!(await reserveAiActionSafe(ownerId, quota.limit))) {
+  if (!(await reserveAiActionSafe(ownerId, quota))) {
     return c.json({ error: QUOTA_EXHAUSTED_MESSAGE }, 429);
   }
   try {
@@ -1592,7 +1592,7 @@ flipdeskAutolisterRoutes.post("/propose-groups", async (c) => {
 
   // US-1581: reserve atomically before the vision call; refund on the no-op
   // short-circuit (model "none") or on failure so a wasted call stays free.
-  if (!(await reserveAiActionSafe(ownerId, quota.limit))) {
+  if (!(await reserveAiActionSafe(ownerId, quota))) {
     return c.json({ error: QUOTA_EXHAUSTED_MESSAGE }, 429);
   }
   try {
@@ -2896,7 +2896,7 @@ flipdeskAutolisterRoutes.post("/platform-fields", async (c) => {
   try {
     // One billed action covers ALL requested platforms (single generation
     // pass) — reserved atomically before the call, refunded on failure.
-    const result = await withAiAction(ownerId, quota.limit, () =>
+    const result = await withAiAction(ownerId, quota, () =>
       generatePlatformVariants(itemId, ownerId, platforms));
     // US-745: attach each platform's field spec (display label + per-field
     // char limits + required flags + photo cap + the "verify these" source

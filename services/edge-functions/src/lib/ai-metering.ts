@@ -22,6 +22,52 @@ import { supabaseAdmin } from "./supabase.ts";
 export const QUOTA_EXHAUSTED_MESSAGE =
   "You've used all your AI actions for this month. Your allowance resets at the start of next month.";
 
+/** Same wall, but the seller can buy their way past it right now (US-3138). */
+export const QUOTA_EXHAUSTED_TOP_UP_MESSAGE =
+  "You've used all your AI actions for this month. Top up with Action Credits, " +
+  "or upgrade your plan.";
+
+/**
+ * The seller's own cap is what bit, not the plan's. Deliberately a DIFFERENT
+ * message with no top-up offer: users.ai_action_limit exists to stop runaway
+ * spend, so answering it with "buy more" is the opposite of what it is for.
+ */
+export const SELF_CAP_REACHED_MESSAGE =
+  "You've reached the AI-action limit you set for yourself. Raise it in Settings " +
+  "to keep going.";
+
+/**
+ * US-3138: what a caller is authorized to spend.
+ *
+ * `limit` is the effective monthly cap, already min(plan, self-cap), and -1
+ * means unlimited. `allowCredits` says whether an exhausted allowance may fall
+ * through to the Action Credit wallet.
+ *
+ * allowCredits exists because by the time a limit reaches this layer the plan
+ * cap and the seller's self-imposed cap have been collapsed into one number, so
+ * nothing downstream can tell which one bit. Only checkQuota knows, and hitting
+ * your OWN limit must never silently spend money.
+ */
+export interface AiSpendAuthority {
+  limit: number;
+  allowCredits: boolean;
+}
+
+/** Which pocket paid for a reserved action. 'exhausted' means nothing did. */
+export type AiSpendSource = "allowance" | "credits" | "exhausted";
+
+/**
+ * A bare number stays accepted and means "plan cap, credits allowed", which is
+ * the correct reading for every caller that predates the self-cap distinction.
+ */
+export function toSpendAuthority(
+  authority: number | AiSpendAuthority,
+): AiSpendAuthority {
+  return typeof authority === "number"
+    ? { limit: authority, allowCredits: true }
+    : authority;
+}
+
 /**
  * Has users.ai_actions_used_this_month rolled over — i.e. is the stored counter
  * left from a PRIOR calendar month, making the effective usage 0?
@@ -60,21 +106,38 @@ export function effectiveAiActionsUsed(
 }
 
 /**
- * Atomically reserve one AI action against the monthly cap (-1 = unlimited).
- * Returns true when reserved, false at the cap. THROWS on an rpc failure —
- * callers decide whether that maps to fail-closed (treat as unreserved) or a
- * surfaced error. Most callers want `reserveAiActionSafe`.
+ * Atomically reserve one AI action: monthly allowance first, then the Action
+ * Credit wallet, then refuse. Returns WHICH pocket paid. THROWS on an rpc
+ * failure — callers decide whether that maps to fail-closed or a surfaced
+ * error. Most callers want `reserveAiActionSafe`.
+ *
+ * The fallback lives inside reserve_ai_action_v2's own users-row lock (00763),
+ * not here, because a check-then-act pair at this boundary races and a wallet
+ * debit issued from TypeScript after a separate cap read can double-spend.
+ */
+export async function reserveAiActionSource(
+  ownerId: string,
+  authority: number | AiSpendAuthority,
+): Promise<AiSpendSource> {
+  const { limit, allowCredits } = toSpendAuthority(authority);
+  const { data, error } = await supabaseAdmin.rpc("reserve_ai_action_v2", {
+    p_user_id: ownerId,
+    p_limit: limit,
+    p_allow_credits: allowCredits,
+  });
+  if (error) throw new Error(`Quota reservation failed: ${error.message}`);
+  return data === "allowance" || data === "credits" ? data : "exhausted";
+}
+
+/**
+ * Reserve one AI action. True when something paid for it, from either pocket.
+ * THROWS on an rpc failure; most callers want `reserveAiActionSafe`.
  */
 export async function reserveAiAction(
   ownerId: string,
-  limit: number,
+  authority: number | AiSpendAuthority,
 ): Promise<boolean> {
-  const { data, error } = await supabaseAdmin.rpc("reserve_ai_action", {
-    p_user_id: ownerId,
-    p_limit: limit,
-  });
-  if (error) throw new Error(`Quota reservation failed: ${error.message}`);
-  return data === true;
+  return (await reserveAiActionSource(ownerId, authority)) !== "exhausted";
 }
 
 /**
@@ -83,10 +146,10 @@ export async function reserveAiAction(
  */
 export async function reserveAiActionSafe(
   ownerId: string,
-  limit: number,
+  authority: number | AiSpendAuthority,
 ): Promise<boolean> {
   try {
-    return await reserveAiAction(ownerId, limit);
+    return await reserveAiAction(ownerId, authority);
   } catch (err) {
     console.error(
       "[ai-metering] reserve_ai_action failed:",
@@ -96,7 +159,17 @@ export async function reserveAiActionSafe(
   }
 }
 
-/** Return a reserved action to the pool when the work it paid for failed. */
+/**
+ * Return a reserved action to whichever pocket paid for it.
+ *
+ * The signature is deliberately unchanged from before Action Credits, because
+ * about thirty call sites use it and none of them know the source. The routing
+ * is decided in SQL: refund_ai_action (00763) reads
+ * users.ai_actions_credit_paid_this_month and returns a credit to the wallet
+ * while any credit-paid action remains this month, otherwise decrements the
+ * monthly counter as it always did. Credits are only ever spent AFTER the
+ * allowance is gone, so LIFO is the right reading.
+ */
 export async function refundAiAction(ownerId: string): Promise<void> {
   const { error } = await supabaseAdmin.rpc("refund_ai_action", {
     p_user_id: ownerId,
@@ -115,7 +188,10 @@ export class AiQuotaExhaustedError extends Error {
 }
 
 interface MeterDeps {
-  reserve: (ownerId: string, limit: number) => Promise<boolean>;
+  reserve: (
+    ownerId: string,
+    authority: number | AiSpendAuthority,
+  ) => Promise<boolean>;
   refund: (ownerId: string) => Promise<void>;
 }
 
@@ -131,11 +207,11 @@ interface MeterDeps {
  */
 export async function withAiAction<T>(
   ownerId: string,
-  limit: number,
+  authority: number | AiSpendAuthority,
   fn: () => Promise<T>,
   deps: MeterDeps = { reserve: reserveAiActionSafe, refund: refundAiAction },
 ): Promise<T> {
-  const reserved = await deps.reserve(ownerId, limit);
+  const reserved = await deps.reserve(ownerId, authority);
   if (!reserved) throw new AiQuotaExhaustedError();
   try {
     return await fn();

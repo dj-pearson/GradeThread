@@ -13,7 +13,9 @@
 -- limit=-1 both leave the wallet untouched; the legacy 2-arg call still returns
 -- a boolean; grant and clawback are idempotent; clawback clamps at zero; the
 -- ledger running sum matches balance_after on every row; and a month rollover
--- zeroes both counters.
+-- zeroes both counters. Case 12 is the security one: all seven money functions
+-- must refuse an authenticated (non-service-role) caller, or any logged-in
+-- seller can rpc grant_action_credits with their own id and mint a wallet.
 
 BEGIN;
 \set QUIET on
@@ -80,4 +82,54 @@ UPDATE public.users SET ai_actions_used_this_month = 9, ai_actions_credit_paid_t
 SELECT public.reserve_ai_action_v2(:u::uuid, 2) AS r11;
 SELECT ai_actions_used_this_month AS used, ai_actions_credit_paid_this_month AS credit_paid
   FROM public.users WHERE id = :u::uuid;
+\echo '--- 12. US-3008: an AUTHENTICATED caller cannot mint themselves credits'
+-- The whole point of the service-role guard. Without it, any logged-in seller
+-- could rpc grant_action_credits with their own id and hand themselves a
+-- thousand credits. psql has no JWT, so auth.role() is NULL and the guard lets
+-- the ops path through; setting request.jwt.claims is how a PostgREST call with
+-- an authenticated key looks to these functions.
+SET LOCAL request.jwt.claims = '{"role":"authenticated","sub":"11111111-1111-1111-1111-111111111111"}';
+DO $$
+DECLARE
+  v_blocked int := 0;
+BEGIN
+  BEGIN
+    PERFORM public.grant_action_credits(
+      '11111111-1111-1111-1111-111111111111'::uuid, 1000, 'purchase','stripe','forged','free money');
+  EXCEPTION WHEN insufficient_privilege THEN v_blocked := v_blocked + 1;
+  END;
+  BEGIN
+    PERFORM public.debit_action_credits(
+      '11111111-1111-1111-1111-111111111111'::uuid, 1, 'ai_action', 'x');
+  EXCEPTION WHEN insufficient_privilege THEN v_blocked := v_blocked + 1;
+  END;
+  BEGIN
+    PERFORM public.refund_action_credits(
+      '11111111-1111-1111-1111-111111111111'::uuid, 1, 'ai_action', 'x');
+  EXCEPTION WHEN insufficient_privilege THEN v_blocked := v_blocked + 1;
+  END;
+  BEGIN
+    PERFORM public.clawback_action_credits(
+      '11111111-1111-1111-1111-111111111111'::uuid, 1, 'stripe','x','x');
+  EXCEPTION WHEN insufficient_privilege THEN v_blocked := v_blocked + 1;
+  END;
+  BEGIN
+    PERFORM public.reserve_ai_action_v2('11111111-1111-1111-1111-111111111111'::uuid, 999);
+  EXCEPTION WHEN insufficient_privilege THEN v_blocked := v_blocked + 1;
+  END;
+  BEGIN
+    PERFORM public.reserve_ai_action('11111111-1111-1111-1111-111111111111'::uuid, 999);
+  EXCEPTION WHEN insufficient_privilege THEN v_blocked := v_blocked + 1;
+  END;
+  BEGIN
+    PERFORM public.refund_ai_action('11111111-1111-1111-1111-111111111111'::uuid);
+  EXCEPTION WHEN insufficient_privilege THEN v_blocked := v_blocked + 1;
+  END;
+  RAISE NOTICE 'blocked % of 7 money functions for an authenticated caller', v_blocked;
+  IF v_blocked <> 7 THEN
+    RAISE EXCEPTION 'GUARD LEAK: only % of 7 refused an authenticated caller', v_blocked;
+  END IF;
+END;
+$$;
+
 ROLLBACK;

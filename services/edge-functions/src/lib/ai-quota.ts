@@ -12,14 +12,39 @@
 // and a row-locking CAS does not.
 
 import { supabaseAdmin } from "./supabase.ts";
-import { effectiveAiActionsUsed } from "./ai-metering.ts";
+import {
+  effectiveAiActionsUsed,
+  QUOTA_EXHAUSTED_TOP_UP_MESSAGE,
+  SELF_CAP_REACHED_MESSAGE,
+} from "./ai-metering.ts";
+import {
+  ACTION_CREDIT_COSTS,
+  readActionCreditBalanceSafe,
+} from "./action-credits.ts";
 import { effectiveAiCap } from "./plan-gate.ts";
 import { effectivePlanFor } from "./grade-pricing.ts";
 import { getPlanMatrix } from "./pricing-config.ts";
 
 /** The answer to "may this owner spend an AI action, and how many are left". */
 export type QuotaResult =
-  | { ok: true; limit: number; used: number }
+  | {
+    ok: true;
+    limit: number;
+    used: number;
+    /**
+     * US-3138: may an exhausted allowance fall through to the Action Credit
+     * wallet? False ONLY when the seller's own cap (users.ai_action_limit) is
+     * the binding one.
+     *
+     * This flag exists because `limit` above is already min(plan, self-cap), so
+     * by the time it reaches reserve_ai_action_v2 nothing can tell which cap
+     * bit. Hitting your OWN limit must not silently spend money: that limit is
+     * a spending guard, and answering it with a purchase is backwards. Pass the
+     * whole QuotaResult to withAiAction / reserveAiActionSafe rather than
+     * `quota.limit`, or this decision is lost.
+     */
+    allowCredits: boolean;
+  }
   | { ok: false; status: 403 | 404 | 429; body: Record<string, unknown> };
 
 // FlipDesk tier. MUST mirror PLAN_MATRIX.aiActionsPerMonth in plan-gate.ts
@@ -37,6 +62,28 @@ export const AI_ACTION_LIMITS: Record<string, number> = {
   pro: 750,
   business: 2000,
 };
+
+/**
+ * US-3138: may an exhausted allowance fall through to the Action Credit wallet?
+ *
+ * The seller's self-cap (users.ai_action_limit) only ever LOWERS the plan's
+ * cap -- effectiveAiCap is min(plan, self) -- so the PLAN is the binding
+ * constraint exactly when the self-cap is absent or no tighter than it. When
+ * the self-cap is the tighter one, hitting it must refuse rather than spend:
+ * that setting exists to stop runaway spend, and answering it with a purchase
+ * is backwards.
+ *
+ * Pure and exported so the rule is a named thing with its own tests, rather
+ * than a comparison buried in the middle of checkQuota where a later edit can
+ * invert it without anyone noticing.
+ */
+export function creditsAllowedFor(
+  planLimit: number,
+  userLimit: number | null | undefined,
+): boolean {
+  if (userLimit == null) return true;
+  return userLimit >= planLimit;
+}
 
 // Checks AI enablement + monthly cap for a user. `pending` lets a batch
 // caller account for actions it is about to consume in the same request.
@@ -63,7 +110,12 @@ export async function checkQuota(
   // everywhere else. Scoped strictly to 'super_admin' — 'admin'/'reviewer'
   // accounts stay on their plan's allowance. -1 = unlimited.
   if (user.role === "super_admin") {
-    return { ok: true, limit: -1, used: user.ai_actions_used_this_month ?? 0 };
+    return {
+      ok: true,
+      limit: -1,
+      used: user.ai_actions_used_this_month ?? 0,
+      allowCredits: false, // unlimited never reaches the wallet
+    };
   }
   if (!user.ai_enrichment_enabled) {
     return {
@@ -113,15 +165,52 @@ export async function checkQuota(
     user.ai_actions_used_this_month,
     user.ai_actions_reset_at,
   );
+  const allowCredits = creditsAllowedFor(planLimit, user.ai_action_limit);
+
   if (limit !== -1 && used + pending >= limit) {
+    // US-3138: the allowance is gone, but that is no longer the end of it. Ask
+    // the wallet before refusing, or a seller who has already paid gets a 429
+    // for actions they own.
+    //
+    // Credits needed = (pending + 1) - (limit - used): the caller wants one
+    // more beyond what it has already accounted for, and only the part that
+    // does not fit in the allowance costs a credit.
+    if (allowCredits) {
+      const shortfall = used + pending + 1 - limit;
+      const needed = shortfall * ACTION_CREDIT_COSTS.ai_action;
+      const balance = await readActionCreditBalanceSafe(ownerId);
+      if (balance >= needed) {
+        // reserve_ai_action_v2 is still the enforcement point and will refuse
+        // per-action if the wallet empties mid-batch. This only says "do not
+        // stop them here".
+        return { ok: true, limit, used, allowCredits };
+      }
+      return {
+        ok: false,
+        status: 429,
+        body: {
+          error: QUOTA_EXHAUSTED_TOP_UP_MESSAGE,
+          actions_remaining: Math.max(0, limit - used),
+          can_top_up: true,
+          credit_balance: balance,
+          credits_needed: needed,
+        },
+      };
+    }
+
+    // The seller's own limit is what bit. Different message, no offer to sell
+    // them anything, and the number they set so they can find it in Settings.
     return {
       ok: false,
       status: 429,
       body: {
-        error: `You've used all ${limit} AI actions for this month. Your allowance resets at the start of next month.`,
+        error: SELF_CAP_REACHED_MESSAGE,
         actions_remaining: Math.max(0, limit - used),
+        can_top_up: false,
+        self_limit: limit,
+        plan_limit: planLimit,
       },
     };
   }
-  return { ok: true, limit, used };
+  return { ok: true, limit, used, allowCredits };
 }
