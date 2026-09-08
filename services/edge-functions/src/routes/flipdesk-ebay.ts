@@ -354,6 +354,11 @@ import {
   type ListingQualityScore,
 } from "../lib/listing-quality-score.ts";
 import { resolveShipBy } from "../lib/ship-deadline.ts";
+import { sourcingCosts } from "../lib/sourcing-target.ts";
+import {
+  DEFAULT_SOURCING_GRADING_CENTS,
+  DEFAULT_SOURCING_SHIPPING_CENTS,
+} from "../lib/scout-decision.ts";
 import { loadFulfillmentSignals } from "../lib/business-policy-signals.ts";
 import {
   getAllActiveEbaySelling,
@@ -11567,10 +11572,13 @@ flipdeskEbayRoutes.get("/negotiation/offers", async (c) => {
     // dollars, matching the eBay offer/counter price units.
     const itemIds = [...new Set(offers.map((o) => o.itemId).filter(Boolean))];
     const costByItemId = new Map<string, number>();
+    const gradedItemIds = new Set<string>();
     if (itemIds.length > 0) {
       const { data: rows } = await supabaseAdmin
         .from("listings")
-        .select("platform_listing_id, inventory_items!inner(user_id, acquired_price)")
+        .select(
+          "platform_listing_id, inventory_items!inner(user_id, acquired_price, grade_value)",
+        )
         .eq("platform", "ebay")
         .in("platform_listing_id", itemIds)
         .eq("inventory_items.user_id", userId);
@@ -11579,8 +11587,8 @@ flipdeskEbayRoutes.get("/negotiation/offers", async (c) => {
         // PostgREST returns a to-one embed as an object, but supabase-js types it
         // as an array — accept either.
         inventory_items:
-          | { acquired_price: number | null }
-          | { acquired_price: number | null }[]
+          | { acquired_price: number | null; grade_value: number | null }
+          | { acquired_price: number | null; grade_value: number | null }[]
           | null;
       };
       for (const r of (rows ?? []) as unknown as CostRow[]) {
@@ -11590,6 +11598,12 @@ flipdeskEbayRoutes.get("/negotiation/offers", async (c) => {
         const cost = inv?.acquired_price;
         if (r.platform_listing_id && typeof cost === "number") {
           costByItemId.set(r.platform_listing_id, cost);
+        }
+        // US-3194: whether this item was actually graded decides whether the
+        // grading fee belongs in the net figure at all. An ungraded item that
+        // was charged one would show a smaller net than the sale really makes.
+        if (r.platform_listing_id && typeof inv?.grade_value === "number") {
+          gradedItemIds.add(r.platform_listing_id);
         }
       }
     }
@@ -11611,9 +11625,19 @@ flipdeskEbayRoutes.get("/negotiation/offers", async (c) => {
       userId,
       offers.map((o) => incomingOfferToInput(o, listPrices.get(o.itemId))),
     );
+    // US-3194: the two costs the margin on this screen used to ignore. Postage
+    // and the grading fee come from the seller's own sourcing settings (00770),
+    // read once for the whole page rather than per offer — they are the seller's
+    // standing figures for a garment, not facts about one listing, and an unsold
+    // item has no actual postage to look up because it has no destination yet.
+    const sourcing = await sourcingCosts(userId);
+    const shippingCost = (sourcing.shippingCents ?? DEFAULT_SOURCING_SHIPPING_CENTS) / 100;
+    const gradingCost = (sourcing.gradingCents ?? DEFAULT_SOURCING_GRADING_CENTS) / 100;
     const enriched = offers.map((o) => ({
       ...o,
       itemCost: costByItemId.get(o.itemId) ?? null,
+      shippingCost,
+      gradingCost: gradedItemIds.has(o.itemId) ? gradingCost : null,
       listPriceCents: listPrices.get(o.itemId) ?? null,
       buyerHistory: o.buyerUsername ? (buyerHistory.get(o.buyerUsername) ?? null) : null,
     }));

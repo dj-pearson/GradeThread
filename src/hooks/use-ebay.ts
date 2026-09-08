@@ -1677,6 +1677,13 @@ export interface EbayBestOffer {
   // counter input. null when the listing/cost isn't known.
   itemCost?: number | null;
   /**
+   * US-3194: the seller's standing postage figure for a garment, in dollars,
+   * and what grading this item cost. gradingCost is null for an ungraded item,
+   * where the fee is not part of the sale at all.
+   */
+  shippingCost?: number | null;
+  gradingCost?: number | null;
+  /**
    * US-2939: what the listing was asking when the offer landed, in cents.
    *
    * The SNAPSHOT, not today's price — a seller who repriced must not see the

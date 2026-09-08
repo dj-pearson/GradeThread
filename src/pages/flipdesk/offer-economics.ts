@@ -11,11 +11,18 @@
 // must not be able to differ — a rule that skips an offer the screen shows as
 // profitable is a rule the seller will switch off and never trust again.
 //
+// US-3194 added `netMarginCents` beside it, which subtracts eBay's cut, the
+// postage and the grading fee. The gross functions stay because the rules
+// engine's margin FLOOR is defined against cost alone; the net figures are what
+// the seller reads.
+//
 // ── UNKNOWN IS NOT ZERO ─────────────────────────────────────────────────────
 //
 // Every function here returns null rather than a number when an input is
 // missing. An item with no recorded cost has an UNKNOWN margin, and rendering
 // that as $0.00 or as 100% is a confident lie next to an Accept button.
+
+import { ebayFeesFor } from "@/lib/ebay-fees";
 
 export interface OfferEconomicsInput {
   /** The buyer's offer, in dollars. */
@@ -24,6 +31,13 @@ export interface OfferEconomicsInput {
   listPrice: number | null | undefined;
   /** Acquisition cost in dollars, or null when the item has none recorded. */
   itemCost: number | null | undefined;
+  /**
+   * US-3194: what it costs to send this garment, in dollars. Null when neither
+   * the item nor a seller default supplies one.
+   */
+  shippingCost?: number | null;
+  /** US-3194: what grading this item cost, in dollars. Null when it was not graded. */
+  gradingCost?: number | null;
 }
 
 function usable(n: number | null | undefined): n is number {
@@ -45,6 +59,38 @@ export function grossMarginCents(input: OfferEconomicsInput): number | null {
 /** That margin as a percent of the offer, to 0.1. Null when the cost is unknown. */
 export function marginPct(input: OfferEconomicsInput): number | null {
   const cents = grossMarginCents(input);
+  if (cents == null || !usable(input.offerPrice)) return null;
+  return Math.round((cents / (input.offerPrice * 100)) * 1000) / 10;
+}
+
+// ── US-3194: what actually lands ────────────────────────────────────────────
+//
+// The gross figures above subtract the acquisition cost and nothing else, so an
+// offer that loses money after eBay's cut and the postage reads as profitable
+// right beside an Accept button. eBay takes 13.6% plus $0.40 on a $36 offer,
+// which is $5.30 — on a garment that cost $12 with $8.30 postage, gross margin
+// says $24.00 and the sale actually nets $10.40.
+//
+// SAME NULL RULE AS THE GROSS FUNCTIONS, for the same reason: an unknown input
+// makes the answer unknown, and rendering an unknown as a number next to an
+// Accept button is a confident lie. Shipping and grading are optional inputs
+// and an ABSENT one costs zero, because "this item was not graded" and "we do
+// not know what grading cost" are the same thing here and both mean the grading
+// line is not part of this sale.
+
+/** Net after eBay's fees, shipping and grading, in cents. Null when unknowable. */
+export function netMarginCents(input: OfferEconomicsInput): number | null {
+  if (!usable(input.offerPrice) || !usable(input.itemCost)) return null;
+  const fees = ebayFeesFor(input.offerPrice);
+  const shipping = usable(input.shippingCost) ? input.shippingCost : 0;
+  const grading = usable(input.gradingCost) ? input.gradingCost : 0;
+  const net = input.offerPrice - fees - input.itemCost - shipping - grading;
+  return Math.round(net * 100);
+}
+
+/** That net as a percent of the offer, to 0.1. Null when the cost is unknown. */
+export function netMarginPct(input: OfferEconomicsInput): number | null {
+  const cents = netMarginCents(input);
   if (cents == null || !usable(input.offerPrice)) return null;
   return Math.round((cents / (input.offerPrice * 100)) * 1000) / 10;
 }
