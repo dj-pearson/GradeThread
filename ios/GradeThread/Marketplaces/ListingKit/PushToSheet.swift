@@ -29,16 +29,20 @@ struct PushToSheet: View {
 
     private let service: CrossPushProviding
 
+    /// Same rule as ``CrossPushService/init(queue:)``: a default argument is
+    /// nonisolated, and `CrossPushService` is @MainActor. Defaulting to nil and
+    /// building it in the body keeps the injection point and compiles.
+    @MainActor
     init(
         listingId: String,
         itemId: String,
         listingPrice: Double?,
-        service: CrossPushProviding = CrossPushService()
+        service: CrossPushProviding? = nil
     ) {
         self.listingId = listingId
         self.itemId = itemId
         self.listingPrice = listingPrice
-        self.service = service
+        self.service = service ?? CrossPushService()
     }
 
     var body: some View {

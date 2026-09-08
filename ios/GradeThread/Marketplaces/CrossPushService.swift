@@ -79,8 +79,13 @@ protocol CrossPushProviding {
 struct CrossPushService: CrossPushProviding {
     private let queue: ExtensionQueueService
 
-    init(queue: ExtensionQueueService = ExtensionQueueService()) {
-        self.queue = queue
+    /// `nil` rather than a default-constructed service: a default ARGUMENT is
+    /// evaluated in a nonisolated context even here, so calling
+    /// `ExtensionQueueService()` (a @MainActor class) in the signature does not
+    /// compile. The init BODY is main-actor isolated, so it belongs there.
+    /// Injection still works exactly as before.
+    init(queue: ExtensionQueueService? = nil) {
+        self.queue = queue ?? ExtensionQueueService()
     }
 
     func push(_ request: CrossPushRequest) async throws -> CrossPushResponse {

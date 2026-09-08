@@ -446,14 +446,16 @@ struct ListingDraftService {
                     return_policy_id: edits.returnPolicyId,
                     shipping_policy_id: edits.shippingPolicyId,
                     payment_policy_id: edits.paymentPolicyId,
-                    quantity: edits.quantity,
                     promo_opt_out: edits.promoteEnabled.map { !$0 },
                     promo_rate_pct: edits.promoteEnabled == true ? edits.promoRatePct : nil,
                     best_offer_enabled: bestOfferEnabled,
                     best_offer_auto_accept_cents: acceptCents,
                     best_offer_auto_decline_cents: declineCents,
                     schedule: edits.schedule,
-                    format: format
+                    format: format,
+                    // Last, because `quantity` is the last field on Update. A
+                    // memberwise init takes its arguments in declaration order.
+                    quantity: edits.quantity
                 ))
                 .eq("id", value: row.id)
                 .execute()
@@ -522,9 +524,12 @@ struct ListingDraftService {
                     auction_start_price_cents: format.startCents,
                     auction_reserve_price_cents: format.reserveCents,
                     auction_buy_it_now_price_cents: format.buyItNowCents,
+                    // Before auction_duration, because that is where
+                    // `quantity` sits on Insert. Same rule as above, opposite
+                    // direction.
+                    quantity: edits.quantity,
                     auction_duration: format.duration,
-                    variations: format.variations,
-                    quantity: edits.quantity
+                    variations: format.variations
                 ))
                 .execute()
         }
