@@ -70,6 +70,7 @@ import {
 } from "./routes/flipdesk-autolister.ts";
 import { handleGradingBatchReclaimCron } from "./lib/grading-batch-worker.ts";
 import { flipdeskGooglePhotosRoutes } from "./routes/flipdesk-google-photos.ts";
+import { flipdeskCloudFolderRoutes } from "./routes/flipdesk-cloud-folders.ts";
 import { flipdeskGoogleRoutes } from "./routes/flipdesk-google.ts";
 import { flipdeskGoogleSyncRoutes } from "./routes/flipdesk-google-sync.ts";
 import { flipdeskDisclosureRoutes } from "./routes/flipdesk-disclosure.ts";
@@ -638,6 +639,14 @@ app.use("/api/flipdesk/google/photos/oauth/start", authMiddleware);
 app.use("/api/flipdesk/google/photos/poll", authMiddleware);
 app.use("/api/flipdesk/google/photos/import", authMiddleware);
 app.use("/api/flipdesk/google/photos/config", authMiddleware);
+// US-3159/US-3160: cloud folder import. Every path is user-authed EXCEPT
+// /:provider/oauth/callback, which the provider redirects the browser to with
+// no session — the single-use state row identifies the user there.
+app.use("/api/flipdesk/cloud/providers", authMiddleware);
+app.use("/api/flipdesk/cloud/:provider/oauth/start", authMiddleware);
+app.use("/api/flipdesk/cloud/:provider/list", authMiddleware);
+app.use("/api/flipdesk/cloud/:provider/import", authMiddleware);
+app.use("/api/flipdesk/cloud/:provider/disconnect", authMiddleware);
 // Google Sheets sync (US-146) — everything authed EXCEPT /oauth/callback
 // (Google redirects the browser there unauthenticated; the single-use `state`
 // row identifies the user). Listed per-path so the wildcard can't shadow the
@@ -745,6 +754,8 @@ app.use("/api/flipdesk/autolister/*", workspaceMiddleware);
 // Only /oauth/start needs the workspace owner (to stage imports under the
 // owner); /poll + /import resolve the owner from the session row.
 app.use("/api/flipdesk/google/photos/oauth/start", workspaceMiddleware);
+app.use("/api/flipdesk/cloud/:provider/oauth/start", workspaceMiddleware);
+app.use("/api/flipdesk/cloud/:provider/import", workspaceMiddleware);
 // Google Sheets sync — workspace-scope every user-authed route so the grant
 // and sync sheet live under the workspace owner (mirrors the eBay wiring).
 app.use("/api/flipdesk/google/oauth/start", workspaceMiddleware);
@@ -1451,6 +1462,7 @@ app.route("/api/flipdesk/product", flipdeskProductRoutes);
 app.route("/api/flipdesk/templates", flipdeskTemplatesRoutes);
 app.route("/api/flipdesk/autolister", flipdeskAutolisterRoutes);
 app.route("/api/flipdesk/google/photos", flipdeskGooglePhotosRoutes);
+app.route("/api/flipdesk/cloud", flipdeskCloudFolderRoutes);
 app.route("/api/flipdesk/google", flipdeskGoogleRoutes);
 app.route("/api/flipdesk/google", flipdeskGoogleSyncRoutes);
 app.route("/api/flipdesk/disclosure", flipdeskDisclosureRoutes);

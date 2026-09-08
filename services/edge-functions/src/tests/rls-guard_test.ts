@@ -300,6 +300,14 @@ const SERVICE_ROLE_ONLY = new Set([
   // and read ONLY by the service-role edge client; the SPA never touches it
   // (migration 00089 documents "all access via the service-role edge client").
   "google_photos_import_sessions",
+  // US-3159/US-3160: the single-use OAuth state for a Dropbox or OneDrive
+  // connect. RLS enabled, zero policies by design (migration 00766). Deny-all
+  // in both directions and the WRITE side is the one that matters: a caller who
+  // could insert a state row could point somebody else's finished OAuth callback
+  // at their own user id and end up holding a connection to a stranger's cloud
+  // folder. The row is written, read once and deleted by the service-role edge
+  // client within minutes; the SPA never touches it.
+  "cloud_storage_oauth_states",
   // Apple IAP consumable dedup ledger: RLS enabled, zero policies by design
   // (migration 00104 documents "service-role only: deny-all to anon/auth"). It
   // is written only by the grant_appstore_credits SECURITY DEFINER RPC via the

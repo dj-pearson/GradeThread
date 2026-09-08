@@ -8484,3 +8484,68 @@ Deno.test({
     );
   },
 });
+
+Deno.test({
+  // US-3159: the cloud folder grant belongs to the PERSON, not the workspace.
+  // B asking for A's Dropbox listing must not reach A's grant — and the route
+  // keys the connection lookup on the caller's own userId, so B with no
+  // connection of their own gets a clean 409 rather than A's folder.
+  //
+  // The damage if it were not: a workspace member would be able to read every
+  // photo in a colleague's personal Dropbox, which is a folder the colleague
+  // never shared and that holds far more than listing shots.
+  name: "B cannot list a cloud folder through another person's connection",
+  ignore: !CONFIGURED,
+  fn: async () => {
+    const res = await fetch(`${BASE}/api/flipdesk/cloud/dropbox/list?path=`, {
+      headers: authHeaders(B_JWT!),
+    });
+    await res.body?.cancel();
+    // 409 = "you have not connected Dropbox", which is the correct answer for a
+    // caller whose own userId has no row. 503 = the deploy has no Dropbox
+    // credentials at all. 404 would mean the provider is unknown. What must
+    // never happen is a 200 carrying somebody else's folder.
+    assert(
+      res.status === 409 || res.status === 503 || res.status === 404 || res.status === 402,
+      `cloud list as B returned ${res.status}; expected a not-connected or ` +
+        "not-configured refusal, never a folder",
+    );
+  },
+});
+
+Deno.test({
+  // The import side of the same route. `paths` comes from the request body,
+  // which is exactly the shape US-268 exists for: a caller-supplied
+  // identifier that must be resolved through the caller's OWN grant.
+  name: "B cannot import cloud files through another person's connection",
+  ignore: !CONFIGURED,
+  fn: async () => {
+    const res = await fetch(`${BASE}/api/flipdesk/cloud/dropbox/import`, {
+      method: "POST",
+      headers: authHeaders(B_JWT!),
+      body: JSON.stringify({ paths: ["/camera uploads/tenant-isolation-probe.jpg"] }),
+    });
+    await res.body?.cancel();
+    assert(
+      res.status === 409 || res.status === 503 || res.status === 404 || res.status === 402,
+      `cloud import as B returned ${res.status}; expected a not-connected or ` +
+        "not-configured refusal, never an import",
+    );
+  },
+});
+
+Deno.test({
+  // No credentials at all. The OAuth start mints a state row that decides which
+  // account a finished callback attaches a cloud grant to; an anonymous caller
+  // able to mint one could aim somebody else's callback at their own user id.
+  name: "an unauthenticated caller cannot start a cloud folder connection",
+  ignore: !CONFIGURED,
+  fn: async () => {
+    const res = await fetch(`${BASE}/api/flipdesk/cloud/dropbox/oauth/start`);
+    await res.body?.cancel();
+    assert(
+      res.status === 401 || res.status === 403,
+      `unauthenticated cloud oauth/start returned ${res.status}; expected 401/403`,
+    );
+  },
+});

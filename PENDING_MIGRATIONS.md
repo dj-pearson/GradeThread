@@ -1,5 +1,45 @@
 # PENDING MIGRATIONS — applied to prod separately from the push
 
+## ⏳ 00766 — cloud_storage_connections + cloud_storage_oauth_states (US-3159)
+
+**Risk: LOW.** Two brand-new tables. Nothing existing is touched: no column is
+added to a live table, no enum is extended, no row is rewritten, and no current
+query changes shape.
+
+**Apply order:** after 00765. Run `NOTIFY pgrst, 'reload schema';` afterwards
+(two new tables), then redeploy the edge.
+
+**What it adds**
+- `cloud_storage_connections` — one OAuth grant per user per provider for
+  importing photos out of a folder they already keep. Both token columns are
+  AES-GCM ciphertext (AAD = user_id). RLS on, owner may SELECT its own row, all
+  writes service-role.
+- `cloud_storage_oauth_states` — single-use state for the OAuth round trip.
+  RLS on with ZERO policies by design; registered in `SERVICE_ROLE_ONLY` in
+  `rls-guard_test.ts` in the same commit.
+- A named CHECK constraint on `provider`, currently `('dropbox','onedrive')`.
+  Named rather than inline so US-3160 and any later provider can drop and re-add
+  it instead of fighting a generated constraint name that differs per database.
+
+**DEPLOY ORDER MATTERS ONE WAY ONLY.** The edge reads and writes both tables
+(`routes/flipdesk-cloud-folders.ts`). On a database without them every cloud
+route answers 500, so the migration lands BEFORE the edge deploys; the
+schema-version boot guard enforces that, since EXPECTED_SCHEMA_VERSION moves to
+00766 in the same commit.
+
+**Client side is safe either way, and is inert until an operator acts.** The
+SPA asks `/api/flipdesk/cloud/providers`, which returns an EMPTY list unless
+`DROPBOX_CLIENT_ID` and `DROPBOX_CLIENT_SECRET` are set on the edge. With those
+unset — which is the state today — no button renders at all, so a Cloudflare
+Pages deploy landing before the migration changes nothing a seller can see.
+
+**OPERATOR, before this does anything:** register a Dropbox app at
+https://www.dropbox.com/developers/apps with scopes files.metadata.read,
+files.content.read and account_info.read, add
+`https://functions.gradethread.com/api/flipdesk/cloud/dropbox/oauth/callback` to
+its redirect URIs, then set `DROPBOX_CLIENT_ID` and `DROPBOX_CLIENT_SECRET` in
+Coolify.
+
 ## ⏳ 00765 — notification_type 'delist_needed' (US-3144)
 
 **Risk: LOW.** One enum value. Nothing is dropped, nothing is rewritten, and no

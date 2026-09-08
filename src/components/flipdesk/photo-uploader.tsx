@@ -8,6 +8,7 @@ import {
   Camera,
   Pencil,
   ImagePlus,
+  FolderOpen,
   Images,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -26,6 +27,8 @@ import {
   type GooglePhotosImportedPhoto,
   useGooglePhotosImport,
 } from "@/hooks/use-google-photos-import";
+import { useCloudFolderImport } from "@/hooks/use-cloud-folder-import";
+import { CloudFolderDialog } from "@/components/flipdesk/cloud-folder-dialog";
 import type { MacroQualityAssessment } from "@/lib/macro-photo-quality";
 import { captureGuidanceFor } from "@/lib/macro-capture-guidance";
 import { ItemPhotoImg } from "@/components/flipdesk/item-photo-img";
@@ -280,14 +283,19 @@ export function PhotoUploader({
   // magic-byte sniff, the metadata strip, the provisional tagging and the
   // "photographed" status advance all still happen. It costs a round trip per
   // photo and buys a second upload path that cannot drift from the first.
-  async function importGooglePhotos(imported: GooglePhotosImportedPhoto[]) {
+  // US-3159 widened the parameter: a photo staged by the Google Photos import
+  // and one staged by a cloud folder import are the same two fields, and the
+  // second source must not grow a second copy of this.
+  async function importStagedPhotos(
+    imported: readonly Pick<GooglePhotosImportedPhoto, "url" | "storagePath">[],
+  ) {
     const files: File[] = [];
     for (const p of imported) {
       try {
         const res = await fetch(p.url);
         if (!res.ok) continue;
         const blob = await res.blob();
-        const name = p.storagePath.split("/").pop() || "google-photo.jpg";
+        const name = p.storagePath.split("/").pop() || "imported-photo.jpg";
         files.push(new File([blob], name, { type: blob.type || "image/jpeg" }));
       } catch {
         // One unreadable staged file must not sink the rest of the chunk;
@@ -299,9 +307,21 @@ export function PhotoUploader({
 
   const googlePhotos = useGooglePhotosImport({
     enabled: true,
-    onPhotos: importGooglePhotos,
+    onPhotos: importStagedPhotos,
     stoppedMessage: "Stopped — the photos already added are in this item.",
   });
+
+  // US-3159/US-3160: the cloud folders, in the SAME surface as Google Photos
+  // rather than a second panel. `providers` is empty on a deploy with no cloud
+  // credentials, so nothing renders at all — a button that cannot work is worse
+  // than no button.
+  const [cloudOpen, setCloudOpen] = useState<string | null>(null);
+  const cloud = useCloudFolderImport({
+    enabled: true,
+    onPhotos: importStagedPhotos,
+    onFinished: () => setCloudOpen(null),
+  });
+  const openCloudProvider = cloud.providers.find((p) => p.id === cloudOpen) ?? null;
 
   async function remove(photo: ItemPhotoRow) {
     try {
@@ -474,7 +494,39 @@ export function PhotoUploader({
                 : "Import from Google Photos"}
           </Button>
         )}
+        {/* US-3159/US-3160: one row per cloud folder this deploy offers. A
+            provider the seller has not connected shows the connect step
+            instead, so the two states are never mistaken for each other. */}
+        {cloud.providers.map((p) => (
+          <Button
+            key={p.id}
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="mt-2 w-full"
+            disabled={bulkBusy != null || cloud.importing}
+            onClick={() => (p.connected ? setCloudOpen(p.id) : cloud.connect(p.id))}
+          >
+            <FolderOpen className="mr-2 h-4 w-4" />
+            {p.connected ? `Import from ${p.label}` : `Connect ${p.label}`}
+          </Button>
+        ))}
       </div>
+      {openCloudProvider && (
+        <CloudFolderDialog
+          open
+          onOpenChange={(next) => {
+            if (!next) setCloudOpen(null);
+          }}
+          providerId={openCloudProvider.id}
+          providerLabel={openCloudProvider.label}
+          browse={cloud.browse}
+          onImport={(paths) => void cloud.runImport(openCloudProvider.id, paths)}
+          importing={cloud.importing}
+          progress={cloud.progress}
+          onCancel={cloud.cancel}
+        />
+      )}
 
       {showSlots && (
         <>

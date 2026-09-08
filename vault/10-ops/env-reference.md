@@ -461,6 +461,7 @@ The first three are a **feature group** (`quickbooks`) on `/health/ready`, so an
 | `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` 🔒 | ⬜ Coolify edge | General Google OAuth client (shared base for integrations). |
 | `GOOGLE_PHOTOS_CLIENT_ID` / `_SECRET` 🔒 / `_REDIRECT_URI` | ⬜ Coolify edge | Google Photos import OAuth (the `google_photos` boot feature). |
 | `GOOGLE_SHEETS_CLIENT_ID` / `_SECRET` 🔒 / `_REDIRECT_URI` | ⬜ Coolify edge | Google Sheets export OAuth (the `google_sheets` boot feature). |
+| `DROPBOX_CLIENT_ID` / `_CLIENT_SECRET` 🔒 / `_REDIRECT_URI` | ⬜ Coolify edge | Dropbox folder import (US-3159). Scopes are read-only: files.metadata.read + files.content.read + account_info.read. Unset = the Dropbox source is absent from the UI, not broken. |
 | `GOOGLE_ADS_DEVELOPER_TOKEN` 🔒 | ⬜ Coolify edge | Google Ads API developer token. Must be APPROVED by Google, not merely issued. |
 | `GOOGLE_ADS_CLIENT_ID` / `_CLIENT_SECRET` 🔒 / `_REFRESH_TOKEN` 🔒 | ⬜ Coolify edge | Google Ads OAuth client + offline refresh token. No fallback to the shared `GOOGLE_CLIENT_*`, unlike Photos and Sheets. |
 
