@@ -34,10 +34,20 @@ import {
 } from "./sell-through.ts";
 import { describeValueBasis, type ValueBasis } from "./value-disclosure.ts";
 
-// What backs a recommendation, best → weakest. The first two are realized
+// What backs a recommendation, best → weakest. The first THREE are realized
 // sales; "active_estimated" means we fell back to active asking prices and the
 // price is an estimate (price_is_estimated stays true downstream).
-export type PricingBasis = "ebay_sold" | "private_sales" | "active_estimated";
+//
+// US-3136 added "pooled_sales" to CompSource (sold-comps.ts) without widening
+// this union or PriceCompSource in ai-listing.ts, which broke `deno check` on
+// main. Pooled comps ARE realized sales -- that is the whole point of them --
+// so they belong on the sold-backed side of the line, ranked below the seller's
+// own private sales.
+export type PricingBasis =
+  | "ebay_sold"
+  | "private_sales"
+  | "pooled_sales"
+  | "active_estimated";
 
 export interface CompSet {
   source: PricingBasis;

@@ -204,11 +204,13 @@ import {
 } from "./description-blocks.ts";
 
 // US-542: where a draft's suggested price came from. Only the sold-backed
-// sources (private_sales, ebay_sold) justify price_is_estimated=false.
+// sources (private_sales, pooled_sales, ebay_sold) justify
+// price_is_estimated=false.
 export type PriceCompSource =
   | "ai_estimate"
   | "active_asking"
   | "private_sales"
+  | "pooled_sales"
   | "ebay_sold";
 
 // Active-comp confidence: lower than realized-comp confidence because asking

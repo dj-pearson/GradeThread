@@ -12,14 +12,19 @@
 // issues its own eBay call.
 
 import { supabaseAdmin } from "./supabase.ts";
-import { getRealizedComps, MIN_SOLD_COMPS } from "./sold-comps.ts";
+import { type CompSource, getRealizedComps, MIN_SOLD_COMPS } from "./sold-comps.ts";
 
 // deno-lint-ignore no-explicit-any
 export type CompsDb = any;
 
 export interface CompsAnswer {
-  /** Where the realized prices came from. */
-  source: "ebay_sold" | "private_sales";
+  /**
+   * Where the realized prices came from. Reuses sold-comps' own CompSource
+   * rather than restating its members: this is a PUBLIC /api/v1 response field,
+   * and a hand-copied union silently drops a new source instead of failing the
+   * build. US-3136 added "pooled_sales" and this list did not follow.
+   */
+  source: CompSource;
   /** How many realized sales the band is computed from. */
   sample_size: number;
   currency: string;
@@ -77,8 +82,13 @@ export async function compBasisForItem(
 }
 
 function caveatFor(count: number, source: string): string {
+  // US-3136: pooled comps are other sellers' realized sales, not eBay's sold
+  // listings. Falling through to the eBay wording would have described the
+  // source wrongly to the caller, which is the one thing this string is for.
   const window = source === "private_sales"
     ? "the seller's own sales over the last 12 months"
+    : source === "pooled_sales"
+    ? "realized sales contributed by other GradeThread sellers"
     : "recent eBay sold listings";
   if (count < MIN_SOLD_COMPS * 2) {
     return `Based on only ${count} realized sale(s) from ${window}. That is a small sample: ` +
