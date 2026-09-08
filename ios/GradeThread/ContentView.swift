@@ -1800,7 +1800,7 @@ private struct AddMethodMenu: View {
 /// without hunting through the Dashboard or Settings.
 // MARK: - Home tab toolbar
 
-extension MainShell {
+extension TabBarShell {
     /// The Home tab's four toolbar items.
     ///
     /// EXTRACTED, and the reason is the compiler rather than tidiness. Inline
@@ -1817,8 +1817,14 @@ extension MainShell {
     /// takes the items out of the TabView expression at the same time.
     ///
     /// Behaviour is unchanged: same four items, same placements, same order.
+    ///
+    /// ⚠ ON TabBarShell, not MainShell. The `.toolbar` this replaces sits in
+    /// TabBarShell's body; MainShell is the OUTER type in the same file, so an
+    /// extension on it compiled perfectly and put the property where the call
+    /// site could not see it -- "cannot find 'homeToolbar' in scope", a fresh
+    /// error rather than the one being fixed.
     @ToolbarContentBuilder
-    var homeToolbar: some ToolbarContent {
+    fileprivate var homeToolbar: some ToolbarContent {
         // US-649: secondary "choose a different add method" menu — the Add tab
         // itself is the one-tap photo-first path.
         ToolbarItem(placement: .topBarLeading) {
