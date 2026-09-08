@@ -5,7 +5,7 @@ type: learning
 status: current
 source_of_truth: vault
 code_refs: []
-reviewed: 2026-08-22
+reviewed: 2026-09-07
 tags: [ios, swift, ci, agent]
 summary: Swift cannot be compiled on the Windows dev host, so seven specific mistakes cost a full CI cycle each - two actor-isolation shapes, one that bricks launch rather than failing the build, and one that hides every other error behind it.
 ---
@@ -194,6 +194,72 @@ So when a lane goes red after a long red spell, **do not assume the newest
 commit owns every error in it.** Check whether the run before yours failed on
 the same line - `gh run view <id> --log-failed` on the prior run answers it in
 one command, and it is what proved the `@escaping` break was two days old.
+
+## 8. A DEFAULT ARGUMENT is evaluated nonisolated, even on a `@MainActor` init
+
+This compiles in your head and not on a runner:
+
+```swift
+@MainActor
+struct CrossPushService {
+    init(queue: ExtensionQueueService = ExtensionQueueService()) { ... }
+}
+```
+
+`ExtensionQueueService` is `@MainActor`. The initializer is `@MainActor`. The
+DEFAULT ARGUMENT EXPRESSION is not: default arguments are evaluated at the call
+site in whatever context the caller is in, so this is a main-actor call from a
+nonisolated one.
+
+    call to main actor-isolated initializer 'init(api:)' in a synchronous
+    nonisolated context
+
+The fix keeps the injection point, which is the only reason the default existed:
+
+```swift
+init(queue: ExtensionQueueService? = nil) {
+    self.queue = queue ?? ExtensionQueueService()   // the BODY is isolated
+}
+```
+
+Two shipped instances on 2026-09-07: `CrossPushService.init(queue:)` and
+`PushToSheet.init(listingId:itemId:listingPrice:service:)`. It is a sibling of
+trap 3 above - the same actor rule, arriving through a syntax nobody reads as a
+call site.
+
+## 9. `Section("Title") { } footer: { }` has no such initializer
+
+SwiftUI gives you a String-title `Section`, or a `header:`/`footer:` pair of view
+builders. Not both. Mixing them produces three errors that name none of that:
+
+    generic parameter 'Content' could not be inferred
+    cannot convert value of type 'String' to expected argument type '() -> Content'
+    missing argument label 'content:' in call
+
+A title with no footer is fine, and a footer with no title is fine, which is why
+this survives review: every other `Section` on the screen looks the same and
+compiles. Spell the header out as `header: { Text("Where") }` when there is also
+a footer.
+
+## 10. A source guard scoped to a FILE cannot see a wrong type inside it
+
+`ios/Scripts/check-symbol-resolution.py` existed to catch
+`Type.member`-does-not-exist before a runner does, and it was green while iOS
+CI failed on exactly that: `PhotoSlotType.isNonListable`, where the member lives
+on `FlipdeskPhotoType`. Both enums are declared in `PhotoSlotType.swift`, and
+the guard read members FILE-scoped - so the union of everything that file
+declares resolved the wrong call perfectly happily.
+
+Adding the type to its watch list would have changed nothing and looked like
+coverage. Members are now read from the type's own brace-matched body, plus what
+a conformance synthesizes (`allCases` and friends, granted only when the
+declaration lists the conformance - otherwise a type's own `allCases` reports as
+missing, and a guard with false positives is one nobody runs twice). A
+self-check asserts both halves on the case that got through, so a slip back to
+file scope fails loudly instead of passing.
+
+The general shape belongs with [[guards-that-cannot-fail]]: a guard whose
+SCOPE is wider than the thing it checks reports success for the wrong reason.
 
 ## Related
 
