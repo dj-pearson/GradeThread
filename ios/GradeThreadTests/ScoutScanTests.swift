@@ -137,7 +137,12 @@ final class ScoutScanTests: XCTestCase {
     }
 
     func test_canSearch_requiresKeywordOrBrand() {
-        let store = ScoutStore(service: FakeScoutService(suggestion: nil, result: .success(.init(scanned: 0, candidates: [], disclaimer: nil, note: nil))))
+        let store = ScoutStore(service: FakeScoutService(suggestion: nil, result: .success(.init(
+            scanned: 0, candidates: [], disclaimer: nil, note: nil,
+            // nil: this test is about canSearch, not the scan denominator.
+            // The other ten call sites in this file were updated when
+            // ScoutScanResponse gained these; this one was missed.
+            considered: nil, graded: nil))))
         XCTAssertFalse(store.canSearch)
         store.keyword = "   "
         XCTAssertFalse(store.canSearch, "whitespace doesn't count")
