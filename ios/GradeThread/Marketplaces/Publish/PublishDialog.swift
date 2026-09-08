@@ -15,6 +15,30 @@ private func validListingURL(_ raw: String) -> URL? {
 /// State machine: validating → review (blockers OR summary card) →
 /// pushing → success (listing URL + open) | failure (error + retry).
 struct PublishDialog: View {
+
+    /// What to say when the policy list will not load.
+    ///
+    /// A 401/403 here means the eBay connection is what needs fixing, and
+    /// saying "unauthorized" sends the seller looking for a GradeThread problem.
+    /// Pure and static so the mapping is testable.
+    ///
+    /// ON PublishDialog, not ComposerForm. It used to live on ComposerForm --
+    /// same file, and `private`, so `PublishDialog.policiesFailureCopy` in
+    /// EbayPoliciesTests could not resolve and no spelling of it would have:
+    /// a private type is invisible to the test target even under
+    /// `@testable import`. "Testable" in the line above was only true once it
+    /// moved here.
+    static func policiesFailureCopy(_ error: Error) -> String {
+        if let apiError = error as? EdgeAPIError {
+            switch apiError {
+            case .unauthorized, .forbidden, .workspaceAccessRevoked:
+                return String(localized: "Reconnect eBay in Marketplaces to load your shipping and return policies.")
+            default:
+                break
+            }
+        }
+        return String(localized: "Couldn't load your eBay policies. Publish will use your account defaults.")
+    }
     @Environment(\.dismiss) private var dismiss
     /// Optional so the dialog never crashes if presented outside the shell that
     /// injects it (previews/tests). Drives the offline pre-check (US-1006).
@@ -1827,7 +1851,7 @@ private struct ComposerForm: View {
             policies = try await policiesService.policies(forceRefresh: false)
             policiesError = nil
         } catch {
-            policiesError = Self.policiesFailureCopy(error)
+            policiesError = PublishDialog.policiesFailureCopy(error)
         }
     }
 
@@ -1838,26 +1862,10 @@ private struct ComposerForm: View {
             policies = try await policiesService.sync()
             policiesError = nil
         } catch {
-            policiesError = Self.policiesFailureCopy(error)
+            policiesError = PublishDialog.policiesFailureCopy(error)
         }
     }
 
-    /// What to say when the policy list will not load.
-    ///
-    /// A 401/403 here means the eBay connection is what needs fixing, and
-    /// saying "unauthorized" sends the seller looking for a GradeThread problem.
-    /// Pure and static so the mapping is testable.
-    static func policiesFailureCopy(_ error: Error) -> String {
-        if let apiError = error as? EdgeAPIError {
-            switch apiError {
-            case .unauthorized, .forbidden, .workspaceAccessRevoked:
-                return String(localized: "Reconnect eBay in Marketplaces to load your shipping and return policies.")
-            default:
-                break
-            }
-        }
-        return String(localized: "Couldn't load your eBay policies. Publish will use your account defaults.")
-    }
 
     /// price is where you change it.
     @ViewBuilder

@@ -153,7 +153,11 @@ final class EbayOutboundLinkTests: XCTestCase {
             valueLowCents: 1500, valueMedianCents: 2000, valueHighCents: 2500,
             estMarginCents: 500, estMarginPct: 0.5,
             underpriced: true, actionable: true, reason: "",
-            valueBasis: nil, url: url
+            valueBasis: nil,
+            // nil: these tests are about the outbound link, not totals or the
+            // sourcing ceiling.
+            totalCents: nil, totalIncludesShipping: nil, ceiling: nil,
+            url: url
         )
     }
 
