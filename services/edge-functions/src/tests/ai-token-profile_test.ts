@@ -10,6 +10,7 @@ import {
   classifyPhase,
   EFFORT_TUNED_PHASES,
   isLightweightModel,
+  LIGHTWEIGHT_TIER_PHASES,
   isRecognisedPhase,
   median,
   profileByPhase,
@@ -308,4 +309,28 @@ Deno.test("the tier warning counts only the calls that ran on the wrong model", 
   );
   assert(text.includes("2/3   "), `expected a 2-of-3 count, got:\n${text}`);
   assert(text.includes("$0.05 on"), "only the wrong-model cost is counted");
+});
+
+Deno.test("the tier set holds only phases that reach getLightweightModel()", () => {
+  // Regression on the first version of this file, which listed tag_ocr and
+  // photo_roles and so flagged two correctly-configured phases on every run.
+  // Both call getDefaultModel() outright (ai-tag-ocr.ts:430,
+  // ai-photo-roles.ts:132). A warning that fires on healthy rows is worse than
+  // no warning, because it teaches the reader to skip the section.
+  assert(LIGHTWEIGHT_TIER_PHASES.has("size_estimate"));
+  assert(LIGHTWEIGHT_TIER_PHASES.has("photo_qa"));
+  assert(!LIGHTWEIGHT_TIER_PHASES.has("tag_ocr"));
+  assert(!LIGHTWEIGHT_TIER_PHASES.has("photo_roles"));
+
+  const text = renderProfile(
+    profileByPhase([
+      row("tag_ocr", 204, { model: "claude-sonnet-5", cost_usd: 0.017 }),
+      row("photo_roles", 167, { model: "claude-sonnet-5", cost_usd: 0.12 }),
+    ]),
+    { since: "2026-08-01T00:00:00.000Z", until: "2026-09-01T00:00:00.000Z" },
+  );
+  assert(
+    !text.includes("routed to the lightweight tier"),
+    "phases that deliberately use the default model must not be flagged",
+  );
 });

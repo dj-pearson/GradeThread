@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-3166",
+  "nextId": "US-3185",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -4049,22 +4049,403 @@
       "priority": 60
     },
     {
-      "id": "US-3165",
+      "id": "US-3166",
       "passes": false,
-      "title": "The lightweight model tier is a code default no deploy reaches: 383 of 482 calls that should be Haiku ran on Sonnet",
-      "description": "As the operator paying the Anthropic bill, I want the four phases ai-config.ts routes to getLightweightModel() to actually be served by Haiku on production, so that $17.14 of a $36.44 user-action bill stops being paid at three times the intended rate for a variable nobody set.",
+      "title": "Worth My Time: R1 01/12 - Store seller work preferences",
+      "description": "As a FlipDesk seller, I want FlipDesk to remember where I work, what tools I have, and my hourly earnings target so that plans fit my situation.",
       "acceptanceCriteria": [
-        "The cause is established BEFORE anything is changed, and written into the note. US-3145's profile shows the split is partial and moving (size_estimate 92 of 139 on Sonnet, photo_qa 110 of 162, tag_ocr 175 of 175 with 169 on claude-sonnet-4-6, photo_roles 6 of 6), which is not the shape of a variable that was simply never set. Candidates to rule in or out: LIGHTWEIGHT_AI_MODEL absent from the Coolify edge service, present but reset by a redeploy, two edge replicas with different environments, or a code path that reaches the full model without going through getLightweightModel(). Name which one it was.",
-        "LIGHTWEIGHT_AI_MODEL is set to claude-haiku-4-5-20251001 on the Coolify edge service (and SIZE_ESTIMATE_AI_MODEL / PHOTO_QA_AI_MODEL if the cause turns out to be per-phase), and the value survives a redeploy. The variable names and where they are set go in vault/10-ops/env-reference.md in the same change, since the whole defect is that a code default was mistaken for a deployed value.",
-        "If the cause is a code path that bypasses the tier rather than a missing variable, that path is fixed instead and a unit test pins that the four phases resolve through getSizeEstimateModel / getPhotoQaModel / getLightweightModel. src/tests/ai-model-tiering_test.ts already guards the grading pin and is the place for it.",
-        "tag_ocr's 169 calls on claude-sonnet-4-6 are explained. That is a previous-generation model, so this is either the same unset-variable story or a separate stale pin; either way the phase ends the story on the lightweight tier or the reason it cannot be is recorded.",
-        "AFTER at least 50 calls across the four phases on the new configuration, scripts/ai-token-profile.ts prints NO '! routed to the lightweight tier' section, and the before/after $/call for each phase goes in this story's note. Expected direction: size_estimate from $0.0676 toward roughly $0.023, photo_qa from $0.0234 toward roughly $0.008.",
-        "Quality is checked on photo_qa before the story closes, not assumed. ai-config.ts:96-110 records that isGreenDraft auto-publishes a draft to a live marketplace at AUTO_PUBLISH_QA_MIN (80) and that the floor was calibrated against FULL-model scores. The two error directions are not equally priced. Either the score distribution on Haiku is compared against Sonnet on at least 20 of the same photos, or PHOTO_QA_AI_MODEL is pinned to the full model and the $5.23 is deliberately left on the table with that reason written down."
+        "Define the first-release contract in the implementation: responsive FlipDesk web only, USD estimates only until currency conversion is supported, rule-based planning with no new model calls, advisory recommendations, and no automatic listing, repricing, purchasing or disposal. Native iOS/Android screens and cross-seller learning are outside these 18 stories.",
+        "Add owner-scoped persisted settings for default session minutes, work context (home or phone_only), available tools (camera, measuring_tape, steamer, packing_supplies), optional hourly target, and settings version. Offer 15/30/60 minutes and validated custom whole minutes from 5 through 240; default to 30. Do not add a sourcing-trip mode without tasks that can actually run there.",
+        "An unset hourly target remains null and is displayed later as not set, not silently interpreted as zero. Monetary values use the existing USD representation with finite, nonnegative validation and an explicit currency field.",
+        "Provide authenticated read/update settings using the existing FlipDesk access checks and workspace-owner resolution. A seller sees or changes only the effective workspace settings; an ID in a request never chooses another workspace.",
+        "Read the migrations, Supabase and tenant-isolation skills before implementation. Any new migration is idempotent, uses the next available migration number at implementation time, bumps EXPECTED_SCHEMA_VERSION in the same commit and records itself. Add the required tenant-isolation_test.ts cases for new settings routes.",
+        "Tests cover first use, partial updates, invalid minutes/tools/currency/amounts, and two sellers with different settings. This story stores and exposes settings only; the screen belongs to R1 10/12.",
+        "Relevant tests pass; record the exact checks and any remaining blockers in the completion note. Run the repository verification lanes required for the changed files before committing.",
+        "Typecheck passes"
       ],
-      "priority": 8,
+      "priority": 100,
+      "notes": ""
+    },
+    {
+      "id": "US-3167",
+      "passes": false,
+      "title": "Worth My Time: R1 02/12 - Store work sessions and task history",
+      "description": "As a FlipDesk seller, I want my plan and progress saved so that an interruption does not erase my work.",
+      "acceptanceCriteria": [
+        "Add owner-scoped session, session-task and timing-event storage with UUIDs, timestamps and foreign keys. Store selected context/tools, time budget, planner version, item reference, action key, prerequisite keys, bin snapshot, estimate snapshot with evidence source/time, task state and session revision. Do not copy photos, buyer addresses or garment notes into history.",
+        "Define valid session states (planned, active, paused, completed, abandoned) and task states (pending, active, completed, skipped, invalidated), plus guarded transitions. A session has at most one active task; only one session is active per workspace, enforced under concurrent requests rather than just in UI.",
+        "Timing events have a unique retry key and server timestamps; repeated start/pause/complete requests cannot add duplicate events or double-count time. Store observed elapsed time separately from seller-confirmed active minutes and any correction.",
+        "Progress writes use a revision check so two tabs cannot silently overwrite each other. Item deletion leaves a tombstoned historical reference without making the deleted item actionable; account/workspace erasure removes planner data through the existing erasure path.",
+        "Implement and test the storage transition primitive without adding the planner screen or planning algorithm. Apply the migration triple, RLS and service-role ownership rules; never use .or() on Supabase UPDATE/DELETE.",
+        "Database tests cover isolation, repeated event keys, invalid transitions, competing active sessions/tasks, stale revisions, item deletion and workspace erasure.",
+        "Relevant tests pass; record the exact checks and any remaining blockers in the completion note. Run the repository verification lanes required for the changed files before committing.",
+        "Typecheck passes"
+      ],
+      "priority": 101,
       "dependsOn": [
-        "US-3145"
-      ]
+        "US-3166"
+      ],
+      "notes": ""
+    },
+    {
+      "id": "US-3168",
+      "passes": false,
+      "title": "Worth My Time: R1 03/12 - Derive work candidates from item facts",
+      "description": "As a FlipDesk seller, I want the planner to find unfinished work in my current stock so that I do not maintain another task list.",
+      "acceptanceCriteria": [
+        "Create a pure candidate builder around src/lib/workflow.ts nextAction/factsOf and the existing item/listing/fulfillment facts. Reuse those semantics or extract a shared tested core; do not create a second contradictory pipeline or make optional grading mandatory.",
+        "Produce stable item/action keys, prerequisite chains, required context/tools, completion evidence, actual shipping deadline when available and storage bin from location_bin with the existing container fallback. Unknown location remains unknown.",
+        "R1 candidates cover measurements, required photos, optional grade review, pricing research, draft review, publishing through an existing supported flow, and packing/shipping through an existing supported flow. Include a task only when the seller can open an existing action and its prerequisites can be met.",
+        "Exclude archived/keeping/wearing/completed stock, jobs already running, cancelled sales and items awaiting a buyer. A returned item needs an existing supported relist path; do not treat every returned item as automatically ready. Exclude physical tasks in phone_only context or without their required tools.",
+        "Use the actual marketplace ship-by time where recorded; label a fallback deadline as estimated and an absent deadline as unknown. Do not infer a confirmed shipping deadline from a fixed three-day window.",
+        "Fixtures cover each action, partial item data, optional grading, already completed prerequisites, sold/cancelled stock, unavailable tools, missing bins and timezone-boundary shipping dates.",
+        "Relevant tests pass; record the exact checks and any remaining blockers in the completion note. Run the repository verification lanes required for the changed files before committing.",
+        "Typecheck passes"
+      ],
+      "priority": 102,
+      "dependsOn": [
+        "US-3167"
+      ],
+      "notes": ""
+    },
+    {
+      "id": "US-3169",
+      "passes": false,
+      "title": "Worth My Time: R1 04/12 - Estimate task and setup time",
+      "description": "As a FlipDesk seller, I want honest estimates of hands-on work so that the plan fits the time I have.",
+      "acceptanceCriteria": [
+        "Add a versioned, pure duration estimator returning low/typical/high active minutes, task family, one-time setup minutes and source (default or seller override). Every supported candidate has a positive finite estimate; unsupported work is marked unestimated rather than zero minutes.",
+        "Document starting defaults as planning assumptions to validate, not measured seller results. Keep active-work estimates separate from src/lib/time-saved.ts and the time-saved-baseline contract, whose numbers represent hypothetical manual time avoided by automation.",
+        "Separate active minutes from unattended waiting, such as a grading job or drying. A waiting result must not become a guaranteed same-session prerequisite; users can work on other ready items.",
+        "Return explicit setup costs for a photo, measuring or packing batch and a context/tool switch. The later scheduler can charge a setup once per contiguous batch rather than once per item.",
+        "Reject nonfinite/negative inputs and use conservative defaults for missing data. Tests cover boundary values, setup reuse, waiting dependencies and deterministic output; the learned duration source is added only in R2 01/06.",
+        "Relevant tests pass; record the exact checks and any remaining blockers in the completion note. Run the repository verification lanes required for the changed files before committing.",
+        "Typecheck passes"
+      ],
+      "priority": 103,
+      "dependsOn": [
+        "US-3168"
+      ],
+      "notes": ""
+    },
+    {
+      "id": "US-3170",
+      "passes": false,
+      "title": "Worth My Time: R1 05/12 - Estimate value without inventing profit",
+      "description": "As a FlipDesk seller, I want to see what finishing an item might leave me after costs so that a high asking price does not fool me into wasting time.",
+      "acceptanceCriteria": [
+        "Create a pure value estimator with separate fields for projected whole-item profit and remaining cash contribution. Whole-item profit subtracts recorded purchase and past costs as well as estimated future costs; remaining contribution subtracts only costs still needed to sell. Already-spent purchase cost must not make worthwhile recovery work rank lower by itself.",
+        "Reuse src/lib/listing-profit.ts and its shared fee source where valid, or extract a tested equivalent shared with the server. Do not silently apply eBay fees to other marketplaces; an unsupported fee schedule, missing cost or non-USD item produces an explicit incomplete estimate.",
+        "Return a conservative range, evidence source, observation date, missing inputs and a planning horizon of 30 days. Sold comparisons, seller-entered estimates and active asking prices remain distinct. Asking prices never become claimed sale proceeds, and missing sale-likelihood evidence never becomes a fabricated probability or promised sale date.",
+        "Use recorded seller-paid shipping and costs where present; label any supported fallback as an estimate. A missing purchase price is unknown, not free inventory. Unknown value can still generate a pricing-research task rather than disappearing from the planner.",
+        "Do not add repair-grade uplift to the current price in R1. R2 uses src/lib/repair-triage.ts only as uncertain advisory input, not a new certified grade or a guaranteed dollar increase.",
+        "Fixtures cover known and missing costs, high asking prices without sold evidence, zero/negative proceeds, unsupported currencies/fees, stale evidence and sunk-cost treatment. No network or model call is needed for estimator tests.",
+        "Relevant tests pass; record the exact checks and any remaining blockers in the completion note. Run the repository verification lanes required for the changed files before committing.",
+        "Typecheck passes"
+      ],
+      "priority": 104,
+      "dependsOn": [
+        "US-3168"
+      ],
+      "notes": ""
+    },
+    {
+      "id": "US-3171",
+      "passes": false,
+      "title": "Worth My Time: R1 06/12 - Rank complete paths to a sale",
+      "description": "As a FlipDesk seller, I want the most useful work first so that a quick low-value task does not push aside an urgent shipment or a nearly finished item.",
+      "acceptanceCriteria": [
+        "Implement a pure, versioned ranker with deterministic tie-breaking by due time, oldest unfinished work and stable item/action key. Accept candidate chains, duration/value estimates, current time, context and the optional hourly target as explicit inputs.",
+        "Shipping work with a verified deadline due or overdue within 24 hours forms the first urgency tier. A deadline that cannot fit or cannot be met with the selected tools is returned as a visible conflict, never silently dropped.",
+        "For nonurgent known-value items, score the conservative remaining contribution against all active work still required to reach a sale-ready listing, including prerequisites. One item contributes its potential proceeds only once; completing three prep steps must not appear to create three sales worth of profit.",
+        "Use hourly target only as an advisory comparison with the chosen conservative range. With no target, still produce a useful plan. Incomplete price evidence receives an explicit research-needed tier; reserve at most one ready research task per plan when it fits after urgent work so unknown-value stock is not ignored forever.",
+        "Treat score as a work-priority estimate, not expected realized profit or money earned during the session. Do not invent sale probability or bury deadline work because its remaining profit is low.",
+        "Table-driven tests pin urgent low-profit shipping ahead of high-price prep, full-chain cost versus a misleading short next step, one-value-per-item behavior, missing values, negative contribution, unset targets and deterministic ties.",
+        "Relevant tests pass; record the exact checks and any remaining blockers in the completion note. Run the repository verification lanes required for the changed files before committing.",
+        "Typecheck passes"
+      ],
+      "priority": 105,
+      "dependsOn": [
+        "US-3169",
+        "US-3170"
+      ],
+      "notes": ""
+    },
+    {
+      "id": "US-3172",
+      "passes": false,
+      "title": "Worth My Time: R1 07/12 - Fit a plan inside the time budget",
+      "description": "As a FlipDesk seller, I want a small plan I can finish in the time I chose so that the list does not become another overwhelming backlog.",
+      "acceptanceCriteria": [
+        "Implement a bounded, deterministic scheduler that selects ready tasks from ranked chains and uses high-end active-minute estimates plus setup/switch overhead to stay within the chosen 5-240 minute budget. Return planned active minutes, unused minutes and omitted-task reasons.",
+        "Preserve prerequisite order. A chain may be partly scheduled only when each included step can finish and saves useful progress; do not put a task before a photo upload, grade result or other prerequisite that is not ready.",
+        "If a required shipping task exceeds the budget, return an explicit time conflict and a proposed longer minimum budget; do not claim the plan fits by truncating a task estimate. If nothing fits, return a helpful empty state with the smallest eligible task duration.",
+        "Support a fixed current-time input and candidate cap with documented handling of larger inventories. Avoid exhaustive subset searches; include a deterministic 1000-candidate fixture and assert bounded algorithm work rather than a fragile wall-clock test.",
+        "Tests cover 5/15/30/60/240 minutes, exact fits, setup overhead, oversized tasks, no tasks, incomplete prerequisites, research-task allowance and urgency conflicts.",
+        "Relevant tests pass; record the exact checks and any remaining blockers in the completion note. Run the repository verification lanes required for the changed files before committing.",
+        "Typecheck passes"
+      ],
+      "priority": 106,
+      "dependsOn": [
+        "US-3171"
+      ],
+      "notes": ""
+    },
+    {
+      "id": "US-3173",
+      "passes": false,
+      "title": "Worth My Time: R1 08/12 - Batch physical work by tools and bin",
+      "description": "As a FlipDesk seller, I want to pull nearby items and do similar work together so that I spend less time setting up and hunting through storage.",
+      "acceptanceCriteria": [
+        "Add a deterministic batching pass to the scheduler using action family, required tools and existing location_bin/container identifiers. Produce a pull list and contiguous work groups with one setup charge per group.",
+        "Group measuring, photography and packing only where dependencies allow it. Do not move photos before required preparation or allow a convenient bin group to displace a more urgent shipment.",
+        "Treat bins as labels, not coordinates: items in the same bin may be grouped, but the planner must not invent a shortest walking route or claim a measured distance saving. Unknown bins appear as location not recorded.",
+        "Recompute setup/switch time after grouping and guarantee the final plan remains within budget or reports the same explicit deadline conflict. Do not show hypothetical batching savings as measured time saved.",
+        "Fixtures cover shared and different bins, missing locations, incompatible tools, one-time setup, a prep/photo dependency, deterministic ordering and an urgent item in a different bin.",
+        "Relevant tests pass; record the exact checks and any remaining blockers in the completion note. Run the repository verification lanes required for the changed files before committing.",
+        "Typecheck passes"
+      ],
+      "priority": 107,
+      "dependsOn": [
+        "US-3172"
+      ],
+      "notes": ""
+    },
+    {
+      "id": "US-3174",
+      "passes": false,
+      "title": "Worth My Time: R1 09/12 - Serve and update an owned work plan",
+      "description": "As a FlipDesk seller, I want the saved plan to reflect my current stock so that refreshing a page or making a sale elsewhere does not leave me doing stale work.",
+      "acceptanceCriteria": [
+        "Add one authenticated FlipDesk planner router with bounded plan creation/read and thin start/pause/resume/skip/complete/abandon actions over the R1 storage primitive. Reuse settings from R1 01/12 and the pure candidate/estimate/rank/schedule/batch modules; no new background queue or model call is required.",
+        "Read only the effective workspace data, use explicit projections and paginated/bounded reads, and avoid per-item request loops. Do not pull every item description, comp blob or photo into a list read; fetch any required pricing evidence in bounded batches and disclose candidate truncation.",
+        "Every session/item/task ID is checked through an owner-verified parent; new routes have tenant-isolation_test.ts coverage for foreign reads and writes, including workspace membership behavior. Apply existing FlipDesk access, rate limits and impersonation mutation guards without adding a new paid tier.",
+        "Before starting/completing a task, re-read relevant item/listing facts. Invalidate work whose item sold, was deleted, changed owner or already completed; block stale revisions and return enough state for the UI to recover without replaying the action.",
+        "The planner never publishes, ships, reprices or changes a grade by merely completing a timer. Durable source state proves integrated task completion; where the existing workflow has no machine-verifiable result, record seller-confirmed completion separately.",
+        "API tests cover the full session lifecycle, repeated requests, stale revisions, stock changing after planning, invalid budgets, inventory caps, failed reads and two sellers. All Hono calls use the existing edge client for functions.gradethread.com, not api.gradethread.com.",
+        "Relevant tests pass; record the exact checks and any remaining blockers in the completion note. Run the repository verification lanes required for the changed files before committing.",
+        "Typecheck passes"
+      ],
+      "priority": 108,
+      "dependsOn": [
+        "US-3173"
+      ],
+      "notes": ""
+    },
+    {
+      "id": "US-3175",
+      "passes": false,
+      "title": "Worth My Time: R1 10/12 - Show the time picker and useful work list",
+      "description": "As a FlipDesk seller, I want a Worth My Time entry on FlipDesk that turns my available minutes into a short, readable plan.",
+      "acceptanceCriteria": [
+        "Add an entry from the existing FlipDesk overview/pipeline to a lazy-loaded authenticated planner view. Keep it within current FlipDesk navigation and access rules; do not add it to public SEO routes or create a competing inventory screen.",
+        "Show 15/30/60-minute choices and validated custom minutes, home/phone-only context, tools and optional hourly target, saving preferences through the R1 settings endpoint. Generate the plan through the existing edge client and server-state conventions.",
+        "Show ordered groups, item thumbnail/title, bin, action, estimated minutes, total including setup, simple reason, value range when supported and an Open item/action link. Always distinguish planning estimates from actual earnings; never headline the plan as guaranteed money in 30 minutes.",
+        "Use the existing item detail/action routes and query conventions for deep links; do not invent destinations or enable unsupported actions. Keep basic reasons and uncertainty visible in R1 even though R2 later adds the detailed explanation view.",
+        "Handle no stock, nothing fitting, unavailable tools, incomplete prices, candidate limits, urgent deadline conflicts, access refusal and retryable server failures with specific next steps. A failed request must not erase a saved plan.",
+        "Verify the selector-to-plan flow with real local fixtures, keyboard focus and screen reader labels; the plan stays usable at 375px without horizontal scrolling.",
+        "Verify in browser using dev-browser skill when available, otherwise the available browser tool; exercise the real flow at desktop and 375px phone widths, keyboard-only navigation, loading, empty and error states. Record the browser evidence; source inspection alone does not close this story.",
+        "npm run ui:check passes for changed UI.",
+        "Relevant tests pass; record the exact checks and any remaining blockers in the completion note. Run the repository verification lanes required for the changed files before committing.",
+        "Typecheck passes"
+      ],
+      "priority": 109,
+      "dependsOn": [
+        "US-3174"
+      ],
+      "notes": ""
+    },
+    {
+      "id": "US-3176",
+      "passes": false,
+      "title": "Worth My Time: R1 11/12 - Run, pause and resume a work session",
+      "description": "As a FlipDesk seller, I want to follow my plan through existing FlipDesk tools and return where I left off when life interrupts.",
+      "acceptanceCriteria": [
+        "Add start, pause, resume, skip and finish controls to the planner using the R1 lifecycle API. Show current task, completed tasks, remaining estimated work and server-backed session state; a browser refresh restores the same session.",
+        "Opening an existing item action preserves the return-to-session destination. On return, reconcile durable item facts before offering completion; closing a drawer or stopping a timer alone does not mark an item photographed, listed or shipped.",
+        "Record observed elapsed time but request confirmation/correction of active minutes before using them for learning. Pauses and abandoned spans are excluded. A hidden tab may mean physical work, so do not silently treat every hidden second as either confirmed work or confirmed idle time.",
+        "Handle repeated clicks, two tabs, expired auth, connection loss and changed item state without duplicate completions. Show unsaved/error status and retry against server state; do not promise offline synchronization in R1.",
+        "Finishing early preserves skipped/unfinished items for a future plan, and a stale or sold item can be removed without losing unrelated progress. Session completion shows finished work and confirmed minutes, not projected profit labeled as earned.",
+        "Browser tests exercise an interruption, reload, action deep link and return, corrected timing, stale task, double click and recovery after a failed save.",
+        "Verify in browser using dev-browser skill when available, otherwise the available browser tool; exercise the real flow at desktop and 375px phone widths, keyboard-only navigation, loading, empty and error states. Record the browser evidence; source inspection alone does not close this story.",
+        "npm run ui:check passes for changed UI.",
+        "Relevant tests pass; record the exact checks and any remaining blockers in the completion note. Run the repository verification lanes required for the changed files before committing.",
+        "Typecheck passes"
+      ],
+      "priority": 110,
+      "dependsOn": [
+        "US-3175"
+      ],
+      "notes": ""
+    },
+    {
+      "id": "US-3177",
+      "passes": false,
+      "title": "Worth My Time: R1 12/12 - Verify the first release end to end",
+      "description": "As a FlipDesk seller, I want the planner checked against realistic stock and interruptions before I rely on it for my workday.",
+      "acceptanceCriteria": [
+        "Add a focused end-to-end fixture and test flow using the real local database, edge service and web UI: save preferences, plan 30 minutes, open and complete existing item work, pause, reload, skip an item and finish. Mock external marketplace writes and model calls, not the planner persistence or ownership checks.",
+        "Fixtures include urgent low-profit shipping, valuable stock needing several steps, unknown price, missing bin, missing tool, unsupported currency, deleted/sold items and a second seller. Assert plan totals include setup, source-state completion is respected and no foreign data leaks.",
+        "Exercise a failed save, retried completion and two-tab conflict, proving one completion and no lost session progress. Run the new route isolation cases using the repository local integration recipe and report actual results.",
+        "Run the repository verification lanes required by the complete R1 change, including migration checks and browser verification. If the local REST containers are stopped, use the documented local-stack startup recipe before declaring integration tests unavailable.",
+        "Record tested behavior and any remaining blockers in the story note. Completion means the feature is implemented and verified locally; do not claim it improved seller earnings or was deployed merely because tests pass. Keep existing deploy and held-migration rules.",
+        "Verify in browser using dev-browser skill when available, otherwise the available browser tool; exercise the real flow at desktop and 375px phone widths, keyboard-only navigation, loading, empty and error states. Record the browser evidence; source inspection alone does not close this story.",
+        "npm run ui:check passes for changed UI.",
+        "Relevant tests pass; record the exact checks and any remaining blockers in the completion note. Run the repository verification lanes required for the changed files before committing.",
+        "Typecheck passes"
+      ],
+      "priority": 111,
+      "dependsOn": [
+        "US-3176"
+      ],
+      "notes": ""
+    },
+    {
+      "id": "US-3178",
+      "passes": false,
+      "title": "Worth My Time: R2 01/06 - Learn each seller's task durations",
+      "description": "As a FlipDesk seller, I want estimates to match my own pace so that a 30-minute plan becomes more realistic as I use it.",
+      "acceptanceCriteria": [
+        "Extend the R1 duration estimator with an owner-scoped learned source using the median of the latest 20 valid confirmed task durations per action family and context, only after at least five samples. Before that, keep the labeled default. Return sample count and observation range.",
+        "Use only confirmed active minutes from completed work, excluding pauses, duplicate retries, invalidated/skipped/abandoned tasks and unconfirmed long-running sessions. Preserve seller corrections, reject nonpositive/nonfinite durations and define an upper validity bound consistent with the 240-minute session limit.",
+        "Learn per-item time separately from batch setup time; one 12-minute four-item photo batch is not four independent 12-minute samples. Store allocation method and count independently timed batches honestly.",
+        "Seller overrides take precedence over learned values; learned values take precedence over defaults. Clearing an override restores the learned/default path without deleting underlying observations. No other seller's history influences the result.",
+        "Tests cover four versus five samples, latest-20 selection, extreme samples, corrections, pauses, batch attribution, different contexts and two owners. Keep learned active minutes separate from the marketing time-saved counter.",
+        "Relevant tests pass; record the exact checks and any remaining blockers in the completion note. Run the repository verification lanes required for the changed files before committing.",
+        "Typecheck passes"
+      ],
+      "priority": 112,
+      "dependsOn": [
+        "US-3177"
+      ],
+      "notes": ""
+    },
+    {
+      "id": "US-3179",
+      "passes": false,
+      "title": "Worth My Time: R2 02/06 - Compare planned value with settled sales",
+      "description": "As a FlipDesk seller, I want to know whether the estimates matched what actually sold so that I can trust or correct them.",
+      "acceptanceCriteria": [
+        "Add an owner-scoped outcome read model joining immutable session estimate snapshots to existing item/sale records by stable identifiers. Reuse the established profit/accounting calculation and recorded fees, shipping, refunds and returns; do not create a second financial ledger.",
+        "Track each sold item once even if it appeared in several sessions or marketplaces. Retain its first eligible estimate snapshot and total confirmed work across sessions for an explicit, documented comparison rule; a transferred/deleted reference cannot match a different item by title.",
+        "Show estimated range versus recorded net result only when required sale and cost data exists. Incomplete costs remain incomplete, cancelled sales are excluded, and refunded/returned sales restate the comparison rather than remaining a permanent success.",
+        "Use the R1 30-day planning horizon: unsold stock is pending before the horizon and not sold within horizon afterward, not a zero-dollar sale or an indefinitely hidden case. Report sample counts and estimate source types separately, including asking-price-only estimates.",
+        "This story supplies the outcome calculation and authenticated bounded read path; the seller-facing scorecard belongs to R2 06/06. Do not automatically rewrite prices or sale probabilities from a small sample.",
+        "Tests cover repeat sessions, cross-listed single sales, missing fees, returns, cancellations, unsold aging, evidence-source groups and foreign-workspace reads.",
+        "Relevant tests pass; record the exact checks and any remaining blockers in the completion note. Run the repository verification lanes required for the changed files before committing.",
+        "Typecheck passes"
+      ],
+      "priority": 113,
+      "dependsOn": [
+        "US-3178"
+      ],
+      "notes": ""
+    },
+    {
+      "id": "US-3180",
+      "passes": false,
+      "title": "Worth My Time: R2 03/06 - Recommend when to stop extra work",
+      "description": "As a FlipDesk seller, I want FlipDesk to point out items that may be better sold as-is, bundled or donated so that I do not keep investing time out of habit.",
+      "acceptanceCriteria": [
+        "Add a pure advisory comparison for continue preparation, sell as-is, bundle review and donation review, using remaining active minutes, remaining costs, supported value ranges and the seller's optional hourly target. Compare alternatives on future contribution; separately show total-item profit so sunk purchase cost does not decide whether extra work is worthwhile.",
+        "Reuse src/lib/repair-triage.ts as uncertain condition guidance where compatible; read the grading-engine skill before changing any grading code. Do not sum speculative per-defect value gains, turn an estimated repair into a certified grade, or imply an unseen defect can safely be removed.",
+        "Recommend a lower-work option only when its evidence supports the comparison; otherwise ask for one missing price/cost/time input or state that the choice is uncertain. An old listing alone never proves an item should be donated.",
+        "A bundle option is a review suggestion only when eligible owned items exist; do not fabricate a bundle buyer or bundle sale price. Donation carries no tax deduction/value claim. Exclude sold/committed items and never delete, donate, relist or alter live listings automatically.",
+        "Return the alternatives, costs/time assumptions, reason codes and any supported existing action link to the planner. Show recommendations in its current task view; actual sale/listing/disposal actions remain the existing seller-controlled flows.",
+        "Tests cover profitable repair, uncertain repair uplift, expensive past purchase with worthwhile remaining recovery, poor-value extra work, no target, unsupported bundle price, missing evidence and sold stock.",
+        "Verify in browser using dev-browser skill when available, otherwise the available browser tool; exercise the real flow at desktop and 375px phone widths, keyboard-only navigation, loading, empty and error states. Record the browser evidence; source inspection alone does not close this story.",
+        "npm run ui:check passes for changed UI.",
+        "Relevant tests pass; record the exact checks and any remaining blockers in the completion note. Run the repository verification lanes required for the changed files before committing.",
+        "Typecheck passes"
+      ],
+      "priority": 114,
+      "dependsOn": [
+        "US-3179"
+      ],
+      "notes": ""
+    },
+    {
+      "id": "US-3181",
+      "passes": false,
+      "title": "Worth My Time: R2 04/06 - Explain rankings and uncertainty",
+      "description": "As a FlipDesk seller, I want to see why a task was chosen so that I can judge the advice rather than follow a mystery score.",
+      "acceptanceCriteria": [
+        "Add a Why this task disclosure to the existing planner task row, using deterministic reason codes and stored estimate versions rather than generated explanations. Keep the primary plan short; open details on demand.",
+        "Show deadline tier, remaining work chain, active minutes and setup, known costs, value range, price source/date, missing inputs and whether timing is a default, personal estimate or override. Distinguish forecast contribution from recorded profit.",
+        "State uncertainty in plain words with supporting facts such as only asking prices available or based on five completed photo sessions. Do not show a numerical confidence probability unless a calibrated source actually provides one.",
+        "For stop-work advice show the compared options and the evidence that would change the recommendation. For an omitted task, show whether time, prerequisites, tools, uncertainty or urgency kept it out.",
+        "Render from the same plan snapshot used for ranking; refreshed market/item data must not silently change the explanation of an old plan. User-supplied item text is displayed as text, never executable markup.",
+        "Tests and browser checks cover every reason family, incomplete evidence, long titles, keyboard disclosure controls and narrow screens.",
+        "Verify in browser using dev-browser skill when available, otherwise the available browser tool; exercise the real flow at desktop and 375px phone widths, keyboard-only navigation, loading, empty and error states. Record the browser evidence; source inspection alone does not close this story.",
+        "npm run ui:check passes for changed UI.",
+        "Relevant tests pass; record the exact checks and any remaining blockers in the completion note. Run the repository verification lanes required for the changed files before committing.",
+        "Typecheck passes"
+      ],
+      "priority": 115,
+      "dependsOn": [
+        "US-3180"
+      ],
+      "notes": ""
+    },
+    {
+      "id": "US-3182",
+      "passes": false,
+      "title": "Worth My Time: R2 05/06 - Let sellers correct and dismiss advice",
+      "description": "As a FlipDesk seller, I want to correct an estimate or set an item aside so that the planner respects what I know about my stock.",
+      "acceptanceCriteria": [
+        "Add owner-scoped edits for estimated task minutes, expected sale range, remaining cost and hourly target with finite/nonnegative validation, plus an explicit reset-to-estimate action. Keep planner-only overrides separate from canonical listing prices, grade reports and financial records.",
+        "Preserve original and corrected values, source and time. A changed estimate affects a regenerated future plan, while completed session snapshots remain readable and unchanged; show the difference before replacing an active plan.",
+        "Support skip this session, snooze item for 7 days and dismiss this recommendation until reset. Persist stable owner/item/action scope; snooze/dismiss does not hide a newly urgent unfulfilled shipping obligation or mark inventory sold/archived.",
+        "Respect R2 learned-time precedence and return plain reasons when an override makes a task no longer fit. Editing is not training data until the seller actually confirms completed active work.",
+        "Authenticate all override/dismissal writes through an owner-verified parent, include tenant-isolation cases and apply the migration triple if new storage is needed. Do not use .or() on mutations.",
+        "Browser and API tests cover invalid values, reset, regeneration, reload persistence, snooze expiry with a fixed clock, deadline escalation, unchanged live price and a foreign item ID.",
+        "Verify in browser using dev-browser skill when available, otherwise the available browser tool; exercise the real flow at desktop and 375px phone widths, keyboard-only navigation, loading, empty and error states. Record the browser evidence; source inspection alone does not close this story.",
+        "npm run ui:check passes for changed UI.",
+        "Relevant tests pass; record the exact checks and any remaining blockers in the completion note. Run the repository verification lanes required for the changed files before committing.",
+        "Typecheck passes"
+      ],
+      "priority": 116,
+      "dependsOn": [
+        "US-3181"
+      ],
+      "notes": ""
+    },
+    {
+      "id": "US-3183",
+      "passes": false,
+      "title": "Worth My Time: R2 06/06 - Show results without claiming unearned gains",
+      "description": "As a FlipDesk seller, I want to see what I finished, how much time I spent and what later sold so that I can decide whether the planner helps me.",
+      "acceptanceCriteria": [
+        "Add a small results view within the planner using saved sessions and the R2 outcome read model. Show completed work, confirmed active minutes, unfinished items carried forward and sold/unsold/incomplete-cost item counts for a chosen date range.",
+        "Keep projected value, realized net profit and realized profit per confirmed tracked hour separate. For the hourly figure, count unique sold items once and sum their linked confirmed active work across sessions; label it profit per tracked hour, not total business hourly earnings because untracked sourcing/admin work is absent.",
+        "Show pending unsold stock and its tracked time beside sold results so the scorecard cannot appear successful by hiding unfinished work. A zero time denominator or incomplete costs produces unavailable with a reason, not Infinity or a fabricated zero.",
+        "Report forecast-versus-actual ranges, sample size, price evidence type and the 30-day sale horizon. A before/after comparison is descriptive only; do not claim causal income gains, guaranteed savings or platform-wide improvement from these records.",
+        "Build the seller's own operational view from necessary first-party session records. Any optional product analytics events follow the existing consent contract and contain no item titles, buyer details or raw financial values; do not repurpose the hypothetical time-saved meter.",
+        "End-to-end checks cover duplicate sessions, one cross-listed sale, refunds, missing costs, zero minutes, unsold work and two sellers. Confirm the full R1 flow still works for a new seller with no learning data; record actual verification results rather than declaring the business benefit proven.",
+        "Verify in browser using dev-browser skill when available, otherwise the available browser tool; exercise the real flow at desktop and 375px phone widths, keyboard-only navigation, loading, empty and error states. Record the browser evidence; source inspection alone does not close this story.",
+        "npm run ui:check passes for changed UI.",
+        "Relevant tests pass; record the exact checks and any remaining blockers in the completion note. Run the repository verification lanes required for the changed files before committing.",
+        "Typecheck passes"
+      ],
+      "priority": 117,
+      "dependsOn": [
+        "US-3182"
+      ],
+      "notes": ""
+    },
+    {
+      "id": "US-3184",
+      "passes": false,
+      "title": "An operator script spent 169 prod AI calls on a previous-generation model, because the local .env still pins the 2026-07 default",
+      "description": "As the operator who runs backfills against production, I want a script that spends AI money on prod to refuse a model pin that disagrees with the deployed default, so that a stale line in a dev .env cannot quietly write grading ground truth from a model nobody chose.",
+      "acceptanceCriteria": [
+        "services/edge-functions/.env has DEFAULT_AI_MODEL=claude-sonnet-4-6. The code default moved to claude-sonnet-5 on 2026-07-02 (5e034f66, noted at ai-response-text.ts:22) and the Coolify team variable is claude-sonnet-5, so this line is the only place the old model still lives. It is corrected, and .env.example is checked for the same staleness.",
+        "The damage is bounded and written into the note. Measured 2026-09-08: 169 tag_ocr calls between 17:58 and 18:35 on 2026-09-02 ran on claude-sonnet-4-6; every tag_ocr call before and after that burst ran on claude-sonnet-5. That window is scripts/backfill-tag-reads.ts, which writes attributes.mpn / .model / .rn / .rn_registrant plus Style Code and Model aspects with inventory_derived provenance. Cost was $2.78. The open question is not the money: extractTagGroundTruth feeds tagGroundTruthBlock and therefore the grading prompt, so state whether any of those 169 items has since been graded off that ground truth.",
+        "Operator scripts that make paid AI calls against prod (backfill-tag-reads.ts and any sibling that calls into lib/ai-*.ts) print the resolved model and the SUPABASE_URL host before the first call, and refuse to proceed against a non-local host when the resolved model differs from the code default unless --allow-model-drift is passed. A dry run prints the same banner, since a dry run still pays for the OCR.",
+        "A unit test covers the guard: same model as the code default proceeds, a differing model against a prod-looking host throws, a differing model against 127.0.0.1 proceeds, and --allow-model-drift overrides. The guard is a pure function so this needs no network.",
+        "The ledger can answer 'which model wrote this row' for operator backfills going forward. ai_usage_events already stores `model` per call; confirm the backfill's rows carry it (they did, which is how this was found) and note that as the reason the guard reports rather than the reason it is unnecessary."
+      ],
+      "priority": 12
     }
   ]
 }

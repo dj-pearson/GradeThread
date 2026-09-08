@@ -89,27 +89,34 @@ export const EFFORT_TUNED_PHASES: ReadonlySet<string> = new Set([
 ]);
 
 /**
- * Phases ai-config.ts routes to the LIGHTWEIGHT model tier, and the model id
- * prefix that proves the routing took effect.
+ * Phases ai-config.ts routes to the LIGHTWEIGHT model tier.
  *
- *   size_estimate  getSizeEstimateModel()    -> SIZE_ESTIMATE_AI_MODEL   -> lightweight
- *   photo_qa       getPhotoQaModel()         -> PHOTO_QA_AI_MODEL        -> lightweight
- *   photo_roles    getLightweightModel()
- *   tag_ocr        getLightweightModel()
+ *   size_estimate  ai-size-estimate.ts:164  input.model || getSizeEstimateModel()
+ *   photo_qa       ai-photo-qa.ts:195       getPhotoQaModel()
  *
- * Each of those falls back to LIGHTWEIGHT_AI_MODEL and then to
- * claude-haiku-4-5. A fallback chain that ends in the right answer looks
- * identical, in code, to one that is actually reaching it - and on 2026-09-08
- * all four were billing at Sonnet rates on production. So the profile checks
- * the ledger rather than the code: a phase listed here whose rows carry a
- * non-lightweight model is reported, because that is a Coolify variable nobody
- * set, not a decision anybody made.
+ * ⚠ THE FIRST VERSION OF THIS SET ALSO LISTED tag_ocr AND photo_roles, AND WAS
+ * WRONG. Both call getDefaultModel() outright (ai-tag-ocr.ts:430,
+ * ai-photo-roles.ts:132), so their Sonnet rows are the code doing exactly what
+ * it says. Listing them made the report cry wolf on two correctly-configured
+ * phases every run, which is the fastest way to teach a reader to skip a
+ * warning section. Whether those two SHOULD move to the lightweight tier is an
+ * open product question; it is not a misconfiguration, and this is not the
+ * place to argue it.
+ *
+ * SO THE MEMBERSHIP RULE IS: a phase belongs here only if its call site reaches
+ * getLightweightModel() through some chain. Check the call site, not the cost.
+ *
+ * WHY THE CHECK IS AGAINST THE LEDGER AND NOT THE CODE. Every one of those
+ * chains ends in a hardcoded claude-haiku-4-5 fallback, so an UNSET variable
+ * still yields Haiku - the failure this catches is a variable set to the WRONG
+ * value, or a caller passing an override. size_estimate has exactly such an
+ * override, and it is deliberate: the grading pipeline passes getDefaultModel()
+ * explicitly because the size result becomes grading ground truth. Expect those
+ * rows and do not "fix" them.
  */
 export const LIGHTWEIGHT_TIER_PHASES: ReadonlySet<string> = new Set([
   "size_estimate",
   "photo_qa",
-  "photo_roles",
-  "tag_ocr",
 ]);
 
 /** Model ids that ARE the lightweight tier. Matched by prefix. */
