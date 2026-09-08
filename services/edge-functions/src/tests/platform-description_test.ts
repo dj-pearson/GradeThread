@@ -5,6 +5,9 @@
 // The test that matters is "a fact changes and every channel moves". Everything
 // else here exists to stop a fix for one channel from breaking that.
 
+// US-2379: first, before anything that reaches lib/supabase.ts at import time.
+import "./_env.ts";
+
 import { assert, assertEquals, assertStringIncludes } from "@std/assert";
 import {
   capDescription,

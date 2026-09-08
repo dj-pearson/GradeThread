@@ -16,6 +16,9 @@
 // an unknown one. So a mismatched id is not a display bug — it is a subscription
 // the buyer is charged for by Google and never entitled to on our side.
 
+// US-2379: first, before anything that reaches lib/supabase.ts at import time.
+import "./_env.ts";
+
 import { assertEquals } from "@std/assert";
 import { ANDROID_CATALOG } from "../lib/google-play/products.ts";
 import {
