@@ -17,6 +17,8 @@
 import { Image } from "imagescript";
 import { calibrateMeasurePhoto } from "../src/lib/measure-detect.ts";
 import { extractMeasurements } from "../src/lib/measure-extract.ts";
+import { CODE_DEFAULT_MODEL, getDefaultModel } from "../src/lib/ai-config.ts";
+import { checkModelDrift } from "../src/lib/operator-model-guard.ts";
 import { MEASURE_CARD_VERSIONS } from "../src/lib/measure-card.ts";
 import {
   MEASUREMENT_TEMPLATES,
@@ -39,6 +41,21 @@ const dir = Deno.args[0];
 if (!dir) {
   console.error("usage: deno run --allow-read --allow-env --allow-net scripts/measure-eval.ts <golden-dir>");
   Deno.exit(2);
+}
+
+// US-3184: this eval spends one vision call per garment and prints a RELEASE
+// GATE verdict. It writes no row, so there is no host to check - and it is
+// guarded anyway, because the verdict is ATTRIBUTED to a model. A gate that
+// passed on a model nobody runs is not a gate.
+const modelCheck = checkModelDrift({
+  resolvedModel: getDefaultModel(),
+  expectedModel: CODE_DEFAULT_MODEL,
+  allowDrift: Deno.args.includes("--allow-model-drift"),
+});
+console.log(modelCheck.banner);
+if (!modelCheck.ok) {
+  console.error(modelCheck.refusal);
+  Deno.exit(1);
 }
 
 const manifest = JSON.parse(

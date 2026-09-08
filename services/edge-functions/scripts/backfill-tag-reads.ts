@@ -43,6 +43,8 @@
 // spelling per garment. An item that still decodes to nothing is left alone.
 
 import { supabaseAdmin } from "../src/lib/supabase.ts";
+import { CODE_DEFAULT_MODEL, getDefaultModel } from "../src/lib/ai-config.ts";
+import { checkModelDrift } from "../src/lib/operator-model-guard.ts";
 import {
   extractTagGroundTruth,
   selectTagOcrPhotos,
@@ -426,5 +428,22 @@ if (import.meta.main) {
     );
     Deno.exit(1);
   }
+
+  // US-3184: say which model is about to spend, and refuse a drifted one
+  // against prod. --redo-undecoded makes no AI call, so it is exempt.
+  if (!redoUndecoded) {
+    const verdict = checkModelDrift({
+      supabaseUrl: url,
+      resolvedModel: getDefaultModel(),
+      expectedModel: CODE_DEFAULT_MODEL,
+      allowDrift: Deno.args.includes("--allow-model-drift"),
+    });
+    console.log(verdict.banner);
+    if (!verdict.ok) {
+      console.error(verdict.refusal);
+      Deno.exit(1);
+    }
+  }
+
   await (redoUndecoded ? redoUndecodedMain() : main());
 }

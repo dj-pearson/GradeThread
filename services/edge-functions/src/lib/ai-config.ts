@@ -43,12 +43,104 @@ export function getAnthropicApiKey(): string {
   return key;
 }
 
+// ── The two variables that decide every model, and how they go wrong ─────────
+//
+// THE INTENT: one Coolify TEAM variable per tier, referenced by every service.
+// The edge service's own environment should read
+//   DEFAULT_AI_MODEL={{team.DEFAULT_AI_MODEL}}
+//   LIGHTWEIGHT_AI_MODEL={{team.LIGHTWEIGHT_AI_MODEL}}
+// so a model change is ONE edit at the team level and nobody hunts for pins.
+//
+// TWO FAILURE MODES, and neither announces itself:
+//
+//   1. THE REFERENCE IS NOT EXPANDED. If the service env holds the literal
+//      "{{team.DEFAULT_AI_MODEL}}", that string is sent as `model` and every
+//      call fails with a 404 naming a model that does not exist. The error
+//      never mentions Coolify, so it reads as an outage.
+//
+//   2. THE VARIABLE IS SET TO A STALE ID. This one is silent and expensive: a
+//      previous-generation id is a REAL model, so calls succeed and only the
+//      ledger shows it. On 2026-09-02 an operator script ran 169 prod tag reads
+//      on claude-sonnet-4-6 because a dev .env still pinned the pre-2026-07
+//      default (US-3184), and nothing anywhere said so.
+//
+// So the resolver below reports both, once per process, rather than trusting
+// the value it is handed. It never throws: a loud log plus the code default
+// beats taking AI down over a config typo.
+
+/** Model ids this generation of the code expects to be routed to. */
+export const CURRENT_MODEL_IDS: ReadonlySet<string> = new Set([
+  "claude-opus-5",
+  "claude-opus-4-8",
+  "claude-sonnet-5",
+  "claude-haiku-4-5",
+  "claude-haiku-4-5-20251001",
+]);
+
+/** An unexpanded Coolify / template reference, e.g. "{{team.DEFAULT_AI_MODEL}}". */
+export function isUnexpandedTemplate(value: string): boolean {
+  return /\{\{|\}\}|\$\{/.test(value);
+}
+
+const warnedModelVars = new Set<string>();
+
+/**
+ * Read a model-selecting env var, or fall back to the code default.
+ *
+ * Warns ONCE per variable per process on an unexpanded template or an id this
+ * generation does not expect, then returns the code default for the template
+ * case (which is never a usable model) and the configured value otherwise (an
+ * unfamiliar id may be a deliberate pin or simply newer than this constant).
+ */
+function resolveModelVar(name: string, codeDefault: string): string {
+  const raw = Deno.env.get(name)?.trim();
+  if (!raw) return codeDefault;
+
+  if (isUnexpandedTemplate(raw)) {
+    if (!warnedModelVars.has(name)) {
+      warnedModelVars.add(name);
+      console.error(
+        `[ai-config] ${name}="${raw}" was never expanded - the deploy is passing ` +
+          `the reference text through instead of the team variable's value. ` +
+          `Using ${codeDefault}. Fix it in the Coolify service environment; ` +
+          `sending this string as a model would 404 every AI call.`,
+      );
+    }
+    return codeDefault;
+  }
+
+  if (!CURRENT_MODEL_IDS.has(raw) && !warnedModelVars.has(name)) {
+    warnedModelVars.add(name);
+    console.warn(
+      `[ai-config] ${name}="${raw}" is not a model id this build expects ` +
+        `(${[...CURRENT_MODEL_IDS].join(", ")}). Honouring it, because a newer ` +
+        `id is legitimate - but if this is a previous-generation model, every ` +
+        `call it serves is silently on the wrong one. See US-3184.`,
+    );
+  }
+  return raw;
+}
+
+/**
+ * The model this BUILD would use with no environment at all.
+ *
+ * Exported so an operator script can compare what it is about to spend against
+ * what the deployed service resolves to, without importing DEFAULTS wholesale
+ * or hardcoding the id a second time (US-3184).
+ */
+export const CODE_DEFAULT_MODEL: string = DEFAULTS.model;
+
 export function getDefaultModel(): string {
-  return Deno.env.get("DEFAULT_AI_MODEL")?.trim() || DEFAULTS.model;
+  return resolveModelVar("DEFAULT_AI_MODEL", DEFAULTS.model);
 }
 
 export function getLightweightModel(): string {
-  return Deno.env.get("LIGHTWEIGHT_AI_MODEL")?.trim() || DEFAULTS.lightweightModel;
+  return resolveModelVar("LIGHTWEIGHT_AI_MODEL", DEFAULTS.lightweightModel);
+}
+
+/** Test seam: let a test observe the warn-once behaviour more than once. */
+export function resetModelVarWarningsForTests(): void {
+  warnedModelVars.clear();
 }
 
 /**
