@@ -1571,6 +1571,15 @@ actor SyncEngine {
                 try await replayUploadPhoto(payload: mutation.payload)
             case .reviseListing:
                 try await replayReviseListing(payload: mutation.payload)
+            case .createMileageTrip:
+                // US-3014. Upsert, not insert: the payload carries the same
+                // client-minted lowercase id the local mirror uses, so a replay
+                // after a partial success replaces that trip instead of logging
+                // the same drive twice. Offline is the normal case here, not an
+                // edge one — a trip is entered in a car park.
+                try await replayUpsert(table: "mileage_trips", payload: mutation.payload)
+            case .deleteMileageTrip:
+                try await replayDelete(table: "mileage_trips", id: mutation.targetId)
             }
             await deleteMutation(id: mutation.id)  // server-confirmed → dequeue
             return true

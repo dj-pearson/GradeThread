@@ -70,4 +70,8 @@ enum MutationKind: String, Codable, CaseIterable {
     // US-1508: a Save & Sync eBay revise that couldn't run offline — queued so the
     // reconnect flush re-pushes it to the live listing (after the item update lands).
     case reviseListing
+    // US-3014: mileage trips, logged in a car park with no signal. The create
+    // payload carries a client-minted lowercase id so the replay UPSERTs.
+    case createMileageTrip
+    case deleteMileageTrip
 }

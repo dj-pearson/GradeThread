@@ -75,19 +75,31 @@ export function HomeOfficeCard() {
 
   const notices = overlap ? homeOfficeNotices(overlap, rate ?? null) : [];
 
-  async function save() {
+  /**
+   * `forceSqft` is how "I do not have one" records itself: zero square feet is
+   * a real, stored answer, and `home_office_overlap` already reads
+   * `square_feet > 0` as the test for having one. Passing it explicitly rather
+   * than clearing the field first keeps the seller's typing on screen.
+   */
+  async function save(forceSqft?: number) {
     if (!user) return;
+    const sqftToSave = forceSqft ?? sqftNum;
     setSaving(true);
     try {
       await saveHomeOfficeYear(user.id, {
         tax_year: year,
-        square_feet: sqftNum,
+        square_feet: sqftToSave,
         months_used: monthsNum,
         method,
       });
       await qc.invalidateQueries({ queryKey: ["home-office-year"] });
       await qc.invalidateQueries({ queryKey: ["home-office-overlap"] });
-      toast.success("Saved. Rebuild your books to put it on the P&L.");
+      await qc.invalidateQueries({ queryKey: ["filing-signals"] });
+      toast.success(
+        sqftToSave > 0
+          ? "Saved. Rebuild your books to put it on the P&L."
+          : "Noted. Line 30 stays blank for this year.",
+      );
     } catch (err) {
       toastError(err, "Couldn't save that.");
     } finally {
@@ -216,9 +228,24 @@ export function HomeOfficeCard() {
             ))}
 
             <div className="flex flex-wrap items-center gap-3">
-              <Button onClick={save} disabled={saving || !user}>
+              {/* Wrapped, not passed bare: `save` now takes an optional
+                  number, and `onClick={save}` hands it the MouseEvent. */}
+              <Button onClick={() => save()} disabled={saving || !user}>
                 <Home className="mr-2 h-4 w-4" />
                 {saving ? "Saving" : "Save"}
+              </Button>
+              {/* US-3137. "No" is an ANSWER, and it needs a button.
+                  Saving zero square feet already recorded exactly that, and
+                  nothing on the screen said so — so a seller who works at the
+                  kitchen table had no way to finish this question, and the
+                  filing walkthrough showed them an amber step for ever on
+                  something that did not apply to them. */}
+              <Button
+                variant="outline"
+                onClick={() => save(0)}
+                disabled={saving || !user}
+              >
+                I do not have one
               </Button>
               <p className="text-[13px] text-muted-foreground">
                 Goes on Schedule C line 30, which is separate from your other

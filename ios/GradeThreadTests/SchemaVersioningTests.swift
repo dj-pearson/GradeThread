@@ -26,6 +26,9 @@ final class SchemaVersioningTests: XCTestCase {
             "LocalSourcer",
             "LocalPendingMutation",
             "LocalProspectResult",
+            // US-3014: the offline mileage log. Rides the current version;
+            // pre-production there is no deployed store to migrate from.
+            "LocalMileageTrip",
         ]
         let actual = Set(ModelStoreProvider.schema.entities.map(\.name))
         XCTAssertEqual(

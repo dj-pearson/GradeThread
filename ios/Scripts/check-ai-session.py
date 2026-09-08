@@ -49,6 +49,13 @@ AI_ROUTES = [
     # middle of the path, so there is no literal to match on - a file that talks
     # to any of them is one that can reach the regenerate call.
     "/api/flipdesk/description",
+    # US-3014. Reading a receipt is a vision call and takes tens of seconds.
+    # It was missing from this list while the web had been calling it for
+    # weeks, so the first iOS client to reach for it would have picked the
+    # short session, failed every time, and billed the seller for work it then
+    # reported as a network error. The route existed before the guard did;
+    # nothing widens this list on its own.
+    "/api/flipdesk/expenses/extract",
 ]
 
 # The sessions that wait long enough for one.

@@ -114,6 +114,8 @@ struct PendingChangesView: View {
         case .createListing: return "Create listing"
         case .createSale: return "Record sale"
         case .createExpense: return "Add expense"
+        case .createMileageTrip: return "Log a trip"
+        case .deleteMileageTrip: return "Delete a trip"
         case .deleteExpense: return "Delete expense"
         case .reviseListing: return "Update eBay listing"
         case .none: return kind

@@ -247,6 +247,37 @@ public actor EdgeAPI {
         data: Data,
         fields: [String: String] = [:]
     ) async throws -> Response {
+        let bytes = try await postMultipartImageRaw(
+            path, fieldName: fieldName, fileName: fileName,
+            mimeType: mimeType, data: data, fields: fields)
+        do {
+            return try decoder.decode(Response.self, from: bytes)
+        } catch {
+            throw EdgeAPIError.decoding(error.localizedDescription)
+        }
+    }
+
+    /// US-3014: the same upload, returning the RAW response bytes.
+    ///
+    /// The typed variant above decodes with EdgeAPI's `.convertFromSnakeCase`
+    /// decoder, which is right for our own endpoints and wrong for one whose
+    /// keys must survive verbatim. `/expenses/extract` answers with a
+    /// `confidence` map whose KEYS are field names (`total_cents`, `spent_on`);
+    /// the snake-case strategy rewrites dictionary keys as well as coding keys,
+    /// so `confidence["total_cents"]` came back as `confidence["totalCents"]`
+    /// while `low_confidence` — an array of the same names as VALUES — kept the
+    /// original spelling. The two halves of one answer disagreed about what a
+    /// field is called, and the flag telling a seller to check a number would
+    /// have quietly never matched. `sendRaw` exists for this on the JSON path;
+    /// this is its multipart twin.
+    public func postMultipartImageRaw(
+        _ path: String,
+        fieldName: String,
+        fileName: String,
+        mimeType: String,
+        data: Data,
+        fields: [String: String] = [:]
+    ) async throws -> Data {
         // The multipart body is token-independent, so build it ONCE and reuse
         // the bytes across the single 401-refresh retry; only the request (which
         // carries the bearer token) is rebuilt with the fresh token (US-1252).
@@ -283,11 +314,7 @@ public actor EdgeAPI {
                 }
                 throw mapped
             }
-            do {
-                return try decoder.decode(Response.self, from: respData)
-            } catch {
-                throw EdgeAPIError.decoding(error.localizedDescription)
-            }
+            return respData
         }
     }
 

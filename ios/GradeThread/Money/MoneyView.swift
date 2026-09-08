@@ -226,6 +226,7 @@ struct MoneyView: View {
                 timeOnMarketCard
                 roiBySourceCard
                 profitListCard
+                mileageCard
                 fulfillmentCard
                 repricingCard
                 priceSuggestionsCard
@@ -580,6 +581,41 @@ struct MoneyView: View {
             }
         }
         .cardStyle(.flush)
+    }
+
+    // MARK: - Mileage (US-3014)
+
+    /// Above the shipping queue on purpose. Mileage is the one thing on this
+    /// screen that has to be recorded ON THE DAY to be worth anything — a log
+    /// written up weeks later is the reconstructed record the IRS discounts —
+    /// and burying it under the surfaces a seller visits when they feel like it
+    /// is how it stays unlogged and the deduction goes unclaimed.
+    private var mileageCard: some View {
+        NavigationLink {
+            MileageLogView()
+        } label: {
+            HStack(spacing: 12) {
+                Image(systemName: "car.circle.fill")
+                    .font(.title3)
+                    .foregroundStyle(Color.brandNavy)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Mileage")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.primary)
+                    Text("Log a sourcing drive in about ten seconds — works with no signal")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(2)
+                }
+                Spacer(minLength: 0)
+                Image(systemName: "chevron.right")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.tertiary)
+            }
+            .padding(16)
+            .cardStyle(.flush)
+        }
+        .buttonStyle(.plain)
     }
 
     // MARK: - Shipping & fulfillment (US-669)

@@ -469,6 +469,11 @@ struct ContentView: View {
             // considering is the same leak whether or not a server was
             // involved (US-2496).
             try ctx.delete(model: LocalProspectResult.self)
+            // US-3014: the mileage log. A workspace's business drives are that
+            // workspace's records, and a shared iPad handing the next one a
+            // list of where the last one was sourcing is the same leak as the
+            // prospect log above (US-2496).
+            try ctx.delete(model: LocalMileageTrip.self)
             try ctx.save()
         } catch {
             // Best-effort — the scoped pull still corrects the view on success.
@@ -493,6 +498,10 @@ struct ContentView: View {
             try ctx.delete(model: LocalPendingMutation.self)
             // US-3100: the local-only sourcing log goes with everything else.
             try ctx.delete(model: LocalProspectResult.self)
+            // US-3014: and the mileage log. Trips carry the dates, distances
+            // and destinations of somebody's business; the next account signing
+            // in on this device must not find them.
+            try ctx.delete(model: LocalMileageTrip.self)
             try ctx.save()
         } catch {
             // Best-effort — watermarks are reset too, so the next sign-in

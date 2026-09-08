@@ -65,6 +65,9 @@ enum GradeThreadSchemaV1: VersionedSchema {
             // same live classes would hash identically to V1 and crash launch
             // (the duplicate-checksum trap above).
             LocalProspectResult.self,
+            // US-3014: the offline mileage log. Rides the current version for
+            // the same reason LocalProspectResult does, stated above.
+            LocalMileageTrip.self,
         ]
     }
 }

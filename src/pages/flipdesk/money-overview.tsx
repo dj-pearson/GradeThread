@@ -9,17 +9,14 @@ import { formatCents } from "@/lib/ledger-math";
 import { ensureLedgerBuilt, fetchLedgerEntries } from "@/lib/ledger";
 import { buildStatement } from "@/lib/pnl-statement";
 import { fetchReviewCount } from "@/lib/books-review";
-import {
-  estimateTax,
-  fetchPayments,
-  fetchTaxRateYear,
-  setAsidePercent,
-} from "@/lib/estimated-tax";
+import { fetchPayments, fetchTaxRateYear } from "@/lib/estimated-tax";
+import { standingHeadline, taxRunway } from "@/lib/tax-runway";
 import {
   TAX_PROFILE_DEFAULTS,
   fetchTaxProfile,
   fiscalYearLabel,
   periodRange,
+  ymd,
   type FilingStatus,
 } from "@/lib/tax-profile";
 import type { MoneyView } from "@/pages/flipdesk/nav-tabs";
@@ -162,17 +159,33 @@ export function MoneyOverviewPage() {
     staleTime: 5 * 60 * 1000,
   });
 
-  const estimate = useMemo(() => {
+  // US-3137 REPLACED estimateTax HERE, and the reason is worth keeping.
+  //
+  // This tile used to read `estimateTax(...).shortfallCents` on the profit made
+  // so far. That treats a part-year figure as if it were the whole year, so the
+  // same seller having the same year was told to set aside a small amount in
+  // March and a large one in November, and neither number answered the question
+  // the tile is asking. `taxRunway` splits it into what has ACCRUED (owed on
+  // profit already made, no projection) and what the instalment schedule wanted
+  // by a date that has passed. The headline shows whichever of the two the
+  // seller can act on.
+  const runway = useMemo(() => {
     if (!rates || !profile || !calendarEntries) return null;
-    const calendarStatement = buildStatement(
-      calendarEntries.map((e) => ({
+    return taxRunway({
+      taxYear,
+      today: ymd(today),
+      entries: calendarEntries.map((e) => ({
+        entry_date: e.entry_date,
         account: e.ledger_accounts?.code ?? "__missing",
         amount_cents: e.amount_cents,
       })),
-    );
-    return estimateTax({
-      taxYear,
-      netProfitCents: calendarStatement.netProfitCents,
+      profitFor: (rows) =>
+        buildStatement(
+          rows.map((r) => ({
+            account: r.account,
+            amount_cents: r.amount_cents,
+          })),
+        ).netProfitCents,
       status: (profile.filing_status ??
         TAX_PROFILE_DEFAULTS.filing_status) as FilingStatus,
       rates,
@@ -182,9 +195,14 @@ export function MoneyOverviewPage() {
       lastYearTotalTaxCents:
         (profile as { last_year_total_tax_cents?: number | null })
           .last_year_total_tax_cents ?? null,
-      paidCents: (payments ?? []).reduce((s, p) => s + p.paid_cents, 0),
-      preferSafeHarbour: false,
+      payments: payments ?? [],
+      fiscalYearStartMonth:
+        profile.fiscal_year_start_month ??
+        TAX_PROFILE_DEFAULTS.fiscal_year_start_month,
     });
+    // `today` is a stable render-scoped Date, so it is not a dependency that
+    // can change under the memo without `calendarEntries` changing too.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rates, profile, calendarEntries, payments, taxYear]);
 
   const { data: reviewCount = 0 } = useQuery({
@@ -206,7 +224,12 @@ export function MoneyOverviewPage() {
     );
   }
 
-  const pct = estimate ? setAsidePercent(estimate) : null;
+  const pct =
+    runway?.setAsideRateBps == null ? null : runway.setAsideRateBps / 100;
+  // Behind on a passed instalment date is the more urgent of the two, so it
+  // wins the headline when it is non-zero. Otherwise the tile shows what has
+  // accrued but not been paid, which is money that is not profit.
+  const behind = (runway?.behindByCents ?? 0) > 0;
 
   return (
     <div className="space-y-4">
@@ -217,16 +240,27 @@ export function MoneyOverviewPage() {
       <div className="grid gap-4 sm:grid-cols-2">
         <Answer
           tone="act"
-          label="Set aside for tax"
-          value={estimate ? formatCents(estimate.shortfallCents) : "Not set up"}
+          label={behind ? "Late on estimated tax" : "Set aside for tax"}
+          value={
+            runway
+              ? formatCents(
+                  behind ? runway.behindByCents : runway.holdBackCents,
+                )
+              : "Not set up"
+          }
           detail={
-            estimate
-              ? `About ${pct ?? 0}% of what you make for the rest of ${taxYear}. ` +
-                "This is an estimate from your own numbers, not advice."
+            runway
+              ? behind
+                ? `The instalment schedule wanted this by a ${taxYear} date that has already passed. ` +
+                  standingHeadline(runway)
+                : `Tax on the profit you have already made in ${taxYear}, less what you have paid. ` +
+                  (pct == null
+                    ? "It moves every time you sell."
+                    : `That is about ${pct.toFixed(0)}% of your profit.`)
               : "Answer five questions in Tax & filing and this becomes a figure you can move into a second account."
           }
           to={viewLink("tax")}
-          cta={estimate ? "See how it is worked out" : "Set it up"}
+          cta={runway ? "See where you stand" : "Set it up"}
         />
         <Answer
           tone={reviewCount > 0 ? "act" : "plain"}

@@ -45,6 +45,8 @@ import { EstimatedTaxCard } from "@/components/finances/estimated-tax-card";
 import { PeriodCloseCard } from "@/components/finances/period-close-card";
 import { TaxPacketCard } from "@/components/finances/tax-packet-card";
 import { QuickBooksCard } from "@/components/finances/quickbooks-card";
+import { TaxRunwayCard } from "@/components/finances/tax-runway-card";
+import { FilingWalkthroughCard } from "@/components/finances/filing-walkthrough-card";
 import { QuickBooksSyncCard } from "@/components/finances/quickbooks-sync-card";
 
 // US-2982 — the tax setup screen.
@@ -145,6 +147,22 @@ export function TaxSetupPage() {
         title="Tax setup"
         subtitle="Five answers. Everything else in Money reads them, so the numbers match what you actually file."
       />
+
+      {/* US-3137. Two cards ahead of the form, in that order, and the order is
+          the point.
+
+          THE RUNNING OBLIGATION IS FIRST because it is the only thing on this
+          page that is about THIS WEEK. Every other card here is a March task.
+          A reseller who reads one thing before closing the tab should read the
+          figure that tells them whether to move money now.
+
+          THE WALKTHROUGH IS SECOND because it is the map of everything below
+          it. The page used to open with a five-field form and then hand the
+          seller seven cards in no stated order; the packet at the bottom was
+          the only one that said what the others were for, and it said it in
+          the caveats after they had already been skipped. */}
+      <TaxRunwayCard />
+      <FilingWalkthroughCard />
 
       <Card>
         <CardHeader>

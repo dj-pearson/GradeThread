@@ -29,8 +29,25 @@ struct ScoutView: View {
     /// "See plans" can re-present, rather than reverting to a dead-end "Try
     /// again". Reset at the start of each scan.
     @State private var lockedGate: PlanGateError?
-    /// US-3098: the deal-filter sheet.
-    @State private var showFilters = false
+    /// US-3014: ONE sheet slot, an enum, and one optional saying which is up.
+    ///
+    /// This was `@State private var showFilters = false` with its own
+    /// `.sheet(isPresented:)`. Adding the trip form as a SECOND `.sheet` on the
+    /// same chain would have compiled, read fine, and been undefined at
+    /// runtime: a view has one sheet slot, the modifiers compete for it, and
+    /// the loser presents and tears down in the same frame. Two of these could
+    /// never sensibly be on screen at once, and a pair of booleans said nothing
+    /// about that. `ios/Scripts/check-chained-sheets.py` is the gate.
+    private enum ScoutSheet: String, Identifiable {
+        /// US-3098: the deal-filter sheet.
+        case filters
+        /// US-3014: log the drive that got you to this shop.
+        case trip
+        var id: String { rawValue }
+    }
+
+    @State private var sheet: ScoutSheet?
+    @State private var mileageStore = MileageStore()
     /// US-3106: one-shot, so re-rendering does not overwrite what the seller
     /// typed after the hand-off seeded the field.
     @State private var didSeedKeyword = false
@@ -53,6 +70,19 @@ struct ScoutView: View {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Close") { dismiss() }
                 }
+                // US-3014 AC6: TWO TAPS from the screen a seller is on when
+                // they walk into a shop. Scout is that screen — it is what is
+                // open while they are standing in the aisle — and a mileage
+                // form that takes longer than the drive is a form nobody fills
+                // in. The purpose is pre-picked as sourcing, because that is
+                // what this drive was.
+                ToolbarItem(placement: .primaryAction) {
+                    Button {
+                        sheet = .trip
+                    } label: {
+                        Label("Log a trip", systemImage: "car")
+                    }
+                }
             }
             // US-1213: a 402 during the scan presents the centralized upgrade
             // prompt (sets `activePrompt`). Capture it so the inline error card
@@ -63,8 +93,13 @@ struct ScoutView: View {
                     lockedGate = gate
                 }
             }
-            .sheet(isPresented: $showFilters) {
-                ScoutFilterSheet(store: store, onApply: runScan)
+            .sheet(item: $sheet) { presented in
+                switch presented {
+                case .filters:
+                    ScoutFilterSheet(store: store, onApply: runScan)
+                case .trip:
+                    TripFormSheet(store: mileageStore)
+                }
             }
             // US-3106: seed the field from a demand chip, once. Never runs the
             // scan: that is a metered AI action, and "show me what people want"
@@ -106,7 +141,7 @@ struct ScoutView: View {
             // themselves and the button; one who is hunting a margin sets them
             // once and they persist across launches.
             Button {
-                showFilters = true
+                sheet = .filters
             } label: {
                 HStack {
                     Label(String(localized: "Deal filter"), systemImage: "line.3.horizontal.decrease.circle")

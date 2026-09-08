@@ -59,7 +59,15 @@ code_refs:
   - supabase/migrations/00690_inventory_writeoffs.sql
   - scripts/check-inventory-writeoffs.mjs
   - supabase/migrations/00692_keeping_leaves_inventory.sql
-reviewed: 2026-08-30
+  - src/lib/tax-runway.ts
+  - src/components/finances/tax-runway-card.tsx
+  - src/lib/filing-walkthrough.ts
+  - src/components/finances/filing-walkthrough-card.tsx
+  - ios/GradeThread/Money/TripDraft.swift
+  - ios/GradeThread/Money/MoneyDate.swift
+  - ios/GradeThread/Money/MileageStore.swift
+  - ios/GradeThread/Money/ReceiptScanService.swift
+reviewed: 2026-09-07
 tags: [finance, tax, flipdesk, money]
 summary: The rules the Books and Taxes epic (US-2981) obeys - what each stored figure means, which form line it feeds, and the four things the app deliberately refuses to do.
 ---
@@ -822,6 +830,104 @@ Security has capped out, and whether the year's figures are provisional.
 > is carried forward from 2025 and rises most years, so a high earner's Social
 > Security portion comes out low. Update it when the SSA announces the figure.
 
+## The running obligation (US-3137)
+
+`src/lib/tax-runway.ts`. Pure, and it stores nothing: no table, no column, every
+figure derived from the ledger, the tax profile and the payments the seller
+already recorded.
+
+### Why `estimateTax` on its own was the wrong answer to a different question
+
+`estimateTax` answers "what will this year cost". Every caller fed it the profit
+made SO FAR, which quietly turns a part-year figure into a full-year one. The
+same seller having the same year was told to set aside a small amount in March
+and a large one in November, and neither number answered the question a reseller
+actually asks in June: **am I behind?** A figure that only becomes true in April
+is a figure nobody can act on while there is still time to act.
+
+### Three numbers, deliberately different
+
+| | What it is | What it is not |
+|---|---|---|
+| **Accrued** | Tax on profit ALREADY EARNED. If they stopped trading today, this is the bill. | Not a forecast. It is the only one of the three that cannot be wrong because of an assumption, so it leads. |
+| **Due so far** | The share of accrued that the instalment schedule wants by a date that has PASSED. | Not the whole accrued figure. Tax on December profit is not late in June. |
+| **Projected** | Accrued, scaled to a full year by elapsed days. | Never shown without its basis, and withheld entirely below 8% of the year. |
+
+### The target is the SMALLER of two things, and that is the whole fairness of it
+
+For each period the target is `min(evenInstalment, accruedThrough)`.
+
+- The even instalment is `(i+1)/4` of the year's tax, which is what the schedule
+  asks of a steady earner.
+- The accrued figure is what **this** seller has actually earned by then.
+
+A reseller whose year happens in Q4 must not read "you are behind" in April on
+income that does not exist yet. A reseller who front-loads must not be asked for
+the whole year's tax in one April instalment. Both directions have a test.
+
+### Profit is bucketed by COVERAGE window, not by quarter
+
+`periodWindows()`: Jan-Mar, Apr-May, Jun-Aug, Sep-Dec. These are the windows
+income falls in and they are not the due dates and not equal. Dividing the year
+by four is the single most common way a first-year reseller takes a penalty on a
+year they had the cash for. See "The four dates are not four quarters" above --
+this is the same fact, applied to income instead of to payments.
+
+### The projection is withheld rather than guessed
+
+Below 8% of the year elapsed, one good week in January annualises to a
+five-figure number built on nothing. `projectedYearEndCents` is null and the
+screen says why. Elapsed share is a **day count**, not a month count: a
+projection made on 30 June that assumed half the year had run would be out by a
+day and a half, which nobody notices and which makes every downstream figure
+slightly unfalsifiable.
+
+### The safe harbour is not used for the running figure
+
+It is a full-year target and says nothing about what has accrued by June. It
+stays available on the returned `estimate` for the screens that offer it as an
+alternative, which is the same split "The split between computed and assumed"
+describes above.
+
+## The filing walkthrough (US-3137)
+
+`src/lib/filing-walkthrough.ts`. Also pure, also stores nothing.
+
+### The order IS the product
+
+The epic built every number a Schedule C needs and never built an order. The tax
+view opened with a five-field form and then stacked seven cards with nothing
+saying which to do first; the packet at the bottom was the only surface that
+said what the others were for, and it said it in the caveats on its cover page,
+after they had already been skipped. This is the same information arriving early
+enough to act on.
+
+Steps, in order: tax profile, review list, receipts, mileage, home office,
+inventory at both ends, 1099-Ks, estimated payments, close the year, packet.
+The review list is early because resolving an issue moves every number below it.
+Closing is second to last because closing takes the snapshot, so closing before
+the corrections are in means reopening.
+
+### Three rules the statuses obey
+
+1. **The packet is never `done`.** Downloading a file is not what finishes a tax
+   year, and a green tick there would say it was.
+2. **A step that does not apply says so.** No trips logged is `not_applicable`,
+   not outstanding -- a seller who does not drive for the business has not
+   skipped anything.
+3. **"I do not have one" is a completable answer.** Saving zero square feet
+   already recorded exactly that (`home_office_overlap` tests `square_feet > 0`),
+   and nothing on the screen said so, so the home-office step was permanently
+   amber for anyone who works at the kitchen table. It has its own button now.
+
+### It names what gets filed, and refuses to guess
+
+Schedule C, Schedule SE, Form 1040, Part IV, Form 1040-ES -- each with a reason
+it is on the list, so a seller can tell when one stops applying. For an entity
+type this product does not model (an S corporation, say) it says the figures are
+still right and the form is their preparer's call, rather than inventing a form
+number. That is the same refusal the four at the top of this note describe.
+
 ## Books health
 
 `books_review_queue(from, to)` (migration 00699). Six checks, ordered by what it
@@ -1499,6 +1605,39 @@ its contract into this note. Currently landed:
 - **US-3012** - splitting a receipt across items, and the two refusals, above.
 - **US-3007** - leaving inventory without selling, above (data layer only).
 
-Still open: mileage and receipts on mobile (US-3000), where Android is complete
-and iOS has neither feature. US-3013 carries the authed-UI scan this note
-describes as unbuilt.
+- **US-3137** - the running obligation and the filing walkthrough, above.
+
+Still open: **US-3014**, the iOS half of mileage and receipts. The Swift is
+written (`TripDraft`, `MoneyDate`, `MileageStore`, `ReceiptScanService`, the
+trip form, the log, receipt capture inside the expense form, two new offline
+mutation kinds and `LocalMileageTrip` on the current schema version) and the six
+`ios/Scripts` guards pass, but **nothing here compiles Swift** -- the dev box is
+Windows, and iOS CI on a macOS runner is the only thing that can say whether it
+builds. It stays open until the owner runs that lane.
+
+Three things that story turned up, worth keeping because none of them was the
+feature:
+
+1. **`/api/flipdesk/expenses/extract` was missing from `check-ai-session.py`.**
+   It is a vision call and had been live for the web for weeks; the first iOS
+   client to reach for it would have picked the 20-second-idle session, failed
+   every time, and billed the seller's AI quota for work it then reported as a
+   network error. The route existed before the guard did, and nothing widens
+   that list on its own.
+2. **`EdgeAPI`'s typed multipart helper rewrites dictionary KEYS.** Its decoder
+   is `.convertFromSnakeCase`, and the extract response carries a `confidence`
+   map whose keys are field names -- so `confidence["total_cents"]` arrived as
+   `confidence["totalCents"]` while `low_confidence`, an array of the SAME names
+   as values, kept the original spelling. The two halves of one answer would
+   have disagreed about what a field is called, and the flag telling a seller to
+   check a number would silently never have matched. `postMultipartImageRaw` is
+   the multipart twin of the `sendRaw` the other AI clients already use for this
+   exact reason.
+3. **A new `@Model` is a privacy question, not just a schema one.**
+   `LocalMileageTrip` had to be added to BOTH wipes in `ContentView.swift`. A
+   mileage log carries the dates, distances and destinations of somebody's
+   business; on a shared iPad, leaving it out hands the next workspace a map of
+   where the last one was sourcing. `src/test/ios-local-model-wipe.test.ts`
+   caught it, which is what that test is for.
+
+US-3013 carries the authed-UI scan this note describes as unbuilt.

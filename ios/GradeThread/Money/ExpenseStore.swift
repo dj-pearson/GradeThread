@@ -83,6 +83,11 @@ final class ExpenseStore {
         inventoryItemId: String? = nil,
         listingId: String? = nil,
         userId: String,
+        // US-3014: the caller may mint the id so it can attach a staged receipt
+        // to the row afterwards. Defaulted, so every existing call site is
+        // unchanged and still gets a fresh lowercase id — the alternative was
+        // returning it from `WriteResult`, which would have touched every one.
+        id: String = UUID().uuidString.lowercased(),
         queueContext: ModelContext
     ) async -> WriteResult {
         struct Insert: Encodable {
@@ -100,10 +105,11 @@ final class ExpenseStore {
         formatter.timeZone = TimeZone(identifier: "UTC")
         formatter.dateFormat = "yyyy-MM-dd"
 
-        // Lowercased to match Postgres `uuid` normalization (see PhotoIntakeView):
-        // an UPPERCASE client id misses the case-sensitive sync-merge lookup on
-        // pull-back and would duplicate the expense row.
-        let id = UUID().uuidString.lowercased()
+        // The id is lowercased at its MINT site to match Postgres `uuid`
+        // normalization (see PhotoIntakeView): an UPPERCASE client id misses the
+        // case-sensitive sync-merge lookup on pull-back and would duplicate the
+        // expense row. That is the parameter's default, and a caller supplying
+        // its own must lowercase it there for the same reason.
         let cleanDescription = description?.isEmpty == true ? nil : description
         let spentOnString = formatter.string(from: spentOn)
         let row = Insert(
