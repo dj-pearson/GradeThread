@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { AlertTriangle, MapPin, Package, Truck } from "lucide-react";
+import { AlertTriangle, MapPin, Package, Printer, Truck } from "lucide-react";
 import {
   Card,
   CardContent,
@@ -19,6 +19,8 @@ import { toastError } from "@/lib/toast-error";
 import { useShipQueue, type ShipQueueRow } from "@/hooks/use-ship-queue";
 import { shipCountdown, type ShipUrgency } from "@/pages/flipdesk/ship-queue";
 import { useEbayShipOrder } from "@/hooks/use-ebay";
+import { Checkbox } from "@/components/ui/checkbox";
+import { packingSlipDocument } from "@/pages/flipdesk/packing-slip";
 
 // US-3190: the orders waiting to go in a box, soonest deadline first.
 //
@@ -47,7 +49,15 @@ const URGENCY_STYLE: Record<ShipUrgency, string> = {
   none: "border-border bg-muted text-muted-foreground",
 };
 
-function ShipRow({ row }: { row: ShipQueueRow }) {
+function ShipRow({
+  row,
+  selected,
+  onSelect,
+}: {
+  row: ShipQueueRow;
+  selected: boolean;
+  onSelect: (id: string, next: boolean) => void;
+}) {
   const [tracking, setTracking] = useState("");
   const [carrier, setCarrier] = useState("");
   const ship = useEbayShipOrder();
@@ -78,7 +88,14 @@ function ShipRow({ row }: { row: ShipQueueRow }) {
   return (
     <li className="rounded-lg border p-3">
       <div className="flex flex-wrap items-start justify-between gap-2">
-        <div className="min-w-0">
+        <div className="flex min-w-0 gap-3">
+          <Checkbox
+            checked={selected}
+            onCheckedChange={(v) => onSelect(row.id, v === true)}
+            aria-label={`Select ${row.title ?? row.orderRef ?? "this order"} for a packing slip`}
+            className="mt-1"
+          />
+          <div className="min-w-0">
           <p className="truncate text-sm font-medium">
             {row.title ?? `Order ${row.orderRef ?? row.id}`}
           </p>
@@ -93,6 +110,7 @@ function ShipRow({ row }: { row: ShipQueueRow }) {
               </span>
             ) : null}
           </p>
+          </div>
         </div>
         <Badge
           variant="outline"
@@ -146,9 +164,37 @@ function ShipRow({ row }: { row: ShipQueueRow }) {
 
 export function ShipQueueCard() {
   const { rows, isLoading, isError } = useShipQueue();
+  const [selected, setSelected] = useState<Set<string>>(new Set());
   const overdue = rows.filter(
     (r) => shipCountdown(r.shipBy).urgency === "overdue",
   ).length;
+
+  function toggle(id: string, next: boolean) {
+    setSelected((prev) => {
+      const out = new Set(prev);
+      if (next) out.add(id);
+      else out.delete(id);
+      return out;
+    });
+  }
+
+  function printSlips() {
+    const chosen = rows.filter((r) => selected.has(r.id));
+    if (chosen.length === 0) {
+      toast.error("Tick the orders you are packing first.");
+      return;
+    }
+    const win = window.open("", "_blank");
+    if (!win) {
+      toast.error("Allow popups to print packing slips.");
+      return;
+    }
+    win.document.write(packingSlipDocument(chosen));
+    win.document.close();
+    // The same delay pnl.tsx uses: print() before the document settles gives a
+    // blank first page in Safari.
+    setTimeout(() => win.print(), 500);
+  }
 
   return (
     <Card id="ship-queue" className="scroll-mt-20">
@@ -164,6 +210,21 @@ export function ShipQueueCard() {
           Sold and not yet in a carrier's hands, soonest deadline first. Orders
           no marketplace set a deadline for sit at the bottom.
         </CardDescription>
+        {rows.length > 0 ? (
+          <div className="pt-2">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={printSlips}
+              className="gap-1"
+            >
+              <Printer aria-hidden="true" className="h-4 w-4" />
+              Print packing slips
+              {selected.size > 0 ? ` (${selected.size})` : ""}
+            </Button>
+          </div>
+        ) : null}
       </CardHeader>
       <CardContent>
         {isLoading ? (
@@ -184,7 +245,12 @@ export function ShipQueueCard() {
         ) : (
           <ul className="space-y-2">
             {rows.map((row) => (
-              <ShipRow key={row.id} row={row} />
+              <ShipRow
+                key={row.id}
+                row={row}
+                selected={selected.has(row.id)}
+                onSelect={toggle}
+              />
             ))}
           </ul>
         )}

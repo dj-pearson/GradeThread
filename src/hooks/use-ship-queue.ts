@@ -33,6 +33,11 @@ export interface ShipQueueRow {
   size: string | null;
   /** Where the garment is on the shelf. The one field that saves a walk. */
   locationBin: string | null;
+  /** US-3191: the grade and its certificate, for the packing slip. Null when ungraded. */
+  gradeValue: number | null;
+  gradeLabel: string | null;
+  certificateUrl: string | null;
+  quantity: number | null;
 }
 
 interface SaleQueryRow {
@@ -43,6 +48,7 @@ interface SaleQueryRow {
   sale_date: string | null;
   buyer_username: string | null;
   sale_price: number | null;
+  quantity: number | null;
   inventory_item_id: string;
 }
 
@@ -52,6 +58,9 @@ interface ItemQueryRow {
   sku: string | null;
   size: string | null;
   location_bin: string | null;
+  grade_value: number | null;
+  grade_label: string | null;
+  certificate_url: string | null;
 }
 
 /** Orders sold and not yet shipped, ranked by deadline. */
@@ -64,7 +73,7 @@ export function useShipQueue(enabled = true) {
       const { data, error } = await supabase
         .from("sales")
         .select(
-          "id, platform_order_id, ship_by, sold_at, sale_date, buyer_username, sale_price, inventory_item_id",
+          "id, platform_order_id, ship_by, sold_at, sale_date, buyer_username, sale_price, quantity, inventory_item_id",
         )
         .eq("status", "completed")
         .is("shipped_at", null)
@@ -77,7 +86,7 @@ export function useShipQueue(enabled = true) {
       const itemIds = [...new Set(sales.map((s) => s.inventory_item_id).filter(Boolean))];
       const { data: itemData, error: itemErr } = await supabase
         .from("inventory_items")
-        .select("id, title, sku, size, location_bin")
+        .select("id, title, sku, size, location_bin, grade_value, grade_label, certificate_url")
         .in("id", itemIds);
       if (itemErr) throw itemErr;
       const items = new Map(
@@ -98,6 +107,10 @@ export function useShipQueue(enabled = true) {
           sku: item?.sku ?? null,
           size: item?.size ?? null,
           locationBin: item?.location_bin ?? null,
+          gradeValue: item?.grade_value ?? null,
+          gradeLabel: item?.grade_label ?? null,
+          certificateUrl: item?.certificate_url ?? null,
+          quantity: s.quantity,
         };
       });
     },
