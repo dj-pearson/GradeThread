@@ -1256,17 +1256,7 @@ private struct TabBarShell: View {
 
     var body: some View {
         TabView(selection: router.tabSelectionBinding) {
-            NavigationStack(path: $router.homePath) {
-                DashboardView(router: router)
-                    .navigationDestination(for: IntakeRoute.self, destination: intakeDestination)
-                    .navigationDestination(for: LocalInventoryItem.self) { item in
-                        ItemCanvasSceneHost(item: item)
-                    }
-                    .navigationDestination(for: GradesRoute.self) { _ in
-                        GradesListView()
-                    }
-                    .toolbar { homeToolbar }
-            }
+            HomeTab(router: router)
             .tabItem { Label("Home", systemImage: "house") }
             // US-2557: unread notifications. SwiftUI renders nothing at 0, so
             // this needs no conditional — and Home is the tab because the
@@ -1800,59 +1790,73 @@ private struct AddMethodMenu: View {
 /// without hunting through the Dashboard or Settings.
 // MARK: - Home tab toolbar
 
-extension TabBarShell {
-    /// The Home tab's four toolbar items.
-    ///
-    /// EXTRACTED, and the reason is the compiler rather than tidiness. Inline
-    /// inside the TabView this produced:
-    ///
-    ///     ambiguous use of 'toolbar(content:)'
-    ///
-    /// Nothing in it is wrong - every view here compiles on its own, and the
-    /// Inventory tab's one-item `.toolbar` a few lines below never complained.
-    /// `toolbar` is overloaded on `ToolbarContent` and on `View`, and inside an
-    /// expression that large the type checker stops being able to choose, so it
-    /// reports the ambiguity rather than the size. An explicit
-    /// `some ToolbarContent` return type answers the overload directly and
-    /// takes the items out of the TabView expression at the same time.
-    ///
-    /// Behaviour is unchanged: same four items, same placements, same order.
-    ///
-    /// ⚠ ON TabBarShell, not MainShell. The `.toolbar` this replaces sits in
-    /// TabBarShell's body; MainShell is the OUTER type in the same file, so an
-    /// extension on it compiled perfectly and put the property where the call
-    /// site could not see it -- "cannot find 'homeToolbar' in scope", a fresh
-    /// error rather than the one being fixed.
-    @ToolbarContentBuilder
-    fileprivate var homeToolbar: some ToolbarContent {
-        // US-649: secondary "choose a different add method" menu — the Add tab
-        // itself is the one-tap photo-first path.
-        ToolbarItem(placement: .topBarLeading) {
-            AddMethodMenu(router: router)
-        }
-        // US-749: Tools hub — the discoverable home for the secondary power
-        // modules (Scout/Snap/AutoLister/Grades/Reconcile/Referrals/Verified).
-        ToolbarItem(placement: .topBarLeading) {
-            ToolsButton(router: router)
-        }
-        // US-678: global search across inventory/listings/sales/sources.
-        ToolbarItem(placement: .topBarTrailing) {
-            Button {
-                router.shellSheet = .globalSearch
-            } label: {
-                Image(systemName: "magnifyingglass")
-            }
-            .accessibilityLabel("Search everything")
-        }
-        // iPhone has no room for a Settings tab once Home lands (5-tab limit),
-        // so it rides a gear button here — the standard iOS placement.
-        ToolbarItem(placement: .topBarTrailing) {
-            NavigationLink {
-                SettingsView()
-            } label: {
-                Image(systemName: "gear")
-            }
-            .accessibilityLabel("Settings")
+/// The Home tab: the dashboard, its three navigation destinations, and the
+/// four toolbar items.
+///
+/// A SEPARATE VIEW, and the reason is the compiler rather than tidiness. Inline
+/// in `TabBarShell.body` this chain produced:
+///
+///     ambiguous use of 'toolbar(content:)'
+///
+/// Nothing in it is wrong. Every view here compiles on its own, the enum case
+/// the search button sets exists, and the Inventory tab's one-item `.toolbar`
+/// never complained. `toolbar` is overloaded on `ToolbarContent` and on `View`,
+/// and inside a five-tab `TabView` the type checker stops being able to choose,
+/// so it reports the ambiguity rather than the size that caused it.
+///
+/// Lifting only the toolbar into a `@ToolbarContentBuilder` property was tried
+/// first and did NOT fix it - the surrounding chain was still the problem. What
+/// works is taking the whole tab out, so the compiler solves a small expression.
+///
+/// Behaviour is unchanged: same destinations, same four items, same placements.
+private struct HomeTab: View {
+    @Bindable var router: AppRouter
+
+    var body: some View {
+        NavigationStack(path: $router.homePath) {
+            DashboardView(router: router)
+                .navigationDestination(for: IntakeRoute.self) { route in
+                    IntakePlaceholder(route: route)
+                }
+                .navigationDestination(for: LocalInventoryItem.self) { item in
+                    ItemCanvasSceneHost(item: item)
+                }
+                .navigationDestination(for: GradesRoute.self) { _ in
+                    GradesListView()
+                }
+                .toolbar {
+                    // US-649: secondary "choose a different add method" menu —
+                    // the Add tab itself is the one-tap photo-first path.
+                    ToolbarItem(placement: .topBarLeading) {
+                        AddMethodMenu(router: router)
+                    }
+                    // US-749: Tools hub — the discoverable home for the
+                    // secondary power modules (Scout/Snap/AutoLister/Grades/
+                    // Reconcile/Referrals/Verified).
+                    ToolbarItem(placement: .topBarLeading) {
+                        ToolsButton(router: router)
+                    }
+                    // US-678: global search across inventory/listings/sales/sources.
+                    ToolbarItem(placement: .topBarTrailing) {
+                        Button {
+                            router.shellSheet = .globalSearch
+                        } label: {
+                            Image(systemName: "magnifyingglass")
+                        }
+                        .accessibilityLabel("Search everything")
+                    }
+                    // iPhone has no room for a Settings tab once Home lands
+                    // (5-tab limit), so it rides a gear button here — the
+                    // standard iOS placement.
+                    ToolbarItem(placement: .topBarTrailing) {
+                        NavigationLink {
+                            SettingsView()
+                        } label: {
+                            Image(systemName: "gear")
+                        }
+                        .accessibilityLabel("Settings")
+                    }
+                }
         }
     }
 }
