@@ -103,8 +103,15 @@ export function buildSystemPrompt(input: {
     input.pillarMap,
     "",
     "# Output rules",
-    "- Respond with ONLY valid JSON matching the schema in the user message.",
-    "- No markdown fences, no preamble, no explanation outside the JSON.",
+    // US-3151: the "respond with ONLY valid JSON" and "no markdown fences"
+    // rules that lived here are gone. output_config.format ENFORCES the shape
+    // now, and asking in prose for what the API guarantees was never what
+    // worked: 349 of 402 content-scheduler errors in the 30 days to
+    // 2026-09-08 were exactly the replies those two lines were meant to stop.
+    //
+    // The rule below STAYS, because a schema cannot express it. `required`
+    // keeps a key from going missing; only an instruction keeps the model from
+    // deciding that an empty field means it should invent something to fill it.
     "- If a field is optional and you have nothing to say, return an empty string or empty array — never omit the key.",
   ].join("\n");
 
@@ -799,7 +806,7 @@ export function buildEmailIssueSystemPrompt(input: {
     "- Only include a cta_url you are certain is a real gradethread.com page (homepage or a stable surface), or a URL that appears verbatim in the inputs. Never invent a landing page or feature URL.",
     "",
     "# Output rules",
-    "- Respond with ONLY valid JSON matching the schema in the user message — no markdown fences, no preamble, no commentary.",
+    // US-3151: shape enforced by output_config.format, not asked for in prose.
     "- body_html is a short run of <p>/<ul>/<li>/<strong>/<em>/<a> only. No <script>, no inline style, no on* handlers.",
     "- If an optional field has nothing to say, return an empty string or empty array — never omit the key.",
   ].filter(Boolean).join("\n");

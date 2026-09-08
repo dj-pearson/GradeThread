@@ -522,6 +522,43 @@ export function effortParams(
   return { output_config: { effort: getFeatureEffort(feature, fallback) } };
 }
 
+/**
+ * Effort AND a structured-output schema, in one output_config (US-3151).
+ *
+ * ⚠ THIS EXISTS BECAUSE SPREADING BOTH SEPARATELY IS A SILENT BUG. Writing
+ *     ...effortParams(model, "content_blog", "medium"),
+ *     output_config: { format: { type: "json_schema", schema } },
+ * compiles, runs, and drops the effort on the floor - the second key wins and
+ * nothing says so. There is one object; it is built here.
+ *
+ * The schema makes a malformed reply impossible rather than requested. On
+ * production, 349 of 402 content-scheduler errors in the 30 days to 2026-09-08
+ * were the model returning JSON the hand-parser could not read.
+ *
+ * ⚠ NO `name` KEY INSIDE format. output_config.format accepts only
+ * { type, schema }; anything else returns a 400 ("output_config.format.name:
+ * Extra inputs are not permitted") and fails every call. That cost the grading
+ * path a debugging session already - see ai-provider-anthropic.ts.
+ *
+ * On a model without effort, the schema still goes out on its own: structured
+ * outputs and effort are independent features, and Haiku takes the first.
+ */
+export function outputConfigParams(
+  model: string,
+  feature: string,
+  fallback: AiEffort,
+  schema: unknown,
+): { output_config: Record<string, unknown> } {
+  return {
+    output_config: {
+      ...(modelUsesEffort(model)
+        ? { effort: getFeatureEffort(feature, fallback) }
+        : {}),
+      format: { type: "json_schema", schema },
+    },
+  };
+}
+
 // Per-call sampling knobs for grading, model-family-aware (US-1033). Spread into
 // the messages.create body in place of a hardcoded `temperature`.
 export type GradingSamplingParams =

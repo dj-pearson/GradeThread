@@ -38,9 +38,17 @@ Deno.test("social generator budget is at least 16384 tokens", () => {
 });
 
 Deno.test("social generator pins effort below the default", () => {
-  const m = src.match(/output_config:\s*\{\s*effort:\s*"(low|medium)"/);
+  // US-3151 moved this from an inline `output_config: { effort: "medium" }` to
+  // outputConfigParams(model, feature, fallback, schema), which builds effort
+  // and the structured-output format in ONE object. Spreading them separately
+  // silently drops the effort, so the helper is the mechanism and the fallback
+  // argument is where the pin now lives.
+  const m = src.match(
+    /outputConfigParams\(\s*model,\s*"content_social",\s*"(low|medium)"/,
+  );
   assert(
     m,
-    'expected output_config: { effort: "low" | "medium" } on the social create() call',
+    'expected outputConfigParams(model, "content_social", "low"|"medium", schema) ' +
+      "on the social create() call",
   );
 });

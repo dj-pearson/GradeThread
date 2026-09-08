@@ -1,11 +1,12 @@
 import {
-  effortParams,
   getAiTemperature,
   getAnthropicClient,
   getLightweightModel,
   isCachingEnabled,
+  outputConfigParams,
 } from "./ai-config.ts";
 import { extractTextBlock, jsonParseError } from "./ai-response-text.ts";
+import { TOPIC_RESEARCH_SCHEMA } from "./content-output-schemas.ts";
 import { enterAiFeature } from "./ai-feature-context.ts";
 import { supabaseAdmin } from "./supabase.ts";
 import {
@@ -82,9 +83,7 @@ async function loadResearchKnowledge(
   };
 }
 
-function stripCodeFence(s: string): string {
-  return s.trim().replace(/^```(?:json)?\s*\n?/i, "").replace(/\n?```\s*$/i, "");
-}
+
 
 function normalizeCandidate(raw: unknown): ResearchedCandidate | null {
   if (!raw || typeof raw !== "object") return null;
@@ -142,7 +141,7 @@ export async function researchTopics(
     // caused. Size it for the worst-case output PLUS reasoning headroom.
     max_tokens: 4096,
     ...(temperature !== undefined ? { temperature } : {}),
-    ...effortParams(model, "content_research", "medium"),
+    ...outputConfigParams(model, "content_research", "medium", TOPIC_RESEARCH_SCHEMA),
     system: contentSystemBlocks(systemPrompt, isCachingEnabled()),
     messages: [{ role: "user", content: userPrompt }],
   });
@@ -150,12 +149,16 @@ export async function researchTopics(
 
   const rawText = extractTextBlock(response, "content-ai-research");
 
+  // US-3151: output_config.format guarantees a schema-conformant object,
+  // so there is no fence to strip and no malformed body to recover from.
+  // The guard stays and the message changed: reaching it now means the
+  // SCHEMA or the model changed, not that the model rambled.
   let parsed: { candidates?: unknown[] };
   try {
-    parsed = JSON.parse(stripCodeFence(rawText));
+    parsed = JSON.parse(rawText);
   } catch {
     console.error(
-      "[content-ai-research] JSON parse failed:",
+      "[content-ai-research] structured output did not parse - check output_config.format:",
       rawText.slice(0, 300),
     );
     throw jsonParseError(response, "content-ai-research", rawText);

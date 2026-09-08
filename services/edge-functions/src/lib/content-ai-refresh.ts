@@ -1,11 +1,12 @@
 import {
-  effortParams,
   getAiTemperature,
   getAnthropicClient,
   getContentModel,
   isCachingEnabled,
+  outputConfigParams,
 } from "./ai-config.ts";
 import { extractTextBlock, jsonParseError } from "./ai-response-text.ts";
+import { BLOG_REFRESH_SCHEMA } from "./content-output-schemas.ts";
 import { enterAiFeature } from "./ai-feature-context.ts";
 import { loadKnowledge } from "./content-ai-blog.ts";
 import {
@@ -45,9 +46,7 @@ export interface RefreshBlogArticleResult {
   };
 }
 
-function stripCodeFence(s: string): string {
-  return s.trim().replace(/^```(?:json)?\s*\n?/i, "").replace(/\n?```\s*$/i, "");
-}
+
 
 function normalizeTakeaways(input: unknown): string[] {
   if (!Array.isArray(input)) return [];
@@ -137,7 +136,7 @@ export async function refreshBlogArticle(
     // actually spends. Raise the Coolify task timeout first if you raise this.
     max_tokens: 16000,
     ...(temperature !== undefined ? { temperature } : {}),
-    ...effortParams(model, "content_refresh", "medium"),
+    ...outputConfigParams(model, "content_refresh", "medium", BLOG_REFRESH_SCHEMA),
     system: contentSystemBlocks(systemPrompt, isCachingEnabled()),
     messages: [{ role: "user", content: userPrompt }],
   });
@@ -145,12 +144,16 @@ export async function refreshBlogArticle(
 
   const rawText = extractTextBlock(response, "content-ai-refresh");
 
+  // US-3151: output_config.format guarantees a schema-conformant object,
+  // so there is no fence to strip and no malformed body to recover from.
+  // The guard stays and the message changed: reaching it now means the
+  // SCHEMA or the model changed, not that the model rambled.
   let parsed: unknown;
   try {
-    parsed = JSON.parse(stripCodeFence(rawText));
+    parsed = JSON.parse(rawText);
   } catch {
     console.error(
-      "[content-ai-refresh] JSON parse failed:",
+      "[content-ai-refresh] structured output did not parse - check output_config.format:",
       rawText.slice(0, 300),
     );
     throw jsonParseError(response, "content-ai-refresh", rawText);

@@ -3,8 +3,10 @@ import {
   getAnthropicClient,
   getContentModel,
   isCachingEnabled,
+  outputConfigParams,
 } from "./ai-config.ts";
 import { extractTextBlock, jsonParseError } from "./ai-response-text.ts";
+import { SOCIAL_POST_SCHEMA } from "./content-output-schemas.ts";
 import { enterAiFeature } from "./ai-feature-context.ts";
 import { supabaseAdmin } from "./supabase.ts";
 import { buildHistoryContext, type ContentProduct } from "./content-history.ts";
@@ -133,9 +135,7 @@ export async function buildSocialCtaUrl(input: {
   return `${base}${path}${sep}${qs.toString()}`;
 }
 
-function stripCodeFence(s: string): string {
-  return s.trim().replace(/^```(?:json)?\s*\n?/i, "").replace(/\n?```\s*$/i, "");
-}
+
 
 function normalizeHashtags(input: unknown): string[] {
   if (!Array.isArray(input)) return [];
@@ -275,7 +275,7 @@ export async function generateSocialPost(
     // effort (high) had the model reasoning through seven character limits
     // for 73-100s and past the budget; medium keeps it inside both the token
     // cap and AI_TIMEOUT_MS (120s).
-    output_config: { effort: "medium" },
+    ...outputConfigParams(model, "content_social", "medium", SOCIAL_POST_SCHEMA),
     ...(temperature !== undefined ? { temperature } : {}),
     system: contentSystemBlocks(systemPrompt, isCachingEnabled()),
     messages: [{ role: "user", content: userPrompt }],
@@ -284,12 +284,16 @@ export async function generateSocialPost(
 
   const rawText = extractTextBlock(response, "content-ai-social");
 
+  // US-3151: output_config.format guarantees a schema-conformant object,
+  // so there is no fence to strip and no malformed body to recover from.
+  // The guard stays and the message changed: reaching it now means the
+  // SCHEMA or the model changed, not that the model rambled.
   let parsed: unknown;
   try {
-    parsed = JSON.parse(stripCodeFence(rawText));
+    parsed = JSON.parse(rawText);
   } catch {
     console.error(
-      "[content-ai-social] JSON parse failed:",
+      "[content-ai-social] structured output did not parse - check output_config.format:",
       rawText.slice(0, 300),
     );
     throw jsonParseError(response, "content-ai-social", rawText);

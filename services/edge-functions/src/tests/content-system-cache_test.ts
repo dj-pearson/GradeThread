@@ -126,7 +126,12 @@ Deno.test("the output rules stay in the prompt, above the breakpoint", () => {
     task: "write-blog-article",
   });
   assert(prompt.stable.includes("# Output rules"));
-  assert(prompt.stable.includes("ONLY valid JSON"));
+  // US-3151 deleted the "ONLY valid JSON" and "no markdown fences" rules that
+  // used to be asserted here - output_config.format enforces the shape now, and
+  // asking in prose for what the API guarantees is what failed for three weeks
+  // of production runs. The rule below is the one a schema CANNOT express, so
+  // it is the one that has to survive the move.
+  assert(!prompt.stable.includes("ONLY valid JSON"));
   assert(prompt.stable.includes("never omit the key"));
   assert(!prompt.volatile.includes("# Output rules"));
 });
