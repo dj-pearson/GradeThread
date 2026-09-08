@@ -3742,20 +3742,6 @@
       "priority": 40
     },
     {
-      "id": "US-3145",
-      "passes": false,
-      "title": "[GATE] Nothing in this epic is measurable until the ledger reports output tokens per call per feature",
-      "description": "As the operator paying the Anthropic bill, I want a per-feature BEFORE snapshot of median output tokens and cost per call, so that every effort and cache change in US-3146..US-3152 is judged against a number instead of an expectation.",
-      "acceptanceCriteria": [
-        "scripts/unit-economics.ts (or a sibling script named in this story's note) reports, per `feature` value in ai_usage_events over a --days window: call count, median input_tokens, median output_tokens, median cache_read_tokens, median cost_usd, and total cost_usd. Output tokens are the proxy for thinking spend and are the column this epic moves; today the script reports cost but not the token medians.",
-        "The report separates the three phases unit-economics.ts already classifies (operator / grading / action) so a content-generation regression cannot hide inside a per-action average.",
-        "The script is read-only and takes no destructive flags; running it twice produces the same numbers for the same window.",
-        "A BEFORE snapshot over a 30-day window is run against prod and pasted into this story's note as a table: feature, calls, median output_tokens, median cost_usd, total. That table is the baseline every later story in this epic compares against.",
-        "The note records which features are ALREADY on a non-default effort (grading via gradingSamplingParams, ai-authenticity.ts:841, content-ai-social.ts:276, content-safety.ts:138) so their rows are read as controls rather than as candidates."
-      ],
-      "priority": 9
-    },
-    {
       "id": "US-3146",
       "passes": false,
       "title": "Every Claude call outside grading runs at the default effort high, because 39 of 45 call sites send no output_config at all",
@@ -3823,10 +3809,11 @@
         "The stable block clears the per-model cache minimum for the model the content kinds actually run on (getContentModel). If it does not, the story records the measured token size rather than shipping a breakpoint that is silently ignored.",
         "AFTER at least 3 articles generated inside one 5-minute window, ai_usage_events shows cache_read_tokens greater than zero for feature 'content', and the per-article cost before and after goes in the note."
       ],
-      "priority": 12,
+      "priority": 9,
       "dependsOn": [
         "US-3145"
-      ]
+      ],
+      "notes": "2026-09-08, raised from priority 12 to 9 on the US-3145 baseline. The prod profile put this phase at $55.84 of a $98.38 30-day bill (57%): 738 calls, 5,488 median INPUT tokens each, cache hit rate ZERO. It is the largest single line in the ledger and the only one where the fix is pure layout. It was ranked behind work worth a tenth as much."
     },
     {
       "id": "US-3150",
@@ -3948,7 +3935,8 @@
       "priority": 18,
       "dependsOn": [
         "US-3157"
-      ]
+      ],
+      "notes": "NOT STARTED 2026-09-08, deliberately reordered behind US-3159 and US-3160, and AC1 is wrong in a way worth fixing before anyone starts.\n\nAC1 SAYS \"adding only the drive.readonly scope\". That is the one thing this story must NOT do. drive.readonly is a Google RESTRICTED scope: it needs app verification plus an annual CASA security assessment, and until that clears an unverified app is capped at 100 users behind an unverified-app warning screen. This repo already made exactly this call once and wrote it down - flipdesk-google.ts line 18 says the Sheets grant uses drive.file \"per-file ... No full-Drive access is requested.\" Adding drive.readonly to that same OAuth client would drag the existing Sheets and Photos grants into the verification too.\n\nTHE NON-RESTRICTED PATH, and what it actually costs. Google splits Drive access into drive.file (per-file, granted by the user picking the file in a Google-hosted Picker) and the restricted full-read scopes. So a folder import means the client-side Drive Picker, and that is three real changes, not one:\n  1. A NEW CONNECTION TABLE, google_drive_connections, holding a refresh token whose scope is drive.file and NOTHING else - so a migration and the US-1108 triple. It cannot reuse google_connections: the Picker needs an access token IN THE BROWSER, and the google_connections token also carries the spreadsheets scope, so handing that one to the page would let any XSS reach the sellers FlipDesk Sync sheet. Separate grant, separate table, same reason google_photos_connections is already separate.\n  2. THREE CSP WIDENINGS in public/_headers: script-src apis.google.com, frame-src docs.google.com (the Picker is an iframe), connect-src www.googleapis.com. Comparable to what challenges.cloudflare.com cost for Turnstile, but it is a security-posture change and belongs to the founder, not to a loop.\n  3. OPERATOR: enable the Picker API in the Cloud console and set GOOGLE_PICKER_API_KEY plus the project number.\n\nWHY DROPBOX AND ONEDRIVE WENT FIRST: neither has this problem. Dropbox lists folders server-side with files.metadata.read, Microsoft Graph with Files.Read, both ordinary delegated permissions, no client JS, no CSP change, no picker. They also prove the US-3157 shared core against a second and third provider, which is the whole point of having built it. Drive is the odd one out because of how Google splits its scopes, not because it is harder.\n\nDECISION NEEDED FROM THE FOUNDER before this starts: approve the Picker plus the three CSP entries, or accept the restricted-scope verification instead. Do not start on drive.readonly without that answer."
     },
     {
       "id": "US-3159",

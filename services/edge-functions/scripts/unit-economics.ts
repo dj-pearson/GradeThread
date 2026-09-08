@@ -36,6 +36,15 @@
 
 import { createClient } from "@supabase/supabase-js";
 import { FALLBACK_MATRIX } from "../src/lib/pricing-config.ts";
+// US-3145: the phase classification moved to src/lib so the token profile and
+// this script cannot drift apart. Adding a feature to OPERATOR_PHASES there now
+// fixes both reports at once; two copies would have fixed one and left the
+// other quietly attributing platform spend to customers.
+import {
+  classifyPhase as classify,
+  isRecognisedPhase as isRecognised,
+  type SpendBucket as Bucket,
+} from "../src/lib/ai-token-profile.ts";
 
 const url = Deno.env.get("SUPABASE_URL")?.trim();
 const key = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")?.trim();
@@ -74,47 +83,10 @@ const PLAN_PRICE_CENTS: Record<string, number> = {
   business: 9900,
 };
 
-type Bucket = "operator" | "grading" | "action";
-
-/** Phases billed as grade credits, not AI actions. */
-const GRADING_PHASES = new Set(["per_image", "composite"]);
-/** Phases nobody's allowance covers: the platform's own spend. */
-const OPERATOR_PHASES = new Set(["content", "newsletter_editor", "newsletter_image"]);
-
-/**
- * Phases known to be user AI actions at the time of writing. Everything not
- * listed anywhere defaults to `action` — the conservative side, because it
- * INFLATES the per-action cost and so cannot make a plan look safer than it is.
- *
- * It is still printed as unrecognised, because the opposite error is real: add
- * a new OPERATOR feature and its spend would silently land in the plan-risk
- * arithmetic and look like customers getting more expensive.
- */
-const KNOWN_ACTION_PHASES = new Set([
-  "photo_qa",
-  "catalog_extract",
-  "size_estimate",
-  "autolister",
-  "autolister_verify_groups",
-  "measure_extract",
-  "comp_read",
-]);
-
-function classify(phase: string): Bucket {
-  if (phase.startsWith("agent:")) return "operator";
-  if (OPERATOR_PHASES.has(phase)) return "operator";
-  if (GRADING_PHASES.has(phase)) return "grading";
-  return "action";
-}
-
-function isRecognised(phase: string): boolean {
-  return (
-    phase.startsWith("agent:") ||
-    OPERATOR_PHASES.has(phase) ||
-    GRADING_PHASES.has(phase) ||
-    KNOWN_ACTION_PHASES.has(phase)
-  );
-}
+// The phase sets and both classifiers now live in src/lib/ai-token-profile.ts
+// and are imported above. The comments that explained WHY a phase belongs to a
+// bucket moved with them, so this script keeps the plan arithmetic and the
+// taxonomy has one home.
 
 const db = createClient(url, key, { auth: { persistSession: false } });
 const since = new Date(Date.now() - DAYS * 86_400_000).toISOString();
