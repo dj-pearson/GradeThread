@@ -22,7 +22,13 @@
 
 import type Anthropic from "@anthropic-ai/sdk";
 import { supabaseAdmin } from "./supabase.ts";
-import { effortParams, getAnthropicClient, getDefaultModel } from "./ai-config.ts";
+import {
+  effortParams,
+  getAnthropicClient,
+  getDefaultModel,
+  isCachingEnabled,
+} from "./ai-config.ts";
+import { cachedSystem, withCachedTail } from "./loop-cache.ts";
 import { computeCostUsd } from "./ai-usage.ts";
 import { agentBudgetFeature, checkAgentBudget } from "./agent-budget.ts";
 import { enterAiFeature } from "./ai-feature-context.ts";
@@ -849,6 +855,9 @@ export function prodKernelDeps(): KernelDeps {
     },
     makeStep: (agent, model, maxOutputTokens) => {
       const client = getAnthropicClient();
+      // Read once per step builder, not per request: a loop that re-read this
+      // could flip mid-run and leave half a conversation cached.
+      const caching = isCachingEnabled();
       const tools = agentToolRegistry.anthropicTools(agent);
       const system = charterFor(agent.key)?.systemPrompt ??
         (typeof agent.config.system_prompt === "string" && agent.config.system_prompt
@@ -862,9 +871,13 @@ export function prodKernelDeps(): KernelDeps {
           // an operator cron wants anyway.
           ...effortParams(model, "agent_kernel", "low"),
           max_tokens: maxOutputTokens,
-          system,
+          // US-3148: this breakpoint covers the TOOL SCHEMAS too - Anthropic
+          // renders tools before system - which is most of the prefix for an
+          // agent whose charter is short. Measured: all 15 charters clear the
+          // 1,024-token minimum once tools are counted; see loop-cache.ts.
+          system: cachedSystem(system, caching),
           tools,
-          messages,
+          messages: withCachedTail(messages, caching),
         });
         const toolUses = resp.content
           .filter((b): b is Anthropic.ToolUseBlock => b.type === "tool_use")

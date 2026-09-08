@@ -27,6 +27,7 @@ import {
   getLightweightModel,
   isCachingEnabled,
 } from "../lib/ai-config.ts";
+import { withCachedTail } from "../lib/loop-cache.ts";
 import {
   applySupportLockout,
   bumpSupportMinuteCounter,
@@ -589,7 +590,24 @@ function makeStreamingStep(
 ): (messages: Anthropic.MessageParam[]) => Promise<AssistantStep> {
   const client = getAnthropicClient();
   const model = getLightweightModel();
-  const systemBlock: Anthropic.TextBlockParam = isCachingEnabled()
+  const caching = isCachingEnabled();
+  // ⚠ MEASURED 2026-09-08 (US-3148): THIS BREAKPOINT HAS NEVER FIRED. The
+  // prefix here - ASSISTANT_TOOLS plus SUPPORT_SYSTEM_PROMPT - counts 2,008
+  // tokens on claude-haiku-4-5, and Haiku's minimum cacheable prefix is 2,048.
+  // Forty tokens short, so the API ignores it outright: no error, no warning,
+  // cache_read_tokens simply stays 0. It reads exactly like a breakpoint in the
+  // wrong place, which is the trap US-3047 documented.
+  //
+  // It is LEFT IN PLACE rather than deleted, because it is correct the moment
+  // this route stops running on the lightweight model: the same prefix counts
+  // 2,434 tokens on claude-sonnet-5, comfortably over that model's 1,024.
+  // Padding the prompt to reach 2,048 would mean paying for filler on every
+  // call forever, which is a worse trade than an inert breakpoint.
+  //
+  // The TAIL breakpoint below is the one that actually pays here, and it works
+  // for the reason this one does not: it sits after the history, so the prefix
+  // it closes grows past 2,048 within the first couple of turns.
+  const systemBlock: Anthropic.TextBlockParam = caching
     ? {
       type: "text",
       text: SUPPORT_SYSTEM_PROMPT,
@@ -606,7 +624,7 @@ function makeStreamingStep(
       max_tokens: 1024,
       system: [systemBlock],
       tools: ASSISTANT_TOOLS,
-      messages,
+      messages: withCachedTail(messages, caching),
     }, signal ? { signal } : undefined);
 
     for await (const event of stream) {
