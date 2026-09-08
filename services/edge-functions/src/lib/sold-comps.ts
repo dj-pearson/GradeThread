@@ -9,6 +9,11 @@
 //   1. eBay Marketplace Insights (LAST_SOLD prices) — gated, off by default.
 //   2. The platform's own `sales` table as a private comp set (the seller's
 //      realized sales for the same brand/category/condition).
+//   3. Pooled realized sales from OTHER sellers who opted in (US-3136), which
+//      is anonymous, aggregate-only, and returns nothing below 5 sales from 3
+//      distinct sellers. Last because a stranger's price is weaker evidence
+//      than your own, and it exists because eBay has closed every route to
+//      sold data for an app like this (see 00762 for that history).
 // When neither yields enough data it returns null, and the caller falls back to
 // active Browse comps WITH the limitation surfaced (price stays estimated).
 //
@@ -27,7 +32,7 @@ export const MIN_SOLD_COMPS = 3;
 const PRIVATE_SALES_LOOKBACK_DAYS = 365;
 const PRIVATE_SALES_FETCH_LIMIT = 300;
 
-export type CompSource = "ebay_sold" | "private_sales";
+export type CompSource = "ebay_sold" | "private_sales" | "pooled_sales";
 
 export interface RealizedComps {
   source: CompSource;
@@ -68,6 +73,24 @@ function percentile(sorted: number[], p: number): number | null {
 export function soldConfidenceFromCount(count: number): number {
   if (count < MIN_SOLD_COMPS) return 0;
   return Math.max(0, Math.min(0.95, 0.35 + count * 0.055));
+}
+
+/**
+ * Confidence for a POOLED sample, which is never allowed to reach what the same
+ * count earns from the seller's own sales.
+ *
+ * The pool is other people's garments, graded by other people, photographed and
+ * described by other people. A stranger's realized price is real evidence and
+ * weaker evidence, and the cap is how that shows up in a number the UI ranks on.
+ *
+ * Exported so the cap is testable as behaviour rather than re-derived in a test
+ * -- an earlier version of the test computed Math.min itself and passed happily
+ * with the cap deleted from the code.
+ */
+export const POOLED_CONFIDENCE_CAP = 0.6;
+
+export function pooledConfidenceFromCount(count: number): number {
+  return Math.min(soldConfidenceFromCount(count), POOLED_CONFIDENCE_CAP);
 }
 
 /**
@@ -204,7 +227,59 @@ export async function getRealizedComps(
   }
 
   // 2. Private sales comp set (the seller's own realized sales).
-  return await getPrivateSalesComps(args);
+  const private_ = await getPrivateSalesComps(args);
+  if (private_) return private_;
+
+  // 3. Pooled sales from sellers who opted in (US-3136).
+  //
+  // Ranked BELOW the seller's own sales deliberately. A seller's own history is
+  // their price points, their photography and their buyers; the pool is other
+  // people's. When both exist the closer one should win, so this only answers
+  // when the seller has no history of their own for this bucket -- which is
+  // exactly the new-seller case the pool is for.
+  return await getPooledSalesComps(args);
+}
+
+/**
+ * Anonymous pooled comps across consenting sellers.
+ *
+ * Every threshold lives in the pooled_sold_comps() SQL function, not here: at
+ * least 5 sales from at least 3 distinct sellers, or it returns no row. This
+ * wrapper deliberately adds no floor of its own and applies no fallback when
+ * the function is silent, because a second copy of that rule is a second place
+ * for it to be wrong.
+ */
+export async function getPooledSalesComps(
+  args: RealizedCompsArgs,
+): Promise<RealizedComps | null> {
+  try {
+    const { data, error } = await supabaseAdmin.rpc("pooled_sold_comps", {
+      p_category_id: args.categoryId,
+      p_brand: args.brand ?? null,
+      p_lookback_days: PRIVATE_SALES_LOOKBACK_DAYS,
+    });
+    if (error) {
+      console.error("[sold-comps] pooled comps query failed:", error.message);
+      return null;
+    }
+    const row = Array.isArray(data) ? data[0] : data;
+    if (!row || row.median_cents == null) return null;
+    return {
+      source: "pooled_sales",
+      count: Number(row.sale_count),
+      currency: String(row.currency ?? "USD"),
+      lowCents: row.p25_cents == null ? null : Number(row.p25_cents),
+      medianCents: Number(row.median_cents),
+      highCents: row.p75_cents == null ? null : Number(row.p75_cents),
+      confidence: pooledConfidenceFromCount(Number(row.sale_count)),
+    };
+  } catch (err) {
+    console.error(
+      "[sold-comps] pooled comps lookup failed:",
+      err instanceof Error ? err.message : String(err),
+    );
+    return null;
+  }
 }
 
 // ── US-2675: sold TITLES, not just sold prices ─────────────────────────────

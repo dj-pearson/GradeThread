@@ -1,5 +1,27 @@
 # PENDING MIGRATIONS — applied to prod separately from the push
 
+## ✅ APPLIED 2026-09-07: 00762 — pooled sold comps, opt-in (US-3136)
+
+**Risk: LOW.** Adds one boolean column defaulting FALSE, plus one read-only
+aggregate function. No data movement, no backfill.
+
+⚠ **APPLY AS `psql -U supabase_admin`** — `flipdesk_settings` is owned by that
+role, so `ALTER TABLE` fails as `postgres`.
+
+**Applied and verified.** `flipdesk_settings.pooled_comps_opt_in` exists,
+default `false`, 0 sellers opted in. `pooled_sold_comps()` returns no rows for
+every category, which is correct: 223 eligible sales but only **2 distinct
+sellers**, and the floor is 3.
+
+**Proven in a rolled-back transaction before applying** — consent off returns
+nothing; all-consented-but-2-sellers returns nothing; a synthetic 3rd seller
+makes it answer (6 sales / 3 sellers / percentiles); one seller revoking drops
+it back to nothing immediately.
+
+⚠ **BEFORE ANY SELLER IS ASKED TO OPT IN, the privacy policy and terms need
+language covering it.** The switch exists but nothing in the product turns it
+on yet, and it must not ship a UI toggle until the policy is updated.
+
 ## ✅ APPLIED 2026-09-07: 00761 — fifteen brands whose feeds refused us (US-3125)
 
 **Risk: LOW.** Inserts only, `ON CONFLICT DO NOTHING`. No schema change.
