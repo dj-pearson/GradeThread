@@ -2188,24 +2188,47 @@ async function queueFetch(path, init) {
 
 let drainInFlight = false;
 
+/**
+ * US-3143: the floor under web-triggered drains. See the GT_DRAIN_NOW handler
+ * for why it exists — it guards against a page in a loop, not against a race.
+ * Deliberately well under the 5-minute alarm, so a genuine nudge is never the
+ * one refused.
+ */
+const DRAIN_NUDGE_MIN_GAP_MS = 30000;
+let lastNudgedDrainAt = 0;
+
+/**
+ * Run the queue.
+ *
+ * US-3143: it now REPORTS what it did, as one of "busy" / "not-allowed" /
+ * "needs-consent" / "empty" / "ok". Every caller before this one fired it into
+ * the void (`void drainQueue()`) and still may — the alarm has nobody to tell.
+ * The web's "drain now" nudge does: a seller looking at a pending delist while
+ * their plan has lapsed needs a different answer from one whose queue is simply
+ * empty, and without a return value both look identical from the page.
+ *
+ * The codes name a STATE, never a listing. Nothing about which jobs ran, which
+ * marketplace, or which URL crosses back to the page.
+ */
 async function drainQueue() {
   // Re-entrancy guard: the sweep alarm and a startup event can land together,
   // and two concurrent drains would each claim the same row before either
   // marked it.
-  if (drainInFlight) return;
+  if (drainInFlight) return "busy";
   drainInFlight = true;
   try {
     // Same gates as an interactive cross-post, checked in the same order. A
     // drained job is not a special case that gets to skip the seller's consent.
-    if (!(await sellerAllowed())) return;
-    if (!(await tosAccepted())) return;
+    // US-3143: nor is a web-triggered one — a nudge is a trigger, not a bypass.
+    if (!(await sellerAllowed())) return "not-allowed";
+    if (!(await tosAccepted())) return "needs-consent";
 
     const claimed = await queueFetch("/claim", {
       method: "POST",
       body: JSON.stringify({ limit: 5, installId: await getInstanceId() }),
     });
     const rows = (claimed && claimed.claimed) || [];
-    if (rows.length === 0) return;
+    if (rows.length === 0) return "empty";
 
     const jobs = await withJobs(async (j) => ({ value: j }));
     const plan = self.GT_LISTER_JOBS.planDrain(rows, jobs, { now: Date.now() });
@@ -2295,6 +2318,7 @@ async function drainQueue() {
       await withJobs(async (j) => ({ jobs: self.GT_LISTER_JOBS.put(j, job) }));
       await scheduleJobAlarm(job);
     }
+    return "ok";
   } finally {
     drainInFlight = false;
   }
@@ -2416,6 +2440,14 @@ const EXTERNAL_TYPES = new Set([
   // tab; it asks the extension, which reads the closet tab the seller already
   // has open and posts the result with its own token.
   "GT_CLOSET_IMPORT",
+  // US-3143: "there is queued work — run it now rather than at the next tick."
+  //
+  // The message carries NOTHING. No listing, no URL, no platform, no job. It is
+  // a nudge to re-read a queue the extension already owns with its own token,
+  // which is what keeps it safe to accept from a page: the worst a forged one
+  // can do is make the extension do, a few minutes early, exactly what the
+  // 5-minute alarm was going to do anyway.
+  "GT_DRAIN_NOW",
 ]);
 
 function handleExternalMessage(msg, sender, sendResponse) {
@@ -2533,6 +2565,40 @@ function handleExternalMessage(msg, sender, sendResponse) {
         sendResponse(await runClosetImport(msg));
       } catch (_e) {
         sendResponse({ ok: false, reason: "failed", error: "Could not read the closet." });
+      }
+    })();
+    return true;
+  }
+
+  // US-3143: the seller has a GradeThread tab open and there is queued work.
+  // Run the drain now instead of leaving it to the rest of the 5-minute tick.
+  //
+  // NOTHING IS TAKEN FROM THE MESSAGE. The handler reads no field of `msg`, so
+  // there is no payload to validate and no way for a page to name a listing, a
+  // platform or a URL. It calls the same drainQueue() the alarm calls, which
+  // re-reads the queue with the extension's OWN token and applies its own gates.
+  //
+  // The floor below is not about correctness — drainInFlight already makes a
+  // concurrent nudge harmless. It is about a page in a loop: without it, a bug
+  // (or a hostile script on a gradethread.com page) turns every render into a
+  // queue read. Thirty seconds is well under the 5-minute alarm it is speeding
+  // up, so a real nudge is never the one that gets refused.
+  if (msg.type === "GT_DRAIN_NOW") {
+    (async () => {
+      try {
+        const now = Date.now();
+        if (now - lastNudgedDrainAt < DRAIN_NUDGE_MIN_GAP_MS) {
+          sendResponse({ ok: true, drained: false, state: "throttled" });
+          return;
+        }
+        lastNudgedDrainAt = now;
+        const state = await drainQueue();
+        sendResponse({ ok: true, drained: state === "ok", state: state });
+      } catch (_e) {
+        // A failed drain is the alarm's problem in five minutes' time, not the
+        // seller's problem now. Say so plainly rather than surfacing an error
+        // for something they did not ask for.
+        sendResponse({ ok: true, drained: false, state: "error" });
       }
     })();
     return true;

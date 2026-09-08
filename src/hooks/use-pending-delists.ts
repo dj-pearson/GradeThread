@@ -1,8 +1,10 @@
+import { useEffect, useRef } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { edgeFetch } from "@/lib/edge-fetch";
 import {
   isListerAvailable,
   isListerPlatform,
+  requestDrainNow,
   sendDelistToLister,
 } from "@/lib/lister-extension";
 
@@ -30,7 +32,7 @@ export interface PendingDelist {
 }
 
 export function usePendingDelists(enabled = true) {
-  return useQuery({
+  const query = useQuery({
     queryKey: ["pending_delists"],
     enabled,
     staleTime: 60 * 1000,
@@ -41,6 +43,58 @@ export function usePendingDelists(enabled = true) {
       return json.pending ?? [];
     },
   });
+
+  useDrainNudge(query.data);
+  return query;
+}
+
+/**
+ * US-3143: should this pending-delists result nudge the extension to drain?
+ *
+ * ON THE TRANSITION, not on the state. The rule is 0-or-unloaded → at least one
+ * row. While the count stays above zero nothing further is sent, and the latch
+ * only re-arms once the queue empties. A rule written as "there is work" would
+ * fire on every refetch, remount and window focus, at a queue the extension is
+ * already draining.
+ *
+ * `pendingCount` is null while the query has not resolved. Not the same as
+ * zero: an unloaded query must neither send nor clear the latch, or the first
+ * render after a refetch begins would re-arm it and the next result would send
+ * again for work already nudged.
+ *
+ * Pure, and exported, because that is where the whole rule lives — there is no
+ * @testing-library/react in this repo, and a rule tested only through a
+ * source-scan is a rule nobody has actually run.
+ */
+export function planDrainNudge(
+  pendingCount: number | null,
+  alreadyNudged: boolean,
+): { send: boolean; nudged: boolean } {
+  if (pendingCount === null) return { send: false, nudged: alreadyNudged };
+  if (pendingCount === 0) return { send: false, nudged: false };
+  if (alreadyNudged) return { send: false, nudged: true };
+  return { send: true, nudged: true };
+}
+
+/**
+ * Tell the extension to run its queue when work newly appears.
+ *
+ * The module-level floor inside requestDrainNow is what makes several mounted
+ * copies of this hook safe: each keeps its own latch and each will try once,
+ * and only the first inside the window actually leaves the page.
+ *
+ * Fire-and-forget on purpose. Nothing reads the answer, because there is no
+ * answer a seller should be shown: every refusal the extension can give (not
+ * installed, lapsed plan, terms not accepted, already draining) leaves the
+ * 5-minute alarm doing exactly what it does today.
+ */
+function useDrainNudge(pending: PendingDelist[] | undefined): void {
+  const nudged = useRef(false);
+  useEffect(() => {
+    const plan = planDrainNudge(pending ? pending.length : null, nudged.current);
+    nudged.current = plan.nudged;
+    if (plan.send) void requestDrainNow();
+  }, [pending]);
 }
 
 export interface RunDelistResult {

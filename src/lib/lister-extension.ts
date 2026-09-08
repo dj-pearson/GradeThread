@@ -403,6 +403,78 @@ export function sendDelistToLister(
   return sendListerJob<ListerResult>({ type: "GT_LISTER_DELIST", payload });
 }
 
+// ── US-3143: "there is queued work — run it now" ──────────────────────────
+//
+// The extension drains extension_work_queue on a 5-minute alarm and at browser
+// start. Since US-3141 a sale puts the sibling's delist in that queue by itself,
+// so the hands-off path already works — but a seller sitting in FlipDesk right
+// now watches a listing they know is sold stay live for up to five more minutes.
+// They are the one person who can see the delay, and they are the reason people
+// leave the competitor.
+//
+// So: when a GradeThread tab can see queued work, it tells the extension to go.
+// This is the cheap half of the wake problem (US-3142 is the one that reaches a
+// browser with no tab open, and has a cross-browser question to answer first).
+//
+// The message carries nothing — see the GT_DRAIN_NOW note in the extension's
+// background.js. The page is not handing over a job; it is saying "look again".
+
+const DRAIN_NUDGE_MIN_GAP_MS = 30000;
+let lastDrainNudgeAt = 0;
+
+/** Test seam: forget the throttle so each case starts from a clean slate. */
+export function resetDrainNudgeThrottle(): void {
+  lastDrainNudgeAt = 0;
+}
+
+export interface DrainNudgeResult {
+  /** True only when a drain actually started and claimed work. */
+  drained: boolean;
+  /** The extension's own word for what happened, or why we never asked. */
+  state:
+    | "ok"
+    | "empty"
+    | "busy"
+    | "throttled"
+    | "not-allowed"
+    | "needs-consent"
+    | "error"
+    | "unavailable";
+}
+
+/**
+ * Ask the extension to drain now. Never throws, never toasts, never blocks.
+ *
+ * Degrades to `unavailable` for every reason a seller is not at fault for: no
+ * extension, an older build that has never heard of this message, the feature
+ * flag off. All of those already work today — five minutes later, on the alarm
+ * — so there is nothing to tell anyone about.
+ */
+export async function requestDrainNow(): Promise<DrainNudgeResult> {
+  if (!isListerAvailable()) return { drained: false, state: "unavailable" };
+
+  // Mirrors the floor inside the worker. Both, deliberately: this one saves the
+  // round trip, and the extension's own is the one that holds when the page is
+  // not the only caller.
+  const now = Date.now();
+  if (now - lastDrainNudgeAt < DRAIN_NUDGE_MIN_GAP_MS) {
+    return { drained: false, state: "throttled" };
+  }
+  lastDrainNudgeAt = now;
+
+  try {
+    const res = await sendExtensionMessage<{
+      ok?: boolean;
+      drained?: boolean;
+      state?: DrainNudgeResult["state"];
+    }>({ type: "GT_DRAIN_NOW" });
+    if (!res?.ok) return { drained: false, state: "unavailable" };
+    return { drained: res.drained === true, state: res.state ?? "ok" };
+  } catch {
+    return { drained: false, state: "unavailable" };
+  }
+}
+
 /** Send a payload to the extension; resolves with its result. */
 export function sendToLister(payload: ListerPayload): Promise<ListerResult> {
   return sendListerJob<ListerResult>({ type: "GT_LISTER_LIST", payload });

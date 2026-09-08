@@ -3757,20 +3757,6 @@
       "priority": 2
     },
     {
-      "id": "US-3143",
-      "passes": false,
-      "title": "An open GradeThread tab tells the extension to drain now",
-      "description": "The cheap half of US-3142, with no new infrastructure. The SaaS already talks to the extension over externally_connectable (manifest matches gradethread.com), and use-pending-delists.ts already knows when the seller has queued delists waiting. When a GradeThread tab is open and sees pending work, it should tell the extension to drain immediately rather than letting it wait out the rest of the 5-minute alarm. This covers the seller who is already at their desk, which is the common case, and it ships without answering the cross-browser wake question US-3142 has to spike.",
-      "acceptanceCriteria": [
-        "A new 'drain now' message kind on the extension's onMessageExternal, accepted only from the gradethread.com origins already in externally_connectable.",
-        "The handler runs drainQueue() behind the same gates as the alarm path (sellerAllowed, tosAccepted, the re-entrancy guard) and returns whether a drain started. It never accepts a listing, a URL or a job from the page.",
-        "The web sends it when the pending-delists query returns at least one row, and at most once per page load plus once per refetch that newly finds work. A tab left open all day does not machine-gun the worker.",
-        "A page with no extension installed, an older extension that does not know the message, or a refused gate degrades silently to today's behaviour. No error toast for a seller who did nothing wrong.",
-        "The message name and origin allowlist are covered by extension tests; the send-once rule is covered by a hook test."
-      ],
-      "priority": 2
-    },
-    {
       "id": "US-3144",
       "passes": false,
       "title": "Push the seller a delist prompt on iOS and Android with a tap-through to each marketplace",
