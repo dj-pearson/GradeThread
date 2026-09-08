@@ -1284,10 +1284,16 @@ private struct TabBarShell: View {
 
             MarketplacesTab(router: router)
             .tabItem { Label("Marketplaces", systemImage: "antenna.radiowaves.left.and.right") }
-            // US-3101: what eBay is waiting on. `.badge(Int?)` renders nothing
-            // for nil, which is the whole reason the store hands out an
-            // optional rather than a count that can be 0.
-            .badge(attentionCount)
+            // US-3101: what eBay is waiting on, hidden entirely when there is
+            // nothing waiting.
+            //
+            // Through `Text?`, not `Int?`. There is no `badge(Int?)` overload:
+            // `badge(_ count: Int)` takes a non-optional (and hides itself at
+            // zero), and `badge(_ label: Text?)` is the one that accepts an
+            // optional. The `> 0` guard keeps the hide-at-zero behaviour the
+            // Int overload would have given, since a Text badge would happily
+            // render "0".
+            .badge(attentionCount.flatMap { $0 > 0 ? Text($0.formatted()) : nil })
             .tag(AppSection.marketplaces)
         }
         .tint(Color.brandNavy)

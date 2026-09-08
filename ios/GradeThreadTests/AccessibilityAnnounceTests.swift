@@ -44,6 +44,12 @@ final class AccessibilityAnnounceTests: XCTestCase {
             actionable: true,
             reason: "Priced below comparable condition",
             valueBasis: nil,
+            // nil: this test is about the composed label, not the total or the
+            // sourcing ceiling. Giving them values would assert on something it
+            // does not exercise.
+            totalCents: nil,
+            totalIncludesShipping: nil,
+            ceiling: nil,
             url: nil)
         let summary = ScoutCandidateRow(candidate: candidate).accessibilitySummary
 
@@ -75,7 +81,9 @@ final class AccessibilityAnnounceTests: XCTestCase {
             valueLowCents: nil, valueMedianCents: nil, valueHighCents: nil,
             estMarginCents: nil, estMarginPct: nil,
             underpriced: false, actionable: false, reason: "Not enough comps",
-            valueBasis: nil, url: nil)
+            valueBasis: nil,
+            totalCents: nil, totalIncludesShipping: nil, ceiling: nil,
+            url: nil)
         let summary = ScoutCandidateRow(candidate: candidate).accessibilitySummary
         XCTAssertTrue(summary.contains("uncertain"))
         XCTAssertFalse(summary.contains("Deal"))
