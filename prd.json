@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-3188",
+  "nextId": "US-3189",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -4422,6 +4422,21 @@
         "The UI half already shipped in the same commit as this story was filed: ItemPhotoImg now folds a dead URL into the labelled placeholder via onError, so these rows degrade instead of drawing a broken-image glyph. That is a cosmetic floor, NOT the fix, and closing this story on the UI change alone would leave the catalogue quietly missing photos"
       ],
       "priority": 26
+    },
+    {
+      "id": "US-3188",
+      "passes": false,
+      "title": "A black band scrolls up over the Composer and stays until you scroll back",
+      "description": "As a seller writing a listing, I want the Composer to keep painting itself while I scroll, so that I am not clicking around to clear a black rectangle off my screen.",
+      "acceptanceCriteria": [
+        "REPORTED 2026-09-08 by the founder on production: scrolling the Composer fast makes a black section travel up the screen. It persists until he clicks into the editor column and scrolls back up. It also follows two non-scroll actions: closing a photo after viewing it, and clicking into a field",
+        "RULED OUT ALREADY, with evidence, so nobody repeats it: the global prefers-reduced-motion rule uses animation-duration 0.01ms rather than none, so Radix Presence still receives animationend and the dialog overlay does unmount. Dialogs portal to document.body with no custom container, and no ancestor sets transform, filter, contain or will-change, so a fixed overlay is not being trapped in a scrolling containing block. The will-change and backdrop-filter rules in index.css are all marketing-page scoped and never render on the Composer",
+        "STILL SUSPECTED, in order: (a) a bg-black surface from photo-editor-dialog.tsx left mounted after close, which has the crop shade bars at absolute inset-x-0 bg-black/55 and a bg-black stage; (b) the Radix dialog overlay at fixed inset-0 bg-black/50 surviving its exit; (c) a Chrome repaint artifact in the nested scrollport, since the app scrolls in main.flex-1.overflow-y-auto inside an h-screen overflow-hidden shell rather than on the document, with a position sticky preview column inside it",
+        "The bug is IDENTIFIED from a real inspection, not from source reading: someone reproduces it and reports which element the black region actually is, from devtools or a screen recording. The three suspects above have different fixes and picking one without that is a guess",
+        "Once identified, a fix, plus whatever guard can catch the class of it. If it is a stuck dialog surface, that guard is a test that a closed dialog leaves no node behind",
+        "The Composer scrolls cleanly through its full height at speed on Windows Chrome, with and without a photo dialog having been opened first"
+      ],
+      "priority": 15
     }
   ]
 }
