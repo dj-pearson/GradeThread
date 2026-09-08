@@ -150,7 +150,14 @@ struct ProspectRequest: Encodable {
         titleOverride: String?,
         brandOverride: String?,
         gradeValue: Double?,
-        gradeTier: String?
+        gradeTier: String?,
+        // The four on-device hints. Both callers above already pass them; this
+        // init was simply never widened to take them, so the properties had no
+        // assignment and nothing compiled.
+        barcode: String?,
+        brandHint: String?,
+        sizeHint: String?,
+        hintConfidence: Double?
     ) {
         self.images = images
         self.imageRoles = imageRoles
@@ -161,6 +168,10 @@ struct ProspectRequest: Encodable {
         self.brandOverride = brandOverride
         self.gradeValue = gradeValue
         self.gradeTier = gradeTier
+        self.barcode = barcode
+        self.brandHint = brandHint
+        self.sizeHint = sizeHint
+        self.hintConfidence = hintConfidence
     }
 }
 

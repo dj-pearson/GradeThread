@@ -1937,7 +1937,9 @@ private struct ComposerForm: View {
         let busy = isPushing || isSaving
         let commitDisabled = !canSave || offline || busy
 
-        VStack(spacing: 8) {
+        // Explicit `return`: the three `let`s above make this a multi-statement
+        // body, and implicit return only applies to a single expression.
+        return VStack(spacing: 8) {
             if scheduleEnabled {
                 Button {
                     guard !busy else { return }
