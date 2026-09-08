@@ -1265,19 +1265,7 @@ private struct TabBarShell: View {
             .badge(unreadCount)
             .tag(AppSection.home)
 
-            NavigationStack(path: $router.inventoryPath) {
-                InventoryPlaceholder(router: router)
-                    .navigationDestination(for: IntakeRoute.self, destination: intakeDestination)
-                    .navigationDestination(for: LocalInventoryItem.self) { item in
-                        ItemCanvasSceneHost(item: item)
-                    }
-                    // US-684: AutoLister/Details reachable from this tab too.
-                    .toolbar {
-                        ToolbarItem(placement: .topBarLeading) {
-                            AddMethodMenu(router: router)
-                        }
-                    }
-            }
+            InventoryTab(router: router)
             .tabItem { Label("Inventory", systemImage: "shippingbox") }
             .tag(AppSection.inventory)
 
@@ -1290,37 +1278,11 @@ private struct TabBarShell: View {
                 }
                 .tag(AppSection.add)
 
-            NavigationStack(path: $router.salesPath) {
-                MoneyPlaceholder()
-                    .navigationDestination(for: IntakeRoute.self, destination: intakeDestination)
-                    // US-752: a sale.created / payout.* push (or a Money-row tap)
-                    // drills into the sale's item canvas on this tab.
-                    .navigationDestination(for: LocalInventoryItem.self) { item in
-                        ItemCanvasSceneHost(item: item)
-                    }
-                    // US-684: add-method menu reachable from the Money tab.
-                    .toolbar {
-                        ToolbarItem(placement: .topBarLeading) {
-                            AddMethodMenu(router: router)
-                        }
-                    }
-            }
+            MoneyTab(router: router)
             .tabItem { Label("Money", systemImage: "dollarsign.circle") }
             .tag(AppSection.sales)
 
-            NavigationStack(path: $router.marketplacesPath) {
-                MarketplacesPlaceholder()
-                    .navigationDestination(for: IntakeRoute.self, destination: intakeDestination)
-                    .navigationDestination(for: NegotiationRoute.self) { route in
-                        NegotiationInboxView(filterItemId: route.filterItemId)
-                    }
-                    // US-684: add-method menu reachable from the Marketplaces tab.
-                    .toolbar {
-                        ToolbarItem(placement: .topBarLeading) {
-                            AddMethodMenu(router: router)
-                        }
-                    }
-            }
+            MarketplacesTab(router: router)
             .tabItem { Label("Marketplaces", systemImage: "antenna.radiowaves.left.and.right") }
             // US-3101: what eBay is waiting on. `.badge(Int?)` renders nothing
             // for nil, which is the whole reason the store hands out an
@@ -1329,11 +1291,6 @@ private struct TabBarShell: View {
             .tag(AppSection.marketplaces)
         }
         .tint(Color.brandNavy)
-    }
-
-    @ViewBuilder
-    private func intakeDestination(_ route: IntakeRoute) -> some View {
-        IntakePlaceholder(route: route)
     }
 }
 
@@ -1809,6 +1766,83 @@ private struct AddMethodMenu: View {
 /// works is taking the whole tab out, so the compiler solves a small expression.
 ///
 /// Behaviour is unchanged: same destinations, same four items, same placements.
+/// The Inventory tab.
+///
+/// One of four tabs lifted out of ``TabBarShell`` for the reason written on
+/// ``HomeTab``: every `.toolbar` inside that TabView reported
+/// `ambiguous use of 'toolbar(content:)'`, one at a time, because the
+/// expression was too large for the type checker to pick an overload in. They
+/// were extracted together rather than one per CI run.
+private struct InventoryTab: View {
+    @Bindable var router: AppRouter
+
+    var body: some View {
+        NavigationStack(path: $router.inventoryPath) {
+            InventoryPlaceholder(router: router)
+                .navigationDestination(for: IntakeRoute.self) { route in
+                    IntakePlaceholder(route: route)
+                }
+                .navigationDestination(for: LocalInventoryItem.self) { item in
+                    ItemCanvasSceneHost(item: item)
+                }
+                // US-684: AutoLister/Details reachable from this tab too.
+                .toolbar {
+                    ToolbarItem(placement: .topBarLeading) {
+                        AddMethodMenu(router: router)
+                    }
+                }
+        }
+    }
+}
+
+/// The Money tab. See ``HomeTab`` for why it is its own view.
+private struct MoneyTab: View {
+    @Bindable var router: AppRouter
+
+    var body: some View {
+        NavigationStack(path: $router.salesPath) {
+            MoneyPlaceholder()
+                .navigationDestination(for: IntakeRoute.self) { route in
+                    IntakePlaceholder(route: route)
+                }
+                // US-752: a sale.created / payout.* push (or a Money-row tap)
+                // drills into the sale's item canvas on this tab.
+                .navigationDestination(for: LocalInventoryItem.self) { item in
+                    ItemCanvasSceneHost(item: item)
+                }
+                // US-684: add-method menu reachable from the Money tab.
+                .toolbar {
+                    ToolbarItem(placement: .topBarLeading) {
+                        AddMethodMenu(router: router)
+                    }
+                }
+        }
+    }
+}
+
+/// The Marketplaces tab. See ``HomeTab`` for why it is its own view.
+private struct MarketplacesTab: View {
+    @Bindable var router: AppRouter
+
+    var body: some View {
+        NavigationStack(path: $router.marketplacesPath) {
+            MarketplacesPlaceholder()
+                .navigationDestination(for: IntakeRoute.self) { route in
+                    IntakePlaceholder(route: route)
+                }
+                .navigationDestination(for: NegotiationRoute.self) { route in
+                    NegotiationInboxView(filterItemId: route.filterItemId)
+                }
+                // US-684: add-method menu reachable from the Marketplaces tab.
+                .toolbar {
+                    ToolbarItem(placement: .topBarLeading) {
+                        AddMethodMenu(router: router)
+                    }
+                }
+        }
+    }
+}
+
 private struct HomeTab: View {
     @Bindable var router: AppRouter
 
