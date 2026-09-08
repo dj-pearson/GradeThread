@@ -361,6 +361,10 @@ export function parseOrderReport(xml: string): RemoteOrder[] {
         itemCost,
         shippingCost: null, // OrderReport carries shipping at the order level only
         taxes: money(t.Taxes?.TotalTaxAmount),
+        // US-3189: the Trading OrderReport has no shipByDate — that field is
+        // Sell Fulfillment only. Null, so the sale falls back to the derived
+        // sold_at + handling_days deadline rather than claiming eBay set one.
+        shipByDate: null,
       };
     });
 

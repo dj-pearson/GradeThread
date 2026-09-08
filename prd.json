@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-3189",
+  "nextId": "US-3196",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -4439,6 +4439,112 @@
         "The Composer scrolls cleanly through its full height at speed on Windows Chrome, with and without a photo dialog having been opened first"
       ],
       "priority": 15
+    },
+    {
+      "id": "US-3189",
+      "passes": false,
+      "title": "Capture the ship-by deadline on every eBay sale, so something can count down to it",
+      "description": "As a reseller, I want the app to know when each order has to be handed to the carrier, so that I never lose a late-shipment defect I could have avoided.",
+      "acceptanceCriteria": [
+        "A migration adds sales.ship_by (timestamptz, nullable) and sales.handling_days (smallint, nullable); it follows the US-1108 triple - idempotent SQL, EXPECTED_SCHEMA_VERSION bumped in the SAME commit in services/edge-functions/src/lib/schema-version.ts, and a self-record footer",
+        "The eBay order sync path in services/edge-functions/src/routes/flipdesk-ebay.ts reads lineItems[].lineItemFulfillmentInstructions.shipByDate from the Fulfillment API order payload and writes it to sales.ship_by; an order with no shipByDate writes null rather than a guessed date",
+        "A pure helper in services/edge-functions/src/lib/ship-deadline.ts derives ship_by from sold_at + handling_days when eBay supplied no shipByDate, and returns null when handling_days is also unknown; unit-tested for both branches",
+        "Writes are tenant-scoped: the sale row is matched by id AND user_id (workspaceOwnerId ?? userId), never by order ref alone, and services/edge-functions/src/tests/tenant-isolation_test.ts gains a case proving a foreign sale id cannot have its ship_by written",
+        "Re-running order sync on an already-synced order does not move a ship_by that eBay still reports the same value for (idempotent)"
+      ],
+      "priority": 2
+    },
+    {
+      "id": "US-3190",
+      "passes": false,
+      "title": "Nothing in FlipDesk counts down to a shipping deadline, the one clock a seller is scored on",
+      "description": "As a reseller, I want one ranked list of orders waiting to ship with the time left on each, so that I ship in deadline order instead of scrolling a listings table.",
+      "acceptanceCriteria": [
+        "src/pages/flipdesk/needs-you.ts gains a 'shipment' NeedsYouKind with a KIND_LABEL entry, ranked by the existing deadline-then-money rule; a sale with a null ship_by sorts last exactly like every other deadline-less item",
+        "A Ship tab on src/pages/flipdesk/post-sale.tsx lists sales with status 'completed', shipped_at null, ordered by ship_by ascending, showing garment, order ref, location_bin and time remaining",
+        "Time remaining renders as overdue / hours / days from a pure function with unit tests; an overdue row is distinguishable without relying on color alone (WCAG 1.4.1)",
+        "Entering a tracking number from that row sets shipped_at and removes the row from the queue in the same mutation, and the eBay push path already at flipdesk-ebay.ts /orders/:saleId/ship is reused rather than duplicated",
+        "The list reads sales scoped to the signed-in tenant and a seller with zero unshipped sales sees an empty state, not a spinner or an error"
+      ],
+      "priority": 2,
+      "dependsOn": [
+        "US-3189"
+      ]
+    },
+    {
+      "id": "US-3191",
+      "passes": false,
+      "title": "There is no packing slip, so what goes in the box is retyped or remembered",
+      "description": "As a reseller packing several orders at once, I want a printable packing slip per order that names the bin the garment is in, so that I pick and pack without opening each item.",
+      "acceptanceCriteria": [
+        "A print view renders one slip per selected sale: order ref, sale date, garment title, SKU, size, location_bin, quantity, and the grade with its certificate id when the item has a grade report",
+        "No buyer address, buyer email or phone appears on the slip; only buyer_username, which the sales row already holds",
+        "Selecting N sales on the Ship tab prints N slips with a page break between them, verified by a test asserting one slip container per selected sale",
+        "The slip is a route rendered from existing tenant-scoped queries; a sale id belonging to another user returns not-found rather than rendering an empty slip",
+        "npm run ui:check stays at zero findings for src/ after the new component lands"
+      ],
+      "priority": 3,
+      "dependsOn": [
+        "US-3190"
+      ]
+    },
+    {
+      "id": "US-3192",
+      "passes": false,
+      "title": "A seller cannot say 'never below $28 on this jacket' - the floor is a percent on a rule, not a number on the item",
+      "description": "As a reseller, I want to set a floor price on an individual item, so that every markdown, offer rule and bulk reduce respects the one number I decided rather than recomputing a percentage.",
+      "acceptanceCriteria": [
+        "A migration adds inventory_items.floor_price decimal(10,2) NULL, following the US-1108 triple - idempotent SQL, EXPECTED_SCHEMA_VERSION bumped in the same commit, self-record footer",
+        "services/edge-functions/src/lib/repricing-rules.ts computeMarkdownCents clamps to max(rule floor, item floor_price) when floor_price is set, and a unit test proves a rule that would drop below the item floor stops at the floor instead",
+        "decideOffer in services/edge-functions/src/lib/automation-rules.ts declines any offer below floor_price regardless of auto_accept_pct, with a test for an offer that the percentage rule would have accepted",
+        "src/pages/flipdesk/bulk-pricing.tsx refuses to set or reduce a price below an item's floor_price and reports the skipped items by name rather than failing the whole batch",
+        "floor_price is editable on the item composer and is exposed as a FilterField in src/lib/item-filter.ts so a saved view can find items priced at or near their floor",
+        "Every read of floor_price in the edge is tenant-scoped through the owning inventory_items row, and tenant-isolation_test.ts gains a case for the new column",
+        "An item with a null floor_price behaves exactly as today - no new gate, no implied zero"
+      ],
+      "priority": 3
+    },
+    {
+      "id": "US-3193",
+      "passes": false,
+      "title": "The buy ceiling prices shipping and supplies at zero, so it tells a sourcer to pay more than the flip can carry",
+      "description": "As a reseller standing in a thrift aisle, I want the max buy price to subtract the postage, packaging and grading I will actually pay, so that the number on screen is a price I can pay and still hit my target.",
+      "acceptanceCriteria": [
+        "sourcingCeiling in services/edge-functions/src/lib/scout-decision.ts subtracts shipping, supplies and grading cost from net proceeds before dividing by (1 + targetRoi), matching the cost set estimateListingProfit already uses in src/lib/listing-profit.ts",
+        "Shipping defaults come from the predicted parcel when one exists and from a per-seller default otherwise; the default is stored on flipdesk_settings alongside sourcing_target_roi_pct, not hardcoded in the ceiling",
+        "A unit test asserts the new ceiling is strictly lower than today's for the same comp median and target ROI, with the exact expected cents, so the change cannot be silently reverted",
+        "src/components/value/sourcing-ceiling-note.tsx states what the ceiling now subtracts, so a seller can see why the number moved",
+        "The existing absentReason branches (no_measured_curve, insufficient_comps, no_headroom) are unchanged, and a cost set that drives net proceeds to zero or below returns no_headroom rather than a negative ceiling"
+      ],
+      "priority": 2
+    },
+    {
+      "id": "US-3194",
+      "passes": false,
+      "title": "The Accept button shows a margin that ignores fees and postage, so the offer nets less than the screen says",
+      "description": "As a reseller answering an offer, I want the margin next to Accept to be what lands in my account, so that I am not accepting offers that lose money after eBay takes its cut.",
+      "acceptanceCriteria": [
+        "src/pages/flipdesk/offer-economics.ts gains netMarginCents and netMarginPct that subtract platform fees (ebay-fees.ts rate plus fixed fee), shipping cost and grading cost, keeping the existing gross functions for callers that want them",
+        "The null-not-zero rule holds: a missing item cost, or a missing shipping figure with no seller default, returns null rather than treating the unknown as zero",
+        "decideOffer in services/edge-functions/src/lib/automation-rules.ts computes its margin from the same arithmetic, and a test asserts the screen value and the rule value are equal for the same inputs (the lockstep the file header already promises)",
+        "src/pages/flipdesk/offers.tsx shows the net figure as the primary number with gross available, and labels which is which",
+        "Unit tests cover an offer that is profitable gross and unprofitable net, asserting the exact cents"
+      ],
+      "priority": 3
+    },
+    {
+      "id": "US-3195",
+      "passes": false,
+      "title": "Aging rules exist but there is no screen that shows what is rotting",
+      "description": "As a reseller with dead stock, I want one view of items that have sat too long with what each has cost me so far, so that I can mark them down or pull them instead of discovering them at tax time.",
+      "acceptanceCriteria": [
+        "src/lib/item-filter.ts gains a days_listed FilterField computed from the listing's listed_at, distinct from the existing days_in_status, with unit tests for a listing that has never been listed (null, sorts last)",
+        "An Aged view lists active listings past a seller-set threshold (default 60 days) showing days listed, views or watchers where known, cost basis, current price, and the floor price when set",
+        "The view offers a bulk markdown that reuses computeMarkdownCents and respects inventory_items.floor_price, and reports items skipped for hitting their floor by name",
+        "The threshold is stored per seller, not per session, so the view opens on the same definition of aged every time",
+        "Sorting defaults to oldest first and the empty state says the seller has nothing aged, rather than rendering an empty table"
+      ],
+      "priority": 4
     }
   ]
 }

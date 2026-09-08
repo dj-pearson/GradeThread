@@ -113,6 +113,8 @@ function makeSale(overrides: Partial<SaleRow> = {}): SaleRow {
     payout_reference: null,
     tax: 0,
     payout_amount: null,
+    ship_by: null,
+    handling_days: null,
     status: "completed",
     cancelled_at: null,
     platform_order_ref: null,

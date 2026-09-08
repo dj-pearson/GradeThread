@@ -19,8 +19,8 @@ import { useNeedsYou } from "@/hooks/use-needs-you";
 
 // US-2934: one ranked list of everything eBay is waiting on.
 //
-// Six queues — returns, cancellations, inquiries, cases, payment disputes,
-// expiring offers — each with its own clock, and no single place that said what
+// Seven queues — returns, cancellations, inquiries, cases, payment disputes,
+// expiring offers, unshipped orders — each with its own clock, and no single place that said what
 // runs out first. The cards below this one are still where the work gets done;
 // this is the answer to "what do I open".
 //
@@ -42,6 +42,7 @@ const KIND_HREF: Record<NeedsYouItem["kind"], string> = {
   return: "#returns",
   cancellation: "#cancellations",
   offer: "/dashboard/flipdesk/offers",
+  shipment: "#ship-queue",
 };
 
 function money(cents: number | null): string | null {

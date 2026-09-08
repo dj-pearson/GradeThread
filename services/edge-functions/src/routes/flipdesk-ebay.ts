@@ -353,6 +353,7 @@ import {
   computeListingQualityScore,
   type ListingQualityScore,
 } from "../lib/listing-quality-score.ts";
+import { resolveShipBy } from "../lib/ship-deadline.ts";
 import { loadFulfillmentSignals } from "../lib/business-policy-signals.ts";
 import {
   getAllActiveEbaySelling,
@@ -3830,6 +3831,21 @@ async function doListingsPull(
             // sales row dropped it, which is why the USD assumption was
             // invisible. NULL when unreported — treated as USD downstream.
             currency: li.itemCost?.currency ?? null,
+            // US-3189: the carrier deadline this order is scored on. eBay's own
+            // shipByDate when it gave one; otherwise resolveShipBy falls back to
+            // sold_at + handling_days, and returns null when it has neither.
+            //
+            // handling_days stays null from THIS path on purpose: the Sell
+            // Fulfillment order carries no handling time, and reading it would
+            // mean a business-policy call per order — the exact call volume
+            // US-3110 is cutting before the Application Growth Check. The
+            // column is written by the seller-defaults path instead, and the
+            // fallback lights up for every sale once it is.
+            ship_by: resolveShipBy({
+              shipByDate: li.shipByDate,
+              soldAt: order.creationDate,
+              handlingDays: null,
+            }),
           };
 
           if (existing) {
@@ -3839,10 +3855,16 @@ async function doListingsPull(
             // the cursor then moved past it. Throw instead: the per-order catch
             // above records it as a failed order, which is what rewinds the
             // cursor to re-pull it.
+            // US-3189/US-268: the row was found through this user's own item map,
+            // so it is already owner-verified by parent — the explicit user_id
+            // predicate is the second lock, and costs nothing because sales.user_id
+            // is NOT NULL and trigger-maintained (00146). A sale id that is not
+            // this tenant's now updates zero rows instead of one.
             const { error: updErr } = await supabaseAdmin
               .from("sales")
               .update(salePayload)
-              .eq("id", existingSaleId);
+              .eq("id", existingSaleId)
+              .eq("user_id", userId);
             if (updErr) throw new Error(`sale update failed: ${updErr.message}`);
             salesUpdated += 1;
             // US-2022: this sweep is the OTHER way a sale reverses — an order

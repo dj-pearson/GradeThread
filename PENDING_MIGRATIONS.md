@@ -1,5 +1,39 @@
 # PENDING MIGRATIONS — applied to prod separately from the push
 
+## ⏳ HELD: 00768 — sales.ship_by + sales.handling_days (US-3189)
+
+**Risk: LOW.** Two nullable columns on an existing table plus one partial index.
+No backfill, no rewrite, no enum touched. Every existing row reads null, which
+is the correct answer for a sale nobody recorded a deadline for.
+
+**Apply order:** after 00767. Run `NOTIFY pgrst, 'reload schema';` afterwards
+(two new columns on a table PostgREST already serves), then redeploy the edge.
+
+**What it adds**
+- `sales.ship_by timestamptz` — when the order must reach the carrier. Written
+  from eBay's `lineItemFulfillmentInstructions.shipByDate` during the order sync.
+- `sales.handling_days smallint` — the listing's handling time, so a deadline can
+  be derived for a marketplace that reports no explicit date. Nothing writes it
+  yet; the eBay Fulfillment order does not carry it, and reading it would mean a
+  business-policy call per order, which is exactly the call volume US-3110 is
+  cutting before the Application Growth Check.
+- `idx_sales_ship_by_open` — partial on `shipped_at IS NULL`, so it stays the
+  size of the open queue rather than the whole sales history.
+
+**DEPLOY ORDER MATTERS ONE WAY ONLY.** The edge WRITES `ship_by` in the eBay
+order sync (`routes/flipdesk-ebay.ts`). Against a database without the column the
+sale upsert fails with 42703 and the whole order sync throws, so the migration
+lands BEFORE the edge deploys. The schema-version boot guard enforces it —
+EXPECTED_SCHEMA_VERSION moves to 00768 in the same commit.
+
+**⚠️ THE FRONTEND READS THE COLUMN, AND Pages AUTO-DEPLOYS ON PUSH.** The Ship
+queue (US-3190) selects `ship_by` directly through supabase-js. If the push lands
+before the SQL is applied, that select 400s and the card shows its error state on
+a page that otherwise works. Apply the SQL first; that is the whole reason this
+migration is held.
+
+**No operator step.** No new environment variable, no third-party registration.
+
 ## ✅ APPLIED 2026-09-08: 00767 — phone_capture_sessions + phone_capture_photos (US-3161)
 
 **Risk: LOW.** Two brand-new tables. Nothing existing is touched: no column

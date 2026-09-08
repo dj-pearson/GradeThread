@@ -13,6 +13,7 @@ import {
   useEbayPaymentDisputes,
   useEbayReturns,
 } from "@/hooks/use-ebay";
+import { useShipQueue } from "@/hooks/use-ship-queue";
 
 // US-3077 AC1: the six-queue merge, out of the card that used to own it.
 //
@@ -35,6 +36,10 @@ export const NEEDS_YOU_QUEUES = [
   "cases",
   "disputes",
   "offers",
+  // US-3190: unshipped orders. Unlike the other six this one is a plain read of
+  // the seller's own sales rows rather than an eBay call, so it answers fast and
+  // is never the queue the card is waiting on.
+  "shipments",
 ] as const;
 
 export type NeedsYouQueue = (typeof NEEDS_YOU_QUEUES)[number];
@@ -77,6 +82,7 @@ export const NEEDS_YOU_HREF: Record<NeedsYouKind, string> = {
   return: "/dashboard/flipdesk/post-sale#returns",
   cancellation: "/dashboard/flipdesk/post-sale#cancellations",
   offer: "/dashboard/flipdesk/offers",
+  shipment: "/dashboard/flipdesk/post-sale#ship-queue",
 };
 
 export function useNeedsYou(enabled = true): NeedsYouState {
@@ -86,6 +92,7 @@ export function useNeedsYou(enabled = true): NeedsYouState {
   const cases = useEbayCases(enabled);
   const disputes = useEbayPaymentDisputes(enabled);
   const offers = useEbayBestOffers(enabled);
+  const shipments = useShipQueue(enabled);
 
   const items = useMemo(() => {
     const out: NeedsYouItem[] = [];
@@ -154,6 +161,19 @@ export function useNeedsYou(enabled = true): NeedsYouState {
         action: "Accept, counter or decline",
       });
     }
+    // US-3190: the shipping clock. Undated orders still enter the list — they
+    // are real work — and rankNeedsYou sorts them last, which is the same
+    // treatment a cancellation with no eBay deadline already gets.
+    for (const sh of shipments.rows) {
+      out.push({
+        kind: "shipment",
+        id: sh.id,
+        subject: sh.title ?? `Order ${sh.orderRef ?? sh.id}`,
+        deadline: sh.shipBy,
+        amountCents: sh.salePrice != null ? Math.round(sh.salePrice * 100) : null,
+        action: "Add tracking and ship",
+      });
+    }
     return rankNeedsYou(out);
   }, [
     returns.data,
@@ -162,6 +182,7 @@ export function useNeedsYou(enabled = true): NeedsYouState {
     cases.data,
     disputes.data,
     offers.data,
+    shipments.rows,
   ]);
 
   const queues: Record<NeedsYouQueue, NeedsYouQueueState> = useMemo(
@@ -175,6 +196,7 @@ export function useNeedsYou(enabled = true): NeedsYouState {
       cases: { isLoading: cases.isLoading, isError: cases.isError },
       disputes: { isLoading: disputes.isLoading, isError: disputes.isError },
       offers: { isLoading: offers.isLoading, isError: offers.isError },
+      shipments: { isLoading: shipments.isLoading, isError: shipments.isError },
     }),
     [
       returns.isLoading,
@@ -189,6 +211,8 @@ export function useNeedsYou(enabled = true): NeedsYouState {
       disputes.isError,
       offers.isLoading,
       offers.isError,
+      shipments.isLoading,
+      shipments.isError,
     ],
   );
 
@@ -199,7 +223,8 @@ export function useNeedsYou(enabled = true): NeedsYouState {
     void cases.refetch();
     void disputes.refetch();
     void offers.refetch();
-  }, [returns, cancellations, inquiries, cases, disputes, offers]);
+    void shipments.refetch();
+  }, [returns, cancellations, inquiries, cases, disputes, offers, shipments]);
 
   const states = Object.values(queues);
   return {
@@ -207,7 +232,7 @@ export function useNeedsYou(enabled = true): NeedsYouState {
     queues,
     isLoading: states.some((s) => s.isLoading),
     // Every queue down is an outage worth an error state. One queue down is
-    // not: the other five carry real work the seller still has to do, and
+    // not: the others carry real work the seller still has to do, and
     // hiding it behind "could not load" would be the more expensive mistake.
     isError: states.every((s) => s.isError),
     isPartial: states.some((s) => s.isError),
@@ -217,7 +242,8 @@ export function useNeedsYou(enabled = true): NeedsYouState {
       inquiries.isFetching ||
       cases.isFetching ||
       disputes.isFetching ||
-      offers.isFetching,
+      offers.isFetching ||
+      shipments.isFetching,
     refetch,
   };
 }

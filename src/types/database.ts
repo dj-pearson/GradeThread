@@ -1695,6 +1695,11 @@ export interface SaleRow {
   payout_reference: string | null;
   tax: number;
   payout_amount: number | null;
+  // US-3189 (00768): when this order must reach the carrier. From eBay's
+  // lineItemFulfillmentInstructions.shipByDate, else derived from sold_at +
+  // handling_days. Null means no deadline we can stand behind — never a guess.
+  ship_by: string | null;
+  handling_days: number | null;
   // Sale lifecycle (00111). Only 'completed' counts toward revenue/profit/sold.
   status: "completed" | "cancelled" | "refunded" | "pending";
   cancelled_at: string | null;
@@ -3301,6 +3306,10 @@ export interface SaleInsert {
   payout_reference?: string | null;
   tax?: number;
   payout_amount?: number | null;
+  // US-3189 (00768): carrier deadline, and the handling time it can be derived
+  // from. Both optional — a marketplace that reports neither leaves them null.
+  ship_by?: string | null;
+  handling_days?: number | null;
   // Marketplace order identifiers for API sales (US-714) — Depop purchase/parcel.
   platform_order_ref?: Record<string, unknown> | null;
 }
