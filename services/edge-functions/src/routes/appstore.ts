@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import { supabaseAdmin } from "../lib/supabase.ts";
+import { readActionCreditBalanceSafe } from "../lib/action-credits.ts";
 import { recordPlatformAgreement } from "../lib/agreed-terms.ts";
 import { buyerStripeSubscriptionBlocksMobile } from "../lib/appstore/precedence.ts";
 import {
@@ -135,6 +136,46 @@ async function grantCredits(
   // US-1620 / C7: classify a DB error as transient so the webhook retries.
   failIfDbError(error, `grant_appstore_credits for user ${userId}`);
   return (data as number | null) ?? null;
+}
+
+// US-3138: grant prepaid ACTION credits for a verified App Store purchase.
+//
+// Idempotent on the Apple transactionId, enforced by the unique index in 00763
+// on (source, reason, external_id): a replayed notification, or a re-presented
+// JWS, grants exactly once.
+async function grantActionCreditsFromAppstore(
+  userId: string,
+  txn: DecodedTransactionLite,
+  credits: number,
+): Promise<void> {
+  const { error } = await supabaseAdmin.rpc("grant_action_credits", {
+    p_user_id: userId,
+    p_credits: credits,
+    p_reason: "purchase",
+    p_source: "appstore",
+    p_external_id: txn.transactionId,
+    p_notes: `product=${txn.productId} original=${txn.originalTransactionId}`,
+  });
+  failIfDbError(error, `grant_action_credits for user ${userId}`);
+}
+
+// The REFUND/REVOKE half. Without it a buy-then-refund keeps the credits, which
+// is the bug US-1615 fixed for grade packs and US-2293 fixed for API overage.
+// Clamps at zero inside the RPC, so a seller who already spent them is not
+// driven negative.
+async function clawbackActionCreditsFromAppstore(
+  userId: string,
+  txn: DecodedTransactionLite,
+  credits: number,
+): Promise<void> {
+  const { error } = await supabaseAdmin.rpc("clawback_action_credits", {
+    p_user_id: userId,
+    p_credits: credits,
+    p_source: "appstore",
+    p_external_id: txn.transactionId,
+    p_notes: `refund/revoke product=${txn.productId}`,
+  });
+  failIfDbError(error, `clawback_action_credits for user ${userId}`);
 }
 
 // US-1615 / C2: claw back the credits granted for a refunded/revoked consumable
@@ -346,6 +387,26 @@ appstoreVerifyRoutes.post("/verify", async (c) => {
     });
   }
 
+  // US-3138: Action Credits, the interactive /verify half of the webhook branch
+  // above. Both paths must exist or a purchase entitles on only one of them:
+  // /verify is what the app calls right after the buy (so the seller sees the
+  // balance immediately), and the webhook is what makes it durable when the app
+  // is killed mid-flow.
+  if (mapping.kind === "action_credits") {
+    await grantActionCreditsFromAppstore(userId, txn, mapping.actionCredits);
+    const balance = await readActionCreditBalanceSafe(userId);
+    return c.json({
+      plan: user.flipdesk_plan ?? "free",
+      interval: null,
+      status: user.subscription_status ?? "none",
+      // The GRADE balance is unchanged by this purchase and is still what the
+      // field means. Reporting the Action Credit balance here would be a quiet
+      // lie to a client that has been reading this field since US-808.
+      credits_balance: user.grade_credit_balance ?? 0,
+      action_credits_balance: balance,
+    });
+  }
+
   // Consumable credit pack.
   const grant = computeConsumableGrant(txn, mapping);
   const balance = await grantCredits(userId, txn, grant.credits);
@@ -447,6 +508,19 @@ appstoreWebhookRoutes.post("/", async (c) => {
         return c.json({ ok: true });
       }
       await applyBuyerSubscription(userId, update);
+      return c.json({ ok: true });
+    }
+
+    // US-3138: Action Credits are a different WALLET from grade credits, so
+    // they get their own branch rather than sharing the consumable one. Sharing
+    // it would grant grades for an Action Credit purchase: the buyer pays,
+    // receives the wrong currency, and nothing errors.
+    if (mapping.kind === "action_credits") {
+      if (action === "consumable_grant") {
+        await grantActionCreditsFromAppstore(userId, txn, mapping.actionCredits);
+      } else if (action === "revoke") {
+        await clawbackActionCreditsFromAppstore(userId, txn, mapping.actionCredits);
+      }
       return c.json({ ok: true });
     }
 

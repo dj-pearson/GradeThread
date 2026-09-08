@@ -125,6 +125,9 @@ export function UsageMeters({ className }: { className?: string }) {
   }
 
   const plan = FLIPDESK_PLANS[data.subscription.plan as FlipdeskPlanKey];
+  // Optional-chained: a client running against an edge build from before
+  // US-3138 gets 0 rather than a crash on the dashboard.
+  const actionCredits = data.action_credits?.balance ?? 0;
 
   return (
     <div className={cn("grid gap-4 sm:grid-cols-2 lg:grid-cols-4", className)}>
@@ -137,7 +140,14 @@ export function UsageMeters({ className }: { className?: string }) {
         label="AI actions"
         used={data.usage.ai_actions_used_this_month}
         limit={effectiveAiLimit(plan.aiActionsPerMonth, data.usage.ai_action_limit)}
-        hint={data.usage.ai_action_limit != null ? "Self-imposed cap active" : undefined}
+        hint={data.usage.ai_action_limit != null
+          ? "Self-imposed cap active"
+          // US-3138: say it on the meter, not only at the wall. A seller who
+          // learns they have a cushion the moment a batch stops has already had
+          // the bad minute this is meant to prevent.
+          : actionCredits > 0
+          ? `+${actionCredits.toLocaleString()} Action Credits after this`
+          : undefined}
       />
       <UsageMeter
         label="Included grades"
@@ -152,6 +162,19 @@ export function UsageMeters({ className }: { className?: string }) {
         kind="balance"
         hint="Never expire"
       />
+      {/* US-3138: only once they have some. An empty wallet on the dashboard of
+          a seller who has never bought one is a permanent ad, not a meter. */}
+      {actionCredits > 0 && (
+        <UsageMeter
+          label="Action Credits"
+          used={actionCredits}
+          limit={0}
+          kind="balance"
+          hint={data.action_credits.low
+            ? "Running low, never expire"
+            : "Never expire"}
+        />
+      )}
       {/* US-2524: the marketplaces meter the comment above always claimed was
           here. Billing rendered its own copy of this set purely to add it, so
           the page showed the same four caps twice, once labelled "Same data,

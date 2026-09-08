@@ -167,7 +167,10 @@ export function parseProductPurchase(json: unknown): PlayPurchaseInfo {
 export async function verifyGooglePlayPurchase(
   productId: string,
   purchaseToken: string,
-  kind: "subscription" | "consumable",
+  // US-3138: action_credits is a one-time product to Google, exactly like a
+  // grade consumable, so it takes the products endpoint below. Only
+  // "subscription" takes subscriptionsv2.
+  kind: "subscription" | "consumable" | "action_credits",
   fetchFn: typeof fetch = fetch,
 ): Promise<PlayPurchaseInfo> {
   const cfg = playConfig();
@@ -216,11 +219,14 @@ export interface GooglePlayBillingUser {
 
 export interface GooglePlayResult {
   ok: boolean;
-  kind: "subscription" | "consumable" | null;
+  kind: "subscription" | "consumable" | "action_credits" | null;
   plan?: string;
   interval?: string | null;
   status?: string;
+  /** GRADE credit balance. Unchanged by an Action Credit purchase, deliberately. */
   creditsBalance?: number;
+  /** US-3138: the Action Credit balance, present only on an action_credits result. */
+  actionCreditsBalance?: number;
   reason?:
     | "unknown_product"
     | "user_not_found"
@@ -251,7 +257,7 @@ export interface GooglePlayDeps {
   verifyPurchase(
     productId: string,
     purchaseToken: string,
-    kind: "subscription" | "consumable",
+    kind: "subscription" | "consumable" | "action_credits",
   ): Promise<PlayPurchaseInfo>;
   loadBillingUser(userId: string): Promise<GooglePlayBillingUser | null>;
   /**
@@ -278,6 +284,19 @@ export interface GooglePlayDeps {
     environment: BillingEnvironment,
   ): Promise<boolean>;
   grantCredits(userId: string, credits: number, purchaseToken: string): Promise<number | null>;
+  /**
+   * US-3138: grant prepaid ACTION credits. Its own dep rather than a flag on
+   * grantCredits, because the two write to different wallets and a boolean
+   * argument is one negation away from crediting the wrong one.
+   *
+   * Idempotent on the Play purchase token (00763's unique index), so a replayed
+   * verify grants once and returns the same balance.
+   */
+  grantActionCredits(
+    userId: string,
+    credits: number,
+    purchaseToken: string,
+  ): Promise<number | null>;
   recordEvent(
     userId: string,
     eventId: string,
@@ -388,6 +407,39 @@ export async function processGooglePlayPurchase(
       interval: update.flipdesk_interval,
       status: update.subscription_status,
       creditsBalance: user.grade_credit_balance ?? 0,
+    };
+  }
+
+  // US-3138: Action Credits. Same GRANT-FIRST ordering as the consumable branch
+  // below, and for the same reason: recording the dedup claim first means a
+  // failed grant leaves an orphaned row, and the client's retry short-circuits
+  // to a stale balance while the buyer never receives what they paid for.
+  //
+  // The claim row still carries mapping.actionCredits so the ledger says how
+  // many of WHAT were bought; the wallet it landed in is the product id.
+  if (mapping.kind === "action_credits") {
+    const acBalance = await deps.grantActionCredits(
+      ctx.userId,
+      mapping.actionCredits,
+      ctx.purchaseToken,
+    );
+    const acFirstClaim = await deps.claimConsumable(
+      ctx.userId,
+      ctx.productId,
+      ctx.purchaseToken,
+      mapping.actionCredits,
+      info.orderId,
+      info.environment,
+    );
+    return {
+      ok: true,
+      kind: "action_credits",
+      plan: user.flipdesk_plan ?? "free",
+      status: user.subscription_status ?? "none",
+      // The GRADE balance is untouched and is still what this field means.
+      creditsBalance: user.grade_credit_balance ?? 0,
+      actionCreditsBalance: acBalance ?? 0,
+      ...(acFirstClaim ? {} : { reason: "already_processed" as const }),
     };
   }
 

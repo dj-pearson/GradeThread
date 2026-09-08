@@ -462,6 +462,52 @@ export const CREDIT_PACKS: readonly CreditPackConfig[] = [
 
 export type CreditPackSize = (typeof CREDIT_PACKS)[number]["credits"];
 
+// ─── Action Credits (US-3138) ──────────────────────────────────────
+//
+// A SECOND, separate currency from the grade credits above. These pay for
+// metered ACTIONS (AI actions, connector actions) once a plan's monthly
+// allowance is spent, so a seller who is fifty actions short on the 20th does
+// not have to choose between a tier upgrade and ten days of not working.
+//
+// Grade credits buy GRADES and are anchored at $2.99 per Standard grade. The two
+// are deliberately not merged: folding them together would mean re-denominating
+// a shipped ledger that holds real money.
+//
+// ⚠ PRICES ONLY, never Stripe price ids. Same rule as the plan prices above,
+// and for the same reason. The server owns the ids; a checkout posts the PACK
+// KEY and the edge resolves the id from STRIPE_PRICE_ACTION_CREDITS_*.
+//
+// ⚠ These prices must stay at or above Pro's implied per-action rate
+// (5900/750 = 7.87c), or topping up beats upgrading and the plan ladder
+// inverts. The enforcing test lives on the edge
+// (services/edge-functions/src/tests/action-credits_test.ts) beside the table
+// the checkout actually charges from. Rationale:
+// vault/50-business/action-credits.md.
+//
+// This copy exists for surfaces that render before a billing summary has loaded
+// (pricing page, the empty state of the top-up dialog). Once a summary is in
+// hand, prefer summary.action_credits.packs — that is the server's own table,
+// so it cannot drift from what the seller is charged.
+export interface ActionCreditPackConfig {
+  key: ActionCreditPackKey;
+  credits: number;
+  priceCents: number;
+  /** Shown on the tile. Not a plan name, a size. */
+  label: string;
+}
+
+export type ActionCreditPackKey = "50" | "150" | "400" | "1000";
+
+export const ACTION_CREDIT_PACKS: readonly ActionCreditPackConfig[] = [
+  { key: "50", credits: 50, priceCents: 499, label: "Top-up" },
+  { key: "150", credits: 150, priceCents: 1399, label: "Standard" },
+  { key: "400", credits: 400, priceCents: 3499, label: "Bulk" },
+  { key: "1000", credits: 1000, priceCents: 7999, label: "Power" },
+] as const;
+
+/** Below this the UI nudges. Mirrors LOW_BALANCE_THRESHOLD on the edge. */
+export const ACTION_CREDITS_LOW_BALANCE = 20;
+
 // ─── Buyer Platform plans (US-1799) ────────────────────────────────
 //
 // The buyer product is a SEPARATE subscription from any FlipDesk/seller plan —

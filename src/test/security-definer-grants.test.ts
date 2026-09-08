@@ -231,7 +231,10 @@ const UNGRANTED_DEBT = [
   "is_super_admin",
   "issue_buyer_reward_credit",
   "redeem_buyer_reward_credit",
-  "refund_ai_action",
+  // refund_ai_action left this list on 2026-09-08: 00763 (US-3138) re-emits it
+  // with a service_role body guard AND an explicit GRANT, so it is no longer
+  // debt. The shrink-only assertion below is what forced this line to be
+  // deleted rather than quietly left behind.
   "refund_buyer_meter",
   "refund_buyer_reward_credit",
 ];

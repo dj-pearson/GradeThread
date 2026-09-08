@@ -25,7 +25,14 @@ export type ProductMapping =
   // (computeUserUpdate → flipdesk_*) never sees a buyer plan; the buyer
   // reconciler (computeBuyerUserUpdate → buyer_*) handles this kind.
   | { kind: "buyer_subscription"; plan: BuyerPlan; interval: BillingInterval }
-  | { kind: "consumable"; credits: number };
+  | { kind: "consumable"; credits: number }
+  // US-3138: prepaid Action Credits. A THIRD kind, deliberately not a second
+  // flavour of "consumable", because "consumable" already means GRADE credits
+  // everywhere downstream. Reusing it would route an Action Credit purchase
+  // into grant_grade_credits: the buyer pays, receives the wrong currency, and
+  // every check on the way reports success. A distinct kind makes that a
+  // compile error instead of a refund.
+  | { kind: "action_credits"; actionCredits: number };
 
 /** Canonical catalog entry: id → mapping + display metadata + reference price.
  *  The seller catalog is seller-only (buyer IAP lives in BUYER_PRODUCT_MAP), so
@@ -128,6 +135,40 @@ export const CATALOG: CatalogEntry[] = [
     referencePriceCents: 19999,
     referencePriceDisplay: "$199.99",
   },
+  // US-3138: Action Credits. These buy AI ACTIONS, not grades. Prices mirror
+  // ACTION_CREDIT_PACKS in lib/action-credits.ts (and src/lib/constants.ts).
+  {
+    productId: "com.gradethread.actions.50",
+    mapping: { kind: "action_credits", actionCredits: 50 },
+    title: "50 Action Credits",
+    blurb: "AI actions when your monthly allowance runs out",
+    referencePriceCents: 499,
+    referencePriceDisplay: "$4.99",
+  },
+  {
+    productId: "com.gradethread.actions.150",
+    mapping: { kind: "action_credits", actionCredits: 150 },
+    title: "150 Action Credits",
+    blurb: "AI actions when your monthly allowance runs out",
+    referencePriceCents: 1399,
+    referencePriceDisplay: "$13.99",
+  },
+  {
+    productId: "com.gradethread.actions.400",
+    mapping: { kind: "action_credits", actionCredits: 400 },
+    title: "400 Action Credits",
+    blurb: "AI actions when your monthly allowance runs out",
+    referencePriceCents: 3499,
+    referencePriceDisplay: "$34.99",
+  },
+  {
+    productId: "com.gradethread.actions.1000",
+    mapping: { kind: "action_credits", actionCredits: 1000 },
+    title: "1,000 Action Credits",
+    blurb: "AI actions when your monthly allowance runs out",
+    referencePriceCents: 7999,
+    referencePriceDisplay: "$79.99",
+  },
 ];
 
 export const PRODUCT_MAP: Record<string, ProductMapping> = Object.fromEntries(
@@ -160,12 +201,26 @@ export const CONSUMABLE_PRODUCT_IDS: string[] = CATALOG
   .filter((e) => e.mapping.kind === "consumable")
   .map((e) => e.productId);
 
+/** US-3138: Action Credit packs. One-time purchases, like the grade packs, but
+ *  a different wallet. StoreKit treats both as consumables; the SERVER must
+ *  not. */
+export const ACTION_CREDIT_PRODUCT_IDS: string[] = CATALOG
+  .filter((e) => e.mapping.kind === "action_credits")
+  .map((e) => e.productId);
+
+/** Every one-time purchase id, for the StoreKit product query. */
+export const ONE_TIME_PRODUCT_IDS: string[] = [
+  ...CONSUMABLE_PRODUCT_IDS,
+  ...ACTION_CREDIT_PRODUCT_IDS,
+];
+
 /** Flat DTO served to clients (mapping fields hoisted for easy decoding). */
 export interface CatalogProductDTO {
   productId: string;
-  kind: "subscription" | "consumable";
+  kind: "subscription" | "consumable" | "action_credits";
   plan?: FlipdeskPlan;
   interval?: BillingInterval;
+  /** Grade credits for `consumable`, Action Credits for `action_credits`. */
   credits?: number;
   title: string;
   blurb: string;
@@ -174,7 +229,7 @@ export interface CatalogProductDTO {
 }
 
 /** Bump when the catalog shape or contents change (clients cache by version). */
-export const CATALOG_VERSION = 1;
+export const CATALOG_VERSION = 2;
 
 /** Serialize the canonical catalog for GET /api/payments/catalog. */
 export function serializeCatalog(): CatalogProductDTO[] {
@@ -186,11 +241,25 @@ export function serializeCatalog(): CatalogProductDTO[] {
       referencePriceCents: e.referencePriceCents,
       referencePriceDisplay: e.referencePriceDisplay,
     };
-    // The seller CATALOG only holds subscription/consumable entries (buyer IAP
-    // lives in its own map below), so checking consumable first keeps this
-    // exhaustive without leaking buyer entries into the serialized seller catalog.
-    return e.mapping.kind === "consumable"
-      ? { ...base, kind: "consumable" as const, credits: e.mapping.credits }
-      : { ...base, kind: "subscription" as const, plan: e.mapping.plan, interval: e.mapping.interval };
+    // The seller CATALOG holds subscription / consumable / action_credits
+    // entries (buyer IAP lives in its own map below), so checking the one-time
+    // kinds first keeps this exhaustive without leaking buyer entries into the
+    // serialized seller catalog.
+    if (e.mapping.kind === "consumable") {
+      return { ...base, kind: "consumable" as const, credits: e.mapping.credits };
+    }
+    if (e.mapping.kind === "action_credits") {
+      return {
+        ...base,
+        kind: "action_credits" as const,
+        credits: e.mapping.actionCredits,
+      };
+    }
+    return {
+      ...base,
+      kind: "subscription" as const,
+      plan: e.mapping.plan,
+      interval: e.mapping.interval,
+    };
   });
 }

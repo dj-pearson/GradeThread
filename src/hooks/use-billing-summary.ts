@@ -8,6 +8,7 @@ import { useRedirectStore } from "@/stores/redirect-store";
 import { markCheckoutPending } from "@/lib/checkout-pending";
 import { DISCLOSURE_VERSION } from "@/lib/auto-renewal-copy";
 import type {
+  ActionCreditPackKey,
   FlipdeskPlanKey,
   BuyerPlanKey,
   CreditPackSize,
@@ -96,6 +97,19 @@ export interface BillingSummary {
     marketplaces_connected: number;
     ai_actions_used_this_month: number;
     ai_action_limit: number | null;
+  };
+  // US-3138: the prepaid Action Credit wallet the AI and connector meters draw
+  // on once the monthly allowance is spent. Balance is the WORKSPACE OWNER's,
+  // which is the wallet a member's actions are billed against.
+  //
+  // `packs` comes from the server rather than src/lib/constants.ts so the price
+  // shown and the price charged cannot drift. The constants copy exists for
+  // marketing surfaces that render before a summary has loaded.
+  action_credits: {
+    balance: number;
+    /** Under LOW_BALANCE_THRESHOLD (20). Drives the nudge, not a hard state. */
+    low: boolean;
+    packs: { key: string; credits: number; price_cents: number }[];
   };
   // Soft upgrade triggers (US-209). thresholds: percentages (out of 100) the
   // user opted into (default [80]); last_warning: per-(cap:threshold) month
@@ -368,6 +382,36 @@ export function useBuyCreditPack() {
       const res = await edgeFetch("/api/payments/gradethread/credit-pack", {
         method: "POST",
         json: returnPath ? { packSize, returnPath } : { packSize },
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.error || "Failed to start checkout.");
+      return json;
+    },
+    onSuccess: (data) => {
+      if (data.url) useRedirectStore.getState().redirectTo(data.url);
+    },
+    onError: (err) => toastError(err),
+  });
+}
+
+// US-3138: buy a prepaid Action Credit pack.
+//
+// Separate from useBuyCreditPack, which buys GRADE credits. Two wallets, two
+// prices, two products: a shared hook taking a "kind" would put the two one
+// typo apart, and the failure would be a seller paying $34.99 and receiving the
+// wrong currency.
+export function useBuyActionCredits() {
+  return useMutation<
+    { sessionId: string; url: string },
+    Error,
+    // returnPath: come back to where the seller ran out, so they can retry the
+    // action they were blocked on instead of finding their way back to it.
+    { pack: ActionCreditPackKey; returnPath?: string }
+  >({
+    mutationFn: async ({ pack, returnPath }) => {
+      const res = await edgeFetch("/api/payments/action-credits/checkout", {
+        method: "POST",
+        json: returnPath ? { pack, returnPath } : { pack },
       });
       const json = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(json.error || "Failed to start checkout.");

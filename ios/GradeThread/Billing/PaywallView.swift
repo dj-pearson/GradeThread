@@ -247,6 +247,7 @@ struct PaywallView: View {
         intervalSection
         plansSection
         creditsSection
+        actionCreditsSection
         // US-2503: what the bundled buyer tools give you on THIS device. The
         // subscription has always included them; this app shipped none of them
         // and said nothing, so a phone-only subscriber paid for thirteen
@@ -318,6 +319,21 @@ struct PaywallView: View {
             Text("Grade credits")
         } footer: {
             Text("Credits never expire and work alongside any plan.")
+        }
+    }
+
+    // US-3138: a THIRD section, not more rows under "Grade credits". The two
+    // currencies buy different things, and listing them together under one
+    // heading would invite a seller to buy the wrong one.
+    private var actionCreditsSection: some View {
+        Section {
+            ForEach(IAPCatalog.actionCredits) { entry in
+                productRow(entry)
+            }
+        } header: {
+            Text("Action Credits")
+        } footer: {
+            Text("For AI actions once your plan's monthly allowance runs out. Your allowance is always spent first. They never expire.")
         }
     }
 

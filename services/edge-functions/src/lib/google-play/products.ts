@@ -32,6 +32,13 @@ export const ANDROID_CATALOG: Record<string, Exclude<ProductMapping, { kind: "bu
   credits_25: { kind: "consumable", credits: 25 },
   credits_50: { kind: "consumable", credits: 50 },
   credits_100: { kind: "consumable", credits: 100 },
+  // US-3138: Action Credits. A DIFFERENT wallet from the grade credits above,
+  // which is why they carry their own ProductMapping kind rather than a bigger
+  // `credits` number. Prices mirror ACTION_CREDIT_PACKS in lib/action-credits.ts.
+  action_credits_50: { kind: "action_credits", actionCredits: 50 },
+  action_credits_150: { kind: "action_credits", actionCredits: 150 },
+  action_credits_400: { kind: "action_credits", actionCredits: 400 },
+  action_credits_1000: { kind: "action_credits", actionCredits: 1000 },
 };
 
 // US-1804: buyer subscription products (Google Play), separate from the seller
@@ -62,6 +69,13 @@ export const ANDROID_SUBSCRIPTION_PRODUCT_IDS: string[] = Object.entries(ANDROID
 
 export const ANDROID_CONSUMABLE_PRODUCT_IDS: string[] = Object.entries(ANDROID_CATALOG)
   .filter(([, m]) => m.kind === "consumable")
+  .map(([id]) => id);
+
+/** US-3138: Action Credit packs. Play calls them INAPP products like the grade
+ *  packs; the SERVER must keep them apart, or a purchase credits the wrong
+ *  wallet. */
+export const ANDROID_ACTION_CREDIT_PRODUCT_IDS: string[] = Object.entries(ANDROID_CATALOG)
+  .filter(([, m]) => m.kind === "action_credits")
   .map(([id]) => id);
 
 // ── Subscription → users-row update (pure) ──────────────────────────

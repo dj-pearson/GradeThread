@@ -16,7 +16,17 @@ import Foundation
 
 enum IAPKind: Equatable {
     case subscription(plan: String, interval: String)
+    /// GRADE credits. One credit = one Standard grade.
     case consumable(credits: Int)
+    /// US-3138: ACTION credits. One credit = one AI action, and a different
+    /// wallet from `consumable`.
+    ///
+    /// A separate case rather than a second `consumable` on purpose: the server
+    /// routes on this kind, and reusing `consumable` would grant grade credits
+    /// for an Action Credit purchase. The buyer pays, receives the wrong
+    /// currency, and nothing errors. StoreKit treats both as consumables; we
+    /// must not.
+    case actionCredits(credits: Int)
 }
 
 struct IAPCatalogEntry: Identifiable, Equatable {
@@ -39,6 +49,19 @@ extension IAPKind {
     var isSubscription: Bool {
         if case .subscription = self { return true }
         return false
+    }
+
+    /// A one-time purchase of either currency.
+    var isOneTime: Bool { !isSubscription }
+
+    /// How many credits this grants, or nil for a subscription. Which WALLET
+    /// they land in is the case itself, not this number.
+    var creditCount: Int? {
+        switch self {
+        case .subscription: return nil
+        case let .consumable(credits): return credits
+        case let .actionCredits(credits): return credits
+        }
     }
 
     /// Singular billing-period noun for an auto-renewing subscription
@@ -118,6 +141,27 @@ enum IAPCatalog {
             productId: "com.gradethread.credits.100", kind: .consumable(credits: 100),
             title: "100 grade credits", blurb: "Never expire",
             fallbackPrice: "$199.99", referenceCents: 19999),
+        // US-3138: Action Credits. These buy AI ACTIONS, not grades.
+        IAPCatalogEntry(
+            productId: "com.gradethread.actions.50", kind: .actionCredits(credits: 50),
+            title: "50 Action Credits",
+            blurb: "AI actions when your monthly allowance runs out",
+            fallbackPrice: "$4.99", referenceCents: 499),
+        IAPCatalogEntry(
+            productId: "com.gradethread.actions.150", kind: .actionCredits(credits: 150),
+            title: "150 Action Credits",
+            blurb: "AI actions when your monthly allowance runs out",
+            fallbackPrice: "$13.99", referenceCents: 1399),
+        IAPCatalogEntry(
+            productId: "com.gradethread.actions.400", kind: .actionCredits(credits: 400),
+            title: "400 Action Credits",
+            blurb: "AI actions when your monthly allowance runs out",
+            fallbackPrice: "$34.99", referenceCents: 3499),
+        IAPCatalogEntry(
+            productId: "com.gradethread.actions.1000", kind: .actionCredits(credits: 1000),
+            title: "1,000 Action Credits",
+            blurb: "AI actions when your monthly allowance runs out",
+            fallbackPrice: "$79.99", referenceCents: 7999),
     ]
 
     /// Fail-closed classification (mirrors the server's classifyProduct).
@@ -142,6 +186,16 @@ enum IAPCatalog {
     static var consumables: [IAPCatalogEntry] {
         all.filter {
             if case .consumable = $0.kind { return true }
+            return false
+        }
+    }
+
+    /// US-3138: the Action Credit packs, smallest first. A SEPARATE list from
+    /// `consumables` so a paywall cannot accidentally render one currency's
+    /// packs under the other's heading.
+    static var actionCredits: [IAPCatalogEntry] {
+        all.filter {
+            if case .actionCredits = $0.kind { return true }
             return false
         }
     }

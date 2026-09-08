@@ -92,6 +92,27 @@ const deps: GooglePlayDeps = {
     return (data as number | null) ?? null;
   },
 
+  // US-3138: the Action Credit wallet. A separate dep from grantCredits above
+  // because they write to different wallets, and one boolean argument between
+  // them is one negation away from crediting the wrong one.
+  //
+  // Idempotent on the Play purchase token via 00763's unique index on
+  // (source, reason, external_id), which is the same belt-and-suspenders the
+  // grade grant gets from its own dedup key alongside the
+  // google_processed_purchases gate.
+  grantActionCredits: async (userId, credits, purchaseToken) => {
+    const { data, error } = await supabaseAdmin.rpc("grant_action_credits", {
+      p_user_id: userId,
+      p_credits: credits,
+      p_reason: "purchase",
+      p_source: "googleplay",
+      p_external_id: purchaseToken,
+      p_notes: "Google Play Action Credit pack",
+    });
+    if (error) throw new Error(`grant_action_credits failed: ${error.message}`);
+    return (data as number | null) ?? null;
+  },
+
   recordEvent: async (userId, eventId, fromPlan, toPlan, raw) => {
     const { error } = await supabaseAdmin.from("flipdesk_subscription_events").insert({
       user_id: userId,

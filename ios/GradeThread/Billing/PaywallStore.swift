@@ -237,9 +237,12 @@ final class PaywallStore {
             // NOT the whole tier — so a monthly subscriber can still cross-grade to
             // the yearly of the same tier (and vice versa).
             return billingLoaded && !managedOnWeb && entry.productId != currentProductId
-        case .consumable:
-            // Consumable credit packs don't conflict with a web subscription, so
-            // they stay purchasable even if the billing snapshot is unavailable.
+        case .consumable, .actionCredits:
+            // One-time purchases don't conflict with a web subscription, so they
+            // stay purchasable even if the billing snapshot is unavailable.
+            // US-3138 groups Action Credits here for the same reason: buying
+            // them is additive, and a seller who pays for their plan on the web
+            // topping up on their phone is the ordinary case.
             return true
         }
     }

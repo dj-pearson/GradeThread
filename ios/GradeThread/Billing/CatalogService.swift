@@ -8,9 +8,16 @@ import Foundation
 /// when products load, and Apple controls the actual charged amount.
 struct CatalogProduct: Codable, Equatable {
     let productId: String
-    let kind: String            // "subscription" | "consumable"
+    // "subscription" | "consumable" | "action_credits".
+    //
+    // A String rather than an enum on purpose: this decodes a server response,
+    // and an unknown kind must not fail the whole catalog decode and blank the
+    // paywall. US-3138 added "action_credits" and an enum here would have made
+    // shipping the server first a paywall outage on every unupdated client.
+    let kind: String
     let plan: String?
     let interval: String?
+    /// Grade credits for `consumable`, Action Credits for `action_credits`.
     let credits: Int?
     let title: String
     let blurb: String

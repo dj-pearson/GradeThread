@@ -239,6 +239,11 @@ export const ANALYTICS_EVENTS = {
   "grade.pack_upsell_converted": "That upsell was taken.",
   "credit_pack.opened": "The credit-pack surface was opened.",
   "credit_pack.cta_clicked": "A credit pack was chosen.",
+  // US-3138. A SEPARATE funnel from credit_pack.*, which is grade credits.
+  // Merging them would make the two conversion rates uninterpretable: one is
+  // "I want to grade something", the other is "I was stopped mid-work".
+  "action_credits.opened": "The Action Credit top-up surface was opened.",
+  "action_credits.cta_clicked": "An Action Credit pack was chosen.",
   "credit_pack.purchased": "A credit pack was bought.",
   "upgrade.trigger.soft": "A soft upgrade prompt fired against a usage cap.",
   "upgrade.trigger.hard": "A hard upgrade block fired at a usage cap.",

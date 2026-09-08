@@ -1,5 +1,6 @@
 import { UpgradeRequiredDialog } from "@/components/billing/upgrade-required-dialog";
 import { GlobalPlanPicker } from "@/components/billing/global-plan-picker";
+import { GlobalActionCreditDialog } from "@/components/billing/action-credit-dialog";
 
 // The globally-mounted billing dialogs (US-209/US-210/US-212), grouped so the
 // authenticated layouts mount them in one place. They were previously in
@@ -15,6 +16,8 @@ export function AppBillingDialogs() {
     <>
       <UpgradeRequiredDialog />
       <GlobalPlanPicker />
+      {/* US-3138: opened by edgeFetch on a 429 the seller can buy past. */}
+      <GlobalActionCreditDialog />
     </>
   );
 }

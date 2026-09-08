@@ -5,6 +5,7 @@ import { edgeApiUrl } from "@/lib/edge-api";
 import { track } from "@/lib/analytics";
 import { useAuthStore } from "@/stores/auth-store";
 import { useUpgradeDialogStore } from "@/stores/upgrade-dialog-store";
+import { useActionCreditDialogStore } from "@/stores/action-credit-dialog-store";
 import { usePlanPickerStore } from "@/stores/plan-picker-store";
 import { FLIPDESK_PLANS } from "@/lib/constants";
 import type { FlipdeskPlanKey } from "@/lib/constants";
@@ -15,6 +16,7 @@ import type { FlipdeskPlanKey } from "@/lib/constants";
 //   • Auth bearer from the current Supabase session (skip with unauthenticated)
 //   • Soft-warning toast when the response carries X-Plan-Warning (US-209)
 //   • Hard-cap upgrade dialog when the response is 402 PAYMENT_REQUIRED (US-210)
+//   • Action Credit top-up offer when a metered endpoint answers 429 (US-3138)
 //
 // All edge-side errors (other than 402) bubble up unchanged — callers still
 // inspect res.ok / res.status the same way.
@@ -150,6 +152,13 @@ export async function edgeFetch(
       const cloned = res.clone();
       const data = await cloned.json().catch(() => ({} as Record<string, unknown>));
       handlePaymentRequired(data);
+    }
+
+    // US-3138: a spent monthly allowance. Not an error any more, a choice.
+    if (res.status === 429) {
+      const cloned = res.clone();
+      const data = await cloned.json().catch(() => ({} as Record<string, unknown>));
+      handleAllowanceExhausted(data);
     }
 
     // US-374: workspace requires MFA for this member's role. Surface a clear,
@@ -310,6 +319,55 @@ function handlePaymentRequired(body: Record<string, unknown>) {
       typeof body.error === "string"
         ? body.error
         : "Your plan doesn't include this. Open Billing to upgrade.",
+  });
+}
+
+// ── Spent allowance (US-3138) ───────────────────────────────────
+//
+// Two 429 bodies, and telling them apart is the whole point:
+//
+//   { error, can_top_up: true,  credit_balance, credits_needed }
+//     The PLAN's allowance ran out. Offer the top-up.
+//
+//   { error, can_top_up: false, self_limit, plan_limit }
+//     The seller's OWN cap ran out (users.ai_action_limit). That setting exists
+//     to stop runaway spend, so answering it with "buy more" is backwards. Say
+//     what they set and where to change it, and sell them nothing.
+//
+// A 429 carrying neither key is a rate limiter, not an allowance, and is left
+// alone for the caller to handle as it always did.
+function handleAllowanceExhausted(body: Record<string, unknown>) {
+  if (typeof body.can_top_up !== "boolean") return;
+
+  const message = typeof body.error === "string" ? body.error : undefined;
+
+  if (!body.can_top_up) {
+    const selfLimit = typeof body.self_limit === "number" ? body.self_limit : null;
+    toast.error("You have reached your own AI limit", {
+      // Deduped by id: a batch of blocked items must not stack twenty toasts.
+      id: "ai_self_cap_reached",
+      description: selfLimit !== null
+        ? `You set a limit of ${selfLimit} AI actions a month. Raise it in ` +
+          `Settings to keep going.`
+        : message,
+      action: {
+        label: "Open Settings",
+        onClick: () => {
+          window.location.href = "/dashboard/settings";
+        },
+      },
+    });
+    return;
+  }
+
+  useActionCreditDialogStore.getState().show({
+    balanceAtRefusal: typeof body.credit_balance === "number"
+      ? body.credit_balance
+      : undefined,
+    creditsNeeded: typeof body.credits_needed === "number"
+      ? body.credits_needed
+      : undefined,
+    source: "allowance_429",
   });
 }
 

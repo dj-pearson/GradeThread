@@ -38,6 +38,7 @@ import {
 import { InvoiceHistory } from "@/components/billing/invoice-history";
 import { UsageMeter, UsageMeters } from "@/components/billing/usage-meter";
 import { CreditPackDialog } from "@/components/billing/credit-pack-dialog";
+import { ActionCreditDialog } from "@/components/billing/action-credit-dialog";
 import { PromoCodeRedeemer } from "@/components/billing/promo-code-redeemer";
 import { FlipdeskPlanPickerDialog } from "@/components/billing/flipdesk-plan-picker-dialog";
 import { FlipdeskPlanComparison } from "@/components/billing/flipdesk-plan-comparison";
@@ -61,6 +62,7 @@ import {
   Play,
   RefreshCw,
   ShoppingCart,
+  Zap,
   Smartphone,
   Sparkles,
   TrendingUp,
@@ -91,6 +93,7 @@ export function BillingPage() {
 
   const [planPickerOpen, setPlanPickerOpen] = useState(false);
   const [creditPackOpen, setCreditPackOpen] = useState(false);
+  const [actionCreditsOpen, setActionCreditsOpen] = useState(false);
   const [pauseOpen, setPauseOpen] = useState(false);
   const [cancelOpen, setCancelOpen] = useState(false);
   const [activityOpen, setActivityOpen] = useState(false);
@@ -241,6 +244,10 @@ export function BillingPage() {
 
   const { subscription, grades } = summary;
   const plan = FLIPDESK_PLANS[subscription.plan as FlipdeskPlanKey];
+  // US-3138. Optional-chained: a client running against an edge build from
+  // before this shipped reads 0 rather than crashing the whole Billing page on
+  // an undefined.
+  const actionCredits = summary.action_credits?.balance ?? 0;
   // US-807: subscription purchased in the iOS app — its lifecycle is owned by
   // Apple, so the web page goes read-only for the subscription (no Stripe CTAs,
   // no Stripe-specific banners) while credit packs + per-grade stay available.
@@ -575,6 +582,45 @@ export function BillingPage() {
         </Card>
 
         {/* GradeThread credits */}
+        {/* US-3138: the OTHER wallet. Its own card rather than a line inside the
+            grade-credit one, because they are different currencies that buy
+            different things, and a seller reading two numbers under one heading
+            called "Credits" would reasonably assume they are the same pot. */}
+        <Card>
+          <CardHeader>
+            <div className="flex items-start justify-between gap-2">
+              <div>
+                <CardTitle>Action Credits</CardTitle>
+                <CardDescription>
+                  Keep working when your monthly AI allowance runs out. Never
+                  expire.
+                </CardDescription>
+              </div>
+            </div>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="rounded-md border border-border bg-muted/30 p-4">
+              <div className="flex items-baseline justify-between">
+                <span className="text-sm font-medium">Action Credit balance</span>
+                <span className="text-3xl font-bold tabular-nums">
+                  {actionCredits.toLocaleString()}
+                </span>
+              </div>
+              <p className="mt-1 text-xs text-muted-foreground">
+                1 credit = 1 AI action. Your plan&rsquo;s monthly allowance is
+                always spent first.
+              </p>
+            </div>
+
+            <div className="flex flex-wrap gap-2">
+              <Button onClick={() => setActionCreditsOpen(true)}>
+                <Zap className="mr-2 h-4 w-4" />
+                {actionCredits > 0 ? "Buy more" : "Buy Action Credits"}
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+
         <Card>
           <CardHeader>
             <div className="flex items-start justify-between gap-2">
@@ -714,6 +760,11 @@ export function BillingPage() {
 
       {/* Dialogs */}
       <CreditPackDialog open={creditPackOpen} onOpenChange={setCreditPackOpen} />
+      <ActionCreditDialog
+        open={actionCreditsOpen}
+        onOpenChange={setActionCreditsOpen}
+        source="billing_page"
+      />
       <FlipdeskPlanPickerDialog
         open={planPickerOpen}
         onOpenChange={setPlanPickerOpen}

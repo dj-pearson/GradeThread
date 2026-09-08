@@ -24,7 +24,13 @@ export function decideAppstorePrecedence(
   user: BillingUserRow,
   kind: ProductMapping["kind"],
 ): PrecedenceDecision {
-  if (kind === "consumable") return "proceed";
+  // US-3138: one-time purchases never conflict with a Stripe SUBSCRIPTION.
+  // Buying credits is additive, so an active Stripe plan is no reason to refuse
+  // it. Grouped with the grade consumable rather than falling through to the
+  // subscription branch, where it would have been blocked for every seller who
+  // pays for their plan on the web and tops up on their phone -- which is the
+  // ordinary case, not an edge one.
+  if (kind === "consumable" || kind === "action_credits") return "proceed";
 
   const stripeActive =
     user.flipdesk_subscription_id != null &&

@@ -15,7 +15,11 @@ const SWIFT_PATH = new URL(
 
 interface SwiftEntry {
   productId: string;
-  kind: "subscription" | "consumable";
+  // US-3138: `action_credits` is a THIRD kind, not a second flavour of
+  // consumable. Reusing "consumable" would make an Action Credit purchase grant
+  // GRADE credits, which is a fail-OPEN money bug: the buyer pays, receives the
+  // wrong currency, and every check downstream reports success.
+  kind: "subscription" | "consumable" | "action_credits";
   plan?: string;
   interval?: string;
   credits?: number;
@@ -47,6 +51,9 @@ function parseSwiftCatalog(source: string): SwiftEntry[] {
       /kind:\s*\.subscription\(plan:\s*"([^"]+)",\s*interval:\s*"([^"]+)"\)/,
     );
     const consumable = chunk.match(/kind:\s*\.consumable\(credits:\s*(\d+)\)/);
+    const actionCredits = chunk.match(
+      /kind:\s*\.actionCredits\(credits:\s*(\d+)\)/,
+    );
 
     if (sub) {
       entries.push({
@@ -67,6 +74,15 @@ function parseSwiftCatalog(source: string): SwiftEntry[] {
         title,
         blurb,
       });
+    } else if (actionCredits) {
+      entries.push({
+        productId,
+        kind: "action_credits",
+        credits: Number(actionCredits[1]),
+        fallbackPrice,
+        title,
+        blurb,
+      });
     }
   }
   return entries;
@@ -80,6 +96,48 @@ const swiftIds = swiftEntries.map((e) => e.productId).sort();
 
 Deno.test("iOS fallback catalog has the same product ids as the server", () => {
   assertEquals(swiftIds, catalogIds);
+});
+
+Deno.test("US-3138: the four Action Credit products exist on BOTH sides", () => {
+  // Named explicitly rather than left to the id-set comparison above. That
+  // comparison passes if BOTH sides drop the products, which is exactly the
+  // shape a bad merge takes.
+  const expected = [
+    "com.gradethread.actions.50",
+    "com.gradethread.actions.150",
+    "com.gradethread.actions.400",
+    "com.gradethread.actions.1000",
+  ];
+  for (const id of expected) {
+    assertEquals(
+      catalogIds.includes(id),
+      true,
+      `server catalog is missing ${id}`,
+    );
+    assertEquals(swiftIds.includes(id), true, `IAPProduct.swift is missing ${id}`);
+    assertEquals(
+      swiftById.get(id)?.kind,
+      "action_credits",
+      `${id} must be .actionCredits, NOT .consumable - a consumable grants ` +
+        `GRADE credits, so mistyping it means the buyer pays and gets the ` +
+        `wrong currency`,
+    );
+  }
+});
+
+Deno.test("US-3138: no Action Credit product is typed as a grade consumable", () => {
+  for (const entry of swiftEntries) {
+    if (!entry.productId.startsWith("com.gradethread.actions.")) continue;
+    assertEquals(
+      entry.kind,
+      "action_credits",
+      `${entry.productId} is typed ${entry.kind}`,
+    );
+  }
+  for (const product of catalog) {
+    if (!product.productId.startsWith("com.gradethread.actions.")) continue;
+    assertEquals(product.kind, "action_credits", `${product.productId} on the server`);
+  }
 });
 
 Deno.test("iOS fallback entries match server mapping + reference price", () => {

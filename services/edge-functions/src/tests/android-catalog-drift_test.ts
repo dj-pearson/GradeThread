@@ -18,6 +18,11 @@
 
 import { assertEquals } from "@std/assert";
 import { ANDROID_CATALOG } from "../lib/google-play/products.ts";
+import {
+  ACTION_CREDIT_PACK_KEYS,
+  ACTION_CREDIT_PACKS,
+  type ActionCreditPackKey,
+} from "../lib/action-credits.ts";
 import { CATALOG as APPSTORE_CATALOG } from "../lib/appstore/products.ts";
 import { CREDIT_PACKS } from "../lib/grade-pricing.ts";
 
@@ -105,8 +110,28 @@ function parseCreditPacks(source: string): KotlinCreditPack[] {
   return out;
 }
 
+// US-3138: Action Credit packs share CreditPacks.kt's file and its literal
+// shape, so the same parser reads them out of the OTHER enum. A separate enum
+// on the Kotlin side is the whole point: Play sees one product type for both
+// wallets, and the product id is the only thing keeping a purchase in the right
+// one.
+function parseActionCreditPacks(source: string): KotlinCreditPack[] {
+  const body = enumBody(source, "ActionCreditPack");
+  const re = /\w+\(\s*"([^"]+)"\s*,\s*(\d+)\s*,\s*(\d+)\s*\)/g;
+  const out: KotlinCreditPack[] = [];
+  for (const m of body.matchAll(re)) {
+    out.push({
+      productId: m[1],
+      credits: Number(m[2]),
+      fallbackPriceCents: Number(m[3]),
+    });
+  }
+  return out;
+}
+
 const subscriptions = parseSubscriptions(Deno.readTextFileSync(SUBSCRIPTION_PATH));
 const creditPacks = parseCreditPacks(Deno.readTextFileSync(CREDIT_PACK_PATH));
+const actionCreditPacks = parseActionCreditPacks(Deno.readTextFileSync(CREDIT_PACK_PATH));
 
 Deno.test("the Kotlin catalogs actually parsed", () => {
   // The guard against a silently-empty guard. Every assertion below iterates a
@@ -114,15 +139,45 @@ Deno.test("the Kotlin catalogs actually parsed", () => {
   // turn this whole file green while comparing nothing — the failure mode that
   // makes a drift test worse than none.
   assertEquals(
-    subscriptions.length > 0 && creditPacks.length > 0,
+    subscriptions.length > 0 && creditPacks.length > 0 &&
+      actionCreditPacks.length > 0,
     true,
-    `parsed ${subscriptions.length} subscription(s) and ${creditPacks.length} ` +
-      `credit pack(s) out of the Kotlin sources; both must be non-empty`,
+    `parsed ${subscriptions.length} subscription(s), ${creditPacks.length} ` +
+      `credit pack(s) and ${actionCreditPacks.length} action credit pack(s) out ` +
+      `of the Kotlin sources; all three must be non-empty`,
   );
 });
 
+Deno.test("US-3138: the two wallets' packs are DIFFERENT product ids", () => {
+  // The failure this rules out: an Action Credit pack listed under CreditPack
+  // (or the same id in both enums) is a purchase the buyer completes and is
+  // credited to the wrong wallet for. Nothing errors, so nothing catches it.
+  const gradeIds = new Set(creditPacks.map((p) => p.productId));
+  for (const pack of actionCreditPacks) {
+    assertEquals(
+      gradeIds.has(pack.productId),
+      false,
+      `${pack.productId} appears in BOTH CreditPack and ActionCreditPack`,
+    );
+    assertEquals(
+      ANDROID_CATALOG[pack.productId]?.kind,
+      "action_credits",
+      `${pack.productId} must map to action_credits on the server, not ` +
+        `${ANDROID_CATALOG[pack.productId]?.kind ?? "nothing"}`,
+    );
+  }
+  // And the reverse, so a grade pack cannot drift into the action wallet.
+  for (const pack of creditPacks) {
+    assertEquals(
+      ANDROID_CATALOG[pack.productId]?.kind,
+      "consumable",
+      `${pack.productId} must stay a grade consumable`,
+    );
+  }
+});
+
 Deno.test("Android fallback catalog has the same product ids as the server", () => {
-  const kotlinIds = [...subscriptions, ...creditPacks]
+  const kotlinIds = [...subscriptions, ...creditPacks, ...actionCreditPacks]
     .map((e) => e.productId)
     .sort();
   const serverIds = Object.keys(ANDROID_CATALOG).sort();
@@ -223,4 +278,34 @@ Deno.test("Android fallback pack prices match CREDIT_PACKS", () => {
       `fallback price drift for ${pack.productId}`,
     );
   }
+});
+
+Deno.test("US-3138: Android Action Credit prices match ACTION_CREDIT_PACKS", () => {
+  // Prices, not just ids. The id parity above would pass while Android quoted
+  // $9.99 for a pack the server sells at $4.99, and a fallback price is what a
+  // buyer sees whenever Play is slow or offline.
+  for (const pack of actionCreditPacks) {
+    const canonical = ACTION_CREDIT_PACKS[String(pack.credits) as ActionCreditPackKey];
+    assertEquals(
+      canonical !== undefined,
+      true,
+      `ACTION_CREDIT_PACKS has no ${pack.credits}-credit pack`,
+    );
+    if (!canonical) continue;
+    assertEquals(
+      pack.fallbackPriceCents,
+      canonical.priceCents,
+      `fallback price drift for ${pack.productId}`,
+    );
+    assertEquals(
+      pack.productId,
+      canonical.playProductId,
+      `product id drift for the ${pack.credits}-credit Action Credit pack`,
+    );
+  }
+  assertEquals(
+    actionCreditPacks.length,
+    ACTION_CREDIT_PACK_KEYS.length,
+    "Android lists a different number of Action Credit packs than the server sells",
+  );
 });

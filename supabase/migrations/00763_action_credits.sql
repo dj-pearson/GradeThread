@@ -383,6 +383,29 @@ BEGIN
 END;
 $$;
 
+-- ── Who may execute these (US-2282 AC4) ─────────────────────────────
+--
+-- An explicit grant, because silence is not "closed" on this stack. Supabase's
+-- ALTER DEFAULT PRIVILEGES bootstrap hands anon and authenticated DIRECT
+-- EXECUTE on new functions, so a SECURITY DEFINER function that says nothing is
+-- granted to the browser by a default nobody wrote down.
+--
+-- BE CLEAR ABOUT WHAT THIS GRANT DOES AND DOES NOT DO. It ADDS service_role; it
+-- does not remove anon or authenticated, because a REVOKE cannot be shipped
+-- here: a denied function call from those roles SEGFAULTS this Postgres image
+-- and restarts the database (US-2403), which is why the bulk revoke in 00527 is
+-- parked as .BLOCKED. The real enforcement is the role check at the top of each
+-- body above, which raises an ordinary 42501 instead of a privilege denial.
+-- This grant is the written-down decision; the body is the lock.
+
+GRANT EXECUTE ON FUNCTION public.grant_action_credits(uuid, int, text, text, text, text) TO service_role;
+GRANT EXECUTE ON FUNCTION public.debit_action_credits(uuid, int, text, text) TO service_role;
+GRANT EXECUTE ON FUNCTION public.refund_action_credits(uuid, int, text, text) TO service_role;
+GRANT EXECUTE ON FUNCTION public.clawback_action_credits(uuid, int, text, text, text) TO service_role;
+GRANT EXECUTE ON FUNCTION public.reserve_ai_action_v2(uuid, int, boolean) TO service_role;
+GRANT EXECUTE ON FUNCTION public.reserve_ai_action(uuid, int) TO service_role;
+GRANT EXECUTE ON FUNCTION public.refund_ai_action(uuid) TO service_role;
+
 -- DELIBERATELY NO REVOKE HERE, and that is not an oversight. On this Postgres
 -- image a DENIED function call from anon or authenticated SEGFAULTS the backend
 -- and restarts the whole database, because supautils appends a GRANT hint to

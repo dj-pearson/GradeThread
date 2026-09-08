@@ -60,3 +60,55 @@ data class CreditPackOffer(
 ) {
     val priceLabel: String get() = formattedPrice ?: pack.fallbackPriceLabel
 }
+
+/**
+ * US-3138: the ACTION credit packs.
+ *
+ * A separate enum from [CreditPack], not more entries in it. The two are
+ * different wallets: a grade credit buys one Standard grade, an Action Credit
+ * buys one AI action once the plan's monthly allowance is spent. Play treats
+ * both as INAPP consumables, and the server does not -- it routes on the
+ * product id, so a pack listed under the wrong enum is a purchase the buyer
+ * completes and is credited to the wrong wallet for.
+ *
+ * Ids must match `ANDROID_CATALOG` in the edge's `lib/google-play/products.ts`
+ * exactly. The server FAILS CLOSED on an unknown id, so a typo here is not a
+ * display bug, it is a purchase nobody is credited for.
+ *
+ * [credits] is shown, never trusted: the grant comes from the server's own
+ * mapping after it verifies the token with Google.
+ */
+enum class ActionCreditPack(val productId: String, val credits: Int, val fallbackPriceCents: Int) {
+    ACTIONS_50("action_credits_50", 50, 499),
+    ACTIONS_150("action_credits_150", 150, 1399),
+    ACTIONS_400("action_credits_400", 400, 3499),
+    ACTIONS_1000("action_credits_1000", 1000, 7999),
+    ;
+
+    /**
+     * Shown only until Play returns the real localized price. Mirrors
+     * ACTION_CREDIT_PACKS in the edge's action-credits.ts, but Play's formatted
+     * price is authoritative: it carries the buyer's currency, and quoting USD
+     * to someone who will be charged euros is a broken promise.
+     */
+    val fallbackPriceLabel: String
+        get() = "$" + "%,.2f".format(java.util.Locale.US, fallbackPriceCents / 100.0)
+
+    val label: String get() = "$credits actions"
+
+    companion object {
+        val productIds: List<String> = entries.map { it.productId }
+
+        fun fromProductId(productId: String?): ActionCreditPack? =
+            entries.firstOrNull { it.productId == productId }
+    }
+}
+
+/** An Action Credit pack joined with whatever Play told us about it. */
+data class ActionCreditPackOffer(
+    val pack: ActionCreditPack,
+    /** Play's localized formatted price, or null before the query resolves. */
+    val formattedPrice: String? = null,
+) {
+    val priceLabel: String get() = formattedPrice ?: pack.fallbackPriceLabel
+}

@@ -90,6 +90,32 @@ class BillingRepository @Inject constructor(
     suspend fun launchPurchase(activity: Activity, pack: CreditPack): Boolean =
         play.launch(activity, PlayProduct(pack.productId), PlayProductType.INAPP)
 
+    // ── Action Credit packs (US-3138) ────────────────────────────────────────
+    //
+    // Their own pair of methods rather than a `type` parameter on the two above.
+    // Play sees one product type for both wallets, so the ONLY thing keeping a
+    // purchase in the right wallet is which product id gets launched -- and a
+    // parameter that selects between them is one wrong argument away from
+    // charging a buyer for actions and crediting them grades.
+
+    /**
+     * Play's localized pricing for the Action Credit packs.
+     *
+     * Same fallback contract as the credit packs above: an unavailable Play
+     * still renders the paywall with a label, never a commitment.
+     */
+    suspend fun actionCreditOffers(): List<ActionCreditPackOffer> {
+        val details = play.products(ActionCreditPack.productIds, PlayProductType.INAPP)
+            .associateBy { it.productId }
+        return ActionCreditPack.entries.map { pack ->
+            ActionCreditPackOffer(pack, details[pack.productId]?.formattedPrice)
+        }
+    }
+
+    /** Launch Play's purchase dialog for an Action Credit pack. */
+    suspend fun launchActionCreditPurchase(activity: Activity, pack: ActionCreditPack): Boolean =
+        play.launch(activity, PlayProduct(pack.productId), PlayProductType.INAPP)
+
     // ── Subscriptions ────────────────────────────────────────────────────────
 
     /**
