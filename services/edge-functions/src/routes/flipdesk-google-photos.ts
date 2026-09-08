@@ -1,9 +1,19 @@
 import { Hono } from "hono";
 import { supabaseAdmin } from "../lib/supabase.ts";
 import { encryptToken, decryptToken } from "../lib/crypto-aes.ts";
-import { validateImageUpload } from "../lib/upload-validation.ts";
-import { stripImageMetadata } from "../lib/image-metadata.ts";
 import { googleFetch } from "../lib/google-fetch.ts";
+import {
+  importRemotePhotos,
+  MAX_IMPORT,
+  planImportChunk,
+  type RemotePhotoFile,
+} from "../lib/remote-photo-import.ts";
+import { itemPhotoStaging } from "../lib/photo-staging-storage.ts";
+
+// US-3157: planImportChunk moved to remote-photo-import.ts when Drive, Dropbox
+// and OneDrive needed the same cursor. Re-exported here because it was part of
+// this module's surface first and google-photos_test.ts imports it from here.
+export { planImportChunk };
 
 // Google Photos import via the Photos PICKER API (the Library API's
 // list-everything access was retired 2025-03-31). The user consents once, picks
@@ -38,17 +48,13 @@ const SCOPE = "https://www.googleapis.com/auth/photospicker.mediaitems.readonly"
 const TOKEN_ENDPOINT = "https://oauth2.googleapis.com/token";
 const AUTH_ENDPOINT = "https://accounts.google.com/o/oauth2/v2/auth";
 const PICKER_API = "https://photospicker.googleapis.com/v1";
-const MAX_IMPORT = 200; // bound a single import (across all of its chunks)
 // A 200-photo import is downloaded, validated, EXIF-stripped and re-uploaded
 // server-side, which is far too much work for one HTTP request — it would sit
 // past the proxy's idle timeout and look hung. So the client pulls it in
 // CHUNKS: each POST /import?offset=&limit= does one bounded slice, and the
-// session row survives until the last slice lands. DEFAULT_CHUNK is the pace;
-// MAX_CHUNK stops a client from asking for the whole thing in one request.
-const DEFAULT_CHUNK = 25;
-const MAX_CHUNK = 40;
-const DOWNLOAD_CONCURRENCY = 4;
-const IMPORT_MAX_BYTES = 15 * 1024 * 1024;
+// session row survives until the last slice lands. MAX_IMPORT, the chunk sizes
+// and the per-file byte cap all live in remote-photo-import.ts now, shared with
+// every other remote photo source.
 
 // Shared Google OAuth client by default (one client can serve every Google
 // integration), with an optional per-service override so a specific service can
@@ -430,39 +436,6 @@ flipdeskGooglePhotosRoutes.get("/poll", async (c) => {
   return c.json({ ready: false });
 });
 
-// Chunk cursor for POST /import. Kept pure and exported so the boundaries —
-// the last chunk, an over-long limit, a client that asks past the end — are
-// pinned by tests instead of only by a live 200-photo import.
-export function planImportChunk(
-  total: number,
-  rawOffset: unknown,
-  rawLimit: unknown,
-): { offset: number; limit: number; end: number; nextOffset: number; done: boolean } {
-  const o = Number(rawOffset ?? 0);
-  const offset = Number.isFinite(o) && o > 0 ? Math.min(Math.floor(o), MAX_IMPORT) : 0;
-  const l = Number(rawLimit ?? DEFAULT_CHUNK);
-  const limit = Number.isFinite(l) && l > 0
-    ? Math.min(Math.floor(l), MAX_CHUNK)
-    : DEFAULT_CHUNK;
-  const capped = Math.min(total, MAX_IMPORT);
-  const start = Math.min(offset, capped);
-  const end = Math.min(start + limit, capped);
-  const nextOffset = end;
-  // `end <= start` means the client asked past the end — treat that as done so
-  // a bad cursor can't spin the loop forever.
-  const done = end <= start || end >= capped;
-  return { offset: start, limit, end, nextOffset, done };
-}
-
-interface ImportedPhoto {
-  url: string;
-  storagePath: string;
-  width: number | null;
-  height: number | null;
-  bytes: number;
-  capturedAtMs: number | null;
-}
-
 // ── POST /import?session=ID&offset=N&limit=N ────────────────────────
 // Download ONE CHUNK of the picked photos server-side, validate + strip EXIF,
 // stage them. The client walks offset forward until `done`; the session row is
@@ -519,73 +492,39 @@ flipdeskGooglePhotosRoutes.post("/import", async (c) => {
   const { offset, end, nextOffset, done } = planImportChunk(total, rawOffset, rawLimit);
   const chunk = photos.slice(offset, end);
 
-  const imported: ImportedPhoto[] = [];
-  const errors: string[] = [];
+  // US-579: the baseUrl comes from the Picker response, not a hardcoded
+  // googleapis host. The user's Google bearer token rides on the download, so a
+  // poisoned baseUrl pointing at an attacker host would exfiltrate that token.
+  // The host check runs inside importRemotePhotos, BEFORE any fetch is made;
+  // this predicate is the Google half of it, and it stays in this route because
+  // only this route knows what a Google photo host looks like.
+  const isGooglePhotoHost = (host: string) =>
+    host === "googleusercontent.com" ||
+    host === "google.com" ||
+    host.endsWith(".googleusercontent.com") ||
+    host.endsWith(".google.com");
 
-  async function importOne(m: PickerMediaItem): Promise<void> {
-    try {
-      // US-579: the baseUrl comes from the Picker response, not a hardcoded
-      // googleapis host. We attach the user's Google bearer token to the
-      // download, so a poisoned/spoofed baseUrl pointing at an attacker host
-      // would exfiltrate that token. Validate the host is a real Google photo
-      // host BEFORE fetching; reject anything else.
-      const baseUrl = m.mediaFile?.baseUrl;
-      if (!baseUrl) throw new Error("invalid baseUrl");
-      let host: string;
-      try {
-        host = new URL(baseUrl).hostname.toLowerCase();
-      } catch {
-        throw new Error("invalid baseUrl");
-      }
-      const allowedHost = host === "googleusercontent.com" ||
-        host === "google.com" ||
-        host.endsWith(".googleusercontent.com") ||
-        host.endsWith(".google.com");
-      if (!allowedHost) {
-        throw new Error(`refused non-Google baseUrl host: ${host}`);
-      }
-      // Sized download returns a JPEG (Google transcodes sized variants), so we
-      // never have to decode HEIC server-side.
-      const res = await googleFetch(`${baseUrl}=w2400-h2400`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (!res.ok) throw new Error(`download ${res.status}`);
-      const bytes = new Uint8Array(await res.arrayBuffer());
+  // The sized download returns a JPEG (Google transcodes sized variants), so we
+  // never have to decode HEIC server-side. A media item with no baseUrl was
+  // already filtered out above, so the empty-string fallback is unreachable and
+  // would be refused by the host check anyway.
+  const files: RemotePhotoFile[] = chunk.map((m) => {
+    const createMs = m.createTime ? Date.parse(m.createTime) : NaN;
+    return {
+      id: m.id,
+      url: `${m.mediaFile?.baseUrl ?? ""}=w2400-h2400`,
+      headers: { Authorization: `Bearer ${token}` },
+      capturedAtMs: Number.isFinite(createMs) ? createMs : null,
+    };
+  });
 
-      const valid = validateImageUpload(bytes, {
-        allow: ["jpeg", "png", "webp"],
-        maxBytes: IMPORT_MAX_BYTES,
-      });
-      if (!valid.ok) throw new Error(valid.reason);
-
-      const clean = stripImageMetadata(bytes, valid.format);
-      const id = crypto.randomUUID();
-      const path = `${ownerId}/_staging/gphotos/${id}.${valid.ext}`;
-      const { error: upErr } = await supabaseAdmin.storage
-        .from("item-photos")
-        .upload(path, clean.bytes, { upsert: false, contentType: valid.contentType });
-      if (upErr) throw new Error(upErr.message);
-
-      // item-photo-url-ok: a staging/just-uploaded object in the public bucket,
-      // not an item_photos row — there is no private variant to resolve.
-      const url = supabaseAdmin.storage.from("item-photos").getPublicUrl(path).data.publicUrl;
-      const createMs = m.createTime ? Date.parse(m.createTime) : NaN;
-      imported.push({
-        url,
-        storagePath: path,
-        width: valid.width,
-        height: valid.height,
-        bytes: clean.bytes.length,
-        capturedAtMs: Number.isFinite(createMs) ? createMs : null,
-      });
-    } catch (err) {
-      errors.push(err instanceof Error ? err.message : String(err));
-    }
-  }
-
-  for (let i = 0; i < chunk.length; i += DOWNLOAD_CONCURRENCY) {
-    await Promise.all(chunk.slice(i, i + DOWNLOAD_CONCURRENCY).map(importOne));
-  }
+  const { photos: imported, failures } = await importRemotePhotos(files, {
+    ownerId,
+    stagingKey: "gphotos",
+    storage: itemPhotoStaging(),
+    allowHost: isGooglePhotoHost,
+    fetchFn: googleFetch,
+  });
 
   if (done) {
     // Consume the session on the last chunk so the token can't be reused.
@@ -606,7 +545,9 @@ flipdeskGooglePhotosRoutes.post("/import", async (c) => {
   return c.json({
     photos: imported,
     imported: imported.length,
-    errors: errors.length,
+    // A COUNT, not the list. The shape predates US-3157 and the client reads
+    // it; importRemotePhotos carries the per-file reason for the server log.
+    errors: failures.length,
     total,
     offset,
     nextOffset,

@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-3165",
+  "nextId": "US-3166",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -3933,20 +3933,6 @@
       "notes": "BLOCKED on external approval, confirmed by the founder 2026-09-08: the Etsy app keystring is still pending, and MARKETPLACE_TIER.etsy in src/lib/constants.ts reads api_pending. Do not start this story before US-2474 and US-3131 close. The unblocked substitute shipped in the same epic is the etsy CSV preset in US-3153, which reads the Currently for sale listings download and needs no approval at all. When approval lands, this story replaces that path for connected shops; the preset stays for shops that never connect."
     },
     {
-      "id": "US-3157",
-      "passes": false,
-      "title": "One remote photo import core the cloud drives can share",
-      "description": "As a developer adding a new photo source, I want the download, validate, strip and upload sequence to exist once, so that a new provider is a file list and nothing else.",
-      "acceptanceCriteria": [
-        "A new module under services/edge-functions/src/lib takes a list of provider file descriptors plus an injected fetch and runs the existing sequence: download, validateImageUpload, stripImageMetadata, storage.upload under {userId}/..., returning the same photo descriptor shape the /api/flipdesk/google/photos/import response returns today",
-        "flipdesk-google-photos.ts /import is moved onto the shared module with no change to its response shape, proven by services/edge-functions/src/tests/google-photos_test.ts passing unchanged",
-        "The chunked, paced download rule from src/lib/google-photos-import.ts survives: one request never downloads a whole pick",
-        "The module reads no Deno.env and takes no provider name; providers pass in what they know",
-        "A unit test covers one file failing magic-byte validation being skipped while the rest of the run continues, and asserts the failure is reported per file rather than failing the run"
-      ],
-      "priority": 17
-    },
-    {
       "id": "US-3158",
       "passes": false,
       "title": "Import photos from a Google Drive folder",
@@ -4073,6 +4059,24 @@
         "A tool whose file never arrives stays absent rather than shipping guessed, and the vault note section Three tools that have no preset is trimmed to name only the ones still missing"
       ],
       "priority": 60
+    },
+    {
+      "id": "US-3165",
+      "passes": false,
+      "title": "The lightweight model tier is a code default no deploy reaches: 383 of 482 calls that should be Haiku ran on Sonnet",
+      "description": "As the operator paying the Anthropic bill, I want the four phases ai-config.ts routes to getLightweightModel() to actually be served by Haiku on production, so that $17.14 of a $36.44 user-action bill stops being paid at three times the intended rate for a variable nobody set.",
+      "acceptanceCriteria": [
+        "The cause is established BEFORE anything is changed, and written into the note. US-3145's profile shows the split is partial and moving (size_estimate 92 of 139 on Sonnet, photo_qa 110 of 162, tag_ocr 175 of 175 with 169 on claude-sonnet-4-6, photo_roles 6 of 6), which is not the shape of a variable that was simply never set. Candidates to rule in or out: LIGHTWEIGHT_AI_MODEL absent from the Coolify edge service, present but reset by a redeploy, two edge replicas with different environments, or a code path that reaches the full model without going through getLightweightModel(). Name which one it was.",
+        "LIGHTWEIGHT_AI_MODEL is set to claude-haiku-4-5-20251001 on the Coolify edge service (and SIZE_ESTIMATE_AI_MODEL / PHOTO_QA_AI_MODEL if the cause turns out to be per-phase), and the value survives a redeploy. The variable names and where they are set go in vault/10-ops/env-reference.md in the same change, since the whole defect is that a code default was mistaken for a deployed value.",
+        "If the cause is a code path that bypasses the tier rather than a missing variable, that path is fixed instead and a unit test pins that the four phases resolve through getSizeEstimateModel / getPhotoQaModel / getLightweightModel. src/tests/ai-model-tiering_test.ts already guards the grading pin and is the place for it.",
+        "tag_ocr's 169 calls on claude-sonnet-4-6 are explained. That is a previous-generation model, so this is either the same unset-variable story or a separate stale pin; either way the phase ends the story on the lightweight tier or the reason it cannot be is recorded.",
+        "AFTER at least 50 calls across the four phases on the new configuration, scripts/ai-token-profile.ts prints NO '! routed to the lightweight tier' section, and the before/after $/call for each phase goes in this story's note. Expected direction: size_estimate from $0.0676 toward roughly $0.023, photo_qa from $0.0234 toward roughly $0.008.",
+        "Quality is checked on photo_qa before the story closes, not assumed. ai-config.ts:96-110 records that isGreenDraft auto-publishes a draft to a live marketplace at AUTO_PUBLISH_QA_MIN (80) and that the floor was calibrated against FULL-model scores. The two error directions are not equally priced. Either the score distribution on Haiku is compared against Sonnet on at least 20 of the same photos, or PHOTO_QA_AI_MODEL is pinned to the full model and the $5.23 is deliberately left on the table with that reason written down."
+      ],
+      "priority": 8,
+      "dependsOn": [
+        "US-3145"
+      ]
     }
   ]
 }
