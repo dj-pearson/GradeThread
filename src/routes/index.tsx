@@ -60,6 +60,7 @@ const ConnectClaudePage = lazy(() => import("@/pages/connect-claude").then(m => 
 const CertificatePage = lazy(() => import("@/pages/certificate").then(m => ({ default: m.CertificatePage })));
 const PassportPage = lazy(() => import("@/pages/passport").then(m => ({ default: m.PassportPage })));
 const PassportClaimPage = lazy(() => import("@/pages/passport-claim").then(m => ({ default: m.PassportClaimPage })));
+const CapturePage = lazy(() => import("@/pages/capture").then(m => ({ default: m.CapturePage })));
 const TagScanPage = lazy(() => import("@/pages/tag-scan").then(m => ({ default: m.TagScanPage })));
 const VerifiedSellerPage = lazy(() => import("@/pages/verified-seller").then(m => ({ default: m.VerifiedSellerPage })));
 const TrustProfilePage = lazy(() => import("@/pages/trust-profile").then(m => ({ default: m.TrustProfilePage })));
@@ -312,6 +313,12 @@ export const router = createBrowserRouter([
       // the edge), kept OUTSIDE /passport/* so it stays a pure SPA route (no SSR
       // Pages Function). noindex; NOT registered in PUBLIC_ROUTES.
       { path: "/claim/:token", element: <SuspenseWrapper><PassportClaimPage /></SuspenseWrapper> },
+      // US-3161: phone-as-camera. The phone opens this after scanning the code
+      // on the seller's computer. PUBLIC and deliberately signed-out — the
+      // scanned token is the whole credential and every limit on it is enforced
+      // by the edge. noindex; NOT registered in PUBLIC_ROUTES, so a capture URL
+      // never reaches the sitemap or the prerender.
+      { path: "/capture/:token", element: <SuspenseWrapper><CapturePage /></SuspenseWrapper> },
       // US-1096: physical-tag scan landing. Public; resolves a scanned QR/short
       // code to its passport + scan-to-claim. Pure SPA route (no SSR Function).
       { path: "/t/:code", element: <SuspenseWrapper><TagScanPage /></SuspenseWrapper> },

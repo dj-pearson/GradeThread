@@ -8587,3 +8587,98 @@ Deno.test({
     );
   },
 });
+
+Deno.test({
+  // US-3161: a capture code is an upload credential that needs no login, so the
+  // ownership check has to happen BEFORE one is minted. The target id comes
+  // from the request body, which is exactly the shape US-268 exists for.
+  //
+  // The damage if it were not: B could mint a code pointing at A's item and
+  // then upload anything into A's catalogue from a phone, with nothing in A's
+  // account saying where the photos came from.
+  name: "B cannot start a phone capture aimed at another workspace's item",
+  ignore: !CONFIGURED || !Deno.env.get("TEST_USER_A_ITEM_ID"),
+  fn: async () => {
+    const res = await fetch(`${BASE}/api/flipdesk/capture/sessions`, {
+      method: "POST",
+      headers: authHeaders(B_JWT!),
+      body: JSON.stringify({
+        targetKind: "item",
+        targetId: Deno.env.get("TEST_USER_A_ITEM_ID"),
+      }),
+    });
+    const body = await res.text();
+    assert(
+      res.status === 404 || res.status === 402 || res.status === 403,
+      `capture session on A's item as B returned ${res.status}; expected 404`,
+    );
+    // A 404 rather than a 403 is deliberate: B should not learn whether the id
+    // exists. Whatever comes back must not carry a capture URL.
+    assert(!body.includes("/capture/"), "the refusal handed back a capture url");
+  },
+});
+
+Deno.test({
+  // The desktop's own status read. A session id is a uuid B could hold from
+  // anywhere; the row must be owner-scoped or B watches A's photos arrive.
+  name: "B cannot read another workspace's capture session",
+  ignore: !CONFIGURED,
+  fn: async () => {
+    const res = await fetch(
+      `${BASE}/api/flipdesk/capture/sessions/00000000-0000-4000-8000-000000000001`,
+      { headers: authHeaders(B_JWT!) },
+    );
+    await res.body?.cancel();
+    assert(
+      res.status === 404 || res.status === 402,
+      `capture status as B returned ${res.status}; expected 404`,
+    );
+  },
+});
+
+Deno.test({
+  // The public half. A guessed or malformed token must reach nothing, and must
+  // not say whether a real session happens to exist behind a valid-looking one.
+  name: "a made-up capture token reaches no session",
+  ignore: !CONFIGURED,
+  fn: async () => {
+    for (
+      const token of [
+        "not-a-token",
+        "../../api/flipdesk/items",
+        "A".repeat(44),
+      ]
+    ) {
+      const res = await fetch(
+        `${BASE}/api/flipdesk/capture/s/${encodeURIComponent(token)}`,
+      );
+      await res.body?.cancel();
+      assert(
+        res.status === 404 || res.status === 410,
+        `capture token "${token}" returned ${res.status}; expected 404/410`,
+      );
+    }
+  },
+});
+
+Deno.test({
+  // Minting a code is an authed action even though using one is not. An
+  // anonymous caller able to mint would not need to guess a token at all.
+  name: "an unauthenticated caller cannot mint a capture code",
+  ignore: !CONFIGURED,
+  fn: async () => {
+    const res = await fetch(`${BASE}/api/flipdesk/capture/sessions`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        targetKind: "item",
+        targetId: Deno.env.get("TEST_USER_A_ITEM_ID") ?? "x",
+      }),
+    });
+    await res.body?.cancel();
+    assert(
+      res.status === 401 || res.status === 403,
+      `unauthenticated capture mint returned ${res.status}; expected 401/403`,
+    );
+  },
+});

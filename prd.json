@@ -3942,24 +3942,6 @@
       "notes": "NOT STARTED 2026-09-08, deliberately reordered behind US-3159 and US-3160, and AC1 is wrong in a way worth fixing before anyone starts.\n\nAC1 SAYS \"adding only the drive.readonly scope\". That is the one thing this story must NOT do. drive.readonly is a Google RESTRICTED scope: it needs app verification plus an annual CASA security assessment, and until that clears an unverified app is capped at 100 users behind an unverified-app warning screen. This repo already made exactly this call once and wrote it down - flipdesk-google.ts line 18 says the Sheets grant uses drive.file \"per-file ... No full-Drive access is requested.\" Adding drive.readonly to that same OAuth client would drag the existing Sheets and Photos grants into the verification too.\n\nTHE NON-RESTRICTED PATH, and what it actually costs. Google splits Drive access into drive.file (per-file, granted by the user picking the file in a Google-hosted Picker) and the restricted full-read scopes. So a folder import means the client-side Drive Picker, and that is three real changes, not one:\n  1. A NEW CONNECTION TABLE, google_drive_connections, holding a refresh token whose scope is drive.file and NOTHING else - so a migration and the US-1108 triple. It cannot reuse google_connections: the Picker needs an access token IN THE BROWSER, and the google_connections token also carries the spreadsheets scope, so handing that one to the page would let any XSS reach the sellers FlipDesk Sync sheet. Separate grant, separate table, same reason google_photos_connections is already separate.\n  2. THREE CSP WIDENINGS in public/_headers: script-src apis.google.com, frame-src docs.google.com (the Picker is an iframe), connect-src www.googleapis.com. Comparable to what challenges.cloudflare.com cost for Turnstile, but it is a security-posture change and belongs to the founder, not to a loop.\n  3. OPERATOR: enable the Picker API in the Cloud console and set GOOGLE_PICKER_API_KEY plus the project number.\n\nWHY DROPBOX AND ONEDRIVE WENT FIRST: neither has this problem. Dropbox lists folders server-side with files.metadata.read, Microsoft Graph with Files.Read, both ordinary delegated permissions, no client JS, no CSP change, no picker. They also prove the US-3157 shared core against a second and third provider, which is the whole point of having built it. Drive is the odd one out because of how Google splits its scopes, not because it is harder.\n\nDECISION NEEDED FROM THE FOUNDER before this starts: approve the Picker plus the three CSP entries, or accept the restricted-scope verification instead. Do not start on drive.readonly without that answer."
     },
     {
-      "id": "US-3161",
-      "passes": false,
-      "title": "Phone as camera: scan a code, shoot, photos land on the item",
-      "description": "As a seller working at a desktop, I want to scan a code and shoot with my phone camera, so that photos reach the item with no cable, no cloud service and no app install.",
-      "acceptanceCriteria": [
-        "A capture session row is created server-side carrying a single-use high-entropy token, an expiry of 15 minutes or less, a bound target (an inventory item id or an AutoLister batch id) and the owning tenant; the token is not derived from the item id",
-        "A migration adds the session table and follows the US-1108 triple: idempotent SQL, EXPECTED_SCHEMA_VERSION bumped in the same commit, self-record footer",
-        "The desktop renders the QR from the session URL; the URL identifies the seller by nothing beyond the token",
-        "The phone route requires no login and can write only to its bound target; a token presented against any other target returns 403, with a services/edge-functions/src/tests/tenant-isolation_test.ts case (US-268)",
-        "Uploads go through validateImageUpload and stripImageMetadata before storage.upload, written under the OWNER user folder so the per-user-folder storage RLS path rule still holds",
-        "An expired, revoked or finished session returns 410 and the phone page says so in plain words rather than failing silently",
-        "Per-session photo count and total byte caps are enforced server-side, and exceeding either returns 429 with a named error rather than a generic failure",
-        "The desktop can end the session, and once ended further uploads return 410",
-        "The phone route is NOT added to PUBLIC_ROUTES or the prerender entry and carries a noindex directive, so a session URL never reaches the sitemap"
-      ],
-      "priority": 21
-    },
-    {
       "id": "US-3162",
       "passes": false,
       "title": "Phone shots appear on the desktop as they are taken",

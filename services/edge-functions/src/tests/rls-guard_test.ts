@@ -308,6 +308,16 @@ const SERVICE_ROLE_ONLY = new Set([
   // folder. The row is written, read once and deleted by the service-role edge
   // client within minutes; the SPA never touches it.
   "cloud_storage_oauth_states",
+  // US-3161: phone-as-camera. Both tables are deny-all in both directions
+  // (migration 00767) and both directions matter. A readable session row is an
+  // upload credential's metadata — target, caps, expiry — for every live
+  // capture in the workspace; a WRITABLE one would let a caller raise their own
+  // photo cap or push their own expiry out, which is every limit this feature
+  // has, since the phone holding the token is not signed in to anything. The
+  // photos table has no owner column of its own: tenancy flows through
+  // session_id, and both of its readers resolve the session first.
+  "phone_capture_sessions",
+  "phone_capture_photos",
   // Apple IAP consumable dedup ledger: RLS enabled, zero policies by design
   // (migration 00104 documents "service-role only: deny-all to anon/auth"). It
   // is written only by the grant_appstore_credits SECURITY DEFINER RPC via the

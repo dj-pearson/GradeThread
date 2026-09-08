@@ -10,6 +10,7 @@ import {
   ImagePlus,
   FolderOpen,
   Images,
+  Smartphone,
 } from "lucide-react";
 import { toast } from "sonner";
 import { toastError } from "@/lib/toast-error";
@@ -29,6 +30,7 @@ import {
 } from "@/hooks/use-google-photos-import";
 import { useCloudFolderImport } from "@/hooks/use-cloud-folder-import";
 import { CloudFolderDialog } from "@/components/flipdesk/cloud-folder-dialog";
+import { PhoneCaptureDialog } from "@/components/flipdesk/phone-capture-dialog";
 import type { MacroQualityAssessment } from "@/lib/macro-photo-quality";
 import { captureGuidanceFor } from "@/lib/macro-capture-guidance";
 import { ItemPhotoImg } from "@/components/flipdesk/item-photo-img";
@@ -323,6 +325,11 @@ export function PhotoUploader({
   });
   const openCloudProvider = cloud.providers.find((p) => p.id === cloudOpen) ?? null;
 
+  // US-3161: phone as camera. Same staged-photo path as every other source, so
+  // the magic-byte sniff, the metadata strip and the status advance all still
+  // happen exactly once, in bulkUpload.
+  const [phoneOpen, setPhoneOpen] = useState(false);
+
   async function remove(photo: ItemPhotoRow) {
     try {
       const paths = [photo.storage_path, photo.thumbnail_storage_path].filter(
@@ -511,7 +518,25 @@ export function PhotoUploader({
             {p.connected ? `Import from ${p.label}` : `Connect ${p.label}`}
           </Button>
         ))}
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className="mt-2 w-full"
+          disabled={bulkBusy != null}
+          onClick={() => setPhoneOpen(true)}
+        >
+          <Smartphone className="mr-2 h-4 w-4" />
+          Use my phone as the camera
+        </Button>
       </div>
+      <PhoneCaptureDialog
+        open={phoneOpen}
+        onOpenChange={setPhoneOpen}
+        targetKind="item"
+        targetId={itemId}
+        onPhotos={importStagedPhotos}
+      />
       {openCloudProvider && (
         <CloudFolderDialog
           open

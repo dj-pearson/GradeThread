@@ -1,5 +1,41 @@
 # PENDING MIGRATIONS — applied to prod separately from the push
 
+## ⏳ 00767 — phone_capture_sessions + phone_capture_photos (US-3161)
+
+**Risk: LOW.** Two brand-new tables. Nothing existing is touched: no column
+added to a live table, no enum extended, no row rewritten.
+
+**Apply order:** after 00766. Run `NOTIFY pgrst, 'reload schema';` afterwards
+(two new tables), then redeploy the edge.
+
+**What it adds**
+- `phone_capture_sessions` — one short-lived code per capture. The scanned
+  token is stored as a sha-256 HASH, never as itself: it is a bearer credential
+  that needs no login, so a plaintext column would make a database read into an
+  upload credential.
+- `phone_capture_photos` — one row per shot the phone sent, with a unique
+  `(session_id, client_key)` so a retry of an upload that actually landed
+  cannot add a second photo or count twice against the caps.
+- Both are RLS-on with ZERO policies and are registered in `SERVICE_ROLE_ONLY`
+  in `rls-guard_test.ts` in the same commit. The write side is what matters: a
+  writable session row would let a caller raise their own photo cap or push
+  their own expiry out, and those caps are every limit this feature has.
+
+**DEPLOY ORDER MATTERS ONE WAY ONLY.** The edge reads and writes both tables
+(`routes/flipdesk-phone-capture.ts`). Without them every capture route answers
+500, so the migration lands BEFORE the edge deploys; the schema-version boot
+guard enforces it, since EXPECTED_SCHEMA_VERSION moves to 00767 in the same
+commit.
+
+**Client side needs the edge, and fails politely without it.** The frontend adds
+a public `/capture/:token` route and a QR dialog. A Pages deploy landing first
+means the dialog cannot mint a code and says so; nothing breaks elsewhere.
+`/capture/:token` is noindex and is deliberately NOT in `PUBLIC_ROUTES`, so a
+capture URL never reaches the sitemap or the prerender.
+
+**No operator step.** Unlike 00766 this needs no third-party registration and no
+new environment variable.
+
 ## ⏳ 00766 — cloud_storage_connections + cloud_storage_oauth_states (US-3159, US-3160)
 
 **Risk: LOW.** Two brand-new tables. Nothing existing is touched: no column is

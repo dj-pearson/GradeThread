@@ -71,6 +71,7 @@ import {
 import { handleGradingBatchReclaimCron } from "./lib/grading-batch-worker.ts";
 import { flipdeskGooglePhotosRoutes } from "./routes/flipdesk-google-photos.ts";
 import { flipdeskCloudFolderRoutes } from "./routes/flipdesk-cloud-folders.ts";
+import { flipdeskPhoneCaptureRoutes } from "./routes/flipdesk-phone-capture.ts";
 import { flipdeskGoogleRoutes } from "./routes/flipdesk-google.ts";
 import { flipdeskGoogleSyncRoutes } from "./routes/flipdesk-google-sync.ts";
 import { flipdeskDisclosureRoutes } from "./routes/flipdesk-disclosure.ts";
@@ -647,6 +648,11 @@ app.use("/api/flipdesk/cloud/:provider/oauth/start", authMiddleware);
 app.use("/api/flipdesk/cloud/:provider/list", authMiddleware);
 app.use("/api/flipdesk/cloud/:provider/import", authMiddleware);
 app.use("/api/flipdesk/cloud/:provider/disconnect", authMiddleware);
+// US-3161: phone as camera. /sessions* is authed; /s/:token* is PUBLIC on
+// purpose — the phone is not signed in and the scanned token is the whole
+// credential. Do NOT add auth there; add limits, which live in the route.
+app.use("/api/flipdesk/capture/sessions", authMiddleware);
+app.use("/api/flipdesk/capture/sessions/*", authMiddleware);
 // Google Sheets sync (US-146) — everything authed EXCEPT /oauth/callback
 // (Google redirects the browser there unauthenticated; the single-use `state`
 // row identifies the user). Listed per-path so the wildcard can't shadow the
@@ -756,6 +762,8 @@ app.use("/api/flipdesk/autolister/*", workspaceMiddleware);
 app.use("/api/flipdesk/google/photos/oauth/start", workspaceMiddleware);
 app.use("/api/flipdesk/cloud/:provider/oauth/start", workspaceMiddleware);
 app.use("/api/flipdesk/cloud/:provider/import", workspaceMiddleware);
+app.use("/api/flipdesk/capture/sessions", workspaceMiddleware);
+app.use("/api/flipdesk/capture/sessions/*", workspaceMiddleware);
 // Google Sheets sync — workspace-scope every user-authed route so the grant
 // and sync sheet live under the workspace owner (mirrors the eBay wiring).
 app.use("/api/flipdesk/google/oauth/start", workspaceMiddleware);
@@ -1463,6 +1471,7 @@ app.route("/api/flipdesk/templates", flipdeskTemplatesRoutes);
 app.route("/api/flipdesk/autolister", flipdeskAutolisterRoutes);
 app.route("/api/flipdesk/google/photos", flipdeskGooglePhotosRoutes);
 app.route("/api/flipdesk/cloud", flipdeskCloudFolderRoutes);
+app.route("/api/flipdesk/capture", flipdeskPhoneCaptureRoutes);
 app.route("/api/flipdesk/google", flipdeskGoogleRoutes);
 app.route("/api/flipdesk/google", flipdeskGoogleSyncRoutes);
 app.route("/api/flipdesk/disclosure", flipdeskDisclosureRoutes);
