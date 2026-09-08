@@ -1,6 +1,6 @@
 # PENDING MIGRATIONS — applied to prod separately from the push
 
-## ⏳ 00767 — phone_capture_sessions + phone_capture_photos (US-3161)
+## ✅ APPLIED 2026-09-08: 00767 — phone_capture_sessions + phone_capture_photos (US-3161)
 
 **Risk: LOW.** Two brand-new tables. Nothing existing is touched: no column
 added to a live table, no enum extended, no row rewritten.
@@ -36,7 +36,7 @@ capture URL never reaches the sitemap or the prerender.
 **No operator step.** Unlike 00766 this needs no third-party registration and no
 new environment variable.
 
-## ⏳ 00766 — cloud_storage_connections + cloud_storage_oauth_states (US-3159, US-3160)
+## ✅ APPLIED 2026-09-08: 00766 — cloud_storage_connections + cloud_storage_oauth_states (US-3159, US-3160)
 
 **Risk: LOW.** Two brand-new tables. Nothing existing is touched: no column is
 added to a live table, no enum is extended, no row is rewritten, and no current
@@ -84,7 +84,7 @@ offline_access, then set `MICROSOFT_CLIENT_ID` and `MICROSOFT_CLIENT_SECRET` in
 Coolify. Either provider can be enabled without the other; each is absent from
 the UI until its own two variables are set.
 
-## ⏳ 00765 — notification_type 'delist_needed' (US-3144)
+## ✅ APPLIED 2026-09-08: 00765 — notification_type 'delist_needed' (US-3144)
 
 **Risk: LOW.** One enum value. Nothing is dropped, nothing is rewritten, and no
 existing row or query changes.
@@ -110,7 +110,7 @@ Cloudflare Pages deploy landing before the migration shows the new Settings
 toggle for notifications that are not being sent yet. Harmless, and it corrects
 itself the moment the edge redeploys.
 
-## ⏳ 00764 — push_subscriptions.kind (US-3142)
+## ✅ APPLIED 2026-09-08: 00764 — push_subscriptions.kind (US-3142)
 
 **Risk: LOW.** One additive column with a default, one CHECK, one index. No
 existing row changes and no existing behaviour changes: every current row
@@ -140,7 +140,7 @@ boot guard is what prevents that, and it is why the order above is not optional.
 Nothing on the client side reads it, so a Cloudflare Pages deploy is harmless
 either way.
 
-## ⏳ HELD: 00763 — Action Credits wallet (US-3138)
+## ✅ APPLIED 2026-09-08: 00763 — Action Credits wallet (US-3138)
 
 **Risk: MEDIUM.** Two new tables plus one new `users` column, all additive. The
 medium rating is for what it REPLACES, not what it adds: `reserve_ai_action`
