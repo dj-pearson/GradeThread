@@ -35,6 +35,7 @@ import {
   fetchQboAccounts,
   fetchQboMappings,
   fetchQboStatus,
+  qboEnvironmentView,
   saveQboMappings,
   startQboConnect,
 } from "@/lib/qbo";
@@ -62,6 +63,7 @@ export function QuickBooksCard() {
   });
 
   const connected = status?.connected ?? false;
+  const envView = status ? qboEnvironmentView(status) : null;
 
   const { data: chart } = useQuery({
     queryKey: ["qbo-accounts", user?.id],
@@ -186,18 +188,37 @@ export function QuickBooksCard() {
           </div>
           {/* AC5. Which company file, and which environment, on the screen at
               all times. A seller who cannot see this cannot tell a sandbox sync
-              from a real one until the damage is in a real company file. */}
-          <Badge
-            variant={status.environment === "sandbox" ? "secondary" : "outline"}
-          >
-            {status.environment === "sandbox"
-              ? "Sandbox (test data)"
-              : "Live company"}
-          </Badge>
+              from a real one until the damage is in a real company file.
+              US-3138: it reads the CONNECTION's environment, not the server
+              variable — flipping QBO_ENVIRONMENT does not move a connection
+              that already exists, and the badge was reporting the setting
+              rather than where the documents actually go. */}
+          {envView && (
+            <Badge
+              variant={envView.effective === "sandbox" ? "secondary" : "outline"}
+            >
+              {envView.label}
+            </Badge>
+          )}
         </div>
       </CardHeader>
 
       <CardContent className="space-y-4">
+        {envView?.warning && (
+          // The setting and the connection disagree. Said, not resolved: only
+          // a fresh consent moves a connection, because that inserts a new row
+          // rather than editing this one.
+          <div className="rounded-md bg-amber-500/10 p-3">
+            <p className="flex items-center gap-2 text-sm font-medium">
+              <AlertTriangle className="h-4 w-4" />
+              Where this syncs is not what the server is set to
+            </p>
+            <p className="mt-1 max-w-prose text-[13px] leading-relaxed">
+              {envView.warning}
+            </p>
+          </div>
+        )}
+
         {!status.configured && (
           <p className="rounded-md bg-amber-500/10 p-3 text-[13px] leading-relaxed">
             QuickBooks is not switched on for this server yet. Nothing here can

@@ -25,6 +25,61 @@ export interface QboConnectionStatus {
   } | null;
 }
 
+/**
+ * Which environment a sync would ACTUALLY reach, and whether the server setting
+ * disagrees with it.
+ *
+ * US-3138. The badge used to read `status.environment`, which is the SERVER's
+ * `QBO_ENVIRONMENT`. That is the right answer only until somebody connects: the
+ * environment is stamped onto the connection row at consent time, it is part of
+ * the row's identity (user + realm + environment), and `qboFetch` picks the
+ * Intuit host off THE ROW, not off the variable. So flipping the variable from
+ * sandbox to production does not move an existing connection -- it keeps
+ * syncing to the sandbox host while the badge, reading the variable, says "Live
+ * company".
+ *
+ * That is precisely the failure the badge exists to prevent, in reverse: its own
+ * comment says a seller who cannot see this cannot tell a sandbox sync from a
+ * real one until the damage is in a real company file. Here the damage is the
+ * opposite and just as quiet -- a seller believing their books are going into
+ * QuickBooks while every document lands in a test company nobody reads.
+ *
+ * So the connection wins when there is one, and a disagreement is SAID rather
+ * than resolved: reconnecting is the only thing that moves it, because a new
+ * consent inserts a new row rather than editing the old one.
+ */
+export interface QboEnvironmentView {
+  /** What a sync would actually reach. */
+  effective: "sandbox" | "production";
+  label: string;
+  /** True when the stored connection and the server setting disagree. */
+  mismatch: boolean;
+  /** What to do about it, or null when there is nothing to say. */
+  warning: string | null;
+}
+
+export function qboEnvironmentView(
+  status: QboConnectionStatus,
+): QboEnvironmentView {
+  const stored = status.connection?.environment ?? null;
+  const effective = stored ?? status.environment;
+  const mismatch = stored !== null && stored !== status.environment;
+  return {
+    effective,
+    label: effective === "sandbox" ? "Sandbox (test data)" : "Live company",
+    mismatch,
+    warning: mismatch
+      ? "This connection was made while the server was set to " +
+        (stored === "sandbox" ? "sandbox" : "production") +
+        ", so that is still where everything you push goes. The server is set " +
+        "to " +
+        (status.environment === "sandbox" ? "sandbox" : "production") +
+        " now. Changing the setting does not move an existing connection: " +
+        "disconnect and connect again to move it."
+      : null,
+  };
+}
+
 export interface StoredMapping {
   account_code: string;
   qbo_account_id: string;
