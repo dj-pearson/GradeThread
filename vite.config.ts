@@ -274,7 +274,13 @@ export default defineConfig({
         // Keep it OUT of the install-time precache (it exceeds Workbox's size
         // cap and has no business inflating the PWA install) — it loads on
         // demand over the network instead.
-        globIgnores: ["**/heic-to-*.js"],
+        // US-3139: the tesseract.js runtime staged into public/tesseract/ is the
+        // same shape of exclusion as the HEIC decoder above — three ~3.9 MB wasm
+        // cores plus a 3 MB language file, loaded on demand the first time the
+        // AutoLister names a group off its tag photo. Each core is past
+        // Workbox's 2 MiB cap, so leaving them in fails the BUILD, not just the
+        // precache. They load over the network and the HTTP cache keeps them.
+        globIgnores: ["**/heic-to-*.js", "tesseract/**"],
         navigateFallback: "/index.html",
         // Never serve the SPA shell for API calls, server-rendered Pages
         // Functions (blog/cert/og SSR, sitemaps, robots/llms, RSS), real files

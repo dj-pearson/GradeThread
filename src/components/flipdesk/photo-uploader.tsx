@@ -8,6 +8,7 @@ import {
   Camera,
   Pencil,
   ImagePlus,
+  Images,
 } from "lucide-react";
 import { toast } from "sonner";
 import { toastError } from "@/lib/toast-error";
@@ -21,6 +22,10 @@ import { usePhotoProfile } from "@/lib/photo-profiles";
 import { advanceItemStatus } from "@/lib/status-writer";
 import { nextUploadSortOrder } from "@/lib/photo-order";
 import { uploadItemPhoto } from "@/lib/item-photo-upload";
+import {
+  type GooglePhotosImportedPhoto,
+  useGooglePhotosImport,
+} from "@/hooks/use-google-photos-import";
 import type { MacroQualityAssessment } from "@/lib/macro-photo-quality";
 import { captureGuidanceFor } from "@/lib/macro-capture-guidance";
 import { ItemPhotoImg } from "@/components/flipdesk/item-photo-img";
@@ -265,6 +270,39 @@ export function PhotoUploader({
     }
   }
 
+  // US-3140: Google Photos import, the same sequence the AutoLister runs — one
+  // shared module (src/lib/google-photos-import.ts), not a second copy.
+  //
+  // The edge downloads, validates, EXIF-strips and re-uploads each pick into
+  // STAGING, and returns signed URLs. An item's photos are item_photos rows in
+  // a different place, so each staged file is fetched back and pushed through
+  // bulkUpload — the very same path a photo picked off disk takes, so the
+  // magic-byte sniff, the metadata strip, the provisional tagging and the
+  // "photographed" status advance all still happen. It costs a round trip per
+  // photo and buys a second upload path that cannot drift from the first.
+  async function importGooglePhotos(imported: GooglePhotosImportedPhoto[]) {
+    const files: File[] = [];
+    for (const p of imported) {
+      try {
+        const res = await fetch(p.url);
+        if (!res.ok) continue;
+        const blob = await res.blob();
+        const name = p.storagePath.split("/").pop() || "google-photo.jpg";
+        files.push(new File([blob], name, { type: blob.type || "image/jpeg" }));
+      } catch {
+        // One unreadable staged file must not sink the rest of the chunk;
+        // bulkUpload reports the shortfall against what it was handed.
+      }
+    }
+    if (files.length > 0) await bulkUpload(files);
+  }
+
+  const googlePhotos = useGooglePhotosImport({
+    enabled: true,
+    onPhotos: importGooglePhotos,
+    stoppedMessage: "Stopped — the photos already added are in this item.",
+  });
+
   async function remove(photo: ItemPhotoRow) {
     try {
       const paths = [photo.storage_path, photo.thumbnail_storage_path].filter(
@@ -409,6 +447,33 @@ export function PhotoUploader({
             </>
           )}
         </Button>
+        {/* US-3140: only rendered once the server says Google credentials are
+            configured — a button that cannot work is worse than no button. */}
+        {googlePhotos.configured && (
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="mt-2 w-full"
+            disabled={bulkBusy != null && !googlePhotos.importing}
+            onClick={() =>
+              googlePhotos.importing ? googlePhotos.cancel() : googlePhotos.start()
+            }
+          >
+            {googlePhotos.importing ? (
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            ) : (
+              <Images className="mr-2 h-4 w-4" />
+            )}
+            {googlePhotos.progress
+              ? googlePhotos.progress.total > 0
+                ? `Bringing over ${googlePhotos.progress.done} of ${googlePhotos.progress.total} — cancel`
+                : "Bringing them over — cancel"
+              : googlePhotos.importing
+                ? "Waiting for Google Photos — cancel"
+                : "Import from Google Photos"}
+          </Button>
+        )}
       </div>
 
       {showSlots && (

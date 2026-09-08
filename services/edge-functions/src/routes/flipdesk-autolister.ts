@@ -20,6 +20,7 @@ import {
   type MarketplacePlatform,
 } from "../lib/marketplace-specs.ts";
 import { classifyPhotoRoles } from "../lib/ai-photo-roles.ts";
+import { brandFromOcrText } from "../lib/tag-ocr-brand.ts";
 import {
   type ItemPhotoUrlRow,
   itemPhotoAiUrls,
@@ -98,6 +99,11 @@ export const MAX_BATCH_ITEMS = 300;
 // One item rarely has more than a handful of shots; the cap bounds the vision
 // cost (and request size) of one classify call.
 const MAX_CLASSIFY_PHOTOS = 40;
+// US-3139: caps for the (free, non-AI) tag-brand lookup. The group cap matches
+// a large AutoLister session in one round trip; the text cap is generous for a
+// care label and keeps a pathological paste out of the window scan.
+const MAX_TAG_BRAND_GROUPS = 80;
+const MAX_TAG_BRAND_TEXT = 4000;
 // US-1544: photo budget for one group-boundary verification call. The route
 // SAMPLES each group down to its boundary shots (first/middle/last) and takes
 // groups in order until this budget runs out, so the response says how far it
@@ -1340,6 +1346,54 @@ flipdeskAutolisterRoutes.post("/batch", async (c) => {
 // POST /batch/:id/retry-failed  —  re-runs ONLY the failed jobs in this batch
 // against the same item set (US-318/US-325). Quota is re-checked + reserved
 // atomically per item, so retries can't bypass the monthly cap.
+// US-3139: POST /tag-brand — resolve a brand out of OCR text read in the
+// BROWSER off each group's tag photo. No model, no cost, no quota: this is a
+// lookup against the curated alias table (brand-normalize.ts), which is why it
+// lives on the edge instead of shipping ~100 KB of brand data to every client.
+//
+// Stateless and tenant-trivial: it touches no table and no storage. The text
+// arrives from the caller and is treated as opaque untrusted input — the ONLY
+// values that come back are canonical strings already in our own table, never
+// anything echoed from the request.
+flipdeskAutolisterRoutes.post("/tag-brand", async (c) => {
+  const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
+
+  let body: { groups?: unknown };
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: "Invalid JSON body" }, 400);
+  }
+
+  const raw = Array.isArray(body.groups) ? body.groups : [];
+  if (raw.length === 0) {
+    return c.json({ error: "groups must be a non-empty array" }, 400);
+  }
+  if (raw.length > MAX_TAG_BRAND_GROUPS) {
+    return c.json(
+      { error: `At most ${MAX_TAG_BRAND_GROUPS} groups can be named at once.` },
+      400,
+    );
+  }
+
+  const gated = await requireFlipdesk(c, { feature: "autolister", userId: ownerId });
+  if (gated) return gated;
+
+  const results: { id: string; brand: string | null }[] = [];
+  for (const entry of raw) {
+    const id = typeof (entry as { id?: unknown })?.id === "string"
+      ? (entry as { id: string }).id
+      : "";
+    if (!id) return c.json({ error: "Each group needs an id." }, 400);
+    const text = typeof (entry as { text?: unknown })?.text === "string"
+      ? (entry as { text: string }).text.slice(0, MAX_TAG_BRAND_TEXT)
+      : "";
+    results.push({ id, brand: brandFromOcrText(text) });
+  }
+
+  return c.json({ results });
+});
+
 // US-533: POST /classify-photos — vision pass over one group's staged photos.
 // Returns { cover_id, roles: { photoId: role } } so the AutoLister can pick the
 // best cover and order/tag the listing gallery automatically. Stateless: it

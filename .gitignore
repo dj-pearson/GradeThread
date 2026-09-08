@@ -213,3 +213,7 @@ keyword/*.zip
 keyword/gradethread.com-Performance-on-Search-*/
 keyword/Keyword_Stats.csv
 keyword/*
+
+# US-3138: tesseract.js runtime, staged from node_modules by
+# scripts/copy-tesseract-assets.mjs on install and build. ~14 MB of binaries.
+public/tesseract/

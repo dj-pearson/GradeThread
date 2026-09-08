@@ -1503,8 +1503,13 @@ const BRAND_ALIASES: Record<string, string> = {
  * makes this work: an ordinary-word alias KEY is safe (BRAND_ALIASES is an exact
  * whole-field lookup — a seller whose brand field is literally "mother" means the
  * brand), so only the VALUE side scanned over prose needs excluding.
+ *
+ * US-3139: EXPORTED because tag-ocr-brand.ts scans the same kind of text — a
+ * care label reads as prose ("machine wash", "mother of pearl buttons"), so the
+ * alias-window matcher there must apply this exact guard rather than re-derive
+ * a weaker one from string length.
  */
-const DETECT_EXCLUDED_FROM_TEXT: ReadonlySet<string> = new Set([
+export const DETECT_EXCLUDED_FROM_TEXT: ReadonlySet<string> = new Set([
   "Off-White", // a colour word (US-1983)
   "MOTHER", // "mother of pearl" (US-1984)
   "FRAME", // "sunglasses frame" (US-1984)

@@ -29,7 +29,11 @@ const CEILINGS: Record<string, number> = {
   // same one again: the state moved into components/flipdesk/filter-empty.tsx,
   // and the file came back to exactly the ceiling. Not lowered, because it did
   // not end up smaller -- the extraction paid for the fix and nothing more.
-  "src/pages/flipdesk/autolister.tsx": 3639,
+  // Lowered a sixth time from 3639 by US-3140: the 208-line Google Photos
+  // import sequence moved into src/lib/google-photos-import.ts (effects
+  // injected, 27 tests) plus src/hooks/use-google-photos-import.ts, so the
+  // Composer's uploader could run the same flow instead of copying it.
+  "src/pages/flipdesk/autolister.tsx": 3408,
   "src/pages/flipdesk/autolister-bulk-edit.tsx": 2010,
   // Lowered from 1120 when the rows gained the generated title and a cover
   // thumbnail, and the listing review query, the cover query, the title rule

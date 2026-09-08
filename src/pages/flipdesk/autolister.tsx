@@ -18,6 +18,8 @@ import {
 import { toast } from "sonner";
 import { toastError } from "@/lib/toast-error";
 import { edgeFetch } from "@/lib/edge-fetch";
+import { useTagOcrWiring } from "./autolister/tag-ocr";
+import { useGooglePhotosImport } from "@/hooks/use-google-photos-import";
 import { itemPhotoThumb } from "@/lib/images";
 import { PhotoEditorDialog } from "@/components/flipdesk/photo-editor-dialog";
 import { Button } from "@/components/ui/button";
@@ -160,6 +162,7 @@ import {
 } from "./autolister/photo-drag-tiles";
 import {
   GroupSelectionBar,
+  GroupsHeading,
   GroupsToolbar,
   PhotoSelectionBar,
   UngroupedToolbar,
@@ -268,17 +271,6 @@ type UngroupedSortMode = "shooting" | "name" | "date" | "upload";
 const UNGROUPED_SORT_KEY = "flipdesk-autolister-ungrouped-sort";
 const GROUP_EVERY_KEY = "flipdesk-autolister-group-every";
 
-// Google Photos import pacing. The edge downloads, validates, EXIF-strips and
-// re-uploads every picked photo, so the pull is chunked and spaced rather than
-// asked for in one request that would outlive the proxy's patience. Mirrors
-// MAX_IMPORT in services/edge-functions/src/routes/flipdesk-google-photos.ts —
-// these two move together.
-const GP_MAX_IMPORT = 200;
-const GP_CHUNK_PAUSE_MS = 750;
-// Outer safety net only. Picking hundreds of photos in Google's window is slow,
-// so this has to be far longer than the pick itself; the real stop conditions
-// are the server reporting the session gone, or Cancel.
-const GP_PICK_MAX_MS = 45 * 60_000;
 const UNGROUPED_SORT_LABELS: Record<UngroupedSortMode, string> = {
   shooting: "Shooting order",
   name: "File name",
@@ -501,46 +493,6 @@ export function FlipdeskAutolisterPage() {
   const discardHandoff = useDiscardAutolisterHandoff();
   const [loadingHandoffId, setLoadingHandoffId] = useState<string | null>(null);
   const [dragging, setDragging] = useState(false);
-  // Google Photos import: whether the server has it configured, and an
-  // in-flight flag while the user picks photos in the Google popup.
-  const [gpConfigured, setGpConfigured] = useState(false);
-  const [gpImporting, setGpImporting] = useState(false);
-  // Chunked-download progress, once picking is done. `total` is 0 until the
-  // first chunk comes back and tells us how many were picked.
-  const [gpProgress, setGpProgress] = useState<{ done: number; total: number } | null>(null);
-  // Lets the button double as "Cancel" while a pick is in flight — we can no
-  // longer infer cancellation from the popup (see `importFromGooglePhotos`).
-  const gpCancelRef = useRef<(() => void) | null>(null);
-  const gpTimerRef = useRef<ReturnType<typeof setInterval> | undefined>(undefined);
-  // Set by Cancel/unmount so a chunk loop already in flight stops at the next
-  // chunk boundary instead of running to completion in the background.
-  const gpAbortRef = useRef(false);
-  // The poll now runs to its own timeout rather than stopping when the picker
-  // window closes, so it must be torn down explicitly on unmount.
-  useEffect(
-    () => () => {
-      gpAbortRef.current = true;
-      clearInterval(gpTimerRef.current);
-    },
-    [],
-  );
-
-  // One-time check whether Google Photos import is configured server-side, so
-  // we only show the button when it'll actually work.
-  useEffect(() => {
-    if (!entitled) return;
-    let cancelled = false;
-    void edgeFetch("/api/flipdesk/google/photos/config")
-      .then((r) => r.json())
-      .then((j: { configured?: boolean }) => {
-        if (!cancelled) setGpConfigured(!!j.configured);
-      })
-      .catch(() => {});
-    return () => {
-      cancelled = true;
-    };
-  }, [entitled]);
-
   // US-533: groups currently running the AI cover/role pass.
   const [taggingGroups, setTaggingGroups] = useState<Set<string>>(new Set());
   const [taggingAll, setTaggingAll] = useState(false);
@@ -940,6 +892,8 @@ export function FlipdeskAutolisterPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [groups, stagedById, coverScores, entitled]);
 
+  // US-3139: name each group off its tag photo instead of "Item 3". See ./autolister/tag-ocr.tsx.
+  const { busy: tagOcrBusy } = useTagOcrWiring({ staged, groups, entitled, setGroups });
   // US-1542: the upload pipeline itself (dedup -> EXIF -> normalize ->
   // compress -> validate -> paced upload) lives in the app-level store — see
   // src/stores/autolister-upload-store.ts. These are thin delegates so the
@@ -963,212 +917,32 @@ export function FlipdeskAutolisterPage() {
   }
 
 
-  // Google Photos import: open the Google-hosted picker in a popup, poll
-  // until the user finishes, then the edge downloads+validates the picks and
-  // returns staged URLs (with capture time, so auto-grouping works on them).
-  async function importFromGooglePhotos() {
-    if (gpImporting || !ownerId) return;
-    setGpImporting(true);
-    gpAbortRef.current = false;
-    let popup: Window | null = null;
-    const stop = () => {
-      clearInterval(gpTimerRef.current);
-      gpTimerRef.current = undefined;
-      gpCancelRef.current = null;
-      setGpImporting(false);
-    };
-
-    try {
-      const startRes = await edgeFetch("/api/flipdesk/google/photos/oauth/start");
-      if (startRes.status === 503) {
-        toast.error("Google Photos import isn't configured yet.");
-        setGpImporting(false);
-        return;
-      }
-      const start = (await startRes.json()) as {
-        session_id?: string;
-        consent_url?: string;
-        picker_uri?: string;
-        error?: string;
-      };
-      // Fast path returns picker_uri (already signed in — straight to the
-      // picker, no consent screen); first-time returns consent_url.
-      const openUrl = start.picker_uri || start.consent_url;
-      if (!startRes.ok || !start.session_id || !openUrl) {
-        toast.error(start.error || "Could not start Google Photos import.");
-        setGpImporting(false);
-        return;
-      }
-      const sessionId = start.session_id;
-      popup = window.open(openUrl, "gphotos", "width=620,height=760");
-      if (!popup) {
-        toast.error("Please allow popups to import from Google Photos.");
-        setGpImporting(false);
-        return;
-      }
-      toast.info(
-        "Pick your photos in the Google window and hit Done — the window closes on its own and they'll appear here.",
-        { duration: 8000 },
-      );
-
-      const startedAt = Date.now();
-      // The import runs in CHUNKS (the edge caps a single request's slice), and
-      // each chunk's photos land in the grid as soon as they arrive so a
-      // 200-photo pull shows steady progress instead of one long freeze. The
-      // pause between chunks paces the edge — same reason the iOS uploader
-      // meters itself — so a big import can't swamp the container.
-      const doImport = async () => {
-        let offset = 0;
-        let total = 0;
-        let importedCount = 0;
-        let errorCount = 0;
-        for (;;) {
-          if (gpAbortRef.current) return;
-          const imp = await edgeFetch(
-            `/api/flipdesk/google/photos/import?session=${sessionId}&offset=${offset}`,
-            { method: "POST" },
-          );
-          const ij = (await imp.json()) as {
-            photos?: Array<{
-              url: string;
-              storagePath: string;
-              width: number | null;
-              height: number | null;
-              bytes: number;
-              capturedAtMs: number | null;
-            }>;
-            total?: number;
-            nextOffset?: number;
-            errors?: number;
-            done?: boolean;
-            error?: string;
-          };
-          if (!imp.ok) {
-            throw new Error(ij.error || `import failed (${imp.status})`);
-          }
-          const added: StagedPhoto[] = (ij.photos ?? []).map((p) => ({
-            id: crypto.randomUUID(),
-            url: p.url,
-            storagePath: p.storagePath,
-            thumbnailUrl: null,
-            thumbnailStoragePath: null,
-            width: p.width,
-            height: p.height,
-            bytes: p.bytes,
-            capturedAtMs: p.capturedAtMs,
-            phash: "",
-          }));
-          if (added.length > 0) setStaged((prev) => [...prev, ...added]);
-          importedCount += added.length;
-          errorCount += ij.errors ?? 0;
-          total = ij.total ?? total;
-          setGpProgress({ done: importedCount, total });
-
-          // The server is the authority on where the cursor goes; only fall
-          // back to our own arithmetic if it didn't say.
-          const next = ij.nextOffset ?? offset + added.length;
-          if (ij.done || next <= offset || (total > 0 && next >= total)) break;
-          offset = next;
-          await new Promise((r) => setTimeout(r, GP_CHUNK_PAUSE_MS));
-        }
-
-        setGpProgress(null);
-        if (importedCount > 0) {
-          toast.success(
-            `Imported ${importedCount} photo${importedCount === 1 ? "" : "s"} from Google Photos.` +
-              (errorCount > 0 ? ` ${errorCount} couldn't be read and were skipped.` : ""),
-          );
-          if (total >= GP_MAX_IMPORT) {
-            toast.info(
-              `Google Photos imports are capped at ${GP_MAX_IMPORT} photos at a time — run it again for the rest.`,
-            );
-          }
-        } else {
-          toast.warning("No photos were imported.");
-        }
-      };
-
-      // The picker window is NOT a cancellation signal: Google's picker tells
-      // the user to close that window and finish "in the other window", so
-      // closing it is the NORMAL completion path, and `mediaItemsSet` often
-      // flips a beat later — stopping on close would race the very poll that
-      // returns ready. So we poll until the session is ready (then WE close the
-      // window, below) or we time out; the button offers an explicit cancel
-      // instead. (The COOP header is `same-origin-allow-popups`, so the handle
-      // survives and `popup.close()` actually works — see public/_headers.)
-      gpCancelRef.current = () => {
-        gpAbortRef.current = true;
-        stop();
-        setGpProgress(null);
-        toast.info("Google Photos import cancelled.");
-      };
-
-      // No short wall-clock deadline here. The old 4-minute cap was measured
-      // from the moment the popup OPENED, so the time the seller spent picking
-      // burned the whole budget — a 200-photo pick timed out before they ever
-      // hit Done, and the toast fired behind the Google window, which is why it
-      // read as "nothing happened". The real terminal signals are the server
-      // saying the session is gone (404/410) or the seller hitting Cancel.
-      gpTimerRef.current = setInterval(() => {
-        void (async () => {
-          const expired = Date.now() - startedAt > GP_PICK_MAX_MS;
-          let ready = false;
-          try {
-            const pr = await edgeFetch(
-              `/api/flipdesk/google/photos/poll?session=${sessionId}`,
-            );
-            if (pr.status === 404 || pr.status === 410) {
-              stop();
-              toast.info(
-                "The Google Photos session expired — start the import again.",
-              );
-              return;
-            }
-            ready = !!((await pr.json()) as { ready?: boolean }).ready;
-          } catch {
-            /* transient — keep polling */
-          }
-          if (ready) {
-            // Picking is over; stop polling but stay "busy" — the chunked
-            // download is the part the seller now watches, and Cancel has to
-            // keep working through it.
-            clearInterval(gpTimerRef.current);
-            gpTimerRef.current = undefined;
-            try {
-              popup?.close();
-            } catch {
-              /* handle lost for some reason — the user can close it themselves */
-            }
-            gpCancelRef.current = () => {
-              gpAbortRef.current = true;
-              stop();
-              setGpProgress(null);
-              toast.info("Stopped — the photos already brought over are below.");
-            };
-            setGpProgress({ done: 0, total: 0 });
-            try {
-              await doImport();
-            } catch (err) {
-              setGpProgress(null);
-              toastError(err, "Google Photos import failed.");
-            } finally {
-              stop();
-            }
-            return;
-          }
-          if (expired) {
-            stop();
-            toast.info(
-              "Google Photos import timed out — if you finished picking, try again.",
-            );
-          }
-        })();
-      }, 2500);
-    } catch (err) {
-      toastError(err, "Could not start Google Photos.");
-      stop();
-    }
-  }
+  // US-3140: Google Photos import. The sequence — start, popup, poll until the
+  // server says the pick is done, then pull it down in paced chunks — lives in
+  // src/lib/google-photos-import.ts and is shared with the Composer's uploader.
+  // What stays here is the only part that is specific to this page: an imported
+  // photo becomes a StagedPhoto (with capture time, so auto-grouping works on
+  // it), it is not re-uploaded into an item.
+  const googlePhotos = useGooglePhotosImport({
+    enabled: entitled,
+    stoppedMessage: "Stopped — the photos already brought over are below.",
+    onPhotos: (imported) =>
+      setStaged((prev) => [
+        ...prev,
+        ...imported.map((p) => ({
+          id: crypto.randomUUID(),
+          url: p.url,
+          storagePath: p.storagePath,
+          thumbnailUrl: null,
+          thumbnailStoragePath: null,
+          width: p.width,
+          height: p.height,
+          bytes: p.bytes,
+          capturedAtMs: p.capturedAtMs,
+          phash: "",
+        })),
+      ]),
+  });
 
   // US-1550: remember the chosen grid sort (see `ungroupedSorted`, which
   // renders it; unlike the pre-US-1540 sort buttons this never rewrites the
@@ -2873,12 +2647,12 @@ export function FlipdeskAutolisterPage() {
         }}
         uploading={uploading}
         googlePhotos={
-          gpConfigured
+          googlePhotos.configured && ownerId
             ? {
-                importing: gpImporting,
-                progress: gpProgress,
-                onImport: () => void importFromGooglePhotos(),
-                onCancel: () => gpCancelRef.current?.(),
+                importing: googlePhotos.importing,
+                progress: googlePhotos.progress,
+                onImport: googlePhotos.start,
+                onCancel: googlePhotos.cancel,
               }
             : null
         }
@@ -3171,9 +2945,7 @@ export function FlipdeskAutolisterPage() {
       {groups.length > 0 && (
         <div className="space-y-3">
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <h2 className="text-base font-semibold text-foreground">
-              Listings to generate ({groups.length})
-            </h2>
+            <GroupsHeading count={groups.length} tagOcrBusy={tagOcrBusy} />
             <GroupsToolbar
               groupCount={groups.length}
               busy={busy}

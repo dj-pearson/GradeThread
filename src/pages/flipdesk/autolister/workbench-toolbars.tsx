@@ -266,6 +266,40 @@ export function PhotoSelectionBar({
   );
 }
 
+/**
+ * The "Reading tags" spinner. Advisory only — nothing in the session waits on
+ * the pass, and a group it cannot name simply keeps "Item 3".
+ */
+export function TagOcrBadge({ busy }: { busy: boolean }) {
+  if (!busy) return null;
+  return (
+    <span className="flex items-center gap-1.5 text-xs font-normal text-muted-foreground">
+      <span
+        aria-hidden
+        className="h-3 w-3 animate-spin rounded-full border-2 border-primary border-t-transparent"
+      />
+      Reading tags
+    </span>
+  );
+}
+
+/** The heading over the list of items to generate, plus the US-3139 tag-OCR
+ *  progress badge that sits inside it. */
+export function GroupsHeading({
+  count,
+  tagOcrBusy,
+}: {
+  count: number;
+  tagOcrBusy: boolean;
+}) {
+  return (
+    <h2 className="flex items-center gap-2 text-base font-semibold text-foreground">
+      Listings to generate ({count})
+      <TagOcrBadge busy={tagOcrBusy} />
+    </h2>
+  );
+}
+
 /** The always-available tools above the list of items to generate. */
 export function GroupsToolbar({
   groupCount,
