@@ -74,7 +74,11 @@ struct EbayViewItemPreviewSheet: View {
     /// would promise a gallery the buyer never sees — and hide the fact that the
     /// listing is one photo shorter than it looks.
     private var listablePhotos: [LocalItemPhoto] {
-        photos.filter { !PhotoSlotType.isNonListable($0.photoType, role: $0.photoRole) }
+        // FlipdeskPhotoType, not PhotoSlotType. The rule lives on the enum that
+        // models SERVER photo_type strings; PhotoSlotType models the capture
+        // slots and has no such member, so this did not compile. AIRerunPhotos
+        // calls the same function on the right type.
+        photos.filter { !FlipdeskPhotoType.isNonListable($0.photoType, role: $0.photoRole) }
     }
 
     private var hero: LocalItemPhoto? {
