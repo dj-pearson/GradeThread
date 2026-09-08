@@ -1,5 +1,41 @@
 # PENDING MIGRATIONS — applied to prod separately from the push
 
+## ⏳ HELD: 00763 — Action Credits wallet (US-3138)
+
+**Risk: MEDIUM.** Two new tables plus one new `users` column, all additive. The
+medium rating is for what it REPLACES, not what it adds: `reserve_ai_action`
+and `refund_ai_action` are rewritten in place. Those two functions are the
+single enforcement point for every user-billed AI action in the product.
+
+**Apply order:** 00763 alone, then `NOTIFY pgrst, 'reload schema';` (new tables
+and five new RPCs), then redeploy the edge on Coolify, then push.
+
+**What it adds**
+- `action_credit_wallet` + `action_credit_transactions` (owner-read RLS,
+  service-role writes), cloned from 00415's api_credit_wallet.
+- `users.ai_actions_credit_paid_this_month`, default 0.
+- `grant_action_credits`, `debit_action_credits`, `refund_action_credits`,
+  `clawback_action_credits`, `reserve_ai_action_v2`.
+
+**What it changes**
+- `reserve_ai_action(uuid, int)` keeps its exact signature and return type and
+  now delegates to `reserve_ai_action_v2(..., true)`. An edge container running
+  the previous build during the deploy window keeps working unchanged.
+- `refund_ai_action(uuid)` keeps its signature and becomes LIFO-aware: it
+  returns a failed action to the wallet when the month has credit-paid actions,
+  otherwise to the monthly counter as before.
+
+**Safe before the frontend deploys?** Yes. Nothing in the client reads the new
+tables until the Task 6 billing-summary change ships, and an empty wallet makes
+`debit_action_credits` return -1, so refusals are byte-for-byte what they are
+today. A seller who never buys a pack sees no change at all.
+
+**Revenue is still gated on operator work** after this applies: four Stripe
+prices plus their `STRIPE_PRICE_ACTION_CREDITS_*` env vars, four App Store
+Connect consumables, four Play Console products. Until the Stripe prices exist
+the checkout route returns 503 "Pricing not configured", which is correct.
+
+
 ## ✅ APPLIED 2026-09-07: 00762 — pooled sold comps, opt-in (US-3136)
 
 **Risk: LOW.** Adds one boolean column defaulting FALSE, plus one read-only
