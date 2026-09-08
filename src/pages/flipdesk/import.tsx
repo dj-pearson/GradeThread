@@ -681,7 +681,7 @@ A1	GT-0001	Lululemon Align Pant	..."
                   setMapping(next ? applyImportPreset(headers, next) : headers.map(guessField));
                 }}
               >
-                <SelectTrigger id="import-preset" className="w-56" aria-label="Exported from">
+                <SelectTrigger id="import-preset" className="w-64" aria-label="Exported from">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -695,7 +695,9 @@ A1	GT-0001	Lululemon Align Pant	..."
               </Select>
               {preset && !preset.verified ? (
                 <span className="text-xs text-muted-foreground">
-                  Mapping from {preset.name.replace(" export", "")}'s documented columns, not yet checked against a real file. Look over step 2 before you import.
+                  Mapping the documented columns for {preset.name}. Nobody has
+                  checked it against a real file yet, so look over step 2 before
+                  you import.
                 </span>
               ) : null}
             </div>

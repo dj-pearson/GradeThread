@@ -51,6 +51,40 @@ describe("import presets (US-9209)", () => {
     expect(detectImportPreset(["Item Title", "COGS", "Sold Platform", "Keywords"])?.id).toBe("list-perfectly");
     expect(detectImportPreset([])).toBeNull();
   });
+  // US-3153: the marketplace exports. Each header row below is taken from the
+  // real published format, so a fixture that stops detecting is a format change
+  // on their side, not a broken test.
+  it("detects the three marketplace exports and still refuses a plain sheet", () => {
+    expect(
+      detectImportPreset(["Handle", "Title", "Body (HTML)", "Variant SKU", "Variant Price", "Cost per item"])?.id,
+    ).toBe("shopify");
+    expect(
+      detectImportPreset(["Item number", "Title", "Available quantity", "eBay category 1 name", "Watchers"])?.id,
+    ).toBe("ebay-file-exchange");
+    expect(
+      detectImportPreset(["TITLE", "PRICE", "CURRENCY_CODE", "MATERIALS", "VARIATION 1 TYPE"])?.id,
+    ).toBe("etsy");
+    // A File Exchange template and a Seller Hub report are one preset, so both
+    // spellings land on it rather than tying with each other and detecting null.
+    expect(
+      detectImportPreset(["Title", "CustomLabel", "PicURL", "ConditionID", "StoreCategory"])?.id,
+    ).toBe("ebay-file-exchange");
+    expect(detectImportPreset(["Title", "Brand", "Size", "Price", "Cost", "Status", "Notes"])).toBeNull();
+  });
+  it("adding a marketplace preset did not break competitor detection", () => {
+    // The tie rule means a new preset whose signature overlaps an old one turns
+    // a working detection into null. This is the guard that catches that.
+    expect(detectImportPreset(["Title", "Date Added", "Marketplaces", "Sold On", "Cost of Goods"])?.id).toBe("vendoo");
+    expect(detectImportPreset(["Title", "COGS", "Created Date", "Image URLs", "Sold Platform"])?.id).toBe(
+      "list-perfectly",
+    );
+  });
+  it("every preset the page offers has a distinct id and a name", () => {
+    const ids = IMPORT_PRESETS.map((p) => p.id);
+    expect(new Set(ids).size).toBe(ids.length);
+    expect(ids).toEqual(["vendoo", "list-perfectly", "shopify", "ebay-file-exchange", "etsy"]);
+    for (const p of IMPORT_PRESETS) expect(p.name.trim().length).toBeGreaterThan(3);
+  });
   it("applying a preset maps its headers and falls back to the generic guess", () => {
     const vendoo = getImportPreset("vendoo")!;
     const m = applyImportPreset(["Title", "Sold Price", "Marketplaces", "Tracking Number", "Mystery"], vendoo);

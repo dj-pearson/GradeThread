@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-3164",
+  "nextId": "US-3165",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -3879,23 +3879,6 @@
       "priority": 40
     },
     {
-      "id": "US-3153",
-      "passes": false,
-      "title": "Import presets for the five spreadsheet exports sellers arrive with",
-      "description": "As a seller leaving another crosslisting tool, I want my export file recognized without hand-mapping every column, so that switching to FlipDesk is one upload instead of an afternoon.",
-      "acceptanceCriteria": [
-        "src/lib/import-presets.ts gains five presets with ids flyp, crosslist, selleraider, ebay-file-exchange and shopify, each matching the existing ImportPreset shape, and the ImportPreset id union widens to include them",
-        "Every new preset carries a signature of at least two headers that only that export uses, so a generic sheet with Title, Price and Size columns detects no preset at all",
-        "vault/30-platform/import-presets.md carries the identical header list for each new preset, edited in the same commit, per the contract comment at the top of import-presets.ts",
-        "verified stays null for any preset not yet checked against a real export file, and src/pages/flipdesk/import.tsx shows that state on the page rather than hiding it",
-        "A vitest case feeds one fixture header row per preset and asserts detection returns that preset id, plus a generic row that returns null",
-        "src/pages/flipdesk/import.tsx gains no per-preset branch: the picker renders from IMPORT_PRESETS",
-        "A sixth preset with id etsy maps the Etsy \"Currently for sale listings\" CSV that any shop can download from Shop Manager today, needing no app approval, so Etsy sellers have a working import while US-3156 waits on the keystring",
-        "The shopify preset maps the standard Shopify products CSV export, which also needs no app approval, so it is unaffected by the state of the Shopify app review"
-      ],
-      "priority": 13
-    },
-    {
       "id": "US-3154",
       "passes": false,
       "title": "Depop closet import through the unified extension",
@@ -4076,6 +4059,20 @@
         "US-3161",
         "US-3162"
       ]
+    },
+    {
+      "id": "US-3164",
+      "passes": false,
+      "title": "Presets for Flyp, Crosslist and SellerAider, once a real export exists",
+      "description": "As a seller leaving Flyp, Crosslist or SellerAider, I want my export recognized, so that the tool I am leaving is not the one FlipDesk cannot read.",
+      "acceptanceCriteria": [
+        "BLOCKED until someone supplies one real export CSV from each tool. US-3153 deliberately shipped without these three because none of them publishes a column list, and a guessed signature can tie with the Vendoo signature and turn a working detection into null",
+        "For each tool with a real file in hand: a preset in src/lib/import-presets.ts with a signature of at least two headers that only that export carries, and a matching table in vault/30-platform/import-presets.md in the same commit",
+        "verified is set to the date and a row count of the real file checked, not left null, since the whole point of this story is that a real file exists",
+        "The existing guard test in src/lib/__tests__/import-presets.test.ts named adding a marketplace preset did not break competitor detection still passes, proving the new signatures did not tie with Vendoo or List Perfectly",
+        "A tool whose file never arrives stays absent rather than shipping guessed, and the vault note section Three tools that have no preset is trimmed to name only the ones still missing"
+      ],
+      "priority": 60
     }
   ]
 }
