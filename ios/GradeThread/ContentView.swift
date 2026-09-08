@@ -1265,39 +1265,7 @@ private struct TabBarShell: View {
                     .navigationDestination(for: GradesRoute.self) { _ in
                         GradesListView()
                     }
-                    .toolbar {
-                        // US-649: secondary "choose a different add method" menu
-                        // — the Add tab itself is the one-tap photo-first path.
-                        ToolbarItem(placement: .topBarLeading) {
-                            AddMethodMenu(router: router)
-                        }
-                        // US-749: Tools hub — the discoverable home for the
-                        // secondary power modules (Scout/Snap/AutoLister/Grades/
-                        // Reconcile/Referrals/Verified).
-                        ToolbarItem(placement: .topBarLeading) {
-                            ToolsButton(router: router)
-                        }
-                        // US-678: global search across inventory/listings/sales/sources.
-                        ToolbarItem(placement: .topBarTrailing) {
-                            Button {
-                                router.shellSheet = .globalSearch
-                            } label: {
-                                Image(systemName: "magnifyingglass")
-                            }
-                            .accessibilityLabel("Search everything")
-                        }
-                        // iPhone has no room for a Settings tab once Home
-                        // lands (5-tab limit), so it rides a gear button
-                        // here — the standard iOS placement.
-                        ToolbarItem(placement: .topBarTrailing) {
-                            NavigationLink {
-                                SettingsView()
-                            } label: {
-                                Image(systemName: "gear")
-                            }
-                            .accessibilityLabel("Settings")
-                        }
-                    }
+                    .toolbar { homeToolbar }
             }
             .tabItem { Label("Home", systemImage: "house") }
             // US-2557: unread notifications. SwiftUI renders nothing at 0, so
@@ -1830,6 +1798,59 @@ private struct AddMethodMenu: View {
 /// Toolbar control that opens the Tools hub. A single, stable entry point on
 /// Home (iPhone) and the iPad sidebar so the secondary modules are discoverable
 /// without hunting through the Dashboard or Settings.
+// MARK: - Home tab toolbar
+
+extension MainShell {
+    /// The Home tab's four toolbar items.
+    ///
+    /// EXTRACTED, and the reason is the compiler rather than tidiness. Inline
+    /// inside the TabView this produced:
+    ///
+    ///     ambiguous use of 'toolbar(content:)'
+    ///
+    /// Nothing in it is wrong - every view here compiles on its own, and the
+    /// Inventory tab's one-item `.toolbar` a few lines below never complained.
+    /// `toolbar` is overloaded on `ToolbarContent` and on `View`, and inside an
+    /// expression that large the type checker stops being able to choose, so it
+    /// reports the ambiguity rather than the size. An explicit
+    /// `some ToolbarContent` return type answers the overload directly and
+    /// takes the items out of the TabView expression at the same time.
+    ///
+    /// Behaviour is unchanged: same four items, same placements, same order.
+    @ToolbarContentBuilder
+    var homeToolbar: some ToolbarContent {
+        // US-649: secondary "choose a different add method" menu — the Add tab
+        // itself is the one-tap photo-first path.
+        ToolbarItem(placement: .topBarLeading) {
+            AddMethodMenu(router: router)
+        }
+        // US-749: Tools hub — the discoverable home for the secondary power
+        // modules (Scout/Snap/AutoLister/Grades/Reconcile/Referrals/Verified).
+        ToolbarItem(placement: .topBarLeading) {
+            ToolsButton(router: router)
+        }
+        // US-678: global search across inventory/listings/sales/sources.
+        ToolbarItem(placement: .topBarTrailing) {
+            Button {
+                router.shellSheet = .globalSearch
+            } label: {
+                Image(systemName: "magnifyingglass")
+            }
+            .accessibilityLabel("Search everything")
+        }
+        // iPhone has no room for a Settings tab once Home lands (5-tab limit),
+        // so it rides a gear button here — the standard iOS placement.
+        ToolbarItem(placement: .topBarTrailing) {
+            NavigationLink {
+                SettingsView()
+            } label: {
+                Image(systemName: "gear")
+            }
+            .accessibilityLabel("Settings")
+        }
+    }
+}
+
 private struct ToolsButton: View {
     let router: AppRouter
 
