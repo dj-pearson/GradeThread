@@ -206,3 +206,43 @@ export function pushDisputeOpened(userId: string, orderLabel?: string | null): P
     data: { kind: "dispute_opened" },
   });
 }
+
+/**
+ * US-3144: a sold item still has listings live on channels only the seller's own
+ * browser can end.
+ *
+ * The one push in this file that asks for WORK rather than reporting news, and
+ * the copy has to earn that. It names the item, says how many listings are still
+ * live, and says why the seller is being asked — because the same garment can be
+ * bought twice while it waits, which is the cost this whole path exists to avoid.
+ *
+ * `inventory_item_id` rides in `data` because that is the one key both clients
+ * already read to route a tap (iOS NotificationDelegate.DeepLinkRoute.from,
+ * Android PushCategory.route). Sending anything else would need new parsing on
+ * both platforms to reach the same screen.
+ *
+ * ONE per sale, never one per marketplace. A seller who cross-lists to four
+ * channels and sells on the fifth does not need four buzzes about one garment,
+ * and `collapseId` keyed on the item means even a re-send replaces rather than
+ * stacks.
+ */
+export function pushDelistNeeded(
+  userId: string,
+  opts: { itemId: string | null; itemTitle?: string | null; count: number },
+): Promise<void> {
+  const what = opts.itemTitle ? `"${opts.itemTitle}"` : "An item";
+  const many = opts.count > 1;
+  return safePush(userId, {
+    title: "Still listed elsewhere",
+    body: many
+      ? `${what} sold — ${opts.count} other listings are still live. End them before it sells twice.`
+      : `${what} sold — one other listing is still live. End it before it sells twice.`,
+    category: "delist.needed",
+    data: {
+      kind: "delist_needed",
+      ...(opts.itemId ? { inventory_item_id: opts.itemId } : {}),
+    },
+    // Keyed on the item so a re-send replaces the last one instead of stacking.
+    ...(opts.itemId ? { collapseId: `delist-${opts.itemId}` } : {}),
+  });
+}

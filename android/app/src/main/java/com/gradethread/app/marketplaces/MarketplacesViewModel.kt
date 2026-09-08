@@ -107,7 +107,18 @@ class MarketplacesViewModel @Inject constructor(
         val delistBusyId: String? = null,
         /** The last thing that happened to a pending delist, in plain words. */
         val delistMessage: String? = null,
+        /**
+         * US-3144: when a "listings still live" push named an item, show only
+         * that item's rows. Null = show everything, which is also what a push
+         * carrying no item leaves behind.
+         */
+        val delistFocusItemId: String? = null,
     ) {
+        /** The rows the section renders — narrowed when a push named an item. */
+        val visiblePendingDelists: List<PendingDelist>
+            get() = delistFocusItemId
+                ?.let { id -> pendingDelists.filter { it.itemId == id } }
+                ?: pendingDelists
         val hasPrimary: Boolean get() = connections.any { it.isPrimary }
 
         /** Nothing to sync from — don't offer the button as if there were. */
@@ -150,6 +161,24 @@ class MarketplacesViewModel @Inject constructor(
             val rows = runCatching { pendingDelists.pending() }.getOrNull() ?: return@launch
             _state.value = _state.value.copy(pendingDelists = rows)
         }
+    }
+
+    /**
+     * US-3144: a "listings still live" push was tapped.
+     *
+     * The refresh is not optional. The push is sent the moment the sale is
+     * processed, so a seller who taps it within seconds arrives at a list this
+     * screen loaded before the sale existed — showing them nothing at all,
+     * which reads as the notification having lied.
+     */
+    fun focusPendingDelists(itemId: String?) {
+        _state.value = _state.value.copy(delistFocusItemId = itemId, delistMessage = null)
+        refreshPendingDelists()
+    }
+
+    /** Drop the push's filter and show the whole queue again. */
+    fun clearPendingDelistFocus() {
+        _state.value = _state.value.copy(delistFocusItemId = null)
     }
 
     /** Queue "end this listing" for the desktop extension. */

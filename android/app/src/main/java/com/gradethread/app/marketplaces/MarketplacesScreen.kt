@@ -63,6 +63,18 @@ fun MarketplacesScreen(
 
     LaunchedEffect(Unit) { viewModel.load() }
 
+    // US-3144: a "listings still live" push named an item. Collected here rather
+    // than handled in the shell because the filter belongs to this screen's
+    // state, and a StateFlow covers both arrival orders — the value replays to a
+    // screen composing cold, and emits to one already on-screen.
+    val delistFocus by PendingDelistFocus.requests.collectAsState()
+    LaunchedEffect(delistFocus) {
+        delistFocus?.let { request ->
+            viewModel.focusPendingDelists(request.itemId)
+            PendingDelistFocus.consume(request)
+        }
+    }
+
     // The consent bounce-back. Cleared after handling so re-entering the
     // screen later can't re-process an old consent.
     LaunchedEffect(Unit) {
@@ -109,6 +121,7 @@ fun MarketplacesScreen(
             refresh = viewModel::load,
             queueDelist = viewModel::queueDelist,
             markDelistDone = viewModel::markDelistDone,
+            clearDelistFocus = viewModel::clearPendingDelistFocus,
             cancelQueued = viewModel::cancelQueued,
             // A Custom Tab needs a real Context, and a screenshot test has
             // nowhere to send one.
@@ -170,6 +183,8 @@ data class MarketplacesActions(
     val refresh: () -> Unit = {},
     val queueDelist: (PendingDelist) -> Unit = {},
     val markDelistDone: (PendingDelist) -> Unit = {},
+    /** US-3144: drop the push's one-item filter and show the whole queue. */
+    val clearDelistFocus: () -> Unit = {},
     val cancelQueued: (String) -> Unit = {},
     val openExternal: (String) -> Unit = {},
     val openPromote: (ListingCardModel?) -> Unit = {},
@@ -387,7 +402,7 @@ private fun ColumnScope.DelistAndQueueSections(state: MarketplacesViewModel.Stat
     // actually ends the listing; "I ended it myself" second, because it is
     // the only thing that clears the stamp without the extension and a
     // stamp cleared on a live listing is the double sale itself.
-    if (state.pendingDelists.isNotEmpty()) {
+    if (state.visiblePendingDelists.isNotEmpty()) {
         Text(
             stringResource(R.string.marketplaces_pending_delists_title),
             style = MaterialTheme.typography.titleMedium,
@@ -398,7 +413,22 @@ private fun ColumnScope.DelistAndQueueSections(state: MarketplacesViewModel.Stat
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
-        state.pendingDelists.forEach { row ->
+        // US-3144: arriving from a push, the list is narrowed to the one garment
+        // it was about. Say so and offer the way out — a filter the seller
+        // cannot see is a list that looks wrong.
+        if (state.delistFocusItemId != null &&
+            state.pendingDelists.size > state.visiblePendingDelists.size
+        ) {
+            TextButton(onClick = actions.clearDelistFocus) {
+                Text(
+                    stringResource(
+                        R.string.marketplaces_delist_show_all,
+                        state.pendingDelists.size,
+                    ),
+                )
+            }
+        }
+        state.visiblePendingDelists.forEach { row ->
             val blocked = pendingDelistBlockedReason(row)
             Column(Modifier.fillMaxWidth().padding(top = Spacing.xs)) {
                 Text(
@@ -411,6 +441,22 @@ private fun ColumnScope.DelistAndQueueSections(state: MarketplacesViewModel.Stat
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 Row(verticalAlignment = Alignment.CenterVertically) {
+                    // US-3144: the fastest way to end it is to open it, and
+                    // until now the phone did not offer that at all — the row
+                    // named a listing and gave no way to reach it. Queueing it
+                    // for a desktop that may not be opened until tomorrow was
+                    // the only option on offer.
+                    //
+                    // Only when there IS a live page to open. A draft row was
+                    // never published and a URL-less row was listed by hand, so
+                    // a link on either sends the seller somewhere that may not
+                    // exist — the distinction pendingDelistBlockedReason
+                    // already draws in words.
+                    row.listingUrl?.takeIf { it.isNotBlank() }?.let { url ->
+                        TextButton(onClick = { actions.openExternal(url) }) {
+                            Text(stringResource(R.string.marketplaces_delist_open))
+                        }
+                    }
                     if (blocked == null) {
                         TextButton(
                             onClick = { actions.queueDelist(row) },

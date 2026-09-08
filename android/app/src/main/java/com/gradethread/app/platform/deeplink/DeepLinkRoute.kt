@@ -32,6 +32,17 @@ sealed class DeepLinkRoute {
     /** US-1377: the shipping queue, where a mark-shipped push lands. */
     object Shipping : DeepLinkRoute()
 
+    /**
+     * US-3144: the listings a sold item still has live on channels only the
+     * seller's own browser can end.
+     *
+     * Carries the item when the push named one. A seller who sells three things
+     * in an afternoon gets three of these, and landing all three on the same
+     * unfiltered list makes the tap useless — they still have to work out which
+     * garment this one was about.
+     */
+    data class PendingDelists(val itemId: String?) : DeepLinkRoute()
+
     companion object {
 
         /** Parse an inbound Uri; null = not ours (fall through to other handlers). */
@@ -54,6 +65,7 @@ sealed class DeepLinkRoute {
                 "marketplaces" -> MarketplacesTab
                 "money" -> SalesTab(inventoryItemId = null)
                 "shipping" -> Shipping
+                "pending-delists" -> PendingDelists(itemId = segments.getOrNull(2))
                 else -> null
             }
 
@@ -118,6 +130,7 @@ sealed class DeepLinkRoute {
             AddItem -> "add"
             is SupportTickets -> ticketId?.let { "support/$it" } ?: "support"
             Shipping -> "shipping"
+            is PendingDelists -> itemId?.let { "pending-delists/$it" } ?: "pending-delists"
         }
         return "https://gradethread.com/app/$path"
     }
@@ -151,5 +164,10 @@ sealed class DeepLinkRoute {
         // US-1377: a mark-shipped notification action resolves HERE, on the
         // queue itself, rather than on a tab the seller then has to search.
         Shipping -> ShellRoutes.FULFILLMENT
+        // US-3144: the pending-delist list is a section of the Marketplaces
+        // screen, not a destination of its own, so the route lands there. The
+        // item id narrows the section once it arrives — see
+        // MarketplacesViewModel.focusPendingDelists.
+        is PendingDelists -> ShellSection.MARKETPLACES.route
     }
 }

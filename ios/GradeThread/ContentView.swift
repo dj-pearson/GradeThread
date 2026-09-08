@@ -1110,6 +1110,17 @@ struct MainShell: View {
             }
         case .marketplacesTab:
             router.selection = .marketplaces
+        case .pendingDelists(let itemId):
+            // US-3144: the pending-delist list lives inside Marketplaces, so the
+            // route selects that tab and hands the item id over. Same two-path
+            // handoff as reconnectEbay below and for the same reason: the latch
+            // covers a tab mounting cold, the posted signal covers one already
+            // on screen, and consume() fires at most once so they cannot both
+            // apply the same focus.
+            router.selection = .marketplaces
+            router.marketplacesPath = NavigationPath()
+            PendingDelistFocusLatch.shared.request(itemId: itemId)
+            NotificationCenter.default.post(name: .pendingDelistsRequested, object: nil)
         case .reconnectEbay:
             // US-1262: select Marketplaces AND ask the connection card to open the
             // eBay OAuth sheet immediately. MarketplacesView listens for

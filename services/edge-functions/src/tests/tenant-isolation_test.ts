@@ -4667,6 +4667,70 @@ Deno.test({
   },
 });
 
+// US-3144 changed the sentence above. The read now DOES take an id: `?item=`,
+// so a phone arriving from a "listings still live" push sees the garment the
+// push was about rather than the whole queue. That makes this the exact shape
+// US-268 exists for — a client-supplied id — and the filter is applied ON TOP of
+// the owner scope rather than instead of it.
+//
+// The damage if it were applied instead of: the item id of any listing is
+// visible to whoever holds it (it rides in push payloads and in-app links), so
+// an unscoped filter would turn a notification link into a read of another
+// tenant's listing titles, URLs and sale timing.
+Deno.test({
+  name: "B cannot read A's pending delists by naming A's item",
+  ignore: !CONFIGURED || !Deno.env.get("TEST_USER_A_ITEM_ID"),
+  fn: async () => {
+    const aItemId = Deno.env.get("TEST_USER_A_ITEM_ID")!;
+    const res = await fetch(
+      `${BASE}/api/flipdesk/listings/pending-delists?item=${encodeURIComponent(aItemId)}`,
+      { headers: authHeaders(B_JWT!) },
+    );
+    if (res.status !== 200) {
+      await res.body?.cancel();
+      assertDenied(res.status, "GET pending-delists?item as B");
+      return;
+    }
+    const json = await res.json();
+    const pending = (json.pending ?? []) as Array<{ item_id: string }>;
+    // Narrowing to an item B does not own must produce NOTHING. An empty list is
+    // the correct answer here and the only safe one.
+    assertEquals(
+      pending.length,
+      0,
+      `pending-delists?item=${aItemId} returned ${pending.length} of A's rows to B`,
+    );
+  },
+});
+
+Deno.test({
+  // A malformed id must not fall back to "no filter" and hand back the whole
+  // queue as though the caller had asked for it. optionalUuid() returns null for
+  // anything that is not a uuid, and null means unfiltered — which is safe here
+  // ONLY because the owner scope is unconditional. This pins that it stays
+  // owner-scoped rather than pinning the fallback.
+  name: "a junk ?item= filter still cannot cross a tenant boundary",
+  ignore: !CONFIGURED || !Deno.env.get("TEST_USER_A_LISTING_ID"),
+  fn: async () => {
+    const listingId = Deno.env.get("TEST_USER_A_LISTING_ID")!;
+    const res = await fetch(
+      `${BASE}/api/flipdesk/listings/pending-delists?item=not-a-uuid`,
+      { headers: authHeaders(B_JWT!) },
+    );
+    if (res.status !== 200) {
+      await res.body?.cancel();
+      assertDenied(res.status, "GET pending-delists with a junk item filter as B");
+      return;
+    }
+    const json = await res.json();
+    const ids = (json.pending ?? []).map((p: { listing_id: string }) => p.listing_id);
+    assert(
+      !ids.includes(listingId),
+      "a junk ?item= filter returned A's listing to B",
+    );
+  },
+});
+
 // The extension door. It resolves the tenant from an HMAC extension token and
 // accepts no id, filter or workspace header, so there is nothing for a caller to
 // forge — but that is only true while the token is actually REQUIRED. Assert the

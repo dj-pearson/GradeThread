@@ -35,6 +35,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import com.gradethread.app.billing.PlanStepHost
 import com.gradethread.app.ui.state.Restorable
+import com.gradethread.app.marketplaces.PendingDelistFocus
 import com.gradethread.app.marketplaces.reconciliation.ReconcileBanner
 import com.gradethread.app.sync.PersistenceHealthHost
 import com.gradethread.app.sync.SyncStatusHost
@@ -43,6 +44,7 @@ import androidx.navigation.compose.rememberNavController
 import com.gradethread.app.R
 import androidx.compose.runtime.LaunchedEffect
 import com.gradethread.app.platform.deeplink.DeepLinkController
+import com.gradethread.app.platform.deeplink.DeepLinkRoute
 import com.gradethread.app.platform.rememberHapticFeedback
 import com.gradethread.app.ui.theme.BrandPrimaryButton
 import com.gradethread.app.ui.theme.BrandSecondaryButton
@@ -87,6 +89,13 @@ fun AppShell(
     // US-1314: inbound deep links (push/widget/App Links) drive navigation.
     LaunchedEffect(Unit) {
         DeepLinkController.shared.routes.collect { route ->
+            // US-3144: the pending-delist list is a SECTION of Marketplaces, not
+            // a destination, so the item the push named cannot ride the nav
+            // route (see PendingDelistFocus for why it must not become a nav
+            // argument). Record it before navigating; the screen collects it.
+            if (route is DeepLinkRoute.PendingDelists) {
+                PendingDelistFocus.request(route.itemId)
+            }
             val target = route.toNavRoute()
             // US-1299: "Add item" is a SHEET, not a destination. The launcher
             // long-press shortcut, its Assistant capability and the public

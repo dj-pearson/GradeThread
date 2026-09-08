@@ -90,7 +90,7 @@ export function toPendingDelist(r: PendingDelistRow): PendingDelist {
  */
 export async function loadPendingDelists(
   ownerId: string,
-  opts: { limit?: number } = {},
+  opts: { limit?: number; itemId?: string } = {},
 ): Promise<{ pending: PendingDelist[]; error: unknown | null }> {
   let q = supabaseAdmin
     .from("listings")
@@ -107,6 +107,12 @@ export async function loadPendingDelists(
     .in("platform", [...EXTENSION_DELIST_PLATFORMS])
     .not("delist_requested_at", "is", null)
     .order("delist_requested_at", { ascending: true });
+
+  // US-3144: the phone arrives from a push about ONE item and should show that
+  // item's listings, not the whole queue. Optional, and applied ON TOP of the
+  // owner scope rather than instead of it — an itemId is a client-supplied id,
+  // so a foreign one must narrow to nothing rather than widen anything.
+  if (opts.itemId) q = q.eq("inventory_item_id", opts.itemId);
 
   if (opts.limit) q = q.limit(opts.limit);
 

@@ -56,7 +56,11 @@ export type NotificationType =
   // US-1912: the seller's Grade Integrity tier moved. This is the PRIVATE half
   // of a deliberately asymmetric pair — a promotion is announced publicly via
   // the reputation ledger, a demotion is only ever told to the seller, here.
-  | "integrity_tier_change";
+  | "integrity_tier_change"
+  // US-3144: a sold item still has listings live on channels only the seller's
+  // own browser can end. Its own type because it is a TASK, not news — the one
+  // notification in this union that is useless unless the seller acts on it.
+  | "delist_needed";
 
 // Which notification_preferences category gates each type's in-app delivery.
 // `null` types are always delivered (e.g. system messages the user can't mute).
@@ -116,6 +120,13 @@ export const PREF_KEY: Record<NotificationType, string | null> = {
   // the one message it delivers (a demotion, with its driver) is the one a
   // seller is most entitled to both receive AND be able to turn off.
   integrity_tier_change: "integrity_updates",
+  // US-3144: its own category for the reason the two above give. No existing
+  // toggle's copy covers "go and end these listings yourself" — selling_activity
+  // promises news about listings going live and items selling, and routing a
+  // task under it would make a sentence somebody already agreed to false. It is
+  // also the toggle a seller most needs to be able to turn off separately: this
+  // one fires on the seller's own success.
+  delist_needed: "delist_reminders",
 };
 
 export interface NotifyInput {

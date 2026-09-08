@@ -1,5 +1,31 @@
 # PENDING MIGRATIONS — applied to prod separately from the push
 
+## ⏳ 00765 — notification_type 'delist_needed' (US-3144)
+
+**Risk: LOW.** One enum value. Nothing is dropped, nothing is rewritten, and no
+existing row or query changes.
+
+**Apply order:** after 00764. No `NOTIFY pgrst` needed (no table or column
+changed), then redeploy the edge.
+
+**What it adds**
+- `notification_type` gains `'delist_needed'`.
+
+**DEPLOY ORDER MATTERS ONE WAY ONLY**, exactly as in 00601. The edge INSERTS
+this value (`notifyUser` from `lib/cross-listings.ts`, when a sold item's
+cross-listings still need ending). On a database without it the insert fails
+with 22P02 and the notice is lost, so the migration must land BEFORE the edge
+deploys — the schema-version boot guard is what enforces that, since
+EXPECTED_SCHEMA_VERSION moves to 00765 in the same commit. Nothing FILTERS on
+the value, so a database that has it while an older edge runs is a no-op.
+
+**Client side is safe either way.** The frontend adds `delist_needed` to its
+NotificationType union and a `delist_reminders` preference category, but both
+are read-side only — `withPreferenceDefaults` fills the new key from code, so a
+Cloudflare Pages deploy landing before the migration shows the new Settings
+toggle for notifications that are not being sent yet. Harmless, and it corrects
+itself the moment the edge redeploys.
+
 ## ⏳ 00764 — push_subscriptions.kind (US-3142)
 
 **Risk: LOW.** One additive column with a default, one CHECK, one index. No

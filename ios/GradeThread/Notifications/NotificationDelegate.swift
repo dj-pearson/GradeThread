@@ -192,6 +192,11 @@ public enum DeepLinkRoute: Equatable {
     /// The listings a seller has already paid for with their own time and not
     /// yet made money from. It was three taps and invisible from Home.
     case inventoryDrafts
+    /// US-3144: the listings a sold item still has live on channels only the
+    /// seller's own browser can end. Carries the item when the push named one,
+    /// so the tap lands on that garment's listings rather than the whole queue —
+    /// a seller who sells four things in an afternoon needs to know which.
+    case pendingDelists(itemId: String?)
 
     /// Builds a route from the push payload. Returns nil when the
     /// category isn't one we know how to handle.
@@ -230,6 +235,11 @@ public enum DeepLinkRoute: Equatable {
             // (which surfaces on the Money/Sales tab).
             if let itemId { return .inventoryItem(id: itemId) }
             return .salesTab(inventoryItemId: nil)
+        case NotificationCategoryID.delistNeeded.rawValue:
+            // US-3144: always routable, with or without an item. Without one the
+            // seller still lands on the full pending list, which is the right
+            // answer — there is nothing else this push could have meant.
+            return .pendingDelists(itemId: itemId)
         case NotificationCategoryID.supportReply.rawValue:
             // US-1136: open the ticket thread directly when the push carried its
             // id; otherwise land on the support inbox list.

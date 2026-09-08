@@ -5,6 +5,36 @@ extension Notification.Name {
     /// the Marketplaces surface auto-presents the eBay OAuth/reconnect sheet
     /// instead of leaving the user to find the Reconnect button.
     static let ebayReconnectRequested = Notification.Name("com.gradethread.app.ebayReconnectRequested")
+    /// US-3144: posted when a "listings still live" push is tapped, so the
+    /// Marketplaces surface scrolls its pending-delist section into view and
+    /// narrows it to the item the push named.
+    static let pendingDelistsRequested = Notification.Name("com.gradethread.app.pendingDelistsRequested")
+}
+
+/// US-3144: the same one-shot latch pattern as `EbayReconnectLatch`, and for the
+/// same reason — a push tap can arrive before this tab has ever mounted (cold
+/// launch), in which case there is no `.onReceive` subscribed to hear it.
+///
+/// It carries the item id rather than a bare flag. A seller who sells three
+/// things in an afternoon gets three of these pushes, and landing all three on
+/// the same unfiltered list makes the tap useless: they still have to work out
+/// which garment this one was about.
+@MainActor
+final class PendingDelistFocusLatch {
+    static let shared = PendingDelistFocusLatch()
+    private var pending: String??
+    private init() {}
+
+    /// `itemId` may be nil — a push with no item still opens the full list.
+    func request(itemId: String?) { pending = .some(itemId) }
+
+    /// Returns at most once per `request()`, so the cold and live paths cannot
+    /// both apply the same focus.
+    func consume() -> String?? {
+        guard let value = pending else { return nil }
+        pending = nil
+        return value
+    }
 }
 
 /// US-1262: a one-shot latch bridging a "reconnect eBay" deep link to the
@@ -89,6 +119,10 @@ struct MarketplacesView: View {
     @State private var pendingDelists: [PendingDelistService.PendingDelist] = []
     @State private var delistBusyId: String?
     @State private var delistMessage: String?
+    /// US-3144: when a "listings still live" push named an item, show only that
+    /// item's rows. `nil` = show everything, which is also what a push carrying
+    /// no item leaves behind.
+    @State private var delistFocusItemId: String?
 
     var body: some View {
         ScrollView {
@@ -169,6 +203,12 @@ struct MarketplacesView: View {
             // Live case: the tab was already on-screen/mounted when the deep link
             // fired, so this subscription catches the wake signal.
             consumeReconnectRequest()
+        }
+        // US-3144: same live/cold pair as the reconnect signal above. This one
+        // catches the tab that was already mounted; the `.task` consumes the
+        // latch for a cold launch.
+        .onReceive(NotificationCenter.default.publisher(for: .pendingDelistsRequested)) { _ in
+            consumePendingDelistFocus()
         }
         .sheet(item: $sheet) { presented in
             switch presented {
@@ -401,7 +441,7 @@ struct MarketplacesView: View {
     // precisely the double sale this queue exists to prevent.
     @ViewBuilder
     private var pendingDelistSection: some View {
-        if !pendingDelists.isEmpty {
+        if !visiblePendingDelists.isEmpty {
             VStack(alignment: .leading, spacing: 10) {
                 Text("Sold elsewhere, still listed")
                     .font(.subheadline.weight(.semibold))
@@ -411,7 +451,20 @@ struct MarketplacesView: View {
                     .foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity, alignment: .leading)
 
-                ForEach(pendingDelists) { row in
+                // US-3144: arriving from a push, the list is narrowed to the one
+                // garment it was about. Say so and offer the way out — a filter
+                // the seller cannot see is a list that looks wrong.
+                if delistFocusItemId != nil, pendingDelists.count > visiblePendingDelists.count {
+                    Button("Show all \(pendingDelists.count) listings") {
+                        delistFocusItemId = nil
+                    }
+                    .font(.caption.weight(.semibold))
+                    .buttonStyle(.plain)
+                    .foregroundStyle(Color.brandNavy)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
+
+                ForEach(visiblePendingDelists) { row in
                     pendingDelistRow(row)
                 }
 
@@ -456,6 +509,21 @@ struct MarketplacesView: View {
             }
 
             HStack(spacing: 12) {
+                // US-3144: the fastest way to end it is to open it, and until now
+                // the phone did not offer that at all — the row named a listing
+                // and gave no way to reach it. Queueing it for a desktop that may
+                // not be opened until tomorrow was the only option on offer.
+                //
+                // Only when there IS a live page to open. A draft row was never
+                // published and a URL-less row was listed by hand, so a link on
+                // either sends the seller somewhere that may not exist — the same
+                // distinction `blockedReason` already draws in words.
+                if let urlString = row.listingUrl, let url = URL(string: urlString) {
+                    Link("End it on \(label)", destination: url)
+                        .font(.caption.weight(.semibold))
+                        .buttonStyle(.plain)
+                        .foregroundStyle(Color.brandNavy)
+                }
                 if blocked == nil {
                     Button("Queue for my desktop") {
                         Task { await queueDelist(row) }
@@ -1177,5 +1245,24 @@ struct MarketplacesView: View {
         guard let userId = currentUserId(), !store.isConnecting else { return }
         guard EbayReconnectLatch.shared.consume() else { return }
         Task { await store.connect(userId: userId) }
+    }
+
+    /// US-3144: apply a pending "listings still live" focus, and refresh.
+    ///
+    /// The refresh is not optional. The push is sent the moment the sale is
+    /// processed, so a seller who taps it within seconds arrives at a list this
+    /// view loaded before the sale existed — showing them nothing at all, which
+    /// reads as the notification having lied.
+    private func consumePendingDelistFocus() {
+        guard let focus = PendingDelistFocusLatch.shared.consume() else { return }
+        delistFocusItemId = focus
+        delistMessage = nil
+        Task { await refreshPendingDelists() }
+    }
+
+    /// The rows the section renders. Narrowed to one item when a push named one.
+    private var visiblePendingDelists: [PendingDelistService.PendingDelist] {
+        guard let focus = delistFocusItemId else { return pendingDelists }
+        return pendingDelists.filter { $0.itemId == focus }
     }
 }

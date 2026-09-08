@@ -35,6 +35,10 @@ enum class PushCategory(val id: String) {
     LISTING_ENDED("listing.ended"),
     AGING_DIGEST("aging.digest"),
     SUPPORT_REPLY("support.reply"),
+    // US-3144: a sold item still has listings live on marketplaces only the
+    // seller's own browser can end. Mirrors NotificationCategoryID.delistNeeded
+    // on iOS and the `category` the edge stamps in pushDelistNeeded.
+    DELIST_NEEDED("delist.needed"),
     ;
 
     /**
@@ -54,6 +58,11 @@ enum class PushCategory(val id: String) {
             // rather than being buried with the digest.
             TOKEN_EXPIRING -> PushChannel.URGENT
             LISTING_ENDED, AGING_DIGEST, SUPPORT_REPLY -> PushChannel.UPDATES
+            // URGENT, not SELLING. Every other selling notification is news the
+            // seller can read later; this one is a window in which the same
+            // garment can be bought a second time, and the cost of missing it is
+            // a cancelled order and a defect on their account.
+            DELIST_NEEDED -> PushChannel.URGENT
         }
 
     /**
@@ -216,5 +225,9 @@ fun PushCategory.route(data: Map<String, String>): DeepLinkRoute {
             itemId?.let { DeepLinkRoute.InventoryItem(it) } ?: DeepLinkRoute.InventoryTab
         PushCategory.AGING_DIGEST -> DeepLinkRoute.InventoryTab
         PushCategory.SUPPORT_REPLY -> DeepLinkRoute.SupportTickets(data["ticket_id"])
+        // US-3144: routable with or without an item. Without one the seller
+        // still lands on the full pending list, which is right — there is
+        // nothing else this push could have meant.
+        PushCategory.DELIST_NEEDED -> DeepLinkRoute.PendingDelists(itemId)
     }
 }

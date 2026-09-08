@@ -154,6 +154,8 @@ export type NotificationType =
   | "dispute_opened"
   // US-2560: a buyer asked to cancel an order (eBay Post-Order).
   | "cancellation_requested"
+  // US-3144: a sold item's cross-listings are still live and need the seller.
+  | "delist_needed"
   // US-1803: buyer-side notification categories.
   | "buyer_condition_alert"
   | "buyer_reward"
@@ -314,6 +316,12 @@ export interface NotificationPreferences {
   // US-1912: Grade Integrity standing changes. In-app + push only — a standing
   // change is dashboard news, not something worth an inbox interruption.
   integrity_updates: NotificationChannelPrefs;
+  // US-3144: a sold item still has listings live on channels only the seller's
+  // own browser can end. Its OWN category, not selling_activity, because this
+  // one asks the seller to do something and selling_activity's copy promises
+  // only news. Email included on purpose: it is the channel that still reaches
+  // someone whose laptop is shut, which is the exact case this exists for.
+  delist_reminders: NotificationChannelPrefs;
 }
 
 export type UserUseCase = "seller" | "buyer" | "consignment" | "developer";

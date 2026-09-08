@@ -34,6 +34,11 @@ export const DEFAULT_NOTIFICATION_PREFERENCES: NotificationPreferences = {
   // category ever sends is a private demotion notice, and a demotion arriving by
   // email reads as a punishment letter.
   integrity_updates: { in_app: true, push: true },
+  // US-3144: a sold item still has listings live somewhere only the seller's own
+  // browser can end. Its own category rather than selling_activity, whose copy
+  // promises news and not a task. Email is on because the whole point of this
+  // category is reaching someone whose desktop is shut.
+  delist_reminders: { email: true, in_app: true, push: true },
 };
 
 type PrefKey = keyof NotificationPreferences;
@@ -111,6 +116,16 @@ export const NOTIFICATION_TYPES: NotificationTypeMeta[] = [
     key: "payouts",
     label: "Payouts",
     description: "When a payout is imported or clears to your account.",
+    channels: ["email", "in_app", "push"],
+  },
+  {
+    key: "delist_reminders",
+    label: "Listings still live",
+    // The copy IS the agreement (see the returns category above). It promises a
+    // reminder about the seller's OWN still-live listings after a sale, and
+    // nothing else may be routed here.
+    description:
+      "When an item sells and its listings on other marketplaces still need ending.",
     channels: ["email", "in_app", "push"],
   },
   {
@@ -357,6 +372,13 @@ export const NOTIFICATION_EVENT_CATALOG: NotificationEventMeta[] = [
     label: "Grade Integrity standing",
     description: "Your Grade Integrity tier moved, and what moved it.",
     prefKey: "integrity_updates",
+  },
+  {
+    type: "delist_needed",
+    label: "Listings still live",
+    description:
+      "An item sold and its listings on other marketplaces still need ending.",
+    prefKey: "delist_reminders",
   },
   {
     type: "system",

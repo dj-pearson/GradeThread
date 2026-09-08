@@ -3740,22 +3740,6 @@
         "autolister.tsx drops from 3635 to 3408 lines and its ceiling in src/test/autolister-split.test.ts is lowered in the same commit."
       ],
       "priority": 40
-    },
-    {
-      "id": "US-3144",
-      "passes": false,
-      "title": "Push the seller a delist prompt on iOS and Android with a tap-through to each marketplace",
-      "description": "The backstop for the case nothing else covers: the item sold and the seller's desktop browser is not running, so US-3141's queue row sits until it opens (or expires after a week). The seller is on their phone. Push them a notification naming the item and the marketplaces still live, and let them end each one by tapping straight through to that listing on the marketplace, in the phone's browser or the marketplace app if it claims the link. GradeThread already has the delivery pipes: lib/apns.ts, lib/fcm.ts, deliverPush (VAPID web push) in lib/notify.ts, and an iOS PushService with a NewSaleNotifier. This adds the delist prompt to them and gives it somewhere to land.",
-      "acceptanceCriteria": [
-        "A cross-listing sale that leaves at least one extension-channel sibling pending sends ONE push per sale (not one per marketplace) naming the item and how many listings still need ending.",
-        "Tapping the push opens a GradeThread screen listing the pending delists for that item, each row a tap-through to listing_url. The seller ends it on the marketplace where they are already signed in; GradeThread never holds a marketplace credential.",
-        "Each row has a 'I ended this' control that clears the queue stamp through the existing delist-confirm endpoint, so the pending list and the desktop queue agree.",
-        "A listing with no saved URL or a draft-status row (isAutoDelistable false) is shown as manual with copy that says why, and is never rendered as a tap-through to a page that may not exist.",
-        "The push respects the existing notification preferences and pushChannelEnabled; sellers can turn the delist prompt off without turning off sale notifications.",
-        "If the desktop extension ends the listing first, the pending screen reflects that on next open rather than offering to end an already-ended listing.",
-        "Parity: the screen and the push land on iOS and Android both. Web push reuses the same payload."
-      ],
-      "priority": 2
     }
   ]
 }

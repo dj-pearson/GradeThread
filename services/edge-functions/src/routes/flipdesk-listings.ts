@@ -23,6 +23,7 @@ import {
 } from "../lib/cross-push.ts";
 import { delistMethodFor } from "../lib/cross-listing-sale.ts";
 import { loadPendingDelists } from "../lib/pending-delists.ts";
+import { optionalUuid } from "../lib/extension-enqueue.ts";
 import {
   createRelistDraft,
   enqueueRelistWork,
@@ -440,7 +441,13 @@ flipdeskListingsRoutes.get("/title-variants", async (c) => {
 
 flipdeskListingsRoutes.get("/pending-delists", async (c) => {
   const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
-  const { pending, error } = await loadPendingDelists(ownerId);
+  // US-3144: ?item=<uuid> narrows to one item, for a phone arriving from a push
+  // about that item. The owner scope is NOT replaced by it — loadPendingDelists
+  // applies both — so a foreign or malformed id narrows to nothing.
+  const itemId = optionalUuid(c.req.query("item"));
+  const { pending, error } = await loadPendingDelists(ownerId, {
+    ...(itemId ? { itemId } : {}),
+  });
   if (error) {
     return failSafe(c, 500, "Could not load pending delists.", error, "flipdesk.pending-delists");
   }

@@ -16,6 +16,7 @@ import {
   planCrossListingSale,
 } from "./cross-listing-sale.ts";
 import { enqueueExtensionWork } from "./extension-enqueue.ts";
+import { pushDelistNeeded } from "./transactional-push.ts";
 import { isAutoDelistable } from "./pending-delists.ts";
 
 // Auto-end of cross-listed siblings (US-149 + US-599 + US-1290). When one listing
@@ -141,6 +142,8 @@ export async function autoEndCrossListings(
 
     const summary: AutoEndSummary = EMPTY_SUMMARY();
     const unresolvedPlatforms = new Set<string>();
+    /** US-3144: the siblings handed to the browser, for ONE notice at the end. */
+    const queuedRows: SiblingRow[] = [];
 
     for (const row of toDelist) {
       const outcome = await attemptUpstreamDelist(ownerId, row);
@@ -199,6 +202,8 @@ export async function autoEndCrossListings(
         // seller. AFTER the update, so a row we failed to mark ended is never
         // queued for a browser to end.
         await queueExtensionDelist(ownerId, row);
+        // US-3144: collected, not notified per row. See the send below.
+        queuedRows.push(row);
         summary.queued++;
       } else if (outcome.kind === "nothing_live") {
         summary.nothingLive++;
@@ -225,6 +230,25 @@ export async function autoEndCrossListings(
       });
     }
 
+    // US-3144: ONE notice per sale, after the loop, naming the item and how many
+    // listings are still live. Deliberately not per sibling: a seller who
+    // cross-listed to four channels and sold on the fifth does not need four
+    // buzzes about one garment.
+    //
+    // This is the gap the whole phone story exists for. Until now the `queued`
+    // outcome told the seller NOTHING — the row was stamped, the desktop queue
+    // was filled, and if their browser stayed shut the listing sat live until
+    // the queue expired a week later. Only the `unresolved` case above ever
+    // spoke.
+    //
+    // Idempotent by the same mechanism US-3141 relies on: a sibling is flipped
+    // to 'ended' before this point, and the sibling query only selects
+    // draft/active/sold, so a duplicate order webhook re-runs the pass and finds
+    // nothing left to queue.
+    if (queuedRows.length > 0) {
+      await notifyDelistNeeded(ownerId, queuedRows);
+    }
+
     return summary;
   } catch (err) {
     console.error(
@@ -232,6 +256,82 @@ export async function autoEndCrossListings(
       err instanceof Error ? err.message : String(err),
     );
     return EMPTY_SUMMARY();
+  }
+}
+
+/**
+ * US-3144: tell the seller their sold item is still listed somewhere.
+ *
+ * ONE notice per sale. It goes out on three channels and each one is doing a
+ * different job:
+ *
+ *   - notifyUser writes the in-app row and, through deliverPush, the browser
+ *     web push. Gated on the `delist_reminders` preference, which is its own
+ *     category precisely so a seller can keep sale notifications and turn this
+ *     one off (or the reverse).
+ *   - pushDelistNeeded reaches the phone. That is the case this exists for: the
+ *     desktop path (US-3141 + US-3142) already handles a browser that is open,
+ *     and does nothing at all for a seller whose laptop is shut.
+ *
+ * The item title is one extra read, and it is worth it. "An item sold and two
+ * listings are still live" sends a seller hunting through their inventory; the
+ * garment's name does not.
+ *
+ * NEVER THROWS. A notification failure must not break an auto-end pass that has
+ * already done the important work — the rows are ended and queued by this point,
+ * and the pending-delist list on every surface is built from the stamp, not from
+ * this message.
+ */
+async function notifyDelistNeeded(
+  ownerId: string,
+  queued: readonly SiblingRow[],
+): Promise<void> {
+  try {
+    // Siblings in a cross-listing group are the same garment on different
+    // marketplaces, so they share an item. Taking the first is not a guess.
+    const itemId = queued.find((r) => r.inventory_item_id)?.inventory_item_id ?? null;
+
+    let title: string | null = null;
+    if (itemId) {
+      const { data } = await supabaseAdmin
+        .from("inventory_items")
+        .select("title")
+        .eq("id", itemId)
+        .eq("user_id", ownerId) // US-268
+        .maybeSingle();
+      title = (data as { title: string | null } | null)?.title ?? null;
+    }
+
+    const platforms = [...new Set(queued.map((r) => r.platform))].sort();
+    const which = platforms.length === 1
+      ? `your ${platforms[0]} listing`
+      : `your listings on ${platforms.slice(0, -1).join(", ")} and ${platforms[platforms.length - 1]}`;
+    const what = title ? `"${title}"` : "An item";
+
+    // The link carries the item so the phone and the web both land on that
+    // garment's pending delists rather than the whole queue.
+    const link = itemId
+      ? `/dashboard/flipdesk/inventory?item=${itemId}&pendingDelists=1`
+      : "/dashboard/flipdesk/inventory";
+
+    await notifyUser(ownerId, {
+      type: "delist_needed",
+      title: queued.length === 1 ? "One listing still live" : "Listings still live",
+      message: `${what} sold, so we ended it here — but ${which} can only be ` +
+        "ended from your own browser. End it before the same item sells twice.",
+      link,
+    });
+
+    void pushDelistNeeded(ownerId, {
+      itemId,
+      itemTitle: title,
+      count: queued.length,
+    });
+  } catch (err) {
+    console.warn(
+      "[cross-listings] could not send the delist-needed notice:",
+      errText(err),
+    );
   }
 }
 
