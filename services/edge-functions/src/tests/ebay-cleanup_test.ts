@@ -240,9 +240,17 @@ Deno.test("US-2166: the owned-listing load actually selects those columns", () =
   // lib/listing-lifecycle.ts (loadOwnedListing), which is where the select now
   // lives — so this reads the loader rather than the route that calls it.
   assert(lifecycleSrc.includes("variations, "), "must select listings.variations");
+  // US-3192 widened the embed to carry floor_price, so this matches the PREFIX
+  // rather than the whole string: what the test is pinning is that the item sku
+  // is read through the owner-scoped join, not that the join reads exactly two
+  // columns and never grows.
   assert(
-    lifecycleSrc.includes("inventory_items!inner(user_id, sku)"),
+    lifecycleSrc.includes("inventory_items!inner(user_id, sku"),
     "must select the item sku (the group key)",
+  );
+  assert(
+    lifecycleSrc.includes("floor_price"),
+    "must select the item floor price (US-3192: bulk drop must not price through it)",
   );
 });
 

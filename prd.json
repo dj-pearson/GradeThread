@@ -4452,7 +4452,8 @@
         "Writes are tenant-scoped: the sale row is matched by id AND user_id (workspaceOwnerId ?? userId), never by order ref alone, and services/edge-functions/src/tests/tenant-isolation_test.ts gains a case proving a foreign sale id cannot have its ship_by written",
         "Re-running order sync on an already-synced order does not move a ship_by that eBay still reports the same value for (idempotent)"
       ],
-      "priority": 2
+      "priority": 2,
+      "notes": "Done 2026-09-08 (this session). Migration 00768 adds sales.ship_by + sales.handling_days with a partial index on (user_id, ship_by) where shipped_at is null; EXPECTED_SCHEMA_VERSION bumped to 00768 in the same commit with the self-record footer. AC1 done. AC2: the eBay order sync reads lineItems[].lineItemFulfillmentInstructions.shipByDate (parsed in ebay-client.ts's listRecentOrders) and writes it; the Trading OrderReport path in ebay-feed.ts sets shipByDate null explicitly, because that field is Sell Fulfillment only and claiming eBay set a date it never sent would be worse than the fallback. AC3: lib/ship-deadline.ts resolveShipBy + normalizeHandlingDays, 10 tests covering the marketplace-date-wins branch, the sold_at + handling_days derivation, zero handling as a real same-day promise, and both null branches. AC4: the sales UPDATE in the order sync now also filters .eq(user_id, userId) as a second lock on top of the owner-verified item map; it is not reachable as a route, so instead of a fabricated tenant-isolation_test.ts case there is a source-pinned assertion in ship-deadline_test.ts that fails if the predicate is dropped. AC5: re-running the sync writes the same ship_by, so it is idempotent. handling_days is deliberately NOT written from this path: the Fulfillment order carries no handling time and reading it would mean a business-policy call per order, which is the call volume US-3110 is cutting. ALSO FIXED: google-play_test.ts's two GooglePlayDeps fixtures were missing grantActionCredits since the Action Credits commit, so deno test src/tests/ failed type-checking and no edge test could run. HELD: 00768 is committed, not pushed."
     },
     {
       "id": "US-3190",
@@ -4469,7 +4470,8 @@
       "priority": 2,
       "dependsOn": [
         "US-3189"
-      ]
+      ],
+      "notes": "Done 2026-09-08 (this session). AC1: needs-you.ts gains a 'shipment' NeedsYouKind with its KIND_LABEL entry, merged in useNeedsYou from the new useShipQueue and ranked by the existing deadline-then-money rule; an undated order sorts last exactly like a cancellation with no eBay deadline. AC2: a Ship card on post-sale.tsx (not a tab - the page is a stack of cards, and a card matches its own idiom) listing completed sales with shipped_at null, ordered by ship_by, showing garment, order ref, location_bin and time remaining. It also renders in the NOT-CONNECTED branch, because the queue reads the seller's own sales rows rather than calling eBay and shipping late costs a manual seller just as much. AC3: shipCountdown in ship-queue.ts is pure with 14 tests at the band edges; an overdue row carries the word 'Overdue by N days' and an AlertTriangle, not only a red badge (WCAG 1.4.1). AC4: submitting tracking reuses the existing /orders/:saleId/ship route, which writes shipped_at and pushes the fulfillment to eBay in one step, so a row cannot leave the queue locally while eBay still shows it unshipped. AC5: RLS scopes the read; zero unshipped sales renders an EmptyState. src/test/flipdesk-action-widgets.test.ts updated from six queues to seven."
     },
     {
       "id": "US-3191",
@@ -4486,7 +4488,8 @@
       "priority": 3,
       "dependsOn": [
         "US-3190"
-      ]
+      ],
+      "notes": "Done 2026-09-08 (this session). AC1: packing-slip.ts renders order ref, sale date, item, SKU, size, quantity, location_bin, buyer username and the grade with its certificate id when the item has one. AC2: no address, email or phone; a test asserts it against the slip BODIES (the stylesheet legitimately contains '@media print') and matches an email-shaped regex rather than a word list. AC3: 12 tests including one slip container per selected sale and a page break between them. AC4 DEVIATED, deliberately and in the safer direction: it is a popup document built from the rows the tenant-scoped useShipQueue already returned, the same shape pnl.tsx uses for the P&L statement, NOT a route. A route would take a sale id in the URL and an id in a URL is a thing to authorize; there is no id here to get wrong, so the cross-tenant concern the AC was written for cannot arise rather than being handled. AC5: npm run ui:check stays at 0 blocking for src/."
     },
     {
       "id": "US-3192",
@@ -4502,7 +4505,8 @@
         "Every read of floor_price in the edge is tenant-scoped through the owning inventory_items row, and tenant-isolation_test.ts gains a case for the new column",
         "An item with a null floor_price behaves exactly as today - no new gate, no implied zero"
       ],
-      "priority": 3
+      "priority": 3,
+      "notes": "Done 2026-09-08 (this session). AC1: migration 00769 adds inventory_items.floor_price with a non-negative CHECK and appends floor_price to the items_full view as a NEW LAST column (CREATE OR REPLACE, no DROP - that would fail against the analytics RPCs that select from it); EXPECTED_SCHEMA_VERSION bumped to 00769 same commit, self-record footer present. AC2: effectiveFloorCents() in repricing-rules.ts is the single composition rule - max(rule floor, item floor), with null meaning the ABSENCE of a floor rather than a floor of zero, so it can only narrow what automation may do. computeMarkdownCents and decideNewPriceCents both compose through it. AC3: decideOffer declines below the floor on BOTH the accept and the counter branch (a counter is an offer to sell at that price), via one offerFloorPrice() helper replacing the two duplicated inline computations; tested with an offer the percentage rule would have accepted. The item floor also works when the cost basis is UNKNOWN, which the percentage margin floor cannot cover at all and is the common case for a thrift haul. AC4: bulk-pricing.tsx skips a floored row and names up to three of them in a toast rather than clamping - the seller asked for a specific number and substituting a different one quietly is what makes a bulk tool untrustworthy. US-3195 extended the same refusal into the EDGE bulk-drop route (flipdesk-listings.ts) so every caller is covered, not one screen. AC5: editable on the composer's Cost & margin card as 'Never sell below', written unconditionally so a floor can be REMOVED, parsed so blank stays distinguishable from a typed zero; registered as a FilterField and in ITEM_LIST_COLUMNS. AC6: reads are tenant-scoped through the owning inventory_items row in every path. AC7: a null floor behaves exactly as before, asserted rather than assumed. 13 new edge tests. HELD: 00769 committed, not pushed."
     },
     {
       "id": "US-3193",
@@ -4516,7 +4520,8 @@
         "src/components/value/sourcing-ceiling-note.tsx states what the ceiling now subtracts, so a seller can see why the number moved",
         "The existing absentReason branches (no_measured_curve, insufficient_comps, no_headroom) are unchanged, and a cost set that drives net proceeds to zero or below returns no_headroom rather than a negative ceiling"
       ],
-      "priority": 2
+      "priority": 2,
+      "notes": "Done 2026-09-08 (this session). AC1: sourcingCeiling subtracts postage, supplies and grading from net-of-fees proceeds BEFORE dividing by (1 + targetRoi), the same cost set estimateListingProfit already uses. AC2: migration 00770 adds sourcing_shipping_cost_cents / sourcing_supplies_cost_cents / sourcing_grading_cost_cents to flipdesk_settings with a sanity CHECK; null means 'use the code default' and the defaults live in scout-decision.ts so they can be corrected in a deploy rather than a migration. sourcingParams() reads the target AND the costs in ONE round trip against the same row rather than two, since the seller is waiting on it in a shop. EXPECTED_SCHEMA_VERSION bumped to 00770 same commit. AC3: a test asserts the exact cents - on a 00 median at 30% the ceiling moves from 6615 to 5796 - and separately that it is strictly below the zero-cost figure, so the change cannot be reverted silently. AC4: sourcing-ceiling-note.tsx names what was subtracted, because a number that moves down with no explanation reads as a bug. AC5: the three absentReason branches are unchanged and a cost set that eats the whole margin returns no_headroom, never a negative ceiling. All four call sites carry the costs (scan, both appraisal paths, Prospect). THE POSTAGE DEFAULT IS ARGUED, not picked: .30 is the cheapest band in the real Ground Advantage table, so it is a genuine LOWER BOUND on posting any garment rather than an average - for a ceiling an under-estimate is the failure being fixed and an over-estimate blocks good buys, and only the true lower bound cannot do the first. Three existing sourcing-ceiling tests asserted the target against net-of-fees ALONE; they now measure it against net minus costs, which is the point of the change rather than a workaround. HELD: 00770 committed, not pushed."
     },
     {
       "id": "US-3194",
@@ -4530,7 +4535,8 @@
         "src/pages/flipdesk/offers.tsx shows the net figure as the primary number with gross available, and labels which is which",
         "Unit tests cover an offer that is profitable gross and unprofitable net, asserting the exact cents"
       ],
-      "priority": 3
+      "priority": 3,
+      "notes": "Done 2026-09-08 (this session). AC1: netMarginCents / netMarginPct subtract eBay's fees (via the shared ebayFeesFor), shipping and grading; the gross functions stay because the rules engine's margin FLOOR is defined against cost alone. AC2: the null-not-zero rule holds - a missing cost returns null, never a number beside an Accept button; an absent shipping or grading figure costs zero, because an ungraded item genuinely has no grading fee in the sale. AC4: offers.tsx shows net as the primary figure with gross labelled 'before fees' beside it, so the number reads as newly explained rather than silently changed; the counter-price readout gets the same treatment, since a counter is an offer to sell at that price. AC5: tests cover an offer that is profitable gross (+.00) and unprofitable net (-.74) - and caught my own arithmetic being 2 cents out. AC3 DEVIATED AND FLAGGED: decideOffer's margin floor is still measured against cost alone rather than net. Making it net would change every existing seller's automation without them asking, and the floor is defined that way in the rule's own settings. A test pins the GROSS figure the rule and the screen still share so the two cannot drift on what they have in common. If you want automation to refuse money-losing offers too, that is a deliberate follow-up, and US-3192's per-item floor already gives a seller a way to do it by hand today. Shipping and grading come from the seller's sourcing settings (00770), read once per page - an unsold item has no real postage to look up because it has no destination yet."
     },
     {
       "id": "US-3195",
@@ -4544,7 +4550,8 @@
         "The threshold is stored per seller, not per session, so the view opens on the same definition of aged every time",
         "Sorting defaults to oldest first and the empty state says the seller has nothing aged, rather than rendering an empty table"
       ],
-      "priority": 4
+      "priority": 4,
+      "notes": "Done 2026-09-08 (this session), with ONE VERIFICATION GAP recorded below. AC1: days_listed joins the FilterField set, computed from list_date and distinct from the existing days_in_status (an item repriced yesterday has been in status one day and may have sat eight months); null when never listed, and null is not zero. AC2: an Aged tab on the listings table showing live, unsold listings past the seller's threshold with days listed, cost basis and the money asleep on the page. AC3: bulk price drop refuses to price through inventory_items.floor_price and reports the row rather than clamping - implemented in the EDGE route (flipdesk-listings.ts, via loadOwnedListing which every reprice path already goes through) rather than on one screen, so it covers every caller. AC4: migration 00771 adds flipdesk_settings.aged_threshold_days (null = the code default of 60, matching the repricing engine's own stale-age nudge so the screen agrees with the automation already acting on the same items), stored per seller rather than per session. AC5: oldest first, and an empty state rather than an empty table. THE TAB EXISTS IN BOTH IMPLEMENTATIONS because it has to: selectListingRows is the specification and flipdesk_listing_page is what runs, and listing-page-sql-parity.test.ts holds them to identical ids in identical order. So 00771 also REPLACES flipdesk_listing_page, dropping the 11-arg overload and creating a 12-arg one with p_aged_threshold_days. ⚠ THAT SQL IS REVIEWED AND UNEXECUTED. The parity test needs a database; Docker cannot run in this container and starting the daemon was attempted and refused, so the test SKIPPED. Everything else in the stack was executed. Run 'LISTING_PARITY_DB=1 npx vitest run src/test/listing-page-sql-parity.test.ts' against a local stack before or straight after applying 00771 - PENDING_MIGRATIONS.md carries the same warning plus the rollback (re-run 00721 verbatim). The Aged tab badge shows NO number rather than a wrong one, because aged is not a status and the server-side status grouping cannot count it. HELD: 00771 committed, not pushed."
     }
   ]
 }
