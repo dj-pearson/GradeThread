@@ -134,7 +134,6 @@ import {
   specsFromEbayAspectSpecs,
 } from "./aspect-reconcile.ts";
 import {
-  buildPlainMeasurementsText,
   hasCalibratedMeasurements,
   resolveMeasurementAspects,
 } from "./measurements.ts";
@@ -152,10 +151,7 @@ import {
   type DisclosureInput,
   type PerImageAnalysisLike,
 } from "./disclosure.ts";
-import {
-  loadSellerCredential,
-  loadSellerCredentialBlock,
-} from "./seller-credentials-job.ts";
+import { loadSellerCredential } from "./seller-credentials-job.ts";
 import {
   getMarketplaceSpec,
   type MarketplacePlatform,
@@ -3890,44 +3886,21 @@ export async function generatePlatformVariants(
     )
   );
 
-  // 6b. US-1126: embed the seller's verified credentials into EACH platform's
-  // description so the trust signal reaches buyers on every marketplace, not just
-  // eBay. These platforms render plain text (no HTML), so append the plain block —
-  // only when it still fits the platform's description cap (never push a listing
-  // over its limit). Gated server-side on verified + opted-in (null otherwise).
-  const crossCredential = await loadSellerCredentialBlock(ownerId);
-  if (crossCredential) {
-    for (const v of variants) {
-      const spec = getMarketplaceSpec(v.platform);
-      const addition = `\n\n${crossCredential.plain}`;
-      const max = spec?.descriptionMaxLength ?? null;
-      if (max == null || v.description.length + addition.length <= max) {
-        v.description = `${v.description}${addition}`;
-      }
-    }
-  }
-
-  // 6c. US-1578: measurements ride EVERY platform. The text pass rewrites the
-  // eBay description per platform and may drop the measurements section — so
-  // append the deterministic plain-text block (no HTML markers) to any variant
-  // that lost it, within the platform's description cap. Buyers comparing
-  // across marketplaces always see the same numbers.
-  const plainMeasurements = buildPlainMeasurementsText(item.measurements, "in", {
-    calibrated: hasCalibratedMeasurements(item.ai_field_sources),
-  });
-  if (plainMeasurements) {
-    for (const v of variants) {
-      if (v.description.includes("Measurements (garment laid flat)")) continue;
-      const spec = getMarketplaceSpec(v.platform);
-      const addition = `
-
-${plainMeasurements}`;
-      const max = spec?.descriptionMaxLength ?? null;
-      if (max == null || v.description.length + addition.length <= max) {
-        v.description = `${v.description}${addition}`;
-      }
-    }
-  }
+  // 6b/6c ARE GONE, and this is where they were.
+  //
+  // They appended the verified-seller credential (US-1126) and the plain
+  // measurements block (US-1578) INTO each variant's description string. Both
+  // facts still reach every platform — they are now DERIVED at payload-build
+  // time by platform-description.ts, from the same RenderContext eBay renders
+  // from, rather than frozen into a string at generation time.
+  //
+  // That is the whole point of the change: the seller corrects a measurement or
+  // gets verified, and every channel picks it up without another AI call.
+  // Appending here as well would print each fact twice, once stale and once
+  // current, so the variant now stores the platform's WORDS and nothing else.
+  //
+  // Variants generated before this shipped still carry the appended sections;
+  // `stripDerivedSections` removes them on the way out.
 
   // 7. Persist, merging into any existing platform_fields.
   const now = new Date().toISOString();

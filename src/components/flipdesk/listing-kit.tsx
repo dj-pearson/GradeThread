@@ -200,6 +200,7 @@ function PlatformPanel({
   primaryId,
   baseName,
   itemId,
+  liveDescription,
 }: {
   platform: MarketplacePlatform;
   variant: PlatformKitVariant | undefined;
@@ -209,6 +210,16 @@ function PlatformPanel({
   primaryId: string | null;
   baseName: string;
   itemId: string;
+  /**
+   * This platform's description re-rendered by the edge from the listing's
+   * description blocks (platform-description.ts). Undefined until the query
+   * lands, and null when the listing has no blocks to render — both fall back
+   * to the stored variant's words. The caller passes `|| undefined` rather
+   * than `?? undefined`: an empty render means there was nothing to render, and
+   * blanking the field the seller is about to cross-post is worse than showing
+   * the words already stored.
+   */
+  liveDescription?: string | null;
 }) {
   const qc = useQueryClient();
   const spec = getMarketplaceSpec(platform);
@@ -256,6 +267,12 @@ function PlatformPanel({
           toast.success(`${spec?.label ?? platform} listing is live — recorded in FlipDesk.`);
           void qc.invalidateQueries({ queryKey: ["platform-fields", itemId] });
           void qc.invalidateQueries({ queryKey: ["item_listing_platforms"] });
+          // The composer's own views of the item. A confirmed cross-post flips
+          // the item to `listed`, and leaving these stale is why the status
+          // chip beside the editor kept saying "drafted" after the toast said
+          // the opposite.
+          void qc.invalidateQueries({ queryKey: ["items_full"] });
+          void qc.invalidateQueries({ queryKey: ["inventory_item_ebay", itemId] });
         } catch {
           // Silent: the seller never asked for this, and the manual path covers it.
         }
@@ -312,6 +329,8 @@ function PlatformPanel({
       setPrefilled(false);
       void qc.invalidateQueries({ queryKey: ["platform-fields", itemId] });
       void qc.invalidateQueries({ queryKey: ["item_listing_platforms"] });
+      void qc.invalidateQueries({ queryKey: ["items_full"] });
+      void qc.invalidateQueries({ queryKey: ["inventory_item_ebay", itemId] });
     } catch (err) {
       toastError(err, "Couldn't record the listing.");
     } finally {
@@ -353,10 +372,17 @@ function PlatformPanel({
   // money on every cross-post, and the number is shown in the row below before
   // they send it, so it is a visible adjustment rather than a silent one.
   const steppedPrice = stepPrice(resolvedPrice, spec.priceStep ?? 0);
+  // The description the edge just rendered from this listing's blocks against
+  // the item's CURRENT facts. It replaces the stored variant's string for the
+  // same reason the stepped price replaces the stored price: what the panel
+  // shows and what the extension types must be the one thing. Falls back to the
+  // stored words when the render has not landed (or failed) — yesterday's
+  // wording beats a blank description field.
+  const resolvedDescription = liveDescription ?? variant.description;
   const priced: PlatformKitVariant =
-    steppedPrice === variant.price
+    steppedPrice === variant.price && resolvedDescription === variant.description
       ? variant
-      : { ...variant, price: steppedPrice };
+      : { ...variant, price: steppedPrice, description: resolvedDescription };
   const valueOf = (f: FieldSpec) =>
     edits[f.key] ?? fieldValue(f.key, priced);
 
@@ -963,7 +989,10 @@ export function ListingKit({ itemId, baseName }: { itemId: string; baseName?: st
     queryFn: async () => {
       const { data: rows } = await supabase
         .from("item_photos")
-        .select("id, photo_url, photo_type, sort_order")
+        // photo_role is what tells the MeasureCard frame apart from a tape
+        // close-up (US-2462); without it every 'measurement' photo reads as the
+        // card and a deliberately published close-up would be dropped.
+        .select("id, photo_url, photo_type, photo_role, sort_order")
         .eq("inventory_item_id", itemId)
         .order("sort_order", { ascending: true });
       return (rows ?? []) as ExportablePhoto[];
@@ -1058,6 +1087,29 @@ export function ListingKit({ itemId, baseName }: { itemId: string; baseName?: st
   }, [data?.platform_fields, gen.data]);
 
   const hasAny = Object.keys(variants).length > 0;
+
+  // The descriptions, rendered NOW from the listing's blocks.
+  //
+  // `platform_fields[platform].description` is a snapshot of what the facts
+  // were the last time the AI ran. This asks the edge for the same blocks eBay
+  // renders, with each platform's own prose in place of the eBay wording, so a
+  // measurement or a colour corrected in the composer reaches every channel
+  // with no AI call and no button. Keyed on the listing id and the channel set;
+  // the composer's save already invalidates ["platform-fields", itemId], and
+  // this rides the same key so one save refreshes both.
+  const { data: liveDescriptions } = useQuery({
+    queryKey: ["platform-descriptions", data?.id ?? null, kitPlatforms],
+    enabled: Boolean(data?.id) && kitPlatforms.length > 0,
+    queryFn: async () => {
+      const res = await edgeFetch(
+        `/api/flipdesk/description/${data!.id}/platform-descriptions` +
+          `?platforms=${encodeURIComponent(kitPlatforms.join(","))}`,
+      );
+      if (!res.ok) return {} as Record<string, string>;
+      const json = await res.json().catch(() => ({}));
+      return (json.descriptions ?? {}) as Record<string, string>;
+    },
+  });
   // 2026-09-02: the batch worker fills the kit with the draft. Say so, because
   // a seller who never pressed the button is otherwise left wondering where
   // the copy came from.
@@ -1137,6 +1189,7 @@ export function ListingKit({ itemId, baseName }: { itemId: string; baseName?: st
                 primaryId={primaryId}
                 baseName={baseName ?? `item-${itemId.slice(0, 8)}`}
                 itemId={itemId}
+                liveDescription={liveDescriptions?.[p] || undefined}
               />
             </TabsContent>
           ))}

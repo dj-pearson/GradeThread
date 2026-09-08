@@ -1466,6 +1466,26 @@ export function isNonListablePhotoType(
   return (NON_LISTABLE_PHOTO_TYPES as readonly string[]).includes(t ?? "");
 }
 
+// Owner decision, 2026-09-07. Mirror of the edge's
+// EXTENSION_INELIGIBLE_PHOTO_TYPES (item-photo-storage.ts).
+//
+// Neither the MeasureCard nor anything derived from it travels to a
+// browser-extension marketplace. The card frame ('measurement' with no role) is
+// already unlistable everywhere; 'measurement_overlay' is the GENERATED
+// annotated render, which US-2625 kept off eBay alone on the reading that the
+// graphic is close to expected on Poshmark and Mercari. That is reversed for
+// the extension channels: the numbers ride in the description, the picture does
+// not.
+export const EXTENSION_INELIGIBLE_PHOTO_TYPES = ["measurement_overlay"] as const;
+
+export function isExtensionIneligiblePhotoType(
+  t?: string | null,
+  role?: string | null,
+): boolean {
+  return isNonListablePhotoType(t, role) ||
+    (EXTENSION_INELIGIBLE_PHOTO_TYPES as readonly string[]).includes(t ?? "");
+}
+
 // US-979 / US-1638 mirror of the edge's SENSITIVE_ITEM_PHOTO_TYPES
 // (services/edge-functions/src/lib/item-photo-storage.ts). These close-ups can
 // carry PII — serials, receipts, certificate numbers — so their originals live

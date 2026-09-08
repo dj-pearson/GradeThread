@@ -2286,6 +2286,13 @@ export function FlipdeskComposerPage({
       });
       // US-1895: refresh the recommended-coverage meter after an aspect save.
       await qc.invalidateQueries({ queryKey: ["recommended-coverage", item.id] });
+      // The extension channels' descriptions are DERIVED from this listing's
+      // blocks and this item's facts (platform-description.ts on the edge), so
+      // a save that changed a measurement, a colour or the prose has just
+      // changed what Poshmark and Mercari would receive. Without this the kit
+      // below would keep showing — and sending — the render from before the
+      // edit, which is the exact staleness the block model exists to end.
+      await qc.invalidateQueries({ queryKey: ["platform-descriptions"] });
       markSaved({
         ...syncCascadedCategory(itemPatch),
         ...adoptSyncedTitle(titlePatch),

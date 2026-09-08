@@ -22,6 +22,7 @@ import {
   QUEUE_SELECT_COLS,
 } from "../lib/extension-enqueue.ts";
 import { getMarketplaceSpec } from "../lib/marketplace-specs.ts";
+import { renderPlatformDescriptionsForListing } from "../lib/platform-description.ts";
 
 // US-2481: queue extension work from mobile, drain it on the desktop.
 //
@@ -247,13 +248,16 @@ async function hydrateListRows(
         .from("item_photos")
         // US-268 via the parent: ownedIds came out of the owner-scoped query
         // above, so no row here can belong to another workspace.
-        .select("id, inventory_item_id, photo_url, sort_order")
+        // photo_type + photo_role are what let orderedListPhotos drop the
+        // MeasureCard frame and its generated render. Without them every photo
+        // reads as listable and the card reaches Poshmark.
+        .select("id, inventory_item_id, photo_url, photo_type, photo_role, sort_order")
         .in("inventory_item_id", ownedIds)
         .order("sort_order", { ascending: true }),
       supabaseAdmin
         .from("listings")
         .select(
-          "inventory_item_id, platform, listing_title, listing_description, listing_price, primary_photo_id, platform_fields",
+          "id, inventory_item_id, platform, listing_title, listing_description, listing_price, primary_photo_id, platform_fields",
         )
         .eq("user_id", ownerId) // US-268
         .eq("platform", "ebay")
@@ -263,11 +267,18 @@ async function hydrateListRows(
   const photos = new Map<string, ListPayloadPhoto[]>();
   for (const r of (photosRes.data ?? []) as (ListPayloadPhoto & { inventory_item_id: string })[]) {
     const list = photos.get(r.inventory_item_id) ?? [];
-    list.push({ id: r.id, photo_url: r.photo_url, sort_order: r.sort_order });
+    list.push({
+      id: r.id,
+      photo_url: r.photo_url,
+      sort_order: r.sort_order,
+      photo_type: r.photo_type ?? null,
+      photo_role: r.photo_role ?? null,
+    });
     photos.set(r.inventory_item_id, list);
   }
 
   const drafts = new Map<string, {
+    id: string;
     listing_title: string | null;
     listing_description: string | null;
     listing_price: number | null;
@@ -275,11 +286,46 @@ async function hydrateListRows(
     platform_fields: Record<string, unknown> | null;
   }>();
   for (const r of (draftsRes.data ?? []) as (
-    & { inventory_item_id: string | null; platform_fields: Record<string, unknown> | null }
+    & { id: string; inventory_item_id: string | null; platform_fields: Record<string, unknown> | null }
     & { listing_title: string | null; listing_description: string | null; listing_price: number | null; primary_photo_id: string | null }
   )[]) {
     if (r.inventory_item_id) drafts.set(r.inventory_item_id, r);
   }
+
+  // The description is RE-RENDERED here, not read out of platform_fields.
+  //
+  // A queued cross-post can sit for days, and the whole point of the block
+  // model is that a measurement corrected this morning reaches every channel
+  // without another AI call. Rendering at claim — the same moment the title is
+  // filled, for the same reason — is what makes that true for the phone path
+  // too. Failure is not fatal: the map simply has no entry and buildListPayload
+  // falls back to the stored words.
+  const freshDescriptions = new Map<string, Record<string, string>>();
+  await Promise.all(
+    [...drafts.entries()].map(async ([itemId, draft]) => {
+      const wanted = [
+        ...new Set(
+          listRows
+            .filter((r) => r.inventory_item_id === itemId)
+            .map((r) => r.platform),
+        ),
+      ];
+      if (wanted.length === 0) return;
+      try {
+        const rendered = await renderPlatformDescriptionsForListing(
+          draft.id,
+          ownerId,
+          wanted.map((platform) => ({
+            platform,
+            maxLength: getMarketplaceSpec(platform)?.descriptionMaxLength ?? null,
+          })),
+        );
+        freshDescriptions.set(itemId, rendered);
+      } catch (err) {
+        console.error("[extension-queue] description render failed", itemId, err);
+      }
+    }),
+  );
 
   const refused: { row: QueueRow; reason: ListPayloadRefusal }[] = [];
   const out = rows.map((row) => {
@@ -315,6 +361,8 @@ async function hydrateListRows(
         : null,
       maxPhotos: spec?.maxPhotos ?? 12,
       platformLabel: spec?.label ?? row.platform,
+      renderedDescription:
+        freshDescriptions.get(row.inventory_item_id)?.[row.platform] ?? null,
     });
     return { ...row, payload: mergeHydratedPayload(row.payload ?? {}, hydrated) };
   });

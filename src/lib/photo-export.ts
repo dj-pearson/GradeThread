@@ -13,23 +13,40 @@
 import { downloadZip } from "client-zip";
 import { downloadBlob } from "@/lib/download";
 import { getMarketplaceSpec, type MarketplacePlatform } from "@/lib/marketplace-specs";
+import { isExtensionIneligiblePhotoType } from "@/lib/constants";
 
 export interface ExportablePhoto {
   id: string;
   photo_url: string;
   photo_type: string | null;
+  /**
+   * US-2462: 'measurement' means two different photos and only the ROLELESS one
+   * is the MeasureCard frame. Absent on a caller that has not selected it,
+   * which reads as null and therefore as "the card" — the safe side, since the
+   * cost of dropping a tape close-up is one missing photo and the cost of
+   * keeping the card is a branded foreign object on a live listing.
+   */
+  photo_role?: string | null;
   sort_order: number;
 }
 
 // Cover-first (primary photo), then ascending sort_order, capped to the
 // platform's max photo count.
+//
+// The MeasureCard and its generated render are dropped BEFORE the cap, not
+// after: counting a photo that will never be sent against a 12-photo Poshmark
+// limit costs the seller a real listing image (owner decision, 2026-09-07 —
+// see EXTENSION_INELIGIBLE_PHOTO_TYPES).
 export function orderedCappedPhotos(
   photos: ExportablePhoto[],
   primaryId: string | null,
   platform: MarketplacePlatform,
 ): ExportablePhoto[] {
   const cap = getMarketplaceSpec(platform)?.maxPhotos ?? photos.length;
-  const sorted = [...photos].sort((a, b) => a.sort_order - b.sort_order);
+  const eligible = photos.filter(
+    (p) => !isExtensionIneligiblePhotoType(p.photo_type, p.photo_role ?? null),
+  );
+  const sorted = [...eligible].sort((a, b) => a.sort_order - b.sort_order);
   if (primaryId) {
     const idx = sorted.findIndex((p) => p.id === primaryId);
     if (idx > 0) {

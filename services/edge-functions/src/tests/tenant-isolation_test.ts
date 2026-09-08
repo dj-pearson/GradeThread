@@ -2005,7 +2005,7 @@ Deno.test({
   },
 });
 
-// US-3138: /tag-brand is a pure lookup over OUR curated brand table — it reads
+// US-3139: /tag-brand is a pure lookup over OUR curated brand table — it reads
 // no table, no storage, and echoes nothing from the request back. There is no
 // cross-tenant resource to reach, so the isolation requirement reduces to the
 // one the embed endpoint above has: it must still require auth.
@@ -7654,6 +7654,53 @@ Deno.test({
     );
     await res.body?.cancel();
     assertDenied(res.status, "POST description regenerate");
+  },
+});
+
+// ── The extension channels' rendered descriptions (2026-09-07) ─────
+//
+// Read-only, and worth a case for exactly that reason: it renders another
+// tenant's brand, size, colour, measurements and grade into plain text and
+// returns it. A leak here is the whole garment record in a response body, and
+// nothing about the request looks like an attack — it is a GET with an id in
+// the path.
+Deno.test({
+  name: "B cannot render A's listing into a marketplace description",
+  ignore: !CONFIGURED || !Deno.env.get("TEST_USER_A_LISTING_ID"),
+  fn: async () => {
+    const listingId = Deno.env.get("TEST_USER_A_LISTING_ID")!;
+    const res = await fetch(
+      `${BASE}/api/flipdesk/description/${listingId}/platform-descriptions?platforms=poshmark`,
+      { headers: authHeaders(B_JWT!) },
+    );
+    await res.body?.cancel();
+    assertDenied(res.status, "GET platform-descriptions");
+  },
+});
+
+// ── The extension's publish confirmation (2026-09-07) ──────────────
+//
+// POST /api/grading/public/listed-confirm takes an ITEM id and flips a listing
+// to active. Its front door is the extension's own bearer token rather than a
+// SaaS session, which is precisely why it needs a case: a second auth dialect
+// is a second place the owner check can be missed, and the write here marks an
+// item listed and spends a plan slot.
+Deno.test({
+  name: "B cannot mark A's item listed through the extension confirmation",
+  ignore: !CONFIGURED || !Deno.env.get("TEST_USER_A_ITEM_ID"),
+  fn: async () => {
+    const itemId = Deno.env.get("TEST_USER_A_ITEM_ID")!;
+    const res = await fetch(`${BASE}/api/grading/public/listed-confirm`, {
+      method: "POST",
+      headers: authHeaders(B_JWT!),
+      body: JSON.stringify({
+        item_id: itemId,
+        platform: "poshmark",
+        listing_url: "https://poshmark.com/listing/abc-123",
+      }),
+    });
+    await res.body?.cancel();
+    assertDenied(res.status, "POST listed-confirm");
   },
 });
 

@@ -203,3 +203,81 @@ Deno.test("both refusals name the fix, not just the fault", () => {
   }
   assert(/queue it again/i.test(LIST_REFUSAL_REASON.no_photos));
 });
+
+// ─── The MeasureCard stays home (owner decision, 2026-09-07) ───────
+
+Deno.test("the MeasureCard frame and its generated render never reach a marketplace", () => {
+  const photos = [
+    { id: "p1", photo_url: "front", sort_order: 0, photo_type: "front", photo_role: null },
+    // The calibration frame: the garment flat with the branded card beside it.
+    { id: "p2", photo_url: "card", sort_order: 1, photo_type: "measurement", photo_role: null },
+    // The generated annotated render — lines and inch labels burned in.
+    {
+      id: "p3",
+      photo_url: "overlay",
+      sort_order: 2,
+      photo_type: "measurement_overlay",
+      photo_role: null,
+    },
+    { id: "p4", photo_url: "back", sort_order: 3, photo_type: "back", photo_role: null },
+  ];
+  assertEquals(
+    orderedListPhotos(photos, null, 12).map((p) => p.photo_url),
+    ["front", "back"],
+  );
+});
+
+Deno.test("a tape close-up the seller published deliberately still goes", () => {
+  // US-2462: 'measurement' WITH a role is a tape shot, not the card.
+  const photos = [
+    { id: "p1", photo_url: "front", sort_order: 0, photo_type: "front", photo_role: null },
+    {
+      id: "p2",
+      photo_url: "chest",
+      sort_order: 1,
+      photo_type: "measurement",
+      photo_role: "measurement_chest",
+    },
+  ];
+  assertEquals(
+    orderedListPhotos(photos, null, 12).map((p) => p.photo_url),
+    ["front", "chest"],
+  );
+});
+
+Deno.test("an excluded photo does not spend one of the platform's slots", () => {
+  // Dropped BEFORE the cap. Counting the card against a 2-photo limit would
+  // cost the seller a real listing image.
+  const photos = [
+    { id: "p1", photo_url: "card", sort_order: 0, photo_type: "measurement", photo_role: null },
+    { id: "p2", photo_url: "front", sort_order: 1, photo_type: "front", photo_role: null },
+    { id: "p3", photo_url: "back", sort_order: 2, photo_type: "back", photo_role: null },
+  ];
+  assertEquals(
+    orderedListPhotos(photos, null, 2).map((p) => p.photo_url),
+    ["front", "back"],
+  );
+});
+
+Deno.test("a photo with no type at all still lists", () => {
+  // Rows that predate the type column, and every caller that does not select
+  // it. Dropping these would empty the payload and refuse the cross-post.
+  const photos = [{ id: "p1", photo_url: "a", sort_order: 0 }];
+  assertEquals(orderedListPhotos(photos, null, 12).length, 1);
+});
+
+Deno.test("a freshly rendered description wins over the stored variant", () => {
+  const out = buildListPayload(input({
+    platformFields: { title: "x", description: "yesterday's words" },
+    renderedDescription: "today's words, with today's measurements",
+  }));
+  assertEquals(out.description, "today's words, with today's measurements");
+
+  // And when the render could not be done, the stored words still go out — a
+  // cross-post with old wording beats no cross-post.
+  const fallback = buildListPayload(input({
+    platformFields: { title: "x", description: "yesterday's words" },
+    renderedDescription: null,
+  }));
+  assertEquals(fallback.description, "yesterday's words");
+});

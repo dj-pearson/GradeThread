@@ -127,14 +127,18 @@ Deno.test("a valid extension token round-trips, and a tampered one does not", as
 // which logs the redacted cause under a tag and returns a safe body.
 
 Deno.test("extension-writeback logs every failure instead of swallowing it", () => {
-  const src = Deno.readTextFileSync(
-    new URL("../routes/flipdesk-listings.ts", import.meta.url),
+  // The body moved out of flipdesk-listings.ts on 2026-09-07: the extension's
+  // background worker reports a completed cross-post over its own bearer token
+  // (public-grading /listed-confirm), so the same ~180 lines now serve two front
+  // doors and live in a lib. Reading the route file after that move would have
+  // scanned a five-line delegation and passed on anything.
+  const route = Deno.readTextFileSync(
+    new URL("../lib/extension-writeback.ts", import.meta.url),
   );
-  const start = src.indexOf('flipdeskListingsRoutes.post("/extension-writeback"');
-  assert(start > -1, "extension-writeback route not found");
-  // To the next route declaration, so this reads only the handler.
-  const after = src.indexOf("flipdeskListingsRoutes.", start + 40);
-  const route = src.slice(start, after > -1 ? after : undefined);
+  assert(
+    route.includes("export async function handleExtensionWriteback"),
+    "extension-writeback body not found — did it move again?",
+  );
 
   const bare = [...route.matchAll(/c\.json\(\s*\{\s*error:[^}]*\}\s*,\s*500\s*\)/g)];
   assertEquals(

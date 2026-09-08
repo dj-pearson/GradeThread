@@ -6,6 +6,7 @@ import {
   type PublicStats,
   type PublicTransparencyReport,
 } from "../lib/accuracy-tracking.ts";
+import { handleExtensionWriteback } from "../lib/extension-writeback.ts";
 import { getIndexCurveBySlug, getIndexHub } from "../lib/condition-index.ts";
 import { getValueHub, resolveValueCurve } from "../lib/value-index.ts";
 import { getDurabilityByBrand, getDurabilityHub } from "../lib/durability-index.ts";
@@ -2626,3 +2627,57 @@ async function loadOptOuts(userIds: string[]): Promise<Set<string> | null> {
   }
   return out;
 }
+
+// ── The extension's own publish confirmation ──────────────────────────────
+//
+// A cross-post through the extension ENDS when the seller hits Submit on the
+// marketplace, minutes after the fill returned. The background worker sees that
+// as a tab navigation to a live-listing URL, and until now the only thing it did
+// with that was push a message to the GradeThread TAB that started the job. A
+// seller who had closed that tab, or who queued the cross-post from their phone,
+// got nothing — the row stayed a draft until they came back and clicked "I
+// published it", once per marketplace, forever.
+//
+// This is the same event reported over the extension's own bearer token, so it
+// no longer needs a tab to exist. The body is `handleExtensionWriteback`, shared
+// with the SaaS route, because two copies of that listing-status reasoning would
+// drift and the drift would be silent.
+//
+// The URL is not trusted for anything: `isLiveListingUrl` in the extension has
+// already host-pinned it to the platform's own domain before this is called, and
+// the writeback only ever writes it onto a row the OWNER check below reached.
+const listedConfirmRoutes = new Hono<{ Variables: { userId: string } }>();
+
+listedConfirmRoutes.post("/listed-confirm", async (c) => {
+  const who = await extensionSellerId(c);
+  if (!who.ok) return c.json({ error: who.error }, who.status, { "Cache-Control": "no-store" });
+
+  let body: { item_id?: unknown; platform?: unknown; listing_url?: unknown };
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: "Invalid JSON body." }, 400);
+  }
+  const url = typeof body.listing_url === "string" && /^https:\/\//.test(body.listing_url)
+    ? body.listing_url.slice(0, 500)
+    : null;
+  if (!url) return c.json({ error: "An https listing_url is required." }, 400);
+
+  // requireFlipdesk inside the writeback reads c.get("userId") only when the
+  // caller passes none; it is set here anyway so the capacity gate and any
+  // logging downstream see the same seller the token proved.
+  c.set("userId", who.userId);
+
+  // `published: true` unconditionally. The extension only reaches here from a
+  // navigation its own guard confirmed is a live listing page — that IS the
+  // publish, and reporting it as a prefill would recreate the stuck-draft this
+  // route exists to remove.
+  return await handleExtensionWriteback(c, who.userId, {
+    item_id: body.item_id,
+    platform: body.platform,
+    listing_url: url,
+    published: true,
+  });
+});
+
+publicGradingRoutes.route("/", listedConfirmRoutes);

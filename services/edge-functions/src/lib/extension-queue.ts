@@ -260,6 +260,9 @@ export interface ListPayloadPhoto {
   id: string;
   photo_url: string;
   sort_order: number;
+  /** For the MeasureCard exclusion below. Absent on a caller that predates it. */
+  photo_type?: string | null;
+  photo_role?: string | null;
 }
 
 /** The eBay draft row a fallback borrows its words and price from. */
@@ -283,10 +286,41 @@ export interface BuildListPayloadInput {
   maxPhotos: number;
   /** The platform's display name (`MarketplaceSpec.label`). */
   platformLabel: string;
+  /**
+   * The description re-rendered from the listing's blocks against the item's
+   * CURRENT facts (platform-description.ts). Wins over the stored variant,
+   * which is a snapshot of what the facts were when the kit last ran. Null when
+   * the render could not be done — then the stored words are used, because
+   * yesterday's wording beats no cross-post at all.
+   */
+  renderedDescription?: string | null;
 }
 
 function str(v: unknown): string {
   return typeof v === "string" ? v : "";
+}
+
+/**
+ * Whether a photo is barred from an extension cross-post.
+ *
+ * RESTATED, not imported, for the reason this whole module has no imports: it
+ * is the pure half of the queue and its tests run without a Supabase client,
+ * while `isExtensionIneligiblePhoto` lives in item-photo-storage.ts next to
+ * one. `extension-queue-payload_test.ts` pins the two against one fixture, the
+ * same arrangement `orderedListPhotos` already has with the SPA's copy.
+ *
+ * 'measurement' with NO role is the MeasureCard frame; with a role it is a tape
+ * close-up a seller published deliberately (US-2462). 'measurement_overlay' is
+ * the generated annotated render — off every extension channel by owner
+ * decision, 2026-09-07.
+ */
+export function isExtensionIneligibleListPhoto(
+  photoType?: string | null,
+  photoRole?: string | null,
+): boolean {
+  const t = photoType ?? "";
+  if (t === "measurement") return !photoRole;
+  return t === "internal" || t === "measurement_overlay";
 }
 
 /**
@@ -295,13 +329,20 @@ function str(v: unknown): string {
  * The same rule as `orderedCappedPhotos` in src/lib/photo-export.ts, restated
  * rather than imported because the edge and the SPA share no module graph.
  * `photo-order` in the test file pins the two against one fixture.
+ *
+ * The MeasureCard and its generated render are dropped BEFORE the cap, for the
+ * same reason the SPA drops them there: a photo that will never be sent must
+ * not spend one of Poshmark's twelve slots.
  */
 export function orderedListPhotos(
   photos: readonly ListPayloadPhoto[],
   primaryId: string | null,
   maxPhotos: number,
 ): ListPayloadPhoto[] {
-  const sorted = [...photos].sort((a, b) => a.sort_order - b.sort_order);
+  const eligible = photos.filter(
+    (p) => !isExtensionIneligibleListPhoto(p.photo_type, p.photo_role),
+  );
+  const sorted = [...eligible].sort((a, b) => a.sort_order - b.sort_order);
   if (primaryId) {
     const idx = sorted.findIndex((p) => p.id === primaryId);
     if (idx > 0) {
@@ -366,7 +407,8 @@ export function buildListPayload(
     // GT.runFlow reads ONE payload shape and a missing key is a different bug.
     newListingUrl: "",
     title: str(v.title) || str(draft?.listing_title) || str(input.item.title),
-    description: str(v.description) || str(draft?.listing_description),
+    description: str(input.renderedDescription) || str(v.description) ||
+      str(draft?.listing_description),
     price: priceNumber != null && priceNumber > 0 ? String(priceNumber) : "",
     // Never inferred. Poshmark's "original price" is a claim about retail, and
     // guessing it from a purchase price would put a number the seller never

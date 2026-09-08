@@ -95,6 +95,40 @@ export function filterEbayPhotos<
   );
 }
 
+// Owner decision, 2026-09-07: neither the MeasureCard nor anything derived from
+// it travels to a browser-extension marketplace.
+//
+// `measurement` (with no role) is the card frame itself and is already
+// unlistable everywhere. `measurement_overlay` is the GENERATED render — the
+// annotated flat-lay with the lines and inch labels burned in. US-2625 kept it
+// off eBay only, on the reading that a measurements graphic is close to
+// expected on Poshmark and Mercari. The owner's call reverses that for the
+// extension channels: the numbers ride in the description, the picture does
+// not. eBay's own exclusion (filterEbayPhotos) is unchanged and independent.
+export const EXTENSION_INELIGIBLE_PHOTO_TYPES = new Set<string>([
+  "measurement_overlay",
+]);
+
+export function isExtensionIneligiblePhoto(
+  photoType?: string | null,
+  photoRole?: string | null,
+): boolean {
+  return isNonListableItemPhoto(photoType, photoRole) ||
+    EXTENSION_INELIGIBLE_PHOTO_TYPES.has(photoType ?? "");
+}
+
+/**
+ * The photo set for a cross-post through the browser extension.
+ *
+ * Every extension photo selection must go through this rather than
+ * filterListablePhotos, or the MeasureCard render reaches Poshmark.
+ */
+export function filterExtensionPhotos<
+  T extends { photo_type?: string | null; photo_role?: string | null },
+>(rows: T[]): T[] {
+  return rows.filter((r) => !isExtensionIneligiblePhoto(r.photo_type, r.photo_role));
+}
+
 export const ITEM_PHOTOS_BUCKET = "item-photos";
 export const SUBMISSION_IMAGES_BUCKET = "submission-images";
 

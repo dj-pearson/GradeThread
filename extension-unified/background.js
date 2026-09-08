@@ -139,6 +139,12 @@ const REVISE_CONFIRM_ENDPOINT =
 // ends the old one.
 const RELIST_LISTED_ENDPOINT =
   "https://functions.gradethread.com/api/grading/public/relist-listed";
+// The cross-post went live. Reported by the background rather than pushed to a
+// GradeThread tab, because there very often is not one: the seller closed it, or
+// queued the job from their phone. Without this every extension publish stayed a
+// draft until somebody came back and pressed "I published it" once per channel.
+const LISTED_CONFIRM_ENDPOINT =
+  "https://functions.gradethread.com/api/grading/public/listed-confirm";
 // US-1808: hand ONE listing the shopper is looking at to their own saved-search
 // alerts. Signed-in only (the server 401s without a token) — the whole point is
 // that the listing is checked against THAT buyer's criteria, so there is no
@@ -531,6 +537,34 @@ async function confirmRelistListed(newListingId, url) {
         Authorization: "Bearer " + gtBuyerToken,
       },
       body: JSON.stringify({ new_listing_id: newListingId, listing_url: url }),
+    });
+    return resp.ok;
+  } catch (_e) {
+    return null;
+  }
+}
+
+/**
+ * Record a completed cross-post: the tab navigated to a live listing page, so
+ * the seller submitted the form.
+ *
+ * Fire-and-forget by design. The server is the record; a failure here costs the
+ * seller the automatic promotion and leaves "I published it" exactly where it
+ * was, which is the same place they were before this existed. Returns null when
+ * there is no token or no item to attribute the listing to.
+ */
+async function confirmExtensionListed(itemId, platform, url) {
+  const { gtBuyerToken } = await ext.storage.local.get("gtBuyerToken");
+  if (!gtBuyerToken || typeof gtBuyerToken !== "string") return null;
+  if (!itemId || !platform || !url) return null;
+  try {
+    const resp = await fetch(LISTED_CONFIRM_ENDPOINT, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: "Bearer " + gtBuyerToken,
+      },
+      body: JSON.stringify({ item_id: itemId, platform: platform, listing_url: url }),
     });
     return resp.ok;
   } catch (_e) {
@@ -3311,6 +3345,17 @@ if (ext.tabs && ext.tabs.onUpdated && ext.tabs.onUpdated.addListener) {
             body: JSON.stringify({ ok: true, result: { listingUrl: url, copied: true } }),
           });
         }
+      } else {
+        // An ordinary cross-post went live. Told to the SERVER first, and told
+        // whether or not a GradeThread tab is open — that independence is the
+        // whole point. The push below still runs, so an open Listing Kit
+        // updates on the spot, but it is now a nicety rather than the only
+        // path from "the seller submitted" to "FlipDesk knows".
+        // The queue row, if there was one, was already completed by reportJob
+        // when the FILL returned — a drained list job reports the fill, not the
+        // publish. Completing it again here would be a second report of the same
+        // row, so this branch only records the listing.
+        await confirmExtensionListed(watch.itemId, watch.platform, url);
       }
       try {
         await ext.tabs.sendMessage(watch.saasTabId, {

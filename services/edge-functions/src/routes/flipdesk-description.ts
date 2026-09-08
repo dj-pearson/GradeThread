@@ -12,6 +12,9 @@
 //     -> rewrite ONE ai block. The rest of the array comes back byte-identical.
 //   POST /api/flipdesk/description/snippets/:snippetId/apply
 //     -> re-render the DRAFT listings that reference an edited snippet.
+//   GET  /api/flipdesk/description/:listingId/platform-descriptions
+//     -> the extension channels' descriptions rendered from the SAME blocks,
+//        with each platform's own prose in place of the eBay wording. Read-only.
 //
 // Tenant safety (CLAUDE.md US-268): every handler resolves
 // `workspaceOwnerId ?? userId` and reaches the listing only through
@@ -39,6 +42,9 @@ import {
   renderAndPersistDescription,
 } from "../lib/description-render.ts";
 import { regenerateDescriptionBlock } from "../lib/description-regenerate.ts";
+import { renderPlatformDescriptionsForListing } from "../lib/platform-description.ts";
+import { getMarketplaceSpec } from "../lib/marketplace-specs.ts";
+import { supabaseAdmin } from "../lib/supabase.ts";
 import type { LengthUnit } from "../lib/measurements.ts";
 
 export const flipdeskDescriptionRoutes = new Hono<{
@@ -266,4 +272,65 @@ flipdeskDescriptionRoutes.post("/snippets/:snippetId/apply", async (c) => {
   if (!result) return c.json({ error: "Snippet not found" }, 404);
 
   return c.json(result);
+});
+
+// ─── GET /:listingId/platform-descriptions ─────────────────────────
+
+// The extension channels' descriptions, rendered NOW.
+//
+// The Listing Kit used to show, and send, whatever string the AI wrote the last
+// time somebody pressed "Generate for all marketplaces". Everything derived —
+// measurements, attributes, the grade, the disclosure, the verified-seller
+// block — was baked into that string, so a corrected measurement reached eBay
+// and nowhere else until the seller spent another AI call. This renders the
+// same blocks eBay renders, with the platform's own words in place of the eBay
+// prose, flattened to plain text and capped to the platform's limit.
+//
+// ?platforms=poshmark,mercari — comma-separated, capped at the eight the kit
+// can show. Omitted means "every platform this listing has a variant for",
+// which is what the kit asks for.
+flipdeskDescriptionRoutes.get("/:listingId/platform-descriptions", async (c) => {
+  const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
+  const listingId = c.req.param("listingId");
+
+  // Loaded here as well as inside the renderer, and deliberately. The renderer
+  // answers {} for a listing this workspace does not own, which is the right
+  // answer for a caller that has a fallback — and the wrong answer for THIS
+  // route, where a 200 with an empty map and a 200 with no variants generated
+  // are indistinguishable. The 404 comes from a real ownership check, not from
+  // an empty result that could mean either.
+  const listing = await loadOwnedListing(listingId, ownerId);
+  if (!listing) return c.json({ error: "Listing not found" }, 404);
+
+  const asked = (c.req.query("platforms") ?? "")
+    .split(",")
+    .map((p) => p.trim())
+    .filter(Boolean)
+    .slice(0, 8);
+
+  // No list means "whatever the kit has generated". Read from the row whose
+  // ownership loadOwnedListing already proved.
+  let platforms = asked;
+  if (platforms.length === 0) {
+    const { data } = await supabaseAdmin
+      .from("listings")
+      .select("platform_fields")
+      .eq("id", listing.id)
+      .maybeSingle();
+    const stored = ((data as { platform_fields: Record<string, unknown> | null } | null)
+      ?.platform_fields ?? {}) as Record<string, unknown>;
+    platforms = Object.keys(stored).slice(0, 8);
+  }
+
+  const descriptions = await renderPlatformDescriptionsForListing(
+    listing.id,
+    ownerId,
+    platforms.map((platform) => ({
+      platform,
+      maxLength: getMarketplaceSpec(platform)?.descriptionMaxLength ?? null,
+    })),
+    unitFrom(c.req.query("unit")),
+  );
+
+  return c.json({ descriptions });
 });
