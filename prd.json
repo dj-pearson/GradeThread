@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-3145",
+  "nextId": "US-3164",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -3740,6 +3740,338 @@
         "autolister.tsx drops from 3635 to 3408 lines and its ceiling in src/test/autolister-split.test.ts is lowered in the same commit."
       ],
       "priority": 40
+    },
+    {
+      "id": "US-3145",
+      "passes": false,
+      "title": "[GATE] Nothing in this epic is measurable until the ledger reports output tokens per call per feature",
+      "description": "As the operator paying the Anthropic bill, I want a per-feature BEFORE snapshot of median output tokens and cost per call, so that every effort and cache change in US-3146..US-3152 is judged against a number instead of an expectation.",
+      "acceptanceCriteria": [
+        "scripts/unit-economics.ts (or a sibling script named in this story's note) reports, per `feature` value in ai_usage_events over a --days window: call count, median input_tokens, median output_tokens, median cache_read_tokens, median cost_usd, and total cost_usd. Output tokens are the proxy for thinking spend and are the column this epic moves; today the script reports cost but not the token medians.",
+        "The report separates the three phases unit-economics.ts already classifies (operator / grading / action) so a content-generation regression cannot hide inside a per-action average.",
+        "The script is read-only and takes no destructive flags; running it twice produces the same numbers for the same window.",
+        "A BEFORE snapshot over a 30-day window is run against prod and pasted into this story's note as a table: feature, calls, median output_tokens, median cost_usd, total. That table is the baseline every later story in this epic compares against.",
+        "The note records which features are ALREADY on a non-default effort (grading via gradingSamplingParams, ai-authenticity.ts:841, content-ai-social.ts:276, content-safety.ts:138) so their rows are read as controls rather than as candidates."
+      ],
+      "priority": 9
+    },
+    {
+      "id": "US-3146",
+      "passes": false,
+      "title": "Every Claude call outside grading runs at the default effort high, because 39 of 45 call sites send no output_config at all",
+      "description": "As the operator paying the Anthropic bill, I want the low-judgment vision and classifier calls to run at effort low, so that a pass that fills a fixed schema from one photo stops paying for the deliberation depth a hard reasoning problem needs.",
+      "acceptanceCriteria": [
+        "ai-config.ts exports `effortParams(model, feature, fallback)` returning `{ output_config: { effort } }` on models where modelUsesEffort(model) is true and `{}` otherwise, and `getFeatureEffort(feature, fallback)` reading an AI_EFFORT_<FEATURE> env override clamped to the five supported levels. A unit test pins the no-op on a non-effort model and the clamp on a bad env value.",
+        "effortParams is spread into the messages.create body at every low-judgment call site: ai-tag-ocr.ts:450, ai-photo-roles.ts:149, ai-photo-qa.ts:222, ai-size-estimate.ts:208, ai-reconcile.ts (all 3 calls), marketplace-category-resolve.ts:147, support-abuse.ts, measure-extract.ts, prospect-vision.ts, receipt-extract.ts, ai-group-propose.ts:179 and ai-group-verify.ts:283, each with fallback 'low'.",
+        "A test asserts that every call site listed above sends output_config.effort, so a new call added by copy-paste from an unconverted site is caught rather than silently inheriting the default high.",
+        "NO grading-path call site is touched. ai-grading.ts, ai-provider-anthropic.ts and ai-authenticity.ts keep gradingSamplingParams as their only effort source, so the grading prompt-version lifecycle is unaffected and no eval gate is required for this story.",
+        "The photo-QA change is checked against the auto-publish floor before it ships: ai-config.ts:96-110 records that isGreenDraft auto-publishes at AUTO_PUBLISH_QA_MIN (80) and that the floor was calibrated on the full model. Either the score distribution is re-checked at effort low on a sample of at least 20 photos, or PHOTO_QA is left at its current effort and the reason is recorded in the note.",
+        "AFTER the change, a run of the US-3145 baseline script over an equivalent window shows median output_tokens down for the converted features, and the before/after table goes in this story's note. Schema conformance is unchanged: the tool-call parse failure rate for those features does not rise."
+      ],
+      "priority": 9,
+      "dependsOn": [
+        "US-3145"
+      ]
+    },
+    {
+      "id": "US-3147",
+      "passes": false,
+      "title": "The writing and extraction calls also run at default effort high, and those are the ones where lowering it could actually be felt",
+      "description": "As the operator paying the Anthropic bill, I want extraction, listing generation and content writing to run at a deliberately chosen effort rather than the default, so that the biggest per-call spenders come down without the published copy getting worse.",
+      "acceptanceCriteria": [
+        "effortParams (US-3146) is spread into: ai-extract.ts (all 7 messages.create calls), ai-listing.ts:1093 and :3692, description-regenerate.ts, content-ai-blog.ts:189, content-ai-refresh.ts, content-ai-email.ts, content-ai-research.ts, content-ai-stream.ts, content-image-alt.ts, newsletter-ai-editor.ts, newsletter-copy.ts, newsletter-topic-bank-job.ts, ad-copy-ai.ts, ads-analysis.ts, journey-personalize.ts, routes/admin-drip.ts, routes/content-social.ts.",
+        "Each site names its own feature slug so AI_EFFORT_<FEATURE> can roll ONE of them back without moving the others, matching the per-feature model-override pattern already used by getSizeEstimateModel / getPhotoQaModel / getPlatformVariantModel.",
+        "Starting fallbacks are 'medium' for extraction, listing generation and long-form content, and are recorded in the note with the reason. Any site set to 'low' is named individually.",
+        "Quality is checked before the story closes, not asserted: at least 5 generated listings and 2 generated blog articles produced at the new effort are read and compared against the same prompts at the old effort, and the comparison is written into the note. A regression on either sends that feature's fallback back up rather than reverting the helper.",
+        "The eBay title, item-specifics fill rate and confidence distribution from a 20-item AutoLister batch at the new effort are compared against the US-3044 fill-rate baseline, so a silent drop in specifics coverage cannot be traded for tokens without being seen.",
+        "AFTER numbers from the US-3145 script go in this story's note alongside the BEFORE."
+      ],
+      "priority": 11,
+      "dependsOn": [
+        "US-3145",
+        "US-3146"
+      ]
+    },
+    {
+      "id": "US-3148",
+      "passes": false,
+      "title": "The agent kernel re-bills its system prompt and every tool schema on all 24 steps, because nothing on that call is cached",
+      "description": "As the operator paying for the internal agent fleet and the support assistant, I want both tool loops to place a cache breakpoint, so that a multi-step run pays for its prompt and tool definitions once instead of once per step.",
+      "acceptanceCriteria": [
+        "agent-kernel.ts:858 sends `system` as a text block array with cache_control ephemeral (or top-level cache_control so the last cacheable block is cached), instead of the bare string it sends today. The tools array is inside the cached prefix, since Anthropic renders tools before system.",
+        "routes/support-assistant.ts:598 already caches SUPPORT_SYSTEM_PROMPT; the growing `messages` array is brought under a breakpoint too, so turn N does not re-bill turns 1..N-1 at full price.",
+        "The same is done for lib/support-assistant-engine.ts:365's loop if it builds its own request rather than reusing the route's.",
+        "A unit test asserts the breakpoint is present on the agent-kernel body and that disabling caching (AI_ENABLE_CACHING=0) removes it and changes nothing else about the body.",
+        "The prefix is checked for silent invalidators before the story closes: no timestamp, run id, agent id or unsorted-object serialization appears above the last breakpoint. agent-kernel.ts:466 injects durable memory into the prompt, so the note states whether that block is stable within a run and, if it is not, where it was moved to.",
+        "AFTER a real agent run of at least 8 steps, ai_usage_events shows cache_read_tokens greater than zero for the agent feature slug, and the per-run cost before and after goes in the note. A zero here is investigated against the per-model cache minimum (1,024 tokens on Sonnet, 2,048 on Haiku) documented in US-3047's notes before the breakpoint placement is blamed."
+      ],
+      "priority": 11,
+      "dependsOn": [
+        "US-3145"
+      ]
+    },
+    {
+      "id": "US-3149",
+      "passes": false,
+      "title": "Content generation can never hit the prompt cache, because the volatile history block sits in the middle of an uncached system string",
+      "description": "As the operator paying for the content engine, I want the stable brand knowledge cached and the volatile history moved below the breakpoint, so that the single largest AI spend slice stops re-billing its brand voice and pillar map on every article.",
+      "acceptanceCriteria": [
+        "buildSystemPrompt (content-ai-prompts.ts:26) returns an ordered block list instead of one joined string: block 1 is role + brand voice + surface style + pillar map + output rules (stable, cache_control ephemeral when isCachingEnabled()), block 2 is historyContext (volatile, no breakpoint). Same for buildStreamSystemPrompt (content-ai-prompts.ts:83) and the research/refresh variants that share the builder.",
+        "Every caller is updated to pass `system` as that block array: content-ai-blog.ts:189, content-ai-refresh.ts, content-ai-email.ts, content-ai-research.ts, content-ai-social.ts, content-ai-stream.ts.",
+        "The stable half is byte-identical between two calls with the same styleKey and product_focus. A unit test builds it twice from the same inputs and asserts string equality, and asserts that changing only historyContext leaves block 1 unchanged.",
+        "The comment at ai-config.ts:203 that says content 'is OUTPUT-bound, so prompt caching cannot help it' is corrected in the same commit, since that was a consequence of this layout rather than a property of the workload.",
+        "The stable block clears the per-model cache minimum for the model the content kinds actually run on (getContentModel). If it does not, the story records the measured token size rather than shipping a breakpoint that is silently ignored.",
+        "AFTER at least 3 articles generated inside one 5-minute window, ai_usage_events shows cache_read_tokens greater than zero for feature 'content', and the per-article cost before and after goes in the note."
+      ],
+      "priority": 12,
+      "dependsOn": [
+        "US-3145"
+      ]
+    },
+    {
+      "id": "US-3150",
+      "passes": false,
+      "title": "Grading re-sends 6,251 characters of static schema and rules in the user turn, once per photo, below the cache breakpoint",
+      "description": "As the operator paying for grading, I want the static per-image schema and rules moved into a cached system block, so that a four-photo grade pays for that text once at a tenth of the price instead of four times at full price.",
+      "acceptanceCriteria": [
+        "PER_IMAGE_RESPONSE_SCHEMA (ai-grading.ts:813, 2,273 chars) and PER_IMAGE_RULES (ai-grading.ts:816, 3,978 chars) move out of buildUserPrompt's return (ai-grading.ts:873-875) into a SECOND cached system block, following the two-breakpoint pattern buildListingSystemBlocks (ai-listing.ts:981) already uses for eBay aspects. Block order is prompt first, then schema+rules, so the prompt half stays shared when the second block changes.",
+        "COMPOSITE_RESPONSE_SCHEMA (2,168 chars) and COMPOSITE_RULES (1,757 chars) get the same treatment on the composite call.",
+        "The per-block prompt-version registry keeps working: an ai_prompt_versions override for per_image_response_schema / per_image_rules / composite_response_schema / composite_rules still wins over the code default, and still lands in the block it named. A test pins that an override changes the SYSTEM block and not the user turn.",
+        "unversionedPromptSurfaceHash (ai-grading.ts:2777) still covers the moved text, so two grades sharing a surface hash still ran the same compiled surface. If the hash input changes shape, the change is stated in the note so an old hash is not compared against a new one.",
+        "THIS IS A GRADING PROMPT CHANGE and goes through the .claude/skills/grading-engine lifecycle: shadow compare against the current prompt on the golden set, the eval gate, then canary. It does NOT ship on a same-day deploy. The shadow result (score deltas, per-factor drift, confidence distribution) goes in this story's note.",
+        "AFTER a grading run of at least 5 submissions, ai_usage_events shows cache_read_tokens greater than zero on the per_image feature for photos 2..N of a submission, and the per-grade cost before and after goes in the note."
+      ],
+      "priority": 13,
+      "dependsOn": [
+        "US-3145"
+      ]
+    },
+    {
+      "id": "US-3151",
+      "passes": false,
+      "title": "Fourteen prompts still order the model to return only JSON, and the two grading ones are provably redundant against output_config.format",
+      "description": "As a maintainer of the prompts, I want the JSON-forcing prose and the code that existed to survive its failures replaced by structured outputs, so that a schema is enforced by the API in one place instead of asked for in prose and re-checked by hand.",
+      "acceptanceCriteria": [
+        "The 'IMPORTANT: You must respond ONLY with valid JSON ... no preamble' sentence is removed from ai-grading.ts:712 (per-image system) and ai-grading.ts:1944 (composite system). Both calls already pass jsonSchema into output_config.format (ai-grading.ts:1377 and :2811), so the API guarantees what the sentence asks for. This is a grading prompt change and rides the same shadow/eval/canary lane as US-3150.",
+        "The content path is switched to structured outputs: content-ai-prompts.ts:70-71 and :690 lose the JSON-only rules, and the stack that existed only to survive their failure is deleted with them at content-ai-blog.ts:196-204 (stripCodeFence, the JSON.parse try/catch, jsonParseError) and at the matching sites in content-ai-refresh.ts, content-ai-research.ts, newsletter-ai-editor.ts, newsletter-copy.ts and newsletter-topic-bank.ts:255.",
+        "content-ai-prompts.ts:109's 'ONLY the HTML content, no JSON, no fences' rule STAYS. The streaming path deliberately emits insertable HTML rather than a JSON envelope (content-ai-prompts.ts:76-82), so structured outputs do not apply there and the rule is load-bearing.",
+        "ai-authenticity.ts:280's JSON rule and the fence-stripping at ai-authenticity.ts:867 are either replaced by output_config.format or left with a recorded reason. Authenticity is part of the grading pipeline, so if it changes it changes under the same gate.",
+        "A grep for 'ONLY with valid JSON', 'no markdown fences' and 'no preamble' across services/edge-functions/src returns only the sites this story deliberately kept, each with a comment saying why.",
+        "No parse-failure regression: the JSON parse error rate for the converted features over a window after the change is at or below the rate before it, read from the logs or the ledger, and the numbers go in the note."
+      ],
+      "priority": 14,
+      "dependsOn": [
+        "US-3145"
+      ]
+    },
+    {
+      "id": "US-3152",
+      "passes": false,
+      "title": "Nineteen call sites force a tool by name, which every Fable-tier model rejects with a 400",
+      "description": "As a maintainer who will eventually move a model, I want forced tool_choice replaced by auto plus strict schemas, so that a model swap is a config change rather than nineteen simultaneous 400s.",
+      "acceptanceCriteria": [
+        "Every `tool_choice: { type: 'tool', name: ... }` in services/edge-functions/src is replaced by `tool_choice: { type: 'auto' }` plus `strict: true` on the tool definition (which requires additionalProperties: false and a complete `required` list on the schema), or by output_config.format where the forced call existed only to get JSON back. The sites are ai-extract.ts (7), ai-listing.ts:1100 and :3692, ai-photo-qa.ts:222, ai-photo-roles.ts:149, ai-reconcile.ts (3), ai-size-estimate.ts:208, ai-tag-ocr.ts:450, marketplace-category-resolve.ts:147, ai-group-propose.ts:179, ai-group-verify.ts:283.",
+        "Each converted site keeps a prompt sentence naming the tool it must call, since auto is steering rather than a guarantee.",
+        "The 'AI did not return a listing' style throw stays at every site: under auto the model can decline to call, and that path must fail loudly rather than return an empty object.",
+        "A test asserts no `tool_choice` with type 'tool' or 'any' remains anywhere under services/edge-functions/src, so a new forced call cannot be added by copy-paste.",
+        "Behaviour is unchanged on the current model: for each converted feature, a sample of at least 10 calls on claude-sonnet-5 returns the tool call at the same rate as before, and any site where auto declines more often is reverted individually with the count recorded."
+      ],
+      "priority": 40
+    },
+    {
+      "id": "US-3153",
+      "passes": false,
+      "title": "Import presets for the five spreadsheet exports sellers arrive with",
+      "description": "As a seller leaving another crosslisting tool, I want my export file recognized without hand-mapping every column, so that switching to FlipDesk is one upload instead of an afternoon.",
+      "acceptanceCriteria": [
+        "src/lib/import-presets.ts gains five presets with ids flyp, crosslist, selleraider, ebay-file-exchange and shopify, each matching the existing ImportPreset shape, and the ImportPreset id union widens to include them",
+        "Every new preset carries a signature of at least two headers that only that export uses, so a generic sheet with Title, Price and Size columns detects no preset at all",
+        "vault/30-platform/import-presets.md carries the identical header list for each new preset, edited in the same commit, per the contract comment at the top of import-presets.ts",
+        "verified stays null for any preset not yet checked against a real export file, and src/pages/flipdesk/import.tsx shows that state on the page rather than hiding it",
+        "A vitest case feeds one fixture header row per preset and asserts detection returns that preset id, plus a generic row that returns null",
+        "src/pages/flipdesk/import.tsx gains no per-preset branch: the picker renders from IMPORT_PRESETS"
+      ],
+      "priority": 13
+    },
+    {
+      "id": "US-3154",
+      "passes": false,
+      "title": "Depop closet import through the unified extension",
+      "description": "As a seller with a Depop shop, I want FlipDesk to read my own Depop listings into my catalogue, so that I do not retype inventory I already listed.",
+      "acceptanceCriteria": [
+        "CLOSET_IMPORT_PLATFORMS in services/edge-functions/src/lib/closet-import.ts gains depop, platformLabel returns Depop, and the per-platform photo host allowlist gains only Depop image CDN hosts",
+        "extension-unified/closet-import/selectors.js gains a depop adapter carrying its own version and lastVerified, read off a live signed-in Depop account rather than guessed",
+        "extension-unified/manifest.json gains depop.com host permission and nothing broader, and test/closet-import-manifest.test.cjs still passes, so the new code calls no tabs.create, no navigation and no timer",
+        "The owner-only refusal holds for Depop: a shop page that does not show the owner-only controls is refused before any tile is read",
+        "extract.js emits only ALLOWED_LISTING_FIELDS for Depop rows, and closet-import-extract.test.cjs covers a scrubbed Depop fixture",
+        "A case in services/edge-functions/src/tests/tenant-isolation_test.ts posts a Depop batch naming another tenant marketplace listing id and asserts a new row is created for the poster rather than the other tenant row being touched (US-268)",
+        "OPERATOR: the adapter selectors must come from a human running the popup Check selectors probe against a signed-in Depop shop. A guessed adapter is not acceptable, per the recorded history in the US-2702 notes"
+      ],
+      "priority": 14
+    },
+    {
+      "id": "US-3155",
+      "passes": false,
+      "title": "Grailed closet import through the unified extension",
+      "description": "As a seller listing on Grailed, I want my own Grailed listings read into my catalogue, so that the one platform with no public API is not the one I keep by hand.",
+      "acceptanceCriteria": [
+        "CLOSET_IMPORT_PLATFORMS in services/edge-functions/src/lib/closet-import.ts gains grailed, platformLabel returns Grailed, and the per-platform photo host allowlist gains only Grailed image CDN hosts",
+        "extension-unified/closet-import/selectors.js gains a grailed adapter carrying its own version and lastVerified, read off a live signed-in Grailed account rather than guessed",
+        "extension-unified/manifest.json gains grailed.com host permission and nothing broader, and test/closet-import-manifest.test.cjs still passes",
+        "The owner-only refusal holds for Grailed: a seller page that does not show the owner-only controls is refused before any tile is read",
+        "extract.js emits only ALLOWED_LISTING_FIELDS for Grailed rows, and closet-import-extract.test.cjs covers a scrubbed Grailed fixture",
+        "A tenant-isolation_test.ts case covers a Grailed batch naming another tenant marketplace listing id (US-268)",
+        "If the same commit also adds the Grailed sold-sync adapter, US-2702 AC1 is satisfied by the same selectors block rather than a second copy",
+        "OPERATOR: the adapter selectors must come from a human running the popup Check selectors probe against a signed-in Grailed account"
+      ],
+      "priority": 15
+    },
+    {
+      "id": "US-3156",
+      "passes": false,
+      "title": "Etsy listing import over the Etsy API rather than the page",
+      "description": "As a seller with an Etsy shop, I want my active Etsy listings pulled into FlipDesk over the official connection, so that the import does not break every time Etsy redesigns a page.",
+      "acceptanceCriteria": [
+        "services/edge-functions/src/lib/etsy-api.ts gains a paged listEtsyShopListings that reads active shop listings through etsyFetch, with an explicit per-call cap and a documented cursor",
+        "The import creates a flipdesk_import_runs row using the same durable US-2518 model flipdesk-closet-import.ts uses, so the existing /api/flipdesk/import/runs/:id/undo reverses it",
+        "The route returns 409 when the tenant has no etsy row in marketplace_connections, and is gated by requireFlipdesk plus the same ETSY_ENABLED flag the other Etsy routes read",
+        "Every query is scoped to workspaceOwnerId ?? userId, with a services/edge-functions/src/tests/tenant-isolation_test.ts case (US-268)",
+        "Photos copied from Etsy go through validateImageUpload and stripImageMetadata before storage.upload, on the {userId}/... path, same as the closet import path",
+        "Etsy stays out of the extension closet-import platform list: this story is the Etsy route, and CLOSET_IMPORT_PLATFORMS is not widened for it"
+      ],
+      "priority": 16,
+      "dependsOn": [
+        "US-2474",
+        "US-3131"
+      ]
+    },
+    {
+      "id": "US-3157",
+      "passes": false,
+      "title": "One remote photo import core the cloud drives can share",
+      "description": "As a developer adding a new photo source, I want the download, validate, strip and upload sequence to exist once, so that a new provider is a file list and nothing else.",
+      "acceptanceCriteria": [
+        "A new module under services/edge-functions/src/lib takes a list of provider file descriptors plus an injected fetch and runs the existing sequence: download, validateImageUpload, stripImageMetadata, storage.upload under {userId}/..., returning the same photo descriptor shape the /api/flipdesk/google/photos/import response returns today",
+        "flipdesk-google-photos.ts /import is moved onto the shared module with no change to its response shape, proven by services/edge-functions/src/tests/google-photos_test.ts passing unchanged",
+        "The chunked, paced download rule from src/lib/google-photos-import.ts survives: one request never downloads a whole pick",
+        "The module reads no Deno.env and takes no provider name; providers pass in what they know",
+        "A unit test covers one file failing magic-byte validation being skipped while the rest of the run continues, and asserts the failure is reported per file rather than failing the run"
+      ],
+      "priority": 17
+    },
+    {
+      "id": "US-3158",
+      "passes": false,
+      "title": "Import photos from a Google Drive folder",
+      "description": "As a seller who dumps camera cards into Drive, I want to pick a Drive folder and have those photos land on my items, so that I do not download them to my computer first.",
+      "acceptanceCriteria": [
+        "A route under /api/flipdesk/google/drive lists folders and the image files in one chosen folder using the existing Google connection, adding only the drive.readonly scope",
+        "The import runs through the shared remote photo import core, with no second copy of the download, validate, strip, upload sequence",
+        "Every Google call goes through googleFetch so the 20s deadline applies (US-2321), and no bare fetch is added",
+        "A seller connected for Sheets or Photos but never granted the drive.readonly scope is told to reconnect, with a named reason, rather than seeing an opaque 403",
+        "Every query is scoped to workspaceOwnerId ?? userId, with a tenant-isolation_test.ts case (US-268)",
+        "The Drive source appears inside the same PhotoUploader surface Google Photos uses, from the shared client module, not as a second panel"
+      ],
+      "priority": 18,
+      "dependsOn": [
+        "US-3157"
+      ]
+    },
+    {
+      "id": "US-3159",
+      "passes": false,
+      "title": "Import photos from a Dropbox folder",
+      "description": "As a seller who backs photos up to Dropbox, I want to pick a Dropbox folder as a photo source, so that my existing backup habit is also my intake.",
+      "acceptanceCriteria": [
+        "A Dropbox OAuth connect and callback pair stores the refresh token with the same AES-GCM encryption the Google Photos callback in flipdesk-google-photos.ts uses, in the same table it uses; no new plaintext token column is added",
+        "Listing and importing run through the shared remote photo import core, with only the file listing being Dropbox-specific",
+        "All Dropbox calls go through fetchWithTimeout at the marketplace deadline (US-499); no bare fetch is added",
+        "DROPBOX_CLIENT_ID and DROPBOX_CLIENT_SECRET are documented in vault/10-ops/env-reference.md and services/edge-functions/.env.example in the same commit, and with them unset the Dropbox source is absent from the UI rather than throwing",
+        "Every query is scoped to workspaceOwnerId ?? userId, with a tenant-isolation_test.ts case (US-268)"
+      ],
+      "priority": 19,
+      "dependsOn": [
+        "US-3157"
+      ]
+    },
+    {
+      "id": "US-3160",
+      "passes": false,
+      "title": "Import photos from a OneDrive folder",
+      "description": "As a seller on a Windows machine, I want to pick a OneDrive folder as a photo source, so that the folder my phone already syncs to is the folder FlipDesk reads.",
+      "acceptanceCriteria": [
+        "A Microsoft OAuth connect and callback pair stores the refresh token with the same AES-GCM encryption the Google Photos callback uses, in the same table, requesting only Files.Read and offline_access",
+        "Listing and importing run through the shared remote photo import core, with only the Microsoft Graph file listing being provider-specific",
+        "All Graph calls go through fetchWithTimeout at the marketplace deadline (US-499)",
+        "MICROSOFT_CLIENT_ID and MICROSOFT_CLIENT_SECRET are documented in vault/10-ops/env-reference.md and services/edge-functions/.env.example in the same commit, and with them unset the OneDrive source is absent from the UI rather than throwing",
+        "Every query is scoped to workspaceOwnerId ?? userId, with a tenant-isolation_test.ts case (US-268)"
+      ],
+      "priority": 20,
+      "dependsOn": [
+        "US-3157"
+      ]
+    },
+    {
+      "id": "US-3161",
+      "passes": false,
+      "title": "Phone as camera: scan a code, shoot, photos land on the item",
+      "description": "As a seller working at a desktop, I want to scan a code and shoot with my phone camera, so that photos reach the item with no cable, no cloud service and no app install.",
+      "acceptanceCriteria": [
+        "A capture session row is created server-side carrying a single-use high-entropy token, an expiry of 15 minutes or less, a bound target (an inventory item id or an AutoLister batch id) and the owning tenant; the token is not derived from the item id",
+        "A migration adds the session table and follows the US-1108 triple: idempotent SQL, EXPECTED_SCHEMA_VERSION bumped in the same commit, self-record footer",
+        "The desktop renders the QR from the session URL; the URL identifies the seller by nothing beyond the token",
+        "The phone route requires no login and can write only to its bound target; a token presented against any other target returns 403, with a services/edge-functions/src/tests/tenant-isolation_test.ts case (US-268)",
+        "Uploads go through validateImageUpload and stripImageMetadata before storage.upload, written under the OWNER user folder so the per-user-folder storage RLS path rule still holds",
+        "An expired, revoked or finished session returns 410 and the phone page says so in plain words rather than failing silently",
+        "Per-session photo count and total byte caps are enforced server-side, and exceeding either returns 429 with a named error rather than a generic failure",
+        "The desktop can end the session, and once ended further uploads return 410",
+        "The phone route is NOT added to PUBLIC_ROUTES or the prerender entry and carries a noindex directive, so a session URL never reaches the sitemap"
+      ],
+      "priority": 21
+    },
+    {
+      "id": "US-3162",
+      "passes": false,
+      "title": "Phone shots appear on the desktop as they are taken",
+      "description": "As a seller shooting with my phone, I want the desktop to fill in as I shoot and to tell me which angle is still missing, so that I know I am done before I put the item down.",
+      "acceptanceCriteria": [
+        "A photo finished on the phone appears on the desktop item within 5 seconds with no manual refresh",
+        "The phone page shows a running shot count and which photo types are still missing for the item, using the existing front, back, tag, detail vocabulary rather than a new one",
+        "A session bound to an AutoLister batch can advance to the next item on the phone without rescanning the code",
+        "A failed upload retries once automatically and then names the shot that did not send, rather than reporting a generic error",
+        "The phone page is verified working on current iOS Safari and current Android Chrome, and the check is recorded in the story notes with the versions tested",
+        "npm run ui:check stays at zero findings for the new pages"
+      ],
+      "priority": 22,
+      "dependsOn": [
+        "US-3161"
+      ]
+    },
+    {
+      "id": "US-3163",
+      "passes": false,
+      "title": "EPIC: four more ways to get inventory and photos in",
+      "description": "As a seller arriving with photos and listings that already live somewhere else, I want FlipDesk to read them from where they are, so that the first hour on the product is not typing.",
+      "acceptanceCriteria": [
+        "All ten member stories pass: US-3153 spreadsheet presets, US-3154 Depop closet, US-3155 Grailed closet, US-3156 Etsy API import, US-3157 shared remote photo import core, US-3158 Google Drive, US-3159 Dropbox, US-3160 OneDrive, US-3161 phone-as-camera, US-3162 live phone shots",
+        "src/pages/flipdesk/import.tsx presents every listing source in one place, with the spreadsheet, closet and API routes distinguished by how they connect rather than by separate pages",
+        "Every photo source, cloud or phone, lands through the single shared remote photo import core from US-3157; a grep finds exactly one download-validate-strip-upload sequence in services/edge-functions/src/lib",
+        "vault/30-platform carries one note listing every supported import source with its route, its auth model and whether it is API-backed or page-read, updated in the same commit as each member story",
+        "No import source is shipped enabled while its adapter selectors are guessed rather than probed against a live signed-in account"
+      ],
+      "priority": 12,
+      "dependsOn": [
+        "US-3153",
+        "US-3154",
+        "US-3155",
+        "US-3156",
+        "US-3157",
+        "US-3158",
+        "US-3159",
+        "US-3160",
+        "US-3161",
+        "US-3162"
+      ]
     }
   ]
 }
