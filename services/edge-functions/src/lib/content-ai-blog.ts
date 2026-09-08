@@ -1,4 +1,5 @@
 import {
+  effortParams,
   getAiTemperature,
   getAnthropicClient,
   getContentModel,
@@ -192,6 +193,7 @@ export async function generateBlogArticle(
     model,
     max_tokens: 8192,
     ...(temperature !== undefined ? { temperature } : {}),
+    ...effortParams(model, "content_blog", "medium"),
     system: contentSystemBlocks(systemPrompt, isCachingEnabled()),
     messages: [{ role: "user", content: userPrompt }],
   });

@@ -10,7 +10,7 @@
 // Kept OUT of the pure planner (lib/email-journey.ts) because it touches the
 // Anthropic client + supabase — the pure module stays env/network-free.
 
-import { getAnthropicClient, getAiTimeoutMs, getLightweightModel } from "./ai-config.ts";
+import { effortParams, getAiTimeoutMs, getAnthropicClient, getLightweightModel } from "./ai-config.ts";
 import { recordAiUsage } from "./ai-usage.ts";
 
 export interface PersonalizeInput {
@@ -50,6 +50,7 @@ export async function personalizeJourneyIntro(
     const response = await Promise.race([
       client.messages.create({
         model,
+        ...effortParams(model, "journey", "low"),
         max_tokens: 120,
         messages: [{ role: "user", content: prompt }],
       }),

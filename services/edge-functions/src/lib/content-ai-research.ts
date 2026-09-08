@@ -1,4 +1,5 @@
 import {
+  effortParams,
   getAiTemperature,
   getAnthropicClient,
   getLightweightModel,
@@ -141,6 +142,7 @@ export async function researchTopics(
     // caused. Size it for the worst-case output PLUS reasoning headroom.
     max_tokens: 4096,
     ...(temperature !== undefined ? { temperature } : {}),
+    ...effortParams(model, "content_research", "medium"),
     system: contentSystemBlocks(systemPrompt, isCachingEnabled()),
     messages: [{ role: "user", content: userPrompt }],
   });

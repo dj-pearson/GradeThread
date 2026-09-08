@@ -135,7 +135,8 @@ export async function runAiEditorPass(
   issue: RenderableIssue,
   opts: AiEditorOptions = {},
 ): Promise<AiEditorResult> {
-  const { getAiTemperature, getAnthropicClient, getLightweightModel } = await import("./ai-config.ts");
+  const { effortParams, getAiTemperature, getAnthropicClient, getLightweightModel } =
+    await import("./ai-config.ts");
   const { enterAiFeature } = await import("./ai-feature-context.ts");
   enterAiFeature("newsletter_editor", opts.userId ?? null); // spend attribution
 
@@ -146,6 +147,7 @@ export async function runAiEditorPass(
     const client = getAnthropicClient();
     const response = await client.messages.create({
       model,
+      ...effortParams(model, "newsletter_editor", "medium"),
       max_tokens: 1024,
       ...(temperature !== undefined ? { temperature } : {}),
       system: buildEditorSystemPrompt(),

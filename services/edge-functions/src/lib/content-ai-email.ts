@@ -20,7 +20,7 @@
 // content_history_index when an issue transitions to `sent`, so future issues
 // (built by ANY send path) don't repeat it.
 
-import { getAiTemperature, getAnthropicClient, getContentModel } from "./ai-config.ts";
+import { effortParams, getAiTemperature, getAnthropicClient, getContentModel } from "./ai-config.ts";
 import { extractTextBlock } from "./ai-response-text.ts";
 import { enterAiFeature } from "./ai-feature-context.ts";
 import { supabaseAdmin } from "./supabase.ts";
@@ -129,6 +129,7 @@ export async function generateEmailIssue(
 
   const response = await client.messages.create({
     model,
+    ...effortParams(model, "content_email", "medium"),
     // ⚠️ max_tokens caps THINKING + TEXT on sonnet-5, not text alone. This
     // number was sized on sonnet-4-6, where omitting `thinking` meant no
     // thinking at all — see lib/ai-response-text.ts for the outage that

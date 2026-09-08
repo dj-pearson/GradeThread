@@ -1,4 +1,5 @@
 import {
+  effortParams,
   getAiTemperature,
   getAnthropicClient,
   getContentModel,
@@ -136,6 +137,7 @@ export async function refreshBlogArticle(
     // actually spends. Raise the Coolify task timeout first if you raise this.
     max_tokens: 16000,
     ...(temperature !== undefined ? { temperature } : {}),
+    ...effortParams(model, "content_refresh", "medium"),
     system: contentSystemBlocks(systemPrompt, isCachingEnabled()),
     messages: [{ role: "user", content: userPrompt }],
   });

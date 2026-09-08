@@ -21,6 +21,7 @@ import {
   resolveItemAspects,
 } from "./aspect-registry.ts";
 import {
+  effortParams,
   getAiTemperature,
   getAnthropicClient,
   getPlatformVariantModel,
@@ -1097,6 +1098,7 @@ async function callListingModel(
         ...(temperature !== undefined ? { temperature } : {}),
         system: systemBlocks,
         tools: [LISTING_GEN_TOOL],
+        ...effortParams(model, "autolister", "medium"),
         tool_choice: { type: "tool", name: "create_ebay_listing" },
         messages: [{ role: "user", content }],
       }),
@@ -3689,6 +3691,7 @@ export async function generatePlatformVariantText(
         ...(temperature !== undefined ? { temperature } : {}),
         system: [{ type: "text", text: system }],
         tools: [PLATFORM_VARIANT_TOOL],
+        ...effortParams(model, "platform_variants", "medium"),
         tool_choice: { type: "tool", name: "write_platform_listings" },
         messages: [{ role: "user", content: [{ type: "text", text: user }] }],
       }),

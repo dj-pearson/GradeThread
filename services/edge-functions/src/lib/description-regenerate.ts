@@ -14,7 +14,7 @@
 // Text in, text out, one small call. No tool schema: a single string does not
 // need one, and tool_choice on a one-field response costs tokens for nothing.
 
-import { getAnthropicClient, getDefaultModel, getAiTemperature } from "./ai-config.ts";
+import { effortParams, getAiTemperature, getAnthropicClient, getDefaultModel } from "./ai-config.ts";
 import { enterAiFeature } from "./ai-feature-context.ts";
 import { withRetry } from "./retry.ts";
 import type { DescriptionBlockKey } from "./description-blocks.ts";
@@ -86,11 +86,15 @@ export async function regenerateDescriptionBlock(
     JSON.stringify(context, null, 2),
   ].join("\n");
 
+  // Hoisted so effortParams and the request body read one value.
+  const model = getDefaultModel();
+
   try {
     const response = await withRetry(
       () =>
         client.messages.create({
-          model: getDefaultModel(),
+          model,
+          ...effortParams(model, "description_regen", "medium"),
           max_tokens: 512,
           ...(temperature !== undefined ? { temperature } : {}),
           system: [{ type: "text", text: SYSTEM }],

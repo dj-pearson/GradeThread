@@ -11,6 +11,7 @@ import {
 import { isSocialPlatform } from "../lib/social-platforms.ts";
 import { hasAnySocialWebhookConfigured } from "../lib/content-webhook.ts";
 import {
+  effortParams,
   getAiTemperature,
   getAnthropicClient,
   getLightweightModel,
@@ -257,6 +258,7 @@ contentSocialRoutes.post("/:id/suggest-hashtags", async (c) => {
     const temperature = getAiTemperature();
     const response = await client.messages.create({
       model,
+      ...effortParams(model, "content_social_short", "low"),
       max_tokens: 256,
       ...(temperature !== undefined ? { temperature } : {}),
       messages: [{ role: "user", content: userPrompt }],

@@ -1,6 +1,9 @@
 // US-3184: the four cases of the operator model guard, and the resolver that
 // catches a Coolify reference that never expanded.
 
+// US-2379: first, before anything that reaches lib/supabase.ts at import time.
+import "./_env.ts";
+
 import { assert, assertEquals, assertStringIncludes } from "@std/assert";
 import {
   checkModelDrift,

@@ -466,7 +466,8 @@ adminDripRoutes.post("/campaigns/:campaign/regenerate", async (c) => {
 
   // Lazy import keeps the AI client (and its env requirements) off the hot path
   // for the read-only endpoints in this router.
-  const { getAnthropicClient, getDefaultModel } = await import("../lib/ai-config.ts");
+  const { effortParams, getAnthropicClient, getDefaultModel } =
+    await import("../lib/ai-config.ts");
   const { enterAiFeature } = await import("../lib/ai-feature-context.ts");
   enterAiFeature("drip", c.get("userId") ?? null);
 
@@ -486,8 +487,11 @@ adminDripRoutes.post("/campaigns/:campaign/regenerate", async (c) => {
 
   try {
     const client = getAnthropicClient();
+    // Hoisted so effortParams and the request body read one value.
+    const model = getDefaultModel();
     const resp = await client.messages.create({
-      model: getDefaultModel(),
+      model,
+      ...effortParams(model, "drip", "medium"),
       max_tokens: 1024,
       system,
       messages: [{ role: "user", content: userPrompt }],

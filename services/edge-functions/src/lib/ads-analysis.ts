@@ -13,7 +13,7 @@
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type Anthropic from "@anthropic-ai/sdk";
-import { getAnthropicClient, getDefaultModel } from "./ai-config.ts";
+import { effortParams, getAnthropicClient, getDefaultModel } from "./ai-config.ts";
 import { aggregateKpis, campaignBreakdown, type RawMetric } from "./google-ads-overview.ts";
 import { mineSearchTermRecommendations } from "./ads-search-terms.ts";
 
@@ -274,6 +274,7 @@ export async function analyzeAds(deps: AnalyzeDeps): Promise<AnalyzeResult> {
 
   const response = await client.messages.create({
     model,
+    ...effortParams(model, "ads_analysis", "medium"),
     max_tokens: 4096,
     system: buildSystemPrompt(),
     messages: [{ role: "user", content: buildUserPrompt(input) }],

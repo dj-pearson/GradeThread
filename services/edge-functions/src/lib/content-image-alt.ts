@@ -12,7 +12,7 @@
 // Kept separate from openai-images.ts (image bytes) so the text-model dependency
 // (Anthropic) stays out of the image pipeline's import surface.
 
-import { getAnthropicClient, getDefaultModel } from "./ai-config.ts";
+import { effortParams, getAnthropicClient, getDefaultModel } from "./ai-config.ts";
 
 // Strip a leading "image of"/"photo of"/"picture of" and surrounding quotes the
 // model sometimes adds, collapse whitespace, and cap to a sane SEO/a11y length.
@@ -71,8 +71,11 @@ export async function generateHeroAltText(input: {
       .filter(Boolean)
       .join("\n");
 
+    // Hoisted so effortParams and the request body read one value.
+    const model = getDefaultModel();
     const response = await client.messages.create({
-      model: getDefaultModel(),
+      model,
+      ...effortParams(model, "content_image_alt", "low"),
       max_tokens: 120,
       messages: [{ role: "user", content: userPrompt }],
     });

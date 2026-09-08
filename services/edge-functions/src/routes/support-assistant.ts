@@ -22,6 +22,7 @@ import { streamSSE } from "hono/streaming";
 import Anthropic from "@anthropic-ai/sdk";
 import { supabaseAdmin } from "../lib/supabase.ts";
 import {
+  effortParams,
   getAnthropicClient,
   getLightweightModel,
   isCachingEnabled,
@@ -599,6 +600,9 @@ function makeStreamingStep(
   return async (messages) => {
     const stream = client.messages.stream({
       model,
+      // Same argument as the agent kernel: this is a tool loop, and a support
+      // reply does not improve by deliberating harder before each tool call.
+      ...effortParams(model, "support_assistant", "low"),
       max_tokens: 1024,
       system: [systemBlock],
       tools: ASSISTANT_TOOLS,

@@ -8,6 +8,7 @@
 // automatically inside enterAiFeature("ads", …)).
 
 import {
+  effortParams,
   getAiTemperature,
   getAnthropicClient,
   getDefaultModel,
@@ -162,6 +163,7 @@ export async function generateAdCopy(
 
   const response = await client.messages.create({
     model,
+    ...effortParams(model, "ads_copy", "medium"),
     // ⚠️ max_tokens caps THINKING + TEXT on sonnet-5, not text alone. This
     // number was sized on sonnet-4-6, where omitting `thinking` meant no
     // thinking at all — see lib/ai-response-text.ts for the outage that

@@ -208,7 +208,8 @@ function escapeText(s: string): string {
  */
 export async function generateNewsletterCopy(input: NewsletterCopyInput): Promise<NewsletterCopy> {
   try {
-    const { getAiTemperature, getAnthropicClient, getDefaultModel } = await import("./ai-config.ts");
+    const { effortParams, getAiTemperature, getAnthropicClient, getDefaultModel } =
+      await import("./ai-config.ts");
     const { enterAiFeature } = await import("./ai-feature-context.ts");
     enterAiFeature("content"); // US-894 spend attribution (counts toward AI budget)
 
@@ -220,8 +221,11 @@ export async function generateNewsletterCopy(input: NewsletterCopyInput): Promis
     const user = buildCopyUserPrompt(input);
     const temperature = getAiTemperature();
 
+    // Hoisted so effortParams and the request body read one value.
+    const model = getDefaultModel();
     const response = await getAnthropicClient().messages.create({
-      model: getDefaultModel(),
+      model,
+      ...effortParams(model, "newsletter_copy", "medium"),
       max_tokens: 2048,
       ...(temperature !== undefined ? { temperature } : {}),
       system,

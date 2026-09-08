@@ -1,5 +1,6 @@
 import Anthropic from "@anthropic-ai/sdk";
 import {
+  effortParams,
   getAiTemperature,
   getAnthropicClient,
   getDefaultModel,
@@ -1147,6 +1148,7 @@ export async function extractItemFields(
     ...(temperature !== undefined ? { temperature } : {}),
     system: [systemBlock],
     tools: [EXTRACT_TOOL],
+    ...effortParams(model, "catalog_extract", "medium"),
     tool_choice: { type: "tool", name: "extract_item_fields" },
     messages: [{ role: "user", content }],
   });
@@ -1966,6 +1968,7 @@ export async function extractEbayAspects(
     ...(temperature !== undefined ? { temperature } : {}),
     system: [systemBlock],
     tools: [cachedTool],
+    ...effortParams(model, "aspect_refine", "low"),
     tool_choice: { type: "tool", name: "extract_ebay_aspects" },
     messages: [{ role: "user", content }],
   });
@@ -2124,6 +2127,7 @@ export async function generateListingCopy(
     ...(temperature !== undefined ? { temperature } : {}),
     system: [systemBlock],
     tools: [LISTING_TOOL],
+    ...effortParams(model, "listing_copy", "medium"),
     tool_choice: { type: "tool", name: "write_listing_copy" },
     messages: [{ role: "user", content }],
   });
@@ -2343,6 +2347,7 @@ export async function rewriteListingCopy(
     ...(temperature !== undefined ? { temperature } : {}),
     system: [systemBlock],
     tools: [REWRITE_TOOL],
+    ...effortParams(model, "listing_rewrite", "medium"),
     tool_choice: { type: "tool", name: "rewrite_listing_field" },
     messages: [{ role: "user", content }],
   });
@@ -2445,11 +2450,15 @@ export async function classifyGarment(
 
   const client = getAnthropicClient();
   const temperature = getAiTemperature();
+  // vision-capable default model; hoisted so the effort helper and the body
+  // read the same value rather than resolving it twice.
+  const classifyModel = getSonnetModel();
   const response = await client.messages.create({
-    model: getSonnetModel(), // vision-capable default model
+    model: classifyModel,
     max_tokens: 200,
     ...(temperature !== undefined ? { temperature } : {}),
     tools: [CLASSIFY_GARMENT_TOOL],
+    ...effortParams(classifyModel, "garment_classify", "low"),
     tool_choice: { type: "tool", name: "classify_garment" },
     messages: [
       {
@@ -2673,6 +2682,7 @@ export async function generateNegotiationReply(
     ...(temperature !== undefined ? { temperature } : {}),
     system: [systemBlock],
     tools: [NEGOTIATION_TOOL],
+    ...effortParams(model, "negotiation_reply", "medium"),
     tool_choice: { type: "tool", name: "write_negotiation_reply" },
     messages: [{ role: "user", content: [{ type: "text", text: lines.join("\n\n") }] }],
   });
@@ -2868,6 +2878,7 @@ export async function generateAnalyticsNarrative(
     ...(temperature !== undefined ? { temperature } : {}),
     system: [systemBlock],
     tools: [ANALYTICS_TOOL],
+    ...effortParams(model, "analytics_narrative", "medium"),
     tool_choice: { type: "tool", name: "write_analytics_narrative" },
     messages: [{ role: "user", content: [{ type: "text", text }] }],
   });

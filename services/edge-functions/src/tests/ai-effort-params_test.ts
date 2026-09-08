@@ -6,6 +6,9 @@
 // otherwise reach the API as an invalid effort and fail every call for that
 // feature until somebody noticed.
 
+// US-2379: first, before anything that reaches lib/supabase.ts at import time.
+import "./_env.ts";
+
 import { assert, assertEquals } from "@std/assert";
 import {
   type AiEffort,

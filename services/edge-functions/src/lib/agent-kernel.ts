@@ -22,7 +22,7 @@
 
 import type Anthropic from "@anthropic-ai/sdk";
 import { supabaseAdmin } from "./supabase.ts";
-import { getAnthropicClient, getDefaultModel } from "./ai-config.ts";
+import { effortParams, getAnthropicClient, getDefaultModel } from "./ai-config.ts";
 import { computeCostUsd } from "./ai-usage.ts";
 import { agentBudgetFeature, checkAgentBudget } from "./agent-budget.ts";
 import { enterAiFeature } from "./ai-feature-context.ts";
@@ -857,6 +857,10 @@ export function prodKernelDeps(): KernelDeps {
       return async (messages) => {
         const resp = await client.messages.create({
           model,
+          // A tool loop at the default effort deliberates before every step, up to
+          // DEFAULT_MAX_STEPS times. Low keeps the steps consolidated, which is what
+          // an operator cron wants anyway.
+          ...effortParams(model, "agent_kernel", "low"),
           max_tokens: maxOutputTokens,
           system,
           tools,

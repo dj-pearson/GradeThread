@@ -198,7 +198,8 @@ export async function refillEmailTopicBank(): Promise<RefillResult> {
 
   // Generate via the lightweight model — dynamic import so a future pure caller of
   // this module's siblings never eagerly pulls in ai-config → lib/supabase env.
-  const { getAiTemperature, getAnthropicClient, getLightweightModel } = await import("./ai-config.ts");
+  const { effortParams, getAiTemperature, getAnthropicClient, getLightweightModel } =
+    await import("./ai-config.ts");
   const { enterAiFeature } = await import("./ai-feature-context.ts");
   enterAiFeature("content"); // US-894 spend attribution (counts toward AI budget)
 
@@ -213,6 +214,7 @@ export async function refillEmailTopicBank(): Promise<RefillResult> {
 
   const response = await getAnthropicClient().messages.create({
     model,
+    ...effortParams(model, "newsletter_topics", "medium"),
     max_tokens: 2048,
     ...(temperature !== undefined ? { temperature } : {}),
     system,

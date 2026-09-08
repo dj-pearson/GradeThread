@@ -35,6 +35,14 @@ const EXEMPT: Record<string, string> = {
   // Already choosing an effort directly, from before the helper existed.
   "src/lib/content-ai-social.ts": "sets output_config.effort medium inline",
   "src/lib/content-safety.ts": "sets output_config.effort low inline",
+  // US-3147 left this alone DELIBERATELY. garment-baselines generates the
+  // brand/category brief that baselineReferenceBlock injects into the
+  // per-image GRADING prompt as trusted ground truth (US-1533). Changing
+  // its effort changes that text, which changes grades - so it belongs to
+  // the grading lifecycle (shadow, eval, canary), not to a per-feature env
+  // var. Its ledger slug, grading_baseline, is the tell.
+  "src/lib/garment-baselines.ts":
+    "grading-adjacent: writes the baseline block that enters the grading prompt",
 };
 
 /**
@@ -52,25 +60,9 @@ const EXEMPT: Record<string, string> = {
  * catch. Remove entries as US-3147 converts them.
  */
 const REMAINING = new Set<string>([
-  "src/lib/ad-copy-ai.ts",
-  "src/lib/ads-analysis.ts",
-  "src/lib/agent-kernel.ts",
-  "src/lib/ai-extract.ts",
-  "src/lib/ai-listing.ts",
-  "src/lib/content-ai-blog.ts",
-  "src/lib/content-ai-email.ts",
-  "src/lib/content-ai-refresh.ts",
-  "src/lib/content-ai-research.ts",
-  "src/lib/content-image-alt.ts",
-  "src/lib/description-regenerate.ts",
-  "src/lib/garment-baselines.ts",
-  "src/lib/journey-personalize.ts",
-  "src/lib/newsletter-ai-editor.ts",
-  "src/lib/newsletter-copy.ts",
-  "src/lib/newsletter-topic-bank-job.ts",
-  "src/routes/admin-drip.ts",
-  "src/routes/content-social.ts",
-  "src/routes/support-assistant.ts",
+  // US-3147 emptied this. It is kept, empty, on purpose: an empty set that the
+  // "only shrinks" test still walks is a live guard, and deleting it would make
+  // the next addition look like ordinary code rather than a regression.
 ]);
 
 /** The thirteen this story converted. Named so the story's AC2 is checkable. */
