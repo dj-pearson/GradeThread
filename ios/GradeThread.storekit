@@ -64,7 +64,13 @@
           "familyShareable" : false,
           "groupNumber" : 3,
           "internalID" : "starter_monthly",
-          "introductoryOffer" : null,
+          "introductoryOffer" : {
+            "displayPrice" : "0.00",
+            "internalID" : "starter_monthly_trial",
+            "numberOfPeriods" : 1,
+            "paymentMode" : "free",
+            "subscriptionPeriod" : "P2W"
+          },
           "localizations" : [
             { "description" : "250 listings, 200 AI actions, 10 grades/mo", "displayName" : "Starter", "locale" : "en_US" }
           ],
@@ -79,7 +85,13 @@
           "familyShareable" : false,
           "groupNumber" : 2,
           "internalID" : "pro_monthly",
-          "introductoryOffer" : null,
+          "introductoryOffer" : {
+            "displayPrice" : "0.00",
+            "internalID" : "pro_monthly_trial",
+            "numberOfPeriods" : 1,
+            "paymentMode" : "free",
+            "subscriptionPeriod" : "P2W"
+          },
           "localizations" : [
             { "description" : "1,000 listings, 1,000 AI actions, 30 grades", "displayName" : "Pro", "locale" : "en_US" }
           ],
@@ -94,7 +106,13 @@
           "familyShareable" : false,
           "groupNumber" : 1,
           "internalID" : "business_monthly",
-          "introductoryOffer" : null,
+          "introductoryOffer" : {
+            "displayPrice" : "0.00",
+            "internalID" : "business_monthly_trial",
+            "numberOfPeriods" : 1,
+            "paymentMode" : "free",
+            "subscriptionPeriod" : "P2W"
+          },
           "localizations" : [
             { "description" : "Unlimited listings, team seats, API, reconciliation", "displayName" : "Business", "locale" : "en_US" }
           ],
@@ -109,7 +127,13 @@
           "familyShareable" : false,
           "groupNumber" : 3,
           "internalID" : "starter_yearly",
-          "introductoryOffer" : null,
+          "introductoryOffer" : {
+            "displayPrice" : "0.00",
+            "internalID" : "starter_yearly_trial",
+            "numberOfPeriods" : 1,
+            "paymentMode" : "free",
+            "subscriptionPeriod" : "P2W"
+          },
           "localizations" : [
             { "description" : "250 listings, 200 AI actions, 10 grades/mo", "displayName" : "Starter (Yearly)", "locale" : "en_US" }
           ],
@@ -124,7 +148,13 @@
           "familyShareable" : false,
           "groupNumber" : 2,
           "internalID" : "pro_yearly",
-          "introductoryOffer" : null,
+          "introductoryOffer" : {
+            "displayPrice" : "0.00",
+            "internalID" : "pro_yearly_trial",
+            "numberOfPeriods" : 1,
+            "paymentMode" : "free",
+            "subscriptionPeriod" : "P2W"
+          },
           "localizations" : [
             { "description" : "1,000 listings, 1,000 AI actions, 30 grades", "displayName" : "Pro (Yearly)", "locale" : "en_US" }
           ],
@@ -139,7 +169,13 @@
           "familyShareable" : false,
           "groupNumber" : 1,
           "internalID" : "business_yearly",
-          "introductoryOffer" : null,
+          "introductoryOffer" : {
+            "displayPrice" : "0.00",
+            "internalID" : "business_yearly_trial",
+            "numberOfPeriods" : 1,
+            "paymentMode" : "free",
+            "subscriptionPeriod" : "P2W"
+          },
           "localizations" : [
             { "description" : "Unlimited listings, team seats, API, reconciliation", "displayName" : "Business (Yearly)", "locale" : "en_US" }
           ],

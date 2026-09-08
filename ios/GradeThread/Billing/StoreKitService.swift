@@ -74,6 +74,20 @@ protocol StoreKitProviding {
     /// The active auto-renewable subscription on this Apple ID, or nil if none.
     /// Used to surface renewal date + auto-renew state in the management card.
     func currentSubscription() async -> SubscriptionEntitlement?
+    /// productId -> the free-trial length ("14 days") for the subscriptions this
+    /// Apple ID can STILL claim an introductory offer on. Empty when none are
+    /// eligible, which is the case for anyone who already used the trial in this
+    /// subscription group. Drives the App Store 3.1.2 trial disclosure, which
+    /// must not promise a free trial to someone who will be charged today.
+    func introTrials(ids: [String]) async -> [String: String]
+}
+
+extension StoreKitProviding {
+    /// Default so a fake in a test (and any future conformer) doesn't have to
+    /// model intro offers just to satisfy the protocol. No offers = no trial
+    /// disclosure, which is the safe direction to fail: the paywall then shows
+    /// the plain auto-renewal terms it showed before offers existed.
+    func introTrials(ids: [String]) async -> [String: String] { [:] }
 }
 
 /// `POST /api/payments/appstore/verify` response.
@@ -141,6 +155,37 @@ struct StoreKitService: StoreKitProviding {
             Telemetry.backgroundBreadcrumb(
                 "IAP price load threw: \(error.localizedDescription)", category: "iap")
             return .failed(error.localizedDescription)
+        }
+    }
+
+    func introTrials(ids: [String]) async -> [String: String] {
+        guard let products = try? await Self.productsWithTimeout(for: ids) else { return [:] }
+        var map: [String: String] = [:]
+        for product in products {
+            guard let subscription = product.subscription,
+                  let offer = subscription.introductoryOffer,
+                  offer.paymentMode == .freeTrial else { continue }
+            // Eligibility is per Apple ID per subscription GROUP, and StoreKit
+            // is the only thing that knows it — our server can't, because the
+            // trial may have been used under a different GradeThread account.
+            guard await subscription.isEligibleForIntroOffer else { continue }
+            map[product.id] = Self.trialLength(offer.period)
+        }
+        return map
+    }
+
+    /// A subscription period as a shopper reads it. Apple only allows the fixed
+    /// intro-offer durations, and it spells 14 days "2 weeks" — so weeks are
+    /// converted to days here, because the rest of GradeThread says "14-day
+    /// trial" everywhere (TRIAL_DAYS in src/lib/constants.ts is the same 14).
+    static func trialLength(_ period: Product.SubscriptionPeriod) -> String {
+        let value = period.value
+        switch period.unit {
+        case .day: return value == 1 ? "1 day" : "\(value) days"
+        case .week: return "\(value * 7) days"
+        case .month: return value == 1 ? "1 month" : "\(value) months"
+        case .year: return value == 1 ? "1 year" : "\(value) years"
+        @unknown default: return "\(value)"
         }
     }
 

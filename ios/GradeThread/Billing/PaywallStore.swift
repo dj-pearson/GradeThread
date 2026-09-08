@@ -52,6 +52,12 @@ final class PaywallStore {
     /// Selected subscription billing interval for display ("monthly"/"yearly").
     var interval: String = "monthly"
 
+    /// productId -> free-trial length ("14 days") for the subscriptions this
+    /// Apple ID can still start a trial on. Empty is the normal state for a
+    /// returning subscriber, and for every build before App Store Connect had
+    /// introductory offers attached.
+    var introTrials: [String: String] = [:]
+
     // Current billing state (server truth, enriched by StoreKit for App Store subs).
     var currentPlan: String = "free"
     /// The EXACT active subscription product id (e.g. `…sub.pro.yearly`), from the
@@ -247,6 +253,19 @@ final class PaywallStore {
         }
     }
 
+    /// The free-trial length to disclose on the subscription section, or nil
+    /// when this Apple ID is eligible for no trial at all. Read from the plans
+    /// on the CURRENTLY SHOWN interval, so a monthly-only offer can't advertise
+    /// itself on the yearly tab. App Store 3.1.2 requires the trial length and
+    /// what happens after it to be stated wherever the trial is offered, and
+    /// equally requires that we not promise one to someone who'll be charged
+    /// today — which is why this is nil unless StoreKit says they're eligible.
+    var subscriptionTrialPeriod: String? {
+        IAPCatalog.subscriptions(interval: interval)
+            .compactMap { introTrials[$0.productId] }
+            .first
+    }
+
     func price(for entry: IAPCatalogEntry) -> String {
         // StoreKit (real, localized) → server catalog reference → hardcoded fallback.
         prices[entry.productId] ?? catalogFallback[entry.productId] ?? entry.fallbackPrice
@@ -276,6 +295,9 @@ final class PaywallStore {
         case .loaded(let map):
             prices = map
         }
+        // Best-effort: a paywall that can't read intro offers shows the plain
+        // auto-renewal terms rather than failing to load.
+        introTrials = await service.introTrials(ids: IAPCatalog.allIds)
         await refreshBilling()
         // App Store 2.1(b): when StoreKit resolves NO products for any id, the
         // IAP layer is unavailable. Unlike a thrown error, an empty-but-successful

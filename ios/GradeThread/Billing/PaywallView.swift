@@ -306,8 +306,21 @@ struct PaywallView: View {
                 }
             }
         } footer: {
-            Text("Auto-renewing subscription. Your Apple ID is charged at confirmation and again at the start of each \(store.interval == "yearly" ? "year" : "month") unless you cancel at least 24 hours before the renewal date. Manage or cancel anytime in Settings › Apple ID › Subscriptions.")
+            Text(subscriptionDisclosure)
         }
+    }
+
+    /// App Store 3.1.2: state the trial length and what happens when it ends,
+    /// wherever the trial is offered. `subscriptionTrialPeriod` is nil unless
+    /// StoreKit says this Apple ID is still eligible, so a returning subscriber
+    /// (who gets charged today) never reads a promise of free days.
+    private var subscriptionDisclosure: String {
+        let period: String = store.interval == "yearly" ? "year" : "month"
+        let manage: String = "Manage or cancel anytime in Settings › Apple ID › Subscriptions."
+        guard let trial = store.subscriptionTrialPeriod else {
+            return "Auto-renewing subscription. Your Apple ID is charged at confirmation and again at the start of each \(period) unless you cancel at least 24 hours before the renewal date. \(manage)"
+        }
+        return "\(trial) free, then an auto-renewing subscription at the price shown. Your Apple ID is charged when the free period ends and again at the start of each \(period) unless you cancel at least 24 hours before the renewal date. \(manage)"
     }
 
     private var creditsSection: some View {

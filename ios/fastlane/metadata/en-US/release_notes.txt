@@ -1,9 +1,29 @@
-First public release of FlipDesk by GradeThread.
+Sourcing, listing, and the money side all got real work this time.
 
-- Photo-first intake with AI item detection
-- Standardized 1-10 condition grading with shareable certificates
-- Connect eBay to publish, revise, and sync listings
-- Sales + payout tracking with CSV reconciliation
-- Home-screen widget, Share Extension, offline capture, and a full iPad layout
+SOURCING
+- Prospect reads the tag and scans barcodes on your phone, so a quick yes-or-no check is faster
+- Your last 20 Prospect verdicts now sit on the Home screen
+- Scout adds deal filters, totals that include shipping, and better ranking
+- Radar puts your sources on a map, and you can link a source right from your phone
 
-Thanks for trying FlipDesk! Send feedback any time from Settings.
+LISTING
+- Send one draft to several marketplaces at once, with its own price on each
+- Set shipping, payment, and return policies per listing, plus a quantity
+- Preview a listing the way an eBay buyer will see it before you publish
+- Revise and relist cross-posted listings from your phone
+- eBay links open in the eBay app
+- Measurement templates now follow the eBay category you picked
+
+MONEY
+- A running tax estimate for the year, plus a step-by-step filing walkthrough
+- Log mileage trips and scan receipts straight into your expenses
+
+EVERYWHERE ELSE
+- Sort and filter inventory by who sourced the item
+- One condition grade scale across phone, tablet, and web, so a grade means the same thing everywhere
+- Rotating a photo no longer throws off your measurement calibration
+- Tapping one draft no longer opens all of them
+- The photo picker no longer sticks on screen after you pick
+- Analytics is off by default for sellers in the EU
+
+Thanks for using FlipDesk. Send feedback any time from Settings.

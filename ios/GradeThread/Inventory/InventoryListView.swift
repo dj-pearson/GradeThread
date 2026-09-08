@@ -160,7 +160,69 @@ struct InventoryListView: View {
         "photographed", "graded", "comped", "drafted", "measured", "cataloged", "sourced",
     ]
 
+    // The body used to be one ~230-line modifier chain, and Xcode 26 gave up
+    // on it: "the compiler is unable to type-check this expression in
+    // reasonable time". It is split into the ordered groups below, each small
+    // enough to type-check on its own.
+    //
+    // THE ORDER IS THE CONTRACT. SwiftUI applies modifiers outward-in, so a
+    // modifier moved between groups is a behavior change, not a refactor.
+    // Note in particular that the refresh-error overlay stays AFTER the two
+    // search tasks, exactly where it was.
     var body: some View {
+        progressOverlays
+        .refreshable {
+            // Triggered by the user pulling the list down. SyncEngine
+            // pulls fresh rows from Supabase and merges; the local
+            // @Query re-renders when SwiftData notifies.
+            await refreshFromServer()
+        }
+        // US-639: debounce the live search binding before it reaches the
+        // filter. `.task(id:)` cancels the prior wait on each keystroke.
+        .task(id: searchQuery) {
+            try? await Task.sleep(nanoseconds: 250_000_000)
+            guard !Task.isCancelled else { return }
+            debouncedQuery = searchQuery
+        }
+        // US-1052: run the server-side FTS for the debounced term. Best-effort
+        // and additive — its result ids are unioned with the local search; an
+        // empty/short term clears it so we fall back to pure local matching.
+        .task(id: debouncedQuery) {
+            let trimmed = debouncedQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+            if trimmed.isEmpty {
+                searchService.clear()
+            } else {
+                await searchService.search(trimmed)
+            }
+        }
+        // US-643 / US-1021: pull-to-refresh failure banner. Now offers Retry +
+        // an explicit dismiss, and persists until dismissed while VoiceOver is
+        // running (instead of auto-dismissing after 3.5s) so assistive-tech
+        // users don't lose the announcement or the actionable controls.
+        .overlay(alignment: .bottom) {
+            if let refreshError {
+                RefreshErrorBanner(
+                    message: refreshError,
+                    onRetry: {
+                        withAnimation(ReducedMotion.animation(.default)) { self.refreshError = nil }
+                        Task { await refreshFromServer() }
+                    },
+                    onDismiss: { withAnimation(ReducedMotion.animation(.default)) { self.refreshError = nil } }
+                )
+                .padding(.bottom, 24)
+                .transition(reduceMotion ? .opacity : .move(edge: .bottom).combined(with: .opacity))
+                .task(id: refreshError) {
+                    // Auto-dismiss only when VoiceOver is OFF. With VoiceOver on
+                    // the banner stays put until the user retries or dismisses.
+                    guard !UIAccessibility.isVoiceOverRunning else { return }
+                    try? await Task.sleep(nanoseconds: 3_500_000_000)
+                    withAnimation(ReducedMotion.animation(.default)) { self.refreshError = nil }
+                }
+            }
+        }
+    }
+
+    private var inventoryContent: some View {
         VStack(spacing: 0) {
             // The board shows every pipeline column at once, so the per-stage tab
             // bar would only confuse it — hide it in board mode.
@@ -174,6 +236,10 @@ struct InventoryListView: View {
                 list
             }
         }
+    }
+
+    private var navigationChrome: some View {
+        inventoryContent
         .navigationTitle("Inventory")
         // US-3101: a Publish pill on Home, a push, or a quick action can ask
         // for the drafts stage. `initial: true` so a cold launch that routed
@@ -189,6 +255,10 @@ struct InventoryListView: View {
             selectToolbarItem
             syncToolbarItem
         }
+    }
+
+    private var presentedSheets: some View {
+        navigationChrome
         .sheet(item: $sheet) { presented in
             switch presented {
             case .filter:
@@ -239,12 +309,20 @@ struct InventoryListView: View {
         }) {
             PhotoIntakeView(initialPhotos: droppedCaptures)
         }
+    }
+
+    private var searchAndSelection: some View {
+        presentedSheets
         .searchable(
             text: $searchQuery,
             placement: .navigationBarDrawer(displayMode: .always),
             prompt: "Search title, brand, SKU"
         )
         .environment(\.editMode, .constant(selection.isEditing ? .active : .inactive))
+    }
+
+    private var bulkChrome: some View {
+        searchAndSelection
         .safeAreaInset(edge: .bottom) {
             if selection.isEditing, selection.count > 0 {
                 BulkActionBar(
@@ -282,6 +360,10 @@ struct InventoryListView: View {
             }
             Button("Cancel", role: .cancel) {}
         }
+    }
+
+    private var resultAlerts: some View {
+        bulkChrome
         .alert(
             actionResult?.summary ?? "",
             isPresented: Binding(
@@ -321,6 +403,10 @@ struct InventoryListView: View {
         } message: { item in
             Text("\(item.title) will be removed. This can't be undone.")
         }
+    }
+
+    private var progressOverlays: some View {
+        resultAlerts
         // US-644: progress HUD for longer multi-item batches.
         .overlay {
             if let progress = actionProgress, progress.total > 1 {
@@ -336,55 +422,6 @@ struct InventoryListView: View {
                     withAnimation(ReducedMotion.animation(.default)) { undoContext = nil }
                 }
                 .padding(.bottom, selection.isEditing ? 80 : 24)
-            }
-        }
-        .refreshable {
-            // Triggered by the user pulling the list down. SyncEngine
-            // pulls fresh rows from Supabase and merges; the local
-            // @Query re-renders when SwiftData notifies.
-            await refreshFromServer()
-        }
-        // US-639: debounce the live search binding before it reaches the
-        // filter. `.task(id:)` cancels the prior wait on each keystroke.
-        .task(id: searchQuery) {
-            try? await Task.sleep(nanoseconds: 250_000_000)
-            guard !Task.isCancelled else { return }
-            debouncedQuery = searchQuery
-        }
-        // US-1052: run the server-side FTS for the debounced term. Best-effort
-        // and additive — its result ids are unioned with the local search; an
-        // empty/short term clears it so we fall back to pure local matching.
-        .task(id: debouncedQuery) {
-            let trimmed = debouncedQuery.trimmingCharacters(in: .whitespacesAndNewlines)
-            if trimmed.isEmpty {
-                searchService.clear()
-            } else {
-                await searchService.search(trimmed)
-            }
-        }
-        // US-643 / US-1021: pull-to-refresh failure banner. Now offers Retry +
-        // an explicit dismiss, and persists until dismissed while VoiceOver is
-        // running (instead of auto-dismissing after 3.5s) so assistive-tech
-        // users don't lose the announcement or the actionable controls.
-        .overlay(alignment: .bottom) {
-            if let refreshError {
-                RefreshErrorBanner(
-                    message: refreshError,
-                    onRetry: {
-                        withAnimation(ReducedMotion.animation(.default)) { self.refreshError = nil }
-                        Task { await refreshFromServer() }
-                    },
-                    onDismiss: { withAnimation(ReducedMotion.animation(.default)) { self.refreshError = nil } }
-                )
-                .padding(.bottom, 24)
-                .transition(reduceMotion ? .opacity : .move(edge: .bottom).combined(with: .opacity))
-                .task(id: refreshError) {
-                    // Auto-dismiss only when VoiceOver is OFF. With VoiceOver on
-                    // the banner stays put until the user retries or dismisses.
-                    guard !UIAccessibility.isVoiceOverRunning else { return }
-                    try? await Task.sleep(nanoseconds: 3_500_000_000)
-                    withAnimation(ReducedMotion.animation(.default)) { self.refreshError = nil }
-                }
             }
         }
     }

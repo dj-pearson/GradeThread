@@ -447,6 +447,47 @@ final class PaywallStoreTests: XCTestCase {
     }
 }
 
+// MARK: - Intro-offer disclosure (App Store 3.1.2)
+
+@MainActor
+final class PaywallTrialDisclosureTests: XCTestCase {
+
+    private func store(_ fake: FakeStoreKit) -> PaywallStore {
+        PaywallStore(
+            userId: UUID(), service: fake,
+            billingFetcher: { nil }, catalogLoader: { [] })
+    }
+
+    /// No eligible offer (the returning subscriber, and every build before the
+    /// offers were attached in App Store Connect) must NOT advertise a trial.
+    func test_noEligibleOffer_hasNoTrialPeriod() async {
+        let s = store(FakeStoreKit())
+        await s.load()
+        XCTAssertNil(s.subscriptionTrialPeriod)
+    }
+
+    /// An eligible offer on the shown interval surfaces its length.
+    func test_eligibleMonthlyOffer_reportsItsLength() async {
+        let fake = FakeStoreKit()
+        fake.introTrialMap = ["com.gradethread.sub.pro.monthly": "14 days"]
+        let s = store(fake)
+        await s.load()
+        s.interval = "monthly"
+        XCTAssertEqual(s.subscriptionTrialPeriod, "14 days")
+    }
+
+    /// A monthly-only offer must not advertise itself on the yearly tab, where
+    /// every product the user can actually buy charges them today.
+    func test_monthlyOnlyOffer_isSilentOnTheYearlyTab() async {
+        let fake = FakeStoreKit()
+        fake.introTrialMap = ["com.gradethread.sub.pro.monthly": "14 days"]
+        let s = store(fake)
+        await s.load()
+        s.interval = "yearly"
+        XCTAssertNil(s.subscriptionTrialPeriod)
+    }
+}
+
 private final class FakeStoreKit: StoreKitProviding {
     var outcome: PurchaseOutcome = .success
     var prices: [String: String] = [:]
@@ -472,4 +513,10 @@ private final class FakeStoreKit: StoreKitProviding {
     func restore() async -> RestoreOutcome { restored = true; return restoreOutcome }
 
     func currentSubscription() async -> SubscriptionEntitlement? { entitlement }
+
+    /// productId -> trial length, as `StoreKitService.introTrials` would report
+    /// it. Empty by default so every existing test keeps the no-trial copy.
+    var introTrialMap: [String: String] = [:]
+
+    func introTrials(ids: [String]) async -> [String: String] { introTrialMap }
 }
