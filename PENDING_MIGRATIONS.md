@@ -18,9 +18,9 @@ nothing; all-consented-but-2-sellers returns nothing; a synthetic 3rd seller
 makes it answer (6 sales / 3 sellers / percentiles); one seller revoking drops
 it back to nothing immediately.
 
-⚠ **BEFORE ANY SELLER IS ASKED TO OPT IN, the privacy policy and terms need
-language covering it.** The switch exists but nothing in the product turns it
-on yet, and it must not ship a UI toggle until the policy is updated.
+✅ **Policy language landed 2026-09-07** — Privacy Policy §16 and Terms §19,
+both effective September 7, 2026. A UI toggle is still the remaining gate: the
+switch exists in the database and nothing in the product turns it on yet.
 
 ## ✅ APPLIED 2026-09-07: 00761 — fifteen brands whose feeds refused us (US-3125)
 

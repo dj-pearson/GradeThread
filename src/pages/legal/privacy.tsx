@@ -7,7 +7,7 @@ export function PrivacyPage() {
       title="Privacy Policy"
       description="How GradeThread collects, uses, and protects your information."
       canonicalPath="/privacy"
-      effectiveDate="August 19, 2026"
+      effectiveDate="September 7, 2026"
     >
       <p>
         This Privacy Policy explains how Pearson Media LLC (&ldquo;Pearson
@@ -1019,7 +1019,59 @@ export function PrivacyPage() {
         we will delete it.
       </p>
 
-      <h2 id="changes">16. Changes to this policy</h2>
+      <h2 id="pooled-comps">16. Pooled sales data</h2>
+      <p>
+        Pricing tools are only as honest as the prices behind them. Most
+        marketplace &ldquo;comps&rdquo; are <em>asking</em> prices, which are
+        what a seller hoped for rather than what a buyer paid, and they run
+        high. eBay does not make its realized sold prices available to
+        applications like ours. What we can offer instead is a pooled view built
+        from what GradeThread sellers actually sold their items for &mdash; but
+        only from sellers who choose to contribute.
+      </p>
+      <p>
+        <strong>This is off unless you turn it on.</strong> Pooled sales data is
+        opt-in. If you never enable it, none of your sales are counted, and
+        nothing in this section applies to you.
+      </p>
+      <p>If you do enable it, here is exactly what happens:</p>
+      <ul>
+        <li>
+          <strong>What is used.</strong> The sale price, currency, sale date,
+          brand and item category of items you sold through a connected
+          marketplace account.
+        </li>
+        <li>
+          <strong>What other sellers see.</strong> Only statistics: a median, a
+          typical price range, and how many sales the figure is based on. Other
+          sellers never see your individual sales, your listings, your buyers,
+          your volume, your account, or anything identifying you.
+        </li>
+        <li>
+          <strong>We do not publish thin figures.</strong> A pooled figure is
+          only shown when it draws on at least five sales from at least three
+          different sellers. This is a privacy rule, not a statistical one:
+          below that, a seller could work out another seller&rsquo;s figures by
+          subtracting their own.
+        </li>
+        <li>
+          <strong>You can withdraw at any time.</strong> Turning the setting off
+          stops your sales counting toward pooled figures from that moment. We
+          do not keep a separate copy of contributed sales, so there is nothing
+          left behind to delete.
+        </li>
+        <li>
+          <strong>We do not sell it.</strong> Pooled figures are shown inside
+          GradeThread to help sellers price items. We do not sell, license, or
+          provide pooled sales data to third parties as a data product.
+        </li>
+      </ul>
+      <p>
+        Your own sales always remain visible to you in full, whether or not you
+        contribute them, and are described in Section 2 and Section 3.
+      </p>
+
+      <h2 id="changes">17. Changes to this policy</h2>
       <p>
         We may update this Privacy Policy from time to time. When we make
         material changes, we will update the &ldquo;Effective date&rdquo;
@@ -1028,7 +1080,7 @@ export function PrivacyPage() {
         becomes effective constitutes acceptance of the updated policy.
       </p>
 
-      <h2 id="contact">17. Contact us</h2>
+      <h2 id="contact">18. Contact us</h2>
       <p>
         Pearson Media LLC
         <br />

@@ -7,7 +7,7 @@ export function TermsPage() {
       title="Terms of Service"
       description="The terms that govern your use of GradeThread and FlipDesk."
       canonicalPath="/terms"
-      effectiveDate="August 19, 2026"
+      effectiveDate="September 7, 2026"
     >
       <p>
         These Terms of Service (&ldquo;Terms&rdquo;) form a binding agreement
@@ -251,7 +251,7 @@ export function TermsPage() {
           states a monthly allowance of connector actions, and we additionally
           apply hourly and daily ceilings to publishing, repricing, ending
           listings and grading. We may change any of these on notice under
-          Section 19.
+          Section 20.
         </li>
         <li>
           <strong>We may suspend or revoke it.</strong> We may withdraw
@@ -388,7 +388,52 @@ export function TermsPage() {
         within 30 days of first accepting these Terms.
       </p>
 
-      <h2 id="changes">19. Changes to the Service or these Terms</h2>
+      <h2 id="pooled-comps">19. Pooled sales data</h2>
+      <p>
+        The Service offers an optional pooled pricing view built from sale
+        prices contributed by other GradeThread sellers. Participation is
+        opt-in, it is off by default, and you may withdraw at any time from your
+        settings.
+      </p>
+      <ul>
+        <li>
+          <strong>If you contribute.</strong> You grant us permission to include
+          the price, currency, date, brand and category of your completed sales
+          in aggregate statistics shown to other sellers. You are not granting
+          rights to your listings, photographs, customer information, or any
+          identifiable record of your business.
+        </li>
+        <li>
+          <strong>What is shown is aggregate only.</strong> Pooled figures are
+          medians, ranges and counts. We do not disclose individual sales, and
+          we withhold any figure drawn from fewer than five sales or fewer than
+          three distinct sellers.
+        </li>
+        <li>
+          <strong>Withdrawal is forward-looking.</strong> Turning the setting
+          off excludes your sales from figures calculated after that point. It
+          does not recall figures already displayed or acted on.
+        </li>
+        <li>
+          <strong>Pooled figures are estimates, not advice.</strong> They
+          describe what other items sold for in the past. They are not a
+          valuation, a guarantee, or a prediction of what your item will sell
+          for, and Section 5 and Section 6 apply to them.
+        </li>
+        <li>
+          <strong>You must have the right to contribute.</strong> By enabling
+          the setting you confirm that sharing aggregate figures derived from
+          your sales does not breach your agreement with any marketplace or any
+          obligation you owe a consignor or supplier.
+        </li>
+      </ul>
+      <p>
+        How pooled data is handled, and what other sellers can and cannot see,
+        is described in Section 16 of our{" "}
+        <Link to="/privacy">Privacy Policy</Link>.
+      </p>
+
+      <h2 id="changes">20. Changes to the Service or these Terms</h2>
       <p>
         We may modify the Service or these Terms at any time. If we make
         material changes to the Terms, we will provide notice (for example, by
@@ -397,7 +442,7 @@ export function TermsPage() {
         effective constitutes acceptance of the updated Terms.
       </p>
 
-      <h2 id="misc">20. Miscellaneous</h2>
+      <h2 id="misc">21. Miscellaneous</h2>
       <ul>
         <li>
           <strong>Entire agreement.</strong> These Terms, together with the
