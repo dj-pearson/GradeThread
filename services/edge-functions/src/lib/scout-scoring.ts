@@ -11,7 +11,11 @@
 import type { ValueRange } from "./condition-value.ts";
 import type { ValueBasis } from "./value-disclosure.ts";
 import { EBAY_FEE_RATE, ebayNetProceedsCents } from "./ebay-fees.ts";
-import { sourcingCeiling, type SourcingCeiling } from "./scout-decision.ts";
+import {
+  sourcingCeiling,
+  type SourcingCeiling,
+  type SourcingCosts,
+} from "./scout-decision.ts";
 
 // US-2325: the fee model now comes from lib/ebay-fees.ts, shared with the
 // composer's profit estimate. This used to be a local 0.13 with no fixed fee,
@@ -119,6 +123,8 @@ export interface ScoreOptions {
   underpricedRatio?: number;
   /** US-3098: the seller's target return, for the per-row ceiling. */
   targetRoi?: number;
+  /** US-3193: postage, packaging and grading, for the per-row ceiling. */
+  costs?: SourcingCosts;
 }
 
 /**
@@ -165,7 +171,12 @@ export function scoreCandidate(
     totalIncludesShipping: total.includesShipping,
     // Absent, never guessed: sourcingCeiling refuses without a measured curve
     // and says which of the three reasons applies.
-    ceiling: sourcingCeiling({ value, targetRoi: opts.targetRoi ?? DEFAULT_TARGET_ROI, feeRate }),
+    ceiling: sourcingCeiling({
+      value,
+      targetRoi: opts.targetRoi ?? DEFAULT_TARGET_ROI,
+      feeRate,
+      costs: opts.costs,
+    }),
   };
 
   if (candidate.askingCents == null || candidate.askingCents <= 0) {

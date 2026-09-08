@@ -98,6 +98,9 @@ interface Rec {
   grants: Array<{ credits: number; token: string }>;
   events: number;
   granted: Set<string>;
+  /** US-3138: prepaid ACTION credits, kept apart from the grade-credit grants. */
+  actionGrants: Array<{ credits: number; token: string }>;
+  actionGranted: Set<string>;
 }
 
 function fakeDeps(opts: {
@@ -107,7 +110,15 @@ function fakeDeps(opts: {
   /** userId currently holding the subscription token (null = unbound). */
   tokenOwner?: string | null;
 }): { deps: GooglePlayDeps; rec: Rec } {
-  const rec: Rec = { applied: [], claims: 0, grants: [], events: 0, granted: new Set() };
+  const rec: Rec = {
+    applied: [],
+    claims: 0,
+    grants: [],
+    events: 0,
+    granted: new Set(),
+    actionGrants: [],
+    actionGranted: new Set(),
+  };
   const deps: GooglePlayDeps = {
     verifyPurchase: () =>
       Promise.resolve(
@@ -147,6 +158,18 @@ function fakeDeps(opts: {
       }
       rec.granted.add(token);
       rec.grants.push({ credits, token });
+      return Promise.resolve(100);
+    },
+    // US-3138: the ACTION wallet is a separate dep on purpose — the two write
+    // to different balances, so the fake records them separately too. Without
+    // this the fixture does not satisfy GooglePlayDeps and the whole edge suite
+    // fails to type-check.
+    grantActionCredits: (_u, credits, token) => {
+      if (opts.alreadyProcessed || rec.actionGranted.has(token)) {
+        return Promise.resolve(100);
+      }
+      rec.actionGranted.add(token);
+      rec.actionGrants.push({ credits, token });
       return Promise.resolve(100);
     },
     recordEvent: () => {
@@ -476,6 +499,10 @@ Deno.test("orchestration: consumable grant throws once, succeeds on retry → ex
       }
       return Promise.resolve(balance);
     },
+    // US-3138: this test only exercises the grade-credit retry path, so the
+    // action wallet is a stub — present because the dep is required, and
+    // deliberately not counted in grantAttempts.
+    grantActionCredits: () => Promise.resolve(balance),
     recordEvent: () => Promise.resolve(),
   };
 

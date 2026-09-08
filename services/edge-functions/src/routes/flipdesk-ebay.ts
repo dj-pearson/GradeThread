@@ -353,6 +353,12 @@ import {
   computeListingQualityScore,
   type ListingQualityScore,
 } from "../lib/listing-quality-score.ts";
+import { resolveShipBy } from "../lib/ship-deadline.ts";
+import { sourcingCosts } from "../lib/sourcing-target.ts";
+import {
+  DEFAULT_SOURCING_GRADING_CENTS,
+  DEFAULT_SOURCING_SHIPPING_CENTS,
+} from "../lib/scout-decision.ts";
 import { loadFulfillmentSignals } from "../lib/business-policy-signals.ts";
 import {
   getAllActiveEbaySelling,
@@ -3830,6 +3836,21 @@ async function doListingsPull(
             // sales row dropped it, which is why the USD assumption was
             // invisible. NULL when unreported — treated as USD downstream.
             currency: li.itemCost?.currency ?? null,
+            // US-3189: the carrier deadline this order is scored on. eBay's own
+            // shipByDate when it gave one; otherwise resolveShipBy falls back to
+            // sold_at + handling_days, and returns null when it has neither.
+            //
+            // handling_days stays null from THIS path on purpose: the Sell
+            // Fulfillment order carries no handling time, and reading it would
+            // mean a business-policy call per order — the exact call volume
+            // US-3110 is cutting before the Application Growth Check. The
+            // column is written by the seller-defaults path instead, and the
+            // fallback lights up for every sale once it is.
+            ship_by: resolveShipBy({
+              shipByDate: li.shipByDate,
+              soldAt: order.creationDate,
+              handlingDays: null,
+            }),
           };
 
           if (existing) {
@@ -3839,10 +3860,16 @@ async function doListingsPull(
             // the cursor then moved past it. Throw instead: the per-order catch
             // above records it as a failed order, which is what rewinds the
             // cursor to re-pull it.
+            // US-3189/US-268: the row was found through this user's own item map,
+            // so it is already owner-verified by parent — the explicit user_id
+            // predicate is the second lock, and costs nothing because sales.user_id
+            // is NOT NULL and trigger-maintained (00146). A sale id that is not
+            // this tenant's now updates zero rows instead of one.
             const { error: updErr } = await supabaseAdmin
               .from("sales")
               .update(salePayload)
-              .eq("id", existingSaleId);
+              .eq("id", existingSaleId)
+              .eq("user_id", userId);
             if (updErr) throw new Error(`sale update failed: ${updErr.message}`);
             salesUpdated += 1;
             // US-2022: this sweep is the OTHER way a sale reverses — an order
@@ -11545,10 +11572,13 @@ flipdeskEbayRoutes.get("/negotiation/offers", async (c) => {
     // dollars, matching the eBay offer/counter price units.
     const itemIds = [...new Set(offers.map((o) => o.itemId).filter(Boolean))];
     const costByItemId = new Map<string, number>();
+    const gradedItemIds = new Set<string>();
     if (itemIds.length > 0) {
       const { data: rows } = await supabaseAdmin
         .from("listings")
-        .select("platform_listing_id, inventory_items!inner(user_id, acquired_price)")
+        .select(
+          "platform_listing_id, inventory_items!inner(user_id, acquired_price, grade_value)",
+        )
         .eq("platform", "ebay")
         .in("platform_listing_id", itemIds)
         .eq("inventory_items.user_id", userId);
@@ -11557,8 +11587,8 @@ flipdeskEbayRoutes.get("/negotiation/offers", async (c) => {
         // PostgREST returns a to-one embed as an object, but supabase-js types it
         // as an array — accept either.
         inventory_items:
-          | { acquired_price: number | null }
-          | { acquired_price: number | null }[]
+          | { acquired_price: number | null; grade_value: number | null }
+          | { acquired_price: number | null; grade_value: number | null }[]
           | null;
       };
       for (const r of (rows ?? []) as unknown as CostRow[]) {
@@ -11568,6 +11598,12 @@ flipdeskEbayRoutes.get("/negotiation/offers", async (c) => {
         const cost = inv?.acquired_price;
         if (r.platform_listing_id && typeof cost === "number") {
           costByItemId.set(r.platform_listing_id, cost);
+        }
+        // US-3194: whether this item was actually graded decides whether the
+        // grading fee belongs in the net figure at all. An ungraded item that
+        // was charged one would show a smaller net than the sale really makes.
+        if (r.platform_listing_id && typeof inv?.grade_value === "number") {
+          gradedItemIds.add(r.platform_listing_id);
         }
       }
     }
@@ -11589,9 +11625,19 @@ flipdeskEbayRoutes.get("/negotiation/offers", async (c) => {
       userId,
       offers.map((o) => incomingOfferToInput(o, listPrices.get(o.itemId))),
     );
+    // US-3194: the two costs the margin on this screen used to ignore. Postage
+    // and the grading fee come from the seller's own sourcing settings (00770),
+    // read once for the whole page rather than per offer — they are the seller's
+    // standing figures for a garment, not facts about one listing, and an unsold
+    // item has no actual postage to look up because it has no destination yet.
+    const sourcing = await sourcingCosts(userId);
+    const shippingCost = (sourcing.shippingCents ?? DEFAULT_SOURCING_SHIPPING_CENTS) / 100;
+    const gradingCost = (sourcing.gradingCents ?? DEFAULT_SOURCING_GRADING_CENTS) / 100;
     const enriched = offers.map((o) => ({
       ...o,
       itemCost: costByItemId.get(o.itemId) ?? null,
+      shippingCost,
+      gradingCost: gradedItemIds.has(o.itemId) ? gradingCost : null,
       listPriceCents: listPrices.get(o.itemId) ?? null,
       buyerHistory: o.buyerUsername ? (buyerHistory.get(o.buyerUsername) ?? null) : null,
     }));

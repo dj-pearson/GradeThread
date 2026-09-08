@@ -59,6 +59,15 @@ export interface OfferFacts {
   listPrice: number | null;
   /** Acquisition cost in dollars, or null when the item has none recorded. */
   itemCost: number | null;
+  /**
+   * US-3192: the seller's hard floor on this garment, in dollars.
+   *
+   * It composes with the cost-based margin floor as the HIGHER of the two, and
+   * unlike that floor it works when the cost basis is unknown — which is the
+   * case the percentage floor cannot cover at all, and the case a seller with
+   * a bag of thrift finds is most often in.
+   */
+  itemFloorPrice?: number | null;
 }
 
 export interface OfferOutcome {
@@ -176,14 +185,16 @@ export function decideOffer(cfg: OfferRuleConfig, facts: OfferFacts): OfferOutco
   }
 
   if (accept !== null && pctOfList >= accept) {
-    const cost = facts.itemCost;
-    if (typeof cost === "number" && Number.isFinite(cost) && cost > 0) {
-      const floor = cost * (1 + cfg.marginFloorPct / 100);
-      if (offer < floor) {
-        // The seller's percentage said yes and the arithmetic says this loses
-        // money. A human can still take it by hand; nothing automatic will.
-        return { decision: "skip", reason: "below_margin_floor", pctOfList };
-      }
+    const floor = offerFloorPrice(
+      facts.itemCost,
+      facts.itemFloorPrice,
+      cfg.marginFloorPct,
+    );
+    if (floor != null && offer < floor) {
+      // The seller's percentage said yes and the arithmetic says this loses
+      // money, or the seller drew a line under this garment by hand. A human
+      // can still take it; nothing automatic will.
+      return { decision: "skip", reason: "below_margin_floor", pctOfList };
     }
     return { decision: "accept", reason: "accepted_at_threshold", pctOfList };
   }
@@ -201,15 +212,16 @@ export function decideOffer(cfg: OfferRuleConfig, facts: OfferFacts): OfferOutco
     if (counterPrice <= offer || counterPrice >= list) {
       return { decision: "skip", reason: "counter_not_possible", pctOfList };
     }
-    // The margin floor applies to a counter EXACTLY as it applies to an accept.
-    // A counter is an offer to sell at that price, so a counter under the floor
+    // The floor applies to a counter EXACTLY as it applies to an accept. A
+    // counter is an offer to sell at that price, so a counter under the floor
     // is a loss the seller merely has to wait for.
-    const cost = facts.itemCost;
-    if (typeof cost === "number" && Number.isFinite(cost) && cost > 0) {
-      const floor = cost * (1 + cfg.marginFloorPct / 100);
-      if (counterPrice < floor) {
-        return { decision: "skip", reason: "below_margin_floor", pctOfList };
-      }
+    const counterFloor = offerFloorPrice(
+      facts.itemCost,
+      facts.itemFloorPrice,
+      cfg.marginFloorPct,
+    );
+    if (counterFloor != null && counterPrice < counterFloor) {
+      return { decision: "skip", reason: "below_margin_floor", pctOfList };
     }
     return { decision: "counter", reason: "countered_at_threshold", pctOfList, counterPrice };
   }
@@ -224,6 +236,33 @@ export function decideOffer(cfg: OfferRuleConfig, facts: OfferFacts): OfferOutco
 /** Money, to the cent. eBay rejects a counter with more precision than that. */
 function round2(n: number): number {
   return Math.round(n * 100) / 100;
+}
+
+/**
+ * US-3192: the price below which nothing automatic may sell this garment.
+ *
+ * max(cost x (1 + marginFloorPct/100), the seller's hard floor), with either
+ * side absent. Null only when neither is known — and a null floor is the
+ * absence of one, never a floor of zero.
+ */
+function offerFloorPrice(
+  itemCost: number | null | undefined,
+  itemFloorPrice: number | null | undefined,
+  marginFloorPct: number,
+): number | null {
+  const marginFloor =
+    typeof itemCost === "number" && Number.isFinite(itemCost) && itemCost > 0
+      ? itemCost * (1 + marginFloorPct / 100)
+      : null;
+  const hardFloor =
+    typeof itemFloorPrice === "number" &&
+    Number.isFinite(itemFloorPrice) &&
+    itemFloorPrice > 0
+      ? itemFloorPrice
+      : null;
+  if (marginFloor == null) return hardFloor;
+  if (hardFloor == null) return marginFloor;
+  return Math.max(marginFloor, hardFloor);
 }
 
 /** Seller-facing one-liner for a decision. Pure, so the copy is testable. */

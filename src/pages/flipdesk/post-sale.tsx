@@ -85,6 +85,7 @@ import {
 import { PageHelp } from "@/components/help/page-help";
 import { ReturnAnalyticsCard } from "@/components/flipdesk/return-analytics-card";
 import { NeedsYouCard } from "@/components/flipdesk/needs-you-card";
+import { ShipQueueCard } from "@/components/flipdesk/ship-queue-card";
 import {
   centsToDisplay,
   suggestKeepItRefund,
@@ -106,16 +107,23 @@ export function FlipdeskPostSalePage() {
   }
 
   if (!connected) {
+    // US-3190: the ship queue still renders. It reads the seller's own sales
+    // rows rather than calling eBay, so a seller recording sales by hand has
+    // the same deadline list as a connected one — and shipping late costs them
+    // just as much.
     return (
-      <div className="mx-auto max-w-3xl space-y-3 py-12 text-center">
-        <h1 className="text-xl font-semibold">Returns & Disputes</h1>
-        <p className="text-sm text-muted-foreground">
-          Connect your eBay account. Then handle cases, returns and disputes
-          from here.
-        </p>
-        <Button asChild variant="outline">
-          <a href="/dashboard/flipdesk/marketplaces">Go to Marketplaces</a>
-        </Button>
+      <div className="mx-auto max-w-3xl space-y-6">
+        <div className="space-y-3 py-8 text-center">
+          <h1 className="text-xl font-semibold">Returns & Disputes</h1>
+          <p className="text-sm text-muted-foreground">
+            Connect your eBay account. Then handle cases, returns and disputes
+            from here.
+          </p>
+          <Button asChild variant="outline">
+            <a href="/dashboard/flipdesk/marketplaces">Go to Marketplaces</a>
+          </Button>
+        </div>
+        <ShipQueueCard />
       </div>
     );
   }
@@ -136,6 +144,9 @@ export function FlipdeskPostSalePage() {
       {/* US-2934: first, because it is the answer to "what do I open". The
           cards below are still where the work gets done. */}
       <NeedsYouCard />
+      {/* US-3190: directly under the ranked list, because it is the only queue
+          on this page whose clock a marketplace scores the seller on. */}
+      <ShipQueueCard />
       <DisputesCard />
       <CasesCard />
       <InquiriesCard />

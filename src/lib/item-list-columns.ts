@@ -50,6 +50,10 @@ export const ITEM_LIST_COLUMNS = [
   "days_to_sell",
   "tracking",
   "target_price",
+  // US-3192: the seller's hard floor. In the LIST projection because the item
+  // grid filters and sorts on it, and a saved view that cannot see the column
+  // cannot filter on it.
+  "floor_price",
   "grade_value",
   "grade_label",
   "certificate_url",

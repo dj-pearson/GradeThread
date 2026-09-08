@@ -1,5 +1,137 @@
 # PENDING MIGRATIONS — applied to prod separately from the push
 
+## ⏳ HELD: 00771 — aged_threshold_days + the Aged tab in flipdesk_listing_page (US-3195)
+
+**Risk: MEDIUM, and higher than the other three in this stack.** The column is
+trivial. The second half REPLACES `flipdesk_listing_page`, which is the function
+behind every row the listings table shows, and it does so by DROPPING the
+11-argument overload and creating a 12-argument one. Read the apply output: if
+the drop succeeds and the create fails, the listings page has no function to
+call and every tab is empty until it is fixed.
+
+**⚠️ NOT VERIFIED AGAINST A REAL POSTGRES.** `src/test/listing-page-sql-parity.test.ts`
+is the test that runs this function and its TypeScript twin over the same rows
+and demands identical ids in identical order. It needs a database and it
+SKIPPED — Docker cannot run in the environment this was written in, and starting
+the daemon was attempted and refused. So the SQL is reviewed and unexecuted.
+Run the parity lane before or straight after applying:
+`LISTING_PARITY_DB=1 npx vitest run src/test/listing-page-sql-parity.test.ts`
+against a local stack. Everything else in the stack has been executed.
+
+**Apply order:** after 00770. Run `NOTIFY pgrst, 'reload schema';` afterwards
+(a new column AND a changed function signature), then redeploy the edge.
+
+**What it adds**
+- `flipdesk_settings.aged_threshold_days` — days listed after which this seller
+  calls an item aged. NULL means the code default of 60.
+- A twelfth parameter, `p_aged_threshold_days`, defaulted to 60, so every
+  existing caller keeps its exact behaviour.
+- An `aged` tab predicate: listed, unsold, and live longer than the threshold,
+  sorted oldest first.
+
+**Rollback** is 00721 re-run verbatim: it drops the 11-arg form and recreates it.
+The new column can stay; nothing breaks with it present.
+
+**No operator step.**
+
+## ⏳ HELD: 00770 — flipdesk_settings sourcing cost defaults (US-3193)
+
+**Risk: LOW.** Three nullable integer columns on a settings table, plus one
+CHECK. No backfill; every existing row reads null, which means "use the code
+default" and is exactly the behaviour the new code ships with.
+
+**Apply order:** after 00769. Run `NOTIFY pgrst, 'reload schema';` afterwards,
+then redeploy the edge.
+
+**What it adds**
+- `sourcing_shipping_cost_cents`, `sourcing_supplies_cost_cents`,
+  `sourcing_grading_cost_cents` — what the seller expects to pay to post, pack
+  and grade one garment. The buy ceiling subtracts them before dividing by the
+  target ROI.
+- `flipdesk_settings_sourcing_costs_sane` — bounds each at 0..100000 cents.
+
+**BEHAVIOUR CHANGE WORTH KNOWING BEFORE YOU APPLY IT.** Buy ceilings across
+Scout, the appraisal and Prospect all move DOWN once the edge deploys, because
+they previously priced postage, packaging and grading at zero. On a $100 median
+at a 30% target the ceiling goes from $66.15 to $57.96. That is the fix, not a
+regression, and the seller-facing sentence now says what was subtracted.
+
+**DEPLOY ORDER MATTERS ONE WAY ONLY.** The edge SELECTs the three columns when
+it computes a ceiling; without them the Scout appraisal throws on 42703. The
+schema-version boot guard enforces it — EXPECTED_SCHEMA_VERSION moves to 00770
+in the same commit.
+
+**No operator step**, though you may want to set your own figures once it is
+live rather than running on the defaults ($8.30 postage, $0.35 supplies, $2.00
+grading).
+
+## ⏳ HELD: 00769 — inventory_items.floor_price + items_full (US-3192)
+
+**Risk: LOW-MEDIUM.** One nullable column and a CHECK constraint, plus a
+CREATE OR REPLACE of the `items_full` view. The view change is the part to read
+twice: it appends `floor_price` as the LAST column and every existing column
+keeps its name, order and type, so the analytics RPCs that select from it are
+unaffected. There is no DROP — that would fail against those dependents.
+
+**Apply order:** after 00768. Run `NOTIFY pgrst, 'reload schema';` afterwards
+(a new column AND a changed view), then redeploy the edge.
+
+**What it adds**
+- `inventory_items.floor_price decimal(10,2)` — the seller's hard floor on one
+  garment. Composed with every rule floor as max(rule floor, this), nulls
+  ignored, so it can only ever narrow what automation may do.
+- `inventory_items_floor_price_nonneg` — a CHECK, because there are now four
+  callers (markdown, offer rules, bulk reduce, the composer) and one missed
+  clamp would let automation price an item negative.
+- `items_full.floor_price` — so the item grid and saved views can filter on it.
+
+**DEPLOY ORDER MATTERS ONE WAY ONLY.** The edge SELECTs `floor_price` when it
+plans a markdown (`routes/flipdesk-pricing.ts`, `routes/flipdesk-automations.ts`)
+and when it answers an offer. Against a database without the column those
+selects fail with 42703 and the repricing and automation runs throw. The
+schema-version boot guard enforces it — EXPECTED_SCHEMA_VERSION moves to 00769
+in the same commit.
+
+**⚠️ THE FRONTEND READS IT TOO, AND Pages AUTO-DEPLOYS ON PUSH.** The composer,
+the bulk-pricing grid and the item filter all select `floor_price`. Apply the
+SQL first.
+
+**No operator step.** No new environment variable, no third-party registration.
+
+## ⏳ HELD: 00768 — sales.ship_by + sales.handling_days (US-3189)
+
+**Risk: LOW.** Two nullable columns on an existing table plus one partial index.
+No backfill, no rewrite, no enum touched. Every existing row reads null, which
+is the correct answer for a sale nobody recorded a deadline for.
+
+**Apply order:** after 00767. Run `NOTIFY pgrst, 'reload schema';` afterwards
+(two new columns on a table PostgREST already serves), then redeploy the edge.
+
+**What it adds**
+- `sales.ship_by timestamptz` — when the order must reach the carrier. Written
+  from eBay's `lineItemFulfillmentInstructions.shipByDate` during the order sync.
+- `sales.handling_days smallint` — the listing's handling time, so a deadline can
+  be derived for a marketplace that reports no explicit date. Nothing writes it
+  yet; the eBay Fulfillment order does not carry it, and reading it would mean a
+  business-policy call per order, which is exactly the call volume US-3110 is
+  cutting before the Application Growth Check.
+- `idx_sales_ship_by_open` — partial on `shipped_at IS NULL`, so it stays the
+  size of the open queue rather than the whole sales history.
+
+**DEPLOY ORDER MATTERS ONE WAY ONLY.** The edge WRITES `ship_by` in the eBay
+order sync (`routes/flipdesk-ebay.ts`). Against a database without the column the
+sale upsert fails with 42703 and the whole order sync throws, so the migration
+lands BEFORE the edge deploys. The schema-version boot guard enforces it —
+EXPECTED_SCHEMA_VERSION moves to 00768 in the same commit.
+
+**⚠️ THE FRONTEND READS THE COLUMN, AND Pages AUTO-DEPLOYS ON PUSH.** The Ship
+queue (US-3190) selects `ship_by` directly through supabase-js. If the push lands
+before the SQL is applied, that select 400s and the card shows its error state on
+a page that otherwise works. Apply the SQL first; that is the whole reason this
+migration is held.
+
+**No operator step.** No new environment variable, no third-party registration.
+
 ## ✅ APPLIED 2026-09-08: 00767 — phone_capture_sessions + phone_capture_photos (US-3161)
 
 **Risk: LOW.** Two brand-new tables. Nothing existing is touched: no column

@@ -3887,6 +3887,11 @@ export interface RemoteOrderLineItem {
   itemCost: { value: string; currency: string } | null;
   shippingCost: { value: string; currency: string } | null;
   taxes: { value: string; currency: string } | null;
+  // US-3189: eBay's own answer to "when must this be handed to the carrier",
+  // already resolved against handling time, payment moment, business days and
+  // site cutoff. Null when eBay reported none — never defaulted, see
+  // lib/ship-deadline.ts.
+  shipByDate: string | null;
 }
 
 export interface RemoteOrder {
@@ -3965,6 +3970,7 @@ export async function listRecentOrders(
             shippingCost?: { value?: string; currency?: string };
           };
           taxes?: Array<{ amount?: { value?: string; currency?: string } }>;
+          lineItemFulfillmentInstructions?: { shipByDate?: string };
         }>;
       }>;
       total?: number;
@@ -4006,6 +4012,7 @@ export async function listRecentOrders(
           taxes: taxesSum > 0
             ? { value: taxesSum.toFixed(2), currency }
             : null,
+          shipByDate: li.lineItemFulfillmentInstructions?.shipByDate ?? null,
         };
       });
 

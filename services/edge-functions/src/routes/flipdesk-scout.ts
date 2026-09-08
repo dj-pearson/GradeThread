@@ -72,7 +72,7 @@ import {
 import { forecastSellThrough } from "../lib/sell-through.ts";
 import { ebaySoldSearchUrl } from "../lib/sold-comps.ts";
 import { decideBuy, DECISION_FEE_RATE, sourcingCeiling } from "../lib/scout-decision.ts";
-import { sourcingTargetRoi } from "../lib/sourcing-target.ts";
+import { sourcingParams, sourcingTargetRoi } from "../lib/sourcing-target.ts";
 import {
   rankCandidates,
   scoreCandidate,
@@ -315,8 +315,9 @@ flipdeskScoutRoutes.post("/", async (c) => {
   }
 
   // US-3098: the seller's target return, for the ceiling on each row. One read,
-  // reused for every candidate.
-  const targetRoi = await sourcingTargetRoi(userId);
+  // reused for every candidate. US-3193 added the cost lines to the same read
+  // rather than a second round trip against the same row.
+  const { targetRoi, costs: scanCosts } = await sourcingParams(userId);
 
   // ── PHASE ONE: look wide, spend nothing ──────────────────────────────────
   //
@@ -438,7 +439,10 @@ flipdeskScoutRoutes.post("/", async (c) => {
           const value = await cachedValueAtGrade({ categoryId, q, brand }, grade.overallScore);
           // US-617: score by condition-adjusted margin.
           scored.push(
-            scoreCandidate(cand, grade.overallScore, grade.confidence, value, { targetRoi }),
+            scoreCandidate(cand, grade.overallScore, grade.confidence, value, {
+              targetRoi,
+              costs: scanCosts,
+            }),
           );
           graded += 1;
         } catch (err) {
@@ -716,9 +720,14 @@ flipdeskScoutRoutes.post("/appraise", async (c) => {
   // a publishable measured curve; sourcingCeiling enforces that itself. The
   // target is the OWNER's setting, so a workspace member spends against the
   // owner's margin rather than one of their own.
+  const { targetRoi: ceilingTargetRoi, costs: ceilingCosts } =
+    await sourcingParams(userId);
   const ceiling = sourcingCeiling({
     value,
-    targetRoi: await sourcingTargetRoi(userId),
+    targetRoi: ceilingTargetRoi,
+    // US-3193: postage, packaging and grading, so the ceiling is a price the
+    // seller can actually pay and still clear the target.
+    costs: ceilingCosts,
   });
 
   recordMetric("scout.appraise", 1, {
@@ -987,9 +996,14 @@ flipdeskScoutRoutes.post("/appraise-url", async (c) => {
   // a publishable measured curve; sourcingCeiling enforces that itself. The
   // target is the OWNER's setting, so a workspace member spends against the
   // owner's margin rather than one of their own.
+  const { targetRoi: ceilingTargetRoi, costs: ceilingCosts } =
+    await sourcingParams(userId);
   const ceiling = sourcingCeiling({
     value,
-    targetRoi: await sourcingTargetRoi(userId),
+    targetRoi: ceilingTargetRoi,
+    // US-3193: postage, packaging and grading, so the ceiling is a price the
+    // seller can actually pay and still clear the target.
+    costs: ceilingCosts,
   });
 
   recordMetric("scout.appraise-url", 1, {
@@ -1075,7 +1089,7 @@ flipdeskScoutRoutes.post("/prospect", async (c) => {
   // swallows its own failures and returns the default, so this promise cannot
   // reject and cannot take the worker down while nobody is awaiting it
   // (vault/10-ops/edge-hang-vs-crash-loop.md).
-  const targetRoiPromise = sourcingTargetRoi(userId);
+  const sourcingParamsPromise = sourcingParams(userId);
 
   let body: {
     image?: unknown;
@@ -1574,8 +1588,14 @@ flipdeskScoutRoutes.post("/prospect", async (c) => {
   // a publishable measured curve; sourcingCeiling enforces that itself. The
   // target is the OWNER's setting, so a workspace member spends against the
   // owner's margin rather than one of their own.
+  const { targetRoi: prospectTargetRoi, costs: prospectCosts } =
+    await sourcingParamsPromise;
   const ceiling = value
-    ? sourcingCeiling({ value, targetRoi: await targetRoiPromise })
+    ? sourcingCeiling({
+      value,
+      targetRoi: prospectTargetRoi,
+      costs: prospectCosts,
+    })
     : null;
 
   // A deep link to eBay's SOLD/completed search for this item — lets the

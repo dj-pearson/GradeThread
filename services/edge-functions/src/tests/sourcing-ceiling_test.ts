@@ -84,11 +84,17 @@ Deno.test("paying the ceiling hits the target, and a cent more misses it", () =>
   const net = ebayNetProceedsCents(value.medianCents as number);
   assertEquals(c.netResaleCents, net);
 
-  const atCeiling = (net - c.maxPriceCents!) / c.maxPriceCents!;
+  // US-3193: the money the seller is left holding is net-of-fees MINUS what it
+  // costs to post, pack and grade the thing. The target is measured against
+  // that, which is the whole change: measured against `net` alone, as this test
+  // read before, the ceiling promised a return the seller never actually saw.
+  const spendable = net - c.costsCents;
+
+  const atCeiling = (spendable - c.maxPriceCents!) / c.maxPriceCents!;
   assert(atCeiling >= target, `paying the ceiling missed the target: ${atCeiling}`);
 
   const overBy = c.maxPriceCents! + 1;
-  const above = (net - overBy) / overBy;
+  const above = (spendable - overBy) / overBy;
   assert(above < target, `a cent over the ceiling still cleared the target: ${above}`);
 });
 
@@ -107,16 +113,24 @@ Deno.test("a higher target buys cheaper", () => {
 });
 
 Deno.test("a zero target is allowed and equals breakeven", () => {
+  // US-3193: breakeven now means "after fees AND after sending it", so the
+  // ceiling at a zero target is net minus the cost lines, not net.
   const value = range();
   const c = sourcingCeiling({ value, targetRoi: 0 });
-  assertEquals(c.maxPriceCents, ebayNetProceedsCents(value.medianCents as number));
+  assertEquals(
+    c.maxPriceCents,
+    ebayNetProceedsCents(value.medianCents as number) - c.costsCents,
+  );
 });
 
 Deno.test("a negative or unusable target is floored at zero, never inverted", () => {
   const value = range();
   const neg = sourcingCeiling({ value, targetRoi: -0.5 });
   assertEquals(neg.targetRoi, 0);
-  assertEquals(neg.maxPriceCents, ebayNetProceedsCents(value.medianCents as number));
+  assertEquals(
+    neg.maxPriceCents,
+    ebayNetProceedsCents(value.medianCents as number) - neg.costsCents,
+  );
   const nan = sourcingCeiling({ value, targetRoi: Number.NaN });
   assertEquals(nan.targetRoi, 0);
 });

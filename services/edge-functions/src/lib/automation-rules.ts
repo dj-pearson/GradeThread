@@ -11,6 +11,7 @@ import {
 import {
   normalizeThresholdCents as normalizeReturnThresholdCents,
 } from "./return-rules.ts";
+import { effectiveFloorCents } from "./repricing-rules.ts";
 
 export const AUTOMATION_NAME_MAX = 80;
 export const MAX_PRICE_DROP_PCT = 90;
@@ -889,6 +890,13 @@ export type PlannedAction =
 export interface PlanInput {
   currentCents: number;
   costBasisDollars: number | null;
+  /**
+   * US-3192: the seller's hard floor on this garment, in cents. Composed with
+   * the rule's margin floor as the higher of the two — a percentage-of-cost
+   * floor and a "never below $28" floor are both real, and the binding one is
+   * whichever bites first. Null means the seller set none.
+   */
+  itemFloorCents?: number | null;
   currentPromoRatePct: number | null;
   // ── US-2156 ─────────────────────────────────────────────────
   /** The item's current pipeline status — advance_status no-ops when equal. */
@@ -918,7 +926,8 @@ export function planAction(
   switch (action.type) {
     case "price_drop_pct": {
       if (i.currentCents <= 0) return null;
-      const floor = computeFloorCents(i.costBasisDollars, action.margin_floor_pct);
+      const marginFloor = computeFloorCents(i.costBasisDollars, action.margin_floor_pct);
+      const floor = effectiveFloorCents(marginFloor, i.itemFloorCents ?? null);
       const dropped = Math.floor(i.currentCents * (1 - action.pct / 100));
       const newCents = Math.max(dropped, floor ?? 0);
       if (newCents >= i.currentCents) return null; // floored out — never raise

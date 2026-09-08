@@ -21,6 +21,9 @@ export interface CostMarginCardProps {
   profitEstimate: ProfitEstimate;
   /** US-623: condition-aware, at this price. */
   sellThroughForecast: SellThroughForecast | null;
+  /** US-3192: the seller's hard floor on this garment, as typed. */
+  floorPrice: string;
+  setFloorPrice: (next: string) => void;
 }
 // What you paid, and what this price leaves you. Split out of "Condition &
 // price" (US-2254), where the cost input and its three read-outs were all nested
@@ -33,6 +36,8 @@ export function CostMarginCard({
   parsedPreviewPrice,
   profitEstimate,
   sellThroughForecast,
+  floorPrice,
+  setFloorPrice,
 }: CostMarginCardProps) {
   return (
     <Card>
@@ -59,6 +64,28 @@ export function CostMarginCard({
           />
           <span className="text-xs text-muted-foreground">
             Saves with the draft · drives margin + ROI
+          </span>
+        </div>
+        {/* US-3192: the one number every automated price change answers to.
+            Separate from the margin floor on a rule, which is a percentage of
+            cost recomputed per run: this is the seller's own line under this
+            garment, and it works even when the cost basis is unknown. */}
+        <Label htmlFor="floor-price">Never sell below</Label>
+        <div className="flex items-center gap-2">
+          <Input
+            id="floor-price"
+            type="number"
+            inputMode="decimal"
+            min="0"
+            step="0.01"
+            value={floorPrice}
+            onChange={(e) => setFloorPrice(e.target.value)}
+            placeholder="No floor"
+            className="max-w-[10rem]"
+            aria-describedby="floor-price-hint"
+          />
+          <span id="floor-price-hint" className="text-xs text-muted-foreground">
+            Markdowns, offer rules and bulk reduce all stop here
           </span>
         </div>
         {/* US-553: live profit/margin so pricing is a margin decision. */}

@@ -49,6 +49,7 @@ function makeItem(overrides: Partial<ItemFullRow> = {}): ItemFullRow {
     days_to_sell: null,
     tracking: null,
     target_price: null,
+    floor_price: null,
     grade_value: null,
     grade_label: null,
     certificate_url: null,

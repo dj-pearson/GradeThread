@@ -50,6 +50,8 @@ import {
   formatMoney,
   grossMarginCents,
   marginPct,
+  netMarginCents,
+  netMarginPct,
   pctOfList,
   readExpiry,
 } from "@/pages/flipdesk/offer-economics";
@@ -240,10 +242,16 @@ function OfferRow({ offer }: { offer: EbayBestOffer }) {
     offerPrice: offer.price,
     listPrice: offer.listPriceCents != null ? offer.listPriceCents / 100 : null,
     itemCost: offer.itemCost,
+    // US-3194: eBay's cut, the postage and the grading fee, so the number
+    // beside the Accept button is what actually lands.
+    shippingCost: offer.shippingCost,
+    gradingCost: offer.gradingCost,
   };
   const sharePct = pctOfList(economics);
   const margin = grossMarginCents(economics);
   const marginShare = marginPct(economics);
+  const net = netMarginCents(economics);
+  const netShare = netMarginPct(economics);
   // Re-read on every render rather than memoized: the row re-renders on the
   // 90-second background refetch, which is exactly when the countdown should
   // move. Memoizing it would freeze the clock until the offer changed.
@@ -328,11 +336,27 @@ function OfferRow({ offer }: { offer: EbayBestOffer }) {
           <p className="text-xs text-muted-foreground">
             {sharePct != null ? `${sharePct}% of asking` : "asking price unknown"}
             {" · "}
-            {margin == null
-              ? "cost unknown"
-              : `${formatMoney(margin, cur)} margin${
-                marginShare != null ? ` (${marginShare}%)` : ""
-              }`}
+            {/* US-3194: NET is the primary figure. The gross number was what
+                the seller read before, and it ignored eBay's cut and the
+                postage — on a $36 offer that is about $13.60 of difference,
+                which is the gap between a sale worth taking and one that is
+                not. Gross stays visible so the two can be compared rather than
+                the number appearing to have silently changed. */}
+            {net == null ? (
+              "cost unknown"
+            ) : (
+              <>
+                <span className="font-medium text-foreground">
+                  {formatMoney(net, cur)} net
+                </span>
+                {netShare != null ? ` (${netShare}%)` : ""}
+                {margin != null
+                  ? ` · ${formatMoney(margin, cur)} before fees${
+                    marginShare != null ? ` (${marginShare}%)` : ""
+                  }`
+                  : ""}
+              </>
+            )}
           </p>
           {/* Buyer memory: same person, third offer, second item. Invisible
               before US-2939 started storing offers. */}
@@ -418,13 +442,23 @@ function OfferRow({ offer }: { offer: EbayBestOffer }) {
             </Button>
           </div>
           {/* US-2236 AC2: margin at this counter, so a below-break-even offer is
-              visible. Only when we know the item's cost. */}
+              visible. Only when we know the item's cost.
+
+              US-3194: NET, by the same arithmetic as the row above. A counter is
+              an offer to sell at that price, so it loses the same fees and the
+              same postage — showing it gross was how a counter that lost money
+              could read as a positive margin. */}
           {offer.itemCost != null &&
             Number.isFinite(Number(counterPrice)) &&
             Number(counterPrice) > 0 &&
             (() => {
-              const margin = Number(counterPrice) - offer.itemCost;
-              const below = margin < 0;
+              const counterEconomics = {
+                ...economics,
+                offerPrice: Number(counterPrice),
+              };
+              const counterNet = netMarginCents(counterEconomics);
+              if (counterNet == null) return null;
+              const below = counterNet < 0;
               return (
                 <p
                   className={
@@ -433,8 +467,9 @@ function OfferRow({ offer }: { offer: EbayBestOffer }) {
                       : "text-xs text-muted-foreground"
                   }
                 >
-                  {below ? "Below cost" : "Margin"}: {cur} {margin.toFixed(2)}
-                  {" · "}cost {cur} {offer.itemCost.toFixed(2)}
+                  {below ? "Loses money" : "Nets"}: {formatMoney(counterNet, cur)}
+                  {" · "}cost {cur} {offer.itemCost.toFixed(2)} after fees and
+                  postage
                 </p>
               );
             })()}

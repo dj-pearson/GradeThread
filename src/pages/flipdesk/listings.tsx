@@ -78,6 +78,8 @@ import { useKeyboardShortcuts } from "@/hooks/use-keyboard-shortcuts";
 import { useUrlParamState, useUrlSearchInput } from "@/hooks/use-url-param-state";
 import { useInventorySelection } from "@/stores/inventory-selection";
 import { useInventoryStatusCounts } from "@/hooks/use-inventory-status-counts";
+import { useAgedThreshold } from "@/hooks/use-aged-threshold";
+import { AgedStrip } from "@/components/flipdesk/aged-strip";
 import { MarkListedDialog } from "@/components/flipdesk/mark-listed-dialog";
 import { PublishToEbayDialog } from "@/components/flipdesk/publish-to-ebay-dialog";
 import { RecordSaleDialog } from "@/components/flipdesk/record-sale-dialog";
@@ -413,6 +415,11 @@ export function FlipdeskListingsPage() {
   const isUnlisted = tab === "unlisted";
   const isSold = tab === "sold";
   const isActive = tab === "active";
+  // US-3195: the seller's own "too long". Always a usable number — the hook
+  // stands the default in until the read resolves, because a screen that cannot
+  // say what aged means is a screen with nothing on it.
+  const { days: agedThresholdDays } = useAgedThreshold();
+  const isAgedTab = tab === "aged";
   // US-2174: a hidden tab must not poll.
   const visible = useDocumentVisible();
   const isShipped = tab === "shipped";
@@ -508,6 +515,10 @@ export function FlipdeskListingsPage() {
     filterQuery,
     page,
     pageSize,
+    // US-3195: the threshold is part of what the Aged tab SHOWS, so changing it
+    // has to produce a different cache entry. Left out, a seller moving the
+    // slider from 60 to 30 would be served the 60-day page from cache.
+    agedThresholdDays,
   ] as const;
   const { data: pageData, isLoading } = useQuery<ListingPageResult>({
     queryKey: listingsPageKey,
@@ -574,6 +585,9 @@ export function FlipdeskListingsPage() {
         // items_full column, including the four heavy detail-only ones this
         // table never renders.
         p_columns: LISTINGS_COLUMN_LIST,
+        // US-3195: only consulted on the Aged tab, the same way p_sold_filter
+        // is only consulted on Sold.
+        p_aged_threshold_days: agedThresholdDays,
       } as never);
       if (error) throw error;
       return (data ?? { total: 0, rows: [] }) as ListingPageResult;
@@ -626,6 +640,12 @@ export function FlipdeskListingsPage() {
     const counts: Record<TabId, number> = {
       all: 0,
       unlisted: 0,
+      // US-3195: aged is not a status, so the server-side status grouping cannot
+      // count it and this stays -1, which the badge reads as "no number" rather
+      // than as "none". A permanent 0 on a tab holding forty dead listings is
+      // worse than no badge, which is the same judgement the fallback below
+      // already makes about page-limited counts.
+      aged: -1,
       active: 0,
       sold: 0,
       shipped: 0,
@@ -997,16 +1017,26 @@ export function FlipdeskListingsPage() {
           {TABS.map((t) => (
             <TabsTrigger key={t.id} value={t.id} className="gap-2">
               {t.label}
-              <Badge
-                variant={tab === t.id ? "default" : "secondary"}
-                className="px-1.5 py-0 text-[10px] tabular-nums"
-              >
-                {tabCounts[t.id].toLocaleString()}
-              </Badge>
+              {/* US-3195: a negative count means the number is not knowable
+                  from the server-side status grouping, so no badge is shown. */}
+              {tabCounts[t.id] >= 0 && (
+                <Badge
+                  variant={tab === t.id ? "default" : "secondary"}
+                  className="px-1.5 py-0 text-[10px] tabular-nums"
+                >
+                  {tabCounts[t.id].toLocaleString()}
+                </Badge>
+              )}
             </TabsTrigger>
           ))}
         </TabsList>
       </Tabs>
+
+      {/* US-3195: the Aged tab's own strip — what "too long" means, and how much
+          of the seller's money is asleep in the rows on screen. */}
+      {isAgedTab && (
+        <AgedStrip rows={items} thresholdDays={agedThresholdDays} />
+      )}
 
       {/* Sold-tab aggregate strip */}
       {isSold && soldAgg && (

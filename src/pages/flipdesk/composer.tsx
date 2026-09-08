@@ -349,6 +349,9 @@ export function FlipdeskComposerPage({
   const [storageSku, setStorageSku] = useState("");
   const [storageLocation, setStorageLocation] = useState("");
   const [storageContainer, setStorageContainer] = useState("");
+  // US-3192: the seller's hard floor on this garment, held as typed so an empty
+  // field stays distinguishable from a floor of zero.
+  const [floorPrice, setFloorPrice] = useState("");
   // Item-level bookkeeping that used to live only on the retired ItemCanvas.
   // These are inventory_items columns, saved by the same single Save as the
   // listing fields — the whole point of one editor is that nothing is stranded
@@ -800,6 +803,7 @@ export function FlipdeskComposerPage({
     // items_full exposes SKU as item_number; container/location_bin pass through.
     setStorageSku(item.item_number ?? "");
     setStorageLocation(item.location_bin ?? "");
+    setFloorPrice(item.floor_price != null ? String(item.floor_price) : "");
     setStorageContainer(item.container ?? "");
     // Item bookkeeping (items_full names these purchase_date/purchase_price).
     setItemStatus(item.status);
@@ -1937,6 +1941,7 @@ export function FlipdeskComposerPage({
         storageSku,
         storageLocation,
         storageContainer,
+        floorPrice,
         // Forward-only: never regress a listed/sold item back to "drafted". The
         // seller's Item details pick is the `selected` input — resolveStatus
         // lets a deliberate non-prep choice (archived, sold) win outright and
@@ -3606,6 +3611,8 @@ export function FlipdeskComposerPage({
             parsedPreviewPrice={parsedPreviewPrice}
             profitEstimate={profitEstimate}
             sellThroughForecast={sellThroughForecast}
+            floorPrice={floorPrice}
+            setFloorPrice={setFloorPrice}
           />
 
           {/* Listing format + variations (US-568) */}

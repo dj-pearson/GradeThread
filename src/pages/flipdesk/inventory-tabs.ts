@@ -4,6 +4,7 @@
 // test doesn't drag the whole page module graph into coverage.
 
 import type { ItemFullRow, ItemStatus } from "@/types/database";
+import { DEFAULT_AGED_THRESHOLD_DAYS, isAged } from "@/lib/aged-inventory";
 
 // "Unlisted" replaced the To List and Drafts tabs (2026-09-02). They were one
 // job, getting an item live, split at a step the seller rarely thinks about:
@@ -16,6 +17,10 @@ export type TabId =
   | "all"
   | "unlisted"
   | "active"
+  // US-3195: live listings past the seller's own aged threshold. A SUBSET of
+  // Active rather than a status of its own — nothing about the item changes
+  // when it crosses the line, only whether the seller should be looking at it.
+  | "aged"
   | "sold"
   | "shipped"
   | "returned"
@@ -243,6 +248,24 @@ export const TABS: TabDef[] = [
     sortKey: "list_date",
     sortDir: "desc",
     emptyCta: { label: "View unlisted items", to: "?tab=unlisted" },
+  },
+  {
+    // US-3195: the death pile. The aging rules existed and the screen did not,
+    // so the only thing that ever saw dead stock was an automation.
+    //
+    // The threshold here is the DEFAULT: TabDef.matches takes one row and
+    // nothing else, and every consumer of it needs an answer without loading a
+    // setting. The seller's own threshold is applied on top by
+    // matchesAgedFilter in listings-filter.ts, the same way the Sold tab
+    // narrows with its window filter.
+    id: "aged",
+    label: "Aged",
+    matches: (it) => isAged(it, DEFAULT_AGED_THRESHOLD_DAYS),
+    // Oldest first: the list is read top-down and the top of it should be the
+    // thing that has been sitting longest.
+    sortKey: "list_date",
+    sortDir: "asc",
+    emptyCta: { label: "View active listings", to: "?tab=active" },
   },
   {
     id: "sold",

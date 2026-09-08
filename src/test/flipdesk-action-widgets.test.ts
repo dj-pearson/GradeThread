@@ -111,7 +111,10 @@ describe("the eight action widgets are registered (US-3077)", () => {
 });
 
 describe("the needs-you merge moved into a hook (US-3077 AC1)", () => {
-  it("names all six queues and sends each kind somewhere absolute", () => {
+  it("names all seven queues and sends each kind somewhere absolute", () => {
+    // US-3190 added "shipments". The list is asserted exactly, not by length,
+    // so a queue added to the type without a read here fails rather than
+    // quietly showing an incomplete list on two surfaces.
     expect([...NEEDS_YOU_QUEUES]).toEqual([
       "returns",
       "cancellations",
@@ -119,6 +122,7 @@ describe("the needs-you merge moved into a hook (US-3077 AC1)", () => {
       "cases",
       "disputes",
       "offers",
+      "shipments",
     ]);
     // The widget renders on the overview, where a bare "#returns" scrolls to
     // nothing. Every destination has to be a path.
@@ -130,7 +134,7 @@ describe("the needs-you merge moved into a hook (US-3077 AC1)", () => {
   it("leaves the card rendering the list and reading nothing itself", () => {
     const card = read("src/components/flipdesk/needs-you-card.tsx");
     expect(card).toContain("useNeedsYou");
-    // The six reads and the merge are the hook's now. A second copy here is
+    // The reads and the merge are the hook's now. A second copy here is
     // how the card and the widget would come to disagree about "open".
     expect(card).not.toContain("useEbayReturns");
     expect(card).not.toContain("splitByOpenState");

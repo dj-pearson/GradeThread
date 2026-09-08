@@ -25,7 +25,12 @@ export type NeedsYouKind =
   | "dispute"
   | "return"
   | "cancellation"
-  | "offer";
+  | "offer"
+  // US-3190: the seventh queue, and the only one whose clock the seller is
+  // SCORED on rather than merely judged by. It belongs here for the reason the
+  // module header gives: it carries a deadline that can be lost by waiting, and
+  // it was the one such clock with no entry in this list.
+  | "shipment";
 
 export interface NeedsYouItem {
   kind: NeedsYouKind;
@@ -49,6 +54,7 @@ export const KIND_LABEL: Record<NeedsYouKind, string> = {
   return: "Return",
   cancellation: "Cancellation",
   offer: "Offer",
+  shipment: "Ship by",
 };
 
 function deadlineKey(iso: string | null): number {
@@ -79,7 +85,7 @@ export function rankNeedsYou(items: readonly NeedsYouItem[]): NeedsYouItem[] {
   });
 }
 
-/** A stable key for React, unique across the six queues. */
+/** A stable key for React, unique across the seven queues. */
 export function needsYouKey(item: NeedsYouItem): string {
   return `${item.kind}:${item.id}`;
 }
