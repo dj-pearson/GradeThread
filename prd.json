@@ -3889,7 +3889,9 @@
         "vault/30-platform/import-presets.md carries the identical header list for each new preset, edited in the same commit, per the contract comment at the top of import-presets.ts",
         "verified stays null for any preset not yet checked against a real export file, and src/pages/flipdesk/import.tsx shows that state on the page rather than hiding it",
         "A vitest case feeds one fixture header row per preset and asserts detection returns that preset id, plus a generic row that returns null",
-        "src/pages/flipdesk/import.tsx gains no per-preset branch: the picker renders from IMPORT_PRESETS"
+        "src/pages/flipdesk/import.tsx gains no per-preset branch: the picker renders from IMPORT_PRESETS",
+        "A sixth preset with id etsy maps the Etsy \"Currently for sale listings\" CSV that any shop can download from Shop Manager today, needing no app approval, so Etsy sellers have a working import while US-3156 waits on the keystring",
+        "The shopify preset maps the standard Shopify products CSV export, which also needs no app approval, so it is unaffected by the state of the Shopify app review"
       ],
       "priority": 13
     },
@@ -3907,7 +3909,8 @@
         "A case in services/edge-functions/src/tests/tenant-isolation_test.ts posts a Depop batch naming another tenant marketplace listing id and asserts a new row is created for the poster rather than the other tenant row being touched (US-268)",
         "OPERATOR: the adapter selectors must come from a human running the popup Check selectors probe against a signed-in Depop shop. A guessed adapter is not acceptable, per the recorded history in the US-2702 notes"
       ],
-      "priority": 14
+      "priority": 14,
+      "notes": "Depop partner API access is still pending, confirmed by the founder 2026-09-08, and MARKETPLACE_TIER.depop reads api_pending. Depop publishes no listings export either, so the extension page read in this story is the ONLY unblocked route to a Depop catalogue today, and it should be built rather than waiting. When partner access lands, a Depop API import supersedes this adapter and the adapter should be RETIRED rather than run in parallel, the same call US-3156 makes for Etsy: two sources of the same listing is how provenance drift starts (vault/20-domain/sync-source-of-truth.md)."
     },
     {
       "id": "US-3155",
@@ -3943,7 +3946,8 @@
       "dependsOn": [
         "US-2474",
         "US-3131"
-      ]
+      ],
+      "notes": "BLOCKED on external approval, confirmed by the founder 2026-09-08: the Etsy app keystring is still pending, and MARKETPLACE_TIER.etsy in src/lib/constants.ts reads api_pending. Do not start this story before US-2474 and US-3131 close. The unblocked substitute shipped in the same epic is the etsy CSV preset in US-3153, which reads the Currently for sale listings download and needs no approval at all. When approval lands, this story replaces that path for connected shops; the preset stays for shops that never connect."
     },
     {
       "id": "US-3157",
