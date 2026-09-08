@@ -1,5 +1,10 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
 import { CornerDownLeft } from "lucide-react";
 
@@ -141,6 +146,14 @@ export function PaletteShell<T>({
         onKeyDown={onKeyDown}
       >
         <DialogTitle className="sr-only">{title}</DialogTitle>
+        {/* sr-only to match the title: the input directly below is the whole
+            interface and a visible line above it would push it off the top of a
+            short window. It is here because Radix requires a description and
+            because "type to search" is not obvious without sight of the caret. */}
+        <DialogDescription className="sr-only">
+          Type to search. Use the up and down arrows to move through the
+          results, Enter to choose one, and Escape to close.
+        </DialogDescription>
 
         <div className="flex items-center gap-2 border-b px-3">
           {leading}

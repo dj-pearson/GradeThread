@@ -18,6 +18,7 @@ import {
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
@@ -644,6 +645,13 @@ export function PhotoEditorDialog({
       <DialogContent className="@container flex max-h-[95dvh] w-[calc(100vw-2rem)] max-w-6xl flex-col gap-3 overflow-hidden p-4">
         <DialogHeader className="shrink-0">
           <DialogTitle>Edit photo</DialogTitle>
+          {/* Radix warns when a dialog has no description, and a screen reader
+              otherwise announces only "Edit photo" with no hint of what the
+              tools do or that the original is kept. */}
+          <DialogDescription>
+            Crop, straighten and clean up this photo. The original is kept, so
+            you can come back and start again.
+          </DialogDescription>
         </DialogHeader>
 
         {notice && (

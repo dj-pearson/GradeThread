@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-3187",
+  "nextId": "US-3188",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -4405,6 +4405,21 @@
       "dependsOn": [
         "US-3184"
       ]
+    },
+    {
+      "id": "US-3187",
+      "passes": false,
+      "title": "Find the item_photos rows whose file is gone from storage",
+      "description": "As a seller, I want the photos my catalogue claims to have to actually exist, so that a grid of items is not sprinkled with grey placeholders nobody can explain.",
+      "acceptanceCriteria": [
+        "FOUND IN PRODUCTION 2026-09-08 from a console 400. The row exists and yields a valid public URL; the object behind it does not. Verified directly: GET on the storage object answers HTTP 400 carrying {\"statusCode\":\"404\",\"error\":\"not_found\",\"message\":\"Object not found\"}. One confirmed path is item-photos/c55c2414-7e0b-4431-944e-c0a16887bf31/a478a7b2-bd0d-43db-b9ed-37f59eaa17c1/front_1781056170564.jpg",
+        "An operator script lists every item_photos row whose storage_path is absent from the item-photos bucket, reporting the count, the owning users and the date spread, and CHANGING NOTHING on its first run",
+        "The script says which of the three causes each row looks like, because the fix differs: an upload that wrote the row and failed the object, a bucket cleanup that outran its rows, or a restore that brought the table back without the storage",
+        "Only after that report is read by a human does a second mode delete or re-flag the dead rows, and it never deletes a row whose object merely 403s or times out, since that is a permissions or availability problem and the file is still there",
+        "A thumbnail_url that is dead while photo_url is alive (or the reverse) is reported as its own class, not lumped in: the row is recoverable by clearing one column",
+        "The UI half already shipped in the same commit as this story was filed: ItemPhotoImg now folds a dead URL into the labelled placeholder via onError, so these rows degrade instead of drawing a broken-image glyph. That is a cosmetic floor, NOT the fix, and closing this story on the UI change alone would leave the catalogue quietly missing photos"
+      ],
+      "priority": 26
     }
   ]
 }

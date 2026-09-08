@@ -34,7 +34,12 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { toastError } from "@/lib/toast-error";
-import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { supabase } from "@/lib/supabase";
 import {
   isNonListablePhotoType,
@@ -542,6 +547,13 @@ export function PhotoManager({
               ? photoTagLabel(viewingPhoto.photo_type, viewingPhoto.photo_role, garment)
               : "Photo"}
           </DialogTitle>
+          {/* sr-only like the title: this dialog is the photo, full bleed, and
+              visible helper text would sit on top of it. Radix requires a
+              description or an explicit opt-out, and a screen-reader user is
+              the one person here with nothing else to go on. */}
+          <DialogDescription className="sr-only">
+            Full-size photo. Press Escape to close.
+          </DialogDescription>
           {viewingPhoto && (
             <ItemPhotoImg
               photo={viewingPhoto}
