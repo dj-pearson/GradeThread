@@ -64,7 +64,16 @@ struct InventoryListView: View {
     /// a single brand. US-814: the Sources manager deep-links here pre-filtered to
     /// a single acquisition source. Default (`nil`) keeps the unfiltered list
     /// every other call site expects.
-    init(initialBrand: String? = nil, initialSourceId: String? = nil) {
+    /// `router` is first and defaulted: the two shell call sites pass it, the
+    /// three deep-link call sites (Sources, Community Insights, Global Search)
+    /// do not and must keep compiling unchanged. It is assigned here because an
+    /// explicit init suppresses the memberwise one, so nothing else would.
+    init(
+        router: AppRouter? = nil,
+        initialBrand: String? = nil,
+        initialSourceId: String? = nil
+    ) {
+        self.router = router
         var seeded = InventoryFilterCriteria()
         if let brand = initialBrand, !brand.isEmpty {
             seeded.brands = [brand]

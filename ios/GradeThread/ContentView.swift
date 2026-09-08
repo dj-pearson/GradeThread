@@ -144,10 +144,18 @@ struct ContentView: View {
                     // merge + cursor advance rather than re-saving those rows after
                     // the wipe below (a tenant leak on shared devices).
                     WorkspaceScope.clear()
-                    // US-3101: the next account's Marketplaces badge must not
-                    // open showing the last one's offers. Same reason the
-                    // watermarks and detection baselines are cleared below.
-                    sellerAttention.reset()
+                    // US-3101 wanted the next account's Marketplaces badge not
+                    // to open showing the last one's offers, and it already
+                    // does not: `sellerAttention` is @State on MainShell, and
+                    // ProtectedRouteShell swaps MainShell out for LoginView the
+                    // moment the phase flips, so the store is destroyed and the
+                    // next sign-in builds a fresh one at zero. The reset call
+                    // that used to sit here could never compile from this type
+                    // anyway -- ContentView does not own the shell's state, the
+                    // same boundary the AppRouter comment below describes.
+                    //
+                    // The clears that DO belong here are the ones that outlive
+                    // a view: SwiftData, the watermarks, WorkspaceScope.
                     // Capture the engine strongly so the epoch bump still runs even
                     // though `syncEngine` is set to nil below — a late-returning pull
                     // must see the bumped epoch and discard.
