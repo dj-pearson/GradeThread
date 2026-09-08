@@ -99,8 +99,7 @@ enum class ActionCreditPack(val productId: String, val credits: Int, val fallbac
     companion object {
         val productIds: List<String> = entries.map { it.productId }
 
-        fun fromProductId(productId: String?): ActionCreditPack? =
-            entries.firstOrNull { it.productId == productId }
+        fun fromProductId(productId: String?): ActionCreditPack? = entries.firstOrNull { it.productId == productId }
     }
 }
 

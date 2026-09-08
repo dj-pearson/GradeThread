@@ -34,10 +34,7 @@ data class GooglePlayVerifyResponse(
  * exactly the ones you cannot afford to check by hand.
  */
 @Singleton
-class BillingRepository @Inject constructor(
-    private val play: PlayBilling,
-    private val verifier: PurchaseVerifier,
-) {
+class BillingRepository @Inject constructor(private val play: PlayBilling, private val verifier: PurchaseVerifier) {
 
     companion object {
         /** Where a buyer goes when the fix isn't in this app. */
@@ -57,10 +54,7 @@ class BillingRepository @Inject constructor(
          * [conflict] non-null means the buyer must act somewhere else — retrying
          * here cannot work, and the UI should say where to go instead.
          */
-        data class Failed(
-            val message: String,
-            val conflict: PlayPurchaseRules.Conflict? = null,
-        ) : PurchaseOutcome()
+        data class Failed(val message: String, val conflict: PlayPurchaseRules.Conflict? = null) : PurchaseOutcome()
     }
 
     /** Purchase results from Play, including renewals nobody tapped for. */
@@ -146,9 +140,8 @@ class BillingRepository @Inject constructor(
     }
 
     /** What Play says this account currently subscribes to, if anything. */
-    suspend fun activeSubscription(): PlayPurchase? =
-        play.purchases(PlayProductType.SUBS)
-            .firstOrNull { PlayPurchaseRules.redeemable(it) }
+    suspend fun activeSubscription(): PlayPurchase? = play.purchases(PlayProductType.SUBS)
+        .firstOrNull { PlayPurchaseRules.redeemable(it) }
 
     // ── Verify + settle ──────────────────────────────────────────────────────
 
