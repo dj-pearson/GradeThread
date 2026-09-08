@@ -16,6 +16,10 @@ and five new RPCs), then redeploy the edge on Coolify, then push.
 - `users.ai_actions_credit_paid_this_month`, default 0.
 - `grant_action_credits`, `debit_action_credits`, `refund_action_credits`,
   `clawback_action_credits`, `reserve_ai_action_v2`.
+- Explicit `GRANT EXECUTE ... TO service_role` on all seven money functions
+  (US-2282 AC4). It ADDS service_role and revokes nothing, because a REVOKE
+  segfaults this Postgres image (US-2403). Each function body also refuses any
+  role but service_role with an ordinary 42501, which is the actual lock.
 
 **What it changes**
 - `reserve_ai_action(uuid, int)` keeps its exact signature and return type and
@@ -29,6 +33,9 @@ and five new RPCs), then redeploy the edge on Coolify, then push.
 tables until the Task 6 billing-summary change ships, and an empty wallet makes
 `debit_action_credits` return -1, so refusals are byte-for-byte what they are
 today. A seller who never buys a pack sees no change at all.
+
+**Operator runbook for the storefronts:**
+`vault/10-ops/action-credits-storefront-setup.md`.
 
 **Revenue is still gated on operator work** after this applies: four Stripe
 prices plus their `STRIPE_PRICE_ACTION_CREDITS_*` env vars, four App Store

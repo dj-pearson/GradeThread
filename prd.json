@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-3139",
+  "nextId": "US-3141",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -3702,7 +3702,44 @@
         "iOS and Android carry the four consumables with their own ProductMapping kind, so an action-credit purchase can never grant GRADE credits; iap-catalog-drift_test covers the ids",
         "OPERATOR: create four Stripe prices and set STRIPE_PRICE_ACTION_CREDITS_50/150/400/1000; create four App Store Connect consumables; create four Play Console products. The checkout returns 503 until the Stripe prices exist"
       ],
-      "priority": 20
+      "priority": 20,
+      "notes": "Built 2026-09-08, HELD on migration 00763 and three console setups.\n\nShipped across seven commits on local main (b6198d32a, 0143e1e75, 41a4672f9, 13a802737, dbb948013 plus docs). What landed: the wallet migration with the fallback inside reserve_ai_action's own row lock; the AI and connector meters; the Stripe checkout, webhook grant and refund clawback; billing-summary and ledger; the web dialog and the 429-becomes-an-offer path; the iOS and Android catalogs with their own action_credits product kind; vault/50-business/action-credits.md and vault/10-ops/action-credits-storefront-setup.md.\n\nThree things the test suites caught that review would not have. The SECURITY DEFINER guard (US-3008) was right to fire: without a body role check any authenticated caller could rpc grant_action_credits with their own id and mint a wallet. src/test/security-definer-grants.test.ts then required explicit GRANTs, because silence is not 'closed' on this stack. And the ledger had to order by an identity column rather than created_at, since now() is transaction start and reserve_ai_action_v2 debits inside its caller's transaction.\n\nREMAINING (AC9): four Stripe prices plus STRIPE_PRICE_ACTION_CREDITS_* env vars, four App Store Connect consumables, four Play Console products. Until the Stripe prices exist the checkout returns 503, which is correct. Runbook: vault/10-ops/action-credits-storefront-setup.md.\n\nAlso outstanding: the Android paywall UI does not yet render the new packs (the repository methods and catalog exist); phase 2 is the buyer meters, which closes US-1801."
+    },
+    {
+      "id": "US-3139",
+      "passes": false,
+      "title": "AutoLister names a photo group off its tag, instead of \"Item 3\"",
+      "description": "A group is minted \"Item 1\", \"Item 2\", \"Item 3\" the moment photos land in it, so a 40-item session is a list of numbers the seller has to open one by one to tell apart. The group already HAS the answer in it: the tag photo. Read that photo in the browser with tesseract.js (no model, no cost, no AI quota), resolve the text against the curated brand table already on the edge, and name the group \"Levi's 32x34\". No brand and no usable filename leaves \"Item 3\" alone -- a wrong name is worse than a numbered one.",
+      "acceptanceCriteria": [
+        "A group whose name is still the minted \"Item N\" (or blank) is renamed from its tag photo automatically, with no button to press. A name the seller typed, or one an earlier pass wrote, is never overwritten.",
+        "OCR runs in the browser against assets served from our own origin. The tesseract.js worker, wasm core and language data are staged into public/tesseract/ from node_modules at install and build; nothing is fetched from a CDN, because script-src/connect-src are 'self'.",
+        "Brand resolution reuses the curated alias table (services/edge-functions/src/lib/brand-normalize.ts) through POST /api/flipdesk/autolister/tag-brand -- one batched round trip per group batch, no model call, no AI metering.",
+        "DETECT_EXCLUDED_FROM_TEXT is applied to the alias-window match, so an ordinary-word brand is never minted out of care-label prose (\"mother of pearl buttons\" does not become MOTHER).",
+        "Size is read off the same text when present and appended after the brand (\"Levi's 32x34\", \"Carhartt XL\"). A bare number is only read as a size behind the word \"size\" -- an RN or a fibre percentage is not one.",
+        "When no brand is found the name falls back to a filename the seller clearly typed, then to color plus garment. A camera-minted filename (IMG_, PXL_, DSC, a timestamp) is rejected and the group keeps \"Item N\".",
+        "Two groups reading the same tag get distinct names (\"Carhartt\", \"Carhartt 2\"), compared case-insensitively.",
+        "Each (group, tag photo) pair is attempted once. Re-tagging a photo makes it eligible again; re-rendering does not.",
+        "The pass is advisory: nothing in the session waits on it, a failed OCR or a failed lookup leaves the group named \"Item N\", and a \"Reading tags\" badge is the only UI it owns.",
+        "The tesseract assets are excluded from the PWA precache (they exceed Workbox's 2 MiB cap) and public/tesseract/ is gitignored."
+      ],
+      "priority": 40
+    },
+    {
+      "id": "US-3140",
+      "passes": false,
+      "title": "Google Photos import works in the Composer, from one shared module",
+      "description": "The Google Photos import only existed on the AutoLister, as ~208 lines inside autolister.tsx. Sellers who work item-by-item in the Composer had no way to it. The flow carries four rules that each cost a production bug (the picker window closing is not cancellation; there is no short pick deadline; the download is chunked and paced; the server owns the cursor), so copying it into a second surface was never an option. Lift the sequence into a module with every effect injected, prove it with tests, wire the shared PhotoUploader to it, and only then cut the AutoLister over.",
+      "acceptanceCriteria": [
+        "The sequence lives in src/lib/google-photos-import.ts with fetch, window, toasts, clock and sleep all injected, and touches no React.",
+        "src/lib/google-photos-import.test.ts covers the happy path, chunked pagination, the server cursor, cancellation in both phases, an expired session, a blocked popup, an unconfigured server and a mid-download failure -- with no browser, network or timers.",
+        "The tests are proved to bite: breaking the cursor, the abort check, the await on onPhotos, or the popup-close ordering each fails a case.",
+        "src/hooks/use-google-photos-import.ts is the React wrapper and owns only state, the real window.open, the real toasts, the configured probe and teardown.",
+        "PhotoUploader shows an Import from Google Photos button only when the server reports Google credentials configured, so the Composer, the item page, Prep, Snap Catalog and the AutoLister queue all gain it at once.",
+        "Imported photos reach an item through the SAME bulkUpload path a disk-picked photo takes -- magic-byte sniff, metadata strip, provisional tagging and the photographed status advance all still run.",
+        "autolister.tsx uses the shared hook and behaves exactly as before: imported photos become StagedPhotos with their capture time, cancel reads \"the photos already brought over are below\", and the button still doubles as Cancel with chunk progress.",
+        "autolister.tsx drops from 3635 to 3408 lines and its ceiling in src/test/autolister-split.test.ts is lowered in the same commit."
+      ],
+      "priority": 40
     }
   ]
 }
