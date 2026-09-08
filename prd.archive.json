@@ -45144,6 +45144,22 @@
         "It stores nothing and asks for nothing new. No migration, no EIN, no SSN, and FILING_FRAMING says so on the screen rather than in a tooltip.",
         "Green: 48 new unit tests, npx tsc -b, eslint, npm run ui:check at zero, and the US-2335 accessible-name baseline back at zero after the year picker gained an aria-label."
       ]
+    },
+    {
+      "id": "US-3141",
+      "passes": true,
+      "title": "Auto-enqueue the extension delist when a cross-listed sibling sells",
+      "description": "When a cross-listed item sells, autoEndCrossListings stamps listings.delist_requested_at on every extension-channel sibling (Poshmark/Mercari/Grailed/Vinted/Facebook) and stops there. The extension's background drain claims from extension_work_queue every 5 minutes and on browser start and can already run a delist job with no GradeThread tab open, but nothing ever puts the sale-triggered delist into that queue. So the seller has to open FlipDesk or the extension popup and click, and the sibling stays live and purchasable until they do. Enqueue the delist alongside the stamp so the existing drain ends it hands-off. No credentials are involved: the queue stores WHAT to do and the extension acts in the seller's own logged-in tab.",
+      "acceptanceCriteria": [
+        "A sale that resolves a sibling to outcome 'queued' also inserts an extension_work_queue row of kind 'delist' for that listing, with payload.listingUrl set from listings.listing_url.",
+        "The enqueue is gated on the SAME rule the popup and the SaaS use: isAutoDelistable(listing_status, listing_url) from lib/pending-delists.ts. A draft-status sibling or one with no saved URL is stamped only, never queued.",
+        "delist_requested_at is still stamped in every queued outcome, so the manual and popup paths keep working when the enqueue is refused (lapsed plan, depth cap) or fails.",
+        "A refused or failed enqueue never aborts the auto-end pass: it is logged and the loop continues to the next sibling.",
+        "A second webhook for the same sale does not queue the delist twice: an existing queued or claimed delist row for that listing_id short-circuits the insert.",
+        "Tests cover the wiring (the enqueue sits inside the queued branch, after the row update, behind isAutoDelistable) and the dedupe guard."
+      ],
+      "priority": 1,
+      "notes": "Done 2026-09-08. autoEndCrossListings now hands every queued sibling to the extension's background drain as well as stamping delist_requested_at. lib/cross-listings.ts: added listing_url + inventory_item_id to the sibling select and SiblingRow, and a queueExtensionDelist() helper called inside the outcome.kind === 'queued' branch AFTER the row update (so a row we failed to mark ended is never queued for a browser to end). Gate is the shared isAutoDelistable() from lib/pending-delists.ts, imported not restated. Dedupe reads extension_work_queue for an existing queued/claimed delist on that listing_id, tenant-scoped on user_id, before the insert — two order webhooks for one sale could otherwise open two tabs on the same listing. Helper never throws: a refusal (lapsed plan, depth cap) logs and the pass continues, and the stamp is still there so the manual/popup path works. Six wiring tests in cross-listing-delist_test.ts; the SiblingRow fixture gained the two new fields. 20 passed in that file, 75 across the affected set (cross-listing-*, pending-delists, extension-enqueue/queue/auth). deno lint clean, deno check clean on main.ts and the touched tests. NOT DEPLOYED — this is edge code and edge deploys are manual. NOTE: main already fails 'deno check src/tests/' on google-play_test.ts (GooglePlayDeps gained grantActionCredits in dbb948013 and the test's deps literal was not updated); unrelated to this story but it blocks verify:edge."
     }
   ]
 }

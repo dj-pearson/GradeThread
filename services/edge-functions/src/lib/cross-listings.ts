@@ -15,6 +15,8 @@ import {
   delistMethodFor,
   planCrossListingSale,
 } from "./cross-listing-sale.ts";
+import { enqueueExtensionWork } from "./extension-enqueue.ts";
+import { isAutoDelistable } from "./pending-delists.ts";
 
 // Auto-end of cross-listed siblings (US-149 + US-599 + US-1290). When one listing
 // in a cross-listing group (rows sharing listings.draft_id) sells, end the others
@@ -49,6 +51,10 @@ export interface SiblingRow {
   platform_offer_id: string | null;
   platform_listing_id: string | null;
   listing_status: string;
+  /** US-3141: the page the extension opens to end it. Null = manual path only. */
+  listing_url: string | null;
+  /** US-3141: carried onto the queue row so the seller's queue view names the item. */
+  inventory_item_id: string | null;
   inventory_items: { user_id: string; sku: string | null };
 }
 
@@ -104,7 +110,11 @@ export async function autoEndCrossListings(
     const { data, error } = await supabaseAdmin
       .from("listings")
       .select(
-        "id, platform, platform_offer_id, platform_listing_id, listing_status, inventory_items!inner(user_id, sku)",
+        "id, platform, platform_offer_id, platform_listing_id, listing_status, " +
+          // US-3141: listing_url and inventory_item_id are what the queued
+          // delist job needs — the URL the extension opens, and the item the
+          // seller's queue view names it by.
+          "listing_url, inventory_item_id, inventory_items!inner(user_id, sku)",
       )
       .eq("draft_id", draftId)
       .eq("inventory_items.user_id", ownerId)
@@ -144,11 +154,16 @@ export async function autoEndCrossListings(
         is_active: false,
       };
       if (outcome.kind === "queued") {
-        // Extension marketplaces (Poshmark/Mercari/Grailed) have no delist API —
-        // we can't end them from the server. Stamp delist_requested_at so the
-        // GradeThread Lister extension ends it in the seller's own tab next time
-        // they're in the app (the writeback clears the stamp). API siblings were
+        // Extension marketplaces (Poshmark/Mercari/Grailed/Vinted/Facebook) have
+        // no delist API — we can't end them from the server. Stamp
+        // delist_requested_at so the GradeThread Lister extension ends it in the
+        // seller's own tab (the writeback clears the stamp). API siblings were
         // already ended upstream, so they need no stamp.
+        //
+        // The stamp is the MANUAL path: it feeds loadPendingDelists, which the
+        // SaaS and the extension popup both render for the seller to click.
+        // queueExtensionDelist below is the hands-off path. Both, always —
+        // the stamp is what still works when the queue refuses the job.
         update.delist_requested_at = new Date().toISOString();
       }
       const { error: updErr } = await supabaseAdmin
@@ -180,6 +195,10 @@ export async function autoEndCrossListings(
         if (newlyStamped) unresolvedPlatforms.add(row.platform);
         summary.unresolved++;
       } else if (outcome.kind === "queued") {
+        // US-3141: hand it to the extension's background drain as well as to the
+        // seller. AFTER the update, so a row we failed to mark ended is never
+        // queued for a browser to end.
+        await queueExtensionDelist(ownerId, row);
         summary.queued++;
       } else if (outcome.kind === "nothing_live") {
         summary.nothingLive++;
@@ -213,6 +232,76 @@ export async function autoEndCrossListings(
       err instanceof Error ? err.message : String(err),
     );
     return EMPTY_SUMMARY();
+  }
+}
+
+/**
+ * US-3141: queue the sibling's delist for the extension's background drain.
+ *
+ * WHAT THIS CLOSES. The extension has claimed extension_work_queue rows every
+ * five minutes and on browser start since US-2481, and 'delist' has always been
+ * a runnable kind — it opens the listing in an unfocused tab in the seller's own
+ * logged-in session and ends it. Nothing ever put a SALE-triggered delist into
+ * that queue. The stamp alone means the sibling waits, live and purchasable,
+ * until the seller happens to open FlipDesk or the popup and click. The robot
+ * was already there; the sale just never spoke to it.
+ *
+ * NO CREDENTIAL IS INVOLVED, and that is not incidental. The queue stores WHAT
+ * to do — a platform and the seller's own listing URL — and enqueueExtensionWork
+ * refuses any payload carrying a password or session key. The marketplace
+ * session stays in the seller's browser, which is the whole reason this path
+ * exists instead of a server-side login.
+ *
+ * NEVER THROWS. Auto-end is best-effort per sibling; a refusal here (a lapsed
+ * FlipDesk plan, the queue depth cap) leaves delist_requested_at stamped, so the
+ * seller still sees it in the pending queue and can end it by hand. Losing the
+ * automation is a slower delist; aborting the pass would leave the REMAINING
+ * siblings untouched, which is a double sale.
+ */
+async function queueExtensionDelist(ownerId: string, row: SiblingRow): Promise<void> {
+  // The same rule the popup and the SaaS answer with, imported rather than
+  // restated — pending-delists.ts documents what a second copy of this list
+  // already cost once. A draft was only ever prefilled and a URL-less row was
+  // published by hand: there is no page for the extension to open, so queueing
+  // one would produce a failure the seller did not cause.
+  if (!isAutoDelistable(row.listing_status, row.listing_url)) return;
+
+  try {
+    // Two order webhooks for the same sale can both read this sibling as live
+    // before either update lands. Two queue rows is two background tabs opening
+    // the same listing, the second finding it already ended and reporting a
+    // failure against an item that was handled correctly.
+    const { data: existing } = await supabaseAdmin
+      .from("extension_work_queue")
+      .select("id")
+      .eq("user_id", ownerId) // US-268
+      .eq("listing_id", row.id)
+      .eq("kind", "delist")
+      .in("status", ["queued", "claimed"])
+      .limit(1)
+      .maybeSingle();
+    if (existing) return;
+
+    const result = await enqueueExtensionWork(ownerId, {
+      kind: "delist",
+      platform: row.platform,
+      listing_id: row.id,
+      inventory_item_id: row.inventory_item_id,
+      payload: { listingUrl: row.listing_url },
+      source: "cross-listing-sale",
+    });
+    if (!result.ok) {
+      console.warn(
+        `[cross-listings] could not queue the ${row.platform} delist for the ` +
+          `extension (${result.status}): ${result.error}. The listing is stamped, ` +
+          `so the seller still sees it in their pending delists.`,
+      );
+    }
+  } catch (err) {
+    console.warn(
+      "[cross-listings] queueing the extension delist threw:",
+      errText(err),
+    );
   }
 }
 

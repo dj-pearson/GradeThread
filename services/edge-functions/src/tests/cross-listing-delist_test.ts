@@ -25,6 +25,8 @@ function row(over: Partial<SiblingRow> = {}): SiblingRow {
     platform_offer_id: null,
     platform_listing_id: "etsy-123",
     listing_status: "active",
+    listing_url: "https://www.etsy.com/listing/etsy-123",
+    inventory_item_id: "item-1",
     inventory_items: { user_id: "owner-1", sku: "SKU-1" },
     ...over,
   };
@@ -260,4 +262,115 @@ Deno.test("US-2165: a successful Shopify and Depop delete is ended", async () =>
   // await, not return: Deno.test wants Promise<void>, and returning
   // Promise.all's tuple fails the type check.
   await Promise.all([shopify, depop]);
+});
+
+// ── US-3141: the sale hands the delist to the extension's background drain ──
+//
+// The bug this covers was an ABSENCE, and absences do not fail a behaviour test.
+// autoEndCrossListings stamped delist_requested_at and stopped, so the drain
+// that had been claiming extension_work_queue rows every five minutes since
+// US-2481 never saw the one job that matters most. Nothing was broken; the two
+// halves had simply never been connected.
+//
+// It takes the service-role client with no seam to inject, so these read the
+// source. That buys less than a behaviour test and it is what is available —
+// so each one pins a property whose loss would silently restore the old bug.
+
+const CROSS_SRC = await Deno.readTextFile(
+  new URL("../lib/cross-listings.ts", import.meta.url),
+);
+
+function indexOfOrThrow(haystack: string, needle: string, what: string): number {
+  const i = haystack.indexOf(needle);
+  if (i < 0) throw new Error(`could not find ${what} in cross-listings.ts`);
+  return i;
+}
+
+Deno.test("US-3141: a queued sibling is enqueued for the extension, not just stamped", () => {
+  // The connection itself. Without it the seller must open the app and click,
+  // and the sibling stays live and purchasable until they do.
+  assert(
+    /await queueExtensionDelist\(ownerId, row\)/.test(CROSS_SRC),
+    "the queued branch no longer hands the delist to the extension queue",
+  );
+  assert(
+    /kind: "delist"/.test(CROSS_SRC) && /source: "cross-listing-sale"/.test(CROSS_SRC),
+    "the queued job lost its kind or its source",
+  );
+  // The extension opens payload.listingUrl. Without it the drain has no target
+  // and completes the row with an error.
+  assert(
+    /payload: \{ listingUrl: row\.listing_url \}/.test(CROSS_SRC),
+    "the queued delist no longer carries the listing URL the extension opens",
+  );
+});
+
+Deno.test("US-3141: the stamp survives alongside the queue row", () => {
+  // Both paths, always. The stamp feeds loadPendingDelists, which is what the
+  // seller clicks when the enqueue is refused (lapsed plan, depth cap) — and a
+  // refusal is exactly when the manual path has to be there.
+  assert(
+    /update\.delist_requested_at = new Date\(\)\.toISOString\(\)/.test(CROSS_SRC),
+    "the delist_requested_at stamp was replaced by the queue row rather than " +
+      "joined by it, so a refused enqueue now leaves the seller nothing to click",
+  );
+});
+
+Deno.test("US-3141: the enqueue runs after the row is marked ended", () => {
+  // A row we failed to mark ended must never be queued for a browser to end:
+  // the update failure path `continue`s, and ordering is what makes that hold.
+  // Anchored on the call alone, not on the chain around it: the file is CRLF,
+  // so a multi-line literal here would fail for the wrong reason.
+  const update = indexOfOrThrow(CROSS_SRC, ".update(update)", "the sibling update");
+  const enqueue = indexOfOrThrow(CROSS_SRC, "await queueExtensionDelist(ownerId, row)", "the enqueue");
+  assert(update < enqueue, "the enqueue moved ahead of the update that ends the row");
+});
+
+Deno.test("US-3141: the queue gate is the shared isAutoDelistable rule", () => {
+  // A second copy of this rule has already cost a real oversell once
+  // (pending-delists.ts documents it). Import it; never restate it.
+  assert(
+    /import \{ isAutoDelistable \} from "\.\/pending-delists\.ts"/.test(CROSS_SRC),
+    "cross-listings.ts no longer imports the shared auto-delistable rule",
+  );
+  assert(
+    /if \(!isAutoDelistable\(row\.listing_status, row\.listing_url\)\) return;/.test(CROSS_SRC),
+    "the queue gate stopped using the shared rule, so a draft or a URL-less " +
+      "listing can be queued for a page that does not exist",
+  );
+});
+
+Deno.test("US-3141: a duplicate sale webhook cannot queue the delist twice", () => {
+  const dedupe = indexOfOrThrow(
+    CROSS_SRC,
+    '.from("extension_work_queue")',
+    "the dedupe read",
+  );
+  const insert = indexOfOrThrow(CROSS_SRC, "await enqueueExtensionWork(", "the enqueue call");
+  assert(dedupe < insert, "the dedupe check no longer runs before the enqueue");
+  assert(
+    /\.in\("status", \["queued", "claimed"\]\)/.test(CROSS_SRC),
+    "the dedupe stopped covering claimed rows, so a job already running gets a twin",
+  );
+  // US-268: the dedupe read is a query on a multi-tenant table like any other.
+  const scoped = CROSS_SRC.slice(dedupe, dedupe + 400);
+  assert(
+    /\.eq\("user_id", ownerId\)/.test(scoped),
+    "the dedupe read is not tenant-scoped",
+  );
+});
+
+Deno.test("US-3141: a refused enqueue never aborts the auto-end pass", () => {
+  // The remaining siblings are the point. Losing the automation on one is a
+  // slower delist; abandoning the loop is the double sale this module prevents.
+  const fn = CROSS_SRC.slice(
+    indexOfOrThrow(CROSS_SRC, "async function queueExtensionDelist", "the helper"),
+    indexOfOrThrow(CROSS_SRC, "// What happened to ONE sibling's upstream listing", "the helper's end"),
+  );
+  assert(/try \{/.test(fn) && /\} catch \(err\) \{/.test(fn), "the helper can throw into the caller");
+  assert(!/throw /.test(fn), "the helper throws instead of logging");
+  assert(
+    /console\.warn\(/.test(fn),
+    "a refusal is now silent, so a queue that never fills looks like one that is empty",
+  );
 });
