@@ -321,13 +321,24 @@ begin
 end;
 $$;
 
-comment on function public.flipdesk_listing_page(text, text, text, jsonb, jsonb, text, timestamptz, int, int, text[], text) is
+-- ⚠️ BOTH OF THESE MUST NAME THE NEW 12-ARG SIGNATURE.
+--
+-- They were copied from 00721 naming the ELEVEN-arg one, and that is a bug this
+-- migration shipped with once: the drop above removes the 11-arg function, so
+-- `comment on function <11 args>` then fails with 42883 "function does not
+-- exist" and the apply stops. The comment failing is cosmetic; the GRANT
+-- failing is not. A grant lives on the SIGNATURE, so dropping the old function
+-- took its grant with it, and without the line below `authenticated` cannot
+-- execute the new function at all — every tab of the listings table returns a
+-- permission error for every signed-in seller.
+comment on function public.flipdesk_listing_page(text, text, text, jsonb, jsonb, text, timestamptz, int, int, text[], text, int) is
   'US-2168 AC3: one page of the FlipDesk listings table, selected/filtered/'
   'sorted server-side. SECURITY INVOKER so items_full RLS scopes it to the '
   'caller. SQL mirror of selectListingRows(); pinned by '
   'src/test/listing-page-sql-parity.test.ts. 00721 added the unlisted tab, '
-  'its chip (p_unlisted_filter) and a wider search haystack.';
+  'its chip (p_unlisted_filter) and a wider search haystack. 00771 added the '
+  'aged tab and p_aged_threshold_days.';
 
-grant execute on function public.flipdesk_listing_page(text, text, text, jsonb, jsonb, text, timestamptz, int, int, text[], text) to authenticated;
+grant execute on function public.flipdesk_listing_page(text, text, text, jsonb, jsonb, text, timestamptz, int, int, text[], text, int) to authenticated;
 
 insert into public.applied_migrations (version) values ('00771') on conflict do nothing;
