@@ -90,7 +90,7 @@ public struct SellerAttentionCounts: Equatable, Sendable {
     /// waiting for a clock — a past deadline is no longer something the seller
     /// can act on before eBay does, so it does not sit in a badge implying they
     /// still can.
-    public static func from(
+    static func from(
         offers: [BestOffer],
         returns: [EbayReturn],
         disputes: [EbayPaymentDispute],

@@ -78,10 +78,14 @@ struct TripFormSheet: View {
                     }
                 }
 
-                Section("Where") {
+                Section {
                     TextField("From (optional)", text: $draft.startLocation)
                     TextField("To (optional)", text: $draft.endLocation)
                     Toggle("Round trip", isOn: $draft.roundTrip)
+                } header: {
+                    // Spelled out as a view, not Section("Where"): there is no
+                    // initializer taking a String title alongside a footer.
+                    Text("Where")
                 } footer: {
                     Text("Round trip is a note on the record, not a doubling. Enter the total miles you actually drove.")
                         .font(.footnote)
