@@ -8,6 +8,7 @@ import {
 import { PENDING_INVITE_KEY } from "@/pages/accept-invite";
 import { RETURN_TO_KEY, sanitizeReturnTo } from "@/lib/return-to";
 import { stripSensitiveParams } from "@/lib/redact-url";
+import { reportSignupConversion } from "@/lib/ads-conversion";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -99,6 +100,7 @@ export function AuthConfirmPage() {
       try {
         await verifyEmailTokenHash(tokenHash, type);
         track("signup.email_verified", { via: "link" });
+        reportSignupConversion(type);
         goAfterVerify();
       } catch {
         // The link is invalid/expired — fall back to manual code entry.
@@ -136,6 +138,7 @@ export function AuthConfirmPage() {
     try {
       await verifyEmailCode(email, trimmedCode, type);
       track("signup.email_verified", { via: "code" });
+      reportSignupConversion(type);
       goAfterVerify();
     } catch (err) {
       const msg = err instanceof Error ? err.message.toLowerCase() : "";
