@@ -10,6 +10,13 @@ import { getBuyerPriceIds, getFlipdeskPriceIds } from "../lib/pricing-config.ts"
 import { effectiveAiActionsUsed } from "../lib/ai-metering.ts";
 import { API_OVERAGE_PACKS, isApiOveragePackKey } from "../lib/api-overage-packs.ts";
 import {
+  ACTION_CREDIT_PACK_KEYS,
+  ACTION_CREDIT_PACKS,
+  isActionCreditPackKey,
+  isLowBalance,
+  readActionCreditBalanceSafe,
+} from "../lib/action-credits.ts";
+import {
   appstoreSubscriptionBlocksStripe,
   buyerMobileSubscriptionBlocksStripe,
   googleplaySubscriptionActive,
@@ -1120,6 +1127,102 @@ paymentRoutes.post("/api-overage/checkout", async (c) => {
   }
 });
 
+// ── POST /action-credits/checkout (US-3138) ──────────────────────
+//
+// Body: { pack: "50"|"150"|"400"|"1000", returnPath?: string }.
+//
+// One-time Checkout for a prepaid Action Credit pack. On success the webhook
+// (handleActionCreditsPurchase, product="action_credits") grants credits into
+// action_credit_wallet, which the AI and connector meters draw on once their
+// monthly allowance is spent. Never expire.
+//
+// Modelled on the api-overage handler above rather than on the grade credit-pack
+// one, because this is the same shape: a flat pack, no submission to unlock, and
+// idempotency carried by the Stripe session id.
+paymentRoutes.post("/action-credits/checkout", async (c) => {
+  const userId = c.get("userId");
+  // The wallet belongs to the workspace OWNER. A member topping up must fund the
+  // wallet their AI actions are actually billed against, or they pay and nothing
+  // changes. Matches how AI actions are metered (US-268).
+  const ownerId = c.get("workspaceOwnerId") ?? userId;
+
+  let body: { pack?: unknown; returnPath?: unknown };
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: "Invalid JSON body" }, 400);
+  }
+  const packKey = String(body.pack ?? "");
+  if (!isActionCreditPackKey(packKey)) {
+    return c.json(
+      { error: `pack must be one of: ${ACTION_CREDIT_PACK_KEYS.join(", ")}` },
+      400,
+    );
+  }
+  const pack = ACTION_CREDIT_PACKS[packKey];
+  const priceId = Deno.env.get(pack.priceEnv) || "";
+  if (!priceId) {
+    console.error(`Missing Stripe price ID for action credit pack ${packKey}`);
+    return c.json({ error: "Pricing not configured" }, 503);
+  }
+
+  // Same-origin only. An absolute URL here would let a caller bounce the buyer
+  // somewhere else after a successful payment.
+  const rawReturn = typeof body.returnPath === "string" ? body.returnPath : "";
+  const returnPath = rawReturn.startsWith("/") && !rawReturn.startsWith("//")
+    ? rawReturn
+    : "/dashboard/billing";
+
+  const { data: user, error: userError } = await loadUser(ownerId);
+  if (userError || !user) return c.json({ error: "User not found" }, 404);
+  const stripe = getStripe();
+  if (!stripe) return c.json({ error: "Payment service unavailable" }, 503);
+
+  try {
+    const sessionParams: Stripe.Checkout.SessionCreateParams = {
+      mode: "payment",
+      payment_method_types: ["card"],
+      line_items: [{ price: priceId, quantity: 1 }],
+      metadata: {
+        // The wallet that gets credited, which is the owner's, not the buyer's.
+        user_id: ownerId,
+        purchased_by: userId,
+        product: "action_credits",
+        pack: packKey,
+        credits: String(pack.credits),
+      },
+      payment_intent_data: {
+        // charge.metadata is EMPTY for Checkout payments, so the refund
+        // clawback path resolves metadata off the PaymentIntent (US-1414).
+        // Omitting it here is how a refund silently keeps the credits.
+        metadata: {
+          user_id: ownerId,
+          purchased_by: userId,
+          product: "action_credits",
+          pack: packKey,
+          credits: String(pack.credits),
+        },
+      },
+      success_url:
+        `${siteUrl()}${returnPath}?checkout=success&product=action_credits&pack=${packKey}`,
+      cancel_url: `${siteUrl()}${returnPath}?checkout=cancelled`,
+      automatic_tax: { enabled: true },
+      billing_address_collection: "required",
+      allow_promotion_codes: true,
+    };
+    sessionParams.customer = await ensureStripeCustomer(stripe, user);
+    sessionParams.customer_update = { name: "auto", address: "auto" };
+
+    const session = await stripe.checkout.sessions.create(sessionParams, {
+      idempotencyKey: `action-credits:${ownerId}:${packKey}:${Math.floor(Date.now() / 60000)}`,
+    });
+    return c.json({ sessionId: session.id, url: session.url });
+  } catch (err) {
+    console.error("Action credits checkout failed:", err);
+    return c.json({ error: "Failed to create action credits checkout" }, 500);
+  }
+});
+
 // ── POST /gradethread/per-grade (US-205) ─────────────────────────
 //
 // Body: { submissionId, tier: 'standard'|'premium'|'express' }
@@ -1465,6 +1568,9 @@ paymentRoutes.get("/billing-summary", async (c) => {
     buyer_cancel_at_period_end: boolean | null;
   };
 
+  const actionCreditOwnerId = c.get("workspaceOwnerId") ?? userId;
+  const actionCreditBalance = await readActionCreditBalanceSafe(actionCreditOwnerId);
+
   const [
     activeListingsResult,
     marketplacesResult,
@@ -1585,6 +1691,22 @@ paymentRoutes.get("/billing-summary", async (c) => {
         : [80],
       last_warning: u.last_warning_at ?? {},
     },
+    // US-3138: the prepaid Action Credit wallet. `low` drives the nudge; the
+    // pack list is here so the client never needs a second round trip to price
+    // a top-up, and never needs to hold a copy of the prices that could drift.
+    //
+    // Scoped to the WORKSPACE OWNER, not the caller: the wallet a member's AI
+    // actions are billed against is the owner's, so showing a member their own
+    // (empty) wallet would be showing them the wrong number.
+    action_credits: {
+      balance: actionCreditBalance,
+      low: isLowBalance(actionCreditBalance),
+      packs: ACTION_CREDIT_PACK_KEYS.map((k) => ({
+        key: k,
+        credits: ACTION_CREDIT_PACKS[k].credits,
+        price_cents: ACTION_CREDIT_PACKS[k].priceCents,
+      })),
+    },
     recent_ledger: ledgerResult.data ?? [],
   });
 });
@@ -1614,7 +1736,35 @@ paymentRoutes.get("/ledger", async (c) => {
     return c.json({ error: "Failed to load activity" }, 500);
   }
 
-  return c.json({ entries: data ?? [], limit, offset });
+  // US-3138: the Action Credit history, alongside the grade one rather than on
+  // its own endpoint. They are two wallets but one question ("what happened to
+  // my balance"), and a second endpoint would mean a second loading state on
+  // the same dialog.
+  //
+  // Owner-scoped for the same reason billing-summary is: it is the owner's
+  // wallet that pays for a member's AI actions.
+  const ownerId = c.get("workspaceOwnerId") ?? userId;
+  const { data: actionData, error: actionError } = await supabaseAdmin
+    .from("action_credit_transactions")
+    .select("id, delta, reason, meter, source, balance_after, notes, created_at")
+    .eq("user_id", ownerId)
+    .order("seq", { ascending: false })
+    .range(offset, offset + limit - 1);
+
+  if (actionError) {
+    // Deliberately NOT fatal. The grade ledger is the older, more-used half of
+    // this dialog, and failing the whole response because a newer wallet could
+    // not be read would be a regression for everyone who has never bought a
+    // pack. The client renders an empty section.
+    console.error("[ledger] action credit query failed:", actionError);
+  }
+
+  return c.json({
+    entries: data ?? [],
+    action_credits: actionData ?? [],
+    limit,
+    offset,
+  });
 });
 
 // ── POST /usage-alerts (US-209) ──────────────────────────────────

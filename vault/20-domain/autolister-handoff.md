@@ -8,12 +8,19 @@ code_refs:
   - supabase/migrations/00507_autolister_handoff_sessions.sql
   - ios/GradeThread/AutoLister/AutoListerReviewModel.swift
   - src/hooks/use-autolister.ts
-reviewed: 2026-09-02
+reviewed: 2026-09-08
 tags: [flipdesk, autolister, mobile, contract]
 summary: What crosses from the phone to the desktop AutoLister before any AI runs, and the rules that keep the crossing safe.
 ---
 
 # AutoLister phone → desktop handoff
+
+> **Re-reviewed 2026-09-08.** Drift flagged `flipdesk-autolister.ts` for
+> `41a4672f9` (US-3138). The whole diff in this file is four reserve calls
+> passing `quota` where they passed `quota.limit`, so the batch can fall through
+> to prepaid Action Credits when the monthly AI allowance is spent instead of
+> stopping. Nothing this note asserts about the handoff, the session table or
+> what crosses before AI runs is in that diff. See [[action-credits]].
 
 > **Re-reviewed 2026-09-02.** Drift flagged `flipdesk-autolister.ts` and
 > `use-autolister.ts` for `293008ffb`: the batch now runs the cross-list copy

@@ -389,6 +389,7 @@ The first three are a **feature group** (`quickbooks`) on `/health/ready`, so an
 | `STRIPE_PRICE_BUYER_GUARD_MONTHLY` / `_YEARLY` | 🟡 Coolify edge | Buyer Guard subscription price IDs (`lib/pricing-config.ts`). |
 | `STRIPE_PRICE_BUYER_CONNOISSEUR_MONTHLY` / `_YEARLY` | 🟡 Coolify edge | Buyer Connoisseur subscription price IDs. |
 | `STRIPE_PRICE_API_OVERAGE_10` / `_50` / `_100` / `_200` | 🟡 Coolify edge | Price IDs for public-API overage credit packs (`lib/api-overage-packs.ts`). |
+| `STRIPE_PRICE_ACTION_CREDITS_50` / `_150` / `_400` / `_1000` | 🟡 Coolify edge | Price IDs for Action Credit packs (`lib/action-credits.ts`), the prepaid top-up the AI and connector meters draw on once a plan's monthly allowance is spent. Unset means `POST /api/payments/action-credits/checkout` returns 503 and nothing else changes. |
 
 > Every `STRIPE_PRICE_*` above resolves to `""` when unset, so a missing one does
 > not crash — it makes that product unbuyable at checkout with no boot warning.

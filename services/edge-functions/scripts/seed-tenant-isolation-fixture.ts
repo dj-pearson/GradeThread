@@ -577,6 +577,27 @@ async function main(): Promise<void> {
     linked_user_id: aId,
   });
 
+  // US-3138: fund A's Action Credit wallet, and ONLY A's.
+  //
+  // Seeded rather than left empty on purpose. With both wallets at zero, a
+  // cross-tenant read and a correctly scoped one return the same answer, so the
+  // isolation cases would pass against a completely unscoped handler. A
+  // non-zero balance on exactly one tenant is what makes the assertion able to
+  // fail.
+  //
+  // Emitted as A's user id (not a row id) because the ledger case needs the
+  // value that would appear in a leaked row.
+  await admin.rpc("grant_action_credits", {
+    p_user_id: aId,
+    p_credits: 137,
+    p_reason: "admin_grant",
+    p_source: "admin",
+    p_external_id: `tenant-isolation-fixture-${aId}`,
+    p_notes: "tenant-isolation fixture",
+  });
+  out.TEST_USER_A_ID = aId;
+  out.TEST_USER_A_ACTION_CREDITS = "137";
+
   log(`seeded fixture for A=${aId} B=${bId}`);
 
   // Emit KEY=VALUE lines on stdout for $GITHUB_ENV. JWTs are single-line tokens.

@@ -10,12 +10,33 @@ code_refs:
   - services/edge-functions/src/lib/connector-allowance.ts
   - services/edge-functions/src/middleware/mcp-auth.ts
   - services/edge-functions/src/lib/mcp-budget.ts
-reviewed: 2026-09-05
+reviewed: 2026-09-08
 tags: [pricing, connector, plan-gating, contract]
 summary: connectorAccess opens at pro; connector write actions have their own monthly counter derived from the audit log, not a share of aiActionsPerMonth.
 ---
 
 # The connector's gate and its allowance
+
+> **Re-reviewed 2026-09-08.** `connector-allowance.ts` gained an Action Credit
+> fallback (US-3138), which changes what an exhausted allowance MEANS without
+> changing any number in this note.
+>
+> Two distinctions this note's readers now have to hold, both enforced by tests
+> in `connector-allowance_test.ts`:
+>
+> - **`limit === 0` is a FEATURE gate and is answered before the wallet is ever
+>   consulted.** Free and starter do not carry the connector, and no quantity of
+>   credits opens a capability a tier does not include. Selling one would be
+>   taking money for nothing. The verdict carries `canTopUp: false`.
+> - **`used >= limit` with `limit > 0` is a VOLUME wall, and is a top-up
+>   opportunity.** A pro seller who burns 500 can be carried by prepaid credits
+>   rather than being told to come back next month. The verdict carries
+>   `paidWith: "credits"`.
+>
+> The "no new column" section below still holds and is the reason the fallback
+> looks different here from the AI meter's. That one pushes the wallet debit
+> inside `reserve_ai_action`'s row lock; this meter has no row to lock, so the
+> debit is itself the reservation. See [[action-credits]].
 
 > **Re-reviewed 2026-09-05.** Drift flagged `mcp-budget.ts` for a new budget
 > kind, `extension_queue` (US-3065), at 20 batches an hour — sized like publish.
@@ -132,6 +153,8 @@ grandfathering it.
   402 protocol the frontends depend on.
 - [[subscription-unit-economics]] — where the AI-action caps come from, which is
   the number this one deliberately does not share.
+- [[action-credits]] — the prepaid wallet an exhausted allowance falls through
+  to, and why a plan without the connector is never offered one.
 
 ## 2026-09-04: constants.ts moved, but only the grade-score colours
 

@@ -1500,6 +1500,8 @@ async function handleCheckoutCompleted(event: Stripe.Event) {
     await handlePerGradePurchase(event, session, userId);
   } else if (product === "api_overage") {
     await handleApiOveragePurchase(session, userId);
+  } else if (product === "action_credits") {
+    await handleActionCreditsPurchase(session, userId);
   } else {
     console.warn(`[Webhook] checkout.session.completed unknown product=${product} session=${session.id}`);
   }
@@ -1524,6 +1526,33 @@ async function handleApiOveragePurchase(session: Stripe.Checkout.Session, userId
   });
   failIfDbError(error, `grant_api_credits for user ${userId}`);
   console.log(`[Webhook] User ${userId} granted ${credits} API overage credits (pack ${pack})`);
+}
+
+// US-3138: grant prepaid Action Credits on a completed pack purchase.
+//
+// Idempotent on the Stripe session id, enforced by a unique index in 00763
+// rather than by a check here: a webhook replay grants once. `userId` is the
+// WORKSPACE OWNER, stamped into the metadata by the checkout route, because the
+// wallet the AI meter draws on is the owner's.
+async function handleActionCreditsPurchase(session: Stripe.Checkout.Session, userId: string) {
+  const credits = Number(session.metadata?.credits ?? 0);
+  const pack = session.metadata?.pack ?? "";
+  if (!Number.isFinite(credits) || credits <= 0) {
+    console.error(
+      `[Webhook] action_credits missing/invalid credits metadata (session=${session.id})`,
+    );
+    return;
+  }
+  const { error } = await supabaseAdmin.rpc("grant_action_credits", {
+    p_user_id: userId,
+    p_credits: credits,
+    p_reason: "purchase",
+    p_source: "stripe",
+    p_external_id: session.id,
+    p_notes: `pack=${pack}`,
+  });
+  failIfDbError(error, `grant_action_credits for user ${userId}`);
+  console.log(`[Webhook] User ${userId} granted ${credits} action credits (pack ${pack})`);
 }
 
 async function handleCreditPackPurchase(
@@ -1880,6 +1909,14 @@ async function handleChargeRefunded(event: Stripe.Event) {
     return;
   }
 
+  // US-3138: same story for a refunded Action Credit pack. Without this arm the
+  // money goes back and the credits stay, which is the exact bug US-2293 fixed
+  // for api_overage.
+  if (userId && product === "action_credits") {
+    await clawbackActionCredits(event, charge, userId, meta);
+    return;
+  }
+
   if (!userId || product !== "credit_pack") {
     // Subscription refunds: Stripe handles them; we just log the event.
     console.log(`[Webhook] charge.refunded product=${product ?? "?"} user=${userId ?? "?"} — no DB change`);
@@ -2163,6 +2200,87 @@ async function clawbackApiOverage(
       `revoked ${revoke} credit(s), balance now ${data}`,
   );
 }
+
+/**
+ * US-3138: reverse an Action Credit grant when its charge is refunded.
+ *
+ * Reuses planApiOverageClawback rather than writing a second proportional
+ * clamp. The rule is identical and it is the rule that matters: claw back in
+ * PROPORTION to the refund (a half refund takes back half), clamped to the
+ * CURRENT balance, because credits are spent as they are used. A seller who
+ * bought 400, spent 380 and then refunded can only give back 20 -- taking 400
+ * would drive the wallet negative and bill them for work they already paid for.
+ *
+ * The shortfall is reported rather than swallowed. "We refunded a pack whose
+ * credits were already spent" is a real commercial event and a plausible abuse
+ * signal, and a clawback that quietly takes what it can and logs success hides
+ * both.
+ *
+ * Idempotency comes from the webhook envelope: claimWebhookEvent runs once
+ * before any side effect (US-390), so a Stripe redelivery never reaches here.
+ * Two separate partial refunds are two distinct events and each claws back its
+ * own increment.
+ */
+async function clawbackActionCredits(
+  event: Stripe.Event,
+  charge: Stripe.Charge,
+  userId: string,
+  meta: Record<string, string | undefined>,
+): Promise<void> {
+  const granted = Number.parseInt(meta.credits ?? "", 10);
+  if (!Number.isFinite(granted) || granted <= 0) {
+    console.error(
+      `[Webhook] charge.refunded action_credits invalid credits metadata (charge=${charge.id})`,
+    );
+    return;
+  }
+
+  const { incremental } = resolveRefundClawback(charge);
+
+  const { data: walletRow } = await supabaseAdmin
+    .from("action_credit_wallet")
+    .select("balance")
+    .eq("user_id", userId)
+    .maybeSingle();
+  const balance = Number((walletRow as { balance?: number } | null)?.balance ?? 0);
+
+  const { revoke, shortfall } = planApiOverageClawback({
+    granted,
+    refunded: incremental,
+    total: charge.amount,
+    balance,
+  });
+
+  await recordEvent(userId, event.type, event.id, null, null, {
+    product: "action_credits",
+    granted,
+    revoke,
+    shortfall,
+    charge_id: charge.id,
+  });
+
+  if (revoke <= 0) {
+    console.log(
+      `[Webhook] charge.refunded action_credits charge=${charge.id} user=${userId} ` +
+        `balance=${balance} - nothing to claw back (shortfall=${shortfall})`,
+    );
+    return;
+  }
+
+  const { error } = await supabaseAdmin.rpc("clawback_action_credits", {
+    p_user_id: userId,
+    p_credits: revoke,
+    p_source: "stripe",
+    p_external_id: charge.id,
+    p_notes: `action_credits refund clawback (charge ${charge.id})`,
+  });
+  failIfDbError(error, `clawback_action_credits for user ${userId}`);
+  console.log(
+    `[Webhook] charge.refunded action_credits charge=${charge.id} user=${userId} ` +
+      `revoked=${revoke} shortfall=${shortfall}`,
+  );
+}
+
 
 async function refundPerGrade(
   event: Stripe.Event,

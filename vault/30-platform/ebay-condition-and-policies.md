@@ -8,12 +8,18 @@ code_refs:
   - services/edge-functions/src/lib/ebay-client.ts
   - services/edge-functions/src/lib/ai-listing.ts
   - services/edge-functions/src/lib/publish-preflight.ts
-reviewed: 2026-09-05
+reviewed: 2026-09-08
 tags: [ebay, publishing, conditions, gotcha]
 summary: Condition validation lives on the Sell Metadata API, not Taxonomy, and apparel rejects LIKE_NEW — both failures are silent until publish.
 ---
 
 # eBay condition mapping and the policy endpoint
+
+> **Re-reviewed 2026-09-08.** Drift flagged `ai-listing.ts` for `8531b994b`.
+> The whole diff there is `PriceCompSource` gaining a `"pooled_sales"` member so
+> a pooled-comp-backed draft can set `price_is_estimated=false`, which US-3136
+> added to `CompSource` without widening its consumers. Re-read to confirm
+> nothing this note asserts moved; it did not.
 
 > **Re-reviewed 2026-09-05.** Drift flagged `ai-listing.ts` for `f4d6a71d1`
 > (US-3088, the anonymous listing-draft endpoint). Three changes, and none of

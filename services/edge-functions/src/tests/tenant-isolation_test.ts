@@ -2005,6 +2005,25 @@ Deno.test({
   },
 });
 
+// US-3138: /tag-brand is a pure lookup over OUR curated brand table — it reads
+// no table, no storage, and echoes nothing from the request back. There is no
+// cross-tenant resource to reach, so the isolation requirement reduces to the
+// one the embed endpoint above has: it must still require auth.
+Deno.test({
+  name: "autolister tag-brand requires authentication",
+  ignore: !BASE,
+  fn: async () => {
+    const res = await fetch(`${BASE}/api/flipdesk/autolister/tag-brand`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ groups: [{ id: "g1", text: "CARHARTT" }] }),
+    });
+    const status = res.status;
+    await res.body?.cancel();
+    assert(status === 401, `unauthenticated tag-brand should 401, got ${status}`);
+  },
+});
+
 // A reconcile session owned by A must not be visible to B through PostgREST
 // (RLS on flipdesk_reconcile_sessions). This hits Supabase directly with B's
 // JWT, mirroring how the reconcile board reads its own session.
@@ -8152,6 +8171,141 @@ Deno.test({
       asA.status === 200 || asB.status === 200,
       `neither tenant could reach the tool at all (A ${asA.status}, B ${asB.status}); ` +
         `this case would pass without exercising the handler`,
+    );
+  },
+});
+
+// ── US-3138: the Action Credit wallet ────────────────────────────────
+//
+// A wallet is money, so the two questions are the ones money always asks: can
+// I read someone else's, and can I make someone else pay for mine.
+//
+// The checkout route takes NO id from the request body, which is the strongest
+// form of scoping and also the easiest to erode later: adding a convenience
+// `userId` field would be a one-line change that reads as harmless. These cases
+// exist so that change fails.
+
+Deno.test({
+  name: "action credits: the balance in billing-summary is the caller's own",
+  ignore: !CONFIGURED,
+  fn: async () => {
+    const asA = await fetch(`${BASE}/api/payments/billing-summary`, {
+      headers: authHeaders(A_JWT!),
+    });
+    const asB = await fetch(`${BASE}/api/payments/billing-summary`, {
+      headers: authHeaders(B_JWT!),
+    });
+    assert(
+      asA.status === 200 && asB.status === 200,
+      `both tenants must reach billing-summary (A ${asA.status}, B ${asB.status}); ` +
+        `otherwise this case passes without exercising the handler`,
+    );
+    const a = await asA.json();
+    const b = await asB.json();
+
+    // The shape must exist on both, or the assertion below is vacuous.
+    assert(
+      a.action_credits && typeof a.action_credits.balance === "number",
+      "billing-summary did not carry an action_credits block for A",
+    );
+    assert(
+      b.action_credits && typeof b.action_credits.balance === "number",
+      "billing-summary did not carry an action_credits block for B",
+    );
+    // The fixture funds A's wallet and ONLY A's. That asymmetry is the whole
+    // point: with both at zero, a cross-tenant read and a correctly scoped one
+    // return the same answer and this case would pass against an unscoped
+    // handler.
+    const funded = Number(Deno.env.get("TEST_USER_A_ACTION_CREDITS") ?? "0");
+    assertEquals(a.action_credits.balance, funded, "A cannot see the credits it was granted");
+    assertEquals(b.action_credits.balance, 0, "B is reading A's wallet balance");
+  },
+});
+
+Deno.test({
+  name: "action credits: a checkout cannot name whose wallet to credit",
+  ignore: !CONFIGURED,
+  fn: async () => {
+    // B asks for a pack while trying to point the grant at A. The route derives
+    // the wallet from the AUTH CONTEXT and ignores the body entirely, so the
+    // only two acceptable answers are a session created for B, or a refusal
+    // because Stripe pricing is not configured in this environment.
+    const res = await fetch(`${BASE}/api/payments/action-credits/checkout`, {
+      method: "POST",
+      headers: authHeaders(B_JWT!),
+      body: JSON.stringify({
+        pack: "50",
+        user_id: "00000000-0000-0000-0000-0000000000aa",
+        userId: "00000000-0000-0000-0000-0000000000aa",
+      }),
+    });
+    assert(
+      res.status === 200 || res.status === 503 || DENIED.has(res.status),
+      `unexpected status ${res.status} from an action-credits checkout carrying a ` +
+        `foreign user id; it must be ignored, not honored`,
+    );
+    if (res.status === 200) {
+      const body = await res.text();
+      assertListExcludes(body, "0000000000aa", "action-credits checkout as B");
+    }
+  },
+});
+
+Deno.test({
+  name: "action credits: the checkout rejects a pack key it does not sell",
+  ignore: !CONFIGURED,
+  fn: async () => {
+    // Not isolation, but the same input-trust question: the pack decides how
+    // many credits a completed payment grants, so an unvalidated key is a
+    // pricing hole. Only the four real keys may pass.
+    for (const pack of ["25", "999999", "", "50; drop", null]) {
+      const res = await fetch(`${BASE}/api/payments/action-credits/checkout`, {
+        method: "POST",
+        headers: authHeaders(A_JWT!),
+        body: JSON.stringify({ pack }),
+      });
+      assert(
+        res.status === 400 || DENIED.has(res.status),
+        `pack ${JSON.stringify(pack)} was not rejected (status ${res.status})`,
+      );
+    }
+  },
+});
+
+Deno.test({
+  name: "action credits: the ledger returns only the caller's own rows",
+  ignore: !CONFIGURED,
+  fn: async () => {
+    const res = await fetch(`${BASE}/api/payments/ledger`, {
+      headers: authHeaders(B_JWT!),
+    });
+    assert(res.status === 200, `ledger unreachable as B (${res.status})`);
+    const body = await res.json();
+    assert(
+      Array.isArray(body.action_credits),
+      "ledger did not carry an action_credits array",
+    );
+    // B bought nothing, so B's action-credit history is empty. A global read
+    // would surface the fixture's grant to A, which is the row this asserts is
+    // absent.
+    const foreign = Deno.env.get("TEST_USER_A_ID");
+    if (foreign) {
+      assertListExcludes(JSON.stringify(body.action_credits), foreign, "ledger as B");
+    }
+    assertEquals(
+      body.action_credits.length,
+      0,
+      "B has an action-credit history despite never buying a pack",
+    );
+
+    // Positive control: A must be able to see its own grant, or the assertion
+    // above is satisfied by a ledger that returns nothing to anyone.
+    const asA = await fetch(`${BASE}/api/payments/ledger`, { headers: authHeaders(A_JWT!) });
+    assert(asA.status === 200, `ledger unreachable as A (${asA.status})`);
+    const aBody = await asA.json();
+    assert(
+      aBody.action_credits.length > 0,
+      "A cannot see its own seeded grant, so this case proves nothing",
     );
   },
 });

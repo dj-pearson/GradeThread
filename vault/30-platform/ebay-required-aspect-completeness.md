@@ -11,12 +11,18 @@ code_refs:
   - services/edge-functions/src/lib/aspect-provenance.ts
   - src/lib/aspect-provenance.ts
   - src/test/fixtures/required-aspects-cases.json
-reviewed: 2026-09-05
+reviewed: 2026-09-08
 tags: [ebay, publishing, aspects, gotcha]
 summary: Publish fills required item specifics the stored override lacks; revise did not, so listings published fine and then failed every later revise.
 ---
 
 # eBay required-aspect completeness on publish and revise
+
+> **Re-reviewed 2026-09-08.** Drift flagged `ai-listing.ts` for `8531b994b`.
+> The whole diff there is `PriceCompSource` gaining a `"pooled_sales"` member so
+> a pooled-comp-backed draft can set `price_is_estimated=false`, which US-3136
+> added to `CompSource` without widening its consumers. Re-read to confirm
+> nothing this note asserts moved; it did not.
 
 > **Re-reviewed 2026-09-05.** Drift flagged `ai-listing.ts` for `f4d6a71d1`
 > (US-3088, the anonymous listing-draft endpoint). Three changes, and none of

@@ -10,12 +10,20 @@ code_refs:
   - services/edge-functions/src/middleware/mcp-auth.ts
   - services/edge-functions/src/routes/oauth.ts
   - services/edge-functions/src/routes/health.ts
-reviewed: 2026-09-05
+reviewed: 2026-09-08
 tags: [ops, connector, launch, runbook]
 summary: The two flags that gate the connector, the order to flip them in, and the checks that prove each step before the next one.
 ---
 
 # Turning the connector on
+
+> **Re-reviewed 2026-09-08.** Drift flagged `mcp.ts` for `41a4672f9` (US-3138).
+> The diff is five lines in the allowance-exceeded error: the JSON-RPC `data`
+> now carries `can_top_up`, so a model relaying the refusal can tell a seller
+> whether buying Action Credits would actually unblock them. It is `false` when
+> the plan does not carry the connector at all, which is the case where telling
+> them to buy something would be wrong. Nothing else in the dispatcher moved.
+> See [[action-credits]].
 
 > **Re-reviewed 2026-09-05, no change.** Drift flagged `health.ts` for the
 > GoTrue OTP-expiry read (US-2351 AC7), which adds a field this note does not
