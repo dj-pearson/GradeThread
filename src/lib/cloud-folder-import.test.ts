@@ -4,8 +4,6 @@ import {
   type CloudImportDeps,
   listCloudFolder,
   loadCloudProviders,
-  parentPath,
-  pathCrumbs,
   runCloudFolderImport,
 } from "@/lib/cloud-folder-import";
 
@@ -135,14 +133,13 @@ describe("cloud folder import (US-3159)", () => {
     expect(await loadCloudProviders(d)).toEqual([]);
   });
 
-  it("breadcrumbs and the parent path agree about where the root is", () => {
-    expect(parentPath("")).toBeNull();
-    expect(parentPath("/camera uploads")).toBe("");
-    expect(parentPath("/camera uploads/2026")).toBe("/camera uploads");
-    expect(pathCrumbs("")).toEqual([]);
-    expect(pathCrumbs("/camera uploads/2026")).toEqual([
-      { name: "camera uploads", path: "/camera uploads" },
-      { name: "2026", path: "/camera uploads/2026" },
-    ]);
+  it("a provider path is passed through untouched, never parsed", async () => {
+    // US-3160: a Dropbox path is slash-delimited and a OneDrive path is a Graph
+    // item id with no separator. Anything here that split a path would render a
+    // raw id at the second provider, so nothing does.
+    const { d, calls } = deps([jsonRes({ folders: [], files: [], unreadable: 0 })]);
+    await listCloudFolder(d, "onedrive", "01ABCDEF!123");
+    expect(calls[0]).toContain(`path=${encodeURIComponent("01ABCDEF!123")}`);
   });
+
 });

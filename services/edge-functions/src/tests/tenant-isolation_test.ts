@@ -8549,3 +8549,41 @@ Deno.test({
     );
   },
 });
+
+Deno.test({
+  // US-3160: the same boundary at the second provider. Worth its own case
+  // rather than trusting the first: the provider is resolved from a PATH
+  // SEGMENT, so a registry that returned the wrong object, or a route that
+  // looked the connection up by provider alone, would leak here and nowhere
+  // else. The listing must resolve through B's own grant or refuse.
+  name: "B cannot list a OneDrive folder through another person's connection",
+  ignore: !CONFIGURED,
+  fn: async () => {
+    const res = await fetch(`${BASE}/api/flipdesk/cloud/onedrive/list?path=`, {
+      headers: authHeaders(B_JWT!),
+    });
+    await res.body?.cancel();
+    assert(
+      res.status === 409 || res.status === 503 || res.status === 404 || res.status === 402,
+      `OneDrive list as B returned ${res.status}; expected a not-connected or ` +
+        "not-configured refusal, never a folder",
+    );
+  },
+});
+
+Deno.test({
+  // A provider name that is not in the registry must be refused by NAME, before
+  // any connection lookup — otherwise the path segment reaches a query.
+  name: "an unknown cloud provider is refused rather than looked up",
+  ignore: !CONFIGURED,
+  fn: async () => {
+    const res = await fetch(`${BASE}/api/flipdesk/cloud/gdrive/list?path=`, {
+      headers: authHeaders(B_JWT!),
+    });
+    await res.body?.cancel();
+    assert(
+      res.status === 404 || res.status === 402,
+      `unknown provider returned ${res.status}; expected 404`,
+    );
+  },
+});

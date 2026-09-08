@@ -11,7 +11,9 @@ import {
   countUnreadable,
   dropboxEntryToCloudEntry,
   dropboxProvider,
+  oneDriveProvider,
   getCloudProvider,
+  graphItemToCloudEntry,
   isCloudProviderId,
   isImportableName,
   isUnreadableImageName,
@@ -116,9 +118,7 @@ Deno.test("the registry names every provider and hands back only the built ones"
   assert(isCloudProviderId("dropbox"));
   assert(!isCloudProviderId("gdrive"));
   assertEquals(getCloudProvider("dropbox")?.id, "dropbox");
-  // US-3160 fills this in. Until then the id is known and the provider is not,
-  // which is what keeps the route answering 404 rather than throwing.
-  assertEquals(getCloudProvider("onedrive"), null);
+  assertEquals(getCloudProvider("onedrive")?.id, "onedrive");
   for (const p of configuredCloudProviders()) assert(p.isConfigured());
 });
 
@@ -134,4 +134,87 @@ Deno.test("an unconfigured deploy offers nothing rather than a button that canno
     if (hadId !== undefined) Deno.env.set("DROPBOX_CLIENT_ID", hadId);
     if (hadSecret !== undefined) Deno.env.set("DROPBOX_CLIENT_SECRET", hadSecret);
   }
+});
+
+// ── OneDrive (US-3160) ──────────────────────────────────────────────
+
+Deno.test("a Graph folder becomes a navigable folder addressed by item id", () => {
+  const e = graphItemToCloudEntry({ id: "01ABC!123", name: "Camera Roll", folder: { childCount: 9 } });
+  assertEquals(e?.kind, "folder");
+  // The path IS the item id. Graph has no slash-delimited address, which is
+  // why nothing on the client parses a path.
+  assertEquals(e?.path, "01ABC!123");
+});
+
+Deno.test("a Graph photo prefers the shutter time over the sync time", () => {
+  const e = graphItemToCloudEntry({
+    id: "01DEF!456",
+    name: "IMG_0042.JPG",
+    size: 3_100_000,
+    file: { mimeType: "image/jpeg" },
+    photo: { takenDateTime: "2026-03-04T10:11:12Z" },
+    fileSystemInfo: { createdDateTime: "2026-09-01T00:00:00Z" },
+  });
+  assertEquals(e?.kind, "file");
+  assertEquals(e?.sizeBytes, 3_100_000);
+  assertEquals(e?.capturedAtMs, Date.parse("2026-03-04T10:11:12Z"));
+});
+
+Deno.test("a Graph photo with no shutter time falls back rather than losing the date", () => {
+  const e = graphItemToCloudEntry({
+    id: "01GHI!789",
+    name: "scan.png",
+    file: {},
+    fileSystemInfo: { createdDateTime: "2026-05-05T05:05:05Z" },
+  });
+  assertEquals(e?.capturedAtMs, Date.parse("2026-05-05T05:05:05Z"));
+});
+
+Deno.test("a Graph item that is neither a folder nor a readable file is dropped", () => {
+  assertEquals(graphItemToCloudEntry({ id: "x", name: "IMG.HEIC", file: {} }), null);
+  assertEquals(graphItemToCloudEntry({ id: "x", name: "notes.txt", file: {} }), null);
+  // Neither folder nor file: a Graph item can be a package or a bundle.
+  assertEquals(graphItemToCloudEntry({ id: "x", name: "thing" }), null);
+  assertEquals(graphItemToCloudEntry({ name: "a.jpg", file: {} }), null);
+});
+
+Deno.test("only a Microsoft download host is allowed", () => {
+  // Work accounts answer on the tenant's SharePoint host, personal ones on 1drv.
+  assert(oneDriveProvider.allowHost("contoso-my.sharepoint.com"));
+  assert(oneDriveProvider.allowHost("public.bl.files.1drv.com"));
+  assert(oneDriveProvider.allowHost("my.onedrive.com"));
+  assert(!oneDriveProvider.allowHost("evilsharepoint.com"));
+  assert(!oneDriveProvider.allowHost("sharepoint.com.attacker.test"));
+  assert(!oneDriveProvider.allowHost("graph.microsoft.com"));
+});
+
+Deno.test("the OneDrive consent URL asks for Files.Read and offline access only", () => {
+  const had = Deno.env.get("MICROSOFT_CLIENT_ID");
+  Deno.env.set("MICROSOFT_CLIENT_ID", "test-client");
+  try {
+    const url = new URL(oneDriveProvider.buildAuthUrl("st-2", "https://edge.test/cb"));
+    assertEquals(
+      url.origin + url.pathname,
+      "https://login.microsoftonline.com/common/oauth2/v2.0/authorize",
+    );
+    assertEquals(url.searchParams.get("state"), "st-2");
+    const scope = url.searchParams.get("scope") ?? "";
+    assert(scope.includes("Files.Read"));
+    assert(scope.includes("offline_access"));
+    // Nothing that can write, and no profile scope: the account label comes
+    // from the id token the grant already returns.
+    assert(!scope.includes("Files.ReadWrite"));
+    assert(!scope.includes("User.Read"));
+  } finally {
+    if (had === undefined) Deno.env.delete("MICROSOFT_CLIENT_ID");
+    else Deno.env.set("MICROSOFT_CLIENT_ID", had);
+  }
+});
+
+Deno.test("the env prefix is the app the operator actually registered", () => {
+  assertEquals(dropboxProvider.envPrefix, "DROPBOX");
+  // Not ONEDRIVE: the same Microsoft app registration also covers Outlook and
+  // Teams, and naming the variables after one of its products would mislead
+  // whoever has to find them again.
+  assertEquals(oneDriveProvider.envPrefix, "MICROSOFT");
 });

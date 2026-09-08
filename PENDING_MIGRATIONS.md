@@ -1,6 +1,6 @@
 # PENDING MIGRATIONS — applied to prod separately from the push
 
-## ⏳ 00766 — cloud_storage_connections + cloud_storage_oauth_states (US-3159)
+## ⏳ 00766 — cloud_storage_connections + cloud_storage_oauth_states (US-3159, US-3160)
 
 **Risk: LOW.** Two brand-new tables. Nothing existing is touched: no column is
 added to a live table, no enum is extended, no row is rewritten, and no current
@@ -39,6 +39,14 @@ files.content.read and account_info.read, add
 `https://functions.gradethread.com/api/flipdesk/cloud/dropbox/oauth/callback` to
 its redirect URIs, then set `DROPBOX_CLIENT_ID` and `DROPBOX_CLIENT_SECRET` in
 Coolify.
+
+**OPERATOR, for OneDrive (US-3160, same migration, no second one):** register an
+app in the Microsoft Entra portal under App registrations, add
+`https://functions.gradethread.com/api/flipdesk/cloud/onedrive/oauth/callback` as
+a Web redirect URI, grant the DELEGATED permissions Files.Read and
+offline_access, then set `MICROSOFT_CLIENT_ID` and `MICROSOFT_CLIENT_SECRET` in
+Coolify. Either provider can be enabled without the other; each is absent from
+the UI until its own two variables are set.
 
 ## ⏳ 00765 — notification_type 'delist_needed' (US-3144)
 

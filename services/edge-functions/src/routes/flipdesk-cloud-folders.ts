@@ -61,10 +61,10 @@ function appUrl(path: string): string {
 // a per-provider override, so a staging deploy points its own callback back at
 // itself without a new concept. The URI is registered with the provider, so it
 // must match theirs EXACTLY, trailing slash and all.
-function callbackUri(providerId: string): string {
+function callbackUri(provider: CloudFolderProvider): string {
   return (
-    Deno.env.get(`${providerId.toUpperCase()}_REDIRECT_URI`) ??
-      `https://functions.gradethread.com/api/flipdesk/cloud/${providerId}/oauth/callback`
+    Deno.env.get(`${provider.envPrefix}_REDIRECT_URI`) ??
+      `https://functions.gradethread.com/api/flipdesk/cloud/${provider.id}/oauth/callback`
   );
 }
 
@@ -211,7 +211,7 @@ flipdeskCloudFolderRoutes.get("/:provider/oauth/start", async (c) => {
     return c.json({ error: `Could not start the ${provider.label} connection.` }, 500);
   }
 
-  return c.json({ consent_url: provider.buildAuthUrl(state, callbackUri(provider.id)) });
+  return c.json({ consent_url: provider.buildAuthUrl(state, callbackUri(provider)) });
 });
 
 // ── GET /:provider/oauth/callback (PUBLIC) ──────────────────────────
@@ -240,13 +240,15 @@ flipdeskCloudFolderRoutes.get("/:provider/oauth/callback", async (c) => {
 
   let tokens;
   try {
-    tokens = await provider.exchangeCode(code, callbackUri(provider.id));
+    tokens = await provider.exchangeCode(code, callbackUri(provider));
   } catch (err) {
     console.error("[cloud] token exchange failed:", err instanceof Error ? err.message : err);
     return done("failed");
   }
 
-  const label = await provider.accountLabel(tokens.accessToken);
+  // A grant that already carried a label (Microsoft's id token) is preferred
+  // over a second round trip that would need a wider scope to make.
+  const label = tokens.accountHint ?? await provider.accountLabel(tokens.accessToken);
   const { error } = await supabaseAdmin
     .from("cloud_storage_connections")
     .upsert(

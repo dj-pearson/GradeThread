@@ -11,6 +11,11 @@
 //   • Lose the selection on navigation. Photos of one item are routinely split
 //     across two folders, so the chosen set is keyed by full path and survives
 //     browsing away and back.
+//
+// THE BREADCRUMB IS THE FOLDERS THE SELLER CLICKED, not a split of the path.
+// US-3160 is why: a Dropbox path reads "/camera uploads/2026" and a OneDrive
+// path is a Graph item id with no separator in it, so any code that split a
+// path would render a raw id at the second provider.
 
 import { useCallback, useEffect, useState } from "react";
 import { ChevronRight, Folder, Home, Image as ImageIcon, Loader2 } from "lucide-react";
@@ -24,7 +29,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { type CloudEntry, type CloudFolderListing, pathCrumbs } from "@/lib/cloud-folder-import";
+import type { CloudEntry, CloudFolderListing } from "@/lib/cloud-folder-import";
 
 export interface CloudFolderDialogProps {
   open: boolean;
@@ -49,20 +54,23 @@ export function CloudFolderDialog({
   progress,
   onCancel,
 }: CloudFolderDialogProps) {
-  const [path, setPath] = useState("");
+  /** Root first, then one entry per folder opened. Never derived from a path. */
+  const [trail, setTrail] = useState<{ name: string; path: string }[]>([]);
   const [listing, setListing] = useState<CloudFolderListing | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [chosen, setChosen] = useState<Set<string>>(new Set());
 
   const load = useCallback(
-    async (next: string) => {
+    async (next: string, nextTrail: { name: string; path: string }[]) => {
       setLoading(true);
       setError(null);
       try {
         setListing(await browse(providerId, next));
-        setPath(next);
+        setTrail(nextTrail);
       } catch (err) {
+        // The trail is left where it was, so a folder that will not open does
+        // not also lose the seller their place.
         setError(err instanceof Error ? err.message : "Could not read that folder.");
       } finally {
         setLoading(false);
@@ -77,7 +85,7 @@ export function CloudFolderDialog({
   useEffect(() => {
     if (!open) return;
     setChosen(new Set());
-    void load("");
+    void load("", []);
   }, [open, load]);
 
   function toggle(entry: CloudEntry) {
@@ -102,7 +110,6 @@ export function CloudFolderDialog({
     });
   }
 
-  const crumbs = pathCrumbs(path);
   const files = listing?.files ?? [];
   const folders = listing?.folders ?? [];
   const allHereChosen = files.length > 0 && files.every((f) => chosen.has(f.path));
@@ -122,18 +129,18 @@ export function CloudFolderDialog({
           <button
             type="button"
             className="inline-flex items-center gap-1 rounded px-1 hover:text-foreground"
-            onClick={() => void load("")}
+            onClick={() => void load("", [])}
           >
             <Home className="h-3.5 w-3.5" />
             {providerLabel}
           </button>
-          {crumbs.map((c) => (
+          {trail.map((c, i) => (
             <span key={c.path} className="inline-flex items-center gap-1">
               <ChevronRight className="h-3.5 w-3.5" />
               <button
                 type="button"
                 className="rounded px-1 hover:text-foreground"
-                onClick={() => void load(c.path)}
+                onClick={() => void load(c.path, trail.slice(0, i + 1))}
               >
                 {c.name}
               </button>
@@ -156,7 +163,7 @@ export function CloudFolderDialog({
                   <button
                     type="button"
                     className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-muted/60"
-                    onClick={() => void load(f.path)}
+                    onClick={() => void load(f.path, [...trail, { name: f.name, path: f.path }])}
                   >
                     <Folder className="h-4 w-4 shrink-0 text-muted-foreground" />
                     <span className="truncate">{f.name}</span>

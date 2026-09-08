@@ -462,6 +462,7 @@ The first three are a **feature group** (`quickbooks`) on `/health/ready`, so an
 | `GOOGLE_PHOTOS_CLIENT_ID` / `_SECRET` 🔒 / `_REDIRECT_URI` | ⬜ Coolify edge | Google Photos import OAuth (the `google_photos` boot feature). |
 | `GOOGLE_SHEETS_CLIENT_ID` / `_SECRET` 🔒 / `_REDIRECT_URI` | ⬜ Coolify edge | Google Sheets export OAuth (the `google_sheets` boot feature). |
 | `DROPBOX_CLIENT_ID` / `_CLIENT_SECRET` 🔒 / `_REDIRECT_URI` | ⬜ Coolify edge | Dropbox folder import (US-3159). Scopes are read-only: files.metadata.read + files.content.read + account_info.read. Unset = the Dropbox source is absent from the UI, not broken. |
+| `MICROSOFT_CLIENT_ID` / `_CLIENT_SECRET` 🔒 / `_REDIRECT_URI` | ⬜ Coolify edge | OneDrive folder import (US-3160). Delegated Files.Read + offline_access only; no write scope and no User.Read. Named MICROSOFT_* because one Entra app also covers Outlook and Teams. Unset = the OneDrive source is absent from the UI, not broken. |
 | `GOOGLE_ADS_DEVELOPER_TOKEN` 🔒 | ⬜ Coolify edge | Google Ads API developer token. Must be APPROVED by Google, not merely issued. |
 | `GOOGLE_ADS_CLIENT_ID` / `_CLIENT_SECRET` 🔒 / `_REFRESH_TOKEN` 🔒 | ⬜ Coolify edge | Google Ads OAuth client + offline refresh token. No fallback to the shared `GOOGLE_CLIENT_*`, unlike Photos and Sheets. |
 

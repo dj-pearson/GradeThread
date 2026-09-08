@@ -196,22 +196,9 @@ export async function runCloudFolderImport(
   return { imported, failed, stopped: false };
 }
 
-/** One level up from a provider path. `""` is the root and has no parent. */
-export function parentPath(path: string): string | null {
-  if (!path) return null;
-  const cut = path.lastIndexOf("/");
-  if (cut <= 0) return "";
-  return path.slice(0, cut);
-}
-
-/** The trail of folders from the root to `path`, for a breadcrumb. */
-export function pathCrumbs(path: string): { name: string; path: string }[] {
-  const crumbs: { name: string; path: string }[] = [];
-  const parts = path.split("/").filter(Boolean);
-  let running = "";
-  for (const part of parts) {
-    running += `/${part}`;
-    crumbs.push({ name: part, path: running });
-  }
-  return crumbs;
-}
+// There is deliberately NO path parsing here, and US-3160 is why. A Dropbox
+// path looks like "/camera uploads/2026"; a OneDrive path is a Graph item id
+// with no separator in it at all. `CloudEntry.path` is opaque by contract, so
+// the folder trail is built from the folders the seller actually clicked
+// (cloud-folder-dialog.tsx) rather than by splitting a string that only one
+// provider happens to shape that way.

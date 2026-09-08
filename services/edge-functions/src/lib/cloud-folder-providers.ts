@@ -43,6 +43,13 @@ export interface CloudTokenSet {
   /** Seconds. Providers report this differently; normalise here. */
   expiresInSec: number;
   scope: string | null;
+  /**
+   * An account label the grant itself already carried, when it did. Microsoft
+   * returns one in the id token, so asking for it separately would mean
+   * requesting a profile scope this integration otherwise has no use for. The
+   * caller prefers this over calling `accountLabel`.
+   */
+  accountHint?: string | null;
 }
 
 /** One row in a folder listing. A folder is navigable; a file is importable. */
@@ -60,6 +67,13 @@ export interface CloudEntry {
 export interface CloudFolderProvider {
   id: CloudProviderId;
   label: string;
+  /**
+   * The env-var family this provider's credentials live under. Not always the
+   * provider id: OneDrive is reached with a MICROSOFT_* app, because the same
+   * app registration also covers Outlook and Teams and naming it ONEDRIVE_*
+   * would be a lie about what the operator created.
+   */
+  envPrefix: string;
   /** False when the deploy has no client credentials — hide the button. */
   isConfigured(): boolean;
   buildAuthUrl(state: string, redirectUri: string): string;
@@ -151,6 +165,7 @@ async function dropboxRpc<T>(
 export const dropboxProvider: CloudFolderProvider = {
   id: "dropbox",
   label: "Dropbox",
+  envPrefix: "DROPBOX",
 
   isConfigured: () => !!(dropboxClientId() && dropboxClientSecret()),
 
@@ -301,11 +316,225 @@ export function countUnreadable(entries: readonly { name?: string }[]): number {
   return entries.filter((e) => isUnreadableImageName(e.name ?? "")).length;
 }
 
+// ── OneDrive (Microsoft Graph) ──────────────────────────────────────
+//
+// Files.Read is the narrowest scope that can list and download; there is no
+// read-only-plus-nothing-else below it, and nothing here can write. offline_access
+// is what returns a refresh token. User.Read is NOT requested: the account label
+// comes from the id token's own claims, and asking for a profile scope to print
+// an email address on a settings row is not a trade worth making.
+//
+// PATHS HERE ARE ITEM IDS, not slash-delimited paths. Graph addresses a folder
+// by id, ids contain no separator, and CloudEntry.path is opaque by contract —
+// which is exactly why the client stopped parsing it when this provider landed.
+
+const ONEDRIVE_SCOPES = "Files.Read offline_access";
+const MS_AUTH = "https://login.microsoftonline.com/common/oauth2/v2.0/authorize";
+const MS_TOKEN = "https://login.microsoftonline.com/common/oauth2/v2.0/token";
+const GRAPH_API = "https://graph.microsoft.com/v1.0";
+
+function microsoftClientId(): string {
+  return Deno.env.get("MICROSOFT_CLIENT_ID") ?? "";
+}
+function microsoftClientSecret(): string {
+  return Deno.env.get("MICROSOFT_CLIENT_SECRET") ?? "";
+}
+
+interface GraphItem {
+  id?: string;
+  name?: string;
+  size?: number;
+  folder?: { childCount?: number };
+  file?: { mimeType?: string };
+  photo?: { takenDateTime?: string };
+  fileSystemInfo?: { createdDateTime?: string; lastModifiedDateTime?: string };
+  createdDateTime?: string;
+  "@microsoft.graph.downloadUrl"?: string;
+}
+
+async function graphGet<T>(accessToken: string, url: string): Promise<T> {
+  const res = await cloudFetch(url, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  if (!res.ok) {
+    const detail = (await res.text()).slice(0, 200);
+    throw new Error(`Microsoft Graph failed (${res.status}): ${detail}`);
+  }
+  return (await res.json()) as T;
+}
+
+/** Decode the `name` claim of an id token without verifying it. */
+function idTokenLabel(idToken: string | undefined): string | null {
+  if (!idToken) return null;
+  const body = idToken.split(".")[1];
+  if (!body) return null;
+  try {
+    const json = atob(body.replace(/-/g, "+").replace(/_/g, "/"));
+    const claims = JSON.parse(json) as { preferred_username?: string; email?: string };
+    // Cosmetic only: it labels a settings row. Nothing is authorised by it, so
+    // not verifying the signature costs nothing — and the token came straight
+    // from Microsoft's own token endpoint over TLS.
+    return claims.preferred_username ?? claims.email ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/** Exported for the test: this mapping is where a listing quietly loses files. */
+export function graphItemToCloudEntry(item: GraphItem): CloudEntry | null {
+  const id = item.id;
+  const name = item.name ?? "";
+  if (!id || !name) return null;
+  if (item.folder) {
+    return { id, name, kind: "folder", path: id, sizeBytes: null, capturedAtMs: null };
+  }
+  if (!item.file) return null;
+  if (!isImportableName(name)) return null;
+  // takenDateTime is the shutter; the filesystem time is when it reached the
+  // drive, which for a phone sync is all one instant.
+  const taken = item.photo?.takenDateTime ??
+    item.fileSystemInfo?.createdDateTime ??
+    item.createdDateTime;
+  const ms = taken ? Date.parse(taken) : NaN;
+  return {
+    id,
+    name,
+    kind: "file",
+    path: id,
+    sizeBytes: typeof item.size === "number" ? item.size : null,
+    capturedAtMs: Number.isFinite(ms) ? ms : null,
+  };
+}
+
+export const oneDriveProvider: CloudFolderProvider = {
+  id: "onedrive",
+  label: "OneDrive",
+  envPrefix: "MICROSOFT",
+
+  isConfigured: () => !!(microsoftClientId() && microsoftClientSecret()),
+
+  buildAuthUrl(state, redirectUri) {
+    const p = new URLSearchParams({
+      client_id: microsoftClientId(),
+      redirect_uri: redirectUri,
+      response_type: "code",
+      response_mode: "query",
+      scope: ONEDRIVE_SCOPES,
+      state,
+    });
+    return `${MS_AUTH}?${p.toString()}`;
+  },
+
+  async exchangeCode(code, redirectUri) {
+    const res = await cloudFetch(MS_TOKEN, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        code,
+        grant_type: "authorization_code",
+        client_id: microsoftClientId(),
+        client_secret: microsoftClientSecret(),
+        redirect_uri: redirectUri,
+        scope: ONEDRIVE_SCOPES,
+      }),
+    });
+    if (!res.ok) throw new Error(`Microsoft token exchange failed (${res.status})`);
+    const t = (await res.json()) as {
+      access_token?: string;
+      refresh_token?: string;
+      expires_in?: number;
+      scope?: string;
+      id_token?: string;
+    };
+    if (!t.access_token) throw new Error("Microsoft returned no access token.");
+    return {
+      accessToken: t.access_token,
+      refreshToken: t.refresh_token ?? null,
+      expiresInSec: t.expires_in ?? 3600,
+      scope: t.scope ?? ONEDRIVE_SCOPES,
+      // Carried so accountLabel does not need a second round trip or a wider scope.
+      accountHint: idTokenLabel(t.id_token),
+    };
+  },
+
+  async refresh(refreshToken) {
+    const res = await cloudFetch(MS_TOKEN, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        grant_type: "refresh_token",
+        refresh_token: refreshToken,
+        client_id: microsoftClientId(),
+        client_secret: microsoftClientSecret(),
+        scope: ONEDRIVE_SCOPES,
+      }),
+    });
+    if (res.status === 400 || res.status === 401) return null;
+    if (!res.ok) throw new Error(`Microsoft refresh failed (${res.status})`);
+    const t = (await res.json()) as {
+      access_token?: string;
+      refresh_token?: string;
+      expires_in?: number;
+    };
+    if (!t.access_token) return null;
+    return {
+      accessToken: t.access_token,
+      // Microsoft ROTATES the refresh token on every use. Keeping the old one
+      // would work until it did not, and the seller would be told to reconnect
+      // for no reason they could see.
+      refreshToken: t.refresh_token ?? refreshToken,
+      expiresInSec: t.expires_in ?? 3600,
+      scope: null,
+    };
+  },
+
+  accountLabel(_accessToken) {
+    // The label arrives with the grant (see exchangeCode). Asking Graph for
+    // /me would need User.Read, a scope this integration has no other use for.
+    return Promise.resolve(null);
+  },
+
+  async listChildren(accessToken, path) {
+    const entries: GraphItem[] = [];
+    let url = path
+      ? `${GRAPH_API}/me/drive/items/${encodeURIComponent(path)}/children?$top=200`
+      : `${GRAPH_API}/me/drive/root/children?$top=200`;
+    for (let page = 0; page < 10; page++) {
+      const body = await graphGet<{ value?: GraphItem[]; "@odata.nextLink"?: string }>(
+        accessToken,
+        url,
+      );
+      for (const item of body.value ?? []) entries.push(item);
+      const next = body["@odata.nextLink"];
+      if (!next) break;
+      url = next;
+    }
+    return entries.map(graphItemToCloudEntry).filter((e): e is CloudEntry => e !== null);
+  },
+
+  async resolveDownload(accessToken, path) {
+    const item = await graphGet<GraphItem>(
+      accessToken,
+      `${GRAPH_API}/me/drive/items/${encodeURIComponent(path)}`,
+    );
+    const url = item["@microsoft.graph.downloadUrl"];
+    if (!url) throw new Error("OneDrive returned no download link.");
+    return url;
+  },
+
+  // Graph's pre-authenticated download URLs land on the tenant's SharePoint host
+  // for work accounts and on the 1drv content hosts for personal ones. Both are
+  // Microsoft; nothing else is, and the check runs before the fetch.
+  allowHost: (host) =>
+    host.endsWith(".sharepoint.com") ||
+    host.endsWith(".files.1drv.com") ||
+    host.endsWith(".1drv.com") ||
+    host.endsWith(".onedrive.com"),
+};
+
 const PROVIDERS: Record<CloudProviderId, CloudFolderProvider | null> = {
   dropbox: dropboxProvider,
-  // US-3160 fills this in. Left explicit rather than absent so the registry
-  // shape says what is coming and `getCloudProvider` needs no special case.
-  onedrive: null,
+  onedrive: oneDriveProvider,
 };
 
 export function getCloudProvider(id: CloudProviderId): CloudFolderProvider | null {
