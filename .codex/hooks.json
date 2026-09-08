@@ -1,0 +1,36 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Edit|Write|NotebookEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node 'C:\\Users\\dpearson\\Documents\\GradeThread\\.codex\\hooks\\write-guard.mjs'"
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "matcher": "startup|resume|clear|compact",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node 'C:\\Users\\dpearson\\Documents\\GradeThread\\.codex\\hooks\\session-context.mjs'"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "powershell.exe -c \"[System.Media.SystemSounds]::Hand.Play()\""
+          }
+        ]
+      }
+    ]
+  }
+}
