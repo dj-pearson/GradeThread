@@ -8,6 +8,7 @@
 // under them. Behaviour is unchanged; only the address is.
 
 import type { ItemFullRow } from "@/types/database";
+import { DEFAULT_AGED_THRESHOLD_DAYS, isAged } from "@/lib/aged-inventory";
 import { evalQuery, type FilterQuery } from "@/lib/item-filter";
 import { scoreListability, maxCompPrice } from "@/lib/listability";
 import {
@@ -172,6 +173,12 @@ export interface RowSelectionCriteria {
   columnSort: { field: keyof ItemFullRow; dir: "asc" | "desc" } | null;
   /** Only consulted on the Unlisted tab. */
   sortPreset: SortPreset;
+  /**
+   * US-3195: the seller's own "too long" in days. Only consulted on the Aged
+   * tab. Optional so every existing caller keeps its exact behaviour; absent
+   * means the code default, which is what TabDef.matches already applied.
+   */
+  agedThresholdDays?: number;
   /** Injected so the Sold date windows are assertable. */
   now: number;
 }
@@ -216,6 +223,16 @@ export function selectListingRows(
       return false;
     }
     if (c.tab.id === "unlisted" && !matchesUnlistedFilter(it, c.unlistedFilter)) {
+      return false;
+    }
+    // US-3195: the seller's threshold narrows (or widens) the tab predicate's
+    // default, the same way the Sold window narrows Sold. Applied here rather
+    // than inside TabDef.matches because that function takes a row and nothing
+    // else, and every other consumer of it needs an answer without a setting.
+    if (
+      c.tab.id === "aged" &&
+      !isAged(it, c.agedThresholdDays ?? DEFAULT_AGED_THRESHOLD_DAYS, c.now)
+    ) {
       return false;
     }
     // Composes on top of the stage tab + search + sold-window filter.

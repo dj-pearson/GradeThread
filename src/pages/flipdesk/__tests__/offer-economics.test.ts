@@ -158,7 +158,9 @@ describe("US-3194 lockstep with the rules engine", () => {
     // rule and the screen share. If this fails, the rule and the row disagree
     // about the same offer.
     const input = { offerPrice: 36, listPrice: 40, itemCost: 12 };
-    const grossFromScreen = grossMarginCents(input) / 100;
+    const cents = grossMarginCents(input);
+    expect(cents).not.toBeNull();
+    const grossFromScreen = cents! / 100;
     const grossFromRule = 36 - 12;
     expect(grossFromScreen).toBe(grossFromRule);
   });

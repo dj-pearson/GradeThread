@@ -1,5 +1,39 @@
 # PENDING MIGRATIONS — applied to prod separately from the push
 
+## ⏳ HELD: 00771 — aged_threshold_days + the Aged tab in flipdesk_listing_page (US-3195)
+
+**Risk: MEDIUM, and higher than the other three in this stack.** The column is
+trivial. The second half REPLACES `flipdesk_listing_page`, which is the function
+behind every row the listings table shows, and it does so by DROPPING the
+11-argument overload and creating a 12-argument one. Read the apply output: if
+the drop succeeds and the create fails, the listings page has no function to
+call and every tab is empty until it is fixed.
+
+**⚠️ NOT VERIFIED AGAINST A REAL POSTGRES.** `src/test/listing-page-sql-parity.test.ts`
+is the test that runs this function and its TypeScript twin over the same rows
+and demands identical ids in identical order. It needs a database and it
+SKIPPED — Docker cannot run in the environment this was written in, and starting
+the daemon was attempted and refused. So the SQL is reviewed and unexecuted.
+Run the parity lane before or straight after applying:
+`LISTING_PARITY_DB=1 npx vitest run src/test/listing-page-sql-parity.test.ts`
+against a local stack. Everything else in the stack has been executed.
+
+**Apply order:** after 00770. Run `NOTIFY pgrst, 'reload schema';` afterwards
+(a new column AND a changed function signature), then redeploy the edge.
+
+**What it adds**
+- `flipdesk_settings.aged_threshold_days` — days listed after which this seller
+  calls an item aged. NULL means the code default of 60.
+- A twelfth parameter, `p_aged_threshold_days`, defaulted to 60, so every
+  existing caller keeps its exact behaviour.
+- An `aged` tab predicate: listed, unsold, and live longer than the threshold,
+  sorted oldest first.
+
+**Rollback** is 00721 re-run verbatim: it drops the 11-arg form and recreates it.
+The new column can stay; nothing breaks with it present.
+
+**No operator step.**
+
 ## ⏳ HELD: 00770 — flipdesk_settings sourcing cost defaults (US-3193)
 
 **Risk: LOW.** Three nullable integer columns on a settings table, plus one

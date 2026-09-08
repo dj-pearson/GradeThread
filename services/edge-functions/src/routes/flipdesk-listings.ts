@@ -1063,6 +1063,23 @@ flipdeskListingsRoutes.post("/bulk-price", async (c) => {
         });
         continue;
       }
+      // US-3192/US-3195: the seller's hard floor on this garment.
+      //
+      // SKIPPED AND NAMED, not clamped to the floor. The seller asked for a
+      // specific percentage off; quietly substituting a different price is the
+      // behaviour that makes a bulk tool untrustworthy, and the row that got a
+      // price nobody asked for is the one they never notice. Only the percentage
+      // path is guarded: an explicit per-row price IS the seller typing a number
+      // for that garment, which is them overriding their own floor deliberately.
+      const floor = row.item_floor_price;
+      if (typeof floor === "number" && Number.isFinite(floor) && next < floor) {
+        results.push({
+          listing_id: id,
+          ok: false,
+          error: `That drop goes below this item's floor of $${floor.toFixed(2)}.`,
+        });
+        continue;
+      }
     }
 
     const previous = row.listing_price;

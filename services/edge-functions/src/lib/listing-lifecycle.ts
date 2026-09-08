@@ -55,6 +55,11 @@ export interface OwnedListingRow {
   // pointed the listings page at it.
   variations: unknown;
   item_sku: string | null;
+  /**
+   * US-3192: the seller's hard floor on the garment, in dollars. Null when they
+   * set none, which is the absence of a floor rather than a floor of zero.
+   */
+  item_floor_price: number | null;
 }
 
 // Owner-verified listing load (US-268 rule 2 — ownership via the parent item).
@@ -71,14 +76,14 @@ export async function loadOwnedListing(
       "id, inventory_item_id, platform, listing_price, listing_status, listing_url, " +
         "platform_offer_id, platform_listing_id, listing_origin, batch_id, " +
         "synced_to_ebay_at, marketplace_connection_id, variations, inventory_sku, " +
-        "inventory_items!inner(user_id, sku)",
+        "inventory_items!inner(user_id, sku, floor_price)",
     )
     .eq("id", listingId)
     .maybeSingle();
   if (!data) return null;
   const row = data as unknown as OwnedListingRow & {
     inventory_sku: string | null;
-    inventory_items: { user_id: string; sku: string | null };
+    inventory_items: { user_id: string; sku: string | null; floor_price: number | null };
   };
   if (row.inventory_items.user_id !== ownerId) return null;
   // US-1999: the PINNED sku the listing actually went live under wins over the
@@ -89,7 +94,15 @@ export async function loadOwnedListing(
   // FlipDesk reports it ended. The eBay-namespaced end route has read the pinned
   // value since US-1999; this loader, which now serves the same operation, did
   // not. Falls back to the item's sku for rows published before the pin existed.
-  return { ...row, item_sku: row.inventory_sku ?? row.inventory_items.sku };
+  return {
+    ...row,
+    item_sku: row.inventory_sku ?? row.inventory_items.sku,
+    // US-3192/US-3195: the seller's hard floor on the garment, so a bulk drop
+    // cannot price straight through it. Loaded HERE rather than at each call
+    // site because every route that repriced a listing loaded it through this
+    // one function, and a floor honoured by some of them is not a floor.
+    item_floor_price: row.inventory_items.floor_price,
+  };
 }
 
 // Was this row ever actually published to its marketplace? This is orthogonal to

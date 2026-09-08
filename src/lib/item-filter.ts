@@ -18,6 +18,7 @@ export type FilterField =
   | "floor_price"
   | "grade"
   | "days_in_status"
+  | "days_listed"
   | "purchase_date"
   | "created_at"
   | "sale_date"
@@ -68,6 +69,7 @@ export const FIELD_LABELS: Record<FilterField, string> = {
   floor_price: "Floor price",
   grade: "Grade",
   days_in_status: "Days in status",
+  days_listed: "Days listed",
   purchase_date: "Purchase date",
   created_at: "Date added",
   sale_date: "Sale date",
@@ -100,6 +102,7 @@ export const FILTER_FIELDS: FilterField[] = [
   "floor_price",
   "grade",
   "days_in_status",
+  "days_listed",
   "purchase_date",
   "created_at",
   "sale_date",
@@ -112,6 +115,7 @@ const NUMERIC_FIELDS: ReadonlySet<FilterField> = new Set<FilterField>([
   "floor_price",
   "grade",
   "days_in_status",
+  "days_listed",
 ]);
 
 // Date fields take an absolute YYYY-MM-DD value and compare on calendar days.
@@ -255,6 +259,20 @@ function fieldValue(it: ItemListRow, field: FilterField): string | number | null
     case "days_in_status": {
       if (!it.updated_at) return null;
       const t = new Date(it.updated_at).getTime();
+      if (isNaN(t)) return null;
+      return Math.floor((Date.now() - t) / DAY_MS);
+    }
+    // US-3195: how long this has been LISTED, which is a different question
+    // from days_in_status. An item repriced yesterday has a days_in_status of
+    // 1 and may have been sitting on the shelf for eight months; the second
+    // number is the one that says a thing is not selling.
+    //
+    // Null when it was never listed, and null sorts and filters as unknown
+    // rather than as zero — a drafted item is not an item that has been listed
+    // for no days.
+    case "days_listed": {
+      if (!it.list_date) return null;
+      const t = new Date(it.list_date).getTime();
       if (isNaN(t)) return null;
       return Math.floor((Date.now() - t) / DAY_MS);
     }
