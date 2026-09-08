@@ -6,7 +6,7 @@
 // own, that the pool never outranks a seller's own sales, and that its
 // confidence is capped below what the same sample size would earn privately.
 import "./_env.ts";
-import { assertEquals } from "https://deno.land/std@0.224.0/assert/mod.ts";
+import { assertEquals } from "@std/assert";
 import {
   POOLED_CONFIDENCE_CAP,
   pooledConfidenceFromCount,

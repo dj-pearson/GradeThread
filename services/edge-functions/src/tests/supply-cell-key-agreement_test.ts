@@ -56,7 +56,7 @@ Deno.test("the brand seed concatenates the same three parts, in the same order",
   );
 });
 
-Deno.test("normalizeItemKey still lowercases and trims, which the SQL relies on", async () => {
+Deno.test("normalizeItemKey still lowercases and trims, which the SQL relies on", () => {
   // The SQL mirrors these two operations by hand. A change to either side here
   // is the drift this file exists to catch.
   assertEquals(
