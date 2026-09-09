@@ -1,4 +1,5 @@
 import { Hono } from "hono";
+import { addMonthsClamped } from "../lib/month-math.ts";
 import Stripe from "stripe";
 import { supabaseAdmin } from "../lib/supabase.ts";
 import { accrueSubscriptionCommission } from "../lib/affiliate-payout.ts";
@@ -1276,8 +1277,10 @@ async function handleInvoicePaymentSucceeded(event: Stripe.Event) {
   // don't reset.
   if (billingReason === "subscription_create" || billingReason === "subscription_cycle") {
     const now = new Date().toISOString();
-    const nextReset = new Date();
-    nextReset.setMonth(nextReset.getMonth() + 1);
+    // Clamped: a subscriber whose renewal falls on the 31st had this land on
+    // the 3rd of the month after next, so their included-grade counter reset
+    // three days late and they sat at their cap having just paid.
+    const nextReset = addMonthsClamped(new Date(), 1);
     // US-885 (AC#5): snapshot the live included-grade cap for the new period so an
     // admin editing the plan's included count mid-cycle takes effect on the NEXT
     // reset, never retroactively. Best-effort — a read hiccup leaves it null and
