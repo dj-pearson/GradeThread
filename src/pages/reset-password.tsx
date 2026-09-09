@@ -110,6 +110,7 @@ function RequestResetForm() {
             <Input
               id="email"
               type="email"
+              autoComplete="email"
               placeholder="you@example.com"
               value={email}
               onChange={(e) => {
@@ -296,6 +297,7 @@ function UpdatePasswordForm() {
             <PasswordField
               id="password"
               showStrength
+              autoComplete="new-password"
               placeholder={PASSWORD_HINT}
               value={password}
               onChange={(e) => {
@@ -313,6 +315,7 @@ function UpdatePasswordForm() {
             <Label htmlFor="confirm">Confirm new password</Label>
             <PasswordField
               id="confirm"
+              autoComplete="new-password"
               value={confirm}
               onChange={(e) => {
                 setConfirm(e.target.value);

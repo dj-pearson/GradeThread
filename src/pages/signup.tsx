@@ -388,6 +388,7 @@ export function SignupPage() {
             <Label htmlFor="name">Full name</Label>
             <Input
               id="name"
+              autoComplete="name"
               placeholder="Jane Smith"
               value={fullName}
               onChange={(e) => {
@@ -405,6 +406,7 @@ export function SignupPage() {
             <Input
               id="email"
               type="email"
+              autoComplete="email"
               placeholder="you@example.com"
               value={email}
               onChange={(e) => {
@@ -422,6 +424,7 @@ export function SignupPage() {
             <PasswordField
               id="password"
               showStrength
+              autoComplete="new-password"
               placeholder={PASSWORD_HINT}
               value={password}
               onChange={(e) => {
