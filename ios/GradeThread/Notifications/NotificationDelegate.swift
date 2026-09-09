@@ -207,6 +207,13 @@ public enum DeepLinkRoute: Equatable {
     /// so the tap lands on that garment's listings rather than the whole queue —
     /// a seller who sells four things in an afternoon needs to know which.
     case pendingDelists(itemId: String?)
+    /// US-3266: the Returns & disputes screen, on the section the push named.
+    ///
+    /// The six post-order categories used to land on ``marketplacesTab``, which
+    /// is the tab that HOLDS this screen and not the screen. That was already
+    /// better than where they landed before (nowhere), and still asked a seller
+    /// holding a dispute deadline to find a card.
+    case postSale(section: PostSaleSection)
 
     /// Builds a route from the push payload. Returns nil when the
     /// category isn't one we know how to handle.
@@ -258,13 +265,24 @@ public enum DeepLinkRoute: Equatable {
         // on. Landing on the tab is one tap short of the exact row; landing on
         // nothing is the whole notification wasted, and these are the ones with
         // a clock on them.
+        // Returns, inquiries and cases are all handled on the Returns segment:
+        // eBay models an inquiry and a case as escalations OF a return-shaped
+        // claim, and `PostSaleStore.returns` is what holds them.
         case NotificationCategoryID.returnOpened.rawValue,
              NotificationCategoryID.inquiryOpened.rawValue,
-             NotificationCategoryID.caseOpened.rawValue,
-             NotificationCategoryID.caseDeadline.rawValue,
-             NotificationCategoryID.cancellationRequested.rawValue,
-             NotificationCategoryID.disputeOpened.rawValue:
-            return .marketplacesTab
+             NotificationCategoryID.caseOpened.rawValue:
+            return .postSale(section: .returns)
+        case NotificationCategoryID.cancellationRequested.rawValue:
+            return .postSale(section: .cancellations)
+        case NotificationCategoryID.disputeOpened.rawValue:
+            return .postSale(section: .disputes)
+        case NotificationCategoryID.caseDeadline.rawValue:
+            // The deadline reminder does not say WHICH case, and the payload
+            // carries no id (`transactional-push.ts:167`, data is `{ kind }`
+            // only). Returns is where a case lives, and the segment labels
+            // carry counts (US-1178), so the other two are one tap away and
+            // visibly non-empty if that is where the deadline actually is.
+            return .postSale(section: .returns)
         case NotificationCategoryID.offerResponded.rawValue:
             // A reply to an offer is the same thread as the offer itself, so it
             // opens the same inbox `offerReceived` does.
@@ -387,6 +405,7 @@ extension DeepLinkRoute {
         case let .negotiationInbox(id): return Self.token("negotiationInbox", id)
         case let .supportTickets(id): return Self.token("supportTickets", id)
         case let .pendingDelists(id): return Self.token("pendingDelists", id)
+        case let .postSale(section): return Self.token("postSale", section.rawValue)
         }
     }
 
@@ -415,6 +434,12 @@ extension DeepLinkRoute {
         case "inventoryItem":
             guard let id else { return nil }
             self = .inventoryItem(id: id)
+        case "postSale":
+            // A token naming a section this build no longer has is refused
+            // rather than defaulted: landing on Returns because "chargebacks"
+            // did not parse is a wrong answer wearing a right one's clothes.
+            guard let id, let section = PostSaleSection(rawValue: id) else { return nil }
+            self = .postSale(section: section)
         default: return nil
         }
     }

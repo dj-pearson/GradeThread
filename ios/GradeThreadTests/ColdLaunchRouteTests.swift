@@ -38,6 +38,9 @@ final class ColdLaunchRouteTests: XCTestCase {
         .inventoryDrafts,
         .pendingDelists(itemId: "1f7c0a3e-0000-4000-8000-000000000005"),
         .pendingDelists(itemId: nil),
+        .postSale(section: .returns),
+        .postSale(section: .cancellations),
+        .postSale(section: .disputes),
     ]
 
     func test_everyRouteSurvivesAColdLaunchWithItsIdIntact() throws {

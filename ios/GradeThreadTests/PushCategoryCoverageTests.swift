@@ -56,19 +56,42 @@ final class PushCategoryCoverageTests: XCTestCase {
         }
     }
 
-    func test_thePostOrderFamilyLandsOnTheScreenThatHoldsIt() {
-        // Returns, inquiries, cases, cancellations and disputes are one screen
-        // behind the Marketplaces tab, so they share a destination on purpose.
-        for category in [
-            "return.opened", "inquiry.opened", "case.opened",
-            "case.deadline", "cancellation.requested", "dispute.opened",
-        ] {
+    func test_thePostOrderFamilyLandsOnTheSectionItsPushNamed() {
+        // US-3266. These used to land on `.marketplacesTab`, which is the tab
+        // that HOLDS Returns & disputes and not the screen, so a seller with a
+        // dispute deadline still had to find a card.
+        let expected: [String: PostSaleSection] = [
+            // eBay models an inquiry and a case as escalations of a
+            // return-shaped claim, and PostSaleStore.returns is what holds them.
+            "return.opened": .returns,
+            "inquiry.opened": .returns,
+            "case.opened": .returns,
+            // The deadline reminder names no case and its payload carries no
+            // id, so it opens where a case lives.
+            "case.deadline": .returns,
+            "cancellation.requested": .cancellations,
+            "dispute.opened": .disputes,
+        ]
+        for (category, section) in expected {
             XCTAssertEqual(
                 DeepLinkRoute.from(category: category, userInfo: [:]),
-                .marketplacesTab,
-                "\(category) should open the tab that holds Returns & disputes"
+                .postSale(section: section),
+                "\(category) should open the \(section.rawValue) section"
             )
         }
+    }
+
+    func test_aPostSaleRouteSurvivesAColdLaunchWithItsSectionIntact() throws {
+        for section in PostSaleSection.allCases {
+            let route = DeepLinkRoute.postSale(section: section)
+            let token = try XCTUnwrap(route.coldLaunchToken)
+            XCTAssertEqual(DeepLinkRoute(coldLaunchToken: token), route)
+        }
+        // A section this build does not have is refused, not defaulted:
+        // landing on Returns because "chargebacks" did not parse is a wrong
+        // answer wearing a right one's clothes.
+        XCTAssertNil(DeepLinkRoute(coldLaunchToken: "postSale|chargebacks"))
+        XCTAssertNil(DeepLinkRoute(coldLaunchToken: "postSale"))
     }
 
     func test_anOfferReplyOpensTheSameInboxAsTheOffer() {
