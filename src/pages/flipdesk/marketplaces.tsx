@@ -92,9 +92,11 @@ import {
 } from "@/hooks/use-shopify";
 import { safeHref } from "@/lib/safe-url";
 import {
+  groupQueue,
   QUEUED_NOTICE,
   useCancelExtensionWork,
   useExtensionQueue,
+  type ExtensionQueueItem,
 } from "@/hooks/use-extension-queue";
 import { CrossPostSetup } from "@/components/flipdesk/cross-post-setup";
 import { CrossPostChannelPicker } from "@/components/flipdesk/cross-post-channel-picker";
@@ -1454,13 +1456,78 @@ function SoldSyncSection() {
   );
 }
 
+/**
+ * US-3198: when the desktop last took work off the queue, and what is waiting
+ * on which channel.
+ *
+ * This renders even when the queue is EMPTY, which is the whole point. Until
+ * now the section returned null with nothing outstanding, so "you have no
+ * queued work" and "no extension has ever drained your queue" produced the
+ * identical blank screen. The first is fine and the second is a stalled seller
+ * who will not find out until an item sells in two places.
+ */
+function QueueSummary({
+  pending,
+  lastDrainedAt,
+}: {
+  pending: ExtensionQueueItem[];
+  lastDrainedAt: string | null;
+}) {
+  const groups = groupQueue(pending);
+  const drained = lastDrainedAt ? new Date(lastDrainedAt) : null;
+  const drainedValid = drained && !Number.isNaN(drained.getTime()) ? drained : null;
+
+  return (
+    <div className="mb-3 rounded-lg border p-3">
+      <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
+        <p className="text-sm font-medium">
+          {pending.length === 0
+            ? "Nothing waiting for your desktop"
+            : `${pending.length} job${pending.length === 1 ? "" : "s"} waiting for your desktop`}
+        </p>
+        <p className="text-xs text-muted-foreground">
+          {drainedValid
+            ? `Last run ${drainedValid.toLocaleString()}`
+            : "Your extension has never run any of this"}
+        </p>
+      </div>
+
+      {groups.length > 0 && (
+        <ul className="mt-2 flex flex-wrap gap-x-4 gap-y-1">
+          {groups.map((g) => {
+            const label =
+              MARKETPLACE_LABELS[g.platform as keyof typeof MARKETPLACE_LABELS] ?? g.platform;
+            // Named in the order that matters to a seller, not alphabetically:
+            // a queued delist means the garment is live in two places right
+            // now, so it leads.
+            const parts = [
+              g.kinds.delist > 0 ? `${g.kinds.delist} to end` : null,
+              g.kinds.list > 0 ? `${g.kinds.list} to list` : null,
+              g.kinds.revise > 0 ? `${g.kinds.revise} to update` : null,
+              g.kinds.relist > 0 ? `${g.kinds.relist} to relist` : null,
+            ].filter((x): x is string => x !== null);
+            return (
+              <li key={g.platform} className="text-xs text-muted-foreground">
+                <span className="font-medium text-foreground">{label}</span>{" "}
+                {parts.join(", ")}
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </div>
+  );
+}
+
 function ExtensionQueueSection() {
   const { data, isLoading } = useExtensionQueue();
   const cancel = useCancelExtensionWork();
 
   const pending = data?.pending ?? [];
   const needsAttention = data?.needsAttention ?? [];
-  if (isLoading || (pending.length === 0 && needsAttention.length === 0)) return null;
+  // US-3198: the loading guard stays; the empty guard is gone. QueueSummary is
+  // the thing a seller with an empty queue needs to see.
+  if (isLoading) return null;
 
   const describe = (kind: string, platform: string) => {
     const label = MARKETPLACE_LABELS[platform as keyof typeof MARKETPLACE_LABELS] ?? platform;
@@ -1481,6 +1548,8 @@ function ExtensionQueueSection() {
       <h3 className="mb-3 text-sm font-semibold text-foreground">
         Queued for your desktop
       </h3>
+
+      <QueueSummary pending={pending} lastDrainedAt={data?.lastDrainedAt ?? null} />
 
       {pending.length > 0 && (
         <div className="rounded-lg border p-3">

@@ -60,6 +60,50 @@ interface QueueResponse {
    * this queue would otherwise reintroduce.
    */
   needsAttention: ExtensionQueueItem[];
+  /**
+   * US-3198: when the desktop extension last CLAIMED work, or null if it never
+   * has. The distinction carries the whole message: an empty queue and an
+   * extension that has never run look identical on screen and mean opposite
+   * things. Callers must say "nothing has run yet" for null rather than
+   * rendering a blank date.
+   */
+  lastDrainedAt: string | null;
+}
+
+/** How many kinds of work are outstanding, per channel. */
+export interface QueueGroup {
+  platform: string;
+  kinds: Record<ExtensionQueueKind, number>;
+  total: number;
+}
+
+/**
+ * US-3198: pending work grouped by channel and verb.
+ *
+ * One number across every channel answers "is anything waiting" and nothing
+ * else. A seller looking at the tray wants to know whether the thing waiting is
+ * three listings on Poshmark (no hurry) or a delist on Mercari (an item live in
+ * two places right now), and those are the same "4 jobs" today.
+ *
+ * Channel order is by outstanding count, most first, so the channel that needs
+ * the browser opened sits at the top.
+ */
+export function groupQueue(items: readonly ExtensionQueueItem[]): QueueGroup[] {
+  const byPlatform = new Map<string, QueueGroup>();
+  for (const it of items) {
+    let g = byPlatform.get(it.platform);
+    if (!g) {
+      g = { platform: it.platform, kinds: { list: 0, delist: 0, revise: 0, relist: 0 }, total: 0 };
+      byPlatform.set(it.platform, g);
+    }
+    // A kind the client does not know about still counts toward the total: an
+    // undercount is a seller told there is less waiting than there is.
+    if (it.kind in g.kinds) g.kinds[it.kind] += 1;
+    g.total += 1;
+  }
+  return [...byPlatform.values()].sort(
+    (a, b) => b.total - a.total || a.platform.localeCompare(b.platform),
+  );
 }
 
 export function useExtensionQueue(enabled = true) {
@@ -74,6 +118,7 @@ export function useExtensionQueue(enabled = true) {
       return {
         pending: json.pending ?? [],
         needsAttention: json.needsAttention ?? [],
+        lastDrainedAt: json.lastDrainedAt ?? null,
       };
     },
   });

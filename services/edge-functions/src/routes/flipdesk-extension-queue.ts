@@ -137,8 +137,43 @@ flipdeskExtensionQueueRoutes.get("/", async (c) => {
     pending: rows.filter((r) => r.status === "queued" || r.status === "claimed"),
     // Surfaced separately so a client cannot render them as "still coming".
     needsAttention: rows.filter((r) => r.status === "expired" || r.status === "failed"),
+    lastDrainedAt: await lastDrainedAt(ownerId),
   });
 });
+
+/**
+ * US-3198: when this seller's desktop extension last took work off the queue.
+ *
+ * WHY THIS IS THE READ IT IS. `claimed_at` is stamped the moment a drain takes
+ * a row, so a non-null maximum is proof an extension ran — regardless of what
+ * happened to the job afterwards. Reading `completed_at` instead would report
+ * "never drained" for a seller whose only drain hit a failing listing form,
+ * which is the opposite of the truth and would send them to reinstall an
+ * extension that is working.
+ *
+ * It looks at EVERY status, not just the live ones. A queue that has been fully
+ * drained holds nothing but `done` rows, and that is exactly the seller who
+ * most deserves to be told the machine is working.
+ *
+ * `null` means no row has ever been claimed. The UI has to say that out loud
+ * rather than render an empty timestamp: "nothing waiting" and "nothing has
+ * ever run" look identical on screen and mean opposite things (US-2481 AC6, the
+ * same reason expired work is its own list).
+ */
+async function lastDrainedAt(ownerId: string): Promise<string | null> {
+  const { data, error } = await supabaseAdmin
+    .from("extension_work_queue")
+    .select("claimed_at")
+    .eq("user_id", ownerId) // US-268
+    .not("claimed_at", "is", null)
+    .order("claimed_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  // Advisory. A failed read must not take down the queue list itself — the
+  // pending rows are the thing the seller came for.
+  if (error) return null;
+  return (data as { claimed_at: string | null } | null)?.claimed_at ?? null;
+}
 
 /**
  * Name the rows (US-3048).
