@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-3256",
+  "nextId": "US-3258",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -4856,6 +4856,31 @@
         "Do not mount useSurfaceTitle anywhere until its source resolves for that tree. A hook that returns the default for every route is worse than no hook, because the next person reads the mount and assumes it works."
       ],
       "notes": "Partial 2026-09-09 in the buyer half: resolved via BUYER_NAV rather than by adding surfaces.ts entries, which AC1 asked for. Deliberate deviation — duplicating eight labels into a second registry is the problem surfaces.ts exists to prevent. AC1 should be read as 'give buyer a real source', which BUYER_NAV already was. Remaining: admin, which needs its eight nav arrays extracted out of admin-layout.tsx before anything can read them."
+    },
+    {
+      "id": "US-3256",
+      "passes": false,
+      "title": "cogs_labor is spelled 'Labour' in the seeded ledger_accounts row and 'Labor' in the TypeScript chart",
+      "description": "src/lib/chart-of-accounts.test.ts > 'agrees field for field' is RED on main. supabase/migrations/00684_ledger_accounts.sql:130 seeds cogs_labor with name 'Labour that went into the goods'; src/lib/chart-of-accounts.ts has 'Labor that went into the goods'. Schedule C line 37 is 'Cost of labor' - US spelling - so the TypeScript side is the correct one and the seeded row is the drift. Nothing in src/ or services/edge-functions/src/ reads ledger_accounts.name today (grepped: zero call sites), so no seller currently sees the wrong word; the cost is that a guard whose whole purpose is keeping the TS chart and the seeded chart in lockstep has been failing, which means it is not guarding the other 40-odd rows either. 00684 is applied and immutable, so this needs a NEW migration doing an idempotent UPDATE of that one row, with the US-1108 triple (idempotent SQL, EXPECTED_SCHEMA_VERSION bump in the same commit, self-record footer) and an operator prod-apply. Load the migrations skill first.",
+      "acceptanceCriteria": [
+        "src/lib/chart-of-accounts.test.ts passes on a clean tree, all cases",
+        "A new migration idempotently UPDATEs public.ledger_accounts SET name = 'Labor that went into the goods' WHERE code = 'cogs_labor', and re-running it is a no-op",
+        "The migration triple is complete: EXPECTED_SCHEMA_VERSION bumped in the same commit, self-record footer present, PENDING_MIGRATIONS.md entry added as HELD until applied",
+        "No other row in the seeded chart disagrees with src/lib/chart-of-accounts.ts once the guard is green again"
+      ],
+      "priority": 1620
+    },
+    {
+      "id": "US-3257",
+      "passes": false,
+      "title": "Google Photos import cancellation does not stop during the pick",
+      "description": "src/lib/google-photos-import.test.ts > 'runGooglePhotosImport - cancellation > stops during the pick and says so' is RED on main (expected false to be true). The import is meant to be abortable while the picker is still open; the assertion that it stops and reports having stopped does not hold. Not yet diagnosed - it may be the cancellation signal not being checked between picker polls, or the returned result not carrying the cancelled flag. A seller who cancels a large Google Photos import and has it keep running would keep pulling photos and burning quota against an item they walked away from. Diagnose against src/lib/google-photos-import.ts before deciding whether the product or the test is wrong.",
+      "acceptanceCriteria": [
+        "src/lib/google-photos-import.test.ts passes on a clean tree, all cases",
+        "The root cause is stated in the commit: either the cancellation check was missing/misplaced in google-photos-import.ts, or the test asserted a contract the function never had",
+        "If the product was wrong: cancelling during the pick stops further picker polling and the result reports the cancellation to the caller, so the UI can say so rather than appearing to hang"
+      ],
+      "priority": 1621
     }
   ]
 }
