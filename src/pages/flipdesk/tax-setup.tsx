@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
+import { ErrorState } from "@/components/ui/error-state";
 import {
   Select,
   SelectContent,
@@ -71,7 +72,13 @@ export function TaxSetupPage() {
   const [otherIncome, setOtherIncome] = useState("");
   const [saving, setSaving] = useState(false);
 
-  const { data: profile, isLoading } = useQuery({
+  const {
+    data: profile,
+    isLoading,
+    isError,
+    isFetching,
+    refetch,
+  } = useQuery({
     queryKey: ["tax-profile", user?.id],
     enabled: !!user,
     queryFn: fetchTaxProfile,
@@ -130,6 +137,24 @@ export function TaxSetupPage() {
 
   const now = new Date();
   const yearLabel = fiscalYearLabel(now, form.fiscal_year_start_month);
+
+  // US-3217. This is the worst shape of the failed-read defect in FlipDesk,
+  // because nothing looks wrong. The seeding effect above returns early when
+  // `profile` is undefined, so a failed read leaves `form` sitting at
+  // TAX_PROFILE_DEFAULTS -- a complete, plausible set of tax answers that are
+  // not the seller's. Pressing Save then writes those defaults over their real
+  // entity type, filing status and fiscal year, and every figure on the Money
+  // page reads from this row. Blank fields would at least have looked wrong.
+  if (isError) {
+    return (
+      <ErrorState
+        title="Couldn't load your tax setup"
+        description="The form below would have shown default answers rather than yours, and saving would have replaced your real settings. Nothing has changed."
+        onRetry={() => void refetch()}
+        retrying={isFetching}
+      />
+    );
+  }
 
   if (isLoading) {
     return (

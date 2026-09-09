@@ -61,7 +61,6 @@ const READ_FAILURE_UNHANDLED = [
   "src/pages/flipdesk/marketplaces.tsx",
   "src/pages/flipdesk/money.tsx",
   "src/pages/flipdesk/reconcile.tsx",
-  "src/pages/flipdesk/tax-setup.tsx",
 ];
 
 interface PageFacts {
