@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-3274",
+  "nextId": "US-3276",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -5002,6 +5002,18 @@
         "aging.digest is scheduled rather than per-event, and is a summary across items, matching the iOS route that lands on the inventory triage list",
         "Each shipped sender flips its NotificationCategoryID.isDeliverable to true and removes its line from PushCategoryCoverageTests.undeliverable, which fails until both are done",
         "Each new type has a tenant-isolation test case per US-268, since the send path reads a multi-tenant table with the service-role client"
+      ]
+    },
+    {
+      "id": "US-3275",
+      "passes": false,
+      "title": "Edge: stamp the ids the iOS notification actions need",
+      "description": "Found via US-3274. Every sender in services/edge-functions/src/lib/transactional-push.ts ships data: { kind } and no ids, so iOS cannot build a real inline action from any of them and now hides the buttons. Three payloads need ids. pushOfferReceived needs best_offer_id and inventory_item_id so Accept and Counter can act on the offer rather than opening the inbox. pushSaleCreated needs sale_id so Mark shipped can close the order, which is the highest-value one: 'You made a sale' is the de-facto shipping prompt and there is no separate shipping push. The deep-link routes want ids too - DeepLinkRoute.from already reads inventory_item_id and support_ticket_id from userInfo, so a targeted push lands on the item instead of the tab. Sibling of US-3269, which is about senders that do not exist at all; this is about senders that exist and under-describe.",
+      "acceptanceCriteria": [
+        "pushOfferReceived stamps best_offer_id and inventory_item_id",
+        "pushSaleCreated stamps sale_id and inventory_item_id",
+        "The post-order senders stamp the external id of the return, case or dispute they name, which also unblocks US-3266 AC4",
+        "Each shipped payload gets a case in NotificationCategoryID.payloadKeys on the iOS side, which is what re-enables its buttons, and NotificationActionAvailabilityTests fails until the mirrored key list is updated with it"
       ]
     }
   ]
