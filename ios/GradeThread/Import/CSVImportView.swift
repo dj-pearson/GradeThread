@@ -141,7 +141,18 @@ struct CSVImportView: View {
                         Text("Map one column to \"Item title\" — it's required.")
                             .foregroundStyle(Color.brandRed)
                     } else {
-                        Text("\(store.readyCount) ready · \(store.errorCount) skipped")
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("\(store.readyCount) ready · \(store.errorCount) skipped")
+                            // US-3270: a cell the mapper cannot read imports
+                            // BLANK and is counted as ready, so this line is
+                            // the only place it is ever mentioned. "Sold Out"
+                            // in a status column lands a sold item back in
+                            // unsold inventory.
+                            if let dropped = store.droppedSummary {
+                                Label(dropped, systemImage: "exclamationmark.triangle")
+                                    .foregroundStyle(Color.brandRed)
+                            }
+                        }
                     }
                 }
             }

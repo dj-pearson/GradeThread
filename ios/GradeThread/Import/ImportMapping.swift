@@ -77,6 +77,70 @@ enum ImportMapping {
         return .ready(draft)
     }
 
+    // MARK: - Cells that were read and then thrown away (US-3270)
+
+    /// A cell that held something and reached the database as nothing.
+    struct DroppedCell: Equatable {
+        /// 1-based sheet row, header being row 1.
+        let row: Int
+        let field: ImportField
+        /// What the seller actually typed, so the message can name it.
+        let raw: String
+    }
+
+    /// ⚠ FOUR FIELDS COERCE, AND ALL FOUR FAIL BY RETURNING nil, WHICH
+    /// `mapRow` WRITES STRAIGHT INTO A `.ready` DRAFT.
+    ///
+    /// So a row with a status of "Sold Out" imports successfully and lands as
+    /// `cataloged`, because `ImportValue.status` has "sold" and not "sold out".
+    /// The seller's sold item is now unsold inventory, counted in their equity
+    /// and their aging report. A category of "Women's Clothing" imports with no
+    /// category. A purchase price of "n/a" imports with no cost basis, so every
+    /// profit figure derived from it is wrong. A purchase date of
+    /// "Sept 3, 2026" imports with no acquired date.
+    ///
+    /// None of it appears anywhere. The summary says "N ready, 0 skipped" and
+    /// the result screen lists only rows that failed to INSERT. A silent drop
+    /// is worse than a rejected row: a rejected row gets fixed.
+    ///
+    /// Pure, so the preview can show the count before the seller commits and a
+    /// test can pin it.
+    static func droppedCells(sheet: CSVParser.Sheet, mapping: [ImportField]) -> [DroppedCell] {
+        var dropped: [DroppedCell] = []
+        for (idx, row) in sheet.rows.enumerated() {
+            let rowNumber = idx + 2
+            // A row with no title never reaches the database at all, and it is
+            // already reported as an error. Naming its cells too is noise.
+            guard value(.title, row: row, mapping: mapping) != nil else { continue }
+            func check(_ field: ImportField, _ parse: (String?) -> Bool) {
+                guard let raw = value(field, row: row, mapping: mapping) else { return }
+                guard !parse(raw) else { return }
+                dropped.append(DroppedCell(row: rowNumber, field: field, raw: raw))
+            }
+            check(.category) { ImportValue.category($0) != nil }
+            check(.status) { ImportValue.status($0) != nil }
+            check(.purchasePrice) { ImportValue.price($0) != nil }
+            check(.listPrice) { ImportValue.price($0) != nil }
+            check(.purchaseDate) { ImportValue.dateISO($0) != nil }
+        }
+        return dropped
+    }
+
+    /// One line for the preview, naming the field and an example, because
+    /// "12 cells could not be read" is not something anyone can act on.
+    static func droppedSummary(_ dropped: [DroppedCell]) -> String? {
+        guard let first = dropped.first else { return nil }
+        let fields = Set(dropped.map(\.field))
+        let names = ImportField.allCases
+            .filter { fields.contains($0) }
+            .map(\.label)
+            .joined(separator: ", ")
+        let count = dropped.count
+        let cells = count == 1 ? "1 cell" : "\(count) cells"
+        return "\(cells) will import blank (\(names)) — row \(first.row)'s "
+            + "\(first.field.label) reads \"\(first.raw)\"."
+    }
+
     /// Maps every data row. Empty rows are dropped silently; rows with data but
     /// no title surface as errors.
     static func mapAll(sheet: CSVParser.Sheet, mapping: [ImportField]) -> [RowResult] {

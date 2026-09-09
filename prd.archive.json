@@ -45966,6 +45966,19 @@
         "A test asserts nothing the edge demonstrably sends is ever marked undeliverable, so no live push loses its mute switch"
       ],
       "notes": "Done 2026-09-09. isDeliverable + togglable on NotificationCategoryID, ContentView's notificationPreferencesSection renders togglable, and three new cases in GradeThreadTests/PushCategoryCoverageTests.swift pin the set both directions plus assert the hidden ones still receive if a sender ever lands. Edge half filed as US-3269. Worth recording: this is the second failure mode of the same declare-ahead convention in two days. US-3266 was the backend sending seven categories iOS had never heard of; this is iOS offering three toggles the backend cannot honour. The convention is fine and grade.ready proves it works (declared here, delivered locally by NewGradeNotifier) - what was missing both times was anything that notices when the other half never ships. PushCategoryCoverageTests now covers both directions."
+    },
+    {
+      "id": "US-3270",
+      "passes": true,
+      "title": "iOS CSV import: say which cells will import blank instead of dropping them silently",
+      "description": "Five mapped fields coerce their cell (category, status, purchase price, list price, purchase date) and all of them fail the same way: ImportValue returns nil, mapRow writes that nil into the draft, and the row is still .ready. The import summary says 'N ready, 0 skipped' and the result screen lists only rows that failed to INSERT, so a cell read and thrown away is mentioned nowhere. Status is the expensive one: ImportValue.status knows 'sold' and not 'sold out', so a spreadsheet saying 'Sold Out' imports every one of those items as cataloged - sold stock lands back in unsold inventory, counted in the seller's equity and their aging report. 'Women's Clothing' imports with no category, 'n/a' with no cost basis so every profit figure from it is wrong, 'Sept 3 2026' with no acquired date. A silent drop is worse than a rejected row, because a rejected row gets fixed.",
+      "acceptanceCriteria": [
+        "ImportMapping.droppedCells(sheet:mapping:) reports every cell that held content and coerced to nil, for all five coercing fields",
+        "A blank cell is never a dropped cell, and a row with no title is not double-reported since it already surfaces as Missing item title",
+        "The mapping preview shows the count, the field names and one worked example before the seller commits",
+        "Values the mapper does understand produce no report, including locale prices like 1.299,00 and US dates like 01/04/2026"
+      ],
+      "notes": "Done 2026-09-09. ImportMapping.droppedCells + droppedSummary, surfaced in CSVImportView's mapping-step footer via ImportStore.droppedSummary, plus GradeThreadTests/ImportDroppedCellTests.swift (7 cases). Deliberately a REPORT, not a rejection: the seller may well mean to import a row whose status is unreadable, and blocking the whole import over one cell would be worse. Two things found while reading this that are NOT fixed here and are worth their own look. (1) ImportValue.dateISO has no dd/MM/yyyy format, so a UK or EU sheet's 03/09/2026 parses as 9 March, silently and with no warning - this is data corruption rather than a dropped cell, so droppedCells cannot see it, and fixing it needs a locale hint from the seller rather than another format in the list. (2) src/lib/csv.ts, which CSVParser.swift is documented as a faithful port of, is now BEHIND iOS on three counts: no BOM strip (Excel 'CSV UTF-8' exports leave a BOM glued to the first header, breaking auto-mapping), no semicolon delimiter (European exports), and no row-width normalisation (short rows yield undefined cells). The parity contract says a sheet that imports on the web imports the same on iOS, and it currently does not."
     }
   ]
 }

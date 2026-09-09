@@ -99,6 +99,15 @@ final class ImportStore {
         }
     }
 
+    /// US-3270: cells the mapper read and could not coerce. They import blank
+    /// with no error, so the preview has to say so before the seller commits.
+    var droppedCells: [ImportMapping.DroppedCell] {
+        guard let sheet, hasTitleMapping else { return [] }
+        return ImportMapping.droppedCells(sheet: sheet, mapping: mapping)
+    }
+
+    var droppedSummary: String? { ImportMapping.droppedSummary(droppedCells) }
+
     var readyCount: Int { previewRows.filter { if case .ready = $0 { return true } else { return false } }.count }
     var errorCount: Int { previewRows.count - readyCount }
     var canCommit: Bool { hasTitleMapping && readyCount > 0 && phase == .mapping }
