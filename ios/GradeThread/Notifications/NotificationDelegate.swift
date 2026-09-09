@@ -250,6 +250,25 @@ public enum DeepLinkRoute: Equatable {
             // seller still lands on the full pending list, which is the right
             // answer — there is nothing else this push could have meant.
             return .pendingDelists(itemId: itemId)
+        // The post-order family. Returns, inquiries, cases, cancellations and
+        // payment disputes all live on one screen behind the Marketplaces tab
+        // ("Returns & disputes", `MarketplacesView.postSaleCard`), so every one
+        // of them lands there. Before this they landed nowhere at all: the
+        // category was unknown, so the tap opened whatever tab the app was last
+        // on. Landing on the tab is one tap short of the exact row; landing on
+        // nothing is the whole notification wasted, and these are the ones with
+        // a clock on them.
+        case NotificationCategoryID.returnOpened.rawValue,
+             NotificationCategoryID.inquiryOpened.rawValue,
+             NotificationCategoryID.caseOpened.rawValue,
+             NotificationCategoryID.caseDeadline.rawValue,
+             NotificationCategoryID.cancellationRequested.rawValue,
+             NotificationCategoryID.disputeOpened.rawValue:
+            return .marketplacesTab
+        case NotificationCategoryID.offerResponded.rawValue:
+            // A reply to an offer is the same thread as the offer itself, so it
+            // opens the same inbox `offerReceived` does.
+            return .negotiationInbox(filterItemId: itemId)
         case NotificationCategoryID.supportReply.rawValue:
             // US-1136: open the ticket thread directly when the push carried its
             // id; otherwise land on the support inbox list.

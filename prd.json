@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-3266",
+  "nextId": "US-3267",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -4973,6 +4973,22 @@
       ],
       "priority": 11,
       "notes": "Done 2026-09-09. createDefaultPolicies + createPolicy + findPolicyIdByName in ebay-client.ts POST to /sell/account/v1/{fulfillment,payment,return}_policy; before this the file had four GETs there and no POST, which is the whole defect. Idempotence is BY NAME: eBay answers 20400 for a duplicate name, and on that error the id is looked up and returned, so a second press produces one policy rather than two identical ones the seller then has to choose between. Only missing kinds are created (the \"have\" set), so an account with its own shipping policy keeps it. POST /api/flipdesk/ebay/policies/create validates the four answers (0-30 handling days, 0-100000 cents, 30 or 60 day window, BUYER|SELLER), re-syncs first so a policy made on eBay minutes ago is not duplicated, opts into SELLING_POLICY_MANAGEMENT before writing (eBay refuses policy writes outside it with an error naming neither the program nor the fix), then sets the workspace defaults through setDefaultPolicies - the same writer the picker uses, asserted to be the only one in the handler. Tenant-scoped on workspaceOwnerId ?? userId, already under workspaceMiddleware via the /policies/* mount, with a tenant-isolation case. The dialog's 'set them up in eBay Seller Hub, then press Re-sync' is gone and four plain questions are in its place; a test asserts none of eBay's own vocabulary (categoryTypes, marketplaceTypes, immediatePay) reaches the seller. 9 deno cases + 7 web cases. NOT VERIFIED AGAINST A LIVE EBAY ACCOUNT from this host - no seller token here - so the request bodies are checked for shape and against eBay's documented required fields, not against a real 201. USPSGroundAdvantage is the domestic service; a seller on a marketplace other than EBAY_US will need that revisited."
+    },
+    {
+      "id": "US-3266",
+      "passes": false,
+      "title": "iOS: land post-order pushes on the exact row, not just the tab",
+      "description": "The edge sends fourteen push categories (services/edge-functions/src/lib/transactional-push.ts:48-240). Seven of them were unknown to iOS until the categories were added: offer.responded, return.opened, inquiry.opened, case.opened, case.deadline, cancellation.requested, dispute.opened. They now route, but the six post-order ones all land on .marketplacesTab, which is the tab holding the Returns & disputes card, one tap short of the screen and two short of the row. These are the pushes with a clock on them: a payment dispute, an eBay case, a return window. Finish the landing. PostSaleView already has a Tab enum (disputes / returns / cancellations) and takes no parameters; NegotiationRoute is the pattern to copy for a PostSaleRoute, registered at ContentView.swift:1340, :1420 and :1819. Note PostSaleView jumps to whichever tab has items after load (US-1178), so an explicit tab has to win over that. The edge payload also carries the case/return external id, so the row itself is reachable. Related: the web ranks returns, cases, disputes, inquiries and cancellations by deadline in src/pages/flipdesk/needs-you.ts:65 and iOS has no equivalent.",
+      "acceptanceCriteria": [
+        "A PostSaleRoute(tab:externalId:) exists and is registered as a navigationDestination everywhere NegotiationRoute is (three sites in ContentView.swift)",
+        "return.opened, inquiry.opened and case.opened land on PostSaleView's returns tab; cancellation.requested on cancellations; dispute.opened on disputes; case.deadline on whichever tab holds the case the push names",
+        "An explicit tab from a deep link overrides the US-1178 after-load jump, and the jump still applies when no tab was requested",
+        "When the payload carries the case/return/dispute external id, the row is scrolled to and highlighted; when it does not, the tab still opens",
+        "PostSaleRoute round-trips through DeepLinkRoute.coldLaunchToken so a tap on a killed app still lands (the enum switch has no default, so this is a compile error until done)",
+        "The six post-order categories declare inline notification actions where an action exists server-side, matching the offer/ship actions in NotificationActionPlan",
+        "PushCategoryCoverageTests.test_thePostOrderFamilyLandsOnTheScreenThatHoldsIt is updated from .marketplacesTab to the exact routes and still passes"
+      ],
+      "notes": "Filed 2026-09-09 while auditing iOS. The seven categories, their labels, help text and routes landed in the same session (NotificationCategories.swift, NotificationDelegate.swift) plus GradeThreadTests/PushCategoryCoverageTests.swift, which mirrors the edge's sent list by hand the way ShareInboxTests mirrors the slot constants. What is left is only the precision of the landing. Worth reading before starting: the comment on gradeReady in NotificationCategories.swift describes iOS-ready/backend-pending drift, and that is why nobody looked for the reverse - the backend had been sending seven categories iOS had never heard of, and no test, guard or log said so."
     }
   ]
 }
