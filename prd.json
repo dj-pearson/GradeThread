@@ -4833,16 +4833,6 @@
         "No repo-wide guard test unless it can be made to fire without false positives. The scanner used here flagged 5 and 2 were correct code; a guard with that hit rate teaches people to add suppressions. If a guard is written, it carries a self-check and a named-exclusion list like flipdesk-error-state.test.ts does."
       ],
       "priority": 5
-    },
-    {
-      "id": "US-3227",
-      "passes": false,
-      "title": "The mouse wheel could silently edit any price or measurement",
-      "description": "A focused input type=number treats a wheel event as increment/decrement in Chrome, Edge and Firefox. So a seller who clicks into a price and then scrolls the page to read the rest of the form changes the price: cursor still over the field, no click, no keystroke, nothing on screen saying so, and the form saves whatever the wheel left behind. GradeThread has 164 type=number inputs and most are money or measurements (bulk pricing, the composer price, expense amounts, fee overrides, every garment measurement), all sitting in long scrolling forms, which is exactly the shape that produces it. Fixed 2026-09-09 with one document-level listener that blurs the input while the wheel event dispatches; the increment is the element's default action and only applies to a focused input, so removing focus cancels it. Deliberately not preventDefault, which would trade a silent edit for a stuck page.",
-      "acceptanceCriteria": [
-        "src/lib/number-input-wheel-guard.ts is installed from main.tsx and covers bare input elements as well as the wrapped shadcn Input, since components/ui is generated and must not be hand-edited.",
-        "Tests assert the mechanism, not the value: jsdom does not implement the increment. Focused number input blurs, text input does not, unfocused number input does not steal focus, teardown stops it, and a source check that main.tsx actually calls it."
-      ]
     }
   ]
 }

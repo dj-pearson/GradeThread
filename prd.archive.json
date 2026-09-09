@@ -45558,6 +45558,17 @@
       ],
       "priority": 3,
       "notes": "Done 2026-09-09. Shared/WidgetSnapshot.swift gains soldTodayIsStale(asOf:calendar:) — a CALENDAR-DAY comparison, not an elapsed-time one, so 1pm-to-11pm is fresh and 11pm-to-1am is not. SnapshotWidgetView computes it from entry.date (not Date.now) so the midnight entry evaluates correctly, and passes it to all five families: Small and Medium show a dash plus 'not updated today', StandBy shows a dash over 'open the app to update' (it drops the Updated footnote by design, which is why a stale number there had nothing to contradict it), the inline accessory drops the sold clause and keeps the payout figure, circular shows a dash, rectangular says 'Today's sales not updated'. WidgetAccessibility.summary and .circularLabel take the flag too, so VoiceOver never reads a number the screen is not showing. getTimeline now emits a second entry at the next local midnight via Calendar.nextDate(matching: 0:00), so the rollover happens even if the app is never opened again; the 30-minute refresh policy is unchanged. Three tests in WidgetSnapshotTests, including the one that would pass with an elapsed-time check and must not. All 15 iOS guards pass. Swift compile is macOS-only, so iOS CI is the compile check."
+    },
+    {
+      "id": "US-3227",
+      "passes": true,
+      "title": "The mouse wheel could silently edit any price or measurement",
+      "description": "A focused input type=number treats a wheel event as increment/decrement in Chrome, Edge and Firefox. So a seller who clicks into a price and then scrolls the page to read the rest of the form changes the price: cursor still over the field, no click, no keystroke, nothing on screen saying so, and the form saves whatever the wheel left behind. GradeThread has 164 type=number inputs and most are money or measurements (bulk pricing, the composer price, expense amounts, fee overrides, every garment measurement), all sitting in long scrolling forms, which is exactly the shape that produces it. Fixed 2026-09-09 with one document-level listener that blurs the input while the wheel event dispatches; the increment is the element's default action and only applies to a focused input, so removing focus cancels it. Deliberately not preventDefault, which would trade a silent edit for a stuck page.",
+      "acceptanceCriteria": [
+        "src/lib/number-input-wheel-guard.ts is installed from main.tsx and covers bare input elements as well as the wrapped shadcn Input, since components/ui is generated and must not be hand-edited.",
+        "Tests assert the mechanism, not the value: jsdom does not implement the increment. Focused number input blurs, text input does not, unfocused number input does not steal focus, teardown stops it, and a source check that main.tsx actually calls it."
+      ],
+      "notes": "Done 2026-09-09. See the commit for the mechanism and why it is blur rather than preventDefault."
     }
   ]
 }
