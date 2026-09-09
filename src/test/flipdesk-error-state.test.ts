@@ -56,11 +56,21 @@ const ROOTS = [
  */
 const READ_FAILURE_UNHANDLED = [
   "src/pages/flipdesk/analytics.tsx",
-  "src/pages/flipdesk/autolister-bulk-edit.tsx",
   "src/pages/flipdesk/composer.tsx",
-  "src/pages/flipdesk/money.tsx",
-  "src/pages/flipdesk/reconcile.tsx",
 ];
+
+/**
+ * NOT offenders, with the reason. US-3250: a page can carry a query and still
+ * be right to say nothing when it fails.
+ *
+ * money.tsx — its only query drives a BADGE COUNTER on a tab. Hiding a badge
+ * when the count cannot be fetched is correct degradation, not a false claim:
+ * nothing on screen asserts the books are clean, and the page's real content is
+ * a nested router view that does its own reads. An ErrorState for a badge would
+ * be noise, and padding a shrink-only list with cosmetic fixes is how it stops
+ * meaning anything.
+ */
+const SILENCE_IS_CORRECT = ["src/pages/flipdesk/money.tsx"];
 
 interface PageFacts {
   rel: string;
@@ -107,7 +117,15 @@ function factsFor(rel: string): PageFacts {
       // A destructured `error` from useQuery, rendered as `{error ? …}` or
       // `{error && …}`. Deliberately NOT `json.error` / `err.message`, which
       // are queryFn plumbing and mutation toasts rather than a read-failure UI.
-      /(^|[^.\w])error\s*(\?|&&)/m.test(src),
+      /(^|[^.\w])error\s*(\?|&&)/m.test(src) ||
+      // A page may DELEGATE its failure UI to a component rather than render
+      // <ErrorState> inline — autolister-bulk-edit returns <DraftsFailed/>
+      // after US-3250 moved its three early returns out to stay under the
+      // file's line ceiling. Matching a rendered <…Error…/> or <…Failed…/>
+      // element catches that. Deliberately NOT `if (error)`, which every
+      // queryFn contains as `if (error) throw error` and which would make this
+      // rule match almost everything.
+      /<\w*(?:Error|Failed)\w*[\s/>]/.test(src),
   };
 }
 
@@ -124,6 +142,10 @@ describe("customer pages don't report a failed load as an empty one (US-3217, US
     // ...and NOT the trees that have their own guard.
     expect(pages.some((p) => p.rel.startsWith("src/pages/admin/"))).toBe(false);
     expect(pages.some((p) => p.rel.startsWith("src/pages/content/"))).toBe(false);
+    // An exclusion for a file that no longer exists is a rename to notice, not
+    // a free pass.
+    const stale = SILENCE_IS_CORRECT.filter((rel) => !pages.some((p) => p.rel === rel));
+    expect(stale, "excluded but missing: " + stale.join(", ")).toEqual([]);
   });
 
   it("every query-backed page with an EmptyState also renders an ErrorState", () => {
@@ -142,6 +164,7 @@ describe("customer pages don't report a failed load as an empty one (US-3217, US
   it("the unhandled-read-failure list only shrinks", () => {
     const actual = pages
       .filter((p) => p.usesQuery && !p.surfacesReadFailure)
+      .filter((p) => !SILENCE_IS_CORRECT.includes(p.rel))
       .map((p) => p.rel)
       .sort();
     const allowed = [...READ_FAILURE_UNHANDLED].sort();

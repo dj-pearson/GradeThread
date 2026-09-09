@@ -198,7 +198,7 @@ export function FlipdeskReconcilePage() {
   );
 
   // Photo-less items the user can link a cluster to (US-285).
-  const { data: linkableRead } = useQuery({
+  const { data: linkableRead, isError: linkableFailed } = useQuery({
     queryKey: ["reconcile_linkable_items", workspaceOwnerId],
     enabled: !!workspaceOwnerId && photos.length > 0,
     staleTime: 60_000,
@@ -540,7 +540,14 @@ export function FlipdeskReconcilePage() {
       return;
     }
     if (linkableItems.length === 0) {
-      toast.info("No photo-less items to match against.");
+      // US-3250: an empty list and a failed read look identical here, and the
+      // old wording made a claim about the seller's INVENTORY when the truth
+      // was about the request.
+      if (linkableFailed) {
+        toast.error("Couldn't load your photo-less items — try again in a moment.");
+      } else {
+        toast.info("No photo-less items to match against.");
+      }
       return;
     }
     const ordered = [...withFiles]

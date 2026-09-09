@@ -3,6 +3,11 @@ import { Link, useSearchParams } from "react-router";
 import { BatchNav } from "./autolister/batch-nav";
 import { DescriptionBlocksBulk } from "./autolister/description-blocks-bulk";
 import {
+  NoBatchSpecified,
+  DraftsLoading,
+  DraftsFailed,
+} from "./autolister/bulk-edit-gates";
+import {
   CategorySearchControl,
   DescriptionCell,
   PnlCell,
@@ -28,8 +33,6 @@ import { Button } from "@/components/ui/button";
 import { PageHeader } from "@/components/ui/page-header";
 import { Input } from "@/components/ui/input";
 import { Card } from "@/components/ui/card";
-import { Skeleton } from "@/components/ui/skeleton";
-import { LoadingRegion } from "@/components/ui/skeletons";
 import { supabase } from "@/lib/supabase";
 import { useNavigationGuard } from "@/hooks/use-navigation-guard";
 import { UnsavedChangesDialog } from "@/components/unsaved-changes-dialog";
@@ -187,7 +190,7 @@ export function FlipdeskAutolisterBulkEditPage() {
   const batchId = params.get("batch");
   const qc = useQueryClient();
 
-  const { data, isLoading, error } = useQuery({
+  const { data, isLoading, error, isFetching, refetch } = useQuery({
     queryKey: ["autolister_batch_drafts", batchId],
     enabled: !!batchId,
     queryFn: async (): Promise<DraftRow[]> => {
@@ -1065,33 +1068,10 @@ export function FlipdeskAutolisterBulkEditPage() {
     overscan: 10,
   });
 
-  if (!batchId) {
-    return (
-      <div className="py-12 text-center text-sm text-muted-foreground">
-        No batch specified.{" "}
-        <Link to="/dashboard/flipdesk/autolister" className="text-primary underline">
-          Start a new batch
-        </Link>
-        .
-      </div>
-    );
-  }
-
-  if (isLoading) {
-    return (
-      <LoadingRegion label="Loading drafts" className="space-y-4 p-6">
-        <Skeleton className="h-8 w-48" />
-        <Skeleton className="h-64 w-full" />
-      </LoadingRegion>
-    );
-  }
-
+  if (!batchId) return <NoBatchSpecified />;
+  if (isLoading) return <DraftsLoading />;
   if (error) {
-    return (
-      <div className="py-12 text-center text-sm text-destructive">
-        {error instanceof Error ? error.message : "Could not load drafts."}
-      </div>
-    );
+    return <DraftsFailed onRetry={() => void refetch()} retrying={isFetching} />;
   }
 
   const allSelected = rows.length > 0 && selected.size === rows.length;
