@@ -148,7 +148,7 @@ export const SURFACES = [
     label: "Overview",
     description: "The day's numbers for buying, listing and selling.",
     web: "/dashboard/flipdesk",
-    nav: { group: "FlipDesk", subgroup: "Catalog", end: true },
+    nav: { group: "FlipDesk", subgroup: "Today", end: true },
     ios: null,
     iosElsewhere: "ios/GradeThread/Dashboard/DashboardView.swift",
   },
@@ -157,7 +157,7 @@ export const SURFACES = [
     label: "Search",
     description: "Find any item, listing or sale by anything you remember about it.",
     web: "/dashboard/flipdesk/search",
-    nav: { group: "FlipDesk", subgroup: "Catalog" },
+    nav: { group: "FlipDesk", subgroup: "Today" },
     ios: null,
     iosElsewhere: "ios/GradeThread/Inventory/GlobalSearchView.swift",
   },
@@ -167,7 +167,7 @@ export const SURFACES = [
     label: "Inventory",
     description: "Everything you own, as a table, a grid, a board or a prep list.",
     web: "/dashboard/flipdesk/inventory",
-    nav: { group: "FlipDesk", subgroup: "Catalog" },
+    nav: { group: "FlipDesk", subgroup: "Today" },
     ios: null,
     iosElsewhere: "ios/GradeThread/Inventory/InventoryListView.swift",
   },
@@ -181,7 +181,7 @@ export const SURFACES = [
     label: "AutoLister",
     description: "Turn a pile of photos into drafted listings in one batch.",
     web: "/dashboard/flipdesk/autolister",
-    nav: { group: "FlipDesk", subgroup: "List & sell" },
+    nav: { group: "FlipDesk", subgroup: "Sell" },
     ios: "autoLister",
     requiresFlipdeskFlag: "autolister",
   },
@@ -190,7 +190,7 @@ export const SURFACES = [
     label: "Scheduled drops",
     description: "Queue listings to publish when buyers are looking.",
     web: "/dashboard/flipdesk/scheduled-drops",
-    nav: { group: "FlipDesk", subgroup: "List & sell" },
+    nav: { group: "FlipDesk", subgroup: "Sell" },
     ios: "scheduledDrops",
   },
   {
@@ -198,7 +198,7 @@ export const SURFACES = [
     label: "Verified",
     description: "Claim your public seller handle and trust badge.",
     web: "/dashboard/flipdesk/verified",
-    nav: { group: "FlipDesk", subgroup: "List & sell" },
+    nav: { group: "FlipDesk", subgroup: "Sell" },
     ios: "verified",
   },
   {
@@ -210,7 +210,7 @@ export const SURFACES = [
     label: "Listing templates",
     description: "Reusable description, condition and policy presets for your listings.",
     web: "/dashboard/flipdesk/templates",
-    nav: { group: "FlipDesk", subgroup: "List & sell" },
+    nav: { group: "FlipDesk", subgroup: "Setup" },
     ios: "templates",
   },
 
@@ -287,7 +287,7 @@ export const SURFACES = [
     label: "Marketplaces",
     description: "Connect eBay and the other channels you sell on.",
     web: "/dashboard/flipdesk/marketplaces",
-    nav: { group: "FlipDesk", subgroup: "Channels & money" },
+    nav: { group: "FlipDesk", subgroup: "Setup" },
     ios: null,
     iosElsewhere: "ios/GradeThread/Marketplaces/MarketplacesView.swift",
   },
@@ -296,16 +296,19 @@ export const SURFACES = [
     label: "Offers & Messages",
     description: "Buyer offers and messages, with replies drafted for you.",
     web: "/dashboard/flipdesk/offers",
-    nav: { group: "FlipDesk", subgroup: "Channels & money" },
+    nav: { group: "FlipDesk", subgroup: "Today" },
     ios: null,
     iosElsewhere: "ios/GradeThread/Marketplaces/Negotiation/NegotiationInboxView.swift",
   },
   {
     id: "post-sale",
-    label: "Returns & Disputes",
-    description: "Returns, cases and disputes after a sale.",
+    // US-3206: was "Returns & Disputes", which named only the rarer half of the
+    // page. The ship queue lives here too, and packing today's orders is the
+    // daily job -- so the row nobody could find was the one they needed most.
+    label: "Sold & Shipping",
+    description: "Pack what sold, then handle returns, cases and disputes.",
     web: "/dashboard/flipdesk/post-sale",
-    nav: { group: "FlipDesk", subgroup: "Channels & money" },
+    nav: { group: "FlipDesk", subgroup: "Today" },
     ios: null,
     iosElsewhere: "ios/GradeThread/Marketplaces/PostSale/PostSaleView.swift",
   },
@@ -315,7 +318,7 @@ export const SURFACES = [
     label: "Pricing",
     description: "Reprice live listings, edit prices in bulk, and run pricing rules.",
     web: "/dashboard/flipdesk/pricing",
-    nav: { group: "FlipDesk", subgroup: "Channels & money" },
+    nav: { group: "FlipDesk", subgroup: "Sell" },
     ios: null,
     iosElsewhere: "ios/GradeThread/Pricing/RepricingView.swift",
   },
@@ -342,7 +345,7 @@ export const SURFACES = [
     label: "Money",
     description: "What sold, what it cost, what you are owed, and your real profit.",
     web: "/dashboard/flipdesk/money",
-    nav: { group: "FlipDesk", subgroup: "Channels & money" },
+    nav: { group: "FlipDesk", subgroup: "Money" },
     ios: null,
     iosElsewhere: "ios/GradeThread/Money/MoneyView.swift",
   },
@@ -368,7 +371,7 @@ export const SURFACES = [
     label: "MeasureCard",
     description: "The printed card that puts a scale in every measurement photo.",
     web: "/dashboard/flipdesk/measure-card",
-    nav: { group: "FlipDesk", subgroup: "Channels & money" },
+    nav: { group: "FlipDesk", subgroup: "Setup" },
     ios: null,
     onlyReason:
       "Web only, deliberately (US-2879). It is a printable PDF, " +
@@ -384,7 +387,7 @@ export const SURFACES = [
     label: "Analytics",
     description: "How your listings, grades and returns are doing over time.",
     web: "/dashboard/flipdesk/analytics",
-    nav: { group: "FlipDesk", subgroup: "Automate & insights" },
+    nav: { group: "FlipDesk", subgroup: "Money" },
     ios: null,
     iosElsewhere: "ios/GradeThread/Analytics/AnalyticsView.swift",
   },
@@ -584,12 +587,25 @@ export const NAV_GROUPS: readonly {
     description: "Everything from sourcing an item to reconciling the payout.",
     // Split into labeled, independently-collapsible subgroups (US-609) so the
     // section's ~20 destinations stay manageable.
+    //
+    // US-3206 REGROUPED THESE BY WHAT YOU ARE DOING, not by what the feature is
+    // called. The old split -- Catalog / List & sell / Sourcing / Channels &
+    // money / Automate & insights -- read sensibly and buried the wrong things:
+    // "Channels & money" held Marketplaces and MeasureCard, which you configure
+    // once, in front of Offers and the ship queue, which you open every day. The
+    // ship queue ended up seventeenth from the top of the sidebar, and it is
+    // where a seller starts their morning.
+    //
+    // So the order is now frequency-first. Today is the work that recurs daily;
+    // Setup is the work that happens once and starts COLLAPSED (see
+    // DEFAULT_COLLAPSED_SUBGROUPS in components/dashboard/sidebar.tsx). Nothing
+    // was added or removed -- the count is still 17, which nav-tabs.test.ts pins.
     subgroups: [
-      { title: "Catalog", description: "What you own, and where to find it." },
-      { title: "List & sell", description: "Turn items into listings and get them live." },
+      { title: "Today", description: "What you touch every day: stock, buyers, and what sold." },
+      { title: "Sell", description: "Turn items into listings, get them live, and price them." },
       { title: "Sourcing", description: "What to buy, and where it comes from." },
-      { title: "Channels & money", description: "Where you sell, and what you make." },
-      { title: "Automate & insights", description: "Rules that run for you, and how it is all going." },
+      { title: "Money", description: "What you made, and how it is all going." },
+      { title: "Setup", description: "Set once, then forget: channels, templates, and your card." },
     ],
   },
   // The trailing group renders no header, so it carries no description to hang

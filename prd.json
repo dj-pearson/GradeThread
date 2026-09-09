@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-3206",
+  "nextId": "US-3207",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -4652,6 +4652,20 @@
         "The two extra reads (sale_pnl, listings) are best effort: a failure logs and leaves those columns blank rather than emptying the queue, because a prep row that still shows the shelf and the deadline is worth rendering.",
         "No new migration. container, listings.listing_url and sale_pnl all already exist; this story is a read.",
         "Buying the label from this row is NOT in scope and is not stubbed. It is US-3011 (eBay, gated on the sell.logistics scope US-2380 applies for) and US-3015 (EasyPost). A dead button promising postage would be worse than no button."
+      ]
+    },
+    {
+      "id": "US-3206",
+      "passes": false,
+      "title": "The FlipDesk sidebar buries the daily work behind the set-once screens",
+      "description": "As a reseller opening the app in the morning, I want the screens I use every day at the top of the sidebar, so that packing today's orders is not seventeen rows down behind settings I configured once and never touch.",
+      "acceptanceCriteria": [
+        "FlipDesk's five subgroups are regrouped by frequency, not by feature name: Today (Overview, Search, Inventory, Offers and Messages, Sold and Shipping), Sell (AutoLister, Scheduled drops, Verified, Pricing), Sourcing, Money (Money, Analytics), Setup (Listing templates, Marketplaces, MeasureCard).",
+        "Nothing is added or removed. ALL_SURFACES still has 17 FlipDesk nav entries and nav-tabs.test.ts pins the per-subgroup counts, plus a new assertion that every entry lands in one of the five names so a typo cannot silently drop a row from the sidebar.",
+        "The Setup subgroup starts COLLAPSED via DEFAULT_COLLAPSED_SUBGROUPS in src/components/dashboard/sidebar.tsx. It is a default and never a lock: the value is consulted only when the user has no stored preference for that key, and groupHasActiveRoute still force-opens it when the current page is inside.",
+        "The post-sale surface is renamed from Returns and Disputes to Sold and Shipping. The page hosts the ship queue as well as returns, and it was named for the rarer half, which is why nobody could find the queue.",
+        "A test asserts the outcome rather than the arrangement: post-sale and offers resolve to the FIRST subgroup, and marketplaces, listing-templates and measure-card resolve to the LAST.",
+        "No route changes and no migration. Every path stays where it is, so bookmarks and saved links keep working."
       ]
     }
   ]

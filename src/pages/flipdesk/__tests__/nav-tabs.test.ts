@@ -332,13 +332,40 @@ describe("the ?view= hosts (US-2161 second pass)", () => {
     // a story behind it, which is exactly what this assertion exists to force.
     const flipdesk = ALL_SURFACES.filter((s) => s.nav?.group === "FlipDesk");
     expect(flipdesk.length).toBe(17);
-    // Catalog 3 + List & sell 4 + Sourcing 3 + Channels & money 6 + Automate 1.
+    // US-3206 regrouped these by frequency and moved nothing in or out, so the
+    // total is unchanged and only the buckets moved: Today 5 + Sell 4 +
+    // Sourcing 3 + Money 2 + Setup 3.
     const perSubgroup = (title: string) =>
       flipdesk.filter((s) => s.nav?.subgroup === title).length;
-    expect(perSubgroup("Catalog")).toBe(3);
-    expect(perSubgroup("List & sell")).toBe(4);
+    expect(perSubgroup("Today")).toBe(5);
+    expect(perSubgroup("Sell")).toBe(4);
     expect(perSubgroup("Sourcing")).toBe(3);
-    expect(perSubgroup("Channels & money")).toBe(6);
-    expect(perSubgroup("Automate & insights")).toBe(1);
+    expect(perSubgroup("Money")).toBe(2);
+    expect(perSubgroup("Setup")).toBe(3);
+    // Every entry lands in one of the five. A typo'd subgroup would otherwise
+    // pass the counts above by simply not being counted, and the row would
+    // vanish from the sidebar rather than move.
+    const known = new Set(["Today", "Sell", "Sourcing", "Money", "Setup"]);
+    expect(
+      flipdesk.filter((s) => !known.has(s.nav?.subgroup ?? "")).map((s) => s.id),
+    ).toEqual([]);
+  });
+
+  it("US-3206: the daily work is above the fold, and setup is not", () => {
+    // The complaint this fixes, stated as a number. The ship queue used to be
+    // the seventeenth sidebar row under FlipDesk because the things you
+    // configure once sat in front of the things you open every morning.
+    const order = ["Today", "Sell", "Sourcing", "Money", "Setup"];
+    const flipdesk = ALL_SURFACES.filter((s) => s.nav?.group === "FlipDesk");
+    const rank = (id: string) =>
+      order.indexOf(flipdesk.find((s) => s.id === id)!.nav!.subgroup!);
+
+    // Sold & Shipping is in the first group, not the fourth.
+    expect(rank("post-sale")).toBe(0);
+    expect(rank("offers")).toBe(0);
+    // The set-once screens are in the last one.
+    for (const id of ["marketplaces", "listing-templates", "measure-card"]) {
+      expect(rank(id)).toBe(order.length - 1);
+    }
   });
 });

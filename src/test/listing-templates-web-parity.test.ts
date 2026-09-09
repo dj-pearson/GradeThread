@@ -194,13 +194,16 @@ describe("the page can create, edit and delete (US-2877 AC1)", () => {
 });
 
 describe("it is reachable (US-2877 AC2)", () => {
-  it("the registry places it in List & sell", () => {
+  it("the registry places it in Setup", () => {
     const s = ALL_SURFACES.find((x) => x.id === "listing-templates");
     expect(s, "listing-templates left the registry").toBeDefined();
     expect(s!.web).toBe("/dashboard/flipdesk/templates");
     expect(s!.nav).not.toBeNull();
     expect(s!.nav!.group).toBe("FlipDesk");
-    expect(s!.nav!.subgroup).toBe("List & sell");
+    // US-3206: templates are configured once and then used by every listing,
+    // so they sit with the other set-once screens rather than in the daily
+    // listing flow.
+    expect(s!.nav!.subgroup).toBe("Setup");
   });
 
   it("the router renders the page there", () => {

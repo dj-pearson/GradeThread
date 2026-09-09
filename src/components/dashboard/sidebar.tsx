@@ -168,6 +168,23 @@ const navGroups: NavGroup[] = NAV_GROUPS.map((g) =>
 
 const COLLAPSE_KEY = "gt-sidebar-collapsed";
 
+/**
+ * Subgroups that start CLOSED, keyed the same way the collapse map is
+ * (`<group>:<subgroup>`).
+ *
+ * US-3206: FlipDesk is seventeen destinations and three of them are things you
+ * configure once — the marketplaces you sell on, your listing templates, and
+ * your MeasureCard. Leaving them open pushed the ship queue, which a seller
+ * opens every morning, to seventeenth from the top.
+ *
+ * A DEFAULT, not a lock. The value is only consulted when the user has no
+ * stored preference for that key, so opening Setup keeps it open, and this can
+ * never fight a choice somebody made. `groupHasActiveRoute` still force-opens
+ * it whenever the current page is inside, so the row you are on is never
+ * hidden.
+ */
+const DEFAULT_COLLAPSED_SUBGROUPS = new Set<string>(["FlipDesk:Setup"]);
+
 function loadCollapsed(): Record<string, boolean> {
   try {
     return JSON.parse(localStorage.getItem(COLLAPSE_KEY) || "{}");
@@ -457,7 +474,9 @@ function SidebarNav({
                 // subgroups with the same label in different sections never clash.
                 const key = group.title ? `${group.title}:${sg.title}` : sg.title;
                 const sgHasActive = groupHasActiveRoute(sg.items);
-                const sgCollapsed = (collapsed[key] ?? false) && !sgHasActive;
+                const sgCollapsed =
+                  (collapsed[key] ?? DEFAULT_COLLAPSED_SUBGROUPS.has(key)) &&
+                  !sgHasActive;
                 return (
                   <div key={sg.title} className="space-y-1">
                     {renderSectionHeader({
