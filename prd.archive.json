@@ -45668,6 +45668,20 @@
         "Checked on the certificate specifically, not just in the abstract: the grade, the factor table and the print-only header are all readable with Background graphics off."
       ],
       "notes": "Done 2026-09-09. AC3 verified by source and build inspection, not by a physical print: the block is in the emitted CSS and every dark token is neutralized. An actual dark-mode Print preview on /cert/<id> with Background graphics off has NOT been eyeballed."
+    },
+    {
+      "id": "US-3238",
+      "passes": true,
+      "title": "iOS: sign-out left the previous seller's currency, budget and consent on the device",
+      "description": "The sign-out teardown is long and careful - SwiftData cache, mutation queue, drafts, recent searches, saved filters, exports, thumbnail caches, edge response cache, push token, sync watermarks - and UserDefaults was not part of it. The next account signing in on a shared device inherited: the previous seller's currency override and sourcing budget, so every money screen was denominated in someone else's currency; their onboarding answers and a pre-dismissed activation checklist; a plan checkout carrying another person's email; a radar-contribution consent given by a different person; a pending deep-link route into the previous account's item; and a snoozed reconcile badge that silently muted the new user's own unreconciled orders. ReconcileBadgeStore.reset() was written for that last one in US-1262 with a comment saying 'e.g. on sign-out', and nothing ever called it.",
+      "acceptanceCriteria": [
+        "Every account-scoped defaults key is cleared in the sign-out teardown, and ReconcileBadgeStore.reset() is actually called",
+        "Every key is classified account-scoped, device-scoped (with the reason it survives), or cleared-elsewhere (naming the path)",
+        "ios/Scripts/check-signout-defaults.py fails on an unclassified key AND on a classified key nothing uses, and runs in npm run verify and ios-ci.yml",
+        "The guard is sabotage-tested in both directions"
+      ],
+      "priority": 2,
+      "notes": "Done 2026-09-09. New ios/GradeThread/Persistence/AccountScopedDefaults.swift holds three lists: accountScopedKeys (19 keys, wiped on sign-out), deviceScopedKeys (8, each with the reason it survives -- app lock, analytics opt-out, realtime/background toggles, push-prompt-shown, review timers) and clearedElsewhereKeys (10, naming the path that owns them). ContentView's sign-out teardown now calls AccountScopedDefaults.clear() and reconcileBadge.reset(); the latter had been written in US-1262 for exactly this and was never wired, so a snooze from one account muted the next one's unreconciled orders. New ios/Scripts/check-signout-defaults.py scans every UserDefaults-touching file for com.gradethread key literals and fails on an unclassified key OR a classified key nothing uses, with a NOT_A_DEFAULTS_KEY list naming the notification names, queue labels, keychain services and shortcut types that share the prefix. It FOUND two keys I had missed (recentSearches, savedFilters -- both already cleared elsewhere), and its own first version read zero keys because it sliced the list to the first bracket, which is the declared type; its classified-count floor caught that. Sabotage-tested both directions. Wired into IOS_GUARDS and ios-ci.yml; guard-lane test 6/6, all 16 guards pass."
     }
   ]
 }

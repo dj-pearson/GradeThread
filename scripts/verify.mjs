@@ -278,6 +278,7 @@ const IOS_GUARDS = [
   ["currency summed through Money.sum", "no-raw-money-sum.py"],
   ["glyph sizes scale with Dynamic Type", "no-fixed-icon-font.py"],
   ["every cached model is erased on sign-out", "check-cache-wipe.py"],
+  ["every defaults key is scoped for sign-out", "check-signout-defaults.py"],
   ["help slugs exist in the shared registry", "check-help-slugs.py"],
   // US-2889: the only one of these that checks RESOLUTION rather than a
   // pattern. A rewrite deleted MeasureGeometry.isOutsideFrame while three call

@@ -83,6 +83,14 @@ jobs:
       - name: Lint — no raw JPEG encode outside PhotoCompressor (US-2083)
         run: python3 ios/Scripts/no-raw-jpeg-encode.py
 
+      - name: Lint — every defaults key is scoped for sign-out (US-3238)
+        # The sign-out teardown wipes caches, drafts, tokens and the SwiftData
+        # mirror, and missed UserDefaults entirely: the next seller on a shared
+        # device inherited the previous one's currency, sourcing budget,
+        # onboarding answers and radar consent. Every key now has to be
+        # classified account- or device-scoped.
+        run: python3 ios/Scripts/check-signout-defaults.py
+
       - name: Lint — every cached model is erased on sign-out (US-3224)
         # The offline cache holds one seller's inventory, sales, expenses,
         # sourcing log and mileage. US-3100: LocalSourcer was in the schema and

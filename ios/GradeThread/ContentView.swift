@@ -203,6 +203,16 @@ struct ContentView: View {
                     // in memory up to their TTL after sign-out on a shared device.
                     Task { await PhotoSignedURLProvider.shared.clearCache() }
                     PushService.shared.clearTokenOnSignOut()
+                    // US-3238: and the account-scoped UserDefaults. Everything
+                    // above wipes caches, drafts and tokens; the preference keys
+                    // were the gap, so the next seller on this device inherited
+                    // the previous one's currency, sourcing budget, onboarding
+                    // answers and radar consent.
+                    AccountScopedDefaults.clear()
+                    // US-1262 wrote this reset "e.g. on sign-out" and nothing
+                    // ever called it, so a snoozed reconcile badge silently
+                    // muted the next user's own unreconciled orders.
+                    reconcileBadge.reset()
                     // Capture strongly before nil-ing (mirrors the invalidateScope
                     // pattern above): a deferred `Task { await syncEngine?.stop() }`
                     // reads the `@State` optional when the task RUNS — after the
