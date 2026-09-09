@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   keepPreviousData,
   useQuery,
@@ -34,10 +34,7 @@ import { Button } from "@/components/ui/button";
 import { supabase } from "@/lib/supabase";
 import { useAuthStore } from "@/stores/auth-store";
 import { cn } from "@/lib/utils";
-import {
-  useUrlParamState,
-  useUrlSearchInput,
-} from "@/hooks/use-url-param-state";
+import { useUrlPageState, useUrlParamState, useUrlSearchInput } from "@/hooks/use-url-param-state";
 import { SortMenu } from "@/components/flipdesk/sort-menu";
 import {
   columnSortForMode,
@@ -208,12 +205,24 @@ export function FlipdeskGridPage() {
   const [sortParam, setSortParam] = useUrlParamState("sort", "default");
   const sortOption = resolveSortOptionForMode(sortParam, "grid");
   const sortColumn = columnSortForMode(sortOption, "grid");
-  const [page, setPage] = useState(1);
+  // US-3207: same as the table — the page lives in `?page=` so it survives the
+  // round trip through an item, and so switching view mode does not silently
+  // move the seller back to the top of a list they were halfway down.
+  const [page, setPage] = useUrlPageState();
   const [staged, setStaged] = useState<Staged>(new Map());
   const [history, setHistory] = useState<EditLog[]>([]);
   const [saving, setSaving] = useState(false);
 
+  // US-3207: skips its FIRST run, so an inbound `?page=3` is not thrown away on
+  // the render that was meant to honour it. A real search or sort change after
+  // that still resets — page 3 of a re-sorted list is an arbitrary slice of an
+  // answer the seller just asked to see from the top.
+  const criteriaMountedRef = useRef(false);
   useEffect(() => {
+    if (!criteriaMountedRef.current) {
+      criteriaMountedRef.current = true;
+      return;
+    }
     setPage(1);
   }, [search, sortParam]);
 
@@ -273,9 +282,15 @@ export function FlipdeskGridPage() {
   const pageStart = (safePage - 1) * PAGE_SIZE;
 
   // Clamp the page when a search shrinks the result set below the current page.
+  //
+  // US-3207: gated on the query having resolved. `total` reads `data?.total ??
+  // 0`, so before the first fetch lands totalPages is 1 and an ungated clamp
+  // rewrites a restored `?page=3` to 1 while the request for page 3 is still in
+  // flight.
   useEffect(() => {
+    if (!data) return;
     if (page > totalPages) setPage(totalPages);
-  }, [page, totalPages]);
+  }, [page, totalPages, data]);
 
   const dirtyCount = useMemo(() => {
     let n = 0;

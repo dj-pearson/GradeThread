@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-3207",
+  "nextId": "US-3208",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -4667,6 +4667,23 @@
         "A test asserts the outcome rather than the arrangement: post-sale and offers resolve to the FIRST subgroup, and marketplaces, listing-templates and measure-card resolve to the LAST.",
         "No route changes and no migration. Every path stays where it is, so bookmarks and saved links keep working."
       ]
+    },
+    {
+      "id": "US-3207",
+      "passes": false,
+      "title": "Inventory forgets which page you were on: the tab, sort and filters come back but the page number does not",
+      "description": "As a seller working through the Active tab sorted oldest-first on page 3, I want to open an item and come back to page 3, so that I can work down a long list instead of re-paging to my place after every item.",
+      "acceptanceCriteria": [
+        "The current page is carried in the URL as ?page=, so the existing state.from return path (listings-table.tsx passes location.pathname + location.search; item.tsx reads state.from) brings it back with the tab, sort, search and filters that already survive.",
+        "Page 1 writes NO ?page= param, so a shared link to the top of a list stays clean and existing bookmarks keep meaning what they meant.",
+        "The two setPage(1) reset effects in listings.tsx skip their FIRST run, so an inbound ?page=3 survives mount. A genuine tab, sort, search, page-size or filter change afterwards still resets to page 1 - staying on page 6 of a re-sorted list shows an arbitrary slice of an answer the seller just asked to see from the top.",
+        "The clamp effect (page > totalPages) does not fire before the query resolves. totalRows reads pageData?.total ?? 0, so an unguarded clamp rewrites ?page=3 to 1 while the first fetch is still in flight and destroys the restore.",
+        "Paging uses replace, not push, so paging five times does not put five entries in browser history.",
+        "A junk, negative, zero or absurd ?page= value resolves to a usable page rather than throwing or sending a negative OFFSET to flipdesk_listing_page. Covered by unit tests on the pure parser.",
+        "The grid, kanban and prep view modes are unaffected: they have no pager, and nothing about this adds a param they would have to strip."
+      ],
+      "priority": 20,
+      "notes": "AC7 WAS WRONG and is corrected here. It said the grid, kanban and prep modes are unaffected because they have no pager. The GRID HAS ONE - grid.tsx had its own const [page, setPage] = useState(1), a fixed PAGE_SIZE of 100, its own setPage(1) reset on [search, sortParam] and its own ungated clamp. It also shares the URL with the table (both are /dashboard/flipdesk/inventory under ?mode=), so leaving it on useState would have meant a view-mode switch quietly moved the seller back to the top of a list they were halfway down. The grid gets the identical treatment: useUrlPageState, a skip-first-run ref on its reset effect, and the clamp gated on the query having resolved. It needs no ?size= because its page size is a constant with no selector. Kanban and prep genuinely have no pager. Also checked rather than assumed: InventoryModeRedirect at routes/index.tsx:247 MERGES the incoming query string rather than replacing it, so ?page= and ?size= survive the /items to /inventory redirect that Back to items goes through."
     }
   ]
 }

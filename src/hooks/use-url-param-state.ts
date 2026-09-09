@@ -104,3 +104,70 @@ export function useUrlSearchInput(
 
   return { value, draft, setDraft: onDraftChange };
 }
+
+// ── US-3207: the pager, in the URL ──────────────────────────────────────────
+//
+// Inventory already brings back the tab, the sort, the search and the filters
+// when a seller opens an item and comes back: listings-table.tsx passes
+// `location.pathname + location.search` in `state.from` and item.tsx returns to
+// it, so anything living in the query string survives the round trip for free.
+// `page` was the one piece of that state held in `useState`, so a seller three
+// pages into the Active tab landed back on page 1 after every single item.
+//
+// This is a separate hook rather than `useUrlParamState("page")` for two
+// reasons the string version cannot serve: the value is a NUMBER with a floor,
+// and the pager calls it with an updater (`p => p + 1`) that has to read the
+// live param rather than a value captured on a previous render.
+
+/**
+ * A page number from a raw query param, clamped into something safe to send.
+ *
+ * Anything unusable becomes 1 rather than throwing. The value ends up as an
+ * OFFSET in `flipdesk_listing_page`, so a negative or fractional page is not a
+ * cosmetic problem — `?page=-4` would ask the server for a negative offset.
+ */
+export function parsePageParam(raw: string | null | undefined): number {
+  const n = Number.parseInt((raw ?? "").trim(), 10);
+  if (!Number.isFinite(n) || n < 1) return 1;
+  // A page number past any real result set is harmless — the caller clamps it
+  // against totalPages once the count is known — but an absurd one would build
+  // an offset big enough to be its own problem.
+  return Math.min(n, 100_000);
+}
+
+/**
+ * Page state backed by `?page=`, with the same shape as `useState<number>`.
+ *
+ * Page 1 writes NO param, so the top of a list keeps a clean shareable URL and
+ * every existing bookmark still means what it meant.
+ */
+export function useUrlPageState(
+  key = "page",
+): [number, (next: number | ((prev: number) => number)) => void] {
+  const [searchParams, setSearchParams] = useSearchParams();
+  const page = parsePageParam(searchParams.get(key));
+
+  const setPage = useCallback(
+    (next: number | ((prev: number) => number)) => {
+      setSearchParams(
+        (prev) => {
+          const params = new URLSearchParams(prev);
+          // Read the CURRENT param inside the updater. Closing over `page`
+          // would make two pager clicks in one tick land on the same number.
+          const current = parsePageParam(params.get(key));
+          const resolved = typeof next === "function" ? next(current) : next;
+          const value = parsePageParam(String(Math.floor(resolved)));
+          if (value === 1) params.delete(key);
+          else params.set(key, String(value));
+          return params;
+        },
+        // Replace, not push: paging five times must not put five entries in
+        // browser history for the seller to walk back through.
+        { replace: true },
+      );
+    },
+    [key, setSearchParams],
+  );
+
+  return [page, setPage];
+}

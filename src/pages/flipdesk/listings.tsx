@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState, useEffect } from "react";
+import { useCallback, useMemo, useRef, useState, useEffect } from "react";
 import { Link, useSearchParams, useNavigate } from "react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useVirtualizer } from "@tanstack/react-virtual";
@@ -75,7 +75,7 @@ import { supabase } from "@/lib/supabase";
 import { useAuthStore } from "@/stores/auth-store";
 import { ItemDetailDialog } from "@/components/flipdesk/item-detail-dialog";
 import { useKeyboardShortcuts } from "@/hooks/use-keyboard-shortcuts";
-import { useUrlParamState, useUrlSearchInput } from "@/hooks/use-url-param-state";
+import { useUrlPageState, useUrlParamState, useUrlSearchInput } from "@/hooks/use-url-param-state";
 import { useInventorySelection } from "@/stores/inventory-selection";
 import { useInventoryStatusCounts } from "@/hooks/use-inventory-status-counts";
 import { useAgedThreshold } from "@/hooks/use-aged-threshold";
@@ -188,6 +188,20 @@ const SOLD_FILTER_LABELS: Record<SoldFilter, string> = {
 // handling time is stored on the listing.
 
 const PAGE_SIZE_OPTIONS = [50, 100, 200] as const;
+const DEFAULT_PAGE_SIZE = 100;
+
+/**
+ * US-3207: a rows-per-page value from `?size=`, or the default.
+ *
+ * Only the three values the menu offers are honoured. A `?size=100000` would
+ * otherwise become `p_limit` on flipdesk_listing_page and pull the whole
+ * account in one request — the URL is seller-editable and this is the one param
+ * here that costs the server real money if it is believed.
+ */
+function resolvePageSize(raw: string | null | undefined): number {
+  const n = Number.parseInt((raw ?? "").trim(), 10);
+  return (PAGE_SIZE_OPTIONS as readonly number[]).includes(n) ? n : DEFAULT_PAGE_SIZE;
+}
 // US-733: below this row count the desktop table renders unchanged; above it,
 // rows are virtualized. Kept comfortably above the 50-row min page size so the
 // smallest page never virtualizes.
@@ -227,8 +241,22 @@ export function FlipdeskListingsPage() {
     draft: searchDraft,
     setDraft: setSearch,
   } = useUrlSearchInput("q", "");
-  const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState<number>(100);
+  // US-3207: the page lives in `?page=` like the tab, sort, search and filters
+  // already do, so the state.from round trip through an item brings it back.
+  // It was the one piece of this screen's position held in useState, which is
+  // why a seller three pages into Active landed on page 1 after every item.
+  const [page, setPage] = useUrlPageState();
+  // US-3207: rows-per-page rides along in `?size=`, and it HAS to, or the page
+  // restore is wrong rather than merely incomplete. Page 3 of 50-row pages is
+  // rows 100-150; page 3 of 100-row pages is rows 200-300. Bringing the page
+  // number back without the size it was counted in returns the seller to a
+  // number that points somewhere else.
+  const [sizeParam, setSizeParam] = useUrlParamState("size", String(DEFAULT_PAGE_SIZE));
+  const pageSize = resolvePageSize(sizeParam);
+  const setPageSize = useCallback(
+    (next: number) => setSizeParam(String(resolvePageSize(String(next)))),
+    [setSizeParam],
+  );
   const navigate = useNavigate();
   const [detailItem, setDetailItem] = useState<ItemFullRow | null>(null);
   // US-961: mobile per-card quick-edit drawer + the mobile filters sheet.
@@ -452,9 +480,16 @@ export function FlipdeskListingsPage() {
       setSearchParams(next, { replace: true });
     }
     writeLastInventoryTab(tab);
-    setPage(1);
-    if (tabMountedRef.current) setSelected(new Set());
-    else tabMountedRef.current = true;
+    // US-3207: skip on mount, like the selection clear below. An inbound
+    // `?page=3` from the item page's back link arrives with the tab already
+    // resolved, so resetting here would throw the restore away on the very
+    // render that was supposed to honour it. A real tab CHANGE still resets.
+    if (tabMountedRef.current) {
+      setPage(1);
+      setSelected(new Set());
+    } else {
+      tabMountedRef.current = true;
+    }
     // US-1489: keyed on `tab` only — the effect writes searchParams (a
     // searchParams dep would loop) and the rest are stable setters/refs.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -471,7 +506,17 @@ export function FlipdeskListingsPage() {
   // sorted by SKU is a different 100 rows than page 6 of the same list sorted
   // by Title, so staying on 6 shows the seller an arbitrary slice of an answer
   // they just asked to see from the top.
+  //
+  // US-3207: and it too skips its FIRST run, for the same reason as the tab
+  // effect above. On mount every one of these deps is simply its initial value
+  // — nothing has changed yet — so firing here would reset a page the URL had
+  // just restored.
+  const criteriaMountedRef = useRef(false);
   useEffect(() => {
+    if (!criteriaMountedRef.current) {
+      criteriaMountedRef.current = true;
+      return;
+    }
     setPage(1);
   }, [search, pageSize, soldFilter, unlistedFilter, filterQuery, columnSort, sortPreset]);
 
@@ -740,9 +785,15 @@ export function FlipdeskListingsPage() {
   // current page without the criteria changing at all — a background refetch
   // after items are archived elsewhere, say. Clamp rather than show a blank
   // page the seller has no way to interpret.
+  //
+  // US-3207: gated on the query having ACTUALLY RESOLVED. `totalRows` reads
+  // `pageData?.total ?? 0`, so before the first fetch lands totalPages is 1 and
+  // an ungated clamp rewrites a restored `?page=3` to 1 while the request for
+  // page 3 is still in flight — the restore undone by its own safety net.
   useEffect(() => {
+    if (!pageData) return;
     if (page > totalPages) setPage(totalPages);
-  }, [page, totalPages]);
+  }, [page, totalPages, pageData]);
   const safePage = Math.min(page, totalPages);
   const pageStart = (safePage - 1) * pageSize;
   const pageRows = items;
