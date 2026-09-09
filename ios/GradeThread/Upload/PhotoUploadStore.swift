@@ -26,8 +26,20 @@ public final class PhotoUploadStore {
         }
     }
 
+    /// US-3242: FILTER first, then sort.
+    ///
+    /// This went through `allTasks`, which sorts the whole store — and the store
+    /// is only emptied on sign-out, so it holds every photo uploaded since the
+    /// app launched. A seller working through a few hundred items builds a
+    /// thousand-entry dictionary, and the capture screen calls this once per
+    /// slot on every progress tick: eight full sorts of a thousand elements, per
+    /// tick, to look at one item's five photos. Sorting one item's photos
+    /// instead is the same answer for a fraction of the work, and the cost stops
+    /// growing with how long the seller has been working.
     public func tasks(inventoryItemId: String) -> [PhotoUploadTask] {
-        allTasks.filter { $0.inventoryItemId == inventoryItemId }
+        tasks.values
+            .filter { $0.inventoryItemId == inventoryItemId }
+            .sorted { $0.createdAt < $1.createdAt }
     }
 
     /// Snapshot of pending work for a given item — uploads queued or in
