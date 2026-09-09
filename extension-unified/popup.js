@@ -1705,6 +1705,21 @@ function renderQueueRow(list, row, caps) {
 function wireQueue() {
   const runBtn = document.getElementById("queueRunNow");
   const runNote = document.getElementById("queueRunNote");
+
+  // US-3061: "Keep GradeThread working" opens the pinned worker tab. Routed
+  // through the background rather than opening the URL here so there is ONE
+  // path to that page — worker.html is not a web-accessible resource, and a
+  // second opener in the popup would be the obvious thing to copy into a
+  // content script later.
+  const workerBtn = document.getElementById("queueWorker");
+  if (workerBtn) {
+    workerBtn.addEventListener("click", async () => {
+      workerBtn.disabled = true;
+      await send({ type: "GT_WORKER_OPEN" });
+      window.close();
+    });
+  }
+
   if (!runBtn) return;
   runBtn.addEventListener("click", async () => {
     runBtn.disabled = true;

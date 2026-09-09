@@ -248,6 +248,30 @@ function checkPlatform(platform, cfg) {
     }
   }
 
+  // US-3061: the mobile-web claim gets the same discipline as `enabled`, and
+  // for the same reason. Firefox for Android runs these selectors against a
+  // DIFFERENT DOM, and a miss there fills nothing and reports nothing wrong.
+  // `mobile.enabled: true` asserts a human loaded the form on a phone.
+  if (cfg.mobile) {
+    if (typeof cfg.mobile.enabled !== "boolean") {
+      fail(`${platform}.mobile: \`enabled\` must be a boolean. An absent or fuzzy value reads as "maybe", and the drain has to answer yes or no on a phone.`);
+    }
+    if (cfg.mobile.enabled) {
+      const age = daysSince(cfg.mobile.lastVerified);
+      if (!cfg.mobile.lastVerified) {
+        fail(`${platform}.mobile: enabled with \`lastVerified: null\`. Enabling claims somebody drove this platform's form on Firefox for Android; a null date says nobody did.`);
+      } else if (age === null) {
+        fail(`${platform}.mobile: \`lastVerified\` is not a date ("${cfg.mobile.lastVerified}").`);
+      } else if (age < 0) {
+        fail(`${platform}.mobile: \`lastVerified\` is in the future ("${cfg.mobile.lastVerified}").`);
+      } else if (age > STALE_DAYS) {
+        warn(`${platform}.mobile: last verified on a phone ${age} days ago (${cfg.mobile.lastVerified}).`);
+      }
+    }
+  } else {
+    fail(`${platform}: no \`mobile\` block. Every listed platform has to say whether its form is known to work on Firefox for Android, because the drain runs there too (US-3061).`);
+  }
+
   checkFlow(platform, cfg, "list");
   if (cfg.delist) checkFlow(platform, cfg.delist, "delist");
   // US-9202: edit sync gets the same enable discipline as list and delist.
@@ -508,6 +532,17 @@ console.log(
   `✓ verify-lister-selectors: revise ${reviseLive.length + revisePending.length} platform(s) — ` +
     `enabled: ${reviseLive.join(", ") || "none"}; ` +
     `awaiting live verification: ${revisePending.join(", ") || "none"}`,
+);
+// US-3061: which platforms the drain will run on Firefox for Android. Printed
+// rather than left implicit, because "the queue drains on my phone" is a claim
+// a seller reads on the marketplaces screen and a per-platform answer is the
+// only honest form of it.
+const mobileLive = platforms.filter(([, c]) => c.mobile && c.mobile.enabled).map(([p]) => p);
+const mobilePending = platforms.filter(([, c]) => !(c.mobile && c.mobile.enabled)).map(([p]) => p);
+console.log(
+  `\u2713 verify-lister-selectors: mobile web (Firefox for Android) ${platforms.length} platform(s) \u2014 ` +
+    `enabled: ${mobileLive.join(", ") || "none"}; ` +
+    `desktop only: ${mobilePending.join(", ") || "none"}`,
 );
 const relistLive = platforms.filter(([, c]) => c.relist && c.relist.enabled).map(([p]) => p);
 const relistPending = platforms.filter(([, c]) => c.relist && !c.relist.enabled).map(([p]) => p);

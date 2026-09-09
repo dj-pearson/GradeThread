@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <!-- popup.css is the design system: the tokens, the queue row, the status
+         badge and the buttons all live there, and this page renders the same
+         rows the popup does. Loading it here rather than copying the rules is
+         what keeps the two surfaces from drifting into two looks for one
+         feature. worker.css undoes the popup's 380px body and nothing else. -->
+    <link rel="stylesheet" href="popup.css" />
+    <link rel="stylesheet" href="popup-theme.css" />
+    <link rel="stylesheet" href="worker.css" />
+    <title>GradeThread is working</title>
+  </head>
+  <body class="wrk">
+    <header class="wrk-head">
+      <img src="icons/icon48.png" alt="" class="wrk-logo" />
+      <div class="wrk-head-text">
+        <h1 class="wrk-title">GradeThread is working</h1>
+        <p class="wrk-status" id="statusLine" aria-live="polite">Starting the first check.</p>
+      </div>
+      <div class="wrk-head-actions">
+        <button type="button" class="pop-cta" id="resumeBtn" hidden>Resume</button>
+        <button type="button" class="pop-btn" id="stopBtn">Stop</button>
+      </div>
+    </header>
+
+    <main class="wrk-body">
+      <!-- The pause banner. It names the tab that needs the seller, in the same
+           words the popup uses, and it is the ONLY way the drain restarts:
+           GradeThread never answers a login wall or a human check. -->
+      <div class="wrk-pause" id="pauseBox" hidden>
+        <p class="wrk-pause-text" id="pauseText"></p>
+        <button type="button" class="pop-linkbtn" id="pauseOpen" hidden>Open that tab</button>
+      </div>
+
+      <!-- US-1881 / US-3061: Firefox (desktop and Android) treats
+           host_permissions as opt-in, and an un-granted extension fails
+           SILENTLY - the drain opens a marketplace tab and no content script
+           ever runs in it. The probe fails open, so this banner appears only
+           where the answer was a definite no. -->
+      <div class="wrk-pause" id="grantBox" hidden>
+        <p class="wrk-pause-text">
+          Firefox has not given GradeThread access to the marketplace sites yet,
+          so queued work will open a tab and then do nothing. One tap fixes it.
+        </p>
+        <button type="button" class="pop-cta" id="grantBtn">Allow marketplace access</button>
+      </div>
+
+      <p class="wrk-note" id="note" hidden></p>
+
+      <div class="wrk-queue" id="queueBlock">
+        <ul class="pop-delist-list" id="queueList"></ul>
+        <p class="wrk-empty" id="empty" hidden>
+          Nothing waiting. Anything you queue from your phone will run here
+          within a minute.
+        </p>
+      </div>
+
+      <!-- US-3061: the tabs this page opened that are still open well past
+           their job's deadline. Reported, never closed - a seller finishing a
+           form by hand is the usual reason, and closing it would throw their
+           work away. -->
+      <p class="wrk-stale" id="stale" hidden></p>
+
+      <p class="wrk-foot">
+        Leave this tab open and queued work runs here, in your own browser,
+        signed in as you. GradeThread never holds your marketplace password
+        and never answers a human check.
+      </p>
+    </main>
+
+    <script src="host-permissions.js"></script>
+    <script src="queue/queue-view.js"></script>
+    <script src="queue/worker-state.js"></script>
+    <script src="worker.js"></script>
+  </body>
+</html>

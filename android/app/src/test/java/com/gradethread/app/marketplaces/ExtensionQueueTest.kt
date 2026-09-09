@@ -50,8 +50,9 @@ class ExtensionQueueTest {
         // seller something the others do not.
         val expected =
             "This runs the next time you open your desktop browser with the " +
-                "GradeThread extension installed. Nothing happens on the " +
-                "marketplace until then."
+                "GradeThread extension installed, or within a minute if you keep " +
+                "the GradeThread worker tab open, on a computer or in Firefox " +
+                "for Android. Nothing happens on the marketplace until then."
         assertEquals(expected, QUEUED_NOTICE)
     }
 

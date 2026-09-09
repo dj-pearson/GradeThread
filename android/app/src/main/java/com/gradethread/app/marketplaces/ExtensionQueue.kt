@@ -102,7 +102,9 @@ enum class ExtensionQueueKind(val wire: String) {
  */
 const val QUEUED_NOTICE: String =
     "This runs the next time you open your desktop browser with the GradeThread " +
-        "extension installed. Nothing happens on the marketplace until then."
+        "extension installed, or within a minute if you keep the GradeThread worker " +
+        "tab open, on a computer or in Firefox for Android. Nothing happens on the " +
+        "marketplace until then."
 
 @Singleton
 class ExtensionQueueRepository @Inject constructor(
