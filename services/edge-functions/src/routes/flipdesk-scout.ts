@@ -72,7 +72,7 @@ import {
 import { forecastSellThrough } from "../lib/sell-through.ts";
 import { ebaySoldSearchUrl } from "../lib/sold-comps.ts";
 import { decideBuy, DECISION_FEE_RATE, sourcingCeiling } from "../lib/scout-decision.ts";
-import { sourcingParams, sourcingTargetRoi } from "../lib/sourcing-target.ts";
+import { sourcingParams } from "../lib/sourcing-target.ts";
 import {
   rankCandidates,
   scoreCandidate,

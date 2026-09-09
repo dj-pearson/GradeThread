@@ -19,7 +19,6 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { EmptyState } from "@/components/ui/empty-state";
 import { toastError } from "@/lib/toast-error";
@@ -28,6 +27,14 @@ import { shipCountdown, type ShipUrgency } from "@/pages/flipdesk/ship-queue";
 import { useEbayShipOrder } from "@/hooks/use-ebay";
 import { Checkbox } from "@/components/ui/checkbox";
 import { packingSlipDocument } from "@/pages/flipdesk/packing-slip";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 
 /** Dollars, the way the rest of post-sale.tsx writes them. */
 function money(value: number): string {
@@ -79,7 +86,7 @@ function ShipRow({
   async function submit() {
     const value = tracking.trim();
     if (!value) {
-      toast.error("Enter a tracking number first.");
+      toast.error("Enter the tracking number first.");
       return;
     }
     try {
@@ -88,7 +95,7 @@ function ShipRow({
         trackingNumber: value,
         carrier: carrier.trim() || null,
       });
-      toast.success("Marked shipped.");
+      toast.success("Marked shipped, and the tracking is on eBay.");
       // The row leaves this queue because shipped_at is now set; the needs-you
       // merge reads the same query, so both surfaces update from one refetch.
       await qc.invalidateQueries({ queryKey: ["ship_queue"] });
@@ -98,138 +105,137 @@ function ShipRow({
   }
 
   return (
-    <li className="rounded-lg border p-3">
-      <div className="flex flex-wrap items-start justify-between gap-2">
-        <div className="flex min-w-0 gap-3">
-          <Checkbox
-            checked={selected}
-            onCheckedChange={(v) => onSelect(row.id, v === true)}
-            aria-label={`Select ${row.title ?? row.orderRef ?? "this order"} for a packing slip`}
-            className="mt-1"
-          />
-          <div className="min-w-0">
-          <p className="truncate text-sm font-medium">
-            {row.listingUrl ? (
-              // US-3205: the name IS the link. A separate "view listing" control
-              // would be a second thing to aim at on a row that already has a
-              // checkbox, a tracking field and a carrier select.
-              <a
-                href={row.listingUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex items-center gap-1 hover:underline"
-              >
-                <span className="truncate">
-                  {row.title ?? `Order ${row.orderRef ?? row.id}`}
-                </span>
-                <ExternalLink aria-hidden="true" className="h-3 w-3 shrink-0" />
-              </a>
-            ) : (
-              row.title ?? `Order ${row.orderRef ?? row.id}`
-            )}
-          </p>
-          <p className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
-            {row.orderRef ? <span>Order {row.orderRef}</span> : null}
-            {row.sku ? <span>SKU {row.sku}</span> : null}
-            {row.size ? <span>Size {row.size}</span> : null}
-            {row.locationBin ? (
-              <span className="inline-flex items-center gap-1 font-medium text-foreground">
-                <MapPin aria-hidden="true" className="h-3 w-3" />
-                {row.locationBin}
+    <TableRow>
+      <TableCell className="w-8 align-top">
+        <Checkbox
+          checked={selected}
+          onCheckedChange={(v) => onSelect(row.id, v === true)}
+          aria-label={`Select ${row.title ?? row.orderRef ?? "this order"} for a packing slip`}
+        />
+      </TableCell>
+
+      <TableCell className="min-w-[14rem] align-top">
+        <div className="font-medium">
+          {row.listingUrl ? (
+            // US-3205: the name IS the link. A separate control would be a
+            // second thing to aim at on a row that already has a checkbox, two
+            // inputs and a button.
+            <a
+              href={row.listingUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1 hover:underline"
+            >
+              <span className="line-clamp-2">
+                {row.title ?? `Order ${row.orderRef ?? row.id}`}
               </span>
-            ) : null}
-            {/* US-3205: the tote, which is how a seller who stores by haul
-                actually finds the garment. Shown alongside the shelf rather
-                than instead of it — they answer different questions. */}
-            {row.container ? (
-              <span className="inline-flex items-center gap-1 font-medium text-foreground">
-                <Package aria-hidden="true" className="h-3 w-3" />
-                {row.container}
-              </span>
-            ) : null}
-          </p>
-          {/* US-3205: what it cost and what is left. Money on a prep row is not
-              decoration — it is the number a seller checks before deciding
-              whether to spend on tracked postage or a rigid mailer. */}
-          {(row.costBasis != null || row.net != null) ? (
-            <p className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
-              {row.salePrice != null ? (
-                <span className="text-muted-foreground">
-                  Sold {money(row.salePrice)}
-                </span>
-              ) : null}
-              {row.costBasis != null ? (
-                <span className="text-muted-foreground">
-                  Paid {money(row.costBasis)}
-                </span>
-              ) : null}
-              {row.net != null ? (
-                <span
-                  className={
-                    row.net < 0
-                      ? "font-medium text-destructive"
-                      : "font-medium text-emerald-600 dark:text-emerald-400"
-                  }
-                  // Every row in this queue is unshipped, so the label has not
-                  // been bought and its cost is not in the figure yet. Saying
-                  // so is cheaper than a seller finding out at payout.
-                  title="Estimated. Postage is not in this figure until the label is bought."
-                >
-                  Net {money(row.net)}
-                  <span className="ml-1 font-normal text-muted-foreground">est.</span>
-                </span>
-              ) : null}
-            </p>
-          ) : null}
-          </div>
+              <ExternalLink aria-hidden="true" className="h-3 w-3 shrink-0" />
+            </a>
+          ) : (
+            <span className="line-clamp-2">
+              {row.title ?? `Order ${row.orderRef ?? row.id}`}
+            </span>
+          )}
         </div>
+        <div className="mt-0.5 flex flex-wrap gap-x-3 text-xs text-muted-foreground">
+          {row.sku ? <span>SKU {row.sku}</span> : null}
+          {row.size ? <span>Size {row.size}</span> : null}
+          {row.orderRef ? <span>Order {row.orderRef}</span> : null}
+        </div>
+      </TableCell>
+
+      <TableCell className="align-top text-xs">
+        {/* The shelf and the tote answer different questions, so both show. */}
+        <div className="flex flex-col gap-0.5">
+          {row.locationBin ? (
+            <span className="inline-flex items-center gap-1 font-medium">
+              <MapPin aria-hidden="true" className="h-3 w-3" />
+              {row.locationBin}
+            </span>
+          ) : null}
+          {row.container ? (
+            <span className="inline-flex items-center gap-1 font-medium">
+              <Package aria-hidden="true" className="h-3 w-3" />
+              {row.container}
+            </span>
+          ) : null}
+          {!row.locationBin && !row.container ? (
+            <span className="text-muted-foreground">&mdash;</span>
+          ) : null}
+        </div>
+      </TableCell>
+
+      <TableCell className="align-top text-right text-xs tabular-nums">
+        {row.salePrice != null ? <div>{money(row.salePrice)}</div> : null}
+        {row.costBasis != null ? (
+          <div className="text-muted-foreground">
+            paid {money(row.costBasis)}
+          </div>
+        ) : null}
+        {row.net != null ? (
+          <div
+            className={
+              row.net < 0
+                ? "font-medium text-destructive"
+                : "font-medium text-emerald-600 dark:text-emerald-400"
+            }
+            // Every row here is unshipped, so the label has not been bought and
+            // its cost is not in the figure. Saying so beats a seller finding
+            // out at payout.
+            title="Estimated. Postage is not in this figure until the label is bought."
+          >
+            {money(row.net)} est.
+          </div>
+        ) : null}
+      </TableCell>
+
+      <TableCell className="align-top">
         <Badge
           variant="outline"
-          className={`shrink-0 gap-1 ${URGENCY_STYLE[countdown.urgency]}`}
+          className={`gap-1 whitespace-nowrap ${URGENCY_STYLE[countdown.urgency]}`}
         >
           {countdown.urgency === "overdue" ? (
             <AlertTriangle aria-hidden="true" className="h-3 w-3" />
           ) : null}
           {countdown.label}
         </Badge>
-      </div>
+      </TableCell>
 
-      <div className="mt-3 flex flex-wrap items-end gap-2">
-        <div className="min-w-[10rem] flex-1">
-          <Label htmlFor={`tracking-${row.id}`} className="text-xs">
-            Tracking number
-          </Label>
+      <TableCell className="align-top">
+        <div className="flex items-center gap-1.5">
           <Input
-            id={`tracking-${row.id}`}
+            aria-label={`Tracking number for ${row.title ?? row.orderRef ?? "this order"}`}
             value={tracking}
             onChange={(e) => setTracking(e.target.value)}
-            placeholder="9400 1000 0000 0000 0000 00"
+            placeholder="Tracking number"
             autoComplete="off"
+            className="h-8 min-w-[11rem] text-xs"
           />
-        </div>
-        <div className="w-28">
-          <Label htmlFor={`carrier-${row.id}`} className="text-xs">
-            Carrier
-          </Label>
           <Input
-            id={`carrier-${row.id}`}
+            aria-label={`Carrier for ${row.title ?? row.orderRef ?? "this order"}`}
             value={carrier}
             onChange={(e) => setCarrier(e.target.value)}
             placeholder="USPS"
             autoComplete="off"
+            className="h-8 w-20 text-xs"
           />
+          <Button
+            type="button"
+            size="sm"
+            onClick={submit}
+            disabled={ship.isPending}
+            className="h-8 gap-1 whitespace-nowrap"
+            // US-3209: name what the button DOES, because it does two things and
+            // the seller can only see one of them. It writes the tracking here
+            // AND uploads the fulfillment to eBay in the same call.
+            title="Saves the tracking here and uploads it to eBay in one step."
+          >
+            <Truck aria-hidden="true" className="h-3.5 w-3.5" />
+            {ship.isPending ? "Sending\u2026" : "Ship"}
+          </Button>
         </div>
-        <Button
-          type="button"
-          onClick={submit}
-          disabled={ship.isPending}
-          className="gap-1"
-        >
-          <Truck aria-hidden="true" className="h-4 w-4" />
-          {ship.isPending ? "Marking…" : "Mark shipped"}
-        </Button>
-      </div>
-    </li>
+      </TableCell>
+    </TableRow>
   );
 }
 
@@ -314,16 +320,37 @@ export function ShipQueueCard() {
             description="Every completed sale has a tracking number on it."
           />
         ) : (
-          <ul className="space-y-2">
-            {rows.map((row) => (
-              <ShipRow
-                key={row.id}
-                row={row}
-                selected={selected.has(row.id)}
-                onSelect={toggle}
-              />
-            ))}
-          </ul>
+          /* A table, because this is a list a seller SCANS. The card stack
+             made every row a paragraph, so comparing two deadlines or spotting
+             which order is in the wrong tote meant reading prose; a grid puts
+             the same facts in columns that line up.
+
+             Its own horizontal scroller: six columns and two inputs do not fit
+             a phone, and the page body must never scroll sideways. */
+          <div className="overflow-x-auto">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead className="w-8" />
+                  <TableHead>Item</TableHead>
+                  <TableHead>Where</TableHead>
+                  <TableHead className="text-right">Sold / net</TableHead>
+                  <TableHead>Ship by</TableHead>
+                  <TableHead>Tracking</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {rows.map((row) => (
+                  <ShipRow
+                    key={row.id}
+                    row={row}
+                    selected={selected.has(row.id)}
+                    onSelect={toggle}
+                  />
+                ))}
+              </TableBody>
+            </Table>
+          </div>
         )}
       </CardContent>
     </Card>

@@ -1,5 +1,5 @@
 // US-3193: the buy ceiling stopped pricing postage, packaging and grading at zero.
-import { assertEquals, assert } from "https://deno.land/std@0.224.0/assert/mod.ts";
+import { assertEquals, assert } from "@std/assert";
 import {
   DEFAULT_SOURCING_GRADING_CENTS,
   DEFAULT_SOURCING_SHIPPING_CENTS,

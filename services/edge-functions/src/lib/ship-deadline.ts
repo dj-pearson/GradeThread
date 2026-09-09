@@ -86,3 +86,62 @@ export function normalizeHandlingDays(
   if (whole < 0 || whole > MAX_HANDLING_DAYS) return null;
   return whole;
 }
+
+// ── US-3209: believing eBay when it says the order already shipped ──────────
+
+export interface ShippedAtInput {
+  /** eBay's `orderFulfillmentStatus`: NOT_STARTED, IN_PROGRESS or FULFILLED. */
+  fulfillmentStatus: string | null | undefined;
+  /** What the sale row already carries. Null when we have never recorded one. */
+  existingShippedAt: string | null | undefined;
+  /** eBay's lastModifiedDate for the order, the closest instant we are given. */
+  orderModifiedAt: string | null | undefined;
+  /** Fallback clock, injected so the test does not race real time. */
+  now?: () => number;
+}
+
+/**
+ * The `shipped_at` to WRITE for a sale, or null to leave the row alone.
+ *
+ * THE PROBLEM THIS SOLVES. `shipped_at` has only ever been written by a seller
+ * pressing Mark shipped inside GradeThread. A seller who buys the label in
+ * eBay's own flow, or in any other tool, ships the order for real and our queue
+ * goes on showing it as waiting — so the honest answer to "has this shipped"
+ * was "only if you told us", and the ship queue slowly filled with work that
+ * was already done. eBay has been telling us the answer the whole time:
+ * `orderFulfillmentStatus` is already on every order the sync reads, and was
+ * being used only to classify a refund.
+ *
+ * THREE RULES, all of them about not lying in the other direction.
+ *
+ * 1. FORWARD ONLY. An existing shipped_at is never moved or cleared. It may
+ *    have been set by hand, by a label purchase, or by a previous sync, and all
+ *    three are better evidence than a re-read of the same order. Returning null
+ *    means "no write", not "not shipped".
+ * 2. ONLY ON FULFILLED. NOT_STARTED and IN_PROGRESS both mean at least one
+ *    line item is still outstanding. A partially shipped multi-item order is
+ *    not a shipped order, and treating it as one would drop the remaining item
+ *    out of the queue.
+ * 3. eBay'S CLOCK, NOT OURS. lastModifiedDate is the closest instant eBay gives
+ *    us for when the order reached this state. `now()` is the fallback, and it
+ *    is a fallback rather than the default because stamping discovery time
+ *    would date every backfilled order to the day we happened to look.
+ *
+ * WHAT THIS DELIBERATELY DOES NOT DO: import the tracking number. That lives on
+ * `/order/{id}/shipping_fulfillment`, one call per order, which is precisely the
+ * per-order fan-out US-3110 is cutting before the Application Growth Check. The
+ * status is free — it is already in the payload — and it is what the queue is
+ * wrong about. A tracking number the seller can read on eBay is worth less than
+ * a queue that stops showing them work they have finished.
+ */
+export function resolveShippedAt(input: ShippedAtInput): string | null {
+  const existing = (input.existingShippedAt ?? "").trim();
+  if (existing !== "") return null; // rule 1
+
+  const status = (input.fulfillmentStatus ?? "").trim().toUpperCase();
+  if (status !== "FULFILLED") return null; // rule 2
+
+  const modified = parseInstant(input.orderModifiedAt); // rule 3
+  const at = modified ?? (input.now ?? Date.now)();
+  return new Date(at).toISOString();
+}

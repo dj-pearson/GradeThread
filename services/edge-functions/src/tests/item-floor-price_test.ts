@@ -4,7 +4,7 @@
 // auto-accepts, offer rules and bulk reduce alike. These tests are written
 // against each of those paths separately, because a floor honoured by three of
 // four is a floor the seller cannot trust at all.
-import { assertEquals } from "https://deno.land/std@0.224.0/assert/mod.ts";
+import { assertEquals } from "@std/assert";
 import {
   computeMarkdownCents,
   decideNewPriceCents,

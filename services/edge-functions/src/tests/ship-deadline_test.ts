@@ -1,9 +1,10 @@
 // US-3189: the ship-by deadline, and the two ways it is allowed to be absent.
-import { assertEquals } from "https://deno.land/std@0.224.0/assert/mod.ts";
+import { assertEquals } from "@std/assert";
 import {
   MAX_HANDLING_DAYS,
   normalizeHandlingDays,
   resolveShipBy,
+  resolveShippedAt,
 } from "../lib/ship-deadline.ts";
 
 Deno.test("resolveShipBy: eBay's own date wins over the derived one", () => {
@@ -122,4 +123,71 @@ Deno.test("US-3189: the order-sync sales update filters by user_id, not id alone
       'the order-sync sales update lost its .eq("user_id", userId) predicate:\n' + text,
     );
   }
+});
+
+// ── US-3209: importing eBay's own "this shipped" ────────────────────────────
+
+Deno.test("US-3209: FULFILLED with no local date is written from eBay's clock", () => {
+  // The whole point: a seller who bought the label in eBay's own flow never
+  // pressed Mark shipped here, and the queue went on showing finished work.
+  assertEquals(
+    resolveShippedAt({
+      fulfillmentStatus: "FULFILLED",
+      existingShippedAt: null,
+      orderModifiedAt: "2026-09-05T14:00:00.000Z",
+    }),
+    "2026-09-05T14:00:00.000Z",
+  );
+});
+
+Deno.test("US-3209: an existing date is never moved, whatever eBay says", () => {
+  // Forward only. The stored date may have come from the seller's own hand, a
+  // label purchase, or a previous sync, and all three beat a re-read.
+  assertEquals(
+    resolveShippedAt({
+      fulfillmentStatus: "FULFILLED",
+      existingShippedAt: "2026-09-01T00:00:00.000Z",
+      orderModifiedAt: "2026-09-05T14:00:00.000Z",
+    }),
+    null,
+  );
+  // Including when eBay has since gone quiet about it.
+  assertEquals(
+    resolveShippedAt({
+      fulfillmentStatus: "NOT_STARTED",
+      existingShippedAt: "2026-09-01T00:00:00.000Z",
+      orderModifiedAt: "2026-09-05T14:00:00.000Z",
+    }),
+    null,
+  );
+});
+
+Deno.test("US-3209: a partly shipped order is not a shipped order", () => {
+  // IN_PROGRESS means at least one line item is still outstanding. Marking the
+  // sale shipped would drop the remaining item out of the queue.
+  for (const status of ["NOT_STARTED", "IN_PROGRESS", "", null, undefined]) {
+    assertEquals(
+      resolveShippedAt({
+        fulfillmentStatus: status,
+        existingShippedAt: null,
+        orderModifiedAt: "2026-09-05T14:00:00.000Z",
+      }),
+      null,
+      `status ${String(status)}`,
+    );
+  }
+});
+
+Deno.test("US-3209: an unusable eBay timestamp falls back to now, not to null", () => {
+  // A backfilled order with no readable modified date still shipped. Dating it
+  // "now" is wrong by days; dropping it is wrong forever.
+  assertEquals(
+    resolveShippedAt({
+      fulfillmentStatus: "fulfilled",
+      existingShippedAt: "   ",
+      orderModifiedAt: "not a date",
+      now: () => Date.parse("2026-09-09T00:00:00.000Z"),
+    }),
+    "2026-09-09T00:00:00.000Z",
+  );
 });

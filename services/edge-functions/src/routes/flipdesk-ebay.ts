@@ -353,7 +353,7 @@ import {
   computeListingQualityScore,
   type ListingQualityScore,
 } from "../lib/listing-quality-score.ts";
-import { resolveShipBy } from "../lib/ship-deadline.ts";
+import { resolveShipBy, resolveShippedAt } from "../lib/ship-deadline.ts";
 import { sourcingCosts } from "../lib/sourcing-target.ts";
 import {
   DEFAULT_SOURCING_GRADING_CENTS,
@@ -3874,7 +3874,10 @@ async function doListingsPull(
           // row once on the first post-migration re-sync).
           const { data: existingRows } = await supabaseAdmin
             .from("sales")
-            .select("id, line_item_id")
+            // US-3209: shipped_at rides along so resolveShippedAt can hold its
+            // forward-only rule. Without it every sync would restamp a date the
+            // seller set by hand.
+            .select("id, line_item_id, shipped_at")
             .eq("inventory_item_id", itemId)
             .eq("platform_order_id", order.orderId);
           const existing = pickSaleRowForLine(
@@ -3918,6 +3921,25 @@ async function doListingsPull(
               handlingDays: null,
             }),
           };
+
+          // US-3209: eBay already told us this shipped. Believe it.
+          //
+          // Merged rather than put in the payload above, because the payload is
+          // reused for the UPDATE and an unconditional shipped_at there would
+          // restamp the column on every sync — overwriting a date the seller
+          // set by hand with a fresh one, forever. resolveShippedAt returns null
+          // for "leave it alone", which is why this is a spread and not a field.
+          const shippedPatch = (() => {
+            const at = resolveShippedAt({
+              fulfillmentStatus: order.orderFulfillmentStatus,
+              existingShippedAt:
+                (existing as { shipped_at?: string | null } | null)?.shipped_at ??
+                  null,
+              orderModifiedAt: order.lastModifiedDate,
+            });
+            return at ? { shipped_at: at } : {};
+          })();
+          Object.assign(salePayload, shippedPatch);
 
           if (existing) {
             const existingSaleId = (existing as { id: string }).id;

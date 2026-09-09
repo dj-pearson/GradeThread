@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-3209",
+  "nextId": "US-3210",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -4700,6 +4700,21 @@
         "A test pins that every kind this page shows has exactly one owning tab (two would double-count a badge, none would be work with no way in), and that offer stays deliberately unowned because offers are their own page.",
         "src/components/flipdesk/needs-you-card.tsx is deleted rather than left unrendered, and the guard in src/test/flipdesk-action-widgets.test.ts that pinned it not duplicating the hook's reads moves to the overview widget, which is the surface that survived.",
         "No route change and no migration. /dashboard/flipdesk/post-sale keeps its path, so every existing link works."
+      ]
+    },
+    {
+      "id": "US-3209",
+      "passes": false,
+      "title": "Nothing imports eBay's own shipped status, so the ship queue shows work the seller already finished",
+      "description": "As a reseller who buys some labels in eBay's own flow, I want GradeThread to notice that an order already shipped, so that my ship queue is a list of what is left rather than a list I have to tell the app about twice.",
+      "acceptanceCriteria": [
+        "sales.shipped_at has only ever been written by an explicit action inside GradeThread (the eBay, Depop, Shopify and logistics ship routes). Nothing read it back, so an order shipped through eBay's own flow, a phone app or another tool stayed in the queue forever. eBay was already telling us: orderFulfillmentStatus is parsed onto RemoteOrder and was used only to classify a refund.",
+        "resolveShippedAt in services/edge-functions/src/lib/ship-deadline.ts decides the write, and is pure and unit-tested. Forward only: an existing shipped_at is never moved or cleared, whatever eBay now says. FULFILLED only: NOT_STARTED and IN_PROGRESS both mean a line item is still outstanding, and a partly shipped order is not a shipped order. eBay's lastModifiedDate is the instant, with now() only as a fallback so a backfill is not dated to the day we looked.",
+        "The order sync merges the result rather than putting shipped_at in salePayload: that payload is reused for the UPDATE, so an unconditional field would restamp the column every sync and overwrite a date the seller set by hand.",
+        "The tracking NUMBER is deliberately not imported. It lives on /order/{id}/shipping_fulfillment, one call per order, which is the per-order fan-out US-3110 is cutting. The status is already in the payload and is the thing the queue is wrong about.",
+        "The ship queue renders as a table (Item, Where, Sold/net, Ship by, Tracking) inside its own overflow-x-auto container, so the page body never scrolls sideways. A list a seller scans belongs in columns that line up, not in a paragraph per row.",
+        "The Ship button says what it actually does on hover: it saves the tracking in GradeThread AND uploads the fulfillment to eBay in one call. That was previously unstated, and a seller could not tell whether it pushed anywhere.",
+        "deno lint is clean across the edge service: three test files importing assert over https move to the @std/assert bare specifier, and the unused sourcingTargetRoi import is dropped from flipdesk-scout.ts."
       ]
     }
   ]
