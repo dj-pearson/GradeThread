@@ -45913,6 +45913,19 @@
       ],
       "priority": 1600,
       "notes": "Done 2026-09-09. Re-pointed src/test/ios-local-model-wipe.test.ts at ios/GradeThread/Persistence/LocalCacheWipe.swift, which US-3224 moved the wipe bodies into. AC1: 5/5 cases pass. AC2: the guard now asserts ContentView's clearAllLocalDataOnSignOut/clearLocalTenantCache still delegate to LocalCacheWipe.signOut/workspaceSwitch, so a future move fails with a message naming what to re-point - proven by renaming the call and watching it fail. AC3: wipeDeleters() asserts found.length > 0, and additionally checks each deleter's label against the type it deletes. AC4: the sign-out list is compared to GradeThreadSchemaV1.models as before, and the workspace-switch exception set is now asserted equal to LocalCacheWipe.keptOnWorkspaceSwitch rather than being a second hand-maintained copy. NOTE the Python guard ios/Scripts/check-cache-wipe.py was never broken and passes in the verify ios lane; this TS port is the no-Python parity check and was the blind one."
+    },
+    {
+      "id": "US-3257",
+      "passes": true,
+      "title": "Google Photos import cancellation does not stop during the pick",
+      "description": "src/lib/google-photos-import.test.ts > 'runGooglePhotosImport - cancellation > stops during the pick and says so' is RED on main (expected false to be true). The import is meant to be abortable while the picker is still open; the assertion that it stops and reports having stopped does not hold. Not yet diagnosed - it may be the cancellation signal not being checked between picker polls, or the returned result not carrying the cancelled flag. A seller who cancels a large Google Photos import and has it keep running would keep pulling photos and burning quota against an item they walked away from. Diagnose against src/lib/google-photos-import.ts before deciding whether the product or the test is wrong.",
+      "acceptanceCriteria": [
+        "src/lib/google-photos-import.test.ts passes on a clean tree, all cases",
+        "The root cause is stated in the commit: either the cancellation check was missing/misplaced in google-photos-import.ts, or the test asserted a contract the function never had",
+        "If the product was wrong: cancelling during the pick stops further picker polling and the result reports the cancellation to the caller, so the UI can say so rather than appearing to hang"
+      ],
+      "priority": 1621,
+      "notes": "Done 2026-09-09. Root cause was BOTH halves. The test asserted notify wording as 'import cancelled' (two Ls) while google-photos-import.ts says 'Google Photos import canceled.' (one L), so the case never ran. Behind that dead test sat a real product bug: popup.close() ran only on the success path, so cancel / expired / timed-out all returned leaving Google's picker open over the app. Fixed by extracting closePicker() and calling it on every exit from the pick loop; kept the American 'canceled' in seller-facing copy (Schedule C, Stripe's own status) and left the internal result value 'cancelled' since it is a type. Added a second case for the expired path and asserted popup close count in both; proved both fail by removing each closePicker() call. 28/28 pass. src/ suite is now green except US-3256."
     }
   ]
 }

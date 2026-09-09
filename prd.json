@@ -4869,18 +4869,6 @@
         "No other row in the seeded chart disagrees with src/lib/chart-of-accounts.ts once the guard is green again"
       ],
       "priority": 1620
-    },
-    {
-      "id": "US-3257",
-      "passes": false,
-      "title": "Google Photos import cancellation does not stop during the pick",
-      "description": "src/lib/google-photos-import.test.ts > 'runGooglePhotosImport - cancellation > stops during the pick and says so' is RED on main (expected false to be true). The import is meant to be abortable while the picker is still open; the assertion that it stops and reports having stopped does not hold. Not yet diagnosed - it may be the cancellation signal not being checked between picker polls, or the returned result not carrying the cancelled flag. A seller who cancels a large Google Photos import and has it keep running would keep pulling photos and burning quota against an item they walked away from. Diagnose against src/lib/google-photos-import.ts before deciding whether the product or the test is wrong.",
-      "acceptanceCriteria": [
-        "src/lib/google-photos-import.test.ts passes on a clean tree, all cases",
-        "The root cause is stated in the commit: either the cancellation check was missing/misplaced in google-photos-import.ts, or the test asserted a contract the function never had",
-        "If the product was wrong: cancelling during the pick stops further picker polling and the result reports the cancellation to the caller, so the UI can say so rather than appearing to hang"
-      ],
-      "priority": 1621
     }
   ]
 }
