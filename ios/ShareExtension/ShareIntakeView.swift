@@ -23,6 +23,12 @@ import UIKit
 /// carries them verbatim and `ShareInboxTests` trips if either drifts.
 struct ShareIntakeView: View {
     let images: [UIImage]
+    /// Photos this share carried that were not staged, because the batch hit
+    /// ``ShareViewController/importLimit``. Reported rather than swallowed: a
+    /// seller who shared forty photos and got thirty needs to know which
+    /// happened, and silently keeping the first thirty looks identical to
+    /// keeping all forty until they open the item.
+    let dropped: Int
     let onSubmit: ([(slot: String, image: UIImage)]) -> Void
     let onCancel: () -> Void
 
@@ -31,10 +37,12 @@ struct ShareIntakeView: View {
 
     init(
         images: [UIImage],
+        dropped: Int = 0,
         onSubmit: @escaping ([(slot: String, image: UIImage)]) -> Void,
         onCancel: @escaping () -> Void
     ) {
         self.images = images
+        self.dropped = dropped
         self.onSubmit = onSubmit
         self.onCancel = onCancel
 
@@ -194,6 +202,7 @@ struct ShareIntakeView: View {
                     emptyState
                 } else {
                     LazyVStack(spacing: 12) {
+                        if dropped > 0 { overflowNotice }
                         ForEach(Array(images.enumerated()), id: \.offset) { idx, image in
                             row(index: idx, image: image)
                         }
@@ -216,6 +225,23 @@ struct ShareIntakeView: View {
                 }
             }
         }
+    }
+
+    /// Says how many photos did not make it, in the place the seller is already
+    /// looking. An alert would be the other option and would be worse: it
+    /// interrupts the task to report something they cannot act on until after
+    /// the import anyway.
+    private var overflowNotice: some View {
+        Label(
+            dropped == 1
+                ? "1 photo wasn't added. A share can carry \(ShareViewController.importLimit) at a time."
+                : "\(dropped) photos weren't added. A share can carry \(ShareViewController.importLimit) at a time.",
+            systemImage: "exclamationmark.triangle"
+        )
+        .font(.footnote)
+        .foregroundStyle(.secondary)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.bottom, 4)
     }
 
     private var emptyState: some View {
