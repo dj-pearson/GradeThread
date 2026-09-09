@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-3253",
+  "nextId": "US-3254",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -4884,6 +4884,17 @@
         "Do not mount useSurfaceTitle anywhere until its source resolves for that tree. A hook that returns the default for every route is worse than no hook, because the next person reads the mount and assumes it works."
       ],
       "notes": "Partial 2026-09-09 in the buyer half: resolved via BUYER_NAV rather than by adding surfaces.ts entries, which AC1 asked for. Deliberate deviation — duplicating eight labels into a second registry is the problem surfaces.ts exists to prevent. AC1 should be read as 'give buyer a real source', which BUYER_NAV already was. Remaining: admin, which needs its eight nav arrays extracted out of admin-layout.tsx before anything can read them."
+    },
+    {
+      "id": "US-3253",
+      "passes": false,
+      "title": "A lone carriage return in a cell splits the CSV row",
+      "description": "escapeCsvCell quotes a cell when it contains a comma, a double quote, or a newline. It does not check for a carriage return. A Windows-pasted value carries CRLF and is caught, because CRLF contains a newline, but a LONE CR is not: the cell is emitted unquoted with a raw CR inside it, and most parsers including Excel treat a bare CR as a row terminator. The row splits in two at that point and every column after it shifts by one for the rest of the file. This is the escaper behind every FlipDesk CSV: the inventory export, the sales and financials export used for bookkeeping, and the Schedule C tax packet. The values are marketplace-sourced titles, buyer usernames and free-text notes, which is exactly where a stray CR arrives from. Formula injection is already handled correctly by neutralizeCsvFormula (US-1636); this is the separate quoting rule beside it.",
+      "acceptanceCriteria": [
+        "escapeCsvCell quotes on a carriage return as well, so any CR travels inside quotes rather than terminating the row.",
+        "Tests cover the three cases that distinguish the bug: a lone CR, a CRLF (which already worked, so it must keep working), and a plain value that must stay unquoted for readability in Excel.",
+        "Do not widen this into re-quoting everything. The un-quoted path is deliberate and the comment says why; the fix is one more character in the condition, not a policy change."
+      ]
     }
   ]
 }

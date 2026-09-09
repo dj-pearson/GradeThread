@@ -24,7 +24,21 @@ function isPlainNumber(s: string): boolean {
 export function escapeCsvCell(value: unknown): string {
   if (value == null) return "";
   const s = neutralizeCsvFormula(String(value));
-  if (s.includes(",") || s.includes('"') || s.includes("\n")) {
+  // US-3253: the carriage return used to be missing here. A Windows-pasted
+  // value carries CRLF and was caught, because CRLF contains a newline. A
+  // LONE CR was not, so the cell went out unquoted with a raw CR in it, and
+  // Excel treats a bare CR as a row terminator: the row split at that point
+  // and every column after it shifted by one for the rest of the file. These
+  // values are marketplace titles, buyer usernames and free-text notes, which
+  // is exactly where a stray CR comes from, and this escaper is behind the
+  // inventory export, the sales export used for bookkeeping, and the
+  // Schedule C tax packet.
+  if (
+    s.includes(",") ||
+    s.includes('"') ||
+    s.includes("\n") ||
+    s.includes("\r")
+  ) {
     return `"${s.replace(/"/g, '""')}"`;
   }
   return s;
