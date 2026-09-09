@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-3205",
+  "nextId": "US-3206",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -4637,6 +4637,21 @@
       ],
       "dependsOn": [
         "US-3014"
+      ]
+    },
+    {
+      "id": "US-3205",
+      "passes": false,
+      "title": "Sold prep shows the money and the tote, not just the shelf and the clock",
+      "description": "As a reseller packing today's orders, I want each row in the ship queue to carry the listing link, the container it was filed in, what I paid and what I am netting, so that I can pack, check and decide on postage without opening the item page for every order.",
+      "acceptanceCriteria": [
+        "The ship queue row gains: a listing link on the title (listings.listing_url, falling back to the eBay item URL built from platform_listing_id), inventory_items.container alongside the existing location_bin, and the money pair below the identifiers.",
+        "Money is READ from the sale_pnl view (migration 00706), never recomputed in the hook. cost_basis is Paid and net is Net. Recomputing revenue minus fees here would be a fourth copy of finances_dashboard's arithmetic and the one most likely to drift, since nothing reconciles a prep screen.",
+        "Net is labelled as an estimate on this surface, with the reason available on hover. Every row in this queue is unshipped by definition, so the label has not been bought and its cost is not in the figure yet; presenting it as final would be wrong on every row.",
+        "A negative net renders in the destructive colour so a loss-making order is visible before postage is chosen, not after payout.",
+        "The two extra reads (sale_pnl, listings) are best effort: a failure logs and leaves those columns blank rather than emptying the queue, because a prep row that still shows the shelf and the deadline is worth rendering.",
+        "No new migration. container, listings.listing_url and sale_pnl all already exist; this story is a read.",
+        "Buying the label from this row is NOT in scope and is not stubbed. It is US-3011 (eBay, gated on the sell.logistics scope US-2380 applies for) and US-3015 (EasyPost). A dead button promising postage would be worse than no button."
       ]
     }
   ]

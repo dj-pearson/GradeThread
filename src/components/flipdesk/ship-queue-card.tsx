@@ -1,7 +1,14 @@
 import { useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { AlertTriangle, MapPin, Package, Printer, Truck } from "lucide-react";
+import {
+  AlertTriangle,
+  ExternalLink,
+  MapPin,
+  Package,
+  Printer,
+  Truck,
+} from "lucide-react";
 import {
   Card,
   CardContent,
@@ -21,6 +28,11 @@ import { shipCountdown, type ShipUrgency } from "@/pages/flipdesk/ship-queue";
 import { useEbayShipOrder } from "@/hooks/use-ebay";
 import { Checkbox } from "@/components/ui/checkbox";
 import { packingSlipDocument } from "@/pages/flipdesk/packing-slip";
+
+/** Dollars, the way the rest of post-sale.tsx writes them. */
+function money(value: number): string {
+  return `$${value.toFixed(2)}`;
+}
 
 // US-3190: the orders waiting to go in a box, soonest deadline first.
 //
@@ -97,7 +109,24 @@ function ShipRow({
           />
           <div className="min-w-0">
           <p className="truncate text-sm font-medium">
-            {row.title ?? `Order ${row.orderRef ?? row.id}`}
+            {row.listingUrl ? (
+              // US-3205: the name IS the link. A separate "view listing" control
+              // would be a second thing to aim at on a row that already has a
+              // checkbox, a tracking field and a carrier select.
+              <a
+                href={row.listingUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1 hover:underline"
+              >
+                <span className="truncate">
+                  {row.title ?? `Order ${row.orderRef ?? row.id}`}
+                </span>
+                <ExternalLink aria-hidden="true" className="h-3 w-3 shrink-0" />
+              </a>
+            ) : (
+              row.title ?? `Order ${row.orderRef ?? row.id}`
+            )}
           </p>
           <p className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
             {row.orderRef ? <span>Order {row.orderRef}</span> : null}
@@ -109,7 +138,49 @@ function ShipRow({
                 {row.locationBin}
               </span>
             ) : null}
+            {/* US-3205: the tote, which is how a seller who stores by haul
+                actually finds the garment. Shown alongside the shelf rather
+                than instead of it — they answer different questions. */}
+            {row.container ? (
+              <span className="inline-flex items-center gap-1 font-medium text-foreground">
+                <Package aria-hidden="true" className="h-3 w-3" />
+                {row.container}
+              </span>
+            ) : null}
           </p>
+          {/* US-3205: what it cost and what is left. Money on a prep row is not
+              decoration — it is the number a seller checks before deciding
+              whether to spend on tracked postage or a rigid mailer. */}
+          {(row.costBasis != null || row.net != null) ? (
+            <p className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
+              {row.salePrice != null ? (
+                <span className="text-muted-foreground">
+                  Sold {money(row.salePrice)}
+                </span>
+              ) : null}
+              {row.costBasis != null ? (
+                <span className="text-muted-foreground">
+                  Paid {money(row.costBasis)}
+                </span>
+              ) : null}
+              {row.net != null ? (
+                <span
+                  className={
+                    row.net < 0
+                      ? "font-medium text-destructive"
+                      : "font-medium text-emerald-600 dark:text-emerald-400"
+                  }
+                  // Every row in this queue is unshipped, so the label has not
+                  // been bought and its cost is not in the figure yet. Saying
+                  // so is cheaper than a seller finding out at payout.
+                  title="Estimated. Postage is not in this figure until the label is bought."
+                >
+                  Net {money(row.net)}
+                  <span className="ml-1 font-normal text-muted-foreground">est.</span>
+                </span>
+              ) : null}
+            </p>
+          ) : null}
           </div>
         </div>
         <Badge
