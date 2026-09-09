@@ -91,4 +91,54 @@ final class ConflictPolicyTests: XCTestCase {
         )
         XCTAssertEqual(result, "Local Edit")
     }
+    // MARK: - Snapshot freshness (US-3276)
+
+    /// A stale snapshot used to be applied anyway when the row was dirty, on
+    /// the grounds that dirty rows keep dirty-wins "regardless of timestamp".
+    /// Dirty-wins is `resolveUserOwned` and covers only the user-owned fields;
+    /// everything `resolveServerOwned` decides took the stale value regardless,
+    /// and the row's own updatedAt was rewound with it.
+    func test_aSnapshotOlderThanWhatWeHoldIsRefused() {
+        let now = Date(timeIntervalSince1970: 1_700_000_000)
+        XCTAssertFalse(
+            ConflictPolicy.acceptsServerSnapshot(
+                serverUpdatedAt: now.addingTimeInterval(-3600),
+                localUpdatedAt: now
+            ),
+            "an hour-old snapshot must not rewind the row"
+        )
+    }
+
+    func test_aNewerOrEqualSnapshotIsAccepted() {
+        let now = Date(timeIntervalSince1970: 1_700_000_000)
+        XCTAssertTrue(
+            ConflictPolicy.acceptsServerSnapshot(
+                serverUpdatedAt: now.addingTimeInterval(1), localUpdatedAt: now
+            )
+        )
+        // Equal accepts: a re-delivery of the state we already hold is
+        // harmless, and refusing it would drop a genuine same-second update.
+        XCTAssertTrue(
+            ConflictPolicy.acceptsServerSnapshot(serverUpdatedAt: now, localUpdatedAt: now)
+        )
+    }
+
+    func test_freshnessIsDecidedBeforeOwnershipNotInsteadOfIt() {
+        // The two rules answer different questions and both still apply. Once a
+        // snapshot is fresh enough to use, a dirty row still keeps its
+        // user-owned values and still yields the server-owned ones.
+        let now = Date(timeIntervalSince1970: 1_700_000_000)
+        let fresher = now.addingTimeInterval(60)
+        XCTAssertTrue(
+            ConflictPolicy.acceptsServerSnapshot(serverUpdatedAt: fresher, localUpdatedAt: now)
+        )
+        XCTAssertEqual(
+            ConflictPolicy.resolveUserOwned(local: "mine", server: "theirs", hasLocalChanges: true),
+            "mine"
+        )
+        XCTAssertEqual(
+            ConflictPolicy.resolveServerOwned(local: "mine", server: "theirs"),
+            "theirs"
+        )
+    }
 }

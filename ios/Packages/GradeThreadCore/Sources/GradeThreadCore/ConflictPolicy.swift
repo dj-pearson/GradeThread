@@ -44,6 +44,32 @@ public enum ConflictPolicy {
         hasLocalChanges ? local : server
     }
 
+    /// Whether an incoming server snapshot is fresh enough to apply at all
+    /// (US-3276).
+    ///
+    /// A snapshot older than the state already held is a late or duplicated
+    /// event, or a bulk delta racing a fresher realtime apply. Applying it
+    /// rewinds the row: the server-owned fields go back to the older values and
+    /// the row's own `updatedAt` goes back with them.
+    ///
+    /// ⚠ THE CALLERS USED TO EXEMPT DIRTY ROWS FROM THIS, on the stated grounds
+    /// that "dirty rows keep dirty-wins resolution regardless of timestamp".
+    /// Dirty-wins is ``resolveUserOwned``, and it only ever covered the
+    /// USER-owned fields. Everything ``resolveServerOwned`` decides — an item's
+    /// status, its acquired price, its grade, its certificate URL — took the
+    /// stale value anyway. So a snapshot from an hour ago, landing on a row
+    /// that happened to be dirty from an unrelated offline title edit, could
+    /// wipe a grade that had just arrived by realtime.
+    ///
+    /// Skipping costs a dirty row nothing: a snapshot older than what is
+    /// already held has nothing newer to offer, whichever field is asking.
+    public static func acceptsServerSnapshot(
+        serverUpdatedAt: Date,
+        localUpdatedAt: Date
+    ) -> Bool {
+        serverUpdatedAt >= localUpdatedAt
+    }
+
     /// Picks the post-merge value for a neutral field by comparing the
     /// row-level `updatedAt` timestamps.
     public static func resolveByTimestamp<T>(
