@@ -47,7 +47,12 @@ enum ImportMapping {
 
     /// Maps one row to a draft. `rowNumber` is the 1-based sheet row (header is
     /// row 1, so the first data row is 2) used in error messages.
-    static func mapRow(_ row: [String], mapping: [ImportField], rowNumber: Int) -> RowResult {
+    static func mapRow(
+        _ row: [String],
+        mapping: [ImportField],
+        rowNumber: Int,
+        dateOrder: ImportValue.SlashOrder = .monthFirst
+    ) -> RowResult {
         func v(_ f: ImportField) -> String? { value(f, row: row, mapping: mapping) }
 
         guard let title = v(.title) else {
@@ -72,7 +77,7 @@ enum ImportMapping {
             status: ImportValue.status(v(.status)),
             acquiredPrice: ImportValue.price(v(.purchasePrice)),
             targetPrice: ImportValue.price(v(.listPrice)),
-            acquiredDate: ImportValue.dateISO(v(.purchaseDate))
+            acquiredDate: ImportValue.dateISO(v(.purchaseDate), order: dateOrder)
         )
         return .ready(draft)
     }
@@ -105,7 +110,14 @@ enum ImportMapping {
     ///
     /// Pure, so the preview can show the count before the seller commits and a
     /// test can pin it.
-    static func droppedCells(sheet: CSVParser.Sheet, mapping: [ImportField]) -> [DroppedCell] {
+    static func droppedCells(
+        sheet: CSVParser.Sheet,
+        mapping: [ImportField],
+        locale: Locale = .current
+    ) -> [DroppedCell] {
+        // Same reading mapAll will use, so the two never disagree about which
+        // cells survive.
+        let order = dateOrder(sheet: sheet, mapping: mapping, locale: locale)
         var dropped: [DroppedCell] = []
         for (idx, row) in sheet.rows.enumerated() {
             let rowNumber = idx + 2
@@ -121,7 +133,7 @@ enum ImportMapping {
             check(.status) { ImportValue.status($0) != nil }
             check(.purchasePrice) { ImportValue.price($0) != nil }
             check(.listPrice) { ImportValue.price($0) != nil }
-            check(.purchaseDate) { ImportValue.dateISO($0) != nil }
+            check(.purchaseDate) { ImportValue.dateISO($0, order: order) != nil }
         }
         return dropped
     }
@@ -143,11 +155,60 @@ enum ImportMapping {
 
     /// Maps every data row. Empty rows are dropped silently; rows with data but
     /// no title surface as errors.
-    static func mapAll(sheet: CSVParser.Sheet, mapping: [ImportField]) -> [RowResult] {
-        sheet.rows.enumerated().compactMap { idx, row in
-            let result = mapRow(row, mapping: mapping, rowNumber: idx + 2)
+    static func mapAll(
+        sheet: CSVParser.Sheet,
+        mapping: [ImportField],
+        locale: Locale = .current
+    ) -> [RowResult] {
+        // US-3271: decided once from the whole column, then applied to every
+        // row. Per-cell guessing is what read a UK sheet's 03/09 as 9 March.
+        let order = dateOrder(sheet: sheet, mapping: mapping, locale: locale)
+        return sheet.rows.enumerated().compactMap { idx, row in
+            let result = mapRow(row, mapping: mapping, rowNumber: idx + 2, dateOrder: order)
             if case .invalid(_, "Empty row") = result { return nil }
             return result
         }
+    }
+
+    // MARK: - How the purchase-date column is read (US-3271)
+
+    /// Every value mapped to the purchase-date column.
+    static func dateSamples(sheet: CSVParser.Sheet, mapping: [ImportField]) -> [String] {
+        sheet.rows.compactMap { value(.purchaseDate, row: $0, mapping: mapping) }
+    }
+
+    static func dateOrder(
+        sheet: CSVParser.Sheet,
+        mapping: [ImportField],
+        locale: Locale = .current
+    ) -> ImportValue.SlashOrder {
+        ImportValue.slashOrder(in: dateSamples(sheet: sheet, mapping: mapping), locale: locale)
+    }
+
+    /// A line for the preview naming how the slashed dates are being read, and
+    /// whether the column proved it or the device locale guessed.
+    ///
+    /// Shown for a PROVEN column too, not only an ambiguous one. The reading is
+    /// the difference between March and September in someone's books, and it
+    /// costs one line to say which one happened.
+    static func dateOrderNotice(
+        sheet: CSVParser.Sheet,
+        mapping: [ImportField],
+        locale: Locale = .current
+    ) -> String? {
+        let samples = dateSamples(sheet: sheet, mapping: mapping)
+        let slashed = samples.filter { ImportValue.slashParts($0) != nil }
+        guard let example = slashed.first else { return nil }
+        let order = ImportValue.slashOrder(in: samples, locale: locale)
+        let proven = slashed.contains { raw in
+            guard let (first, second) = ImportValue.slashParts(raw) else { return false }
+            return first > 12 || second > 12
+        }
+        let reading = order == .dayFirst ? "day/month/year" : "month/day/year"
+        guard let iso = ImportValue.dateISO(example, order: order) else { return nil }
+        let how = proven
+            ? "Reading dates as \(reading)"
+            : "No date in this column settles it, so reading as \(reading) for your region"
+        return "\(how) — \(example) imports as \(iso)."
     }
 }

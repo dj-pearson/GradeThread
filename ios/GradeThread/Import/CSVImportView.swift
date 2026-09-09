@@ -152,6 +152,13 @@ struct CSVImportView: View {
                                 Label(dropped, systemImage: "exclamationmark.triangle")
                                     .foregroundStyle(Color.brandRed)
                             }
+                            // US-3271: not red. Nothing is wrong here — this
+                            // says which reading of 03/09 is being used, which
+                            // is the one thing the seller can check at a glance
+                            // and the app cannot always know.
+                            if let dates = store.dateOrderNotice {
+                                Label(dates, systemImage: "calendar")
+                            }
                         }
                     }
                 }

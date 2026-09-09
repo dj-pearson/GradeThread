@@ -45979,6 +45979,20 @@
         "Values the mapper does understand produce no report, including locale prices like 1.299,00 and US dates like 01/04/2026"
       ],
       "notes": "Done 2026-09-09. ImportMapping.droppedCells + droppedSummary, surfaced in CSVImportView's mapping-step footer via ImportStore.droppedSummary, plus GradeThreadTests/ImportDroppedCellTests.swift (7 cases). Deliberately a REPORT, not a rejection: the seller may well mean to import a row whose status is unreadable, and blocking the whole import over one cell would be worse. Two things found while reading this that are NOT fixed here and are worth their own look. (1) ImportValue.dateISO has no dd/MM/yyyy format, so a UK or EU sheet's 03/09/2026 parses as 9 March, silently and with no warning - this is data corruption rather than a dropped cell, so droppedCells cannot see it, and fixing it needs a locale hint from the seller rather than another format in the list. (2) src/lib/csv.ts, which CSVParser.swift is documented as a faithful port of, is now BEHIND iOS on three counts: no BOM strip (Excel 'CSV UTF-8' exports leave a BOM glued to the first header, breaking auto-mapping), no semicolon delimiter (European exports), and no row-width normalisation (short rows yield undefined cells). The parity contract says a sheet that imports on the web imports the same on iOS, and it currently does not."
+    },
+    {
+      "id": "US-3271",
+      "passes": true,
+      "title": "iOS CSV import: read slashed dates off the column, not off one cell",
+      "description": "ImportValue.dateISO assumed month-first for every slashed date. A UK or European sheet's 03/09/2026 means 3 September and imported as 9 March: the wrong date, in the right shape, with no error and nothing dropped. US-3270's dropped-cell report cannot see it either, because the cell parsed fine. It lands in acquired_date, which drives aging and every tax-year boundary. The fix is to decide the order from the whole purchase-date column rather than per cell - a column is written by one person in one format, so a single unambiguous value (13/04, or 04/13) settles every other value in it. Only a column where every value is ambiguous falls back to the device locale, and the preview then says which reading it used.",
+      "acceptanceCriteria": [
+        "ImportValue.slashOrder decides from the whole column: any first component over 12 means day-first, any second over 12 means month-first, a column carrying both stays month-first (the old behaviour, so no existing import gets worse)",
+        "A column that settles its own order beats the device locale, so a British seller pasting an American export is not reread",
+        "An all-ambiguous column falls back to the device locale, and the preview says the reading was a regional guess rather than a fact",
+        "The order is resolved once in mapAll and reused by droppedCells, so the two never disagree about which cells survive",
+        "ISO dates are unaffected in both directions: they settle nothing and parse the same under either order"
+      ],
+      "notes": "Done 2026-09-09. ImportValue.SlashOrder + slashOrder(in:locale:) + slashParts + localeOrder; dateISO takes the order; ImportMapping resolves it once in mapAll and reuses it in droppedCells; ImportStore.dateOrderNotice renders it in the mapping-step footer, in plain text rather than red because nothing is wrong - it is a statement of which reading happened. GradeThreadTests/ImportDateOrderTests.swift, 9 cases. ONE ASSERTION DELIBERATELY NOT WRITTEN: whether dateISO('12/25/2026', order: .dayFirst) returns nil or a rolled-over date. DateFormatter with isLenient false still normalises out-of-range components in some Foundation versions, so month 25 may become January of the next year rather than failing. It cannot be checked on this host (no Swift), and asserting a guess would be worse than leaving the gap named. If it does roll over, a month-first stray inside a proven day-first column becomes a plausible wrong date rather than a reported blank - worth a follow-up that range-checks the components before handing them to DateFormatter."
     }
   ]
 }
