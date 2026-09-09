@@ -48,6 +48,20 @@ switch ever becomes on-by-default, or a precise coordinate is ever
 retained, this row must change to Precise Location / Linked before the
 build ships.
 
+**A marketplace sign-in inside the app collects nothing, and adds no row
+(US-3281).** Ending a listing from the phone opens the marketplace's own
+site in a `WKWebView` the seller signs into themselves. What that produces
+is website data in a per-marketplace `WKWebsiteDataStore` in the app
+container: cookies belonging to the seller and the marketplace, exactly as
+Safari would hold them. No code in this app reads them, nothing is sent to
+GradeThread, and there is no field anywhere for a marketplace credential.
+Developer-collected data is what these labels describe, so a "Browsing
+History" or "Contact Info" row here would assert a flow that does not
+exist. Same rule as the Radar paragraph above, pointing the other way: if
+anything ever reads or transmits that session, a row must be added here
+before the build ships. `ios/Scripts/check-web-delist.py` fails the build
+if the delist sources gain a credential field or a network call.
+
 "Purchase history" here is the reseller's **own** sales bookkeeping, not
 App Store purchases. Apple's closest category is Purchase History; clarify
 in the review notes if asked.

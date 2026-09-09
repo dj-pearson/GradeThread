@@ -26,8 +26,13 @@ Built for the way you actually work
 - Full iPad layout with a three-column workspace
 - Light and dark mode, Dynamic Type, and accessibility built in
 
+Sold on eBay? End the copy on your other marketplaces from your phone
+When an item sells, GradeThread tells you which of your other listings are still live. For marketplaces with no seller API, it opens their website right in the app, where you are signed in as yourself, and walks the listing through its own end-listing flow while you watch. Your marketplace passwords stay between you and them.
+
 Whether you flip a few items a week or run a full-time closet, FlipDesk turns sourcing into listings and listings into tracked, profitable sales.
 
 Connect your eBay account to publish and sync listings. A free account lets you catalog and grade items; paid plans unlock higher volumes and advanced selling tools.
+
+GradeThread is an independent tool and is not affiliated with, endorsed by, or sponsored by any marketplace named here. All trademarks belong to their owners.
 
 Questions or feedback? Reach us any time from Settings, or at support@gradethread.com.

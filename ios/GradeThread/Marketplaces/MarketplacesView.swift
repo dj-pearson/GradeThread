@@ -94,11 +94,16 @@ struct MarketplacesView: View {
         case webChannel(WebManagedChannel)
         /// US-184: the eBay sync modal, which owns a poll task.
         case sync
+        /// US-3281: end a listing on a no-API marketplace, in a web view the
+        /// seller signs into and watches. Rides this same slot rather than a
+        /// second `.sheet` modifier.
+        case webDelist(PendingDelistService.PendingDelist)
 
         var id: String {
             switch self {
             case .webChannel(let channel): return "web-\(channel.id)"
             case .sync:                    return "sync"
+            case .webDelist(let row):      return "delist-\(row.listingId)"
             }
         }
     }
@@ -224,6 +229,10 @@ struct MarketplacesView: View {
                     onDismiss: { cancelSync() }
                 )
                 .onDisappear { cancelSync() }
+            case .webDelist(let row):
+                WebDelistView(row: row) { ended in
+                    Task { await settleInAppDelist(ended) }
+                }
             }
         }
         // US-1189: surface a failed disconnect (the store restores .connected).
@@ -524,6 +533,23 @@ struct MarketplacesView: View {
                         .buttonStyle(.plain)
                         .foregroundStyle(Color.brandNavy)
                 }
+                // US-3281: the phone can end it, without a laptop, if this
+                // platform's flow has been verified against the live site.
+                // Offered only when the row is auto-delistable AND the runner
+                // will actually accept it - a button that opens a screen saying
+                // "GradeThread cannot do this" is worse than no button.
+                if blocked == nil,
+                   WebDelistRunner.refusalReason(
+                       platform: row.platform, listingURL: row.listingUrl
+                   ) == nil {
+                    Button("End it now") {
+                        sheet = .webDelist(row)
+                    }
+                    .font(.caption.weight(.semibold))
+                    .buttonStyle(.plain)
+                    .foregroundStyle(Color.brandNavy)
+                    .disabled(busy)
+                }
                 if blocked == nil {
                     Button("Queue for my desktop") {
                         Task { await queueDelist(row) }
@@ -559,6 +585,23 @@ struct MarketplacesView: View {
             // failed read — a network blip must not make a live listing appear
             // to have been dealt with.
         }
+    }
+
+    /// US-3281: the in-app run ended the listing and verified it was gone.
+    /// Settle it through the same edge route the desktop drain uses, then drop
+    /// it from the list. A failure here leaves the row pending, which is the
+    /// right way round: a stamp cleared on a listing that is still live is the
+    /// double sale this whole queue exists to prevent, and the listing being
+    /// genuinely gone means the next refresh has nothing to show anyway.
+    private func settleInAppDelist(_ row: PendingDelistService.PendingDelist) async {
+        do {
+            try await PendingDelistService.shared.markEndedInApp(listingId: row.listingId)
+            delistMessage = "Ended on the marketplace and cleared here."
+        } catch {
+            delistMessage = "Ended on the marketplace, but GradeThread could not update its "
+                + "own record. It will still show as pending until the next sync."
+        }
+        await refreshPendingDelists()
     }
 
     private func queueDelist(_ row: PendingDelistService.PendingDelist) async {

@@ -141,6 +141,14 @@ jobs:
       - name: Lint — every Type.member resolves (US-2889)
         run: python3 ios/Scripts/check-symbol-resolution.py
 
+      # US-3281. The in-app delist makes seven claims to App Review about what
+      # it does not do - no credential field, nothing scheduled, nothing
+      # fetched. Each is one sensible-looking commit away from being false, and
+      # a 5.2.2 rejection is resolved by marketplace authorization that does not
+      # exist. Cheaper to check than to explain.
+      - name: Lint — the in-app delist matches what we told Apple (US-3281)
+        run: python3 ios/Scripts/check-web-delist.py
+
       - name: Check ATS posture + https base URLs (US-1008)
         # Run AFTER xcodegen so the regenerated Info.plist is what we scan. Fails
         # if the merged Release Info.plist relaxes App Transport Security or if an
