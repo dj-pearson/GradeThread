@@ -455,66 +455,25 @@ struct ContentView: View {
     }
 
     /// US-670: wipe the local mirror so a workspace switch doesn't show the
-    /// previous tenant's rows until the re-scoped pull lands. Deletes every
-    /// synced tenant model; the next sync repopulates from the active workspace.
+    /// previous tenant's rows until the re-scoped pull lands.
+    ///
+    /// US-3224: the model list and the delete-each-independently behavior live
+    /// in ``LocalCacheWipe``, checked against the schema by a guard script. This
+    /// used to be a straight run of deletes in one `do` with an empty `catch`,
+    /// so one failure skipped every model after it and said nothing — and the
+    /// comment's reassurance that "the scoped pull still corrects the view" was
+    /// only ever true of the SYNCED models.
     private func clearLocalTenantCache() {
-        let ctx = modelContext
-        do {
-            try ctx.delete(model: LocalInventoryItem.self)
-            try ctx.delete(model: LocalItemPhoto.self)
-            try ctx.delete(model: LocalListing.self)
-            try ctx.delete(model: LocalSale.self)
-            try ctx.delete(model: LocalExpense.self)
-            try ctx.delete(model: LocalSource.self)
-            // US-3100: LocalSourcer was registered in the schema and wiped by
-            // neither path, so the previous workspace's roster of people who
-            // source for you stayed readable to the next one. `SourcerStore`
-            // re-pulls it, so dropping it here costs a refresh and nothing else.
-            try ctx.delete(model: LocalSourcer.self)
-            // US-3100: the sourcing log is local-only and never synced, so
-            // nothing re-pulls it. It is wiped here anyway: a shared iPad
-            // handing the next workspace a list of what the last one was
-            // considering is the same leak whether or not a server was
-            // involved (US-2496).
-            try ctx.delete(model: LocalProspectResult.self)
-            // US-3014: the mileage log. A workspace's business drives are that
-            // workspace's records, and a shared iPad handing the next one a
-            // list of where the last one was sourcing is the same leak as the
-            // prospect log above (US-2496).
-            try ctx.delete(model: LocalMileageTrip.self)
-            try ctx.save()
-        } catch {
-            // Best-effort — the scoped pull still corrects the view on success.
-        }
+        LocalCacheWipe.workspaceSwitch(from: modelContext)
     }
 
-    /// Full local wipe on sign-out: every synced tenant model PLUS the offline
+    /// Full local wipe on sign-out: every model in the cache PLUS the offline
     /// mutation queue, so the next account can neither see nor accidentally
     /// flush the previous user's data. (Workspace switches use
     /// ``clearLocalTenantCache`` instead, which deliberately keeps the queue
     /// since it's the same owner across their own workspaces.)
     private func clearAllLocalDataOnSignOut() {
-        let ctx = modelContext
-        do {
-            try ctx.delete(model: LocalInventoryItem.self)
-            try ctx.delete(model: LocalItemPhoto.self)
-            try ctx.delete(model: LocalListing.self)
-            try ctx.delete(model: LocalSale.self)
-            try ctx.delete(model: LocalExpense.self)
-            try ctx.delete(model: LocalSource.self)
-            try ctx.delete(model: LocalSourcer.self)
-            try ctx.delete(model: LocalPendingMutation.self)
-            // US-3100: the local-only sourcing log goes with everything else.
-            try ctx.delete(model: LocalProspectResult.self)
-            // US-3014: and the mileage log. Trips carry the dates, distances
-            // and destinations of somebody's business; the next account signing
-            // in on this device must not find them.
-            try ctx.delete(model: LocalMileageTrip.self)
-            try ctx.save()
-        } catch {
-            // Best-effort — watermarks are reset too, so the next sign-in
-            // re-pulls a clean, correctly-scoped backfill regardless.
-        }
+        LocalCacheWipe.signOut(from: modelContext)
     }
 
     private func startSyncEngineIfNeeded() {

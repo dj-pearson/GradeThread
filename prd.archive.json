@@ -45518,6 +45518,21 @@
       ],
       "priority": 3,
       "notes": "Done 2026-09-09. Converted 18 sites to .scaledIconFont: AIExtractView, AIFillReviewSheet x2, PlanGatePresentation, BarcodeScanView, PhotoIntakeView, PhotoStagingTray, ContentView (detail landing + the privacy and app-lock covers, x3), DashboardView, ItemCanvasView x3, EbayViewItemPreviewSheet, ProspectView, SnapView, VerifiedView. The four inside a fixed frame got a maxSize cap (44/56/48/64). InventoryListView's filter badge now uses scaledIconFont(size:11,maxSize:20) for the digit and a @ScaledMetric badgeDiameter (16, clamped to 29) for the circle. ShareExtension/ShareIntakeView deliberately does not link the app target so it got an inline @ScaledMetric instead. New ios/Scripts/no-fixed-icon-font.py matches only a NUMERIC LITERAL size, which is why ScaledIconFont itself and the extension's @ScaledMetric need no allowlist entry; only the widget is allowlisted (WidgetKit fixes its own sizes). The guard FOUND the ShareExtension site my own grep missed. Wired into IOS_GUARDS and ios-ci.yml, sabotage-tested, guard-lane test 6/6, all 14 guards pass."
+    },
+    {
+      "id": "US-3224",
+      "passes": true,
+      "title": "iOS: one failed delete could leave the previous account's data on the device",
+      "description": "Sign-out and workspace switch each erased the offline cache with a straight run of ctx.delete(model:) calls inside one do/catch with an empty catch. A throw on the fourth model meant the fifth through tenth were never attempted, and nothing was logged. The catch comments said the next pull corrects the view, which was true when every model was synced and false since US-3100 added LocalProspectResult and US-3014 added LocalMileageTrip: nothing re-pulls those, so a failed wipe hands the next person on that device someone else's sourcing log and business drives. The model list was also hand-maintained beside a schema that already had one, which is exactly how US-3100's LocalSourcer leak happened.",
+      "acceptanceCriteria": [
+        "Each model is deleted independently, so one failure cannot skip the models after it",
+        "Every failure is recorded through PersistenceHealth, and a surviving local-only model gets its own breadcrumb",
+        "The wipe list lives in one place (LocalCacheWipe) with the workspace-switch exception stated",
+        "ios/Scripts/check-cache-wipe.py fails if a schema model has no deleter, if a deleter has no schema model, or if a deleter's label and type disagree",
+        "ProspectLog's two raw saves go through saveOrLog"
+      ],
+      "priority": 2,
+      "notes": "Done 2026-09-09. New ios/GradeThread/Persistence/LocalCacheWipe.swift owns both wipes: a named deleter per model, deleted INDEPENDENTLY inside its own do/catch so one throw cannot skip the rest, each failure recorded through PersistenceHealth.recordSaveFailure (US-1142's channel), then saveOrLog. A surviving LocalProspectResult or LocalMileageTrip gets an extra breadcrumb because nothing re-pulls those and no later sync corrects them. keptOnWorkspaceSwitch = LocalPendingMutation, with the reason stated. ContentView's two functions are now one line each. ProspectLog.record and .markAdded go through saveOrLog; markAdded's silent try? was quietly re-arming the offer to add the same garment twice. New ios/Scripts/check-cache-wipe.py compares GradeThreadSchemaV1.models to the deleter list by NAME in both directions and also checks each deleter's label matches the type it deletes. Sabotage-tested both ways (removed a deleter, then mislabelled one); its own first version had a real bug -- slicing the schema block to the first ']' hit the '[any PersistentModel.Type]' return type and read zero models, which its scanned-nothing floor caught. Wired into IOS_GUARDS and ios-ci.yml; guard-lane test 6/6, all 15 guards pass. Note: US-3223 was taken by the concurrent web agent, so this is US-3224."
     }
   ]
 }

@@ -83,6 +83,13 @@ jobs:
       - name: Lint — no raw JPEG encode outside PhotoCompressor (US-2083)
         run: python3 ios/Scripts/no-raw-jpeg-encode.py
 
+      - name: Lint — every cached model is erased on sign-out (US-3224)
+        # The offline cache holds one seller's inventory, sales, expenses,
+        # sourcing log and mileage. US-3100: LocalSourcer was in the schema and
+        # erased by neither wipe path, so the previous workspace's roster stayed
+        # readable to the next one. This keeps the wipe list equal to the schema.
+        run: python3 ios/Scripts/check-cache-wipe.py
+
       - name: Lint — glyph sizes scale with Dynamic Type (US-3222)
         # `.font(.system(size: 20))` is an absolute point size that ignores the
         # user's text setting, so at the accessibility sizes every label grows

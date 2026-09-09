@@ -72,11 +72,10 @@ struct ProspectLog {
         )
         context.insert(row)
         prune()
-        do {
-            try context.save()
-        } catch {
-            return nil
-        }
+        // US-3224: routed through saveOrLog so a failed local write leaves a
+        // breadcrumb (US-1142) instead of vanishing. Still returns nil, so the
+        // caller does not hand back an id for a row that was not persisted.
+        guard context.saveOrLog("ProspectLog.record") else { return nil }
         return row.id
     }
 
@@ -85,7 +84,10 @@ struct ProspectLog {
     func markAdded(rowId: String, itemId: String) {
         guard let row = self.row(id: rowId) else { return }
         row.addedItemId = itemId
-        try? context.save()
+        // US-3224: this is the flag that stops the log offering to add the same
+        // garment twice. A silent `try?` meant a failed save quietly re-armed
+        // that offer.
+        context.saveOrLog("ProspectLog.markAdded")
     }
 
     // MARK: - Reading
