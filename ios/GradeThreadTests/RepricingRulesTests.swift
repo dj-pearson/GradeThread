@@ -86,6 +86,40 @@ final class RepricingRulesTests: XCTestCase {
         XCTAssertNil(d.floorPriceCents)
     }
 
+    /// A floor that does not parse is stored as NO floor, so the markdown runs
+    /// to the bottom. Blocking the save is the only place this can be caught:
+    /// once the rule is on the server it looks exactly like a rule the seller
+    /// meant to leave unfloored.
+    func test_draft_aFloorThatIsNotAPriceBlocksSaveInsteadOfMeaningNoFloor() {
+        var d = RuleDraft()
+        d.name = "R"
+
+        // Two decimal separators is one stray tap on a decimal pad, and the
+        // parser rejects the whole value rather than half-reading it.
+        d.floorPrice = "9.9.9"
+        XCTAssertNil(d.floorPriceCents, "the value cannot be read")
+        XCTAssertNotNil(d.floorHelp, "so the seller has to be told")
+        XCTAssertFalse(d.isValid, "and Save must not be available")
+
+        d.floorPrice = "abc"
+        XCTAssertFalse(d.isValid)
+
+        // Blank is a real choice, not a typo: no floor, and no complaint.
+        d.floorPrice = ""
+        XCTAssertNil(d.floorHelp)
+        XCTAssertNil(d.floorPriceCents)
+        XCTAssertTrue(d.isValid)
+
+        d.floorPrice = "   "
+        XCTAssertNil(d.floorHelp)
+        XCTAssertTrue(d.isValid)
+
+        d.floorPrice = "9.99"
+        XCTAssertNil(d.floorHelp)
+        XCTAssertEqual(d.floorPriceCents, 999)
+        XCTAssertTrue(d.isValid)
+    }
+
     // MARK: - Fake
 
     final class FakeService: RepricingRulesProviding {

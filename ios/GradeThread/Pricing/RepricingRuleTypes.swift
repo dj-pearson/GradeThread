@@ -87,13 +87,31 @@ struct RuleDraft: Equatable {
         autoAcceptConfidence = r.autoAcceptConfidence ?? 0.8
     }
 
-    /// A rule needs a name and an actual effect (a drop or auto-accept).
+    /// A rule needs a name, an actual effect (a drop or auto-accept), and a
+    /// floor that either is blank or is a number.
+    ///
+    /// ⚠ THE FLOOR CLAUSE IS NOT COSMETIC VALIDATION. `floorPriceCents`
+    /// collapses "left blank" and "typed something unparseable" into the same
+    /// nil, and nil means NO FLOOR — the markdown runs to the bottom. So a
+    /// seller who fat-fingered `9.9.9` into a decimal pad (two separators is a
+    /// single stray tap, and the parser rejects the whole value rather than
+    /// half-reading it) saved a rule that looked floored, read as floored in
+    /// the editor, and dropped the price every interval with nothing stopping
+    /// it. Save is now blocked instead, and ``floorHelp`` says why.
     var isValid: Bool {
         !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             && (dropPct > 0 || autoAcceptEnabled)
+            && floorHelp == nil
     }
 
-    /// Floor price text → cents, or nil when blank/unparseable.
+    /// Non-nil when the floor field holds text that is not a price. Blank stays
+    /// valid: no floor is a real choice, a typo is not.
+    var floorHelp: String? {
+        MoneyFieldValidation.optionalPriceHelp(floorPrice, formatter: CurrencyFormatter.shared)
+    }
+
+    /// Floor price text → cents, or nil when blank/unparseable. Callers that
+    /// can act on the difference should ask ``floorHelp`` first.
     var floorPriceCents: Int? {
         // US-1162: locale-aware parse (accepts comma decimals / grouping).
         guard let dollars = CurrencyFormatter.shared.parse(floorPrice), dollars >= 0 else { return nil }
