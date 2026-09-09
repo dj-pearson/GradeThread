@@ -4856,19 +4856,6 @@
         "Do not mount useSurfaceTitle anywhere until its source resolves for that tree. A hook that returns the default for every route is worse than no hook, because the next person reads the mount and assumes it works."
       ],
       "notes": "Partial 2026-09-09 in the buyer half: resolved via BUYER_NAV rather than by adding surfaces.ts entries, which AC1 asked for. Deliberate deviation — duplicating eight labels into a second registry is the problem surfaces.ts exists to prevent. AC1 should be read as 'give buyer a real source', which BUYER_NAV already was. Remaining: admin, which needs its eight nav arrays extracted out of admin-layout.tsx before anything can read them."
-    },
-    {
-      "id": "US-3255",
-      "passes": false,
-      "title": "iOS sign-out wipe guard is red and blind — it still greps ContentView.swift after the wipe moved to LocalCacheWipe.swift",
-      "description": "src/test/ios-local-model-wipe.test.ts (US-3100) asserts that clearAllLocalDataOnSignOut in ios/GradeThread/ContentView.swift contains inline 'try ctx.delete(model: X.self)' calls followed by 'try ctx.save()'. That body was refactored into LocalCacheWipe.signOut(from:) (ios/GradeThread/Persistence/LocalCacheWipe.swift, 13 model deletes), so the function in ContentView.swift is now a one-line delegation. The guard fails 3 of its 4 cases on main today, and more importantly it no longer inspects the code that actually does the wipe — a model added to the schema and forgotten in LocalCacheWipe would not be caught. The wipe itself is intact; the guard is not. Re-point the test at LocalCacheWipe.swift, follow one level of delegation from ContentView so a future move is caught rather than silently un-asserted, and add a self-check that fails if the extractor finds zero deletes.",
-      "acceptanceCriteria": [
-        "src/test/ios-local-model-wipe.test.ts passes on a clean tree (0 failing cases)",
-        "The test resolves clearAllLocalDataOnSignOut through its delegation to LocalCacheWipe.signOut rather than assuming the deletes are inline in ContentView.swift",
-        "The test fails loudly (not silently passes) if the extractor finds zero 'delete(model:' calls, so a future refactor cannot disarm it",
-        "Every @Model type persisted in the app's ModelContainer is asserted present in the sign-out wipe, including the sourcing log case the original story named"
-      ],
-      "priority": 1600
     }
   ]
 }

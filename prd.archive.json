@@ -45899,6 +45899,20 @@
       ],
       "priority": 4,
       "notes": "Partial 2026-09-09. The two urgent halves are done: login.tsx, auth-callback.tsx, auth-confirm.tsx and accept-invite.tsx now read RETURN_TO_KEY / PENDING_INVITE_KEY through safe-storage (auth-callback runs AFTER the provider has authenticated, so the throw left a signed-in visitor stranded on a blank screen), and autolister.tsx's render-time session-id read plus autolister-upload-store's consumeLostUploadCount reader are converted. All five auth/boot files are now in BOOT_PATH_FILES in src/test/boot-path-storage-safe.test.ts. autolister.tsx is deliberately NOT on that list and the guard says why: its other eight call sites already sit inside try/catch, and a line-level rule cannot see that. Remaining and all preference-shaped: pwa-install-banner, use-activation, listing-suggestions, bulk-intake, impersonation, settings. | Done 2026-09-09. All three ACs met across the boot path, the auth flow and this. The only remaining raw calls are certificate.tsx:383-384, already inside a try/catch."
+    },
+    {
+      "id": "US-3255",
+      "passes": true,
+      "title": "iOS sign-out wipe guard is red and blind — it still greps ContentView.swift after the wipe moved to LocalCacheWipe.swift",
+      "description": "src/test/ios-local-model-wipe.test.ts (US-3100) asserts that clearAllLocalDataOnSignOut in ios/GradeThread/ContentView.swift contains inline 'try ctx.delete(model: X.self)' calls followed by 'try ctx.save()'. That body was refactored into LocalCacheWipe.signOut(from:) (ios/GradeThread/Persistence/LocalCacheWipe.swift, 13 model deletes), so the function in ContentView.swift is now a one-line delegation. The guard fails 3 of its 4 cases on main today, and more importantly it no longer inspects the code that actually does the wipe — a model added to the schema and forgotten in LocalCacheWipe would not be caught. The wipe itself is intact; the guard is not. Re-point the test at LocalCacheWipe.swift, follow one level of delegation from ContentView so a future move is caught rather than silently un-asserted, and add a self-check that fails if the extractor finds zero deletes.",
+      "acceptanceCriteria": [
+        "src/test/ios-local-model-wipe.test.ts passes on a clean tree (0 failing cases)",
+        "The test resolves clearAllLocalDataOnSignOut through its delegation to LocalCacheWipe.signOut rather than assuming the deletes are inline in ContentView.swift",
+        "The test fails loudly (not silently passes) if the extractor finds zero 'delete(model:' calls, so a future refactor cannot disarm it",
+        "Every @Model type persisted in the app's ModelContainer is asserted present in the sign-out wipe, including the sourcing log case the original story named"
+      ],
+      "priority": 1600,
+      "notes": "Done 2026-09-09. Re-pointed src/test/ios-local-model-wipe.test.ts at ios/GradeThread/Persistence/LocalCacheWipe.swift, which US-3224 moved the wipe bodies into. AC1: 5/5 cases pass. AC2: the guard now asserts ContentView's clearAllLocalDataOnSignOut/clearLocalTenantCache still delegate to LocalCacheWipe.signOut/workspaceSwitch, so a future move fails with a message naming what to re-point - proven by renaming the call and watching it fail. AC3: wipeDeleters() asserts found.length > 0, and additionally checks each deleter's label against the type it deletes. AC4: the sign-out list is compared to GradeThreadSchemaV1.models as before, and the workspace-switch exception set is now asserted equal to LocalCacheWipe.keptOnWorkspaceSwitch rather than being a second hand-maintained copy. NOTE the Python guard ios/Scripts/check-cache-wipe.py was never broken and passes in the verify ios lane; this TS port is the no-Python parity check and was the blind one."
     }
   ]
 }
