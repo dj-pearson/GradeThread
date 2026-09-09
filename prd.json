@@ -4602,7 +4602,7 @@
         "Any new edge route is tenant-scoped with workspaceOwnerId ?? userId and gains a case in services/edge-functions/src/tests/tenant-isolation_test.ts (US-268)."
       ],
       "priority": 21,
-      "notes": "Scope correction 2026-09-08, before any code. Most of this exists. src/components/dashboard/widgets/flipdesk-extension-queue.tsx (US-3077 AC4) already reads THREE queues into one tile - the generic extension_work_queue, pending delists stamped on listings.delist_requested_at, and pending revises - and has the no-extension-installed branch, which is the state that actually strands a seller. src/components/flipdesk/pending-delist-banner.tsx (US-717) already names the channel and offers to run it, which is AC3. The honesty rule in AC5 is already enforced in use-extension-queue.ts (QUEUED_NOTICE) and restated in the widget header. AC4 is half-built in the other direction: notify.ts:243 already pushes to WAKE the extension so it drains now rather than at the next open. What is genuinely missing is only AC1's grouping (kind x channel, rather than one number across three queues) and AC2 (when the desktop last drained, and saying so when it never has). extension_work_queue.claimed_at already carries the data - migration 00588 - so this needs NO migration: it is a max(claimed_at) on the existing read plus a grouped render. Re-scope to those two before starting."
+      "notes": "Scope correction 2026-09-08, before any code. Most of this exists. src/components/dashboard/widgets/flipdesk-extension-queue.tsx (US-3077 AC4) already reads THREE queues into one tile - the generic extension_work_queue, pending delists stamped on listings.delist_requested_at, and pending revises - and has the no-extension-installed branch, which is the state that actually strands a seller. src/components/flipdesk/pending-delist-banner.tsx (US-717) already names the channel and offers to run it, which is AC3. The honesty rule in AC5 is already enforced in use-extension-queue.ts (QUEUED_NOTICE) and restated in the widget header. AC4 is half-built in the other direction: notify.ts:243 already pushes to WAKE the extension so it drains now rather than at the next open. What is genuinely missing is only AC1's grouping (kind x channel, rather than one number across three queues) and AC2 (when the desktop last drained, and saying so when it never has). extension_work_queue.claimed_at already carries the data - migration 00588 - so this needs NO migration: it is a max(claimed_at) on the existing read plus a grouped render. Re-scope to those two before starting. | Partial 2026-09-08, commit cf1b5ebca. AC1 and AC2 done, which were the only two the scope-correction note found missing. AC2 shaped the change: ExtensionQueueSection returned null on an empty queue, so 'nothing is queued' and 'no extension has ever drained your queue' rendered the identical blank screen and mean opposite things. The empty guard is gone (the loading guard stays) and QueueSummary now renders either the last-drain timestamp or the sentence 'Your extension has never run any of this'. lastDrainedAt is max(claimed_at) and NOT completed_at, pinned by a test that reads the route: claimed_at is stamped when a drain TAKES a row, so it proves an extension ran whatever happened to the job afterwards, where completed_at would report never-drained for a seller whose only drain hit a failing listing form and send them to reinstall a working extension. AC1 done via groupQueue in use-extension-queue.ts, per channel and verb, delist first in each line because a queued delist means the garment is purchasable in two places right now. STILL OPEN: AC4, the push when pending exceeds a threshold and no drain has happened in 24h. Everything it needs now exists - lastDrainedAt on the read, and notify.ts already pushes in the other direction to wake a drain - so this is a cron plus a notification-preference toggle, no migration."
     },
     {
       "id": "US-3199",
@@ -4632,37 +4632,6 @@
         "The pricing page renders the tier, and its upgrade path names grading as the reason to move up - the upsell is the thing we are actually better at."
       ],
       "priority": 23
-    },
-    {
-      "id": "US-3201",
-      "passes": false,
-      "title": "Sellers cannot set their own listing voice: DESCRIPTION_TEMPLATES hardcodes \"Smoke-free home. Ships fast.\"",
-      "description": "As a seller, I want to set my own description instructions and my own closing signature, so that generated descriptions sound like my closet instead of shipping the same three sentences as every other GradeThread seller.",
-      "acceptanceCriteria": [
-        "flipdesk_settings gains two nullable columns - a free-text description prompt and a free-text signature - each with a length cap enforced by a CHECK constraint.",
-        "The migration carries the US-1108 triple: idempotent SQL, EXPECTED_SCHEMA_VERSION bumped in the same commit, self-record footer.",
-        "When set, the prompt is appended to the description generation call in services/edge-functions/src/lib/ai-listing.ts and the signature is appended to the rendered description.",
-        "When unset, output is byte-identical to today. An account that never opens the setting sees no change at all.",
-        "The signature renders as a description BLOCK (the migration 00678 model) so it re-renders on every save, rather than being baked into a stored string once and then drifting.",
-        "The hardcoded closing line in src/lib/listing-templates.ts DESCRIPTION_TEMPLATES becomes the DEFAULT signature rather than an unremovable string, and src/test/listing-template-native-parity.test.ts still passes against the Swift mirror.",
-        "A FlipDesk settings UI edits both fields and shows a live preview of the rendered description tail."
-      ],
-      "priority": 24,
-      "notes": "Scope correction 2026-09-08, before any code. HALF OF THIS IS ALREADY BUILT and the story as filed would have rebuilt it. listing_snippets (migration 00678, US-2961) is the seller's standing lines - named, reusable, referenced BY ID from a description block so fixing the shipping line fixes every listing; there is a management page at /dashboard/flipdesk/description-snippets, nine starter presets (US-2966, starter-snippets.ts) and an apply-to-drafts route. listing_templates (US-674/US-2877) is a second seller-owned surface: full saved presets with description, condition and condition note, editable on web and iOS. So the SIGNATURE half of AC3/AC5/AC6/AC7 needs nothing. What is genuinely missing is the AI VOICE: services/edge-functions/src/lib/ai-listing.ts hardcodes a per-PLATFORM tone map (ai-listing.ts:3620 - 'casual Gen-Z tone, hashtags, no title' for Depop, 'minimal designer/streetwear voice' for Grailed) and has no per-SELLER instruction anywhere. Remaining work is one nullable capped column on flipdesk_settings plus a settings UI, and the delivery has a constraint the ACs did not anticipate: the listing-gen prompt is VERSIONED with an eval gate (ai_prompt_versions + listing-eval.ts), so seller free text must be appended as a separate delimited instruction AFTER the versioned prompt and excluded from eval runs - editing it into the prompt body would make every golden-set run non-reproducible. The DESCRIPTION_TEMPLATES line named in AC6 is our hardcoded per-garment boilerplate, applied by composer.tsx:1473, and is a different thing from the seller's snippets; it stays."
-    },
-    {
-      "id": "US-3202",
-      "passes": false,
-      "title": "The composer never says which channels a publish will actually succeed on",
-      "description": "As a seller about to publish, I want a per-channel readout of what is missing, so that I fix it before the publish fails rather than after eBay leaves me a stuck offer.",
-      "acceptanceCriteria": [
-        "The composer shows, per selected channel, either ready or the named missing fields - computed BEFORE Publish is pressed, not as an error afterwards.",
-        "For eBay the check covers required aspects for the chosen category AND the 65-character aspect value ceiling (vault/30-platform/ebay-aspect-value-limit.md), because both produce a stuck offer rather than a clean rejection.",
-        "Each composer section header carries a filled-count (for example 6 of 8) derived from the fields that section actually owns - not a hardcoded denominator.",
-        "A channel that cannot be pre-checked (extension-tier, or MARKETPLACE_MECHANISM none) says so rather than claiming ready.",
-        "The readout is computed from the SAME source the publish path uses, so it cannot drift. A unit test asserts the two agree across src/test/fixtures/required-aspects-cases.json."
-      ],
-      "priority": 25
     }
   ]
 }
