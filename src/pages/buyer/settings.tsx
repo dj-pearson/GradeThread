@@ -11,6 +11,7 @@ import { LoadingRegion, SkeletonRows } from "@/components/ui/skeletons";
 import { toast } from "sonner";
 import { toastError } from "@/lib/toast-error";
 import { cn } from "@/lib/utils";
+import { useMeasurementPrefs } from "@/stores/measurement-prefs";
 import { ChipInput } from "@/components/buyer/chip-input";
 import { CategoryPicker } from "@/components/buyer/category-picker";
 import {
@@ -82,6 +83,11 @@ export function BuyerSettingsPage() {
       setPriceMax(dollarsFromCents(preferences.price_max_cents));
       setConditionFloor(preferences.condition_floor);
       setUnit(preferences.unit_preference);
+      // US-3251: adopt the SAVED unit into the store the app actually renders
+      // from. Without this the column is a durable copy of a choice nothing
+      // reads, and a buyer who picked cm on their phone reads inches on their
+      // laptop.
+      useMeasurementPrefs.getState().setUnit(preferences.unit_preference);
       setNotifyEmail(preferences.notify_email);
       setNotifyPush(preferences.notify_push);
     }
@@ -101,6 +107,12 @@ export function BuyerSettingsPage() {
         notify_email: notifyEmail,
         notify_push: notifyPush,
       });
+      // US-3251: this toggle used to write only the database column, which
+      // nothing renders from. The measurement form, the photo editor, body
+      // profiles and the description blocks all read useMeasurementPrefs, so a
+      // buyer picked cm, was told it was saved, and then read inches
+      // everywhere. Write through to the store that decides what they see.
+      useMeasurementPrefs.getState().setUnit(unit);
       toast.success("Preferences saved");
     } catch {
       toast.error("We couldn't save your preferences. Please try again.");
