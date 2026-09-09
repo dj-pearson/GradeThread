@@ -45707,6 +45707,19 @@
       ],
       "priority": 3,
       "notes": "Done 2026-09-09. FriendlyErrorCopy.userMessage(for:) = actionMessage(for:fallback:) with the error's own wording as the fallback, so offline / rate-limited / unconfirmed-email get the US-1025 copy and everything else is unchanged. Applied to 87 sites in 42 files, matched narrowly on the sinks a view renders (errorMessage, actionError, the various *Phase properties, phases[id], and .failed / .registrationFailed). FIRST ATTEMPT WAS REVERTED: a looser pattern matched 142 lines including Telemetry breadcrumbs, the connection-diagnostics screen where the raw detail IS the feature, and several sites that WRAP the error and rethrow it -- friendly copy there would be re-classified downstream. Those 11 files are now an explicit EXCLUDE list with reasons in the sweep, and OAuthWebSession's throw is the one remaining raw site by design. Five tests added to FriendlyErrorCopyTests. All 16 iOS guards pass. Swift compile is macOS-only, so iOS CI is the compile check."
+    },
+    {
+      "id": "US-3241",
+      "passes": true,
+      "title": "iOS: one unreadable timestamp could wedge a synced row",
+      "description": "The sync merge's freshness guard is 'skip this remote row if its updated_at is older than what the clean local copy already holds' - the thing that stops a stale bulk delta rewinding a row a realtime event just refreshed. Its input was SyncEngine.parseDate, whose fallback for an unreadable string is now. A row stamped now can never be older than anything, so the guard stopped guarding: the possibly stale snapshot was applied AND the local updatedAt jumped to now, after which every legitimately newer delta looked older and was skipped, until real time caught up with the fake stamp. US-3232 gave the merge a parser that returns nil; this decides which way the failure should fall.",
+      "acceptanceCriteria": [
+        "An unreadable updated_at resolves to .distantPast in the bulk merge and the realtime single-row apply, so it loses the guard and the pass is skipped rather than rewinding the row",
+        "A listing row with no readable updated_at keeps the timestamp it already had instead of jumping to now",
+        "Tests state both the new behavior and the old one, so the regression is recognisable"
+      ],
+      "priority": 3,
+      "notes": "Done 2026-09-09. SyncMergeActor: the two freshness-guard inputs (mergeItems and mergeSingleInventory) resolve an unreadable updated_at to .distantPast via parseDateOrNil rather than to now via parseDate, so an unreadable stamp LOSES the comparison, the pass is skipped, and the local copy is untouched until a readable delta arrives. The listing branch keeps local.updatedAt when the remote value is absent or unreadable instead of setting it to now. createdAt deliberately still uses parseDate: it drives sort order only, where .distantPast would pin the row to the bottom forever and now puts it at the top -- neither is right and the stakes are cosmetic, so it is left alone and said so here. Three tests in SyncTests, one of which pins the OLD behavior (a now-fallback beats any held timestamp) so the regression is recognisable. Note this is defensive: sale_date, updated_at and created_at are all timestamptz, so PostgREST always emits ISO and the fallback should never fire in practice -- the fix is about which way it fails if it ever does. All 16 iOS guards pass."
     }
   ]
 }

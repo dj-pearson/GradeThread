@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-3240",
+  "nextId": "US-3242",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -4859,6 +4859,17 @@
       ],
       "priority": 7,
       "notes": "Partial 2026-09-09 in 17d779ac0: 48 user-facing strings fixed. Two reverted after the parity guards caught them: 'The care label with the fibre content' is ONE string in five places (src/lib/photo-roles.ts, src/lib/photo-profiles.ts, the edge copies of both, ios/GradeThread/Capture/PhotoProfile.swift, android/.../capture/PhotoProfile.kt) plus android/config/detekt/baseline.xml, which pins the exact line text. Changing it is a cross-platform change needing an iOS and Android build, so it waits for a machine that can do both. Guard from AC2 not written yet."
+    },
+    {
+      "id": "US-3240",
+      "passes": false,
+      "title": "Deleting a listing photo takes one click, with no confirmation and no undo",
+      "description": "photo-uploader.tsx is the main photo surface on a FlipDesk item. Its per-slot trash icon calls remove(photo) straight from onClick: the file is removed from the item-photos bucket FIRST, then the item_photos row is deleted. No confirm, no undo, and because the object goes before the row, even a database restore would not bring the image back. The icon is a 12px button sitting next to an Add another button of the same size, which on a phone is a mis-tap away. The photo it deletes is often unrepeatable - the garment may already be packed, shipped or sold. The codebase has had the right tool since US-437: useConfirm() is provided to every authed page by ConfirmProvider, and a dozen FlipDesk surfaces already use it for less consequential things (ending an eBay campaign, a bulk intake discard).",
+      "acceptanceCriteria": [
+        "The trash icon goes through await confirm({ destructive: true }) with copy that says what is actually lost, in the same shape ebay-campaign-card.tsx uses. Naming the photo type it is about to remove beats a generic 'Are you sure'.",
+        "A guard lists the destructive call sites in customer-facing components and fails when one has no confirm gate, with a named-exclusion list for the deliberate ones - snap-catalog's discardDraft only removes an un-enriched placeholder and its button already says Discard.",
+        "Storage-before-row ordering is called out in a comment wherever it stays, because it is the reason this is unrecoverable rather than merely annoying."
+      ]
     }
   ]
 }

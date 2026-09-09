@@ -83,7 +83,18 @@ actor SyncMergeActor {
 
         for remote in items {
             let createdAt = SyncEngine.parseDate(remote.created_at)
-            let updatedAt = SyncEngine.parseDate(remote.updated_at)
+            // US-3241: an UNREADABLE `updated_at` resolves to `.distantPast`, not
+            // to now. `parseDate`'s now-fallback is fine for a display timestamp
+            // and wrong for this one, because this value is the freshness guard
+            // three lines down. A row stamped `.now` can never be "older than
+            // what we hold", so the guard stops guarding: the row takes a
+            // possibly stale snapshot AND has its local `updatedAt` moved to
+            // now, after which every legitimately newer delta looks older and is
+            // skipped. One bad timestamp wedges the row until real time catches
+            // up. `.distantPast` fails the other way: this pass is skipped, the
+            // local copy is untouched, and the next readable delta merges
+            // normally.
+            let updatedAt = SyncEngine.parseDateOrNil(remote.updated_at) ?? .distantPast
             let primary = primaryPhotos[remote.id]
             let primaryURL = primary?.thumbnail_url ?? primary?.photo_url
 
@@ -447,7 +458,11 @@ actor SyncMergeActor {
             // a failed publish/revise, cleared on success) — copy verbatim so a
             // scheduled/AutoLister failure surfaces on iOS.
             local.publishError = remote.publish_error
-            local.updatedAt = remote.updated_at.map(SyncEngine.parseDate) ?? .now
+            // US-3241: a listing row with no readable `updated_at` keeps the
+            // timestamp it already had rather than jumping to now, which would
+            // make the next real update look stale to any freshness comparison.
+            local.updatedAt = remote.updated_at
+                .flatMap(SyncEngine.parseDateOrNil) ?? local.updatedAt
         }
 
         // US-1221: a listing change (price/relist) refreshes its item's market
@@ -665,7 +680,9 @@ actor SyncMergeActor {
     func mergeSingleInventory(_ remote: SyncEngine.RemoteInventoryItem) {
         let id = remote.id
         let descriptor = FetchDescriptor<LocalInventoryItem>(predicate: #Predicate { $0.id == id })
-        let updatedAt = SyncEngine.parseDate(remote.updated_at)
+        // US-3241: same reasoning as `mergeItems` — this drives the freshness
+        // guard below, so an unreadable timestamp must lose, not win.
+        let updatedAt = SyncEngine.parseDateOrNil(remote.updated_at) ?? .distantPast
 
         if let local = try? modelContext.fetch(descriptor).first {
             // Same freshness guard as mergeItems: ignore a realtime event older than

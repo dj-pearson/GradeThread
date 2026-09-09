@@ -1528,4 +1528,34 @@ private actor DebounceCallCounter {
         let parsed = SyncEngine.parseDate(iso)
         XCTAssertEqual(ISO8601DateFormatter().string(from: parsed), iso)
     }
+    // MARK: - US-3241 an unreadable updated_at must LOSE the freshness guard
+
+    /// The merge's freshness guard is `updatedAt < local.updatedAt`. Resolving an
+    /// unreadable timestamp to `.now` made a row that can never lose it: the
+    /// stale snapshot is applied, `local.updatedAt` jumps to now, and every
+    /// legitimately newer delta then looks older and is skipped until real time
+    /// catches up. `.distantPast` fails the other way — this pass is skipped and
+    /// the next readable delta merges.
+    func test_unreadableUpdatedAt_resolvesToDistantPastNotNow() {
+        let resolved = SyncEngine.parseDateOrNil("not a timestamp") ?? .distantPast
+        XCTAssertEqual(resolved, .distantPast)
+
+        let localHeldState = Date(timeIntervalSince1970: 1_700_000_000)
+        // Loses the freshness guard, so the merge skips instead of rewinding.
+        XCTAssertLessThan(resolved, localHeldState)
+    }
+
+    /// The behavior this replaces, stated so the regression is recognisable: a
+    /// now-fallback beats any timestamp the cache could be holding.
+    func test_nowFallbackWouldHaveBeatenAnyHeldTimestamp() {
+        let localHeldState = Date(timeIntervalSince1970: 1_700_000_000)
+        XCTAssertGreaterThan(SyncEngine.parseDate("not a timestamp"), localHeldState)
+    }
+
+    /// A readable timestamp is unaffected — the guard still works normally.
+    func test_readableUpdatedAt_stillComparesNormally() {
+        let older = SyncEngine.parseDateOrNil("2026-09-08T10:00:00Z") ?? .distantPast
+        let newer = SyncEngine.parseDateOrNil("2026-09-09T10:00:00Z") ?? .distantPast
+        XCTAssertLessThan(older, newer)
+    }
 }
