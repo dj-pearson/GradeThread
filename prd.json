@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-3259",
+  "nextId": "US-3260",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -4882,6 +4882,19 @@
         "If any of the five is a real product bug, it gets its own regression case rather than only a corrected guard"
       ],
       "priority": 1610
+    },
+    {
+      "id": "US-3259",
+      "passes": false,
+      "title": "Brand style coverage fell from 95% to 40% - US-3125's brand packs added 356 brands and 40 style sets",
+      "description": "Measured 2026-09-09 by scripts/brand-style-coverage.mjs: 544 brand_knowledge brands, 218 with at least one brand_styles row, 818 style rows, 326 brands with none. US-2216 recorded the state as 188 brands and 178 covered (~95%) and pinned a 90% floor. The US-3125 brand packs (migrations 00739-00761 and neighbours) tripled the brand KB and added roughly 40 style sets, so coverage is now 40.1% and the guard had been failing on both its assertions for as long as those packs have been landing. brand_styles is the model-level identity that sets a garment's price - a Levis 501 is not a Levis 505 - so a brand with none is a brand the comping and listing surfaces can only reason about at brand level. The guard was converted to a ratchet in the same commit (MISSING_STYLES_CEILING = 326, coverage floor 0.4, absolute floors re-measured) so it is green and a 327th uncovered brand is loud again; the 326 names were deliberately NOT poured into KNOWN_UNCOVERED, which is a curated list with a reason per entry and would have become a graveyard. This story is the seeding work. Note that some of the 326 will be genuinely style-less the way Gildan and Hanes are - blanks makers with no model identity worth naming - and those belong in KNOWN_UNCOVERED with that reason rather than in a style pack.",
+      "acceptanceCriteria": [
+        "MISSING_STYLES_CEILING in services/edge-functions/src/tests/brand-style-coverage_test.ts is lowered, and the coverage floor raised, in every commit that seeds styles",
+        "Brands that genuinely have no model-level identity (blanks makers, mall brands whose value does not turn on the model) are moved into KNOWN_UNCOVERED with a stated reason, not left counted as a gap",
+        "Every new style row is sourced - a style name invented to clear the count is worse than the gap, since comping would price against a model that does not exist",
+        "Each seeding migration carries the US-1108 triple: idempotent SQL, EXPECTED_SCHEMA_VERSION bumped in the same commit, self-record footer"
+      ],
+      "priority": 1650
     }
   ]
 }
