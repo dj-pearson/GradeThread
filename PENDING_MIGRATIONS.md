@@ -1,5 +1,38 @@
 # PENDING MIGRATIONS — applied to prod separately from the push
 
+## ✅ APPLIED 2026-09-09: 00775 — widen flipdesk_import_runs.origin to accept 'grailed' (US-3261)
+
+**Risk: LOW.** One named CHECK constraint dropped and re-added with one extra
+value. No data change, no column change, nothing revoked. Safe to run twice.
+
+**What it fixes, and it is a live outage rather than a new feature.** US-3155
+added `grailed` to `CLOSET_IMPORT_PLATFORMS` on the edge and gave it a photo-host
+allowlist. The origin CHECK from 00712 still listed five values, and
+`flipdesk-closet-import.ts` inserts `origin: platform` — so **every Grailed
+closet import has failed at the INSERT since then**, and the seller was told
+"Could not start the import." Nothing else was affected: the row was never
+created, so no partial import exists to clean up.
+
+**Applied to prod 2026-09-09** by the operator, before this commit was pushed.
+
+**Apply order:** after 00774. `NOTIFY pgrst, 'reload schema';` is not strictly
+needed (no table, column or RPC signature changed) but is harmless. Redeploy the
+edge afterwards — its boot guard now expects 00775.
+
+**⚠️ THE FRONTEND IN THE SAME PUSH OFFERS GRAILED BEFORE THE SQL LANDS.**
+Cloudflare Pages auto-deploys on push, and the same commit adds Grailed to the
+web's `CLOSET_IMPORT_PLATFORMS` (marketplace-disclosure.ts), so the Import page
+shows a Grailed button as soon as the push lands. Until this migration is
+applied, pressing it fails — the same way it already fails today, but now with
+an honest sentence: the route reads Postgres error 23514 and answers "This
+server does not accept Grailed imports yet. The database is behind the app."
+Apply the SQL before the push and neither state exists.
+
+**Guard:** `services/edge-functions/src/tests/closet-import-origin_test.ts`
+reads this migration and asserts every member of `CLOSET_IMPORT_PLATFORMS` is a
+permitted origin, so a fourth platform cannot be added without widening the
+constraint again.
+
 ## ✅ APPLIED 2026-09-09: 00774 — GRANT EXECUTE on pooled_sold_comps (US-2282 guard)
 
 **Risk: LOW, and it is additive only.** One `GRANT EXECUTE ... TO service_role`.

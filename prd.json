@@ -4907,7 +4907,8 @@
         "A deno test asserts every value in CLOSET_IMPORT_PLATFORMS is permitted by the constraint list, so adding a fourth platform to that constant without widening the constraint fails the build rather than failing in prod.",
         "The run-start path reports a failed insert to the seller with the reason rather than the generic 'Could not start the import.' when the failure is a constraint violation."
       ],
-      "priority": 3
+      "priority": 3,
+      "notes": "Done 2026-09-09, migration HELD. Migration 00775 widens the named CHECK to include grailed, with EXPECTED_SCHEMA_VERSION bumped to 00775 and the manifest regenerated in the same commit, plus the self-record footer. closet-import-origin_test.ts reads the highest-numbered migration defining flipdesk_import_runs_origin_check and asserts every member of CLOSET_IMPORT_PLATFORMS is permitted, so a fourth platform cannot be added without widening it again; a second case holds csv/sheet/paste so a widening cannot drop the CSV importer's own origins. The generic 'Could not start the import.' now branches on Postgres 23514 and says the database is behind the app, because that failure read as an ordinary outage for months. Two stale sentences fixed alongside: the route's 'Closet import supports Poshmark and Mercari' 400, and the same string in the extension. THE WEB SIDE OF THE SAME BUG went with US-3263's commit: marketplace-disclosure.ts, lister-extension.ts and seo/crosslist-pairs.ts all listed two closet platforms, so the card never offered Grailed even where the edge would have accepted it; a parity test now reads both sides. PENDING_MIGRATIONS.md carries the apply order and the one real ordering hazard - the frontend in the same push shows a Grailed button before the SQL lands. | 00775 applied to prod 2026-09-09 by the operator; PENDING_MIGRATIONS.md flipped to APPLIED and the commit pushed."
     },
     {
       "id": "US-3262",
