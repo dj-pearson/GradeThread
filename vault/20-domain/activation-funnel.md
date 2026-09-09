@@ -9,7 +9,7 @@ code_refs:
   - src/lib/activation-analytics.ts
   - src/hooks/use-activation.ts
   - ios/GradeThread/Telemetry/ActivationEvents.swift
-reviewed: 2026-08-25
+reviewed: 2026-09-09
 tags: [onboarding, analytics, contract, ios, privacy]
 summary: One activation step list per persona, one event per funnel step named from that list, and the rule that renaming a step renames its event because both are generated from the same ordered array.
 ---
@@ -35,11 +35,19 @@ four lists whose first steps disagreed.
 
 | Persona | Steps |
 |---|---|
-| seller / consignment | grade, item, source, ebay, (notifications) |
+| seller / consignment | grade, import, item, source, ebay, (notifications) |
 | developer | apikey, grade, (notifications) |
 | buyer | extension, alert, closet |
 
 Ordered the way a garment moves, not by how easy each step is.
+
+**`import` is the one step that may be set aside** (US-3262). It completes on a
+`flipdesk_import_runs` row with status `completed` — a real, finished import,
+CSV or closet read — and a seller who has never listed anywhere has nothing to
+complete it with. `skippable: true` on the step, a per-user skip list in
+`use-activation.ts`, and Settings > Replay clears it along with the dismissal.
+It is deliberately NOT on the guided path: that path is photo-to-published, and
+importing a closet is setup.
 
 ### The rule that makes it work
 

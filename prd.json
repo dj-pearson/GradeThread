@@ -4922,7 +4922,8 @@
         "src/test/onboarding-copy-routes.test.ts still passes with the new step, proving the route is canonical and not a redirect alias.",
         "src/lib/activation-analytics.ts tracks the step the same way the other steps are tracked, so funnel drop-off at import is measurable."
       ],
-      "priority": 8
+      "priority": 8,
+      "notes": "Done 2026-09-09. The import step is on the seller and consignment list, between grade and item. isDone counts flipdesk_import_runs rows with status 'completed' (use-activation.ts), so it ticks when an import FINISHED, not when the Import page was opened. skippable:true on the step plus a per-user skip list in localStorage; Settings > Replay clears it with the dismissal. New event onboarding.activation_step_skipped registered in analytics-events.ts. GUIDED_PATH_KEYS deliberately unchanged - the path is photo-to-published. Two existing guards were updated rather than worked around: one-activation-checklist's 'everything done' state needed importRunCount, and buyer-activation-parity asserted a fixed four-key seller prefix (now five, and renamed to say what it actually protects). vault/20-domain/activation-funnel.md updated in the same commit. 141 activation tests pass, full web suite 4277 passing."
     },
     {
       "id": "US-3263",

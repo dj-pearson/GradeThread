@@ -89,9 +89,19 @@ describe("the buyer is a persona in the shared module (US-2883 AC1)", () => {
     expect(steps.map((s) => s.key)).not.toContain("notifications");
   });
 
-  it("the seller list is untouched", () => {
+  it("the seller list carries no buyer steps", () => {
     const seller = activationStepsFor("seller").map((s) => s.key);
-    expect(seller.slice(0, 4)).toEqual(["grade", "item", "source", "ebay"]);
+    // US-3262 added `import` between grade and item, so the assertion is now
+    // about the seller SEQUENCE rather than a fixed prefix -- what US-2883
+    // needs to hold is that the buyer work never leaks into this list, not
+    // that the list can never grow.
+    expect(seller.slice(0, 5)).toEqual([
+      "grade",
+      "import",
+      "item",
+      "source",
+      "ebay",
+    ]);
     for (const buyerKey of ["extension", "alert", "closet"]) {
       expect(seller, `the seller list picked up ${buyerKey}`).not.toContain(buyerKey);
     }

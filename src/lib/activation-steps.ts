@@ -2,6 +2,7 @@ import {
   Award,
   Bell,
   Chrome,
+  Upload,
   KeyRound,
   Package,
   Shirt,
@@ -37,6 +38,10 @@ import type { UserUseCase } from "@/types/database";
 
 export type ActivationStepKey =
   | "grade"
+  // US-3262: bringing an existing closet in. Placed before `item` because a
+  // seller arriving from another tool has a closet, not a first garment, and
+  // "add your first item" is the wrong instruction to give them 300 times.
+  | "import"
   | "item"
   | "source"
   | "ebay"
@@ -59,6 +64,13 @@ export type ActivationStepKey =
  */
 export interface ActivationState {
   gradeCount: number;
+  /**
+   * US-3262: completed rows in flipdesk_import_runs. A run only reaches
+   * 'completed' after the worker has written its effects, so this is the same
+   * "the real thing happened" signal as every other count here -- not a click
+   * on the Import page.
+   */
+  importRunCount: number;
   itemCount: number;
   sourceCount: number;
   apiKeyCount: number;
@@ -83,6 +95,17 @@ export interface ActivationStep {
   reason: string;
   cta: string;
   /**
+   * US-3262: may this step be set aside without doing it?
+   *
+   * True for exactly one step, and the reason is worth stating. Every other
+   * step here is something every seller eventually does. Importing is not: a
+   * seller who has never listed anywhere has nothing to import, and a step
+   * they cannot complete and cannot remove is the permanently-lit card
+   * US-2883 removed on the buyer side. Skipping is per-account and reversible
+   * from Settings > Replay, the same place the whole checklist comes back.
+   */
+  skippable?: true;
+  /**
    * Canonical route. Never a redirect alias (US-2858), checked by
    * src/test/onboarding-copy-routes.test.ts.
    *
@@ -102,6 +125,18 @@ const GRADE: ActivationStep = {
   cta: "Add photos",
   to: "/dashboard/submissions/new",
   isDone: (s) => s.gradeCount > 0,
+};
+
+const IMPORT: ActivationStep = {
+  key: "import",
+  icon: Upload,
+  title: "Bring in the listings you already have",
+  reason:
+    "A spreadsheet, or your own Poshmark, Mercari or Grailed closet read in one press. Nothing is typed twice and any import undoes.",
+  cta: "Import",
+  to: "/dashboard/flipdesk/import",
+  skippable: true,
+  isDone: (s) => s.importRunCount > 0,
 };
 
 const ITEM: ActivationStep = {
@@ -239,7 +274,10 @@ export function activationStepsFor(
     case "consignment":
     case "seller":
     default:
-      return [GRADE, ITEM, SOURCE, EBAY, ...tail];
+      // US-3262: import sits between the first grade and the first item. A
+      // seller who came from another tool answers "where is my closet" here;
+      // a seller starting fresh skips it and the list moves on.
+      return [GRADE, IMPORT, ITEM, SOURCE, EBAY, ...tail];
   }
 }
 
@@ -262,6 +300,7 @@ export function activationProgress(
  */
 export const EMPTY_ACTIVATION_STATE: ActivationState = {
   gradeCount: 0,
+  importRunCount: 0,
   itemCount: 0,
   sourceCount: 0,
   apiKeyCount: 0,

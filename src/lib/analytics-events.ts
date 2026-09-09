@@ -277,6 +277,11 @@ export const ANALYTICS_EVENTS = {
   // the event that story will build on.
   "onboarding.activation_step_started":
     "An activation-checklist step's button was pressed.",
+  // US-3262: a skippable step was set aside. Only `import` can be, and how
+  // often it is answers a real question -- how many new sellers arrive with a
+  // closet to bring over, and how many are starting from nothing.
+  "onboarding.activation_step_skipped":
+    "A skippable activation step was set aside without being done.",
   // US-2884: the tour's two endings, which nothing recorded. Without them
   // "tour finished" and "tour skipped" were indistinguishable from "never
   // reached the tour".
