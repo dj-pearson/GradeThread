@@ -2,6 +2,7 @@ import { useMemo } from "react";
 import { CircleCheck, CircleSlash, ScanLine } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { PublicCoverageRecord } from "@/types/database";
+import { silhouetteFor } from "@/lib/coverage-silhouettes";
 
 // US-1278: buyer-facing coverage badge + garment-silhouette heatmap on the
 // certificate. Shows what fraction of the garment the seller actually
@@ -38,25 +39,6 @@ function zoneLabel(id: string): string {
   return ZONE_LABELS[id] ?? id.replace(/_/g, " ");
 }
 
-// Fractional (0–1) anchor points on the generic garment silhouette for the
-// common apparel zones. Zones without an anchor (category-specific ones like
-// sole/insole/strap) still appear in the legend below — the silhouette is an
-// at-a-glance aid, the legend is the authoritative list.
-const ZONE_ANCHORS: Record<string, { x: number; y: number }> = {
-  collar_neckline: { x: 0.5, y: 0.12 },
-  front: { x: 0.5, y: 0.45 },
-  back: { x: 0.5, y: 0.45 },
-  underarms: { x: 0.26, y: 0.34 },
-  closure: { x: 0.5, y: 0.6 },
-  pockets: { x: 0.68, y: 0.62 },
-  cuffs: { x: 0.12, y: 0.52 },
-  waistband: { x: 0.5, y: 0.78 },
-  hem: { x: 0.5, y: 0.92 },
-  inseam_crotch: { x: 0.5, y: 0.84 },
-  lining: { x: 0.36, y: 0.5 },
-  branding: { x: 0.62, y: 0.2 },
-};
-
 export function CoverageHeatmap({
   coverage,
   className,
@@ -80,11 +62,16 @@ export function CoverageHeatmap({
   const documentedCount = applicable.filter((z) => covered.has(z)).length;
   const full = documentedCount === applicable.length;
 
-  // Only zones that have a silhouette anchor get a marker; the rest live in the
-  // legend. Render covered markers first so missing ones aren't visually buried.
-  const markers = applicable
-    .filter((z) => ZONE_ANCHORS[z])
-    .map((z) => ({ id: z, ...ZONE_ANCHORS[z]!, documented: covered.has(z) }));
+  // US-3216: the shape this garment actually is, or null when we have none.
+  const silhouette = silhouetteFor(coverage.garment_category);
+
+  // Only zones that have an anchor ON THIS SHAPE get a marker; the rest live in
+  // the legend, which is and always was the authoritative list.
+  const markers = silhouette
+    ? applicable
+      .filter((z) => silhouette.anchors[z])
+      .map((z) => ({ id: z, ...silhouette.anchors[z]!, documented: covered.has(z) }))
+    : [];
 
   return (
     <div className={cn("rounded-lg border bg-muted/30 p-4", className)}>
@@ -105,18 +92,24 @@ export function CoverageHeatmap({
         </span>
       </div>
 
-      <div className="mt-4 grid gap-4 sm:grid-cols-[160px_1fr] sm:items-start">
-        {/* Silhouette heatmap */}
+      {/* No shape for this garment means no drawing AND no empty column — the
+          legend takes the full width rather than sitting beside a gap. */}
+      <div
+        className={cn(
+          "mt-4 grid gap-4 sm:items-start",
+          silhouette && "sm:grid-cols-[160px_1fr]",
+        )}
+      >
+        {silhouette && (
         <div className="mx-auto w-[140px]">
           <svg
             viewBox="0 0 100 130"
             className="h-auto w-full"
             role="img"
-            aria-label={`Garment coverage: ${documentedCount} of ${applicable.length} inspection zones documented`}
+            aria-label={`Garment coverage on ${silhouette.shape}: ${documentedCount} of ${applicable.length} inspection zones documented`}
           >
-            {/* Generic garment silhouette (collar + sleeves + body). */}
             <path
-              d="M38 6 L50 2 L62 6 L82 16 L76 34 L66 30 L66 122 L34 122 L34 30 L24 34 L18 16 Z"
+              d={silhouette.path}
               className="fill-muted stroke-border"
               strokeWidth="1.5"
             />
@@ -145,6 +138,7 @@ export function CoverageHeatmap({
             ))}
           </svg>
         </div>
+        )}
 
         {/* Authoritative zone legend */}
         <ul className="grid grid-cols-2 gap-1.5 text-xs sm:grid-cols-1 md:grid-cols-2">

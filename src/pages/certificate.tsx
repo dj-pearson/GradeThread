@@ -709,12 +709,17 @@ export function CertificatePage() {
       <div className="bg-brand-navy py-6 text-white print:hidden">
         <div className="mx-auto flex max-w-3xl flex-col items-center gap-3 px-6">
           <div className="flex items-center gap-3">
+            {/* US-3215: w-auto, or the logo is stretched 4.7x sideways.
+                `h-8` sets the HEIGHT only; with no width rule the intrinsic
+                width attribute (1806) stands, the flex row clamps it to the
+                container, and the result renders 720x32 from a 1806x376 file.
+                Measured on production before the fix. */}
             <img
               src="/logo_white.png"
               width={1806}
               height={376}
               alt="GradeThread"
-              className="h-8"
+              className="h-8 w-auto"
             />
           </div>
           <div className="flex items-center gap-2">
