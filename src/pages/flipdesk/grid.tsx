@@ -32,6 +32,8 @@ import { changesFromItemDiff } from "@/lib/title-sync";
 import { buildTitleSyncPatch } from "@/lib/title-sync-patch";
 import { Button } from "@/components/ui/button";
 import { supabase } from "@/lib/supabase";
+import { useNavigationGuard } from "@/hooks/use-navigation-guard";
+import { UnsavedChangesDialog } from "@/components/unsaved-changes-dialog";
 import { useAuthStore } from "@/stores/auth-store";
 import { cn } from "@/lib/utils";
 import { useUrlPageState, useUrlParamState, useUrlSearchInput } from "@/hooks/use-url-param-state";
@@ -292,11 +294,18 @@ export function FlipdeskGridPage() {
     if (page > totalPages) setPage(totalPages);
   }, [page, totalPages, data, setPage]);
 
+  // See US-3243. Declared below dirtyCount.
   const dirtyCount = useMemo(() => {
     let n = 0;
     for (const rec of staged.values()) n += Object.keys(rec).length;
     return n;
   }, [staged]);
+
+  // US-3243. Same shape as the bulk grid: these cell edits live only in
+  // component state until Save all writes them, and the page already confirmed
+  // before an explicit Discard while saying nothing when you simply navigated
+  // away. Not blocked while saving -- the save clears the staged edits.
+  const guard = useNavigationGuard(dirtyCount > 0 && !saving);
 
   function cellValue(it: ItemFullRow, col: GridCol): string {
     const s = staged.get(it.id);
@@ -832,6 +841,8 @@ export function FlipdeskGridPage() {
           </div>
         </div>
       )}
+
+      <UnsavedChangesDialog guard={guard} noun="change" count={dirtyCount} />
     </div>
   );
 }

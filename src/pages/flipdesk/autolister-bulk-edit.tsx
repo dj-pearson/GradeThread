@@ -31,6 +31,8 @@ import { Card } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { LoadingRegion } from "@/components/ui/skeletons";
 import { supabase } from "@/lib/supabase";
+import { useNavigationGuard } from "@/hooks/use-navigation-guard";
+import { UnsavedChangesDialog } from "@/components/unsaved-changes-dialog";
 import { edgeFetch } from "@/lib/edge-fetch";
 import {
   TEMPLATES_QUERY_KEY,
@@ -339,6 +341,9 @@ export function FlipdeskAutolisterBulkEditPage() {
   }, [data]);
 
   const dirtyCount = rows.filter((r) => r.dirty).length;
+
+  // US-3243: unsaved rows live only in state, so the sidebar used to eat them.
+  const guard = useNavigationGuard(dirtyCount > 0 && !saving);
   const targetIds = selected.size > 0 ? selected : new Set(rows.map((r) => r.id));
 
   function patchRow(id: string, patch: Partial<EditRow>) {
@@ -1987,6 +1992,8 @@ export function FlipdeskAutolisterBulkEditPage() {
           </tbody>
         </table>
       </div>
+
+      <UnsavedChangesDialog guard={guard} noun="row" count={dirtyCount} />
     </div>
   );
 }
