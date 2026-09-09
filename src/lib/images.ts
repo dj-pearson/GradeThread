@@ -14,11 +14,48 @@
 /** Default candidate widths if a caller doesn't specify any. */
 export const DEFAULT_IMAGE_QUALITY = 80;
 
+/** The apex this zone's resizer will serve. Hosts under it may be transformed. */
+const ZONE_APEX = "gradethread.com";
+
+/**
+ * Whether Cloudflare's resizer will actually serve this source.
+ *
+ * US-3196: it will not serve an origin that is not on the zone, and the way it
+ * says so is 403 with no body. `onerror=redirect` does not catch that, because
+ * the request never reaches the fetch that option guards. Measured against
+ * production: the resizer answers 403 for an i.ebayimg.com source and 200 for
+ * the same options over a same-origin path.
+ *
+ * This started mattering the moment the eBay sync began mirroring listing
+ * photos by reference (the edge's lib/ebay-photo-mirror.ts). Twenty grid tiles
+ * on one draft page were pointed at the resizer, every one 403, while the
+ * full-size preview rendered the same photo perfectly because it never comes
+ * through here. That reads as "the photo is missing from the grid", which is a
+ * long way from "an image proxy refused a third-party origin".
+ *
+ * So the rule is now what it should always have been: transform what we serve,
+ * pass through what we do not. A third-party URL comes back untouched, which
+ * costs a larger download and renders correctly, instead of being rewritten
+ * into a URL that cannot render at all.
+ */
+function resizerServes(src: string): boolean {
+  if (!src.startsWith("http")) return true; // root-relative: our own origin
+  try {
+    const host = new URL(src).hostname.toLowerCase();
+    return host === ZONE_APEX || host.endsWith("." + ZONE_APEX);
+  } catch {
+    // Not a URL we can reason about. Leaving it alone is the safe direction:
+    // the worst case is an untransformed image, not a broken one.
+    return false;
+  }
+}
+
 /**
  * Build a Cloudflare Image Resizing URL for `src` at the given pixel width.
- * `src` may be a root-relative path ("/logo.png") or an absolute URL
- * (an R2/CDN image). Returns `src` unchanged for empty/data/already-transformed
- * inputs so it's safe to call unconditionally.
+ * `src` may be a root-relative path ("/logo.png") or an absolute URL on this
+ * zone. Returns `src` unchanged for empty/data/already-transformed inputs, and
+ * for any origin the resizer will not serve, so it is safe to call
+ * unconditionally on a URL of unknown provenance.
  */
 export function cfImage(
   src: string,
@@ -28,6 +65,7 @@ export function cfImage(
   if (!src || src.startsWith("data:") || src.includes("/cdn-cgi/image/")) {
     return src;
   }
+  if (!resizerServes(src)) return src;
   const opts = `width=${width},quality=${quality},format=auto,fit=scale-down,onerror=redirect`;
   // Same-origin paths drop their leading slash; absolute URLs are appended whole.
   const source = src.startsWith("http") ? src : src.replace(/^\//, "");

@@ -1285,11 +1285,40 @@ export function renderPinterestSave(opts: {
 
 const IMG_QUALITY = 80;
 
+/** The apex this zone's resizer will serve. Hosts under it may be transformed. */
+const ZONE_APEX = "gradethread.com";
+
+/**
+ * Whether Cloudflare's resizer will actually serve this source.
+ *
+ * US-3196: it answers 403 for an origin that is not on the zone, and
+ * `onerror=redirect` does not catch it — the request never reaches the fetch
+ * that option guards, so the rewritten URL simply cannot render. Measured
+ * against production on the React side, where mirrored eBay photos were being
+ * pointed at the resizer and every one came back 403.
+ *
+ * Mirrors `resizerServes` in src/lib/images.ts; responsive-images.test.ts
+ * asserts the two copies agree, which is what keeps a fix on one side from
+ * quietly leaving the other broken.
+ */
+function resizerServes(src: string): boolean {
+  if (!src.startsWith("http")) return true; // root-relative: our own origin
+  try {
+    const host = new URL(src).hostname.toLowerCase();
+    return host === ZONE_APEX || host.endsWith("." + ZONE_APEX);
+  } catch {
+    // Leaving it alone is the safe direction: an untransformed image, not a
+    // broken one.
+    return false;
+  }
+}
+
 /** Build a Cloudflare Image Resizing URL for `src` at a given pixel width. */
 export function cfImage(src: string, width: number, quality = IMG_QUALITY): string {
   if (!src || src.startsWith("data:") || src.includes("/cdn-cgi/image/")) {
     return src;
   }
+  if (!resizerServes(src)) return src;
   const opts = `width=${width},quality=${quality},format=auto,fit=scale-down,onerror=redirect`;
   const source = src.startsWith("http") ? src : src.replace(/^\//, "");
   return `/cdn-cgi/image/${opts}/${source}`;
