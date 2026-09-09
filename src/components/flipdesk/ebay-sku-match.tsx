@@ -120,6 +120,9 @@ async function insertRemotePhotosForItem(
     // guessing one from position past the first would be invention.
     photo_type: idx === 0 ? "front" : "detail",
     photo_url: url,
+    // eBay's own small render. Every grid and cover in the app reads
+    // thumbnail_url first, and without one they all pull the 1600px original.
+    thumbnail_url: url.replace(/\/s-l\d+(\.[A-Za-z]+)(?=$|[?#])/, "/s-l500$1"),
     storage_path: null,
     remote_source: "ebay",
     remote_source_url: url,

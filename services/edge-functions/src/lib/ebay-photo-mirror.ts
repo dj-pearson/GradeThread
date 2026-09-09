@@ -102,6 +102,36 @@ export function normalizeEbayPictureUrls(raw: unknown): string[] {
   return out;
 }
 
+/**
+ * The width the mirror asks eBay for when it wants a THUMBNAIL.
+ *
+ * Every grid, list and cover in the app reads `thumbnail_url` first and only
+ * falls back to `photo_url`. A mirrored row that left `thumbnail_url` null made
+ * every one of those surfaces pull the full 1600px render, and where the
+ * Cloudflare resizer is switched on the fallback goes through
+ * `/cdn-cgi/image/.../<external url>`, which Cloudflare answers 403 for an
+ * origin it does not serve — so the thumbnail did not merely arrive slowly, it
+ * did not arrive. eBay renders the same picture at every size for free, so the
+ * fix is to name the small one.
+ */
+const EBAY_THUMBNAIL_WIDTH = 500;
+
+/**
+ * The same picture as a thumbnail-sized render, or null if the URL is not a
+ * shape we can resize.
+ *
+ * Null rather than a guess: `photo_url` is a working full-size image either
+ * way, so a row with no thumbnail degrades to today's behaviour instead of
+ * pointing at a URL eBay may not serve.
+ */
+export function thumbnailEbayPictureUrl(url: string): string | null {
+  const thumb = url.replace(
+    /\/s-l\d+(\.[A-Za-z]+)(?=$|[?#])/,
+    `/s-l${EBAY_THUMBNAIL_WIDTH}$1`,
+  );
+  return thumb === url ? null : thumb;
+}
+
 /** The subset of an item_photos row this planner needs to decide. */
 export interface ExistingPhoto {
   remote_source: string | null;
@@ -112,6 +142,8 @@ export interface ExistingPhoto {
 export interface MirrorInsert {
   photo_type: "front" | "detail";
   photo_url: string;
+  /** eBay's own small render, so grids do not pull the 1600px original. */
+  thumbnail_url: string | null;
   storage_path: null;
   remote_source: string;
   remote_source_url: string;
@@ -161,6 +193,7 @@ export function planPhotoMirror(
       // role, and guessing one from position past the first would be invention.
       photo_type: sortOrder === 0 ? "front" : "detail",
       photo_url: url,
+      thumbnail_url: thumbnailEbayPictureUrl(url),
       storage_path: null,
       remote_source: EBAY_REMOTE_SOURCE,
       remote_source_url: url,

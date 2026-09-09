@@ -3393,8 +3393,24 @@ async function doListingsPull(
               FILL_IF_BLANK_FIELDS.some(
                 (f) => !localRow[f] || !localRow[f]!.trim(),
               );
+            // US-3196: GetItem is also the ONLY source of a legacy listing's
+            // full picture set — ActiveList carries one gallery thumbnail and
+            // nothing else. Gating the call on blank specifics therefore gated
+            // the PHOTOS on an unrelated question, and an item whose brand,
+            // size, colour, style and material were already filled mirrored
+            // exactly one photo, permanently. That is the "why is there only
+            // one picture" report.
+            //
+            // Asking once per item is enough, so this reuses the stamp rather
+            // than adding a second one: a null ebay_specifics_checked_at means
+            // GetItem has never been called for this item, and the same bulk
+            // write below stamps it either way. An item that HAS been asked is
+            // not asked again for photos, so this adds one call per item on the
+            // first sync after deploy and nothing after that.
+            const neverAskedGetItem = !askedAt;
+            const needsGetItem = needsSpecifics || neverAskedGetItem;
             let specifics: Record<string, string> = {};
-            if (needsSpecifics) {
+            if (needsGetItem) {
               if (specificsFetched < MAX_SPECIFICS_FETCH_PER_SYNC) {
                 specificsFetched += 1;
                 // US-3196: the same call returns the listing's full picture set,

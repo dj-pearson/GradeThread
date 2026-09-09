@@ -608,6 +608,12 @@ flipdeskImageRoutes.post("/adopt-remote", async (c) => {
         .update({
           storage_path: path,
           photo_url: publicUrl,
+          // Cleared with it: thumbnail_url still pointed at eBay's small render,
+          // and leaving it would mean an adopted photo whose grid tile still
+          // dies when the eBay listing ends — the exact failure the seller
+          // pressed this button to avoid. Null falls back to photo_url, which
+          // is now ours.
+          thumbnail_url: null,
           // Cleared: the bytes are ours now, so the row is listable again.
           remote_source: null,
           // Kept: this is what stops the next sync re-adding the picture.

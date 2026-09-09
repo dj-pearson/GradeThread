@@ -15,6 +15,7 @@ import {
   MAX_MIRRORED_PHOTOS,
   normalizeEbayPictureUrls,
   planPhotoMirror,
+  thumbnailEbayPictureUrl,
   upgradeEbayPictureUrl,
 } from "../lib/ebay-photo-mirror.ts";
 import { publicItemPhotoUrl } from "../lib/item-photo-storage.ts";
@@ -153,4 +154,27 @@ Deno.test("US-3196: a mirrored photo is never handed to a marketplace", () => {
     }),
     "https://cdn.example.com/item-photos/ebay_0_1.jpg",
   );
+});
+
+Deno.test("a mirrored row names eBay's small render as its thumbnail", () => {
+  // Every grid, list and cover reads thumbnail_url FIRST and only falls back to
+  // photo_url. A null here meant each of them pulled the 1600px original, and
+  // where the Cloudflare resizer is on, the fallback path asks
+  // /cdn-cgi/image/.../<an ebay url>, which answers 403 for an origin
+  // Cloudflare does not serve. That is why a synced photo showed in the
+  // full-size preview and nowhere else.
+  const row = planPhotoMirror([FULL], [])[0]!;
+  assertEquals(row.photo_url, FULL);
+  assertEquals(
+    row.thumbnail_url,
+    "https://i.ebayimg.com/images/g/AbCdEfGh/s-l500.jpg",
+  );
+});
+
+Deno.test("a URL we cannot resize gets no thumbnail rather than a guess", () => {
+  // photo_url is a working image either way, so degrading to "no thumbnail" is
+  // the safe direction. Inventing a URL eBay may not serve is not.
+  const legacy = "https://i.ebayimg.com/00/s/MTYwMFgxMjAw/z/abc/$_57.JPG";
+  assertEquals(thumbnailEbayPictureUrl(legacy), null);
+  assertEquals(planPhotoMirror([legacy], [])[0]!.thumbnail_url, null);
 });
