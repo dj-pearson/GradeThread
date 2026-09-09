@@ -362,7 +362,7 @@ import {
 import { loadFulfillmentSignals } from "../lib/business-policy-signals.ts";
 import {
   getAllActiveEbaySelling,
-  getItemSpecifics,
+  getItemDetails,
   getBestOffers,
   respondToBestOffer,
   getMemberMessages,
@@ -414,6 +414,7 @@ import {
   itemHasActiveListing,
   resyncItemListedStatus,
 } from "../lib/active-listings.ts";
+import { mirrorEbayPhotos } from "../lib/ebay-photo-sync.ts";
 import {
   buildPriceQtyRequest,
   chunk,
@@ -2679,6 +2680,10 @@ async function doListingsPull(
     listing_format: string | null;
     start_date: string | null;
     raw: Record<string, unknown>;
+    // US-3196: eBay-hosted picture URLs for an orphan. They sit here until the
+    // seller links the listing or turns it into a new item, at which point the
+    // frontend copies them onto item_photos as reference rows.
+    photo_urls: string[];
     imported_at: string;
   };
 
@@ -2718,6 +2723,20 @@ async function doListingsPull(
   // Accumulators flushed in one bulk call each after both listing passes.
   const pendingListing = new Map<string, ListingWrite>();
   const orphanByEbayId = new Map<string, OrphanWrite>();
+  // US-3196: eBay-hosted picture URLs per matched item, mirrored onto
+  // item_photos as reference rows in one batch after both passes. Accumulated
+  // rather than written inline so a 400-listing catalog costs two queries, and
+  // so the modern and legacy passes can both contribute to the same item.
+  const photoUrlsByItem = new Map<string, string[]>();
+  const addPhotoUrls = (itemId: string, urls: string[]): void => {
+    if (urls.length === 0) return;
+    const existing = photoUrlsByItem.get(itemId);
+    if (!existing) {
+      photoUrlsByItem.set(itemId, [...urls]);
+      return;
+    }
+    for (const u of urls) if (!existing.includes(u)) existing.push(u);
+  };
   // Items eBay reports as ACTIVE → flip to 'listed'. The notify set (modern
   // offers) emits the "listing is live" notification on the real transition;
   // the silent set (legacy listings) flips without notifying, matching the
@@ -3196,6 +3215,11 @@ async function doListingsPull(
             }),
           );
         }
+        // US-3196: eBay's own pictures for this listing (product.imageUrls,
+        // already on the offer). Outside the localRow guard because mirroring
+        // photos needs only the item id, and gating it on the catalog row would
+        // silently skip an item whose SKU map entry went missing mid-run.
+        addPhotoUrls(itemId, o.imageUrls);
         matched += 1;
       } else {
         // Snapshot orphan eBay listings — surfaced on the Reconciliation page.
@@ -3218,6 +3242,7 @@ async function doListingsPull(
             categoryId: o.categoryId,
             price: o.price,
           },
+          photo_urls: o.imageUrls,
           // US-465 AC2: do NOT write match_status here. Omitting it means a
           // brand-new orphan gets the column default ('unmatched') on INSERT,
           // while an existing row's match_status (and matched_item_id, also
@@ -3345,6 +3370,11 @@ async function doListingsPull(
           // already seeded for this item) and the silent status flip.
           applyListingPatch(ensurePendingListing(itemId), patch);
           listedSilentItemIds.add(itemId);
+          // US-3196: ActiveList carries only PictureDetails.GalleryURL, which
+          // normalizes to the same URL as its full-size twin from GetItem. So
+          // an item that never earns a GetItem call still gets its hero photo,
+          // and one that does earn it gets the whole set with no duplicate.
+          addPhotoUrls(itemId, l.pictureUrls);
           // eBay as source of truth. Legacy (GetMyeBaySelling) gives us the
           // title for free, but NOT item specifics — fetch those via GetItem
           // ONLY when this item still has a blank target field, and only while
@@ -3367,7 +3397,12 @@ async function doListingsPull(
             if (needsSpecifics) {
               if (specificsFetched < MAX_SPECIFICS_FETCH_PER_SYNC) {
                 specificsFetched += 1;
-                specifics = await getItemSpecifics(userId, l.ebayItemId);
+                // US-3196: the same call returns the listing's full picture set,
+                // so the photo mirror rides the specifics backfill rather than
+                // spending Trading quota of its own.
+                const details = await getItemDetails(userId, l.ebayItemId);
+                specifics = details.specifics;
+                addPhotoUrls(itemId, details.pictureUrls);
                 specificsCheckedItemIds.push(localRow.id);
                 // Keep the in-memory row honest so a second listing pointing at
                 // the same item in this run doesn't re-ask.
@@ -3408,6 +3443,11 @@ async function doListingsPull(
               watchCount: l.watchCount,
               endTime: l.endTime,
             },
+            // ActiveList gives the gallery thumbnail only, upgraded to full
+            // size. An orphan earns no GetItem call (that fill is gated on a
+            // MATCHED item's blank fields), so one photo is what there is until
+            // the seller links it and the next sync sees a matched item.
+            photo_urls: l.pictureUrls,
             // US-465 AC2: omit match_status so a manual link survives re-sync
             // (default 'unmatched' applies only to brand-new rows; existing
             // match_status + matched_item_id are preserved on conflict).
@@ -3519,6 +3559,16 @@ async function doListingsPull(
         onConflict: "user_id,ebay_item_id",
       });
     if (error) errors.push(`orphan upsert: ${error.message.slice(0, 160)}`);
+  }
+  // US-3196: mirror eBay's pictures onto the matched items as reference rows.
+  // After the listing flush so a brand-new item is already on record, and
+  // non-fatal: a sync that reconciled the catalog and failed on the photos is
+  // still a good sync, and the next run re-plans from the same state.
+  let photosMirrored = 0;
+  if (photoUrlsByItem.size > 0) {
+    const mirror = await mirrorEbayPhotos(userId, photoUrlsByItem);
+    photosMirrored = mirror.inserted;
+    errors.push(...mirror.errors);
   }
   // Status flips — one .in('id',[...]) update per transition. The prep-status
   // filter keeps the flip forward-only; .select() returns only the rows that
@@ -4335,7 +4385,7 @@ async function doListingsPull(
       `sales_skipped=${salesSkipped} sales_enriched=${salesEnriched} ` +
       `catalog_updated=${catalogUpdated} specifics_fetched=${specificsFetched}` +
       `${specificsCapped ? ` (capped at ${MAX_SPECIFICS_FETCH_PER_SYNC}; remaining items backfill next sync)` : ""} ` +
-      `ended_to_draft=${endedToDraft} ` +
+      `ended_to_draft=${endedToDraft} photos_mirrored=${photosMirrored} ` +
       `conflicts_recorded=${conflictsRecorded} conflicts_resolved=${conflictsResolved} ` +
       `errors=${errors.length}`,
   );

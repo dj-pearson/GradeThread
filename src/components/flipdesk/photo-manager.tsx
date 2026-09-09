@@ -31,6 +31,7 @@ import {
   SunMedium,
   Eye,
   EyeOff,
+  Download,
 } from "lucide-react";
 import { toast } from "sonner";
 import { toastError } from "@/lib/toast-error";
@@ -58,6 +59,7 @@ import { usePhotoProfile, type PhotoProfile } from "@/lib/photo-profiles";
 import { captureGuidanceFor } from "@/lib/macro-capture-guidance";
 import { firstPhotoNudge } from "@/lib/photo-standards";
 import { PhotoEditorDialog } from "@/components/flipdesk/photo-editor-dialog";
+import { useAdoptRemotePhotos } from "@/hooks/use-adopt-remote-photos";
 import { BulkToneDialog } from "@/components/flipdesk/bulk-tone-dialog";
 import { useRemoveBackground, useRemoveBgCapability } from "@/hooks/use-remove-bg";
 import { ItemPhotoImg } from "@/components/flipdesk/item-photo-img";
@@ -172,6 +174,13 @@ export function PhotoManager({
   // so the button never 503s on click.
   const { data: bgCaps } = useRemoveBgCapability();
   const removeBgEnabled = bgCaps?.remove_bg ?? false;
+
+  // US-3196: photos the eBay sync mirrored by reference. They render from
+  // eBay's CDN and GradeThread holds no file for them, which is why they cannot
+  // be edited, cannot be sent to another marketplace, and disappear if the eBay
+  // listing ends. One button per ITEM rather than per photo, because the route
+  // is item-scoped and because "copy these" is how sellers think about it.
+  const adoptRemote = useAdoptRemotePhotos();
 
   async function doRemoveBg(photo: ItemPhotoRow) {
     setRemovingBgId(photo.id);
@@ -299,6 +308,10 @@ export function PhotoManager({
     (p) => !isNonListablePhotoType(p.photo_type, p.photo_role),
   );
   const heroNudge = firstPhotoNudge(listableOrder);
+  // US-3196: how many of this item's photos GradeThread does not hold a file
+  // for. remote_source, not a null storage_path — a row can be mid-upload, and
+  // offering to copy that from eBay would be nonsense.
+  const remotePhotoCount = order.filter((p) => p.remote_source != null).length;
 
   // Photos eligible for bulk tone matching. Grading evidence is excluded so a
   // tone pass can't quietly re-expose a photo the grade was read from; sensitive
@@ -501,6 +514,34 @@ export function PhotoManager({
           )}
         </div>
       )}
+      {remotePhotoCount > 0 && (
+        <div className="flex flex-col gap-2 rounded-lg border border-sky-500/40 bg-sky-500/5 p-3 text-xs text-sky-900 sm:flex-row sm:items-center sm:justify-between dark:text-sky-100">
+          <div className="space-y-0.5">
+            <p className="font-medium">
+              {remotePhotoCount} photo{remotePhotoCount === 1 ? " is" : "s are"}{" "}
+              still hosted by eBay
+            </p>
+            {/* Say what it costs, not that it is a warning. A seller browsing
+                their synced closet has no reason to act; one about to edit or
+                cross-post does, and this is the sentence that tells them. */}
+            <p className="text-sky-800/80 dark:text-sky-200/80">
+              Copy them here to edit them, list them elsewhere, or keep them if
+              the eBay listing ends.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => adoptRemote.mutate({ itemId })}
+            disabled={adoptRemote.isPending}
+            className="inline-flex shrink-0 items-center gap-1.5 self-start rounded-md bg-sky-600 px-2.5 py-1.5 font-medium text-white hover:bg-sky-700 disabled:opacity-60 sm:self-auto"
+          >
+            {adoptRemote.isPending
+              ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              : <Download className="h-3.5 w-3.5" />}
+            {adoptRemote.isPending ? "Copying..." : "Copy to GradeThread"}
+          </button>
+        </div>
+      )}
       <DndContext
         sensors={sensors}
         collisionDetection={closestCenter}
@@ -681,8 +722,13 @@ function SortablePhoto({
   // was also self-defeating: sellers learned to retag the photo to "Front" to
   // unlock the pencil, which broke its display and taught a habit that would
   // have leaked PII the moment the old code did publish it.
-  const editBlockedReason =
-    photo.storage_path == null
+  // US-3196: a referenced eBay photo is the common case of "no storage_path"
+  // now, and the old sentence was actively misleading about it — nothing is
+  // uploading and nothing is missing. Name the real reason and the fix.
+  const isRemotePhoto = photo.remote_source != null;
+  const editBlockedReason = isRemotePhoto
+    ? "This photo is still hosted by eBay. Copy it to GradeThread to edit it."
+    : photo.storage_path == null
       ? "This photo is still uploading, or its file is missing, so there's nothing to edit yet."
       : null;
 
@@ -756,6 +802,25 @@ function SortablePhoto({
         {notListed && (
           <span className="pointer-events-none absolute bottom-1 left-1 rounded bg-background/85 px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
             Not listed
+          </span>
+        )}
+        {/* US-3196: which photos the item does not actually own. Placed opposite
+            "Not listed" so an eBay-hosted photo that is also hidden shows both
+            facts rather than one covering the other. */}
+        {isRemotePhoto && !notListed && (
+          <span
+            className="pointer-events-none absolute bottom-1 left-1 rounded bg-background/85 px-1.5 py-0.5 text-[10px] font-medium text-sky-700 dark:text-sky-300"
+            title="Hosted by eBay. Copy it to GradeThread to edit or cross-post it."
+          >
+            From eBay
+          </span>
+        )}
+        {isRemotePhoto && notListed && (
+          <span
+            className="pointer-events-none absolute bottom-1 right-1 rounded bg-background/85 px-1.5 py-0.5 text-[10px] font-medium text-sky-700 dark:text-sky-300"
+            title="Hosted by eBay. Copy it to GradeThread to edit or cross-post it."
+          >
+            From eBay
           </span>
         )}
         <button

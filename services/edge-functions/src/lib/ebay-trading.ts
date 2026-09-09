@@ -15,6 +15,7 @@
 // see ebay-client.listRecentOrders / Fulfillment getOrders).
 
 import { XMLParser } from "fast-xml-parser";
+import { normalizeEbayPictureUrls } from "./ebay-photo-mirror.ts";
 import {
   ebayResilientFetch,
   getConnectionAccessToken,
@@ -101,6 +102,11 @@ export interface LegacyEbayListing {
   // Leaf-category id the listing is filed under. Trading API returns this
   // as <PrimaryCategory><CategoryID>… for Seller-Hub-created listings.
   primaryCategoryId: string | null;
+  // US-3196: eBay-hosted picture URLs, largest render, in eBay's order.
+  // GetMyeBaySelling gives us only PictureDetails.GalleryURL (one thumbnail,
+  // upgraded to full size by the normalizer), so this is usually a single-item
+  // array. The full set comes from GetItem — see getItemDetails.
+  pictureUrls: string[];
 }
 
 interface RawItem {
@@ -125,6 +131,10 @@ interface RawItem {
   WatchCount?: unknown;
   PrimaryCategory?: {
     CategoryID?: unknown;
+  };
+  PictureDetails?: {
+    GalleryURL?: unknown;
+    PictureURL?: unknown;
   };
 }
 
@@ -187,6 +197,13 @@ function normalizeItem(raw: RawItem): LegacyEbayListing | null {
     endTime: asString(raw.ListingDetails?.EndTime),
     watchCount: asNumber(raw.WatchCount),
     primaryCategoryId: asString(raw.PrimaryCategory?.CategoryID),
+    // PictureURL first: on the rare ActiveList response that carries it, it is
+    // the whole set. GalleryURL is the thumbnail fallback and normalizes to the
+    // same URL as its full-size twin, so listing both cannot double-count.
+    pictureUrls: normalizeEbayPictureUrls([
+      raw.PictureDetails?.PictureURL,
+      raw.PictureDetails?.GalleryURL,
+    ]),
   };
 }
 
@@ -365,17 +382,39 @@ interface GetItemResponse {
       ItemSpecifics?: {
         NameValueList?: Array<{ Name?: unknown; Value?: unknown }>;
       };
+      PictureDetails?: {
+        GalleryURL?: unknown;
+        PictureURL?: unknown;
+      };
     };
   };
 }
 
-// Returns eBay item specifics for one listing as { [Name]: firstValue }.
-// Best-effort: any failure logs + returns {} so one bad item can't fail the
-// whole sync.
-export async function getItemSpecifics(
+/** What one GetItem call yields. Both halves are best-effort and may be empty. */
+export interface EbayItemDetails {
+  /** Item specifics flattened to { [Name]: firstValue }. */
+  specifics: Record<string, string>;
+  /** US-3196: every eBay-hosted picture on the listing, largest render first. */
+  pictureUrls: string[];
+}
+
+/**
+ * Reads one legacy listing's item specifics AND its pictures.
+ *
+ * US-3196 widened this from specifics-only. The picture set rides along free:
+ * DetailLevel=ReturnAll was already returning PictureDetails and the parser was
+ * throwing it away, so mirroring a listing's photos costs the sync no extra
+ * Trading quota. It is also the ONLY place the full set is available — the
+ * ActiveList pass carries just the gallery thumbnail.
+ *
+ * Best-effort: any failure logs and returns empties so one bad item cannot fail
+ * the whole sync.
+ */
+export async function getItemDetails(
   userId: string,
   itemId: string,
-): Promise<Record<string, string>> {
+): Promise<EbayItemDetails> {
+  const empty: EbayItemDetails = { specifics: {}, pictureUrls: [] };
   try {
     const token = await getUserAccessToken(userId);
     const { appId, certId, devId } = devEnv();
@@ -410,7 +449,7 @@ export async function getItemSpecifics(
       console.warn(
         `[ebay-trading] GetItem(${itemId}) HTTP ${res.status}: ${text.slice(0, 200)}`,
       );
-      return {};
+      return empty;
     }
 
     const root = (getItemParser.parse(text) as GetItemResponse).GetItemResponse;
@@ -418,7 +457,7 @@ export async function getItemSpecifics(
       console.warn(
         `[ebay-trading] GetItem(${itemId}) failed: ${root?.Errors?.[0]?.LongMessage ?? "no message"}`,
       );
-      return {};
+      return empty;
     }
 
     const nvl = root.Item?.ItemSpecifics?.NameValueList ?? [];
@@ -431,14 +470,31 @@ export async function getItemSpecifics(
       const first = values.map(asString).find((v) => v && v.trim());
       if (first) out[name] = first;
     }
-    return out;
+    return {
+      specifics: out,
+      pictureUrls: normalizeEbayPictureUrls([
+        root.Item?.PictureDetails?.PictureURL,
+        root.Item?.PictureDetails?.GalleryURL,
+      ]),
+    };
   } catch (err) {
     console.warn(
       `[ebay-trading] GetItem(${itemId}) threw:`,
       err instanceof Error ? err.message : String(err),
     );
-    return {};
+    return empty;
   }
+}
+
+/**
+ * Specifics-only view of getItemDetails, kept because several callers want
+ * nothing else and reading `.specifics` at each of them adds no clarity.
+ */
+export async function getItemSpecifics(
+  userId: string,
+  itemId: string,
+): Promise<Record<string, string>> {
+  return (await getItemDetails(userId, itemId)).specifics;
 }
 
 // ── US-673: Best offers + buyer messages (Trading API) ─────────────────────

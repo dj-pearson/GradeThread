@@ -290,6 +290,25 @@ export async function itemPhotoAiUrl(
  */
 export function publicItemPhotoUrl(p: ItemPhotoUrlRow): string | null {
   const stored = (p.photo_url ?? "").trim();
+  // US-3196: GradeThread hands a marketplace a URL only for bytes GradeThread
+  // HOLDS, and an empty storage_path means it holds none.
+  //
+  // The row this refuses is an eBay sync mirror (lib/ebay-photo-mirror.ts): its
+  // photo_url is a live i.ebayimg.com URL, so without this check the publish
+  // path would take eBay's own render of a listing and offer it back to eBay as
+  // the picture for a new one. eBay rejects an EPS URL it did not receive as an
+  // upload, and on the marketplaces that would accept it (Depop, Etsy, Shopify)
+  // the result is worse: a listing whose imagery lives on a competitor's CDN and
+  // vanishes when the seller ends the eBay listing it was borrowed from.
+  //
+  // Phrased on storage_path rather than on remote_source deliberately. A check
+  // reading remote_source would depend on every caller remembering to SELECT
+  // that column, and a forgotten column reads as NULL — which is to say, as
+  // "this photo is ours". This condition is already in every caller's select
+  // because the resolver has always needed it, so it cannot be disarmed by
+  // omission. It costs nothing real: every writer in the codebase sets
+  // storage_path and photo_url in the same insert.
+  if ((p.storage_path ?? "").trim() === "") return null;
   if (stored !== "") return stored;
   // US-2407: an empty photo_url means the bytes are in the PRIVATE bucket, full
   // stop — the type is not consulted, because a seller can change the type and

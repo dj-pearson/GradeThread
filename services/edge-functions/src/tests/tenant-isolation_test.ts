@@ -842,6 +842,35 @@ Deno.test({
 });
 
 Deno.test({
+  // US-3196: adopt-remote DOWNLOADS an item's eBay-hosted photos into the
+  // PUBLIC item-photos bucket and repoints the rows at our copies. A
+  // cross-tenant call would therefore both read another seller's catalog and
+  // rewrite their photo rows, so ownership is established on inventory_items
+  // before any read of item_photos and every write is keyed on the cleared id.
+  name: "B cannot adopt the remote photos on A's item",
+  ignore: !CONFIGURED || !Deno.env.get("TEST_USER_A_ITEM_ID"),
+  fn: async () => {
+    const res = await fetch(`${BASE}/api/flipdesk/images/adopt-remote`, {
+      method: "POST",
+      headers: authHeaders(B_JWT!),
+      body: JSON.stringify({ item_id: Deno.env.get("TEST_USER_A_ITEM_ID") }),
+    });
+    const body = await res.text();
+    assertDenied(res.status, "POST images/adopt-remote");
+    // A 200 here would be the real failure and it would look benign — the
+    // handler answers { adopted: 0 } for an item with no remote photos, so a
+    // scoping bug on an item that HAS them reads as a successful no-op in the
+    // status code alone. Pin the body too.
+    assert(
+      !body.includes('"adopted"'),
+      `POST images/adopt-remote with another tenant's item id returned an ` +
+        `adopt result (${body.slice(0, 200)}) — the inventory_items ownership ` +
+        `check must reject before any item_photos read.`,
+    );
+  },
+});
+
+Deno.test({
   // US-1868: the equity endpoints aggregate the CALLER's inventory/listings/
   // sales. Like /export they take no id, so the meaningful assertion is that the
   // numbers are the caller's own. A full containment check needs seeded values

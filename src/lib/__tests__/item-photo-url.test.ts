@@ -185,9 +185,37 @@ describe("private photos never reach a public destination (AC6)", () => {
     expect(
       itemPhotoPublishUrl({
         photo_type: "front",
+        // US-3196: the storage_path is what makes this photo ours to publish.
+        // It was absent here before, which no real row ever is — every writer
+        // sets both columns in one insert.
+        storage_path: "owner/item/front_1.jpg",
         photo_url: "https://cdn.example.com/item-photos/front.jpg",
       }),
     ).toBe("https://cdn.example.com/item-photos/front.jpg");
+  });
+
+  it("US-3196: an eBay-hosted mirror photo never reaches a public destination", () => {
+    // What the eBay sync writes: a live CDN URL and no file of our own. Handing
+    // this to a publish would offer eBay's render of one listing back as the
+    // picture for another, and would put a competitor's CDN behind a cross-post
+    // that dies the day the eBay listing ends.
+    expect(
+      itemPhotoPublishUrl({
+        photo_type: "front",
+        storage_path: null,
+        photo_url: "https://i.ebayimg.com/images/g/AbCd/s-l1600.jpg",
+      }),
+    ).toBe("");
+
+    // Copying it in (Copy to GradeThread) sets storage_path and a URL of ours,
+    // and that is exactly what lifts the refusal.
+    expect(
+      itemPhotoPublishUrl({
+        photo_type: "front",
+        storage_path: "owner/item/ebay_0_123.jpg",
+        photo_url: "https://cdn.example.com/item-photos/ebay_0_123.jpg",
+      }),
+    ).toBe("https://cdn.example.com/item-photos/ebay_0_123.jpg");
   });
 
   it("needsSignedDisplayUrl matches the private-upload SHAPE, not the type", () => {

@@ -1,5 +1,52 @@
 # PENDING MIGRATIONS — applied to prod separately from the push
 
+## ⏳ HELD: 00772 — item_photos.remote_source + flipdesk_ebay_listings.photo_urls (US-3196)
+
+**Risk: LOW.** Two nullable text columns on `item_photos`, one CHECK, one
+partial index, and one `text[] NOT NULL DEFAULT '{}'` on
+`flipdesk_ebay_listings`. No backfill and no rewrite of existing data: every
+existing photo row reads `remote_source = NULL`, which means "GradeThread holds
+this file" and is exactly what was true before.
+
+**Apply order:** after 00771. Run `NOTIFY pgrst, 'reload schema';` afterwards
+(three new columns), then redeploy the edge.
+
+**⚠️ THE FRONTEND READS THE NEW COLUMNS, AND CLOUDFLARE PAGES DEPLOYS ON PUSH.**
+`src/components/flipdesk/photo-manager.tsx` reads `item_photos.remote_source`
+and `src/components/flipdesk/ebay-sku-match.tsx` reads
+`flipdesk_ebay_listings.photo_urls`. Both go out the moment this is pushed. The
+photo grid uses `select("*")` so a missing column reads as undefined and the
+banner simply never shows, but the orphan page reads `photo_urls` on a row shape
+PostgREST would not yet be returning. Apply the SQL BEFORE the push.
+
+**What it adds**
+- `item_photos.remote_source` — the marketplace still hosting the bytes when
+  `storage_path` is NULL. Today only `'ebay'`, enforced by a CHECK because the
+  value gates behaviour (a row carrying it is never sent to a marketplace).
+- `item_photos.remote_source_url` — the original marketplace URL. Deliberately
+  KEPT after a seller copies the image into our bucket: it is the key the next
+  sync compares against, so clearing it would make the sync re-add every photo
+  it had already adopted.
+- `idx_item_photos_remote_source_url` — partial, on
+  `(inventory_item_id, remote_source_url)`, the sync's dedupe read.
+- `flipdesk_ebay_listings.photo_urls` — eBay-hosted picture URLs for a listing
+  that matched no FlipDesk SKU.
+
+**BEHAVIOUR CHANGE WORTH KNOWING BEFORE YOU APPLY IT.** Once the edge deploys,
+an eBay sync writes reference photo rows onto every matched item that has NO
+photos of its own. Those rows render from `i.ebayimg.com` and store nothing.
+Items where the seller already has photos are never touched. There is no undo
+button, but the rows are ordinary `item_photos` and delete like any other, and
+`DELETE FROM public.item_photos WHERE remote_source IS NOT NULL;` removes every
+one of them without touching a single file the seller owns.
+
+**Rollback:** drop the two columns, the CHECK, the index and the array column.
+Nothing else depends on them, and the guard that keeps reference photos out of
+marketplaces is phrased on `storage_path`, not on `remote_source`, so it keeps
+working with the columns gone.
+
+**No operator step.**
+
 ## ⏳ HELD: 00771 — aged_threshold_days + the Aged tab in flipdesk_listing_page (US-3195)
 
 **Risk: MEDIUM, and higher than the other three in this stack.** The column is

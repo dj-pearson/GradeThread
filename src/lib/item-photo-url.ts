@@ -84,6 +84,22 @@ export function bucketForItemPhotoRow(photo: PhotoLike): string {
  * resolveItemPhotoDisplayUrl().
  */
 export function itemPhotoPublishUrl(photo: PhotoLike): string {
+  // US-3196: GradeThread hands a public destination a URL only for bytes
+  // GradeThread HOLDS, and an empty storage_path means it holds none.
+  //
+  // The row this refuses is an eBay sync mirror: its photo_url is a live
+  // i.ebayimg.com URL, so without this a publish would offer eBay's own render
+  // of one listing back as the picture for another, and a cross-post would put
+  // a competitor's CDN behind a Poshmark listing that dies the day the eBay one
+  // ends. Copying the photo into GradeThread (Copy to GradeThread on the photo
+  // grid) sets storage_path and lifts the refusal.
+  //
+  // Deliberately the same condition, and the same reasoning, as the edge's
+  // publicItemPhotoUrl in lib/item-photo-storage.ts. Phrasing it on
+  // storage_path rather than on remote_source means it cannot be disarmed by a
+  // caller that forgets to select a column, and it costs nothing real: every
+  // writer sets storage_path and photo_url in the same insert.
+  if (!(photo.storage_path ?? "")) return "";
   return photo.photo_url ?? "";
 }
 

@@ -10,6 +10,7 @@
 // All endpoint hosts switch between sandbox and production based on EBAY_ENV.
 
 import { supabaseAdmin } from "./supabase.ts";
+import { normalizeEbayPictureUrls } from "./ebay-photo-mirror.ts";
 // US-2704: the snapshot funnel. Every write below that changes what a buyer
 // reads records it, because an INAD defence is the listing text that was live
 // and nothing else kept it.
@@ -2764,10 +2765,11 @@ export async function listOffersForSku(
       listingStatus: o.listing?.listingStatus ?? null,
       listingStartDate: o.listing?.listingStartDate ?? null,
       listingDescription: o.listingDescription ?? null,
-      // title/aspects live on the inventory_item, not the offer — listAllOffers
-      // fills them in from the item that produced this offer.
+      // title/aspects/imageUrls live on the inventory_item, not the offer —
+      // listAllOffers fills them in from the item that produced this offer.
       title: null,
       aspects: null,
+      imageUrls: [],
     }));
 }
 
@@ -3530,6 +3532,9 @@ export interface RemoteOffer {
   // (fill-if-blank). Populated by listAllOffers; no extra eBay call.
   title: string | null;
   aspects: Record<string, string[]> | null;
+  // US-3196: the inventory item's product.imageUrls, carried the same way and
+  // for the same reason — the sync mirrors them onto item_photos as references.
+  imageUrls: string[];
 }
 
 export interface RemoteInventoryItem {
@@ -3537,6 +3542,10 @@ export interface RemoteInventoryItem {
   title: string | null;
   // eBay item specifics (product.aspects), e.g. { Brand: ["Nike"], Size: ["M"] }.
   aspects: Record<string, string[]> | null;
+  // US-3196: product.imageUrls, normalized to eBay's CDN and full size. Already
+  // in the response the sync reads for title and aspects, so mirroring a
+  // listing's photos costs the modern pass no extra call.
+  imageUrls: string[];
 }
 
 // US-466: pagination safety ceilings (pages). These exist ONLY to stop a
@@ -3580,7 +3589,11 @@ export async function listAllInventoryItems(
     const payload = await fetchAuthed<{
       inventoryItems?: Array<{
         sku?: string;
-        product?: { title?: string; aspects?: Record<string, string[]> };
+        product?: {
+          title?: string;
+          aspects?: Record<string, string[]>;
+          imageUrls?: string[];
+        };
       }>;
       total?: number;
     }>(
@@ -3595,6 +3608,7 @@ export async function listAllInventoryItems(
           sku: it.sku,
           title: it.product?.title ?? null,
           aspects: it.product?.aspects ?? null,
+          imageUrls: normalizeEbayPictureUrls(it.product?.imageUrls),
         });
       }
     }
@@ -3694,7 +3708,12 @@ export async function listAllOffers(
           // Carry the item's catalog data onto each of its offers so the sync
           // can drive inventory_items.title + specifics without a second fetch.
           .then((offers) =>
-            offers.map((o) => ({ ...o, title: it.title, aspects: it.aspects }))
+            offers.map((o) => ({
+              ...o,
+              title: it.title,
+              aspects: it.aspects,
+              imageUrls: it.imageUrls,
+            }))
           )
           .catch((err) => {
             // A 429/quota error means eBay is throttling the whole account —

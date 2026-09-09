@@ -4,6 +4,7 @@ import { failSafe } from "../lib/http-errors.ts";
 import {
   downloadItemPhoto,
   readBucketForItemPhoto,
+  ITEM_PHOTOS_BUCKET,
   SENSITIVE_ITEM_PHOTO_TYPES,
   SUBMISSION_IMAGES_BUCKET,
 } from "../lib/item-photo-storage.ts";
@@ -13,7 +14,10 @@ import {
   putR2Object,
   r2PublicUrl,
 } from "../lib/r2-client.ts";
-import { readImageDimensions } from "../lib/upload-validation.ts";
+import { readImageDimensions, validateImageUpload } from "../lib/upload-validation.ts";
+import { stripImageMetadata } from "../lib/image-metadata.ts";
+import { safeFetch } from "../lib/ssrf.ts";
+import { isEbayPhotoUrl } from "../lib/ebay-photo-mirror.ts";
 
 // Image processing pipeline (client-side, see PhotoUploader) and
 // cold-storage archival to Cloudflare R2.
@@ -438,3 +442,193 @@ flipdeskImageRoutes.post("/archive", async (c) => {
   return c.json(out.result);
 });
 
+
+// ── US-3196: adopt an item's eBay-hosted photos ────────────────────────────
+//
+// POST /adopt-remote  { item_id }
+//
+// The eBay sync mirrors a listing's pictures onto the item BY REFERENCE:
+// photo_url points at i.ebayimg.com, storage_path is NULL, remote_source is
+// 'ebay' (see lib/ebay-photo-mirror.ts for why). That is enough to look at and
+// not enough to work with — a referenced photo cannot be cropped or tone
+// matched, cannot be sent to a marketplace, and dies when the seller ends the
+// eBay listing it was borrowed from.
+//
+// This is the one action that reverses all three, for one item, when the seller
+// asks. It downloads each picture through the same pipeline every other server
+// upload uses (US-276: safeFetch, then validateImageUpload, then
+// stripImageMetadata, then storage.upload), and repoints the row at our copy.
+//
+// remote_source_url is deliberately KEPT while remote_source is cleared. The
+// first is the dedupe key the next sync compares against, so losing it would
+// re-add every adopted photo as a fresh reference; the second is what marks the
+// row unlistable, so keeping it would leave a photo we now own unpublishable.
+
+/** Ceiling per photo. Matches the closet import; eBay's own limit is smaller. */
+const ADOPT_PHOTO_MAX_BYTES = 12 * 1024 * 1024;
+
+/**
+ * A render below this on the long side is refused.
+ *
+ * eBay serves the same picture at a dozen sizes and the mirror upgrades every
+ * URL to the largest before storing it. If that rewrite ever stops matching a
+ * URL shape, the adopt would silently save 140px thumbnails over what the
+ * seller believes are their photos, and nothing else would go red. This is the
+ * floor that makes that failure visible instead.
+ */
+const ADOPT_MIN_DIMENSION = 500;
+
+interface RemotePhotoRow {
+  id: string;
+  photo_url: string;
+  photo_type: string | null;
+  sort_order: number;
+  remote_source_url: string | null;
+}
+
+flipdeskImageRoutes.post("/adopt-remote", async (c) => {
+  const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
+
+  let body: { item_id?: unknown };
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: "Invalid JSON body" }, 400);
+  }
+  const itemId = typeof body.item_id === "string" ? body.item_id.trim() : "";
+  if (!itemId) return c.json({ error: "item_id is required" }, 400);
+
+  // US-268: the item id is request input. Establish ownership FIRST, then key
+  // every read and write below on the id this query cleared, never on the id
+  // that arrived in the body.
+  const { data: itemRow, error: itemErr } = await supabaseAdmin
+    .from("inventory_items")
+    .select("id")
+    .eq("id", itemId)
+    .eq("user_id", ownerId)
+    .maybeSingle();
+  if (itemErr) {
+    return failSafe(c, 500, "Failed to load item", itemErr, "flipdesk-images.adopt.item");
+  }
+  if (!itemRow) return c.json({ error: "Item not found" }, 404);
+  const ownedItemId = (itemRow as { id: string }).id;
+
+  const { data: photoRows, error: photosErr } = await supabaseAdmin
+    .from("item_photos")
+    .select("id, photo_url, photo_type, sort_order, remote_source_url")
+    .eq("inventory_item_id", ownedItemId)
+    .not("remote_source", "is", null)
+    .order("sort_order", { ascending: true });
+  if (photosErr) {
+    return failSafe(c, 500, "Failed to load photos", photosErr, "flipdesk-images.adopt.photos");
+  }
+  const photos = (photoRows ?? []) as unknown as RemotePhotoRow[];
+  if (photos.length === 0) {
+    return c.json({
+      adopted: 0,
+      failures: [],
+      message: "No eBay-hosted photos on this item.",
+    });
+  }
+
+  const failures: Array<{ photo_id: string; message: string }> = [];
+  let adopted = 0;
+
+  for (const photo of photos) {
+    const source = (photo.remote_source_url ?? photo.photo_url ?? "").trim();
+    try {
+      // Host allowlist on top of safeFetch's private-range refusal. safeFetch
+      // stops the edge reaching our own network; this stops it fetching from an
+      // arbitrary public site if a row's URL is ever not what we wrote.
+      if (!isEbayPhotoUrl(source)) {
+        failures.push({ photo_id: photo.id, message: "Not an eBay image URL." });
+        continue;
+      }
+      const res = await safeFetch(source, {
+        maxBytes: ADOPT_PHOTO_MAX_BYTES,
+        timeoutMs: 12_000,
+      });
+      if (res.status !== 200) {
+        // The overwhelmingly likely cause, and worth saying plainly: eBay
+        // purges a listing's images once the seller ends it.
+        failures.push({
+          photo_id: photo.id,
+          message: res.status === 404
+            ? "eBay no longer has this image (the listing was probably ended)."
+            : `eBay answered ${res.status}.`,
+        });
+        continue;
+      }
+
+      const check = validateImageUpload(res.bytes, {
+        allow: ["jpeg", "png", "webp"],
+        minDimension: ADOPT_MIN_DIMENSION,
+      });
+      if (!check.ok) {
+        failures.push({ photo_id: photo.id, message: check.reason });
+        continue;
+      }
+      const stripped = stripImageMetadata(res.bytes, check.format).bytes;
+      const dims = readImageDimensions(stripped) ??
+        (check.width && check.height
+          ? { width: check.width, height: check.height }
+          : null);
+
+      const path =
+        `${ownerId}/${ownedItemId}/ebay_${photo.sort_order}_${Date.now()}.${check.ext}`;
+      const { error: upErr } = await supabaseAdmin.storage
+        .from(ITEM_PHOTOS_BUCKET)
+        .upload(path, stripped, { contentType: check.contentType, upsert: false });
+      if (upErr) {
+        failures.push({
+          photo_id: photo.id,
+          message: `Could not store: ${upErr.message}`,
+        });
+        continue;
+      }
+      // item-photo-url-ok: a just-uploaded object in the public listing bucket.
+      const publicUrl = supabaseAdmin.storage
+        .from(ITEM_PHOTOS_BUCKET)
+        .getPublicUrl(path).data.publicUrl;
+
+      const { error: updErr } = await supabaseAdmin
+        .from("item_photos")
+        .update({
+          storage_path: path,
+          photo_url: publicUrl,
+          // Cleared: the bytes are ours now, so the row is listable again.
+          remote_source: null,
+          // Kept: this is what stops the next sync re-adding the picture.
+          remote_source_url: source,
+          width: dims?.width ?? null,
+          height: dims?.height ?? null,
+          bytes: stripped.length,
+        } as never)
+        .eq("id", photo.id)
+        .eq("inventory_item_id", ownedItemId);
+      if (updErr) {
+        // Roll the object back rather than leaving a paid-for orphan nothing
+        // points at. Best effort: a failed cleanup is not worth failing on.
+        await supabaseAdmin.storage
+          .from(ITEM_PHOTOS_BUCKET)
+          .remove([path])
+          .then(() => {}, () => {});
+        failures.push({
+          photo_id: photo.id,
+          message: `Could not record: ${updErr.message}`,
+        });
+        continue;
+      }
+      adopted += 1;
+    } catch (err) {
+      // One bad picture must not lose the others. Every photo reports its own
+      // outcome and the caller decides what to say about a partial run.
+      failures.push({
+        photo_id: photo.id,
+        message: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+
+  return c.json({ adopted, failures });
+});

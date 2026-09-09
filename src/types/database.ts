@@ -1911,6 +1911,16 @@ export interface ItemPhotoRow {
   // PhotoEditRecipe in src/lib/photo-edit-recipe.ts.
   original_storage_path: string | null;
   edit_recipe: unknown | null;
+  // US-3196 (migration 00772): a photo the eBay sync mirrored BY REFERENCE.
+  // `remote_source` is the marketplace still hosting the bytes ('ebay') and is
+  // set only while `storage_path` is null — it says that null is deliberate
+  // rather than a half-finished upload, and it is what keeps the row out of any
+  // outbound publish. Adopting the photo copies the bytes into our bucket and
+  // clears it. `remote_source_url` is the original marketplace URL and SURVIVES
+  // that copy: it is the key the next sync compares against, so clearing it
+  // would make the sync add the same picture all over again.
+  remote_source: string | null;
+  remote_source_url: string | null;
 }
 
 // US-889: reusable moderation queue row for listings + item_photos. Operator-only
@@ -2757,6 +2767,10 @@ export interface EbayListingRow {
   matched_item_id: string | null;
   match_status: EbayMatchStatus;
   raw: Record<string, unknown>;
+  // US-3196: eBay-hosted picture URLs for this unmatched listing, in eBay's
+  // order. Copied onto item_photos as reference rows when the orphan becomes an
+  // inventory item.
+  photo_urls: string[];
   imported_at: string;
   created_at: string;
   updated_at: string;
@@ -2774,6 +2788,7 @@ export interface EbayListingInsert {
   start_date?: string | null;
   matched_item_id?: string | null;
   match_status?: EbayMatchStatus;
+  photo_urls?: string[];
   raw?: Record<string, unknown>;
   imported_at?: string;
 }

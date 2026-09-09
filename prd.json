@@ -4585,7 +4585,8 @@
         "If the review queue needs a table, its migration carries the US-1108 triple: idempotent SQL, EXPECTED_SCHEMA_VERSION bumped in the same commit, self-record footer.",
         "Progress is visible while it runs, and a per-channel summary (imported / linked / needs review / failed) is shown when it finishes."
       ],
-      "priority": 20
+      "priority": 20,
+      "notes": "Scope correction 2026-09-08, before any code. The IMPORT half is built and only the LINKING half is missing, which inverts the effort estimate. services/edge-functions/src/routes/flipdesk-closet-import.ts (US-9201) already imports a Poshmark closet or Mercari listing list through the extension, as a durable flipdesk_import_runs job with one effect row per change, undo via /api/flipdesk/import/runs/:id/undo, and a reclaim cron; /dashboard/flipdesk/import is the page. flipdesk-import.ts (US-2518) does the same for CSV. eBay has Feed API sync, Etsy is US-3156 and Depop US-3154. So AC1 is an orchestration layer over routes that exist, and AC2 is already how the split works. THE REAL GAP IS AC3 AND AC4. closet-import-run.ts dedupes on (platform, platform_listing_id) scoped to the owner - so re-importing the SAME channel is idempotent (AC5 is already satisfied) and a Poshmark listing and an eBay listing of ONE physical garment create TWO inventory_items rows with no link between them. Nothing in the repo matches a listing on one channel to a listing on another. That is the single genuine gap the Sidekick teardown turned up, it is what their Universal Import sells, and it is worth doing on its own without the orchestration wrapper."
     },
     {
       "id": "US-3198",
@@ -4600,7 +4601,8 @@
         "No copy claims queued work is done. A queued job reads as queued until a drain writes back (the US-2481 honesty rule, restated in vault/60-decisions/adr-no-server-side-marketplace-automation.md section 4).",
         "Any new edge route is tenant-scoped with workspaceOwnerId ?? userId and gains a case in services/edge-functions/src/tests/tenant-isolation_test.ts (US-268)."
       ],
-      "priority": 21
+      "priority": 21,
+      "notes": "Scope correction 2026-09-08, before any code. Most of this exists. src/components/dashboard/widgets/flipdesk-extension-queue.tsx (US-3077 AC4) already reads THREE queues into one tile - the generic extension_work_queue, pending delists stamped on listings.delist_requested_at, and pending revises - and has the no-extension-installed branch, which is the state that actually strands a seller. src/components/flipdesk/pending-delist-banner.tsx (US-717) already names the channel and offers to run it, which is AC3. The honesty rule in AC5 is already enforced in use-extension-queue.ts (QUEUED_NOTICE) and restated in the widget header. AC4 is half-built in the other direction: notify.ts:243 already pushes to WAKE the extension so it drains now rather than at the next open. What is genuinely missing is only AC1's grouping (kind x channel, rather than one number across three queues) and AC2 (when the desktop last drained, and saying so when it never has). extension_work_queue.claimed_at already carries the data - migration 00588 - so this needs NO migration: it is a max(claimed_at) on the existing read plus a grouped render. Re-scope to those two before starting."
     },
     {
       "id": "US-3199",
@@ -4645,7 +4647,8 @@
         "The hardcoded closing line in src/lib/listing-templates.ts DESCRIPTION_TEMPLATES becomes the DEFAULT signature rather than an unremovable string, and src/test/listing-template-native-parity.test.ts still passes against the Swift mirror.",
         "A FlipDesk settings UI edits both fields and shows a live preview of the rendered description tail."
       ],
-      "priority": 24
+      "priority": 24,
+      "notes": "Scope correction 2026-09-08, before any code. HALF OF THIS IS ALREADY BUILT and the story as filed would have rebuilt it. listing_snippets (migration 00678, US-2961) is the seller's standing lines - named, reusable, referenced BY ID from a description block so fixing the shipping line fixes every listing; there is a management page at /dashboard/flipdesk/description-snippets, nine starter presets (US-2966, starter-snippets.ts) and an apply-to-drafts route. listing_templates (US-674/US-2877) is a second seller-owned surface: full saved presets with description, condition and condition note, editable on web and iOS. So the SIGNATURE half of AC3/AC5/AC6/AC7 needs nothing. What is genuinely missing is the AI VOICE: services/edge-functions/src/lib/ai-listing.ts hardcodes a per-PLATFORM tone map (ai-listing.ts:3620 - 'casual Gen-Z tone, hashtags, no title' for Depop, 'minimal designer/streetwear voice' for Grailed) and has no per-SELLER instruction anywhere. Remaining work is one nullable capped column on flipdesk_settings plus a settings UI, and the delivery has a constraint the ACs did not anticipate: the listing-gen prompt is VERSIONED with an eval gate (ai_prompt_versions + listing-eval.ts), so seller free text must be appended as a separate delimited instruction AFTER the versioned prompt and excluded from eval runs - editing it into the prompt body would make every golden-set run non-reproducible. The DESCRIPTION_TEMPLATES line named in AC6 is our hardcoded per-garment boilerplate, applied by composer.tsx:1473, and is a different thing from the seller's snippets; it stays."
     },
     {
       "id": "US-3202",
@@ -4660,20 +4663,6 @@
         "The readout is computed from the SAME source the publish path uses, so it cannot drift. A unit test asserts the two agree across src/test/fixtures/required-aspects-cases.json."
       ],
       "priority": 25
-    },
-    {
-      "id": "US-3203",
-      "passes": false,
-      "title": "Nothing on the site answers \"does GradeThread have my Poshmark password?\" - the strongest thing we can say is unsaid",
-      "description": "As a seller who has been share-jailed or suspended by a cloud automation tool, I want a page that explains who is actually acting on my account, so that I can tell GradeThread apart from the tools that hold my marketplace login.",
-      "acceptanceCriteria": [
-        "A public page explains the two models plainly and is registered in BOTH src/lib/seo/public-routes.ts and src/prerender/entry-server.tsx - the CI guard test and the prerender sync-guard fail otherwise.",
-        "The per-channel mechanism table on that page is GENERATED from MARKETPLACE_MECHANISM in src/lib/constants.ts, not hand-written, so it cannot drift from what we actually do.",
-        "The page states the cost honestly: extension channels need the desktop browser open. Leaving that out would be the same dishonesty the ADR exists to prevent.",
-        "vault/60-decisions/adr-no-server-side-marketplace-automation.md gains Sidekick Tools (poshsidekick.com) as a fourth competitor column, with the observed evidence: the username+password connect form, the server-3-cl.poshsidekick.com/getStatusMarketAutomation endpoint, and the onboarding call where their team logs into the seller closet.",
-        "No competitor is named on the public page. The vault note names them; the marketing describes the model."
-      ],
-      "priority": 26
     }
   ]
 }

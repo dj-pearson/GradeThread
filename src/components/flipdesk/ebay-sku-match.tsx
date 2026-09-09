@@ -90,6 +90,45 @@ async function upsertEbayListingRowForItem(
   }
 }
 
+/**
+ * US-3196: give a just-created item the eBay listing's own photos, referenced
+ * rather than copied.
+ *
+ * The sync stored the listing's picture URLs on the orphan row; these rows point
+ * straight at eBay's CDN (storage_path null, remote_source 'ebay'), so the item
+ * looks like the listing it came from without GradeThread holding a single byte.
+ * The seller turns any of them into real files with Copy to GradeThread on the
+ * photo grid, which is also what makes them editable and publishable.
+ *
+ * Only ever called on an item created a moment ago, so there is nothing to merge
+ * with and no seller photo to protect. Linking an orphan to an EXISTING item
+ * deliberately does not do this: that item already has the photos its owner
+ * chose, and appending eBay's set behind their back is not a link.
+ *
+ * Best-effort. A photo insert that fails must not undo an item and a listing
+ * that were created correctly, so the caller logs and carries on.
+ */
+async function insertRemotePhotosForItem(
+  itemId: string,
+  photoUrls: string[],
+): Promise<void> {
+  if (photoUrls.length === 0) return;
+  const rows = photoUrls.map((url, idx) => ({
+    inventory_item_id: itemId,
+    // The first picture eBay lists is the one buyers see in search results.
+    // Everything after it is a detail: eBay carries no per-photo role, and
+    // guessing one from position past the first would be invention.
+    photo_type: idx === 0 ? "front" : "detail",
+    photo_url: url,
+    storage_path: null,
+    remote_source: "ebay",
+    remote_source_url: url,
+    sort_order: idx,
+  }));
+  const { error } = await supabase.from("item_photos").insert(rows as never);
+  if (error) throw new Error(error.message);
+}
+
 function useEbayListings() {
   const user = useAuthStore((s) => s.user);
   return useQuery({
@@ -338,7 +377,20 @@ export function EbaySkuMatch() {
       throw new Error(`Listing record failed: ${listErr.message}`);
     }
 
-    // 3. Mark the orphan as matched.
+    // 3. US-3196: reference eBay's own photos so the new item looks like the
+    //    listing it came from. Non-fatal by design — an item and a listing that
+    //    were both created correctly must not be thrown away because a photo row
+    //    would not insert, and the next sync writes the same references anyway.
+    try {
+      await insertRemotePhotosForItem(itemId, listing.photo_urls ?? []);
+    } catch (err) {
+      console.warn(
+        `[ebay-sku-match] could not reference eBay photos for item ${itemId}:`,
+        err instanceof Error ? err.message : String(err),
+      );
+    }
+
+    // 4. Mark the orphan as matched.
     const { error: matchErr } = await supabase
       .from("flipdesk_ebay_listings")
       .update({
