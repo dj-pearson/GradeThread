@@ -45720,6 +45720,32 @@
       ],
       "priority": 3,
       "notes": "Done 2026-09-09. SyncMergeActor: the two freshness-guard inputs (mergeItems and mergeSingleInventory) resolve an unreadable updated_at to .distantPast via parseDateOrNil rather than to now via parseDate, so an unreadable stamp LOSES the comparison, the pass is skipped, and the local copy is untouched until a readable delta arrives. The listing branch keeps local.updatedAt when the remote value is absent or unreadable instead of setting it to now. createdAt deliberately still uses parseDate: it drives sort order only, where .distantPast would pin the row to the bottom forever and now puts it at the top -- neither is right and the stakes are cosmetic, so it is left alone and said so here. Three tests in SyncTests, one of which pins the OLD behavior (a now-fallback beats any held timestamp) so the regression is recognisable. Note this is defensive: sale_date, updated_at and created_at are all timestamptz, so PostgREST always emits ISO and the fallback should never fire in practice -- the fix is about which way it fails if it ever does. All 16 iOS guards pass."
+    },
+    {
+      "id": "US-3242",
+      "passes": true,
+      "title": "iOS: the photo-upload lookup got slower the longer the seller worked",
+      "description": "PhotoUploadStore.tasks(inventoryItemId:) went through allTasks, which sorts the entire store, and the store is only emptied on sign-out. So it holds every photo uploaded since launch. A seller working through a few hundred items builds a thousand-entry dictionary, and the capture screen calls this once per slot on every upload-progress tick: eight full sorts of a thousand elements per tick, to look at one item's five photos. Filtering before sorting is the same answer for a fraction of the work, and the cost stops growing with session length. Terminal tasks are deliberately NOT pruned: AIExtractionManager counts uploaded ones and AutoListerGenerator.isItemUploadComplete reads them, so evicting a completed task would change those flows.",
+      "acceptanceCriteria": [
+        "tasks(inventoryItemId:) filters first and sorts only that item's photos",
+        "The result is unchanged: that item's tasks, oldest first",
+        "A test proves the answer is unaffected by a thousand unrelated tasks in the store",
+        "CLAUDE.md's iOS guard count is corrected from six to sixteen, pointing at IOS_GUARDS as the authoritative list"
+      ],
+      "priority": 4,
+      "notes": "Done 2026-09-09. PhotoUploadStore.tasks(inventoryItemId:) filters tasks.values then sorts, instead of sorting allTasks and filtering the result. Identical output, and the cost is now proportional to one item's photos rather than to everything uploaded since launch. New GradeThreadTests/PhotoUploadStoreScalingTests.swift: correct item + oldest-first ordering, empty for an unknown item, and unchanged with a thousand unrelated tasks in the store. Terminal tasks are deliberately still not pruned and the reason is in the story: AIExtractionManager counts uploaded tasks and AutoListerGenerator.isItemUploadComplete reads them, so evicting a completed task would change those flows -- worth its own story if the dictionary size ever becomes the problem rather than the sort. Also corrected CLAUDE.md: it said all SIX ios/Scripts guards run in npm run verify; there are sixteen, four of them added in this session (US-3221/3222/3224/3238). The line now names IOS_GUARDS in scripts/verify.mjs as the authoritative list so the count cannot go stale the same way again. All 16 guards pass and the guard-lane test is 6/6."
+    },
+    {
+      "id": "US-3240",
+      "passes": true,
+      "title": "Deleting a listing photo takes one click, with no confirmation and no undo",
+      "description": "photo-uploader.tsx is the main photo surface on a FlipDesk item. Its per-slot trash icon calls remove(photo) straight from onClick: the file is removed from the item-photos bucket FIRST, then the item_photos row is deleted. No confirm, no undo, and because the object goes before the row, even a database restore would not bring the image back. The icon is a 12px button sitting next to an Add another button of the same size, which on a phone is a mis-tap away. The photo it deletes is often unrepeatable - the garment may already be packed, shipped or sold. The codebase has had the right tool since US-437: useConfirm() is provided to every authed page by ConfirmProvider, and a dozen FlipDesk surfaces already use it for less consequential things (ending an eBay campaign, a bulk intake discard).",
+      "acceptanceCriteria": [
+        "The trash icon goes through await confirm({ destructive: true }) with copy that says what is actually lost, in the same shape ebay-campaign-card.tsx uses. Naming the photo type it is about to remove beats a generic 'Are you sure'.",
+        "A guard lists the destructive call sites in customer-facing components and fails when one has no confirm gate, with a named-exclusion list for the deliberate ones - snap-catalog's discardDraft only removes an un-enriched placeholder and its button already says Discard.",
+        "Storage-before-row ordering is called out in a comment wherever it stays, because it is the reason this is unrecoverable rather than merely annoying."
+      ],
+      "notes": "Done 2026-09-09. Storage-before-row ordering is unchanged and now carries a comment saying it is why this is unrecoverable. Admin destructive actions are deliberately out of scope."
     }
   ]
 }
