@@ -2936,10 +2936,17 @@ export function FlipdeskComposerPage({
       const res = await crossPush.mutateAsync({ listingId, platforms, prices });
       const stubbed: string[] = [];
       const failed: string[] = [];
+      const queued: string[] = [];
       for (const p of platforms) {
         const r = res.results[p];
         if (!r) continue;
-        if (r.ok) {
+        if (r.ok && r.queued) {
+          // US-3213: never call this published. Poshmark, Mercari, Grailed,
+          // Vinted and Facebook are listed BY the seller's own browser, so the
+          // job is waiting for their desktop and nothing is live yet. Wording
+          // that blurs the two is how a seller believes something is up.
+          queued.push(MARKETPLACE_LABELS[p]);
+        } else if (r.ok) {
           toast.success(`Published to ${MARKETPLACE_LABELS[p]}.`);
         } else if (r.status === 501) {
           stubbed.push(MARKETPLACE_LABELS[p]);
@@ -2948,6 +2955,13 @@ export function FlipdeskComposerPage({
             `${MARKETPLACE_LABELS[p]}: ${r.blockers?.[0] ?? r.error ?? "failed"}`,
           );
         }
+      }
+      if (queued.length > 0) {
+        toast.success(
+          `Queued for your desktop: ${queued.join(", ")}. Open the extension ` +
+            `to finish listing there.`,
+          { duration: 10_000 },
+        );
       }
       if (stubbed.length > 0) {
         toast.info(

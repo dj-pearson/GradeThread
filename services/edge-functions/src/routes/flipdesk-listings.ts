@@ -118,6 +118,14 @@ interface SourceDraftRow {
 
 interface PlatformPushResult {
   ok: boolean;
+  /**
+   * US-3213: the work went to the desktop extension queue, not to an API.
+   *
+   * `ok` is true because the enqueue succeeded. It does NOT mean the listing is
+   * live, and every reader has to keep those apart — the advance-to-listed gate
+   * below does, and so does the composer's toast.
+   */
+  queued?: boolean;
   status?: number;
   error?: string;
   blockers?: string[];
@@ -185,10 +193,15 @@ function toPushResult(
   res: AdapterResult,
   listingRowId: string,
   price: number,
+  queued = false,
 ): PlatformPushResult {
   if (res.ok) {
     return {
       ok: true,
+      // US-3213: true when the work went to the desktop extension queue rather
+      // than to an API. The caller MUST NOT read this as "it is live" — see the
+      // markItemListed gate below and the composer's toast.
+      queued,
       listing_row_id: listingRowId,
       platform_listing_id: res.platformListingId,
       listing_url: res.listingUrl,
@@ -321,7 +334,7 @@ flipdeskListingsRoutes.post("/cross-push", async (c) => {
     // crosslist_to automation action publishes through the exact same path a
     // human cross-push does — find-or-create the sibling row, map it onto the
     // platform's limits, pre-flight it, publish.
-    const { result, listingRowId } = await crossPushPlatform({
+    const { result, listingRowId, queued } = await crossPushPlatform({
       ownerId,
       draft,
       groupId,
@@ -329,7 +342,7 @@ flipdeskListingsRoutes.post("/cross-push", async (c) => {
       price,
       variant: variantMap[platform],
     });
-    results[platform] = toPushResult(result, listingRowId, price);
+    results[platform] = toPushResult(result, listingRowId, price, queued);
   }
 
   // US-2179: one successful publish anywhere makes the item live, so advance it
@@ -337,7 +350,14 @@ flipdeskListingsRoutes.post("/cross-push", async (c) => {
   // this, so a Depop/Etsy/Shopify/Whatnot listing was invisible to both the
   // activeListings cap and the usage meter. If every platform failed the item
   // stays a draft, matching what actually happened.
-  if (Object.values(results).some((r) => r?.ok)) {
+  //
+  // US-3213: a QUEUED channel does not count. The enqueue succeeded, which is
+  // why its result is ok, but nothing is live on that marketplace until the
+  // seller's desktop drains the job. Advancing the item here would consume an
+  // activeListings cap slot and tell the seller it is listed, on the strength
+  // of a job that has not run — and if the queue never drains, that lie is
+  // permanent.
+  if (Object.values(results).some((r) => r?.ok && !r.queued)) {
     await markItemListed(draft.inventory_item_id, ownerId);
   }
 

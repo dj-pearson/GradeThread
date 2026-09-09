@@ -22,6 +22,11 @@
 // sibling update, and the group read all carry .eq("user_id", ownerId).
 
 import { supabaseAdmin } from "./supabase.ts";
+import { enqueueExtensionWork } from "./extension-enqueue.ts";
+// Derived, not restated: the same set that decides how a sibling is ENDED
+// decides how it is listed, so the two can never drift into a channel we can
+// list to but not delist from — which is the oversell US-2165 exists about.
+import { EXTENSION_DELIST_PLATFORMS } from "./cross-listing-sale.ts";
 import {
   type AdapterResult,
   type CrossListingPlatform,
@@ -59,6 +64,15 @@ export interface CrossPushOutcome {
   result: AdapterResult;
   /** The sibling row the attempt used — "" when the row couldn't be created. */
   listingRowId: string;
+  /**
+   * US-3213: the work went to the DESKTOP EXTENSION queue instead of an API.
+   *
+   * `result.ok` is true for these, because the enqueue succeeded and nothing
+   * failed — but a queued job is not a live listing, and every caller that
+   * treats "ok" as "it is up" has to be able to tell the difference. The
+   * activeListings cap and the advance-to-listed write both key off this.
+   */
+  queued?: boolean;
 }
 
 /**
@@ -220,6 +234,43 @@ export async function crossPushPlatform(
       },
       listingRowId: rowId,
     };
+  }
+
+  // US-3213: an extension channel is QUEUED, not published.
+  //
+  // Poshmark, Mercari, Grailed, Vinted and Facebook have no seller API we may
+  // use, so their adapters are stubs that return 501. Cross-push therefore
+  // created a local row, answered "publishing there ships soon", and stopped —
+  // while `enqueueExtensionWork` sat one import away, already doing exactly this
+  // job for the per-platform "Queue for my desktop" button on the listing kit.
+  // The seller had to press one button to publish and then hunt for another,
+  // per channel, to do the half the first button had quietly skipped.
+  //
+  // Nothing about the credential rule changes. The queue stores WHAT to do — a
+  // platform and the seller's own ids — and the enqueue refuses any payload
+  // carrying a password or session key. The marketplace session stays in the
+  // seller's own browser, which is the entire reason this path exists instead
+  // of a server-side login (adr-no-server-side-marketplace-automation).
+  if (EXTENSION_DELIST_PLATFORMS.has(platform)) {
+    const enqueued = await enqueueExtensionWork(ownerId, {
+      kind: "list",
+      platform,
+      inventory_item_id: draft.inventory_item_id,
+      listing_id: rowId,
+      payload: {},
+      source: "cross_push",
+    });
+    if (!enqueued.ok) {
+      return {
+        result: {
+          ok: false,
+          status: enqueued.status,
+          error: enqueued.error,
+        },
+        listingRowId: rowId,
+      };
+    }
+    return { result: { ok: true }, listingRowId: rowId, queued: true };
   }
 
   const result = await adapter.publish({

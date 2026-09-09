@@ -8,6 +8,12 @@ import type { CrossListingPlatform } from "@/lib/constants";
 
 export interface CrossPushPlatformResult {
   ok: boolean;
+  /**
+   * US-3213: the work went to the desktop extension queue rather than to an
+   * API. `ok` is true because the enqueue succeeded; it is NOT live yet, and
+   * the composer says so instead of claiming a publish.
+   */
+  queued?: boolean;
   status?: number;
   error?: string;
   blockers?: string[];

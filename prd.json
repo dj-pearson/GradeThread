@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-3213",
+  "nextId": "US-3214",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -4762,6 +4762,20 @@
       ],
       "dependsOn": [
         "US-3130"
+      ]
+    },
+    {
+      "id": "US-3213",
+      "passes": false,
+      "title": "Save and push skips the extension channels, so half the marketplaces a seller ticked go nowhere",
+      "description": "As a reseller listing one garment everywhere, I want the composer's push button to reach every marketplace I selected, so that I do not publish to eBay and then hunt for a second button, per channel, to do the half the first one quietly skipped.",
+      "acceptanceCriteria": [
+        "POST /cross-push routes an extension channel to enqueueExtensionWork with kind list, instead of calling its stub adapter and returning 501. Poshmark, Mercari, Grailed, Vinted and Facebook all reach the queue from the one Save and push button.",
+        "The branch is decided by EXTENSION_DELIST_PLATFORMS, derived rather than restated, so a channel we can list to is always one we can also end. A second hand-written list is how a channel becomes listable but not delistable, which is the oversell US-2165 exists about.",
+        "A queued channel is reported as queued, never as published. CrossPushOutcome and PlatformPushResult carry a queued flag, and the composer says Queued for your desktop with the reason, because a job waiting on the seller's browser is not a live listing.",
+        "A queued channel does NOT advance the item to listed: the markItemListed gate reads r.ok AND NOT r.queued. Advancing on an enqueue would spend an activeListings cap slot and tell the seller the item is up on the strength of a job that has not run, and if the desktop never drains that is permanent.",
+        "No credential rule changes. The queue stores what to do plus the seller's own ids, and enqueueExtensionWork already refuses a payload carrying a password or session key, so the marketplace session stays in the seller's browser per adr-no-server-side-marketplace-automation.",
+        "services/edge-functions/src/tests/cross-push-queue_test.ts pins all three by source scan, because crossPushPlatform needs a database and both failures are silent at runtime: a drifted channel set restores the 501 by omission, and a dropped queued gate marks unlisted items listed with nothing going red."
       ]
     }
   ]
