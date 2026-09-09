@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-3254",
+  "nextId": "US-3255",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -4884,6 +4884,18 @@
         "Do not mount useSurfaceTitle anywhere until its source resolves for that tree. A hook that returns the default for every route is worse than no hook, because the next person reads the mount and assumes it works."
       ],
       "notes": "Partial 2026-09-09 in the buyer half: resolved via BUYER_NAV rather than by adding surfaces.ts entries, which AC1 asked for. Deliberate deviation — duplicating eight labels into a second registry is the problem surfaces.ts exists to prevent. AC1 should be read as 'give buyer a real source', which BUYER_NAV already was. Remaining: admin, which needs its eight nav arrays extracted out of admin-layout.tsx before anything can read them."
+    },
+    {
+      "id": "US-3254",
+      "passes": false,
+      "title": "The listing-description HTML invariant is held together by comments",
+      "description": "description-preview.tsx renders a segment with dangerouslySetInnerHTML and explains why that is safe: GradeThread-built markup, escaped at the source in the edge service. Nothing a seller or the model wrote reaches this branch: the edge marks only facts, disclosure and credentials as html. Every word of that is true today and nothing tests any of it. The invariant has four moving parts in three files: HTML_KEYS in edge description-blocks.ts, which decides what becomes kind html; and the escapeHtml calls inside listing-facts-block.ts, seller-credentials.ts and disclosure.ts, which are what make that markup safe to render raw. Adding a seller-editable key to HTML_KEYS, or adding one unescaped interpolation to any of those three builders, turns the React comment into a false statement and puts seller or model prose into an innerHTML with nothing failing. There are also four separate escapeHtml implementations across the edge and the web (cert-og-template, listing-facts-block, seller-credentials, src/lib/escape-html.ts); they are each correct, so that is a note rather than the defect.",
+      "acceptanceCriteria": [
+        "A guard pins HTML_KEYS to exactly disclosure, credentials and facts, so adding a fourth is a deliberate decision that has to fail a test first and be argued for in the diff.",
+        "A guard requires every interpolation inside HTML-emitting template literals in those three builders to go through escapeHtml, with a named allowlist for the genuinely safe ones (numeric formatters, internal constants). Name each exemption; an unexplained one is how the rule rots.",
+        "Sabotage-check both directions: adding a key to HTML_KEYS fails, and removing one escapeHtml call fails by name.",
+        "Do NOT consolidate the four escapeHtml copies in this story. They are each correct and they span the edge/web boundary where sharing code is a real decision, not a tidy-up."
+      ]
     }
   ]
 }
