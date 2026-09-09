@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-3214",
+  "nextId": "US-3215",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -4776,6 +4776,22 @@
         "A queued channel does NOT advance the item to listed: the markItemListed gate reads r.ok AND NOT r.queued. Advancing on an enqueue would spend an activeListings cap slot and tell the seller the item is up on the strength of a job that has not run, and if the desktop never drains that is permanent.",
         "No credential rule changes. The queue stores what to do plus the seller's own ids, and enqueueExtensionWork already refuses a payload carrying a password or session key, so the marketplace session stays in the seller's browser per adr-no-server-side-marketplace-automation.",
         "services/edge-functions/src/tests/cross-push-queue_test.ts pins all three by source scan, because crossPushPlatform needs a database and both failures are silent at runtime: a drifted channel set restores the 501 by omission, and a dropped queued gate marks unlisted items listed with nothing going red."
+      ]
+    },
+    {
+      "id": "US-3214",
+      "passes": false,
+      "title": "A double click on Submit for grading creates two grades, and nothing on the composer stops it",
+      "description": "As a seller grading one garment, I want the submit button to be pressable once, so that a slow network and an impatient second click do not leave me with two grade reports on one jacket and a bill I have to ask about.",
+      "acceptanceCriteria": [
+        "submitItemsForGrading refuses an item that already has a submission in a non-terminal state (pending or processing). Today it checks nothing: it inserts a submissions row per call, so a second click is a second grade, a second Claude Vision spend and a second report on one garment.",
+        "The composer's submit control is disabled from the instant of the click until the mutation settles, and carries a short cooldown after it settles so a double click cannot land two requests. Disabled-while-pending alone is not enough when the first request is still in flight on a slow connection.",
+        "When a terminal grade already exists for the item the button reads Resubmit, not Submit, and asks for confirmation naming what it will cost. A seller who genuinely wants a second opinion should have to mean it.",
+        "The admin grading queue gains a destructive action that VOIDS a duplicate submission and refunds what it consumed, in one audited step: the credit if credits paid for it, or the included-grade allowance if the monthly bundle did. A refund that only returns credits silently keeps a monthly grade the seller never used.",
+        "The void writes an audit row naming the operator, the submission and the reason, and is scoped to workspaceOwnerId ?? userId with a tenant-isolation_test.ts case (US-268). This is an operator surface that moves money.",
+        "VERIFIED BEFORE FILING, so the fix is not aimed at the wrong thing. The CREDIT debit is already idempotent: bulkBatchKey in src/lib/bulk-batch-key.ts is a deterministic hash of tier plus sorted item ids with no timestamp, and debit_grade_credits takes p_idempotency_key (US-2564 / US-2289). Two clicks on the same item at the same tier therefore reuse one key and debit once.",
+        "NOT VERIFIED and the first thing to check: whether the INCLUDED monthly grade path in runPaymentPrecedence is deduped by that same key, or only the credit branch is. If it is not, a double click burns two of the monthly bundle while debiting one credit, which is the shape of a bill nobody can explain.",
+        "A test proves the second submit is refused rather than merely slower: calling submitItemsForGrading twice for one item creates one submissions row and returns a stated refusal for the second, with no second charge of any kind."
       ]
     }
   ]
