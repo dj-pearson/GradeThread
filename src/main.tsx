@@ -4,6 +4,7 @@ import { QueryClientProvider } from "@tanstack/react-query";
 import { RouterProvider } from "react-router";
 import { router } from "@/routes";
 import { queryClient } from "@/lib/query-client";
+import { readStored, writeStored } from "@/lib/safe-storage";
 import { initAnalyticsFromStoredConsent } from "@/lib/analytics";
 import { initSentry } from "@/lib/sentry";
 import { captureUtms, captureClickIds } from "@/lib/ad-attribution";
@@ -20,8 +21,8 @@ import "@/index.css";
 // an infinite reload loop (the ErrorBoundary takes over after the one retry).
 window.addEventListener("vite:preloadError", () => {
   const KEY = "gt:preloadErrorReloaded";
-  if (sessionStorage.getItem(KEY)) return;
-  sessionStorage.setItem(KEY, "1");
+  if (readStored(KEY, "session")) return;
+  writeStored(KEY, "1", "session");
   window.location.reload();
 });
 

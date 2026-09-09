@@ -6,6 +6,7 @@
 // which is the kind of regression that only shows up on a deploy.
 /* eslint-disable react-refresh/only-export-components */
 import { lazy as reactLazy, Suspense, type ComponentType } from "react";
+import { readStored, removeStored, writeStored } from "@/lib/safe-storage";
 
 // Wrap React.lazy so a failed dynamic import doesn't hard-crash the route.
 // A rejected import() almost always means a new deploy replaced the hashed
@@ -23,12 +24,12 @@ export function lazy<T extends ComponentType<any>>(
   return reactLazy(() =>
     factory()
       .then((mod) => {
-        sessionStorage.removeItem(CHUNK_RELOAD_KEY);
+        removeStored(CHUNK_RELOAD_KEY, "session");
         return mod;
       })
       .catch((err: unknown) => {
-        if (!sessionStorage.getItem(CHUNK_RELOAD_KEY)) {
-          sessionStorage.setItem(CHUNK_RELOAD_KEY, "1");
+        if (!readStored(CHUNK_RELOAD_KEY, "session")) {
+          writeStored(CHUNK_RELOAD_KEY, "1", "session");
           window.location.reload();
           // Never resolve — keep the Suspense fallback up during the reload.
           return new Promise<{ default: T }>(() => {});

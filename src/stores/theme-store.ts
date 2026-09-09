@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { readStored, writeStored } from "@/lib/safe-storage";
 
 type Theme = "light" | "dark";
 
@@ -10,7 +11,7 @@ interface ThemeState {
 
 function getInitialTheme(): Theme {
   if (typeof window === "undefined") return "light";
-  const stored = localStorage.getItem("gt-theme");
+  const stored = readStored("gt-theme");
   if (stored === "dark" || stored === "light") return stored;
   return window.matchMedia("(prefers-color-scheme: dark)").matches
     ? "dark"
@@ -24,7 +25,7 @@ function applyTheme(theme: Theme) {
   } else {
     root.classList.remove("dark");
   }
-  localStorage.setItem("gt-theme", theme);
+  writeStored("gt-theme", theme);
 }
 
 // Apply on load (before React renders)
