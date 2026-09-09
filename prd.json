@@ -4805,7 +4805,8 @@
         "Any page whose summary tiles or totals are computed from query data shows the failure rather than a zero. expenses.tsx was safe by accident (its tiles are gated on months.length), which is not a property to rely on twice.",
         "No allowlist. US-2507 shipped a shrink-only list of nine and it worked because it failed in BOTH directions; if one is needed here it carries the same rule and the same instruction to delete it once empty."
       ],
-      "priority": 3
+      "priority": 3,
+      "notes": "Partial 2026-09-08. Fixed by hand and off the list: listings, expenses, sources (the empty-state-lies shape, now zero), money-overview (six reads, any failure rendered $0.00 profit and 'nothing unexplained in your books'), reconciliation (a failed sales read rendered 'No discrepancies. Fees and shipping look clean.'). src/test/flipdesk-error-state.test.ts is the guard: shape A is absolute at zero, shape C is a shrink-only list of seven that fails in BOTH directions. Shape B is deliberately NOT enforced on FlipDesk and the file says why: all three current hits are false positives (an effect body in composer, a widget visibility guard in marketplaces, and community-insights, which already branches on isError first but renders a bespoke card instead of ErrorState, so it has no retry button). Remaining: analytics, autolister-bulk-edit, composer, marketplaces, money, reconcile, tax-setup, plus giving community-insights a retry."
     }
   ]
 }

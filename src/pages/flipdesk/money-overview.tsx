@@ -5,6 +5,7 @@ import { AlertTriangle, ArrowRight, PiggyBank } from "lucide-react";
 import { useAuthStore } from "@/stores/auth-store";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
+import { ErrorState } from "@/components/ui/error-state";
 import { formatCents } from "@/lib/ledger-math";
 import { ensureLedgerBuilt, fetchLedgerEntries } from "@/lib/ledger";
 import { buildStatement } from "@/lib/pnl-statement";
@@ -94,12 +95,13 @@ const viewLink = (view: MoneyView, extra = "") =>
 
 export function MoneyOverviewPage() {
   const user = useAuthStore((s) => s.user);
-  const { data: profile } = useQuery({
+  const profileQuery = useQuery({
     queryKey: ["tax-profile", user?.id],
     enabled: !!user,
     queryFn: fetchTaxProfile,
     staleTime: 30 * 60 * 1000,
   });
+  const profile = profileQuery.data;
   const startMonth =
     profile?.fiscal_year_start_month ?? TAX_PROFILE_DEFAULTS.fiscal_year_start_month;
 
@@ -113,7 +115,7 @@ export function MoneyOverviewPage() {
   // The ledger, once, for the whole page. Two questions read from it and a
   // third derives from those, so fetching it per card would be three copies of
   // the same answer that can disagree while they load.
-  const { data: entries, isLoading: ledgerLoading } = useQuery({
+  const ledgerQuery = useQuery({
     queryKey: ["money-overview-ledger", user?.id, fiscal.from, fiscal.to],
     enabled: !!user,
     queryFn: async () => {
@@ -123,6 +125,7 @@ export function MoneyOverviewPage() {
     staleTime: 5 * 60 * 1000,
   });
 
+  const entries = ledgerQuery.data;
   const statement = useMemo(
     () =>
       buildStatement(
@@ -137,13 +140,13 @@ export function MoneyOverviewPage() {
   // Estimated tax follows the CALENDAR year, because the due dates do. This is
   // the one figure on the page that deliberately ignores the fiscal year.
   const taxYear = today.getFullYear();
-  const { data: rates } = useQuery({
+  const ratesQuery = useQuery({
     queryKey: ["tax-rate-year", taxYear],
     enabled: !!user,
     queryFn: () => fetchTaxRateYear(taxYear),
     staleTime: 24 * 60 * 60 * 1000,
   });
-  const { data: calendarEntries } = useQuery({
+  const calendarQuery = useQuery({
     queryKey: ["money-overview-calendar", user?.id, taxYear],
     enabled: !!user,
     queryFn: async () => {
@@ -152,7 +155,7 @@ export function MoneyOverviewPage() {
     },
     staleTime: 5 * 60 * 1000,
   });
-  const { data: payments } = useQuery({
+  const paymentsQuery = useQuery({
     queryKey: ["estimated-tax-payments", user?.id, taxYear],
     enabled: !!user,
     queryFn: () => fetchPayments(taxYear),
@@ -169,6 +172,9 @@ export function MoneyOverviewPage() {
   // profit already made, no projection) and what the instalment schedule wanted
   // by a date that has passed. The headline shows whichever of the two the
   // seller can act on.
+  const rates = ratesQuery.data;
+  const calendarEntries = calendarQuery.data;
+  const payments = paymentsQuery.data;
   const runway = useMemo(() => {
     if (!rates || !profile || !calendarEntries) return null;
     return taxRunway({
@@ -205,14 +211,47 @@ export function MoneyOverviewPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rates, profile, calendarEntries, payments, taxYear]);
 
-  const { data: reviewCount = 0 } = useQuery({
+  const reviewCountQuery = useQuery({
     queryKey: ["books-review-count", user?.id, taxYear],
     enabled: !!user,
     queryFn: () => fetchReviewCount(`${taxYear}-01-01`, `${taxYear + 1}-01-01`),
     staleTime: 5 * 60 * 1000,
   });
 
-  if (ledgerLoading) {
+  // US-3217. EVERY figure on this page comes from one of the six reads above,
+  // and react-query leaves `data` undefined on a failure exactly as it does
+  // before the first fetch. Without this branch a seller whose ledger read
+  // failed is told "Profit, FY2026: $0.00 -- $0.00 came in", that their books
+  // have "nothing unexplained in them", and, if the tax reads failed, to go
+  // "answer five questions in Tax & filing" they answered months ago. A
+  // wrong accounting figure is worse than no page.
+  const moneyQueries = [
+    profileQuery,
+    ledgerQuery,
+    ratesQuery,
+    calendarQuery,
+    paymentsQuery,
+    reviewCountQuery,
+  ];
+  const readFailed = moneyQueries.some((q) => q.isError);
+  const refetching = moneyQueries.some((q) => q.isFetching);
+
+  const reviewCount = reviewCountQuery.data ?? 0;
+
+  if (readFailed) {
+    return (
+      <ErrorState
+        title="Couldn't load your money"
+        description="One of the reads behind these figures failed, so the numbers would be wrong rather than missing. Nothing has changed in your books."
+        onRetry={() => {
+          for (const q of moneyQueries) void q.refetch();
+        }}
+        retrying={refetching}
+      />
+    );
+  }
+
+  if (ledgerQuery.isLoading) {
     return (
       <div className="space-y-4">
         <div className="grid gap-4 sm:grid-cols-2">

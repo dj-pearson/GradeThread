@@ -26,6 +26,7 @@ import {
 } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { ErrorState } from "@/components/ui/error-state";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -163,7 +164,13 @@ export function ReconciliationPayoutsTab() {
     }
   }
 
-  const { data: sales = [], isLoading } = useQuery({
+  const {
+    data: sales = [],
+    isLoading,
+    isError,
+    isFetching,
+    refetch,
+  } = useQuery({
     queryKey: ["sales_all", user?.id],
     enabled: !!user,
     queryFn: async (): Promise<SaleRow[]> => {
@@ -358,7 +365,18 @@ export function ReconciliationPayoutsTab() {
           </div>
         </CardHeader>
         <CardContent>
-          {isLoading ? (
+          {/* US-3217. A failed read leaves `sales` empty, so `flagged` is empty
+              too, and this card would tell a seller "No discrepancies. Fees and
+              shipping look clean." about books it never managed to open. */}
+          {isError ? (
+            <ErrorState
+              title="Couldn't check your sales"
+              description="The sales read failed, so this card cannot say whether anything is off. It is not a clean bill of health."
+              onRetry={() => void refetch()}
+              retrying={isFetching}
+              hideSupport
+            />
+          ) : isLoading ? (
             <LoadingRegion label="Loading sales">
               <SkeletonRows rows={4} />
             </LoadingRegion>
