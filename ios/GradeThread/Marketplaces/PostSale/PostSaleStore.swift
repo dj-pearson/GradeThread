@@ -61,7 +61,7 @@ final class PostSaleStore {
             returns = try await service.returns()
             returnsPhase = .ready
         } catch {
-            returnsPhase = .failed(error.localizedDescription)
+            returnsPhase = .failed(FriendlyErrorCopy.userMessage(for: error))
         }
     }
 
@@ -71,7 +71,7 @@ final class PostSaleStore {
             cancellations = try await service.cancellations()
             cancellationsPhase = .ready
         } catch {
-            cancellationsPhase = .failed(error.localizedDescription)
+            cancellationsPhase = .failed(FriendlyErrorCopy.userMessage(for: error))
         }
     }
 
@@ -81,7 +81,7 @@ final class PostSaleStore {
             disputes = try await service.disputes()
             disputesPhase = .ready
         } catch {
-            disputesPhase = .failed(error.localizedDescription)
+            disputesPhase = .failed(FriendlyErrorCopy.userMessage(for: error))
         }
     }
 
@@ -101,7 +101,7 @@ final class PostSaleStore {
             actionBanner = "Return \(decision)d."
             await loadReturns()
         } catch {
-            actionError = error.localizedDescription
+            actionError = FriendlyErrorCopy.userMessage(for: error)
         }
     }
 
@@ -116,7 +116,7 @@ final class PostSaleStore {
             actionBanner = "Refund issued."
             await loadReturns()
         } catch {
-            actionError = error.localizedDescription
+            actionError = FriendlyErrorCopy.userMessage(for: error)
         }
     }
 
@@ -136,7 +136,7 @@ final class PostSaleStore {
             actionBanner = action == "approve" ? "Cancellation approved." : "Cancellation rejected."
             await loadCancellations()
         } catch {
-            actionError = error.localizedDescription
+            actionError = FriendlyErrorCopy.userMessage(for: error)
         }
     }
 
@@ -166,7 +166,7 @@ final class PostSaleStore {
             await loadDisputes()
             return true
         } catch {
-            actionError = error.localizedDescription
+            actionError = FriendlyErrorCopy.userMessage(for: error)
             return false
         }
     }

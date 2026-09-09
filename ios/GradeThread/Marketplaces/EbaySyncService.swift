@@ -118,7 +118,7 @@ public final class EbaySyncService {
             )
             return .failed(message: error.errorDescription ?? "Couldn't start sync.")
         } catch {
-            return .failed(message: error.localizedDescription)
+            return .failed(message: FriendlyErrorCopy.userMessage(for: error))
         }
 
         // 2. Poll until last_synced_at advances or we hit the deadline.

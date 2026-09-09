@@ -42,7 +42,7 @@ final class EbayAccountsStore {
             connections = try await service.fetchAllConnections(userId: userId)
             phase = .ready
         } catch {
-            phase = .failed(message: error.localizedDescription)
+            phase = .failed(message: FriendlyErrorCopy.userMessage(for: error))
         }
     }
 
@@ -56,9 +56,9 @@ final class EbayAccountsStore {
             await load()
         } catch let error as EbayConnectionService.ConnectionError {
             if case .userCancelled = error { return }  // no-op on cancel
-            actionError = error.localizedDescription
+            actionError = FriendlyErrorCopy.userMessage(for: error)
         } catch {
-            actionError = error.localizedDescription
+            actionError = FriendlyErrorCopy.userMessage(for: error)
         }
     }
 
@@ -74,7 +74,7 @@ final class EbayAccountsStore {
             try await service.setLabel(connectionId: connection.id, userId: userId, label: label)
             await load()
         } catch {
-            actionError = error.localizedDescription
+            actionError = FriendlyErrorCopy.userMessage(for: error)
         }
     }
 
@@ -96,7 +96,7 @@ final class EbayAccountsStore {
             try await service.setPrimary(connectionId: connection.id, userId: userId)
             await load()
         } catch {
-            actionError = error.localizedDescription
+            actionError = FriendlyErrorCopy.userMessage(for: error)
             await load()
         }
     }
@@ -106,7 +106,7 @@ final class EbayAccountsStore {
             try await service.disconnect(connectionId: connection.id, userId: userId)
             await load()
         } catch {
-            actionError = error.localizedDescription
+            actionError = FriendlyErrorCopy.userMessage(for: error)
         }
     }
 }

@@ -26,7 +26,7 @@ final class EbayMarketingStore {
             status = try await service.promotion(listingId: listingId)
             phase = .ready
         } catch {
-            phase = .failed(error.localizedDescription)
+            phase = .failed(FriendlyErrorCopy.userMessage(for: error))
         }
     }
 
@@ -50,7 +50,7 @@ final class EbayMarketingStore {
             try await op()
             await load()
         } catch {
-            actionError = error.localizedDescription
+            actionError = FriendlyErrorCopy.userMessage(for: error)
         }
     }
 }

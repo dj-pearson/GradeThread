@@ -39,7 +39,7 @@ final class ScheduledDropsStore {
             drops = try await service.list()
             phase = .ready
         } catch {
-            phase = .failed(message: error.localizedDescription)
+            phase = .failed(message: FriendlyErrorCopy.userMessage(for: error))
         }
     }
 
@@ -60,7 +60,7 @@ final class ScheduledDropsStore {
             actionBanner = "Drop rescheduled."
             HapticFeedback.success()
         } catch {
-            actionError = error.localizedDescription
+            actionError = FriendlyErrorCopy.userMessage(for: error)
             HapticFeedback.error()
         }
     }
@@ -82,7 +82,7 @@ final class ScheduledDropsStore {
             HapticFeedback.success()
         } catch {
             drops = snapshot
-            actionError = error.localizedDescription
+            actionError = FriendlyErrorCopy.userMessage(for: error)
             HapticFeedback.error()
         }
     }

@@ -274,4 +274,61 @@ final class FriendlyErrorCopyTests: XCTestCase {
             FriendlyErrorCopy.authMessage(for: err).lowercased().contains("password")
         )
     }
+    // MARK: - US-3239 userMessage
+
+    /// The case the swap exists for: a seller on one bar of signal used to see a
+    /// URLSession string, or a PostgrestError description, in place of a message.
+    func test_userMessage_offlineGetsTheActionableLine() {
+        let offline = URLError(.notConnectedToInternet)
+        let message = FriendlyErrorCopy.userMessage(for: offline)
+
+        XCTAssertEqual(message, "You're offline. We'll keep your work and retry when you reconnect.")
+        XCTAssertFalse(message.contains("NSURLError"))
+    }
+
+    func test_userMessage_timeoutIsAlsoOffline() {
+        XCTAssertEqual(
+            FriendlyErrorCopy.userMessage(for: URLError(.timedOut)),
+            "You're offline. We'll keep your work and retry when you reconnect."
+        )
+    }
+
+    /// An application-level rejection keeps the server's own wording, which is
+    /// almost always more specific than anything this file could invent. That is
+    /// what makes the swap safe to apply to 87 call sites at once.
+    func test_userMessage_keepsAServerRejectionVerbatim() {
+        struct Rejected: LocalizedError {
+            var errorDescription: String? { "That SKU is already in use." }
+        }
+        XCTAssertEqual(
+            FriendlyErrorCopy.userMessage(for: Rejected()),
+            "That SKU is already in use."
+        )
+    }
+
+    /// Without a LocalizedError description it falls through to
+    /// localizedDescription, exactly as the call sites did before.
+    func test_userMessage_fallsBackToLocalizedDescription() {
+        let error = NSError(
+            domain: "PostgREST",
+            code: 409,
+            userInfo: [NSLocalizedDescriptionKey: "duplicate key value violates unique constraint"]
+        )
+        XCTAssertEqual(
+            FriendlyErrorCopy.userMessage(for: error),
+            "duplicate key value violates unique constraint"
+        )
+    }
+
+    func test_userMessage_rateLimitedGetsItsOwnLine() {
+        let error = NSError(
+            domain: "GoTrue",
+            code: 429,
+            userInfo: [NSLocalizedDescriptionKey: "Too many requests"]
+        )
+        XCTAssertEqual(
+            FriendlyErrorCopy.userMessage(for: error),
+            "Too many attempts. Please wait a moment and try again."
+        )
+    }
 }

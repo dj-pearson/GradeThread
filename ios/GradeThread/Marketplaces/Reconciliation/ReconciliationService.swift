@@ -115,7 +115,7 @@ public final class ReconciliationService {
             try await markMatched(orphanId: orphan.id, matchedItemId: newId)
             return ReconciliationOutcome(orphanId: orphan.id, kind: .created(itemId: newId))
         } catch {
-            return ReconciliationOutcome(orphanId: orphan.id, kind: .failed(message: error.localizedDescription))
+            return ReconciliationOutcome(orphanId: orphan.id, kind: .failed(message: FriendlyErrorCopy.userMessage(for: error)))
         }
     }
 
@@ -158,7 +158,7 @@ public final class ReconciliationService {
             try? await markItemListed(itemId: itemId)
             return ReconciliationOutcome(orphanId: orphan.id, kind: .linked(itemId: itemId))
         } catch {
-            return ReconciliationOutcome(orphanId: orphan.id, kind: .failed(message: error.localizedDescription))
+            return ReconciliationOutcome(orphanId: orphan.id, kind: .failed(message: FriendlyErrorCopy.userMessage(for: error)))
         }
     }
 
@@ -179,7 +179,7 @@ public final class ReconciliationService {
                 .execute()
             return ReconciliationOutcome(orphanId: orphan.id, kind: .ignored)
         } catch {
-            return ReconciliationOutcome(orphanId: orphan.id, kind: .failed(message: error.localizedDescription))
+            return ReconciliationOutcome(orphanId: orphan.id, kind: .failed(message: FriendlyErrorCopy.userMessage(for: error)))
         }
     }
 

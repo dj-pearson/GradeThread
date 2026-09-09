@@ -76,7 +76,7 @@ final class BulkPricingStore {
             listings = try await service.listings()
             phase = .ready
         } catch {
-            phase = .failed(error.localizedDescription)
+            phase = .failed(FriendlyErrorCopy.userMessage(for: error))
             return
         }
         await loadAccountContext()
@@ -303,7 +303,7 @@ final class BulkPricingStore {
             }
             await load()
         } catch {
-            actionError = error.localizedDescription
+            actionError = FriendlyErrorCopy.userMessage(for: error)
         }
     }
 }

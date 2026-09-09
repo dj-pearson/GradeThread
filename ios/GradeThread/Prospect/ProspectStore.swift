@@ -284,7 +284,7 @@ final class ProspectStore {
             resultToken = UUID()
         } catch {
             result = nil
-            errorMessage = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+            errorMessage = FriendlyErrorCopy.userMessage(for: error)
         }
     }
 
@@ -411,7 +411,7 @@ final class ProspectStore {
             // blanked the card would cost the seller the numbers they already
             // had, standing in a shop, for a network blip.
             result = previous
-            errorMessage = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+            errorMessage = FriendlyErrorCopy.userMessage(for: error)
         }
     }
 

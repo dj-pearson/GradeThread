@@ -69,7 +69,7 @@ final class ReconcileIntakeStore {
             phase = .completed(count: snapshot.count)
             return sessionId
         } catch {
-            phase = .failed((error as? LocalizedError)?.errorDescription ?? error.localizedDescription)
+            phase = .failed(FriendlyErrorCopy.userMessage(for: error))
             return nil
         }
     }

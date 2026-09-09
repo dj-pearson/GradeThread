@@ -162,7 +162,7 @@ public final class PushService {
 
     /// Called from AppDelegate's didFailToRegisterForRemoteNotifications.
     public func handleRegistrationError(_ error: Error) {
-        phase = .registrationFailed(message: error.localizedDescription)
+        phase = .registrationFailed(message: FriendlyErrorCopy.userMessage(for: error))
     }
 
     /// US-659: clear the persisted APNs token on sign-out so the next user on
@@ -204,7 +204,7 @@ public final class PushService {
         } catch let error as EdgeAPIError {
             phase = .registrationFailed(message: error.errorDescription ?? "Registration failed.")
         } catch {
-            phase = .registrationFailed(message: error.localizedDescription)
+            phase = .registrationFailed(message: FriendlyErrorCopy.userMessage(for: error))
         }
     }
 

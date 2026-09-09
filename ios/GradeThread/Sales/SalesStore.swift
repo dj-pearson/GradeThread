@@ -39,7 +39,7 @@ final class SalesStore {
                 .execute()
             phase = .ready(sales: Self.decodeSalesResiliently(response.data))
         } catch {
-            phase = .failed(message: error.localizedDescription)
+            phase = .failed(message: FriendlyErrorCopy.userMessage(for: error))
         }
     }
 

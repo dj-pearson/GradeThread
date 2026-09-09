@@ -138,7 +138,7 @@ final class WorkspaceContext {
         } catch {
             // Still expose the personal workspace so the app is usable offline.
             workspaces = [WorkspaceSummary(ownerId: selfUserId, name: "My workspace", isPersonal: true)]
-            phase = .failed(error.localizedDescription)
+            phase = .failed(FriendlyErrorCopy.userMessage(for: error))
         }
     }
 

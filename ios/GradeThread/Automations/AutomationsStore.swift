@@ -38,7 +38,7 @@ final class AutomationsStore {
             rules = try await service.list()
             phase = .ready
         } catch {
-            phase = .failed(message: error.localizedDescription)
+            phase = .failed(message: FriendlyErrorCopy.userMessage(for: error))
         }
     }
 
@@ -59,7 +59,7 @@ final class AutomationsStore {
             }
             return true
         } catch {
-            actionError = error.localizedDescription
+            actionError = FriendlyErrorCopy.userMessage(for: error)
             return false
         }
     }
@@ -69,7 +69,7 @@ final class AutomationsStore {
         do {
             try await service.delete(id: rule.id)
         } catch {
-            actionError = error.localizedDescription
+            actionError = FriendlyErrorCopy.userMessage(for: error)
             await load()
         }
     }
@@ -97,7 +97,7 @@ final class AutomationsStore {
                 rules[i] = saved
             }
         } catch {
-            actionError = error.localizedDescription
+            actionError = FriendlyErrorCopy.userMessage(for: error)
             // Revert the optimistic flip on failure.
             if let i = rules.firstIndex(where: { $0.id == rule.id }) {
                 rules[i].isActive = !newValue
@@ -129,7 +129,7 @@ final class AutomationsStore {
                 )
             }
         } catch {
-            actionError = error.localizedDescription
+            actionError = FriendlyErrorCopy.userMessage(for: error)
         }
     }
 

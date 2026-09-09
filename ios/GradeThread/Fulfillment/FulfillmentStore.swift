@@ -45,7 +45,7 @@ final class FulfillmentStore {
                 .sorted { $0.soldDate < $1.soldDate }
             phase = .ready
         } catch {
-            phase = .failed(message: error.localizedDescription)
+            phase = .failed(message: FriendlyErrorCopy.userMessage(for: error))
         }
     }
 
@@ -66,7 +66,7 @@ final class FulfillmentStore {
             HapticFeedback.success()
             NotificationCenter.default.post(name: .inventoryPullRequested, object: nil)
         } catch {
-            actionError = error.localizedDescription
+            actionError = FriendlyErrorCopy.userMessage(for: error)
             HapticFeedback.error()
             // Re-pull so the optimistically-removed row reappears if it really
             // didn't ship.

@@ -419,7 +419,7 @@ struct PhotoManagerView: View {
             } catch {
                 // Roll the working copy back to the persisted order on failure.
                 working = photos
-                errorMessage = error.localizedDescription
+                errorMessage = FriendlyErrorCopy.userMessage(for: error)
             }
         }
     }
@@ -435,7 +435,7 @@ struct PhotoManagerView: View {
                 // refreshes on mutation without touching `working`.
                 try await PhotoEditService().retag(photo, to: serverType, role: role, context: modelContext)
             } catch {
-                errorMessage = error.localizedDescription
+                errorMessage = FriendlyErrorCopy.userMessage(for: error)
             }
         }
     }
@@ -452,7 +452,7 @@ struct PhotoManagerView: View {
             do {
                 try await PhotoEditService().persistOrder(snapshot, item: item, context: modelContext)
             } catch {
-                errorMessage = error.localizedDescription
+                errorMessage = FriendlyErrorCopy.userMessage(for: error)
                 return
             }
             let outcome = await EbayPublishService().revise(
@@ -488,7 +488,7 @@ struct PhotoManagerView: View {
                     photo, clockwise: clockwise, context: modelContext
                 )
             } catch {
-                errorMessage = error.localizedDescription
+                errorMessage = FriendlyErrorCopy.userMessage(for: error)
             }
         }
     }
@@ -516,7 +516,7 @@ struct PhotoManagerView: View {
             )
         } catch {
             working = photos
-            errorMessage = error.localizedDescription
+            errorMessage = FriendlyErrorCopy.userMessage(for: error)
         }
     }
 }

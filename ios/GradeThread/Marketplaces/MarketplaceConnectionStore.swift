@@ -73,7 +73,7 @@ public final class MarketplaceConnectionStore {
                 phase = .failed(message: "Couldn't reach eBay to start the connection. Check your internet connection and try again.")
             case .stateExpired, .noActiveConnection:
                 // These typed cases already carry user-friendly copy.
-                phase = .failed(message: error.localizedDescription)
+                phase = .failed(message: FriendlyErrorCopy.userMessage(for: error))
             }
         } catch {
             phase = .failed(message: FriendlyErrorCopy.actionMessage(

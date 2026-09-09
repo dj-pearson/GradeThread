@@ -54,7 +54,7 @@ public final class ReconciliationStore {
             let rows = try await service.fetchOrphans(userId: userId)
             phase = .ready(orphans: rows)
         } catch {
-            phase = .failed(message: error.localizedDescription)
+            phase = .failed(message: FriendlyErrorCopy.userMessage(for: error))
         }
     }
 

@@ -273,7 +273,7 @@ struct DisputeSheet: View {
             // actually hit — the window has closed, a dispute already exists —
             // arrive worded by the side that owns the rule. Nothing here
             // hardcodes the window length, which is the point of US-2153.
-            phase = .failed(error.localizedDescription)
+            phase = .failed(FriendlyErrorCopy.userMessage(for: error))
         }
     }
 }

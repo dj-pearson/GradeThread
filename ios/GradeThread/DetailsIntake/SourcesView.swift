@@ -191,7 +191,7 @@ struct SourcesView: View {
         await store.refresh(userId: userId)
         isRefreshing = false
         if let error = store.lastError {
-            actionError = error.localizedDescription
+            actionError = FriendlyErrorCopy.userMessage(for: error)
             store.lastError = nil
         }
     }
@@ -202,7 +202,7 @@ struct SourcesView: View {
             try await store.setArchived(id: source.id, userId: userId, archived: archived)
             HapticFeedback.success()
         } catch {
-            actionError = error.localizedDescription
+            actionError = FriendlyErrorCopy.userMessage(for: error)
         }
     }
 
@@ -334,7 +334,7 @@ struct SourceEditorSheet: View {
             }
             dismiss()
         } catch {
-            errorMessage = error.localizedDescription
+            errorMessage = FriendlyErrorCopy.userMessage(for: error)
         }
     }
 }

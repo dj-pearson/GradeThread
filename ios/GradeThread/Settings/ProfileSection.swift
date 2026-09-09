@@ -210,7 +210,7 @@ struct ProfileSection: View {
             let url = try service.writeTempFile(data)
             exportFile = ExportFile(url: url)
         } catch {
-            errorMessage = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+            errorMessage = FriendlyErrorCopy.userMessage(for: error)
             HapticFeedback.error()
         }
     }

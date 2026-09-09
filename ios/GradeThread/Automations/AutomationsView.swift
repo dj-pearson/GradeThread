@@ -365,7 +365,7 @@ private struct AutomationDryRunSheet: View {
             let result = try await store.dryRun(rule)
             phase = .loaded(result)
         } catch {
-            phase = .failed(error.localizedDescription)
+            phase = .failed(FriendlyErrorCopy.userMessage(for: error))
         }
     }
 }
@@ -432,7 +432,7 @@ private struct AutomationActivitySheet: View {
             let actions = try await store.activity(rule)
             phase = .loaded(actions)
         } catch {
-            phase = .failed(error.localizedDescription)
+            phase = .failed(FriendlyErrorCopy.userMessage(for: error))
         }
     }
 }

@@ -429,7 +429,7 @@ private struct CounterOfferSheet: View {
                 if message.isEmpty { message = result.message }
                 draftWarnings = result.warnings
             } catch {
-                errorMessage = error.localizedDescription
+                errorMessage = FriendlyErrorCopy.userMessage(for: error)
             }
             isDrafting = false
         }
@@ -511,7 +511,7 @@ private struct MessageReplySheet: View {
                 )
                 if replyText.isEmpty { replyText = result.message }
             } catch {
-                errorMessage = error.localizedDescription
+                errorMessage = FriendlyErrorCopy.userMessage(for: error)
             }
             isDrafting = false
         }

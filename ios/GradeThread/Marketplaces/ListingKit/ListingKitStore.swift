@@ -60,7 +60,7 @@ final class ListingKitStore {
             listingId = nil
             // EdgeAPIError is a LocalizedError, so a 409 ("no eBay draft yet")
             // surfaces its server detail; everything else gets a clean fallback.
-            phase = .failed(error.localizedDescription)
+            phase = .failed(FriendlyErrorCopy.userMessage(for: error))
         }
     }
 }

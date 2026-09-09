@@ -95,7 +95,7 @@ final class NegotiationStore {
             offers = try await service.offers()
             offersPhase = .ready
         } catch {
-            offersPhase = .failed(error.localizedDescription)
+            offersPhase = .failed(FriendlyErrorCopy.userMessage(for: error))
         }
     }
 
@@ -105,7 +105,7 @@ final class NegotiationStore {
             messages = try await service.messages()
             messagesPhase = .ready
         } catch {
-            messagesPhase = .failed(error.localizedDescription)
+            messagesPhase = .failed(FriendlyErrorCopy.userMessage(for: error))
         }
     }
 
@@ -153,7 +153,7 @@ final class NegotiationStore {
             await loadOffers()
             return true
         } catch {
-            actionError = error.localizedDescription
+            actionError = FriendlyErrorCopy.userMessage(for: error)
             HapticFeedback.error()
             return false
         }
@@ -216,11 +216,11 @@ final class NegotiationStore {
             if case .featureUnavailable(let detail) = error {
                 markUnavailable(detail: detail, needsReconnect: sendOfferNeedsReconnect)
             }
-            actionError = error.localizedDescription
+            actionError = FriendlyErrorCopy.userMessage(for: error)
             HapticFeedback.error()
             return false
         } catch {
-            actionError = error.localizedDescription
+            actionError = FriendlyErrorCopy.userMessage(for: error)
             HapticFeedback.error()
             return false
         }
@@ -242,7 +242,7 @@ final class NegotiationStore {
             await loadMessages()
             return true
         } catch {
-            actionError = error.localizedDescription
+            actionError = FriendlyErrorCopy.userMessage(for: error)
             HapticFeedback.error()
             return false
         }

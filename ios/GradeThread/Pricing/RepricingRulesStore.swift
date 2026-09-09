@@ -121,7 +121,7 @@ final class RepricingRulesStore {
                 )
             }
         } catch {
-            actionError = error.localizedDescription
+            actionError = FriendlyErrorCopy.userMessage(for: error)
         }
     }
 

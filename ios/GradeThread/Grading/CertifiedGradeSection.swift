@@ -357,7 +357,7 @@ struct ItemGradeReportSheet: View {
                 phase = .empty
             }
         } catch {
-            phase = .failed((error as? EdgeAPIError)?.errorDescription ?? error.localizedDescription)
+            phase = .failed(FriendlyErrorCopy.userMessage(for: error))
         }
     }
 }

@@ -333,7 +333,7 @@ struct AnalyticsView: View {
         do {
             narrative = try await narrator.narrate(buildNarrativePayload())
         } catch {
-            narrativeError = error.localizedDescription
+            narrativeError = FriendlyErrorCopy.userMessage(for: error)
         }
         isNarrating = false
     }

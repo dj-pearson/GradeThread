@@ -38,7 +38,7 @@ final class TemplateStore {
             templates = sorted(try await service.list())
             phase = .ready
         } catch {
-            phase = .failed(message: error.localizedDescription)
+            phase = .failed(message: FriendlyErrorCopy.userMessage(for: error))
         }
     }
 
@@ -58,7 +58,7 @@ final class TemplateStore {
             HapticFeedback.success()
             return true
         } catch {
-            actionError = error.localizedDescription
+            actionError = FriendlyErrorCopy.userMessage(for: error)
             HapticFeedback.error()
             return false
         }
@@ -70,7 +70,7 @@ final class TemplateStore {
         do {
             try await service.delete(id: template.id)
         } catch {
-            actionError = error.localizedDescription
+            actionError = FriendlyErrorCopy.userMessage(for: error)
             await load()
         }
     }

@@ -200,6 +200,29 @@ enum FriendlyErrorCopy {
         }
     }
 
+    /// US-3239: friendly copy for a store or view that has no action-specific
+    /// fallback line of its own, falling back to whatever the error already
+    /// says.
+    ///
+    /// Eighty-eight sites assigned a raw `error.localizedDescription` (or the
+    /// `(error as? LocalizedError)?.errorDescription ?? ...` variant) straight
+    /// into a message a view renders. On an application-level rejection that is
+    /// reasonable — the server's own wording is usually the most specific thing
+    /// available. When the PHONE IS OFFLINE it is not: the seller standing in a
+    /// thrift store with one bar got a URLSession string, or worse a
+    /// `PostgrestError(detail: nil, hint: nil, code: ...)`, instead of being
+    /// told their work is safe and will retry.
+    ///
+    /// This is the 1:1 swap for those sites. Same behavior for anything
+    /// unrecognised; offline, rate-limited and unconfirmed-email now get the
+    /// actionable copy the auth surfaces have had since US-1025. Prefer
+    /// ``actionMessage(for:fallback:)`` where the caller genuinely has a better
+    /// line to show than the raw error.
+    nonisolated static func userMessage(for error: Error) -> String {
+        let raw = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+        return actionMessage(for: error, fallback: raw)
+    }
+
     /// Friendly copy for a generic save / load action. `fallback` is the
     /// action-specific line shown for unrecognised, non-offline failures
     /// (e.g. "Couldn't save your item. Please try again.").

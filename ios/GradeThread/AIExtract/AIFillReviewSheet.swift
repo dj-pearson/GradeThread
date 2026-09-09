@@ -457,7 +457,7 @@ struct AIFillReviewSheet: View {
                 )
             }
         } catch {
-            errorMessage = "Couldn't save: \(error.localizedDescription)"
+            errorMessage = "Couldn't save: \(FriendlyErrorCopy.userMessage(for: error))"
             HapticFeedback.error()
             return
         }
@@ -560,7 +560,7 @@ struct AIFillReviewSheet: View {
                 clearAISources: true
             )
         } catch {
-            errorMessage = "Couldn't undo: \(error.localizedDescription)"
+            errorMessage = "Couldn't undo: \(FriendlyErrorCopy.userMessage(for: error))"
             HapticFeedback.error()
             return
         }

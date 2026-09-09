@@ -154,7 +154,7 @@ struct StoreKitService: StoreKitProviding {
             // paywall shows a retry affordance rather than treating it as empty.
             Telemetry.backgroundBreadcrumb(
                 "IAP price load threw: \(error.localizedDescription)", category: "iap")
-            return .failed(error.localizedDescription)
+            return .failed(FriendlyErrorCopy.userMessage(for: error))
         }
     }
 
@@ -253,7 +253,7 @@ struct StoreKitService: StoreKitProviding {
             Telemetry.backgroundBreadcrumb(
                 "IAP purchase threw (product \(productId)): \(error.localizedDescription)",
                 category: "iap")
-            return .failed(error.localizedDescription)
+            return .failed(FriendlyErrorCopy.userMessage(for: error))
         }
     }
 
@@ -279,7 +279,7 @@ struct StoreKitService: StoreKitProviding {
             Telemetry.backgroundBreadcrumb(
                 "IAP restore (AppStore.sync) failed: \(error.localizedDescription)",
                 category: "iap")
-            return .failed(error.localizedDescription)
+            return .failed(FriendlyErrorCopy.userMessage(for: error))
         }
     }
 

@@ -98,7 +98,7 @@ struct AddSourceSheet: View {
             onAdded(newId)
             dismiss()
         } catch {
-            errorMessage = error.localizedDescription
+            errorMessage = FriendlyErrorCopy.userMessage(for: error)
         }
     }
 }

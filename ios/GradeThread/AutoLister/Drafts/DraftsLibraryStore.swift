@@ -142,7 +142,7 @@ final class DraftsLibraryStore {
             selected = selected.intersection(ids)
             phase = .ready
         } catch {
-            phase = .failed(message: error.localizedDescription)
+            phase = .failed(message: FriendlyErrorCopy.userMessage(for: error))
         }
     }
 

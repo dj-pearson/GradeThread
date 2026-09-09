@@ -170,7 +170,7 @@ final class ScoutStore: ObservableObject {
                     : "Scan complete. \(shown) \(shown == 1 ? "candidate" : "candidates") found.")
         } catch {
             response = nil
-            errorMessage = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+            errorMessage = FriendlyErrorCopy.userMessage(for: error)
             A11yAnnounce.announce("Scan failed. \(errorMessage ?? "")")
         }
     }

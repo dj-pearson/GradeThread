@@ -223,7 +223,7 @@ final class AIExtractionManager {
             phases[itemId] = .failed(error.errorDescription ?? "Unknown error")
             return
         } catch {
-            phases[itemId] = .failed(error.localizedDescription)
+            phases[itemId] = .failed(FriendlyErrorCopy.userMessage(for: error))
             return
         }
 
@@ -419,7 +419,7 @@ final class AIExtractionManager {
                 return
             }
         } catch {
-            phases[itemId] = .failed(error.localizedDescription)
+            phases[itemId] = .failed(FriendlyErrorCopy.userMessage(for: error))
             return
         }
 

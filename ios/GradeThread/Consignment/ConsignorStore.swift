@@ -44,7 +44,7 @@ final class ConsignorStore {
             consignors = sorted(try await service.list())
             phase = .ready
         } catch {
-            phase = .failed(message: error.localizedDescription)
+            phase = .failed(message: FriendlyErrorCopy.userMessage(for: error))
         }
     }
 
@@ -60,7 +60,7 @@ final class ConsignorStore {
             upsert(saved)
             return true
         } catch {
-            actionError = error.localizedDescription
+            actionError = FriendlyErrorCopy.userMessage(for: error)
             return false
         }
     }
@@ -71,7 +71,7 @@ final class ConsignorStore {
         do {
             try await service.delete(id: consignor.id)
         } catch {
-            actionError = error.localizedDescription
+            actionError = FriendlyErrorCopy.userMessage(for: error)
             await load()
         }
     }

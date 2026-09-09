@@ -45694,6 +45694,19 @@
         "The guard is sabotage-checked after widening: removing an ErrorState from one of the newly covered pages fails it by name."
       ],
       "notes": "Done 2026-09-09. The seven FlipDesk pages on READ_FAILURE_UNHANDLED are still open under US-3217; this story was about everything OUTSIDE flipdesk and admin."
+    },
+    {
+      "id": "US-3239",
+      "passes": true,
+      "title": "iOS: 87 places showed a raw SDK error string instead of telling the seller they were offline",
+      "description": "Eighty-seven assignments across 42 files put error.localizedDescription (or the LocalizedError/EdgeAPIError variant of it) straight into a message a view renders. For an application-level rejection that is fine and often better than anything we would write. When the phone is offline it is not: a seller in a thrift store with one bar got a URLSession string, or a PostgrestError description, instead of being told their work is safe and will retry. FriendlyErrorCopy has had the actionable copy since US-1025, but only the auth and intake surfaces used it, because every other call site would have had to invent an action-specific fallback line.",
+      "acceptanceCriteria": [
+        "FriendlyErrorCopy.userMessage(for:) returns the friendly line for offline, rate-limited and unconfirmed-email, and otherwise the error's own wording, so it is a 1:1 swap needing no new copy",
+        "Every store/view sink uses it; error-wrapping sites, breadcrumbs and the connection-diagnostics screen (where the raw detail is the feature) are deliberately excluded",
+        "Tests cover offline, timeout, a verbatim server rejection, the localizedDescription fallback and rate limiting"
+      ],
+      "priority": 3,
+      "notes": "Done 2026-09-09. FriendlyErrorCopy.userMessage(for:) = actionMessage(for:fallback:) with the error's own wording as the fallback, so offline / rate-limited / unconfirmed-email get the US-1025 copy and everything else is unchanged. Applied to 87 sites in 42 files, matched narrowly on the sinks a view renders (errorMessage, actionError, the various *Phase properties, phases[id], and .failed / .registrationFailed). FIRST ATTEMPT WAS REVERTED: a looser pattern matched 142 lines including Telemetry breadcrumbs, the connection-diagnostics screen where the raw detail IS the feature, and several sites that WRAP the error and rethrow it -- friendly copy there would be re-classified downstream. Those 11 files are now an explicit EXCLUDE list with reasons in the sweep, and OAuthWebSession's throw is the one remaining raw site by design. Five tests added to FriendlyErrorCopyTests. All 16 iOS guards pass. Swift compile is macOS-only, so iOS CI is the compile check."
     }
   ]
 }

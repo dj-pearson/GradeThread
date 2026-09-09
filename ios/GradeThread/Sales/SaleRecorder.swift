@@ -59,7 +59,7 @@ struct SaleRecorder {
         do {
             try await insertSale(itemId: itemId, listing: listing, values: values, net: netProfit)
         } catch {
-            return .failed(error.localizedDescription)
+            return .failed(FriendlyErrorCopy.userMessage(for: error))
         }
 
         var warnings: [String] = []

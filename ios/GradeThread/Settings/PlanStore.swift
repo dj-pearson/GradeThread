@@ -78,7 +78,7 @@ final class PlanStore {
                 phase = .failed("Couldn't find your account.")
             }
         } catch {
-            phase = .failed(error.localizedDescription)
+            phase = .failed(FriendlyErrorCopy.userMessage(for: error))
         }
     }
 }

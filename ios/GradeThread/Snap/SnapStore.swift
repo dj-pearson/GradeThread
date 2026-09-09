@@ -67,7 +67,7 @@ final class SnapStore {
             )
         } catch {
             result = nil
-            errorMessage = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+            errorMessage = FriendlyErrorCopy.userMessage(for: error)
             // US-2152: a cap-reached snap (429 action:"upgrade") surfaces the
             // server's upgrade sentence and routes to the paywall, not "Try again".
             isUpgradePrompt = (error as? EdgeAPIError)?.isUpgradePrompt ?? false

@@ -126,7 +126,7 @@ struct SourcedByField: View {
             errorMessage = nil
             isAdding = false
         } catch {
-            errorMessage = error.localizedDescription
+            errorMessage = FriendlyErrorCopy.userMessage(for: error)
         }
     }
 }

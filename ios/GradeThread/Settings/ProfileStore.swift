@@ -70,7 +70,7 @@ final class ProfileStore {
                 phase = .failed("Profile not found.")
             }
         } catch {
-            phase = .failed(error.localizedDescription)
+            phase = .failed(FriendlyErrorCopy.userMessage(for: error))
         }
     }
 
