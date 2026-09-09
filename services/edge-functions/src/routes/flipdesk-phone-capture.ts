@@ -236,10 +236,20 @@ async function sessionForToken(
  */
 async function missingForTarget(session: SessionRow): Promise<string[]> {
   if (session.target_kind !== "item") return [];
-  const { data } = await supabaseAdmin
+  // The column is inventory_item_id. It was `item_id` for the life of this
+  // route, which does not exist on item_photos, so PostgREST answered 42703
+  // and the whole query failed EVERY time. The error was discarded, `data`
+  // came back null, and `present` was therefore always empty — so the phone
+  // was told every required shot was still missing no matter how many had
+  // landed. The prompt this function exists to drive never once updated.
+  const { data, error } = await supabaseAdmin
     .from("item_photos")
     .select("photo_type")
-    .eq("item_id", session.target_id);
+    .eq("inventory_item_id", session.target_id);
+  // And a FAILED read is not "this item has no photos". Answering [] here is
+  // what turned a broken query into a plausible-looking wrong answer for so
+  // long; the caller decides what to say instead.
+  if (error) throw new Error(`item_photos read failed: ${error.message}`);
   const present = (data ?? []).map((r) => String((r as { photo_type: string }).photo_type ?? ""));
   return missingPhotoTypes(REQUIRED_GRADING_PHOTO_TYPES, present);
 }
@@ -252,9 +262,19 @@ flipdeskPhoneCaptureRoutes.get("/s/:token", async (c) => {
   const refusal = refuseCapture(found.session, 0);
   if (refusal) return c.json({ error: refusal.error, live: false }, refusal.status);
 
+  let missing: string[];
+  try {
+    missing = await missingForTarget(found.session);
+  } catch {
+    // The page is rendered from this response, and a made-up shot list is
+    // worse than a retry: it would send the seller round the item shooting
+    // photos it already has.
+    return c.json({ error: "Could not load this capture session." }, 500);
+  }
+
   return c.json({
     live: true,
-    ...publicView(found.session, await missingForTarget(found.session)),
+    ...publicView(found.session, missing),
   });
 });
 
@@ -353,6 +373,10 @@ flipdeskPhoneCaptureRoutes.post("/s/:token/photos", async (c) => {
     // as shots land, without a second round trip after every photo. It reflects
     // what the DESKTOP has tagged so far, which is the honest answer — the
     // phone does not decide what a shot is.
-    missingTypes: await missingForTarget(session),
+    //
+    // Omitted rather than guessed if that read fails: the photo above DID
+    // save, so this is not a failed upload, and the phone keeps the list it
+    // already had instead of being handed a wrong one.
+    missingTypes: await missingForTarget(session).catch(() => undefined),
   });
 });
