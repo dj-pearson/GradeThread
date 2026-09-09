@@ -45490,6 +45490,20 @@
       ],
       "priority": 3,
       "notes": "Done 2026-09-09. New ios/GradeThread/Components/UnsavedChangesGuard.swift: the UnsavedChangesGuard modifier (interactiveDismissDisabled while dirty + a Discard/Keep editing confirmationDialog) and CancelFormButton, which dismisses straight away on a clean form and asks first on a dirty one. Applied to ExpenseFormSheet (dirty = typed amount, note, linked item, or a staged receipt scan), TripFormSheet (draft != the post-onAppear pristine copy, since presets land in onAppear), AddSourceSheet, Pricing/RuleEditorSheet and Automations/AutomationRuleEditorSheet (both drafts are Equatable and set in init, so pristine is a let). Filter sheets (InventoryFilterSheet, ScoutFilterSheet) and QuickPriceSheet were left alone: nothing there is work you would mind re-entering. Verified: all 13 ios/Scripts guards pass. Swift compile is macOS-only, so iOS CI is the compile check."
+    },
+    {
+      "id": "US-3221",
+      "passes": true,
+      "title": "iOS: four money totals summed as raw Double, and no gate stopped the next one",
+      "description": "US-790 put every currency rollup through Money.sum (exact 2-dp Decimal) because a Double sum of a few hundred amounts drifts past a cent. The rule then lived only in MoneyMath.swift's own header, where no call site could be affected by it, and four sums added afterwards never got it: the drafts library's 'list value', the fulfillment queue's total label cost, SalesStore.totalProceeds, and the average net profit behind the graded-vs-ungraded ROI buckets. Each sits next to the per-row figures a seller can add up by hand.",
+      "acceptanceCriteria": [
+        "All four sums go through Money.sum",
+        "ios/Scripts/no-raw-money-sum.py fails on a reduce(0 that accumulates a money-named value, with non-currency sums allowlisted by file and reason",
+        "The guard runs in npm run verify (IOS_GUARDS) and in ios-ci.yml, so src/test/ios-guard-lane.test.ts stays green",
+        "The guard is sabotage-tested: reverting one fix makes it fail"
+      ],
+      "priority": 3,
+      "notes": "Done 2026-09-09. Fixed: DraftsLibraryStore.totalValue, FulfillmentStore.totalLabelCost, SalesStore.totalProceeds and the avg(nets) helper in AnalyticsMetrics now call Money.sum; the first three gained an import GradeThreadCore. New ios/Scripts/no-raw-money-sum.py flags a reduce(0 whose line names a money word, with 12 non-currency files allowlisted by reason (grade averages, counts, percentages, day spans, integer mileage tenths). Wired into IOS_GUARDS in scripts/verify.mjs and into ios-ci.yml; src/test/ios-guard-lane.test.ts passes 6/6. SABOTAGE-TESTED, and the first version FAILED that test: re.IGNORECASE makes the trailing (?![a-z]) match an uppercase letter too, so totalLabelCost did not match the word 'total' and the gate passed against the exact code it was written for. Rewritten to match a lowercase form after a non-letter plus a capitalized form anywhere, no IGNORECASE; the sabotage now fails as it should. All 13 guards pass."
     }
   ]
 }

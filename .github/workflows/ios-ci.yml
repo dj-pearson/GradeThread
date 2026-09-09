@@ -83,6 +83,13 @@ jobs:
       - name: Lint — no raw JPEG encode outside PhotoCompressor (US-2083)
         run: python3 ios/Scripts/no-raw-jpeg-encode.py
 
+      - name: Lint — currency summed through Money.sum (US-3221)
+        # US-790 put every money rollup in exact Decimal because a Double sum of
+        # a few hundred amounts drifts past a cent. The rule then lived only in
+        # MoneyMath's header, and four later sums never got it. This makes the
+        # rule a gate instead of a comment.
+        run: python3 ios/Scripts/no-raw-money-sum.py
+
       - name: Lint — String Catalog + no NEW bare UI strings in migrated dirs (US-1155)
         # Localization guard (US-1224 origin, widened in US-1155): validates the
         # Localizable.xcstrings String Catalog is present + well-formed, and flags

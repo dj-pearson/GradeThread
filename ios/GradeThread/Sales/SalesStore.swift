@@ -1,4 +1,5 @@
 import Foundation
+import GradeThreadCore
 import Observation
 
 /// Fetches the signed-in user's sales (RLS-scoped through `inventory_items`
@@ -22,7 +23,7 @@ final class SalesStore {
 
     /// Running total of gross proceeds (price − fees) across all loaded sales.
     /// "Proceeds", not net — see ``RemoteSale/proceeds``.
-    var totalProceeds: Double { sales.reduce(0) { $0 + $1.proceeds } }
+    var totalProceeds: Double { Money.sum(sales) { $0.proceeds } }
 
     func refresh() async {
         phase = .loading

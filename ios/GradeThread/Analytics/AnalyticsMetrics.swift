@@ -299,8 +299,10 @@ enum AnalyticsRollup {
             }
         }
 
+        // US-3221: the numerator is a sum of net profits, so it goes through
+        // the drift-free path (US-790) like every other money rollup.
         func avg(_ nets: [Double]) -> Double? {
-            nets.isEmpty ? nil : nets.reduce(0, +) / Double(nets.count)
+            nets.isEmpty ? nil : Money.sum(nets) / Double(nets.count)
         }
 
         return bands.map(\.label).compactMap { band in

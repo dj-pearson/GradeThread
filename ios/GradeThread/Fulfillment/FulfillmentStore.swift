@@ -1,4 +1,5 @@
 import Foundation
+import GradeThreadCore
 import Observation
 
 /// Drives the shipping/fulfillment queue (US-669): loads sold-but-unshipped
@@ -33,7 +34,7 @@ final class FulfillmentStore {
 
     /// Total outstanding shipping-label cost across the queue. Surfaces the
     /// daily ship cost that already feeds item P&L.
-    var totalLabelCost: Double { orders.reduce(0) { $0 + $1.shippingCost } }
+    var totalLabelCost: Double { Money.sum(orders) { $0.shippingCost } }
 
     func load() async {
         phase = .loading

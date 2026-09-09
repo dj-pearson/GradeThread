@@ -1,4 +1,5 @@
 import Foundation
+import GradeThreadCore
 import Observation
 
 /// The publish operations the drafts library needs to bulk-publish (US-964),
@@ -121,7 +122,10 @@ final class DraftsLibraryStore {
         }
     }
 
-    var totalValue: Double { drafts.reduce(0) { $0 + ($1.listingPrice ?? 0) } }
+    // US-3221: summed in exact Decimal (US-790). A library of a few hundred
+    // drafts summed as raw Double drifts past a cent, and this figure sits next
+    // to per-draft prices the seller can add up themselves.
+    var totalValue: Double { Money.sum(drafts) { $0.listingPrice ?? 0 } }
     var batchCount: Int { Set(drafts.compactMap(\.batchId)).count }
 
     func load() async {
