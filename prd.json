@@ -4795,20 +4795,6 @@
       ]
     },
     {
-      "id": "US-3218",
-      "passes": false,
-      "title": "Thirty-odd feature call sites still touch Web Storage unguarded (boot path already fixed)",
-      "description": "The boot path is already fixed (commit 6cf820c34): reading localStorage or sessionStorage THROWS (not returns null) when a browser blocks site data for the origin, and routes/lazy.tsx did it inside the .then() of every lazy route import, so such a visitor got an error boundary on every page of the product. src/lib/safe-storage.ts and src/test/boot-path-storage-safe.test.ts now cover the files that run before the first render. About thirty feature-level call sites remain, measured 2026-09-08: pwa-install-banner, use-activation, listing-suggestions, bulk-intake, autolister (session id), autolister-upload-store, impersonation, accept-invite, auth-callback, auth-confirm, login (return-to), settings. Each costs a preference or a resume rather than the app, which is why they were left out of the urgent fix, but two are worse than that: the auth return-to and pending-invite keys decide where a sign-in LANDS, and autolister-upload-store recovers lost uploads.",
-      "acceptanceCriteria": [
-        "The auth call sites go first and are treated as correctness, not preference: login.tsx, auth-callback.tsx, auth-confirm.tsx and accept-invite.tsx route their RETURN_TO_KEY and PENDING_INVITE_KEY access through safe-storage, and a blocked-storage visitor still completes sign-in and lands somewhere sensible rather than throwing mid-callback.",
-        "autolister-upload-store.ts and autolister.tsx (the session id) survive a storage throw without losing an in-flight batch: a failed read degrades to 'no session to resume', never to an exception.",
-        "The remaining preference-shaped sites (pwa-install-banner, use-activation, listing-suggestions, bulk-intake, impersonation, settings) either use safe-storage or carry their own try/catch. A dismissed banner that reappears is an acceptable outcome; a thrown exception is not.",
-        "src/test/boot-path-storage-safe.test.ts grows to cover whatever of these is genuinely boot-path, or a second guard covers the auth files. Do NOT widen it to the whole tree: the narrow list is what makes it meaningful, and the file says so."
-      ],
-      "priority": 4,
-      "notes": "Partial 2026-09-09. The two urgent halves are done: login.tsx, auth-callback.tsx, auth-confirm.tsx and accept-invite.tsx now read RETURN_TO_KEY / PENDING_INVITE_KEY through safe-storage (auth-callback runs AFTER the provider has authenticated, so the throw left a signed-in visitor stranded on a blank screen), and autolister.tsx's render-time session-id read plus autolister-upload-store's consumeLostUploadCount reader are converted. All five auth/boot files are now in BOOT_PATH_FILES in src/test/boot-path-storage-safe.test.ts. autolister.tsx is deliberately NOT on that list and the guard says why: its other eight call sites already sit inside try/catch, and a line-level rule cannot see that. Remaining and all preference-shaped: pwa-install-banner, use-activation, listing-suggestions, bulk-intake, impersonation, settings."
-    },
-    {
       "id": "US-3223",
       "passes": false,
       "title": "Stale async responses can overwrite newer state, and only three sites were audited",
