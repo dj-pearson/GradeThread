@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 import { useLocation } from "react-router";
 import { ALL_SURFACES } from "@/lib/surfaces";
+import { BUYER_NAV } from "@/lib/buyer-nav";
 
 // US-3229. Give each signed-in page its own browser tab.
 //
@@ -42,6 +43,23 @@ const DUPLICATE_LABELS: ReadonlySet<string> = (() => {
   return new Set([...seen].filter(([, n]) => n > 1).map(([label]) => label));
 })();
 
+/**
+ * The buyer tree is not in the surfaces registry (US-3252) and does not need to
+ * be: src/lib/buyer-nav.ts already declares it once, with the labels the buyer
+ * sidebar renders. Reading THAT is better than copying eight labels into a
+ * second list, which is precisely the two-lists-that-disagree problem the
+ * surfaces registry exists to solve. One source per tree.
+ *
+ * Admin is still uncovered and stays that way for now: its nav lives in eight
+ * unexported arrays inside admin-layout.tsx, so it needs extracting before
+ * anything else can read it.
+ */
+const BUYER_ENTRIES: Entry[] = BUYER_NAV.map((item) => ({
+  path: item.to,
+  param: null,
+  label: item.label,
+}));
+
 /** Built once: the registry is a module-level constant. */
 const ENTRIES: Entry[] = ALL_SURFACES.flatMap((s) => {
   if (s.web === null) return [];
@@ -55,7 +73,7 @@ const ENTRIES: Entry[] = ALL_SURFACES.flatMap((s) => {
     label:
       DUPLICATE_LABELS.has(s.label) && group ? `${group} ${s.label}` : s.label,
   }];
-});
+}).concat(BUYER_ENTRIES);
 
 /**
  * The label for a location, or null when nothing in the registry covers it.

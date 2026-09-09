@@ -95,19 +95,21 @@ describe("an in-app navigation is announced (US-3244)", () => {
     }
   });
 
-  it("does NOT mount the title hook where the registry cannot resolve", () => {
-    // The trap this replaces: mounting useSurfaceTitle in a tree with no
-    // registry entries resolves to the marketing default on every route, so
-    // the mount reads like a fix and does nothing. Remove these two lines only
-    // when US-3252 gives those trees a real title source.
-    for (const rel of [
-      "src/layouts/buyer-layout.tsx",
-      "src/layouts/admin-layout.tsx",
-    ]) {
-      const layout = readFileSync(resolve(process.cwd(), rel), "utf8");
-      expect(layout, `${rel} mounts useSurfaceTitle with no registry source`).not.toContain(
-        "useSurfaceTitle()",
-      );
-    }
+  it("does NOT mount the title hook where nothing can resolve a name", () => {
+    // The trap: mounting useSurfaceTitle in a tree the resolver knows nothing
+    // about returns the marketing default on every route, so the mount reads
+    // like a fix and does nothing.
+    //
+    // Buyer came OFF this list once BUYER_NAV became its source. Admin stays
+    // until its nav is extracted from the eight unexported arrays inside
+    // admin-layout.tsx. Remove it here only when there is something to read.
+    const layout = readFileSync(
+      resolve(process.cwd(), "src/layouts/admin-layout.tsx"),
+      "utf8",
+    );
+    expect(
+      layout,
+      "admin mounts useSurfaceTitle with no source to resolve against",
+    ).not.toContain("useSurfaceTitle()");
   });
 });

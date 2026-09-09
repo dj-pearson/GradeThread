@@ -6,6 +6,7 @@ import { RouteErrorBoundary } from "@/components/error-boundary";
 import { PastDueBanner } from "@/components/billing/past-due-banner";
 import { useAuthStore } from "@/stores/auth-store";
 import { RouteAnnouncer } from "@/components/route-announcer";
+import { useSurfaceTitle } from "@/hooks/use-surface-title";
 
 // US-1802: buyer app shell. A surface parallel to DashboardLayout (seller) with
 // its own sidebar. A dual-role account (is_seller) gets a one-click context
@@ -17,14 +18,14 @@ export function BuyerLayout() {
   // back; a pure buyer discovers selling (the flywheel's other side).
   const isSeller = profile?.is_seller === true;
 
+  useSurfaceTitle();
+
   return (
     <div className="flex h-screen overflow-hidden">
-      {/* US-3252: the buyer tree is not in the surfaces registry, so this
-          announces the generic "Page changed" rather than a page name. That is
-          still the difference between a screen reader saying something and
-          saying nothing at all after an in-app navigation. The title hook is
-          deliberately NOT mounted here — it would resolve to the marketing
-          default for every buyer route, which reads like a fix and is not. */}
+      {/* US-3252: both of these resolve buyer routes through BUYER_NAV, which
+          already declares the tree once with the labels the sidebar renders.
+          Admin still has neither — its nav is eight unexported arrays inside
+          admin-layout.tsx and needs extracting first. */}
       <RouteAnnouncer />
       <a
         href="#buyer-main"

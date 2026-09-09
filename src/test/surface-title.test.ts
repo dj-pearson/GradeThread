@@ -78,12 +78,34 @@ describe("each signed-in surface gets its own tab title (US-3229)", () => {
     expect(resolved.length).toBeGreaterThanOrEqual(9);
   });
 
-  it("is mounted in the dashboard layout, not merely exported", () => {
+  it("resolves the buyer tree from BUYER_NAV (US-3252)", () => {
+    // Buyer routes are NOT in the surfaces registry and deliberately stay out
+    // of it: src/lib/buyer-nav.ts already declares them once with the labels
+    // the sidebar renders. Copying those into a second list is the
+    // two-lists-that-disagree problem the registry exists to solve.
+    expect(surfaceLabelFor("/buyer", "")).toBe("Home");
+    expect(surfaceLabelFor("/buyer/alerts", "")).toBe("Watchlist & Alerts");
+    expect(surfaceLabelFor("/buyer/settings", "")).toBe("Settings");
+    expect(surfaceTitleFor("/buyer/rewards", "")).toBe("Rewards - GradeThread");
+  });
+
+  it("still says just the product name for admin, which has no source yet", () => {
+    // Admin's nav is eight unexported arrays inside admin-layout.tsx. Until
+    // that is extracted there is nothing to resolve against, and pretending
+    // otherwise is what US-3252 exists to stop.
+    expect(surfaceLabelFor("/admin/users", "")).toBeNull();
+  });
+
+  it("is mounted in the dashboard and buyer layouts, not merely exported", () => {
     // A hook nothing calls titles nothing.
-    const layout = readFileSync(
-      resolve(process.cwd(), "src/layouts/dashboard-layout.tsx"),
-      "utf8",
-    );
-    expect(layout).toContain("useSurfaceTitle()");
+    for (const rel of [
+      "src/layouts/dashboard-layout.tsx",
+      "src/layouts/buyer-layout.tsx",
+    ]) {
+      const layout = readFileSync(resolve(process.cwd(), rel), "utf8");
+      expect(layout, `${rel} does not mount useSurfaceTitle`).toContain(
+        "useSurfaceTitle()",
+      );
+    }
   });
 });
