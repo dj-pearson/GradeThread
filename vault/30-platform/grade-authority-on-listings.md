@@ -11,12 +11,23 @@ code_refs:
   - src/lib/listing-templates.ts
   - src/test/no-dead-column-writes.test.ts
   - src/components/flipdesk/composer/photos-card.tsx
-reviewed: 2026-09-05
+reviewed: 2026-09-08
 tags: [ebay, listings, grading, policy, contract]
 summary: A grade reaches a marketplace listing as text and a structured specific only — never burned into a photo, never as a QR slab image, never as a link.
 ---
 
 # How a grade appears on a listing — text only
+
+> **Re-reviewed 2026-09-08, no change, and the rule got stricter.** Drift
+> flagged `flipdesk-ebay.ts` for US-3196, which mirrors an eBay listing's own
+> pictures onto the item by reference. Those rows carry a live `i.ebayimg.com`
+> URL and no file of ours, and they compose nothing: no grade is rendered into
+> them, no certificate number is burned in, no badge is overlaid. The change
+> runs the other way from this rule's worry — `publicItemPhotoUrl` now refuses
+> any photo GradeThread does not hold the bytes for, so a mirrored picture
+> cannot reach eBay, Depop, Etsy or Shopify at all until the seller copies it
+> in. Nothing here alters how a grade reaches a listing: still the description
+> text, the Condition Grade specific and the certificate number.
 
 > **Re-reviewed 2026-09-05, no change.** Drift flagged `flipdesk-ebay.ts`
 > for US-3068. The return shield quotes the grade report as TEXT into a
