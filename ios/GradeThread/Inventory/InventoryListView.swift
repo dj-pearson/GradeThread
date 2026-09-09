@@ -943,8 +943,10 @@ struct InventoryListView: View {
     /// static so it's unit-testable (the `UIAccessibility.post` side effect
     /// no-ops without VoiceOver and isn't).
     static func refreshFailureAnnouncement(_ message: String) -> String {
-        let trimmed = message.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty ? "Refresh failed." : "Refresh failed. \(trimmed)"
+        // US-3219: one implementation, shared with every other pull-to-refresh
+        // surface. Kept as a thin re-export so the existing call site + test read
+        // the same as before.
+        SyncRefresh.failureAnnouncement(message)
     }
 
     // MARK: - Bulk actions (US-182)

@@ -74,6 +74,19 @@ final class AccessibilityAnnounceTests: XCTestCase {
         XCTAssertEqual(text, "Refresh failed.")
     }
 
+    /// US-3219: Home, Money, Profit by item, Sales, Grades and Analytics now
+    /// announce a failed pull through the same helper Inventory uses, so the
+    /// shared entry point is asserted directly (and the Inventory static is a
+    /// thin re-export of it).
+    func test_syncRefresh_failureAnnouncement_matchesInventoryHelper() {
+        XCTAssertEqual(
+            SyncRefresh.failureAnnouncement("Network unavailable"),
+            InventoryListView.refreshFailureAnnouncement("Network unavailable")
+        )
+        XCTAssertEqual(SyncRefresh.failureAnnouncement(""), "Refresh failed.")
+        XCTAssertTrue(SyncRefresh.failureAnnouncement("Sync timed out").contains("Sync timed out"))
+    }
+
     func test_scoutCard_accessibilitySummary_marksUncertain() {
         let candidate = ScoutCandidate(
             itemId: "2", title: "Unknown jacket", imageUrl: nil, itemWebUrl: nil,

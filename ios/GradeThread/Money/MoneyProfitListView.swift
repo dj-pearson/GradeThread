@@ -17,6 +17,11 @@ struct MoneyProfitListView: View {
     /// changes (not on every `body` pass) — see US-967 pattern.
     @State private var rows: [ItemProfitRow] = []
 
+    // US-3219: await the real sync so the spinner reflects it, and say so when
+    // the pull fails instead of leaving stale profit figures unlabeled.
+    @Environment(\.syncEngine) private var syncEngine
+    @State private var refreshError: String?
+
     private var dataSignature: Int {
         var hasher = Hasher()
         hasher.combine(sort)
@@ -56,9 +61,8 @@ struct MoneyProfitListView: View {
             }
         }
         .onChange(of: dataSignature, initial: true) { _, _ in rebuildRows() }
-        .refreshable {
-            NotificationCenter.default.post(name: .inventoryPullRequested, object: nil)
-        }
+        .syncRefreshable(engine: syncEngine, error: $refreshError)
+        .syncRefreshBanner($refreshError)
     }
 
     private var content: some View {

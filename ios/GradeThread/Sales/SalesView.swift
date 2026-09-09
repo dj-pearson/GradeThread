@@ -24,6 +24,12 @@ struct SalesView: View {
         let itemsById: [String: LocalInventoryItem]
     }
     @State private var joinsCache = SignatureCache<SaleJoins>()
+
+    // US-3219: a failed pull used to be silent here — the notification post
+    // returned instantly, so the spinner said "done" whether or not the sync
+    // reached the server.
+    @Environment(\.syncEngine) private var syncEngine
+    @State private var refreshError: String?
     private var joins: SaleJoins {
         joinsCache.value(signature: MoneyView.titlesSignature(items)) {
             SaleJoins(
@@ -55,9 +61,8 @@ struct SalesView: View {
             .navigationTitle("Sales")
             // Pull-to-refresh fires a full sync pull (same channel as Inventory
             // and Money) which re-populates the shared cache.
-            .refreshable {
-                NotificationCenter.default.post(name: .inventoryPullRequested, object: nil)
-            }
+            .syncRefreshable(engine: syncEngine, error: $refreshError)
+            .syncRefreshBanner($refreshError)
     }
 
     @ViewBuilder

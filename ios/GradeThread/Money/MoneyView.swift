@@ -24,6 +24,12 @@ struct MoneyView: View {
     // discarded — a server rejection did nothing with no message).
     @State private var expenseActionError: String?
 
+    // US-3219: pull-to-refresh awaits the real sync and surfaces a failure. The
+    // Money tab reads from the local cache, so a silently failed pull showed
+    // last week's revenue with nothing marking it stale.
+    @Environment(\.syncEngine) private var syncEngine
+    @State private var refreshError: String?
+
     @Query(sort: \LocalSale.saleDate, order: .reverse) private var sales: [LocalSale]
     @Query private var items: [LocalInventoryItem]
     // US-750: expenses now read from the SAME shared SwiftData cache as sales /
@@ -271,9 +277,8 @@ struct MoneyView: View {
         // US-750: pull-to-refresh fires the same full sync pull as Inventory /
         // Sales, which repopulates the shared cache (sales + expenses). No
         // separate ExpenseStore.refresh — the @Query reflects the cache.
-        .refreshable {
-            NotificationCenter.default.post(name: .inventoryPullRequested, object: nil)
-        }
+        .syncRefreshable(engine: syncEngine, error: $refreshError)
+        .syncRefreshBanner($refreshError)
         // US-967: rebuild the id→title map only when the items (or a title)
         // change, not on every `body` re-evaluation.
         .onChange(of: titlesSignature, initial: true) { _, _ in

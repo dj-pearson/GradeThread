@@ -24,7 +24,6 @@ struct GradesListView: View {
     // US-1026: pull-to-refresh fires a real sync; the engine dedupes concurrent
     // pulls, and a transient banner surfaces failures.
     @Environment(\.syncEngine) private var syncEngine
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var refreshError: String?
 
     /// US-819: the report sheet (which carries the dispute affordance) opened via
@@ -82,45 +81,10 @@ struct GradesListView: View {
                 ToolbarItem(placement: .topBarTrailing) { sortMenu }
             }
         }
-        .refreshable { await refreshFromServer() }
-        .overlay(alignment: .bottom) { refreshErrorBanner }
+        .syncRefreshable(engine: syncEngine, error: $refreshError)
+        .syncRefreshBanner($refreshError)
         .sheet(item: $reportItem) { item in
             ItemGradeReportSheet(item: item)
-        }
-    }
-
-    /// US-1026: pull-to-refresh awaits a real ``SyncEngine.sync()`` so the
-    /// spinner reflects true completion; the engine's own `isPulling` guard
-    /// dedupes a refresh that lands while a sync is already running, and the
-    /// local `@Query` re-renders when the merge notifies SwiftData.
-    private func refreshFromServer() async {
-        guard let syncEngine else {
-            // Engine not booted yet — fall back to the notification path so the
-            // pull isn't a dead gesture.
-            NotificationCenter.default.post(name: .inventoryPullRequested, object: nil)
-            return
-        }
-        if case let .failed(message) = await syncEngine.sync() {
-            await MainActor.run { withAnimation(ReducedMotion.animation(.default)) { refreshError = message } }
-        }
-    }
-
-    @ViewBuilder
-    private var refreshErrorBanner: some View {
-        if let refreshError {
-            Text(refreshError)
-                .font(.footnote.weight(.medium))
-                .foregroundStyle(.white)
-                .padding(.horizontal, 16)
-                .padding(.vertical, 10)
-                .background(Color.brandRed, in: Capsule())
-                .padding(.bottom, 24)
-                .shadow(radius: 6, y: 2)
-                .transition(reduceMotion ? .opacity : .move(edge: .bottom).combined(with: .opacity))
-                .task(id: refreshError) {
-                    try? await Task.sleep(nanoseconds: 3_500_000_000)
-                    withAnimation(ReducedMotion.animation(.default)) { self.refreshError = nil }
-                }
         }
     }
 

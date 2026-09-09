@@ -55,6 +55,12 @@ struct DashboardView: View {
     /// Certified-graded items (for the grades card).
     @State private var gradedItems: [LocalInventoryItem] = []
 
+    // US-3219: pull-to-refresh awaits the real sync (so the spinner means
+    // something) and flashes a banner when the pull fails — Home used to post a
+    // notification and return, leaving a failed refresh completely silent.
+    @Environment(\.syncEngine) private var syncEngine
+    @State private var refreshError: String?
+
     var body: some View {
         Group {
             // US-1261: route the empty cache through `display` so an existing
@@ -73,9 +79,8 @@ struct DashboardView: View {
             }
         }
         .navigationTitle("Home")
-        .refreshable {
-            NotificationCenter.default.post(name: .inventoryPullRequested, object: nil)
-        }
+        .syncRefreshable(engine: syncEngine, error: $refreshError)
+        .syncRefreshBanner($refreshError)
         .toolModulePresentation($presentedModule, router: router)
         // US-3101: a quick action, Lock Screen widget or Siri phrase parked a
         // module on the router because the sheet slot belongs to this view.
