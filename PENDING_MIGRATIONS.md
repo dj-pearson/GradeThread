@@ -51,6 +51,38 @@ working with the columns gone.
 
 **No operator step.**
 
+## ⏳ HELD: 00773 — flipdesk_settings.listing_voice_prompt (US-3201)
+
+**Risk: LOW.** One nullable `text` column on `flipdesk_settings` plus a CHECK.
+No backfill, no rewrite, no default: every existing row reads NULL, which means
+"use the listing prompt as shipped" and is exactly what was true before.
+
+**Apply order:** after 00772. Run `NOTIFY pgrst, 'reload schema';` afterwards
+(new column), then redeploy the edge.
+
+**⚠️ THE FRONTEND READS THE NEW COLUMN, AND CLOUDFLARE PAGES DEPLOYS ON PUSH.**
+`src/hooks/use-listing-voice.ts` runs a NAMED select
+(`.select("listing_voice_prompt")`) against `flipdesk_settings`, and it is
+mounted on `/dashboard/flipdesk/description-snippets` via
+`ListingVoiceSetting`. A named select on a missing column is a PostgREST 42703,
+not an undefined — so unlike 00772's `select("*")` photo grid, this one throws
+the moment the page opens. Apply the SQL BEFORE the push.
+
+The edge also reads it (`loadListingVoice` in `ai-listing.ts`, on every
+AutoLister generation), but that read swallows its error and returns null, so
+an unapplied database degrades to today's behaviour there rather than failing a
+listing run.
+
+**What it adds**
+- `flipdesk_settings.listing_voice_prompt` — how this seller wants their listing
+  copy to sound, in their own words. Appended to the versioned `listing_gen`
+  prompt as a separate trailing system block, never edited into it, never sent
+  on an eval run, and never cached (it is the only per-seller text in an
+  otherwise shared system prefix).
+- `flipdesk_settings_listing_voice_sane` — CHECK: null, or 1 to 2000 characters
+  and not all whitespace. The cap is load-bearing, not cosmetic: this text rides
+  on every listing generation, and AutoLister runs in batches.
+
 ## ⏳ HELD: 00771 — aged_threshold_days + the Aged tab in flipdesk_listing_page (US-3195)
 
 **Risk: MEDIUM, and higher than the other three in this stack.** The column is

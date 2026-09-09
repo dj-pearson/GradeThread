@@ -30,6 +30,7 @@ import {
 import { useConfirm } from "@/components/ui/confirm-dialog";
 import { SamplePicker } from "@/components/flipdesk/sample-picker";
 import { toastError } from "@/lib/toast-error";
+import { ListingVoiceSetting } from "@/components/flipdesk/listing-voice-setting";
 import { useListingSnippets } from "@/hooks/use-listing-snippets";
 import {
   applySnippetToDrafts,
@@ -212,6 +213,11 @@ export function FlipdeskDescriptionSnippetsPage() {
           </div>
         }
       />
+
+      {/* US-3201: the voice sits above the lines, because it is the broader
+          setting — the snippets below are exact text, this decides how
+          everything ELSE on a listing is worded. */}
+      <ListingVoiceSetting />
 
       <p className="text-sm text-muted-foreground">
         <Link
