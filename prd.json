@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-3244",
+  "nextId": "US-3245",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -4859,6 +4859,18 @@
       ],
       "priority": 7,
       "notes": "Partial 2026-09-09 in 17d779ac0: 48 user-facing strings fixed. Two reverted after the parity guards caught them: 'The care label with the fibre content' is ONE string in five places (src/lib/photo-roles.ts, src/lib/photo-profiles.ts, the edge copies of both, ios/GradeThread/Capture/PhotoProfile.swift, android/.../capture/PhotoProfile.kt) plus android/config/detekt/baseline.xml, which pins the exact line text. Changing it is a cross-platform change needing an iOS and Android build, so it waits for a machine that can do both. Guard from AC2 not written yet."
+    },
+    {
+      "id": "US-3244",
+      "passes": false,
+      "title": "Nothing tells a screen reader the page changed",
+      "description": "In a single-page app, clicking a nav link swaps the content without a page load, so a screen reader announces nothing and the user has no idea anything happened. GradeThread has the other pieces already - a skip link, html lang, and a polite live region on the lazy-route spinner (US-452) - but no route announcer. US-3229 has just made this cheap: surfaceLabelFor() already resolves the current location to the product's own name for it, so the announcement can be the same string the browser tab shows rather than a second hand-maintained list. Deliberately NOT doing focus movement in the same change: moving focus to main on every navigation is the other half of this pattern and it fights with pages that autofocus an input, so it needs its own assessment.",
+      "acceptanceCriteria": [
+        "A visually-hidden aria-live=polite region in the dashboard layout announces the surface name on every route change, using surfaceLabelFor so it cannot drift from the tab title.",
+        "It stays silent on first paint. The initial page title already announces the page, and an announcer that fires on load is noise that trains people to ignore it.",
+        "A guard asserts the announcer is mounted in the layout and reads from the same resolver as the title, so the two cannot diverge.",
+        "Focus-on-navigation is assessed separately and either implemented with an exclusion list for autofocus pages, or written off with a reason. Do not bundle it here."
+      ]
     }
   ]
 }

@@ -7,6 +7,7 @@ import { useRealtimeSubmissions } from "@/hooks/use-realtime-submission";
 import { useRealtimeListingState } from "@/hooks/use-realtime-listing-state";
 import { useCheckoutReconciler } from "@/hooks/use-checkout-reconciler";
 import { useSurfaceTitle } from "@/hooks/use-surface-title";
+import { RouteAnnouncer } from "@/components/route-announcer";
 import { CommandPalette } from "@/components/flipdesk/command-palette";
 import { ShortcutsHelp } from "@/components/dashboard/shortcuts-help";
 import { FlipdeskActivation } from "@/components/onboarding/flipdesk-activation";
@@ -39,6 +40,9 @@ export function DashboardLayout() {
 
   return (
     <div className="flex h-screen flex-col overflow-hidden">
+      {/* US-3244: names the destination for a screen reader after an in-app
+          navigation, which otherwise announces nothing at all. */}
+      <RouteAnnouncer />
       {/* US-581: full-width impersonation banner above everything when active. */}
       <ImpersonationBanner />
       <div className="flex flex-1 overflow-hidden">
