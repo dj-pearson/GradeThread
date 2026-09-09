@@ -45598,6 +45598,19 @@
       ],
       "priority": 2,
       "notes": "Done 2026-09-09. MoneyDate gains anchor(localDayOf:localCalendar:) (write half: take the LOCAL y/m/d, rebuild at UTC midnight), localMidnight(of:localCalendar:) (read half: a stored UTC-anchored day as local midnight, so a DatePicker shows the day that is stored) and dayPicker(_:) which binds a picker through both. today(now:localCalendar:) is now anchor(localDayOf: now) rather than startOfDay(now); its doc comment used the Sydney case as the example of what it prevented and had the direction backwards. ExpenseFormSheet defaults spentOn to MoneyDate.today() (was plain .now) and binds through dayPicker; TripFormSheet binds through it too. ExpenseStore.create drops its private DateFormatter for MoneyDate.iso, and bucketingCalendar is now MoneyDate.calendar rather than a second Calendar that agreed with it -- MoneyDate's header already claimed that move had happened. Five tests in MileageTests: Chicago 9pm, Sydney 9am, New Year's Eve staying in the old tax year, a four-zone picker round trip, and time-of-day being ignored. All 15 iOS guards pass. Swift compile is macOS-only, so iOS CI is the compile check. NOT FIXED HERE: FinancialExport's From/To range pickers still bind raw local Dates against UTC-anchored rows, so a boundary-day expense can fall outside an export range by a few hours; worth its own story."
+    },
+    {
+      "id": "US-3229",
+      "passes": true,
+      "title": "Every signed-in page has the same browser tab title",
+      "description": "index.html ships <title>GradeThread - The Standard for Clothing Condition Grading</title> and nothing inside the app replaces it once a seller signs in. components/seo.tsx does set document.title, but it is only rendered by the public marketing pages; no page under src/pages/flipdesk sets a title at all, and neither does dashboard-layout.tsx. A reseller works in tabs by definition - Inventory in one, Listings in another, Money in a third - and all three read identically, as does every entry in browser history and every bookmark. src/lib/surfaces.ts already declares what the product contains, with a canonical web link (routePathOf, including any ?tab= / ?view=) and the label exactly as the product spells it, so the titles can be derived rather than hand-written on 113 pages.",
+      "acceptanceCriteria": [
+        "A hook derives the title from ALL_SURFACES by matching the current pathname plus the tab/view param that names a surface inside a tabbed host, and sets it as '<label> - GradeThread'. It is mounted in the layout, not per page, so a new surface gets a title by being in the registry.",
+        "Routes that are not surfaces still get something better than the marketing title: CONTEXTUAL_ROUTES and detail routes (items/:id, submissions/:id) fall back to the nearest parent surface rather than to the default.",
+        "A guard asserts the layout mounts the hook and that the registry lookup resolves for a named sample of routes, so a registry rename cannot silently return every page to one title."
+      ],
+      "priority": 6,
+      "notes": "Done 2026-09-09. Hook is src/hooks/use-surface-title.ts, mounted once in dashboard-layout.tsx. Admin and buyer layouts are NOT covered yet and still show the marketing title."
     }
   ]
 }
