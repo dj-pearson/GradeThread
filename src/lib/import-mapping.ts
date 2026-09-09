@@ -1,5 +1,6 @@
 import type { ItemStatus, ItemCategory } from "@/types/database";
 import { ITEM_CATEGORIES } from "@/lib/constants";
+import { toLocalDate } from "@/lib/local-date";
 
 // FlipDesk fields the user can map a CSV column TO. "skip" excludes a column.
 export const IMPORT_FIELDS = [
@@ -247,8 +248,32 @@ export function parseDate(raw: string, referenceDate: Date = new Date()): string
   }
 
   // Full date strings that carry an explicit year (ISO, "Jan 25, 2026", etc.).
+  //
+  // US-3247: this read the UTC calendar day off the parsed Date. "Jan 25, 2026"
+  // parses to LOCAL midnight, so anywhere ahead of UTC -- British Summer Time
+  // through UTC+13 -- that returned the 24th. The US is behind UTC, which is
+  // why it survived: the dates only moved for sellers nobody here was testing
+  // as. Acquisition and sale dates feed the P&L, the fiscal-year window and the
+  // tax packet, so a 1 January purchase could import into the previous tax
+  // year.
+  //
+  // But reading the LOCAL day off everything is the same mistake mirrored: a
+  // DATE-ONLY ISO string ("2026-01-01") parses as UTC midnight, so taking its
+  // local day returns 2025-12-31 for the whole of the Americas. That is the
+  // wrong half of the fix and it would hit far more sellers than the bug did.
+  //
+  // The two are different kinds of value. A date-only string is already a
+  // calendar day and carries no timezone, so it passes through untouched.
+  // Anything else parses to an instant, and the day a human means by it is the
+  // local one.
+  const dateOnly = /^(\d{4}-\d{2}-\d{2})(?:[T\s]|$)/.exec(s);
+  if (dateOnly) {
+    const iso = dateOnly[1]!;
+    const probe = new Date(`${iso}T00:00:00Z`);
+    return isNaN(probe.getTime()) ? null : iso;
+  }
   const d = new Date(s);
-  if (!isNaN(d.getTime())) return d.toISOString().slice(0, 10);
+  if (!isNaN(d.getTime())) return toLocalDate(d);
 
   return null;
 }
