@@ -38,6 +38,10 @@ struct DisputeSheet: View {
     @State private var evidence: [DisputeEvidencePhoto] = []
     @State private var picking = false
     @State private var evidenceNote: String?
+    // US-3267: a swipe-down used to discard a typed dispute AND the evidence
+    // photos attached to it. The old guard covered `.submitting` only, which
+    // protects the network call and not the work that feeds it.
+    @State private var showingDiscard = false
 
     private enum Phase: Equatable {
         case editing
@@ -48,6 +52,26 @@ struct DisputeSheet: View {
 
     private var canSubmit: Bool {
         DisputeComposer.canSubmit(reason: reason, details: details)
+    }
+
+    /// Anything the seller would have to redo. The evidence photos matter most
+    /// here: re-typing a paragraph is annoying, re-finding four photos of a
+    /// seam is why the dispute does not get filed at all.
+    private var hasWork: Bool {
+        !details.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            || !evidence.isEmpty
+            || reason != .gradeTooLow
+    }
+
+    private var isDirty: Bool {
+        switch phase {
+        // Submitted. There is nothing left to lose, and the button says Done.
+        case .done: return false
+        // In flight: closing the sheet mid-submit is not a discard, but it is
+        // not something to do by brushing the screen either.
+        case .submitting: return true
+        case .editing, .failed: return hasWork
+        }
     }
 
     private var currentUserId: String? {
@@ -74,11 +98,19 @@ struct DisputeSheet: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button(phase == .done ? "Done" : "Cancel") { dismiss() }
+                    if phase == .done {
+                        Button("Done") { dismiss() }
+                    } else {
+                        CancelFormButton(isDirty: isDirty, showingDiscard: $showingDiscard) {
+                            dismiss()
+                        }
+                    }
                 }
             }
         }
-        .interactiveDismissDisabled(phase == .submitting)
+        // Replaces `.interactiveDismissDisabled(phase == .submitting)`; `isDirty`
+        // still covers that phase and now covers the typed work too.
+        .unsavedChangesGuard(isDirty: isDirty, showingDiscard: $showingDiscard) { dismiss() }
     }
 
     private func form(errorMessage: String? = nil) -> some View {

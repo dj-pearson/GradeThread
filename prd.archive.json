@@ -45940,6 +45940,19 @@
       ],
       "priority": 1610,
       "notes": "Done 2026-09-09. All five triaged, edge suite 10008 passed / 0 failed. circuit-breaker: bad test, depended on 10.255.255.1 being non-routable (an egress proxy answers it here); rewritten against the local server US-2323 added, and now asserts TimeoutError specifically rather than Error. appstore-products: stale count, US-3138's four Action Credit packs took the catalog 10 -> 14 and the guard knew of no third kind; replaced the hard total with a partition assertion plus a wallet-separation case. brand-style-coverage: REAL regression, coverage 95% -> 40.1% (544 brands, 218 covered, 326 missing) from the US-3125 brand packs; converted both count assertions to a ratchet and filed the seeding work as US-3259. measurements: guard left behind by a deliberate move - the plain measurements block is now derived per platform by platform-description.ts rather than appended at generation time, and the guard still asserted the old shape; re-pointed at the derivation and at the negative (ai-listing must NOT append, or it double-prints). Also pinned that buildPlainMeasurementsText has no production caller, since its doc comment still claims one."
+    },
+    {
+      "id": "US-3267",
+      "passes": true,
+      "title": "iOS: guard the four form sheets a swipe-down still discards",
+      "description": "US-3220 packaged UnsavedChangesGuard + CancelFormButton and applied them to four sheets. Every OTHER form sheet guards interactive dismissal on the in-flight flag instead (isSaving / isSending / submitting), which protects the network call and not the work that feeds it. So a downward brush on DisputeSheet, RecordSaleSheet, FeedbackSheet or CreateItemFromListingSheet throws the form away with no warning and no draft. DisputeSheet is the sharpest: it loses the typed dispute AND the evidence photos attached to it, and re-finding four photos of a seam is why the dispute then does not get filed at all.",
+      "acceptanceCriteria": [
+        "DisputeSheet, RecordSaleSheet, FeedbackSheet and CreateItemFromListingSheet use unsavedChangesGuard + CancelFormButton, replacing their in-flight-only interactiveDismissDisabled",
+        "Each sheet's isDirty covers the in-flight state it used to guard, so nothing that was protected stops being protected",
+        "An untouched sheet still dismisses on a swipe with no prompt, including sheets whose fields are seeded (CreateItemFromListingSheet) or whose model holds a Date default (RecordSaleSheet)",
+        "A sheet that has finished its work (DisputeSheet .done, FeedbackSheet with a result) is not dirty, so the closing tap does not ask to discard"
+      ],
+      "notes": "Done 2026-09-09. All four sheets now take unsavedChangesGuard + CancelFormButton. Two traps worth recording because both would have shipped as 'always dirty, sheet will not swipe away': RecordSaleForm has 'var saleDate = Date()', so comparing the live form against a fresh RecordSaleForm() is never equal - it snapshots a pristine copy in onAppear AFTER the listed-price seed, the same shape TripFormSheet uses. CreateItemFromListingSheet seeds title/sku/price from the orphan listing, so dirty means 'differs from the prefill', not 'is non-empty'; it captures a Pristine struct in its init. DisputeSheet's isDirty is a switch on phase: .done is clean (the button says Done and there is nothing to lose), .submitting is dirty (in flight), .editing and .failed are dirty when there is typed text, an evidence photo, or a non-default reason. Verified: all sixteen ios/Scripts guards and check-ios-orphans.mjs pass; check-chained-sheets in particular, since two of these files already carry a .sheet modifier and the guard adds a confirmationDialog beside it. Swift cannot compile on this host; iOS CI covers the build. No unit test: these are view-level modifiers with no extractable pure surface, unlike the RuleDraft validity in US-3266's neighbour."
     }
   ]
 }
