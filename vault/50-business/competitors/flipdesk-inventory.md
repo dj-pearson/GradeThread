@@ -417,7 +417,7 @@ Half-built or drifting:
 - Facebook Marketplace: content script exists, nothing verified, selector strategy needs a rethink.
 - Vinted delist, Grailed/Vinted sold-sync: not built (US-2702).
 - CSV import presets (Vendoo, List Perfectly, Shopify, eBay File Exchange, Etsy): none verified against a real export (vault/30-platform/import-presets.md).
-- Extension is not in any store yet (US-1757, US-3058 operator); /connect-extension exists; US-2718 says the Listing Kit button was compiled out of the live build (three follow-up commits exist, story still open).
+- Extension is live in both stores at 1.0.9 (src/lib/app-links.ts); 1.1.0 waits on US-3058. /connect-extension exists. US-2718 said the Listing Kit button was compiled out of the live build on 2026-08-20; three follow-up commits exist and the story is still open, so re-verify against the deployed bundle before repeating it.
 - MeasureCard: tools page and edge routes exist; US-2231 says the page is a brochure with no path into the measure flow; golden-set gate never run (US-1582).
 - Grading coverage: rubric criteria for 8 of 20 garment categories; hats and bags route into the clothing rubric (US-2222/2223/2225).
 - Send-offer UI (send-offers-today.tsx) renders against an endpoint that 403s in prod.
@@ -439,7 +439,7 @@ Half-built or drifting:
 6. Strong: three clients (web PWA, iOS, Android) with most FlipDesk screens on all three; Android lacks buyer surfaces, mileage, scheduled drops; iOS lacks the paid consumer grade path.
 7. Weakest: marketplace breadth. Only eBay and Shopify are live APIs. Depop and Etsy are built but switched off pending partner approval. Whatnot, OfferUp, Vestiaire, Kidizen, Amazon, TikTok Shop: nothing.
 8. Weakest: extension automation depth. Poshmark and Mercari list + delist automatically; Grailed and Vinted list only; Facebook is unverified; revise and relist are manual on every extension channel. Vendoo / Crosslist / List Perfectly automate all four verbs on 8-11 channels.
-9. Weakest: the extension is not in any store, so the cross-listing story is unreachable for a real customer today (US-1757, US-3058, US-2718).
+9. CORRECTED 2026-09-08: the extension IS live on the Chrome Web Store and Firefox AMO (src/lib/app-links.ts; linked from the footer, /download and the dashboard), serving 1.0.9 with 1.1.0 pending the operator pass (US-3058). This line originally said it was in no store because US-1757 and US-2718 are still passes:false; that was the backlog talking, not the code.
 10. Weak: sold-sync on no-API channels exists only for Poshmark and Mercari, and is passive (seller must open their sales page).
 11. Weak: two eBay capabilities are written but dead in prod for lack of scopes: send offers to watchers (sell.negotiation) and shipping labels (sell.logistics).
 12. Weak: shipping ops. Labels gated, no ship-by countdown, no EasyPost/Pirate Ship alternative, packing slip just landed. Competitors that bundle labels win here today.

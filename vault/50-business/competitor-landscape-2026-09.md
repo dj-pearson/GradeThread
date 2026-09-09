@@ -224,7 +224,7 @@ action. Story ids are open in `prd.json` unless marked new. Rank is by
 
 | # | Gap | Competitor evidence | FlipDesk today | Action |
 |---|---|---|---|---|
-| 1 | Cross-listing is unreachable for a real customer | Every competitor is in the Chrome Web Store; Flyp updated its extension the day before this research | `extension-unified/` v1.1.0 is in no store (US-1757, US-3058); the Listing Kit button was compiled out of the live build (US-2718) | Ship the store listing. Everything in rows 2-6 is invisible until this lands. |
+| 1 | The store build lags the repo | Flyp updated its extension the day before this research; Vendoo ships monthly | Live on the Chrome Web Store and Firefox AMO (`src/lib/app-links.ts`, linked from the footer, `/download` and the dashboard). Both stores serve 1.0.9; 1.1.0 with the redesigned overlay is committed and waiting on the operator pass (US-3058). US-1757 still reads `passes:false` although its core AC shipped; treat it as stale. | Ship 1.1.0. Close or scope-correct US-1757 so the next reader does not repeat this session's mistake. |
 | 2 | Copy everything, not just text | Vendoo and Crosslist set category, size and condition on Poshmark and Mercari, imperfectly; "thin copies defeat the purpose" (7 sources) | Poshmark and Mercari fills are text-only by design; category, size, condition and colour are left to the seller (`selectors.js`) | Drive the four pickers from the eBay aspects we already normalise, with a per-field confidence and a "we picked, you confirm" review state. Keep the no-auto-submit rule. New story. |
 | 3 | Revise and relist on extension channels | All major tools automate all four verbs on 8-11 channels | Revise and relist are "verifying" (manual) on every extension channel; Grailed delist is impossible by design (US-3071) | Finish US-3071 for Poshmark and Mercari first; those two are where clothing crosslisting pays. |
 | 4 | Sale detection off eBay | Nifty's cloud detection is the stated reason for the dominant switch flow; Vendoo's Depop API sync every 30 min | Poshmark and Mercari sold-sync is passive (the seller must open their sales page); Grailed and Vinted have none (US-2702) | Two moves. (a) Turn the eBay-side certainty into the pitch: "sold on eBay, gone from Poshmark within N minutes, and here is the log". (b) Owner decision: re-argue [[adr-no-server-side-marketplace-automation]] against the Vendoo-to-Nifty evidence, or explicitly market the trade ("your account, your IP, your laptop") and add a nightly "open your sales pages" nudge. |
@@ -243,9 +243,16 @@ action. Story ids are open in `prd.json` unless marked new. Rank is by
 | 17 | Community | List Perfectly's Listing Party (daily calls, swap meets) is its moat | Aggregate insights only; no forum or chat | Low priority to build; high priority to borrow: a Discord plus the creator affiliate program that already exists. |
 | 18 | Listing video | Vendoo Pro adds 5-15 second videos on Poshmark and eBay | Not built (US-1980) | Low; eBay Media API only. |
 
-Rows 1 to 4 are the same story told four ways: the crosslister exists and a
-customer cannot reach or trust it yet. Nothing in rows 5 to 18 matters to a
-switcher until those four are done.
+Rows 2 to 4 are the same story told three ways: the crosslister is installed
+but a switcher from Vendoo or Nifty will find it thinner and less automatic
+than what they left. Nothing in rows 5 to 18 matters to that switcher until
+those three are done.
+
+Correction made the same day: the first draft of row 1 said the extension
+was in no store, on the strength of US-1757 and US-2718 still being open in
+`prd.json`. The code says otherwise. `passes:false` overstates the gap by a
+few dozen stories (see [[flipdesk-inventory]] section 5); check the code and
+`git log --grep` before repeating a backlog claim as a product fact.
 
 ## 6. The grading lane
 
@@ -359,5 +366,5 @@ Every one of these has a named casualty in the cluster notes.
 
 - Re-argue or market the no-server-side-automation decision (row 4).
 - Listing cap versus meters (section 8).
-- Whether to file rows 2, 9 and 10 as new stories now, ahead of the
-  extension store launch, or hold them until it ships.
+- Rows 2, 9 and 10 were filed as stories the same day: see the `prd.json`
+  ids recorded in the commit that follows this note.
