@@ -1,6 +1,6 @@
 # PENDING MIGRATIONS — applied to prod separately from the push
 
-## ⏳ HELD: 00775 — widen flipdesk_import_runs.origin to accept 'grailed' (US-3261)
+## ✅ APPLIED 2026-09-09: 00775 — widen flipdesk_import_runs.origin to accept 'grailed' (US-3261)
 
 **Risk: LOW.** One named CHECK constraint dropped and re-added with one extra
 value. No data change, no column change, nothing revoked. Safe to run twice.
@@ -12,6 +12,8 @@ allowlist. The origin CHECK from 00712 still listed five values, and
 closet import has failed at the INSERT since then**, and the seller was told
 "Could not start the import." Nothing else was affected: the row was never
 created, so no partial import exists to clean up.
+
+**Applied to prod 2026-09-09** by the operator, before this commit was pushed.
 
 **Apply order:** after 00774. `NOTIFY pgrst, 'reload schema';` is not strictly
 needed (no table, column or RPC signature changed) but is harmless. Redeploy the
