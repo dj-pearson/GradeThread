@@ -4872,17 +4872,6 @@
         "Focus-on-navigation is assessed separately and either implemented with an exclusion list for autofocus pages, or written off with a reason. Do not bundle it here."
       ],
       "notes": "Partial 2026-09-09: AC1-AC3 done. AC4 (focus-on-navigation) NOT done and not attempted -- it is the half that can make things worse if rushed. Also still open from US-3229: admin and buyer layouts mount neither useSurfaceTitle nor RouteAnnouncer, so both the tab title and the announcement are dashboard-only."
-    },
-    {
-      "id": "US-3245",
-      "passes": false,
-      "title": "The still-live warning is keyed on two error codes, not on the outcome",
-      "description": "US-2869 gave toastError a duration option for the failures a seller MUST read, and its doc comment names the category precisely: a batch where some rows published and some did not, or a delist that failed while the listing is still live. listings-actions.ts applies that rule to exactly two error codes. endListing() gives the 12-second toast when the code is unsupported_platform or not_connected and the ordinary 4 seconds to every other failure -- a network drop, a 500, a timeout -- even though the outcome is identical in all of them: the end did not happen and the listing is still live and sellable. The comment above the special case even says this is the case that costs a seller a double sale, which is true of the generic branch too. Separately, patchItemStatus catches a failed listing sync with Status changed, but the listing didn't sync at the default duration; that is the divergence case by definition, the local row now says draft while eBay still has it live.",
-      "acceptanceCriteria": [
-        "endListing's catch gives every failure the long duration and the still-live wording, because every failure means the same thing. Keep the two codes only if they add a DIFFERENT next step, not a different duration.",
-        "The status-sync catch says the listing is still live rather than that a sync failed, and gets the same treatment. A seller does not know what a sync is; they know what a live listing is.",
-        "A guard would need to distinguish money-costing failures from ordinary ones, which no regex can do. Instead the toast-error doc comment gains the rule in one line -- key the duration on the OUTCOME, not the error code -- so the next person applying it has the test to hand."
-      ]
     }
   ]
 }
