@@ -282,6 +282,12 @@ export const ANALYTICS_EVENTS = {
   // closet to bring over, and how many are starting from nothing.
   "onboarding.activation_step_skipped":
     "A skippable activation step was set aside without being done.",
+  // US-3263: the closet import card was shown to somebody without the
+  // extension, and they pressed the install button. Before this the card was
+  // not rendered at all for them, so the funnel started after the only step
+  // most people were missing.
+  "closet_import_install_prompted":
+    "The install-the-extension step of the closet import was taken.",
   // US-2884: the tour's two endings, which nothing recorded. Without them
   // "tour finished" and "tour skipped" were indistinguishable from "never
   // reached the tour".

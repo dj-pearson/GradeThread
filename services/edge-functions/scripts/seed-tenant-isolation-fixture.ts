@@ -80,6 +80,11 @@ const admin = createClient(SUPABASE_URL, SERVICE_KEY, {
 const PASSWORD = "Tenant-Isolation-Fixture-1!";
 const A_EMAIL = "tenant-a@tenant-isolation.test";
 const B_EMAIL = "tenant-b@tenant-isolation.test";
+// US-3263: a third tenant on the FREE plan. A and B are both business, which is
+// the right default for the rest of the suite and useless for the one route
+// whose behaviour now DIFFERS by entitlement -- the closet import, which bounds
+// an unentitled account rather than refusing it.
+const F_EMAIL = "tenant-free@tenant-isolation.test";
 // US-2039: a read-only VIEWER inside A's workspace. Distinct from B, who is a
 // FOREIGN tenant — the two prove different things. B tests cross-tenant
 // isolation ("you cannot touch another account's data"); V tests INTRA-workspace
@@ -202,6 +207,7 @@ async function main(): Promise<void> {
   const aId = await ensureUser(A_EMAIL);
   const bId = await ensureUser(B_EMAIL);
   const vId = await ensureUser(V_EMAIL);
+  const fId = await ensureUser(F_EMAIL);
 
   // US-9112: both tenants need a plan whose gateFlags include apiAccess,
   // or every /api/v1 and /mcp case in the suite is answered by the PLAN
@@ -217,8 +223,24 @@ async function main(): Promise<void> {
   }
   log("plan: A and B set to business (apiAccess) so the API surface is reachable");
 
+  // US-3263: F stays on free with no trial window, which is what an expired or
+  // never-started account looks like. Set explicitly rather than left to the
+  // signup default, because handle_new_user grants a 14-day Pro TRIAL and a
+  // trialing account is entitled -- so the default would have silently tested
+  // the paid path under a name that says free.
+  {
+    const { error } = await admin.from("users").update({
+      flipdesk_plan: "free",
+      subscription_status: "none",
+      trial_ends_at: null,
+    }).eq("id", fId);
+    if (error) die(`free-plan setup for ${fId} failed: ${error.message}`);
+  }
+  log("plan: F set to free (no trial) so the free-tier import bound is reachable");
+
   out.TEST_USER_A_JWT = await mintJwt(A_EMAIL);
   out.TEST_USER_B_JWT = await mintJwt(B_EMAIL);
+  out.TEST_FREE_PLAN_JWT = await mintJwt(F_EMAIL);
 
   // US-2039: make V a VIEWER of A's workspace. Upsert on the (owner_id,
   // member_id) unique constraint so re-running the seed is idempotent and a

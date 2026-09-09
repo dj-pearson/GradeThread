@@ -16,8 +16,16 @@ const ROOT = join(__dirname, "..", "..");
 const read = (p: string) => readFileSync(join(ROOT, p), "utf8");
 
 describe("closet import disclosure", () => {
-  it("covers Poshmark and Mercari and nothing else", () => {
-    expect([...CLOSET_IMPORT_PLATFORMS]).toEqual(["poshmark", "mercari"]);
+  it("covers the three closets the extension can read, and nothing else", () => {
+    // US-3261 added grailed, which the edge had accepted since US-3155 while
+    // this list did not offer it. Parity with the edge list is asserted in
+    // src/test/closet-import-platform-parity.test.ts; this one holds the
+    // membership so a fourth platform arrives with its disclosure copy.
+    expect([...CLOSET_IMPORT_PLATFORMS]).toEqual([
+      "poshmark",
+      "mercari",
+      "grailed",
+    ]);
   });
 
   for (const platform of CLOSET_IMPORT_PLATFORMS) {
@@ -40,11 +48,23 @@ describe("closet import disclosure", () => {
 describe("closet import card", () => {
   const src = read("src/components/flipdesk/closet-import-card.tsx");
 
-  it("renders only when the extension is installed and the account is seller-enabled", () => {
-    // The same gate the Lister uses. A button an account cannot use is a
-    // refusal waiting to happen.
-    expect(src).toMatch(/if \(!setup\?\.installed \|\| !setup\.sellerEnabled\) return null;/);
+  it("waits for the extension ping, then always says something (US-3263)", () => {
+    // It used to return null unless the extension was installed AND the
+    // account had a paid plan, which hid the whole feature from the two people
+    // most likely to want it: somebody deciding whether to pay, and somebody
+    // who had not installed the extension yet.
+    //
+    // What must still hold: nothing renders before the ping answers, so an
+    // install prompt never flashes at somebody who already has it.
+    expect(src).toMatch(/if \(!setup\) return null;/);
     expect(src).toMatch(/useExtensionSetup\(\)/);
+    expect(src).not.toMatch(/!setup\.sellerEnabled\) return null/);
+    // No extension: an install step, not silence.
+    expect(src).toMatch(/if \(!setup\.installed\)/);
+    expect(src).toMatch(/extensionStoreUrl\(\)/);
+    // No plan: the card renders and states the bound.
+    expect(src).toMatch(/!setup\.sellerEnabled && \(/);
+    expect(src).toContain("FREE_CLOSET_IMPORT_ROWS");
   });
 
   it("shows the disclosure before the button, from the shared copy", () => {

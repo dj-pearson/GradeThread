@@ -878,6 +878,12 @@ export interface ClosetImportResponse extends ExtensionResponse {
     new_rows?: number;
     known_rows?: number;
     plan_warning?: string | null;
+    /** US-3263: the free bound trimmed this read. */
+    free_capped?: boolean;
+    /** How many rows a free account may bring in, or null when entitled. */
+    free_cap?: number | null;
+    /** Listings the bound left behind on this read. */
+    left_behind?: number;
     error?: string;
     message?: string;
     cap?: string;
@@ -891,7 +897,9 @@ export interface ClosetImportResponse extends ExtensionResponse {
   installedAt?: string | null;
 }
 
-export function sendClosetImport(platform: "poshmark" | "mercari"): Promise<ClosetImportResponse> {
+export function sendClosetImport(
+  platform: "poshmark" | "mercari" | "grailed",
+): Promise<ClosetImportResponse> {
   return sendExtensionMessage<ClosetImportResponse>({ type: "GT_CLOSET_IMPORT", platform });
 }
 
@@ -905,12 +913,16 @@ export function sendClosetImport(platform: "poshmark" | "mercari"): Promise<Clos
  */
 export function closetImportFailureText(
   reason: ClosetImportReason | null,
-  platform: "poshmark" | "mercari",
+  platform: "poshmark" | "mercari" | "grailed",
 ): string {
-  const label = platform === "poshmark" ? "Poshmark" : "Mercari";
+  const label = platform === "poshmark"
+    ? "Poshmark"
+    : platform === "mercari"
+      ? "Mercari"
+      : "Grailed";
   switch (reason) {
     case "unsupported":
-      return "Closet import supports Poshmark and Mercari.";
+      return "Closet import supports Poshmark, Mercari and Grailed.";
     case "seller_locked":
       return "Closet import is part of a paid FlipDesk plan.";
     case "needs_sign_in":

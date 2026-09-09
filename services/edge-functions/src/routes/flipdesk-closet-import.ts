@@ -27,7 +27,9 @@ import { resolveSellerEntitlement } from "../lib/buyer-entitlements.ts";
 import { findForbiddenKey } from "../lib/sync-payload-guard.ts";
 import { requireFlipdesk } from "../lib/plan-gate.ts";
 import {
+  applyFreeTierCap,
   type ClosetImportRow,
+  FREE_CLOSET_IMPORT_ROWS,
   isClosetImportPlatform,
   MAX_CLOSET_IMPORT_ROWS,
   normalizeClosetRows,
@@ -117,20 +119,21 @@ flipdeskClosetImportRoutes.post("/runs", async (c) => {
     );
   }
 
-  if (!(await sellerGate(ownerId))) {
-    return c.json(
-      {
-        error: "FEATURE_LOCKED",
-        feature: "closet_import",
-        message: "Closet import is a FlipDesk seller feature.",
-      },
-      402,
-    );
-  }
+  // US-3263: an account without a seller plan is no longer refused here.
+  //
+  // It used to be, with a 402 and nothing else, and the person on the other end
+  // of that refusal was usually deciding whether to pay. What decides it is
+  // seeing their own closet appear. So an unentitled account gets a bounded
+  // import instead of a locked door, and the bound is applied BELOW, after the
+  // rows are read, so the response can say exactly how many were left behind.
+  const sellerEnabled = await sellerGate(ownerId);
 
   const platform = typeof body.platform === "string" ? body.platform.toLowerCase() : "";
   if (!isClosetImportPlatform(platform)) {
-    return c.json({ error: "Closet import supports Poshmark and Mercari." }, 400);
+    return c.json(
+      { error: "Closet import supports Poshmark, Mercari and Grailed." },
+      400,
+    );
   }
   if (!Array.isArray(body.listings) || body.listings.length === 0) {
     return c.json({ error: "No listings to import." }, 400);
@@ -142,7 +145,12 @@ flipdeskClosetImportRoutes.post("/runs", async (c) => {
     );
   }
 
-  const rows: ClosetImportRow[] = normalizeClosetRows(platform, body.listings);
+  const allRows: ClosetImportRow[] = normalizeClosetRows(platform, body.listings);
+  // The cap is enforced HERE, on the server, from the account's own
+  // entitlement. The browser and the extension both say what they think the
+  // limit is; neither is the gate.
+  const capped = applyFreeTierCap(allRows, sellerEnabled);
+  const rows = capped.rows;
   if (rows.length === 0) {
     return c.json(
       {
@@ -168,11 +176,17 @@ flipdeskClosetImportRoutes.post("/runs", async (c) => {
     return c.json({ error: "Could not check your existing listings." }, 500);
   }
   const newRows = rows.filter((r) => !known.has(r.platform_listing_id)).length;
-  const capGate = await requireFlipdesk(c, {
-    capacity: { kind: "activeListings", delta: newRows },
-    userId: ownerId,
-  });
-  if (capGate) return capGate;
+  // The plan's active-listing capacity is a PAID-PLAN accounting rule, and an
+  // unentitled account has no plan to account against — running the gate there
+  // would refuse the 25 rows this branch exists to allow. Their bound is
+  // FREE_CLOSET_IMPORT_ROWS, already applied.
+  if (sellerEnabled) {
+    const capGate = await requireFlipdesk(c, {
+      capacity: { kind: "activeListings", delta: newRows },
+      userId: ownerId,
+    });
+    if (capGate) return capGate;
+  }
   const planWarning = c.res.headers.get("X-Plan-Warning");
 
   const { data: run, error } = await supabaseAdmin
@@ -189,6 +203,22 @@ flipdeskClosetImportRoutes.post("/runs", async (c) => {
     .single();
   if (error || !run) {
     console.error("[closet-import] could not create run:", error?.message);
+    // US-3261: a CHECK violation here means the DEPLOY is inconsistent — the
+    // code knows a platform the database has not been widened for — and it
+    // read as an ordinary outage for months. 23514 is Postgres's
+    // check-violation code; say what is wrong so the next person looks at the
+    // constraint rather than at the extension.
+    if (error?.code === "23514") {
+      return c.json(
+        {
+          error:
+            `This server does not accept ${platformLabel(platform)} imports yet. ` +
+            "The database is behind the app. Nothing was imported, and trying " +
+            "again will not help until it is updated.",
+        },
+        503,
+      );
+    }
     return c.json({ error: "Could not start the import." }, 500);
   }
   const runId = (run as { id: string }).id;
@@ -207,6 +237,11 @@ flipdeskClosetImportRoutes.post("/runs", async (c) => {
       new_rows: newRows,
       known_rows: rows.length - newRows,
       plan_warning: planWarning,
+      // US-3263: what the free bound cost this read, so the page can say it
+      // rather than quietly importing a quarter of somebody's closet.
+      free_capped: capped.capped,
+      free_cap: sellerEnabled ? null : FREE_CLOSET_IMPORT_ROWS,
+      left_behind: capped.leftBehind,
     },
     202,
   );

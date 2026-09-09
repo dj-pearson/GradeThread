@@ -4,10 +4,12 @@
 
 import { assert, assertEquals } from "@std/assert";
 import {
+  applyFreeTierCap,
   closetFillPatch,
   closetListingPatch,
   isClosetImportPlatform,
   listingIdFromUrl,
+  FREE_CLOSET_IMPORT_ROWS,
   MAX_CLOSET_IMPORT_PHOTOS,
   MAX_CLOSET_IMPORT_ROWS,
   normalizeClosetRows,
@@ -212,4 +214,43 @@ Deno.test("grailed is a known platform with a label, and an unknown one still is
   assertEquals(platformLabel("grailed"), "Grailed");
   assert(!isClosetImportPlatform("depop"), "depop lands in US-3154, not here");
   assert(!isClosetImportPlatform("etsy"));
+});
+
+// ── US-3263: the free-plan bound ──────────────────────────────────────────
+//
+// This replaced an outright 402. The two things that must stay true: an
+// entitled account is affected in NO way, and an unentitled one is bounded by
+// this function rather than by whatever the browser sent.
+
+Deno.test("applyFreeTierCap leaves an entitled account's batch alone", () => {
+  const rows = Array.from({ length: 200 }, (_, i) => i);
+  const out = applyFreeTierCap(rows, true);
+  assertEquals(out.rows.length, 200);
+  assertEquals(out.leftBehind, 0);
+  assertEquals(out.capped, false);
+});
+
+Deno.test("applyFreeTierCap trims an unentitled batch and says what it left", () => {
+  const rows = Array.from({ length: 200 }, (_, i) => i);
+  const out = applyFreeTierCap(rows, false);
+  assertEquals(out.rows.length, FREE_CLOSET_IMPORT_ROWS);
+  assertEquals(out.leftBehind, 200 - FREE_CLOSET_IMPORT_ROWS);
+  assertEquals(out.capped, true);
+  // The rows kept are the FIRST ones read, so a second read of the same closet
+  // brings the same listings and updates rather than duplicating them.
+  assertEquals(out.rows[0], 0);
+});
+
+Deno.test("a small unentitled batch is not reported as capped", () => {
+  const out = applyFreeTierCap([1, 2, 3], false);
+  assertEquals(out.rows.length, 3);
+  assertEquals(out.capped, false);
+  assertEquals(out.leftBehind, 0);
+});
+
+Deno.test("an unentitled batch exactly at the bound is not capped", () => {
+  const rows = Array.from({ length: FREE_CLOSET_IMPORT_ROWS }, (_, i) => i);
+  const out = applyFreeTierCap(rows, false);
+  assertEquals(out.capped, false);
+  assertEquals(out.rows.length, FREE_CLOSET_IMPORT_ROWS);
 });
