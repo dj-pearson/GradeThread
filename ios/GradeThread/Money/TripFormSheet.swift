@@ -68,9 +68,12 @@ struct TripFormSheet: View {
                             .font(.footnote)
                             .foregroundStyle(.secondary)
                     }
+                    // US-3230: the picker reads local midnight and writes back
+                    // the UTC-anchored day, so the day on screen is the day on
+                    // the wire in every zone.
                     DatePicker(
                         "Date",
-                        selection: $draft.tripDate,
+                        selection: MoneyDate.dayPicker($draft.tripDate),
                         displayedComponents: .date
                     )
                 } footer: {

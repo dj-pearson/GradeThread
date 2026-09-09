@@ -23,7 +23,11 @@ struct ExpenseFormSheet: View {
 
     @State private var category: ExpenseCategory = .shippingSupplies
     @State private var amountText: String = ""
-    @State private var spentOn: Date = .now
+    // US-3230: the seller's local day, anchored the way the column stores it.
+    // Plain `.now` plus a UTC formatter on the way out meant an expense logged
+    // at 9pm in Chicago was filed under tomorrow — and on 31 December, under
+    // next year.
+    @State private var spentOn: Date = MoneyDate.today()
     @State private var note: String = ""
     /// US-750: optional inventory-item attribution (00266 link).
     @State private var linkedItemId: String?
@@ -144,7 +148,11 @@ struct ExpenseFormSheet: View {
                                 .foregroundStyle(.secondary)
                         }
                     }
-                    DatePicker("Date", selection: $spentOn, displayedComponents: .date)
+                    DatePicker(
+                        "Date",
+                        selection: MoneyDate.dayPicker($spentOn),
+                        displayedComponents: .date
+                    )
                 }
                 Section("Note") {
                     TextField("Optional", text: $note, axis: .vertical)

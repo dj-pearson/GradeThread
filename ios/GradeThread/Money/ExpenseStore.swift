@@ -36,11 +36,11 @@ final class ExpenseStore {
     /// (RemoteExpenseRow.spentOnDate). Bucketing with `Calendar.current` put a
     /// boundary-day expense (e.g. the 1st) into the wrong month for users behind/
     /// ahead of UTC. Parsing AND bucketing in the same zone (UTC) keeps them aligned.
-    static let bucketingCalendar: Calendar = {
-        var c = Calendar(identifier: .gregorian)
-        c.timeZone = TimeZone(identifier: "UTC") ?? .current
-        return c
-    }()
+    ///
+    /// US-3230: this is now ``MoneyDate/calendar`` rather than a second instance
+    /// that agreed with it. MoneyDate's own header claimed the move had already
+    /// happened; the copy was still here.
+    static let bucketingCalendar: Calendar = MoneyDate.calendar
 
     /// Sum of expenses dated in the current calendar month.
     func thisMonthTotal(now: Date = .now, calendar: Calendar = ExpenseStore.bucketingCalendar) -> Double {
@@ -100,18 +100,17 @@ final class ExpenseStore {
             let inventory_item_id: String?
             let listing_id: String?
         }
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.timeZone = TimeZone(identifier: "UTC")
-        formatter.dateFormat = "yyyy-MM-dd"
-
         // The id is lowercased at its MINT site to match Postgres `uuid`
         // normalization (see PhotoIntakeView): an UPPERCASE client id misses the
         // case-sensitive sync-merge lookup on pull-back and would duplicate the
         // expense row. That is the parameter's default, and a caller supplying
         // its own must lowercase it there for the same reason.
         let cleanDescription = description?.isEmpty == true ? nil : description
-        let spentOnString = formatter.string(from: spentOn)
+        // US-3230: one formatter for every date-only money column. The caller
+        // hands over a value already anchored to the seller's local day (the
+        // form binds its picker through `MoneyDate.dayPicker`), so this only
+        // renders it.
+        let spentOnString = MoneyDate.iso(spentOn)
         let row = Insert(
             id: id,
             user_id: userId,

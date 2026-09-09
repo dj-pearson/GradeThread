@@ -45583,6 +45583,21 @@
       ],
       "priority": 3,
       "notes": "Done 2026-09-09. SoldTodaySummary.dialog now takes now/calendar and, when the snapshot crossed local midnight, answers 'I don't have today's sales yet. Open GradeThread to refresh.' plus the payout clause, which is an as-of figure and stays true. Three tests: stale (asserts the dialog contains neither the count nor the gross), same-day-ten-hours-old (still reports), and signed-out-while-stale (sign-in prompt still wins). Also fixed the hole US-3226 opened: WidgetSnapshotPublisher.publishIfChanged skipped the write whenever hasSameRollup matched, so a seller with zero sales two days running kept a snapshot stamped yesterday and the widget would have shown a dash where a real zero belonged. It now also rewrites when the STORED snapshot is stale, and takes a calendar for testability. Only caller is SyncEngine:341, unchanged (defaults). All 15 iOS guards pass; Swift compile is macOS-only so iOS CI is the compile check."
+    },
+    {
+      "id": "US-3230",
+      "passes": true,
+      "title": "iOS: the expense date on screen was not always the date that got saved",
+      "description": "A date-only money column (flipdesk_expenses.spent_on, mileage_trips.trip_date) holds a calendar day. The DatePicker renders in the device's zone; the write formatted in UTC; nothing converted between them. So an expense logged at 9pm in Chicago was filed under tomorrow, and MoneyDate.today() - which anchored startOfDay(now) in UTC - opened the trip form on yesterday for a seller in Sydney at 9am. MoneyDate's own header used the Sydney case as the example of what it prevented, and got the direction wrong. On 31 December the Chicago case files the expense in the next tax year. US-1494 and US-2339 are the two earlier instances of the same family.",
+      "acceptanceCriteria": [
+        "MoneyDate.today picks the day from the LOCAL calendar and anchors it at UTC midnight",
+        "MoneyDate.anchor(localDayOf:) and .localMidnight(of:) are the two halves of the round trip, and MoneyDate.dayPicker binds a DatePicker through both",
+        "The expense and trip forms bind their pickers through it; ExpenseStore writes with MoneyDate.iso instead of a private formatter",
+        "ExpenseStore.bucketingCalendar is MoneyDate.calendar, not a second instance that agrees with it",
+        "Tests cover both hemispheres, New Year's Eve, the four-zone round trip, and time-of-day being ignored"
+      ],
+      "priority": 2,
+      "notes": "Done 2026-09-09. MoneyDate gains anchor(localDayOf:localCalendar:) (write half: take the LOCAL y/m/d, rebuild at UTC midnight), localMidnight(of:localCalendar:) (read half: a stored UTC-anchored day as local midnight, so a DatePicker shows the day that is stored) and dayPicker(_:) which binds a picker through both. today(now:localCalendar:) is now anchor(localDayOf: now) rather than startOfDay(now); its doc comment used the Sydney case as the example of what it prevented and had the direction backwards. ExpenseFormSheet defaults spentOn to MoneyDate.today() (was plain .now) and binds through dayPicker; TripFormSheet binds through it too. ExpenseStore.create drops its private DateFormatter for MoneyDate.iso, and bucketingCalendar is now MoneyDate.calendar rather than a second Calendar that agreed with it -- MoneyDate's header already claimed that move had happened. Five tests in MileageTests: Chicago 9pm, Sydney 9am, New Year's Eve staying in the old tax year, a four-zone picker round trip, and time-of-day being ignored. All 15 iOS guards pass. Swift compile is macOS-only, so iOS CI is the compile check. NOT FIXED HERE: FinancialExport's From/To range pickers still bind raw local Dates against UTC-anchored rows, so a boundary-day expense can fall outside an export range by a few hours; worth its own story."
     }
   ]
 }

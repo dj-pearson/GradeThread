@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-3229",
+  "nextId": "US-3232",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -4833,6 +4833,30 @@
         "No repo-wide guard test unless it can be made to fire without false positives. The scanner used here flagged 5 and 2 were correct code; a guard with that hit rate teaches people to add suppressions. If a guard is written, it carries a self-check and a named-exclusion list like flipdesk-error-state.test.ts does."
       ],
       "priority": 5
+    },
+    {
+      "id": "US-3229",
+      "passes": false,
+      "title": "Every signed-in page has the same browser tab title",
+      "description": "index.html ships <title>GradeThread - The Standard for Clothing Condition Grading</title> and nothing inside the app replaces it once a seller signs in. components/seo.tsx does set document.title, but it is only rendered by the public marketing pages; no page under src/pages/flipdesk sets a title at all, and neither does dashboard-layout.tsx. A reseller works in tabs by definition - Inventory in one, Listings in another, Money in a third - and all three read identically, as does every entry in browser history and every bookmark. src/lib/surfaces.ts already declares what the product contains, with a canonical web link (routePathOf, including any ?tab= / ?view=) and the label exactly as the product spells it, so the titles can be derived rather than hand-written on 113 pages.",
+      "acceptanceCriteria": [
+        "A hook derives the title from ALL_SURFACES by matching the current pathname plus the tab/view param that names a surface inside a tabbed host, and sets it as '<label> - GradeThread'. It is mounted in the layout, not per page, so a new surface gets a title by being in the registry.",
+        "Routes that are not surfaces still get something better than the marketing title: CONTEXTUAL_ROUTES and detail routes (items/:id, submissions/:id) fall back to the nearest parent surface rather than to the default.",
+        "A guard asserts the layout mounts the hook and that the registry lookup resolves for a named sample of routes, so a registry rename cannot silently return every page to one title."
+      ],
+      "priority": 6
+    },
+    {
+      "id": "US-3231",
+      "passes": false,
+      "title": "iOS: the financial export's date range is off by a few hours at the boundaries",
+      "description": "FinancialExport's From/To DatePickers bind raw local Dates and filter rows whose dates are UTC-anchored midnights (US-3230). For a seller behind UTC, a From bound of 1 September resolves to 1 Sep 00:00 local = 1 Sep 05:00 UTC, which excludes the expense stored at 1 Sep 00:00 UTC. The first and last day of any export range can silently drop rows, which for a tax export is the worst possible place for it. US-3230 built the conversion helpers (MoneyDate.dayPicker / anchor / localMidnight); this is applying them to the range, plus deciding whether To is inclusive of its whole day.",
+      "acceptanceCriteria": [
+        "The From/To pickers bind through MoneyDate.dayPicker so the range is expressed in the same anchoring as the rows",
+        "The To bound includes the whole of its day, and a test proves a row stored on the last day is exported",
+        "A test covers a seller east and west of UTC exporting a range whose first and last days both carry rows"
+      ],
+      "priority": 4
     }
   ]
 }

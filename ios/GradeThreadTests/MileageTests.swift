@@ -165,6 +165,71 @@ final class MileageTests: XCTestCase {
         XCTAssertNil(MoneyDate.parse("01/02/2026"))
     }
 
+    // MARK: - US-3230 the day on screen is the day on the wire
+
+    /// Chicago, 9pm. `Date()` is already tomorrow in UTC, so the old
+    /// `startOfDay(now)` anchored to tomorrow while the picker — which renders
+    /// in local time — still showed today. Same instant, two different days.
+    func test_today_usesTheSellersLocalDay_westOfUTC() {
+        var chicago = Calendar(identifier: .gregorian)
+        chicago.timeZone = TimeZone(identifier: "America/Chicago") ?? .current
+        let ninePM = chicago.date(from: DateComponents(year: 2026, month: 9, day: 9, hour: 21))!
+
+        XCTAssertEqual(MoneyDate.iso(MoneyDate.today(now: ninePM, localCalendar: chicago)), "2026-09-09")
+    }
+
+    /// Sydney, 9am. `Date()` is still yesterday in UTC, so the form used to open
+    /// on the previous day.
+    func test_today_usesTheSellersLocalDay_eastOfUTC() {
+        var sydney = Calendar(identifier: .gregorian)
+        sydney.timeZone = TimeZone(identifier: "Australia/Sydney") ?? .current
+        let nineAM = sydney.date(from: DateComponents(year: 2026, month: 9, day: 8, hour: 9))!
+
+        XCTAssertEqual(MoneyDate.iso(MoneyDate.today(now: nineAM, localCalendar: sydney)), "2026-09-08")
+    }
+
+    /// New Year's Eve is the day the zone costs real money: an expense logged
+    /// at 9pm on 31 December was filed in the next tax year.
+    func test_today_newYearsEveStaysInTheOldTaxYear() {
+        var chicago = Calendar(identifier: .gregorian)
+        chicago.timeZone = TimeZone(identifier: "America/Chicago") ?? .current
+        let nye = chicago.date(from: DateComponents(year: 2026, month: 12, day: 31, hour: 21))!
+
+        let stored = MoneyDate.today(now: nye, localCalendar: chicago)
+        XCTAssertEqual(MoneyDate.iso(stored), "2026-12-31")
+        XCTAssertEqual(MoneyDate.year(of: stored), 2026)
+    }
+
+    /// The picker round trip: whatever day the seller scrolls to is the day the
+    /// column stores, in both hemispheres.
+    func test_localMidnightAndAnchor_roundTripInBothDirections() {
+        for zone in ["America/Chicago", "Australia/Sydney", "UTC", "Asia/Kolkata"] {
+            var local = Calendar(identifier: .gregorian)
+            local.timeZone = TimeZone(identifier: zone) ?? .current
+
+            let stored = MoneyDate.parse("2026-09-09")!
+            let shown = MoneyDate.localMidnight(of: stored, localCalendar: local)
+            let shownParts = local.dateComponents([.year, .month, .day], from: shown)
+            XCTAssertEqual(shownParts.day, 9, "picker showed the wrong day in \(zone)")
+            XCTAssertEqual(shownParts.month, 9, "picker showed the wrong month in \(zone)")
+
+            let back = MoneyDate.anchor(localDayOf: shown, localCalendar: local)
+            XCTAssertEqual(MoneyDate.iso(back), "2026-09-09", "round trip lost a day in \(zone)")
+        }
+    }
+
+    /// A picked day carries whatever time-of-day the picker left on it; only the
+    /// local year/month/day may survive to the wire.
+    func test_anchor_ignoresTimeOfDay() {
+        var chicago = Calendar(identifier: .gregorian)
+        chicago.timeZone = TimeZone(identifier: "America/Chicago") ?? .current
+        let lateEvening = chicago.date(from: DateComponents(year: 2026, month: 9, day: 9, hour: 23, minute: 59))!
+        let earlyMorning = chicago.date(from: DateComponents(year: 2026, month: 9, day: 9, hour: 0, minute: 1))!
+
+        XCTAssertEqual(MoneyDate.iso(MoneyDate.anchor(localDayOf: lateEvening, localCalendar: chicago)), "2026-09-09")
+        XCTAssertEqual(MoneyDate.iso(MoneyDate.anchor(localDayOf: earlyMorning, localCalendar: chicago)), "2026-09-09")
+    }
+
     func test_todayIsAnchoredTheWayStoredDatesAre() {
         let anchored = MoneyDate.today()
         XCTAssertEqual(MoneyDate.startOfDay(anchored), anchored)

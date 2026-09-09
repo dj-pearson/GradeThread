@@ -1,4 +1,5 @@
 import Foundation
+import SwiftUI
 
 /// US-3014 AC2 — the one place a date-only money column is parsed, formatted
 /// and bucketed.
@@ -59,17 +60,69 @@ enum MoneyDate {
 
     /// Today, anchored the same way every stored date is.
     ///
-    /// NOT `Date()`. A seller in Sydney tapping "log a trip" at 9am on the 8th
-    /// has a `Date()` whose UTC day is still the 7th; anchoring through the
-    /// same calendar keeps the default date on screen and the date sent to the
-    /// server the same day.
-    static func today(now: Date = .now) -> Date {
-        startOfDay(now)
+    /// NOT `Date()`, and — US-3230 — not `startOfDay(now)` either. The day a
+    /// seller means is the day on THEIR wall clock, so the local calendar picks
+    /// the day and the UTC anchor stores it.
+    ///
+    /// `startOfDay(now)` got that wrong in both directions. A seller in Sydney
+    /// tapping "log a trip" at 9am on the 8th has a `Date()` whose UTC day is
+    /// still the 7th, so the form opened on the 7th. A seller in Chicago
+    /// tapping it at 9pm on the 9th has a UTC day of the 10th, so the picker
+    /// showed the 9th (it renders in local time) while the wire carried the
+    /// 10th. On 31 December that second one files the expense in the wrong tax
+    /// year.
+    static func today(now: Date = .now, localCalendar: Calendar = .current) -> Date {
+        anchor(localDayOf: now, localCalendar: localCalendar)
     }
 
-    /// UTC midnight of whatever day `date` falls on.
+    /// UTC midnight of whatever day `date` falls on **in UTC**.
+    ///
+    /// Correct for a value that is already anchored; for a moment that came
+    /// from a person or a clock, use ``anchor(localDayOf:localCalendar:)``.
     static func startOfDay(_ date: Date) -> Date {
         calendar.startOfDay(for: date)
+    }
+
+    // MARK: - Local day <-> stored day (US-3230)
+
+    /// The LOCAL calendar day `date` falls on, re-anchored at UTC midnight —
+    /// the shape a date-only column stores.
+    ///
+    /// This is the write half of the round trip. A `DatePicker` hands back a
+    /// moment in the device's zone; only its year/month/day are meaningful, and
+    /// they are read with the local calendar rather than reinterpreted in UTC.
+    static func anchor(localDayOf date: Date, localCalendar: Calendar = .current) -> Date {
+        let parts = localCalendar.dateComponents([.year, .month, .day], from: date)
+        return calendar.date(from: parts) ?? startOfDay(date)
+    }
+
+    /// A stored UTC-anchored day, expressed as midnight LOCAL time on the same
+    /// calendar day.
+    ///
+    /// This is the read half. A `DatePicker` renders whatever instant it is
+    /// given in the device's zone, so handing it UTC midnight directly shows
+    /// the previous day everywhere west of Greenwich.
+    static func localMidnight(of stored: Date, localCalendar: Calendar = .current) -> Date {
+        let parts = calendar.dateComponents([.year, .month, .day], from: stored)
+        return localCalendar.date(from: parts) ?? stored
+    }
+
+    /// Binding adapter for a `DatePicker` over a date-only column: reads as
+    /// local midnight so the picker shows the stored day, writes back the
+    /// UTC-anchored value the column wants.
+    ///
+    ///     DatePicker("Date", selection: MoneyDate.dayPicker($spentOn), displayedComponents: .date)
+    ///
+    /// Without it the day on screen and the day on the wire disagree by one for
+    /// most of the world for part of every day.
+    static func dayPicker(
+        _ stored: Binding<Date>,
+        localCalendar: Calendar = .current
+    ) -> Binding<Date> {
+        Binding(
+            get: { localMidnight(of: stored.wrappedValue, localCalendar: localCalendar) },
+            set: { stored.wrappedValue = anchor(localDayOf: $0, localCalendar: localCalendar) }
+        )
     }
 
     /// The calendar year a date-only value belongs to, in the same zone.
