@@ -4872,17 +4872,6 @@
         "Focus-on-navigation is assessed separately and either implemented with an exclusion list for autofocus pages, or written off with a reason. Do not bundle it here."
       ],
       "notes": "Partial 2026-09-09: AC1-AC3 done. AC4 (focus-on-navigation) NOT done and not attempted -- it is the half that can make things worse if rushed. Also still open from US-3229: admin and buyer layouts mount neither useSurfaceTitle nor RouteAnnouncer, so both the tab title and the announcement are dashboard-only."
-    },
-    {
-      "id": "US-3248",
-      "passes": false,
-      "title": "A failed read tells a connected seller their marketplace is disconnected",
-      "description": "marketplaces.tsx derives connection state as a truthiness check on the query data in two places: the eBay card (line 538) and the Shopify card (line 813). react-query leaves data undefined on a FAILED read exactly as it does when there genuinely is no connection, so a seller whose connection read failed is shown a Not connected badge and the Connect button, on the page whose entire job is telling them whether their marketplace link is alive. The likely response is to re-run OAuth on a connection that was working, and the frightening reading is the correct-sounding one: my eBay is disconnected, so my listings are not syncing. eBay is the primary marketplace here, so that card is the one that matters. This is the marketplaces half of US-3217, and the page stays on READ_FAILURE_UNHANDLED until it is done.",
-      "acceptanceCriteria": [
-        "Both cards distinguish three states, not two: connected, not connected, and could not tell. The third shows neither the Connected badge nor the Connect call to action, says the status could not be loaded, and offers a retry.",
-        "The Connect button is not offered while the state is unknown. Re-running OAuth against a live connection is the action this defect provokes, and it is the one thing the page must not invite while it does not know.",
-        "marketplaces.tsx comes off READ_FAILURE_UNHANDLED in src/test/flipdesk-error-state.test.ts, which fails in both directions, so leaving it on after fixing is as loud as never fixing it."
-      ]
     }
   ]
 }
