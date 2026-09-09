@@ -102,6 +102,23 @@ Deno.test("AC6: the persisted string is the render of the persisted blocks", () 
   assertStringIncludes(renderSrc, "listing_description: description,");
 });
 
+/**
+ * The body of ONE handler, ending where the next route declaration begins.
+ *
+ * Several assertions below used `routeSrc.slice(start)`, which runs to the end
+ * of the FILE. That reads as "this handler" and is not: US-3196 appended a
+ * sixth handler and the snippet-apply oracle check started counting its
+ * `c.json({ error` too, so a guard about one route began failing because of a
+ * different one. An extractor that silently widens is worse than no extractor,
+ * because the failure it eventually produces points at the wrong code.
+ */
+function handlerBody(src: string, declaration: string): string {
+  const start = src.indexOf(declaration);
+  if (start < 0) throw new Error(`handler not found: ${declaration}`);
+  const next = src.indexOf("flipdeskDescriptionRoutes.", start + declaration.length);
+  return next < 0 ? src.slice(start) : src.slice(start, next);
+}
+
 // ─── AC3: the read path writes nothing ─────────────────────────────
 
 Deno.test("AC3: the blocks GET handler performs no write", () => {
@@ -127,19 +144,40 @@ Deno.test("AC3: blocksForListing converts a legacy string without persisting", (
 
 Deno.test("AC4: every handler scopes on workspaceOwnerId ?? userId", () => {
   const handlers = routeSrc.split(/flipdeskDescriptionRoutes\.(?:get|post)\(/).slice(1);
-  // Four from US-2958, plus the snippet apply route US-2961 added. The count is
-  // asserted so a handler added without the owner resolution below cannot slip
-  // in as an untested fifth.
-  assertEquals(handlers.length, 5, "expected exactly five handlers");
+  // Four from US-2958, the snippet apply route US-2961 added, and the
+  // platform-descriptions read US-3196 added. The count is asserted so a
+  // handler added without the owner resolution below cannot slip in unnoticed
+  // — which is the guard working: the sixth handler IS correctly scoped, and
+  // this still had to be read and bumped by hand before it could ship.
+  assertEquals(handlers.length, 6, "expected exactly six handlers");
   for (const h of handlers) {
     assertStringIncludes(h, 'c.get("workspaceOwnerId") ?? c.get("userId")');
   }
 });
 
 Deno.test("AC4: the listing is only ever reached through the owner-scoped loader", () => {
+  // This was a flat ban on `.from("listings")` anywhere in the route, which is
+  // a proxy for the real rule rather than the rule. US-3196 then added a read
+  // that is correctly scoped — loadOwnedListing runs first, 404s a listing this
+  // workspace does not own, and the read keys on the id it returned — and the
+  // ban failed it anyway.
+  //
+  // So assert the actual requirement: every listings read in this file is keyed
+  // on an id that ownership was already proven for, never on the raw path
+  // parameter. `.eq("id", listingId)` is the shape that would be a hole, since
+  // listingId is attacker-controlled input; `.eq("id", listing.id)` is the
+  // ownership-via-parent pattern the skill names.
+  for (const m of routeSrc.matchAll(/\.from\("listings"\)/g)) {
+    const read = routeSrc.slice(m.index!, m.index! + 400);
+    assertStringIncludes(
+      read,
+      '.eq("id", listing.id)',
+      "a listings read must key on the row loadOwnedListing returned, never on the raw listingId param",
+    );
+  }
   assert(
-    !routeSrc.includes('.from("listings")'),
-    "the route must not query listings directly — loadOwnedListing owns that",
+    !routeSrc.includes('.eq("id", listingId)'),
+    "listingId is request input — filtering on it directly skips the ownership check",
   );
   assertStringIncludes(renderSrc, '.eq("inventory_items.user_id", ownerId)');
 });
@@ -269,9 +307,7 @@ Deno.test("parseBlocks drops a bogus unit rather than rejecting the block", () =
 // ─── US-2961: apply a snippet edit to the drafts referencing it ─────
 
 Deno.test("US-2961: the apply route is declared and owner-scoped", () => {
-  assertStringIncludes(routeSrc, '.post("/snippets/:snippetId/apply"');
-  const start = routeSrc.indexOf('.post("/snippets/:snippetId/apply"');
-  const handler = routeSrc.slice(start);
+  const handler = handlerBody(routeSrc, '.post("/snippets/:snippetId/apply"');
   assertStringIncludes(handler, 'c.get("workspaceOwnerId") ?? c.get("userId")');
   assertStringIncludes(handler, "applySnippetToDrafts(snippetId, ownerId)");
 });
@@ -279,8 +315,7 @@ Deno.test("US-2961: the apply route is declared and owner-scoped", () => {
 Deno.test("US-2961: a foreign or unknown snippet gets the same 404", () => {
   // Two different answers would make the route an oracle: a caller could learn
   // that a guessed id belongs to somebody by the shape of the refusal.
-  const start = routeSrc.indexOf('.post("/snippets/:snippetId/apply"');
-  const handler = routeSrc.slice(start);
+  const handler = handlerBody(routeSrc, '.post("/snippets/:snippetId/apply"');
   assertStringIncludes(handler, "Snippet not found");
   assertEquals((handler.match(/c\.json\(\{ error/g) ?? []).length, 1);
 });

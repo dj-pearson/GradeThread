@@ -138,6 +138,7 @@ const UNVALIDATED_UPLOADS = new Map<string, string>([
   ["src/routes/flipdesk-measure.ts", "SERVER-RENDERED: the measurement overlay JPEG, drawn from measurement math."],
   ["src/routes/flipdesk-images.ts", "DERIVED: the background-removal provider's output for a photo already validated on upload. Bytes are third-party rather than user-supplied; re-validating would be defensible and is worth revisiting if that provider is ever swapped."],
   ["src/lib/grading-submit.ts", "COPY: re-stores an existing item photo into the grading submission. The bytes passed validateImageUpload on their original upload, and no path admits HEIC (guarded above), so the private bucket's stricter allowlist cannot be bypassed by this copy. Moved here from routes/flipdesk-grading.ts by US-9129; the copy itself is unchanged."],
+  ["src/lib/photo-staging-storage.ts", "ADAPTER: two methods that know a Supabase bucket exists and nothing else — US-3157 split it out precisely so remote-photo-import.ts could stay free of the service-role client. It holds no decision and never sees a request body; every caller runs the US-276 sequence first, which the guard below asserts rather than trusts."],
   ["src/routes/jobs-thumbnail-backfill.ts", "DERIVED: thumbnails generated from already-stored, already-validated originals."],
   ["src/lib/measure-upright-pass.ts", "COPY + DERIVED: two writes, neither of them user-supplied bytes. The first copies the ALREADY-STORED photo byte-for-byte to its originals/ path so the rotation is revertible; the second is that same photo re-encoded after a quarter turn. Both descend from bytes that passed validateImageUpload on their own upload, and nothing here accepts a request body. Re-validating the copy would reject nothing and would make a failed validation silently skip preserving the original, which is the one thing US-2890 must never do."],
 ]);
@@ -178,4 +179,58 @@ Deno.test("US-276: the exemption list has no dead entries", () => {
     assert(reason.trim().length > 40, `${file}: exemption needs a real reason`);
   }
   assert(UNVALIDATED_UPLOADS.size > 0);
+});
+
+// An exemption is a promise about the CALLERS, and this file had nine of them
+// resting on prose alone. photo-staging-storage.ts is exempt only because every
+// caller validates before handing it bytes; if a tenth caller skipped that, the
+// exemption would read exactly the same and the guard above would still pass.
+//
+// So the promise is checked. This is cheap here because the adapter has one
+// entry point, and it is the difference between a documented exemption and an
+// undocumented hole.
+Deno.test("US-276: every caller of the staging adapter validates first", async () => {
+  const offenders: string[] = [];
+  let callers = 0;
+
+  for (const url of await sourceFiles(EDGE_SRC)) {
+    const path = rel(url);
+    if (path.endsWith("photo-staging-storage.ts")) continue;
+    const src = await Deno.readTextFile(url);
+    for (const m of src.matchAll(/itemPhotoStaging\s*\(\s*\)/g)) {
+      callers++;
+      // Either this function validates the bytes itself, or it hands the
+      // adapter to remote-photo-import, whose own core does (and which has its
+      // own coverage). Both are the US-276 sequence; neither is a bare upload.
+      const handsToImportCore = /storage:\s*itemPhotoStaging\s*\(\s*\)/.test(
+        src.slice(Math.max(0, m.index! - 200), m.index! + 60),
+      );
+      if (handsToImportCore) continue;
+      if (!validatesInScope(src, m.index!)) offenders.push(`${path}:${m.index}`);
+    }
+  }
+
+  // A scan that finds no callers proves nothing and would pass forever.
+  assert(callers >= 3, `expected the staging adapter to have callers, found ${callers}`);
+  assertEquals(
+    offenders,
+    [],
+    "These reach the staging adapter without validateImageUpload in scope. " +
+      "photo-staging-storage.ts is exempt from the upload guard ONLY because " +
+      "its callers validate; a caller that does not makes that exemption false.",
+  );
+});
+
+// remote-photo-import.ts is the core those callers hand the adapter to, so the
+// exemption above ultimately rests on THIS being true.
+Deno.test("US-276: the remote-photo import core validates before it stages", async () => {
+  const src = await Deno.readTextFile(
+    new URL("../lib/remote-photo-import.ts", import.meta.url),
+  );
+  const validate = src.indexOf("validateImageUpload(");
+  const strip = src.indexOf("stripImageMetadata(");
+  const upload = src.indexOf("storage.upload(");
+  assert(validate > 0, "the import core must validate");
+  assert(strip > validate, "metadata must be stripped after validation");
+  assert(upload > strip, "the upload must come last — validate, strip, THEN store");
 });
