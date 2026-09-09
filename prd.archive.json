@@ -45770,6 +45770,19 @@
         "A guard would need to distinguish money-costing failures from ordinary ones, which no regex can do. Instead the toast-error doc comment gains the rule in one line -- key the duration on the OUTCOME, not the error code -- so the next person applying it has the test to hand."
       ],
       "notes": "Done 2026-09-09. AC3 chose the doc comment over a guard deliberately. Verified against the 5 suites that reference these strings (64 tests) rather than the full run, which the machine killed for memory twice tonight."
+    },
+    {
+      "id": "US-3246",
+      "passes": true,
+      "title": "\"You were signed out\" with no way to sign in",
+      "description": "edgeFetch refreshes once and retries on a 401 from an authed request (mirroring iOS US-1146). When the refresh itself FAILS -- the refresh token is expired, revoked, or the account signed out elsewhere -- forceRefreshAccessToken returns null, the code falls through, and the original 401 goes back to the caller. friendlyError classifies it correctly and toastError says the right words: You were signed out. Sign in again and repeat the last step. But nothing has actually signed the user out of the SPA. The Zustand store still holds a session, so ProtectedRoute keeps rendering the dashboard, the sidebar still shows their name and their cached data, and there is no Sign in button anywhere because as far as the app is concerned they are signed in. The instruction is correct and unfollowable: every subsequent action fails the same way, and the only escape is knowing to sign out manually first. This is the states-that-look-normal shape -- the app looks fine and is dead.",
+      "acceptanceCriteria": [
+        "When an authed request 401s AND the forced refresh returned null, edgeFetch clears the local session (a LOCAL sign-out, not a network one -- the token is already dead and the user may be offline). ProtectedRoute then bounces to /login?next=<where they were>, which US-1430 already preserves, so Sign in again becomes a path rather than advice.",
+        "Only when the refresh FAILED. If the refresh succeeded and the retry still 401s, that is an endpoint authorization problem, not a dead session, and signing the user out would be wrong.",
+        "Unauthenticated requests are untouched. A 401 from a public endpoint says nothing about the visitor's session.",
+        "A test drives the branch: refresh returns null on an authed 401 and the local session is cleared; refresh succeeds and it is not; an unauthenticated 401 leaves everything alone."
+      ],
+      "notes": "Done 2026-09-09. Verified by unit test across the three branches plus a source assertion on the wiring; NOT verified against a real expired refresh token in a browser, which would need a session left to rot past the refresh window."
     }
   ]
 }
