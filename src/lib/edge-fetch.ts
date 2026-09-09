@@ -1,5 +1,9 @@
 import { toast } from "sonner";
-import { getFreshAccessToken, forceRefreshAccessToken } from "@/lib/auth-token";
+import {
+  getFreshAccessToken,
+  forceRefreshAccessToken,
+  abandonDeadSession,
+} from "@/lib/auth-token";
 import { requestStepUp } from "@/lib/step-up-request";
 import { edgeApiUrl } from "@/lib/edge-api";
 import { track } from "@/lib/analytics";
@@ -115,6 +119,19 @@ export async function edgeFetch(
     if (fresh) {
       headers.set("Authorization", `Bearer ${fresh}`);
       res = await fetch(url, { ...opts, headers, body });
+    } else {
+      // US-3246: the refresh itself failed, so the refresh token is expired,
+      // revoked, or the account was signed out elsewhere. The 401 below reaches
+      // the caller and toastError says the right thing — "You were signed out,
+      // sign in again" — but until the SPA stops believing it has a session
+      // that is advice with no button attached. ProtectedRoute still renders
+      // the dashboard, the sidebar still shows their name, and every action
+      // fails identically.
+      //
+      // Only on a FAILED refresh. If the refresh succeeded and the retry still
+      // 401s, that is the endpoint refusing this user, not a dead session, and
+      // signing them out would be wrong.
+      await abandonDeadSession();
     }
   }
 

@@ -56,3 +56,27 @@ export async function forceRefreshAccessToken(): Promise<string | null> {
   if (error || !data.session?.access_token) return null;
   return data.session.access_token;
 }
+
+/**
+ * Drops a session the server has already rejected and we could not refresh
+ * (US-3246).
+ *
+ * A LOCAL sign-out on purpose: the token is dead, so there is nothing useful to
+ * revoke, and a network round-trip would just fail again — or hang, if the
+ * reason the refresh failed is that the user is offline. What matters is that
+ * the SPA stops believing it is signed in, because until it does, `signIn
+ * again` is advice with no button attached: ProtectedRoute keeps rendering the
+ * dashboard, the sidebar keeps their name, and every action fails the same way.
+ *
+ * Clearing it lets ProtectedRoute do what it already knows how to do — bounce
+ * to `/login?next=<where they were>` (US-1430).
+ */
+export async function abandonDeadSession(): Promise<void> {
+  try {
+    await supabase.auth.signOut({ scope: "local" });
+  } catch {
+    // Nothing to fall back to. onAuthStateChange has almost certainly fired
+    // regardless, and a throw here would replace a recoverable dead-end with
+    // an unhandled rejection.
+  }
+}
