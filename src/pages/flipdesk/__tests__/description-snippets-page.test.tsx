@@ -10,6 +10,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import { MemoryRouter } from "react-router";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ListingSnippetRow } from "@/types/database";
 
 const state = {
@@ -50,10 +51,24 @@ const row = (over: Partial<ListingSnippetRow>): ListingSnippetRow => ({
 
 function markup(snippets: ListingSnippetRow[], over: Partial<typeof state> = {}) {
   Object.assign(state, { snippets, isLoading: false, isError: false }, over);
+  // US-3206: a real QueryClientProvider rather than a mock per hook.
+  //
+  // The page grew a second data hook (useListingVoice, behind
+  // ListingVoiceSetting) and every case here died on "No QueryClient set" —
+  // which is a harness gap, not a regression in anything this file asserts.
+  // Mocking that one hook would have fixed today and left the same trap for
+  // the next one; a provider makes the page render the way it actually does.
+  // Nothing fetches: these hooks are gated on a signed-in user and there is
+  // none in a test, and retry is off so a stray query cannot hang the render.
+  const qc = new QueryClient({
+    defaultOptions: { queries: { retry: false, gcTime: 0 } },
+  });
   return renderToStaticMarkup(
-    <MemoryRouter>
-      <FlipdeskDescriptionSnippetsPage />
-    </MemoryRouter>,
+    <QueryClientProvider client={qc}>
+      <MemoryRouter>
+        <FlipdeskDescriptionSnippetsPage />
+      </MemoryRouter>
+    </QueryClientProvider>,
   );
 }
 

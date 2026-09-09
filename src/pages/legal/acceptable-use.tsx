@@ -7,7 +7,7 @@ export function AcceptableUsePage() {
       title="Acceptable Use Policy"
       description="What you can and cannot do on GradeThread and FlipDesk."
       canonicalPath="/acceptable-use"
-      effectiveDate="August 19, 2026"
+      effectiveDate="September 7, 2026"
     >
       <p>
         This Acceptable Use Policy (&ldquo;AUP&rdquo;) governs how you may use
@@ -144,6 +144,36 @@ export function AcceptableUsePage() {
         <li>
           Accurately represent condition, materials, and authenticity in
           listings drafted through the Service.
+        </li>
+      </ul>
+
+      {/* Terms section 19 and Privacy Policy section 16 (both September 7,
+          2026) describe what pooled sold comps ARE and what a contributor
+          grants. Neither says what a READER of those figures may not do with
+          them, which is an acceptable-use question and therefore belongs here.
+          The suppression floor in the Terms — nothing drawn from fewer than
+          five sales or three sellers — is the technical protection; this is the
+          rule against going around it. */}
+      <h3>Pooled sales data</h3>
+      <p>
+        If you use the optional pooled pricing view, or contribute to it, you
+        may not:
+      </p>
+      <ul>
+        <li>
+          Attempt to work out which seller, listing, or buyer any pooled figure
+          came from, including by combining pooled figures with anything else
+          you know or by making repeated narrow queries to isolate a single
+          sale;
+        </li>
+        <li>
+          Contribute sale prices you know to be false, or record sales that did
+          not happen, in order to move what other sellers see;
+        </li>
+        <li>
+          Scrape, bulk-export, resell, or republish pooled figures as a dataset
+          or a pricing product of your own. They are provided to help you price
+          your own inventory.
         </li>
       </ul>
 

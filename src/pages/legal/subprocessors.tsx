@@ -42,6 +42,13 @@ const SUBPROCESSORS: Subprocessor[] = [
   // where it IS configured, and a photo is a photo.
   { name: "Intuit (QuickBooks Online) — only when connected", purpose: "Accounting sync: the seller's own sales, fees, expenses and payouts pushed into their QuickBooks company file", data: "Transaction amounts, dates, account names and receipt images the seller chooses to sync. No buyer PII and no garment photos.", location: "United States" },
   { name: "remove.bg (Kaleido AI) — only when enabled", purpose: "Optional background removal on a listing photo", data: "The single garment photo submitted for removal", location: "Austria / European Union" },
+  // US-3206: both arrived with cloud folder import (migration 00766) and
+  // neither was listed. They are opt-in the way Intuit is — nothing is sent
+  // until the seller connects the account — but once connected we hold an OAuth
+  // token for their personal storage and read files out of the folder they
+  // pick, which is squarely a subprocessor relationship.
+  { name: "Dropbox — only when connected", purpose: "Importing garment photos from a folder the seller chooses", data: "An OAuth token for their Dropbox, and the image files in the folder they select. We do not browse outside it.", location: "United States" },
+  { name: "Microsoft (OneDrive) — only when connected", purpose: "Importing garment photos from a folder the seller chooses", data: "An OAuth token for their OneDrive, and the image files in the folder they select. We do not browse outside it.", location: "United States" },
   { name: "Sentry", purpose: "Error monitoring", data: "Redacted error context, request metadata", location: "United States" },
   { name: "PostHog", purpose: "Product analytics (consent-gated)", data: "Usage events, pseudonymous identifiers", location: "United States" },
   { name: "Email/SMTP provider (e.g. Amazon SES)", purpose: "Transactional & lifecycle email", data: "Email address, message content", location: "United States" },

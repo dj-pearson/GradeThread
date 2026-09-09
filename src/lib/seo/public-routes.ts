@@ -227,7 +227,7 @@ const ROUTE_LAST_MODIFIED: Record<string, string> = {
   "/privacy": "2026-09-07",
   "/terms": "2026-09-07",
   "/cookies": "2026-04-01",
-  "/acceptable-use": "2026-08-19",
+  "/acceptable-use": "2026-09-07",
   "/refund": "2026-07-02",
   "/account-deletion": "2026-08-21",
   "/imprint": "2026-07-02",

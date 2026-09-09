@@ -110,6 +110,13 @@ const HOST_OWNER: [RegExp, string][] = [
   // screen), oauth.platform (tokens) and quickbooks.api (the company file).
   [/(^|\.)intuit\.com$/, "Intuit"],
   [/(^|\.)remove\.bg$/, "remove.bg"],
+  // US-3206. Cloud folder import (00766). Dropbox is two hosts, one processor:
+  // www.dropbox.com is the consent screen and api.dropboxapi.com is both the
+  // token exchange and the file read. Microsoft is likewise two:
+  // login.microsoftonline.com for the token and graph.microsoft.com for the
+  // files.
+  [/(^|\.)dropbox\.com$|(^|\.)dropboxapi\.com$/, "Dropbox"],
+  [/(^|\.)microsoft\.com$|(^|\.)microsoftonline\.com$/, "Microsoft"],
 ];
 
 describe("the subprocessor list matches what the code calls (US-2527)", () => {
