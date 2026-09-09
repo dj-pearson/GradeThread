@@ -285,6 +285,11 @@ const IOS_GUARDS = [
   // sites still used it; every guard above passed, because none of them asks
   // whether a symbol exists. iOS CI found it a push later.
   ["every Type.member resolves", "check-symbol-resolution.py"],
+  // US-3281: the in-app delist tells App Review seven things about itself. Each
+  // is a sentence a small, sensible-looking change would make false, and a
+  // 5.2.2 rejection is resolved by authorization from the marketplace that does
+  // not exist. So the sentences are checked rather than trusted.
+  ["the in-app delist matches what we told Apple", "check-web-delist.py"],
 ];
 
 const results = [];

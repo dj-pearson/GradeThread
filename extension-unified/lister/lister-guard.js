@@ -143,7 +143,36 @@
     }
   }
 
+  /**
+   * US-3061: may this platform's flow run on a phone?
+   *
+   * Firefox for Android runs the same extension and the same content scripts,
+   * against a DIFFERENT DOM. A desktop selector that misses on the mobile tree
+   * does not throw: it fills nothing, submits nothing, and the job reports a
+   * cross-post the seller never got. So the answer is opt-in per platform, and
+   * the default is no.
+   *
+   * The refusal is deliberately a SENTENCE and not a silent skip. A row that
+   * vanishes from a phone's queue with no reason is the same as a row that ran
+   * and failed quietly, which is the thing US-2165 was written about.
+   */
+  function mobileFlowAllowed(selectors, platform) {
+    const cfg = selectors && selectors[platform];
+    const mobile = cfg && cfg.mobile;
+    return Boolean(mobile && mobile.enabled === true);
+  }
+
+  function mobileRefusalFor(selectors, platform) {
+    const cfg = selectors && selectors[platform];
+    const label = (cfg && cfg.label) || platform;
+    return "GradeThread has not checked " + label + "'s form on a phone yet, so " +
+      "it will not guess at it here. Open this queue on a desktop browser and " +
+      "it will run there.";
+  }
+
   root.GT_LISTER_GUARD = {
+    mobileFlowAllowed: mobileFlowAllowed,
+    mobileRefusalFor: mobileRefusalFor,
     hostOf: hostOf,
     hostMatches: hostMatches,
     senderHost: senderHost,

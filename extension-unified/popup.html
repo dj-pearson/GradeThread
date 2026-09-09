@@ -245,6 +245,12 @@
             <button class="pop-btn danger" id="queueClearFailed" type="button" hidden>Clear failed</button>
             <button class="pop-linkbtn quiet" id="queueCancelAll" type="button" hidden>Cancel all waiting</button>
           </div>
+          <!-- US-3061: the worker tab. One pinned tab that keeps draining every
+               minute instead of waiting out the five-minute sweep, in the
+               seller's own browser and their own session. -->
+          <div class="pop-qbulk">
+            <button class="pop-btn" id="queueWorker" type="button">Keep GradeThread working</button>
+          </div>
           <p class="pop-meter-note" id="queueRunNote" aria-live="polite" hidden></p>
         </div>
 

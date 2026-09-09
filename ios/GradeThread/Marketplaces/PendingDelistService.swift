@@ -129,6 +129,26 @@ public final class PendingDelistService {
         )
     }
 
+    /// US-3281: the app ended it, in a web view the seller signed into and
+    /// watched, and VERIFIED the listing was gone before calling this.
+    ///
+    /// Same endpoint as ``markEndedManually``, deliberately: the edge route's
+    /// own comment already covers both callers ("the extension ended the
+    /// listing on the marketplace (or the seller did manually)"), it is
+    /// tenant-scoped, and setting the same three columns twice is a no-op, so
+    /// a phone end and a desktop drain cannot double-settle a row.
+    ///
+    /// It is a SEPARATE function from ``markEndedManually`` only so the
+    /// provenance is readable at the call site. That function's contract is
+    /// "the seller says they did it, and nothing infers it"; this one is "we
+    /// watched it happen". Collapsing them would quietly widen the first.
+    public func markEndedInApp(listingId: String) async throws {
+        let _: ConfirmResponse = try await api.postJSON(
+            "/api/flipdesk/listings/delist-confirm",
+            body: ConfirmBody(listing_id: listingId)
+        )
+    }
+
     /// "I ended it myself." Clears the stamp so the row stops nagging.
     ///
     /// Same endpoint as the web's `useMarkDelistDone`, and the same rule: this

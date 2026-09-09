@@ -587,6 +587,19 @@ subscribers see a "managed on the web" state — which is reading existing
 entitlements, not steering to external purchase (Guideline 3.1.3(b) multiplatform
 services); permissions rationale; account deletion location.
 
+**US-3281 added a section, and it is the one that decides an approval.** The
+app now ends a listing on Poshmark and Mercari by opening the marketplace's own
+site in a `WKWebView` the seller signs into and watches. Guideline 5.2.2 is
+resolved by producing written authorization from the marketplace, which does
+not exist and can never be fabricated, so the notes exist to keep 5.2.2 from
+being the frame at all: the app does not access Poshmark, the seller does. The
+full case, the exact wording, the seven build constraints the wording depends
+on, and the reply to send if it is rejected anyway are in
+[`vault/10-ops/ios-webview-delist-app-review.md`](../vault/10-ops/ios-webview-delist-app-review.md).
+Do not edit that section of `notes.txt` without reading it, and do not
+paraphrase it into something friendlier: `ios/Scripts/check-web-delist.py`
+holds the build to what it says, not the other way round.
+
 ---
 
 ## 10. Submission mechanics & rollout

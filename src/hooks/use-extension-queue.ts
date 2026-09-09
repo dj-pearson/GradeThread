@@ -21,7 +21,9 @@ import { edgeFetch } from "@/lib/edge-fetch";
 
 export const QUEUED_NOTICE =
   "This runs the next time you open your desktop browser with the GradeThread " +
-  "extension installed. Nothing happens on the marketplace until then.";
+  "extension installed, or within a minute if you keep the GradeThread worker " +
+  "tab open, on a computer or in Firefox for Android. Nothing happens on the " +
+  "marketplace until then.";
 
 // `share` was a third kind until US-2497. It is gone because nothing could run
 // it: an engagement pass needs a human at the browser to take the tab back when

@@ -52,6 +52,43 @@ async function initToggles() {
   });
 
   await initQuickLook();
+  await initWorker();
+}
+
+// ── US-3061: the worker tab ────────────────────────────────────────────────
+//
+// Stored in storage.local, like every other option here and deliberately NOT in
+// storage.sync: this is a statement about THIS machine. A seller with a laptop
+// and a desktop wants the pinned tab on the one that stays on, and syncing the
+// choice would open it on both.
+//
+// Default OFF, and switching it off REMOVES the key rather than storing false,
+// so "never asked for" and "asked for and turned back off" are the same stored
+// state - the same rule scanMode and selectorTelemetry follow.
+async function initWorker() {
+  const { gtWorkerAutostart } = await ext.storage.local.get("gtWorkerAutostart");
+
+  const box = document.getElementById("workerAutostart");
+  if (box) {
+    box.checked = gtWorkerAutostart === true;
+    box.addEventListener("change", async () => {
+      if (box.checked) await ext.storage.local.set({ gtWorkerAutostart: true });
+      else await ext.storage.local.remove("gtWorkerAutostart");
+    });
+  }
+
+  // Routed through the background for the same reason the popup's button is:
+  // one opener, and worker.html stays a page no web content can navigate to.
+  const open = document.getElementById("workerOpen");
+  if (open) {
+    open.addEventListener("click", async () => {
+      open.disabled = true;
+      try {
+        await ext.runtime.sendMessage({ type: "GT_WORKER_OPEN" });
+      } catch (_e) { /* worker asleep; the click is not worth an error box */ }
+      open.disabled = false;
+    });
+  }
 }
 
 // ── US-3066: the on-device quick look ───────────────────────────────────────

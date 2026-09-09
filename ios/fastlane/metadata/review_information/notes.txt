@@ -22,7 +22,20 @@ PERMISSIONS
 ACCOUNT DELETION
 Settings → Delete account. Requires typing "delete" to confirm; removes the account and all associated data server-side.
 
+ENDING A LISTING ON A MARKETPLACE WITHOUT AN API
+Some resale marketplaces (Poshmark, Mercari) publish no seller API. For those, GradeThread does not connect to the marketplace at all. Instead the app opens the marketplace's own website in a WKWebView, where the seller signs in as themselves, and helps them complete the form on the page they are looking at.
+
+How to see it: Marketplaces tab -> "Sold elsewhere, still listed" -> tap "End it now" on a row. A web view opens on that listing's page. The first time, it asks the seller to sign in to the marketplace; that sign-in happens on the marketplace's own page inside the web view and GradeThread never sees or stores those credentials. The seller then confirms, and the app clicks through the marketplace's own "end listing" flow while the seller watches.
+
+What the app does not do:
+- It does not hold, store, transmit or type a marketplace password. There is no field in this app for one. Nothing about the marketplace session leaves the device.
+- It does not act on a schedule, in the background, or while the app is closed. Every run is one tap by the seller on one specific listing, with the web view on screen for the whole run.
+- It does not answer a CAPTCHA or any other human verification. If the marketplace asks, the app stops and hands the seller the screen.
+- It does not download or execute remote code. All page scripts are in the app binary.
+
+The seller is the account holder operating their own account in a WebKit view, which is why the marketplace's own site and sign-in are shown rather than proxied. Settings has "Clear marketplace sign-ins", and signing out or deleting the account clears them too.
+
 COMMERCE NOTE
-The app supports listing items for resale (commercial activity by the seller). All marketplace selling happens on the seller's connected eBay account via API.
+The app supports listing items for resale (commercial activity by the seller). Selling on eBay happens on the seller's connected eBay account through eBay's API. On marketplaces with no seller API, nothing is automated on our servers at all - see the section above.
 
 Questions during review: support@gradethread.com

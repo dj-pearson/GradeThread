@@ -76,6 +76,27 @@
         </label>
       </section>
 
+      <!-- US-3061: the worker tab. Off by default — a tab that appears on
+           its own is a thing people report as a hijack, however useful. -->
+      <section class="opt-section">
+        <h2 class="opt-h2">Cross-listing</h2>
+
+        <label class="opt-toggle">
+          <input type="checkbox" id="workerAutostart" />
+          <span>
+            Start the worker tab when the browser opens
+            <small>
+              Off by default. The worker tab is one pinned GradeThread tab that
+              runs your queued cross-posts and end-listings every minute, in
+              this browser, signed in as you. With it closed, queued work still
+              runs — every five minutes instead of every minute.
+            </small>
+          </span>
+        </label>
+
+        <button type="button" class="opt-btn" id="workerOpen">Open the worker tab now</button>
+      </section>
+
       <section class="opt-section">
         <h2 class="opt-h2">Sites you’ve turned off</h2>
         <p class="opt-lead" id="disabledEmpty">

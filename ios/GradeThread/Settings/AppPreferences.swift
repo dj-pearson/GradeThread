@@ -27,6 +27,15 @@ enum AppPreferences {
     private static let currencyKey = "com.gradethread.app.pref.currencyCode"
     private static let budgetKey = "com.gradethread.app.pref.sourcingBudget"
     private static let usageThresholdKey = "com.gradethread.app.pref.usageAlertThreshold"
+    /// US-3281: the seller has read the consent screen for ending a listing
+    /// inside the app's web view. Internal (not private) because the screen
+    /// binds to it with `@AppStorage`, which needs the literal key.
+    ///
+    /// ACCOUNT-scoped, not device-scoped. Consent to a statement about
+    /// marketplace terms and about who is responsible if an account is limited
+    /// belongs to the person who read it, and the next person to sign in on
+    /// this handset has not. Registered in ``AccountScopedDefaults``.
+    static let webDelistConsentedKey = "com.gradethread.app.pref.webDelistConsented.v1"
 
     /// US-805: at what cap-usage percentage the soft warning banner appears
     /// (mirrors web US-209: 50 / 80 / 95). The edge only emits the warning header

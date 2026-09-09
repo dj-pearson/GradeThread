@@ -175,7 +175,9 @@ export function planExpiry(nowMs: number): string {
  */
 export const QUEUED_NOTICE =
   "This runs the next time you open your desktop browser with the GradeThread " +
-  "extension installed. Nothing happens on the marketplace until then.";
+  "extension installed, or within a minute if you keep the GradeThread worker " +
+  "tab open, on a computer or in Firefox for Android. Nothing happens on the " +
+  "marketplace until then.";
 
 /**
  * US-2777: merge the seller's country domain into a queued job's payload.

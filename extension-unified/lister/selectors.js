@@ -19,6 +19,15 @@ const GT_LISTER_SELECTORS = {
   // ── Poshmark — PHASE 1 (enabled) ──────────────────────────────────────
   poshmark: {
     enabled: true,
+    // US-3061: is the DESKTOP flow above known to work on the mobile web DOM
+    // that Firefox for Android loads? Not assumed. Marketplaces serve a
+    // different tree to a phone, and a selector that misses there does not
+    // error - it fills nothing and reports a cross-post that never happened.
+    // `enabled: false` means the drain REFUSES the job on a phone and tells the
+    // seller to run it on a desktop, which is US-2165's fail-loudly rule applied
+    // to a second runtime. Enabling is two edits, exactly like `enabled` above:
+    // flip it and record the date you checked it against the live mobile site.
+    mobile: { enabled: false, lastVerified: null },
     version: "2026.08.2",
     // 2026-08-10: confirmed. A second report from the live create-listing page
     // read clean — title, description and submit all resolve against the new
@@ -488,6 +497,10 @@ const GT_LISTER_SELECTORS = {
     // ON as of 2026-08-11. Both halves: every list selector resolved on
     // mercari.com/sell/, and the delist menu resolved on a live listing.
     enabled: true,
+    // US-3061: verified against the mobile web DOM (Firefox for Android)?
+    // Not assumed - see the note on poshmark.mobile. False means the drain
+    // refuses this platform on a phone rather than guessing at selectors.
+    mobile: { enabled: false, lastVerified: null },
     version: "2026.08.1",
     // 2026-08-10: the list flow is verified. All five selectors resolved on
     // mercari.com/sell/, including the renamed title field.
@@ -685,6 +698,10 @@ const GT_LISTER_SELECTORS = {
     // is a channel where the seller is never TOLD. Here they are told every
     // time, and they chose it knowing so.
     enabled: true,
+    // US-3061: verified against the mobile web DOM (Firefox for Android)?
+    // Not assumed - see the note on poshmark.mobile. False means the drain
+    // refuses this platform on a phone rather than guessing at selectors.
+    mobile: { enabled: false, lastVerified: null },
     version: "2026.08.0",
     // The list flow, and only the list flow. Every one of its five selectors
     // was seen to resolve on grailed.com/sell/new.
@@ -789,6 +806,10 @@ const GT_LISTER_SELECTORS = {
     // seller's own live listings, where `menu` cannot exist, so its miss proves
     // nothing either way. Re-probe from a live Vinted listing to settle it.
     enabled: true,
+    // US-3061: verified against the mobile web DOM (Firefox for Android)?
+    // Not assumed - see the note on poshmark.mobile. False means the drain
+    // refuses this platform on a phone rather than guessing at selectors.
+    mobile: { enabled: false, lastVerified: null },
     version: "2026.08.0",
     // The list flow, on vinted.com, and nothing else.
     lastVerified: "2026-08-11",
@@ -937,6 +958,10 @@ const GT_LISTER_SELECTORS = {
   // stays `enabled: false` and reports "list manually", which is correct.
   facebook: {
     enabled: false,
+    // US-3061: verified against the mobile web DOM (Firefox for Android)?
+    // Not assumed - see the note on poshmark.mobile. False means the drain
+    // refuses this platform on a phone rather than guessing at selectors.
+    mobile: { enabled: false, lastVerified: null },
     version: "2026.08.0-draft",
     lastVerified: null,
     newListingUrl: "https://www.facebook.com/marketplace/create/item",

@@ -1,0 +1,129 @@
+/* GradeThread unified extension — worker tab (US-3061).
+ *
+ * popup.css carries the tokens and every .pop-* component this page renders, so
+ * the only job here is to stop being a popup: undo the 380px body, give the
+ * page a reading measure, and style the four things the popup has no equivalent
+ * for (the header, the pause banner, the empty state, the footer).
+ *
+ * The page is pinned, which in Chrome means a favicon-width tab the seller will
+ * mostly not look at. When they do open it, it has to answer one question in
+ * the first line: is this actually running? Hence the countdown in the header
+ * rather than a spinner, which asserts activity without evidence.
+ */
+
+body.wrk {
+  width: auto;
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 24px 16px 48px;
+  background: var(--bg);
+  color: var(--fg);
+}
+
+.wrk-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--line);
+}
+
+.wrk-logo {
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  flex: 0 0 auto;
+}
+
+.wrk-head-text {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.wrk-title {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+.wrk-status {
+  margin: 2px 0 0;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.wrk-head-actions {
+  display: flex;
+  gap: 8px;
+  flex: 0 0 auto;
+}
+
+.wrk-body {
+  padding-top: 16px;
+}
+
+/* Amber, not red: a pause is the system doing the right thing, not a failure.
+   Tinted from the surface rather than gray-on-color. */
+.wrk-pause {
+  border: 1px solid var(--line-strong);
+  border-radius: 12px;
+  background: var(--surface-2);
+  padding: 12px 14px;
+  margin-bottom: 16px;
+}
+
+.wrk-pause-text {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.45;
+}
+
+.wrk-pause .pop-linkbtn {
+  margin-top: 6px;
+}
+
+.wrk-note,
+.wrk-stale {
+  margin: 12px 0 0;
+  font-size: 13px;
+  color: var(--fg-2);
+  line-height: 1.45;
+}
+
+.wrk-empty {
+  margin: 0;
+  padding: 24px 4px;
+  font-size: 14px;
+  color: var(--muted);
+  line-height: 1.5;
+  max-width: 60ch;
+}
+
+.wrk-foot {
+  margin: 32px 0 0;
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
+  font-size: 12px;
+  color: var(--muted);
+  line-height: 1.5;
+  max-width: 68ch;
+}
+
+@media (max-width: 480px) {
+  body.wrk {
+    padding: 16px 16px 40px;
+  }
+
+  .wrk-head {
+    flex-wrap: wrap;
+  }
+
+  .wrk-head-actions {
+    width: 100%;
+  }
+
+  .wrk-head-actions button {
+    flex: 1 1 auto;
+  }
+}

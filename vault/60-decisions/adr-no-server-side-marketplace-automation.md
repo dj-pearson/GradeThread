@@ -4,9 +4,9 @@ type: decision
 status: accepted
 source_of_truth: vault
 code_refs: []
-reviewed: 2026-08-10
+reviewed: 2026-09-09
 tags: [decision, marketplaces, extension, security, competitive]
-summary: GradeThread servers never hold a marketplace password or session cookie for a no-API channel and never solve a CAPTCHA; the cost is that extension channels need the seller's browser open, which US-2481 softens rather than removes.
+summary: GradeThread servers never hold a marketplace password or session cookie for a no-API channel and never solve a CAPTCHA; the cost is that extension channels need the seller's browser open, which US-2481 softens rather than removes. Section 6.1 records the one reopen trigger that has fired (Vinted Pro Integrations) and why a US-only entity still cannot reach it.
 ---
 
 # ADR: no server-side marketplace automation, ever
@@ -199,6 +199,45 @@ Not "a competitor has it" and not "a customer asked". Reopen only if:
 
 Neither of those is a reversal of this ADR. They are the ADR working: the line
 is about acting *without* sanction, not about server-side integration as such.
+
+---
+
+### 6.1 Vinted, 2026-09-09: the first trigger fired, and we still cannot use it
+
+The first bullet above came true. Vinted publishes **Vinted Pro Integrations**
+(`https://pro-docs.svc.vinted.com/`), a real sanctioned seller API: HMAC-signed
+requests, `POST/PUT/DELETE /api/v1/items`, order reads, and seventeen webhook
+event types including `ITEM_SOLD` and `DELETE_ITEM_SUCCESS`. On the face of it
+Vinted stops being a §3 channel and becomes an API-tier integration.
+
+It does not reach us, for a reason that has nothing to do with §3:
+
+- Vinted Pro is a **per-seller business registration** with a KYB check, not a
+  developer programme GradeThread joins on behalf of its users. The seller holds
+  their own access and signing keys.
+- It runs in **France, Italy, Netherlands, Luxembourg, Belgium, Portugal, Spain,
+  the UK, Ireland, Germany and Austria only.** The United States is not on the
+  list, although Vinted launched to US consumers in January 2026.
+- Registration needs a European business number (SIRET in France, UTR in the UK).
+  Pearson Media is a US company and (decided 2026-09-09) will not stand up a
+  European entity, so there is no account to register and no allowlist to join.
+
+**So Vinted stays `mechanism: extension` for every GradeThread seller, and the
+reason is entity geography, not this ADR.** That distinction is the point of
+writing it down. The next reader who finds the Vinted docs will otherwise
+conclude the ADR is blocking an integration it is not blocking, and either argue
+with the wrong thing or redo this research.
+
+The work is filed and parked at **US-3280**, with the endpoints, the auth
+scheme and the full webhook list recorded in its notes so nothing has to be
+re-derived if the blocker clears. Two events would clear it: Vinted extending Pro
+to the United States, or GradeThread acquiring a European entity. Both are
+business events.
+
+One more consequence worth stating: the reopen triggers in §6 are necessary but
+not sufficient. A sanctioned API also has to be **reachable by the company we
+are**, and a channel can now sit in a third state that this ADR did not
+previously name: sanctioned, documented, and still out of reach.
 
 | Field | Value |
 |---|---|

@@ -37,6 +37,23 @@ assert.strictEqual(
     "that fails these cannot be trusted to fill a seller's real listing form.",
 );
 
+// ── US-3061: which platforms are mobile-enabled, pinned ───────────────────
+//
+// The script prints the answer; this holds it. Flipping a `mobile.enabled` is a
+// claim that somebody drove that marketplace's form on Firefox for Android, and
+// it changes what a phone will attempt with nobody watching. It should not be
+// possible to do that without this line failing and a human deciding it is true.
+{
+  const line = (r.stdout || "").split("\n").find((l) => l.includes("mobile web"));
+  assert.ok(line, "verify-lister-selectors no longer reports the mobile-web state");
+  assert.ok(
+    line.includes("enabled: none"),
+    "a platform has been marked mobile-enabled. That is a real claim - update " +
+      "this assertion deliberately, with the date it was checked on a phone, " +
+      "and make sure lister/selectors.js carries that date too. Line was: " + line,
+  );
+}
+
 // ── US-2486: the two-page delist contract, asserted on the source ──────────
 //
 // The ordering rules below cannot be checked from the config, and they are the

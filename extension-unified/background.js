@@ -65,6 +65,10 @@ if (typeof importScripts === "function") {
     // the count on the Selling tab and the rows under it are shaped by one
     // function rather than two that drift.
     "queue/queue-view.js",
+    // US-3061: the worker tab's state machine. Needed HERE because the pause,
+    // the owned-tab list and the stale-tab report are decided in this file; the
+    // page loads the same script for the countdown and the status line.
+    "queue/worker-state.js",
     // US-3062: which tabs the side panel is offered on. Needed HERE because
     // Chromium enables the panel per tab from this file, and the panel page
     // asks the same question for the Firefox sidebar, which has no per-tab
@@ -2224,6 +2228,12 @@ async function drainQueue() {
     // US-3143: nor is a web-triggered one — a nudge is a trigger, not a bypass.
     if (!(await sellerAllowed())) return "not-allowed";
     if (!(await tosAccepted())) return "needs-consent";
+    // US-3061: a marketplace has asked for a person — a login wall or a human
+    // check — and only the seller can say they answered it. Claiming another
+    // row now would open the same challenged page again, which is a machine
+    // retrying a check it was told a human would clear. The ADR (§3.2) refuses
+    // to answer one; retrying past one is the same refusal with worse manners.
+    if (await workerPaused()) return "paused";
 
     const claimed = await queueFetch("/claim", {
       method: "POST",
@@ -2234,6 +2244,7 @@ async function drainQueue() {
 
     const jobs = await withJobs(async (j) => ({ value: j }));
     const plan = self.GT_LISTER_JOBS.planDrain(rows, jobs, { now: Date.now() });
+    const onAndroid = await isAndroidRuntime();
 
     // AC6: expired rows are REPORTED, never silently dropped. A seller who
     // believes a delist is still pending is a seller heading for a double sale.
@@ -2301,6 +2312,24 @@ async function drainQueue() {
         continue;
       }
 
+      // US-3061: a phone runs the same content scripts against a different DOM.
+      // A platform nobody has checked there is REFUSED with a sentence rather
+      // than attempted, because a desktop selector that misses on mobile fills
+      // nothing and reports a cross-post that never happened (US-2165).
+      if (onAndroid && !self.GT_LISTER_GUARD.mobileFlowAllowed(self.GT_LISTER_SELECTORS, row.platform)) {
+        await queueFetch("/" + row.id + "/complete", {
+          method: "POST",
+          body: JSON.stringify({
+            ok: false,
+            result: {
+              mobileUnsupported: true,
+              error: self.GT_LISTER_GUARD.mobileRefusalFor(self.GT_LISTER_SELECTORS, row.platform),
+            },
+          }),
+        });
+        continue;
+      }
+
       let tab;
       try {
         // NOT focused: this is background work the seller did not just ask for.
@@ -2310,6 +2339,13 @@ async function drainQueue() {
       } catch (_e) {
         continue; // try again on the next tick; the row stays claimed
       }
+      // US-3061: record that WE opened this tab. Everything the worker is
+      // allowed to do later — close it on completion, report it as stale, focus
+      // it for a login wall — is gated on this list, so a Poshmark tab the
+      // seller opened for their own reasons is never touched. Persisted because
+      // the MV3 worker is evicted between alarms and would otherwise wake up
+      // owning nothing.
+      await rememberWorkerTab(tab.id);
 
       const job = self.GT_LISTER_JOBS.jobFromQueueRow(row, {
         jobId: makeJobId(),
@@ -2329,6 +2365,234 @@ async function drainQueue() {
 // Run it when the browser opens — the moment the whole feature is named after.
 if (ext.runtime.onStartup) {
   ext.runtime.onStartup.addListener(function () { void drainQueue(); });
+}
+
+// ── US-3061: the worker tab ───────────────────────────────────────────────
+//
+// A pinned GradeThread tab that drains the queue all day. The page holds a
+// runtime port so this service worker is not evicted between ticks, and asks for
+// a drain every 60 seconds through the same GT_QUEUE_RUN_NOW path the popup's
+// "Run these now" uses. The 5-minute SWEEP_ALARM is untouched and stays the
+// fallback for every seller who never opens the tab — see the drain-nudge test's
+// rule 3, which is the same trap: an optimisation that quietly replaces the
+// scheduler stops the feature for everyone who does not use the optimisation.
+//
+// THREE PIECES OF STATE LIVE HERE RATHER THAN ON THE PAGE, because the page can
+// be closed and reopened and this worker cannot be the thing that forgets:
+//   • the owned-tab list — which marketplace tabs the drain itself opened;
+//   • the pause — set by a login wall or a human check, cleared only by the
+//     seller pressing Resume;
+//   • the autostart option, read by runtime.onStartup.
+const WORKER_TABS_KEY = "gtWorkerTabs";
+const WORKER_PAUSE_KEY = "gtWorkerPause";
+const WORKER_AUTOSTART_KEY = "gtWorkerAutostart";
+const WORKER_PAGE = "worker.html";
+
+/** Live port(s) from open worker tabs. Cleared on disconnect. */
+const workerPorts = new Set();
+
+/**
+ * US-3061: are we Firefox for Android?
+ *
+ * `runtime.getPlatformInfo()` is the only answer that is not a user-agent guess,
+ * and the drain needs it because the same extension runs the same content
+ * scripts against a different DOM on a phone. Cached for the life of the worker:
+ * a browser does not change operating system.
+ *
+ * FAILS TO "not mobile". A desktop that could not answer must not start
+ * refusing every job; a phone that could not answer gets the refusal from the
+ * selector probe instead, one job later and with a worse message, which is the
+ * cheaper of the two mistakes.
+ */
+let androidRuntime = null;
+
+async function isAndroidRuntime() {
+  if (androidRuntime !== null) return androidRuntime;
+  try {
+    const info = await ext.runtime.getPlatformInfo();
+    androidRuntime = Boolean(info && info.os === "android");
+  } catch (_e) {
+    androidRuntime = false;
+  }
+  return androidRuntime;
+}
+
+async function readWorkerTabs() {
+  const out = await ext.storage.local.get(WORKER_TABS_KEY);
+  const list = out && out[WORKER_TABS_KEY];
+  return Array.isArray(list) ? list : [];
+}
+
+async function rememberWorkerTab(tabId) {
+  const next = self.GT_WORKER_STATE.addOwnedTab(await readWorkerTabs(), tabId);
+  await ext.storage.local.set({ [WORKER_TABS_KEY]: next });
+}
+
+async function forgetWorkerTab(tabId) {
+  const next = self.GT_WORKER_STATE.removeOwnedTab(await readWorkerTabs(), tabId);
+  await ext.storage.local.set({ [WORKER_TABS_KEY]: next });
+}
+
+/**
+ * Drop owned ids whose tab is gone.
+ *
+ * Not housekeeping. Tab ids are reused by the browser, so a list that only ever
+ * grows will eventually contain an id belonging to a tab the SELLER opened —
+ * and then ownership, the one check standing between this extension and typing
+ * into someone's own Poshmark tab, starts answering yes when it should answer
+ * no. This is the only place that check can fail open, so it runs before every
+ * read that acts on the list.
+ */
+async function pruneWorkerTabs() {
+  const owned = await readWorkerTabs();
+  if (!owned.length) return owned;
+  let openIds = [];
+  try {
+    const tabs = await ext.tabs.query({});
+    openIds = (tabs || []).map((t) => t && t.id).filter((id) => typeof id === "number");
+  } catch (_e) {
+    // Cannot answer, so change nothing. Pruning against an empty list here would
+    // disown every live job at once.
+    return owned;
+  }
+  const next = self.GT_WORKER_STATE.pruneOwnedTabs(owned, openIds);
+  if (next.length !== owned.length) await ext.storage.local.set({ [WORKER_TABS_KEY]: next });
+  return next;
+}
+
+async function workerOwnsTab(tabId) {
+  return self.GT_WORKER_STATE.ownsTab(await readWorkerTabs(), tabId);
+}
+
+async function readWorkerPause() {
+  const out = await ext.storage.local.get(WORKER_PAUSE_KEY);
+  const p = out && out[WORKER_PAUSE_KEY];
+  return p && typeof p === "object" ? p : null;
+}
+
+async function workerPaused() {
+  return Boolean(await readWorkerPause());
+}
+
+/**
+ * A marketplace asked for a person. Record it, and let the page say so.
+ *
+ * `tabId` is stored so the worker page can offer "Open that tab" — the seller
+ * cannot answer a check they cannot find, and a pinned tab telling them
+ * something is waiting somewhere in a window of forty tabs is not an answer.
+ * It is only ever a tab the drain itself opened.
+ */
+async function pauseWorker(notice, tabId) {
+  const info = self.GT_WORKER_STATE.pauseFor(notice);
+  if (!info) return null;
+  const record = {
+    reason: info.reason,
+    platform: info.platform,
+    tabId: typeof tabId === "number" ? tabId : null,
+    at: new Date().toISOString(),
+  };
+  await ext.storage.local.set({ [WORKER_PAUSE_KEY]: record });
+  return record;
+}
+
+/**
+ * The seller says they dealt with it.
+ *
+ * NOTHING ELSE CALLS THIS. Not a timeout, not the next drain, not a page load.
+ * A drain that resumed itself after a timer would be answering a human check by
+ * waiting it out, and the marketplace on the other side sees a machine retrying
+ * a challenge — the exact reading the ADR's §3.2 line exists to avoid.
+ */
+async function resumeWorker() {
+  await ext.storage.local.remove(WORKER_PAUSE_KEY);
+  return { ok: true };
+}
+
+/** Owned tabs still open well past their job's deadline. Reported, never closed. */
+async function staleWorkerTabs() {
+  const owned = await pruneWorkerTabs();
+  if (!owned.length) return [];
+  const jobs = await withJobs(async (j) => ({ value: j }));
+  return self.GT_WORKER_STATE.staleTabs(jobs, owned, Date.now());
+}
+
+/**
+ * Close a marketplace tab the drain opened, once its job is genuinely finished.
+ *
+ * TWO GUARDS, and both have a real failure behind them. The tab must be one we
+ * opened (otherwise a recycled id closes the seller's own tab), and the job must
+ * be one with nothing left for a human to do. A `list` job leaves a FILLED FORM
+ * the seller still has to submit — US-1877 starts a watch on that very tab for
+ * the live URL — so closing it would throw away the cross-post it just built.
+ * Same for a `relist` copy. Delist and revise finish by themselves.
+ */
+const WORKER_CLOSABLE_KINDS = { delist: true, revise: true };
+
+async function closeWorkerTabForJob(job, result) {
+  if (!job || typeof job.tabId !== "number") return false;
+  if (!WORKER_CLOSABLE_KINDS[job.kind]) return false;
+  if (!result || result.ok !== true) return false;
+  if (!(await workerOwnsTab(job.tabId))) return false;
+  try {
+    await ext.tabs.remove(job.tabId);
+  } catch (_e) {
+    // Already gone, or the browser refused. Forgetting it below is the whole fix.
+  }
+  await forgetWorkerTab(job.tabId);
+  return true;
+}
+
+/**
+ * Open the worker tab, pinned.
+ *
+ * ONLY from the popup, the options page or runtime.onStartup — never from a
+ * content script, which is why worker.html is absent from
+ * web_accessible_resources and why this lives behind a runtime message rather
+ * than being a URL a page could navigate to.
+ */
+async function openWorkerTab() {
+  const url = ext.runtime.getURL(WORKER_PAGE);
+  try {
+    const existing = await ext.tabs.query({ url: url });
+    if (existing && existing.length) {
+      await ext.tabs.update(existing[0].id, { active: true });
+      return { ok: true, reused: true };
+    }
+  } catch (_e) { /* no tabs.query match support — fall through and open one */ }
+  try {
+    await ext.tabs.create({ url: url, pinned: true, active: true });
+    return { ok: true, reused: false };
+  } catch (_e) {
+    return { ok: false };
+  }
+}
+
+// The keep-alive. A connected port is what stops MV3 evicting this worker while
+// the tab is open; the port carries no messages and is not meant to.
+if (ext.runtime.onConnect) {
+  ext.runtime.onConnect.addListener(function (p) {
+    if (!p || p.name !== self.GT_WORKER_STATE.PORT_NAME) return;
+    workerPorts.add(p);
+    p.onDisconnect.addListener(function () { workerPorts.delete(p); });
+  });
+}
+
+// A tab the drain opened has been closed, by the seller or by us. Drop it so the
+// owned list cannot outlive the tab and be matched by a recycled id.
+if (ext.tabs && ext.tabs.onRemoved) {
+  ext.tabs.onRemoved.addListener(function (tabId) { void forgetWorkerTab(tabId); });
+}
+
+// Option, default OFF: reopen the pinned tab when the browser starts. Off by
+// default because a tab that appears on its own is a thing people report as a
+// hijack, however useful it is.
+if (ext.runtime.onStartup) {
+  ext.runtime.onStartup.addListener(function () {
+    void (async () => {
+      const out = await ext.storage.local.get(WORKER_AUTOSTART_KEY);
+      if (out && out[WORKER_AUTOSTART_KEY] === true) await openWorkerTab();
+    })();
+  });
 }
 
 // ── US-3142: the push wake ────────────────────────────────────────────────
@@ -3091,6 +3355,13 @@ ext.runtime.onMessage.addListener(function (msg, sender, sendResponse) {
           msg.notice || {},
         ),
       });
+      // US-3061: a human check pauses the worker tab's drain too. It is the same
+      // browser and the same marketplace account — a share run stopped by a
+      // challenge while the drain kept opening listing tabs would be this
+      // extension answering "is a person here?" with more automation.
+      // pauseFor ignores a notice that is not a check, so the login-wall and
+      // signed-out shapes fall through.
+      await pauseWorker(msg.notice, null);
       sendResponse({ ok: true });
     })();
     return true;
@@ -3194,6 +3465,13 @@ ext.runtime.onMessage.addListener(function (msg, sender, sendResponse) {
       // exactly the case this exists for. Recorded as pending, so the terminal
       // outcome overwrites it once the job actually finishes.
       await writeLastJob(job, notice);
+      // US-3061: a login wall stops the WORKER TAB's drain, not just this job.
+      // The next queued row is for the same seller on the same marketplace, so
+      // draining on would open a second tab onto the same login page — two tabs
+      // asking them to sign in, from software that is meant to be working
+      // quietly. pauseWorker ignores a notice that is not a pause, so the other
+      // GT_LISTER_NOTICE shapes fall through untouched.
+      await pauseWorker(msg.notice, job.tabId);
       sendResponse({ ok: true });
     })();
     return true;
@@ -3253,6 +3531,11 @@ ext.runtime.onMessage.addListener(function (msg, sender, sendResponse) {
         // US-9203: the copy's form is open; the live-URL watch records the
         // new listing when the seller posts it.
         if (job.kind === "relist" && out.ok && out.copied) await startListedWatch(job);
+        // US-3061: a delist or revise the worker opened has nothing left for a
+        // human to do, so its tab closes itself. A `list` or `relist` tab is
+        // left open on purpose — it holds a filled form the seller still has to
+        // submit, and the watch above is reading that very tab.
+        await closeWorkerTabForJob(job, out);
       } else {
         // AC4: the job already went terminal (we timed out, or the tab closed) and
         // the fill finished anyway. Report it as a LATE result rather than dropping
@@ -3355,6 +3638,9 @@ ext.runtime.onMessage.addListener(function (msg, sender, sendResponse) {
       // because the content script returns before it reports anything.
       case "GT_SYNC_HUMAN_CHECK":
         await notePollResult({ platform: msg && msg.platform, humanCheck: true });
+        // US-3061: same browser, same account, same challenge. The sold-sync
+        // poll and the drain both stop until the seller says they cleared it.
+        await pauseWorker({ humanCheck: true, platform: msg && msg.platform }, null);
         sendResponse({ ok: true });
         break;
       // US-2699: what the popup renders. Same projection as the web.
@@ -3492,9 +3778,53 @@ ext.runtime.onMessage.addListener(function (msg, sender, sendResponse) {
       // claiming the same rows twice, and the same seller gates apply, so a
       // lapsed plan or an unaccepted clickwrap refuses here exactly as it does
       // on the alarm path.
-      case "GT_QUEUE_RUN_NOW":
-        await drainQueue();
-        sendResponse({ ok: true });
+      case "GT_QUEUE_RUN_NOW": {
+        // US-3061: the drain's own outcome code is passed back. The popup
+        // ignores it; the worker tab needs it, because "empty" and "your plan
+        // lapsed" produce the same silence from a page that just asked for a
+        // drain, and the second one has to be sayable.
+        const drained = await drainQueue();
+        sendResponse({ ok: true, state: drained });
+        break;
+      }
+      // ── US-3061: the worker tab ──────────────────────────────────────
+      // What the page cannot know for itself: whether a marketplace has asked
+      // for a person, and which of its own tabs have outlived their deadline.
+      case "GT_WORKER_STATE":
+        sendResponse({
+          ok: true,
+          pause: await readWorkerPause(),
+          staleTabs: await staleWorkerTabs(),
+        });
+        break;
+      // The seller says they answered the check. The ONLY thing that clears a
+      // pause; see resumeWorker.
+      case "GT_WORKER_RESUME":
+        sendResponse(await resumeWorker());
+        break;
+      // Focus the tab that is waiting on them. Refused for any tab the drain did
+      // not open, so a tab id in a message can never make this extension surface
+      // an arbitrary page as GradeThread's own work.
+      case "GT_WORKER_FOCUS": {
+        const owns = await workerOwnsTab(msg.tabId);
+        if (!owns) {
+          sendResponse({ ok: false, reason: "not-ours" });
+          break;
+        }
+        try {
+          await ext.tabs.update(msg.tabId, { active: true });
+          sendResponse({ ok: true });
+        } catch (_e) {
+          sendResponse({ ok: false, reason: "gone" });
+        }
+        break;
+      }
+      // "Keep GradeThread working" in the popup, and the options page's link.
+      // Never reachable from a content script: worker.html is not a
+      // web-accessible resource, so a page cannot navigate to it, and this
+      // handler is the only other way in.
+      case "GT_WORKER_OPEN":
+        sendResponse(await openWorkerTab());
         break;
       // The popup's own "Get condition read" button. Routed through here rather
       // than sent straight from the popup so there is ONE path to the overlay —

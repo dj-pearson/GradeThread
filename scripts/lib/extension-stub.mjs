@@ -84,7 +84,11 @@ export function installStub(fx) {
     GT_QUEUE_JOBS: () => ({ ok: true, byQueueId: fx.stages }),
     GT_QUEUE_CANCEL: () => ({ ok: true }),
     GT_QUEUE_RETRY: () => ({ ok: true }),
-    GT_QUEUE_RUN_NOW: () => ({ ok: true }),
+    GT_QUEUE_RUN_NOW: () => ({ ok: true, state: "ok" }),
+    // US-3061: the popup's "Keep GradeThread working" button. The stub answers
+    // rather than opening anything - the screenshot wants the button rendered,
+    // and a real tabs.create would leave a pinned tab behind in the harness.
+    GT_WORKER_OPEN: () => ({ ok: true, reused: false }),
     GT_GET_PENDING_DELISTS: () => fx.caps.sellerEnabled
       ? { ok: true, pending: [
         { item_title: "Uniqlo U Crew Neck Tee White M", platform: "mercari", requested_at: new Date(now - 4 * H).toISOString(), auto_delistable: true, listing_url: "https://www.mercari.com/us/item/1" },

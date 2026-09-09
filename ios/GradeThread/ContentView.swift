@@ -484,6 +484,13 @@ struct ContentView: View {
     /// since it's the same owner across their own workspaces.)
     private func clearAllLocalDataOnSignOut() {
         LocalCacheWipe.signOut(from: modelContext)
+        // US-3281: the SwiftData cache is not the only thing this device holds.
+        // If the seller signed in to Poshmark inside the app's web view, that
+        // session is cookies in an app-container data store, and handing the
+        // phone to the next account with a live closet still open would be a
+        // worse leak than any row LocalCacheWipe deletes. Awaited in a task
+        // because sign-out is synchronous and the removal is not.
+        Task { await WebDelistDataStore.removeAll() }
     }
 
     private func startSyncEngineIfNeeded() {
@@ -2223,6 +2230,31 @@ struct SettingsView: View {
                 }
                 .accessibilityLabel("Setup checklist")
             }
+            // ── US-3281: marketplace web sessions ────────────────────
+            //
+            // When the seller ends a listing from the phone, they sign in to
+            // that marketplace inside the app's own web view, and the session
+            // stays on the device so they do not have to sign in again every
+            // time. This is the way out. It is in Settings rather than buried
+            // in Marketplaces because "how do I get my Poshmark login off this
+            // phone" is a question people ask at the moment they are handing
+            // the phone to someone, and Settings is where they look.
+            //
+            // Sign-out and account deletion do this automatically; the button
+            // is for every case in between.
+            Section {
+                Button(role: .destructive) {
+                    Task { await WebDelistDataStore.removeAll() }
+                } label: {
+                    Label("Clear marketplace sign-ins", systemImage: "person.crop.circle.badge.xmark")
+                }
+                .accessibilityLabel("Clear marketplace sign-ins")
+            } header: {
+                Text("Marketplaces")
+            } footer: {
+                Text("Signs this device out of any marketplace you signed in to inside GradeThread. Your GradeThread account is not affected. These sign-ins never leave this device.")
+            }
+
             // DiagnosticsSection renders its own Section — keep it top-level.
             DiagnosticsSection()
 
