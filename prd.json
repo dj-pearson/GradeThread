@@ -4859,17 +4859,6 @@
       ],
       "priority": 7,
       "notes": "Partial 2026-09-09 in 17d779ac0: 48 user-facing strings fixed. Two reverted after the parity guards caught them: 'The care label with the fibre content' is ONE string in five places (src/lib/photo-roles.ts, src/lib/photo-profiles.ts, the edge copies of both, ios/GradeThread/Capture/PhotoProfile.swift, android/.../capture/PhotoProfile.kt) plus android/config/detekt/baseline.xml, which pins the exact line text. Changing it is a cross-platform change needing an iOS and Android build, so it waits for a machine that can do both. Guard from AC2 not written yet."
-    },
-    {
-      "id": "US-3237",
-      "passes": false,
-      "title": "The last pages outside FlipDesk and admin that report a failed read as an empty one",
-      "description": "US-2507 guarded src/pages/admin and src/pages/content; US-3217 guarded src/pages/flipdesk. That left the grading-side seller pages and the fit/buyer/tools trees unguarded, and three of them have the defect. api-keys.tsx answers a failed read with 'No API keys yet' - to a developer that reads as their keys having been revoked, and the obvious next move is to mint a duplicate. settings.tsx surfaces a failed read in no way at all. fit/body-profiles.tsx renders its empty state over a failed profiles read. Fixing these and widening the guard's roots closes the class everywhere a customer can see it.",
-      "acceptanceCriteria": [
-        "api-keys.tsx, settings.tsx and fit/body-profiles.tsx render an ErrorState before their loading and empty branches.",
-        "src/test/flipdesk-error-state.test.ts grows its ROOTS to cover src/pages top-level, src/pages/buyer, src/pages/fit and src/pages/tools alongside src/pages/flipdesk, keeping the shrink-only list that fails in both directions. Its describe text and comments are updated so the file does not claim a scope it no longer has.",
-        "The guard is sabotage-checked after widening: removing an ErrorState from one of the newly covered pages fails it by name."
-      ]
     }
   ]
 }
