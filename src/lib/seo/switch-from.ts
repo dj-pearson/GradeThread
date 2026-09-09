@@ -63,7 +63,7 @@ export const SWITCH_FROM_PAGES: SwitchFromPage[] = [
     ],
     doesNotTransfer: [
       "Photos: the export carries links, not files. Re-upload from your phone or computer, or use the closet import for items that are live on a marketplace, which brings the marketplace's copies across",
-      "Tags, colour and quantity: FlipDesk stores colour and quantity on the listing, not the item, so these columns are skipped rather than guessed",
+      "Tags, color and quantity: FlipDesk stores color and quantity on the listing, not the item, so these columns are skipped rather than guessed",
       "Marketplace connections: eBay and Shopify reconnect through FlipDesk's own authorization; nothing about your Vendoo connection carries over",
       LIVE_LISTINGS_NOTE,
       "Your Vendoo account itself: nothing here touches it. Export first, cancel later, once the import checks out",
@@ -111,7 +111,7 @@ export const SWITCH_FROM_PAGES: SwitchFromPage[] = [
     ],
     doesNotTransfer: [
       "Photos: the export carries image links, not files. Items that are live on a marketplace get their photos through the closet import; the rest need a re-upload",
-      "Keywords, colour and quantity: FlipDesk keeps colour and quantity on the listing rather than the item, so these columns are skipped rather than guessed",
+      "Keywords, color and quantity: FlipDesk keeps color and quantity on the listing rather than the item, so these columns are skipped rather than guessed",
       "Marketplace connections: eBay and Shopify reconnect through FlipDesk's own authorization",
       LIVE_LISTINGS_NOTE,
       "Your List Perfectly account: nothing here touches it. Export first, cancel later, once the import checks out",

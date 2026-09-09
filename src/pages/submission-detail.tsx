@@ -260,7 +260,7 @@ export function SubmissionDetailPage() {
     };
 
     if (checkout === "cancelled") {
-      toast.info("Payment cancelled — your submission is saved as unpaid.");
+      toast.info("Payment canceled — your submission is saved as unpaid.");
       clearParams();
       return;
     }

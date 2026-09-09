@@ -272,7 +272,7 @@ export function BulkToneDialog({
         <DialogHeader className="shrink-0">
           <DialogTitle>Match tone across photos</DialogTitle>
           <DialogDescription>
-            Pick the photo whose colour and exposure look right. Every other
+            Pick the photo whose color and exposure look right. Every other
             photo is corrected to match it.
           </DialogDescription>
         </DialogHeader>

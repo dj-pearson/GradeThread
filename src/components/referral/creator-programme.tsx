@@ -168,7 +168,7 @@ export function CreatorProgramme() {
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2 text-base">
-            <BadgeCheck className="h-5 w-5 text-brand-red-text" /> Creator programme
+            <BadgeCheck className="h-5 w-5 text-brand-red-text" /> Creator program
           </CardTitle>
           <CardDescription>
             Cash commission for creators who bring paying sellers to FlipDesk. This is
@@ -199,7 +199,7 @@ export function CreatorProgramme() {
 
           {isCreator ? (
             <p className="rounded-md bg-muted p-3 text-sm">
-              You're in the creator programme. Your earnings show in the payout card
+              You're in the creator program. Your earnings show in the payout card
               on this page.
             </p>
           ) : applied ? (
@@ -214,7 +214,7 @@ export function CreatorProgramme() {
               <p className="text-sm text-muted-foreground">
                 {applied
                   ? "The terms changed since you agreed. Read them and accept the current version."
-                  : "Accepting the terms applies to the programme. It does not admit you to it."}
+                  : "Accepting the terms applies to the program. It does not admit you to it."}
               </p>
               <Button onClick={() => accept.mutate()} disabled={accept.isPending}>
                 {accept.isPending ? "Sending…" : "Accept and apply"}

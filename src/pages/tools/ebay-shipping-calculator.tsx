@@ -213,7 +213,7 @@ export function EbayShippingCalculatorPage() {
               </p>
             ) : (
               <p className="text-muted-foreground">
-                One of those ZIP codes is not one we recognise. Pick a zone
+                One of those ZIP codes is not one we recognize. Pick a zone
                 directly instead.
               </p>
             )}

@@ -126,8 +126,8 @@ export function PhotographClothesToSellPage() {
               <dt className="font-semibold">One light source, and it is a window</dt>
               <dd className="mt-2 text-sm text-muted-foreground">
                 Daylight near the middle of the day, with the room lights off. Mixing a
-                warm bulb with daylight is what turns a grey sweatshirt greenish in one
-                photo and blue in the next, and colour that shifts across a gallery reads
+                warm bulb with daylight is what turns a gray sweatshirt greenish in one
+                photo and blue in the next, and color that shifts across a gallery reads
                 as an unreliable seller.
               </dd>
             </div>
@@ -135,7 +135,7 @@ export function PhotographClothesToSellPage() {
               <dt className="font-semibold">A plain mid-tone surface</dt>
               <dd className="mt-2 text-sm text-muted-foreground">
                 Not white, which blows out and drags the garment darker, and not black,
-                which does the reverse. A wooden floor, a grey blanket or a sheet of card
+                which does the reverse. A wooden floor, a gray blanket or a sheet of card
                 is fine. Use the same one for every item and your listings start to look
                 like a shop rather than a pile.
               </dd>

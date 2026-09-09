@@ -182,7 +182,7 @@ export function buildStatement(
       scheduleCLine: null,
       scheduleCLabel: null,
       noLineReason:
-        "These entries point at an account this statement does not recognise. They are shown so the total is honest, but they reach no line until someone sorts them.",
+        "These entries point at an account this statement does not recognize. They are shown so the total is honest, but they reach no line until someone sorts them.",
     });
     buckets.set("expenses", list);
   }

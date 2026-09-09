@@ -383,7 +383,7 @@ export function AdminJobsPage() {
             <DialogDescription>
               {pending?.action === "retry"
                 ? "This re-queues the job for processing."
-                : "This stops the job. Cancelled grades are refunded automatically."}
+                : "This stops the job. Canceled grades are refunded automatically."}
               {pending && (
                 <span className="mt-2 block font-medium text-foreground">{pending.row.label}</span>
               )}

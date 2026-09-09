@@ -261,15 +261,15 @@ export function filingSteps(s: FilingSignals): FilingStep[] {
         ? null
         : s.paymentsRecorded >= s.duePeriodsElapsed
           ? null
-          : "The running figure on this page will keep telling you you are behind on instalments you have already paid.",
+          : "The running figure on this page will keep telling you you are behind on installments you have already paid.",
     view: "tax",
     detail:
       s.duePeriodsElapsed === 0
-        ? "No instalment dates have passed yet for " + s.taxYear + "."
+        ? "No installment dates have passed yet for " + s.taxYear + "."
         : s.paymentsRecorded +
           " of " +
           s.duePeriodsElapsed +
-          " passed instalment date(s) have a payment recorded.",
+          " passed installment date(s) have a payment recorded.",
   });
 
   steps.push({

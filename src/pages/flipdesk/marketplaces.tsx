@@ -155,7 +155,7 @@ const SHOPIFY_CALLBACK_MESSAGES: Record<
     type: "success",
     message: "Shopify store connected. FlipDesk can now publish and sync products.",
   },
-  cancelled: { type: "info", message: "Shopify sign-in cancelled." },
+  cancelled: { type: "info", message: "Shopify sign-in canceled." },
   invalid_signature: {
     type: "error",
     message: "Shopify sign-in could not be verified. Please try again.",
@@ -185,7 +185,7 @@ const CALLBACK_MESSAGES: Record<
   },
   cancelled: {
     type: "info",
-    message: "eBay sign-in cancelled.",
+    message: "eBay sign-in canceled.",
   },
   invalid_state: {
     type: "error",

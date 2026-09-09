@@ -95,7 +95,7 @@ export const MEASUREMENT_HOWTO: readonly MeasurementHowTo[] = [
     label: specLabel("sleeve"),
     how: "From the shoulder seam down the outside of the arm to the cuff.",
     pitfall:
-      "Raglan sleeves have no shoulder seam. Measure from the centre back collar instead and say that you did.",
+      "Raglan sleeves have no shoulder seam. Measure from the center back collar instead and say that you did.",
   },
   {
     key: "waist",

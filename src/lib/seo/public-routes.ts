@@ -299,7 +299,7 @@ export const PUBLIC_ROUTES: PublicRoute[] = [
     // prerenderer's defaults and nothing more. Declaring a type the prerenderer
     // does not emit fails the US-2044 parity guard, and a bare WebPage node adds
     // nothing a crawler can use.
-    title: "Creator Partner Programme",
+    title: "Creator Partner Program",
     description:
       "Reseller creators earn a share of the subscription revenue from sellers they bring to FlipDesk, for a year, capped per account. The terms and how to apply.",
     changefreq: "monthly",
@@ -635,7 +635,7 @@ export const PUBLIC_ROUTES: PublicRoute[] = [
     path: "/refund",
     title: "Refund & Cancellation Policy",
     description:
-      "How GradeThread and FlipDesk subscriptions, per-grade purchases, and credits are billed, cancelled, and refunded — including EU/UK consumer rights.",
+      "How GradeThread and FlipDesk subscriptions, per-grade purchases, and credits are billed, canceled, and refunded — including EU/UK consumer rights.",
     changefreq: "yearly",
     priority: 0.3,
   },

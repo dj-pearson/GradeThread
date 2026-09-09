@@ -215,7 +215,7 @@ export async function runGooglePhotosImport(
   const startedAt = now();
   for (;;) {
     if (aborted()) {
-      notify.info("Google Photos import cancelled.");
+      notify.info("Google Photos import canceled.");
       return result("cancelled");
     }
     let ready = false;

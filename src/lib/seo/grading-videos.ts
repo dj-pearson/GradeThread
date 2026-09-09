@@ -125,7 +125,7 @@ export const GRADING_SHORTS: GradingShort[] = [
       {
         at: "0:07",
         shot: "Close-up of the leather flexing at the elbow and cuff.",
-        say: "Check one: feel the hide. Supple and evenly coloured grades high. Dry, stiff or cracking caps the grade however good it looks in photos.",
+        say: "Check one: feel the hide. Supple and evenly colored grades high. Dry, stiff or cracking caps the grade however good it looks in photos.",
       },
       {
         at: "0:18",
@@ -337,7 +337,7 @@ export const GRADING_SHORTS: GradingShort[] = [
       {
         at: "0:00",
         shot: "Wool coat on a hanger, hand brushing the collar.",
-        say: "On a wool coat, pilling and fibre loss are not the same thing, and only one of them is fixable.",
+        say: "On a wool coat, pilling and fiber loss are not the same thing, and only one of them is fixable.",
       },
       {
         at: "0:07",
@@ -347,7 +347,7 @@ export const GRADING_SHORTS: GradingShort[] = [
       {
         at: "0:18",
         shot: "Coat panels held to a window, backlit.",
-        say: "Check two: backlight the panels. Wool is a moth favourite, and holes in the visible face are hard to repair invisibly, so even small ones drop the grade sharply.",
+        say: "Check two: backlight the panels. Wool is a moth favorite, and holes in the visible face are hard to repair invisibly, so even small ones drop the grade sharply.",
       },
       {
         at: "0:28",

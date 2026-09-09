@@ -44,7 +44,7 @@ const CALLBACK_MESSAGES: Record<
     type: "success",
     message: "Google connected. Now pick or create your FlipDesk Sync sheet.",
   },
-  cancelled: { type: "info", message: "Google sign-in cancelled." },
+  cancelled: { type: "info", message: "Google sign-in canceled." },
   invalid_state: {
     type: "error",
     message: "Google sign-in expired or was tampered with. Please try again.",

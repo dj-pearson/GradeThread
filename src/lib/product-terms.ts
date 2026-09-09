@@ -151,7 +151,7 @@ export const PRODUCT_TERMS = [
   {
     term: "Item specifics",
     definition:
-      "eBay's name for the details it wants on a listing: brand, size, colour, material. Some are required before it will publish.",
+      "eBay's name for the details it wants on a listing: brand, size, color, material. Some are required before it will publish.",
     aliases: ["Aspects", "Aspect"],
   },
   {

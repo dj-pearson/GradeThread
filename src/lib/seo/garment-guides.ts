@@ -1286,7 +1286,7 @@ export const GARMENT_GUIDES: GarmentGuide[] = [
       "How to grade a used linen shirt: why wrinkles aren't flaws, plus thinning, holes, and seam slippage, with graded examples on the 1–10 scale.",
     h1: "Grading a used linen shirt",
     intro:
-      "Grading a used linen shirt accounts for the fibre's quirks. Linen wrinkles and softens by nature, so slubs and creasing aren't flaws, and the grade leads instead with the thinning, holes, and seam stress linen develops as it weakens with washing — plus collar wear, buttons, and stains that set in the open weave.",
+      "Grading a used linen shirt accounts for the fiber's quirks. Linen wrinkles and softens by nature, so slubs and creasing aren't flaws, and the grade leads instead with the thinning, holes, and seam stress linen develops as it weakens with washing — plus collar wear, buttons, and stains that set in the open weave.",
     criteria: [
       "Thinning and holes as linen weakens (not wrinkles or slubs)",
       "Seam stress and slippage in the loose weave",
@@ -1296,7 +1296,7 @@ export const GARMENT_GUIDES: GarmentGuide[] = [
     steps: [
       {
         name: "Look past the wrinkles",
-        text: "Ignore creasing and slubs — they're inherent to linen. Grade the fibre's strength instead: hold panels to the light for thinning and holes.",
+        text: "Ignore creasing and slubs — they're inherent to linen. Grade the fiber's strength instead: hold panels to the light for thinning and holes.",
       },
       {
         name: "Check the seams",

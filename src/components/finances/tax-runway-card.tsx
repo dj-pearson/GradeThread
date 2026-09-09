@@ -225,7 +225,7 @@ export function TaxRunwayCard() {
             detail={
               runway.nextDue
                 ? `${formatCents(runway.dueByNextDateCents)} to be level by then. Covers ${runway.nextDue.covers.toLowerCase()}.`
-                : `Every ${runway.taxYear} instalment date has gone.`
+                : `Every ${runway.taxYear} installment date has gone.`
             }
           />
         </div>

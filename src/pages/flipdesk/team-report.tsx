@@ -580,7 +580,7 @@ export function ThroughputCard({
           <EmptyState
             icon={Activity}
             title="Nothing created in this period"
-            description="Widen the date range above, or check back once someone catalogues an item."
+            description="Widen the date range above, or check back once someone catalogs an item."
           />
         ) : (
           <>

@@ -290,7 +290,7 @@ export function MoneyOverviewPage() {
           detail={
             runway
               ? behind
-                ? `The instalment schedule wanted this by a ${taxYear} date that has already passed. ` +
+                ? `The installment schedule wanted this by a ${taxYear} date that has already passed. ` +
                   standingHeadline(runway)
                 : `Tax on the profit you have already made in ${taxYear}, less what you have paid. ` +
                   (pct == null

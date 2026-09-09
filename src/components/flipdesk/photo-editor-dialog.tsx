@@ -900,7 +900,7 @@ export function PhotoEditorDialog({
                     Tone locked
                   </p>
                   <p className="mt-1 leading-snug">
-                    This photo was used for grading, so its brightness and colour
+                    This photo was used for grading, so its brightness and color
                     have to stay as graded. Rotate, straighten and crop still
                     work.
                   </p>

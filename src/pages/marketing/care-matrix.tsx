@@ -84,7 +84,7 @@ export function CareMatrixPage({ path: pathProp }: { path?: string }) {
             </h2>
             <p className="mt-4 text-muted-foreground">
               {parent.comesOut === "no"
-                ? `${parent.name} does not come out of any fabric. What differs between fibres is what you can do instead, and what the damage costs when you sell the garment.`
+                ? `${parent.name} does not come out of any fabric. What differs between fibers is what you can do instead, and what the damage costs when you sell the garment.`
                 : `The general method, the detection notes and what this does to a garment's resale value are on the ${parent.name.toLowerCase()} page.`}
             </p>
             <div className="mt-5 flex flex-wrap gap-4 text-sm font-medium">

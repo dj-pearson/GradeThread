@@ -275,8 +275,8 @@ export function varianceCauses(b: Bridge1099k): VarianceCause[] {
       body: "Anything sold on this platform but never imported here is on their form and not in your records. This is the commonest cause by a distance.",
     });
     causes.push({
-      title: "Orders that were cancelled or refunded after payment",
-      body: "Some platforms report the original payment in the gross and handle the refund separately, so a cancelled order can still be counted.",
+      title: "Orders that were canceled or refunded after payment",
+      body: "Some platforms report the original payment in the gross and handle the refund separately, so a canceled order can still be counted.",
     });
     causes.push({
       title: "A date on the boundary",

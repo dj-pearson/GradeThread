@@ -160,7 +160,7 @@ export function AccountDeletionPage() {
       </ul>
       <p>
         Cancel there first, then delete the account. Subscriptions bought on our
-        website through Stripe are cancelled automatically as part of the
+        website through Stripe are canceled automatically as part of the
         deletion.
       </p>
 

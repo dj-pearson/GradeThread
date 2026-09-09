@@ -86,7 +86,7 @@ export function QuickBooksCard() {
     if (!result) return;
     const messages: Record<string, string> = {
       connected: "QuickBooks is connected. Map your accounts next.",
-      cancelled: "You cancelled before QuickBooks finished.",
+      cancelled: "You canceled before QuickBooks finished.",
       invalid_state: "That connection link had expired. Start again.",
       state_expired: "That connection link had expired. Start again.",
       no_realm: "QuickBooks didn't say which company file. Start again.",

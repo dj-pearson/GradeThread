@@ -54,7 +54,7 @@ const TERMS: Array<{ heading: string; body: string }> = [
 export function PartnersPage() {
   return (
     <MarketingLayout
-      title="Creator partner programme"
+      title="Creator partner program"
       description={
         `Reseller creators earn ${CREATOR_AFFILIATE.commissionPct}% of the subscription revenue from ` +
         `accounts they bring to FlipDesk, for ${CREATOR_AFFILIATE.windowMonths} months, up to ` +
@@ -75,7 +75,7 @@ export function PartnersPage() {
           </p>
           <p className="mt-4 text-muted-foreground">
             The referral link every GradeThread seller already has is a different thing. It
-            earns grade credits and always will. This programme is separate, has its own
+            earns grade credits and always will. This program is separate, has its own
             terms, and you have to apply to it.
           </p>
           <div className="mt-8 flex flex-wrap gap-3">
@@ -145,7 +145,7 @@ export function PartnersPage() {
       </section>
 
       <MarketingCTA
-        heading="Apply to the creator programme"
+        heading="Apply to the creator program"
         sub="Read the terms, accept them from your account, and we will come back to you."
       />
     </MarketingLayout>

@@ -108,7 +108,7 @@ export const SYSTEM_ACCOUNTS: readonly LedgerAccount[] = [
   },
   {
     code: "cogs_labor",
-    name: "Labour that went into the goods",
+    name: "Labor that went into the goods",
     flow: "cogs",
     schedule_c_part: "III",
     schedule_c_line: "37",

@@ -68,7 +68,7 @@ export function TermsPage() {
         <li>
           <strong>Subscriptions.</strong> Paid subscriptions are billed in
           advance through Stripe on a recurring monthly or annual basis and
-          renew automatically until cancelled.
+          renew automatically until canceled.
         </li>
         <li>
           <strong>Cancellation.</strong> You may cancel your subscription at
@@ -114,7 +114,7 @@ export function TermsPage() {
       {/* US-3038. Deliberately its own clause and deliberately narrow.
           Clause (d) permits INTERNAL use of aggregated derivatives; publishing
           one is a different act, and stretching (d) to cover it would be the
-          kind of reading that makes a licence mean whatever is convenient
+          kind of reading that makes a license mean whatever is convenient
           later. Measurements only, aggregate only, floor stated, opt-out
           stated. Do not broaden this to "Your Content" — the whole point is
           that it reaches one field and stops. */}

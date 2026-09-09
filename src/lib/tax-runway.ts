@@ -387,6 +387,6 @@ export function standingHeadline(r: TaxRunway): string {
     case "on_track":
       return "Nothing is late. Keep holding back what has accrued and you stay level.";
     case "behind":
-      return "The instalment schedule wanted more by now than has been paid.";
+      return "The installment schedule wanted more by now than has been paid.";
   }
 }

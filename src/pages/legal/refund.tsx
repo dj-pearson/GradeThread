@@ -5,7 +5,7 @@ export function RefundPage() {
   return (
     <LegalLayout
       title="Refund & Cancellation Policy"
-      description="How subscriptions, per-grade purchases, and credits are billed, cancelled, and refunded on GradeThread and FlipDesk — including EU/UK consumer rights."
+      description="How subscriptions, per-grade purchases, and credits are billed, canceled, and refunded on GradeThread and FlipDesk — including EU/UK consumer rights."
       canonicalPath="/refund"
       effectiveDate="July 2, 2026"
     >
@@ -29,7 +29,7 @@ export function RefundPage() {
         </li>
       </ul>
 
-      <h2 id="cancellation">2. Cancelling a subscription</h2>
+      <h2 id="cancellation">2. Canceling a subscription</h2>
       <p>
         You can cancel at any time from{" "}
         <Link to="/dashboard/account?tab=billing">Billing</Link>. Cancellation stops the next

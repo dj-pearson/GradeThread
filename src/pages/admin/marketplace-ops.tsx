@@ -560,7 +560,7 @@ export function AdminMarketplaceOpsPage() {
           silentGate: true,
         }),
       () => {
-        toast.success("Batch cancelled");
+        toast.success("Batch canceled");
         invalidateAll();
       },
     );
