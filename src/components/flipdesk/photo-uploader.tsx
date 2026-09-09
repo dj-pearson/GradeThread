@@ -28,6 +28,8 @@ import {
   type GooglePhotosImportedPhoto,
   useGooglePhotosImport,
 } from "@/hooks/use-google-photos-import";
+import { useConfirm } from "@/components/ui/confirm-dialog";
+import { PHOTO_TYPE_LABELS } from "@/lib/constants";
 import { useCloudFolderImport } from "@/hooks/use-cloud-folder-import";
 import { CloudFolderDialog } from "@/components/flipdesk/cloud-folder-dialog";
 import { PhoneCaptureDialog } from "@/components/flipdesk/phone-capture-dialog";
@@ -317,6 +319,7 @@ export function PhotoUploader({
   // rather than a second panel. `providers` is empty on a deploy with no cloud
   // credentials, so nothing renders at all — a button that cannot work is worse
   // than no button.
+  const confirm = useConfirm();
   const [cloudOpen, setCloudOpen] = useState<string | null>(null);
   const cloud = useCloudFolderImport({
     enabled: true,
@@ -331,6 +334,21 @@ export function PhotoUploader({
   const [phoneOpen, setPhoneOpen] = useState(false);
 
   async function remove(photo: ItemPhotoRow) {
+    // US-3240. This used to run straight off a 12px trash icon sitting beside
+    // an Add another button the same size -- one mis-tap on a phone. And it is
+    // not recoverable: the storage objects go BEFORE the row, so there is
+    // nothing for a database restore to point at afterwards. The garment is
+    // often already packed, shipped or sold by the time anyone notices.
+    const label = PHOTO_TYPE_LABELS[photo.photo_type] ?? "photo";
+    const ok = await confirm({
+      title: `Delete this ${label.toLowerCase()} photo?`,
+      description:
+        "The image file is deleted, not just unlinked, so this cannot be undone. " +
+        "If the item is already packed or sold you will not be able to retake it.",
+      confirmLabel: "Delete photo",
+      destructive: true,
+    });
+    if (!ok) return;
     try {
       const paths = [photo.storage_path, photo.thumbnail_storage_path].filter(
         (p): p is string => !!p,
