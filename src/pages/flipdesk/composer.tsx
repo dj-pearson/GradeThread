@@ -162,7 +162,9 @@ import {
   useEbayPolicies,
   useEbayReviseListing,
   useMigrateEbayListings,
+  PUBLISH_PREFLIGHT_KEY,
   useRecommendedCoverage,
+  usePublishPreflight,
   useGradeBandedPrice,
 } from "@/hooks/use-ebay";
 import { useAuthStore } from "@/stores/auth-store";
@@ -207,6 +209,8 @@ import { PoliciesCard } from "@/components/flipdesk/composer/policies-card";
 import { PromoteCard } from "@/components/flipdesk/composer/promote-card";
 import { DescriptionCard } from "@/components/flipdesk/composer/description-card";
 import { PushToCard } from "@/components/flipdesk/composer/push-to-card";
+import { PublishReadinessCard } from "@/components/flipdesk/composer/publish-readiness-card";
+import { readinessForChannels } from "@/lib/publish-readiness";
 import { ScheduleCard } from "@/components/flipdesk/composer/schedule-card";
 import { useSkuMerge } from "@/hooks/use-sku-merge";
 import { WorkflowActionsCard } from "@/components/flipdesk/composer/workflow-actions-card";
@@ -515,6 +519,12 @@ export function FlipdeskComposerPage({
   // US-1895: recommended-aspect coverage for the composer meter (edge single
   // source). Refetched when its key is invalidated after an aspect save below.
   const { data: aspectCoverage } = useRecommendedCoverage(item?.id);
+
+  // US-3202: the same preflight response, whole. Shares aspectCoverage's query
+  // key, so this is a second reader of one request rather than a second call.
+  const { data: ebayPreflight, isLoading: ebayPreflightLoading } = usePublishPreflight(
+    item?.id,
+  );
 
   // US-954: when arriving from an AutoLister pre-flight blocker deep-link
   // (`?focus=<field>`), scroll the offending field into view and focus it once
@@ -1040,6 +1050,69 @@ export function FlipdeskComposerPage({
     listing?.platform_category_id ?? ebayMapping?.ebay_category_id ?? null;
   const savedAspects =
     listing?.item_specifics_override ?? ebayMapping?.ebay_aspects ?? null;
+
+  // US-3202: per-channel readiness for the "Before you publish" card.
+  //
+  // The draft here is the EDITED state, not the saved row — the seller is
+  // reading this while typing, so a readout built from `item` would tell them
+  // the title is missing while a title sits in the box in front of them.
+  //
+  // Condition is deliberately absent: it is derived per platform from the grade
+  // inside projectDraftFields, because eBay's USED_EXCELLENT is not a value
+  // Poshmark accepts and shipping one string to every channel manufactures a
+  // blocker that does not exist.
+  const publishReadiness = useMemo(() => {
+    const parsedPrice = Number.parseFloat(price);
+    const platforms = Array.from(pushPlatforms);
+    if (platforms.length === 0) return [];
+    return readinessForChannels({
+      platforms,
+      draft: {
+        title,
+        description,
+        price: Number.isFinite(parsedPrice) ? parsedPrice : null,
+        category: resolvedCategoryId ?? null,
+        grade: item?.grade_value ?? null,
+        gradeLabel: item?.grade_label ?? null,
+        brand: item?.brand ?? null,
+        size: item?.size ?? null,
+        color: item?.color ?? null,
+      },
+      photoCount: photos.length,
+      // A per-channel price override replaces the shared one for that channel
+      // only, exactly as cross-push reads it at publish.
+      overrides: Object.fromEntries(
+        Object.entries(platformPrices)
+          .map(([plat, raw]) => {
+            const n = Number.parseFloat(String(raw ?? ""));
+            return Number.isFinite(n) ? [plat, { price: n }] : null;
+          })
+          .filter((e): e is [string, { price: number }] => e !== null),
+      ),
+      ebay: {
+        ran: !!ebayPreflight,
+        blockers: ebayPreflight?.blockers ?? [],
+        warnings: ebayPreflight?.warnings ?? [],
+        missingRecommendedAspects: ebayPreflight?.recommendedCoverage?.missing ?? [],
+        aspects: savedAspects,
+      },
+    });
+  }, [
+    pushPlatforms,
+    title,
+    description,
+    price,
+    resolvedCategoryId,
+    item?.grade_value,
+    item?.grade_label,
+    item?.brand,
+    item?.size,
+    item?.color,
+    photos.length,
+    platformPrices,
+    ebayPreflight,
+    savedAspects,
+  ]);
 
   // The cost being EDITED, not the saved one, so margin moves as you type.
   // Declared here (not beside the profit panel) because both save paths close
@@ -2290,7 +2363,7 @@ export function FlipdeskComposerPage({
         queryKey: ["inventory_item_ebay", item.id],
       });
       // US-1895: refresh the recommended-coverage meter after an aspect save.
-      await qc.invalidateQueries({ queryKey: ["recommended-coverage", item.id] });
+      await qc.invalidateQueries({ queryKey: PUBLISH_PREFLIGHT_KEY(item.id) });
       // The extension channels' descriptions are DERIVED from this listing's
       // blocks and this item's facts (platform-description.ts on the edge), so
       // a save that changed a measurement, a colour or the prose has just
@@ -3776,6 +3849,11 @@ export function FlipdeskComposerPage({
             setPlatformPrices={setPlatformPrices}
             price={price}
           />
+
+          {/* US-3202: what Publish is about to do, before it does it. Sits
+              directly under the channel picker because it is a readout OF that
+              picker — move the picker and this has to move with it. */}
+          <PublishReadinessCard rows={publishReadiness} loading={ebayPreflightLoading} />
 
           <ListingKit
             itemId={item.id}

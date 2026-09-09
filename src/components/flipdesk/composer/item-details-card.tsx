@@ -25,6 +25,7 @@ import {
 } from "@/lib/constants";
 import { SALE_OWNED_STATUSES } from "@/lib/composer-save";
 import type { ItemCategory, ItemStatus } from "@/types/database";
+import { SectionFillBadge } from "@/components/flipdesk/composer/section-fill-badge";
 
 export interface ItemDetailsCardProps {
   /** The item's PERSISTED status — not the pending pick. */
@@ -64,7 +65,10 @@ export function ItemDetailsCard({
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Item details</CardTitle>
+        <div className="flex items-start justify-between gap-2">
+          <CardTitle>Item details</CardTitle>
+          <SectionFillBadge values={[status, category, sourcedBy, acquiredDate]} />
+        </div>
         <CardDescription>
           Pipeline status and sourcing — saved to the item alongside your listing
           edits.

@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-3196",
+  "nextId": "US-3204",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -4552,6 +4552,128 @@
       ],
       "priority": 4,
       "notes": "Done 2026-09-08 (this session), with ONE VERIFICATION GAP recorded below. AC1: days_listed joins the FilterField set, computed from list_date and distinct from the existing days_in_status (an item repriced yesterday has been in status one day and may have sat eight months); null when never listed, and null is not zero. AC2: an Aged tab on the listings table showing live, unsold listings past the seller's threshold with days listed, cost basis and the money asleep on the page. AC3: bulk price drop refuses to price through inventory_items.floor_price and reports the row rather than clamping - implemented in the EDGE route (flipdesk-listings.ts, via loadOwnedListing which every reprice path already goes through) rather than on one screen, so it covers every caller. AC4: migration 00771 adds flipdesk_settings.aged_threshold_days (null = the code default of 60, matching the repricing engine's own stale-age nudge so the screen agrees with the automation already acting on the same items), stored per seller rather than per session. AC5: oldest first, and an empty state rather than an empty table. THE TAB EXISTS IN BOTH IMPLEMENTATIONS because it has to: selectListingRows is the specification and flipdesk_listing_page is what runs, and listing-page-sql-parity.test.ts holds them to identical ids in identical order. So 00771 also REPLACES flipdesk_listing_page, dropping the 11-arg overload and creating a 12-arg one with p_aged_threshold_days. ⚠ THAT SQL IS REVIEWED AND UNEXECUTED. The parity test needs a database; Docker cannot run in this container and starting the daemon was attempted and refused, so the test SKIPPED. Everything else in the stack was executed. Run 'LISTING_PARITY_DB=1 npx vitest run src/test/listing-page-sql-parity.test.ts' against a local stack before or straight after applying 00771 - PENDING_MIGRATIONS.md carries the same warning plus the rollback (re-run 00721 verbatim). The Aged tab badge shows NO number rather than a wrong one, because aged is not a status and the server-side status grouping cannot count it. HELD: 00771 committed, not pushed."
+    },
+    {
+      "id": "US-3196",
+      "passes": false,
+      "title": "eBay sync mirrors listing photos by reference, and one action copies them into GradeThread",
+      "description": "As a reseller syncing my active eBay listings into FlipDesk, I want each synced listing to show its eBay photos and full details like the item was created here, without GradeThread storing every image, so that my closet looks complete on day one and I only pay for storage on the items I actually work on.",
+      "acceptanceCriteria": [
+        "The eBay pull sync captures every picture URL eBay already returns: listAllInventoryItems in services/edge-functions/src/lib/ebay-client.ts carries product.imageUrls, and services/edge-functions/src/lib/ebay-trading.ts parses PictureDetails.GalleryURL from GetMyeBaySelling and PictureDetails.PictureURL from the GetItem call the specifics backfill already makes. No new eBay call is added for the modern pass.",
+        "A matched listing's pictures land in item_photos as reference rows: photo_url is the eBay URL, storage_path is NULL, remote_source is 'ebay', remote_source_url is the eBay URL. No image bytes are fetched and nothing is written to the item-photos bucket during a sync.",
+        "The mirror is idempotent and never touches seller-owned photos: a second sync inserts nothing when a row with the same remote_source_url already exists on that item, and no code path deletes or rewrites a row whose remote_source is NULL.",
+        "An unmatched listing's picture URLs are stored on flipdesk_ebay_listings.photo_urls, and createItemFromListing in src/components/flipdesk/ebay-sku-match.tsx inserts one item_photos reference row per URL on the inventory_item it creates.",
+        "POST /api/flipdesk/items/:id/photos/adopt-remote copies that item's reference photos into the item-photos bucket through validateImageUpload then stripImageMetadata, sets storage_path and a GradeThread photo_url, and leaves remote_source_url intact so a later sync does not re-add the same photo. It reports per-photo failures instead of failing the whole call.",
+        "The adopt route is scoped to workspaceOwnerId ?? userId and a services/edge-functions/src/tests/tenant-isolation_test.ts case proves a second tenant calling it with another tenant's item id gets 404 and copies nothing (US-268).",
+        "The photo grid in src/components/flipdesk/photo-manager.tsx marks a reference photo as eBay-hosted, keeps its edit control disabled with a reason, and offers a Copy to GradeThread action that calls the adopt route and refetches.",
+        "Reference photos are never sent back to eBay: the outbound publish and revise paths in services/edge-functions/src/routes/flipdesk-ebay.ts skip item_photos rows whose storage_path is NULL, with a test asserting toEbayImageUrls never receives an i.ebayimg.com URL.",
+        "Migration follows the US-1108 triple: idempotent SQL adding item_photos.remote_source, item_photos.remote_source_url and flipdesk_ebay_listings.photo_urls, EXPECTED_SCHEMA_VERSION bumped in the same commit, and a self-record footer."
+      ]
+    },
+    {
+      "id": "US-3197",
+      "passes": false,
+      "title": "Universal Import: one button that pulls every listing from every connected channel and links the duplicates",
+      "description": "As a seller switching from another cross-listing tool, I want one button that imports my live listings from every connected marketplace and links the ones that are the same physical item, so that my whole closet is in FlipDesk before I have listed anything by hand.",
+      "acceptanceCriteria": [
+        "A single control (FlipDesk dashboard + Marketplaces page) runs the import across EVERY connected channel at once; the seller does not run it per channel.",
+        "API-tier channels (API_CROSS_LISTING_PLATFORMS: ebay, shopify, depop, etsy) import server-side. Extension-tier channels (EXTENSION_CROSS_LISTING_PLATFORMS) enqueue an extension_work_queue job instead, and the UI says the work runs when the desktop browser next opens - it never claims a server import for a channel we cannot reach.",
+        "Rows imported from two channels that resolve to the same physical garment are joined onto ONE inventory_items row sharing a listings.draft_id, following the field-ownership rules in vault/20-domain/sync-source-of-truth.md.",
+        "Matches below the confidence bar are NOT auto-linked. They land in a review list where the seller confirms or splits; nothing merges without that confirmation.",
+        "The import is idempotent: a second run creates no duplicate inventory_items row and no duplicate listings row for an already-imported listing.",
+        "Every new edge route is tenant-scoped with workspaceOwnerId ?? userId and gains a case in services/edge-functions/src/tests/tenant-isolation_test.ts (US-268).",
+        "If the review queue needs a table, its migration carries the US-1108 triple: idempotent SQL, EXPECTED_SCHEMA_VERSION bumped in the same commit, self-record footer.",
+        "Progress is visible while it runs, and a per-channel summary (imported / linked / needs review / failed) is shown when it finishes."
+      ],
+      "priority": 20
+    },
+    {
+      "id": "US-3198",
+      "passes": false,
+      "title": "The extension work queue is invisible: a seller cannot see what is waiting for their desktop",
+      "description": "As a seller who queues cross-listing work from my phone, I want to see what is pending, when my desktop last drained it, and what is currently live on more than one channel, so that I trust the work happened instead of wondering whether the app did anything.",
+      "acceptanceCriteria": [
+        "A queue tray in FlipDesk lists pending extension_work_queue rows grouped by kind (list / delist / revise / relist) and by channel, with counts.",
+        "The tray shows when the desktop extension last drained the queue. If it has never drained, it says that explicitly rather than rendering an empty state that reads as nothing-to-do.",
+        "An item with a pending delist job is flagged as STILL LIVE on the named channel, so the oversell window from cross-listing-sale.ts is visible to the seller instead of implicit.",
+        "A push notification fires when pending jobs exceed a threshold AND no drain has occurred in 24h. It is opt-out in notification settings and respects existing quiet-hours handling.",
+        "No copy claims queued work is done. A queued job reads as queued until a drain writes back (the US-2481 honesty rule, restated in vault/60-decisions/adr-no-server-side-marketplace-automation.md section 4).",
+        "Any new edge route is tenant-scoped with workspaceOwnerId ?? userId and gains a case in services/edge-functions/src/tests/tenant-isolation_test.ts (US-268)."
+      ],
+      "priority": 21
+    },
+    {
+      "id": "US-3199",
+      "passes": false,
+      "title": "[OPERATOR] eBay sell.negotiation scope: send-offer-to-interested-buyers is written and 403s in production",
+      "description": "As the operator, I want the production eBay keyset to carry the sell.negotiation OAuth scope, so that the send-offer code already in ebay-client.ts starts working instead of returning 403 - the one 24/7 engagement feature we can run server-side with full marketplace sanction.",
+      "acceptanceCriteria": [
+        "The eBay restricted-scope application for sell.negotiation is submitted against the production keyset and the submission date recorded in this story notes.",
+        "On approval, EBAY_SCOPES includes https://api.ebay.com/oauth/api_scope/sell.negotiation and hasNegotiationScope() returns true on the deployed edge service.",
+        "Existing connected sellers are prompted to re-consent, because an added scope does not apply to tokens already issued - verified on at least one real account.",
+        "One live sendOfferToInterestedBuyers call succeeds against a real listing and the response is recorded in this story notes.",
+        "If eBay declines, the reason is recorded here and the negotiation UI stays gated behind hasNegotiationScope() rather than being deleted."
+      ],
+      "priority": 22
+    },
+    {
+      "id": "US-3200",
+      "passes": false,
+      "title": "No cross-listing-only tier: our cheapest paid plan is $29 and the tools we compete with open at $9.99",
+      "description": "As a reseller comparing cross-listing tools, I want a cheap plan that only lists and syncs, so that I can start without paying for grading credits I have not decided I want yet.",
+      "acceptanceCriteria": [
+        "OWNER DECISION FIRST: the price point and the exact feature split are confirmed by the owner before any code lands. This story does not invent them.",
+        "A new FlipdeskPlanKey is added to FLIPDESK_PLANS in src/lib/constants.ts. Its Stripe price id resolves server-side only - the browser never learns a price id (existing rule in that file).",
+        "gateFlags disable autolister, compPulls, scheduledActions, bulkActions and reconciliation; includedStandardGradesPerMonth is 0.",
+        "marketplacesCap is -1 so the tier is genuinely multi-channel. A cheap tier capped to one marketplace does not answer the comparison it exists to answer.",
+        "The plan-matrix tests under src/lib/__tests__ cover the new key, and vault/50-business/pricing.md is updated in the SAME commit.",
+        "The pricing page renders the tier, and its upgrade path names grading as the reason to move up - the upsell is the thing we are actually better at."
+      ],
+      "priority": 23
+    },
+    {
+      "id": "US-3201",
+      "passes": false,
+      "title": "Sellers cannot set their own listing voice: DESCRIPTION_TEMPLATES hardcodes \"Smoke-free home. Ships fast.\"",
+      "description": "As a seller, I want to set my own description instructions and my own closing signature, so that generated descriptions sound like my closet instead of shipping the same three sentences as every other GradeThread seller.",
+      "acceptanceCriteria": [
+        "flipdesk_settings gains two nullable columns - a free-text description prompt and a free-text signature - each with a length cap enforced by a CHECK constraint.",
+        "The migration carries the US-1108 triple: idempotent SQL, EXPECTED_SCHEMA_VERSION bumped in the same commit, self-record footer.",
+        "When set, the prompt is appended to the description generation call in services/edge-functions/src/lib/ai-listing.ts and the signature is appended to the rendered description.",
+        "When unset, output is byte-identical to today. An account that never opens the setting sees no change at all.",
+        "The signature renders as a description BLOCK (the migration 00678 model) so it re-renders on every save, rather than being baked into a stored string once and then drifting.",
+        "The hardcoded closing line in src/lib/listing-templates.ts DESCRIPTION_TEMPLATES becomes the DEFAULT signature rather than an unremovable string, and src/test/listing-template-native-parity.test.ts still passes against the Swift mirror.",
+        "A FlipDesk settings UI edits both fields and shows a live preview of the rendered description tail."
+      ],
+      "priority": 24
+    },
+    {
+      "id": "US-3202",
+      "passes": false,
+      "title": "The composer never says which channels a publish will actually succeed on",
+      "description": "As a seller about to publish, I want a per-channel readout of what is missing, so that I fix it before the publish fails rather than after eBay leaves me a stuck offer.",
+      "acceptanceCriteria": [
+        "The composer shows, per selected channel, either ready or the named missing fields - computed BEFORE Publish is pressed, not as an error afterwards.",
+        "For eBay the check covers required aspects for the chosen category AND the 65-character aspect value ceiling (vault/30-platform/ebay-aspect-value-limit.md), because both produce a stuck offer rather than a clean rejection.",
+        "Each composer section header carries a filled-count (for example 6 of 8) derived from the fields that section actually owns - not a hardcoded denominator.",
+        "A channel that cannot be pre-checked (extension-tier, or MARKETPLACE_MECHANISM none) says so rather than claiming ready.",
+        "The readout is computed from the SAME source the publish path uses, so it cannot drift. A unit test asserts the two agree across src/test/fixtures/required-aspects-cases.json."
+      ],
+      "priority": 25
+    },
+    {
+      "id": "US-3203",
+      "passes": false,
+      "title": "Nothing on the site answers \"does GradeThread have my Poshmark password?\" - the strongest thing we can say is unsaid",
+      "description": "As a seller who has been share-jailed or suspended by a cloud automation tool, I want a page that explains who is actually acting on my account, so that I can tell GradeThread apart from the tools that hold my marketplace login.",
+      "acceptanceCriteria": [
+        "A public page explains the two models plainly and is registered in BOTH src/lib/seo/public-routes.ts and src/prerender/entry-server.tsx - the CI guard test and the prerender sync-guard fail otherwise.",
+        "The per-channel mechanism table on that page is GENERATED from MARKETPLACE_MECHANISM in src/lib/constants.ts, not hand-written, so it cannot drift from what we actually do.",
+        "The page states the cost honestly: extension channels need the desktop browser open. Leaving that out would be the same dishonesty the ADR exists to prevent.",
+        "vault/60-decisions/adr-no-server-side-marketplace-automation.md gains Sidekick Tools (poshsidekick.com) as a fourth competitor column, with the observed evidence: the username+password connect form, the server-3-cl.poshsidekick.com/getStatusMarketAutomation endpoint, and the onboarding call where their team logs into the seller closet.",
+        "No competitor is named on the public page. The vault note names them; the marketing describes the model."
+      ],
+      "priority": 26
     }
   ]
 }

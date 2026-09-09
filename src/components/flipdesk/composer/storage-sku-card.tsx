@@ -7,6 +7,7 @@ import {
 } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { SectionFillBadge } from "@/components/flipdesk/composer/section-fill-badge";
 
 export interface StorageSkuCardProps {
   sku: string;
@@ -32,7 +33,10 @@ export function StorageSkuCard({
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Storage &amp; SKU</CardTitle>
+        <div className="flex items-start justify-between gap-2">
+          <CardTitle>Storage &amp; SKU</CardTitle>
+          <SectionFillBadge values={[sku, location, container]} />
+        </div>
         <CardDescription>
           Where this item lives and how it's labeled. Saved to the item rather
           than the eBay listing, by the same Save button as everything else on

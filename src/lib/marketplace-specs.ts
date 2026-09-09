@@ -788,3 +788,124 @@ export function validateListingForPlatform(
 
   return { platform, ok: !issues.some((i) => i.level === "error"), issues };
 }
+
+// ── US-3202: one projection, used by the pre-flight AND by the composer ──────
+//
+// The publish path (services/edge-functions/src/lib/cross-listing-fields.ts,
+// validateSiblingForPublish) and the composer's per-channel readiness readout
+// (src/lib/publish-readiness.ts) must answer the same question the same way,
+// or the readout becomes a second opinion that disagrees with the thing that
+// actually runs. Before this, the projection from "a draft" to "the DraftFields
+// the validator wants" existed only inside the edge module, so the only way to
+// show a seller the answer was to re-derive it and hope.
+//
+// It lives HERE, in the mirrored file, because this file already has a
+// byte-identical guard (src/lib/__tests__/marketplace-specs.test.ts) and the
+// edge runtime cannot import from the Vite src/ tree. A copy in either place
+// without the guard is exactly the drift this is meant to prevent.
+
+/**
+ * A garment draft in the shared, platform-neutral shape the composer holds and
+ * the cross-list fan-out derives its per-platform siblings from. Every field is
+ * what the SELLER typed (or the AI produced for this platform) — no trimming,
+ * no per-platform naming.
+ */
+export interface CrossListDraft {
+  title: string;
+  description: string;
+  /** Numeric price; a blank/unparsed price should arrive as null, not 0. */
+  price: number | null;
+  /** The platform's own category/department id or name, when it uses one. */
+  category?: string | null;
+  /**
+   * The platform's own condition VALUE (not label), when one has already been
+   * chosen for this platform (an AI variant, or a seller override).
+   */
+  condition?: string | null;
+  /**
+   * The GradeThread grade, used to DERIVE a platform condition when `condition`
+   * is unset. Condition values are per-platform and mutually invalid — Poshmark
+   * wants EUC where eBay wants USED_EXCELLENT — so a shared draft cannot carry
+   * one string that works everywhere, and projecting the seller's eBay
+   * condition onto Poshmark produces a blocker that is an artefact of the
+   * projection rather than anything wrong with the listing.
+   */
+  grade?: number | null;
+  /** The grade's tier label, so an NWT item maps to NWT rather than by number. */
+  gradeLabel?: string | null;
+  brand?: string | null;
+  size?: string | null;
+  color?: string | null;
+  tags?: string[] | null;
+}
+
+/**
+ * Trims to a platform's character cap on a word boundary where one exists.
+ * Duplicated from platform-variants.trimToLimit deliberately: this module has
+ * to stay dependency-free so it type-checks under BOTH tsconfig and Deno.
+ */
+export function trimToSpecLimit(text: string, max: number | null | undefined): string {
+  const t = (text ?? "").trim();
+  if (max == null || t.length <= max) return t;
+  const cut = t.slice(0, max);
+  const lastSpace = cut.lastIndexOf(" ");
+  return (lastSpace > 0 ? cut.slice(0, lastSpace) : cut).trim();
+}
+
+/**
+ * Projects a shared draft onto the DraftFields shape `validateListingForPlatform`
+ * expects for one platform.
+ *
+ * Two things here are not obvious and both are load-bearing:
+ *
+ *   • Title and description are CLAMPED to the platform's caps first, because
+ *     the publish path clamps before it validates — so a 140-character title is
+ *     not an eBay blocker, it is an eBay title that arrives at 80. Validating
+ *     the raw string would show the seller an error the publish never raises.
+ *   • `category`/`department` and `brand`/`designer` are written under BOTH
+ *     spellings. Different specs name the same value differently (Grailed calls
+ *     the brand a designer, Poshmark calls the category a department) and the
+ *     validator reads the spec's own key.
+ */
+/**
+ * An explicit per-platform condition wins. Otherwise derive one from the grade,
+ * but ONLY when there is a grade to derive from: gradeToConditionBucket falls
+ * back to EXCELLENT for a null grade, so deriving unconditionally would hand
+ * every ungraded draft a confident "excellent" it never earned.
+ */
+function resolveCondition(platform: MarketplacePlatform, draft: CrossListDraft): string {
+  const explicit = (draft.condition ?? "").trim();
+  if (explicit !== "") return explicit;
+  const hasGrade = draft.grade != null || (draft.gradeLabel ?? "").trim() !== "";
+  if (!hasGrade) return "";
+  return mapCondition(platform, draft.grade ?? null, draft.gradeLabel ?? null)?.value ?? "";
+}
+
+export function projectDraftFields(
+  platform: MarketplacePlatform,
+  draft: CrossListDraft,
+): DraftFields {
+  const spec = MARKETPLACE_SPECS[platform];
+  const titleMax = spec?.titleMaxLength ?? null;
+  const descMax = spec?.descriptionMaxLength ?? null;
+
+  // Depop has no title field at all (titleMaxLength === null); its listing text
+  // IS the description, so a title there is not a missing field, it is nothing.
+  const title = spec && spec.titleMaxLength == null
+    ? ""
+    : trimToSpecLimit(draft.title ?? "", titleMax);
+
+  return {
+    title,
+    description: trimToSpecLimit(draft.description ?? "", descMax),
+    price: draft.price == null ? "" : String(draft.price),
+    category: draft.category ?? "",
+    department: draft.category ?? "",
+    condition: resolveCondition(platform, draft),
+    brand: draft.brand ?? "",
+    designer: draft.brand ?? "",
+    size: draft.size ?? "",
+    color: draft.color ?? "",
+    tags: draft.tags ?? [],
+  };
+}

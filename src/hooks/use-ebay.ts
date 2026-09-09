@@ -1420,17 +1420,29 @@ export function useValidatePublish() {
   });
 }
 
-// US-1895: recommended-aspect coverage for a single item, from the same
-// preflight/validate source (recommendedAspectCoverage on the edge). Read-only
-// query for the composer meter; refetches when its ["recommended-coverage", id]
-// key is invalidated after an aspect save.
-export function useRecommendedCoverage(itemId: string | null | undefined) {
+// US-1895 / US-3202: the eBay publish preflight for a single item. Two hooks,
+// one request: usePublishPreflight returns the whole response, and
+// useRecommendedCoverage selects the coverage slice out of the same cache
+// entry. Both refetch when PUBLISH_PREFLIGHT_KEY is invalidated after an
+// aspect save.
+/**
+ * US-3202: the WHOLE preflight response, not just the coverage slice.
+ *
+ * The composer's readiness readout needs the blockers and warnings this
+ * endpoint already returns and useRecommendedCoverage threw away. Both hooks
+ * now share one query key, so the two callers on the same page make ONE
+ * request between them rather than hitting eBay twice for the same answer.
+ *
+ * Returns null rather than throwing when the preflight cannot run — an item
+ * with no eBay category resolved has no answer yet, and that is a normal state.
+ */
+export function usePublishPreflight(itemId: string | null | undefined) {
   return useQuery({
-    queryKey: ["recommended-coverage", itemId],
+    queryKey: PUBLISH_PREFLIGHT_KEY(itemId),
     enabled: !!itemId,
     staleTime: 60_000,
     retry: 1,
-    queryFn: async (): Promise<AspectCoverage | null> => {
+    queryFn: async (): Promise<ValidatePublishResponse | null> => {
       const res = await fetch(
         `${edgeApiUrl()}/api/flipdesk/ebay/listings/validate`,
         {
@@ -1440,9 +1452,40 @@ export function useRecommendedCoverage(itemId: string | null | undefined) {
         },
       );
       if (!res.ok) return null;
-      const json = (await res.json().catch(() => ({}))) as ValidatePublishResponse;
-      return json.recommendedCoverage ?? null;
+      return (await res.json().catch(() => null)) as ValidatePublishResponse | null;
     },
+  });
+}
+
+/**
+ * The query key both preflight hooks use. Exported so an invalidation after an
+ * aspect save can name it rather than guessing at the string.
+ *
+ * ⚠️ The old ["recommended-coverage", id] key is gone. Anything that
+ * invalidated it by hand is invalidating nothing — search before you trust it.
+ */
+export const PUBLISH_PREFLIGHT_KEY = (itemId: string | null | undefined) =>
+  ["publish-preflight", itemId] as const;
+
+export function useRecommendedCoverage(itemId: string | null | undefined) {
+  return useQuery({
+    queryKey: PUBLISH_PREFLIGHT_KEY(itemId),
+    enabled: !!itemId,
+    staleTime: 60_000,
+    retry: 1,
+    queryFn: async (): Promise<ValidatePublishResponse | null> => {
+      const res = await fetch(
+        `${edgeApiUrl()}/api/flipdesk/ebay/listings/validate`,
+        {
+          method: "POST",
+          headers: await ebayHeaders(),
+          body: JSON.stringify({ inventory_item_id: itemId }),
+        },
+      );
+      if (!res.ok) return null;
+      return (await res.json().catch(() => null)) as ValidatePublishResponse | null;
+    },
+    select: (json): AspectCoverage | null => json?.recommendedCoverage ?? null,
   });
 }
 

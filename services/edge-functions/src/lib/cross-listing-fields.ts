@@ -12,8 +12,9 @@
 
 import type { CrossListingPlatform } from "./marketplace-adapters/types.ts";
 import {
-  type DraftFields,
+  type CrossListDraft,
   getMarketplaceSpec,
+  projectDraftFields,
   validateListingForPlatform,
   type ValidationResult,
 } from "./marketplace-specs.ts";
@@ -115,18 +116,28 @@ export function validateSiblingForPublish(
   photoCount?: number,
 ): ValidationResult {
   const variant = mapped.platform_fields?.[platform];
-  const draft: DraftFields = {
+  // US-3202: the projection moved into marketplace-specs.ts so the composer's
+  // per-channel readiness readout runs the SAME one. It used to be inlined
+  // here, which meant the only way to show a seller what would block a publish
+  // was to re-derive it in the SPA and hope the two stayed in step.
+  //
+  // The title/description arriving here are already clamped by
+  // mapSiblingListingFields, so projectDraftFields' own clamp is a no-op on this
+  // path and the behaviour is unchanged.
+  const draft: CrossListDraft = {
     title: mapped.listing_title ?? "",
     description: mapped.listing_description ?? "",
     price: mapped.listing_price,
     category: variant?.category ?? "",
-    department: variant?.category ?? "",
     condition: variant?.condition?.value ?? "",
     brand: variant?.brand ?? "",
-    designer: variant?.brand ?? "",
     size: variant?.size ?? "",
     color: variant?.color ?? "",
     tags: variant?.tags ?? [],
   };
-  return validateListingForPlatform(platform, draft, { photoCount });
+  return validateListingForPlatform(
+    platform,
+    projectDraftFields(platform, draft),
+    { photoCount },
+  );
 }

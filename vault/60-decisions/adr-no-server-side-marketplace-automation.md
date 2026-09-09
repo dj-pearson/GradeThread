@@ -46,14 +46,47 @@ deadline.
 
 ## 2. The three competitor models
 
-| | **Crosslist** | **Vendoo** | **Nifty** |
-|---|---|---|---|
-| How it reaches no-API channels | Browser extension + official APIs where they exist | Browser extension | **Cloud-run sessions on their servers** |
-| What the seller hands over | Nothing. Actions run in their tab. | Nothing. Actions run in their tab. | **Marketplace login, stored and replayed server-side** |
-| Seller's browser must be open | Yes | Yes | **No — that is the product** |
-| Who is the actor if a marketplace objects | The seller, automating their own account | The seller | **The vendor, operating the seller's account** |
-| EU coverage | Does not serve EU customers | Partial | Partial |
-| Engagement automation (share/follow/offer) | Limited | Limited | **Headline feature, ~$25/mo** |
+| | **Crosslist** | **Vendoo** | **Nifty** | **Sidekick Tools** |
+|---|---|---|---|---|
+| How it reaches no-API channels | Browser extension + official APIs where they exist | Browser extension | **Cloud-run sessions on their servers** | **Cloud-run sessions on numbered worker servers** |
+| What the seller hands over | Nothing. Actions run in their tab. | Nothing. Actions run in their tab. | **Marketplace login, stored and replayed server-side** | **Marketplace username + password, typed into their form** |
+| Seller's browser must be open | Yes | Yes | **No — that is the product** | **No — that is the product** |
+| Who is the actor if a marketplace objects | The seller, automating their own account | The seller | **The vendor, operating the seller's account** | **The vendor. Onboarding includes a call where their team logs in.** |
+| EU coverage | Does not serve EU customers | Partial | Partial | US / CA / UK |
+| Engagement automation (share/follow/offer) | Limited | Limited | **Headline feature, ~$25/mo** | **Headline feature, $29.99–$59.99/mo** |
+| Cross-listing entry price | — | — | — | **$9.99/mo, 7 marketplaces** |
+
+### 2.1 Sidekick Tools, and why it is the harder case
+
+Nifty was one competitor selling the refused model. Sidekick Tools
+(`poshsidekick.com`, formerly Posh Sidekick) is a second, and it is the harder
+one to argue against, because it is **cheaper, larger, and sells the crossposting
+half separately at $9.99** — below anything we offer. It is the version of this
+pressure that arrives as "we are losing the entry-level seller", not "we are
+missing a feature".
+
+Three observations from a live trial account, 2026-09-08, so the next reader
+does not have to take the model on trust:
+
+- **The connect form asks for a password.** Adding a Poshmark account opens a
+  two-step wizard whose first step is *Username or Email* and *Password*, with a
+  **Connect** button. Every listed marketplace works this way except eBay, the
+  one channel with a real OAuth API.
+- **The app polls a numbered automation worker.** Loading their Marketplaces
+  page fires exactly one request to their own infrastructure:
+  `GET https://server-3-cl.poshsidekick.com/getStatusMarketAutomation?userId=…&market=eBay&username=…`.
+  A numbered shard, an endpoint they named *MarketAutomation*, and the seller's
+  marketplace handle travelling as a query parameter.
+- **A human at the vendor performs the login.** Their "How It Works" page has a
+  step where *their team links your closet* on a scheduled call.
+
+Their listing data model is, for the record, thinner than FlipDesk's: one
+Condition dropdown, no measurements, no defect capture, 19 fields total. What
+they beat us on is the first sixty seconds (one-button import across all
+connected channels, with duplicate linking) and the fact that nothing they do
+waits on a desktop browser. Those are the two places to compete — see
+[[cross-listing]] and the §4 cost below — and neither of them requires touching
+§3.
 
 The important row is the fourth one. In the extension model the seller is a
 person automating their own account in their own browser — the thing every

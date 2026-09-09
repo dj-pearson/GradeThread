@@ -2,6 +2,7 @@ import { ConditionIndexValueHint } from "@/components/flipdesk/condition-index-v
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { SectionFillBadge } from "@/components/flipdesk/composer/section-fill-badge";
 import { cn } from "@/lib/utils";
 import type { ItemFullRow } from "@/types/database";
 import type { estimateListingProfit } from "@/lib/listing-profit";
@@ -42,7 +43,10 @@ export function CostMarginCard({
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Cost &amp; margin</CardTitle>
+        <div className="flex items-start justify-between gap-2">
+          <CardTitle>Cost &amp; margin</CardTitle>
+          <SectionFillBadge values={[cost, floorPrice]} />
+        </div>
         <CardDescription>
           What you paid, and what this price leaves you. Saved to the item
           with everything else on this page.
