@@ -80,18 +80,31 @@ Deno.test("getBreaker returns a shared instance per key", () => {
   assert(getBreaker("other") !== a);
 });
 
-Deno.test("fetchWithTimeout throws TimeoutError when the request exceeds the deadline", async () => {
-  // A server that never responds within the deadline.
-  await assertRejects(
-    () =>
-      fetchWithTimeout(
-        "http://10.255.255.1/", // non-routable → hangs until aborted
-        {},
-        50,
-      ),
-    // Either our TimeoutError (abort) — accept any throw, then assert type if abort.
-    Error,
-  );
+Deno.test("fetchWithTimeout throws TimeoutError when the HEADERS never arrive", async () => {
+  // This used to fetch http://10.255.255.1/ and rely on that address being
+  // non-routable, which tests the machine's routing table rather than this
+  // code. Anywhere an egress proxy answers on behalf of the target - a
+  // corporate network, a sandboxed CI container - the request completes, the
+  // call does not reject, and the case fails for a reason that has nothing to
+  // do with timeouts. It also asserted only `Error`, because a network-shaped
+  // rejection could arrive by several routes and the test could not tell which
+  // it got; the comment said as much.
+  //
+  // US-2323 later added a real local server to this file for the stalled-BODY
+  // case. Using it here makes the request-level deadline just as deterministic:
+  // the connection is accepted and then nothing is sent, so the headers never
+  // arrive and the deadline has to fire on the request itself. That also lets
+  // the assertion name TimeoutError specifically, which is what callers branch
+  // on to tell "the upstream is dead" from "the upstream said no".
+  const stall = Promise.withResolvers<Response>();
+  const s = serve(() => stall.promise);
+  try {
+    await assertRejects(() => fetchWithTimeout(s.origin, {}, 100), TimeoutError);
+  } finally {
+    // Let the handler finish so the server can actually shut down.
+    stall.resolve(new Response("done"));
+    await s.close();
+  }
 });
 
 Deno.test("TimeoutError name is set", () => {
@@ -112,7 +125,7 @@ Deno.test("TimeoutError name is set", () => {
 // which a stub does not have.
 
 /** Serve one response and hand back its origin + a shutdown. */
-function serve(handler: () => Response) {
+function serve(handler: () => Response | Promise<Response>) {
   const ac = new AbortController();
   const server = Deno.serve(
     { port: 0, signal: ac.signal, onListen: () => {} },

@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-3255",
+  "nextId": "US-3261",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -4856,6 +4856,45 @@
         "Do not mount useSurfaceTitle anywhere until its source resolves for that tree. A hook that returns the default for every route is worse than no hook, because the next person reads the mount and assumes it works."
       ],
       "notes": "Partial 2026-09-09 in the buyer half: resolved via BUYER_NAV rather than by adding surfaces.ts entries, which AC1 asked for. Deliberate deviation — duplicating eight labels into a second registry is the problem surfaces.ts exists to prevent. AC1 should be read as 'give buyer a real source', which BUYER_NAV already was. Remaining: admin, which needs its eight nav arrays extracted out of admin-layout.tsx before anything can read them."
+    },
+    {
+      "id": "US-3256",
+      "passes": false,
+      "title": "cogs_labor is spelled 'Labour' in the seeded ledger_accounts row and 'Labor' in the TypeScript chart",
+      "description": "src/lib/chart-of-accounts.test.ts > 'agrees field for field' is RED on main. supabase/migrations/00684_ledger_accounts.sql:130 seeds cogs_labor with name 'Labour that went into the goods'; src/lib/chart-of-accounts.ts has 'Labor that went into the goods'. Schedule C line 37 is 'Cost of labor' - US spelling - so the TypeScript side is the correct one and the seeded row is the drift. Nothing in src/ or services/edge-functions/src/ reads ledger_accounts.name today (grepped: zero call sites), so no seller currently sees the wrong word; the cost is that a guard whose whole purpose is keeping the TS chart and the seeded chart in lockstep has been failing, which means it is not guarding the other 40-odd rows either. 00684 is applied and immutable, so this needs a NEW migration doing an idempotent UPDATE of that one row, with the US-1108 triple (idempotent SQL, EXPECTED_SCHEMA_VERSION bump in the same commit, self-record footer) and an operator prod-apply. Load the migrations skill first.",
+      "acceptanceCriteria": [
+        "src/lib/chart-of-accounts.test.ts passes on a clean tree, all cases",
+        "A new migration idempotently UPDATEs public.ledger_accounts SET name = 'Labor that went into the goods' WHERE code = 'cogs_labor', and re-running it is a no-op",
+        "The migration triple is complete: EXPECTED_SCHEMA_VERSION bumped in the same commit, self-record footer present, PENDING_MIGRATIONS.md entry added as HELD until applied",
+        "No other row in the seeded chart disagrees with src/lib/chart-of-accounts.ts once the guard is green again"
+      ],
+      "priority": 1620
+    },
+    {
+      "id": "US-3259",
+      "passes": false,
+      "title": "Brand style coverage fell from 95% to 40% - US-3125's brand packs added 356 brands and 40 style sets",
+      "description": "Measured 2026-09-09 by scripts/brand-style-coverage.mjs: 544 brand_knowledge brands, 218 with at least one brand_styles row, 818 style rows, 326 brands with none. US-2216 recorded the state as 188 brands and 178 covered (~95%) and pinned a 90% floor. The US-3125 brand packs (migrations 00739-00761 and neighbours) tripled the brand KB and added roughly 40 style sets, so coverage is now 40.1% and the guard had been failing on both its assertions for as long as those packs have been landing. brand_styles is the model-level identity that sets a garment's price - a Levis 501 is not a Levis 505 - so a brand with none is a brand the comping and listing surfaces can only reason about at brand level. The guard was converted to a ratchet in the same commit (MISSING_STYLES_CEILING = 326, coverage floor 0.4, absolute floors re-measured) so it is green and a 327th uncovered brand is loud again; the 326 names were deliberately NOT poured into KNOWN_UNCOVERED, which is a curated list with a reason per entry and would have become a graveyard. This story is the seeding work. Note that some of the 326 will be genuinely style-less the way Gildan and Hanes are - blanks makers with no model identity worth naming - and those belong in KNOWN_UNCOVERED with that reason rather than in a style pack.",
+      "acceptanceCriteria": [
+        "MISSING_STYLES_CEILING in services/edge-functions/src/tests/brand-style-coverage_test.ts is lowered, and the coverage floor raised, in every commit that seeds styles",
+        "Brands that genuinely have no model-level identity (blanks makers, mall brands whose value does not turn on the model) are moved into KNOWN_UNCOVERED with a stated reason, not left counted as a gap",
+        "Every new style row is sourced - a style name invented to clear the count is worse than the gap, since comping would price against a model that does not exist",
+        "Each seeding migration carries the US-1108 triple: idempotent SQL, EXPECTED_SCHEMA_VERSION bumped in the same commit, self-record footer"
+      ],
+      "priority": 1650
+    },
+    {
+      "id": "US-3260",
+      "passes": false,
+      "title": "About 65 frontend Supabase reads still discard their error and render an empty state as fact",
+      "description": "A read that destructures only data and leaves error unread throws the error away, so a FAILED read is indistinguishable from an empty result and the UI states it as fact: 'you have no grade reports', 'no sales this month', totals of zero. Three instances have been fixed and each was a real user-facing lie: the GDPR account export (src/lib/account-export.ts, iteration 4) shipped empty record sets and a lifetime revenue of zero into a document a person may hand a regulator; the FlipDesk expenses and reconciliation pages (iteration 1) summed money out of unbounded reads; the tax packet (src/components/finances/tax-packet-card.tsx, iteration 13) produced a clean cover page on a packet with a hole in it. Roughly 65 call sites remain. Scan reproduces them with a node one-liner matching /const \\{\\s*data(?::\\s*\\w+)?\\s*\\}\\s*=\\s*await/ near a supabase/.from(/.rpc( in the following 10 lines, over src/ excluding tests. NOT all 65 are equal - triage by consequence rather than sweeping: an empty state the seller ACTS on (money, inventory, listings, anything summed or filed) is the priority; a dismissed banner or a cached preference reading empty is cosmetic. The fix has three shapes depending on the surface, all demonstrated in the commits above: throw and let the caller show an error state; page with fetchAllPages from src/lib/paged-read.ts when the whole set is needed; or record the failure and surface it as a warning where a partial answer is genuinely better than none. Worth a source-scan guard afterwards so the count can only fall.",
+      "acceptanceCriteria": [
+        "Every remaining call site is triaged by consequence, and the ones on money, inventory, listings and filing surfaces are fixed",
+        "Each fix takes one of the three shapes: throw to an error state, page with fetchAllPages, or record the failure and warn - never a silent empty",
+        "Cosmetic sites left as-is are listed with that verdict, so the remainder is a decision rather than a backlog",
+        "A source-scan guard records the remaining count as a ceiling that may fall and must not rise, in the shape of src/test/row-cap-contract.test.ts"
+      ],
+      "priority": 1615
     }
   ]
 }

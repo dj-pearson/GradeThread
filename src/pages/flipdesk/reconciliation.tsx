@@ -2,6 +2,7 @@ import { useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { toastError } from "@/lib/toast-error";
+import { fetchAllPages } from "@/lib/paged-read";
 import {
   Scale,
   AlertTriangle,
@@ -173,14 +174,21 @@ export function ReconciliationPayoutsTab() {
   } = useQuery({
     queryKey: ["sales_all", user?.id],
     enabled: !!user,
-    queryFn: async (): Promise<SaleRow[]> => {
-      const { data, error } = await supabase
-        .from("sales")
-        .select("*")
-        .order("created_at", { ascending: false });
-      if (error) throw error;
-      return (data ?? []) as SaleRow[];
-    },
+    // US-2169: paged, not a single unbounded read. Reconciliation decides
+    // which sales are flagged as discrepancies; a response clipped at
+    // PostgREST's `db-max-rows` (silent, header-only) would drop older sales
+    // out of the check entirely and read as "nothing wrong".
+    queryFn: async (): Promise<SaleRow[]> =>
+      fetchAllPages<SaleRow>(async (from, to) => {
+        const { data, error } = await supabase
+          .from("sales")
+          .select("*")
+          .order("created_at", { ascending: false })
+          .order("id", { ascending: false })
+          .range(from, to);
+        if (error) throw error;
+        return (data ?? []) as SaleRow[];
+      }),
   });
 
   // Cached items_full gives us titles without another round-trip — shared

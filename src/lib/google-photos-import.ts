@@ -211,10 +211,34 @@ export async function runGooglePhotosImport(
   }
   notify.info(PICK_PROMPT, { durationMs: 8000 });
 
+  // Picking is over — however it ended — so close the window for them. The COOP
+  // header is `same-origin-allow-popups` (see public/_headers), which is what
+  // keeps this handle alive; under a stricter COOP `close()` silently does
+  // nothing.
+  //
+  // This used to run only on the SUCCESS path, so all three ways the pick can
+  // end early — the seller cancelling, the session expiring, the pick deadline
+  // passing — left Google's picker sitting open over the app, with a toast
+  // behind it saying the import had stopped. The one case where the window is
+  // deliberately left alone is a popup that never opened at all.
+  const closePicker = () => {
+    try {
+      popup.close();
+    } catch {
+      // Handle lost. The seller can close it themselves; nothing else depends
+      // on this having worked.
+    }
+  };
+
   // ── 3. Wait for the seller to finish picking ────────────────────────────
   const startedAt = now();
   for (;;) {
     if (aborted()) {
+      closePicker();
+      // "canceled": one L, matching the American spelling this product uses in
+      // seller-facing copy everywhere it charges, bills or files (Schedule C,
+      // Stripe's own `canceled` status). The internal result value stays
+      // "cancelled" because it is a type, not something anyone reads.
       notify.info("Google Photos import canceled.");
       return result("cancelled");
     }
@@ -224,6 +248,7 @@ export async function runGooglePhotosImport(
         `/api/flipdesk/google/photos/poll?session=${sessionId}`,
       );
       if (pr.status === 404 || pr.status === 410) {
+        closePicker();
         notify.info("The Google Photos session expired — start the import again.");
         return result("expired");
       }
@@ -234,6 +259,7 @@ export async function runGooglePhotosImport(
     }
     if (ready) break;
     if (now() - startedAt > pickMaxMs) {
+      closePicker();
       notify.info(
         "Google Photos import timed out — if you finished picking, try again.",
       );
@@ -242,14 +268,7 @@ export async function runGooglePhotosImport(
     await sleep(pollIntervalMs);
   }
 
-  // Picking is over, so close the window for them. The COOP header is
-  // `same-origin-allow-popups` (see public/_headers), which is what keeps this
-  // handle alive — under a stricter COOP `close()` silently does nothing.
-  try {
-    popup.close();
-  } catch {
-    // Handle lost. The seller can close it themselves; the import continues.
-  }
+  closePicker();
 
   // ── 4. Pull the picks down in paced chunks ──────────────────────────────
   onProgress({ done: 0, total: 0 });

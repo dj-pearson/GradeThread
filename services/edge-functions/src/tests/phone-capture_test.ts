@@ -187,3 +187,43 @@ Deno.test("an item capture carries the missing list and still names nothing else
     "targetKind",
   ]);
 });
+
+// US-3162's whole point is that the phone's "shoot the back next" prompt
+// tracks what has actually landed. It never did: the query read
+// `item_photos.item_id`, a column that does not exist, so PostgREST answered
+// 42703, the error was thrown away, and the empty result meant EVERY required
+// shot read as still missing forever.
+//
+// A source scan, because the failure was invisible everywhere else: it
+// typechecked, it lint-passed, it returned 200, and the wrong answer was a
+// perfectly well-formed list of photo types.
+Deno.test("the missing-shots read names the column item_photos actually has", async () => {
+  const src = await Deno.readTextFile(
+    new URL("../routes/flipdesk-phone-capture.ts", import.meta.url),
+  );
+  const at = src.indexOf('.from("item_photos")');
+  assert(at > -1, "the item_photos read is gone — this guard needs re-pointing");
+  const query = src.slice(at, at + 300);
+  assert(
+    query.includes('.eq("inventory_item_id"'),
+    "the item_photos read must filter on inventory_item_id",
+  );
+  assert(
+    !/\.eq\("item_id"/.test(query),
+    "item_photos has no item_id column; PostgREST answers 42703 and the read fails whole",
+  );
+});
+
+Deno.test("a failed missing-shots read is not reported as 'nothing shot yet'", async () => {
+  const src = await Deno.readTextFile(
+    new URL("../routes/flipdesk-phone-capture.ts", import.meta.url),
+  );
+  const at = src.indexOf("async function missingForTarget");
+  assert(at > -1, "missingForTarget is gone — this guard needs re-pointing");
+  const body = src.slice(at, src.indexOf("\n}", at));
+  // Destructuring only `data` is what let the broken column pass for a real
+  // answer. The error has to be looked at, and it has to stop the caller
+  // rather than fall through to an empty list.
+  assert(body.includes("error"), "missingForTarget must read the query's error");
+  assert(/if \(error\) throw/.test(body), "a failed read must throw, not return []");
+});

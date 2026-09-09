@@ -1,4 +1,5 @@
 import { supabase } from "./supabase";
+import { fetchAllPages } from "./paged-read";
 import { createZip, type ZipInputFile } from "./zip";
 import { fetchShippingProfile, type ShippingProfile } from "./shipping-profile";
 import type {
@@ -22,17 +23,65 @@ function textFile(name: string, value: string): ZipInputFile {
   return { name, data: new TextEncoder().encode(value) };
 }
 
-// A few PII tables (push_device_tokens, feedback_messages) aren't in the
-// generated Database types yet. Fetch them through a loosely-typed query — RLS
-// still scopes the rows to the caller — and serialize the JSON as-is (US-381).
-async function selectAllUntyped(table: string): Promise<unknown[]> {
+/**
+ * One record set for the export, read WHOLE and read HONESTLY.
+ *
+ * Two things were wrong with the reads this replaces, and they compounded.
+ *
+ * They discarded the error and fell through to `[]`. A subject access request
+ * is the one document where an empty section is a statement of fact: the
+ * person is being told, in a file they may take to a regulator, that
+ * GradeThread holds no grade reports for them. A failed read said exactly that
+ * and looked identical to a genuinely empty account. The financial summary is
+ * built from the same rows, so a dropped table also zeroed their revenue.
+ *
+ * And they were unbounded. PostgREST clips any response at `db-max-rows` and
+ * reports it only in a header supabase-js drops, so a long-standing seller's
+ * export would have been short with nothing anywhere saying so.
+ *
+ * So: pages until the data runs out, and throws the moment a read fails. The
+ * caller surfaces that as a failed export the person can retry, which is the
+ * honest outcome — a partial archive that cannot say which part is missing is
+ * worse than no archive.
+ *
+ * Loosely typed on purpose: a few PII tables (push_device_tokens,
+ * feedback_messages) aren't in the generated Database types, and RLS scopes
+ * every row here to the caller regardless (US-381).
+ */
+async function exportRows<T>(table: string, columns = "*"): Promise<T[]> {
   const client = supabase as unknown as {
     from: (t: string) => {
-      select: (cols: string) => Promise<{ data: unknown[] | null }>;
+      select: (cols: string) => {
+        order: (
+          c: string,
+          o: { ascending: boolean },
+        ) => {
+          range: (
+            a: number,
+            b: number,
+          ) => Promise<{
+            data: unknown[] | null;
+            error: { message: string } | null;
+          }>;
+        };
+      };
     };
   };
-  const { data } = await client.from(table).select("*");
-  return data ?? [];
+  return fetchAllPages<T>(async (from, to) => {
+    // Ordered by primary key, so a page boundary cannot repeat or skip a row
+    // the way an unordered read can once the table is being written to.
+    const { data, error } = await client
+      .from(table)
+      .select(columns)
+      .order("id", { ascending: true })
+      .range(from, to);
+    if (error) {
+      throw new Error(
+        `Your export could not be completed: the ${table} records could not be read (${error.message}). Nothing was left out silently — please try again.`,
+      );
+    }
+    return (data ?? []) as T[];
+  });
 }
 
 /**
@@ -49,12 +98,20 @@ export async function buildAccountExport(
   // US-1442: include the user's own profile row (identity + business/ship-from
   // details) so the new fields are part of the GDPR/CCPA export. RLS scopes
   // `users` to self. Curated columns — no internal billing/subscription state.
-  const { data: profileRaw } = await supabase
+  const { data: profileRaw, error: profileErr } = await supabase
     .from("users")
     .select(
       "id, email, full_name, avatar_url, business_name, use_case, created_at, updated_at",
     )
     .maybeSingle();
+  // An unread profile row is not an absent one. Left unchecked this shipped
+  // `profile.json` as `null` — the export saying GradeThread holds no account
+  // details for a person who is signed in as that account.
+  if (profileErr) {
+    throw new Error(
+      `Your export could not be completed: your profile could not be read (${profileErr.message}). Please try again.`,
+    );
+  }
   // US-2417: business_phone and ship_from_address are NOT in the select above
   // any more — they are AES-GCM ciphertext on that row and exporting the
   // envelope would hand the person a string they cannot read while looking like
@@ -81,27 +138,16 @@ export async function buildAccountExport(
     : null;
 
   onProgress("Fetching submissions…", 8);
-  const { data: submissionsRaw, error: subErr } = await supabase
-    .from("submissions")
-    .select("*");
-  if (subErr) throw subErr;
-  const submissions = (submissionsRaw ?? []) as SubmissionRow[];
+  const submissions = await exportRows<SubmissionRow>("submissions");
 
   onProgress("Fetching grade reports…", 18);
-  const { data: reportsRaw } = await supabase
-    .from("grade_reports")
-    .select("*");
-  const gradeReports = (reportsRaw ?? []) as GradeReportRow[];
+  const gradeReports = await exportRows<GradeReportRow>("grade_reports");
 
   onProgress("Fetching inventory…", 28);
-  const { data: itemsRaw } = await supabase
-    .from("inventory_items")
-    .select("*");
-  const inventory = (itemsRaw ?? []) as InventoryItemRow[];
+  const inventory = await exportRows<InventoryItemRow>("inventory_items");
 
   onProgress("Fetching sales…", 38);
-  const { data: salesRaw } = await supabase.from("sales").select("*");
-  const sales = (salesRaw ?? []) as SaleRow[];
+  const sales = await exportRows<SaleRow>("sales");
 
   // US-381: the remaining tables that hold the user's PII / records. Each is
   // RLS-scoped to the caller. Secret-bearing tables are column-restricted so a
@@ -119,27 +165,29 @@ export async function buildAccountExport(
     feedback,
     sources,
   ] = await Promise.all([
-    supabase.from("disputes").select("*"),
-    supabase
-      .from("api_keys")
-      .select("id, name, key_prefix, scopes, last_used_at, last_rotated_at, expires_at, created_at"),
-    supabase.from("notifications").select("*"),
-    selectAllUntyped("push_device_tokens"),
-    supabase.from("workspace_members").select("*"),
-    supabase.from("workspace_invitations").select("*"),
-    supabase
-      .from("marketplace_connections")
-      .select("id, marketplace, account_handle, is_active, scopes, last_synced_at, created_at, updated_at"),
-    supabase.from("payout_imports").select("*"),
-    selectAllUntyped("feedback_messages"),
-    supabase.from("sources").select("*"),
+    exportRows("disputes"),
+    exportRows(
+      "api_keys",
+      "id, name, key_prefix, scopes, last_used_at, last_rotated_at, expires_at, created_at",
+    ),
+    exportRows("notifications"),
+    exportRows("push_device_tokens"),
+    exportRows("workspace_members"),
+    exportRows("workspace_invitations"),
+    exportRows(
+      "marketplace_connections",
+      "id, marketplace, account_handle, is_active, scopes, last_synced_at, created_at, updated_at",
+    ),
+    exportRows("payout_imports"),
+    exportRows("feedback_messages"),
+    exportRows("sources"),
   ]);
 
   onProgress("Listing image references…", 70);
-  const { data: imagesRaw } = await supabase
-    .from("submission_images")
-    .select("*");
-  const images = (imagesRaw ?? []) as SubmissionImageRow[];
+  // These become `image_paths` on every submission. A dropped read here would
+  // have told the person their graded photos do not exist, in the one file
+  // that documents where to ask for the binaries.
+  const images = await exportRows<SubmissionImageRow>("submission_images");
 
   // Image BINARIES are excluded (private bucket — public URLs don't resolve and
   // signed URLs would expire before the archive is opened). We list each image's
@@ -231,16 +279,16 @@ export async function buildAccountExport(
     jsonFile("grade_reports.json", gradeReports),
     jsonFile("inventory.json", inventory),
     jsonFile("sales.json", sales),
-    jsonFile("disputes.json", disputes.data ?? []),
-    jsonFile("api_keys.json", apiKeys.data ?? []),
-    jsonFile("notifications.json", notifications.data ?? []),
+    jsonFile("disputes.json", disputes),
+    jsonFile("api_keys.json", apiKeys),
+    jsonFile("notifications.json", notifications),
     jsonFile("device_tokens.json", deviceTokens),
-    jsonFile("workspace_memberships.json", memberships.data ?? []),
-    jsonFile("workspace_invitations.json", invitations.data ?? []),
-    jsonFile("marketplace_connections.json", connections.data ?? []),
-    jsonFile("payout_imports.json", payoutImports.data ?? []),
+    jsonFile("workspace_memberships.json", memberships),
+    jsonFile("workspace_invitations.json", invitations),
+    jsonFile("marketplace_connections.json", connections),
+    jsonFile("payout_imports.json", payoutImports),
     jsonFile("feedback.json", feedback),
-    jsonFile("sources.json", sources.data ?? []),
+    jsonFile("sources.json", sources),
     jsonFile("financial_summary.json", financialSummary),
   ]);
 

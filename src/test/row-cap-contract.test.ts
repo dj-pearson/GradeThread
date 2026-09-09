@@ -202,3 +202,28 @@ describe("the capped surfaces tell the seller", () => {
     expect(src).toContain("truncated &&");
   });
 });
+
+describe("the money surfaces read the WHOLE set", () => {
+  // Two pages summed money out of a single unbounded `.select("*")`. Under the
+  // ceiling they were right; over it PostgREST hands back the ceiling with no
+  // error, so the per-month expense totals a seller files taxes against would
+  // simply have been short, and reconciliation would have stopped flagging
+  // discrepancies on any sale older than the cut.
+  //
+  // A cap is not an option on either: an "everything you spent" figure that is
+  // quietly partial is worse than one that fails to load. Both must page.
+  const SUMMED: Array<{ file: string; table: string }> = [
+    { file: "src/pages/flipdesk/expenses.tsx", table: "flipdesk_expenses" },
+    { file: "src/pages/flipdesk/reconciliation.tsx", table: "sales" },
+  ];
+
+  it.each(SUMMED)("$file pages $table instead of reading it unbounded", ({ file, table }) => {
+    const src = read(file);
+    expect(src).toContain("fetchAllPages");
+    // The read on that table must carry a .range(), which is what makes it a
+    // page rather than "give me everything and hope".
+    const from = src.indexOf(`.from("${table}")`);
+    expect(from, `${file} no longer reads ${table}`).toBeGreaterThan(-1);
+    expect(src.slice(from, from + 500)).toContain(".range(");
+  });
+});

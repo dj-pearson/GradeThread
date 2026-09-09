@@ -1,4 +1,5 @@
 import { Hono } from "hono";
+import { addMonthsClamped } from "../lib/month-math.ts";
 import type { Context } from "hono";
 import Stripe from "stripe";
 import { supabaseAdmin } from "../lib/supabase.ts";
@@ -1903,8 +1904,10 @@ paymentRoutes.post("/flipdesk/pause", async (c) => {
   const stripe = getStripe();
   if (!stripe) return c.json({ error: "Payment service unavailable" }, 503);
 
-  const resumesAt = new Date();
-  resumesAt.setMonth(resumesAt.getMonth() + months);
+  // Clamped, not `setMonth`: pausing on 31 January for one month used to
+  // resume on 3 March, so the seller was told the wrong date and collection
+  // stayed off three days longer than they asked for.
+  const resumesAt = addMonthsClamped(new Date(), months);
   const resumesAtUnix = Math.floor(resumesAt.getTime() / 1000);
 
   try {

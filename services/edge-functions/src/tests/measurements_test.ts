@@ -229,19 +229,73 @@ Deno.test("US-1578: plain-text section for cross-listing variants (no HTML marke
 });
 
 Deno.test("US-1578: variants + generation + revise all consume the store (source guard)", async () => {
+  // RE-POINTED 2026-09-09 (US-3258). This asserted that ai-listing.ts appends
+  // buildPlainMeasurementsText into each variant's description at generation
+  // time. That was deliberately removed: the measurements are now DERIVED at
+  // payload-build time by platform-description.ts, from the same RenderContext
+  // eBay renders from, so a seller correcting a chest measurement updates every
+  // channel without another AI call. ai-listing.ts:3966 explains the change at
+  // the spot where the old code stood.
+  //
+  // So the guard failed on a design it was written before, and the fact it
+  // exists to protect — every platform's description carries current
+  // measurements — went unasserted the whole time. It now follows the fact to
+  // where the fact lives.
   const aiListing = await Deno.readTextFile(
     new URL("../lib/ai-listing.ts", import.meta.url),
   );
-  // Generation passes the calibrated flag.
+  // Generation still passes the calibrated flag into the stored blocks.
   assert(aiListing.includes("calibrated: calibratedMeasurements"));
-  // Variants append the plain block within each platform's cap.
-  assert(aiListing.includes("buildPlainMeasurementsText(item.measurements"));
-  assert(aiListing.includes('v.description.includes("Measurements (garment laid flat)")'));
+  // And must NOT append the block itself any more. Doing both prints the
+  // measurements twice, once stale and once current, which is worse than the
+  // bug the move fixed.
+  assert(
+    !aiListing.includes("buildPlainMeasurementsText("),
+    "ai-listing must not append measurements — platform-description derives them",
+  );
+
+  const platformDesc = await Deno.readTextFile(
+    new URL("../lib/platform-description.ts", import.meta.url),
+  );
+  // Every platform's description is prose + the CURRENT derived facts, capped.
+  assert(platformDesc.includes("export function renderPlatformDescription"));
+  assert(platformDesc.includes("stripDerivedSections(opts.prose"));
+  assert(platformDesc.includes("renderDescription(next, ctx)"));
+  // Variants generated before the move still carry the appended section, so the
+  // stripper is what stops the double print for them.
+  assert(platformDesc.includes("export function stripDerivedSections"));
+  assert(
+    /MEASUREMENTS_HEADING\s*=\s*\/\^Measurements/.test(platformDesc),
+    "the stripper must recognise the measurements heading it is removing",
+  );
+
   const ebay = await Deno.readTextFile(
     new URL("../routes/flipdesk-ebay.ts", import.meta.url),
   );
   // Revise path re-applies with provenance.
   assert(ebay.includes("hasCalibratedMeasurements"));
+});
+
+Deno.test("US-1578: buildPlainMeasurementsText has no production caller left", async () => {
+  // Its doc comment still says "for the cross-listing variants", and they stopped
+  // calling it when the derivation moved. Pinned rather than deleted here,
+  // because a dead export whose comment names a caller that no longer exists is
+  // how the next reader concludes the append path is still live and adds a
+  // second one. If a caller comes back, this fails and the comment gets to be
+  // true again; if nobody wants one, the function can go.
+  const callers: string[] = [];
+  for await (const entry of Deno.readDir(new URL("../lib", import.meta.url))) {
+    if (!entry.isFile || !entry.name.endsWith(".ts")) continue;
+    if (entry.name === "measurements.ts") continue;
+    const src = await Deno.readTextFile(new URL(`../lib/${entry.name}`, import.meta.url));
+    if (src.includes("buildPlainMeasurementsText(")) callers.push(`lib/${entry.name}`);
+  }
+  for await (const entry of Deno.readDir(new URL("../routes", import.meta.url))) {
+    if (!entry.isFile || !entry.name.endsWith(".ts")) continue;
+    const src = await Deno.readTextFile(new URL(`../routes/${entry.name}`, import.meta.url));
+    if (src.includes("buildPlainMeasurementsText(")) callers.push(`routes/${entry.name}`);
+  }
+  assertEquals(callers, [], "it has a caller again — say so in its doc comment");
 });
 
 // ── US-2630: flat across is HALF the way round ──────────────────────

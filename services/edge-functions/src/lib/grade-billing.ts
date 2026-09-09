@@ -1,4 +1,5 @@
 import { supabaseAdmin } from "./supabase.ts";
+import { startOfNextMonth } from "./month-math.ts";
 import {
   effectivePlanFor,
   INCLUDED_STANDARD_PER_MONTH,
@@ -188,10 +189,11 @@ export async function runPaymentPrecedence(
   const liveCap = planCfg?.includedStandardGradesPerMonth ??
     (INCLUDED_STANDARD_PER_MONTH[effectivePlan] ?? 0);
 
-  const nextReset = new Date();
-  nextReset.setMonth(nextReset.getMonth() + 1);
-  nextReset.setDate(1);
-  nextReset.setHours(0, 0, 0, 0);
+  // "The 1st of next month." Written as +1 month then setDate(1), which on
+  // 31 January produced 3 March clamped to 1 March — a whole month late, so a
+  // free seller whose first visit of the cycle fell on the 29th to 31st waited
+  // an extra cycle for their included grades.
+  const nextReset = startOfNextMonth(new Date());
 
   return await performPaymentPrecedence({
     user: {

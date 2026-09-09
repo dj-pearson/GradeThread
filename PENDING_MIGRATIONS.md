@@ -1,6 +1,6 @@
 # PENDING MIGRATIONS — applied to prod separately from the push
 
-## ⏳ HELD: 00774 — GRANT EXECUTE on pooled_sold_comps (US-2282 guard)
+## ✅ APPLIED 2026-09-09: 00774 — GRANT EXECUTE on pooled_sold_comps (US-2282 guard)
 
 **Risk: LOW, and it is additive only.** One `GRANT EXECUTE ... TO service_role`.
 No schema change, no data change, no revoke. Re-running is a no-op.
@@ -82,7 +82,7 @@ working with the columns gone.
 
 **No operator step.**
 
-## ⏳ HELD: 00773 — flipdesk_settings.listing_voice_prompt (US-3201)
+## ✅ APPLIED 2026-09-09: 00773 — flipdesk_settings.listing_voice_prompt (US-3201)
 
 **Risk: LOW.** One nullable `text` column on `flipdesk_settings` plus a CHECK.
 No backfill, no rewrite, no default: every existing row reads NULL, which means
@@ -114,7 +114,7 @@ listing run.
   and not all whitespace. The cap is load-bearing, not cosmetic: this text rides
   on every listing generation, and AutoLister runs in batches.
 
-## ⏳ HELD: 00771 — aged_threshold_days + the Aged tab in flipdesk_listing_page (US-3195)
+## ✅ APPLIED 2026-09-09: 00771 — aged_threshold_days + the Aged tab in flipdesk_listing_page (US-3195)
 
 **Risk: MEDIUM, and higher than the other three in this stack.** The column is
 trivial. The second half REPLACES `flipdesk_listing_page`, which is the function
@@ -148,7 +148,7 @@ The new column can stay; nothing breaks with it present.
 
 **No operator step.**
 
-## ⏳ HELD: 00770 — flipdesk_settings sourcing cost defaults (US-3193)
+## ✅ APPLIED 2026-09-09: 00770 — flipdesk_settings sourcing cost defaults (US-3193)
 
 **Risk: LOW.** Three nullable integer columns on a settings table, plus one
 CHECK. No backfill; every existing row reads null, which means "use the code
@@ -179,7 +179,7 @@ in the same commit.
 live rather than running on the defaults ($8.30 postage, $0.35 supplies, $2.00
 grading).
 
-## ⏳ HELD: 00769 — inventory_items.floor_price + items_full (US-3192)
+## ✅ APPLIED 2026-09-09: 00769 — inventory_items.floor_price + items_full (US-3192)
 
 **Risk: LOW-MEDIUM.** One nullable column and a CHECK constraint, plus a
 CREATE OR REPLACE of the `items_full` view. The view change is the part to read
@@ -212,7 +212,7 @@ SQL first.
 
 **No operator step.** No new environment variable, no third-party registration.
 
-## ⏳ HELD: 00768 — sales.ship_by + sales.handling_days (US-3189)
+## ✅ APPLIED 2026-09-09: 00768 — sales.ship_by + sales.handling_days (US-3189)
 
 **Risk: LOW.** Two nullable columns on an existing table plus one partial index.
 No backfill, no rewrite, no enum touched. Every existing row reads null, which
@@ -679,7 +679,7 @@ with a `base_color` 3,693 → **4,078**; brands with any colorway 119 → **129*
 brands with an RN 51 → **55**.
 
 
-## ⏳ HELD 2026-09-06: 00745: the resale supply index tables (US-3132)
+## ✅ APPLIED 2026-09-09: 00745 — the resale supply index tables (US-3132)
 
 **Risk: LOW-MEDIUM.** Two NEW tables, no change to an existing one, no data
 migrated, nothing dropped. The medium half is only that it is the first schema
