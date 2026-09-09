@@ -58,7 +58,6 @@ const READ_FAILURE_UNHANDLED = [
   "src/pages/flipdesk/analytics.tsx",
   "src/pages/flipdesk/autolister-bulk-edit.tsx",
   "src/pages/flipdesk/composer.tsx",
-  "src/pages/flipdesk/marketplaces.tsx",
   "src/pages/flipdesk/money.tsx",
   "src/pages/flipdesk/reconcile.tsx",
 ];

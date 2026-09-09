@@ -527,15 +527,25 @@ function EbaySetup({
   onSync,
   onConnect,
   oauthPending,
+  connError,
+  retryConnection,
 }: {
   connection: EbayConnection | null | undefined;
   connLoading: boolean;
+  /** The connection READ failed — distinct from there being no connection. */
+  connError: boolean;
+  retryConnection: () => void;
   syncing: boolean;
   onSync: (full: boolean) => void;
   onConnect: () => void;
   oauthPending: boolean;
 }) {
-  const connected = !!connection;
+  // US-3248: THREE states, not two. react-query leaves `data` undefined on a
+  // failed read exactly as it does when there is genuinely no connection, so
+  // `!!connection` told a connected seller they were disconnected — on the one
+  // page whose job is answering that question — and offered them the Connect
+  // button, which re-runs OAuth against a link that was working.
+  const connected = !connError && !!connection;
   const disconnect = useDisconnectEbay();
   const { data: policyData, isLoading: polLoading } = useEbayPolicies(connected);
   const defaults = policyData?.defaults;
@@ -565,7 +575,11 @@ function EbaySetup({
             <Plug className="h-5 w-5" />
             {allReady ? "eBay" : "Get ready to sell on eBay"}
           </CardTitle>
-          {connected ? (
+          {connError ? (
+            <Badge variant="outline" className="border-destructive/50 text-destructive">
+              Status unknown
+            </Badge>
+          ) : connected ? (
             <Badge className="bg-emerald-600 hover:bg-emerald-600">
               <Check className="mr-1 h-3 w-3" />
               Connected
@@ -646,12 +660,21 @@ function EbaySetup({
                       </Button>
                     </div>
                   ) : (
-                    <Button size="sm" onClick={onConnect} disabled={oauthPending}>
-                      {oauthPending && (
-                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                      )}
-                      Connect eBay
-                    </Button>
+                    connError ? (
+                      // Never offer Connect while the state is unknown. Re-running
+                      // OAuth against a live connection is the action this defect
+                      // provokes, and the one thing the page must not invite.
+                      <Button size="sm" variant="outline" onClick={retryConnection}>
+                        Check again
+                      </Button>
+                    ) : (
+                      <Button size="sm" onClick={onConnect} disabled={oauthPending}>
+                        {oauthPending && (
+                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        )}
+                        Connect eBay
+                      </Button>
+                    )
                   )
                 }
               />
@@ -805,12 +828,18 @@ function EbaySetup({
 // Shopify uses a single store-domain → OAuth → done flow (no policies/location
 // like eBay). Once connected, the same card runs the day-to-day sync.
 function ShopifySetup() {
-  const { data: connection, isLoading } = useShopifyConnection();
+  const {
+    data: connection,
+    isLoading,
+    isError: connError,
+    refetch: refetchConnection,
+  } = useShopifyConnection();
   const startOauth = useStartShopifyOauth();
   const disconnect = useDisconnectShopify();
   const sync = useSyncShopify();
   const [shop, setShop] = useState("");
-  const connected = !!connection;
+  // US-3248: see the eBay card. A failed read is not a missing connection.
+  const connected = !connError && !!connection;
 
   const connect = () => {
     const trimmed = shop.trim();
@@ -835,6 +864,10 @@ function ShopifySetup() {
               Connected
               {connection?.account_handle ? ` · ${connection.account_handle}` : ""}
             </Badge>
+          ) : connError ? (
+            <Badge variant="outline" className="border-destructive/50 text-destructive">
+              Status unknown
+            </Badge>
           ) : (
             <Badge variant="secondary">Not connected</Badge>
           )}
@@ -845,7 +878,22 @@ function ShopifySetup() {
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
-        {!connected ? (
+        {connError ? (
+          // US-3248: the connect form is the thing this defect provokes, so it
+          // is the thing to withhold while the state is unknown.
+          <div
+            role="alert"
+            className="flex flex-wrap items-center gap-3 rounded-lg border border-destructive/40 bg-destructive/5 p-3 text-sm"
+          >
+            <span>
+              Couldn&apos;t check your Shopify connection. This is a loading
+              problem, not a disconnection.
+            </span>
+            <Button size="sm" variant="outline" onClick={() => void refetchConnection()}>
+              Check again
+            </Button>
+          </div>
+        ) : !connected ? (
           <div className="space-y-2">
             <Label htmlFor="shopify-domain" className="text-xs">
               Store domain
@@ -1661,7 +1709,12 @@ export function FlipdeskMarketplacesPage() {
   };
 
   const pollingInterval = syncBaseline != null ? 5_000 : undefined;
-  const { data: connection, isLoading: connLoading } = useEbayConnection(pollingInterval);
+  const {
+    data: connection,
+    isLoading: connLoading,
+    isError: connError,
+    refetch: refetchConnection,
+  } = useEbayConnection(pollingInterval);
   const { data: connIssue } = useEbayConnectionIssue();
   const startOauth = useStartEbayOauth();
   const syncListings = useSyncEbayListings();
@@ -1901,6 +1954,8 @@ export function FlipdeskMarketplacesPage() {
             syncing={syncing}
             onSync={runSync}
             onConnect={() => startOauth.mutate()}
+            connError={connError}
+            retryConnection={() => void refetchConnection()}
             oauthPending={startOauth.isPending}
           />
           <ShopifySetup />
