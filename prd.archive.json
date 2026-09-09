@@ -45533,6 +45533,17 @@
       ],
       "priority": 2,
       "notes": "Done 2026-09-09. New ios/GradeThread/Persistence/LocalCacheWipe.swift owns both wipes: a named deleter per model, deleted INDEPENDENTLY inside its own do/catch so one throw cannot skip the rest, each failure recorded through PersistenceHealth.recordSaveFailure (US-1142's channel), then saveOrLog. A surviving LocalProspectResult or LocalMileageTrip gets an extra breadcrumb because nothing re-pulls those and no later sync corrects them. keptOnWorkspaceSwitch = LocalPendingMutation, with the reason stated. ContentView's two functions are now one line each. ProspectLog.record and .markAdded go through saveOrLog; markAdded's silent try? was quietly re-arming the offer to add the same garment twice. New ios/Scripts/check-cache-wipe.py compares GradeThreadSchemaV1.models to the deleter list by NAME in both directions and also checks each deleter's label matches the type it deletes. Sabotage-tested both ways (removed a deleter, then mislabelled one); its own first version had a real bug -- slicing the schema block to the first ']' hit the '[any PersistentModel.Type]' return type and read zero models, which its scanned-nothing floor caught. Wired into IOS_GUARDS and ios-ci.yml; guard-lane test 6/6, all 15 guards pass. Note: US-3223 was taken by the concurrent web agent, so this is US-3224."
+    },
+    {
+      "id": "US-3225",
+      "passes": true,
+      "title": "Signup and reset-password never told the password manager what the field was",
+      "description": "autocomplete on a credential field is the instruction a password manager reads. Without new-password, Chrome, iCloud Keychain and 1Password are all far less likely to offer to generate or save what the user just typed, so the account exists and the credential does not. Without it on a reset form the manager has no reason to update what it already stored, so it keeps autofilling the old password. login.tsx carried email and current-password from the start; signup.tsx, reset-password.tsx and the settings change-password card carried nothing, which meant the two forms where a password is CREATED were the two least likely to be recorded.",
+      "acceptanceCriteria": [
+        "signup, reset-password and the settings change-password card carry explicit autocomplete tokens: new-password on every created password, current-password on the one being confirmed, plus name and email on signup.",
+        "A guard reads the props of the element with a given id rather than grepping the file, so an autocomplete on a different field in the same file cannot satisfy it. Sabotage-checked in both directions."
+      ],
+      "notes": "Done 2026-09-09 in 722051d49. signup.tsx (name, email, new-password), reset-password.tsx (email + both new-password fields) and the settings change-password card (current-password + two new-password) all carry explicit tokens. Guard is src/test/credential-fields-autocomplete.test.ts; it reads the props of the element with a given id, not the whole file, so an autocomplete elsewhere in the same file cannot satisfy it. Sabotage-checked: removing the signup token fails it by name."
     }
   ]
 }
