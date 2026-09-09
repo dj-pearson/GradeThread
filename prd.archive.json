@@ -45656,6 +45656,18 @@
       ],
       "priority": 2,
       "notes": "Done 2026-09-09. ThumbnailLoader now sets totalCostLimit to a 64 MB memoryBudgetBytes and passes cost: decodedByteCost(image) on every setObject. decodedByteCost reads the backing CGImage's bytesPerRow times height, which is the real allocation; UIImage.size is in POINTS and would under-count by the square of the scale, so a 3x image would be charged a quarter of what it costs. countLimit 400 stays as a second bound. Added a didReceiveMemoryWarning observer that clears the decoded cache -- NSCache evicts under pressure on its own, but only after the system has already decided memory is tight, and the URLCache bytes stay on disk so it costs a re-decode rather than a re-download. New GradeThreadTests/ThumbnailCacheCostTests.swift: cost scales with pixels not points, scale is counted, an empty image still costs at least 1, and the budget cannot hold two 3600x3600 heroes while comfortably holding 200 rows. All 15 iOS guards pass. Swift compile is macOS-only, so iOS CI is the compile check. NOT MEASURED: no instrument run here, so the 64 MB figure is reasoned from the call sites (largest is EbayViewItemPreviewSheet at maxDimension 1200), not profiled."
+    },
+    {
+      "id": "US-3235",
+      "passes": true,
+      "title": "A dark-mode certificate prints as a blank page",
+      "description": "src/index.css has no @media print rule at all. Dark mode sets --foreground to #fafafc (near-white) and --background to #0e0e1a, and browsers do not print background colors by default (Chrome and Safari both ship with Background graphics OFF). So a seller who uses dark mode and presses the Print / Save PDF button on a certificate gets near-white text on white paper: a blank page where the grade should be. The certificate is the product's central trust artifact, the thing a seller hands a buyer, and cert-share-actions.tsx offers window.print() as a first-class action, so this is the one page where it matters most. The page is otherwise carefully print-aware (US-767 added a print-only branded header and ~12 print:hidden rules), which is what made the gap invisible: everything about printing had been thought through except the palette.",
+      "acceptanceCriteria": [
+        "An @media print block forces the light palette regardless of the .dark class, so the printed certificate is legible whatever the screen toggle says.",
+        "A guard fails if .dark gains a token the print block does not neutralize. The print block is a mirror of the light values and mirrors drift; the test is what stops the next added token from reintroducing white-on-white.",
+        "Checked on the certificate specifically, not just in the abstract: the grade, the factor table and the print-only header are all readable with Background graphics off."
+      ],
+      "notes": "Done 2026-09-09. AC3 verified by source and build inspection, not by a physical print: the block is in the emitted CSS and every dark token is neutralized. An actual dark-mode Print preview on /cert/<id> with Background graphics off has NOT been eyeballed."
     }
   ]
 }
