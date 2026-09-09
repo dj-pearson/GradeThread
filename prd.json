@@ -4882,7 +4882,8 @@
         "Buyer surfaces are added to src/lib/surfaces.ts with their labels, and surface-registry.test.ts passes with them held against the router and the buyer sidebar. Expect that test to have opinions; satisfying it is the point.",
         "Admin titles derive from the nav list already in admin-layout.tsx, not from the surfaces registry. Admin is operator tooling and forcing it into a product-surface registry would make that registry answer a question it does not answer.",
         "Do not mount useSurfaceTitle anywhere until its source resolves for that tree. A hook that returns the default for every route is worse than no hook, because the next person reads the mount and assumes it works."
-      ]
+      ],
+      "notes": "Partial 2026-09-09 in the buyer half: resolved via BUYER_NAV rather than by adding surfaces.ts entries, which AC1 asked for. Deliberate deviation — duplicating eight labels into a second registry is the problem surfaces.ts exists to prevent. AC1 should be read as 'give buyer a real source', which BUYER_NAV already was. Remaining: admin, which needs its eight nav arrays extracted out of admin-layout.tsx before anything can read them."
     }
   ]
 }
