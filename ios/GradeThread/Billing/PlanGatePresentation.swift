@@ -131,7 +131,7 @@ struct UpgradePromptView: View {
     private var header: some View {
         VStack(alignment: .leading, spacing: Spacing.sm) {
             Image(systemName: gate.isFeatureLock ? "lock.circle.fill" : "chart.bar.fill")
-                .font(.system(size: 40))
+                .scaledIconFont(size: 40)
                 .foregroundStyle(Color.brandRed)
             Text(gate.title)
                 .font(.title2.weight(.bold))

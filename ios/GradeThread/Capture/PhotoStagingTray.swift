@@ -142,7 +142,7 @@ struct PhotoStagingTray: View {
     private var emptyState: some View {
         VStack(spacing: 12) {
             Image(systemName: "checkmark.circle")
-                .font(.system(size: 42, weight: .light))
+                .scaledIconFont(size: 42, weight: .light)
                 .foregroundStyle(Color.brandNavy)
             Text("All set")
                 .font(.brandHeadline)

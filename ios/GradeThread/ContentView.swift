@@ -1472,7 +1472,7 @@ private struct SidebarSplitView: View {
     private var detailLanding: some View {
         VStack(spacing: 14) {
             Image(systemName: detailLandingIcon)
-                .font(.system(size: 56, weight: .light))
+                .scaledIconFont(size: 56, weight: .light)
                 .foregroundStyle(Color.brandNavy)
             Text(detailLandingTitle)
                 .font(.brandTitle2)
@@ -2805,7 +2805,7 @@ private struct PrivacyCoverView: View {
             Color.brandNavy.ignoresSafeArea()
             VStack(spacing: 12) {
                 Image(systemName: "lock.fill")
-                    .font(.system(size: 40, weight: .semibold))
+                    .scaledIconFont(size: 40, weight: .semibold)
                     .foregroundStyle(.white.opacity(0.9))
                 Text("GradeThread")
                     .font(.brandHeadline)
@@ -2828,7 +2828,7 @@ private struct AppLockCoverView: View {
             Color.brandNavy.ignoresSafeArea()
             VStack(spacing: 16) {
                 Image(systemName: "lock.fill")
-                    .font(.system(size: 40, weight: .semibold))
+                    .scaledIconFont(size: 40, weight: .semibold)
                     .foregroundStyle(.white.opacity(0.9))
                 Text("GradeThread is locked")
                     .font(.brandHeadline)

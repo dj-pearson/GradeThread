@@ -267,7 +267,7 @@ struct AIExtractView: View {
     private func failed(message: String) -> some View {
         VStack(spacing: 14) {
             Image(systemName: "exclamationmark.triangle.fill")
-                .font(.system(size: 38, weight: .light))
+                .scaledIconFont(size: 38, weight: .light)
                 .foregroundStyle(Color.brandAmber)
             Text("AI couldn't read these photos")
                 .font(.brandHeadline)

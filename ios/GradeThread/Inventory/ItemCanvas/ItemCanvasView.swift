@@ -913,7 +913,7 @@ struct ItemCanvasView: View {
                 } label: {
                     HStack(spacing: 12) {
                         Image(systemName: row.done ? "checkmark.circle.fill" : "circle")
-                            .font(.system(size: 18))
+                            .scaledIconFont(size: 18)
                             .foregroundStyle(row.done ? Color.brandEmerald : Color.secondary)
                         VStack(alignment: .leading, spacing: 2) {
                             Text(row.title)
@@ -1393,7 +1393,7 @@ struct ItemCanvasView: View {
             } label: {
                 HStack(spacing: 12) {
                     Image(systemName: "sparkles")
-                        .font(.system(size: 20))
+                        .scaledIconFont(size: 20)
                         .foregroundStyle(Color.brandNavy)
                     VStack(alignment: .leading, spacing: 2) {
                         Text(review.entryPointLabel)
@@ -1957,7 +1957,7 @@ struct ItemCanvasView: View {
             // US-979: resolves a signed URL for sensitive (private-bucket) photos.
             ItemPhotoThumbnail(photo: photo, maxDimension: 84) {
                 Image(systemName: "photo")
-                    .font(.system(size: 22, weight: .light))
+                    .scaledIconFont(size: 22, weight: .light, maxSize: 44)
                     .frame(width: 84, height: 84)
                     .background(Color.secondary.opacity(0.12))
             }

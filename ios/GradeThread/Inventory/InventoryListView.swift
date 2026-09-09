@@ -54,6 +54,11 @@ struct InventoryListView: View {
     @State private var debouncedQuery: String = ""
     /// Transient pull-to-refresh failure message (US-643).
     @State private var refreshError: String?
+
+    /// US-3222: the filter badge's minimum circle, grown with Dynamic Type and
+    /// clamped the same way its digit is.
+    @ScaledMetric(relativeTo: .body) private var badgeDiameterRaw: CGFloat = 16
+    private var badgeDiameter: CGFloat { min(badgeDiameterRaw, 29) }
     @State private var sortOption: SortOption = .newest
     /// Advanced multi-facet filter (brand / size / color / price / grade /
     /// photo / recency). The old single "graded only" toggle is folded in
@@ -786,11 +791,16 @@ struct InventoryListView: View {
                       : "line.3.horizontal.decrease.circle")
                     .overlay(alignment: .topTrailing) {
                         if criteria.activeCount > 0 {
+                            // US-3222: the count scales with Dynamic Type (capped
+                            // so it can't swallow the funnel glyph), and the
+                            // minimum circle grows with it — a badge pinned at
+                            // 11pt/16pt stayed unreadable at the accessibility
+                            // sizes it matters most at.
                             Text("\(criteria.activeCount)")
-                                .font(.system(size: 11, weight: .bold))
+                                .scaledIconFont(size: 11, weight: .bold, maxSize: 20)
                                 .foregroundStyle(.white)
                                 .padding(3)
-                                .frame(minWidth: 16, minHeight: 16)
+                                .frame(minWidth: badgeDiameter, minHeight: badgeDiameter)
                                 .background(Color.brandRed, in: Circle())
                                 .offset(x: 7, y: -7)
                         }

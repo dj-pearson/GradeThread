@@ -45504,6 +45504,20 @@
       ],
       "priority": 3,
       "notes": "Done 2026-09-09. Fixed: DraftsLibraryStore.totalValue, FulfillmentStore.totalLabelCost, SalesStore.totalProceeds and the avg(nets) helper in AnalyticsMetrics now call Money.sum; the first three gained an import GradeThreadCore. New ios/Scripts/no-raw-money-sum.py flags a reduce(0 whose line names a money word, with 12 non-currency files allowlisted by reason (grade averages, counts, percentages, day spans, integer mileage tenths). Wired into IOS_GUARDS in scripts/verify.mjs and into ios-ci.yml; src/test/ios-guard-lane.test.ts passes 6/6. SABOTAGE-TESTED, and the first version FAILED that test: re.IGNORECASE makes the trailing (?![a-z]) match an uppercase letter too, so totalLabelCost did not match the word 'total' and the gate passed against the exact code it was written for. Rewritten to match a lowercase form after a non-letter plus a capitalized form anywhere, no IGNORECASE; the sabotage now fails as it should. All 13 guards pass."
+    },
+    {
+      "id": "US-3222",
+      "passes": true,
+      "title": "iOS: eighteen glyphs and one badge ignored the user's text size",
+      "description": "US-1152 added ScaledIconFont because .font(.system(size:)) is an absolute point size that ignores Dynamic Type: at the accessibility sizes every label grows and the icon beside it does not. It was applied to ten call sites and then stopped being enforced. Eighteen fixed sizes were written afterwards, including the inventory filter's active-count badge (11pt in a 16pt circle, for the person who set their text to 53pt because they cannot read 11pt) and the 'Camera access is off' glyph on both capture screens.",
+      "acceptanceCriteria": [
+        "No app source pins a glyph to a numeric .font(.system(size:)); framed glyphs use maxSize so they cannot overflow at AX5",
+        "The inventory filter badge scales its digit AND its circle with Dynamic Type, both clamped",
+        "The share extension, which does not link the app target, uses an inline @ScaledMetric",
+        "ios/Scripts/no-fixed-icon-font.py enforces it, runs in npm run verify and ios-ci.yml, and is sabotage-tested"
+      ],
+      "priority": 3,
+      "notes": "Done 2026-09-09. Converted 18 sites to .scaledIconFont: AIExtractView, AIFillReviewSheet x2, PlanGatePresentation, BarcodeScanView, PhotoIntakeView, PhotoStagingTray, ContentView (detail landing + the privacy and app-lock covers, x3), DashboardView, ItemCanvasView x3, EbayViewItemPreviewSheet, ProspectView, SnapView, VerifiedView. The four inside a fixed frame got a maxSize cap (44/56/48/64). InventoryListView's filter badge now uses scaledIconFont(size:11,maxSize:20) for the digit and a @ScaledMetric badgeDiameter (16, clamped to 29) for the circle. ShareExtension/ShareIntakeView deliberately does not link the app target so it got an inline @ScaledMetric instead. New ios/Scripts/no-fixed-icon-font.py matches only a NUMERIC LITERAL size, which is why ScaledIconFont itself and the extension's @ScaledMetric need no allowlist entry; only the widget is allowlisted (WidgetKit fixes its own sizes). The guard FOUND the ShareExtension site my own grep missed. Wired into IOS_GUARDS and ios-ci.yml, sabotage-tested, guard-lane test 6/6, all 14 guards pass."
     }
   ]
 }

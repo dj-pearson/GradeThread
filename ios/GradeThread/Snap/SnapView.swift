@@ -153,7 +153,7 @@ struct SnapView: View {
                 .frame(height: 220)
                 .overlay {
                     VStack(spacing: 8) {
-                        Image(systemName: "camera.viewfinder").font(.system(size: 34))
+                        Image(systemName: "camera.viewfinder").scaledIconFont(size: 34, maxSize: 64)
                         Text("Take or choose a photo").font(.subheadline)
                     }
                     .foregroundStyle(.secondary)

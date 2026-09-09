@@ -582,7 +582,7 @@ struct DashboardView: View {
                 }
                 VStack(spacing: 10) {
                     Image(systemName: "shippingbox")
-                        .font(.system(size: 48, weight: .light))
+                        .scaledIconFont(size: 48, weight: .light)
                         .foregroundStyle(Color.brandNavy)
                     Text("Welcome to GradeThread")
                         .font(.brandTitle2)

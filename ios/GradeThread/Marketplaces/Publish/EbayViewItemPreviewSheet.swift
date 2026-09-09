@@ -146,7 +146,7 @@ struct EbayViewItemPreviewSheet: View {
                     // that out.
                     VStack(spacing: 6) {
                         Image(systemName: "photo.badge.exclamationmark")
-                            .font(.system(size: 28))
+                            .scaledIconFont(size: 28, maxSize: 56)
                         Text("No photo will publish")
                             .font(.caption)
                     }

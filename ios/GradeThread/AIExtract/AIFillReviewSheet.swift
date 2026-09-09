@@ -110,7 +110,7 @@ struct AIFillReviewSheet: View {
         Section {
             HStack(alignment: .top, spacing: 10) {
                 Image(systemName: "text.viewfinder")
-                    .font(.system(size: 18))
+                    .scaledIconFont(size: 18)
                     .foregroundStyle(Color.brandNavy)
                 VStack(alignment: .leading, spacing: 2) {
                     Text("On-device OCR filled in the gaps")
@@ -131,7 +131,7 @@ struct AIFillReviewSheet: View {
         Section {
             HStack(alignment: .top, spacing: 12) {
                 Image(systemName: "tag")
-                    .font(.system(size: 18))
+                    .scaledIconFont(size: 18)
                     .foregroundStyle(Color.brandNavy)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(ebay.displayName)

@@ -609,7 +609,7 @@ struct PhotoIntakeView: View {
     private var permissionDeniedView: some View {
         VStack(spacing: 18) {
             Image(systemName: "camera.fill")
-                .font(.system(size: 48, weight: .light))
+                .scaledIconFont(size: 48, weight: .light)
                 .foregroundStyle(.white)
             Text("Camera access is off")
                 .font(.brandTitle2)

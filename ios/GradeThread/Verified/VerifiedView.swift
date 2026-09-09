@@ -71,7 +71,7 @@ struct VerifiedView: View {
         Section {
             VStack(alignment: .leading, spacing: 16) {
                 Image(systemName: "checkmark.shield.fill")
-                    .font(.system(size: 44))
+                    .scaledIconFont(size: 44)
                     .foregroundStyle(Color.brandNavy)
                     .frame(maxWidth: .infinity)
                     .padding(.top, 8)

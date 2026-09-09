@@ -356,7 +356,7 @@ struct ProspectView: View {
                         .fill(Color.secondary.opacity(0.1))
                         .overlay {
                             VStack(spacing: 6) {
-                                Image(systemName: role.systemImage).font(.system(size: 28))
+                                Image(systemName: role.systemImage).scaledIconFont(size: 28, maxSize: 48)
                                 Text(role.hint)
                                     .font(.caption2)
                                     .multilineTextAlignment(.center)

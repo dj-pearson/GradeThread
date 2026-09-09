@@ -83,6 +83,13 @@ jobs:
       - name: Lint — no raw JPEG encode outside PhotoCompressor (US-2083)
         run: python3 ios/Scripts/no-raw-jpeg-encode.py
 
+      - name: Lint — glyph sizes scale with Dynamic Type (US-3222)
+        # `.font(.system(size: 20))` is an absolute point size that ignores the
+        # user's text setting, so at the accessibility sizes every label grows
+        # and the icon beside it does not. US-1152 added `scaledIconFont` and
+        # then stopped being enforced; 18 fixed sizes were written after it.
+        run: python3 ios/Scripts/no-fixed-icon-font.py
+
       - name: Lint — currency summed through Money.sum (US-3221)
         # US-790 put every money rollup in exact Decimal because a Double sum of
         # a few hundred amounts drifts past a cent. The rule then lived only in

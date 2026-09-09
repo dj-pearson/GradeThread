@@ -26,6 +26,7 @@ struct ShareIntakeView: View {
     let onSubmit: ([(slot: String, image: UIImage)]) -> Void
     let onCancel: () -> Void
 
+    @ScaledMetric(relativeTo: .body) private var emptyGlyphSize: CGFloat = 44
     @State private var assignments: [Int: String]
 
     init(
@@ -220,7 +221,10 @@ struct ShareIntakeView: View {
     private var emptyState: some View {
         VStack(spacing: 12) {
             Image(systemName: "photo.on.rectangle.angled")
-                .font(.system(size: 44, weight: .light))
+                // US-3222: scales with Dynamic Type. The extension deliberately
+                // does not link the app target, so it can't use the app's
+                // `scaledIconFont`; @ScaledMetric is the same mechanism inline.
+                .font(.system(size: emptyGlyphSize, weight: .light))
                 .foregroundStyle(.secondary)
             Text("No images to share")
                 .font(.headline)
