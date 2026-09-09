@@ -84,8 +84,17 @@ import {
 } from "@/hooks/use-ebay";
 import { PageHelp } from "@/components/help/page-help";
 import { ReturnAnalyticsCard } from "@/components/flipdesk/return-analytics-card";
-import { NeedsYouCard } from "@/components/flipdesk/needs-you-card";
 import { ShipQueueCard } from "@/components/flipdesk/ship-queue-card";
+import { useSearchParams } from "react-router";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { useNeedsYou } from "@/hooks/use-needs-you";
+import {
+  DEFAULT_POST_SALE_TAB,
+  POST_SALE_TABS,
+  postSaleTabCounts,
+  resolvePostSaleTabId,
+  type PostSaleTabId,
+} from "@/pages/flipdesk/post-sale-tabs";
 import {
   centsToDisplay,
   suggestKeepItRefund,
@@ -114,7 +123,7 @@ export function FlipdeskPostSalePage() {
     return (
       <div className="mx-auto max-w-3xl space-y-6">
         <div className="space-y-3 py-8 text-center">
-          <h1 className="text-xl font-semibold">Returns & Disputes</h1>
+          <h1 className="text-xl font-semibold">Sold & Shipping</h1>
           <p className="text-sm text-muted-foreground">
             Connect your eBay account. Then handle cases, returns and disputes
             from here.
@@ -131,8 +140,8 @@ export function FlipdeskPostSalePage() {
   return (
     <div className="mx-auto max-w-3xl space-y-6">
       <PageHeader
-        title="Returns & Disputes"
-        subtitle="Every eBay case waiting on you, in the order it runs out. Your answer goes straight to eBay."
+        title="Sold & Shipping"
+        subtitle="Pack what sold, then handle anything the buyer raised. The number on each tab is what is waiting on you."
               actions={<PageHelp slug="returns-and-disputes" />}
       />
       {/* US-2541: same reasoning as the offers screen. An empty returns list
@@ -141,20 +150,85 @@ export function FlipdeskPostSalePage() {
         feature="post_sale"
         noun="Returns, cancellations and disputes"
       />
-      {/* US-2934: first, because it is the answer to "what do I open". The
-          cards below are still where the work gets done. */}
-      <NeedsYouCard />
-      {/* US-3190: directly under the ranked list, because it is the only queue
-          on this page whose clock a marketplace scores the seller on. */}
-      <ShipQueueCard />
-      <DisputesCard />
-      <CasesCard />
-      <InquiriesCard />
-      <ReturnsCard />
-      <CancellationsCard />
-      {/* Last: the open cases are the work, this is the pattern behind them. */}
-      <ReturnAnalyticsCard />
+      <PostSaleTabs />
     </div>
+  );
+}
+
+/**
+ * US-3208: one section on screen, chosen by a tab, instead of seven stacked.
+ *
+ * The page used to render every card at once: 47,811px of content in a 911px
+ * window, which is fifty-two screens, with the ship queue starting on screen 16
+ * and payment disputes on screen 48. Nothing about the cards was wrong; there
+ * were simply seven of them and no one had measured the total.
+ *
+ * WHAT REPLACED THE 215-ROW LIST. NeedsYouCard opened the page with every open
+ * item across all seven queues, ranked. A seller read it to answer "where is the
+ * work", and the tab badges answer that in six numbers instead of two hundred
+ * rows — from the SAME merged list, so a badge cannot disagree with what its tab
+ * opens. The ranked list itself still exists on the Overview attention rail,
+ * which is where a cross-page ranking belongs.
+ *
+ * The tab lives in `?tab=`, like the inventory table, so a tab is a link a
+ * seller can bookmark or send to a teammate. Old `#payment-disputes` style
+ * anchors resolve too (see resolvePostSaleTabId).
+ */
+function PostSaleTabs() {
+  const [searchParams, setSearchParams] = useSearchParams();
+  const tab: PostSaleTabId =
+    resolvePostSaleTabId(searchParams.get("tab")) ?? DEFAULT_POST_SALE_TAB;
+
+  // One hook for every badge. It is the same merged query the ranked card used,
+  // so opening this page costs no more reads than it did before.
+  const needsYou = useNeedsYou();
+  const counts = postSaleTabCounts(needsYou.items);
+
+  function setTab(next: PostSaleTabId) {
+    const params = new URLSearchParams(searchParams);
+    params.set("tab", next);
+    // replace: tabbing is looking around, not navigation. Twelve taps through
+    // the tabs should not mean twelve presses of the back button to leave.
+    setSearchParams(params, { replace: true });
+  }
+
+  return (
+    <>
+      <Tabs value={tab} onValueChange={(v) => setTab(v as PostSaleTabId)}>
+        <TabsList className="flex flex-wrap">
+          {POST_SALE_TABS.map((t) => (
+            <TabsTrigger key={t.id} value={t.id} className="gap-2">
+              {t.label}
+              {/* No badge while the queues are still loading, and none on a tab
+                  that counts nothing. A "0" that is really "not known yet"
+                  reads as "nothing waiting", which is the one wrong answer
+                  this page must not give. */}
+              {t.kinds.length > 0 && !needsYou.isLoading && counts[t.id] > 0 && (
+                <Badge
+                  variant={tab === t.id ? "default" : "secondary"}
+                  className="px-1.5 py-0 text-[10px] tabular-nums"
+                >
+                  {counts[t.id].toLocaleString()}
+                </Badge>
+              )}
+            </TabsTrigger>
+          ))}
+        </TabsList>
+      </Tabs>
+
+      {tab === "ship" && <ShipQueueCard />}
+      {tab === "disputes" && <DisputesCard />}
+      {/* eBay files these two separately; a seller does not. */}
+      {tab === "cases" && (
+        <>
+          <CasesCard />
+          <InquiriesCard />
+        </>
+      )}
+      {tab === "returns" && <ReturnsCard />}
+      {tab === "cancellations" && <CancellationsCard />}
+      {tab === "insights" && <ReturnAnalyticsCard />}
+    </>
   );
 }
 

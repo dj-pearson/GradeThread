@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-3208",
+  "nextId": "US-3209",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -4684,6 +4684,23 @@
       ],
       "priority": 20,
       "notes": "AC7 WAS WRONG and is corrected here. It said the grid, kanban and prep modes are unaffected because they have no pager. The GRID HAS ONE - grid.tsx had its own const [page, setPage] = useState(1), a fixed PAGE_SIZE of 100, its own setPage(1) reset on [search, sortParam] and its own ungated clamp. It also shares the URL with the table (both are /dashboard/flipdesk/inventory under ?mode=), so leaving it on useState would have meant a view-mode switch quietly moved the seller back to the top of a list they were halfway down. The grid gets the identical treatment: useUrlPageState, a skip-first-run ref on its reset effect, and the clamp gated on the query having resolved. It needs no ?size= because its page size is a constant with no selector. Kanban and prep genuinely have no pager. Also checked rather than assumed: InventoryModeRedirect at routes/index.tsx:247 MERGES the incoming query string rather than replacing it, so ?page= and ?size= survive the /items to /inventory redirect that Back to items goes through."
+    },
+    {
+      "id": "US-3208",
+      "passes": false,
+      "title": "The post-sale page is fifty-two screens tall, and the ship queue starts on screen sixteen",
+      "description": "As a reseller with orders to pack, I want the post-sale work behind tabs over one section at a time, so that finding the ship queue is a click instead of fifteen screens of scrolling past queues that are empty.",
+      "acceptanceCriteria": [
+        "Measured on production before the change, and recorded so the fix can be checked against it: 47811px of content in a 911px window (52 screens), Needs you rendering 215 rows with no paging, the ship queue beginning at 14487px and payment disputes at 43966px, 432 list items on one page.",
+        "src/pages/flipdesk/post-sale-tabs.ts is a pure module shaped like inventory-tabs.ts: a PostSaleTabId union (ship, disputes, cases, returns, cancellations, insights), resolvePostSaleTabId, tabForKind and postSaleTabCounts. It imports no hook and no component, so a test reads it without a query client.",
+        "The page renders ONE section at a time, chosen by ?tab= so a tab is a link that survives a bookmark. Ship is the default because it is the only clock on the page a marketplace scores the seller on.",
+        "The 215-row Needs you list is replaced by counts on the tabs, derived from the SAME merged useNeedsYou list, so a badge can never disagree with what its tab opens. No badge renders while the queues are loading: a zero that means not-known-yet reads as nothing-waiting, which is the one wrong answer this page must not give.",
+        "eBay cases and item-not-received share one Cases tab. eBay files them separately and a seller does not, and split apart they were two cards that were each usually empty.",
+        "Old card anchors still land on the work: resolvePostSaleTabId maps payment-disputes, ebay-cases, inquiries, returns, cancellations, ship-queue and return-analytics, with or without a leading hash, onto the tab that now holds that card.",
+        "A test pins that every kind this page shows has exactly one owning tab (two would double-count a badge, none would be work with no way in), and that offer stays deliberately unowned because offers are their own page.",
+        "src/components/flipdesk/needs-you-card.tsx is deleted rather than left unrendered, and the guard in src/test/flipdesk-action-widgets.test.ts that pinned it not duplicating the hook's reads moves to the overview widget, which is the surface that survived.",
+        "No route change and no migration. /dashboard/flipdesk/post-sale keeps its path, so every existing link works."
+      ]
     }
   ]
 }

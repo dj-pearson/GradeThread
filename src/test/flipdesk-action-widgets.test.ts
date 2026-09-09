@@ -131,14 +131,20 @@ describe("the needs-you merge moved into a hook (US-3077 AC1)", () => {
     }
   });
 
-  it("leaves the card rendering the list and reading nothing itself", () => {
-    const card = read("src/components/flipdesk/needs-you-card.tsx");
-    expect(card).toContain("useNeedsYou");
-    // The reads and the merge are the hook's now. A second copy here is
-    // how the card and the widget would come to disagree about "open".
-    expect(card).not.toContain("useEbayReturns");
-    expect(card).not.toContain("splitByOpenState");
-    expect(card).not.toContain("rankNeedsYou");
+  it("leaves the widget rendering the list and reading nothing itself", () => {
+    // US-3208: was the /post-sale NeedsYouCard, which is gone. That page put a
+    // 215-row ranked list above seven stacked cards and ran to fifty-two
+    // screens; the ranking now shows on the overview board, where a
+    // cross-page ranking belongs, and the page itself uses tabs with counts.
+    // The property is unchanged and still worth pinning, so it moved to the
+    // surface that survived rather than being deleted with the one that did not.
+    const widget = read("src/components/dashboard/widgets/flipdesk-needs-you.tsx");
+    expect(widget).toContain("useNeedsYou");
+    // The reads and the merge are the hook's. A second copy here is how two
+    // surfaces come to disagree about what "open" means.
+    expect(widget).not.toContain("useEbayReturns");
+    expect(widget).not.toContain("splitByOpenState");
+    expect(widget).not.toContain("rankNeedsYou");
   });
 
   it("keeps the ranking pure and separate from the reading", () => {
