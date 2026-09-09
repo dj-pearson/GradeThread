@@ -1,5 +1,36 @@
 # PENDING MIGRATIONS — applied to prod separately from the push
 
+## ⏳ HELD: 00774 — GRANT EXECUTE on pooled_sold_comps (US-2282 guard)
+
+**Risk: LOW, and it is additive only.** One `GRANT EXECUTE ... TO service_role`.
+No schema change, no data change, no revoke. Re-running is a no-op.
+
+**Apply order:** after 00773. No `NOTIFY pgrst` needed (no table, column or RPC
+signature changed), but running it is harmless. Redeploy the edge afterwards —
+its boot guard now expects 00774.
+
+**⚠️ IT DELIBERATELY DOES NOT REVOKE.** `pooled_sold_comps` keeps its default
+EXECUTE to PUBLIC. On this Postgres image a DENIED call from anon or
+authenticated segfaults the backend and restarts the database (US-2403), which
+is why 00527 is parked as DO NOT APPLY. A revoke here would build that crash
+surface on a function reachable with the public anon key. If you were hoping
+this closes the anon hole: it does not, and it says so in the file.
+
+**What it changes for a caller:** nothing. service_role could already execute
+it via PUBLIC; this states the intent explicitly so the guard passes and so the
+right grant survives the day the revoke becomes safe.
+
+**Why the remaining exposure is tolerable.** The function returns aggregates
+only and returns NO ROW below both k-anonymity floors — 5 sales from 3 distinct
+sellers — and those floors are inside the function, so they hold for an
+anonymous caller too.
+
+**Rollback:** `REVOKE EXECUTE ON FUNCTION public.pooled_sold_comps(text, text,
+int) FROM service_role;` — but read the warning above first: revoking from
+service_role is safe, revoking from anon or authenticated is not.
+
+**No operator step.**
+
 ## ✅ APPLIED 2026-09-08: 00772 — item_photos.remote_source + flipdesk_ebay_listings.photo_urls (US-3196)
 
 **Risk: LOW.** Two nullable text columns on `item_photos`, one CHECK, one
