@@ -45626,6 +45626,22 @@
       ],
       "priority": 2,
       "notes": "Done 2026-09-09. SyncEngine.parseDateOrNil reads ISO-with-fractional-seconds, ISO-plain and date-only (the last via MoneyDate.parse, so there is one definition of YYYY-MM-DD rather than a fourth formatter) and returns nil on failure. parseDate is now a thin wrapper that keeps the .now fallback for created_at/updated_at and leaves a Telemetry breadcrumb when it fires — it used to be silent. SyncMergeActor: an unparseable sale_date falls back to created_at on insert and leaves local.saleDate untouched on update; RemoteExpenseRow.spentOnDate falls back to created_at then .distantPast, never to today. RemoteSale.date and RemoteExpense.date now call the shared parser and dropped their own formatters, as did RemoteExpenseRow (its US-1520 cached formatter is gone with it). Five tests in SyncTests. All 15 iOS guards pass; Swift compile is macOS-only so iOS CI is the compile check."
+    },
+    {
+      "id": "US-3234",
+      "passes": true,
+      "title": "iOS: nine money totals were accumulated with += and could drift a cent",
+      "description": "US-790's Money.sum exists because a Double sum of many amounts compounds past a cent, and US-3221 added a guard for it. That guard only matched reduce(0, so it missed the other way to write the same bug: a running total built with += in a loop. ConsignmentReport had five, directly under a comment promising the totals 'must foot against a Money-summed equivalent to the cent' - and consignorPayout is money OWED TO A THIRD PARTY, next to a screen total computed with Money.sum over those already-drifted rows. SourceROIRollup had four and then rounded only the final total, which does not reproduce Money.sum (that rounds every amount before adding), under a comment saying it made the panel foot against the Money tab. SourcesView had one.",
+      "acceptanceCriteria": [
+        "ConsignmentReport groups first and totals with Money.sum; SourceROIRollup and SourcesView accumulate exact Decimal and convert once at the end",
+        "Tied consignor payouts sort by name so the order is stable",
+        "no-raw-money-sum.py also flags a += into a money-named identifier, allowlisting the two integer-cents/count cases",
+        "The guard is sabotage-tested, and tests assert the totals foot against Money.sum over 300 sales and are already whole cents"
+      ],
+      "priority": 2,
+      "notes": [
+        "Done 2026-09-09. ConsignmentReport builds a cents-exact Line per sold item, groups by consignor, and totals each field with Money.sum instead of five += accumulations; ties sort by name so the order is stable rather than dictionary order. SourceROIRollup's Agg holds Decimal and accumulates += Money.decimal(x), taking .currencyDouble once at the end -- its old shape rounded ONLY the final total, which does not reproduce Money.sum (that rounds each amount before adding), directly under a comment claiming it made the panel foot against the Money tab. SourcesView.statsBySource does the same. no-raw-money-sum.py now also flags a += whose LEFT-HAND SIDE is money-named (matching the whole line would flag a plain count increment beside a price), skips the sanctioned += Money.decimal / Money.sum / Money.sumDecimal forms, and allowlists RadarScoring (Int of cents) and AutoListerGenerator (a photo count). SABOTAGE-TESTED, and the first attempt did NOT trip: 'gross' was not in MONEY_WORDS, so a runningGross += line.gross accumulation passed. Added gross/cut/owed/cogs/margin/paid/due/credit/debit/earnings/income/expense(s); the sabotage then failed as it should. Three tests in ConsignmentTests: totals foot against Money.sum over 300 sales, every total is already whole cents, and tied payouts sort stably across 20 runs. All 15 guards pass. (Note repaired: three code spans in the original were eaten by shell backtick expansion.)"
+      ]
     }
   ]
 }

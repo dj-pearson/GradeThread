@@ -1,3 +1,4 @@
+import GradeThreadCore
 import SwiftData
 import SwiftUI
 
@@ -31,15 +32,18 @@ struct SourcesView: View {
     /// `sources.id` → (item count, total acquisition spend), derived from the
     /// local item cache so the numbers match the rest of the app exactly.
     private var statsBySource: [String: (count: Int, spend: Double)] {
-        var out: [String: (count: Int, spend: Double)] = [:]
+        // US-3234: spend accumulates in exact Decimal. A `+=` over Doubles is
+        // the same drift `Money.sum` exists to prevent (US-790), and this figure
+        // sits next to the per-item acquisition prices a seller can add up.
+        var out: [String: (count: Int, spend: Decimal)] = [:]
         for item in items {
             guard let sid = item.sourceId else { continue }
-            var entry = out[sid] ?? (count: 0, spend: 0.0)
+            var entry = out[sid] ?? (count: 0, spend: Decimal.zero)
             entry.count += 1
-            entry.spend += item.acquiredPrice ?? 0
+            entry.spend += Money.decimal(item.acquiredPrice ?? 0)
             out[sid] = entry
         }
-        return out
+        return out.mapValues { (count: $0.count, spend: $0.spend.currencyDouble) }
     }
 
     var body: some View {

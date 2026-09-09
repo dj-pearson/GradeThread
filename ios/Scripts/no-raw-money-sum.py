@@ -19,15 +19,30 @@ noticed and believed.
 
 WHAT IT CATCHES
 ---------------
-`reduce(0` / `reduce(0.0` / `reduce(Double(` whose line mentions a money word
-(price, amount, cost, fee, proceeds, profit, revenue, payout, net, ...). That
-is deliberately a line-level heuristic, not a type check: it is cheap, it runs
-in the fast lane with the other twelve guards, and the fix is always the same
-one-line swap. A genuine non-money sum that trips it goes in ALLOWED with a
+Two shapes of accumulation, both on a line that mentions a money word (price,
+amount, cost, fee, proceeds, profit, revenue, payout, net, ...):
+
+  1. `reduce(0` / `reduce(0.0` / `reduce(Double(`
+  2. `someMoneyField += ...`  (US-3234)
+
+The second was added after the first missed nine sites, because a running total
+built with `+=` in a `for` loop is the same drift written differently.
+`ConsignmentReport` accumulated five of them, one of which is money OWED TO A
+THIRD PARTY, directly under a comment promising the totals "must foot against a
+Money-summed equivalent to the cent". `SourceROIRollup` accumulated four and
+then rounded only the FINAL total, which does not reproduce `Money.sum` —
+`Money.sum` rounds every amount to cents before adding — under a comment saying
+it made the panel foot against the Money tab.
+
+This is deliberately a line-level heuristic, not a type check: it is cheap, it
+runs in the fast lane with the other guards, and the fix is always the same
+swap. A genuine non-money accumulation that trips it goes in ALLOWED with a
 reason, the same way the other guards handle their exceptions.
 
 NOT CAUGHT (and fine): `+` on two amounts, `-` for a single subtraction, and
-`/ Double(count)` for an average. Only ACCUMULATION drifts.
+`/ Double(count)` for an average. Only ACCUMULATION drifts. Also fine, and the
+reason two files are allowlisted for it: a `+=` into an Int of CENTS is exact
+and does not drift.
 """
 
 from __future__ import annotations
@@ -45,6 +60,13 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 # are not accumulation-in-Double and are not matched.
 REDUCE_RE = re.compile(r"\.reduce\(\s*(?:0\.0|0|Double\(\s*0\s*\))\s*[,)]")
 
+# US-3234: `x += y`. The captured left-hand side is what has to be money-named —
+# matching the whole line would flag `count += 1` sitting next to a price.
+# `+= Money.decimal(` and `+= Money.sum(` are the sanctioned exact forms and are
+# not violations.
+PLUS_EQUALS_RE = re.compile(r"([A-Za-z0-9_.\[\]$]+)\s*\+=")
+EXACT_ACCUMULATION_RE = re.compile(r"\+=\s*Money\.(?:decimal|sum|sumDecimal)\(")
+
 # Money words, as whole words inside an identifier boundary. `netCount` is not
 # money; `net` and `netProfit` are — so the match is on the word, allowing a
 # camelCase continuation.
@@ -53,6 +75,13 @@ MONEY_WORDS = [
     "proceeds", "profit", "revenue", "payout", "payouts", "net", "nets",
     "subtotal", "total", "totals", "spend", "spent", "value", "cents",
     "dollars", "shipping", "refund", "refunds", "basis", "equity", "balance",
+    # US-3234: the words the first version missed. `runningGross += line.gross`
+    # sailed through the widened check because "gross" was not on this list, and
+    # so did `row.yourCut` and `row.consignorPayout`'s neighbours. The sabotage
+    # test is what found that; the list is the part of this gate most likely to
+    # be incomplete, so add to it whenever a real site slips past.
+    "gross", "cut", "owed", "cogs", "margin", "paid", "due", "credit", "debit",
+    "earnings", "income", "expense", "expenses",
 ]
 # Matched at a camelCase boundary, and NOT case-insensitively: `re.IGNORECASE`
 # would make the trailing `[a-z]` match `L` too, so `totalLabelCost` stopped
@@ -90,6 +119,9 @@ ALLOWED = {
     "GradeThread/Money/MoneyAnalyticsRollup.swift": "averages a span in DAYS",
     # Already exact: sums tenths-of-a-mile as Int.
     "GradeThread/Money/MileageStore.swift": "sums integer tenths of a mile",
+    # US-3234 `+=` allowlist: an Int of CENTS is exact, and a count is not money.
+    "GradeThread/Prospect/RadarScoring.swift": "realizedProfitCents is an Int of cents - exact",
+    "GradeThread/AutoLister/AutoListerGenerator.swift": "photosTotal counts photos",
 }
 
 # The sanctioned implementation sums in Decimal — it is what everyone else calls.
@@ -122,6 +154,12 @@ def main() -> int:
                             continue
                         if REDUCE_RE.search(line) and MONEY_RE.search(line):
                             violations.append(f"{rel}:{num}: {stripped}")
+                            continue
+                        if EXACT_ACCUMULATION_RE.search(line):
+                            continue
+                        plus = PLUS_EQUALS_RE.search(line)
+                        if plus and MONEY_RE.search(plus.group(1)):
+                            violations.append(f"{rel}:{num}: {stripped}")
 
     # A gate that scans nothing passes forever. Fail loudly instead.
     if scanned < 50:
@@ -133,15 +171,17 @@ def main() -> int:
         return 2
 
     if violations:
-        print("ERROR: currency accumulated with a raw reduce:", file=sys.stderr)
+        print("ERROR: currency accumulated without Money:", file=sys.stderr)
         for v in violations:
             print(f"  {v}", file=sys.stderr)
         print(
             "\nUse `Money.sum(items) { $0.amount }` (or `Money.sum(amounts)` / "
             "`Money.sumDecimal`) from GradeThreadCore. It sums in exact Decimal "
-            "so a few hundred rows can't drift past a cent (US-790). If the sum "
-            "genuinely isn't currency, add the file to ALLOWED in this script "
-            "with the reason.",
+            "so a few hundred rows can't drift past a cent (US-790). For a "
+            "running total inside a loop, accumulate a `Decimal` with "
+            "`+= Money.decimal(x)` and take `.currencyDouble` at the end. If the "
+            "value genuinely isn't currency, add the file to ALLOWED in this "
+            "script with the reason.",
             file=sys.stderr,
         )
         return 1

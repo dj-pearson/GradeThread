@@ -75,13 +75,20 @@ enum SourceROIRollup {
         // Per-item cost + source, and a fast item→source lookup for sales.
         var sourceByItem: [String: String?] = [:]
         var costByItem: [String: Double] = [:]
+        // US-3234: the money fields accumulate as exact `Decimal`, not `Double`.
+        // Rounding only the FINAL total (which is what `Money.cents(a.spend)`
+        // below used to do on its own) does not reproduce `Money.sum`, which
+        // rounds every amount to cents BEFORE adding — so this panel could
+        // disagree with the Money tab and the financial export by a cent on a
+        // large source, which is exactly what the comment on the return said it
+        // was preventing.
         struct Agg {
             var acquired = 0
             var sold = 0
-            var spend = 0.0
-            var revenue = 0.0
-            var fees = 0.0
-            var cogs = 0.0
+            var spend = Decimal.zero
+            var revenue = Decimal.zero
+            var fees = Decimal.zero
+            var cogs = Decimal.zero
         }
         var agg: [String: Agg] = [:]     // keyed by sourceId ?? sentinel
         let sentinel = "__none__"
@@ -91,7 +98,7 @@ enum SourceROIRollup {
             sourceByItem[item.id] = item.sourceId
             costByItem[item.id] = item.acquiredPrice ?? 0
             agg[key, default: Agg()].acquired += 1
-            agg[key, default: Agg()].spend += (item.acquiredPrice ?? 0)
+            agg[key, default: Agg()].spend += Money.decimal(item.acquiredPrice ?? 0)
         }
 
         for sale in sales {
@@ -105,12 +112,12 @@ enum SourceROIRollup {
             // A sale for an item we don't have locally still counts revenue but
             // can't add COGS — guard the agg so it appears under "No source".
             agg[key, default: Agg()].sold += 1
-            agg[key, default: Agg()].revenue += sale.salePrice
+            agg[key, default: Agg()].revenue += Money.decimal(sale.salePrice)
             // All marketplace fees (platform + payment processing), matching
             // SalePnL.fees — platformFees alone understated fees and overstated
             // net profit / ROI.
-            agg[key, default: Agg()].fees += SalePnL.fees(sale)
-            agg[key, default: Agg()].cogs += (costByItem[sale.inventoryItemId] ?? 0)
+            agg[key, default: Agg()].fees += Money.decimal(SalePnL.fees(sale))
+            agg[key, default: Agg()].cogs += Money.decimal(costByItem[sale.inventoryItemId] ?? 0)
         }
 
         return agg.map { key, a in
@@ -121,13 +128,12 @@ enum SourceROIRollup {
                 sourceName: name,
                 acquiredCount: a.acquired,
                 soldCount: a.sold,
-                // Round each money field to whole cents so the ROI-by-source panel
-                // foots against the Money tab / financial export (which sum the same
-                // values via Money) instead of drifting a cent on a large source.
-                spend: Money.cents(a.spend),
-                revenue: Money.cents(a.revenue),
-                fees: Money.cents(a.fees),
-                cogs: Money.cents(a.cogs)
+                // Each field was summed in exact Decimal above (US-3234); this
+                // is the boundary where the total re-enters Double for display.
+                spend: a.spend.currencyDouble,
+                revenue: a.revenue.currencyDouble,
+                fees: a.fees.currencyDouble,
+                cogs: a.cogs.currencyDouble
             )
         }
         .sorted { lhs, rhs in

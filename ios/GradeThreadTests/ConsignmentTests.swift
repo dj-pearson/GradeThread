@@ -190,4 +190,65 @@ final class ConsignmentTests: XCTestCase {
         XCTAssertFalse(InventoryFilter.matches(b, criteria))
         XCTAssertEqual(criteria.activeCount, 1)
     }
+    // MARK: - US-3234 the totals foot to the cent
+
+    /// The per-consignor totals were accumulated with `+=` over Doubles, under a
+    /// comment promising they "must foot against a Money-summed equivalent to
+    /// the cent". Three hundred sales at a price with no exact binary
+    /// representation is where that stops being true, and consignorPayout is
+    /// money owed to somebody else.
+    func test_report_totalsFootAgainstMoneySum_overManySales() {
+        let consignor = Consignor(id: "c1", name: "Ada", defaultSplitPct: 60)
+        let sold = (0..<300).map { _ in
+            ConsignmentReport.SoldConsignedItem(
+                consignorId: "c1", splitPctOverride: nil, salePrice: 24.99, fees: 3.37
+            )
+        }
+
+        let rows = ConsignmentReport.compute(soldItems: sold, consignors: [consignor])
+        XCTAssertEqual(rows.count, 1)
+        let row = rows[0]
+
+        let net = Money.cents(24.99 - 3.37)
+        let payout = Money.cents(max(net, 0) * 60 / 100.0)
+        XCTAssertEqual(row.grossRevenue, Money.sum(sold) { $0.salePrice }, accuracy: 0.0001)
+        XCTAssertEqual(row.fees, Money.sum(sold) { $0.fees }, accuracy: 0.0001)
+        XCTAssertEqual(row.netProceeds, Money.sum(sold) { _ in net }, accuracy: 0.0001)
+        XCTAssertEqual(row.consignorPayout, Money.sum(sold) { _ in payout }, accuracy: 0.0001)
+        XCTAssertEqual(row.yourCut, Money.sum(sold) { _ in net - payout }, accuracy: 0.0001)
+    }
+
+    /// Every total is already cents-rounded, so re-rounding must not move it.
+    /// This is the property a running Double loses.
+    func test_report_totalsAreAlreadyWholeCents() {
+        let consignor = Consignor(id: "c1", name: "Ada", defaultSplitPct: 33.33)
+        let sold = (0..<250).map { _ in
+            ConsignmentReport.SoldConsignedItem(
+                consignorId: "c1", splitPctOverride: nil, salePrice: 10.05, fees: 1.11
+            )
+        }
+
+        let row = ConsignmentReport.compute(soldItems: sold, consignors: [consignor])[0]
+        XCTAssertEqual(row.consignorPayout, Money.cents(row.consignorPayout))
+        XCTAssertEqual(row.netProceeds, Money.cents(row.netProceeds))
+        XCTAssertEqual(row.yourCut, Money.cents(row.yourCut))
+    }
+
+    /// Two consignors owed the same amount used to come back in whatever order
+    /// the dictionary happened to iterate.
+    func test_report_tiedPayoutsSortByNameSoTheOrderIsStable() {
+        let consignors = [
+            Consignor(id: "c1", name: "Zoe", defaultSplitPct: 50),
+            Consignor(id: "c2", name: "Ada", defaultSplitPct: 50),
+        ]
+        let sold = [
+            ConsignmentReport.SoldConsignedItem(consignorId: "c1", splitPctOverride: nil, salePrice: 100, fees: 0),
+            ConsignmentReport.SoldConsignedItem(consignorId: "c2", splitPctOverride: nil, salePrice: 100, fees: 0),
+        ]
+
+        for _ in 0..<20 {
+            let rows = ConsignmentReport.compute(soldItems: sold, consignors: consignors)
+            XCTAssertEqual(rows.map(\.consignorName), ["Ada", "Zoe"])
+        }
+    }
 }

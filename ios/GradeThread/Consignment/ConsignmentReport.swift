@@ -38,10 +38,19 @@ enum ConsignmentReport {
         consignors: [Consignor]
     ) -> [ConsignmentReportRow] {
         let byId = Dictionary(uniqueKeysWithValues: consignors.map { ($0.id, $0) })
-        var rows: [String: ConsignmentReportRow] = [:]
 
-        for item in soldItems {
-            guard let consignor = byId[item.consignorId] else { continue }
+        /// One sold item's cents-exact line, so the per-consignor totals can be
+        /// summed rather than accumulated.
+        struct Line {
+            let gross: Double
+            let fees: Double
+            let net: Double
+            let payout: Double
+            var yourCut: Double { net - payout }
+        }
+
+        let lines: [(consignorId: String, line: Line)] = soldItems.compactMap { item in
+            guard let consignor = byId[item.consignorId] else { return nil }
             let split = clampPct(item.splitPctOverride ?? consignor.defaultSplitPct)
             // Round each line item to whole cents (Money.cents): consignorPayout is
             // money OWED to a third party, so `$10.05 × 33.33%` must not carry
@@ -52,28 +61,41 @@ enum ConsignmentReport {
             // for a net-negative sale (rare, but a refund-heavy row shouldn't
             // produce a negative "owed").
             let payout = Money.cents(max(net, 0) * split / 100.0)
-
-            var row = rows[item.consignorId] ?? ConsignmentReportRow(
-                consignorId: consignor.id,
-                consignorName: consignor.name,
-                itemsSold: 0,
-                grossRevenue: 0,
-                fees: 0,
-                netProceeds: 0,
-                consignorPayout: 0,
-                yourCut: 0
+            return (
+                item.consignorId,
+                Line(gross: item.salePrice, fees: item.fees, net: net, payout: payout)
             )
-            row.itemsSold += 1
-            row.grossRevenue += item.salePrice
-            row.fees += item.fees
-            row.netProceeds += net
-            row.consignorPayout += payout
-            row.yourCut += net - payout
-            rows[item.consignorId] = row
         }
 
-        // Most owed first — that's the actionable order (who to pay).
-        return rows.values.sorted { $0.consignorPayout > $1.consignorPayout }
+        // US-3234: totalled with `Money.sum`, not accumulated with `+=`. The
+        // comment above has always said these must foot against a Money-summed
+        // equivalent to the cent, and a running `Double` does not — on a
+        // consignor with a few hundred sales the payable could differ from the
+        // screen's own total, and this is money owed to somebody else.
+        return Dictionary(grouping: lines, by: { $0.consignorId })
+            .compactMap { consignorId, group -> ConsignmentReportRow? in
+                guard let consignor = byId[consignorId] else { return nil }
+                let items = group.map(\.line)
+                return ConsignmentReportRow(
+                    consignorId: consignor.id,
+                    consignorName: consignor.name,
+                    itemsSold: items.count,
+                    grossRevenue: Money.sum(items) { $0.gross },
+                    fees: Money.sum(items) { $0.fees },
+                    netProceeds: Money.sum(items) { $0.net },
+                    consignorPayout: Money.sum(items) { $0.payout },
+                    yourCut: Money.sum(items) { $0.yourCut }
+                )
+            }
+            // Most owed first — that's the actionable order (who to pay). Name
+            // breaks a tie so the order is stable rather than whatever the
+            // dictionary iterated this time.
+            .sorted { lhs, rhs in
+                if lhs.consignorPayout != rhs.consignorPayout {
+                    return lhs.consignorPayout > rhs.consignorPayout
+                }
+                return lhs.consignorName < rhs.consignorName
+            }
     }
 
     /// Convenience over the local cache: joins sales to their items, keeps only
