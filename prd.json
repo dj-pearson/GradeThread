@@ -4857,7 +4857,8 @@
         "A guard stops NEW British spellings entering user-facing strings, with a shrink-only allowlist naming each load-bearing exception and why. It must distinguish a quoted string or JSX text from a comment, or it will fail on the next explanatory paragraph someone writes.",
         "aspect-normalize.ts and ebay-prefill.ts are explicitly exempt in that guard, by path, with the reason inline. Rewriting an eBay allowed value is a listing failure, not a typo fix."
       ],
-      "priority": 7
+      "priority": 7,
+      "notes": "Partial 2026-09-09 in 17d779ac0: 48 user-facing strings fixed. Two reverted after the parity guards caught them: 'The care label with the fibre content' is ONE string in five places (src/lib/photo-roles.ts, src/lib/photo-profiles.ts, the edge copies of both, ios/GradeThread/Capture/PhotoProfile.swift, android/.../capture/PhotoProfile.kt) plus android/config/detekt/baseline.xml, which pins the exact line text. Changing it is a cross-platform change needing an iOS and Android build, so it waits for a machine that can do both. Guard from AC2 not written yet."
     }
   ]
 }
