@@ -258,7 +258,7 @@ export function FindsPage() {
         <p className="text-center text-sm text-muted-foreground">
           Sellers choose which graded items appear here. A grade is an independent
           condition assessment, not a valuation or an authentication.{" "}
-          <Link to="/snap" className="font-medium hover:underline">
+          <Link to="/dashboard/snap" className="font-medium hover:underline">
             Grade your own find
           </Link>{" "}
           ·{" "}

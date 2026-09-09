@@ -340,7 +340,7 @@ export function MeasurementForm({
           <p className="mt-2 text-[10px] text-muted-foreground">
             Built from measurements sellers contribute, yours included.{" "}
             <Link
-              to="/settings?tab=preferences"
+              to="/dashboard/settings?tab=flipdesk"
               className="underline underline-offset-2"
             >
               Manage sharing

@@ -80,7 +80,7 @@ export function PartnersPage() {
           </p>
           <div className="mt-8 flex flex-wrap gap-3">
             <Button asChild size="lg">
-              <Link to="/referrals">
+              <Link to="/dashboard/referrals">
                 Apply from your account <ArrowRight className="ml-2 h-4 w-4" />
               </Link>
             </Button>

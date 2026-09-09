@@ -35,7 +35,7 @@ export function EbayAttribution({
       eBay Inc. GradeThread uses the eBay API but is not endorsed or certified by
       eBay Inc.{" "}
       <a
-        href="/legal/trademarks"
+        href="/trademarks"
         className="underline underline-offset-2 hover:text-foreground"
       >
         Trademarks
