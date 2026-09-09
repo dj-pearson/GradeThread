@@ -26,7 +26,25 @@ import { describe, expect, it } from "vitest";
 const IOS = resolve(__dirname, "../../ios/GradeThread");
 const SCHEMA = join(IOS, "Persistence/GradeThreadSchema.swift");
 const CONTENT_VIEW = join(IOS, "ContentView.swift");
+const WIPE = join(IOS, "Persistence/LocalCacheWipe.swift");
 const MODELS_DIR = join(IOS, "Persistence/Models");
+
+// US-3255 — WHERE this guard looks, and why it moved.
+//
+// It used to read the two `private func`s in ContentView.swift and pull the
+// `try ctx.delete(model: X.self)` calls straight out of their bodies. US-3224
+// then moved both bodies into LocalCacheWipe, so those functions became
+// one-line delegations, the extractor found nothing, and the file went red and
+// STAYED red. That is the cheap half of the cost. The expensive half is that
+// for as long as it was red it was also blind: a model added to the schema and
+// forgotten in the wipe — the exact leak US-3100 exists to catch — would not
+// have been reported by the thing whose whole job is reporting it.
+//
+// So the guard now follows the delegation rather than assuming a location. It
+// asserts ContentView still hands off to LocalCacheWipe (a future move is
+// caught, not silently un-asserted), and reads the model list from the wipe
+// itself. Every extractor below fails loudly on an empty result, because an
+// extractor that finds nothing passes every assertion it is asked.
 
 /**
  * Models that a WORKSPACE SWITCH deliberately keeps. Each needs a reason, and
@@ -67,16 +85,70 @@ function registeredModels(): string[] {
     .sort();
 }
 
-function deletedIn(functionName: string): string[] {
+/** The two wipes, and the LocalCacheWipe entry point each one delegates to. */
+const WIPES = {
+  clearAllLocalDataOnSignOut: "LocalCacheWipe.signOut",
+  clearLocalTenantCache: "LocalCacheWipe.workspaceSwitch",
+} as const;
+
+/**
+ * Assert ContentView's wipe still hands off to LocalCacheWipe, and return the
+ * entry point it hands off to.
+ *
+ * This is the step that was missing before. Without it the guard has no way to
+ * notice that the code it checks is no longer the code that runs.
+ */
+function delegationFor(functionName: keyof typeof WIPES): string {
   const source = readFileSync(CONTENT_VIEW, "utf8");
   const start = source.indexOf(`private func ${functionName}()`);
   expect(start, `${functionName} not found in ContentView.swift`).toBeGreaterThan(-1);
-  const end = source.indexOf("try ctx.save()", start);
-  expect(end, `${functionName} does not save`).toBeGreaterThan(start);
-  const body = source.slice(start, end);
-  return [...body.matchAll(/try ctx\.delete\(model:\s*(\w+)\.self\)/g)]
-    .flatMap((match) => (match[1] ? [match[1]] : []))
-    .sort();
+  const body = source.slice(start, source.indexOf("\n    }", start));
+  const entry = WIPES[functionName];
+  expect(
+    body,
+    `${functionName} no longer calls ${entry} — the wipe moved again, re-point this guard at wherever it went`,
+  ).toContain(entry);
+  return entry;
+}
+
+/**
+ * The models LocalCacheWipe.deleters names, in the order it names them.
+ *
+ * Each entry is `("Name", { try $0.delete(model: Name.self) })`, and both
+ * halves are read: a label that disagrees with the type it deletes would make
+ * the diagnostics in `perform` name the wrong survivor.
+ */
+function wipeDeleters(): string[] {
+  const source = readFileSync(WIPE, "utf8");
+  const open = source.indexOf("deleters:");
+  expect(open, "LocalCacheWipe.deleters not found").toBeGreaterThan(-1);
+  const block = source.slice(open, source.indexOf("\n    ]", open));
+  const found = [...block.matchAll(
+    /\("(\w+)",\s*\{\s*try \$0\.delete\(model:\s*(\w+)\.self\)\s*\}\)/g,
+  )].flatMap((m) => (m[1] && m[2] ? [[m[1], m[2]] as const] : []));
+  // A guard that extracts nothing agrees with everything.
+  expect(found.length, "no deleters parsed out of LocalCacheWipe").toBeGreaterThan(0);
+  for (const [label, type] of found) {
+    expect(label, `deleter labelled ${label} actually deletes ${type}`).toBe(type);
+  }
+  return found.map(([label]) => label).sort();
+}
+
+/** The models a WORKSPACE SWITCH keeps, as LocalCacheWipe itself declares them. */
+function keptOnWorkspaceSwitch(): string[] {
+  const source = readFileSync(WIPE, "utf8");
+  const at = source.indexOf("keptOnWorkspaceSwitch:");
+  expect(at, "LocalCacheWipe.keptOnWorkspaceSwitch not found").toBeGreaterThan(-1);
+  const line = source.slice(at, source.indexOf("\n", at));
+  return [...line.matchAll(/"(\w+)"/g)].flatMap((m) => (m[1] ? [m[1]] : [])).sort();
+}
+
+function deletedIn(functionName: keyof typeof WIPES): string[] {
+  const entry = delegationFor(functionName);
+  const all = wipeDeleters();
+  if (entry === "LocalCacheWipe.signOut") return all;
+  const kept = new Set(keptOnWorkspaceSwitch());
+  return all.filter((model) => !kept.has(model)).sort();
 }
 
 describe("iOS local model wipes (US-3100)", () => {
@@ -95,6 +167,13 @@ describe("iOS local model wipes (US-3100)", () => {
       .filter((model) => !(model in KEPT_ON_WORKSPACE_SWITCH))
       .sort();
     expect(deletedIn("clearLocalTenantCache")).toEqual(expected);
+  });
+
+  it("the exception list here is the one LocalCacheWipe actually applies", () => {
+    // Two copies of a security exception drift, and the copy that drifts is
+    // the one nobody runs. This asserts they are the same list, so adding a
+    // keep-on-switch in Swift without a written reason here fails.
+    expect(keptOnWorkspaceSwitch()).toEqual(Object.keys(KEPT_ON_WORKSPACE_SWITCH).sort());
   });
 
   it("the sourcing log is local-only and still tenant-wiped", () => {
