@@ -45833,6 +45833,19 @@
         "After this, only analytics and composer remain, and both are large multi-query pages that deserve their own pass rather than being rushed to empty the list."
       ],
       "notes": "Done 2026-09-09. US-3217 now has two pages left, analytics and composer, both large multi-query surfaces that deserve their own pass."
+    },
+    {
+      "id": "US-3251",
+      "passes": true,
+      "title": "The buyer's measurement-unit toggle does nothing",
+      "description": "There are TWO measurement-unit preferences and they do not know about each other. useMeasurementPrefs is a zustand store persisted to localStorage per device, and it is the one everything actually renders from: the measurement form, the measurement photo editor, body profiles, description blocks. buyer_preferences.unit_preference is a database column written by the Measurement unit toggle on the buyer settings page, and read by exactly one thing: that same page, to re-populate its own buttons. Nothing renders from it. So a buyer picks CM, sees Preferences saved, opens their body profile, and reads inches. The toggle they used is inert and the one that matters is somewhere else and per-device. The fix is not to build a buyer-facing measurement display; it is to make the visible setting do what it says by writing through to the store that renders, and to adopt the stored value on load so the preference travels between devices instead of being stranded on one.",
+      "acceptanceCriteria": [
+        "Saving on buyer settings also sets useMeasurementPrefs, so the choice takes effect on the surfaces that render measurements.",
+        "Seeding buyer settings adopts the saved database value into the store, so a buyer who set CM on their phone sees CM on their laptop. The store stays the render source; the column becomes the durable copy.",
+        "A test drives it: save with cm and the store reads cm; seed from a profile carrying cm and the store reads cm. Assert the store, not the button, because the button was always right.",
+        "Do NOT collapse the two into one mechanism in this story. The zustand store is read synchronously by pure helpers like description-block-bulk via getState(), and moving that to a database read is a larger change than this defect warrants."
+      ],
+      "notes": "Done 2026-09-09. Worth knowing for later: buyers currently see NO measurements anywhere in the product, so this toggle's visible effect today is on the seller-side surfaces a buyer account can also reach (body profiles). If a buyer-facing measurement display is ever built, it reads the store and needs nothing further."
     }
   ]
 }
