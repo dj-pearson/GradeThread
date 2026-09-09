@@ -45783,6 +45783,18 @@
         "A test drives the branch: refresh returns null on an authed 401 and the local session is cleared; refresh succeeds and it is not; an unauthenticated 401 leaves everything alone."
       ],
       "notes": "Done 2026-09-09. Verified by unit test across the three branches plus a source assertion on the wiring; NOT verified against a real expired refresh token in a browser, which would need a session left to rot past the refresh window."
+    },
+    {
+      "id": "US-3247",
+      "passes": true,
+      "title": "CSV import shifts every dated field back a day for sellers east of UTC",
+      "description": "import-mapping.ts normalizes a full date string with new Date(s).toISOString().slice(0, 10). A named or US-format date -- Jan 25, 2026 -- parses to LOCAL midnight, and reading the UTC calendar day off that returns the previous day for any timezone ahead of UTC. UTC+1 (British Summer Time) through UTC+13 all land a day early; the US is unaffected, which is why it survived. The affected fields are acquisition and sale dates on imported inventory, and those feed the P&L, the fiscal-year window and the tax packet, so a January 1 purchase imported from Vendoo or List Perfectly can land in the previous tax year. The branch above it, which builds the ISO string from explicit y/m/d parts, is correct and untouched; so is tax-runway's nextDay, which is UTC end to end on purpose. src/lib/local-date.ts already exists for exactly this and its header describes the same hazard in the other direction.",
+      "acceptanceCriteria": [
+        "The full-date branch reads the LOCAL calendar day, via the existing toLocalDate helper rather than a second implementation of it.",
+        "Tests cover named, US-format and bare-ISO inputs. Be honest in the test file about what they prove: the defect only reproduces east of UTC, the dev box and CI are not, so a behavioural test alone would pass against the broken code. A source assertion that the UTC extraction is gone is the part that actually holds.",
+        "Do NOT sweep the other 97 toISOString call sites. Most are export filenames and CSV generated-on stamps where UTC is fine or preferable, and tax-runway's nextDay is deliberately UTC. Only the ones that turn a user's date into a stored calendar day matter."
+      ],
+      "notes": "Done 2026-09-09. The first attempt read the local day off everything and broke bare-ISO for the Americas; the tests caught it before commit. Final shape: date-only strings pass through, instants use the local day."
     }
   ]
 }
