@@ -45820,6 +45820,19 @@
         "Do NOT chase currency symbols in this story. The database has a currency column, but whether GradeThread supports non-USD sellers is a product decision, not a formatting one."
       ],
       "notes": "Done 2026-09-09. Verified against every suite that references formatCents plus the money-adjacent ones (75 tests). Not visually checked in a browser: no page was opened, only the formatter and its callers' tests."
+    },
+    {
+      "id": "US-3250",
+      "passes": true,
+      "title": "The last three FlipDesk failed-read cases, one of which should not be fixed",
+      "description": "What remains of US-3217 after tax-setup and marketplaces is not one defect but three different ones, and treating them the same would be wrong. autolister-bulk-edit DOES surface a failed read, as a bare centred red div carrying error.message, with no retry: the seller has navigated in from a batch and the only way out is a page reload. reconcile turns a failed read of photo-less items into the toast No photo-less items to match against, which is a false claim about their inventory rather than about the read. money is a FALSE POSITIVE for the rule: its only query drives a badge counter, and hiding a badge when the count cannot be fetched is correct degradation, not a lie. Adding an error state for a badge would be noise on a page whose real content is a nested router view. That one belongs on the allowlist with its reason, not on the fix list.",
+      "acceptanceCriteria": [
+        "autolister-bulk-edit renders ErrorState with a refetch instead of the bare div, so the recovery is a button rather than a reload.",
+        "reconcile distinguishes the two cases in that toast: a failed read says so, an empty result keeps the existing wording.",
+        "money.tsx moves to a NAMED exclusion carrying the reason above. Do not add an error state to a badge; the point of the shrink-only list is that it means something, and padding it with cosmetic fixes is how it stops meaning anything.",
+        "After this, only analytics and composer remain, and both are large multi-query pages that deserve their own pass rather than being rushed to empty the list."
+      ],
+      "notes": "Done 2026-09-09. US-3217 now has two pages left, analytics and composer, both large multi-query surfaces that deserve their own pass."
     }
   ]
 }
