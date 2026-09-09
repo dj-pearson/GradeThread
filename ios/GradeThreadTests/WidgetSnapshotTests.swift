@@ -147,6 +147,58 @@ final class WidgetSnapshotTests: XCTestCase {
         )
     }
 
+    // MARK: - US-3226 soldTodayIsStale
+
+    /// A phone left alone overnight showed the previous day's "sold today"
+    /// figure as this morning's. The widget entry at local midnight now asks
+    /// the snapshot whether that pair still describes today.
+    func test_soldTodayIsStale_falseWithinTheSameLocalDay() {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "America/Chicago") ?? .current
+        let morning = calendar.date(from: DateComponents(year: 2026, month: 9, day: 9, hour: 8))!
+        let evening = calendar.date(from: DateComponents(year: 2026, month: 9, day: 9, hour: 23, minute: 59))!
+        let snapshot = makeSnapshot(generatedAt: morning)
+
+        XCTAssertFalse(snapshot.soldTodayIsStale(asOf: morning, calendar: calendar))
+        XCTAssertFalse(snapshot.soldTodayIsStale(asOf: evening, calendar: calendar))
+    }
+
+    func test_soldTodayIsStale_trueOnceLocalMidnightPasses() {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "America/Chicago") ?? .current
+        let lastNight = calendar.date(from: DateComponents(year: 2026, month: 9, day: 9, hour: 22))!
+        let justAfterMidnight = calendar.date(from: DateComponents(year: 2026, month: 9, day: 10, hour: 0, minute: 1))!
+        let snapshot = makeSnapshot(generatedAt: lastNight)
+
+        XCTAssertTrue(snapshot.soldTodayIsStale(asOf: justAfterMidnight, calendar: calendar))
+    }
+
+    /// Two hours apart is not stale; two hours apart ACROSS midnight is. The
+    /// test that would pass with an elapsed-time check instead of a calendar-day
+    /// one.
+    func test_soldTodayIsStale_isADayBoundaryNotADuration() {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "America/Chicago") ?? .current
+        let elevenPM = calendar.date(from: DateComponents(year: 2026, month: 9, day: 9, hour: 23))!
+        let onePM = calendar.date(from: DateComponents(year: 2026, month: 9, day: 9, hour: 13))!
+        let oneAM = calendar.date(from: DateComponents(year: 2026, month: 9, day: 10, hour: 1))!
+
+        XCTAssertFalse(makeSnapshot(generatedAt: onePM).soldTodayIsStale(asOf: elevenPM, calendar: calendar))
+        XCTAssertTrue(makeSnapshot(generatedAt: elevenPM).soldTodayIsStale(asOf: oneAM, calendar: calendar))
+    }
+
+    private func makeSnapshot(generatedAt: Date) -> WidgetSnapshot {
+        WidgetSnapshot(
+            generatedAt: generatedAt,
+            isSignedIn: true,
+            activeListings: 12,
+            soldTodayCount: 3,
+            soldTodayGross: 214,
+            pendingPayoutCount: 2,
+            pendingPayoutNet: 180
+        )
+    }
+
     private func makeSale(price: Double, date: Date, fees: Double = 0) -> LocalSale {
         LocalSale(
             id: UUID().uuidString,

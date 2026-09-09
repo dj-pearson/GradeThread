@@ -60,14 +60,27 @@ struct SnapshotProvider: TimelineProvider {
     }
 
     func getTimeline(in context: Context, completion: @escaping (Timeline<SnapshotEntry>) -> Void) {
+        let now = Date.now
         let snapshot = WidgetSnapshotStore.read() ?? .signedOut()
-        let entry = SnapshotEntry(date: .now, snapshot: snapshot)
+        var entries = [SnapshotEntry(date: now, snapshot: snapshot)]
+        // US-3226: a second entry at the next local midnight. The snapshot is
+        // the same; what changes is that the views compare `entry.date` to
+        // `generatedAt` and stop presenting yesterday's "sold today" as this
+        // morning's. Without it, a phone that isn't opened overnight carries the
+        // previous day's total across the rollover until the app next runs.
+        if let midnight = Calendar.current.nextDate(
+            after: now,
+            matching: DateComponents(hour: 0, minute: 0, second: 0),
+            matchingPolicy: .nextTime
+        ) {
+            entries.append(SnapshotEntry(date: midnight, snapshot: snapshot))
+        }
         // The app reloads timelines after each sync, so this fallback
         // cadence only matters when the app hasn't run in a while.
         // Half-hour keeps "Updated Xm ago" honest without burning the
         // widget refresh budget.
-        let next = Calendar.current.date(byAdding: .minute, value: 30, to: .now) ?? .now
-        completion(Timeline(entries: [entry], policy: .after(next)))
+        let next = Calendar.current.date(byAdding: .minute, value: 30, to: now) ?? now
+        completion(Timeline(entries: entries, policy: .after(next)))
     }
 }
 
@@ -84,24 +97,30 @@ struct SnapshotWidgetView: View {
     var body: some View {
         switch family {
         case .accessoryInline:
-            AccessoryInlineView(snapshot: entry.snapshot)
+            AccessoryInlineView(snapshot: entry.snapshot, soldTodayIsStale: soldTodayIsStale)
         case .accessoryCircular:
-            AccessoryCircularView(snapshot: entry.snapshot)
+            AccessoryCircularView(snapshot: entry.snapshot, soldTodayIsStale: soldTodayIsStale)
         case .accessoryRectangular:
-            AccessoryRectangularView(snapshot: entry.snapshot)
+            AccessoryRectangularView(snapshot: entry.snapshot, soldTodayIsStale: soldTodayIsStale)
         default:
             if !entry.snapshot.isSignedIn {
                 SignedOutView()
             } else if family == .systemSmall {
                 if showsContainerBackground {
-                    SmallView(snapshot: entry.snapshot)
+                    SmallView(snapshot: entry.snapshot, soldTodayIsStale: soldTodayIsStale)
                 } else {
-                    StandByView(snapshot: entry.snapshot)
+                    StandByView(snapshot: entry.snapshot, soldTodayIsStale: soldTodayIsStale)
                 }
             } else {
-                MediumView(snapshot: entry.snapshot)
+                MediumView(snapshot: entry.snapshot, soldTodayIsStale: soldTodayIsStale)
             }
         }
+    }
+
+    /// US-3226: true when this entry's moment has crossed local midnight since
+    /// the snapshot was written, so "sold today" is a different day's number.
+    private var soldTodayIsStale: Bool {
+        entry.snapshot.soldTodayIsStale(asOf: entry.date)
     }
 }
 
@@ -122,6 +141,7 @@ private struct SignedOutView: View {
 /// pending payout. Active-listing count rides along as a footnote.
 private struct SmallView: View {
     let snapshot: WidgetSnapshot
+    let soldTodayIsStale: Bool
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -129,10 +149,12 @@ private struct SmallView: View {
             Spacer(minLength: 0)
             Metric(
                 label: "Sold today",
-                value: "\(snapshot.soldTodayCount)",
-                detail: snapshot.soldTodayCount > 0
-                    ? CurrencyText.string(snapshot.soldTodayGross, code: snapshot.currencyCode)
-                    : nil
+                value: soldTodayIsStale ? "—" : "\(snapshot.soldTodayCount)",
+                detail: soldTodayIsStale
+                    ? "not updated today"
+                    : (snapshot.soldTodayCount > 0
+                        ? CurrencyText.string(snapshot.soldTodayGross, code: snapshot.currencyCode)
+                        : nil)
             )
             Metric(
                 label: "Payout waiting",
@@ -150,13 +172,14 @@ private struct SmallView: View {
         .widgetURL(WidgetDeepLink.money.url)
         // US-1222: a single composed VoiceOver summary for the whole tile.
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(WidgetAccessibility.summary(for: snapshot))
+        .accessibilityLabel(WidgetAccessibility.summary(for: snapshot, soldTodayIsStale: soldTodayIsStale))
     }
 }
 
 /// Medium family: same metrics in a row, plus active listings.
 private struct MediumView: View {
     let snapshot: WidgetSnapshot
+    let soldTodayIsStale: Bool
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -176,10 +199,12 @@ private struct MediumView: View {
                 Divider()
                 Metric(
                     label: "Sold today",
-                    value: "\(snapshot.soldTodayCount)",
-                    detail: snapshot.soldTodayCount > 0
-                        ? CurrencyText.string(snapshot.soldTodayGross, code: snapshot.currencyCode)
-                        : "—"
+                    value: soldTodayIsStale ? "—" : "\(snapshot.soldTodayCount)",
+                    detail: soldTodayIsStale
+                        ? "not updated today"
+                        : (snapshot.soldTodayCount > 0
+                            ? CurrencyText.string(snapshot.soldTodayGross, code: snapshot.currencyCode)
+                            : "—")
                 )
                 Divider()
                 Metric(
@@ -196,7 +221,9 @@ private struct MediumView: View {
         // US-1222: combine the three metric columns into one spoken summary,
         // including the active-listing count the small view omits.
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(WidgetAccessibility.summary(for: snapshot, includeActive: true))
+        .accessibilityLabel(
+            WidgetAccessibility.summary(for: snapshot, includeActive: true, soldTodayIsStale: soldTodayIsStale)
+        )
     }
 }
 
@@ -205,17 +232,23 @@ private struct MediumView: View {
 /// drop the "Updated Xm ago" footnote that's invisible at standby distance.
 private struct StandByView: View {
     let snapshot: WidgetSnapshot
+    let soldTodayIsStale: Bool
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             BrandHeader()
             Spacer(minLength: 0)
-            Text("\(snapshot.soldTodayCount)")
+            // US-3226: a dash, not last night's count. This treatment drops the
+            // "Updated Xm ago" footnote by design, so a stale number here has
+            // nothing next to it to contradict it.
+            Text(soldTodayIsStale ? "—" : "\(snapshot.soldTodayCount)")
                 .font(.system(size: 44, weight: .bold, design: .rounded))
                 .foregroundStyle(Color.brandNavyLiteral)
                 .minimumScaleFactor(0.6)
                 .lineLimit(1)
-            Text(snapshot.soldTodayCount == 1 ? "sale today" : "sales today")
+            Text(soldTodayIsStale
+                 ? "open the app to update"
+                 : (snapshot.soldTodayCount == 1 ? "sale today" : "sales today"))
                 .font(.caption)
                 .foregroundStyle(.secondary)
             Spacer(minLength: 0)
@@ -230,7 +263,7 @@ private struct StandByView: View {
         // US-1222: the big rounded numerals read as bare numbers to VoiceOver;
         // compose them into the same natural-language summary.
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(WidgetAccessibility.summary(for: snapshot))
+        .accessibilityLabel(WidgetAccessibility.summary(for: snapshot, soldTodayIsStale: soldTodayIsStale))
     }
 }
 
@@ -240,15 +273,20 @@ private struct StandByView: View {
 /// renders it monochrome, tinted to the user's Lock Screen color.
 private struct AccessoryInlineView: View {
     let snapshot: WidgetSnapshot
+    let soldTodayIsStale: Bool
 
     var body: some View {
         if snapshot.isSignedIn {
+            // US-3226: one line, so a stale sold-count is dropped rather than
+            // dashed — the payout figure is still true.
             Label(
-                "\(snapshot.soldTodayCount) sold · \(CurrencyText.string(snapshot.pendingPayoutNet, code: snapshot.currencyCode)) payout",
+                soldTodayIsStale
+                    ? "\(CurrencyText.string(snapshot.pendingPayoutNet, code: snapshot.currencyCode)) payout waiting"
+                    : "\(snapshot.soldTodayCount) sold · \(CurrencyText.string(snapshot.pendingPayoutNet, code: snapshot.currencyCode)) payout",
                 systemImage: "shippingbox.fill"
             )
             // US-1222: the "·" separator reads awkwardly; speak a clean summary.
-            .accessibilityLabel(WidgetAccessibility.summary(for: snapshot))
+            .accessibilityLabel(WidgetAccessibility.summary(for: snapshot, soldTodayIsStale: soldTodayIsStale))
         } else {
             Label("Sign in to GradeThread", systemImage: "shippingbox.fill")
                 .accessibilityLabel(WidgetAccessibility.summary(for: snapshot))
@@ -260,6 +298,7 @@ private struct AccessoryInlineView: View {
 /// items sold today — over the system accessory background.
 private struct AccessoryCircularView: View {
     let snapshot: WidgetSnapshot
+    let soldTodayIsStale: Bool
 
     var body: some View {
         ZStack {
@@ -267,7 +306,9 @@ private struct AccessoryCircularView: View {
             VStack(spacing: 0) {
                 Image(systemName: "shippingbox.fill")
                     .font(.system(size: 11))
-                Text("\(snapshot.isSignedIn ? snapshot.soldTodayCount : 0)")
+                Text(soldTodayIsStale && snapshot.isSignedIn
+                     ? "—"
+                     : "\(snapshot.isSignedIn ? snapshot.soldTodayCount : 0)")
                     .font(.title2.weight(.bold))
                     .minimumScaleFactor(0.6)
                     .lineLimit(1)
@@ -280,7 +321,9 @@ private struct AccessoryCircularView: View {
         // US-1222: without this VoiceOver reads just the bare numeral ("3").
         // Compose the count into a sentence so the complication is meaningful.
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(WidgetAccessibility.circularLabel(for: snapshot))
+        .accessibilityLabel(
+            WidgetAccessibility.circularLabel(for: snapshot, soldTodayIsStale: soldTodayIsStale)
+        )
     }
 }
 
@@ -288,6 +331,7 @@ private struct AccessoryCircularView: View {
 /// the payout waiting.
 private struct AccessoryRectangularView: View {
     let snapshot: WidgetSnapshot
+    let soldTodayIsStale: Bool
 
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
@@ -310,10 +354,11 @@ private struct AccessoryRectangularView: View {
         .widgetURL(WidgetDeepLink.money.url)
         // US-1222: merge the two stacked lines into one spoken summary.
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(WidgetAccessibility.summary(for: snapshot))
+        .accessibilityLabel(WidgetAccessibility.summary(for: snapshot, soldTodayIsStale: soldTodayIsStale))
     }
 
     private var soldLine: String {
+        if soldTodayIsStale { return "Today's sales not updated" }
         if snapshot.soldTodayCount > 0 {
             return "\(snapshot.soldTodayCount) sold today · \(CurrencyText.string(snapshot.soldTodayGross, code: snapshot.currencyCode))"
         }
@@ -400,7 +445,11 @@ private enum CurrencyText {
 private enum WidgetAccessibility {
     /// Full summary: sold today (+ gross), payout waiting, optionally the
     /// active-listing count (medium family). Falls back to a sign-in prompt.
-    static func summary(for snapshot: WidgetSnapshot, includeActive: Bool = false) -> String {
+    static func summary(
+        for snapshot: WidgetSnapshot,
+        includeActive: Bool = false,
+        soldTodayIsStale: Bool = false
+    ) -> String {
         guard snapshot.isSignedIn else {
             return "Sign in to GradeThread to see today's sales and payout."
         }
@@ -408,22 +457,24 @@ private enum WidgetAccessibility {
         if includeActive {
             parts.append("\(snapshot.activeListings) active \(snapshot.activeListings == 1 ? "listing" : "listings")")
         }
-        parts.append(soldClause(for: snapshot))
+        parts.append(soldClause(for: snapshot, soldTodayIsStale: soldTodayIsStale))
         parts.append(payoutClause(for: snapshot))
         return parts.joined(separator: ". ") + "."
     }
 
     /// Circular complication: the count alone is meaningless to VoiceOver, so
     /// speak it as a sentence ("3 items sold today").
-    static func circularLabel(for snapshot: WidgetSnapshot) -> String {
+    static func circularLabel(for snapshot: WidgetSnapshot, soldTodayIsStale: Bool = false) -> String {
         guard snapshot.isSignedIn else {
             return "Sign in to GradeThread."
         }
+        if soldTodayIsStale { return "Today's sales not updated. Open GradeThread." }
         let count = snapshot.soldTodayCount
         return "\(count) \(count == 1 ? "item" : "items") sold today."
     }
 
-    private static func soldClause(for snapshot: WidgetSnapshot) -> String {
+    private static func soldClause(for snapshot: WidgetSnapshot, soldTodayIsStale: Bool) -> String {
+        if soldTodayIsStale { return "Today's sales not updated" }
         let count = snapshot.soldTodayCount
         guard count > 0 else { return "Nothing sold yet today" }
         let gross = CurrencyText.string(snapshot.soldTodayGross, code: snapshot.currencyCode)

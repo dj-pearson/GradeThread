@@ -60,6 +60,24 @@ public struct WidgetSnapshot: Codable, Equatable, Sendable {
         self.currencyCode = currencyCode
     }
 
+    /// US-3226: whether the "sold today" figures describe a day that has
+    /// already ended.
+    ///
+    /// `soldTodayCount` / `soldTodayGross` are computed for the local day the
+    /// APP was last open. The widget renders whatever was last written, so a
+    /// phone the seller hasn't opened since last night shows yesterday's
+    /// "3 sold - $214" as this morning's number. On the home-screen families
+    /// the "Updated 14 hours ago" footnote at least contradicts it; the Lock
+    /// Screen and StandBy treatments deliberately drop that footnote, so there
+    /// the wrong number stands alone in the most glanceable place on the phone.
+    ///
+    /// The other figures (payout waiting, active listings) are "as of" values
+    /// and only go stale gradually, which the footnote covers. Only the
+    /// today-scoped pair expires at a specific instant: local midnight.
+    public func soldTodayIsStale(asOf now: Date, calendar: Calendar = .current) -> Bool {
+        !calendar.isDate(generatedAt, inSameDayAs: now)
+    }
+
     /// True when every rollup figure matches `other`, ignoring `generatedAt`.
     /// Used by the publisher (US-637) to skip a widget-timeline reload when the
     /// numbers haven't actually changed since the last publish.

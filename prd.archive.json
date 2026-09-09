@@ -45544,6 +45544,20 @@
         "A guard reads the props of the element with a given id rather than grepping the file, so an autocomplete on a different field in the same file cannot satisfy it. Sabotage-checked in both directions."
       ],
       "notes": "Done 2026-09-09 in 722051d49. signup.tsx (name, email, new-password), reset-password.tsx (email + both new-password fields) and the settings change-password card (current-password + two new-password) all carry explicit tokens. Guard is src/test/credential-fields-autocomplete.test.ts; it reads the props of the element with a given id, not the whole file, so an autocomplete elsewhere in the same file cannot satisfy it. Sabotage-checked: removing the signup token fails it by name."
+    },
+    {
+      "id": "US-3226",
+      "passes": true,
+      "title": "iOS widget: yesterday's 'sold today' was shown as this morning's number",
+      "description": "soldTodayCount and soldTodayGross are computed for the local day the app was last open, and the widget renders whatever was last written. A phone not opened since last night therefore shows yesterday's '3 sold - 214 dollars' at breakfast. On the home-screen families the 'Updated 14 hours ago' footnote at least contradicts it. The StandBy and the three Lock Screen treatments deliberately drop that footnote, so there the wrong number stands alone in the most glanceable place on the phone. Payout waiting and active listings are as-of values that decay gradually; only the today-scoped pair expires at a specific instant, local midnight.",
+      "acceptanceCriteria": [
+        "WidgetSnapshot.soldTodayIsStale(asOf:calendar:) compares calendar days, not elapsed time",
+        "Every family shows a dash and says it is not updated rather than a stale count; VoiceOver summaries say the same",
+        "The timeline carries a second entry at the next local midnight, so the rollover happens even if the app never runs again",
+        "Unit tests cover same-day, across-midnight, and the day-boundary-not-duration distinction"
+      ],
+      "priority": 3,
+      "notes": "Done 2026-09-09. Shared/WidgetSnapshot.swift gains soldTodayIsStale(asOf:calendar:) — a CALENDAR-DAY comparison, not an elapsed-time one, so 1pm-to-11pm is fresh and 11pm-to-1am is not. SnapshotWidgetView computes it from entry.date (not Date.now) so the midnight entry evaluates correctly, and passes it to all five families: Small and Medium show a dash plus 'not updated today', StandBy shows a dash over 'open the app to update' (it drops the Updated footnote by design, which is why a stale number there had nothing to contradict it), the inline accessory drops the sold clause and keeps the payout figure, circular shows a dash, rectangular says 'Today's sales not updated'. WidgetAccessibility.summary and .circularLabel take the flag too, so VoiceOver never reads a number the screen is not showing. getTimeline now emits a second entry at the next local midnight via Calendar.nextDate(matching: 0:00), so the rollover happens even if the app is never opened again; the 30-minute refresh policy is unchanged. Three tests in WidgetSnapshotTests, including the one that would pass with an elapsed-time check and must not. All 15 iOS guards pass. Swift compile is macOS-only, so iOS CI is the compile check."
     }
   ]
 }
