@@ -10,6 +10,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const getFreshAccessToken = vi.fn();
 const forceRefreshAccessToken = vi.fn();
+const abandonDeadSession = vi.fn();
 const toastError = vi.fn();
 const toastWarning = vi.fn();
 const showUpgrade = vi.fn();
@@ -22,6 +23,11 @@ let authState: { activeWorkspaceOwnerId: string | null; user: { id: string } | n
 vi.mock("@/lib/auth-token", () => ({
   getFreshAccessToken: (...a: unknown[]) => getFreshAccessToken(...a),
   forceRefreshAccessToken: (...a: unknown[]) => forceRefreshAccessToken(...a),
+  // US-3246 added this call to edgeFetch and did not add it here, so the one
+  // test covering a failed refresh threw on the mock instead of running. It
+  // has been red ever since, which meant the sign-out that story exists to
+  // perform had no coverage at all — the assertions below are the first.
+  abandonDeadSession: (...a: unknown[]) => abandonDeadSession(...a),
 }));
 vi.mock("@/lib/edge-api", () => ({ edgeApiUrl: () => "https://edge.test" }));
 vi.mock("@/lib/analytics", () => ({ track: vi.fn() }));
@@ -146,11 +152,39 @@ describe("edgeFetch: 401 refresh-and-retry", () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
-  it("does not retry when the refresh fails", async () => {
+  it("does not retry when the refresh fails, and drops the dead session", async () => {
+    // US-3246: a failed refresh means the refresh token is expired, revoked,
+    // or the account was signed out elsewhere. Returning the 401 alone leaves
+    // the SPA still believing it has a session — ProtectedRoute renders the
+    // dashboard, the sidebar shows their name, and every action fails the same
+    // way. So the local session is dropped and the app can send them to sign
+    // in.
     fetchMock.mockResolvedValue(reply({ status: 401 }));
     forceRefreshAccessToken.mockResolvedValue(null);
     await edgeFetch("/api/thing");
     expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(abandonDeadSession).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps the session when the refresh WORKED and the retry is still refused", async () => {
+    // The other half of the rule, and the expensive one to get wrong: a live
+    // session that one endpoint refuses is not a dead session. Signing the
+    // user out here would throw a working seller back to the login screen
+    // because a single call was forbidden.
+    fetchMock.mockResolvedValue(reply({ status: 401 }));
+    forceRefreshAccessToken.mockResolvedValue("tok-2");
+    const res = await edgeFetch("/api/thing");
+    expect(res.status).toBe(401);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(abandonDeadSession).not.toHaveBeenCalled();
+  });
+
+  it("never drops the session on an unauthenticated call", async () => {
+    // A public endpoint answering 401 says nothing about whoever happens to be
+    // signed in, and must not sign them out.
+    fetchMock.mockResolvedValue(reply({ status: 401 }));
+    await edgeFetch("/api/public", { unauthenticated: true });
+    expect(abandonDeadSession).not.toHaveBeenCalled();
   });
 
   it("does not retry an unauthenticated request", async () => {
