@@ -39,7 +39,7 @@ public struct BulkActionExecutor {
         case .publish:
             return await publishItems(items, action: action, onProgress: onProgress)
         case .markShipped:
-            return await updateStatus(items, to: "shipped", action: action, onProgress: onProgress)
+            return await markItemsShipped(items, action: action, onProgress: onProgress)
         case .endListing:
             return await endListings(items, action: action, onProgress: onProgress)
         case let .dropPrice(percent):
@@ -162,6 +162,105 @@ public struct BulkActionExecutor {
                 }
             )
         }
+    }
+
+    // MARK: - Mark shipped (US-3273)
+
+    /// ⚠ THIS USED TO BE `updateStatus(items, to: "shipped")` AND NOTHING ELSE.
+    ///
+    /// "Shipped" is recorded in two places. `inventory_items.status` is what the
+    /// inventory list reads; `sales.shipped_at` is what the shipping queue reads
+    /// (`FulfillmentService.fetchOrders` filters on `shipped_at IS NULL`) and
+    /// what the eBay fulfillment is built from. Flipping only the first meant a
+    /// seller could mark twenty sold items shipped, watch the inventory list
+    /// agree, and find all twenty still sitting in the shipping queue — with
+    /// eBay never told anything had shipped, which is a late-shipment defect on
+    /// their account rather than a cosmetic mismatch.
+    ///
+    /// Two paths reached that: the bulk bar, and the single-item swipe in
+    /// InventoryListView, which routes `[item]` through this same executor. The
+    /// Fulfillment tab's own Mark shipped has always done the real thing.
+    ///
+    /// No tracking number is pushed to eBay here, and that is deliberate: a
+    /// bulk action has no number to push, and `FulfillmentService` already
+    /// treats "shipped, no tracking" as a local write. This closes the queue,
+    /// it does not fabricate a fulfillment.
+    private func markItemsShipped(
+        _ items: [LocalInventoryItem],
+        action: BulkAction,
+        onProgress: (@MainActor (Int, Int) -> Void)? = nil
+    ) async -> BulkActionResult {
+        let result = await updateStatus(items, to: "shipped", action: action, onProgress: onProgress)
+        // The status write is the one the user asked for. If it failed there is
+        // nothing to reconcile, and stamping the sales rows anyway would leave
+        // the two representations disagreeing the other way round.
+        guard result.failures.isEmpty else { return result }
+
+        do {
+            let stamped = try await stampSalesShipped(itemIds: items.map(\.id))
+            // Silence is only right when there was nothing to do. An item on the
+            // Sold stage that has no unshipped sale row is either already
+            // shipped or not linked, and the seller should not have to discover
+            // that by finding it still in the queue.
+            guard stamped < items.count else { return result }
+            let missing = items.count - stamped
+            return BulkActionResult(
+                action: action,
+                succeeded: result.succeeded,
+                failures: result.failures,
+                warnings: result.warnings + [
+                    missing == 1
+                        ? "1 item had no open order to close, so it may still be in Shipping."
+                        : "\(missing) items had no open order to close, so they may still be in Shipping."
+                ]
+            )
+        } catch {
+            // The items ARE marked shipped; the queue just did not get the memo.
+            // Say so rather than reporting a clean success the seller would
+            // trust.
+            return BulkActionResult(
+                action: action,
+                succeeded: result.succeeded,
+                failures: result.failures,
+                warnings: result.warnings + [
+                    FriendlyErrorCopy.actionMessage(
+                        for: error,
+                        fallback: "Marked shipped, but the Shipping queue couldn't be updated. Open Shipping and try there."
+                    )
+                ]
+            )
+        }
+    }
+
+    /// Stamps `shipped_at` on every not-yet-shipped sale belonging to these
+    /// items, and returns how many rows were stamped.
+    ///
+    /// Selects first, then updates by id. The obvious version is one UPDATE
+    /// filtered on `.is("shipped_at", nil)`, and the reason not to is in
+    /// CLAUDE.md: the self-hosted prod PostgREST and the newer local one
+    /// disagree about filters on mutations, so CI cannot catch a divergence
+    /// here. Two round trips against a handful of ids is a cheap way to not
+    /// find that out in production.
+    private func stampSalesShipped(itemIds: [String]) async throws -> Int {
+        guard !itemIds.isEmpty else { return 0 }
+        struct SaleRef: Decodable { let id: String }
+        let open: [SaleRef] = try await supabase
+            .from("sales")
+            .select("id")
+            .in("inventory_item_id", values: itemIds)
+            .is("shipped_at", value: nil)
+            .execute()
+            .value
+        guard !open.isEmpty else { return 0 }
+
+        struct ShippedUpdate: Encodable { let shipped_at: String }
+        let iso = ISO8601DateFormatter().string(from: .now)
+        try await supabase
+            .from("sales")
+            .update(ShippedUpdate(shipped_at: iso))
+            .in("id", values: open.map(\.id))
+            .execute()
+        return open.count
     }
 
     // MARK: - Bulk publish (US-680)

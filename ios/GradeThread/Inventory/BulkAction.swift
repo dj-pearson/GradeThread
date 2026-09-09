@@ -146,6 +146,14 @@ public struct BulkActionResult: Equatable {
         if warnings.isEmpty { return base }
         // Surface a single representative notice inline; the caller can render
         // the full `warnings` list if it wants more detail.
-        return "\(base) \(warnings.count == 1 ? warnings[0] : "\(warnings.count) listings ended in FlipDesk only — verify on eBay.")"
+        //
+        // US-3273: the plural used to be end-listing copy ("N listings ended in
+        // FlipDesk only"), which was correct when end-listing was the only
+        // action that warned and became a lie the moment another one did. A
+        // count and the first notice says the same thing for any action.
+        let notice = warnings.count == 1
+            ? warnings[0]
+            : "\(warnings[0]) (+\(warnings.count - 1) more)"
+        return "\(base) \(notice)"
     }
 }

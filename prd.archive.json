@@ -46007,6 +46007,21 @@
         "Normalisation happens in FulfillmentService, the one point both entry paths pass through, not in the sheet"
       ],
       "notes": "Done 2026-09-09. New GradeThread/Fulfillment/TrackingNumber.swift (isPlausible + normalized), used by MarkShippedSheet.trackingLooksValid and by NotificationActionPlan.from; normalisation moved into FulfillmentService.markShipped so both paths get it. GradeThreadTests/TrackingNumberTests.swift, 11 cases. Two behaviour changes worth knowing. (1) The sheet used to REJECT spaces, so a real pasted number like '9400 1000 0000' triggered the 'that tracking number looks off' warning; it is now accepted and the spaces are stripped before eBay sees it. That is a fix, not a loosening - the old rule warned about correct input. (2) The notification action now opens the sale instead of shipping it when the text cannot be a tracking number. Marking it shipped WITHOUT the number was the other option and is worse: it buries the mistake under a state the seller cannot see is incomplete, and shipped_at is what removes the order from the queue."
+    },
+    {
+      "id": "US-3273",
+      "passes": true,
+      "title": "iOS: Mark shipped from Inventory never closed the order",
+      "description": "Shipped is recorded in two places. inventory_items.status is what the inventory list reads; sales.shipped_at is what the shipping queue reads (FulfillmentService.fetchOrders filters shipped_at IS NULL) and what the eBay fulfillment is built from. BulkActionExecutor's markShipped ran updateStatus(items, to: 'shipped') and nothing else, so a seller could mark twenty sold items shipped, watch the inventory list agree, and find all twenty still in the shipping queue with eBay never told anything had shipped. On eBay that is a late-shipment defect on the account, not a cosmetic mismatch. Two entry points hit it: the bulk bar and the single-item swipe in InventoryListView, which routes one item through the same executor. The Fulfillment tab's own Mark shipped has always done the real thing. Found alongside: BulkActionResult.summary's plural warning string was hardcoded end-listing copy, and a successful single-item swipe never set actionResult, so a warning had nowhere to appear on the path most likely to produce one.",
+      "acceptanceCriteria": [
+        "Bulk and single-item Mark shipped stamp sales.shipped_at for every unshipped sale of the targeted items, so the order leaves the shipping queue",
+        "No tracking number is invented or pushed to eBay, matching FulfillmentService's local-write path for shipped-without-tracking",
+        "A failed status write does not stamp the sales rows, so the two representations never disagree the other way round",
+        "Items with no open order to close are reported rather than passing silently, and a failure to stamp is reported as a warning on an otherwise successful action",
+        "BulkActionResult.summary's multi-warning copy is action-neutral instead of end-listing specific",
+        "A single-item swipe surfaces the result alert when there are warnings, not only on failure"
+      ],
+      "notes": "Done 2026-09-09. BulkActionExecutor.markItemsShipped replaces the bare updateStatus call; stampSalesShipped selects the open sale ids then updates by id rather than filtering the UPDATE on .is('shipped_at', nil), because CLAUDE.md's US-1552 note says prod and local PostgREST disagree about filters on mutations and CI cannot catch it. Four tests added to BulkActionTests. The assumption that every target has a sale row is now pinned by a test: BulkAction.actions(for:) offers markShipped on the Sold stage and nowhere else. NOT COVERED BY A TEST, and worth knowing: markItemsShipped and stampSalesShipped both talk to Supabase directly, and BulkActionExecutor takes a SupabaseClient rather than a protocol, so the network behaviour here has no seam to fake. The pure surfaces (BulkActionResult.summary, the stage-to-actions map) are tested; the two-step select-then-update is not. Giving the executor a provider protocol the way FulfillmentStore has one would fix that and is worth its own story."
     }
   ]
 }
