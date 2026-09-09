@@ -3,6 +3,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { PageHeader } from "@/components/ui/page-header";
 import { EmptyState } from "@/components/ui/empty-state";
+import { ErrorState } from "@/components/ui/error-state";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
@@ -117,7 +118,13 @@ export function ApiKeysPage() {
   const { plan, isLoading: planLoading } = usePlanUsage();
   const hasApiAccess = FLIPDESK_PLANS[plan]?.gateFlags.apiAccess ?? false;
 
-  const { data: keys, isLoading } = useQuery<ApiKeyItem[]>({
+  const {
+    data: keys,
+    isLoading,
+    isError,
+    isFetching,
+    refetch,
+  } = useQuery<ApiKeyItem[]>({
     queryKey: ["api-keys", user?.id],
     queryFn: async () => {
       const res = await edgeFetch("/api/keys");
@@ -453,7 +460,18 @@ export function ApiKeysPage() {
           </CardDescription>
         </CardHeader>
         <CardContent>
-          {isLoading ? (
+          {/* US-3237: a failed read leaves `keys` undefined, which is exactly
+              what having none looks like -- and "No API keys" reads to a
+              developer as keys that were revoked, whose obvious next move is
+              to mint a duplicate. */}
+          {isError ? (
+            <ErrorState
+              title="Couldn't load your API keys"
+              description="The list didn't load. Your existing keys are unaffected; don't create a replacement until this loads."
+              onRetry={() => void refetch()}
+              retrying={isFetching}
+            />
+          ) : isLoading ? (
             <div className="space-y-3">
               <Skeleton className="h-10 w-full" />
               <Skeleton className="h-10 w-full" />

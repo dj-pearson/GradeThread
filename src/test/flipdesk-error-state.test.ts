@@ -32,7 +32,17 @@ import { resolve, join, sep } from "node:path";
 // FlipDesk pages are full of both. All three current hits were checked by hand
 // and all three are false positives.
 
-const ROOTS = ["src/pages/flipdesk"];
+// US-3237 widened this past FlipDesk. src/pages/admin and src/pages/content
+// have their own guard (admin-error-state.test.ts); these are everything else a
+// customer can reach. Kept as one file rather than three because the rules and
+// the shrink-only list are the same.
+const ROOTS = [
+  "src/pages/flipdesk",
+  "src/pages/buyer",
+  "src/pages/fit",
+  "src/pages/tools",
+  "src/pages/TOP_LEVEL",
+];
 
 /**
  * Shape C ratchet: pages that react to a failed read in NO way at all. The
@@ -64,17 +74,24 @@ interface PageFacts {
 
 function listPages(): string[] {
   const out: string[] = [];
-  const walk = (dir: string) => {
+  const walk = (dir: string, recurse: boolean) => {
     for (const e of readdirSync(dir, { withFileTypes: true })) {
       const p = join(dir, e.name);
       if (e.isDirectory()) {
-        if (e.name !== "__tests__") walk(p);
+        if (recurse && e.name !== "__tests__") walk(p, true);
       } else if (e.name.endsWith(".tsx") && !e.name.endsWith(".test.tsx")) {
         out.push(p.split(sep).join("/"));
       }
     }
   };
-  for (const r of ROOTS) walk(resolve(process.cwd(), r));
+  for (const r of ROOTS) {
+    // The sentinel means "src/pages itself, no subdirectories" -- the
+    // grading-side seller pages (submissions, billing, api-keys, settings).
+    // Recursing there would swallow admin and content, which have their own
+    // guard and their own shape of rule.
+    if (r === "src/pages/TOP_LEVEL") walk(resolve(process.cwd(), "src/pages"), false);
+    else walk(resolve(process.cwd(), r), true);
+  }
   return out.map((p) => p.slice(p.indexOf("src/")));
 }
 
@@ -96,14 +113,19 @@ function factsFor(rel: string): PageFacts {
   };
 }
 
-describe("FlipDesk pages don't report a failed load as an empty one (US-3217)", () => {
+describe("customer pages don't report a failed load as an empty one (US-3217, US-3237)", () => {
   const pages = listPages().map(factsFor);
 
-  it("found the FlipDesk pages to check", () => {
+  it("found the pages to check", () => {
     // Guard the guard: a broken glob must fail loudly, not silently pass.
-    expect(pages.length).toBeGreaterThan(50);
-    expect(pages.filter((p) => p.usesQuery).length).toBeGreaterThan(20);
+    expect(pages.length).toBeGreaterThan(90);
+    expect(pages.filter((p) => p.usesQuery).length).toBeGreaterThan(25);
     expect(pages.some((p) => p.rel.endsWith("flipdesk/listings.tsx"))).toBe(true);
+    expect(pages.some((p) => p.rel === "src/pages/api-keys.tsx")).toBe(true);
+    expect(pages.some((p) => p.rel.startsWith("src/pages/fit/"))).toBe(true);
+    // ...and NOT the trees that have their own guard.
+    expect(pages.some((p) => p.rel.startsWith("src/pages/admin/"))).toBe(false);
+    expect(pages.some((p) => p.rel.startsWith("src/pages/content/"))).toBe(false);
   });
 
   it("every query-backed page with an EmptyState also renders an ErrorState", () => {

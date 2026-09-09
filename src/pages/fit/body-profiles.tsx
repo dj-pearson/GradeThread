@@ -3,6 +3,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Loader2, Plus, Ruler, Star, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { toastError } from "@/lib/toast-error";
+import { ErrorState } from "@/components/ui/error-state";
 import { Button } from "@/components/ui/button";
 import { PageHeader } from "@/components/ui/page-header";
 import { Input } from "@/components/ui/input";
@@ -64,7 +65,13 @@ export function BodyProfilesPage() {
   const [draft, setDraft] = useState<Draft | null>(null);
   const [saving, setSaving] = useState(false);
 
-  const { data: profiles = [], isLoading } = useQuery<BodyProfile[]>({
+  const {
+    data: profiles = [],
+    isLoading,
+    isError,
+    isFetching,
+    refetch,
+  } = useQuery<BodyProfile[]>({
     queryKey: ["body-profiles", userId],
     enabled: Boolean(userId),
     queryFn: async () => {
@@ -180,7 +187,16 @@ export function BodyProfilesPage() {
         }
       />
 
-      {isLoading ? (
+      {/* US-3237: a failed read renders as "no saved profiles", and a seller
+          who has measured themselves once does not expect to be asked again. */}
+      {isError ? (
+        <ErrorState
+          title="Couldn't load your measurement profiles"
+          description="The list didn't load. Nothing has been deleted; this is a loading problem."
+          onRetry={() => void refetch()}
+          retrying={isFetching}
+        />
+      ) : isLoading ? (
         <div className="flex justify-center py-12">
           <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
         </div>

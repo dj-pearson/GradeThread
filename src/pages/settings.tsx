@@ -736,6 +736,36 @@ export function SettingsPage() {
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
+              {/* US-3237. These fields are SEEDED from a read, so a failed read
+                  leaves them blank -- identical to never having filled them in.
+                  A seller who then types over the blanks and saves replaces a
+                  stored ship-from address with whatever they retyped. This is a
+                  warning rather than an ErrorState because the rest of the card
+                  still works; what must not happen is a silent overwrite. */}
+              {shippingQuery.isError && (
+                <div
+                  role="alert"
+                  className="flex items-start gap-2 rounded-lg border border-destructive/40 bg-destructive/5 p-3 text-sm"
+                >
+                  <AlertTriangle className="mt-0.5 h-4 w-4 flex-shrink-0 text-destructive" />
+                  <div className="space-y-1">
+                    <p className="font-medium">
+                      Couldn&apos;t load your saved business details
+                    </p>
+                    <p className="text-muted-foreground">
+                      These boxes are blank because the read failed, not because
+                      they are empty. Saving now would replace what is stored.{" "}
+                      <button
+                        type="button"
+                        onClick={() => void shippingQuery.refetch()}
+                        className="font-medium underline underline-offset-2"
+                      >
+                        {shippingQuery.isFetching ? "Retrying…" : "Try again"}
+                      </button>
+                    </p>
+                  </div>
+                </div>
+              )}
               <div className="grid gap-4 sm:grid-cols-2">
                 <div className="space-y-2">
                   <Label htmlFor="businessName">Business name</Label>
