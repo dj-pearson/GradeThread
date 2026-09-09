@@ -45807,6 +45807,19 @@
         "marketplaces.tsx comes off READ_FAILURE_UNHANDLED in src/test/flipdesk-error-state.test.ts, which fails in both directions, so leaving it on after fixing is as loud as never fixing it."
       ],
       "notes": "Done 2026-09-09. Only the two OAuth connection cards were changed. The other reads on this page (policies, promoted overview, sync status, extension queue) render nothing on failure rather than asserting a false state, which is a weaker defect and belongs to US-3217 if it is worth doing at all."
+    },
+    {
+      "id": "US-3249",
+      "passes": true,
+      "title": "Money on the accounting pages has no thousands separators",
+      "description": "ledger-math formatCents builds the string by hand and never groups, so a P and L showing twelve thousand dollars reads 12345.67 with a dollar sign in front instead of 12,345.67. It is used 60 times and those 60 are the densest money surfaces in the product: the profit and loss statement, the money overview, the tax packet, expenses. Its own tests only assert values under one hundred dollars, which is precisely why it survived. Everything else in the codebase groups: constants, ebay-fee-schedule, estimated-tax and buyer-conversion-claim all reach for toLocaleString or Intl.NumberFormat. Worse, radar-route exports its OWN function of the same name that DOES group and rounds to whole dollars over a threshold, so two functions called formatCents sit in the same codebase producing different output, and importing the wrong one changes how money reads with no error.",
+      "acceptanceCriteria": [
+        "ledger-math formatCents groups thousands. Keep the hand-rolled sign and cents handling if it is cheaper than Intl; what matters is the separator, not the mechanism.",
+        "Tests cover the range that let this through: four, five and six figure values, negatives above a thousand, and the boundary at exactly one thousand. The existing sub-one-hundred cases stay.",
+        "The name collision with radar-route formatCents is called out in both files. They are not interchangeable, radar rounds to whole dollars, and a same-name import is a silent formatting change rather than a type error.",
+        "Do NOT chase currency symbols in this story. The database has a currency column, but whether GradeThread supports non-USD sellers is a product decision, not a formatting one."
+      ],
+      "notes": "Done 2026-09-09. Verified against every suite that references formatCents plus the money-adjacent ones (75 tests). Not visually checked in a browser: no page was opened, only the formatter and its callers' tests."
     }
   ]
 }
