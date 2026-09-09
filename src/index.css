@@ -215,6 +215,67 @@
   --sidebar-ring: #f03d5f;
 }
 
+/* Printing is not a theme (US-3235).
+ *
+ * Dark mode sets --foreground to near-white, and browsers do not print
+ * background colours by default -- "Background graphics" ships OFF in Chrome
+ * and Safari. So a seller in dark mode who pressed Print / Save PDF on a
+ * certificate got near-white text on white paper: a blank page where the grade
+ * should be. The certificate is the thing a seller hands a buyer, and
+ * cert-share-actions.tsx offers window.print() as a first-class action.
+ *
+ * The page was otherwise carefully print-aware -- a print-only branded header
+ * and a dozen print:hidden rules (US-767) -- which is exactly why the palette
+ * gap stayed invisible.
+ *
+ * These are the `:root` light values, re-asserted for `.dark` at print time.
+ * A mirror can drift, so src/test/print-palette.test.ts fails if `.dark` gains
+ * a token this block does not neutralise.
+ */
+@media print {
+  .dark {
+    --accent: #fdeaee;
+    --accent-foreground: #cc1f3d;
+    --background: #fafafc;
+    --border: #e2e8f0;
+    --brand-red-text: #cc1f3d;
+    --card: #ffffff;
+    --card-foreground: #0e0e1a;
+    --chart-1: #0c1e36;
+    --chart-2: #f03d5f;
+    --chart-3: #0e0e1a;
+    --chart-4: #64748b;
+    --chart-5: #94a3b8;
+    --destructive: #cc1f3d;
+    --foreground: #0e0e1a;
+    --input: #e2e8f0;
+    --muted: #f0f4f8;
+    --muted-foreground: #64748b;
+    --popover: #ffffff;
+    --popover-foreground: #0e0e1a;
+    --primary: #0c1e36;
+    --primary-foreground: #fafafc;
+    --ring: #0c1e36;
+    --secondary: #f0f4f8;
+    --secondary-foreground: #0c1e36;
+    --sidebar: #0c1e36;
+    --sidebar-accent: #112a4c;
+    --sidebar-accent-foreground: #fafafc;
+    --sidebar-border: #112a4c;
+    --sidebar-foreground: #fafafc;
+    --sidebar-primary: #f03d5f;
+    --sidebar-primary-foreground: #ffffff;
+    --sidebar-ring: #f03d5f;
+  }
+
+  /* Some browsers honour a body background even with graphics off. Make the
+     sheet explicitly white rather than relying on that. */
+  html,
+  body {
+    background: #ffffff !important;
+  }
+}
+
 @layer base {
   * {
     @apply border-border outline-ring/50;
