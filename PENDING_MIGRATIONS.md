@@ -1,6 +1,6 @@
 # PENDING MIGRATIONS — applied to prod separately from the push
 
-## ⏳ HELD: 00772 — item_photos.remote_source + flipdesk_ebay_listings.photo_urls (US-3196)
+## ✅ APPLIED 2026-09-08: 00772 — item_photos.remote_source + flipdesk_ebay_listings.photo_urls (US-3196)
 
 **Risk: LOW.** Two nullable text columns on `item_photos`, one CHECK, one
 partial index, and one `text[] NOT NULL DEFAULT '{}'` on
@@ -10,6 +10,10 @@ this file" and is exactly what was true before.
 
 **Apply order:** after 00771. Run `NOTIFY pgrst, 'reload schema';` afterwards
 (three new columns), then redeploy the edge.
+
+**Applied by the owner before the commit landed, so the push is cleared.** The
+paragraph below is why the order mattered; it is kept because a rollback would
+put us back in front of it.
 
 **⚠️ THE FRONTEND READS THE NEW COLUMNS, AND CLOUDFLARE PAGES DEPLOYS ON PUSH.**
 `src/components/flipdesk/photo-manager.tsx` reads `item_photos.remote_source`
