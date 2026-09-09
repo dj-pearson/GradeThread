@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-3215",
+  "nextId": "US-3217",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -4792,6 +4792,32 @@
         "VERIFIED BEFORE FILING, so the fix is not aimed at the wrong thing. The CREDIT debit is already idempotent: bulkBatchKey in src/lib/bulk-batch-key.ts is a deterministic hash of tier plus sorted item ids with no timestamp, and debit_grade_credits takes p_idempotency_key (US-2564 / US-2289). Two clicks on the same item at the same tier therefore reuse one key and debit once.",
         "NOT VERIFIED and the first thing to check: whether the INCLUDED monthly grade path in runPaymentPrecedence is deduped by that same key, or only the credit branch is. If it is not, a double click burns two of the monthly bundle while debiting one credit, which is the shape of a bill nobody can explain.",
         "A test proves the second submit is refused rather than merely slower: calling submitItemsForGrading twice for one item creates one submissions row and returns a stated refusal for the second, with no second charge of any kind."
+      ]
+    },
+    {
+      "id": "US-3215",
+      "passes": false,
+      "title": "One certificate URL renders two completely different pages depending on how you arrived",
+      "description": "As a buyer sent a certificate link, I want the page to look the same whether I clicked it or pasted it, so that the document backing a purchase is one document rather than two that disagree about what is on it.",
+      "acceptanceCriteria": [
+        "MEASURED on production for /cert/c2ee15ee-22fd-4783-bade-b08c1745d9ec. Clicked from the passport page (React Router, src/pages/certificate.tsx): 11477px tall, 11.8 screens, 2 headings, 16 images, NO graded photo. Pasted as a fresh URL (the Pages Function, functions/cert/[id].ts): 2860px, 2.9 screens, 6 headings, 10 images, graded photo present at 440x440. Same id, same moment, two pages.",
+        "The SSR page never hydrates: document.querySelector('#root') has no children on a pasted load, so the React certificate route only ever renders after a client-side navigation. Which page a buyer sees is decided by how they arrived, which is not a decision anyone made.",
+        "The two are reconciled into ONE rendering. Either the Pages Function becomes the only implementation and the SPA route redirects to a hard load, or the SPA route hydrates the SSR markup — but a second hand-written copy of a legal-ish document is not kept. A test asserts both entry paths produce the same section list.",
+        "The graded photo renders on both paths. It is present in the SSR markup (alt starts 'Graded photo') and absent from the SPA route entirely, which is why the owner reported it missing: they were looking at the SPA one.",
+        "The masthead logo stops being squashed. On the SPA page logo_white.png is natural 1806x376 (ratio 4.8) rendered at 720x32 (ratio 22.5) — a 4.7x horizontal stretch. Give it width/height or object-contain rather than a fixed height on a full-width box.",
+        "Garment photos are thumbnails that open a lightbox rather than full-bleed blocks. Eleven screens is mostly photo: the SSR page shows the same eight photos at 121px and fits in 2.9. A buyer looking for a flaw needs to ZOOM, which a lightbox does better than a tall page."
+      ]
+    },
+    {
+      "id": "US-3216",
+      "passes": false,
+      "title": "The certificate coverage diagram draws a shirt for every garment, including pants",
+      "description": "As a buyer reading the coverage map on a pair of trousers, I want the drawing to be of trousers, so that the marks for waistband, inseam and hem are not floating over a collar and sleeves.",
+      "acceptanceCriteria": [
+        "src/components/certificate/coverage-heatmap.tsx renders one hard-coded silhouette for every garment. Its own comment says so at line 117: 'Generic garment silhouette (collar + sleeves + body)'. On the Quince Ponte Straight Leg Pants certificate the zone list is right (Waistband, Inseam / crotch, Hem, Pockets) and every marker sits on a torso.",
+        "The silhouette is chosen from the garment category the report already carries, with at least a top, a bottom and a one-piece shape. The zone anchor points move with it, since a waistband anchor at 0.35 down a shirt is a chest.",
+        "A garment whose category has no silhouette falls back to the legend alone rather than to a shape that is wrong. A drawing that contradicts its own labels is worse than no drawing on a document a buyer is asked to trust.",
+        "A test pins that a bottoms report never renders the top silhouette, and that every zone with an anchor in a given silhouette has an anchor defined for it."
       ]
     }
   ]
