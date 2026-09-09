@@ -24,6 +24,7 @@ const SALE = {
 
 function input(over: Partial<PacketInput> = {}): PacketInput {
   return {
+    readFailures: [],
     taxYear: "2025",
     from: "2025-01-01",
     to: "2026-01-01",
@@ -303,5 +304,44 @@ describe("PACKET_EXCLUSIONS", () => {
   it("says the honest one out loud", () => {
     // The limit that matters most and is easiest to leave unsaid.
     expect(PACKET_EXCLUSIONS.join(" ")).toMatch(/never recorded/i);
+  });
+});
+
+describe("a read that failed is not a zero", () => {
+  // AC6 is "warn, then produce it anyway", and that only holds if a failure
+  // becomes a warning. The reads that feed receiptCount and
+  // expensesWithoutReceipt discarded their error and fell through to an empty
+  // list, so a broken read produced zero expenses, zero missing receipts and
+  // therefore no warnings at all — a clean cover page on a packet with a hole
+  // in it, handed to an accountant.
+  it("puts the failure on the cover, and says the totals are low rather than zero", () => {
+    const warnings = packetWarnings(
+      input({ readFailures: ["the expense list, so receipt counts are missing"] }),
+    );
+    const w = warnings.find((x) => x.headline.includes("could not be loaded"));
+    expect(w, "a failed read must produce a warning").toBeDefined();
+    expect(w!.detail).toContain("the expense list");
+    expect(w!.detail).toContain("missing rather than zero");
+  });
+
+  it("counts every failure, so two holes do not read as one", () => {
+    const warnings = packetWarnings(
+      input({ readFailures: ["the closing inventory count", "the expense list"] }),
+    );
+    expect(warnings.some((x) => x.headline.startsWith("2 part(s)"))).toBe(true);
+  });
+
+  it("says nothing when every read worked", () => {
+    const warnings = packetWarnings(input({ readFailures: [] }));
+    expect(warnings.some((x) => x.headline.includes("could not be loaded"))).toBe(false);
+  });
+
+  it("an empty expense list with no failure still reads as a real zero", () => {
+    // The other direction. A seller who genuinely logged no expenses must not
+    // be told their packet is broken.
+    const warnings = packetWarnings(
+      input({ readFailures: [], receiptCount: 0, expensesWithoutReceipt: 0 }),
+    );
+    expect(warnings.some((x) => x.headline.includes("could not be loaded"))).toBe(false);
   });
 });

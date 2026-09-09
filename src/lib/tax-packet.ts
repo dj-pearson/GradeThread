@@ -43,6 +43,17 @@ export interface PacketInput {
   reviewIssues: ReviewIssue[];
   receiptCount: number;
   expensesWithoutReceipt: number;
+  /**
+   * Parts of the packet that could not be read, named in plain words.
+   *
+   * The AC6 rule is "warn, then produce it anyway", and it only works if a
+   * failure becomes a WARNING. Several reads here discarded their error and
+   * fell through to an empty list, so a failed read produced zero expenses,
+   * zero missing receipts and therefore NO warnings at all — the most
+   * confident-looking wrong answer the packet can give, on the page an
+   * accountant reads first.
+   */
+  readFailures: string[];
 }
 
 export interface PacketWarning {
@@ -124,6 +135,17 @@ export function packetWarnings(input: PacketInput): PacketWarning[] {
       headline: `${input.reviewIssues.length} item(s) were still on the review list`,
       detail:
         "These are things the books flagged and nobody resolved. They are listed in full at the end of this packet.",
+    });
+  }
+
+  // First, because it changes how everything below it should be read.
+  if (input.readFailures.length > 0) {
+    out.push({
+      headline: `${input.readFailures.length} part(s) of this packet could not be loaded`,
+      detail:
+        `Could not read: ${input.readFailures.join("; ")}. Those figures are ` +
+        "missing rather than zero, and any total that depends on them is too " +
+        "low. Rebuild the packet before filing from it.",
     });
   }
 

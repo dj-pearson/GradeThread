@@ -4,6 +4,7 @@ import { downloadZip } from "client-zip";
 import { AlertTriangle, FileArchive, Printer } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/lib/supabase";
+import { fetchAllPages } from "@/lib/paged-read";
 import { useAuthStore } from "@/stores/auth-store";
 import { toastError } from "@/lib/toast-error";
 import { downloadBlob } from "@/lib/download";
@@ -123,11 +124,19 @@ export function TaxPacketCard() {
     setProgress("Checking what still needs a look");
     const reviewIssues = await fetchReviewQueue(from, to).catch(() => []);
 
-    const { data: snapRow } = await supabase
+    // Every read below records its failure instead of returning an empty
+    // result. AC6 is "warn, then produce it anyway", and that only works if a
+    // failure becomes a warning: a discarded error here used to mean zero
+    // expenses, zero missing receipts and therefore NO warnings, which is the
+    // most confident-looking wrong answer this packet can give.
+    const readFailures: string[] = [];
+
+    const { data: snapRow, error: snapErr } = await supabase
       .from("inventory_snapshots")
       .select("total_cost_cents, item_count, items_without_cost, reconstructed")
       .eq("as_of", to)
       .maybeSingle();
+    if (snapErr) readFailures.push("the closing inventory count");
     const snap = snapRow as {
       total_cost_cents: number;
       item_count: number;
@@ -135,12 +144,25 @@ export function TaxPacketCard() {
       reconstructed: boolean;
     } | null;
 
-    const { data: expenseRows } = await supabase
-      .from("flipdesk_expenses")
-      .select("id, description, spent_on, amount, receipt_path")
-      .gte("spent_on", from)
-      .lt("spent_on", to);
-    const expenses = (expenseRows ?? []) as ReceiptRow[];
+    // Paged: a year of expenses can exceed PostgREST's row cap, which it
+    // reports only in a header supabase-js drops. An unbounded read would
+    // undercount the receipts and the over-$75 warning without saying so.
+    let expenses: ReceiptRow[] = [];
+    try {
+      expenses = await fetchAllPages<ReceiptRow>(async (start, end) => {
+        const { data, error } = await supabase
+          .from("flipdesk_expenses")
+          .select("id, description, spent_on, amount, receipt_path")
+          .gte("spent_on", from)
+          .lt("spent_on", to)
+          .order("id", { ascending: true })
+          .range(start, end);
+        if (error) throw new Error(error.message);
+        return (data ?? []) as ReceiptRow[];
+      });
+    } catch {
+      readFailures.push("the expense list, so receipt counts are missing");
+    }
 
     return {
       taxYear: label,
@@ -167,6 +189,7 @@ export function TaxPacketCard() {
       expensesWithoutReceipt: expenses.filter(
         (e) => !e.receipt_path && e.amount >= 75,
       ).length,
+      readFailures,
     };
   }
 
@@ -203,15 +226,31 @@ export function TaxPacketCard() {
       // AC3. The RECEIPT FILES, not links to them. A signed URL is capped at
       // 900 seconds and would be dead before the accountant opened the folder.
       setProgress("Collecting receipts");
-      const { data: withReceipts } = await supabase
-        .from("flipdesk_expenses")
-        .select("id, description, spent_on, amount, receipt_path")
-        .gte("spent_on", from)
-        .lt("spent_on", to)
-        .not("receipt_path", "is", null);
+      // Paged and checked, for the same reason as above: a zip that quietly
+      // ships with no receipts in it is indistinguishable from a seller who
+      // kept none.
+      let withReceipts: ReceiptRow[] = [];
+      try {
+        withReceipts = await fetchAllPages<ReceiptRow>(async (start, end) => {
+          const { data, error } = await supabase
+            .from("flipdesk_expenses")
+            .select("id, description, spent_on, amount, receipt_path")
+            .gte("spent_on", from)
+            .lt("spent_on", to)
+            .not("receipt_path", "is", null)
+            .order("id", { ascending: true })
+            .range(start, end);
+          if (error) throw new Error(error.message);
+          return (data ?? []) as ReceiptRow[];
+        });
+      } catch {
+        toast.error(
+          "The receipt list could not be read, so the packet has no receipt files in it. Everything else is included.",
+        );
+      }
 
       let fetched = 0;
-      for (const row of (withReceipts ?? []) as ReceiptRow[]) {
+      for (const row of withReceipts) {
         try {
           // A fresh signed URL per receipt, used immediately. It expires in
           // 900 seconds, which is why the BYTES go in the zip and the URL never
