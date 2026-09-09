@@ -5,6 +5,10 @@
 // allowed to become a photo at all, that the same picture at two eBay sizes is
 // ONE photo, and that a sync never appends to a photo set the seller owns.
 
+// US-2379: publicItemPhotoUrl comes from item-photo-storage.ts, which reaches
+// lib/supabase.ts through its static imports and reads env at module load. The
+// env shim has to be the FIRST import or the module graph is built before it.
+import "./_env.ts";
 import { assert, assertEquals } from "@std/assert";
 import {
   isEbayPhotoUrl,
