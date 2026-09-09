@@ -60,15 +60,25 @@ export function BulkRepriceDialog({
   useEffect(() => {
     if (!open || listingIds.length === 0) return;
     setRows([]);
+    // US-3223: runApply sends these rows verbatim. Reopening on a changed
+    // selection while the first dry run is still in flight let the older
+    // response land last, so the dialog held one selection's prices while
+    // showing the other's summary -- and Apply would have written the prices
+    // the seller was never shown.
+    let superseded = false;
     preview
       .mutateAsync(listingIds)
       .then((r) => {
+        if (superseded) return;
         setRows(r.items);
         setCapped(r.capped);
       })
       .catch(() => {
         /* error toast handled by the hook */
       });
+    return () => {
+      superseded = true;
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, key]);
 

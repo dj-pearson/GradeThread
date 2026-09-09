@@ -149,9 +149,16 @@ export function GradeThisItemCard({
   // updated. Cheap call; no records created.
   useEffect(() => {
     if (inflight || pendingReview || item.grade_value != null) return;
+    // US-3223: this effect re-runs on every tier change and each run starts its
+    // own request. Without the flag, flipping tier faster than the round trip
+    // (Standard -> Detailed -> Standard) let an older response land last, so
+    // the card showed ANOTHER tier's price, credit balance and "grades
+    // remaining" beside the button that charges for this one.
+    let superseded = false;
     validate
       .mutateAsync({ inventoryItemId: item.id, tier })
       .then((res) => {
+        if (superseded) return;
         setValidation(res.items[0] ?? null);
         setPlanRemaining(
           Number.isFinite(res.user.grades_remaining)
@@ -164,6 +171,9 @@ export function GradeThisItemCard({
       .catch(() => {
         /* surfaced by hook's onError */
       });
+    return () => {
+      superseded = true;
+    };
     // item.updated_at: re-validate after an edit+save (e.g. setting the
     // garment_type/garment_category that the readiness gate requires) — the
     // save bumps updated_at and invalidates items_full, refreshing this prop.

@@ -190,6 +190,11 @@ export function CommandPalette() {
       setSubmissionHits([]);
       return;
     }
+    // US-3223: clearTimeout cancels a PENDING search, not one already in
+    // flight. Typing on past the debounce let a slower earlier query land
+    // after a faster later one, so the list showed hits for a prefix of what
+    // the box said.
+    let superseded = false;
     const handle = setTimeout(async () => {
       try {
         const { data } = await supabase
@@ -198,12 +203,15 @@ export function CommandPalette() {
           .ilike("title", `%${q}%`)
           .order("created_at", { ascending: false })
           .limit(6);
-        setSubmissionHits((data ?? []) as SubmissionLite[]);
+        if (!superseded) setSubmissionHits((data ?? []) as SubmissionLite[]);
       } catch {
-        setSubmissionHits([]);
+        if (!superseded) setSubmissionHits([]);
       }
     }, 250);
-    return () => clearTimeout(handle);
+    return () => {
+      superseded = true;
+      clearTimeout(handle);
+    };
   }, [query]);
 
   // Debounced full-text search via the flipdesk_search RPC (US-144).
@@ -214,6 +222,9 @@ export function CommandPalette() {
       setDeepHits([]);
       return;
     }
+    // Same as the submissions search above: the debounce cancels a pending
+    // query, never one already in flight (US-3223).
+    let superseded = false;
     const handle = setTimeout(async () => {
       try {
         // US-2517: `error` was dropped here too. supabase-js resolves with
@@ -225,14 +236,19 @@ export function CommandPalette() {
             args: Record<string, unknown>,
           ) => Promise<{ data: SearchHit[] | null; error: Error | null }>
         )("flipdesk_search", { p_query: q, p_scope: "all", p_limit: 8 });
+        if (superseded) return;
         setDeepFailed(Boolean(error));
         setDeepHits(error ? [] : (data ?? []));
       } catch {
+        if (superseded) return;
         setDeepFailed(true);
         setDeepHits([]);
       }
     }, 250);
-    return () => clearTimeout(handle);
+    return () => {
+      superseded = true;
+      clearTimeout(handle);
+    };
   }, [query]);
 
   // Read whatever the app already cached — no extra round-trips. Wrapped

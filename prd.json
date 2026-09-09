@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-3223",
+  "nextId": "US-3224",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -4821,6 +4821,18 @@
       ],
       "priority": 4,
       "notes": "Partial 2026-09-09. The two urgent halves are done: login.tsx, auth-callback.tsx, auth-confirm.tsx and accept-invite.tsx now read RETURN_TO_KEY / PENDING_INVITE_KEY through safe-storage (auth-callback runs AFTER the provider has authenticated, so the throw left a signed-in visitor stranded on a blank screen), and autolister.tsx's render-time session-id read plus autolister-upload-store's consumeLostUploadCount reader are converted. All five auth/boot files are now in BOOT_PATH_FILES in src/test/boot-path-storage-safe.test.ts. autolister.tsx is deliberately NOT on that list and the guard says why: its other eight call sites already sit inside try/catch, and a line-level rule cannot see that. Remaining and all preference-shaped: pwa-install-banner, use-activation, listing-suggestions, bulk-intake, impersonation, settings."
+    },
+    {
+      "id": "US-3223",
+      "passes": false,
+      "title": "Stale async responses can overwrite newer state, and only three sites were audited",
+      "description": "An effect that fires a request per run and writes the answer to state has no ordering guarantee: a slower earlier response lands after a faster later one and wins. Three were found and fixed 2026-09-09. grade-this-item-card.tsx re-validated on every grading-tier change, so flipping Standard -> Detailed -> Standard could leave another tier's price, credit balance and grades-remaining beside the button that charges for this one. bulk-reprice-dialog.tsx held one selection's prices while showing another's summary, and Apply sends those rows verbatim, so the seller would have confirmed prices they were never shown. command-palette.tsx debounced both of its searches, which cancels a PENDING query but never one in flight. Two more the scanner flagged were checked by hand and are fine (auth-confirm guards with a ref; the palette's recent-searches load is idempotent). The scanner is narrow: useEffect + await/.then + a setState call, no guard keyword, within 120 lines. Other shapes exist.",
+      "acceptanceCriteria": [
+        "The audit is widened past that heuristic: async work started from an event handler or a mutation callback that writes state can go stale the same way, and the money-shaped surfaces go first (anything whose result is what a confirm button then submits).",
+        "Any site found gets the same treatment as the three fixed: a run-scoped flag set in the effect cleanup, checked before every setState, with a comment naming the interleaving that made it wrong. Do not reach for a global request-id counter; the flag reads at the call site and the counter does not.",
+        "No repo-wide guard test unless it can be made to fire without false positives. The scanner used here flagged 5 and 2 were correct code; a guard with that hit rate teaches people to add suppressions. If a guard is written, it carries a self-check and a named-exclusion list like flipdesk-error-state.test.ts does."
+      ],
+      "priority": 5
     }
   ]
 }
