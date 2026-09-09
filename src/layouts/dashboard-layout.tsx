@@ -6,6 +6,7 @@ import { RouteErrorBoundary } from "@/components/error-boundary";
 import { useRealtimeSubmissions } from "@/hooks/use-realtime-submission";
 import { useRealtimeListingState } from "@/hooks/use-realtime-listing-state";
 import { useCheckoutReconciler } from "@/hooks/use-checkout-reconciler";
+import { useSurfaceTitle } from "@/hooks/use-surface-title";
 import { CommandPalette } from "@/components/flipdesk/command-palette";
 import { ShortcutsHelp } from "@/components/dashboard/shortcuts-help";
 import { FlipdeskActivation } from "@/components/onboarding/flipdesk-activation";
@@ -30,6 +31,11 @@ export function DashboardLayout() {
   // Keep the billing summary + header plan badge reconciling after a Stripe
   // checkout, even if the user navigates off the billing page (US-797).
   useCheckoutReconciler();
+  // US-3229: one browser tab per surface. index.html's single <title> stood on
+  // every signed-in page, so Inventory, Listings and Money read identically in
+  // the tab strip, in history and in a bookmark. Derived from the surfaces
+  // registry, not written per page.
+  useSurfaceTitle();
 
   return (
     <div className="flex h-screen flex-col overflow-hidden">
