@@ -22,16 +22,15 @@ struct RemoteSale: Decodable, Identifiable, Equatable {
 
     /// Parsed `saleDate`. Handles full ISO 8601 (with/without fractional
     /// seconds) and the date-only `YYYY-MM-DD` the legacy pull writes.
+    ///
+    /// US-3232: goes through the same parser the sync merge uses, so the two
+    /// paths that read this one wire field cannot disagree about which shapes
+    /// they accept — they did, and the merge path (the one that writes the
+    /// cache) was the one missing a shape. Still `.distantPast` rather than
+    /// `.now` on failure: an unreadable sale sorts to the bottom instead of
+    /// pretending to be today's.
     var date: Date {
-        let full = ISO8601DateFormatter()
-        full.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        if let d = full.date(from: saleDate) { return d }
-        if let d = ISO8601DateFormatter().date(from: saleDate) { return d }
-        let dateOnly = DateFormatter()
-        dateOnly.locale = Locale(identifier: "en_US_POSIX")
-        dateOnly.timeZone = TimeZone(identifier: "UTC")
-        dateOnly.dateFormat = "yyyy-MM-dd"
-        return dateOnly.date(from: saleDate) ?? .distantPast
+        SyncEngine.parseDateOrNil(saleDate) ?? .distantPast
     }
 
     private enum CodingKeys: String, CodingKey {

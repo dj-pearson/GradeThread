@@ -45611,6 +45611,21 @@
       ],
       "priority": 6,
       "notes": "Done 2026-09-09. Hook is src/hooks/use-surface-title.ts, mounted once in dashboard-layout.tsx. Admin and buyer layouts are NOT covered yet and still show the marketing title."
+    },
+    {
+      "id": "US-3232",
+      "passes": true,
+      "title": "iOS: an unreadable date on the wire silently became today",
+      "description": "SyncEngine.parseDate returned .now when it could not read a string, with no breadcrumb. It also knew only two of the three shapes this wire carries: RemoteSale.date and RemoteExpenseRow.spentOnDate each handled the date-only YYYY-MM-DD case, and the MERGE path -- the one that actually writes the cache -- did not. So a sale_date or spent_on in that shape became today: the sale joins today's sold-today count, this month's revenue and every export of the current range, and leaves the day it happened. Nothing fails and no screen says anything. Four date-only formatters existed across the app for one column shape MoneyDate already owns.",
+      "acceptanceCriteria": [
+        "One parser (SyncEngine.parseDateOrNil) reads all three shapes and returns nil on failure; the date-only branch goes through MoneyDate so there is one definition of what YYYY-MM-DD means",
+        "parseDate keeps the now-fallback for created_at/updated_at only, and breadcrumbs when it fires",
+        "An unreadable sale_date falls back to created_at on insert and leaves the existing date alone on update; an unreadable spent_on falls back to created_at, never to today",
+        "RemoteSale.date and RemoteExpense.date call the same parser instead of rolling their own",
+        "Tests cover all three shapes, the UTC-midnight anchoring, nil-not-now, and the ISO round trip"
+      ],
+      "priority": 2,
+      "notes": "Done 2026-09-09. SyncEngine.parseDateOrNil reads ISO-with-fractional-seconds, ISO-plain and date-only (the last via MoneyDate.parse, so there is one definition of YYYY-MM-DD rather than a fourth formatter) and returns nil on failure. parseDate is now a thin wrapper that keeps the .now fallback for created_at/updated_at and leaves a Telemetry breadcrumb when it fires — it used to be silent. SyncMergeActor: an unparseable sale_date falls back to created_at on insert and leaves local.saleDate untouched on update; RemoteExpenseRow.spentOnDate falls back to created_at then .distantPast, never to today. RemoteSale.date and RemoteExpense.date now call the shared parser and dropped their own formatters, as did RemoteExpenseRow (its US-1520 cached formatter is gone with it). Five tests in SyncTests. All 15 iOS guards pass; Swift compile is macOS-only so iOS CI is the compile check."
     }
   ]
 }

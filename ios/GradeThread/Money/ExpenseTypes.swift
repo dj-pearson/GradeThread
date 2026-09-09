@@ -56,13 +56,11 @@ struct RemoteExpense: Decodable, Identifiable, Equatable {
 
     /// Parsed `spent_on`. Date-only first (what the column is), with an ISO
     /// fallback in case the server ever returns a timestamp.
+    ///
+    /// US-3232: one parser for every shape on this wire (see
+    /// ``SyncEngine/parseDateOrNil(_:)``), so this and the sync merge agree.
     var date: Date {
-        let dateOnly = DateFormatter()
-        dateOnly.locale = Locale(identifier: "en_US_POSIX")
-        dateOnly.timeZone = TimeZone(identifier: "UTC")
-        dateOnly.dateFormat = "yyyy-MM-dd"
-        if let d = dateOnly.date(from: spentOn) { return d }
-        return ISO8601DateFormatter().date(from: spentOn) ?? .distantPast
+        SyncEngine.parseDateOrNil(spentOn) ?? .distantPast
     }
 
     private enum CodingKeys: String, CodingKey {

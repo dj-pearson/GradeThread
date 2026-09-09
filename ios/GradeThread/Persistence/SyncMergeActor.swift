@@ -278,7 +278,12 @@ actor SyncMergeActor {
                     id: remote.id,
                     inventoryItemId: remote.inventory_item_id,
                     salePrice: remote.sale_price,
-                    saleDate: SyncEngine.parseDate(remote.sale_date),
+                    // US-3232: an unparseable sale date is not "today". Fall
+                    // back to when the row was created, which is a real moment
+                    // near the sale, rather than dragging it into today's
+                    // sold-today count and this month's revenue.
+                    saleDate: SyncEngine.parseDateOrNil(remote.sale_date)
+                        ?? SyncEngine.parseDate(remote.created_at),
                     platformFees: remote.platform_fees,
                     createdAt: remote.created_at.isEmpty ? .now : SyncEngine.parseDate(remote.created_at)
                 )
@@ -292,7 +297,11 @@ actor SyncMergeActor {
             local.shippingCollected = remote.shipping_collected
             local.tax = remote.tax
             local.status = remote.status
-            local.saleDate = SyncEngine.parseDate(remote.sale_date)
+            // US-3232: on an update, an unreadable sale date leaves the date
+            // already on the row alone rather than moving the sale to today.
+            if let parsed = SyncEngine.parseDateOrNil(remote.sale_date) {
+                local.saleDate = parsed
+            }
             local.buyerUsername = remote.buyer_username
 
             // US-1249: the seller-entered cost fields (label/shipping cost,

@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-3232",
+  "nextId": "US-3233",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -4844,7 +4844,8 @@
         "The To bound includes the whole of its day, and a test proves a row stored on the last day is exported",
         "A test covers a seller east and west of UTC exporting a range whose first and last days both carry rows"
       ],
-      "priority": 4
+      "priority": 4,
+      "notes": "2026-09-09, checked before building: the premise is WRONG and the story needs re-scoping or closing. FinancialExport filters LocalSale.saleDate, and sales.sale_date is timestamptz (00002_inventory_financial.sql:71), not a date column — so local startOfDay/endOfDay bounds are the CORRECT semantics there ('sales from the 1st to the 30th in my time'), not a bug. The export does not include expenses or trips, which are the actual date-only columns. Only real nit found: endOfDay uses 23:59:59, so a sale at 23:59:59.5 on the last day is excluded. Looking at this is what surfaced US-3232 (the merge path's date parser), which was a real bug."
     }
   ]
 }

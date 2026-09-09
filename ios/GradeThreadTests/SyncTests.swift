@@ -1484,4 +1484,48 @@ final class SyncTests: XCTestCase {
 private actor DebounceCallCounter {
     private(set) var value = 0
     func bump() { value += 1 }
+    // MARK: - US-3232 one wire-date parser
+
+    /// The merge path — the one that WRITES the cache — knew two of the three
+    /// shapes this wire carries. `RemoteSale.date` and `RemoteExpenseRow`
+    /// each knew about the date-only one; the merge did not, so a `sale_date`
+    /// of "2026-09-09" became `.now`.
+    func test_parseDateOrNil_readsAllThreeWireShapes() {
+        XCTAssertNotNil(SyncEngine.parseDateOrNil("2026-09-09T14:30:00.123Z"))
+        XCTAssertNotNil(SyncEngine.parseDateOrNil("2026-09-09T14:30:00Z"))
+        XCTAssertNotNil(SyncEngine.parseDateOrNil("2026-09-09"))
+    }
+
+    /// The date-only shape resolves to UTC midnight of that day, the same
+    /// anchoring every other date-only value in the app uses (MoneyDate).
+    func test_parseDateOrNil_dateOnlyAnchorsAtUTCMidnight() {
+        let parsed = SyncEngine.parseDateOrNil("2026-09-09")
+        XCTAssertEqual(parsed, MoneyDate.parse("2026-09-09"))
+        XCTAssertEqual(MoneyDate.iso(parsed ?? .distantPast), "2026-09-09")
+    }
+
+    /// Nil, not today. A silent `.now` is what put an unreadable sale in
+    /// today's "sold today" count and this month's revenue.
+    func test_parseDateOrNil_returnsNilRatherThanNow() {
+        XCTAssertNil(SyncEngine.parseDateOrNil("not a date"))
+        XCTAssertNil(SyncEngine.parseDateOrNil(""))
+        XCTAssertNil(SyncEngine.parseDateOrNil("09/09/2026"))
+    }
+
+    /// `parseDate` keeps the now-fallback for created_at/updated_at, where an
+    /// approximate now is harmless — but it is the only caller shape that
+    /// should use it.
+    func test_parseDate_stillFallsBackToNowForTimestampFields() {
+        let before = Date.now
+        let parsed = SyncEngine.parseDate("not a date")
+        XCTAssertGreaterThanOrEqual(parsed, before)
+        XCTAssertLessThanOrEqual(parsed.timeIntervalSinceNow, 1)
+    }
+
+    /// A real ISO timestamp is unchanged by the new date-only branch.
+    func test_parseDate_isoRoundTripUnchanged() {
+        let iso = "2026-09-09T14:30:00Z"
+        let parsed = SyncEngine.parseDate(iso)
+        XCTAssertEqual(ISO8601DateFormatter().string(from: parsed), iso)
+    }
 }

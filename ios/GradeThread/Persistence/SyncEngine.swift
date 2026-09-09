@@ -831,21 +831,17 @@ actor SyncEngine {
             created_at = (try? c.decode(String.self, forKey: .created_at)) ?? ""
         }
 
-        /// US-1520: configured once — DateFormatter construction is expensive and
-        /// this used to run per expense row per merge. DateFormatter is
-        /// documented thread-safe on modern OS versions once configured.
-        private static let dateOnlyFormatter: DateFormatter = {
-            let dateOnly = DateFormatter()
-            dateOnly.locale = Locale(identifier: "en_US_POSIX")
-            dateOnly.timeZone = TimeZone(identifier: "UTC")
-            dateOnly.dateFormat = "yyyy-MM-dd"
-            return dateOnly
-        }()
-
         /// Parsed `spent_on` — date-only first (what the column is), ISO fallback.
+        ///
+        /// US-3232: one parser that knows every shape on this wire, and the
+        /// fallback is the row's `created_at` rather than now. A `spent_on` that
+        /// failed to parse used to become TODAY, which drags the expense into
+        /// the current month's total and out of the month it belongs to, with
+        /// nothing on screen saying so.
         var spentOnDate: Date {
-            if let d = Self.dateOnlyFormatter.date(from: spent_on) { return d }
-            return SyncEngine.parseDate(spent_on)
+            SyncEngine.parseDateOrNil(spent_on)
+                ?? SyncEngine.parseDateOrNil(created_at)
+                ?? .distantPast
         }
     }
 
@@ -1270,9 +1266,39 @@ actor SyncEngine {
     }
 
     /// Shared ISO-8601 date parse used by the merge actor + realtime path.
-    static func parseDate(_ s: String) -> Date {
+    /// Parses a wire date, or nil.
+    ///
+    /// US-3232: knows all THREE shapes this wire actually carries — ISO 8601
+    /// with fractional seconds, ISO 8601 without, and the date-only
+    /// `YYYY-MM-DD` a `date` column (or the legacy sales pull) returns.
+    /// `RemoteSale.date` and `RemoteExpenseRow.spentOnDate` each already knew
+    /// about the third one; the merge path, which is what actually writes the
+    /// cache, did not.
+    static func parseDateOrNil(_ s: String) -> Date? {
         if let d = isoFull.date(from: s) { return d }
         if let d = isoPlain.date(from: s) { return d }
+        // Date-only goes through MoneyDate so there is one definition of what a
+        // `YYYY-MM-DD` means here (UTC midnight), not a fourth formatter.
+        return MoneyDate.parse(s)
+    }
+
+    /// Parses a wire date, falling back to now.
+    ///
+    /// US-3232: the fallback now leaves a breadcrumb. It used to be silent, and
+    /// silence is expensive here: an unparseable `sale_date` became TODAY, which
+    /// puts the sale in today's "sold today" count, this month's revenue and
+    /// every export of the current range, while removing it from the day it
+    /// actually happened. Nothing failed and no screen said anything.
+    ///
+    /// Only appropriate for `created_at`/`updated_at`-shaped fields, where an
+    /// approximate now is harmless. Money-dated fields use ``parseDateOrNil``
+    /// and decide for themselves.
+    static func parseDate(_ s: String) -> Date {
+        if let d = parseDateOrNil(s) { return d }
+        Telemetry.backgroundBreadcrumb(
+            "unparseable wire date (\(s.count) chars) — substituted now",
+            category: "sync"
+        )
         return .now
     }
 
