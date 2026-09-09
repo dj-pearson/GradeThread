@@ -69,11 +69,26 @@ export function toCents(value: number | string | null | undefined): number {
   return sign * (third >= 5 ? base + 1 : base);
 }
 
-/** Integer cents back to a display string. */
+/**
+ * Integer cents back to a display string, grouped.
+ *
+ * US-3249: this built the whole-dollar part by hand and never grouped, so a
+ * P&L showing twelve thousand dollars read "$12345.67". It is the formatter on
+ * the densest money surfaces in the product -- the statement, the money
+ * overview, the tax packet, expenses -- and its own tests only asserted values
+ * under a hundred dollars, which is exactly why it lasted.
+ *
+ * ⚠ src/lib/radar-route.ts exports a DIFFERENT function with this same name.
+ * That one ROUNDS TO WHOLE DOLLARS above $10, because the Radar map has no room
+ * for cents. They are not interchangeable, and because the signatures match,
+ * importing the wrong one is a silent change in how money reads rather than a
+ * type error. Check the import path before reusing either.
+ */
 export function formatCents(cents: number): string {
   const sign = cents < 0 ? "-" : "";
   const abs = Math.abs(cents);
-  return `${sign}$${Math.floor(abs / 100)}.${String(abs % 100).padStart(2, "0")}`;
+  const dollars = Math.floor(abs / 100).toLocaleString("en-US");
+  return `${sign}$${dollars}.${String(abs % 100).padStart(2, "0")}`;
 }
 
 /** The money columns on a sale, as they arrive from PostgREST. */

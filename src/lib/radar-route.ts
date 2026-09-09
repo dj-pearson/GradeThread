@@ -180,6 +180,15 @@ export interface PlanCircuitInput {
 
 // ── Money ───────────────────────────────────────────────────────────────────
 
+/**
+ * Radar's money format: whole dollars above $10, because a map pin has no room
+ * for cents.
+ *
+ * ⚠ NOT the same function as src/lib/ledger-math.ts's formatCents, which keeps
+ * cents and is what the accounting surfaces use. Same name, same signature,
+ * different output, so a wrong import is a silent formatting change rather than
+ * a type error (US-3249).
+ */
 export function formatCents(cents: number): string {
   const sign = cents < 0 ? "-" : "";
   const abs = Math.abs(cents);

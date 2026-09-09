@@ -76,6 +76,24 @@ describe("formatCents", () => {
   it("puts the sign before the currency symbol", () => {
     expect(formatCents(-4250)).toBe("-$42.50");
   });
+
+  // US-3249. The range that let the missing separator through: every case
+  // above asserted under a hundred dollars, where grouping cannot show.
+  it("groups thousands", () => {
+    expect(formatCents(1_234_567)).toBe("$12,345.67");
+    expect(formatCents(100_000)).toBe("$1,000.00");
+    expect(formatCents(-1_234_567)).toBe("-$12,345.67");
+  });
+
+  it("does not group below a thousand dollars", () => {
+    // The boundary, from both sides.
+    expect(formatCents(99_999)).toBe("$999.99");
+    expect(formatCents(100_000)).toBe("$1,000.00");
+  });
+
+  it("groups a seven-figure P&L", () => {
+    expect(formatCents(123_456_789)).toBe("$1,234,567.89");
+  });
 });
 
 describe("the entries reproduce the dashboard formula", () => {
