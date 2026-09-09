@@ -13,6 +13,7 @@ import {
   classifyAuthFailure,
 } from "@/lib/auth-error";
 import { RETURN_TO_KEY, sanitizeReturnTo } from "@/lib/return-to";
+import { removeStored, writeStored } from "@/lib/safe-storage";
 import { TurnstileWidget, captchaRequired } from "@/components/auth/turnstile";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -121,8 +122,11 @@ export function LoginPage() {
   // validated return-to in sessionStorage for the callback to pick up (clear it
   // when there's none so a stale value from an earlier attempt can't leak in).
   function rememberReturnTo() {
-    if (returnTo) sessionStorage.setItem(RETURN_TO_KEY, returnTo);
-    else sessionStorage.removeItem(RETURN_TO_KEY);
+    // US-3218: a browser that blocks site data throws here rather than
+    // returning null. Losing the deep link is a far smaller harm than a
+    // sign-in button that raises on click, so this degrades to /dashboard.
+    if (returnTo) writeStored(RETURN_TO_KEY, returnTo, "session");
+    else removeStored(RETURN_TO_KEY, "session");
   }
 
   async function handleGoogleSignIn() {

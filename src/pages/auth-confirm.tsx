@@ -7,6 +7,7 @@ import {
 } from "@/lib/auth";
 import { PENDING_INVITE_KEY } from "@/pages/accept-invite";
 import { RETURN_TO_KEY, sanitizeReturnTo } from "@/lib/return-to";
+import { readStored, removeStored } from "@/lib/safe-storage";
 import { stripSensitiveParams } from "@/lib/redact-url";
 import { reportSignupConversion } from "@/lib/ads-conversion";
 import { Button } from "@/components/ui/button";
@@ -80,13 +81,13 @@ export function AuthConfirmPage() {
     // Same precedence as auth-callback: finish a pending workspace invite, then
     // an internal returnTo (from the email's redirect_to or a stashed deep link),
     // else the dashboard.
-    const pendingToken = sessionStorage.getItem(PENDING_INVITE_KEY);
+    const pendingToken = readStored(PENDING_INVITE_KEY, "session");
     if (pendingToken) {
       navigate(`/accept-invite?token=${pendingToken}`, { replace: true });
       return;
     }
-    const stashed = sanitizeReturnTo(sessionStorage.getItem(RETURN_TO_KEY));
-    sessionStorage.removeItem(RETURN_TO_KEY);
+    const stashed = sanitizeReturnTo(readStored(RETURN_TO_KEY, "session"));
+    removeStored(RETURN_TO_KEY, "session");
     const fromEmail = sanitizeReturnTo(redirectTo);
     navigate(stashed ?? fromEmail ?? "/dashboard", { replace: true });
   }, [navigate, redirectTo]);

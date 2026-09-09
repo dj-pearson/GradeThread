@@ -27,6 +27,7 @@ import { Input } from "@/components/ui/input";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { supabase } from "@/lib/supabase";
+import { readStored, writeStored } from "@/lib/safe-storage";
 import { useAuthStore } from "@/stores/auth-store";
 import { useWorkspace } from "@/hooks/use-workspace";
 import { processStagedImage } from "@/lib/image-worker-pool";
@@ -372,14 +373,12 @@ export function FlipdeskAutolisterPage() {
   // orphaned and the staged/groups state can be rehydrated.
   const sessionId = useRef<string>(
     (() => {
-      const existing = typeof window !== "undefined"
-        ? window.localStorage.getItem("autolister:sessionId")
-        : null;
+      // US-3218: runs during render, so a blocked-storage throw took the whole
+      // page down. It now costs a resumed session at most, never the page.
+      const existing = readStored("autolister:sessionId");
       if (existing) return existing;
       const id = crypto.randomUUID();
-      if (typeof window !== "undefined") {
-        window.localStorage.setItem("autolister:sessionId", id);
-      }
+      writeStored("autolister:sessionId", id);
       return id;
     })(),
   );

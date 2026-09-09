@@ -29,7 +29,22 @@ const BOOT_PATH_FILES = [
   "src/stores/theme-store.ts",
   "src/stores/auth-store.ts",
   "src/lib/query-client.ts",
+  // Not "before the first render", but the same severity for the same reason.
+  // These four decide where a sign-in LANDS. auth-callback runs after the
+  // provider has already authenticated the visitor, so a throw there left
+  // them signed in and stranded on a blank screen -- a sign-in that cannot
+  // complete, not a preference that did not stick.
+  "src/pages/login.tsx",
+  "src/pages/auth-callback.tsx",
+  "src/pages/auth-confirm.tsx",
+  "src/pages/accept-invite.tsx",
 ];
+
+// src/pages/flipdesk/autolister.tsx is NOT on that list, though its session-id
+// read during render was the same severity and was fixed alongside these. The
+// rest of that file's ~8 storage calls all sit inside try/catch already, and a
+// line-level rule cannot see that, so listing it would mean converting eight
+// working call sites to satisfy a guard rather than to fix anything.
 
 // src/lib/supabase.ts is deliberately NOT on that list. Its `hybridStorage`
 // adapter IS a safe-storage implementation -- it is the Storage object handed

@@ -4,6 +4,7 @@ import { toast } from "sonner";
 import { toastError } from "@/lib/toast-error";
 import { CheckCircle2, AlertTriangle, Loader2 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
+import { removeStored, writeStored } from "@/lib/safe-storage";
 import { useAuth } from "@/hooks/use-auth";
 import { useAuthStore } from "@/stores/auth-store";
 import { Button } from "@/components/ui/button";
@@ -44,7 +45,7 @@ export function AcceptInvitePage() {
       return;
     }
     // Stash so we can resume after signup.
-    sessionStorage.setItem(PENDING_INVITE_KEY, token);
+    writeStored(PENDING_INVITE_KEY, token, "session");
 
     let settled = false;
     setPeekLoading(true);
@@ -112,7 +113,7 @@ export function AcceptInvitePage() {
       return;
     }
     const ownerId = data;
-    sessionStorage.removeItem(PENDING_INVITE_KEY);
+    removeStored(PENDING_INVITE_KEY, "session");
     toast.success("You've joined the workspace");
     if (ownerId && user) {
       setActiveWorkspaceOwnerId(ownerId);

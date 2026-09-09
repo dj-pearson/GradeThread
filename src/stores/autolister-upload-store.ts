@@ -137,6 +137,7 @@ const UPLOAD_CONCURRENCY = 5;
 // — Files can't survive an unload, so the page reads this on mount and tells
 // the user how many need re-adding.
 const LOST_UPLOADS_KEY = "autolister:lostUploads";
+import { readStored, removeStored } from "@/lib/safe-storage";
 
 // ── Small helpers (moved from autolister.tsx) ───────────────────────
 
@@ -737,8 +738,10 @@ export const useAutolisterUploadStore = create<AutolisterUploadState>((set, get)
       // Only meaningful when the store itself is fresh (a real reload). On an
       // in-app return the tasks are still here — nothing was lost.
       if (get().tasks.length > 0) return 0;
-      const raw = window.localStorage.getItem(LOST_UPLOADS_KEY);
-      window.localStorage.removeItem(LOST_UPLOADS_KEY);
+      // The WRITER below is already inside a try/catch; this reader was not,
+      // and blocked site data throws on read as readily as on write (US-3218).
+      const raw = readStored(LOST_UPLOADS_KEY);
+      removeStored(LOST_UPLOADS_KEY);
       const count = Number.parseInt(raw ?? "", 10);
       return Number.isFinite(count) && count > 0 ? count : 0;
     },

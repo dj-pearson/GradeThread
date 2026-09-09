@@ -5,6 +5,7 @@ import { isIdentityLinkingError, OAUTH_LINKING_MESSAGE } from "@/lib/auth-identi
 import { readAuthError } from "@/lib/auth-error";
 import { PENDING_INVITE_KEY } from "@/pages/accept-invite";
 import { RETURN_TO_KEY, sanitizeReturnTo } from "@/lib/return-to";
+import { readStored, removeStored } from "@/lib/safe-storage";
 import { isCrossDeviceConfirmation } from "@/lib/auth-pkce";
 import { track } from "@/lib/analytics";
 import { SEO } from "@/components/seo";
@@ -34,7 +35,10 @@ export function AuthCallbackPage() {
     // If the user got here through a workspace invitation, send them back to
     // /accept-invite to complete the join (peek_workspace_invitation is
     // idempotent, so a double-mount is safe).
-    const pendingToken = sessionStorage.getItem(PENDING_INVITE_KEY);
+    // US-3218: blocked site data throws on read. This callback runs AFTER
+    // the provider has already authenticated the user, so a throw here left
+    // them signed in and stranded on a blank callback screen.
+    const pendingToken = readStored(PENDING_INVITE_KEY, "session");
     if (pendingToken) {
       navigate(`/accept-invite?token=${pendingToken}`, { replace: true });
       return;
@@ -43,8 +47,8 @@ export function AuthCallbackPage() {
     // before being bounced to login (stashed by LoginPage across the OAuth
     // round-trip). Validate it's internal; clear it either way; fall back to
     // /dashboard.
-    const returnTo = sanitizeReturnTo(sessionStorage.getItem(RETURN_TO_KEY));
-    sessionStorage.removeItem(RETURN_TO_KEY);
+    const returnTo = sanitizeReturnTo(readStored(RETURN_TO_KEY, "session"));
+    removeStored(RETURN_TO_KEY, "session");
     navigate(returnTo ?? "/dashboard", { replace: true });
   }, [navigate]);
 
