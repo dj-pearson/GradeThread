@@ -10,10 +10,11 @@ final class SoldTodaySummaryTests: XCTestCase {
         sold: Int = 0,
         gross: Double = 0,
         payoutCount: Int = 0,
-        payoutNet: Double = 0
+        payoutNet: Double = 0,
+        generatedAt: Date = .now
     ) -> WidgetSnapshot {
         WidgetSnapshot(
-            generatedAt: .now,
+            generatedAt: generatedAt,
             isSignedIn: signedIn,
             activeListings: 0,
             soldTodayCount: sold,
@@ -22,6 +23,63 @@ final class SoldTodaySummaryTests: XCTestCase {
             pendingPayoutNet: payoutNet,
             // US-1161: pin USD so the phrasing assertions stay locale-independent.
             currencyCode: "USD"
+        )
+    }
+
+    // MARK: - US-3228 day rollover
+
+    /// The intent runs with `openAppWhenRun: false`, so asking Siri does not
+    /// refresh the snapshot. Before this, a phone last opened at 10pm answered
+    /// "You've sold 3 items today for $214" the next morning, spoken as fact.
+    func test_staleSnapshot_refusesToStateTodaysSales_butKeepsPayout() {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "America/Chicago") ?? .current
+        let lastNight = calendar.date(from: DateComponents(year: 2026, month: 9, day: 9, hour: 22))!
+        let breakfast = calendar.date(from: DateComponents(year: 2026, month: 9, day: 10, hour: 8))!
+
+        let dialog = SoldTodaySummary.dialog(
+            from: snapshot(sold: 3, gross: 214, payoutCount: 2, payoutNet: 180, generatedAt: lastNight),
+            now: breakfast,
+            calendar: calendar
+        )
+
+        XCTAssertEqual(
+            dialog,
+            "I don't have today's sales yet. Open GradeThread to refresh. $180 is waiting from 2 sales."
+        )
+        XCTAssertFalse(dialog.contains("3 items"))
+        XCTAssertFalse(dialog.contains("214"))
+    }
+
+    /// Ten hours old but the SAME local day: still today's number, still spoken.
+    func test_sameDaySnapshot_stillReportsTodaysSales() {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "America/Chicago") ?? .current
+        let morning = calendar.date(from: DateComponents(year: 2026, month: 9, day: 9, hour: 9))!
+        let evening = calendar.date(from: DateComponents(year: 2026, month: 9, day: 9, hour: 19))!
+
+        let dialog = SoldTodaySummary.dialog(
+            from: snapshot(sold: 3, gross: 214, generatedAt: morning),
+            now: evening,
+            calendar: calendar
+        )
+
+        XCTAssertEqual(dialog, "You've sold 3 items today for $214. No payouts are waiting.")
+    }
+
+    func test_staleSnapshot_signedOutStillPromptsSignIn() {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "America/Chicago") ?? .current
+        let lastNight = calendar.date(from: DateComponents(year: 2026, month: 9, day: 9, hour: 22))!
+        let breakfast = calendar.date(from: DateComponents(year: 2026, month: 9, day: 10, hour: 8))!
+
+        XCTAssertEqual(
+            SoldTodaySummary.dialog(
+                from: snapshot(signedIn: false, generatedAt: lastNight),
+                now: breakfast,
+                calendar: calendar
+            ),
+            "Sign in to GradeThread to see what sold today."
         )
     }
 

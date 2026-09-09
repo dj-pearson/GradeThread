@@ -38,14 +38,24 @@ enum WidgetSnapshotPublisher {
     /// coalesce the WidgetKit reload. The caller computes `snapshot` off the
     /// main thread (``SyncMergeActor.widgetSnapshot``); this just diffs against
     /// the last-written snapshot and reloads at most once per `minReloadInterval`.
+    ///
+    /// US-3228: "unchanged" is not enough on its own any more. Since US-3226 the
+    /// widget and Siri refuse to state a "sold today" figure whose `generatedAt`
+    /// fell on an earlier local day — so a stored snapshot that crossed midnight
+    /// needs rewriting even when every number in it is identical, or a seller
+    /// who sold nothing yesterday and nothing today would be told the count is
+    /// unavailable when it is a perfectly good zero.
     @MainActor
     static func publishIfChanged(
         _ snapshot: WidgetSnapshot,
         now: Date = .now,
-        minReloadInterval: TimeInterval = 30
+        minReloadInterval: TimeInterval = 30,
+        calendar: Calendar = .current
     ) {
-        if let previous = WidgetSnapshotStore.read(), previous.hasSameRollup(as: snapshot) {
-            return  // numbers unchanged → no write, no reload
+        if let previous = WidgetSnapshotStore.read(),
+           previous.hasSameRollup(as: snapshot),
+           !previous.soldTodayIsStale(asOf: now, calendar: calendar) {
+            return  // numbers unchanged, and still stamped today → no write, no reload
         }
         WidgetSnapshotStore.write(snapshot)
         guard now.timeIntervalSince(lastReloadAt) >= minReloadInterval else { return }

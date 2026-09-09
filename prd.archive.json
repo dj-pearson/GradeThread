@@ -45569,6 +45569,20 @@
         "Tests assert the mechanism, not the value: jsdom does not implement the increment. Focused number input blurs, text input does not, unfocused number input does not steal focus, teardown stops it, and a source check that main.tsx actually calls it."
       ],
       "notes": "Done 2026-09-09. See the commit for the mechanism and why it is blur rather than preventDefault."
+    },
+    {
+      "id": "US-3228",
+      "passes": true,
+      "title": "iOS: Siri spoke yesterday's sales as today's, with nothing on screen to contradict it",
+      "description": "The 'What sold today' App Intent runs with openAppWhenRun false, so asking Siri does not refresh the shared widget snapshot. It read soldTodayCount/soldTodayGross straight out of whatever the app last wrote, so a phone last opened at 10pm answered 'You've sold 3 items today for 14' at breakfast. US-3226 fixed the same bug on the widget, where an 'Updated 14 hours ago' footnote at least hinted at it on the home-screen families. A spoken sentence has no footnote. The same change also closes the hole US-3226 opened in the publisher: it skips writing when the numbers are unchanged, which would leave a stale generatedAt in place and make the widget report an unavailable count where a real zero belonged.",
+      "acceptanceCriteria": [
+        "A stale snapshot makes Siri say it does not have today's sales and to open the app, while still reporting the payout, which is an as-of figure and stays true",
+        "A same-day snapshot ten hours old still reports today's sales",
+        "publishIfChanged rewrites when the stored snapshot has crossed local midnight, even if every number matches",
+        "Tests cover stale, same-day, and signed-out-while-stale"
+      ],
+      "priority": 3,
+      "notes": "Done 2026-09-09. SoldTodaySummary.dialog now takes now/calendar and, when the snapshot crossed local midnight, answers 'I don't have today's sales yet. Open GradeThread to refresh.' plus the payout clause, which is an as-of figure and stays true. Three tests: stale (asserts the dialog contains neither the count nor the gross), same-day-ten-hours-old (still reports), and signed-out-while-stale (sign-in prompt still wins). Also fixed the hole US-3226 opened: WidgetSnapshotPublisher.publishIfChanged skipped the write whenever hasSameRollup matched, so a seller with zero sales two days running kept a snapshot stamped yesterday and the widget would have shown a dash where a real zero belonged. It now also rewrites when the STORED snapshot is stale, and takes a calendar for testability. Only caller is SyncEngine:341, unchanged (defaults). All 15 iOS guards pass; Swift compile is macOS-only so iOS CI is the compile check."
     }
   ]
 }

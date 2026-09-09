@@ -6,13 +6,28 @@ import Foundation
 /// shared ``WidgetSnapshot`` and hands it here.
 ///
 /// Reuses the exact same rollup the home-screen widget renders
-/// (``WidgetSnapshotStore``), so Siri and the widget never disagree.
+/// (``WidgetSnapshotStore``), so Siri and the widget never disagree — including
+/// US-3226's day-rollover rule: both refuse to state a "sold today" figure that
+/// was computed on a day that has since ended.
 enum SoldTodaySummary {
     /// Builds the natural-language sentence Siri speaks / shows for the current
     /// snapshot. A `nil` snapshot (nothing published yet) and a signed-out
     /// snapshot both fall back to a sign-in prompt rather than reading zeros as
     /// if the business were dead.
-    static func dialog(from snapshot: WidgetSnapshot?) -> String {
+    ///
+    /// US-3228: `now` decides whether the snapshot's today-scoped figures still
+    /// describe today. The intent runs with `openAppWhenRun: false`, so asking
+    /// Siri does NOT refresh the snapshot — on a phone last opened yesterday
+    /// evening, this used to answer "You've sold 3 items today for $214" at
+    /// breakfast, spoken as fact with nothing on screen to contradict it. The
+    /// widget at least carries an "Updated 14 hours ago" footnote; a spoken
+    /// sentence carries nothing. The payout figure is an as-of value and stays
+    /// true, so it is still reported.
+    static func dialog(
+        from snapshot: WidgetSnapshot?,
+        now: Date = .now,
+        calendar: Calendar = .current
+    ) -> String {
         guard let snapshot, snapshot.isSignedIn else {
             return "Sign in to GradeThread to see what sold today."
         }
@@ -22,6 +37,10 @@ enum SoldTodaySummary {
             net: snapshot.pendingPayoutNet,
             code: snapshot.currencyCode
         )
+
+        if snapshot.soldTodayIsStale(asOf: now, calendar: calendar) {
+            return "I don't have today's sales yet. Open GradeThread to refresh. \(payout)"
+        }
 
         if snapshot.soldTodayCount == 0 {
             return "Nothing's sold yet today. \(payout)"
