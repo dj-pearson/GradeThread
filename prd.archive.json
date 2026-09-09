@@ -45642,6 +45642,20 @@
       "notes": [
         "Done 2026-09-09. ConsignmentReport builds a cents-exact Line per sold item, groups by consignor, and totals each field with Money.sum instead of five += accumulations; ties sort by name so the order is stable rather than dictionary order. SourceROIRollup's Agg holds Decimal and accumulates += Money.decimal(x), taking .currencyDouble once at the end -- its old shape rounded ONLY the final total, which does not reproduce Money.sum (that rounds each amount before adding), directly under a comment claiming it made the panel foot against the Money tab. SourcesView.statsBySource does the same. no-raw-money-sum.py now also flags a += whose LEFT-HAND SIDE is money-named (matching the whole line would flag a plain count increment beside a price), skips the sanctioned += Money.decimal / Money.sum / Money.sumDecimal forms, and allowlists RadarScoring (Int of cents) and AutoListerGenerator (a photo count). SABOTAGE-TESTED, and the first attempt did NOT trip: 'gross' was not in MONEY_WORDS, so a runningGross += line.gross accumulation passed. Added gross/cut/owed/cogs/margin/paid/due/credit/debit/earnings/income/expense(s); the sabotage then failed as it should. Three tests in ConsignmentTests: totals foot against Money.sum over 300 sales, every total is already whole cents, and tied payouts sort stably across 20 runs. All 15 guards pass. (Note repaired: three code spans in the original were eaten by shell backtick expansion.)"
       ]
+    },
+    {
+      "id": "US-3236",
+      "passes": true,
+      "title": "iOS: the thumbnail cache was bounded by count, so a dozen preview heroes could get the app killed",
+      "description": "ThumbnailLoader set NSCache.countLimit = 400 and no totalCostLimit, and passed no cost when inserting. Every entry counted the same, but they are not the same: an inventory row asks for 56pt and the eBay View Item preview asks for 1200pt, through the same cache. maxPixel is maxDimension times displayScale, so on a 3x phone that hero decodes to 3600x3600 - about 52 MB for one image. Opening the preview for a dozen items parks over half a gigabyte of decoded bitmaps that nothing evicts, because the count is still well under 400. There was also no memory-warning hook, so eviction depended entirely on NSCache reacting after the system had already decided memory was tight.",
+      "acceptanceCriteria": [
+        "The cache is bounded by bytes (totalCostLimit) with a cost supplied on every insert, taken from the CGImage's real allocation rather than from points",
+        "countLimit stays as a second bound for the small-thumbnail case",
+        "A memory warning drops the decoded images; the disk byte cache stays, so it costs a re-decode and not a re-download",
+        "Tests pin the cost accounting (pixels not points, scale counted) and prove the budget cannot hold two full-size heroes but comfortably holds a screen of rows"
+      ],
+      "priority": 2,
+      "notes": "Done 2026-09-09. ThumbnailLoader now sets totalCostLimit to a 64 MB memoryBudgetBytes and passes cost: decodedByteCost(image) on every setObject. decodedByteCost reads the backing CGImage's bytesPerRow times height, which is the real allocation; UIImage.size is in POINTS and would under-count by the square of the scale, so a 3x image would be charged a quarter of what it costs. countLimit 400 stays as a second bound. Added a didReceiveMemoryWarning observer that clears the decoded cache -- NSCache evicts under pressure on its own, but only after the system has already decided memory is tight, and the URLCache bytes stay on disk so it costs a re-decode rather than a re-download. New GradeThreadTests/ThumbnailCacheCostTests.swift: cost scales with pixels not points, scale is counted, an empty image still costs at least 1, and the budget cannot hold two 3600x3600 heroes while comfortably holding 200 rows. All 15 iOS guards pass. Swift compile is macOS-only, so iOS CI is the compile check. NOT MEASURED: no instrument run here, so the 64 MB figure is reasoned from the call sites (largest is EbayViewItemPreviewSheet at maxDimension 1200), not profiled."
     }
   ]
 }

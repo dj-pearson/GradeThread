@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-3235",
+  "nextId": "US-3237",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -4859,6 +4859,17 @@
       ],
       "priority": 7,
       "notes": "Partial 2026-09-09 in 17d779ac0: 48 user-facing strings fixed. Two reverted after the parity guards caught them: 'The care label with the fibre content' is ONE string in five places (src/lib/photo-roles.ts, src/lib/photo-profiles.ts, the edge copies of both, ios/GradeThread/Capture/PhotoProfile.swift, android/.../capture/PhotoProfile.kt) plus android/config/detekt/baseline.xml, which pins the exact line text. Changing it is a cross-platform change needing an iOS and Android build, so it waits for a machine that can do both. Guard from AC2 not written yet."
+    },
+    {
+      "id": "US-3235",
+      "passes": false,
+      "title": "A dark-mode certificate prints as a blank page",
+      "description": "src/index.css has no @media print rule at all. Dark mode sets --foreground to #fafafc (near-white) and --background to #0e0e1a, and browsers do not print background colors by default (Chrome and Safari both ship with Background graphics OFF). So a seller who uses dark mode and presses the Print / Save PDF button on a certificate gets near-white text on white paper: a blank page where the grade should be. The certificate is the product's central trust artifact, the thing a seller hands a buyer, and cert-share-actions.tsx offers window.print() as a first-class action, so this is the one page where it matters most. The page is otherwise carefully print-aware (US-767 added a print-only branded header and ~12 print:hidden rules), which is what made the gap invisible: everything about printing had been thought through except the palette.",
+      "acceptanceCriteria": [
+        "An @media print block forces the light palette regardless of the .dark class, so the printed certificate is legible whatever the screen toggle says.",
+        "A guard fails if .dark gains a token the print block does not neutralize. The print block is a mirror of the light values and mirrors drift; the test is what stops the next added token from reintroducing white-on-white.",
+        "Checked on the certificate specifically, not just in the abstract: the grade, the factor table and the print-only header are all readable with Background graphics off."
+      ]
     }
   ]
 }

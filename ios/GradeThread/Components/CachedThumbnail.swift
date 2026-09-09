@@ -103,6 +103,9 @@ final class ThumbnailLoader {
     static let shared = ThumbnailLoader()
 
     private let cache = NSCache<NSString, UIImage>()
+    /// Retained so the observer is removed if this loader is ever torn down.
+    /// It is a singleton today, so this is bookkeeping rather than a live leak.
+    private var memoryWarningObserver: (any NSObjectProtocol)?
     private let session: URLSession
     /// Retained so ``purge()`` can wipe the on-disk bytes directly (US-1499).
     private let urlCache: URLCache
@@ -121,7 +124,50 @@ final class ThumbnailLoader {
         config.urlCache = urlCache
         self.urlCache = urlCache
         session = URLSession(configuration: config)
+
+        // US-3236: bound the DECODED cache by memory, not only by count.
+        //
+        // `countLimit` alone treats every entry as equal, and these are not:
+        // an inventory row asks for 56pt and the eBay View Item preview asks
+        // for 1200pt, both through this one cache. `maxPixel` is
+        // `maxDimension * displayScale`, so on a 3x phone that hero decodes to
+        // 3600x3600 — about 52 MB for ONE image. Four hundred of those is not a
+        // cache, it is a way to be killed by the OS, and nothing evicted them
+        // because the count was still under the limit.
+        //
+        // 64 MB is roughly a full screen of 56pt rows plus a couple of heroes.
+        // `countLimit` stays as a second bound for the small-thumbnail case.
+        cache.totalCostLimit = Self.memoryBudgetBytes
         cache.countLimit = 400
+
+        // NSCache evicts under pressure on its own, but only once the system
+        // has already decided memory is tight. Dropping the decoded images on
+        // the warning is deterministic and costs a re-decode from the disk byte
+        // cache, which is still there.
+        memoryWarningObserver = NotificationCenter.default.addObserver(
+            forName: UIApplication.didReceiveMemoryWarningNotification,
+            object: nil,
+            queue: nil
+        ) { [cache] _ in
+            cache.removeAllObjects()
+        }
+    }
+
+    /// Ceiling on decoded thumbnail bytes held in memory.
+    static let memoryBudgetBytes = 64 * 1024 * 1024
+
+    /// Bytes a decoded image occupies, for the cache's cost accounting.
+    ///
+    /// Taken from the backing `CGImage` (`bytesPerRow * height`) because that is
+    /// the real allocation — `size` is in points and would under-count by the
+    /// square of the scale. Pure + static so the accounting is unit-testable.
+    static func decodedByteCost(_ image: UIImage) -> Int {
+        if let cg = image.cgImage {
+            return max(cg.bytesPerRow * cg.height, 1)
+        }
+        // No CGImage (a CIImage-backed UIImage): fall back to points x scale.
+        let pixels = image.size.width * image.scale * image.size.height * image.scale
+        return max(Int(pixels * 4), 1)
     }
 
     /// US-1499: drops every cached thumbnail — decoded images (memory) AND the
@@ -152,7 +198,7 @@ final class ThumbnailLoader {
             ThumbnailLoader.downsample(data: data, maxPixel: maxPixel)
         }.value
         guard let image else { throw ThumbnailError.decodeFailed }
-        cache.setObject(image, forKey: cacheKey)
+        cache.setObject(image, forKey: cacheKey, cost: Self.decodedByteCost(image))
         return image
     }
 
