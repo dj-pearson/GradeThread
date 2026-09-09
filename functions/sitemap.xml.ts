@@ -14,7 +14,7 @@ import {
 } from "./_shared/blog-render";
 import type { SitemapUrl } from "./_shared/sitemap";
 import {
-  staticUrls,
+  partitionedStaticUrls,
   blogUrls,
   certUrls,
   passportUrls,
@@ -89,7 +89,7 @@ async function buildSitemap(env: PagesEnv): Promise<Response> {
   // document from a sitemapindex to a truncated single urlset, changing its
   // SHAPE because of a network blip. Serve 503 + Retry-After instead, exactly as
   // rss.xml.ts has since US-2044.
-  let statics: SitemapUrl[],
+  let partitions: Awaited<ReturnType<typeof partitionedStaticUrls>>,
     blog: SitemapUrl[],
     certs: SitemapUrl[],
     passports: SitemapUrl[],
@@ -104,9 +104,9 @@ async function buildSitemap(env: PagesEnv): Promise<Response> {
     styleCodes: SitemapUrl[],
     rnNumbers: SitemapUrl[];
   try {
-    [statics, blog, certs, passports, sellers, condition, value, durability, finds, leaderboards, authors, help, styleCodes, rnNumbers] =
+    [partitions, blog, certs, passports, sellers, condition, value, durability, finds, leaderboards, authors, help, styleCodes, rnNumbers] =
       await Promise.all([
-      staticUrls(env),
+      partitionedStaticUrls(env),
       blogUrls(env),
       certUrls(env),
       passportUrls(env),
@@ -128,6 +128,10 @@ async function buildSitemap(env: PagesEnv): Promise<Response> {
     }
     throw e;
   }
+
+  // Every static partition, flattened once. Spread rather than named so a new
+  // cluster joins the total and the single-urlset branch automatically.
+  const statics: SitemapUrl[] = Object.values(partitions).flat();
 
   const total =
     statics.length +
@@ -155,18 +159,23 @@ async function buildSitemap(env: PagesEnv): Promise<Response> {
           // section actually contains, instead of every entry claiming today()
           // every day. The static split is derived from `statics` because
           // marketingUrls/gradingUrls partition exactly that set.
-          { name: "sitemap-marketing.xml", lastmod: newestLastmod(statics) },
-          { name: "sitemap-grading.xml", lastmod: newestLastmod(statics) },
+          //
+          // Each entry reads ITS OWN partition. All four used to read the
+          // flattened `statics`, so every static segment claimed the newest date
+          // in the whole registry and a crawler was told a segment had changed
+          // when a different one had.
+          { name: "sitemap-marketing.xml", lastmod: newestLastmod(partitions.marketing) },
+          { name: "sitemap-grading.xml", lastmod: newestLastmod(partitions.grading) },
           // US-9015: the care cluster is its own segment, listed AFTER the two
           // commercial ones. It is deliberately not folded into marketing: a
           // segment is a statement about what a group of pages is, and the
           // containment decision says 32 laundry-repair pages are not the same
           // kind of thing as the pricing page.
-          { name: "sitemap-care.xml", lastmod: newestLastmod(statics) },
+          { name: "sitemap-care.xml", lastmod: newestLastmod(partitions.care) },
           // US-3093: and the buyer-trust cluster after it, for the sharper
           // version of the same reason. Care is a different subject; /buying is
           // a different READER, on a site whose customer is a seller.
-          { name: "sitemap-buying.xml", lastmod: newestLastmod(statics) },
+          { name: "sitemap-buying.xml", lastmod: newestLastmod(partitions.buying) },
           { name: "sitemap-blog.xml", lastmod: newestLastmod(blog) },
           { name: "sitemap-certs.xml", lastmod: newestLastmod(certs) },
           { name: "sitemap-passports.xml", lastmod: newestLastmod(passports) },

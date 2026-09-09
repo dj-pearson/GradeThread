@@ -288,7 +288,7 @@ async function indexableConditionalPaths(env: PagesEnv): Promise<Set<string>> {
 }
 
 /** US-1679: partition the manifest routes into marketing vs grading pSEO. */
-async function partitionedStaticUrls(
+export async function partitionedStaticUrls(
   env: PagesEnv,
 ): Promise<{
   marketing: SitemapUrl[];
@@ -402,13 +402,23 @@ export async function careRatio(
 }
 
 /**
- * All static registry routes (marketing + grading). Kept for the legacy
- * sitemap-static.xml alias + the single-file /sitemap.xml path; the index now
- * links the marketing/grading split instead (US-1679).
+ * ALL static registry routes, every partition of them. Two callers depend on
+ * that word "all": the legacy /sitemap-static.xml alias, and the single-urlset
+ * branch of /sitemap.xml that runs whenever the grand total sits under
+ * SITEMAP_MAX_URLS. A segment left out here is a page nothing advertises.
+ *
+ * ⚠ US-3093 added the `buying` partition and did not add it here, so every
+ * /buying page was missing from /sitemap-static.xml and from the single-urlset
+ * /sitemap.xml, and was undercounted in the total that decides which of the two
+ * shapes /sitemap.xml takes. The segment file served them, but only a crawler
+ * that had already found the index knew the segment existed.
+ *
+ * Build it by spreading the partition object rather than naming fields, so the
+ * NEXT cluster cannot be forgotten the same way.
  */
 export async function staticUrls(env: PagesEnv): Promise<SitemapUrl[]> {
-  const { marketing, grading, care } = await partitionedStaticUrls(env);
-  return [...marketing, ...grading, ...care];
+  const partitions = await partitionedStaticUrls(env);
+  return Object.values(partitions).flat();
 }
 
 export async function blogUrls(env: PagesEnv): Promise<SitemapUrl[]> {
