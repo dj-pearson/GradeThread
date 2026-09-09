@@ -4795,20 +4795,6 @@
       ]
     },
     {
-      "id": "US-3217",
-      "passes": false,
-      "title": "FlipDesk pages report a failed read as an empty one, and no guard stops it spreading",
-      "description": "US-2507 built the ErrorState/QueryBoundary pattern and a source-scan guard so no admin page can tell an operator 'there is nothing here' when the truth is 'the load failed'. That guard's roots are src/pages/admin and src/pages/content only. FlipDesk, the surface sellers actually pay for, never got the pass: eleven query-backed pages surface a failed read in no way at all, and three of them treat 'no data' as 'still loading' so a failure spins forever. The three worst (listings, expenses, sources) were fixed by hand first, because listings.tsx answered a failed flipdesk_listing_page RPC with 'Nothing waiting to list' and sources.tsx printed the literal string 'Failed to load sources: [object Object]'. This story is the rest of the pass plus the guard that makes it stick.",
-      "acceptanceCriteria": [
-        "src/test/admin-error-state.test.ts is generalized (or a sibling guard is added) so src/pages/flipdesk is held to the same three rules as src/pages/admin: an EmptyState with no ErrorState fails, an isLoading-swallows-error branch with no ErrorState fails, and a query-backed page that surfaces a read failure in no way at all fails. Same self-check block, so a broken glob fails loudly.",
-        "Every page the new roots flag renders an ErrorState (or SectionReadError where the page has several independent queries) BEFORE its empty and loading branches. Starting list, measured 2026-09-08: analytics, autolister-bulk-edit, composer, marketplaces, money-overview, money, reconcile, reconciliation, tax-setup for the ignores-a-failed-read shape, and community-insights, composer, marketplaces for the loading-swallows-error shape.",
-        "Any page whose summary tiles or totals are computed from query data shows the failure rather than a zero. expenses.tsx was safe by accident (its tiles are gated on months.length), which is not a property to rely on twice.",
-        "No allowlist. US-2507 shipped a shrink-only list of nine and it worked because it failed in BOTH directions; if one is needed here it carries the same rule and the same instruction to delete it once empty."
-      ],
-      "priority": 3,
-      "notes": "Partial 2026-09-08. Fixed by hand and off the list: listings, expenses, sources (the empty-state-lies shape, now zero), money-overview (six reads, any failure rendered $0.00 profit and 'nothing unexplained in your books'), reconciliation (a failed sales read rendered 'No discrepancies. Fees and shipping look clean.'). src/test/flipdesk-error-state.test.ts is the guard: shape A is absolute at zero, shape C is a shrink-only list of seven that fails in BOTH directions. Shape B is deliberately NOT enforced on FlipDesk and the file says why: all three current hits are false positives (an effect body in composer, a widget visibility guard in marketplaces, and community-insights, which already branches on isError first but renders a bespoke card instead of ErrorState, so it has no retry button). Remaining: analytics, autolister-bulk-edit, composer, marketplaces, money, reconcile, tax-setup, plus giving community-insights a retry. | Partial 2026-09-09: tax-setup.tsx done and off READ_FAILURE_UNHANDLED. It was the highest-consequence one — a failed read left the form at TAX_PROFILE_DEFAULTS, which LOOK like real answers, and Save overwrote the seller's real filing status and fiscal year. Six left: analytics, autolister-bulk-edit, composer, marketplaces, money, reconcile. | Partial 2026-09-09: analytics.tsx done and off READ_FAILURE_UNHANDLED. Only composer.tsx remains on that list."
-    },
-    {
       "id": "US-3218",
       "passes": false,
       "title": "Thirty-odd feature call sites still touch Web Storage unguarded (boot path already fixed)",
