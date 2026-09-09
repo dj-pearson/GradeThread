@@ -451,7 +451,13 @@ export function makeListingsActions(d: ListingsActionDeps) {
         }
         await qc.invalidateQueries({ queryKey: ["items_full"] });
       } catch (e) {
-        toastError(e, "Status changed, but the listing didn't sync.");
+        // US-3245: this is the divergence case by definition — the item now
+        // reads as a draft here while the marketplace still has it live. A
+        // seller knows what a live listing is; they do not know what a sync is.
+        toastError(e, "Status changed here, but the listing may still be live.", {
+          duration: 12_000,
+          nextStep: "Check the marketplace and end it there if it is still up.",
+        });
       }
     }
   }
@@ -520,15 +526,19 @@ export function makeListingsActions(d: ListingsActionDeps) {
       }
     } catch (err) {
       const e = err as Error & { status?: number; code?: string };
-      if (e.code === "unsupported_platform" || e.code === "not_connected") {
-        // The listing is STILL LIVE. Say so plainly and for long enough to read
-        // — this is the case that costs a seller a double sale.
-        toastError(e, "Could not end that listing.", {
-          duration: 12_000,
-        });
-        return;
-      }
-      toastError(e, "End failed.");
+      // US-3245. This used to give the long toast to two error CODES and four
+      // seconds to everything else — a network drop, a 500, a timeout. The
+      // outcome is the same in all of them: the end did not happen, so the
+      // listing is still live and still sellable. That is what costs a double
+      // sale, and it does not care why the request failed. Key the duration on
+      // the OUTCOME, not on the code.
+      toastError(e, "Could not end that listing — it is still live.", {
+        duration: 12_000,
+        nextStep:
+          e.code === "not_connected"
+            ? "Reconnect the marketplace in Settings, then end it again."
+            : "Try again, or end it in the marketplace's own app.",
+      });
     }
   }
 

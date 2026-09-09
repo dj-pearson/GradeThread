@@ -28,6 +28,12 @@ export interface ToastErrorContext {
    * read: a batch where some rows published and some did not, or a delist
    * that failed while the listing is still live. Those cost money if missed,
    * and the default four seconds is not enough to read a count.
+   *
+   * KEY IT ON THE OUTCOME, NOT THE ERROR CODE (US-3245). endListing used to
+   * give the long toast to `unsupported_platform` and `not_connected` and the
+   * default to a network drop, a 500 and a timeout — all of which leave the
+   * listing just as live and just as sellable. The test is "what is true in
+   * the world now", not "which branch did we land in".
    */
   duration?: number;
   /**
