@@ -45476,6 +45476,20 @@
       ],
       "priority": 3,
       "notes": "Done 2026-09-09. New ios/GradeThread/Components/SyncRefreshBanner.swift holds SyncRefresh.run (awaits SyncEngine.sync, falls back to the .inventoryPullRequested post when the engine has not booted), SyncRefresh.failureAnnouncement, the SyncRefreshBanner view, and the .syncRefreshable(engine:error:) / .syncRefreshBanner(_:) modifiers. Wired into DashboardView, MoneyView, MoneyProfitListView and SalesView, which previously posted the notification and returned. AnalyticsView and GradesListView dropped their private refreshFromServer + refreshErrorBanner copies for the shared ones, which also gains them the error haptic and the VoiceOver announcement Inventory has had since US-1021. InventoryListView keeps its richer banner (it carries a Retry action) but its refreshFailureAnnouncement is now a thin re-export. Verified: all 13 ios/Scripts guards pass; new test in GradeThreadTests/AccessibilityAnnounceTests.swift. Swift compile is macOS-only, so iOS CI is the compile check."
+    },
+    {
+      "id": "US-3220",
+      "passes": true,
+      "title": "iOS: form sheets guard unsaved work against an accidental swipe-to-dismiss",
+      "description": "Five iOS sheets that hold typed work (Add expense, Log a trip, New source, and the pricing + automation rule editors) dismissed on a downward drag with no warning and no draft kept. The worst case is Add expense: a photographed receipt, a parsed amount and a note all vanish on one stray gesture, and the seller has to find the receipt again. The item canvas has guarded this since US-1513; this packages the same protection as a reusable modifier.",
+      "acceptanceCriteria": [
+        "A dirty form sheet cannot be dismissed by dragging; Cancel asks 'Discard your changes?' with Discard / Keep editing",
+        "An untouched form still closes immediately on Cancel and on a drag",
+        "Add expense counts a staged receipt scan as unsaved work, not just typed text",
+        "The guard lives in one file (Components/UnsavedChangesGuard.swift) with a matching CancelFormButton"
+      ],
+      "priority": 3,
+      "notes": "Done 2026-09-09. New ios/GradeThread/Components/UnsavedChangesGuard.swift: the UnsavedChangesGuard modifier (interactiveDismissDisabled while dirty + a Discard/Keep editing confirmationDialog) and CancelFormButton, which dismisses straight away on a clean form and asks first on a dirty one. Applied to ExpenseFormSheet (dirty = typed amount, note, linked item, or a staged receipt scan), TripFormSheet (draft != the post-onAppear pristine copy, since presets land in onAppear), AddSourceSheet, Pricing/RuleEditorSheet and Automations/AutomationRuleEditorSheet (both drafts are Equatable and set in init, so pristine is a let). Filter sheets (InventoryFilterSheet, ScoutFilterSheet) and QuickPriceSheet were left alone: nothing there is work you would mind re-entering. Verified: all 13 ios/Scripts guards pass. Swift compile is macOS-only, so iOS CI is the compile check."
     }
   ]
 }

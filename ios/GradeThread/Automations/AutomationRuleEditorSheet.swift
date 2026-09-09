@@ -11,10 +11,17 @@ struct AutomationRuleEditorSheet: View {
     @State private var draft: AutomationDraft
     @State private var isSaving = false
 
+    // US-3220: a rule the seller has been configuring shouldn't die on a swipe.
+    @State private var showingDiscard = false
+    private let pristine: AutomationDraft
+    private var isDirty: Bool { draft != pristine }
+
     init(existing: AutomationRule?, store: AutomationsStore) {
         self.existing = existing
         self.store = store
-        _draft = State(initialValue: existing.map(AutomationDraft.init(from:)) ?? AutomationDraft())
+        let initial = existing.map(AutomationDraft.init(from:)) ?? AutomationDraft()
+        _draft = State(initialValue: initial)
+        pristine = initial
     }
 
     private var canSave: Bool { draft.isValid && !isSaving }
@@ -37,11 +44,12 @@ struct AutomationRuleEditorSheet: View {
             }
             .keyboardDoneToolbar()
             .scrollDismissesKeyboard(.interactively)
+            .unsavedChangesGuard(isDirty: isDirty, showingDiscard: $showingDiscard) { dismiss() }
             .navigationTitle(existing == nil ? "New rule" : "Edit rule")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { dismiss() }
+                    CancelFormButton(isDirty: isDirty, showingDiscard: $showingDiscard) { dismiss() }
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Save") { Task { await save() } }

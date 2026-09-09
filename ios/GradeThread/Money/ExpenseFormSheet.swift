@@ -37,6 +37,20 @@ struct ExpenseFormSheet: View {
     @State private var sheet: FormSheet?
     @State private var photoLoadError: String?
 
+    // US-3220: an expense with a scanned receipt on it is real work. A stray
+    // downward swipe used to bin it with no warning.
+    @State private var showingDiscard = false
+
+    /// Anything the seller has entered or scanned. The category has a default,
+    /// so it doesn't count; a staged receipt does, since re-photographing it is
+    /// the most annoying part to lose.
+    private var isDirty: Bool {
+        !amountText.trimmingCharacters(in: .whitespaces).isEmpty
+            || !note.trimmingCharacters(in: .whitespaces).isEmpty
+            || linkedItemId != nil
+            || scan.stagingPath != nil
+    }
+
     /// The one sheet this view presents, named so two of them cannot compete
     /// for the single slot (ios/Scripts/check-chained-sheets.py). The camera
     /// goes through `.fullScreenCover`, which is its own slot.
@@ -169,11 +183,12 @@ struct ExpenseFormSheet: View {
             }
             .keyboardDoneToolbar()
             .scrollDismissesKeyboard(.interactively)
+            .unsavedChangesGuard(isDirty: isDirty, showingDiscard: $showingDiscard) { dismiss() }
             .navigationTitle("Add expense")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { dismiss() }
+                    CancelFormButton(isDirty: isDirty, showingDiscard: $showingDiscard) { dismiss() }
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button {

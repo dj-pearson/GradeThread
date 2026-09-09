@@ -18,6 +18,13 @@ struct AddSourceSheet: View {
     @State private var isSaving = false
     @State private var errorMessage: String?
 
+    // US-3220: a typed name and notes shouldn't vanish on a stray swipe.
+    @State private var showingDiscard = false
+    private var isDirty: Bool {
+        !name.trimmingCharacters(in: .whitespaces).isEmpty
+            || !notes.trimmingCharacters(in: .whitespaces).isEmpty
+    }
+
     var body: some View {
         NavigationStack {
             Form {
@@ -49,11 +56,12 @@ struct AddSourceSheet: View {
                     }
                 }
             }
+            .unsavedChangesGuard(isDirty: isDirty, showingDiscard: $showingDiscard) { dismiss() }
             .navigationTitle("New source")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { dismiss() }
+                    CancelFormButton(isDirty: isDirty, showingDiscard: $showingDiscard) { dismiss() }
                         .disabled(isSaving)
                 }
                 ToolbarItem(placement: .confirmationAction) {

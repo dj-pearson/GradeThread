@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-3220",
+  "nextId": "US-3221",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -4819,7 +4819,8 @@
         "The remaining preference-shaped sites (pwa-install-banner, use-activation, listing-suggestions, bulk-intake, impersonation, settings) either use safe-storage or carry their own try/catch. A dismissed banner that reappears is an acceptable outcome; a thrown exception is not.",
         "src/test/boot-path-storage-safe.test.ts grows to cover whatever of these is genuinely boot-path, or a second guard covers the auth files. Do NOT widen it to the whole tree: the narrow list is what makes it meaningful, and the file says so."
       ],
-      "priority": 4
+      "priority": 4,
+      "notes": "Partial 2026-09-09. The two urgent halves are done: login.tsx, auth-callback.tsx, auth-confirm.tsx and accept-invite.tsx now read RETURN_TO_KEY / PENDING_INVITE_KEY through safe-storage (auth-callback runs AFTER the provider has authenticated, so the throw left a signed-in visitor stranded on a blank screen), and autolister.tsx's render-time session-id read plus autolister-upload-store's consumeLostUploadCount reader are converted. All five auth/boot files are now in BOOT_PATH_FILES in src/test/boot-path-storage-safe.test.ts. autolister.tsx is deliberately NOT on that list and the guard says why: its other eight call sites already sit inside try/catch, and a line-level rule cannot see that. Remaining and all preference-shaped: pwa-install-banner, use-activation, listing-suggestions, bulk-intake, impersonation, settings."
     }
   ]
 }

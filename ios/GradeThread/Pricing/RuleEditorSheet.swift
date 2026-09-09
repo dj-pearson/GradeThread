@@ -13,6 +13,11 @@ struct RuleEditorSheet: View {
     @State private var draft: RuleDraft
     @State private var isSaving = false
 
+    // US-3220: a rule the seller has been configuring shouldn't die on a swipe.
+    @State private var showingDiscard = false
+    private let pristine: RuleDraft
+    private var isDirty: Bool { draft != pristine }
+
     /// US-1198: human title for an item-scoped rule (falls back to the id).
     private var scopedItemTitle: String? {
         guard let id = draft.inventoryItemId else { return nil }
@@ -25,7 +30,9 @@ struct RuleEditorSheet: View {
     init(existing: RepricingRule?, store: RepricingRulesStore) {
         self.existing = existing
         self.store = store
-        _draft = State(initialValue: existing.map(RuleDraft.init(from:)) ?? RuleDraft())
+        let initial = existing.map(RuleDraft.init(from:)) ?? RuleDraft()
+        _draft = State(initialValue: initial)
+        pristine = initial
     }
 
     private var canSave: Bool { draft.isValid && !isSaving }
@@ -46,11 +53,12 @@ struct RuleEditorSheet: View {
                 autoAcceptSection
             }
             .keyboardDoneToolbar()
+            .unsavedChangesGuard(isDirty: isDirty, showingDiscard: $showingDiscard) { dismiss() }
             .navigationTitle(existing == nil ? "New rule" : "Edit rule")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { dismiss() }
+                    CancelFormButton(isDirty: isDirty, showingDiscard: $showingDiscard) { dismiss() }
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Save") { Task { await save() } }

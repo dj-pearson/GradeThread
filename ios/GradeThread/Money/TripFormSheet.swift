@@ -26,6 +26,18 @@ struct TripFormSheet: View {
     @State private var isSaving = false
     @State private var errorMessage: String?
 
+    // US-3220: a swipe-down used to bin a half-logged trip with no warning.
+    @State private var showingDiscard = false
+    /// The draft as `onAppear` left it (presets applied, nothing typed). Set
+    /// there rather than in the initializer because the presets land there.
+    @State private var pristine: TripDraft?
+
+    /// True once the seller has changed anything from the pre-filled form.
+    private var isDirty: Bool {
+        guard let pristine else { return false }
+        return draft != pristine || !customPurpose.isEmpty || usingCustomPurpose
+    }
+
     /// The purpose actually saved: the picker's wire value, or what the seller
     /// typed. The column is free text on the server precisely so the IRS's "in
     /// your own words" answer is possible.
@@ -113,7 +125,7 @@ struct TripFormSheet: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { dismiss() }
+                    CancelFormButton(isDirty: isDirty, showingDiscard: $showingDiscard) { dismiss() }
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button {
@@ -129,7 +141,9 @@ struct TripFormSheet: View {
                     draft.sourceId = presetSourceId
                 }
                 draft.purpose = presetPurpose
+                if pristine == nil { pristine = draft }
             }
+            .unsavedChangesGuard(isDirty: isDirty, showingDiscard: $showingDiscard) { dismiss() }
         }
     }
 
