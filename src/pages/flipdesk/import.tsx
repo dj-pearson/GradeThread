@@ -42,6 +42,13 @@ import { Input } from "@/components/ui/input";
 import { Progress } from "@/components/ui/progress";
 import { edgeFetch } from "@/lib/edge-fetch";
 import { useAuthStore } from "@/stores/auth-store";
+import { MARKETPLACE_LABELS } from "@/lib/constants";
+import { CLOSET_IMPORT_PLATFORMS } from "@/lib/marketplace-disclosure";
+import {
+  presetIdForAnswer,
+  readExistingListings,
+  type ExistingListingsAnswer,
+} from "@/lib/existing-listings";
 import { useWorkspace } from "@/hooks/use-workspace";
 import { useFetchGoogleSheet } from "@/hooks/use-sheet-import";
 import { parseSheet } from "@/lib/csv";
@@ -205,6 +212,12 @@ export function FlipdeskImportPage() {
   // US-9209: the competitor export the file looks like, so the mapping is
   // already done when the seller reaches step 2. Null means a plain sheet.
   const [preset, setPreset] = useState<ImportPreset | null>(null);
+  // US-3264: what this seller said at signup about the listings they already
+  // have. Read once; it only ever pre-selects, and a detected preset or the
+  // seller's own choice always wins over it.
+  const [signupAnswer] = useState<ExistingListingsAnswer | null>(() =>
+    readExistingListings(user?.id),
+  );
   const [importing, setImporting] = useState(false);
   // US-2518: the server's run, polled. `run` is the whole progress and result
   // surface now — a browser refresh mid-import picks it back up.
@@ -240,7 +253,12 @@ export function FlipdeskImportPage() {
     }
     setHeaders(h);
     setRows(r);
-    const found = detectImportPreset(h);
+    // The file itself is the better evidence, so detection wins. The signup
+    // answer only fills the gap where detection found nothing -- which is
+    // exactly the case that used to leave a switching seller mapping columns
+    // by hand.
+    const detected = detectImportPreset(h);
+    const found = detected ?? getImportPreset(presetIdForAnswer(signupAnswer) ?? "") ?? null;
     setPreset(found);
     setMapping(found ? applyImportPreset(h, found) : h.map(guessField));
     setRun(null);
@@ -528,8 +546,32 @@ export function FlipdeskImportPage() {
               actions={<PageHelp slug="importing-your-inventory" />}
       />
 
-      {/* US-9201: the extension-channel import. Renders only when the
-          extension is installed and the account has an active paid plan. */}
+      {/* US-3264: what the seller told us at signup, and which door each of
+          those channels comes through. Without this the pre-selected preset
+          below looks like the page guessing. */}
+      {signupAnswer && signupAnswer.volume !== "none" && signupAnswer.channels.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">
+              You said your listings are on{" "}
+              {signupAnswer.channels
+                .map((c) => MARKETPLACE_LABELS[c as keyof typeof MARKETPLACE_LABELS] ?? c)
+                .join(", ")}
+            </CardTitle>
+            <CardDescription>
+              {signupAnswer.channels.some((c) =>
+                (CLOSET_IMPORT_PLATFORMS as readonly string[]).includes(c),
+              )
+                ? "Those closets can be read straight from your own tab below. For the rest, export a CSV from the marketplace and drop it in."
+                : "Export a CSV from the marketplace and drop it in below. Where we know that export's columns, the mapping is already filled in."}
+            </CardDescription>
+          </CardHeader>
+        </Card>
+      )}
+
+      {/* US-9201 / US-3263: the extension-channel import. Renders whenever the
+          extension has answered a ping — an install step when it is missing,
+          and the free bound stated when the account has no plan. */}
       <ClosetImportCard
         disabled={importing || !can("manage_inventory")}
         onStarted={handleClosetStarted}

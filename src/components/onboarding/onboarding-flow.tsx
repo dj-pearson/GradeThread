@@ -27,6 +27,15 @@ import { track } from "@/lib/analytics";
 import { trackActivation } from "@/lib/activation-analytics";
 import { useOnboardingTourStore } from "@/stores/onboarding-tour-store";
 import { USE_CASE_OPTIONS } from "@/lib/use-cases";
+import { LISTING_PLATFORMS, MARKETPLACE_LABELS } from "@/lib/constants";
+import {
+  asksExistingListings,
+  landingForAnswer,
+  LISTING_VOLUME_LABELS,
+  LISTING_VOLUMES,
+  saveExistingListings,
+  type ListingVolume,
+} from "@/lib/existing-listings";
 import type { UserUpdate, UserUseCase } from "@/types/database";
 
 // US-2857. These four slides used to name three rooms that had been renamed:
@@ -132,6 +141,16 @@ function nextActionLabel(useCase: UserUseCase | null): string {
   }
 }
 
+// US-3264: the channels a new seller is asked about.
+//
+// Not every LISTING_PLATFORMS id: "other" is not a place anybody has listings,
+// and the question is about where a closet ALREADY is, so it names the
+// marketplaces resellers actually arrive from. The ids are the real ones, so an
+// answer maps straight onto an import preset or a closet read.
+const ASKABLE_CHANNELS = LISTING_PLATFORMS.filter(
+  (p) => p !== "other",
+);
+
 export function OnboardingFlow() {
   const { user, profile, refreshProfile } = useAuth();
   const navigate = useNavigate();
@@ -145,10 +164,19 @@ export function OnboardingFlow() {
   );
   const [saving, setSaving] = useState(false);
   const [dismissed, setDismissed] = useState(false);
+  // US-3264: the second question, for sellers only. Null volume means the
+  // question has not been answered; Skip finishes the step without one and is
+  // treated exactly as "none" for routing.
+  const [volume, setVolume] = useState<ListingVolume | null>(null);
+  const [channels, setChannels] = useState<string[]>([]);
   // US-2857: the slide list depends on the persona, so the step count is not a
   // module constant any more.
   const tourSteps = tourStepsFor(useCase);
-  const lastStep = 1 + tourSteps.length; // welcome=0, use case=1, tour=2..n
+  // US-3264: welcome=0, use case=1, [existing listings=2 for sellers], tour=…
+  const asksListings = asksExistingListings(useCase);
+  const listingsStep = asksListings ? 2 : -1;
+  const firstTourStep = asksListings ? 3 : 2;
+  const lastStep = firstTourStep - 1 + tourSteps.length;
 
   // First-run: show until onboarded_at is set. Replay-from-Settings: show on
   // demand even after onboarding, starting fresh from the welcome step.
@@ -201,6 +229,19 @@ export function OnboardingFlow() {
         persona: useCase,
         platform: "web",
       });
+      // US-3264: the seller's own answer about what they already have. Saved
+      // before the navigation below reads it back.
+      const listingsAnswer = asksExistingListings(useCase) && volume
+        ? { volume, channels }
+        : null;
+      if (listingsAnswer) {
+        saveExistingListings(user.id, listingsAnswer);
+        track("onboarding.existing_listings_answered", {
+          volume: listingsAnswer.volume,
+          channels: listingsAnswer.channels.join(","),
+          channel_count: listingsAnswer.channels.length,
+        });
+      }
       if (useCase) {
         track("onboarding.use_case_selected", { use_case: useCase, at: "tour" });
         trackActivation("persona_chosen", user.id, {
@@ -211,7 +252,9 @@ export function OnboardingFlow() {
       setDismissed(true);
       closeTour();
       await refreshProfile();
-      if (routeNext) navigate(nextActionFor(useCase));
+      if (routeNext) {
+        navigate(landingForAnswer(useCase, listingsAnswer, nextActionFor(useCase)));
+      }
     } catch {
       // Don't trap the user — close anyway; it may reappear next session.
       setDismissed(true);
@@ -226,8 +269,8 @@ export function OnboardingFlow() {
 
   if (!shouldShow) return null;
 
-  const tourIndex = step - 2;
-  const isTour = step >= 2;
+  const tourIndex = step - firstTourStep;
+  const isTour = step >= firstTourStep;
   const tourStep = tourSteps[tourIndex];
 
   // US-1461 (AC3): a polite live-region announcement so screen-reader users
@@ -237,7 +280,9 @@ export function OnboardingFlow() {
       ? "Welcome to GradeThread"
       : step === 1
         ? "What brings you here?"
-        : (tourSteps[tourIndex]?.title ?? "");
+        : step === listingsStep
+          ? "Where are your listings now?"
+          : (tourSteps[tourIndex]?.title ?? "");
   const stepAnnouncement = `Step ${step + 1} of ${lastStep + 1}: ${stepTitle}`;
 
   return (
@@ -350,6 +395,78 @@ export function OnboardingFlow() {
           </>
         )}
 
+        {/* US-3264 — Step 2 for sellers: what do you already have, and where?
+            One question, four answers, and the channels as chips. It decides
+            where Finish lands and which import source is pre-selected there;
+            skipping is one press and routes exactly as "None yet". */}
+        {step === listingsStep && (
+          <>
+            <DialogHeader>
+              <DialogTitle>Where are your listings now?</DialogTitle>
+              <DialogDescription>
+                If you already sell somewhere, FlipDesk can pull those listings
+                in rather than have you type them again.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="grid gap-2 sm:grid-cols-2">
+              {LISTING_VOLUMES.map((v) => {
+                const selected = volume === v;
+                return (
+                  <button
+                    key={v}
+                    type="button"
+                    aria-pressed={selected}
+                    onClick={() => {
+                      setVolume(v);
+                      if (v === "none") setChannels([]);
+                    }}
+                    className={cn(
+                      "rounded-lg border-2 p-3 text-left text-sm font-medium transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                      selected
+                        ? "border-primary bg-primary/5"
+                        : "border-border hover:border-primary/40",
+                    )}
+                  >
+                    {LISTING_VOLUME_LABELS[v]}
+                  </button>
+                );
+              })}
+            </div>
+            {volume && volume !== "none" && (
+              <div className="space-y-2">
+                <p className="text-sm font-medium">Which ones? Pick any.</p>
+                <div className="flex flex-wrap gap-2">
+                  {ASKABLE_CHANNELS.map((platform) => {
+                    const selected = channels.includes(platform);
+                    return (
+                      <button
+                        key={platform}
+                        type="button"
+                        aria-pressed={selected}
+                        onClick={() =>
+                          setChannels((cur) =>
+                            cur.includes(platform)
+                              ? cur.filter((c) => c !== platform)
+                              : [...cur, platform],
+                          )
+                        }
+                        className={cn(
+                          "rounded-full border px-3 py-1 text-xs font-medium transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                          selected
+                            ? "border-primary bg-primary/10 text-primary"
+                            : "border-border hover:border-primary/40",
+                        )}
+                      >
+                        {MARKETPLACE_LABELS[platform]}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+          </>
+        )}
+
         {/* Steps 2..n — a short tour of the places the user will actually use */}
         {isTour && tourStep && (
           <>
@@ -444,7 +561,11 @@ export function OnboardingFlow() {
                 }
                 disabled={step === 1 && !useCase}
               >
-                {step === 1 && !useCase ? "Pick one to continue" : "Next"}
+                {step === 1 && !useCase
+                  ? "Pick one to continue"
+                  : step === listingsStep && !volume
+                    ? "Skip this"
+                    : "Next"}
               </Button>
             ) : (
               <Button

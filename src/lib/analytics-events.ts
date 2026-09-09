@@ -291,6 +291,13 @@ export const ANALYTICS_EVENTS = {
   // US-2884: the tour's two endings, which nothing recorded. Without them
   // "tour finished" and "tour skipped" were indistinguishable from "never
   // reached the tour".
+  // US-3264: the seller's own answer to "where are your listings now". This is
+  // the population question a users column would have answered worse: how many
+  // new sellers arrive with a closet, and on which channels. Properties are
+  // `volume` (a bucket, never a count they typed), `channels` (marketplace ids)
+  // and `channel_count`.
+  "onboarding.existing_listings_answered":
+    "A seller said how many listings they already have live, and where.",
   "onboarding.tour_finished": "The first-run tour reached its last slide.",
   "onboarding.tour_skipped": "The first-run tour was skipped.",
 
