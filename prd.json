@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-3277",
+  "nextId": "US-3280",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -5014,6 +5014,31 @@
         "pushSaleCreated stamps sale_id and inventory_item_id",
         "The post-order senders stamp the external id of the return, case or dispute they name, which also unblocks US-3266 AC4",
         "Each shipped payload gets a case in NotificationCategoryID.payloadKeys on the iOS side, which is what re-enables its buttons, and NotificationActionAvailabilityTests fails until the mirrored key list is updated with it"
+      ]
+    },
+    {
+      "id": "US-3278",
+      "passes": false,
+      "title": "Install a Swift toolchain in the remote container so GradeThreadCore tests can run",
+      "description": "Packages/GradeThreadCore exists specifically so the app's pure logic runs under swift test on Linux without a Mac - ConflictPolicyTests says so in its own header. The remote container has no Swift at all ('swift: command not found'), so even that half of the suite cannot be executed here, and every iOS change made in this environment ships verified only by the sixteen ios/Scripts text guards plus check-ios-orphans.mjs. Those guards are good but they read source; they cannot tell you a switch is non-exhaustive, a type does not resolve, or an assertion fails. Fourteen iOS fixes were made on the claude/ios-improvements-loop-yxudkd branch in one session, every one of them unable to run its own tests. Installing swiftly (or a pinned Swift toolchain) in the container image is the single change that would most improve what an agent can verify here. GradeThreadCore holds ConflictPolicy, Money, SalePnL, description blocks, sync ordering and title patching - a large share of the logic worth testing.",
+      "acceptanceCriteria": [
+        "A Swift toolchain is available in the remote-session container image and swift --version succeeds",
+        "swift test in Packages/GradeThreadCore runs green from a clean checkout in that container",
+        "scripts/verify.mjs gains a lane that runs the GradeThreadCore package tests when a toolchain is present and skips with a warning when it is not, matching how the Docker-dependent lanes already behave",
+        "CLAUDE.md's iOS paragraph is corrected: it currently implies only macOS CI can run anything Swift, and the package tests are the exception"
+      ]
+    },
+    {
+      "id": "US-3279",
+      "passes": false,
+      "title": "Generate the push contract so iOS and the edge cannot drift again",
+      "description": "Three separate bugs in one session came from the same shape: the client and the edge each describe the push contract in their own file and nothing compares them. US-3266 was the edge sending seven categories iOS had never heard of, so every tap on a return, case or dispute push went nowhere. US-3268 was iOS offering three Settings toggles for notifications nothing can send. US-3274 was iOS registering five inline buttons the payload cannot serve, one of which prompted for Face ID before doing nothing. Each had a nearby comment asserting the opposite, written when it was true. The current guards (PushCategoryCoverageTests, NotificationActionAvailabilityTests) mirror the edge's lists BY HAND, which catches iOS-side drift only and rots the moment someone edits transactional-push.ts without touching iOS. The fix is to make the edge emit its category and payload-key map as a checked-in artefact and have the iOS tests read it, so a change on either side fails the other.",
+      "acceptanceCriteria": [
+        "The edge emits a checked-in JSON artefact listing every category it sends and the userInfo keys each payload carries, generated from transactional-push.ts rather than hand-maintained",
+        "A Deno test fails when the artefact is out of date with the senders, so it cannot silently rot",
+        "PushCategoryCoverageTests and NotificationActionAvailabilityTests read the artefact instead of their hand-mirrored lists",
+        "NotificationCategoryID.payloadKeys is derived from or checked against the artefact, so a category regains its buttons automatically when the edge starts stamping ids",
+        "Android is considered: if it has the same category list, it reads the same artefact"
       ]
     }
   ]

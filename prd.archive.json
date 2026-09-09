@@ -46050,6 +46050,19 @@
         "The tests live in GradeThreadCore so they run under swift test on Linux, not only in the simulator"
       ],
       "notes": "Done 2026-09-09. ConflictPolicy.acceptsServerSnapshot(serverUpdatedAt:localUpdatedAt:) in GradeThreadCore, used as a guard at SyncMergeActor.swift:127 (mergeItems) and :712 (mergeSingleInventory); three cases added to Packages/GradeThreadCore/Tests/GradeThreadCoreTests/ConflictPolicyTests.swift. NOT RUN HERE: that file's own header says it exists so the pure merge logic runs under swift test on Linux without a Mac, which is exactly what this box should have been able to do - but there is no Swift toolchain installed on it at all ('swift: command not found'), so even the Linux-runnable half of the suite could not be executed. Installing swiftly or a Swift toolchain in the container would make every GradeThreadCore test runnable in this environment, and given how much of the app's real logic has been deliberately pushed into that package that is worth doing; it is the single change that would most improve what an agent can verify here. Filed nothing for it yet."
+    },
+    {
+      "id": "US-3277",
+      "passes": true,
+      "title": "iOS: a revoked workspace left the other owner's data in the local cache",
+      "description": "WorkspaceContext.load() noticed a persisted workspace selection that no longer names a reachable workspace and called WorkspaceScope.clear(). That drops the scope and nothing else. .workspaceDidChange is what invalidates the sync scope, flushes the tenant-keyed EdgeAPI cache and WIPES THE PREVIOUS TENANT'S LOCAL ROWS (ContentView.swift:240). So a member whose access was revoked while the app was closed relaunched into their personal workspace still holding the other owner's inventory, sales and grades in SwiftData, shown as their own, until some later pull happened to prune them. switchTo posts the notification. handleAccessRevoked posts it. load() was the only path that changed the scope without it, and it is also the only one that runs when nobody is watching.",
+      "acceptanceCriteria": [
+        "load() routes a stale selection through WorkspaceScope.handleAccessRevoked, so the scope drop, the cache re-scope and the user-facing notice all happen together",
+        "The stale-selection rule is a pure static function so it is testable without a Supabase client",
+        "A user with no workspace selected is never told their access ended",
+        "A test pins that clear() alone does not re-scope, so the cheap-looking call is not put back"
+      ],
+      "notes": "Done 2026-09-09. WorkspaceContext.isStaleSelection(_:in:) as a pure static, load() calls WorkspaceScope.handleAccessRevoked instead of clear(); GradeThreadTests/WorkspaceStaleSelectionTests.swift, 6 cases, additive to the existing WorkspaceContextTests which covers switchTo and the scope basics but not this path. Worth noting for whoever picks up the notice UI: .workspaceAccessRevoked is observed on MainShell, and load() runs early, so on a cold launch the notice may post before the observer is live - the same shape as the push deep-link bug fixed earlier on this branch (e7c8b3a). The DATA half of this fix does not depend on that (.workspaceDidChange drives the cache wipe through a Task that does not need a view), but the user-facing sentence may be dropped on a cold launch. Worth confirming on device."
     }
   ]
 }
