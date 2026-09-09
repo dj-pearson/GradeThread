@@ -75,6 +75,7 @@ import {
   useDisconnectEbay,
   useEbayConnection,
   useEbayConnectionIssue,
+  useCreateEbayPolicies,
   useEbayPolicies,
   useSetDefaultPolicies,
   useStartEbayOauth,
@@ -355,6 +356,14 @@ function EbayPoliciesDialog({
   const { data, isLoading } = useEbayPolicies(true);
   const setDefaults = useSetDefaultPolicies();
   const resync = useSyncEbayPolicies();
+  // US-3265: the way out of the dead end below. Four answers, and FlipDesk
+  // creates the policies on the seller's eBay account.
+  const createPolicies = useCreateEbayPolicies();
+  const [handlingDays, setHandlingDays] = useState("1");
+  const [shippingCost, setShippingCost] = useState("0");
+  const [acceptsReturns, setAcceptsReturns] = useState(true);
+  const [returnDays, setReturnDays] = useState<"30" | "60">("30");
+  const [returnPaidBy, setReturnPaidBy] = useState<"BUYER" | "SELLER">("BUYER");
 
   // Local selection seeded from the saved defaults; re-seed when data changes.
   const [selection, setSelection] = useState<Record<string, string>>({});
@@ -425,11 +434,115 @@ function EbayPoliciesDialog({
             Loading your eBay policies…
           </div>
         ) : policies.length === 0 ? (
-          <p className="text-sm text-muted-foreground">
-            Your eBay account has no business policies yet. Set up shipping,
-            payment and returns in eBay Seller Hub, then press Re-sync from
-            eBay.
-          </p>
+          /* US-3265: this used to say "set them up in eBay Seller Hub, then
+             press Re-sync" -- a hand-off in the middle of connecting, to the
+             account least equipped to take it, with every publish refused
+             until it came back. FlipDesk holds the seller's eBay token and
+             already creates the merchant location nobody else creates; these
+             four answers are the rest of it. */
+          <div className="space-y-4">
+            <p className="text-sm text-muted-foreground">
+              This eBay account has no business policies yet. Answer these and
+              FlipDesk will create the three that eBay requires. You can change
+              any of it on eBay later.
+            </p>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div className="space-y-1">
+                <Label htmlFor="policy-handling" className="text-xs">
+                  Days to post after a sale
+                </Label>
+                <Input
+                  id="policy-handling"
+                  type="number"
+                  min={0}
+                  max={30}
+                  value={handlingDays}
+                  onChange={(e) => setHandlingDays(e.target.value)}
+                />
+              </div>
+              <div className="space-y-1">
+                <Label htmlFor="policy-shipping" className="text-xs">
+                  What the buyer pays for postage (0 for free)
+                </Label>
+                <Input
+                  id="policy-shipping"
+                  type="number"
+                  min={0}
+                  step="0.01"
+                  value={shippingCost}
+                  onChange={(e) => setShippingCost(e.target.value)}
+                />
+              </div>
+            </div>
+            <div className="space-y-2">
+              <Label className="text-xs">Returns</Label>
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  type="button"
+                  size="sm"
+                  variant={acceptsReturns ? "default" : "outline"}
+                  onClick={() => setAcceptsReturns(true)}
+                >
+                  I accept returns
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant={acceptsReturns ? "outline" : "default"}
+                  onClick={() => setAcceptsReturns(false)}
+                >
+                  No returns
+                </Button>
+              </div>
+              {acceptsReturns && (
+                <div className="flex flex-wrap items-center gap-2 pt-1">
+                  <select
+                    aria-label="Return window"
+                    value={returnDays}
+                    onChange={(e) => setReturnDays(e.target.value as "30" | "60")}
+                    className="h-9 rounded-md border border-input bg-background px-2 text-sm text-foreground [&>option]:bg-background [&>option]:text-foreground"
+                  >
+                    <option value="30">30 days to return</option>
+                    <option value="60">60 days to return</option>
+                  </select>
+                  <select
+                    aria-label="Who pays return postage"
+                    value={returnPaidBy}
+                    onChange={(e) =>
+                      setReturnPaidBy(e.target.value as "BUYER" | "SELLER")
+                    }
+                    className="h-9 rounded-md border border-input bg-background px-2 text-sm text-foreground [&>option]:bg-background [&>option]:text-foreground"
+                  >
+                    <option value="BUYER">Buyer pays return postage</option>
+                    <option value="SELLER">I pay return postage</option>
+                  </select>
+                </div>
+              )}
+            </div>
+            <Button
+              onClick={() =>
+                createPolicies.mutate({
+                  handling_days: Math.max(
+                    0,
+                    Math.min(30, Math.round(Number(handlingDays) || 0)),
+                  ),
+                  shipping_cost_cents: Math.max(
+                    0,
+                    Math.round((Number(shippingCost) || 0) * 100),
+                  ),
+                  accepts_returns: acceptsReturns,
+                  return_days: returnDays === "60" ? 60 : 30,
+                  return_shipping_paid_by: returnPaidBy,
+                })
+              }
+              disabled={createPolicies.isPending}
+            >
+              {createPolicies.isPending && (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              )}
+              Create these for me
+            </Button>
+          </div>
         ) : (
           <div className="space-y-3">
             {POLICY_KINDS.map((kind) => {

@@ -641,6 +641,54 @@ export function useCreateEbayLocation() {
   });
 }
 
+// US-3265: create the three business policies a first-time seller does not
+// have. The four answers below are the ones that change what a buyer sees;
+// everything else eBay asks for has a sane default and is not put to the
+// seller. Only missing policies are created, so a re-press is safe.
+export function useCreateEbayPolicies() {
+  const qc = useQueryClient();
+  return useMutation<
+    { ok: true; created: string[]; message?: string },
+    Error,
+    {
+      handling_days: number;
+      shipping_cost_cents: number;
+      accepts_returns: boolean;
+      return_days: 30 | 60;
+      return_shipping_paid_by: "BUYER" | "SELLER";
+    }
+  >({
+    mutationFn: async (input) => {
+      const res = await fetch(
+        `${edgeApiUrl()}/api/flipdesk/ebay/policies/create`,
+        {
+          method: "POST",
+          headers: await ebayHeaders(),
+          body: JSON.stringify(input),
+        },
+      );
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(
+          json.detail || json.error || "Could not create your eBay policies.",
+        );
+      }
+      return json as { ok: true; created: string[]; message?: string };
+    },
+    onSuccess: (data) => {
+      qc.invalidateQueries({ queryKey: ["ebay_policies"] });
+      toast.success(
+        data.created.length > 0
+          ? `Created ${data.created.length} eBay ${
+            data.created.length === 1 ? "policy" : "policies"
+          }. You can publish now.`
+          : (data.message ?? "Your eBay account already had all three."),
+      );
+    },
+    onError: (err) => toastError(err),
+  });
+}
+
 // Legacy single-header helper. Most call sites use it via
 // `Authorization: await authHeader()`; new sites should prefer the shared
 // edgeAuthHeaders() from @/lib/edge-fetch, which also attaches the

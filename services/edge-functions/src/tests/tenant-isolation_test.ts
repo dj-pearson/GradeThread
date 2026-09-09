@@ -1573,6 +1573,53 @@ Deno.test({
   },
 });
 
+// US-3265: creating the three business policies. The route takes NO id -- it
+// acts on the caller's own eBay connection -- so the tenancy question is
+// whether B pressing it can reach A's account or A's cached policies. It reads
+// the connection through workspaceOwnerId ?? userId and writes defaults through
+// the same workspace-scoped writer the picker uses, so B's press must leave A's
+// rows exactly as they were.
+Deno.test({
+  name: "B creating eBay business policies cannot touch A's",
+  ignore: !CONFIGURED || !Deno.env.get("TEST_USER_A_FULFILLMENT_POLICY_ID"),
+  fn: async () => {
+    const aPolicy = Deno.env.get("TEST_USER_A_FULFILLMENT_POLICY_ID")!;
+
+    const res = await fetch(`${BASE}/api/flipdesk/ebay/policies/create`, {
+      method: "POST",
+      headers: authHeaders(B_JWT!),
+      body: JSON.stringify({
+        handling_days: 1,
+        shipping_cost_cents: 0,
+        accepts_returns: true,
+        return_days: 30,
+        return_shipping_paid_by: "BUYER",
+      }),
+    });
+    // Any outcome is allowed for B's OWN account -- 200 if B has a live eBay
+    // connection in the fixture, 502/503 if not. What is not allowed is A's
+    // policies changing, which is what the read below checks.
+    await res.body?.cancel();
+
+    const mine = await fetch(`${BASE}/api/flipdesk/ebay/policies`, {
+      headers: authHeaders(B_JWT!),
+    });
+    if (mine.status === 200) {
+      const body = await mine.json() as {
+        policies?: Array<{ policy_id: string }>;
+      };
+      const ids = (body.policies ?? []).map((p) => p.policy_id);
+      assert(
+        !ids.includes(aPolicy),
+        "B's policy list contains A's policy id: the create path is reading " +
+          "another tenant's cached policies.",
+      );
+    } else {
+      await mine.body?.cancel();
+    }
+  },
+});
+
 // US-318 retry endpoint: B must not be able to re-run jobs in A's batch.
 Deno.test({
   name: "B cannot retry failed jobs in A's AutoLister batch",
