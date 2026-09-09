@@ -129,8 +129,27 @@ public enum NotificationActionPlan: Equatable {
         case .markShipped:
             if let saleId {
                 let trimmed = userText?.trimmingCharacters(in: .whitespacesAndNewlines)
-                let tracking = (trimmed?.isEmpty == false) ? trimmed : nil
-                return .markShipped(saleId: saleId, tracking: tracking)
+                let typed = (trimmed?.isEmpty == false) ? trimmed : nil
+                // US-3272: anything typed has to LOOK like a tracking number.
+                //
+                // This path had the trim and not the shape check that
+                // `MarkShippedSheet` has carried since US-1178, and it is the
+                // riskier of the two: text from the lock screen, no sheet, no
+                // warning, no confirmation. `FulfillmentService` pushes a
+                // non-empty tracking straight to eBay's shipping_fulfillment,
+                // which cannot be edited afterwards, and the buyer gets a
+                // tracking link that goes nowhere.
+                //
+                // Falling back to the screen is the same answer `counterOffer`
+                // above already gives an unparseable price: open the place
+                // where it can be done properly rather than send something
+                // wrong. Marking it shipped WITHOUT the number would be worse —
+                // it buries the mistake under a state the seller cannot see is
+                // incomplete.
+                if let typed, !TrackingNumber.isPlausible(typed) {
+                    return .deepLink(.salesTab(inventoryItemId: itemId))
+                }
+                return .markShipped(saleId: saleId, tracking: typed)
             }
             return .deepLink(.salesTab(inventoryItemId: itemId))
 

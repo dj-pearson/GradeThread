@@ -181,13 +181,13 @@ private struct MarkShippedSheet: View {
     // US-1178: warn before sending an obviously-malformed tracking number to eBay.
     @State private var showTrackingWarning = false
 
-    /// Carrier tracking numbers are alphanumeric, ~8–40 chars. We don't try to
-    /// validate per-carrier (too brittle) — just catch obvious typos/paste errors.
+    /// US-3272: the rule moved to ``TrackingNumber`` so the notification's
+    /// "Mark shipped" action shares it. That path had only a trim, and it is
+    /// the one with no sheet and no confirmation.
     private var trackingLooksValid: Bool {
         let t = tracking.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !t.isEmpty else { return true } // empty is allowed (ship without)
-        return (8...40).contains(t.count)
-            && t.allSatisfy { $0.isLetter || $0.isNumber }
+        return TrackingNumber.isPlausible(t)
     }
 
     private func confirmShipped() {

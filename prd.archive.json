@@ -45993,6 +45993,20 @@
         "ISO dates are unaffected in both directions: they settle nothing and parse the same under either order"
       ],
       "notes": "Done 2026-09-09. ImportValue.SlashOrder + slashOrder(in:locale:) + slashParts + localeOrder; dateISO takes the order; ImportMapping resolves it once in mapAll and reuses it in droppedCells; ImportStore.dateOrderNotice renders it in the mapping-step footer, in plain text rather than red because nothing is wrong - it is a statement of which reading happened. GradeThreadTests/ImportDateOrderTests.swift, 9 cases. ONE ASSERTION DELIBERATELY NOT WRITTEN: whether dateISO('12/25/2026', order: .dayFirst) returns nil or a rolled-over date. DateFormatter with isLenient false still normalises out-of-range components in some Foundation versions, so month 25 may become January of the next year rather than failing. It cannot be checked on this host (no Swift), and asserting a guess would be worse than leaving the gap named. If it does roll over, a month-first stray inside a proven day-first column becomes a plausible wrong date rather than a reported blank - worth a follow-up that range-checks the components before handing them to DateFormatter."
+    },
+    {
+      "id": "US-3272",
+      "passes": true,
+      "title": "iOS: the notification Mark shipped action sends any typed text to eBay as tracking",
+      "description": "Mark shipped has two entry points. MarkShippedSheet has checked the shape of a typed tracking number since US-1178, warning before an obvious typo or paste error reaches eBay. NotificationActionPlan.from takes free text from the lock screen, trims it, and returns .markShipped for anything non-empty; FulfillmentService then pushes a non-empty tracking straight to eBay's shipping_fulfillment API. That path has no sheet, no warning and no confirmation, so whatever was typed into a field labelled 'Tracking number (optional)' is final. An eBay fulfillment cannot be edited afterwards and the buyer gets a tracking link that goes nowhere. The same file already handles this correctly one case up: an unparseable counter-offer price falls back to .deepLink rather than firing a broken edge call.",
+      "acceptanceCriteria": [
+        "A shared TrackingNumber type owns the shape rule and both entry points use it",
+        "The notification action falls back to opening the sale when the typed text cannot be a tracking number, matching how counterOffer handles an unparseable price",
+        "Marking shipped with no tracking at all still works from the notification, since that is a choice rather than a mistake",
+        "A number a carrier site formatted for reading (9400 1000 0000) is accepted rather than warned about, and is normalised to its characters before it reaches eBay",
+        "Normalisation happens in FulfillmentService, the one point both entry paths pass through, not in the sheet"
+      ],
+      "notes": "Done 2026-09-09. New GradeThread/Fulfillment/TrackingNumber.swift (isPlausible + normalized), used by MarkShippedSheet.trackingLooksValid and by NotificationActionPlan.from; normalisation moved into FulfillmentService.markShipped so both paths get it. GradeThreadTests/TrackingNumberTests.swift, 11 cases. Two behaviour changes worth knowing. (1) The sheet used to REJECT spaces, so a real pasted number like '9400 1000 0000' triggered the 'that tracking number looks off' warning; it is now accepted and the spaces are stripped before eBay sees it. That is a fix, not a loosening - the old rule warned about correct input. (2) The notification action now opens the sale instead of shipping it when the text cannot be a tracking number. Marking it shipped WITHOUT the number was the other option and is worse: it buries the mistake under a state the seller cannot see is incomplete, and shipped_at is what removes the order from the queue."
     }
   ]
 }
