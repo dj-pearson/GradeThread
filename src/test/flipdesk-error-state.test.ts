@@ -55,7 +55,6 @@ const ROOTS = [
  * furniture. Delete this constant and the test that reads it once it is empty.
  */
 const READ_FAILURE_UNHANDLED = [
-  "src/pages/flipdesk/analytics.tsx",
   "src/pages/flipdesk/composer.tsx",
 ];
 

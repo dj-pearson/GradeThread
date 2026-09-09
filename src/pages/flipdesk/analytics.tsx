@@ -64,6 +64,7 @@ import {
   type ReturnStat,
 } from "@/lib/flipdesk-returns-analytics";
 import { ChartSkeleton, LoadingRegion } from "@/components/ui/skeletons";
+import { ErrorState } from "@/components/ui/error-state";
 import { PageHeader } from "@/components/ui/page-header";
 
 // Lazy-load the Recharts bar chart at the chart boundary so the route-entry
@@ -399,6 +400,30 @@ function PriceCurveTab() {
   return <PriceCurveReport periodStart={periodStart} />;
 }
 
+/**
+ * US-3217. Every report here renders from its own query, and an empty result
+ * is drawn exactly like a failed one: a chart of zeros, which reads as "you
+ * sold nothing" rather than "we could not ask". One card for all three.
+ */
+function ReportLoadFailed({
+  what,
+  onRetry,
+  retrying,
+}: {
+  what: string;
+  onRetry: () => void;
+  retrying: boolean;
+}) {
+  return (
+    <ErrorState
+      title={`Couldn't load ${what}`}
+      description="The numbers below would have been zeros rather than yours. Nothing in your data has changed."
+      onRetry={onRetry}
+      retrying={retrying}
+    />
+  );
+}
+
 function Loading() {
   return (
     <LoadingRegion label="Loading report" className="py-4">
@@ -413,7 +438,13 @@ function SellThroughReport() {
   const [groupKey, setGroupKey] = useGroupKeyParam();
 
   const periodStart = useMemo(() => presetStart(preset), [preset]);
-  const { data: rows = [], isLoading } = useQuery({
+  const {
+    data: rows = [],
+    isLoading,
+    isError,
+    isFetching,
+    refetch,
+  } = useQuery({
     // Kept under the "items_full" prefix so the same mutation invalidations that
     // refresh the pipeline/listings caches also refresh these aggregates.
     queryKey: ["items_full", "analytics", "sell-through", user?.id, groupKey, preset],
@@ -435,6 +466,17 @@ function SellThroughReport() {
     },
   });
 
+  // US-3217: an empty result and a failed read look identical on a chart,
+  // and a sell-through report of zeros reads as "you sold nothing".
+  if (isError) {
+    return (
+      <ReportLoadFailed
+        what="your sell-through figures"
+        onRetry={() => void refetch()}
+        retrying={isFetching}
+      />
+    );
+  }
   if (isLoading) return <Loading />;
 
   const chartData = rows.slice(0, 12).map((r) => ({
@@ -618,19 +660,38 @@ function GradingRoiReport() {
   // now take p_period_start (migration 00505); periodStart flows into both.
   const [preset] = usePresetParam();
   const periodStart = useMemo(() => presetStart(preset), [preset]);
-  const { data: buckets = [], isLoading } = useQuery({
+  const {
+    data: buckets = [],
+    isLoading,
+    isError: bucketsFailed,
+    isFetching: bucketsFetching,
+    refetch: refetchBuckets,
+  } = useQuery({
     queryKey: ["items_full", "analytics", "grading-roi", user?.id, preset],
     enabled: !!user,
     staleTime: 5 * 60 * 1000,
     queryFn: () => fetchGradingRoi(periodStart),
   });
-  const { data: summary = null, isLoading: summaryLoading } = useQuery({
+  const {
+    data: summary = null,
+    isLoading: summaryLoading,
+    isError: summaryFailed,
+  } = useQuery({
     queryKey: ["items_full", "analytics", "grading-roi-summary", user?.id, preset],
     enabled: !!user,
     staleTime: 5 * 60 * 1000,
     queryFn: () => fetchGradingRoiSummary(periodStart),
   });
 
+  if (bucketsFailed || summaryFailed) {
+    return (
+      <ReportLoadFailed
+        what="your grading ROI figures"
+        onRetry={() => void refetchBuckets()}
+        retrying={bucketsFetching}
+      />
+    );
+  }
   if (isLoading || summaryLoading) return <Loading />;
 
   const meaningful = buckets.filter((b) => b.meaningful);
@@ -1023,13 +1084,22 @@ function ReturnReductionReport() {
   const [preset] = usePresetParam();
 
   const periodStart = useMemo(() => presetStart(preset), [preset]);
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, isFetching, refetch } = useQuery({
     queryKey: ["items_full", "analytics", "returns", user?.id, preset],
     enabled: !!user,
     staleTime: 5 * 60 * 1000,
     queryFn: () => fetchReturnReduction(periodStart),
   });
 
+  if (isError) {
+    return (
+      <ReportLoadFailed
+        what="your return figures"
+        onRetry={() => void refetch()}
+        retrying={isFetching}
+      />
+    );
+  }
   if (isLoading) return <Loading />;
 
   const summary = data ?? {
