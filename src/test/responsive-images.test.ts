@@ -46,15 +46,37 @@ describe("cfImage (frontend + SSR parity)", () => {
 
     it(`${label}: still transforms what this zone actually serves`, () => {
       // The whole point of the guard is to be narrow. A root-relative path and
-      // a host on the zone must keep their resize URL, or this "fix" would
-      // silently turn off responsive images everywhere.
+      // the apex must keep their resize URL, or this "fix" would silently turn
+      // off responsive images everywhere.
       expect(fn("/logo_primary.png", 154)).toContain("/cdn-cgi/image/");
       expect(fn("https://gradethread.com/logo_primary.png", 154)).toContain(
         "/cdn-cgi/image/",
       );
-      expect(
-        fn("https://api.gradethread.com/storage/v1/object/public/item-photos/a.jpg", 320),
-      ).toContain("/cdn-cgi/image/");
+    });
+
+    // US-3187. This case used to assert the OPPOSITE, because "on the zone" was
+    // measured only against a same-origin path and the subdomain half of the
+    // rule was never checked. Cloudflare's allowed-origins list for this zone
+    // holds the apex alone: every subdomain answers `403 ERROR 9401:
+    // Transformation origin is not in allowed origins list`, measured on
+    // production 2026-09-09.
+    //
+    // The visible cost was a composer photo disappearing the instant its edit
+    // was saved. persistPhotoEdit clears thumbnail_url on purpose, itemPhotoThumb
+    // then falls through to cfImage(photo_url), and photo_url is on
+    // api.gradethread.com — so the grid tile (width=320) and the eBay preview
+    // tile (width=96) both 403 and both latch to the "unavailable" placeholder.
+    it(`${label}: leaves a SUBDOMAIN alone — the allow-list is the apex only`, () => {
+      for (
+        const sub of [
+          "https://api.gradethread.com/storage/v1/object/public/item-photos/a.jpg",
+          "https://cdn.gradethread.com/hero.jpg",
+          "https://www.gradethread.com/logo_primary.png",
+          "https://functions.gradethread.com/x.jpg",
+        ]
+      ) {
+        expect(fn(sub, 320)).toBe(sub);
+      }
     });
 
     it(`${label}: wraps a root-relative path (drops leading slash, format=auto)`, () => {
@@ -64,9 +86,9 @@ describe("cfImage (frontend + SSR parity)", () => {
       );
     });
     it(`${label}: appends an absolute URL whole`, () => {
-      const url = fn("https://cdn.gradethread.com/hero.jpg", 1024);
+      const url = fn("https://gradethread.com/hero.jpg", 1024);
       expect(url).toContain(
-        "/cdn-cgi/image/width=1024,quality=80,format=auto,fit=scale-down,onerror=redirect/https://cdn.gradethread.com/hero.jpg",
+        "/cdn-cgi/image/width=1024,quality=80,format=auto,fit=scale-down,onerror=redirect/https://gradethread.com/hero.jpg",
       );
     });
     it(`${label}: leaves data:, empty, and already-transformed src untouched`, () => {
@@ -129,15 +151,18 @@ describe("itemPhotoThumb (US-574 FlipDesk thumbnail/CDN layer)", () => {
 // answers 403 for those — so these cases were asserting a URL shape that could
 // never have rendered in production. cfImage now passes an off-zone origin
 // through untouched, and the parity cases above pin that.
+// US-3187: "on the zone" now means the APEX, not any subdomain — so these
+// fixtures moved from cdn.gradethread.com to gradethread.com. A subdomain 403s
+// exactly like a third-party host does.
 describe("renderHeroImage (blog SSR)", () => {
   it("renders nothing without a hero", () => {
     expect(renderHeroImage(null, "x", true)).toBe("");
     expect(renderHeroImage(undefined, "x", true)).toBe("");
   });
   it("renders an eager, high-priority responsive hero when resizing is on", () => {
-    const html = renderHeroImage("https://cdn.gradethread.com/hero.jpg", "My Post", true);
+    const html = renderHeroImage("https://gradethread.com/hero.jpg", "My Post", true);
     expect(html).toContain('class="hero"');
-    expect(html).toContain('src="https://cdn.gradethread.com/hero.jpg"'); // original fallback
+    expect(html).toContain('src="https://gradethread.com/hero.jpg"'); // original fallback
     expect(html).toContain("srcset=");
     expect(html).toContain("/cdn-cgi/image/");
     expect(html).toContain('loading="eager"');
@@ -145,8 +170,8 @@ describe("renderHeroImage (blog SSR)", () => {
     expect(html).toContain('alt="My Post"');
   });
   it("omits the resize srcset when resizing is off (default)", () => {
-    const html = renderHeroImage("https://cdn.gradethread.com/hero.jpg", "My Post");
-    expect(html).toContain('src="https://cdn.gradethread.com/hero.jpg"');
+    const html = renderHeroImage("https://gradethread.com/hero.jpg", "My Post");
+    expect(html).toContain('src="https://gradethread.com/hero.jpg"');
     expect(html).not.toContain("srcset=");
     expect(html).not.toContain("/cdn-cgi/image/");
     expect(html).toContain('loading="eager"'); // still the LCP hero
@@ -156,7 +181,7 @@ describe("renderHeroImage (blog SSR)", () => {
 
 describe("rewriteContentImages (blog SSR)", () => {
   it("adds srcset + lazy loading to a plain content image when resizing is on", () => {
-    const out = rewriteContentImages('<p><img src="https://cdn.gradethread.com/in.jpg" alt="x"></p>', true);
+    const out = rewriteContentImages('<p><img src="https://gradethread.com/in.jpg" alt="x"></p>', true);
     expect(out).toContain("srcset=");
     expect(out).toContain("/cdn-cgi/image/");
     expect(out).toContain('loading="lazy"');
@@ -164,7 +189,7 @@ describe("rewriteContentImages (blog SSR)", () => {
     expect(out).toContain('alt="x"'); // original attrs preserved
   });
   it("adds lazy/decoding but NO resize srcset when resizing is off", () => {
-    const out = rewriteContentImages('<p><img src="https://cdn.gradethread.com/in.jpg" alt="x"></p>');
+    const out = rewriteContentImages('<p><img src="https://gradethread.com/in.jpg" alt="x"></p>');
     expect(out).not.toContain("/cdn-cgi/image/");
     expect(out).not.toContain("srcset=");
     expect(out).toContain('loading="lazy"');
@@ -184,34 +209,34 @@ describe("rewriteContentImages (blog SSR)", () => {
 
   // US-434: alt backfill + guaranteed aspect-ratio.
   it("backfills a missing alt from a word-like filename", () => {
-    const out = rewriteContentImages('<img src="https://cdn.gradethread.com/vintage-levis-jacket.jpg">');
+    const out = rewriteContentImages('<img src="https://gradethread.com/vintage-levis-jacket.jpg">');
     expect(out).toContain('alt="vintage levis jacket"');
   });
   it("falls back to the post title when the filename is a hash/UUID", () => {
-    const out = rewriteContentImages('<img src="https://cdn.gradethread.com/8f3a2b1c9d0e4f5a.jpg">', false, {
+    const out = rewriteContentImages('<img src="https://gradethread.com/8f3a2b1c9d0e4f5a.jpg">', false, {
       fallbackAlt: "How to grade a denim jacket",
     });
     expect(out).toContain('alt="How to grade a denim jacket"');
   });
   it("respects an explicit decorative alt='' and never overwrites an existing alt", () => {
-    const out = rewriteContentImages('<img src="https://cdn.gradethread.com/x.png" alt="">', false, {
+    const out = rewriteContentImages('<img src="https://gradethread.com/x.png" alt="">', false, {
       fallbackAlt: "Post",
     });
     expect(out).toContain('alt=""');
     expect(out).not.toContain('alt="Post"');
   });
   it("reserves a guaranteed aspect-ratio when the image has no width+height", () => {
-    const out = rewriteContentImages('<img src="https://cdn.gradethread.com/in.jpg" alt="x">');
+    const out = rewriteContentImages('<img src="https://gradethread.com/in.jpg" alt="x">');
     expect(out).toContain('style="aspect-ratio:auto 16/9"');
   });
   it("leaves dimensions alone (no reservation) when width+height are explicit", () => {
-    const out = rewriteContentImages('<img src="https://cdn.gradethread.com/in.jpg" alt="x" width="800" height="450">');
+    const out = rewriteContentImages('<img src="https://gradethread.com/in.jpg" alt="x" width="800" height="450">');
     expect(out).not.toContain("aspect-ratio");
     expect(out).toContain('width="800"');
     expect(out).toContain('height="450"');
   });
   it("strips the upstream void-slash so appended attrs are well-formed", () => {
-    const out = rewriteContentImages('<img src="https://cdn.gradethread.com/in.jpg" alt="x" />');
+    const out = rewriteContentImages('<img src="https://gradethread.com/in.jpg" alt="x" />');
     expect(out).not.toContain("/ "); // no stray slash before appended attrs
     expect(out).toContain('loading="lazy"');
   });
@@ -219,15 +244,15 @@ describe("rewriteContentImages (blog SSR)", () => {
 
 describe("deriveAltFromSrc (US-434)", () => {
   it("humanizes a word-like filename", () => {
-    expect(deriveAltFromSrc("https://cdn.gradethread.com/vintage-levis-jacket.jpg?v=2")).toBe(
+    expect(deriveAltFromSrc("https://gradethread.com/vintage-levis-jacket.jpg?v=2")).toBe(
       "vintage levis jacket",
     );
     expect(deriveAltFromSrc("/uploads/red_wool_coat.webp")).toBe("red wool coat");
   });
   it("returns '' for hash/UUID/dimension-only filenames", () => {
-    expect(deriveAltFromSrc("https://cdn.gradethread.com/8f3a2b1c9d0e4f5a.jpg")).toBe("");
-    expect(deriveAltFromSrc("https://cdn.gradethread.com/1024x768.png")).toBe("");
-    expect(deriveAltFromSrc("https://cdn.gradethread.com/ab.png")).toBe(""); // too few letters
+    expect(deriveAltFromSrc("https://gradethread.com/8f3a2b1c9d0e4f5a.jpg")).toBe("");
+    expect(deriveAltFromSrc("https://gradethread.com/1024x768.png")).toBe("");
+    expect(deriveAltFromSrc("https://gradethread.com/ab.png")).toBe(""); // too few letters
   });
 });
 

@@ -1338,7 +1338,10 @@ export function renderPinterestSave(opts: {
 
 const IMG_QUALITY = 80;
 
-/** The apex this zone's resizer will serve. Hosts under it may be transformed. */
+/**
+ * The ONLY host this zone's resizer will serve. Subdomains are NOT included —
+ * see resizerServes.
+ */
 const ZONE_APEX = "gradethread.com";
 
 /**
@@ -1350,6 +1353,14 @@ const ZONE_APEX = "gradethread.com";
  * against production on the React side, where mirrored eBay photos were being
  * pointed at the resizer and every one came back 403.
  *
+ * US-3187 CORRECTION: the subdomain half of that rule was an assumption and it
+ * is wrong. This zone's allowed-origins list for Transformations holds the apex
+ * and nothing else; every subdomain answers `403 ERROR 9401: Transformation
+ * origin is not in allowed origins list`. Measured on production 2026-09-09:
+ * root-relative 200, https://gradethread.com 200, api./cdn./www./functions.
+ * gradethread.com all 403. Blog imagery served from api.gradethread.com was in
+ * the same srcset shape, so this was never only a FlipDesk problem.
+ *
  * Mirrors `resizerServes` in src/lib/images.ts; responsive-images.test.ts
  * asserts the two copies agree, which is what keeps a fix on one side from
  * quietly leaving the other broken.
@@ -1357,8 +1368,7 @@ const ZONE_APEX = "gradethread.com";
 function resizerServes(src: string): boolean {
   if (!src.startsWith("http")) return true; // root-relative: our own origin
   try {
-    const host = new URL(src).hostname.toLowerCase();
-    return host === ZONE_APEX || host.endsWith("." + ZONE_APEX);
+    return new URL(src).hostname.toLowerCase() === ZONE_APEX;
   } catch {
     // Leaving it alone is the safe direction: an untransformed image, not a
     // broken one.

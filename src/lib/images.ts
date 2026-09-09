@@ -14,7 +14,10 @@
 /** Default candidate widths if a caller doesn't specify any. */
 export const DEFAULT_IMAGE_QUALITY = 80;
 
-/** The apex this zone's resizer will serve. Hosts under it may be transformed. */
+/**
+ * The ONLY host this zone's resizer will serve. Subdomains are NOT included —
+ * see resizerServes.
+ */
 const ZONE_APEX = "gradethread.com";
 
 /**
@@ -37,12 +40,32 @@ const ZONE_APEX = "gradethread.com";
  * pass through what we do not. A third-party URL comes back untouched, which
  * costs a larger download and renders correctly, instead of being rewritten
  * into a URL that cannot render at all.
+ *
+ * US-3187 CORRECTION: "on the zone" was measured only against a same-origin
+ * path, and the subdomain half of the rule was an assumption. It is wrong.
+ * Cloudflare's allowed-origins list for Transformations holds the apex and
+ * nothing else, and every subdomain answers
+ * `403 ERROR 9401: Transformation origin is not in allowed origins list`.
+ * Measured on production 2026-09-09: root-relative 200, https://gradethread.com
+ * 200, api./cdn./www./functions.gradethread.com all 403.
+ *
+ * That 403 is what made a composer photo vanish the moment its edit was saved.
+ * persistPhotoEdit clears `thumbnail_url` on purpose (the pre-generated thumb
+ * still holds the pre-edit pixels), so itemPhotoThumb falls through to
+ * cfImage(photo_url) — and photo_url is on api.gradethread.com. Two tiles per
+ * photo, the grid at width=320 and the eBay preview at width=96, both 403,
+ * both latched to the "unavailable" placeholder by ItemPhotoImg. It came back
+ * on the next page visit only because the thumbnail backfill had re-made a
+ * thumbnail_url by then, which is why it read as a rendering glitch.
+ *
+ * To transform api.gradethread.com again, add it under Cloudflare → Images →
+ * Transformations → allowed origins for this zone, THEN widen this list. Not
+ * the other way round.
  */
 function resizerServes(src: string): boolean {
   if (!src.startsWith("http")) return true; // root-relative: our own origin
   try {
-    const host = new URL(src).hostname.toLowerCase();
-    return host === ZONE_APEX || host.endsWith("." + ZONE_APEX);
+    return new URL(src).hostname.toLowerCase() === ZONE_APEX;
   } catch {
     // Not a URL we can reason about. Leaving it alone is the safe direction:
     // the worst case is an untransformed image, not a broken one.
