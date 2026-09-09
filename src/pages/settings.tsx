@@ -65,6 +65,7 @@ import { PushNotificationsCard } from "@/components/settings/push-notifications-
 import { QuietHoursCard } from "@/components/settings/quiet-hours-card";
 import { MeasurementSharingCard } from "@/components/settings/measurement-sharing-card";
 import { RadarContributionCard } from "@/components/settings/radar-contribution-card";
+import { readStored } from "@/lib/safe-storage";
 
 const DELETE_CONFIRM_PHRASE = "DELETE MY ACCOUNT";
 
@@ -539,7 +540,7 @@ export function SettingsPage() {
   async function handleExportData() {
     if (!user) return;
     const key = `gt-last-export-${user.id}`;
-    const last = Number(localStorage.getItem(key) ?? 0);
+    const last = Number(readStored(key) ?? 0);
     const sinceLast = Date.now() - last;
     if (last && sinceLast < EXPORT_COOLDOWN_MS) {
       const hours = Math.ceil((EXPORT_COOLDOWN_MS - sinceLast) / 3600000);

@@ -12,6 +12,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { GRADING_REVIEW_CONFIDENCE_THRESHOLD } from "@/lib/constants";
 import { cn } from "@/lib/utils";
+import { writeStored } from "@/lib/safe-storage";
 import type {
   InventoryItemRow,
   ListingRow,
@@ -45,7 +46,7 @@ function getDismissedSuggestions(): Set<string> {
 function saveDismissedSuggestion(id: string): void {
   const dismissed = getDismissedSuggestions();
   dismissed.add(id);
-  localStorage.setItem(DISMISSED_KEY, JSON.stringify([...dismissed]));
+  writeStored(DISMISSED_KEY, JSON.stringify([...dismissed]));
 }
 
 function getDaysListed(listing: ListingRow): number {

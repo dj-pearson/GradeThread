@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Download, X, Loader2, Smartphone } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ensureServiceWorker, type BeforeInstallPromptEvent } from "@/lib/pwa";
+import { readStored, writeStored } from "@/lib/safe-storage";
 
 // US-744: a single shared dismiss key across every mount point so installing /
 // dismissing the prompt on one surface (FlipDesk intake, Snap, …) doesn't nag
@@ -44,8 +45,8 @@ export function PwaInstallBanner({
   useEffect(() => {
     ensureServiceWorker();
     if (
-      localStorage.getItem(DISMISS_KEY) ||
-      localStorage.getItem(LEGACY_DISMISS_KEY)
+      readStored(DISMISS_KEY) ||
+      readStored(LEGACY_DISMISS_KEY)
     ) {
       return;
     }
@@ -78,7 +79,7 @@ export function PwaInstallBanner({
   }
 
   function dismiss() {
-    localStorage.setItem(DISMISS_KEY, "1");
+    writeStored(DISMISS_KEY, "1");
     setPromptEvent(null);
   }
 

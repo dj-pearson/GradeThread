@@ -38,6 +38,7 @@ import { useSources } from "@/hooks/use-sources";
 import { ITEM_CATEGORIES } from "@/lib/constants";
 import { todayLocalDate } from "@/lib/local-date";
 import type { InventoryItemInsert, ItemCategory } from "@/types/database";
+import { removeStored } from "@/lib/safe-storage";
 
 const STORAGE_KEY = "flipdesk-bulk-intake-session";
 
@@ -176,7 +177,7 @@ export function BulkIntake() {
     )
       return;
     setSession(freshSession());
-    localStorage.removeItem(STORAGE_KEY);
+    removeStored(STORAGE_KEY);
   }
 
   async function endSession() {
@@ -251,7 +252,7 @@ export function BulkIntake() {
 
       await qc.invalidateQueries({ queryKey: ["items_full"] });
       await qc.invalidateQueries({ queryKey: ["sources"] });
-      localStorage.removeItem(STORAGE_KEY);
+      removeStored(STORAGE_KEY);
       setSession(freshSession());
       toast.success(
         `Haul finalized — ${itemCount} item${itemCount === 1 ? "" : "s"} cataloged.`,

@@ -2,6 +2,7 @@ import { supabase } from "@/lib/supabase";
 import { queryClient } from "@/lib/query-client";
 import { edgeFetch } from "@/lib/edge-fetch";
 import { useImpersonationStore } from "@/stores/impersonation-store";
+import { readStored, removeStored } from "@/lib/safe-storage";
 
 // Client orchestration for admin "view as" / impersonation (US-581).
 //
@@ -172,7 +173,7 @@ export async function stopImpersonation(): Promise<void> {
 export const REVOKE_WARNING_KEY = "gt.impersonation.revokeFailed";
 
 export function takeRevokeWarning(): string | null {
-  const email = sessionStorage.getItem(REVOKE_WARNING_KEY);
-  if (email) sessionStorage.removeItem(REVOKE_WARNING_KEY);
+  const email = readStored(REVOKE_WARNING_KEY, "session");
+  if (email) removeStored(REVOKE_WARNING_KEY, "session");
   return email;
 }

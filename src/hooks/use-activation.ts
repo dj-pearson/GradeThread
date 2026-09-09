@@ -20,6 +20,7 @@ import {
   type ActivationStep,
 } from "@/lib/activation-steps";
 import type { UserUpdate, UserUseCase } from "@/types/database";
+import { readStored, removeStored, writeStored } from "@/lib/safe-storage";
 
 // US-2859. One hook, one set of queries, one dismissal — so every surface that
 // shows the activation checklist is looking at the same answer.
@@ -108,14 +109,13 @@ export function useActivation(
 
   // Seeded synchronously so a dismissed card never flashes on a reload.
   const [locallyDismissed, setLocallyDismissed] = useState<boolean>(() => {
-    if (typeof window === "undefined") return false;
-    return window.localStorage.getItem(dismissKey(user?.id, useCase)) === "1";
+    // US-3218: this runs during RENDER, inside a useState initializer, so a
+    // blocked-storage throw here breaks the card rather than losing a dismissal.
+    return readStored(dismissKey(user?.id, useCase)) === "1";
   });
   useEffect(() => {
     if (typeof window === "undefined") return;
-    setLocallyDismissed(
-      window.localStorage.getItem(dismissKey(user?.id, useCase)) === "1",
-    );
+    setLocallyDismissed(readStored(dismissKey(user?.id, useCase)) === "1");
   }, [user?.id, useCase]);
 
   const [notifPermission, setNotifPermission] = useState<
@@ -227,7 +227,7 @@ export function useActivation(
 
   const dismiss = useCallback(() => {
     if (typeof window !== "undefined") {
-      window.localStorage.setItem(dismissKey(user?.id, useCase), "1");
+      writeStored(dismissKey(user?.id, useCase), "1");
     }
     setLocallyDismissed(true);
     track("onboarding.activation_checklist_dismissed", { use_case: useCase });
@@ -247,7 +247,7 @@ export function useActivation(
 
   const undismiss = useCallback(() => {
     if (typeof window !== "undefined") {
-      window.localStorage.removeItem(dismissKey(user?.id, useCase));
+      removeStored(dismissKey(user?.id, useCase));
     }
     setLocallyDismissed(false);
     if (!user) return;
