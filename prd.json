@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-3204",
+  "nextId": "US-3205",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -4617,6 +4617,27 @@
         "If eBay declines, the reason is recorded here and the negotiation UI stays gated behind hasNegotiationScope() rather than being deleted."
       ],
       "priority": 22
+    },
+    {
+      "id": "US-3204",
+      "passes": false,
+      "title": "Magic Ride: iOS detects a drive, logs the miles, and asks whether it was business",
+      "description": "As a reseller who drives to thrift stores, estate sales and the post office, I want my phone to notice I am driving and log the trip on its own, so that my mileage deduction comes from a contemporaneous record instead of a reconstruction I write from memory in April.",
+      "acceptanceCriteria": [
+        "A drive is detected without the app being open: CMMotionActivityManager automotive confidence supplies the trigger and CLLocationManager supplies the endpoints. Info.plist gains NSLocationAlwaysAndWhenInUseUsageDescription, NSMotionUsageDescription and the location UIBackgroundMode, none of which the app declares today.",
+        "Magic Ride is its OWN consent, granted in its own screen, and off until the seller turns it on. It is never folded into the Thrift Radar toggle: vault/20-domain/thrift-radar.md rule 3 forbids widening an existing location consent, and Radar today asks only for whenInUse at kilometre accuracy.",
+        "The Radar permission string in ios/GradeThread/Info.plist promises the app never stores an exact position. Magic Ride stores exactly that, so the copy is corrected in the same commit as the feature and the two purposes are described separately. Shipping the new tracking under the old sentence would make the existing promise false.",
+        "A finished trip is a PROPOSAL, never a posted deduction. It lands in a review state the seller confirms or reclassifies, and an unreviewed trip is excluded from mileage_summary and from Schedule C output. A wrong guess on a tax record is worse than a blank one.",
+        "Business detection uses data the repo already holds: radar_venues carries lat, lng and chain (goodwill, savers, salvation_army, value_village) and sources.radar_venue_id links a seller's own named sources. A trip ending within a stated radius of a venue that seller sources from is proposed as business, and the reason is shown to them.",
+        "Home is never inferred silently. The seller sets it, and a trip between home and a personal destination stays personal without being asked about again.",
+        "Recorded miles are the distance actually driven, accumulated from the location samples, not the straight line between endpoints. A straight-line figure understates every real drive and is exactly what an audit disallows.",
+        "Migration follows the US-1108 triple, adding to mileage_trips: start and end coordinates, a provenance column separating an auto-detected trip from a hand-entered one, and the review state. Existing rows read as manual and confirmed, so nothing already logged changes meaning.",
+        "It works when the seller says no. Declining Always location, or declining motion, leaves the manual trip log from US-3014 fully functional and says plainly what was turned off.",
+        "Battery cost is measured on a real device across a real driving day and written into the story before it closes, not estimated. Nothing here can be verified on the Windows dev box: iOS CI on macOS runners is the only compile gate, and detection can only be proven by driving."
+      ],
+      "dependsOn": [
+        "US-3014"
+      ]
     }
   ]
 }
