@@ -422,7 +422,16 @@ describe("runGooglePhotosImport — the chunked download", () => {
 });
 
 describe("runGooglePhotosImport — cancellation", () => {
-  it("stops during the pick and says so", async () => {
+  it("stops during the pick, says so, and closes the picker", async () => {
+    // This asserted the wording as "import cancelled", two Ls, and the message
+    // says "canceled", one L. So it was red — and while it was red the whole
+    // cancel-during-the-pick path went unasserted, which is how the picker
+    // window came to be left open below.
+    //
+    // One L is the right spelling here: this product bills, files and refunds
+    // in American English (Schedule C, Stripe's own `canceled` status). The
+    // internal result value stays "cancelled" because it is a type, not
+    // something a seller reads.
     const controller = new AbortController();
     controller.abort();
     const { fetchEdge } = edge({
@@ -436,7 +445,21 @@ describe("runGooglePhotosImport — cancellation", () => {
       signal: controller.signal,
     });
     expect(out.status).toBe("cancelled");
-    expect(h.notify.said("import cancelled")).toBe(true);
+    expect(h.notify.said("import canceled")).toBe(true);
+    // Google's picker is a popup over the app. Left open on cancel it covers
+    // the toast that just said the import stopped.
+    expect(h.closed.count).toBe(1);
+  });
+
+  it("closes the picker when the session expires", async () => {
+    const { fetchEdge } = edge({
+      "oauth/start": [START_OK],
+      "photos/poll": [res(410)],
+    });
+    const h = baseDeps();
+    const out = await runGooglePhotosImport({ ...h.deps, fetchEdge });
+    expect(out.status).toBe("expired");
+    expect(h.closed.count).toBe(1);
   });
 
   it("stops at the next chunk boundary and keeps what already arrived", async () => {
