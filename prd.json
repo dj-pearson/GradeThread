@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-3261",
+  "nextId": "US-3266",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -4895,6 +4895,79 @@
         "A source-scan guard records the remaining count as a ceiling that may fall and must not rise, in the shape of src/test/row-cap-contract.test.ts"
       ],
       "priority": 1615
+    },
+    {
+      "id": "US-3261",
+      "passes": false,
+      "title": "Grailed closet import cannot start: the run row violates the origin CHECK constraint",
+      "description": "As a seller with a Grailed closet, I want the one-press closet import to actually run, so that I am not told 'Could not start the import' every time I press it.",
+      "acceptanceCriteria": [
+        "supabase/migrations/00712_closet_import_origins.sql allows origin IN ('csv','sheet','paste','poshmark','mercari') while services/edge-functions/src/routes/flipdesk-closet-import.ts:183 inserts origin: platform and CLOSET_IMPORT_PLATFORMS (services/edge-functions/src/lib/closet-import.ts) includes 'grailed' — a new migration widens the CHECK to include every member of CLOSET_IMPORT_PLATFORMS.",
+        "The migration carries the US-1108 triple: idempotent SQL (drop-and-recreate the named constraint), EXPECTED_SCHEMA_VERSION bumped in services/edge-functions/src/lib/schema-version.ts in the same commit, and a self-record footer.",
+        "A deno test asserts every value in CLOSET_IMPORT_PLATFORMS is permitted by the constraint list, so adding a fourth platform to that constant without widening the constraint fails the build rather than failing in prod.",
+        "The run-start path reports a failed insert to the seller with the reason rather than the generic 'Could not start the import.' when the failure is a constraint violation."
+      ],
+      "priority": 3
+    },
+    {
+      "id": "US-3262",
+      "passes": false,
+      "title": "Bringing existing inventory in is not a setup step, so a switcher's first question goes unanswered",
+      "description": "As a reseller who already has listings live somewhere else, I want the setup list to tell me to import them, so that I do not start by typing my closet in one item at a time.",
+      "acceptanceCriteria": [
+        "src/lib/activation-steps.ts gains an 'import' step for the seller and consignment personas, ordered before 'item', with a reason line and a cta pointing at the canonical route /dashboard/flipdesk/import.",
+        "ActivationState gains importRunCount, and the step is done when a real flipdesk_import_runs row exists for the workspace with status 'completed' — never on a click. src/hooks/use-activation.ts counts it through the existing RLS read policy 'Users read own import runs' (00592).",
+        "The step is SKIPPABLE without completing it: a seller with nothing to import can dismiss just this step, and the dismissal is recorded per-user so the checklist does not stall permanently on it. A permanently-uncompletable step is the defect US-2883 called out.",
+        "src/lib/guided-path.ts: GUIDED_PATH_KEYS is unchanged and does NOT gain 'import' — the guided path is photo-to-published and the import step belongs on the checklist only. A test asserts guidedStepsFor() never returns the import step.",
+        "src/test/onboarding-copy-routes.test.ts still passes with the new step, proving the route is canonical and not a redirect alias.",
+        "src/lib/activation-analytics.ts tracks the step the same way the other steps are tracked, so funnel drop-off at import is measurable."
+      ],
+      "priority": 8
+    },
+    {
+      "id": "US-3263",
+      "passes": false,
+      "title": "The one-press closet import is invisible on a trial, which is exactly who needs to see it work",
+      "description": "As a reseller evaluating FlipDesk, I want to import part of my Poshmark or Mercari closet before I pay, so that I can see my own listings in the product instead of taking the import on trust.",
+      "acceptanceCriteria": [
+        "src/components/flipdesk/closet-import-card.tsx renders for an account WITHOUT an active paid FlipDesk plan once the extension is installed, instead of hiding entirely; the card states the trial row cap in its own copy.",
+        "services/edge-functions/src/routes/flipdesk-closet-import.ts enforces the cap SERVER-SIDE for an unentitled workspace — the run is created with at most TRIAL_CLOSET_IMPORT_ROWS rows (25) and the response says how many of the seller's listings were left behind and what lifts the cap. The browser cap is not the gate.",
+        "The cap is a constant in services/edge-functions/src/lib/closet-import.ts next to MAX_CLOSET_IMPORT_ROWS, and a pure test asserts an unentitled batch of 200 rows is trimmed to 25 while an entitled one is not.",
+        "The existing requireFlipdesk capacity gate still applies to entitled accounts unchanged; the trial path does not bypass activeListings accounting, it replaces the hard refusal with a bounded allowance.",
+        "The route stays tenant-scoped on workspaceOwnerId ?? userId and gains a case in services/edge-functions/src/tests/tenant-isolation_test.ts covering the trial path (US-268).",
+        "Undo still works on a trial run: the effect rows are written the same way, so the seller can reverse a trial import."
+      ],
+      "priority": 9
+    },
+    {
+      "id": "US-3264",
+      "passes": false,
+      "title": "Signup never asks whether the seller already has listings, so everyone is routed as if they were starting empty",
+      "description": "As a reseller with a live closet, I want signup to ask where my listings already are, so that FlipDesk sends me to import instead of to an empty intake form.",
+      "acceptanceCriteria": [
+        "The seller branch of src/components/onboarding/onboarding-flow.tsx asks one additional question after the persona question: roughly how many listings are live today (none / 1-25 / 26-200 / 200+) and on which channels, using the MARKETPLACE_LABELS ids from src/lib/constants.ts.",
+        "The answer is stored on the profile, and if that needs a new column the migration carries the US-1108 triple plus the public.users self-update allowlist restatement that migration 00526 requires — otherwise it reuses an existing column and the story says which.",
+        "A seller who answers anything other than 'none' lands on /dashboard/flipdesk/import after the tour, not /dashboard/flipdesk; a seller who answers 'none' keeps the current destination. A test asserts both routes.",
+        "The named channels pre-select the matching preset or closet-import platform on the import page where one exists, so the seller does not re-state what they just told us.",
+        "The question is skippable in one click and skipping routes exactly as 'none' does; nothing blocks account creation on answering it."
+      ],
+      "priority": 10
+    },
+    {
+      "id": "US-3265",
+      "passes": false,
+      "title": "eBay connect creates the seller's warehouse location but not their business policies, so a first-time seller is sent back to eBay mid-setup",
+      "description": "As a seller connecting eBay for the first time, I want FlipDesk to create my shipping, payment and return policies from a few plain questions, so that my first publish does not fail with 'Configure eBay business policies on your seller account'.",
+      "acceptanceCriteria": [
+        "services/edge-functions/src/lib/ebay-client.ts gains createFulfillmentPolicy, createPaymentPolicy and createReturnPolicy POSTing to /sell/account/v1/{fulfillment,payment,return}_policy, mirroring the existing createInventoryLocation: idempotent (an already-existing policy name is confirmed by GET rather than surfaced as an error) and tenant-safe on the workspace owner id.",
+        "The policy creation runs only after optInToProgram(ownerId, 'SELLING_POLICY_MANAGEMENT') reports the account is opted in, and refuses with a clear message when it is not.",
+        "src/pages/flipdesk/marketplaces.tsx offers a 'Create these for me' path when getDefaultPolicies returns MissingPolicies, asking at most four plain-language questions (handling time, domestic shipping charge or free, returns accepted and window, who pays return shipping) and nothing an eBay-literate seller would have to look up.",
+        "After creation the new ids are written through the existing business_policies sync and set as the workspace defaults via the existing PUT /api/flipdesk/ebay/policies/default, so the composer and publish path pick them up with no second step.",
+        "The route is tenant-scoped on workspaceOwnerId ?? userId and gains a case in services/edge-functions/src/tests/tenant-isolation_test.ts (US-268).",
+        "A seller who already has policies sees no change: the flow is offered only when at least one of the three is missing.",
+        "This is scoped to CREATING policies where none exist; choosing among existing policies and seeding them onto a draft stays US-2855, and the two do not both write the default."
+      ],
+      "priority": 11
     }
   ]
 }
