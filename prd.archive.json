@@ -45746,6 +45746,18 @@
         "Storage-before-row ordering is called out in a comment wherever it stays, because it is the reason this is unrecoverable rather than merely annoying."
       ],
       "notes": "Done 2026-09-09. Storage-before-row ordering is unchanged and now carries a comment saying it is why this is unrecoverable. Admin destructive actions are deliberately out of scope."
+    },
+    {
+      "id": "US-3243",
+      "passes": true,
+      "title": "Bulk edit loses every unsaved row if you click away",
+      "description": "autolister-bulk-edit.tsx tracks a per-row dirty flag and shows dirtyCount, and Save persists each dirty row independently (US-557). What it never does is stop you leaving. A seller who has retitled, repriced and re-categorised forty listings and then clicks anything in the sidebar loses all of it, with no prompt and nothing recoverable - the edits live only in component state. useNavigationGuard has existed since US-2032 and already covers composer, intake, blog-editor, social-editor and customize-board; this page has the dirty signal it needs and simply was never wired up. The same is true of settings.tsx (37 useState, the business and ship-from form) though the loss there is smaller and retypable.",
+      "acceptanceCriteria": [
+        "autolister-bulk-edit.tsx calls useNavigationGuard(dirtyCount > 0 && !saving) and renders the same confirm dialog the composer uses, naming how many rows are about to be discarded rather than saying 'unsaved changes'.",
+        "A guard asserts that a page which tracks a dirty count and has a save path also mounts useNavigationGuard, with a named-exclusion list. The scan found 23 form-heavy pages without one and most are correct - a filter panel is not unsaved work - so the rule keys on an explicit dirty signal, not on useState count.",
+        "settings.tsx is assessed in the same pass and either wired or excluded with a reason. Do not block on it: it is a smaller loss than the bulk grid and blocking navigation where there is nothing at stake is how a guard stops working."
+      ],
+      "notes": "Done 2026-09-09. settings.tsx was assessed and NOT wired: it has no dirty signal, its fields are small and retypable, and blocking there would be the click-through-training the hook warns about. composer/intake/blog-editor/social-editor still hand-roll their own dialog and could adopt UnsavedChangesDialog; not done here to keep the diff to the pages that had the bug."
     }
   ]
 }
