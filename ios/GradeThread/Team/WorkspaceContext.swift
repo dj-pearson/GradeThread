@@ -112,6 +112,13 @@ final class WorkspaceContext {
     /// The active workspace owner id (selected workspace, else self).
     var activeOwnerId: String { WorkspaceScope.tenantOwnerId(selfId: selfUserId) }
 
+    /// Whether a persisted selection no longer names a workspace the user can
+    /// reach. Pure so the rule is testable without a Supabase client.
+    static func isStaleSelection(_ active: String?, in workspaces: [WorkspaceSummary]) -> Bool {
+        guard let active, !active.isEmpty else { return false }
+        return !workspaces.contains { $0.ownerId == active }
+    }
+
     var activeWorkspace: WorkspaceSummary? {
         workspaces.first { $0.ownerId == activeOwnerId }
     }
@@ -130,9 +137,25 @@ final class WorkspaceContext {
             list.append(contentsOf: memberships)
             workspaces = list
             // Drop a stale selection (e.g. membership revoked) back to personal.
-            if let active = WorkspaceScope.activeOwnerId,
-               !list.contains(where: { $0.ownerId == active }) {
-                WorkspaceScope.clear()
+            //
+            // ⚠ THIS USED TO BE A BARE `WorkspaceScope.clear()`, AND CLEARING
+            // THE SCOPE IS ONLY A THIRD OF THE JOB. `.workspaceDidChange` is
+            // what invalidates the sync scope, flushes the tenant-keyed edge
+            // cache and WIPES THE PREVIOUS TENANT'S LOCAL ROWS
+            // (ContentView.swift:240). Without it, a member whose access was
+            // revoked while the app was closed relaunched into their personal
+            // workspace still holding the other owner's inventory, sales and
+            // grades in the local cache, shown as their own, until some later
+            // pull happened to prune them.
+            //
+            // `switchTo` below posts it. `handleAccessRevoked` posts it. This
+            // was the one path that changed the scope and did not, which is
+            // also the only one that runs when nobody is watching.
+            if Self.isStaleSelection(WorkspaceScope.activeOwnerId, in: list) {
+                // The same three steps a mid-session revocation takes: clear,
+                // re-scope, and tell the user their workspace access ended
+                // rather than letting a whole tenant's data vanish unexplained.
+                WorkspaceScope.handleAccessRevoked()
             }
             phase = .ready
         } catch {

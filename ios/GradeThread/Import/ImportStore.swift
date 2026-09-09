@@ -99,6 +99,23 @@ final class ImportStore {
         }
     }
 
+    /// US-3270: cells the mapper read and could not coerce. They import blank
+    /// with no error, so the preview has to say so before the seller commits.
+    var droppedCells: [ImportMapping.DroppedCell] {
+        guard let sheet, hasTitleMapping else { return [] }
+        return ImportMapping.droppedCells(sheet: sheet, mapping: mapping)
+    }
+
+    var droppedSummary: String? { ImportMapping.droppedSummary(droppedCells) }
+
+    /// US-3271: how the slashed dates in the purchase-date column are being
+    /// read. Shown even when the column proves its own order, because the
+    /// reading is the difference between March and September in the books.
+    var dateOrderNotice: String? {
+        guard let sheet, hasTitleMapping else { return nil }
+        return ImportMapping.dateOrderNotice(sheet: sheet, mapping: mapping)
+    }
+
     var readyCount: Int { previewRows.filter { if case .ready = $0 { return true } else { return false } }.count }
     var errorCount: Int { previewRows.count - readyCount }
     var canCommit: Bool { hasTitleMapping && readyCount > 0 && phase == .mapping }

@@ -6,11 +6,23 @@ import UIKit
 /// segmented picker switches between the three; each item has its decision
 /// actions (approve/decline/refund, approve/reject, accept/contest).
 struct PostSaleView: View {
+    /// The section a deep link asked for, or nil when the user navigated here
+    /// themselves. US-3266: a push that says "payment dispute opened" has to
+    /// open Disputes, and it has to WIN over the US-1178 jump below. That jump
+    /// exists to avoid landing on an empty section when nobody said which one;
+    /// a push says which one.
+    let requestedSection: PostSaleSection?
+
     @State private var store = PostSaleStore()
     // US-1178: Returns are far more common than Disputes — open there, and
     // after load jump to whichever tab actually has items so the screen isn't
     // empty on arrival.
-    @State private var tab: Tab = .returns
+    @State private var tab: Tab
+
+    init(section: PostSaleSection? = nil) {
+        self.requestedSection = section
+        _tab = State(initialValue: section.map(Tab.init(section:)) ?? .returns)
+    }
     /// One optional driving ONE `.sheet(item:)`. A view has a single sheet
     /// slot, so two `.sheet` modifiers on it compete for that slot and the
     /// loser presents and is torn down in the same frame — see ``ToolModule``
@@ -41,6 +53,19 @@ struct PostSaleView: View {
         case returns = "Returns"
         case cancellations = "Cancellations"
         var id: String { rawValue }
+
+        /// The wire-stable ``PostSaleSection`` a deep link carries, mapped onto
+        /// the on-screen segment. Two enums rather than one because these raw
+        /// values are the segment LABELS: renaming "Disputes" to "Chargebacks"
+        /// must not break a cold-launch token that has already been written to
+        /// disk.
+        init(section: PostSaleSection) {
+            switch section {
+            case .returns:       self = .returns
+            case .cancellations: self = .cancellations
+            case .disputes:      self = .disputes
+            }
+        }
     }
 
     /// One of the irreversible buyer-facing actions, captured so it can be
@@ -133,6 +158,12 @@ struct PostSaleView: View {
         .navigationBarTitleDisplayMode(.inline)
         .task {
             await store.loadAll()
+            // US-3266: a deep link already named the section, so leave it alone.
+            // Even an empty one is the right answer here: the push said a return
+            // was opened, and an empty Returns tab is information (it closed, or
+            // the sync has not caught up) where a silent hop to Disputes is a
+            // screen the seller has to re-read to understand.
+            guard requestedSection == nil else { return }
             // Land on a tab that has items (returns first, then cancellations,
             // then disputes) so the user doesn't arrive on an empty section.
             if store.returns.isEmpty {

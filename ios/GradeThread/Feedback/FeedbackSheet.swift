@@ -13,6 +13,9 @@ struct FeedbackSheet: View {
     /// US-1136: escalation to a tracked support ticket (prefilled with whatever
     /// the user has typed so far) when they want a direct reply.
     @State private var showingTicketComposer = false
+    // US-3267: typed feedback survived nothing. The old guard was `isSending`,
+    // which protects the request and not the paragraph that produced it.
+    @State private var showingDiscard = false
 
     private struct ResultMessage: Identifiable {
         let id = UUID()
@@ -21,6 +24,13 @@ struct FeedbackSheet: View {
     }
 
     private static let maxLength = 2000
+
+    /// In flight, or holding a paragraph nobody wants to retype. Once a result
+    /// has come back the message has been sent, so there is nothing to lose.
+    private var isDirty: Bool {
+        if resultMessage != nil { return false }
+        return isSending || !message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
 
     var body: some View {
         NavigationStack {
@@ -84,11 +94,14 @@ struct FeedbackSheet: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Close") { dismiss() }.disabled(isSending)
+                    CancelFormButton(isDirty: isDirty, showingDiscard: $showingDiscard) {
+                        dismiss()
+                    }
+                    .disabled(isSending)
                 }
             }
         }
-        .interactiveDismissDisabled(isSending)
+        .unsavedChangesGuard(isDirty: isDirty, showingDiscard: $showingDiscard) { dismiss() }
         .sheet(isPresented: $showingTicketComposer) {
             SupportTicketsView(initialDraftBody: trimmedMessage)
         }

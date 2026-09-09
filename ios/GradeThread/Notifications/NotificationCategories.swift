@@ -29,6 +29,26 @@ public enum NotificationCategoryID: String, CaseIterable {
     // seller who wants sale pushes may still not want this one, and the reverse
     // is likelier still.
     case delistNeeded     = "delist.needed"
+    // ── The post-order family, and the offer reply ──────────────────────────
+    //
+    // ⚠ THE EDGE HAS BEEN SENDING ALL SEVEN OF THESE FOR A WHILE
+    // (`lib/transactional-push.ts:108-205`). iOS did not know any of them, and
+    // an unrecognised category loses on every axis at once: `DeepLinkRoute.from`
+    // returns nil so the tap navigates nowhere, `allCases` never offered a
+    // toggle so it could not be muted, and nothing anywhere reported the gap.
+    //
+    // The comment on `gradeReady` above describes the OPPOSITE arrangement —
+    // iOS ready, backend pending — and that is what made this invisible: a
+    // reader assumes the drift only runs one way. It runs both, and this
+    // direction is the expensive one. These are the deadline-bearing pushes: a
+    // payment dispute, a case eBay will decide for you, a return clock.
+    case offerResponded        = "offer.responded"
+    case returnOpened          = "return.opened"
+    case inquiryOpened         = "inquiry.opened"
+    case caseOpened            = "case.opened"
+    case caseDeadline          = "case.deadline"
+    case cancellationRequested = "cancellation.requested"
+    case disputeOpened         = "dispute.opened"
 
     /// User-facing label for the Settings UI toggle.
     public var label: String {
@@ -45,6 +65,13 @@ public enum NotificationCategoryID: String, CaseIterable {
         case .payoutPosted:     return "Payouts posted"
         case .supportReply:     return "Support replies"
         case .delistNeeded:     return "Listings still live"
+        case .offerResponded:        return "Offer replies"
+        case .returnOpened:          return "Returns opened"
+        case .inquiryOpened:         return "Buyer inquiries"
+        case .caseOpened:            return "Cases opened"
+        case .caseDeadline:          return "Case deadlines"
+        case .cancellationRequested: return "Cancellation requests"
+        case .disputeOpened:         return "Payment disputes"
         }
     }
 
@@ -62,7 +89,56 @@ public enum NotificationCategoryID: String, CaseIterable {
         case .payoutPosted:     return "Pushes when eBay posts a payout (before it clears your bank)."
         case .supportReply:     return "Pushes when our support team replies to one of your tickets."
         case .delistNeeded:     return "Pushes when an item sells and its listings on Poshmark, Mercari, Grailed, Vinted or Facebook still need ending."
+        case .offerResponded:
+            return "Pushes when a buyer accepts, declines or counters an offer you sent."
+        case .returnOpened:
+            return "Pushes when a buyer opens a return, so you can respond before the clock runs out."
+        case .inquiryOpened:
+            return "Pushes when a buyer opens an inquiry about an order that has not arrived."
+        case .caseOpened:
+            return "Pushes when a buyer escalates to a case eBay will decide if you do not respond."
+        case .caseDeadline:
+            return "Reminder when an open case or return is close to its response deadline."
+        case .cancellationRequested:
+            return "Pushes when a buyer asks to cancel an order before it ships."
+        case .disputeOpened:
+            return "Pushes when a buyer opens a payment dispute or chargeback with their bank."
         }
+    }
+
+    /// Whether anything can actually send this category today (US-3268).
+    ///
+    /// ⚠ THREE OF THESE HAD A SETTINGS TOGGLE AND NO SENDER. "Buyer messages",
+    /// "Aging stock digest" and "Payouts posted" each promised a push in their
+    /// own help text, and nothing in the edge, the Pages functions or the app
+    /// itself has ever emitted them: `transactional-push.ts` sends fourteen
+    /// categories and none is these, and `notify.ts`'s type union has no
+    /// message, aging or payout-posted member either. A seller could turn
+    /// "Buyer messages" on and wait forever.
+    ///
+    /// This is the cost of the declare-ahead convention the `gradeReady`
+    /// comment above describes, which is a GOOD convention — grade.ready is
+    /// declared here and delivered locally by ``NewGradeNotifier``, and the
+    /// routing for these three is wired and ready for the day a sender lands.
+    /// What was missing is the other half: something that notices when "later"
+    /// never came. The toggle is hidden until then rather than the case being
+    /// deleted, so flipping this flag is all it takes.
+    ///
+    /// `PushCategoryCoverageTests` pins the undeliverable list, so a sender
+    /// shipping without this flag being flipped fails, and a flag flipped
+    /// without a sender fails too.
+    public var isDeliverable: Bool {
+        switch self {
+        case .messageReceived, .agingDigest, .payoutPosted: return false
+        default: return true
+        }
+    }
+
+    /// The categories the Settings screen offers a toggle for: the ones a user
+    /// can actually receive. A switch that governs nothing is worse than an
+    /// absent one, because it reads as a feature that is turned on.
+    public static var togglable: [NotificationCategoryID] {
+        allCases.filter(\.isDeliverable)
     }
 
     /// The token-expiring category opts in to time-sensitive interruption

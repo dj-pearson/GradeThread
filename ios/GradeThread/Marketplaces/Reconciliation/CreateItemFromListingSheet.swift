@@ -16,7 +16,25 @@ struct CreateItemFromListingSheet: View {
     @State private var targetPriceText: String
     @State private var isSaving = false
     @State private var errorMessage: String?
+    // US-3267: the fields are SEEDED from the orphan listing, so dirty means
+    // "differs from what we prefilled", not "is non-empty". The old guard was
+    // `isSaving`, which never covered the edit itself.
+    @State private var showingDiscard = false
+    private let pristine: Pristine
     private let currencyFormatter = CurrencyFormatter()
+
+    /// The prefilled values, kept so an untouched sheet still dismisses on a
+    /// swipe the way an untouched sheet should.
+    private struct Pristine: Equatable {
+        let title: String
+        let sku: String
+        let targetPriceText: String
+    }
+
+    private var isDirty: Bool {
+        isSaving
+            || Pristine(title: title, sku: sku, targetPriceText: targetPriceText) != pristine
+    }
 
     init(
         orphan: OrphanEbayListing,
@@ -29,8 +47,12 @@ struct CreateItemFromListingSheet: View {
         _title = State(initialValue: orphan.suggestedTitle)
         _sku = State(initialValue: orphan.customLabel ?? "")
         let formatter = CurrencyFormatter()
-        _targetPriceText = State(
-            initialValue: orphan.currentPrice.map { formatter.formatRaw($0) } ?? ""
+        let seededPrice = orphan.currentPrice.map { formatter.formatRaw($0) } ?? ""
+        _targetPriceText = State(initialValue: seededPrice)
+        pristine = Pristine(
+            title: orphan.suggestedTitle,
+            sku: orphan.customLabel ?? "",
+            targetPriceText: seededPrice
         )
     }
 
@@ -74,7 +96,10 @@ struct CreateItemFromListingSheet: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { dismiss() }.disabled(isSaving)
+                    CancelFormButton(isDirty: isDirty, showingDiscard: $showingDiscard) {
+                        dismiss()
+                    }
+                    .disabled(isSaving)
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button {
@@ -87,7 +112,7 @@ struct CreateItemFromListingSheet: View {
                 }
             }
         }
-        .interactiveDismissDisabled(isSaving)
+        .unsavedChangesGuard(isDirty: isDirty, showingDiscard: $showingDiscard) { dismiss() }
     }
 
     // MARK: - Save

@@ -107,7 +107,26 @@ actor SyncMergeActor {
                 // (stale data + a backwards timestamp until the next delta heals it).
                 // Skip the stale overwrite; dirty rows keep dirty-wins resolution
                 // regardless of timestamp.
-                if !local.hasLocalChanges && updatedAt < local.updatedAt { continue }
+                // US-3276: the dirty exemption is GONE, and the reason it was
+                // wrong is that "dirty-wins" only ever described the USER-owned
+                // fields. `applyServerWins` still takes the server value for
+                // every SERVER-owned one — status, acquiredPrice, gradeValue,
+                // gradeLabel, certificateURL, gradeReportId — and then
+                // `local.updatedAt = updatedAt` below rewinds the row's clock.
+                //
+                // So a stale snapshot landing on a row that happened to be
+                // dirty from an unrelated offline title edit could wipe a grade
+                // that had just arrived by realtime, back to whatever the older
+                // snapshot held, and leave the row claiming to be that old. The
+                // comment here used to say dirty rows keep dirty-wins
+                // "regardless of timestamp", which was true of the fields it
+                // was written about and not of the six it was not.
+                //
+                // Skipping loses nothing for a dirty row either: a snapshot
+                // older than what we already hold has nothing newer to offer.
+                guard ConflictPolicy.acceptsServerSnapshot(
+                    serverUpdatedAt: updatedAt, localUpdatedAt: local.updatedAt
+                ) else { continue }
                 if local.hasLocalChanges && updatedAt > local.updatedAt { dirtyConflicts += 1 }
                 Self.applyServerWins(to: local, remote: remote)
                 // Only overwrite the cached primary when the delta actually
@@ -685,11 +704,14 @@ actor SyncMergeActor {
         let updatedAt = SyncEngine.parseDateOrNil(remote.updated_at) ?? .distantPast
 
         if let local = try? modelContext.fetch(descriptor).first {
-            // Same freshness guard as mergeItems: ignore a realtime event older than
-            // the server state we already hold on a non-dirty row (a late/duplicated
-            // event, or one racing a fresher bulk pull) so it can't rewind the row.
-            // Dirty rows keep dirty-wins resolution.
-            if !local.hasLocalChanges && updatedAt < local.updatedAt { return }
+            // Same freshness guard as mergeItems, including US-3276: a stale
+            // event is ignored whether or not the row is dirty. Dirty-wins
+            // protects the user-owned fields inside `applyServerWins`; it never
+            // protected the server-owned ones, and applying a late or
+            // duplicated event would still rewind those and the row's clock.
+            guard ConflictPolicy.acceptsServerSnapshot(
+                serverUpdatedAt: updatedAt, localUpdatedAt: local.updatedAt
+            ) else { return }
             Self.applyServerWins(to: local, remote: remote)
             local.updatedAt = updatedAt
         } else {

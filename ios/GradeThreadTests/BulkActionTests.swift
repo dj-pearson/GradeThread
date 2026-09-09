@@ -119,6 +119,57 @@ final class BulkActionTests: XCTestCase {
 
     // MARK: - Price-drop math (BulkActionExecutor.droppedPrice)
 
+    // MARK: - Warnings in the summary (US-3273)
+
+    func test_summary_foldsInASingleWarningVerbatim() {
+        let result = BulkActionResult(
+            action: .markShipped,
+            succeeded: 3,
+            failures: [],
+            warnings: ["1 item had no open order to close, so it may still be in Shipping."]
+        )
+        XCTAssertEqual(
+            result.summary,
+            "Updated 3 items. 1 item had no open order to close, so it may still be in Shipping."
+        )
+    }
+
+    func test_summary_pluralWarningIsNotEndListingCopy() {
+        // The plural used to be hardcoded to "N listings ended in FlipDesk
+        // only — verify on eBay", which was true while end-listing was the only
+        // action that warned and became a lie the moment another one did.
+        let result = BulkActionResult(
+            action: .markShipped,
+            succeeded: 2,
+            failures: [],
+            warnings: ["Shipping queue couldn't be updated.", "Second notice."]
+        )
+        XCTAssertFalse(
+            result.summary.contains("listings ended in FlipDesk"),
+            "a mark-shipped warning must not be described as an ended listing"
+        )
+        XCTAssertTrue(result.summary.contains("Shipping queue couldn't be updated."))
+        XCTAssertTrue(result.summary.contains("+1 more"))
+    }
+
+    func test_summary_withNoWarningsIsUnchanged() {
+        let result = BulkActionResult(action: .markShipped, succeeded: 1, failures: [])
+        XCTAssertEqual(result.summary, "Updated 1 item.")
+    }
+
+    func test_markShippedIsOfferedOnlyWhereASaleExists() {
+        // The handler stamps sales.shipped_at, which assumes every target has a
+        // sale row. That assumption holds because the action is offered on the
+        // Sold stage and nowhere else.
+        for stage in InventoryStage.allCases where stage != .sold {
+            XCTAssertFalse(
+                BulkAction.actions(for: stage).contains(.markShipped),
+                "\(stage) offers Mark shipped, but its items may have no sale to close"
+            )
+        }
+        XCTAssertTrue(BulkAction.actions(for: .sold).contains(.markShipped))
+    }
+
     func test_droppedPrice_basicReduction() {
         XCTAssertEqual(BulkActionExecutor.droppedPrice(from: 50, percent: 10), 45, accuracy: 0.001)
         XCTAssertEqual(BulkActionExecutor.droppedPrice(from: 100, percent: 10), 90, accuracy: 0.001)

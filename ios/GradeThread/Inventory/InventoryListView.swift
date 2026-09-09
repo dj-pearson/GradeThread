@@ -984,7 +984,11 @@ struct InventoryListView: View {
         // snackbar — don't ALSO pop a modal alert (double confirmation). Show the
         // alert only for bulk runs (the summary count matters) or when something
         // failed (the per-item reason / retry matters).
-        if isBulk || !result.failures.isEmpty {
+        // US-3273: `!result.warnings.isEmpty` too. A single-item swipe that
+        // succeeds is confirmed by the undo snackbar alone, which carries no
+        // warning text — so "marked shipped, but the Shipping queue couldn't be
+        // updated" had nowhere to appear on the path most likely to produce it.
+        if isBulk || !result.failures.isEmpty || !result.warnings.isEmpty {
             actionResult = result
         }
 

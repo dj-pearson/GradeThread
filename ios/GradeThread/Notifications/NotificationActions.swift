@@ -61,13 +61,36 @@ public enum NotificationActionID: String, CaseIterable {
     }
 }
 
+public extension NotificationActionID {
+    /// The `userInfo` keys ``NotificationActionPlan/from(actionIdentifier:userInfo:userText:)``
+    /// needs before it can build anything but a fallback deep link (US-3274).
+    var requiredPayloadKeys: Set<String> {
+        switch self {
+        case .acceptOffer, .counterOffer: return ["best_offer_id", "inventory_item_id"]
+        case .markShipped: return ["sale_id"]
+        // OAuth needs nothing from the payload; the app foregrounds and the
+        // connection card takes over.
+        case .reconnectEbay: return []
+        }
+    }
+}
+
 public extension NotificationCategoryID {
-    /// Inline action buttons for this category (US-1133). Only categories whose
-    /// backend APNs send is LIVE get actions; categories whose send isn't wired
-    /// yet (grade.ready, message.received, listing.ended, aging.digest,
-    /// payout.posted) intentionally return `[]` so no dead button is ever shown
-    /// — AC: "actions are no-ops/hidden where the backend send isn't live yet".
-    var actions: [NotificationActionID] {
+    /// The `userInfo` keys the edge actually stamps on this category's pushes.
+    ///
+    /// ⚠ EVERY SENDER IN `transactional-push.ts` SHIPS `data: { kind }` AND
+    /// NOTHING ELSE. No `best_offer_id`, no `inventory_item_id`, no `sale_id`.
+    var payloadKeys: Set<String> {
+        // Deliberately one answer for every category rather than a per-case
+        // switch that would look like it had been checked case by case. When a
+        // sender starts stamping ids, give that category its own case here and
+        // its buttons come back on their own.
+        []
+    }
+
+    /// The inline buttons US-1133 declares for this category, before the
+    /// payload check below.
+    var declaredActions: [NotificationActionID] {
         switch self {
         case .offerReceived:
             return [.acceptOffer, .counterOffer]
@@ -80,6 +103,28 @@ public extension NotificationCategoryID {
         default:
             return []
         }
+    }
+
+    /// Inline action buttons actually registered for this category (US-1133).
+    ///
+    /// ⚠ THIS USED TO BE `declaredActions`, AND ITS COMMENT SAID "no dead
+    /// button is ever shown". The test it applied was whether the CATEGORY's
+    /// send was live, not whether the payload carried the ids the ACTION needs,
+    /// and those are different questions. Five of the six buttons in the app
+    /// failed the second one.
+    ///
+    /// What a seller saw: an offer notification with Accept on it, a Face ID
+    /// prompt (accept and counter are `.authenticationRequired` because they
+    /// move money), and then the app opening on the inbox with nothing
+    /// accepted. They authenticated for nothing. Same for Mark shipped on a
+    /// sale push. `NotificationActionPlan` handles the missing ids correctly —
+    /// it falls back to a deep link rather than firing a broken edge call — so
+    /// nothing was ever wrong except the button being there at all.
+    ///
+    /// Only `reconnectEbay` needs nothing from the payload, which is why it is
+    /// the one that always worked.
+    var actions: [NotificationActionID] {
+        declaredActions.filter { $0.requiredPayloadKeys.isSubset(of: payloadKeys) }
     }
 }
 
@@ -129,8 +174,27 @@ public enum NotificationActionPlan: Equatable {
         case .markShipped:
             if let saleId {
                 let trimmed = userText?.trimmingCharacters(in: .whitespacesAndNewlines)
-                let tracking = (trimmed?.isEmpty == false) ? trimmed : nil
-                return .markShipped(saleId: saleId, tracking: tracking)
+                let typed = (trimmed?.isEmpty == false) ? trimmed : nil
+                // US-3272: anything typed has to LOOK like a tracking number.
+                //
+                // This path had the trim and not the shape check that
+                // `MarkShippedSheet` has carried since US-1178, and it is the
+                // riskier of the two: text from the lock screen, no sheet, no
+                // warning, no confirmation. `FulfillmentService` pushes a
+                // non-empty tracking straight to eBay's shipping_fulfillment,
+                // which cannot be edited afterwards, and the buyer gets a
+                // tracking link that goes nowhere.
+                //
+                // Falling back to the screen is the same answer `counterOffer`
+                // above already gives an unparseable price: open the place
+                // where it can be done properly rather than send something
+                // wrong. Marking it shipped WITHOUT the number would be worse —
+                // it buries the mistake under a state the seller cannot see is
+                // incomplete.
+                if let typed, !TrackingNumber.isPlausible(typed) {
+                    return .deepLink(.salesTab(inventoryItemId: itemId))
+                }
+                return .markShipped(saleId: saleId, tracking: typed)
             }
             return .deepLink(.salesTab(inventoryItemId: itemId))
 

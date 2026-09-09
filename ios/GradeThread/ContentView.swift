@@ -1090,6 +1090,15 @@ struct MainShell: View {
             router.marketplacesPath = NavigationPath()
             PendingDelistFocusLatch.shared.request(itemId: itemId)
             NotificationCenter.default.post(name: .pendingDelistsRequested, object: nil)
+        case let .postSale(section):
+            // US-3266: Returns & disputes lives inside Marketplaces, so the
+            // route selects that tab and pushes the screen with the section the
+            // push named. Same shape as negotiationInbox above — a plain
+            // navigation value, no latch, because nothing has to be presented
+            // on arrival.
+            router.selection = .marketplaces
+            router.marketplacesPath = NavigationPath()
+            router.marketplacesPath.append(PostSaleRoute(section: section))
         case .reconnectEbay:
             // US-1262: select Marketplaces AND ask the connection card to open the
             // eBay OAuth sheet immediately. MarketplacesView listens for
@@ -1340,6 +1349,12 @@ private struct SidebarSplitView: View {
                 .navigationDestination(for: NegotiationRoute.self) { route in
                     NegotiationInboxView(filterItemId: route.filterItemId)
                 }
+                // US-3266: registered everywhere NegotiationRoute is. A
+                // destination missing from one of these stacks is a push that
+                // pushes nothing on that stack and nowhere else.
+                .navigationDestination(for: PostSaleRoute.self) { route in
+                    PostSaleView(section: route.section)
+                }
         }
     }
 
@@ -1419,6 +1434,12 @@ private struct SidebarSplitView: View {
                 }
                 .navigationDestination(for: NegotiationRoute.self) { route in
                     NegotiationInboxView(filterItemId: route.filterItemId)
+                }
+                // US-3266: registered everywhere NegotiationRoute is. A
+                // destination missing from one of these stacks is a push that
+                // pushes nothing on that stack and nowhere else.
+                .navigationDestination(for: PostSaleRoute.self) { route in
+                    PostSaleView(section: route.section)
                 }
         }
     }
@@ -1818,6 +1839,12 @@ private struct MarketplacesTab: View {
                 }
                 .navigationDestination(for: NegotiationRoute.self) { route in
                     NegotiationInboxView(filterItemId: route.filterItemId)
+                }
+                // US-3266: registered everywhere NegotiationRoute is. A
+                // destination missing from one of these stacks is a push that
+                // pushes nothing on that stack and nowhere else.
+                .navigationDestination(for: PostSaleRoute.self) { route in
+                    PostSaleView(section: route.section)
                 }
                 // US-684: add-method menu reachable from the Marketplaces tab.
                 .toolbar {
@@ -2415,7 +2442,10 @@ struct SettingsView: View {
     /// so the web reads the same prefs.
     private var notificationPreferencesSection: some View {
         Section {
-            ForEach(NotificationCategoryID.allCases, id: \.self) { id in
+            // US-3268: `togglable`, not `allCases`. Three categories are
+            // declared and routed but have no sender anywhere, and a switch
+            // that governs nothing reads as a feature that is turned on.
+            ForEach(NotificationCategoryID.togglable, id: \.self) { id in
                 NotificationCategoryToggle(category: id)
             }
         } header: {

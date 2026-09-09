@@ -120,6 +120,14 @@ struct RuleEditorSheet: View {
                     .frame(maxWidth: 90)
                     .accessibilityLabel("Floor price")  // US-1411
             }
+            // A floor that does not parse is stored as NO floor, which is the
+            // one wrong answer this field can give. Say so under the field
+            // rather than only greying out Save.
+            if let help = draft.floorHelp {
+                Text(help)
+                    .font(.footnote)
+                    .foregroundStyle(Color.brandRed)
+            }
         } header: {
             Text("Markdown")
         } footer: {

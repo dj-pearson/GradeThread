@@ -148,10 +148,76 @@ enum ImportValue {
         return table[key]?.rawValue
     }
 
+    /// Which number comes first in a slashed date (US-3271).
+    ///
+    /// ⚠ `dateISO` USED TO ASSUME MONTH-FIRST, ALWAYS. A UK or European sheet's
+    /// `03/09/2026` means 3 September and parsed as 9 March: the wrong date, in
+    /// the right shape, with no error and nothing dropped. `droppedCells`
+    /// cannot see it either, because the cell parsed fine. It lands in the
+    /// acquired date, which drives aging and every tax-year boundary.
+    enum SlashOrder: Equatable {
+        case monthFirst
+        case dayFirst
+    }
+
+    /// Reads the order off the WHOLE COLUMN rather than one cell, which is what
+    /// makes it decidable rather than a coin flip. `13/04/2026` can only be
+    /// day-first; `04/13/2026` can only be month-first. One unambiguous value
+    /// settles the column, because a spreadsheet column is written by one
+    /// person in one format.
+    ///
+    /// Only when every value is ambiguous (both numbers 12 or under, all the
+    /// way down) does the device locale decide, and the import preview then
+    /// says which reading it used. Guessing quietly is what this replaces.
+    static func slashOrder(in samples: [String], locale: Locale = .current) -> SlashOrder {
+        var sawDayFirst = false
+        var sawMonthFirst = false
+        for sample in samples {
+            guard let (first, second) = slashParts(sample) else { continue }
+            if first > 12 { sawDayFirst = true }
+            if second > 12 { sawMonthFirst = true }
+        }
+        // A column carrying both is broken whichever way we read it. Month-first
+        // matches the previous behaviour, so this cannot make an existing import
+        // worse, and the ambiguous-column notice still names the reading.
+        if sawDayFirst && !sawMonthFirst { return .dayFirst }
+        if sawMonthFirst { return .monthFirst }
+        return localeOrder(locale)
+    }
+
+    /// The two leading numbers of a `d/m/y`-shaped value, or nil when the value
+    /// is not slashed at all (an ISO date settles nothing).
+    static func slashParts(_ raw: String) -> (Int, Int)? {
+        let parts = raw.trimmingCharacters(in: .whitespaces).split(separator: "/")
+        guard parts.count == 3,
+              let first = Int(parts[0]), let second = Int(parts[1]),
+              first > 0, second > 0
+        else { return nil }
+        return (first, second)
+    }
+
+    /// What this device's own locale puts first. `dateFormat(fromTemplate:)`
+    /// returns "M/d/y" in the US and "dd/MM/y" in the UK, so the first of `d`
+    /// or `M` to appear is the answer.
+    static func localeOrder(_ locale: Locale) -> SlashOrder {
+        guard let template = DateFormatter.dateFormat(
+            fromTemplate: "yMd", options: 0, locale: locale
+        ) else { return .monthFirst }
+        let day = template.firstIndex(of: "d")
+        let month = template.firstIndex(of: "M")
+        guard let day, let month else { return .monthFirst }
+        return day < month ? .dayFirst : .monthFirst
+    }
+
     /// Parses a date in common spreadsheet shapes to an ISO `YYYY-MM-DD` string.
-    static func dateISO(_ raw: String?) -> String? {
+    ///
+    /// `order` decides only how a slashed date is read; ISO input ignores it.
+    static func dateISO(_ raw: String?, order: SlashOrder = .monthFirst) -> String? {
         guard let raw = raw?.trimmingCharacters(in: .whitespaces), !raw.isEmpty else { return nil }
-        let formats = ["yyyy-MM-dd", "MM/dd/yyyy", "M/d/yyyy", "MM/dd/yy", "M/d/yy", "yyyy/MM/dd"]
+        let slashed = order == .dayFirst
+            ? ["dd/MM/yyyy", "d/M/yyyy", "dd/MM/yy", "d/M/yy"]
+            : ["MM/dd/yyyy", "M/d/yyyy", "MM/dd/yy", "M/d/yy"]
+        let formats = ["yyyy-MM-dd"] + slashed + ["yyyy/MM/dd"]
         let parser = DateFormatter()
         parser.locale = Locale(identifier: "en_US_POSIX")
         parser.timeZone = TimeZone(identifier: "UTC")

@@ -46,6 +46,13 @@ struct FulfillmentService: FulfillmentProviding {
         // timestamptz accepts an ISO 8601 instant.
         let iso = ISO8601DateFormatter().string(from: shippedAt)
 
+        // US-3272: normalise HERE, the one point both entry paths pass through.
+        // A carrier site formats a number for reading ("9400 1000 0000") and
+        // that is what gets pasted; eBay wants the characters. Doing it in the
+        // sheet would leave the notification action, which is the path with no
+        // sheet, sending the spaces.
+        let trackingNumber = trackingNumber.map(TrackingNumber.normalized)
+
         // US-1039: for an eBay order (platform_order_id set) WITH a tracking
         // number, push the tracking to eBay via the edge — which also records
         // shipped_at + tracking_number server-side (so we don't double-write).

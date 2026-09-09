@@ -22,9 +22,23 @@ struct RecordSaleSheet: View {
     @State private var form = RecordSaleForm()
     @State private var saving = false
     @State private var errorMessage: String?
+    // US-3267: the old guard was `saving`, so a swipe-down before Save threw
+    // away a whole sale record without asking.
+    @State private var showingDiscard = false
+    /// The form as it stood once the seed below had run. Snapshotted rather
+    /// than compared against a fresh `RecordSaleForm()`, because `saleDate`
+    /// defaults to `Date()` and two of those are never equal — an untouched
+    /// sheet would read as dirty forever and refuse to swipe away.
+    @State private var pristine: RecordSaleForm?
     private let currencyFormatter = CurrencyFormatter()
 
     private var parse: (String) -> Double? { currencyFormatter.parse }
+
+    private var isDirty: Bool {
+        if saving { return true }
+        guard let pristine else { return false }
+        return form != pristine
+    }
 
     private var net: Double {
         form.netProfit(purchasePrice: purchasePrice ?? 0, parse: parse)
@@ -108,14 +122,17 @@ struct RecordSaleSheet: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { dismiss() }.disabled(saving)
+                    CancelFormButton(isDirty: isDirty, showingDiscard: $showingDiscard) {
+                        dismiss()
+                    }
+                    .disabled(saving)
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button(saving ? "Saving…" : "Record") { Task { await recordSale() } }
                         .disabled(saving)
                 }
             }
-            .interactiveDismissDisabled(saving)
+            .unsavedChangesGuard(isDirty: isDirty, showingDiscard: $showingDiscard) { dismiss() }
             .onAppear {
                 if form.salePrice.isEmpty, let listedPrice, listedPrice > 0 {
                     // formatRaw, not formatDisplay: this seeds an EDITABLE
@@ -123,6 +140,8 @@ struct RecordSaleSheet: View {
                     // fail the parse on save.
                     form.salePrice = currencyFormatter.formatRaw(listedPrice)
                 }
+                // AFTER the seed, so the prefilled price is not itself an edit.
+                if pristine == nil { pristine = form }
             }
         }
     }

@@ -69,16 +69,37 @@ enum FinancialExport {
         )
     }
 
+    /// The date column and the period header, rendered in the seller's own zone.
+    ///
+    /// ⚠ THIS USED TO BE A BARE `ISO8601DateFormatter()`, WHICH IS GMT. The
+    /// range it renders is chosen with `Calendar.current` (the sheet's
+    /// `startOfDay`/`endOfDay`), so a UTC formatter printed a different day than
+    /// the one the seller picked and than the one the filter used. A sale at
+    /// 8pm on 31 January in Chicago printed as `2026-02-01`, so a January
+    /// export carried February rows; in Sydney the same offset ran the other
+    /// way and a 1 February sale printed `2026-01-31`, outside the range in its
+    /// own header. This is the file people hand to an accountant.
+    ///
+    /// `en_US_POSIX` for the same reason ``MoneyDate/wireFormatter`` uses it: a
+    /// device on a non-Gregorian calendar must still emit `2026-01-31`.
+    static func dayFormatter(timeZone: TimeZone = .current) -> DateFormatter {
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.timeZone = timeZone
+        f.dateFormat = "yyyy-MM-dd"
+        return f
+    }
+
     static func csv(
         sales: [LocalSale],
         items: [LocalInventoryItem],
         start: Date,
-        end: Date
+        end: Date,
+        timeZone: TimeZone = .current
     ) -> String {
         let txns = transactions(sales: sales, items: items, start: start, end: end)
         let totals = summary(txns)
-        let df = ISO8601DateFormatter()
-        df.formatOptions = [.withFullDate]
+        let df = dayFormatter(timeZone: timeZone)
 
         var lines: [String] = []
         lines.append("GradeThread Financial Report")
@@ -107,9 +128,8 @@ enum FinancialExport {
         return lines.joined(separator: "\n")
     }
 
-    static func filename(start: Date, end: Date) -> String {
-        let df = ISO8601DateFormatter()
-        df.formatOptions = [.withFullDate]
+    static func filename(start: Date, end: Date, timeZone: TimeZone = .current) -> String {
+        let df = dayFormatter(timeZone: timeZone)
         return "gradethread_financial_report_\(df.string(from: start))_\(df.string(from: end)).csv"
     }
 

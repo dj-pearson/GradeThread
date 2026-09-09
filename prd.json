@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-3266",
+  "nextId": "US-3280",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -4973,6 +4973,73 @@
       ],
       "priority": 11,
       "notes": "Done 2026-09-09. createDefaultPolicies + createPolicy + findPolicyIdByName in ebay-client.ts POST to /sell/account/v1/{fulfillment,payment,return}_policy; before this the file had four GETs there and no POST, which is the whole defect. Idempotence is BY NAME: eBay answers 20400 for a duplicate name, and on that error the id is looked up and returned, so a second press produces one policy rather than two identical ones the seller then has to choose between. Only missing kinds are created (the \"have\" set), so an account with its own shipping policy keeps it. POST /api/flipdesk/ebay/policies/create validates the four answers (0-30 handling days, 0-100000 cents, 30 or 60 day window, BUYER|SELLER), re-syncs first so a policy made on eBay minutes ago is not duplicated, opts into SELLING_POLICY_MANAGEMENT before writing (eBay refuses policy writes outside it with an error naming neither the program nor the fix), then sets the workspace defaults through setDefaultPolicies - the same writer the picker uses, asserted to be the only one in the handler. Tenant-scoped on workspaceOwnerId ?? userId, already under workspaceMiddleware via the /policies/* mount, with a tenant-isolation case. The dialog's 'set them up in eBay Seller Hub, then press Re-sync' is gone and four plain questions are in its place; a test asserts none of eBay's own vocabulary (categoryTypes, marketplaceTypes, immediatePay) reaches the seller. 9 deno cases + 7 web cases. NOT VERIFIED AGAINST A LIVE EBAY ACCOUNT from this host - no seller token here - so the request bodies are checked for shape and against eBay's documented required fields, not against a real 201. USPSGroundAdvantage is the domestic service; a seller on a marketplace other than EBAY_US will need that revisited."
+    },
+    {
+      "id": "US-3266",
+      "passes": false,
+      "title": "iOS: land post-order pushes on the exact row, not just the tab",
+      "description": "The edge sends fourteen push categories (services/edge-functions/src/lib/transactional-push.ts:48-240). Seven of them were unknown to iOS until the categories were added: offer.responded, return.opened, inquiry.opened, case.opened, case.deadline, cancellation.requested, dispute.opened. They now route, but the six post-order ones all land on .marketplacesTab, which is the tab holding the Returns & disputes card, one tap short of the screen and two short of the row. These are the pushes with a clock on them: a payment dispute, an eBay case, a return window. Finish the landing. PostSaleView already has a Tab enum (disputes / returns / cancellations) and takes no parameters; NegotiationRoute is the pattern to copy for a PostSaleRoute, registered at ContentView.swift:1340, :1420 and :1819. Note PostSaleView jumps to whichever tab has items after load (US-1178), so an explicit tab has to win over that. The edge payload also carries the case/return external id, so the row itself is reachable. Related: the web ranks returns, cases, disputes, inquiries and cancellations by deadline in src/pages/flipdesk/needs-you.ts:65 and iOS has no equivalent.",
+      "acceptanceCriteria": [
+        "A PostSaleRoute(tab:externalId:) exists and is registered as a navigationDestination everywhere NegotiationRoute is (three sites in ContentView.swift)",
+        "return.opened, inquiry.opened and case.opened land on PostSaleView's returns tab; cancellation.requested on cancellations; dispute.opened on disputes; case.deadline on whichever tab holds the case the push names",
+        "An explicit tab from a deep link overrides the US-1178 after-load jump, and the jump still applies when no tab was requested",
+        "When the payload carries the case/return/dispute external id, the row is scrolled to and highlighted; when it does not, the tab still opens",
+        "PostSaleRoute round-trips through DeepLinkRoute.coldLaunchToken so a tap on a killed app still lands (the enum switch has no default, so this is a compile error until done)",
+        "The six post-order categories declare inline notification actions where an action exists server-side, matching the offer/ship actions in NotificationActionPlan",
+        "PushCategoryCoverageTests.test_thePostOrderFamilyLandsOnTheScreenThatHoldsIt is updated from .marketplacesTab to the exact routes and still passes"
+      ],
+      "notes": "Filed 2026-09-09 while auditing iOS. The seven categories, their labels, help text and routes landed in the same session (NotificationCategories.swift, NotificationDelegate.swift) plus GradeThreadTests/PushCategoryCoverageTests.swift, which mirrors the edge's sent list by hand the way ShareInboxTests mirrors the slot constants. What is left is only the precision of the landing. Worth reading before starting: the comment on gradeReady in NotificationCategories.swift describes iOS-ready/backend-pending drift, and that is why nobody looked for the reverse - the backend had been sending seven categories iOS had never heard of, and no test, guard or log said so. | Partial 2026-09-09. DONE: AC1 (PostSaleRoute + PostSaleSection in Marketplaces/PostSale/PostSaleRoute.swift, registered at all three ContentView.swift NegotiationRoute sites), AC2, AC3 (PostSaleView.init(section:) seeds the tab and the .task guards the US-1178 jump on requestedSection == nil), AC5 (coldLaunchToken round-trips 'postSale|<section>'; an unknown section is refused rather than defaulted), AC7. NOT DONE, and AC4 AS WRITTEN IS NOT BUILDABLE: the six post-order pushes carry no external id. transactional-push.ts:127-207 sends data: { kind } and nothing else, so there is no id to scroll to. Focusing the row needs an EDGE change first (add the return/case/dispute external id to the payload) plus its own tests, which is why it is not in this pass. case.deadline is the sharpest case of that - it says a deadline is close and cannot say which case, so it opens Returns and relies on the US-1178 segment counts to point at the other two. AC6 (inline actions) also outstanding. Suggest splitting AC4 into its own story against the edge."
+    },
+    {
+      "id": "US-3269",
+      "passes": false,
+      "title": "Edge: send the three notifications iOS has toggles wired for",
+      "description": "Found while auditing iOS (US-3268). Three notification categories are declared, routed and described end to end on the client and have no sender anywhere: message.received, aging.digest, payout.posted. US-3268 hid their Settings toggles rather than deleting the cases, so each of these needs only a sender plus flipping NotificationCategoryID.isDeliverable. Buyer messages is the cheapest and the most valuable: services/edge-functions/src/lib/ebay-trading.ts already fetches buyer messages (US-673) and the iOS negotiation inbox renders them, so a seller sees the message only if they happen to open the app. A buyer message with no reply is a lost sale. Aging digest needs a scheduled job over stale inventory; the iOS route already lands on the triage list (DeepLinkRoute .inventoryTab). payout.posted is the before-it-clears half of payout.cleared, which already has pushPayoutCleared to copy.",
+      "acceptanceCriteria": [
+        "notify.ts's NotificationType union gains message_received, aging_digest and payout_posted, each mapped to a notification_preferences category whose existing description already covers it, or given its own",
+        "transactional-push.ts gains a sender per type stamping the categories iOS already knows: message.received, aging.digest, payout.posted",
+        "message.received fires from the same eBay buyer-message read path that feeds the negotiation inbox, and carries inventory_item_id so the iOS route can filter to the item",
+        "aging.digest is scheduled rather than per-event, and is a summary across items, matching the iOS route that lands on the inventory triage list",
+        "Each shipped sender flips its NotificationCategoryID.isDeliverable to true and removes its line from PushCategoryCoverageTests.undeliverable, which fails until both are done",
+        "Each new type has a tenant-isolation test case per US-268, since the send path reads a multi-tenant table with the service-role client"
+      ]
+    },
+    {
+      "id": "US-3275",
+      "passes": false,
+      "title": "Edge: stamp the ids the iOS notification actions need",
+      "description": "Found via US-3274. Every sender in services/edge-functions/src/lib/transactional-push.ts ships data: { kind } and no ids, so iOS cannot build a real inline action from any of them and now hides the buttons. Three payloads need ids. pushOfferReceived needs best_offer_id and inventory_item_id so Accept and Counter can act on the offer rather than opening the inbox. pushSaleCreated needs sale_id so Mark shipped can close the order, which is the highest-value one: 'You made a sale' is the de-facto shipping prompt and there is no separate shipping push. The deep-link routes want ids too - DeepLinkRoute.from already reads inventory_item_id and support_ticket_id from userInfo, so a targeted push lands on the item instead of the tab. Sibling of US-3269, which is about senders that do not exist at all; this is about senders that exist and under-describe.",
+      "acceptanceCriteria": [
+        "pushOfferReceived stamps best_offer_id and inventory_item_id",
+        "pushSaleCreated stamps sale_id and inventory_item_id",
+        "The post-order senders stamp the external id of the return, case or dispute they name, which also unblocks US-3266 AC4",
+        "Each shipped payload gets a case in NotificationCategoryID.payloadKeys on the iOS side, which is what re-enables its buttons, and NotificationActionAvailabilityTests fails until the mirrored key list is updated with it"
+      ]
+    },
+    {
+      "id": "US-3278",
+      "passes": false,
+      "title": "Install a Swift toolchain in the remote container so GradeThreadCore tests can run",
+      "description": "Packages/GradeThreadCore exists specifically so the app's pure logic runs under swift test on Linux without a Mac - ConflictPolicyTests says so in its own header. The remote container has no Swift at all ('swift: command not found'), so even that half of the suite cannot be executed here, and every iOS change made in this environment ships verified only by the sixteen ios/Scripts text guards plus check-ios-orphans.mjs. Those guards are good but they read source; they cannot tell you a switch is non-exhaustive, a type does not resolve, or an assertion fails. Fourteen iOS fixes were made on the claude/ios-improvements-loop-yxudkd branch in one session, every one of them unable to run its own tests. Installing swiftly (or a pinned Swift toolchain) in the container image is the single change that would most improve what an agent can verify here. GradeThreadCore holds ConflictPolicy, Money, SalePnL, description blocks, sync ordering and title patching - a large share of the logic worth testing.",
+      "acceptanceCriteria": [
+        "A Swift toolchain is available in the remote-session container image and swift --version succeeds",
+        "swift test in Packages/GradeThreadCore runs green from a clean checkout in that container",
+        "scripts/verify.mjs gains a lane that runs the GradeThreadCore package tests when a toolchain is present and skips with a warning when it is not, matching how the Docker-dependent lanes already behave",
+        "CLAUDE.md's iOS paragraph is corrected: it currently implies only macOS CI can run anything Swift, and the package tests are the exception"
+      ]
+    },
+    {
+      "id": "US-3279",
+      "passes": false,
+      "title": "Generate the push contract so iOS and the edge cannot drift again",
+      "description": "Three separate bugs in one session came from the same shape: the client and the edge each describe the push contract in their own file and nothing compares them. US-3266 was the edge sending seven categories iOS had never heard of, so every tap on a return, case or dispute push went nowhere. US-3268 was iOS offering three Settings toggles for notifications nothing can send. US-3274 was iOS registering five inline buttons the payload cannot serve, one of which prompted for Face ID before doing nothing. Each had a nearby comment asserting the opposite, written when it was true. The current guards (PushCategoryCoverageTests, NotificationActionAvailabilityTests) mirror the edge's lists BY HAND, which catches iOS-side drift only and rots the moment someone edits transactional-push.ts without touching iOS. The fix is to make the edge emit its category and payload-key map as a checked-in artefact and have the iOS tests read it, so a change on either side fails the other.",
+      "acceptanceCriteria": [
+        "The edge emits a checked-in JSON artefact listing every category it sends and the userInfo keys each payload carries, generated from transactional-push.ts rather than hand-maintained",
+        "A Deno test fails when the artefact is out of date with the senders, so it cannot silently rot",
+        "PushCategoryCoverageTests and NotificationActionAvailabilityTests read the artefact instead of their hand-mirrored lists",
+        "NotificationCategoryID.payloadKeys is derived from or checked against the artefact, so a category regains its buttons automatically when the edge starts stamping ids",
+        "Android is considered: if it has the same category list, it reads the same artefact"
+      ]
     }
   ]
 }
