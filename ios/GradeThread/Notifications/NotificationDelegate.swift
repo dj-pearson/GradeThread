@@ -57,7 +57,15 @@ public final class NotificationDelegate: NSObject, UNUserNotificationCenterDeleg
                 category: payload.categoryIdentifier,
                 userInfo: payload.userInfo
             ) {
+                // BOTH, same as a home-screen quick action. `post` serves the
+                // warm case; `persistPending` serves the cold one, which is the
+                // case a push tap usually IS — the delegate is assigned in
+                // `didFinishLaunchingWithOptions` and iOS delivers this
+                // response before `ContentView` subscribes, so the live post
+                // has no listener. ContentView drains the token in `.task` and
+                // the warm path clears it, so exactly one of the two fires.
                 DeepLinkRouter.post(route)
+                DeepLinkRouter.persistPending(route)
             }
             completionHandler()
             return
@@ -93,9 +101,11 @@ public final class NotificationDelegate: NSObject, UNUserNotificationCenterDeleg
             // eBay OAuth sheet. The action button is `.foreground`, so the app is
             // active by the time the route is applied and the OAuth UI can show.
             DeepLinkRouter.post(.reconnectEbay)
+            DeepLinkRouter.persistPending(.reconnectEbay)
             completionHandler()
         case let .deepLink(route):
             DeepLinkRouter.post(route)
+            DeepLinkRouter.persistPending(route)
             completionHandler()
         case .none:
             completionHandler()
@@ -268,25 +278,48 @@ public enum DeepLinkRouter {
 
     // MARK: - Cold-launch persistence (US-1410)
 
-    /// App Intents (Siri / Shortcuts / Spotlight) cold-launch the app and `post`
-    /// their route immediately in `perform()` — BEFORE `ContentView` subscribes
-    /// to `notificationName`, so on a cold launch the route is lost and the user
-    /// lands on a bare dashboard instead of (e.g.) the camera. The intents also
-    /// persist their route here; the app drains it on startup and replays it.
-    /// Only the parameterless navigation routes need this (push/widget links
-    /// arrive while the app is already subscribed) — see ``coldLaunchToken``.
+    /// Every cold-launch entry point posts its route BEFORE `ContentView`
+    /// subscribes to `notificationName`, so the live post is lost and the user
+    /// lands on a bare dashboard. App Intents (Siri, Shortcuts, Spotlight) do it
+    /// from `perform()`; home-screen quick actions do it from the app delegate;
+    /// and a push tap does it from `didReceive response`, which iOS delivers as
+    /// soon as the delegate is assigned in `didFinishLaunchingWithOptions`.
+    /// All three also persist here, and the app drains the token on startup.
+    ///
+    /// The "only parameterless routes need this" rule this file used to state
+    /// was wrong about the commonest case of all: a tap on "Your item sold"
+    /// with the app killed. Ids round-trip now. See ``coldLaunchToken``.
     private static let pendingRouteKey = "com.gradethread.app.pendingDeepLinkRoute"
 
-    public static func persistPending(_ route: DeepLinkRoute) {
+    /// How long a persisted route stays replayable.
+    ///
+    /// A token can be stranded: the tap cold-launches the app, the user is
+    /// signed out, they never finish sign-in, and nothing drains it. Without a
+    /// clock that token replays on the NEXT unrelated launch, and "open the
+    /// offer on this item" is a worse answer three days late than not at all.
+    /// Ten minutes is longer than any launch and shorter than any session gap.
+    private static let pendingRouteTTL: TimeInterval = 600
+
+    public static func persistPending(_ route: DeepLinkRoute, now: Date = Date()) {
         guard let token = route.coldLaunchToken else { return }
-        UserDefaults.standard.set(token, forKey: pendingRouteKey)
+        // One defaults key, not two — `AccountScopedDefaults` classifies keys by
+        // name, so a second key would be a second thing to remember to wipe on
+        // sign-out. The stamp rides in the value.
+        UserDefaults.standard.set("\(Int(now.timeIntervalSince1970))#\(token)", forKey: pendingRouteKey)
     }
 
     /// Returns and clears a persisted cold-launch route, if any.
-    public static func drainPending() -> DeepLinkRoute? {
-        guard let token = UserDefaults.standard.string(forKey: pendingRouteKey) else { return nil }
+    public static func drainPending(now: Date = Date()) -> DeepLinkRoute? {
+        guard let stored = UserDefaults.standard.string(forKey: pendingRouteKey) else { return nil }
         UserDefaults.standard.removeObject(forKey: pendingRouteKey)
-        return DeepLinkRoute(coldLaunchToken: token)
+        let parts = stored.split(separator: "#", maxSplits: 1, omittingEmptySubsequences: false)
+        // A value written by a build before the stamp existed is a bare token.
+        // Honor it once rather than dropping the upgrade user's tap on the floor.
+        guard parts.count == 2, let stamp = TimeInterval(parts[0]) else {
+            return DeepLinkRoute(coldLaunchToken: stored)
+        }
+        guard now.timeIntervalSince1970 - stamp <= pendingRouteTTL else { return nil }
+        return DeepLinkRoute(coldLaunchToken: String(parts[1]))
     }
 
     /// Clears any persisted route without consuming it — called after the live
@@ -298,32 +331,71 @@ public enum DeepLinkRouter {
 }
 
 extension DeepLinkRoute {
-    /// Stable token for the parameterless navigation routes that App Intents
-    /// cold-launch the app with (US-1410). Only these round-trip through
-    /// cold-launch persistence; everything else returns nil.
+    /// Separator between a route's name and the id it carries. Not present in
+    /// any id we mint (they are UUIDs and eBay offer ids), and `maxSplits: 1`
+    /// means an id that somehow contained one would still round-trip.
+    private static let tokenSeparator: Character = "|"
+
+    private static func token(_ name: String, _ id: String?) -> String {
+        guard let id, !id.isEmpty else { return name }
+        return "\(name)\(tokenSeparator)\(id)"
+    }
+
+    /// Stable token for cold-launch persistence (US-1410).
+    ///
+    /// ⚠ THIS USED TO COVER ONLY THE PARAMETERLESS ROUTES, on the stated
+    /// grounds that "push/widget links arrive while the app is already
+    /// subscribed". That is false for the launch a push most often causes.
+    /// `UNUserNotificationCenter.delegate` is assigned in
+    /// `didFinishLaunchingWithOptions`, and iOS delivers the tap response as
+    /// soon as it is — BEFORE SwiftUI mounts `ContentView` and its `.onReceive`
+    /// subscribes. So tapping "Your item sold" on a killed app posted into an
+    /// empty bus and landed the seller on Home with no idea what sold.
+    /// Every route round-trips now, ids included.
     var coldLaunchToken: String? {
         switch self {
         case .captureItem: return "captureItem"
         case .addItem: return "addItem"
-        // US-3101: a home-screen quick action or a Lock Screen widget tap on a
-        // KILLED app is a cold launch by definition — it is the whole reason
-        // someone long-presses the icon. Without a token these three post into
-        // a bus nothing is subscribed to yet and the seller lands on a bare
-        // Home, which is the exact bug US-1410 fixed for Siri.
         case .prospect: return "prospect"
         case .scout: return "scout"
         case .inventoryDrafts: return "inventoryDrafts"
-        default: return nil
+        case .marketplacesTab: return "marketplacesTab"
+        case .reconnectEbay: return "reconnectEbay"
+        case .inventoryTab: return "inventoryTab"
+        case .gradesList: return "gradesList"
+        case let .salesTab(id): return Self.token("salesTab", id)
+        case let .inventoryItem(id): return Self.token("inventoryItem", id)
+        case let .negotiationInbox(id): return Self.token("negotiationInbox", id)
+        case let .supportTickets(id): return Self.token("supportTickets", id)
+        case let .pendingDelists(id): return Self.token("pendingDelists", id)
         }
     }
 
     init?(coldLaunchToken token: String) {
-        switch token {
+        let parts = token.split(
+            separator: Self.tokenSeparator, maxSplits: 1, omittingEmptySubsequences: false)
+        guard let head = parts.first, !head.isEmpty else { return nil }
+        let name = String(head)
+        let id = parts.count > 1 && !parts[1].isEmpty ? String(parts[1]) : nil
+        switch name {
         case "captureItem": self = .captureItem
         case "addItem": self = .addItem
         case "prospect": self = .prospect
         case "scout": self = .scout
         case "inventoryDrafts": self = .inventoryDrafts
+        case "marketplacesTab": self = .marketplacesTab
+        case "reconnectEbay": self = .reconnectEbay
+        case "inventoryTab": self = .inventoryTab
+        case "gradesList": self = .gradesList
+        case "salesTab": self = .salesTab(inventoryItemId: id)
+        case "negotiationInbox": self = .negotiationInbox(filterItemId: id)
+        case "supportTickets": self = .supportTickets(ticketId: id)
+        case "pendingDelists": self = .pendingDelists(itemId: id)
+        // The only case whose id is NOT optional: without one there is no item
+        // to open, so refuse rather than invent a destination.
+        case "inventoryItem":
+            guard let id else { return nil }
+            self = .inventoryItem(id: id)
         default: return nil
         }
     }
