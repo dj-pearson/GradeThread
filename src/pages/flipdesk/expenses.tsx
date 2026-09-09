@@ -2,6 +2,7 @@ import { useId, useEffect, useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { toastError } from "@/lib/toast-error";
+import { fetchAllPages } from "@/lib/paged-read";
 import { ReceiptSplitCard } from "@/components/finances/receipt-split-card";
 // US-2983: the IRS line each category feeds. Shown beside the name so the
 // seller learns the mapping by using the form, rather than discovering in March
@@ -166,14 +167,21 @@ export function FlipdeskExpensesPage() {
   } = useQuery({
     queryKey: ["expenses", user?.id],
     enabled: !!user,
-    queryFn: async (): Promise<ExpenseRow[]> => {
-      const { data, error } = await supabase
-        .from("flipdesk_expenses")
-        .select("*")
-        .order("spent_on", { ascending: false });
-      if (error) throw error;
-      return (data ?? []) as ExpenseRow[];
-    },
+    // US-2169: paged, not a single unbounded read. This page sums every row
+    // into per-month and year totals a seller files taxes against, and an
+    // unbounded select is clipped at PostgREST's `db-max-rows` with no error
+    // and no flag — the totals would just be quietly short.
+    queryFn: async (): Promise<ExpenseRow[]> =>
+      fetchAllPages<ExpenseRow>(async (from, to) => {
+        const { data, error } = await supabase
+          .from("flipdesk_expenses")
+          .select("*")
+          .order("spent_on", { ascending: false })
+          .order("id", { ascending: false })
+          .range(from, to);
+        if (error) throw error;
+        return (data ?? []) as ExpenseRow[];
+      }),
   });
 
   // US-2228 AC4: category + date-range filter, applied client-side over the
