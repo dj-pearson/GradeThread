@@ -4,6 +4,7 @@
 // edge service, so we can drop it into the template as-is.
 
 import { generateNonce, ssrSecurityHeaders } from "./security-headers";
+import { mergeIntoShell } from "./hydratable-ssr";
 // US-2108 AC2: banks an incoming ?ref= client-side. Lives in renderLayout rather
 // than in the cert Function because the leak is a property of EVERY standalone
 // SSR surface (cert, blog, verified, passport) — a shared link can carry a ref
@@ -644,6 +645,58 @@ ${input.bodyHtml}
  * every SSR content page is XSS-hardened consistently without each Function
  * re-deriving the headers. Pass `cacheControl`/`status` for the page's caching.
  */
+/**
+ * US-3215: the SSR page, served as the built app shell so React mounts over it.
+ *
+ * Same head, same crawlable body, plus the bundle — so one URL is one page
+ * whether it was clicked inside the SPA or pasted cold. See
+ * _shared/hydratable-ssr.ts for why this reads the asset names out of the shell
+ * instead of naming them.
+ *
+ * FALLS BACK, ALWAYS. Any failure to fetch or recognise the shell returns the
+ * standalone document this function has always returned. A page that renders
+ * the landing page's copy under a certificate's title would be worse than
+ * either page alone, so "not the shape I expected" means "do the old thing".
+ */
+export async function renderHydratableSsrResponse(
+  request: Request,
+  env: PagesEnv,
+  input: Omit<LayoutInput, "nonce">,
+  opts: { cacheControl: string; status?: number } = { cacheControl: "no-store" },
+): Promise<Response> {
+  const nonce = generateNonce();
+  const doc = renderLayout({ ...input, nonce });
+  try {
+    if (env.ASSETS) {
+      const origin = new URL(request.url).origin;
+      const shellRes = await env.ASSETS.fetch(`${origin}/`);
+      if (shellRes.ok) {
+        const merged = mergeIntoShell(await shellRes.text(), doc, input.bodyHtml);
+        if (merged) {
+          return new Response(merged, {
+            status: opts.status ?? 200,
+            headers: {
+              "Content-Type": "text/html; charset=utf-8",
+              "Cache-Control": opts.cacheControl,
+              ...ssrSecurityHeaders(nonce),
+            },
+          });
+        }
+      }
+    }
+  } catch (e) {
+    console.warn("[ssr] shell merge failed, serving the standalone page:", e);
+  }
+  return new Response(doc, {
+    status: opts.status ?? 200,
+    headers: {
+      "Content-Type": "text/html; charset=utf-8",
+      "Cache-Control": opts.cacheControl,
+      ...ssrSecurityHeaders(nonce),
+    },
+  });
+}
+
 export function renderSsrResponse(
   input: Omit<LayoutInput, "nonce">,
   opts: { cacheControl: string; status?: number } = { cacheControl: "no-store" },

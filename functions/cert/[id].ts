@@ -2,9 +2,16 @@
 // /cert/:id (US-294). Mirrors the blog SSR pattern (functions/_shared/blog-render).
 //
 // Certificates are our highest-volume organic surface — one indexable,
-// AI-citable page per graded garment. The SPA route at /cert/:id still hydrates
-// for humans; this Function gives crawlers (and link-preview bots) fully
-// rendered HTML + a Product/Review JSON-LD grade descriptor (US-300).
+// AI-citable page per graded garment. Crawlers and link-preview bots get fully
+// rendered HTML plus a Product/Review JSON-LD grade descriptor (US-300).
+//
+// US-3215 CORRECTION. This comment used to end "the SPA route at /cert/:id
+// still hydrates for humans". It did not and could not: renderLayout emitted
+// JSON-LD script tags and nothing else, so the document had no div#root and no
+// bundle to hydrate into. The result was TWO pages behind one URL — 11,477px
+// with 16 images when clicked inside the SPA, 2,860px with 10 when pasted, on
+// the same certificate minutes apart. renderHydratableSsrResponse serves this
+// markup inside the built app shell, so the sentence is now true.
 //
 // Data comes from the anonymous edge endpoint /api/content/public/certificates/:id,
 // which hard-filters to certified (public) reports only — a private/uncertified
@@ -19,7 +26,7 @@ import {
   UpstreamUnavailable,
   upstreamUnavailableResponse,
   renderBreadcrumbs,
-  renderSsrResponse,
+  renderHydratableSsrResponse,
   siteUrl,
   SSR_CACHE_CONTROL,
   twitterSiteHandle,
@@ -416,7 +423,11 @@ async function renderCertificate(context: Ctx): Promise<Response> {
 
   const breadcrumbLd = breadcrumbListLd(breadcrumbItems);
 
-  return renderSsrResponse(
+  // US-3215: the shell, so React takes over and the buyer lands on the full
+  // certificate whether they clicked the link or pasted it.
+  return renderHydratableSsrResponse(
+    context.request,
+    env,
     {
       title,
       description,
