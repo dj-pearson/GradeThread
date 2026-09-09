@@ -5,6 +5,7 @@ import { NotificationCenter } from "@/components/dashboard/notification-center";
 import { RouteErrorBoundary } from "@/components/error-boundary";
 import { PastDueBanner } from "@/components/billing/past-due-banner";
 import { useAuthStore } from "@/stores/auth-store";
+import { RouteAnnouncer } from "@/components/route-announcer";
 
 // US-1802: buyer app shell. A surface parallel to DashboardLayout (seller) with
 // its own sidebar. A dual-role account (is_seller) gets a one-click context
@@ -18,6 +19,13 @@ export function BuyerLayout() {
 
   return (
     <div className="flex h-screen overflow-hidden">
+      {/* US-3252: the buyer tree is not in the surfaces registry, so this
+          announces the generic "Page changed" rather than a page name. That is
+          still the difference between a screen reader saying something and
+          saying nothing at all after an in-app navigation. The title hook is
+          deliberately NOT mounted here — it would resolve to the marketing
+          default for every buyer route, which reads like a fix and is not. */}
+      <RouteAnnouncer />
       <a
         href="#buyer-main"
         className="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-50 focus:rounded-md focus:bg-primary focus:px-4 focus:py-2 focus:text-sm focus:font-medium focus:text-primary-foreground focus:shadow-lg"

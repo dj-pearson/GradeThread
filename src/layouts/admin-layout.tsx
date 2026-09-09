@@ -65,6 +65,7 @@ import { AdminNotificationBell } from "@/components/admin/admin-notification-bel
 import { CommandPalette } from "@/components/admin/command-palette";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { AppBillingDialogs } from "@/components/billing/app-billing-dialogs";
+import { RouteAnnouncer } from "@/components/route-announcer";
 import {
   Sheet,
   SheetContent,
@@ -550,6 +551,13 @@ export function AdminLayout() {
 
   return (
     <div className="flex h-screen overflow-hidden">
+      {/* US-3252: admin is not in the surfaces registry and should not be —
+          it is operator tooling, not a product surface — so this announces the
+          generic "Page changed". Still better than the silence an operator
+          navigating by screen reader gets today. The title hook stays off for
+          the same reason it is off in the buyer tree: it would resolve to the
+          marketing default on every route. */}
+      <RouteAnnouncer />
       <a
         href="#main-content"
         className="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-50 focus:rounded-md focus:bg-brand-red focus:px-4 focus:py-2 focus:text-sm focus:font-medium focus:text-white focus:shadow-lg"

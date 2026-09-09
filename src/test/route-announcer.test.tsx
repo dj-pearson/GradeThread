@@ -78,12 +78,36 @@ describe("an in-app navigation is announced (US-3244)", () => {
     expect(src).toContain("surfaceLabelFor");
   });
 
-  it("is mounted in the dashboard layout, not merely exported", () => {
-    // A component nothing renders announces nothing.
-    const layout = readFileSync(
-      resolve(process.cwd(), "src/layouts/dashboard-layout.tsx"),
-      "utf8",
-    );
-    expect(layout).toContain("<RouteAnnouncer />");
+  it("is mounted in every signed-in layout, not merely exported", () => {
+    // A component nothing renders announces nothing. US-3252 added the buyer
+    // and admin trees: neither is in the surfaces registry, so both announce
+    // the generic "Page changed" rather than a page name — which is still the
+    // difference between saying something and saying nothing.
+    for (const rel of [
+      "src/layouts/dashboard-layout.tsx",
+      "src/layouts/buyer-layout.tsx",
+      "src/layouts/admin-layout.tsx",
+    ]) {
+      const layout = readFileSync(resolve(process.cwd(), rel), "utf8");
+      expect(layout, `${rel} does not mount RouteAnnouncer`).toContain(
+        "<RouteAnnouncer />",
+      );
+    }
+  });
+
+  it("does NOT mount the title hook where the registry cannot resolve", () => {
+    // The trap this replaces: mounting useSurfaceTitle in a tree with no
+    // registry entries resolves to the marketing default on every route, so
+    // the mount reads like a fix and does nothing. Remove these two lines only
+    // when US-3252 gives those trees a real title source.
+    for (const rel of [
+      "src/layouts/buyer-layout.tsx",
+      "src/layouts/admin-layout.tsx",
+    ]) {
+      const layout = readFileSync(resolve(process.cwd(), rel), "utf8");
+      expect(layout, `${rel} mounts useSurfaceTitle with no registry source`).not.toContain(
+        "useSurfaceTitle()",
+      );
+    }
   });
 });
