@@ -531,7 +531,17 @@ flipdeskImageRoutes.post("/adopt-remote", async (c) => {
     });
   }
 
+  // Every entry here is a sentence WE wrote, never a driver's. The seller sees
+  // these in a toast, and "duplicate key value violates unique constraint" is
+  // not something they can act on — the raw text goes to the container log,
+  // where the person who can act on it is looking (US-2869).
   const failures: Array<{ photo_id: string; message: string }> = [];
+  const fail = (photoId: string, sellerText: string, raw?: string): void => {
+    if (raw) {
+      console.error(`[flipdesk-images] adopt ${photoId}: ${raw}`);
+    }
+    failures.push({ photo_id: photoId, message: sellerText });
+  };
   let adopted = 0;
 
   for (const photo of photos) {
@@ -541,7 +551,7 @@ flipdeskImageRoutes.post("/adopt-remote", async (c) => {
       // stops the edge reaching our own network; this stops it fetching from an
       // arbitrary public site if a row's URL is ever not what we wrote.
       if (!isEbayPhotoUrl(source)) {
-        failures.push({ photo_id: photo.id, message: "Not an eBay image URL." });
+        fail(photo.id, "This photo is not hosted by eBay, so there is nothing to copy.");
         continue;
       }
       const res = await safeFetch(source, {
@@ -551,12 +561,13 @@ flipdeskImageRoutes.post("/adopt-remote", async (c) => {
       if (res.status !== 200) {
         // The overwhelmingly likely cause, and worth saying plainly: eBay
         // purges a listing's images once the seller ends it.
-        failures.push({
-          photo_id: photo.id,
-          message: res.status === 404
-            ? "eBay no longer has this image (the listing was probably ended)."
-            : `eBay answered ${res.status}.`,
-        });
+        fail(
+          photo.id,
+          res.status === 404
+            ? "eBay no longer has this image. That usually means the listing was ended."
+            : "eBay would not hand over this image just now. Try again in a few minutes.",
+          `HTTP ${res.status} from ${source}`,
+        );
         continue;
       }
 
@@ -565,7 +576,11 @@ flipdeskImageRoutes.post("/adopt-remote", async (c) => {
         minDimension: ADOPT_MIN_DIMENSION,
       });
       if (!check.ok) {
-        failures.push({ photo_id: photo.id, message: check.reason });
+        fail(
+          photo.id,
+          "That image did not arrive as a usable photo.",
+          check.reason,
+        );
         continue;
       }
       const stripped = stripImageMetadata(res.bytes, check.format).bytes;
@@ -580,10 +595,7 @@ flipdeskImageRoutes.post("/adopt-remote", async (c) => {
         .from(ITEM_PHOTOS_BUCKET)
         .upload(path, stripped, { contentType: check.contentType, upsert: false });
       if (upErr) {
-        failures.push({
-          photo_id: photo.id,
-          message: `Could not store: ${upErr.message}`,
-        });
+        fail(photo.id, "We could not save a copy of this photo.", upErr.message);
         continue;
       }
       // item-photo-url-ok: a just-uploaded object in the public listing bucket.
@@ -613,20 +625,18 @@ flipdeskImageRoutes.post("/adopt-remote", async (c) => {
           .from(ITEM_PHOTOS_BUCKET)
           .remove([path])
           .then(() => {}, () => {});
-        failures.push({
-          photo_id: photo.id,
-          message: `Could not record: ${updErr.message}`,
-        });
+        fail(photo.id, "We saved the photo but could not attach it.", updErr.message);
         continue;
       }
       adopted += 1;
     } catch (err) {
       // One bad picture must not lose the others. Every photo reports its own
       // outcome and the caller decides what to say about a partial run.
-      failures.push({
-        photo_id: photo.id,
-        message: err instanceof Error ? err.message : String(err),
-      });
+      fail(
+        photo.id,
+        "Something went wrong copying this photo.",
+        err instanceof Error ? err.message : String(err),
+      );
     }
   }
 

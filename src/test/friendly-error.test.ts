@@ -220,6 +220,15 @@ const NOT_AN_ERROR: Record<string, string> = {
   "src/components/flipdesk/photo-uploader.tsx":
     "MacroQualityAssessment.message is a photo-quality NUDGE (US-2137), shown " +
     "after a SUCCESSFUL upload. There is no error here at all.",
+  "src/hooks/use-adopt-remote-photos.ts":
+    "AdoptRemotePhotosResponse.failures[].message is a sentence the adopt " +
+    "route wrote for the seller, one per photo (US-3196) — 'eBay no longer " +
+    "has this image', not a driver string. The route's `fail` helper is what " +
+    "makes that true: the raw storage or PostgREST message goes to the " +
+    "container log and never into this field. Partial failure is the NORMAL " +
+    "case here (eBay purges images from ended listings), so naming the first " +
+    "reason is the whole value of the toast — '3 could not be copied' tells " +
+    "the seller nothing they can act on.",
   "src/components/flipdesk/measurement-photo-editor.tsx":
     "`json.message` is the measure endpoint's own explanation of why a pass " +
     "found nothing (US-2608), which is better than anything a classifier " +
