@@ -25,6 +25,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
+import { ErrorState } from "@/components/ui/error-state";
 import { LoadingRegion } from "@/components/ui/skeletons";
 import {
   AlertDialog,
@@ -509,7 +510,13 @@ export function FlipdeskComposerPage({
   // US-2188: one row, not the whole catalog. The editor renders exactly one
   // item, so it reads exactly one — everything that lists items now shares the
   // projected read instead (useItemsList).
-  const { data: item = null, isLoading } = useItemFull(id);
+  const {
+    data: item = null,
+    isLoading,
+    isError,
+    isFetching,
+    refetch,
+  } = useItemFull(id);
 
   // Duplicate-SKU recovery lives in its own hook: ANY save that writes a SKU can
   // hit the (user_id, sku) index, and the useful answer is almost never "pick a
@@ -3056,6 +3063,22 @@ export function FlipdeskComposerPage({
         <Skeleton className="h-64 w-full" />
         <Skeleton className="h-40 w-full" />
       </LoadingRegion>
+    );
+  }
+
+  // US-3217. A FAILED read and a MISSING item both leave `item` null, and the
+  // branch below says "Item not found." — so a seller whose request failed was
+  // told their item had been deleted. That is the worst thing this page can
+  // say: the item is the seller's work, and the natural next move is to go and
+  // recreate it.
+  if (isError) {
+    return (
+      <ErrorState
+        title="Couldn't load this item"
+        description="The item is still there; this is a loading problem, not a deleted item. Don't recreate it."
+        onRetry={() => void refetch()}
+        retrying={isFetching}
+      />
     );
   }
 

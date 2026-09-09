@@ -44,19 +44,29 @@ const ROOTS = [
   "src/pages/TOP_LEVEL",
 ];
 
-/**
- * Shape C ratchet: pages that react to a failed read in NO way at all. The
- * page renders a shell with holes in it and the seller cannot tell an outage
- * from a quiet day.
+/*
+ * The shape-C ratchet is GONE, and the assertion below is absolute.
  *
- * SHRINK-ONLY, and it fails in BOTH directions on purpose -- a page fixed but
- * left on the list is as loud as a new offender. That is the only reason
- * US-2507's equivalent list went from nine to zero instead of becoming
- * furniture. Delete this constant and the test that reads it once it is empty.
+ * READ_FAILURE_UNHANDLED started at eleven pages (US-3217) and reached zero
+ * on 2026-09-09 with composer. Its own instruction was to delete it once
+ * empty, which is what US-2507's equivalent list did before it. A page that
+ * reacts to a failed read in no way at all now fails the build like the other
+ * shape does.
+ *
+ * Worth keeping from both ratchets: they failed in BOTH directions, so a page
+ * fixed but left on the list was as loud as a new offender. That is the only
+ * reason either list shrank instead of becoming furniture.
+ *
+ * WHAT THIS RULE CANNOT SEE. It is a FILE-level scan, so it proves the file
+ * mentions isError or renders an ErrorState — not that the branch is reachable
+ * or in the right place. Measured on composer 2026-09-09: deleting the render
+ * branch but leaving the destructured `isError` still PASSES. What fails is
+ * the realistic regression, where neither was ever added.
+ *
+ * That is a smoke detector, not a proof, and it is the right trade for a scan
+ * this cheap. The expensive half — is the branch BEFORE the loading and empty
+ * branches — is what the hand-written per-page guards elsewhere check.
  */
-const READ_FAILURE_UNHANDLED = [
-  "src/pages/flipdesk/composer.tsx",
-];
 
 /**
  * NOT offenders, with the reason. US-3250: a page can carry a query and still
@@ -160,28 +170,19 @@ describe("customer pages don't report a failed load as an empty one (US-3217, US
     ).toEqual([]);
   });
 
-  it("the unhandled-read-failure list only shrinks", () => {
-    const actual = pages
+  it("no page ignores a failed read", () => {
+    const offenders = pages
       .filter((p) => p.usesQuery && !p.surfacesReadFailure)
       .filter((p) => !SILENCE_IS_CORRECT.includes(p.rel))
       .map((p) => p.rel)
       .sort();
-    const allowed = [...READ_FAILURE_UNHANDLED].sort();
-
-    const added = actual.filter((p) => !allowed.includes(p));
     expect(
-      added,
-      "these render nothing when a read fails — an outage is " +
+      offenders,
+      "these render nothing when a read fails - an outage is " +
         "indistinguishable from a quiet day. Add an " +
-        "<ErrorState onRetry={refetch}> branch:\n  " + added.join("\n  "),
-    ).toEqual([]);
-
-    const fixed = allowed.filter((p) => !actual.includes(p));
-    expect(
-      fixed,
-      "these now handle a failed read — delete them from " +
-        "READ_FAILURE_UNHANDLED so the list keeps meaning something:\n  " +
-        fixed.join("\n  "),
+        "<ErrorState onRetry={refetch}> branch, or add the file to " +
+        "SILENCE_IS_CORRECT with the reason saying nothing is the right " +
+        "answer there: " + offenders.join(", "),
     ).toEqual([]);
   });
 });
