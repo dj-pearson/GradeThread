@@ -45858,6 +45858,19 @@
         "Do not widen this into re-quoting everything. The un-quoted path is deliberate and the comment says why; the fix is one more character in the condition, not a policy change."
       ],
       "notes": "Done 2026-09-09. Sabotage-checked: removing the CR clause fails two cases by name. Verified against the CSV suites (19 tests); no CSV was opened in Excel."
+    },
+    {
+      "id": "US-3254",
+      "passes": true,
+      "title": "The listing-description HTML invariant is held together by comments",
+      "description": "description-preview.tsx renders a segment with dangerouslySetInnerHTML and explains why that is safe: GradeThread-built markup, escaped at the source in the edge service. Nothing a seller or the model wrote reaches this branch: the edge marks only facts, disclosure and credentials as html. Every word of that is true today and nothing tests any of it. The invariant has four moving parts in three files: HTML_KEYS in edge description-blocks.ts, which decides what becomes kind html; and the escapeHtml calls inside listing-facts-block.ts, seller-credentials.ts and disclosure.ts, which are what make that markup safe to render raw. Adding a seller-editable key to HTML_KEYS, or adding one unescaped interpolation to any of those three builders, turns the React comment into a false statement and puts seller or model prose into an innerHTML with nothing failing. There are also four separate escapeHtml implementations across the edge and the web (cert-og-template, listing-facts-block, seller-credentials, src/lib/escape-html.ts); they are each correct, so that is a note rather than the defect.",
+      "acceptanceCriteria": [
+        "A guard pins HTML_KEYS to exactly disclosure, credentials and facts, so adding a fourth is a deliberate decision that has to fail a test first and be argued for in the diff.",
+        "A guard requires every interpolation inside HTML-emitting template literals in those three builders to go through escapeHtml, with a named allowlist for the genuinely safe ones (numeric formatters, internal constants). Name each exemption; an unexplained one is how the rule rots.",
+        "Sabotage-check both directions: adding a key to HTML_KEYS fails, and removing one escapeHtml call fails by name.",
+        "Do NOT consolidate the four escapeHtml copies in this story. They are each correct and they span the edge/web boundary where sharing code is a real decision, not a tidy-up."
+      ],
+      "notes": "Done 2026-09-09. Guard only; no production change was needed because the invariant already held. AC4 (consolidating the four escapeHtml copies) deliberately not done and not deferred either - it is a separate decision about edge/web code sharing."
     }
   ]
 }
