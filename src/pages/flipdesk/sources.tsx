@@ -16,6 +16,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { EmptyState } from "@/components/ui/empty-state";
+import { ErrorState } from "@/components/ui/error-state";
 import { LoadingRegion, TableLoadingSkeleton } from "@/components/ui/skeletons";
 import {
   Select,
@@ -82,7 +83,13 @@ export function FlipdeskSourcesPage() {
   const user = useAuthStore((s) => s.user);
   const { workspaceOwnerId, can } = useWorkspace();
   const qc = useQueryClient();
-  const { data: sources = [], isLoading, error } = useSources();
+  const {
+    data: sources = [],
+    isLoading,
+    isError,
+    isFetching,
+    refetch,
+  } = useSources();
   const [editing, setEditing] = useState<FormState | null>(null);
   const [saving, setSaving] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState<SourceRow | null>(null);
@@ -204,10 +211,16 @@ export function FlipdeskSourcesPage() {
             <LoadingRegion label="Loading sources" className="px-4">
               <TableLoadingSkeleton rows={5} columns={4} />
             </LoadingRegion>
-          ) : error ? (
-            <div className="py-12 text-center text-sm text-destructive">
-              Failed to load sources: {String(error)}
-            </div>
+          ) : isError ? (
+            /* This branch used to print `String(error)`, and a Supabase error
+               is a plain object, so the seller read "Failed to load sources:
+               [object Object]" with no way to retry. */
+            <ErrorState
+              title="Couldn't load your sources"
+              description="The list didn't load. Nothing has been deleted; this is a loading problem."
+              onRetry={() => void refetch()}
+              retrying={isFetching}
+            />
           ) : sources.length === 0 ? (
             <EmptyState
               icon={MapPin}

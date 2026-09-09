@@ -45,6 +45,7 @@ import { TableLoadingSkeleton } from "@/components/ui/skeletons";
 import { Button } from "@/components/ui/button";
 import { PageHeader } from "@/components/ui/page-header";
 import { EmptyState } from "@/components/ui/empty-state";
+import { ErrorState } from "@/components/ui/error-state";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
@@ -156,7 +157,13 @@ export function FlipdeskExpensesPage() {
   const [fromDate, setFromDate] = useState("");
   const [toDate, setToDate] = useState("");
 
-  const { data: expenses = [], isLoading } = useQuery({
+  const {
+    data: expenses = [],
+    isLoading,
+    isError,
+    isFetching,
+    refetch,
+  } = useQuery({
     queryKey: ["expenses", user?.id],
     enabled: !!user,
     queryFn: async (): Promise<ExpenseRow[]> => {
@@ -370,7 +377,19 @@ export function FlipdeskExpensesPage() {
           </CardDescription>
         </CardHeader>
         <CardContent className="px-0">
-          {isLoading ? (
+          {/* A failed read leaves `expenses` empty, which is indistinguishable
+              from having logged none — and the empty state below then tells a
+              seller with a year of receipts to start tracking overhead. The
+              summary tiles are already hidden in that case (months is empty),
+              so this branch is the only place the failure can show. */}
+          {isError ? (
+            <ErrorState
+              title="Couldn't load your expenses"
+              description="The list didn't load. Nothing has been deleted; this is a loading problem."
+              onRetry={() => void refetch()}
+              retrying={isFetching}
+            />
+          ) : isLoading ? (
             <TableLoadingSkeleton rows={6} columns={5} />
           ) : filtered.length === 0 ? (
             /* Two different empty states, because they need opposite advice.

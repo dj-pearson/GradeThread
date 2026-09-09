@@ -50,6 +50,7 @@ import {
   SheetTrigger,
 } from "@/components/ui/sheet";
 import { EmptyState } from "@/components/ui/empty-state";
+import { ErrorState } from "@/components/ui/error-state";
 import { showExampleAction } from "@/lib/show-example";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -565,7 +566,13 @@ export function FlipdeskListingsPage() {
     // slider from 60 to 30 would be served the 60-day page from cache.
     agedThresholdDays,
   ] as const;
-  const { data: pageData, isLoading } = useQuery<ListingPageResult>({
+  const {
+    data: pageData,
+    isLoading,
+    isError,
+    isFetching,
+    refetch,
+  } = useQuery<ListingPageResult>({
     queryKey: listingsPageKey,
     enabled: !!user,
     // A page's worth of rows is cheap to refetch and stale rows here are the
@@ -1355,7 +1362,18 @@ export function FlipdeskListingsPage() {
           </CardDescription>
         </CardHeader>
         <CardContent className="px-0">
-          {isLoading ? (
+          {/* A failed read leaves `pageData` undefined, exactly like a genuinely
+              empty page does. Without this branch the seller is told "Nothing
+              waiting to list" / "No sold items" when the truth is that the
+              query failed, which reads as inventory that has gone missing. */}
+          {isError ? (
+            <ErrorState
+              title="Couldn't load your listings"
+              description="The list didn't load. Your listings are safe; this is a loading problem, not a missing-inventory one."
+              onRetry={() => void refetch()}
+              retrying={isFetching}
+            />
+          ) : isLoading ? (
             <TableLoadingSkeleton rows={10} columns={7} />
           ) : pageRows.length === 0 ? (
             <EmptyState
