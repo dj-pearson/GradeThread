@@ -5,6 +5,7 @@ import { RouterProvider } from "react-router";
 import { router } from "@/routes";
 import { queryClient } from "@/lib/query-client";
 import { readStored, writeStored } from "@/lib/safe-storage";
+import { installNumberInputWheelGuard } from "@/lib/number-input-wheel-guard";
 import { initAnalyticsFromStoredConsent } from "@/lib/analytics";
 import { initSentry } from "@/lib/sentry";
 import { captureUtms, captureClickIds } from "@/lib/ad-attribution";
@@ -31,6 +32,12 @@ window.addEventListener("vite:preloadError", () => {
 // Loaded via dynamic import (see lib/sentry.ts) so @sentry/react stays out of
 // the eager/cold-load chunk graph (US-417 bundle budget).
 initSentry();
+
+// A focused <input type="number"> treats the mouse wheel as increment/decrement,
+// so scrolling a long form with the cursor still in a price silently edits it.
+// One document listener blurs the input instead. See the module for why this
+// isn't preventDefault.
+installNumberInputWheelGuard();
 
 // Analytics (Google Analytics + PostHog) are consent-gated. Returning visitors
 // who already opted in get analytics restored here; first-time visitors see the
