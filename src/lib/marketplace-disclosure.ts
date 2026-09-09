@@ -109,8 +109,25 @@ export function marketplaceDisclosureFor(
 // Same rule as the per-channel block above: the sentences the seller sees
 // come from ONE place, so a test can hold them and a screen cannot quietly
 // drop the one that says the read happens in their own signed-in tab.
-export const CLOSET_IMPORT_PLATFORMS = ["poshmark", "mercari"] as const;
+// US-3261: grailed belongs here. The edge added it (US-3155, with its own photo
+// host allowlist) and this list did not, so the web card never offered it and
+// the only way to reach a Grailed import was the extension popup. The two lists
+// are checked against each other in src/test/closet-import-platform-parity.test.ts.
+export const CLOSET_IMPORT_PLATFORMS = ["poshmark", "mercari", "grailed"] as const;
 export type ClosetImportPlatform = (typeof CLOSET_IMPORT_PLATFORMS)[number];
+
+/**
+ * US-3263: how many listings an account with no FlipDesk plan may bring in per
+ * read.
+ *
+ * MUST equal FREE_CLOSET_IMPORT_ROWS in
+ * services/edge-functions/src/lib/closet-import.ts, which is the one that
+ * actually enforces it. The web cannot import from the edge service, so the
+ * number is stated twice and src/test/closet-import-platform-parity.test.ts
+ * reads both files and fails when they disagree -- the same arrangement
+ * MARKETPLACE_EXTENSION_FLOW uses against the extension's selectors.
+ */
+export const FREE_CLOSET_IMPORT_ROWS = 25;
 
 export function closetImportDisclosureFor(
   platform: ClosetImportPlatform,

@@ -219,6 +219,8 @@ describe("the step list itself (US-2859)", () => {
     expect(
       activationProgress(steps, {
         ...state,
+        // US-3262: the import step counts a COMPLETED flipdesk_import_runs row.
+        importRunCount: 1,
         itemCount: 3,
         sourceCount: 1,
         ebayConnected: true,

@@ -112,7 +112,7 @@ export function destinationMechanism(platform: string): CrosslistMechanism {
  * eager bundle graph. crosslist-pairs.test.ts asserts the two lists are equal,
  * so the copy here cannot outlive the capability.
  */
-const CLOSET_READABLE = ["poshmark", "mercari"] as const;
+const CLOSET_READABLE = ["poshmark", "mercari", "grailed"] as const;
 
 /** Can the extension read this marketplace's own listings back out (US-9201)? */
 export function canReadCloset(platform: string): boolean {

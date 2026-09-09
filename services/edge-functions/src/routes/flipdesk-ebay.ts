@@ -207,6 +207,7 @@ import {
 import { healCustomValueRejection } from "../lib/ebay-size-enforcement.ts";
 import {
   buildConsentUrl,
+  createDefaultPolicies,
   createInventoryLocation,
   createOffer,
   bulkMigrateListing,
@@ -1939,6 +1940,158 @@ flipdeskEbayRoutes.put("/policies/default", async (c) => {
       return_policy_id:
         next.find((p) => p.policy_type === "return" && p.is_default)?.policy_id ?? null,
       merchant_location_key: nextLocation,
+    },
+  });
+});
+
+// POST /policies/create → make the three business policies a first-time
+// seller does not have, from four plain answers (US-3265).
+//
+// FlipDesk already read all three, opted the account into policy management and
+// created the merchant location. It stopped short of CREATING the policies, so
+// a seller with none was sent to eBay's own settings in the middle of connecting
+// and every publish refused until they came back. This is the last hand-off in
+// that flow.
+//
+// Only missing policies are created. An account that already has a shipping
+// policy keeps it, untouched.
+flipdeskEbayRoutes.post("/policies/create", async (c) => {
+  const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
+  if (!isEbayConfigured()) {
+    return c.json({ error: "eBay is not configured on this server." }, 503);
+  }
+
+  let body: {
+    handling_days?: unknown;
+    shipping_cost_cents?: unknown;
+    accepts_returns?: unknown;
+    return_days?: unknown;
+    return_shipping_paid_by?: unknown;
+  };
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: "Invalid JSON body" }, 400);
+  }
+
+  const handlingDays = Number(body.handling_days);
+  if (!Number.isInteger(handlingDays) || handlingDays < 0 || handlingDays > 30) {
+    return c.json({ error: "Handling time must be a whole number of days, 0 to 30." }, 400);
+  }
+  const shippingCostCents = Number(body.shipping_cost_cents ?? 0);
+  if (!Number.isInteger(shippingCostCents) || shippingCostCents < 0 || shippingCostCents > 100_000) {
+    return c.json({ error: "Shipping cost must be a whole number of cents, 0 to 100000." }, 400);
+  }
+  const acceptsReturns = body.accepts_returns !== false;
+  const returnDays = Number(body.return_days ?? 30);
+  if (acceptsReturns && returnDays !== 30 && returnDays !== 60) {
+    return c.json({ error: "eBay allows a 30 or 60 day return window." }, 400);
+  }
+  const paidBy = body.return_shipping_paid_by === "SELLER" ? "SELLER" : "BUYER";
+
+  // The policies this account already has. Read from the CACHE that the
+  // Marketplaces page itself reads, refreshed first so a policy created on eBay
+  // five minutes ago is not duplicated here.
+  try {
+    await syncBusinessPolicies(ownerId);
+  } catch (err) {
+    console.error("[flipdesk-ebay] /policies/create pre-sync failed:", err);
+  }
+  const existing = await listCachedPolicies(ownerId);
+  const have = new Set(
+    existing
+      .map((p) => p.policy_type)
+      .filter((t): t is "fulfillment" | "payment" | "return" =>
+        t === "fulfillment" || t === "payment" || t === "return"
+      ),
+  );
+  if (have.size === 3) {
+    return c.json({
+      ok: true,
+      created: [],
+      message: "This eBay account already has all three policies.",
+    });
+  }
+
+  // eBay refuses policy writes on an account that is not in the policy
+  // management program, with an error that names neither the program nor the
+  // fix. Opt in first; already-in is success.
+  try {
+    await optInToProgram(ownerId, "SELLING_POLICY_MANAGEMENT");
+  } catch (err) {
+    if (!isAlreadyInProgramStateError(err)) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error("[flipdesk-ebay] policy-management opt-in failed:", msg);
+      return c.json(
+        {
+          error:
+            "eBay would not turn on business policies for this account. That has " +
+            "to happen before any policy can be created.",
+          detail: msg.slice(0, 300),
+        },
+        502,
+      );
+    }
+  }
+
+  let result: { created: string[] };
+  try {
+    result = await createDefaultPolicies(
+      ownerId,
+      {
+        handlingDays,
+        shippingCostCents,
+        acceptsReturns,
+        returnDays: returnDays === 60 ? 60 : 30,
+        returnShippingPaidBy: paidBy,
+      },
+      have,
+    );
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error("[flipdesk-ebay] /policies/create failed:", msg);
+    return c.json(
+      {
+        error: "eBay refused one of the policies. Nothing else was changed.",
+        detail: msg.slice(0, 300),
+      },
+      502,
+    );
+  }
+
+  // Pull the new ids back through the normal sync, then make them the
+  // workspace defaults through the same writer the picker uses -- so there is
+  // one path that sets a default, not two.
+  await syncBusinessPolicies(ownerId);
+  const after = await listCachedPolicies(ownerId);
+  const pick = (kind: string) =>
+    after.find((p) => p.policy_type === kind && p.is_default)?.policy_id ??
+      after.find((p) => p.policy_type === kind)?.policy_id;
+  const selection: {
+    fulfillment_policy_id?: string;
+    payment_policy_id?: string;
+    return_policy_id?: string;
+  } = {};
+  const fulfillment = pick("fulfillment");
+  const payment = pick("payment");
+  const ret = pick("return");
+  if (fulfillment) selection.fulfillment_policy_id = fulfillment;
+  if (payment) selection.payment_policy_id = payment;
+  if (ret) selection.return_policy_id = ret;
+  await setDefaultPolicies(ownerId, selection);
+
+  const final = await listCachedPolicies(ownerId);
+  return c.json({
+    ok: true,
+    created: result.created,
+    policies: final,
+    defaults: {
+      fulfillment_policy_id:
+        final.find((p) => p.policy_type === "fulfillment" && p.is_default)?.policy_id ?? null,
+      payment_policy_id:
+        final.find((p) => p.policy_type === "payment" && p.is_default)?.policy_id ?? null,
+      return_policy_id:
+        final.find((p) => p.policy_type === "return" && p.is_default)?.policy_id ?? null,
     },
   });
 });

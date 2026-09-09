@@ -61,7 +61,7 @@ export function ActivationChecklist({
   persona,
 }: ActivationChecklistProps) {
   const navigate = useNavigate();
-  const { steps, state, done, total, firstIncomplete, active, complete, dismiss } =
+  const { steps, state, done, total, firstIncomplete, active, complete, dismiss, skip } =
     useActivation(persona);
   const user = useAuthStore((s) => s.user);
   const guidedActive = useGuidedPathStore((s) => s.active);
@@ -149,15 +149,30 @@ export function ActivationChecklist({
                 <p className="text-xs text-muted-foreground">{step.reason}</p>
               </div>
               {!isDone && (
-                <Button
-                  size="sm"
-                  variant={isNext ? "default" : "outline"}
-                  onClick={() => complete(step, navigate)}
-                  className="flex-shrink-0"
-                >
-                  {step.cta}
-                  <ArrowRight className="ml-1.5 h-3 w-3" />
-                </Button>
+                <div className="flex flex-shrink-0 items-center gap-1">
+                  <Button
+                    size="sm"
+                    variant={isNext ? "default" : "outline"}
+                    onClick={() => complete(step, navigate)}
+                  >
+                    {step.cta}
+                    <ArrowRight className="ml-1.5 h-3 w-3" />
+                  </Button>
+                  {/* US-3262: a step a seller may genuinely have nothing to do
+                      -- today only the import -- can be set aside here rather
+                      than sitting unchecked forever. Settings > Replay brings
+                      it back with the rest of the list. */}
+                  {step.skippable && (
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => skip(step)}
+                      aria-label={`Skip: ${step.title}`}
+                    >
+                      Not me
+                    </Button>
+                  )}
+                </div>
               )}
             </div>
           );

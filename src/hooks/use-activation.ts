@@ -18,6 +18,7 @@ import {
   EMPTY_ACTIVATION_STATE,
   type ActivationState,
   type ActivationStep,
+  type ActivationStepKey,
 } from "@/lib/activation-steps";
 import type { UserUpdate, UserUseCase } from "@/types/database";
 import { readStored, removeStored, writeStored } from "@/lib/safe-storage";
@@ -71,6 +72,28 @@ function dismissKey(
     : `gt.activation.dismissed:${who}`;
 }
 
+/**
+ * US-3262: the keys this account has SET ASIDE, per user.
+ *
+ * Separate from the dismissal, which hides the whole card. Skipping removes
+ * one step from one account's list -- today only `import`, the one step a
+ * seller may legitimately never have anything to do. Local-only, for the same
+ * reason the buyer dismissal is: adding a column to public.users is a
+ * migration plus the 00526 allowlist restatement, and this is a preference
+ * about a card rather than a claim about the account.
+ */
+function skipKey(userId: string | undefined): string {
+  return `gt.activation.skipped:${userId ?? "anon"}`;
+}
+
+function readSkipped(userId: string | undefined): Set<ActivationStepKey> {
+  const raw = readStored(skipKey(userId));
+  if (!raw) return new Set();
+  return new Set(
+    raw.split(",").map((k) => k.trim()).filter(Boolean) as ActivationStepKey[],
+  );
+}
+
 export interface UseActivationResult {
   /** The persona's ordered steps. Empty when there is nothing to show. */
   steps: ActivationStep[];
@@ -84,7 +107,9 @@ export interface UseActivationResult {
   /** Run a step: navigates, or asks for notification permission in place. */
   complete: (step: ActivationStep, navigate: (to: string) => void) => void;
   dismiss: () => void;
-  /** Bring the checklist back. Wired to Settings > Replay. */
+  /** US-3262: set one skippable step aside without doing it. */
+  skip: (step: ActivationStep) => void;
+  /** Bring the checklist back, and every skipped step with it. */
   undismiss: () => void;
 }
 
@@ -122,7 +147,21 @@ export function useActivation(
     NotificationPermission | "unsupported"
   >(notificationsSupported() ? Notification.permission : "unsupported");
 
-  const steps = useMemo(() => activationStepsFor(useCase), [useCase]);
+  // US-3262: skipped steps are removed from the list this account sees, so
+  // progress reads "2 of 4" rather than parking forever on a step that does
+  // not apply. Seeded synchronously for the same reason the dismissal is.
+  const [skipped, setSkipped] = useState<Set<ActivationStepKey>>(() =>
+    readSkipped(user?.id),
+  );
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    setSkipped(readSkipped(user?.id));
+  }, [user?.id]);
+
+  const steps = useMemo(
+    () => activationStepsFor(useCase).filter((s) => !skipped.has(s.key)),
+    [useCase, skipped],
+  );
   const stepKeys = useMemo(() => new Set(steps.map((s) => s.key)), [steps]);
 
   // Wait for the first-run modal to finish capturing the use case before
@@ -150,8 +189,14 @@ export function useActivation(
       const head = (table: string) =>
         supabase.from(table).select("id", { count: "exact", head: true });
       const zero = Promise.resolve({ count: 0 });
-      const [grade, item, source, apiKey, alert, closet] = await Promise.all([
+      const [grade, importRun, item, source, apiKey, alert, closet] = await Promise.all([
         stepKeys.has("grade") ? head("submissions") : zero,
+        // US-3262: a run that actually FINISHED. 'pending' and 'running' are
+        // work in flight and 'undone' is a seller who changed their mind, so
+        // neither is an import the account has.
+        stepKeys.has("import")
+          ? head("flipdesk_import_runs").eq("status", "completed")
+          : zero,
         stepKeys.has("item") ? head("inventory_items") : zero,
         stepKeys.has("source") ? head("sources") : zero,
         stepKeys.has("apikey") ? head("api_keys") : zero,
@@ -162,6 +207,7 @@ export function useActivation(
       ]);
       return {
         gradeCount: grade.count ?? 0,
+        importRunCount: importRun.count ?? 0,
         itemCount: item.count ?? 0,
         sourceCount: source.count ?? 0,
         apiKeyCount: apiKey.count ?? 0,
@@ -245,10 +291,30 @@ export function useActivation(
       .then(() => refreshProfile());
   }, [refreshProfile, useCase, user]);
 
+  const skip = useCallback(
+    (step: ActivationStep) => {
+      if (!step.skippable) return;
+      const next = new Set(skipped);
+      next.add(step.key);
+      setSkipped(next);
+      writeStored(skipKey(user?.id), [...next].join(","));
+      track("onboarding.activation_step_skipped", {
+        step: step.key,
+        use_case: useCase,
+      });
+    },
+    [skipped, useCase, user?.id],
+  );
+
   const undismiss = useCallback(() => {
     if (typeof window !== "undefined") {
       removeStored(dismissKey(user?.id, useCase));
+      // US-3262: Replay brings the WHOLE list back, skipped steps included.
+      // A seller who set import aside and later switched from another tool
+      // has one place to undo that, and it is the one they already know.
+      removeStored(skipKey(user?.id));
     }
+    setSkipped(new Set());
     setLocallyDismissed(false);
     if (!user) return;
     if (useCase === "buyer") return;
@@ -318,6 +384,7 @@ export function useActivation(
     active: active && firstIncomplete !== -1,
     complete,
     dismiss,
+    skip,
     undismiss,
   };
 }

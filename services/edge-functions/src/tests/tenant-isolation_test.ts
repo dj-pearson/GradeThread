@@ -1573,6 +1573,53 @@ Deno.test({
   },
 });
 
+// US-3265: creating the three business policies. The route takes NO id -- it
+// acts on the caller's own eBay connection -- so the tenancy question is
+// whether B pressing it can reach A's account or A's cached policies. It reads
+// the connection through workspaceOwnerId ?? userId and writes defaults through
+// the same workspace-scoped writer the picker uses, so B's press must leave A's
+// rows exactly as they were.
+Deno.test({
+  name: "B creating eBay business policies cannot touch A's",
+  ignore: !CONFIGURED || !Deno.env.get("TEST_USER_A_FULFILLMENT_POLICY_ID"),
+  fn: async () => {
+    const aPolicy = Deno.env.get("TEST_USER_A_FULFILLMENT_POLICY_ID")!;
+
+    const res = await fetch(`${BASE}/api/flipdesk/ebay/policies/create`, {
+      method: "POST",
+      headers: authHeaders(B_JWT!),
+      body: JSON.stringify({
+        handling_days: 1,
+        shipping_cost_cents: 0,
+        accepts_returns: true,
+        return_days: 30,
+        return_shipping_paid_by: "BUYER",
+      }),
+    });
+    // Any outcome is allowed for B's OWN account -- 200 if B has a live eBay
+    // connection in the fixture, 502/503 if not. What is not allowed is A's
+    // policies changing, which is what the read below checks.
+    await res.body?.cancel();
+
+    const mine = await fetch(`${BASE}/api/flipdesk/ebay/policies`, {
+      headers: authHeaders(B_JWT!),
+    });
+    if (mine.status === 200) {
+      const body = await mine.json() as {
+        policies?: Array<{ policy_id: string }>;
+      };
+      const ids = (body.policies ?? []).map((p) => p.policy_id);
+      assert(
+        !ids.includes(aPolicy),
+        "B's policy list contains A's policy id: the create path is reading " +
+          "another tenant's cached policies.",
+      );
+    } else {
+      await mine.body?.cancel();
+    }
+  },
+});
+
 // US-318 retry endpoint: B must not be able to re-run jobs in A's batch.
 Deno.test({
   name: "B cannot retry failed jobs in A's AutoLister batch",
@@ -7088,8 +7135,11 @@ Deno.test({
         }],
       }),
     });
-    // 402 is a pass: B on a plan without FlipDesk (or at its cap) is stopped
-    // before any row is read or written.
+    // 402 is a pass: B at their plan's active-listing cap is stopped before
+    // any row is read or written. US-3263 note: an UNENTITLED B is no longer
+    // refused here at all -- they get a bounded import instead -- so this
+    // branch now only catches the cap case, and the assertions below run for
+    // both entitled and free accounts.
     if (res.status === 402) {
       await res.body?.cancel();
       return;
@@ -7133,6 +7183,63 @@ Deno.test({
     await fetch(`${BASE}/api/flipdesk/import/runs/${started.run_id}/undo`, {
       method: "POST",
       headers: authHeaders(B_JWT!),
+    }).then((r) => r.body?.cancel());
+  },
+});
+
+// US-3263: the free-plan closet import. An account with no FlipDesk plan may
+// bring in FREE_CLOSET_IMPORT_ROWS listings per read rather than being refused
+// outright, and the bound is applied SERVER-SIDE from that account's own
+// entitlement. The tenancy question this raises is new: a bounded import is
+// still an import, so it must land in the caller's own tenant and nowhere else,
+// and the bound must not be something the caller can raise by asking.
+
+Deno.test({
+  name: "an over-bound closet import is trimmed by the server, and lands in the caller's tenant",
+  ignore: !CONFIGURED || !Deno.env.get("TEST_FREE_PLAN_JWT"),
+  fn: async () => {
+    const freeJwt = Deno.env.get("TEST_FREE_PLAN_JWT")!;
+    // 60 rows, well over the 25-row bound, each with a listing id of its own.
+    const listings = Array.from({ length: 60 }, (_, i) => ({
+      listingUrl: `https://poshmark.com/listing/free-tier-probe-${i}-${crypto.randomUUID()}`,
+      title: `Free-tier-probe-${i}`,
+      priceCents: 1000 + i,
+    }));
+    const res = await fetch(`${BASE}/api/flipdesk/closet-import/runs`, {
+      method: "POST",
+      headers: authHeaders(freeJwt),
+      // free_cap is NOT a request field. Sending one proves the server ignores
+      // whatever the caller claims its own allowance is.
+      body: JSON.stringify({ platform: "poshmark", listings, free_cap: 5000 }),
+    });
+    assertEquals(res.status, 202, `free-plan closet import returned ${res.status}`);
+    const started = await res.json() as {
+      run_id: string;
+      total_rows: number;
+      free_capped: boolean;
+      free_cap: number | null;
+      left_behind: number;
+    };
+    assertEquals(started.free_capped, true, "a 60-row free import was not reported as capped");
+    assertEquals(started.free_cap, 25, "the bound came from the request rather than the server");
+    assertEquals(started.total_rows, 25, `the server kept ${started.total_rows} rows, not 25`);
+    assertEquals(started.left_behind, 35);
+
+    // The run belongs to the caller: B cannot read it.
+    const foreign = await fetch(`${BASE}/api/flipdesk/import/runs/${started.run_id}`, {
+      headers: authHeaders(B_JWT!),
+    });
+    if (foreign.status === 200) {
+      const view = await foreign.json() as { run: unknown };
+      assertEquals(view.run, null, "B read another tenant's free-plan import run");
+    } else {
+      await foreign.body?.cancel();
+    }
+
+    // Undo, so a re-run starts from the same place.
+    await fetch(`${BASE}/api/flipdesk/import/runs/${started.run_id}/undo`, {
+      method: "POST",
+      headers: authHeaders(freeJwt),
     }).then((r) => r.body?.cancel());
   },
 });

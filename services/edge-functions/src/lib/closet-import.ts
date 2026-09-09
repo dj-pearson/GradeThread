@@ -33,6 +33,45 @@ export const MAX_CLOSET_IMPORT_ROWS = 2000;
 export const MAX_CLOSET_IMPORT_PHOTOS = 8;
 
 /**
+ * US-3263. What an account WITHOUT a seller plan may bring in.
+ *
+ * Closet import used to refuse those accounts outright: 402, no rows, and on
+ * the web no card at all. The person that refusal met was almost always
+ * someone deciding whether to pay, and what would have decided it is seeing
+ * their own listings appear. A lapsed seller met the same wall, with no
+ * sentence explaining where the importer went.
+ *
+ * 25 is a real closet page rather than a token: Poshmark renders ~48 tiles per
+ * scroll, so a single unscrolled page fits inside it, and 25 items is enough
+ * inventory for the pipeline, money and listing views to say something true.
+ * It is small enough that nobody runs a business on it.
+ */
+export const FREE_CLOSET_IMPORT_ROWS = 25;
+
+/**
+ * Trim a batch to what this account is allowed to import, and say what was
+ * left behind.
+ *
+ * Pure, and separated from the route, because the refusal it replaces was the
+ * kind of rule that is easy to get subtly wrong in an if-statement: an
+ * entitled account must be affected in NO way, and an unentitled one must be
+ * bounded by the server rather than by the browser that asked.
+ */
+export function applyFreeTierCap<T>(
+  rows: readonly T[],
+  sellerEnabled: boolean,
+): { rows: T[]; leftBehind: number; capped: boolean } {
+  if (sellerEnabled || rows.length <= FREE_CLOSET_IMPORT_ROWS) {
+    return { rows: [...rows], leftBehind: 0, capped: false };
+  }
+  return {
+    rows: rows.slice(0, FREE_CLOSET_IMPORT_ROWS),
+    leftBehind: rows.length - FREE_CLOSET_IMPORT_ROWS,
+    capped: true,
+  };
+}
+
+/**
  * Where a listing photo may be fetched FROM, per platform.
  *
  * The server copies photos into item-photos (CLAUDE.md storage rules: never

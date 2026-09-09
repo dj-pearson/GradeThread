@@ -1356,11 +1356,13 @@ async function runClosetImport(msg) {
   const platform = msg && typeof msg.platform === "string" ? msg.platform.toLowerCase() : "";
   const patterns = closetImportTabPatterns(platform);
   if (patterns.length === 0) {
-    return { ok: false, reason: "unsupported", error: "Closet import supports Poshmark and Mercari." };
+    return { ok: false, reason: "unsupported", error: "Closet import supports Poshmark, Mercari and Grailed." };
   }
-  if (!(await sellerAllowed())) {
-    return { ok: false, status: 402, reason: "seller_locked", error: "Closet import is a FlipDesk seller feature." };
-  }
+  // US-3263: NO seller gate here any more. An account without a plan may bring
+  // in a bounded number of listings, and the server decides that number from
+  // the account's own entitlement — the extension cannot know it and must not
+  // guess. Refusing here is what made the import invisible to exactly the
+  // person deciding whether to pay.
   const { gtBuyerToken, installedAt } = await ext.storage.local.get(["gtBuyerToken", "installedAt"]);
   if (!gtBuyerToken || typeof gtBuyerToken !== "string") {
     return { ok: false, status: 401, reason: "needs_sign_in", needsSignIn: true, error: "Sign in to GradeThread in the extension first." };

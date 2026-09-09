@@ -13,10 +13,15 @@ import { useExtensionSetup } from "@/hooks/use-extension-setup";
 import {
   CLOSET_IMPORT_PLATFORMS,
   closetImportDisclosureFor,
+  FREE_CLOSET_IMPORT_ROWS,
   type ClosetImportPlatform,
 } from "@/lib/marketplace-disclosure";
 import { MARKETPLACE_LABELS } from "@/lib/constants";
-import { closetImportFailureText, sendClosetImport } from "@/lib/lister-extension";
+import {
+  closetImportFailureText,
+  extensionStoreUrl,
+  sendClosetImport,
+} from "@/lib/lister-extension";
 import { track } from "@/lib/analytics";
 
 // US-9201: pull a seller's existing Poshmark or Mercari closet into FlipDesk.
@@ -29,10 +34,20 @@ import { track } from "@/lib/analytics";
 // before it offers the button, and the button's failure sentences come from
 // the extension, which is the thing that knows why nothing was read.
 //
-// SHOWN ONLY when the extension is installed AND the account is on an active
-// paid FlipDesk plan, the same gate the Lister uses (extension-unified/
-// registry.js resolves it; useExtensionSetup reads it back). A seller who
-// cannot use it does not see a button that would refuse them.
+// US-3263 CHANGED WHO SEES IT, and the reasoning is worth keeping.
+//
+// It used to render only when the extension was installed AND the account had
+// an active paid plan, on the principle that a seller should not meet a button
+// that would refuse them. In practice the two people it hid from were the
+// seller still deciding whether to pay and the seller who had NOT yet installed
+// the extension -- and to both of them the entire feature simply did not
+// exist. There was no button and no sentence. The import that would have
+// answered "will this work with my closet" was the one thing they could not
+// find.
+//
+// So: no plan renders the card with the free bound stated, and no extension
+// renders an install step instead of nothing. The server still decides how many
+// rows an account may import; this card only ever tells the truth about it.
 
 export interface ClosetImportStart {
   runId: string;
@@ -60,7 +75,44 @@ export function ClosetImportCard({ disabled, onStarted }: Props) {
   const { data: setup } = useExtensionSetup();
   const [busy, setBusy] = useState<ClosetImportPlatform | null>(null);
 
-  if (!setup?.installed || !setup.sellerEnabled) return null;
+  // Still loading the ping: render nothing rather than flash an install prompt
+  // at somebody who already has it.
+  if (!setup) return null;
+
+  const platformNames = CLOSET_IMPORT_PLATFORMS.map(
+    (p) => MARKETPLACE_LABELS[p],
+  ).join(", ");
+
+  if (!setup.installed) {
+    const url = extensionStoreUrl();
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Shirt className="h-5 w-5" />
+            Import my closet
+          </CardTitle>
+          <CardDescription>
+            Your {platformNames} listings can come in without retyping them. The
+            reading is done by the GradeThread browser extension, in a tab you
+            open yourself, so it needs the extension installed first.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <Button
+            onClick={() => {
+              track("closet_import_install_prompted", {});
+              if (url) window.open(url, "_blank", "noopener,noreferrer");
+            }}
+            disabled={!url}
+          >
+            <Chrome className="mr-2 h-4 w-4" />
+            {url ? "Get the extension" : "Extension not available yet"}
+          </Button>
+        </CardContent>
+      </Card>
+    );
+  }
 
   async function run(platform: ClosetImportPlatform) {
     setBusy(platform);
@@ -83,6 +135,15 @@ export function ClosetImportCard({ disabled, onStarted }: Props) {
             (known > 0 ? ` (${known} already here, they will be updated)` : "") +
             ". You can leave this page; the import keeps going.",
         );
+        // US-3263: never let a bounded import look like a whole one.
+        if (result.free_capped && (result.left_behind ?? 0) > 0) {
+          toast.warning(
+            `${result.left_behind} more listings were left behind: the free plan ` +
+              `imports ${result.free_cap ?? FREE_CLOSET_IMPORT_ROWS} at a time. ` +
+              "A FlipDesk plan brings in the whole closet.",
+            { duration: 12_000 },
+          );
+        }
         const warn = result.plan_warning ? describePlanWarning(result.plan_warning) : null;
         if (warn) toast.warning(warn, { duration: 12_000 });
         return;
@@ -114,9 +175,16 @@ export function ClosetImportCard({ disabled, onStarted }: Props) {
           Import my closet
         </CardTitle>
         <CardDescription>
-          Bring the listings you already have on Poshmark or Mercari into
-          FlipDesk without retyping them. Open your own closet in another tab,
-          scroll so your listings are on screen, then press Import here.
+          Bring the listings you already have on {platformNames} into FlipDesk
+          without retyping them. Open your own closet in another tab, scroll so
+          your listings are on screen, then press Import here.
+          {!setup.sellerEnabled && (
+            <>
+              {" "}
+              On the free plan the first {FREE_CLOSET_IMPORT_ROWS} listings of a
+              read come in; a FlipDesk plan takes the rest.
+            </>
+          )}
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">

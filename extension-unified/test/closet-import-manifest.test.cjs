@@ -172,7 +172,21 @@ for (const [pattern, what] of BANNED.slice(0, 8)) {
 }
 assert.ok(/GT_CLOSET_IMPORT_READ/.test(fnSrc), "runClosetImport must ask the content script to read");
 assert.ok(/CLOSET_IMPORT_ENDPOINT/.test(fnSrc), "runClosetImport must post to the closet-import endpoint");
-assert.ok(/sellerAllowed\(\)/.test(fnSrc), "runClosetImport must run the seller gate before reading anything");
+// US-3263: the seller gate is DELIBERATELY gone from here. An account with no
+// FlipDesk plan may bring in a bounded number of listings, and only the server
+// knows what that bound is -- the extension cannot compute an entitlement and
+// must not guess at one. Refusing here is what made the import invisible to the
+// person deciding whether to pay for it.
+//
+// What still has to hold, and is what this now checks: the read never happens
+// for a signed-OUT install. No token, no read, no post.
+assert.ok(
+  !/sellerAllowed\(\)/.test(fnSrc),
+  "runClosetImport must not gate on the plan: the server bounds a free import (US-3263)",
+);
+const tokenAt = fnSrc.indexOf("gtBuyerToken");
+const readAt = fnSrc.indexOf("GT_CLOSET_IMPORT_READ");
+assert.ok(tokenAt !== -1 && readAt > tokenAt, "runClosetImport must require a signed-in token BEFORE reading a page");
 
 // ── 5. The store submission discloses the script ──────────────────────────
 

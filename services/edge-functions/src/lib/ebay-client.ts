@@ -2487,6 +2487,174 @@ export async function createInventoryLocation(
   return { merchantLocationKey: key };
 }
 
+// ── Business policies: creating the three a first-time seller has none of ──
+//
+// US-3265. FlipDesk already READ all three (getDefaultPolicies), opted the
+// account into SELLING_POLICY_MANAGEMENT, and created the merchant location
+// nobody else creates. It did not create the policies -- so a seller with none
+// was told, mid-connect, to go and set them up on eBay, and publish refused
+// until they had. That is the only hand-off left in the best connect flow we
+// have, and it lands on the account least able to do it: the first-time seller.
+//
+// The three policies are shallow. Payment is one field on a managed-payments
+// account. Return is "do you take returns, for how long, and who pays". Shipping
+// is a service and a price. Everything else eBay accepts has a sane default, so
+// the questions asked are the four that change what a buyer sees.
+//
+// IDEMPOTENCE, and why it is by NAME. eBay rejects a duplicate policy name with
+// 20400 ("A policy with this name already exists"), which is exactly the signal
+// a re-run needs: on that error we look the name up and return the existing id
+// rather than failing. So pressing the button twice produces one policy, not a
+// second one the seller then has to choose between.
+
+/** The name FlipDesk gives the policies it creates. Stable, so a re-run finds them. */
+export const FLIPDESK_POLICY_NAME = "FlipDesk default";
+
+export interface PolicyAnswers {
+  /** Business days to dispatch after payment. eBay allows 0-30; 1 is typical. */
+  handlingDays: number;
+  /** Cost of the seller's standard domestic service, in cents. 0 = free shipping. */
+  shippingCostCents: number;
+  /** Does the seller accept returns at all? */
+  acceptsReturns: boolean;
+  /** 30 or 60 days. Ignored when acceptsReturns is false. */
+  returnDays: 30 | 60;
+  /** Who pays return postage. Ignored when acceptsReturns is false. */
+  returnShippingPaidBy: "BUYER" | "SELLER";
+}
+
+/** eBay's own id for a policy we just tried to create and found already there. */
+async function findPolicyIdByName(
+  userId: string,
+  kind: "fulfillment" | "payment" | "return",
+  name: string,
+): Promise<string | null> {
+  const marketplaceId = getMarketplaceId();
+  const idKey = `${kind}PolicyId` as const;
+  const listKey = `${kind}Policies` as const;
+  const payload = await fetchAuthed<Record<string, Array<Record<string, unknown>>>>(
+    userId,
+    `/sell/account/v1/${kind}_policy?marketplace_id=${marketplaceId}`,
+  ).catch(() => null);
+  const list = payload?.[listKey] ?? [];
+  const match = list.find((p) => p.name === name);
+  const id = match?.[idKey];
+  return typeof id === "string" ? id : null;
+}
+
+async function createPolicy(
+  userId: string,
+  kind: "fulfillment" | "payment" | "return",
+  body: Record<string, unknown>,
+  name: string,
+): Promise<string> {
+  const idKey = `${kind}PolicyId`;
+  try {
+    const created = await fetchAuthed<Record<string, unknown>>(
+      userId,
+      `/sell/account/v1/${kind}_policy`,
+      { method: "POST", body: JSON.stringify(body) },
+    );
+    const id = created[idKey];
+    if (typeof id === "string" && id) return id;
+  } catch (err) {
+    // A duplicate name is a RE-RUN, not a failure. Anything else is real.
+    const msg = err instanceof Error ? err.message : String(err);
+    if (!/20400|already exists|duplicate/i.test(msg)) throw err;
+  }
+  const existing = await findPolicyIdByName(userId, kind, name);
+  if (!existing) {
+    throw new Error(`eBay accepted no ${kind} policy and reports none named "${name}".`);
+  }
+  return existing;
+}
+
+/**
+ * Create the three business policies a publish needs, from four plain answers.
+ *
+ * Only the MISSING ones are created: `have` names the kinds the account already
+ * has, and those are left exactly as they are. A seller who set up their own
+ * shipping policy years ago does not get a second one.
+ *
+ * Tenant-safe: every call is authenticated as `userId`, the workspace owner.
+ */
+export async function createDefaultPolicies(
+  userId: string,
+  answers: PolicyAnswers,
+  have: ReadonlySet<"fulfillment" | "payment" | "return">,
+): Promise<{ created: string[]; ids: Partial<Record<string, string>> }> {
+  const marketplaceId = getMarketplaceId();
+  const name = FLIPDESK_POLICY_NAME;
+  const created: string[] = [];
+  const ids: Partial<Record<string, string>> = {};
+
+  if (!have.has("payment")) {
+    // Managed payments: eBay decides how the buyer pays, so a payment policy
+    // is a name and a marketplace. immediatePay keeps unpaid items from
+    // sitting; it is the setting most sellers end up on anyway.
+    ids.payment = await createPolicy(userId, "payment", {
+      name,
+      marketplaceTypes: [{ marketplaceId }],
+      categoryTypes: [{ name: "ALL_EXCLUDING_MOTORS_VEHICLES" }],
+      immediatePay: true,
+    }, name);
+    created.push("payment");
+  }
+
+  if (!have.has("return")) {
+    ids.return = await createPolicy(userId, "return", {
+      name,
+      marketplaceTypes: [{ marketplaceId }],
+      categoryTypes: [{ name: "ALL_EXCLUDING_MOTORS_VEHICLES" }],
+      returnsAccepted: answers.acceptsReturns,
+      ...(answers.acceptsReturns
+        ? {
+          returnPeriod: { value: answers.returnDays, unit: "DAY" },
+          returnShippingCostPayer: answers.returnShippingPaidBy,
+          // returnMethod is deliberately omitted: eBay defaults to money back,
+          // and the alternative (replacement/exchange) is not a thing a
+          // one-of-a-kind garment can offer.
+        }
+        : {}),
+    }, name);
+    created.push("return");
+  }
+
+  if (!have.has("fulfillment")) {
+    const free = answers.shippingCostCents <= 0;
+    ids.fulfillment = await createPolicy(userId, "fulfillment", {
+      name,
+      marketplaceTypes: [{ marketplaceId }],
+      categoryTypes: [{ name: "ALL_EXCLUDING_MOTORS_VEHICLES" }],
+      handlingTime: { value: answers.handlingDays, unit: "DAY" },
+      shippingOptions: [
+        {
+          optionType: "DOMESTIC",
+          costType: "FLAT_RATE",
+          shippingServices: [
+            {
+              // USPS Ground Advantage is eBay's default domestic service for
+              // apparel and the one their own calculator quotes.
+              shippingCarrierCode: "USPS",
+              shippingServiceCode: "USPSGroundAdvantage",
+              freeShipping: free,
+              ...(free ? {} : {
+                shippingCost: {
+                  value: (answers.shippingCostCents / 100).toFixed(2),
+                  currency: "USD",
+                },
+              }),
+            },
+          ],
+        },
+      ],
+    }, name);
+    created.push("fulfillment");
+  }
+
+  return { created, ids };
+}
+
 export interface InventoryItemPayload {
   product: {
     title: string;

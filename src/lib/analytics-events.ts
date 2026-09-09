@@ -277,9 +277,27 @@ export const ANALYTICS_EVENTS = {
   // the event that story will build on.
   "onboarding.activation_step_started":
     "An activation-checklist step's button was pressed.",
+  // US-3262: a skippable step was set aside. Only `import` can be, and how
+  // often it is answers a real question -- how many new sellers arrive with a
+  // closet to bring over, and how many are starting from nothing.
+  "onboarding.activation_step_skipped":
+    "A skippable activation step was set aside without being done.",
+  // US-3263: the closet import card was shown to somebody without the
+  // extension, and they pressed the install button. Before this the card was
+  // not rendered at all for them, so the funnel started after the only step
+  // most people were missing.
+  "closet_import_install_prompted":
+    "The install-the-extension step of the closet import was taken.",
   // US-2884: the tour's two endings, which nothing recorded. Without them
   // "tour finished" and "tour skipped" were indistinguishable from "never
   // reached the tour".
+  // US-3264: the seller's own answer to "where are your listings now". This is
+  // the population question a users column would have answered worse: how many
+  // new sellers arrive with a closet, and on which channels. Properties are
+  // `volume` (a bucket, never a count they typed), `channels` (marketplace ids)
+  // and `channel_count`.
+  "onboarding.existing_listings_answered":
+    "A seller said how many listings they already have live, and where.",
   "onboarding.tour_finished": "The first-run tour reached its last slide.",
   "onboarding.tour_skipped": "The first-run tour was skipped.",
 
