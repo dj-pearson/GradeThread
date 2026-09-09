@@ -102,7 +102,9 @@ describe("the three things that would undo the restore", () => {
     expect(start).toBeGreaterThan(-1);
     const effect = LISTINGS.slice(start - 200, start + 120);
     expect(effect).toMatch(/if \(!pageData\) return;/);
-    expect(effect).toMatch(/\[page, totalPages, pageData\]/);
+    // pageData must be a dep as well as a guard, or the clamp never re-runs
+    // once the fetch lands and a genuinely out-of-range page stays out of range.
+    expect(effect).toMatch(/\}, \[page, totalPages, pageData[,\]]/);
   });
 });
 

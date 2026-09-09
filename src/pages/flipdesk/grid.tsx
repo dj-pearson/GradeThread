@@ -224,7 +224,7 @@ export function FlipdeskGridPage() {
       return;
     }
     setPage(1);
-  }, [search, sortParam]);
+  }, [search, sortParam, setPage]);
 
   // US-404: server-side pagination. Only the current page (PAGE_SIZE rows) of a
   // slim column projection is ever loaded, with a grouped exact count for the
@@ -290,7 +290,7 @@ export function FlipdeskGridPage() {
   useEffect(() => {
     if (!data) return;
     if (page > totalPages) setPage(totalPages);
-  }, [page, totalPages, data]);
+  }, [page, totalPages, data, setPage]);
 
   const dirtyCount = useMemo(() => {
     let n = 0;

@@ -518,7 +518,7 @@ export function FlipdeskListingsPage() {
       return;
     }
     setPage(1);
-  }, [search, pageSize, soldFilter, unlistedFilter, filterQuery, columnSort, sortPreset]);
+  }, [search, pageSize, soldFilter, unlistedFilter, filterQuery, columnSort, sortPreset, setPage]);
 
 
   // US-419: keyed under a DISTINCT "listings" suffix — NOT the bare
@@ -793,7 +793,7 @@ export function FlipdeskListingsPage() {
   useEffect(() => {
     if (!pageData) return;
     if (page > totalPages) setPage(totalPages);
-  }, [page, totalPages, pageData]);
+  }, [page, totalPages, pageData, setPage]);
   const safePage = Math.min(page, totalPages);
   const pageStart = (safePage - 1) * pageSize;
   const pageRows = items;
