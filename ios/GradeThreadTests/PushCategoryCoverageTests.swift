@@ -108,6 +108,59 @@ final class PushCategoryCoverageTests: XCTestCase {
         )
     }
 
+    // MARK: - Toggles that govern something (US-3268)
+
+    /// The three the app declared, routed, described in Settings, and had no
+    /// way to receive. Shrink-only by construction: a name added to the enum's
+    /// undeliverable list without a line here fails, and a sender shipping
+    /// without the flag being flipped fails too.
+    private static let undeliverable: Set<String> = [
+        // Buyer messages are FETCHED (ebay-trading.ts, US-673) and shown in the
+        // negotiation inbox. Nothing pushes when one arrives.
+        "message.received",
+        // No aging digest exists in notify.ts's type union or anywhere else.
+        "aging.digest",
+        // payout.cleared has a sender (pushPayoutCleared); the earlier
+        // "posted, before it clears" half never got one.
+        "payout.posted",
+    ]
+
+    func test_theOnlyCategoriesWithoutASenderAreTheOnesWeSayHaveNoSender() {
+        let flagged = Set(
+            NotificationCategoryID.allCases.filter { !$0.isDeliverable }.map(\.rawValue)
+        )
+        XCTAssertEqual(
+            flagged, Self.undeliverable,
+            "isDeliverable and this list disagree: either a sender shipped and the flag was not flipped, or a category was hidden without saying why"
+        )
+    }
+
+    func test_everyCategoryTheEdgeSendsIsOfferedAsAToggle() {
+        // The inverse guard. Something the edge demonstrably sends must never
+        // be marked undeliverable, or the user loses the ability to mute a
+        // push they are actually getting.
+        let togglable = Set(NotificationCategoryID.togglable.map(\.rawValue))
+        for category in Self.sentByEdge {
+            XCTAssertTrue(
+                togglable.contains(category),
+                "\(category) is sent by the edge but Settings offers no way to turn it off"
+            )
+        }
+    }
+
+    func test_aCategoryWithNoToggleCanStillBeReceivedIfOneEverArrives() {
+        // Hiding the toggle must not mute the push. The preference default is
+        // ON and the routing stays wired, so the day a sender ships, the only
+        // change needed is the flag.
+        for category in Self.undeliverable {
+            XCTAssertTrue(NotificationPreferences.isEnabled(rawCategory: category))
+        }
+        XCTAssertEqual(
+            DeepLinkRoute.from(category: "message.received", userInfo: ["inventory_item_id": "z"]),
+            .negotiationInbox(filterItemId: "z")
+        )
+    }
+
     func test_everyKnownCategoryHasCopyForItsSettingsToggle() {
         // A category with no label is a blank row in Settings, which reads as a
         // bug rather than as a toggle.

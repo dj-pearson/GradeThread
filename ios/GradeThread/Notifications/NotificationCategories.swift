@@ -106,6 +106,41 @@ public enum NotificationCategoryID: String, CaseIterable {
         }
     }
 
+    /// Whether anything can actually send this category today (US-3268).
+    ///
+    /// ⚠ THREE OF THESE HAD A SETTINGS TOGGLE AND NO SENDER. "Buyer messages",
+    /// "Aging stock digest" and "Payouts posted" each promised a push in their
+    /// own help text, and nothing in the edge, the Pages functions or the app
+    /// itself has ever emitted them: `transactional-push.ts` sends fourteen
+    /// categories and none is these, and `notify.ts`'s type union has no
+    /// message, aging or payout-posted member either. A seller could turn
+    /// "Buyer messages" on and wait forever.
+    ///
+    /// This is the cost of the declare-ahead convention the `gradeReady`
+    /// comment above describes, which is a GOOD convention — grade.ready is
+    /// declared here and delivered locally by ``NewGradeNotifier``, and the
+    /// routing for these three is wired and ready for the day a sender lands.
+    /// What was missing is the other half: something that notices when "later"
+    /// never came. The toggle is hidden until then rather than the case being
+    /// deleted, so flipping this flag is all it takes.
+    ///
+    /// `PushCategoryCoverageTests` pins the undeliverable list, so a sender
+    /// shipping without this flag being flipped fails, and a flag flipped
+    /// without a sender fails too.
+    public var isDeliverable: Bool {
+        switch self {
+        case .messageReceived, .agingDigest, .payoutPosted: return false
+        default: return true
+        }
+    }
+
+    /// The categories the Settings screen offers a toggle for: the ones a user
+    /// can actually receive. A switch that governs nothing is worse than an
+    /// absent one, because it reads as a feature that is turned on.
+    public static var togglable: [NotificationCategoryID] {
+        allCases.filter(\.isDeliverable)
+    }
+
     /// The token-expiring category opts in to time-sensitive interruption
     /// (bypass DND) per the AC. The other categories use default delivery.
     public var options: UNNotificationCategoryOptions {

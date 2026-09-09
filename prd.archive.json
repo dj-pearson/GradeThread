@@ -45953,6 +45953,19 @@
         "A sheet that has finished its work (DisputeSheet .done, FeedbackSheet with a result) is not dirty, so the closing tap does not ask to discard"
       ],
       "notes": "Done 2026-09-09. All four sheets now take unsavedChangesGuard + CancelFormButton. Two traps worth recording because both would have shipped as 'always dirty, sheet will not swipe away': RecordSaleForm has 'var saleDate = Date()', so comparing the live form against a fresh RecordSaleForm() is never equal - it snapshots a pristine copy in onAppear AFTER the listed-price seed, the same shape TripFormSheet uses. CreateItemFromListingSheet seeds title/sku/price from the orphan listing, so dirty means 'differs from the prefill', not 'is non-empty'; it captures a Pristine struct in its init. DisputeSheet's isDirty is a switch on phase: .done is clean (the button says Done and there is nothing to lose), .submitting is dirty (in flight), .editing and .failed are dirty when there is typed text, an evidence photo, or a non-default reason. Verified: all sixteen ios/Scripts guards and check-ios-orphans.mjs pass; check-chained-sheets in particular, since two of these files already carry a .sheet modifier and the guard adds a confirmationDialog beside it. Swift cannot compile on this host; iOS CI covers the build. No unit test: these are view-level modifiers with no extractable pure surface, unlike the RuleDraft validity in US-3266's neighbour."
+    },
+    {
+      "id": "US-3268",
+      "passes": true,
+      "title": "iOS: hide the notification toggles nothing can send, and file the missing senders",
+      "description": "NotificationCategoryID declares message.received, aging.digest and payout.posted. Each has a Settings toggle and help text promising a push. Nothing sends them: transactional-push.ts emits fourteen categories and none is these, notify.ts's type union has no message, aging or payout-posted member, and there is no local notifier for them either (grade.ready is declared the same way but IS delivered locally by NewGradeNotifier). A seller can turn Buyer messages on and wait forever. Buyer messages are the sharpest: the edge FETCHES them (ebay-trading.ts, US-673) and the negotiation inbox shows them, so the only missing piece is the push. This story covers the iOS half; the senders are edge work and should be their own stories.",
+      "acceptanceCriteria": [
+        "NotificationCategoryID.isDeliverable marks the three, and the Settings list renders NotificationCategoryID.togglable rather than allCases",
+        "The enum cases, their routes and their preference defaults are untouched, so shipping a sender needs only the flag flipped",
+        "A test pins the undeliverable set both ways: a sender shipping without the flag flipped fails, and a category hidden without a stated reason fails",
+        "A test asserts nothing the edge demonstrably sends is ever marked undeliverable, so no live push loses its mute switch"
+      ],
+      "notes": "Done 2026-09-09. isDeliverable + togglable on NotificationCategoryID, ContentView's notificationPreferencesSection renders togglable, and three new cases in GradeThreadTests/PushCategoryCoverageTests.swift pin the set both directions plus assert the hidden ones still receive if a sender ever lands. Edge half filed as US-3269. Worth recording: this is the second failure mode of the same declare-ahead convention in two days. US-3266 was the backend sending seven categories iOS had never heard of; this is iOS offering three toggles the backend cannot honour. The convention is fine and grade.ready proves it works (declared here, delivered locally by NewGradeNotifier) - what was missing both times was anything that notices when the other half never ships. PushCategoryCoverageTests now covers both directions."
     }
   ]
 }

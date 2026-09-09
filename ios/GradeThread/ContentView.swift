@@ -2442,7 +2442,10 @@ struct SettingsView: View {
     /// so the web reads the same prefs.
     private var notificationPreferencesSection: some View {
         Section {
-            ForEach(NotificationCategoryID.allCases, id: \.self) { id in
+            // US-3268: `togglable`, not `allCases`. Three categories are
+            // declared and routed but have no sender anywhere, and a switch
+            // that governs nothing reads as a feature that is turned on.
+            ForEach(NotificationCategoryID.togglable, id: \.self) { id in
                 NotificationCategoryToggle(category: id)
             }
         } header: {
