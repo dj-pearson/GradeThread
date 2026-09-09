@@ -72,8 +72,23 @@ const DOC = "PENDING_MIGRATIONS.md";
 // twice: a gate whose real trigger is vocabulary is a gate that fails the day
 // someone reaches for a different word, and it fails QUIETLY, in the direction
 // of saying yes. Both words arm it now, and a test pins that.
+// AND THE COLON IS NOT ALWAYS NEXT TO THE WORD (2026-09-09). SIXTH bypass, and
+// the first caused by the file's own good habit: every applied entry is dated
+// inline - `## ✅ APPLIED 2026-09-08: 00772 — …` - so writing a held one the
+// same way is the natural thing to do. `## ⏳ HELD 2026-09-06: 00745: …` did
+// exactly that, and the regex, which wanted the version immediately after
+// `HELD:`, matched nothing. 00745 (US-3132, two new tables) then sat unapplied
+// on origin/main for three days while the gate reported it clean, and it
+// surfaced only because a push was blocked by six OTHER entries and someone
+// read the file by hand.
+//
+// So: an optional date, or any short bracketing token, may sit between the
+// keyword and the colon. Same lesson a third time - filename, then vocabulary,
+// now punctuation. Every version of this bug fails in the direction of saying
+// yes, so the regex is now deliberately loose about everything except the two
+// things that carry meaning: the keyword and the five-digit version.
 const HELD_HEADING =
-  /^##\s*(?:\S+\s+)?(?:HELD|PENDING):\s*(\d{5})(?:_([A-Za-z0-9_.-]+\.sql))?/gm;
+  /^##\s*(?:\S+\s+)?(?:HELD|PENDING)\b[^:\n]*:\s*(\d{5})(?:_([A-Za-z0-9_.-]+\.sql))?/gm;
 const MIGRATIONS_DIR = "supabase/migrations";
 
 function arg(name, fallback) {

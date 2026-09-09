@@ -77,6 +77,28 @@ describe("US-2346: which headings count as HELD", () => {
     expect(heldMigrations(doc)).toEqual([]);
   });
 
+  it("matches a heading that dates itself before the colon, the way APPLIED does", () => {
+    // SIXTH bypass (2026-09-09), and the first caused by the file's own good
+    // habit. Every applied entry carries its date inline —
+    // "## ✅ APPLIED 2026-09-08: 00772 — …" — so 00745 was written HELD the
+    // same way. The regex wanted the version immediately after "HELD:", so it
+    // matched nothing, and 00745 (US-3132, two new tables) sat unapplied on
+    // origin/main for three days while the gate reported the file clean.
+    const doc = [
+      "## ⏳ HELD 2026-09-06: 00745: the resale supply index tables (US-3132)",
+      "## ⏳ PENDING 2026-09-06: 00746_brands.sql (US-3125)",
+    ].join("\n");
+    expect(heldMigrations(doc).map((h) => h.version)).toEqual(["00745", "00746"]);
+  });
+
+  it("still refuses a colon that is a sentence away, so prose cannot arm it", () => {
+    // The loosening above buys tolerance between the keyword and ITS colon, on
+    // one heading line. It must not stretch across a whole sentence, or the
+    // doc's own explanatory headings would block every push.
+    const doc = "## Why 00745 is HELD and what applying it changes: read this first";
+    expect(heldMigrations(doc)).toEqual([]);
+  });
+
   it("survives a lost emoji, because a copy-paste that drops it must not disarm the gate", () => {
     const doc = "## HELD: 00512_job_lock_holder_release.sql (US-2311)";
     expect(heldMigrations(doc).map((h) => h.version)).toEqual(["00512"]);
