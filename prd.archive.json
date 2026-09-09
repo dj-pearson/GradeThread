@@ -45846,6 +45846,18 @@
         "Do NOT collapse the two into one mechanism in this story. The zustand store is read synchronously by pure helpers like description-block-bulk via getState(), and moving that to a database read is a larger change than this defect warrants."
       ],
       "notes": "Done 2026-09-09. Worth knowing for later: buyers currently see NO measurements anywhere in the product, so this toggle's visible effect today is on the seller-side surfaces a buyer account can also reach (body profiles). If a buyer-facing measurement display is ever built, it reads the store and needs nothing further."
+    },
+    {
+      "id": "US-3253",
+      "passes": true,
+      "title": "A lone carriage return in a cell splits the CSV row",
+      "description": "escapeCsvCell quotes a cell when it contains a comma, a double quote, or a newline. It does not check for a carriage return. A Windows-pasted value carries CRLF and is caught, because CRLF contains a newline, but a LONE CR is not: the cell is emitted unquoted with a raw CR inside it, and most parsers including Excel treat a bare CR as a row terminator. The row splits in two at that point and every column after it shifts by one for the rest of the file. This is the escaper behind every FlipDesk CSV: the inventory export, the sales and financials export used for bookkeeping, and the Schedule C tax packet. The values are marketplace-sourced titles, buyer usernames and free-text notes, which is exactly where a stray CR arrives from. Formula injection is already handled correctly by neutralizeCsvFormula (US-1636); this is the separate quoting rule beside it.",
+      "acceptanceCriteria": [
+        "escapeCsvCell quotes on a carriage return as well, so any CR travels inside quotes rather than terminating the row.",
+        "Tests cover the three cases that distinguish the bug: a lone CR, a CRLF (which already worked, so it must keep working), and a plain value that must stay unquoted for readability in Excel.",
+        "Do not widen this into re-quoting everything. The un-quoted path is deliberate and the comment says why; the fix is one more character in the condition, not a policy change."
+      ],
+      "notes": "Done 2026-09-09. Sabotage-checked: removing the CR clause fails two cases by name. Verified against the CSV suites (19 tests); no CSV was opened in Excel."
     }
   ]
 }
