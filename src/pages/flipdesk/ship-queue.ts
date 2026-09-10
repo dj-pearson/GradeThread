@@ -111,3 +111,71 @@ export function rankShipQueue<T extends { id: string; shipBy: string | null }>(
     return a.id.localeCompare(b.id);
   });
 }
+
+// ── US-3190: which write path one order actually has ────────────────────────
+//
+// The queue is every completed sale with no shipped_at — not every eBay sale —
+// and the card renders for a seller with no eBay connection at all
+// (post-sale.tsx, the not-connected branch). So the eBay ship route cannot be
+// the only way a row leaves the queue. It refuses two orders it was never
+// asked about:
+//
+//   409  the sale has no platform_order_id (flipdesk-ebay.ts:9799) — recorded
+//        by hand, or sold somewhere we do not push fulfillment to.
+//   503  eBay is not configured on this deployment (flipdesk-ebay.ts:9762), so
+//        there is nothing to push for ANY sale.
+//
+// In both the seller has typed a real tracking number for an order they have
+// really shipped, and the row must still leave the queue. ship-order-dialog.tsx
+// has always branched this way; the queue card did not, so the one seller the
+// card was added for — the manual one — could not use it.
+
+/**
+ * True when a failure from POST /orders/:saleId/ship means "this sale was never
+ * eBay's to mark shipped" rather than "the shipment failed".
+ *
+ * 502 is deliberately NOT in here: it means eBay REJECTED the tracking number,
+ * and writing shipped_at anyway would drop the order out of the queue while the
+ * buyer still sees no tracking. An order the seller thinks is handled and eBay
+ * thinks is late is the exact state this whole queue exists to prevent.
+ */
+export function shipFallsBackToLocal(status: number | null | undefined): boolean {
+  return status === 409 || status === 503;
+}
+
+/** Which path actually recorded the shipment, so the toast can say so. */
+export type ShipPath = "ebay" | "local";
+
+export interface ShipOneOrderDeps {
+  /** POST the tracking to the eBay ship route. Rejects with `.status` set. */
+  pushToEbay: () => Promise<void>;
+  /** Write shipped_at + tracking straight onto the seller's own sales row. */
+  writeLocal: () => Promise<void>;
+}
+
+/**
+ * Ship one order down whichever path it has, and say which one that was.
+ *
+ * Pure of React and of Supabase — both writes are injected — so the branch a
+ * seller's data actually takes is testable without a browser.
+ */
+export async function shipOneOrder(
+  orderRef: string | null | undefined,
+  deps: ShipOneOrderDeps,
+): Promise<ShipPath> {
+  if (typeof orderRef !== "string" || orderRef.trim() === "") {
+    // No marketplace order to push to. Skip the round trip rather than spend it
+    // on a call whose only possible answer is 409.
+    await deps.writeLocal();
+    return "local";
+  }
+  try {
+    await deps.pushToEbay();
+    return "ebay";
+  } catch (err) {
+    const status = (err as { status?: number } | null | undefined)?.status;
+    if (!shipFallsBackToLocal(status)) throw err;
+    await deps.writeLocal();
+    return "local";
+  }
+}

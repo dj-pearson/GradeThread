@@ -23,7 +23,12 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { EmptyState } from "@/components/ui/empty-state";
 import { toastError } from "@/lib/toast-error";
 import { useShipQueue, type ShipQueueRow } from "@/hooks/use-ship-queue";
-import { shipCountdown, type ShipUrgency } from "@/pages/flipdesk/ship-queue";
+import {
+  shipCountdown,
+  shipOneOrder,
+  type ShipUrgency,
+} from "@/pages/flipdesk/ship-queue";
+import { supabase } from "@/lib/supabase";
 import { useEbayShipOrder } from "@/hooks/use-ebay";
 import { Checkbox } from "@/components/ui/checkbox";
 import { packingSlipDocument } from "@/pages/flipdesk/packing-slip";
@@ -59,6 +64,17 @@ function money(value: number): string {
 // uses. That route writes shipped_at AND pushes the fulfillment to eBay in one
 // step, so a row cannot leave this queue locally while eBay still shows it
 // unshipped — which is exactly the split a second write path would create.
+//
+// ── AND THE ORDER THAT IS NOT eBay'S ────────────────────────────────────────
+//
+// That route is right for an eBay order and refuses every other kind: 409 when
+// the sale has no platform_order_id, 503 when the deployment has no eBay
+// credentials at all. This queue holds EVERY completed unshipped sale and
+// renders in post-sale.tsx's not-connected branch, so both refusals land on
+// real sellers with real tracking numbers. shipOneOrder picks the path (see
+// pages/flipdesk/ship-queue.ts); the local write mirrors what the route writes
+// server-side — shipped_at, tracking_number, carrier — and nothing else, so the
+// two paths cannot leave a sale in different shapes.
 
 const URGENCY_STYLE: Record<ShipUrgency, string> = {
   overdue: "border-destructive/40 bg-destructive/10 text-destructive",
@@ -79,9 +95,11 @@ function ShipRow({
 }) {
   const [tracking, setTracking] = useState("");
   const [carrier, setCarrier] = useState("");
+  const [busy, setBusy] = useState(false);
   const ship = useEbayShipOrder();
   const qc = useQueryClient();
   const countdown = shipCountdown(row.shipBy);
+  const isEbayOrder = (row.orderRef ?? "").trim() !== "";
 
   async function submit() {
     const value = tracking.trim();
@@ -89,18 +107,44 @@ function ShipRow({
       toast.error("Enter the tracking number first.");
       return;
     }
+    // `busy` rather than ship.isPending: the local path never touches that
+    // mutation, so the button would stay live through the whole write.
+    setBusy(true);
     try {
-      await ship.mutateAsync({
-        saleId: row.id,
-        trackingNumber: value,
-        carrier: carrier.trim() || null,
+      const path = await shipOneOrder(row.orderRef, {
+        pushToEbay: async () => {
+          await ship.mutateAsync({
+            saleId: row.id,
+            trackingNumber: value,
+            carrier: carrier.trim() || null,
+          });
+        },
+        writeLocal: async () => {
+          const { error } = await supabase
+            .from("sales")
+            .update({
+              shipped_at: new Date().toISOString(),
+              tracking_number: value,
+              // Keep an existing carrier when the seller left the box empty,
+              // the same way the ship route does.
+              ...(carrier.trim() ? { carrier: carrier.trim() } : {}),
+            } as never)
+            .eq("id", row.id);
+          if (error) throw error;
+        },
       });
-      toast.success("Marked shipped, and the tracking is on eBay.");
+      toast.success(
+        path === "ebay"
+          ? "Marked shipped, and the tracking is on eBay."
+          : "Marked shipped.",
+      );
       // The row leaves this queue because shipped_at is now set; the needs-you
       // merge reads the same query, so both surfaces update from one refetch.
       await qc.invalidateQueries({ queryKey: ["ship_queue"] });
     } catch (err) {
       toastError(err, "Could not mark it shipped.");
+    } finally {
+      setBusy(false);
     }
   }
 
@@ -223,15 +267,20 @@ function ShipRow({
             type="button"
             size="sm"
             onClick={submit}
-            disabled={ship.isPending}
+            disabled={busy}
             className="h-8 gap-1 whitespace-nowrap"
             // US-3209: name what the button DOES, because it does two things and
             // the seller can only see one of them. It writes the tracking here
-            // AND uploads the fulfillment to eBay in the same call.
-            title="Saves the tracking here and uploads it to eBay in one step."
+            // AND uploads the fulfillment to eBay in the same call \u2014 except on
+            // a sale eBay never had, where saying so would be a lie.
+            title={
+              isEbayOrder
+                ? "Saves the tracking here and uploads it to eBay in one step."
+                : "Saves the tracking here. This order has no eBay reference, so there is nothing to upload."
+            }
           >
             <Truck aria-hidden="true" className="h-3.5 w-3.5" />
-            {ship.isPending ? "Sending\u2026" : "Ship"}
+            {busy ? "Saving\u2026" : "Ship"}
           </Button>
         </div>
       </TableCell>

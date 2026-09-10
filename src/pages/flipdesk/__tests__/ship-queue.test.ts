@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { rankShipQueue, shipCountdown } from "@/pages/flipdesk/ship-queue";
+import {
+  rankShipQueue,
+  shipCountdown,
+  shipFallsBackToLocal,
+  shipOneOrder,
+} from "@/pages/flipdesk/ship-queue";
 
 // A fixed clock so the bands are tested AT their edges, not near them.
 const NOW = Date.parse("2026-09-08T12:00:00.000Z");
@@ -112,5 +117,114 @@ describe("rankShipQueue", () => {
     const before = rows.map((r) => r.id);
     rankShipQueue(rows);
     expect(rows.map((r) => r.id)).toEqual(before);
+  });
+});
+
+// ── US-3190 AC4: the sale that is not eBay's to mark shipped ────────────────
+//
+// The queue is every completed unshipped sale, not every eBay one, and the card
+// renders for a seller with no eBay connection at all (post-sale.tsx). Those
+// two facts together mean the ship route CANNOT be the only write path: it
+// answers 409 for a sale with no platform_order_id and 503 when the deployment
+// has no eBay credentials, and on both the seller had typed a real tracking
+// number for an order they had really shipped.
+
+describe("shipFallsBackToLocal", () => {
+  it("treats 409 (no eBay order id) as a local write, not a failure", () => {
+    expect(shipFallsBackToLocal(409)).toBe(true);
+  });
+
+  it("treats 503 (eBay not configured here) as a local write", () => {
+    expect(shipFallsBackToLocal(503)).toBe(true);
+  });
+
+  it("does NOT fall back on 502 — eBay rejected the tracking number", () => {
+    // The one that must stay a failure. Writing shipped_at here would drop the
+    // order out of the queue while the buyer still sees no tracking on eBay.
+    expect(shipFallsBackToLocal(502)).toBe(false);
+  });
+
+  it("does not fall back on an unknown or missing status", () => {
+    expect(shipFallsBackToLocal(undefined)).toBe(false);
+    expect(shipFallsBackToLocal(null)).toBe(false);
+    expect(shipFallsBackToLocal(500)).toBe(false);
+    expect(shipFallsBackToLocal(401)).toBe(false);
+  });
+});
+
+describe("shipOneOrder", () => {
+  function spies() {
+    const calls: string[] = [];
+    return {
+      calls,
+      pushToEbay: async () => {
+        calls.push("ebay");
+      },
+      writeLocal: async () => {
+        calls.push("local");
+      },
+    };
+  }
+
+  it("pushes to eBay when the sale carries an order reference", async () => {
+    const s = spies();
+    await expect(shipOneOrder("12-34567-89012", s)).resolves.toBe("ebay");
+    expect(s.calls).toEqual(["ebay"]);
+  });
+
+  it("writes locally without calling eBay when there is no order reference", async () => {
+    const s = spies();
+    await expect(shipOneOrder(null, s)).resolves.toBe("local");
+    expect(s.calls).toEqual(["local"]);
+  });
+
+  it("treats a blank order reference as no reference", async () => {
+    const s = spies();
+    await expect(shipOneOrder("   ", s)).resolves.toBe("local");
+    expect(s.calls).toEqual(["local"]);
+  });
+
+  it("falls back to the local write when the route answers 409", async () => {
+    const calls: string[] = [];
+    const got = await shipOneOrder("12-34567-89012", {
+      pushToEbay: async () => {
+        calls.push("ebay");
+        throw Object.assign(new Error("no eBay order id"), { status: 409 });
+      },
+      writeLocal: async () => {
+        calls.push("local");
+      },
+    });
+    expect(got).toBe("local");
+    expect(calls).toEqual(["ebay", "local"]);
+  });
+
+  it("rethrows a 502 and never writes shipped_at", async () => {
+    const calls: string[] = [];
+    await expect(
+      shipOneOrder("12-34567-89012", {
+        pushToEbay: async () => {
+          calls.push("ebay");
+          throw Object.assign(new Error("eBay rejected the tracking upload."), {
+            status: 502,
+          });
+        },
+        writeLocal: async () => {
+          calls.push("local");
+        },
+      }),
+    ).rejects.toThrow("eBay rejected the tracking upload.");
+    expect(calls).toEqual(["ebay"]);
+  });
+
+  it("propagates a failure of the local write itself", async () => {
+    await expect(
+      shipOneOrder(null, {
+        pushToEbay: async () => {},
+        writeLocal: async () => {
+          throw new Error("row level security");
+        },
+      }),
+    ).rejects.toThrow("row level security");
   });
 });

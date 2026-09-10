@@ -4338,24 +4338,6 @@
       "priority": 15
     },
     {
-      "id": "US-3190",
-      "passes": false,
-      "title": "Nothing in FlipDesk counts down to a shipping deadline, the one clock a seller is scored on",
-      "description": "As a reseller, I want one ranked list of orders waiting to ship with the time left on each, so that I ship in deadline order instead of scrolling a listings table.",
-      "acceptanceCriteria": [
-        "src/pages/flipdesk/needs-you.ts gains a 'shipment' NeedsYouKind with a KIND_LABEL entry, ranked by the existing deadline-then-money rule; a sale with a null ship_by sorts last exactly like every other deadline-less item",
-        "A Ship tab on src/pages/flipdesk/post-sale.tsx lists sales with status 'completed', shipped_at null, ordered by ship_by ascending, showing garment, order ref, location_bin and time remaining",
-        "Time remaining renders as overdue / hours / days from a pure function with unit tests; an overdue row is distinguishable without relying on color alone (WCAG 1.4.1)",
-        "Entering a tracking number from that row sets shipped_at and removes the row from the queue in the same mutation, and the eBay push path already at flipdesk-ebay.ts /orders/:saleId/ship is reused rather than duplicated",
-        "The list reads sales scoped to the signed-in tenant and a seller with zero unshipped sales sees an empty state, not a spinner or an error"
-      ],
-      "priority": 2,
-      "dependsOn": [
-        "US-3189"
-      ],
-      "notes": "Done 2026-09-08 (this session). AC1: needs-you.ts gains a 'shipment' NeedsYouKind with its KIND_LABEL entry, merged in useNeedsYou from the new useShipQueue and ranked by the existing deadline-then-money rule; an undated order sorts last exactly like a cancellation with no eBay deadline. AC2: a Ship card on post-sale.tsx (not a tab - the page is a stack of cards, and a card matches its own idiom) listing completed sales with shipped_at null, ordered by ship_by, showing garment, order ref, location_bin and time remaining. It also renders in the NOT-CONNECTED branch, because the queue reads the seller's own sales rows rather than calling eBay and shipping late costs a manual seller just as much. AC3: shipCountdown in ship-queue.ts is pure with 14 tests at the band edges; an overdue row carries the word 'Overdue by N days' and an AlertTriangle, not only a red badge (WCAG 1.4.1). AC4: submitting tracking reuses the existing /orders/:saleId/ship route, which writes shipped_at and pushes the fulfillment to eBay in one step, so a row cannot leave the queue locally while eBay still shows it unshipped. AC5: RLS scopes the read; zero unshipped sales renders an EmptyState. src/test/flipdesk-action-widgets.test.ts updated from six queues to seven."
-    },
-    {
       "id": "US-3191",
       "passes": false,
       "title": "There is no packing slip, so what goes in the box is retyped or remembered",
