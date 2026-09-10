@@ -10,6 +10,14 @@ Coverage is measured the way the size-guide panel resolves a chart: a real brand
 - 27 charts link the brand's own guide; 0 have been checked against it by a human.
 - 77 brands are missing at least one group they should cover.
 
+Worked dead ends, skipped by `--gaps` and still listed below:
+
+- **FRAME** — frame-store.com's own Denim Fit Guide page renders empty and its product pages carry no size link; every FRAME chart online belongs to a reseller (US-3284)
+- **Bonobos** — publishes a qualitative fit guide — body type and cut, no measurements (US-3285)
+- **Mackage** — its own /pages/size-chart renders with no table (US-3285)
+- **Barbour** — barbour.com/us/size-guide served the site's technical-difficulties page (US-3285)
+- **Hudson Jeans** — prints tops and jackets bust runs three inches apart without saying whether either is a body or a garment measurement (US-3285)
+
 | Group | Brands covered |
 |---|---:|
 | top | 109 |

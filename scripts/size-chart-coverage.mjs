@@ -21,6 +21,7 @@
 //   deno run --allow-read --allow-write scripts/size-chart-coverage.mjs
 //   deno run --allow-read scripts/size-chart-coverage.mjs --json
 //   deno run --allow-read scripts/size-chart-coverage.mjs --gaps --limit 10
+//   deno run --allow-read scripts/size-chart-coverage.mjs --gaps --all
 //
 // `--gaps` is the backfill loop's input: the brands with the most missing
 // groups, worst first, as a plain list to work through.
@@ -52,6 +53,31 @@ const GROUP_QUERIES = {
 };
 
 const GROUPS = Object.keys(GROUP_QUERIES);
+
+/**
+ * Brands whose gap has been WORKED and cannot be closed from the brand itself.
+ *
+ * `--gaps` skips these, and that skip is the point: without it the loop re-offers
+ * the same dead ends at the top of every batch, because "worst gap first" ranks
+ * a brand by what is missing and a brand with no publishable chart is missing
+ * the most. Batch 2 lost turns to exactly that.
+ *
+ * The bar for an entry is a reason a reader can check, not a shrug — and the
+ * brand still appears in the report's table with its gap visible, so nothing is
+ * hidden. Re-check these when a batch runs dry: a brand that took its guide down
+ * can put one back.
+ */
+const WORKED_DEAD_ENDS = {
+  "FRAME":
+    "frame-store.com's own Denim Fit Guide page renders empty and its product pages carry no size link; every FRAME chart online belongs to a reseller (US-3284)",
+  "Bonobos":
+    "publishes a qualitative fit guide — body type and cut, no measurements (US-3285)",
+  "Mackage": "its own /pages/size-chart renders with no table (US-3285)",
+  "Barbour":
+    "barbour.com/us/size-guide served the site's technical-difficulties page (US-3285)",
+  "Hudson Jeans":
+    "prints tops and jackets bust runs three inches apart without saying whether either is a body or a garment measurement (US-3285)",
+};
 
 /**
  * The route's own narrowing, copied rather than imported: flipdesk-size-bands.ts
@@ -159,6 +185,12 @@ function markdown(rows, sum) {
   );
   out.push(`- ${sum.brandsWithGaps} brands are missing at least one group they should cover.`);
   out.push("");
+  out.push("Worked dead ends, skipped by `--gaps` and still listed below:");
+  out.push("");
+  for (const [brand, why] of Object.entries(WORKED_DEAD_ENDS)) {
+    out.push(`- **${brand}** — ${why}`);
+  }
+  out.push("");
   out.push("| Group | Brands covered |");
   out.push("|---|---:|");
   for (const g of GROUPS) out.push(`| ${g} | ${sum.brandsPerGroup[g]} |`);
@@ -179,6 +211,8 @@ function markdown(rows, sum) {
 
 // ── Run ─────────────────────────────────────────────────────────────────────
 
+const NL = String.fromCharCode(10);
+const TAB = String.fromCharCode(9);
 const args = Deno.args;
 const rows = buildCoverage();
 const sum = summarize(rows);
@@ -188,13 +222,22 @@ if (args.includes("--json")) {
 } else if (args.includes("--gaps")) {
   const limitAt = args.indexOf("--limit");
   const limit = limitAt >= 0 ? Number(args[limitAt + 1]) : 10;
+  const withDeadEnds = args.includes("--all");
   const gaps = rows
     .filter((r) => r.missing.length > 0)
+    .filter((r) => withDeadEnds || !WORKED_DEAD_ENDS[r.brand])
     // Worst first, then alphabetically so a rerun produces the same batch.
     .sort((a, b) => b.missing.length - a.missing.length || a.brand.localeCompare(b.brand))
     .slice(0, Number.isFinite(limit) ? limit : 10);
   for (const r of gaps) {
-    console.log(`${r.brand}\tmissing: ${r.missing.join(", ")}\thas: ${r.chartCount} chart(s)`);
+    console.log(
+      r.brand + TAB + "missing: " + r.missing.join(", ") +
+        TAB + "has: " + r.chartCount + " chart(s)",
+    );
+  }
+  if (!withDeadEnds) {
+    const n = Object.keys(WORKED_DEAD_ENDS).length;
+    console.log(NL + "(" + n + " worked dead end(s) skipped; --all includes them)");
   }
 } else {
   await Deno.writeTextFile(OUT, markdown(rows, sum));
