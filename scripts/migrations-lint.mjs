@@ -368,6 +368,127 @@ export function unguardedCreates(sqlFiles, read) {
   return hits;
 }
 
+// ── 7. A mutation with no WHERE clause (US-3298) ─────────────────────────────
+//
+// Production loads the `safeupdate` extension. It rejects any UPDATE or DELETE
+// with no WHERE clause, raising SQLSTATE 21000 — "DELETE requires a WHERE
+// clause" — and PostgREST turns that into HTTP 400.
+//
+// WHY THIS HAS TO BE CAUGHT AT AUTHORING TIME. The local stack does not have
+// the extension (pg_available_extensions has no row for it on the PostgreSQL
+// 17.6 image, checked 2026-09-09), so the statement applies green here, applies
+// green in `verify:db`, applies green in the db-migrations lane, and only fails
+// when a real user's request reaches production. That is the same shape as
+// US-1552's `.or()` on a mutation: prod's Postgres is stricter than the one CI
+// runs, in a way only a write can reveal.
+//
+// It cost four months. `DELETE FROM _acct;` was written in 00685, carried
+// forward verbatim by 00686, 00691, 00695 and 00697 — CREATE OR REPLACE takes a
+// whole body, so a rewrite copies the bug — and it is the FIRST statement
+// rebuild_ledger_for_user runs after its authorization check. So the function
+// never completed a single run in production, ledger_entries stayed empty for
+// every seller, and the entire Money tab read $0.00 with no error on screen.
+//
+// ⚠ THE FIX IS TRUNCATE, NOT `WHERE true`. safeupdate inspects the PLANNED
+// statement and the planner constant-folds a true qual away before it gets
+// there. TRUNCATE is a utility statement, so safeupdate never sees it — and on
+// the temp table this rule was written for it is cheaper anyway.
+//
+// A statement is only checked where one can START: at the beginning of a file
+// or after `;`, `begin`, `then`, `else`, `loop`, `declare`, or a `$$` body
+// opener. Without that anchor `FOR UPDATE`, `ON UPDATE`, `... FOR EACH ROW`
+// and a policy named "update own profile" all match, which is what the first
+// version of this rule did — 41 KB of findings, none of them real.
+export const MUTATION_START =
+  /(?:^|;|\bbegin\b|\bthen\b|\belse\b|\bloop\b|\$\$|\bdeclare\b)\s*(delete\s+from|update)\s+((?:only\s+)?[a-z0-9_.]+)\b([\s\S]*?);/gi;
+
+/**
+ * Comments, string literals and quoted identifiers replaced with inert stand-ins.
+ *
+ * Stricter than {@link stripSqlComments}, which is a plain regex and would take
+ * a `--` inside a string literal for a comment. This rule reads whole statement
+ * bodies rather than single keywords, so a literal containing the word "where"
+ * — or a `;` — would decide the answer.
+ */
+export function blankSqlLiterals(sql) {
+  let out = "";
+  let i = 0;
+  while (i < sql.length) {
+    if (sql[i] === "-" && sql[i + 1] === "-") {
+      while (i < sql.length && sql[i] !== "\n") i++;
+      out += "\n";
+      continue;
+    }
+    if (sql[i] === "/" && sql[i + 1] === "*") {
+      i += 2;
+      while (i < sql.length && !(sql[i] === "*" && sql[i + 1] === "/")) i++;
+      i += 2;
+      continue;
+    }
+    if (sql[i] === "'") {
+      out += "''";
+      i++;
+      while (i < sql.length) {
+        if (sql[i] === "'" && sql[i + 1] === "'") { i += 2; continue; }
+        if (sql[i] === "'") { i++; break; }
+        i++;
+      }
+      continue;
+    }
+    if (sql[i] === '"') {
+      out += '"q"';
+      i++;
+      while (i < sql.length && sql[i] !== '"') i++;
+      i++;
+      continue;
+    }
+    out += sql[i];
+    i++;
+  }
+  return out;
+}
+
+/**
+ * The ones that already shipped, by `file:line-of-the-statement`.
+ *
+ * All five are the same `DELETE FROM _acct;` inside successive rewrites of
+ * rebuild_ledger_for_user. Applied migrations are immutable, so they are fixed
+ * forward: 00777 replaces the function with TRUNCATE. The list may only shrink,
+ * and a stale entry fails as loudly as a new violation.
+ */
+export const WHERELESS_GRANDFATHERED = new Set([
+  "00685_ledger_entries.sql:DELETE FROM _acct",
+  "00686_ledger_rebuild_no_revoke.sql:DELETE FROM _acct",
+  "00691_facilitator_sales_tax.sql:DELETE FROM _acct",
+  "00695_mileage_log.sql:DELETE FROM _acct",
+  "00697_home_office.sql:DELETE FROM _acct",
+]);
+
+/** Every WHERE-less UPDATE/DELETE in `sqlFiles`. Returns `{ file, line, stmt, key }`. */
+export function whereLessMutations(sqlFiles, read) {
+  const hits = [];
+  for (const file of sqlFiles) {
+    const sql = blankSqlLiterals(read(file));
+    MUTATION_START.lastIndex = 0;
+    let m;
+    while ((m = MUTATION_START.exec(sql))) {
+      // Resume ON the terminating `;`, not after it. That semicolon is the
+      // next statement's own start anchor, and consuming it made the rule blind
+      // to any mutation directly following another one.
+      MUTATION_START.lastIndex = m.index + m[0].length - 1;
+      const [, keyword, target, rest] = m;
+      // `UPDATE <name>` with no SET is `FOR UPDATE OF t`, `ON UPDATE CASCADE`
+      // and friends — a clause, not a statement.
+      if (/^update$/i.test(keyword.trim()) && !/^\s*set\b/i.test(rest)) continue;
+      if (/\bwhere\b/i.test(rest)) continue;
+      const line = sql.slice(0, m.index).split("\n").length;
+      const stmt = `${keyword.replace(/\s+/g, " ").toUpperCase()} ${target}`;
+      hits.push({ file, line, stmt, key: `${file}:${stmt}` });
+    }
+  }
+  return hits;
+}
+
 // ── Runner ───────────────────────────────────────────────────────────────────
 export function lint() {
   const failures = [];
@@ -506,6 +627,43 @@ export function lint() {
         `  The list may only shrink, so remove them. But check WHY they stopped ` +
         `matching first: an applied migration is immutable, so the honest reason ` +
         `is that a later migration fixed the grant — not that this file changed.`,
+    );
+  }
+
+  // US-3298: a mutation with no WHERE clause. Rejected by `safeupdate` in
+  // production with SQLSTATE 21000, accepted silently everywhere we test.
+  const whereless = whereLessMutations(sqlFiles, (f) => readFileSync(join(MIG_DIR, f), "utf8"));
+  for (const h of whereless.filter((x) => !WHERELESS_GRANDFATHERED.has(x.key))) {
+    fail(
+      `${MIG_PREFIX}/${h.file}:${h.line}: \`${h.stmt}\` has no WHERE clause.\n` +
+        `  Production loads the \`safeupdate\` extension, which rejects this with ` +
+        `SQLSTATE 21000 ("DELETE requires a WHERE clause"). PostgREST returns ` +
+        `HTTP 400 and the surrounding function aborts on that statement.\n` +
+        `  Nothing downstream of here can catch it: safeupdate is NOT installed ` +
+        `on the local image, so the statement applies green locally, in ` +
+        `verify:db and in the db-migrations lane. It fails for the first time ` +
+        `on a real user's request.\n` +
+        `  To clear a table completely, write \`TRUNCATE TABLE x;\` — a utility ` +
+        `statement, which safeupdate never inspects. Do NOT write \`WHERE true\`: ` +
+        `the planner constant-folds a true qual away before safeupdate sees the ` +
+        `plan, so it is a coin flip. If you mean to touch every row, name the ` +
+        `predicate that says so (\`WHERE user_id = p_user_id\`).\n` +
+        `  Worked example: 00697's \`DELETE FROM _acct;\` meant ` +
+        `rebuild_ledger_for_user never completed a single run in production for ` +
+        `four months, so the whole Money tab read $0.00 with no error on screen ` +
+        `(US-3298). It shipped in 00685 and four later rewrites copied it.`,
+    );
+  }
+  const fixedWhereless = [...WHERELESS_GRANDFATHERED].filter(
+    (k) => !whereless.some((h) => h.key === k),
+  );
+  if (fixedWhereless.length > 0) {
+    fail(
+      `${fixedWhereless.length} WHERELESS_GRANDFATHERED entr(y/ies) no longer ` +
+        `match: ${fixedWhereless.join(", ")}\n` +
+        `  The list may only shrink, so remove them. Check WHY first: an applied ` +
+        `migration is immutable, so the honest reason is a later migration ` +
+        `replacing the object — not an edit to a shipped file.`,
     );
   }
 

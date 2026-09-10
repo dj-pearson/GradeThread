@@ -26,6 +26,8 @@ import {
   shapeFailures,
   SIX_DIGIT_BY_DESIGN,
   unguardedCreates,
+  whereLessMutations,
+  WHERELESS_GRANDFATHERED,
 } from "./migrations-lint.mjs";
 
 const read = (p) => readFileSync(resolve(process.cwd(), p), "utf8");
@@ -325,6 +327,76 @@ describe("safe to run twice (US-2837)", () => {
       .filter((h) => h.version <= IDEMPOTENT_GRANDFATHERED_THROUGH);
     expect(hits.filter((h) => h.kind === "trigger").length).toBe(GRANDFATHERED_UNGUARDED_TRIGGERS);
     expect(hits.filter((h) => h.kind === "policy").length).toBe(GRANDFATHERED_UNGUARDED_POLICIES);
+  });
+});
+
+describe("a mutation with no WHERE clause (US-3298)", () => {
+  const scan = (sql) => whereLessMutations(["00999_probe.sql"], () => sql);
+
+  it("catches the statement that cost four months of Money-tab zeros", () => {
+    expect(scan("DELETE FROM _acct;").map((h) => h.stmt)).toEqual(["DELETE FROM _acct"]);
+  });
+
+  it("catches a WHERE-less UPDATE, and two mutations in a row", () => {
+    // The first version of this rule resumed AFTER the terminating semicolon,
+    // which is the next statement's own start anchor — so it saw the first
+    // violation in a file and none of the ones following it.
+    const hits = scan("DELETE FROM a;\nUPDATE b SET x = 1;\n");
+    expect(hits.map((h) => h.stmt)).toEqual(["DELETE FROM a", "UPDATE b"]);
+  });
+
+  it("accepts a mutation that has a predicate", () => {
+    expect(scan("DELETE FROM a WHERE id = 1; UPDATE b SET x = 1 WHERE y;")).toEqual([]);
+  });
+
+  it("does not mistake a clause for a statement", () => {
+    // `FOR UPDATE`, `ON UPDATE CASCADE`, `BEFORE UPDATE ON`, and a policy whose
+    // NAME contains the word are all legal and none of them mutate anything.
+    // Without the statement-start anchor these matched, and the rule reported
+    // 41 KB of findings with nothing real in it.
+    const sql = [
+      "SELECT * FROM a FOR UPDATE;",
+      "CREATE TRIGGER t BEFORE UPDATE ON public.users FOR EACH ROW EXECUTE FUNCTION f();",
+      'ALTER TABLE a ADD CONSTRAINT c FOREIGN KEY (b) REFERENCES d(id) ON UPDATE CASCADE;',
+      'CREATE POLICY "Users can update own profile" ON public.users FOR UPDATE USING (true);',
+    ].join("\n");
+    expect(scan(sql)).toEqual([]);
+  });
+
+  it("is not fooled by a comment or a string literal", () => {
+    // stripSqlComments is a plain regex and would take the `--` inside the
+    // literal for a comment, swallowing the rest of the line.
+    expect(scan("-- DELETE FROM a;\nSELECT 'x -- where y';\nDELETE FROM b;").map((h) => h.stmt))
+      .toEqual(["DELETE FROM b"]);
+    // A literal must not supply the WHERE that makes a statement look safe.
+    expect(scan("DELETE FROM a WHERE t = 'no where here';")).toEqual([]);
+    expect(scan("UPDATE a SET memo = 'where';").map((h) => h.stmt)).toEqual(["UPDATE a"]);
+  });
+
+  it("finds the statement inside a function body", () => {
+    // Where every real instance lived: CREATE OR REPLACE takes a whole body, so
+    // four later rewrites of rebuild_ledger_for_user copied the bug forward.
+    const sql = [
+      "CREATE OR REPLACE FUNCTION f() RETURNS void LANGUAGE plpgsql AS $$",
+      "BEGIN",
+      "  DELETE FROM _acct;",
+      "END;",
+      "$$;",
+    ].join("\n");
+    expect(scan(sql).map((h) => h.stmt)).toEqual(["DELETE FROM _acct"]);
+  });
+
+  it("accepts TRUNCATE, which is what the fix uses", () => {
+    // Not `WHERE true`: the planner constant-folds a true qual away before
+    // safeupdate inspects the plan.
+    expect(scan("TRUNCATE TABLE _acct;")).toEqual([]);
+  });
+
+  it("the real tree has exactly the five grandfathered instances, and no more", () => {
+    const names = readdirSync(resolve(process.cwd(), "supabase/migrations"))
+      .filter((f) => f.endsWith(".sql"));
+    const hits = whereLessMutations(names, (f) => read(`supabase/migrations/${f}`));
+    expect(hits.map((h) => h.key).sort()).toEqual([...WHERELESS_GRANDFATHERED].sort());
   });
 });
 

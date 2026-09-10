@@ -6,9 +6,9 @@ Coverage is measured the way the size-guide panel resolves a chart: a real brand
 
 ## Where it stands
 
-- 167 brands, 313 brand-specific charts.
-- 27 charts link the brand's own guide; 0 have been checked against it by a human.
-- 77 brands are missing at least one group they should cover.
+- 167 brands, 314 brand-specific charts.
+- 28 charts link the brand's own guide; 0 have been checked against it by a human.
+- 76 brands are missing at least one group they should cover.
 
 Worked dead ends, skipped by `--gaps` and still listed below:
 
@@ -17,13 +17,16 @@ Worked dead ends, skipped by `--gaps` and still listed below:
 - **Mackage** — its own /pages/size-chart renders with no table (US-3285)
 - **Barbour** — barbour.com/us/size-guide served the site's technical-difficulties page (US-3285)
 - **Hudson Jeans** — prints tops and jackets bust runs three inches apart without saying whether either is a body or a garment measurement (US-3285)
+- **Rag & Bone** — its size-chart page renders three of the run's rows and a corrupted conversion table, and its own how-to-measure describes measuring a GARMENT flat, so the basis is unstated (US-3286)
+- **PAIGE** — paige.com/size-guide renders no chart at all (US-3286)
+- **Moncler** — the size guide sits behind a panel that never emits a table; the 0-5 scale is published only as prose (US-3286)
 
 | Group | Brands covered |
 |---|---:|
-| top | 109 |
+| top | 110 |
 | bottom | 92 |
 | dress | 51 |
-| outerwear | 96 |
+| outerwear | 97 |
 | suit | 31 |
 | shoes | 27 |
 | bag | 10 |
@@ -169,7 +172,7 @@ Worked dead ends, skipped by `--gaps` and still listed below:
 | Saucony | 2 |  |  |  |  |  | Men, Women |  |  |  |  |  |
 | Savage X Fenty | 2 |  |  |  |  |  |  |  |  |  |  |  |
 | Sézane | 1 | Women |  | Women | Women |  |  |  |  |  |  | bottom |
-| SKIMS | 1 |  | Women | Women |  |  |  |  |  |  |  | top, outerwear |
+| SKIMS | 2 | Women | Women | Women | Women |  |  |  |  |  |  |  |
 | Sorel | 2 |  |  |  |  |  | Men, Women | Men |  |  |  |  |
 | Sp5der | 1 | Unisex |  |  | Unisex |  |  |  |  |  |  | bottom |
 | Spanx | 1 |  | Women |  |  |  |  |  |  |  |  | top, outerwear |

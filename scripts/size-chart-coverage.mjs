@@ -77,6 +77,11 @@ const WORKED_DEAD_ENDS = {
     "barbour.com/us/size-guide served the site's technical-difficulties page (US-3285)",
   "Hudson Jeans":
     "prints tops and jackets bust runs three inches apart without saying whether either is a body or a garment measurement (US-3285)",
+  "Rag & Bone":
+    "its size-chart page renders three of the run's rows and a corrupted conversion table, and its own how-to-measure describes measuring a GARMENT flat, so the basis is unstated (US-3286)",
+  "PAIGE": "paige.com/size-guide renders no chart at all (US-3286)",
+  "Moncler":
+    "the size guide sits behind a panel that never emits a table; the 0-5 scale is published only as prose (US-3286)",
 };
 
 /**

@@ -6,7 +6,7 @@
 -- WHY: the chart shape had department and a free-text garment scope and nowhere
 -- to record WHICH NATIONAL SYSTEM a size label is written in, so the corpus
 -- encoded it inside the label itself — "UK 10 (US 6)", "IT 48 (US 38)",
--- "FR 36 (US 4)", "JP L (=US M)". 115 of 316 charts do this. Every one of
+-- "FR 36 (US 4)", "JP L (=US M)". 115 of 317 charts do this. Every one of
 -- those parentheses is a workaround for a missing field.
 --
 -- The prose is KEPT. This migration adds the structured field beside it; it

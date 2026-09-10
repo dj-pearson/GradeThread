@@ -128,6 +128,25 @@ the batch file a second time.
 - Every new chart carries a `sourceUrl` pointing at the brand's own page.
 - The parity test passes, so the DB seed and the in-code corpus agree.
 
+## The yield split, and what it means for the rest of the loop
+
+Three batches in, the corpus divides cleanly and it is not about brand size:
+
+- **Mass-market retailers publish a plain HTML size table at a stable URL.**
+  American Eagle, Banana Republic, Champion, Levi's, Dickies, Madewell, Duluth,
+  SKIMS. Batch 1 closed 9 of 10 and batch 2 closed 4 of 10 from this half.
+- **Premium and streetwear labels mostly do not.** rag & bone renders three rows
+  of its own run plus a corrupted conversion table; PAIGE's `/size-guide` renders
+  no chart; Moncler's sits behind a panel that emits no table; Mackage's page is
+  empty; FRAME's fit guide is blank; PacSun's `/size-chart.html` and Kith's
+  `/pages/size-guide` are 404s. Batch 3 closed **1 of 10**.
+
+The gap list is now mostly the second kind, so expect a batch to close two or
+three rather than nine. That is the loop working: a batch that ships three
+sourced charts and seven checkable reasons is worth more than one that ships ten
+charts where seven are guesses. When a batch closes almost nothing, the useful
+move is to say so rather than to lower the sourcing bar.
+
 ## Where it stands
 
 2026-09-09, before batch 1: 167 brands, 289 brand-specific charts, **0 charts
@@ -135,12 +154,14 @@ carrying the brand's own guide URL** and 0 verified against one. That pair is wh
 the old Measurements link fell through to a Google search for nearly every brand:
 the fallback was not a fallback, it was the normal case.
 
-After batch 1 (US-3284): 308 charts, **19 of them sourced across 10 brands**, and
-81 brands still carrying a gap. Nine of the ten closed. **FRAME did not**, and
-that is the shape of exception this runbook expects: `frame-store.com`'s own
-Denim Fit Guide page renders empty, its product pages carry no size link, and
-every chart a search turns up belongs to a reseller. FRAME keeps its two denim
-charts and stays on the gap list until the brand publishes again.
+After batch 1 (US-3284): 308 charts, 19 sourced across 10 brands, 81 brands with
+a gap. Nine of ten closed; FRAME did not.
+
+After batch 2 (US-3285): 313 charts, 24 sourced across 14 brands, 77 with a gap.
+Four of ten closed (Dickies, Levi's, Madewell, Duluth).
+
+After batch 3 (US-3286): 314 charts, 25 sourced across 15 brands, 76 with a gap.
+One of ten closed (SKIMS).
 
 ⚠ The coverage report measures the IN-CODE corpus, not the database. Prod's
 `brand_size_charts` already held source URLs on the hand-written pack rows

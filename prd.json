@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-3298",
+  "nextId": "US-3299",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -5101,24 +5101,6 @@
       "priority": 2
     },
     {
-      "id": "US-3286",
-      "passes": false,
-      "title": "Size charts, batch 3 of 11: Rag & Bone to Anti Social Social Club",
-      "description": "Ten brands whose size-guide panel shows a gap for a garment group they sell. Follow vault/20-domain/brands/size-chart-coverage-backfill.md. Batch: Rag & Bone (top, outerwear, dress); Spanx (top, outerwear, dress); The North Face / Patagonia (outerwear) (top, bottom, dress); Tommy Hilfiger (bottom, outerwear, dress); True Religion (top, outerwear, dress); Uniqlo (bottom, outerwear, dress); Abercrombie & Fitch (outerwear, dress); Aerie (outerwear, dress); AimÃ© Leon Dore (bottom, dress); Anti Social Social Club (bottom, dress).",
-      "acceptanceCriteria": [
-        "Each brand in the batch has a SizingChart for every group the coverage report lists as missing, with categoryMatch words a seller would actually type",
-        "Every new chart sets sourceUrl to the brand's OWN published guide, never a reseller blog or a marketplace table",
-        "measurementBasis is set to flat only where the brand publishes garment specs; body charts leave it absent",
-        "verified stays absent unless a human compared the rows against sourceUrl, so the panel's tier badge cannot overstate an estimate",
-        "scripts/gen-sizing-chart-seed.mjs is re-run and the regenerated migration lands in the same commit; sizing-chart-parity_test.ts passes",
-        "docs/size-chart-coverage.md is regenerated and shows no remaining gap for these ten brands, or the story note names each exception and why"
-      ],
-      "priority": 4,
-      "dependsOn": [
-        "US-3283"
-      ]
-    },
-    {
       "id": "US-3287",
       "passes": false,
       "title": "Size charts, batch 4 of 11: Arc'teryx to Diesel",
@@ -5277,20 +5259,20 @@
       "priority": 2
     },
     {
-      "id": "US-3297",
+      "id": "US-3298",
       "passes": false,
-      "title": "Offers and Messages: tabbed tables instead of five stacked cards",
-      "description": "The offers screen renders five cards at once (threshold conflicts, best offers, watchers worth an offer, send offers, messages, analytics), each a full list of bordered row divs in a max-w-3xl column. At any real negotiation volume it is a long scroll with no way to sort by what expires first, no way to search a buyer, and offers and messages competing for the same screen. Rebuild it on the post-sale pattern (US-3208): one section per tab with a count badge, and replace the row-div lists with real sortable tables plus an expandable detail row for the counter/reply forms.",
+      "title": "The whole Money tab reads $0.00: rebuild_ledger_for_user has never completed a run in production",
+      "description": "As a reseller reading my books, I want the Money tab to show what my 220 sales actually earned, so that I am not filing a tax return from a page that confidently reports zero.",
       "acceptanceCriteria": [
-        "The page is a Tabs host with ?tab= persistence and legacy anchors resolving, in its own testable module like post-sale-tabs.ts",
-        "Best Offers renders as a sortable table (item, buyer, offer, % of asking, net, expires) that defaults to soonest-expiring first, with Accept/Counter/Decline in the row and the counter form in an expandable detail row",
-        "Buyer messages renders as a table (buyer, subject/preview, received, status) with the reply form in an expandable detail row, keeping the Needs-reply filter",
-        "Both tables have a text filter over item title and buyer name",
-        "Phones get a card list instead of the table, the same md: split listings.tsx uses",
-        "Tab badges show open offer count and unanswered message count, and never render a 0 that is really 'still loading'",
-        "npm run ui:check stays at zero and npx tsc -b passes"
-      ],
-      "priority": 30
+        "supabase/migrations/00777_ledger_rebuild_safeupdate.sql replaces public.rebuild_ledger_for_user(uuid) with the 00697 body unchanged except that 'DELETE FROM _acct;' becomes 'TRUNCATE TABLE _acct;'. Not 'WHERE true': the planner constant-folds a true qual away before safeupdate inspects the plan.",
+        "US-1108 triple: the migration is idempotent (CREATE OR REPLACE plus a re-issued GRANT, applied twice cleanly on the local stack), EXPECTED_SCHEMA_VERSION in services/edge-functions/src/lib/schema-version.ts is 00777 in the same commit, and the file ends with the applied_migrations self-record footer.",
+        "No REVOKE anywhere in the migration. GRANT EXECUTE ... TO public and TO service_role from 00686 are re-issued after the CREATE OR REPLACE, and authorization stays as the in-body 42501 check (US-2403: a denied EXECUTE from anon or authenticated restarts this Postgres image).",
+        "scripts/migrations-lint.mjs fails any NEW WHERE-less UPDATE or DELETE in supabase/migrations/, via whereLessMutations(); the five already-applied instances (00685, 00686, 00691, 00695, 00697 - all the same 'DELETE FROM _acct;') are grandfathered by name in WHERELESS_GRANDFATHERED, and a stale entry fails as loudly as a new violation.",
+        "scripts/migrations-lint.test.mjs proves the rule FIRES, not just that the tree is clean: cases for a WHERE-less DELETE, a WHERE-less UPDATE, two mutations in a row (the resume-past-the-semicolon bug), a statement inside a dollar-quoted function body, and non-firing cases for FOR UPDATE / ON UPDATE CASCADE / BEFORE UPDATE ON / a policy named 'update own profile' / a WHERE inside a string literal / TRUNCATE.",
+        "npm run check:ledger, check:cogs and check:tax all pass against a real Postgres with 00777 applied, including the fixture path that calls the function twice in one transaction so the TRUNCATE is actually exercised.",
+        "src/hooks/use-ship-queue.ts splits every .in() filter into IN_FILTER_CHUNK-sized slices. Measured on production 2026-09-09: 205 sale ids is a 8,088-character URL and returns 200; 210 ids is 8,283 characters and the gateway drops it before writing a CORS header, so the browser reports 'blocked by CORS policy' and names no status.",
+        "PENDING_MIGRATIONS.md carries 00777 as HELD with the apply order, and says how to confirm it worked afterwards (Money shows a non-zero profit, or rebuild_my_ledger returns an entry count instead of a 400)."
+      ]
     }
   ]
 }

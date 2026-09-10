@@ -1,5 +1,79 @@
 # PENDING MIGRATIONS — applied to prod separately from the push
 
+## 🔒 HELD: 00777 — the Money tab has read $0.00 since 00685 (US-3298)
+
+⚠ **APPLY THIS ONE FIRST.** It is a one-line fix to a function that has never
+completed a single run in production, and until it lands every seller's Money
+tab is confidently wrong.
+
+**Risk: LOW.** One function, `CREATE OR REPLACE`d in place, same signature. It
+writes nothing on its own — a ledger is only rebuilt when something calls it.
+No schema change, nothing dropped, no revoke. Idempotent.
+
+**What was wrong, and it is one line:**
+
+```
+DELETE FROM _acct;
+```
+
+Production loads the `safeupdate` extension, which refuses any UPDATE or DELETE
+with no WHERE clause and raises SQLSTATE 21000 — `DELETE requires a WHERE
+clause`. PostgREST turns that into HTTP 400, which is the
+`POST /rest/v1/rpc/rebuild_my_ledger → 400` in the browser console.
+
+**The failure is TOTAL, not partial.** `_acct` is cleared before anything is
+written, so the function aborts on its first statement after the authorization
+check and no ledger row has ever been inserted for anybody. Read off production
+on 2026-09-09 for the owner's own account with nothing but the browser's anon
+key: 220 sales, 8 expenses, 33 global ledger accounts, **`ledger_entries` = 0**.
+
+So every figure the Money tab derives from the ledger reads zero — the overview
+cards, the whole Schedule C statement (gross receipts, COGS, gross profit, net
+profit, all $0.00 against 220 real sales), the reconciliation. And it reads zero
+**with no error on screen**: `ensureLedgerBuilt()` rebuilds only when the ledger
+is empty, so the empty ledger is exactly the state that triggers the call that
+cannot succeed, and the failure is swallowed into a page that renders fine.
+
+**Why it survived four rewrites of this function.** The line was written in
+00685 and carried forward verbatim by 00686, 00691, 00695 and 00697, each of
+which reproduces the whole body because `CREATE OR REPLACE` takes a whole body.
+Nothing local catches it: `safeupdate` is not installed on the local image
+(`pg_available_extensions` has no row for it on PostgreSQL 17.6, checked
+2026-09-09), so `npm run check:ledger` has been building ledgers happily here
+the whole time — it passes today, before and after this change. Same shape as
+US-1552's `.or()` on a mutation: prod's Postgres is stricter than the one CI
+runs, in a way only a write can reveal.
+
+**The fix is TRUNCATE, not `WHERE true`.** `safeupdate` inspects the planned
+statement and the planner constant-folds a true qual away before it gets there,
+so `WHERE true` is a coin flip. `TRUNCATE` is a utility statement, so
+`safeupdate` never sees it, and on a temp table it is cheaper than the DELETE it
+replaces. Nothing else in the body changes — the US-3002 authorization check,
+the US-2987 facilitator-tax branches, the US-2989 mileage join and the US-2990
+home-office block are carried from 00697 byte for byte, and the second DELETE
+(`ledger_entries WHERE user_id = … AND source_kind <> 'adjustment'`) already has
+a WHERE clause.
+
+**The class is now guarded.** `scripts/migrations-lint.mjs` fails any new
+WHERE-less UPDATE or DELETE in a migration (`whereLessMutations`), with the five
+already-applied instances grandfathered by name so the list can only shrink. It
+runs in `npm run verify` and in CI.
+
+**Verified against real Postgres before writing this.** Applied to the local
+stack, then `check:ledger` (invariant holds, ledger net = finances_dashboard net
+to the cent), `check:cogs` (every assertion including the one that must fail) and
+`check:tax` (both facilitator branches) all pass. The fixture calls the function
+twice in one transaction, so the TRUNCATE path is exercised, not just skipped.
+
+**Apply order.** `00777` alone. `NOTIFY pgrst, 'reload schema';` is **not
+needed** — no table, column or RPC signature changed — but it is harmless.
+Then redeploy the edge on Coolify (`EXPECTED_SCHEMA_VERSION` is now `00777`).
+
+**After applying, confirm it in one read** rather than trusting the apply: open
+Money and check that Profit is no longer $0.00, or POST
+`/rest/v1/rpc/rebuild_my_ledger` as a signed-in user and expect an entry count
+instead of a 400.
+
 ## 🔒 HELD: 00776 — give brand_size_charts the source URLs the charts now carry (US-3284)
 
 **Risk: LOW.** Insert-or-update into `public.brand_size_charts`, a global

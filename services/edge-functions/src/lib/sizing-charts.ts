@@ -9672,6 +9672,54 @@ export const SIZING_CHARTS: SizingChart[] = [
       { size: "5XL", measurements: { neck: "21-21.75", chest: "62-64", sleeve: "37.5-38" } },
     ],
   },
+
+  // ── US-3286: size-chart backfill, batch 3 ──────────────────────────────────
+  //
+  // ONE brand, and the reason is worth recording because it changes what the
+  // rest of the loop is worth.
+  //
+  // The first two batches drew from mass-market retailers — American Eagle,
+  // Banana Republic, Champion, Levi's, Dickies, Madewell, Duluth — and every one
+  // of them publishes a plain HTML size table at a stable URL. Batch 3's brands
+  // are premium and streetwear labels, and they behave differently: rag & bone's
+  // chart renders three of its rows and a corrupted conversion table, PAIGE's
+  // own /size-guide renders no chart at all, Moncler's sits behind a panel that
+  // never emits a table, PacSun's /size-chart.html is a 404, and Kith's
+  // /pages/size-guide is a 404.
+  //
+  // That is a real split, not bad luck, and it means the remaining gap list is
+  // mostly the hard kind. See vault/20-domain/brands/size-chart-coverage-backfill.md.
+
+  // SKIMS — https://skims.com/pages/size-guides-loungewear
+  {
+    brand: "SKIMS",
+    brandMatch: ["skims"],
+    department: "Women",
+    garment: "Tops & outerwear (alpha/numeric, body inches)",
+    categoryMatch: [
+      "top", "tee", "shirt", "blouse", "sweater", "knit", "hoodie", "sweatshirt",
+      "tank", "bodysuit", "jacket", "coat", "outerwear", "vest", "robe",
+      "loungewear",
+    ],
+    sourceUrl: "https://skims.com/pages/size-guides-loungewear",
+    note:
+      "SKIMS' published clothing-and-loungewear chart, which is what its tops " +
+      "and outerwear are sized off. Body measurements, not flat. Shapewear, " +
+      "bras and underwear are separate published charts on the same site and " +
+      "are NOT this one — a SKIMS shapewear M and a SKIMS top M are different " +
+      "grades.",
+    rows: [
+      { size: "XXS / 00", measurements: { bust: "30-31", waist: "23-24", hip: "31-34" } },
+      { size: "XS / 0-2", measurements: { bust: "31.5-33.5", waist: "24-26", hip: "34-36.5" } },
+      { size: "S / 4-6", measurements: { bust: "34-36", waist: "26.5-28.5", hip: "37-39" } },
+      { size: "M / 8-10", measurements: { bust: "36.5-38.5", waist: "29-31", hip: "39.5-41.5" } },
+      { size: "L / 12-14", measurements: { bust: "39-41", waist: "31.5-34.5", hip: "42-44" } },
+      { size: "XL / 16", measurements: { bust: "41.5-44.5", waist: "35-38", hip: "44.5-47.5" } },
+      { size: "2X / 18-20", measurements: { bust: "45-48", waist: "38.5-41.5", hip: "48-51" } },
+      { size: "3X / 22-24", measurements: { bust: "48.5-52", waist: "42-45.5", hip: "51.5-55" } },
+      { size: "4X / 26-28", measurements: { bust: "52.5-56", waist: "46-49.5", hip: "55.5-59" } },
+    ],
+  },
 ];
 
 function norm(s: string | null | undefined): string {
