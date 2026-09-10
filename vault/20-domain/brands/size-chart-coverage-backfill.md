@@ -11,7 +11,8 @@ code_refs:
   - services/edge-functions/src/routes/flipdesk-size-bands.ts
   - scripts/gen-sizing-chart-seed.mjs
   - supabase/migrations/00776_sizing_chart_sources.sql
-  - supabase/migrations/00777_sizing_chart_sources.sql
+  - supabase/migrations/00779_sizing_chart_sources.sql
+  - supabase/migrations/00780_sizing_chart_sources.sql
 reviewed: 2026-09-10
 tags: [brands, sizing, backfill, runbook]
 summary: How to close a batch of brand size-chart gaps, why coverage is measured through the resolver rather than by counting rows, and what a batch must carry before it can be closed.
@@ -155,6 +156,38 @@ a Shopify store often ships the whole guide as a JSON asset (Hudson's is
 `/cdn/shop/t/82/assets/size-guide.json`, found by grepping the page source for
 `size-guide.json`), and a table whose cells come back EMPTY through a browser is
 usually rendered in a hidden tab — read `cell.textContent`, not `innerText`.
+
+After batch 3 (US-3286): 352 charts across 168 brands, **67 sourced**, and 64
+brands still carrying a gap. Seven of the batch's nine closed. It was NINE and
+not ten because the story's tenth brand, Aerie, already showed no gap.
+
+⚠ **Two exceptions, and they are different shapes.** Rag & bone publishes a
+women's apparel chart with THREE rows in it — 00, 0 and 2 — and a centimetre
+column that prints "131" where the inch column says 31; its product URLs 404.
+Transcribing three XXS-XS rows would be worse than nothing, because the band
+builder maps to the nearest row and would report a seller's size-M top as a rag
+& bone 2. Anti Social Social Club is the other shape: its per-product Size Chart
+accordion holds a real flat-spec table on TOPS and is EMPTY on every pair of
+sweatpants checked, and `/pages/size-guide` 404s. Neither was substituted for.
+
+⚠ **A batch can DELETE a chart, and this one did.** The shared
+"The North Face / Patagonia (outerwear)" pseudo-brand entry is gone. US-1734 had
+already narrowed it once, pulling Columbia and Arc'teryx out when they got their
+own charts, because a brand present in both makes the resolver hand back the
+shared row AND the brand row — two charts with the same numbers competing for
+the three-chart prompt budget. Its own comment said it stayed "for the two
+brands that have no own-brand chart", so once both had one it had nobody left to
+serve. **The DB row survives** and nothing sweeps it: the generated migration is
+an upsert, the resolver matches on brand NAME rather than key, and adding a
+DELETE to a generated file to chase one inert row is the more dangerous change.
+
+⚠ **A brand-wide conversion is a legitimate chart when a brand has nothing
+else.** Aime Leon Dore publishes garment specs per product and no body chart at
+all, and the specs differ enough between styles to make a brand-level number
+dishonest — its Officer Pant lists a 29.5in relaxed waist at size 28 while its
+Elasticated Trouser lists 26in at XS. What IS brand-wide is the alpha-to-numeric
+conversion printed identically on every product, so that is all its chart
+claims. Herno's Italian-sizing entry is the same pattern from batch 1.
 
 ⚠ The coverage report measures the IN-CODE corpus, not the database. Prod's
 `brand_size_charts` already held source URLs on the hand-written pack rows

@@ -1,5 +1,34 @@
 # PENDING MIGRATIONS — applied to prod separately from the push
 
+## ✅ APPLIED 2026-09-10: 00780 — batch 3 of the sourced size charts (US-3286)
+
+**Risk: LOW.** Same shape as 00779 below: insert-or-update into
+`public.brand_size_charts`, a global reference table with deny-all RLS and no
+tenant data. No schema change, nothing dropped, nothing revoked. Idempotent.
+
+**What it does.** 22 more sizing charts across Tommy Hilfiger, Patagonia, The
+North Face, True Religion, Abercrombie & Fitch, Spanx, Uniqlo and Aime Leon
+Dore, each transcribed from the brand's own published guide with a real
+`source_url` and `confidence 0.85`. `verified` stays false on every one.
+
+**It re-emits every earlier batch's rows too** — 64 in total — because the
+generator's scope is every chart carrying a `sourceUrl`, not just this batch's.
+Re-writing identical values costs nothing and spares the bookkeeping of which
+brand landed in which migration.
+
+**One chart was DELETED from the in-code corpus and is NOT deleted from the
+table.** The shared "The North Face / Patagonia (outerwear)" pseudo-brand row is
+gone from `sizing-charts.ts` now that both brands have real charts of their own.
+The DB row from the original seed survives under `brand_key` for that combined
+name and nothing resolves it any more, because the resolver reads brand names,
+not keys. It is inert rather than harmful; leave it or sweep it later, but do
+not add a DELETE to a generated upsert migration.
+
+**Apply order:** after 00779. `NOTIFY pgrst, 'reload schema';` afterwards is
+harmless (no table, column or RPC signature changed) but cheap. Redeploy the
+edge afterwards: its boot guard now expects 00780.
+
+
 ## ✅ APPLIED 2026-09-10: 00779 — batch 2 of the sourced size charts (US-3285)
 
 **Risk: LOW.** Same shape as 00776 below, which is now applied: insert-or-update

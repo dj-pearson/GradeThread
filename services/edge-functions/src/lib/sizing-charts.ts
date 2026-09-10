@@ -1662,29 +1662,14 @@ export const SIZING_CHARTS: SizingChart[] = [
       { size: "XXL", measurements: { chest: "50-53" } },
     ],
   },
-  {
-    brand: "The North Face / Patagonia (outerwear)",
-    // US-1734 narrowed this: Columbia + Arc'teryx now have their OWN charts
-    // above, and leaving them here made the resolver return BOTH the shared row
-    // and the brand row for one brand — two charts with the same numbers,
-    // competing for the 3-chart prompt budget. Stays for the two brands that have
-    // no own-brand chart. Mirrors the same narrowing in migration 00453.
-    brandMatch: ["north face", "patagonia"],
-    department: "Unisex",
-    garment: "Outerwear / jackets (alpha)",
-    categoryMatch: ["jacket", "coat", "fleece", "vest", "outerwear", "shell", "parka"],
-    note:
-      "Outdoor outerwear runs alpha; chest is the primary signal. Men's and " +
-      "women's overlap — confirm department from the cut/colorway.",
-    rows: [
-      { size: "XS", measurements: { chest: "33-35" } },
-      { size: "S", measurements: { chest: "35-38" } },
-      { size: "M", measurements: { chest: "38-41" } },
-      { size: "L", measurements: { chest: "42-45" } },
-      { size: "XL", measurements: { chest: "46-49" } },
-      { size: "XXL", measurements: { chest: "50-53" } },
-    ],
-  },
+  // US-3286 REMOVED the shared "The North Face / Patagonia (outerwear)" chart
+  // that stood here. US-1734 had already narrowed it once, taking Columbia and
+  // Arc'teryx out when they got charts of their own, because leaving a brand in
+  // both made the resolver hand back the shared row AND the brand row — two
+  // charts with the same numbers competing for the 3-chart prompt budget. Its
+  // own comment said it stayed "for the two brands that have no own-brand
+  // chart". Both now have one, transcribed from their own published guides and
+  // department-split, so the entry had nobody left to serve.
   // US-1736: luxury & designer group. Mirrors migration 00455's brand_size_charts
   // seed. The group's whole point is that THREE national sizing systems are in
   // play and the same number means different sizes in each — a "42" is US 10 on a
@@ -10100,6 +10085,561 @@ export const SIZING_CHARTS: SizingChart[] = [
       { size: "L", measurements: { chest: "43-44.5", waist: "37-38", hip: "43.5-44.5" } },
       { size: "XL", measurements: { chest: "46-47.5", waist: "40-42", hip: "46.5-48.5" } },
       { size: "XXL", measurements: { chest: "49.5-51.5", waist: "44-46", hip: "50.5-52.5" } },
+    ],
+  },
+
+  // ── US-3286: size-chart backfill, batch 3 of 11 ────────────────────────────
+  //
+  // NINE brands, not ten. The story lists Aerie, and the coverage report shows
+  // Aerie with no gap in any group it should cover, so there was nothing to
+  // close. The other nine: Rag & Bone, Spanx, The North Face, Patagonia, Tommy
+  // Hilfiger, True Religion, Uniqlo, Abercrombie & Fitch, Aimé Leon Dore and
+  // Anti Social Social Club.
+  //
+  // TWO EXCEPTIONS, both documented in the story note and neither substituted
+  // for: rag & bone publishes a three-row chart, and Anti Social Social Club
+  // publishes nothing at all for bottoms.
+  //
+  // `verified` is absent throughout: an agent transcribed these and no human
+  // has re-checked them against the source.
+
+  // Tommy Hilfiger — https://usa.tommy.com/en/size-guide-women.html
+  // Tommy heads this chart "Dresses, Tops, and Outerwear", so one set of numbers
+  // is its answer for all three. Its alpha labels come from the BOTTOMS table's
+  // header, the only one that aligns one label per column.
+  {
+    brand: "Tommy Hilfiger",
+    brandMatch: ["tommy hilfiger", "tommyhilfiger", "tommy jeans"],
+    department: "Women",
+    garment: "Dresses, tops & outerwear (body inches)",
+    categoryMatch: [
+      "jacket", "coat", "outerwear", "parka", "blazer", "vest", "dress",
+      "romper", "jumpsuit",
+    ],
+    sourceUrl: "https://usa.tommy.com/en/size-guide-women.html",
+    note:
+      "Tommy publishes ONE women's body chart headed 'Dresses, Tops, and " +
+      "Outerwear'. Sleeve is its own column, measured from the centre back neck.",
+    rows: [
+      { size: "XXS / 0", measurements: { bust: "32-33", waist: "24.5-25.5", hip: "35-36", sleeve: "28.5-29" } },
+      { size: "XS / 0-2", measurements: { bust: "33-34", waist: "25.5-26.5", hip: "36-37", sleeve: "29-29.5" } },
+      { size: "S / 4-6", measurements: { bust: "35-36", waist: "27.5-28.5", hip: "38-39", sleeve: "30-30.5" } },
+      { size: "M / 8-10", measurements: { bust: "37-38.5", waist: "29.5-31", hip: "40-41.5", sleeve: "31-31.5" } },
+      { size: "L / 12-14", measurements: { bust: "40-41.5", waist: "32.5-34", hip: "43-44.5", sleeve: "32-32.5" } },
+      { size: "XL / 16-18", measurements: { bust: "43-44.5", waist: "35.5-37", hip: "46-47.5", sleeve: "33-33.5" } },
+      { size: "XXL / 20-22", measurements: { bust: "46-47.5", waist: "38.5-40", hip: "49-50.5", sleeve: "34-34.5" } },
+    ],
+  },
+  {
+    brand: "Tommy Hilfiger",
+    brandMatch: ["tommy hilfiger", "tommyhilfiger", "tommy jeans"],
+    department: "Women",
+    garment: "Bottoms (body inches)",
+    categoryMatch: [
+      "bottom", "pant", "trouser", "short", "skirt", "jean", "legging", "chino",
+    ],
+    sourceUrl: "https://usa.tommy.com/en/size-guide-women.html",
+    note:
+      "Tommy's women's bottoms chart. The waist run is about half an inch " +
+      "narrower than the tops chart's at the same label, so a Tommy M in " +
+      "trousers is not the same body as a Tommy M in a dress.",
+    rows: [
+      { size: "XXS / 0", measurements: { waist: "24.5-25.5", hip: "34.5-35.5", thigh: "19.8-20.5" } },
+      { size: "XS / 0-2", measurements: { waist: "25.5-26.5", hip: "35.5-36.5", thigh: "20.5-21.3" } },
+      { size: "S / 4-6", measurements: { waist: "27.5-28.5", hip: "37.5-38.5", thigh: "22-22.8" } },
+      { size: "M / 8-10", measurements: { waist: "29.5-30.5", hip: "39.5-40.5", thigh: "23.5-24.3" } },
+      { size: "L / 12-14", measurements: { waist: "32-33.5", hip: "42-43.5", thigh: "25.3-26.3" } },
+      { size: "XL / 16-18", measurements: { waist: "35-36.5", hip: "45-46.5", thigh: "27.3-28.3" } },
+      { size: "XXL / 20-22", measurements: { waist: "38-39.5", hip: "48-49.5", thigh: "29.3-30.3" } },
+    ],
+  },
+  {
+    brand: "Tommy Hilfiger",
+    brandMatch: ["tommy hilfiger", "tommyhilfiger", "tommy jeans"],
+    department: "Women",
+    garment: "Curve, tops & bottoms (body inches)",
+    categoryMatch: [
+      "top", "tee", "shirt", "blouse", "sweater", "knit", "hoodie", "sweatshirt",
+      "jacket", "coat", "outerwear", "dress", "bottom", "pant", "trouser",
+      "short", "jean",
+    ],
+    sizeClass: "plus",
+    sourceUrl: "https://usa.tommy.com/en/size-guide-women.html",
+    note:
+      "Tommy Curve, the brand's plus run, printed as its own table. The W sizes " +
+      "do NOT line up with the standard run: Curve 14W starts at a 43.5in bust, " +
+      "where the standard 14 is 41.5in. Inseam is 32.5in at every size.",
+    rows: [
+      { size: "0X / 14W", measurements: { bust: "43.5", waist: "37", hip: "47.5", inseam: "32.5" } },
+      { size: "1X / 16W-18W", measurements: { bust: "45.5-47.5", waist: "39-41", hip: "49.5-51.5", inseam: "32.5" } },
+      { size: "2X / 20W-22W", measurements: { bust: "49.5-51.5", waist: "43-45", hip: "53.5-55.5", inseam: "32.5" } },
+      { size: "3X / 24W-26W", measurements: { bust: "53.5-55.5", waist: "47-49", hip: "57.5-59.5", inseam: "32.5" } },
+    ],
+  },
+  {
+    brand: "Tommy Hilfiger",
+    brandMatch: ["tommy hilfiger", "tommyhilfiger", "tommy jeans"],
+    department: "Men",
+    garment: "Bottoms (body inches)",
+    categoryMatch: ["bottom", "pant", "trouser", "short", "jean", "chino", "cargo"],
+    sourceUrl: "https://usa.tommy.com/en/size-guide-men.html",
+    note:
+      "Tommy's men's bottoms chart. Each alpha label spans two numeric waists, " +
+      "and the listed waist runs about 1.5in above the tag size, which is the " +
+      "brand's own convention rather than an error.",
+    rows: [
+      { size: "XS / 28-29", measurements: { waist: "29.5-30.5", hip: "35.5-36.5", thigh: "20.5-21.25" } },
+      { size: "S / 30-31", measurements: { waist: "31.5-32.5", hip: "37.5-38.5", thigh: "22-22.5" } },
+      { size: "M / 32-33", measurements: { waist: "33.5-34.5", hip: "39.5-40.5", thigh: "23.25-23.75" } },
+      { size: "L / 34-35", measurements: { waist: "35.5-36.5", hip: "41.5-42.5", thigh: "24.5-25" } },
+      { size: "XL / 36-38", measurements: { waist: "37.5-39.5", hip: "43.5-45.5", thigh: "25.75-27" } },
+      { size: "XXL / 40-42", measurements: { waist: "41.5-43.5", hip: "47.5-49.5", thigh: "28.25-29.5" } },
+      { size: "XXXL / 44-46", measurements: { waist: "45.5-47.5", hip: "51.5-53.5", thigh: "30.75-32" } },
+      { size: "XXXXL / 48-50", measurements: { waist: "49.5-51.5", hip: "55.5-57.5", thigh: "33.25-34.5" } },
+    ],
+  },
+  {
+    brand: "Tommy Hilfiger",
+    brandMatch: ["tommy hilfiger", "tommyhilfiger", "tommy jeans"],
+    department: "Men",
+    garment: "Outerwear (body inches)",
+    categoryMatch: ["jacket", "coat", "outerwear", "parka", "vest"],
+    sourceUrl: "https://usa.tommy.com/en/size-guide-men.html",
+    note:
+      "Tommy's men's OUTERWEAR chart, separate from its tops chart and cut " +
+      "wider. CAUTION: Tommy's own 4XL and 5XL rows jump from a 49.6in chest to " +
+      "59.8in with nothing between, which is a gap in the brand's table rather " +
+      "than a transcription slip. They are kept as published.",
+    rows: [
+      { size: "XS / 34", measurements: { chest: "34.6-36.2", waist: "30.7-32.2", sleeve: "33-33.4", neck: "14.5-14.9" } },
+      { size: "S / 36-38", measurements: { chest: "36.6-38.1", waist: "32.6-34.2", sleeve: "33.8-34.2", neck: "14.9-15.3" } },
+      { size: "M / 40", measurements: { chest: "38.5-40.1", waist: "34.6-36.2", sleeve: "34.6-35", neck: "15.7-16.1" } },
+      { size: "L / 42", measurements: { chest: "40.5-42.5", waist: "36.6-38.5", sleeve: "35.4-35.8", neck: "16.5-16.9" } },
+      { size: "XL / 44", measurements: { chest: "42.9-44.8", waist: "38.9-40.9", sleeve: "36.2-36.6", neck: "17.3-17.7" } },
+      { size: "XXL / 46", measurements: { chest: "45.2-47.2", waist: "41.3-43.3", sleeve: "37-37.4", neck: "17.7-18.1" } },
+      { size: "3XL / 48", measurements: { chest: "47.6-49.6", waist: "43.7-45.6", sleeve: "37.7-38.1", neck: "18.1-18.5" } },
+      { size: "4XL / 50", measurements: { chest: "59.8", waist: "57.09", sleeve: "38.5", neck: "18.1" } },
+      { size: "5XL / 52", measurements: { chest: "61.8", waist: "59.06", sleeve: "39", neck: "18.5" } },
+    ],
+  },
+
+  // Patagonia — https://www.patagonia.com/guides/size-fit/mens/ and /womens/
+  {
+    brand: "Patagonia",
+    brandMatch: ["patagonia"],
+    department: "Men",
+    garment: "Tops & outerwear (body inches)",
+    categoryMatch: [
+      "top", "tee", "shirt", "polo", "sweater", "knit", "hoodie", "sweatshirt",
+      "fleece", "jacket", "coat", "outerwear", "parka", "shell", "vest",
+    ],
+    sourceUrl: "https://www.patagonia.com/guides/size-fit/mens/",
+    note:
+      "Patagonia's men's body chart, single values rather than ranges. Chest is " +
+      "the brand's own stated best predictor. Arm length is measured from the " +
+      "centre back neck to the wrist.",
+    rows: [
+      { size: "XXS", measurements: { chest: "33", hip: "32", sleeve: "30" } },
+      { size: "XS", measurements: { chest: "35", hip: "34", sleeve: "32" } },
+      { size: "S", measurements: { chest: "37", hip: "36", sleeve: "33" } },
+      { size: "M", measurements: { chest: "40", hip: "39", sleeve: "34" } },
+      { size: "L", measurements: { chest: "44", hip: "43", sleeve: "35" } },
+      { size: "XL", measurements: { chest: "47", hip: "46", sleeve: "36" } },
+      { size: "XXL", measurements: { chest: "50", hip: "49", sleeve: "37" } },
+      { size: "XXXL", measurements: { chest: "56", hip: "55", sleeve: "37.5" } },
+    ],
+  },
+  {
+    brand: "Patagonia",
+    brandMatch: ["patagonia"],
+    department: "Men",
+    garment: "Bottoms (body inches)",
+    categoryMatch: ["bottom", "pant", "trouser", "short", "jean", "chino", "cargo"],
+    sourceUrl: "https://www.patagonia.com/guides/size-fit/mens/",
+    note:
+      "Patagonia's men's bottoms chart. Hip is the brand's own stated best " +
+      "predictor here, not waist.",
+    rows: [
+      { size: "XXS", measurements: { waist: "26", hip: "32" } },
+      { size: "XS", measurements: { waist: "28", hip: "34" } },
+      { size: "S", measurements: { waist: "30", hip: "36" } },
+      { size: "M", measurements: { waist: "33", hip: "39" } },
+      { size: "L", measurements: { waist: "36", hip: "42" } },
+      { size: "XL", measurements: { waist: "39", hip: "45" } },
+      { size: "XXL", measurements: { waist: "42", hip: "48" } },
+      { size: "XXXL", measurements: { waist: "45", hip: "51" } },
+    ],
+  },
+  {
+    brand: "Patagonia",
+    brandMatch: ["patagonia"],
+    department: "Women",
+    garment: "Tops, bottoms & outerwear (body inches)",
+    categoryMatch: [
+      "top", "tee", "shirt", "blouse", "sweater", "knit", "hoodie", "sweatshirt",
+      "tank", "fleece", "jacket", "coat", "outerwear", "parka", "shell", "vest",
+      "bottom", "pant", "trouser", "short", "skirt", "jean", "legging", "dress",
+    ],
+    sourceUrl: "https://www.patagonia.com/guides/size-fit/womens/",
+    note:
+      "Patagonia publishes ONE women's chart for everything it makes, alpha " +
+      "with the US numeric beside it. Chest is the brand's stated best " +
+      "predictor for tops, hip for bottoms.",
+    rows: [
+      { size: "XXS / 00", measurements: { chest: "31.5", waist: "24.5", hip: "34" } },
+      { size: "XS / 0-2", measurements: { chest: "32.5-33.5", waist: "25.5-26.5", hip: "35-36" } },
+      { size: "S / 4-6", measurements: { chest: "34.5-35.5", waist: "27.5-28.5", hip: "37-38" } },
+      { size: "M / 8-10", measurements: { chest: "36.5-37.5", waist: "29.5-30.5", hip: "39-40" } },
+      { size: "L / 12-14", measurements: { chest: "39-41", waist: "32-34", hip: "41.5-43.5" } },
+      { size: "XL / 16-18", measurements: { chest: "43-45", waist: "36-38", hip: "45-47" } },
+      { size: "XXL / 20-22", measurements: { chest: "47-49", waist: "40-42", hip: "49-51" } },
+    ],
+  },
+
+  // The North Face — https://www.thenorthface.com/en-us/help/size-charts
+  {
+    brand: "The North Face",
+    brandMatch: ["north face", "the north face", "tnf"],
+    department: "Men",
+    garment: "Jackets & tops (body inches)",
+    categoryMatch: [
+      "top", "tee", "shirt", "polo", "sweater", "knit", "hoodie", "sweatshirt",
+      "fleece", "jacket", "coat", "outerwear", "parka", "shell", "vest",
+    ],
+    sourceUrl: "https://www.thenorthface.com/en-us/help/size-charts",
+    note:
+      "TNF's men's Jackets & Tops chart. Body measurements — the brand's own " +
+      "instruction is to measure around the widest part of the chest. The 2X-5X " +
+      "rows are its extended run and overlap the 2XL/3XL rows above them, which " +
+      "is how TNF prints it.",
+    rows: [
+      { size: "XXS", measurements: { chest: "29-32.5", hip: "31.5-32.5", sleeve: "33" } },
+      { size: "XS", measurements: { chest: "33-35", hip: "33-34", sleeve: "33.5" } },
+      { size: "S", measurements: { chest: "36-38", hip: "35-37", sleeve: "33.5" } },
+      { size: "M", measurements: { chest: "39-41", hip: "38-40", sleeve: "34" } },
+      { size: "L", measurements: { chest: "42-44", hip: "41-43", sleeve: "34.8" } },
+      { size: "XL", measurements: { chest: "45-48", hip: "44-46", sleeve: "35.5" } },
+      { size: "2XL", measurements: { chest: "49-52", hip: "47-49", sleeve: "36.3" } },
+      { size: "3XL", measurements: { chest: "53-56", hip: "50-52", sleeve: "37" } },
+    ],
+  },
+  {
+    brand: "The North Face",
+    brandMatch: ["north face", "the north face", "tnf"],
+    department: "Men",
+    garment: "Pants (body inches)",
+    categoryMatch: ["bottom", "pant", "trouser", "short", "jean", "chino", "cargo"],
+    sourceUrl: "https://www.thenorthface.com/en-us/help/size-charts",
+    note:
+      "TNF's men's Pants chart. The numeric size is the tag size and the waist " +
+      "column is the body it fits. TNF offers one set of inseams across the " +
+      "whole run: 30 short, 32 regular, 34 long.",
+    rows: [
+      { size: "28 (XS)", measurements: { waist: "28-30", hip: "33.5-35.5", inseam: "30-34" } },
+      { size: "30 (S)", measurements: { waist: "30.5-32", hip: "36-38", inseam: "30-34" } },
+      { size: "32 (M)", measurements: { waist: "32.5-33.5", hip: "38-39.5", inseam: "30-34" } },
+      { size: "34 (M)", measurements: { waist: "33.5-35", hip: "39.5-41", inseam: "30-34" } },
+      { size: "36 (L)", measurements: { waist: "35-36", hip: "41-42.5", inseam: "30-34" } },
+      { size: "38 (L)", measurements: { waist: "36.5-38.5", hip: "42.5-44", inseam: "30-34" } },
+      { size: "40 (XL)", measurements: { waist: "39-40", hip: "44-45.5", inseam: "30-34" } },
+      { size: "42 (XL)", measurements: { waist: "40.5-42.5", hip: "45.5-47", inseam: "30-34" } },
+      { size: "44 (2XL)", measurements: { waist: "43-45", hip: "47-48.5", inseam: "30-34" } },
+    ],
+  },
+  {
+    brand: "The North Face",
+    brandMatch: ["north face", "the north face", "tnf"],
+    department: "Women",
+    garment: "Jackets & tops (body inches)",
+    categoryMatch: [
+      "top", "tee", "shirt", "blouse", "sweater", "knit", "hoodie", "sweatshirt",
+      "tank", "fleece", "jacket", "coat", "outerwear", "parka", "shell", "vest",
+    ],
+    sourceUrl: "https://www.thenorthface.com/en-us/help/size-charts",
+    note: "TNF's women's Jackets & Tops chart. Body measurements.",
+    rows: [
+      { size: "XS", measurements: { chest: "31-32", waist: "24-25", hip: "33-35", sleeve: "31.5" } },
+      { size: "S", measurements: { chest: "33-35", waist: "26-28", hip: "36-37", sleeve: "32" } },
+      { size: "M", measurements: { chest: "36-38", waist: "29-31", hip: "38-40", sleeve: "32.5" } },
+      { size: "L", measurements: { chest: "39-41", waist: "32-34", hip: "41-43", sleeve: "33.3" } },
+      { size: "XL", measurements: { chest: "42-44", waist: "35-38", hip: "44-47", sleeve: "34" } },
+      { size: "2XL", measurements: { chest: "45-48", waist: "39-42", hip: "48-51", sleeve: "34.8" } },
+    ],
+  },
+  {
+    brand: "The North Face",
+    brandMatch: ["north face", "the north face", "tnf"],
+    department: "Women",
+    garment: "Jackets & tops, plus (body inches)",
+    categoryMatch: [
+      "top", "tee", "shirt", "blouse", "sweater", "knit", "hoodie", "sweatshirt",
+      "tank", "fleece", "jacket", "coat", "outerwear", "parka", "shell", "vest",
+    ],
+    sizeClass: "plus",
+    sourceUrl: "https://www.thenorthface.com/en-us/help/size-charts",
+    note:
+      "TNF's women's extended run, printed under the standard one. A 1X is NOT " +
+      "an XL: it starts at a 43in chest where the XL starts at 42in, and its " +
+      "arm length is 2.5in shorter.",
+    rows: [
+      { size: "1X", measurements: { chest: "43-45", waist: "36-38", hip: "46-48", sleeve: "31.5" } },
+      { size: "2X", measurements: { chest: "47-49", waist: "40-42", hip: "50-52", sleeve: "32.25" } },
+      { size: "3X", measurements: { chest: "51-53", waist: "44-46", hip: "54-56", sleeve: "33" } },
+    ],
+  },
+  {
+    brand: "The North Face",
+    brandMatch: ["north face", "the north face", "tnf"],
+    department: "Women",
+    garment: "Pants (body inches)",
+    categoryMatch: ["bottom", "pant", "trouser", "short", "jean", "legging"],
+    sourceUrl: "https://www.thenorthface.com/en-us/help/size-charts",
+    note:
+      "TNF's women's Pants chart, alpha with the US numeric beside it. One set " +
+      "of inseams across the whole run: 28 short, 30 regular, 32 long.",
+    rows: [
+      { size: "2XS / 00", measurements: { waist: "23.5-25", hip: "33.5-34.5", inseam: "28-32" } },
+      { size: "XS / 0-2", measurements: { waist: "25.5-27.5", hip: "34.5-36.5", inseam: "28-32" } },
+      { size: "S / 4-6", measurements: { waist: "27.5-29.5", hip: "36.5-38.5", inseam: "28-32" } },
+      { size: "M / 8-10", measurements: { waist: "29.5-31.5", hip: "38.5-41", inseam: "28-32" } },
+      { size: "L / 12-14", measurements: { waist: "31.5-34.5", hip: "41.5-44.5", inseam: "28-32" } },
+      { size: "XL / 16-18", measurements: { waist: "34.5-38.5", hip: "44.5-48.5", inseam: "28-32" } },
+    ],
+  },
+
+  // True Religion — sizechart-womens-tops.html / sizechart-mens-tops.html
+  {
+    brand: "True Religion",
+    brandMatch: ["true religion", "truereligion"],
+    department: "Women",
+    garment: "Tops & outerwear (body inches)",
+    categoryMatch: [
+      "top", "tee", "shirt", "blouse", "sweater", "knit", "hoodie", "sweatshirt",
+      "tank", "jacket", "coat", "outerwear", "vest",
+    ],
+    sourceUrl: "https://www.truereligion.com/sizechart-womens-tops.html",
+    note:
+      "True Religion publishes no outerwear chart, so its women's tops chart is " +
+      "the brand's answer for jackets too. Body measurements, chest and waist " +
+      "only. The L row is unusually wide — a 4in chest span against 2in " +
+      "elsewhere — and that is how the brand prints it.",
+    rows: [
+      { size: "XXS", measurements: { bust: "31.5-32.5", waist: "23-24" } },
+      { size: "XS", measurements: { bust: "32.5-33.5", waist: "24.5-25.5" } },
+      { size: "S", measurements: { bust: "33.5-35.5", waist: "26-27.5" } },
+      { size: "M", measurements: { bust: "35.5-38.5", waist: "28-29.5" } },
+      { size: "L", measurements: { bust: "38.5-42.5", waist: "30-34.5" } },
+      { size: "XL", measurements: { bust: "42.5-46", waist: "35-38" } },
+      { size: "2XL", measurements: { bust: "46-49", waist: "39-42" } },
+      { size: "3XL", measurements: { bust: "49-52", waist: "43-46" } },
+    ],
+  },
+  {
+    brand: "True Religion",
+    brandMatch: ["true religion", "truereligion"],
+    department: "Men",
+    garment: "Tops & outerwear (body inches)",
+    categoryMatch: [
+      "top", "tee", "shirt", "polo", "sweater", "knit", "hoodie", "sweatshirt",
+      "jacket", "coat", "outerwear", "vest",
+    ],
+    sourceUrl: "https://www.truereligion.com/sizechart-mens-tops.html",
+    note:
+      "True Religion's men's tops chart, which is also its answer for jackets — " +
+      "the brand publishes no outerwear chart. Chest is the only column it " +
+      "gives, and the run steps a clean 2in per size.",
+    rows: [
+      { size: "XS", measurements: { chest: "35-36" } },
+      { size: "S", measurements: { chest: "37-38" } },
+      { size: "M", measurements: { chest: "39-40" } },
+      { size: "L", measurements: { chest: "41-42" } },
+      { size: "XL", measurements: { chest: "43-44" } },
+      { size: "XXL", measurements: { chest: "45-46" } },
+      { size: "XXXL", measurements: { chest: "47-48" } },
+    ],
+  },
+
+  // Abercrombie & Fitch — the product-page Size Guide drawer. A&F's own
+  // /shop/us/help/sizechart renders "we are having a problem".
+  {
+    brand: "Abercrombie & Fitch",
+    brandMatch: ["abercrombie", "abercrombie & fitch", "abercrombiefitch"],
+    department: "Women",
+    garment: "Dresses, coats & jackets (body inches)",
+    categoryMatch: [
+      "jacket", "coat", "outerwear", "parka", "blazer", "vest", "dress",
+      "romper", "bodysuit",
+    ],
+    sourceUrl: "https://www.abercrombie.com/shop/us/p/slim-zip-vegan-suede-jacket-63260837",
+    note:
+      "A&F heads this chart 'Dresses - Rompers - Bodysuits - Coats - Jackets', " +
+      "so one set of numbers answers for outerwear and dresses alike. Body " +
+      "measurements — A&F's own line is 'sizes are designed to fit the " +
+      "following body measurements'.",
+    rows: [
+      { size: "XXS / 000-00", measurements: { bust: "29.5-31.5", waist: "22.5-24.5", hip: "32-34" } },
+      { size: "XS / 0-2", measurements: { bust: "31.5-33.5", waist: "24.5-26.5", hip: "34-36" } },
+      { size: "S / 4-6", measurements: { bust: "33.5-35.5", waist: "26.5-29", hip: "36-38.5" } },
+      { size: "M / 8-10", measurements: { bust: "35.5-38", waist: "29-32", hip: "38.5-41" } },
+      { size: "L / 12-14", measurements: { bust: "38-41", waist: "32-35.5", hip: "41-44" } },
+      { size: "XL / 16-18", measurements: { bust: "41-45", waist: "35.5-39.5", hip: "44-48" } },
+      { size: "XXL / 20-22", measurements: { bust: "45-49", waist: "39.5-44.5", hip: "48-53" } },
+      { size: "XXXL / 24", measurements: { bust: "49-53", waist: "44.5-49.5", hip: "53-58" } },
+    ],
+  },
+  {
+    brand: "Abercrombie & Fitch",
+    brandMatch: ["abercrombie", "abercrombie & fitch", "abercrombiefitch"],
+    department: "Men",
+    garment: "Outerwear (body inches)",
+    categoryMatch: ["jacket", "coat", "outerwear", "parka", "blazer", "vest"],
+    sourceUrl: "https://www.abercrombie.com/shop/us/p/100-cotton-canvas-fireman-clasp-jacket-63550820",
+    note:
+      "A&F shows its TOPS chart on a jacket product page, so these are the " +
+      "brand's own numbers for outerwear. Body measurements. The corpus already " +
+      "holds an approximated A&F men's tops chart; this one is sourced and " +
+      "sits about 1in wider at every label.",
+    rows: [
+      { size: "XXS", measurements: { chest: "28.5-31.5", sleeve: "31" } },
+      { size: "XS", measurements: { chest: "31.5-34.5", sleeve: "32" } },
+      { size: "S", measurements: { chest: "34.5-37.5", sleeve: "33" } },
+      { size: "M", measurements: { chest: "37.5-40.5", sleeve: "34" } },
+      { size: "L", measurements: { chest: "40.5-43.5", sleeve: "35" } },
+      { size: "XL", measurements: { chest: "43.5-46.5", sleeve: "36" } },
+      { size: "XXL", measurements: { chest: "46.5-49.5", sleeve: "36.5" } },
+      { size: "3XL", measurements: { chest: "49.5-52.5", sleeve: "36.5" } },
+    ],
+  },
+
+  // Spanx — spanx.com/pages/size-guide links out to the brand's Kustomer help
+  // centre, which is where the chart actually lives. /pages/size-chart 404s.
+  {
+    brand: "Spanx",
+    brandMatch: ["spanx"],
+    department: "Women",
+    garment: "Tops & outerwear (body inches)",
+    categoryMatch: [
+      "top", "tee", "shirt", "blouse", "sweater", "knit", "hoodie", "sweatshirt",
+      "tank", "cardigan", "jacket", "coat", "outerwear", "blazer", "vest",
+    ],
+    sourceUrl: "https://spanx.kustomer.help/tops-sizing-guide-B1PJHBjjq",
+    note:
+      "Spanx publishes no outerwear chart, so its tops chart answers for " +
+      "jackets too. Body measurements. Its XL covers only a US 16 — the run " +
+      "continues into 1X rather than XXL, which is the brand's own break.",
+    rows: [
+      { size: "XS / 0-2", measurements: { bust: "32-34", waist: "25-27", hip: "34-36" } },
+      { size: "S / 4-6", measurements: { bust: "34-36", waist: "27-29", hip: "36-38" } },
+      { size: "M / 8-10", measurements: { bust: "36-38", waist: "29-31", hip: "38-40" } },
+      { size: "L / 12-14", measurements: { bust: "38-40.5", waist: "31-33.5", hip: "40-42.5" } },
+      { size: "XL / 16", measurements: { bust: "40.5-43", waist: "33.5-36", hip: "42.5-45" } },
+    ],
+  },
+  {
+    brand: "Spanx",
+    brandMatch: ["spanx"],
+    department: "Women",
+    garment: "Tops & outerwear, plus (body inches)",
+    categoryMatch: [
+      "top", "tee", "shirt", "blouse", "sweater", "knit", "hoodie", "sweatshirt",
+      "tank", "cardigan", "jacket", "coat", "outerwear", "blazer", "vest",
+    ],
+    sizeClass: "plus",
+    sourceUrl: "https://spanx.kustomer.help/tops-sizing-guide-B1PJHBjjq",
+    note:
+      "The 1X-3X half of the same Spanx table. It continues the standard run " +
+      "rather than restarting it: 1X picks up exactly where XL stops.",
+    rows: [
+      { size: "1X / 18-20", measurements: { bust: "43-46", waist: "36-39", hip: "45-48" } },
+      { size: "2X / 22-24", measurements: { bust: "46-49", waist: "39-42", hip: "48-51" } },
+      { size: "3X / 26", measurements: { bust: "49-52", waist: "42-45", hip: "51-54" } },
+    ],
+  },
+
+  // Uniqlo — no site-wide chart page (/us/en/size-chart 404s); the chart is a
+  // per-product modal, and its Body Size and Product Size tabs often hold the
+  // same table.
+  {
+    brand: "Uniqlo",
+    brandMatch: ["uniqlo"],
+    department: "Unisex",
+    garment: "Outerwear (body inches)",
+    categoryMatch: ["jacket", "coat", "outerwear", "parka", "blouson", "fleece", "vest"],
+    sourceUrl: "https://www.uniqlo.com/us/en/products/E491096-000/00",
+    note:
+      "Uniqlo's outerwear body chart, chest only, taken from a unisex blouson. " +
+      "The brand sizes most outerwear unisex now, which is why this is not " +
+      "split by department. Note XXS and XS overlap by more than two inches, " +
+      "which is Uniqlo's own table.",
+    rows: [
+      { size: "XXS", measurements: { chest: "30.75-33" } },
+      { size: "XS", measurements: { chest: "31.5-34.75" } },
+      { size: "S", measurements: { chest: "34.75-37.75" } },
+      { size: "M", measurements: { chest: "37.75-41" } },
+      { size: "L", measurements: { chest: "41-44" } },
+      { size: "XL", measurements: { chest: "44-47.25" } },
+      { size: "XXL", measurements: { chest: "47.25-50.5" } },
+      { size: "3XL", measurements: { chest: "50.5-53.5" } },
+    ],
+  },
+  {
+    brand: "Uniqlo",
+    brandMatch: ["uniqlo"],
+    department: "Unisex",
+    garment: "Bottoms (inch-sized — the number IS the waist)",
+    categoryMatch: ["bottom", "pant", "trouser", "short", "jean", "chino", "cargo"],
+    sourceUrl: "https://www.uniqlo.com/us/en/products/E482868-000/00",
+    note:
+      "Uniqlo labels most bottoms in inches and the number IS the waist — a " +
+      "'32inch' tag means a 32in waist, with no vanity offset in either " +
+      "direction. Uniqlo prints identical Body Size and Product Size tables for " +
+      "these, so there is no ease to reason about. The men's run is 27-40 and " +
+      "skips 37 and 39; the unisex run starts at 22 and skips 31 and 33.",
+    rows: [
+      { size: "22inch", measurements: { waist: "22" } },
+      { size: "23inch", measurements: { waist: "23" } },
+      { size: "24inch", measurements: { waist: "24" } },
+      { size: "25inch", measurements: { waist: "25" } },
+      { size: "26inch", measurements: { waist: "26" } },
+      { size: "27inch", measurements: { waist: "27" } },
+      { size: "28inch", measurements: { waist: "28" } },
+      { size: "29inch", measurements: { waist: "29" } },
+      { size: "30inch", measurements: { waist: "30" } },
+      { size: "31inch", measurements: { waist: "31" } },
+      { size: "32inch", measurements: { waist: "32" } },
+      { size: "33inch", measurements: { waist: "33" } },
+      { size: "34inch", measurements: { waist: "34" } },
+      { size: "35inch", measurements: { waist: "35" } },
+      { size: "36inch", measurements: { waist: "36" } },
+      { size: "38inch", measurements: { waist: "38" } },
+      { size: "40inch", measurements: { waist: "40" } },
+    ],
+  },
+
+  // Aimé Leon Dore — the brand publishes garment specs PER PRODUCT and no body
+  // chart. What IS brand-wide, and printed on every product's Sizing panel, is
+  // the conversion below.
+  {
+    brand: "Aimé Leon Dore",
+    brandMatch: ["aimé leon dore", "aime leon dore", "aimeleondore"],
+    department: "Unisex",
+    garment: "Bottoms (system conversion only — no body measurements)",
+    categoryMatch: ["bottom", "pant", "trouser", "short", "jean", "chino", "sweatpant"],
+    sourceUrl: "https://www.aimeleondore.com/products/double-pleated-officer-pant-2",
+    note:
+      "ALD publishes NO body chart. Every product's Sizing panel carries garment " +
+      "specs for that garment alone, and they differ enough between styles to " +
+      "make a brand-level number dishonest: the Officer Pant lists a 29.5in " +
+      "relaxed waist at size 28 while the Elasticated Trouser lists 26in at XS. " +
+      "What IS brand-wide is this conversion, printed identically on every " +
+      "product, so that is all this chart claims.",
+    rows: [
+      { size: "XS", measurements: { us: "28", eu: "44", jp: "1" } },
+      { size: "S", measurements: { us: "30", eu: "46", jp: "2" } },
+      { size: "M", measurements: { us: "32", eu: "48", jp: "3" } },
+      { size: "L", measurements: { us: "34", eu: "50", jp: "4" } },
+      { size: "XL", measurements: { us: "36", eu: "52", jp: "5" } },
+      { size: "XXL", measurements: { us: "38", eu: "54", jp: "6" } },
     ],
   },
 ];

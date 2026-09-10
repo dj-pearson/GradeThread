@@ -6,17 +6,17 @@ Coverage is measured the way the size-guide panel resolves a chart: a real brand
 
 ## Where it stands
 
-- 167 brands, 331 brand-specific charts.
-- 45 charts link the brand's own guide; 0 have been checked against it by a human.
-- 71 brands are missing at least one group they should cover.
+- 168 brands, 352 brand-specific charts.
+- 67 charts link the brand's own guide; 0 have been checked against it by a human.
+- 64 brands are missing at least one group they should cover.
 
 | Group | Brands covered |
 |---|---:|
-| top | 115 |
-| bottom | 94 |
-| dress | 51 |
-| outerwear | 100 |
-| suit | 37 |
+| top | 119 |
+| bottom | 99 |
+| dress | 54 |
+| outerwear | 106 |
+| suit | 40 |
 | shoes | 27 |
 | bag | 10 |
 | watch | 1 |
@@ -28,10 +28,10 @@ Coverage is measured the way the size-guide panel resolves a chart: a real brand
 | Brand | Charts | top | bottom | dress | outerwear | suit | shoes | bag | watch | headwear | accessory | Missing |
 |---|---:|---|---|---|---|---|---|---|---|---|---|---|
 | 7 For All Mankind | 3 | Women | Men, Women | Women | Women | Women |  |  |  |  |  |  |
-| Abercrombie & Fitch | 2 | Men | Women |  |  |  |  |  |  |  |  | outerwear |
+| Abercrombie & Fitch | 4 | Men | Women | Women | Men, Women | Men, Women |  |  |  |  |  |  |
 | Aerie | 6 | Men, Women | Men, Women | Women | Men, Women | Men, Women |  |  |  |  |  |  |
 | AG Jeans | 4 | Men, Women | Men, Women | Women | Men, Women | Men, Women |  |  |  |  |  |  |
-| Aimé Leon Dore | 1 | Unisex |  |  | Unisex |  |  |  |  |  |  | bottom |
+| Aimé Leon Dore | 2 | Unisex | Unisex |  | Unisex |  |  |  |  |  |  |  |
 | Allen Edmonds | 1 |  |  |  |  |  | Men |  |  |  |  |  |
 | Alo Yoga | 3 | Men, Women | Women |  | Men, Women |  |  |  |  |  |  |  |
 | American Eagle | 5 | Men, Women | Men, Women | Women | Men, Women | Men, Women |  |  |  |  |  |  |
@@ -142,6 +142,7 @@ Coverage is measured the way the size-guide panel resolves a chart: a real brand
 | PacSun | 2 | Women | Women |  | Women |  |  |  |  |  |  |  |
 | PAIGE | 4 | Men, Women | Men, Women |  | Men, Women | Men, Women |  |  |  |  |  |  |
 | Palace | 1 | Men |  |  |  |  |  |  |  |  |  | bottom, outerwear |
+| Patagonia | 3 | Men, Women | Men, Women | Women | Men, Women |  |  |  |  |  |  |  |
 | Pendleton | 1 | Men |  |  | Men |  |  |  |  |  |  | bottom |
 | Peter Millar | 3 | Men, Women | Men | Women | Men, Women | Men |  |  |  |  |  |  |
 | PINK | 1 | Women | Women |  |  |  |  |  |  |  |  | outerwear |
@@ -164,25 +165,25 @@ Coverage is measured the way the size-guide panel resolves a chart: a real brand
 | SKIMS | 1 |  | Women | Women |  |  |  |  |  |  |  | top, outerwear |
 | Sorel | 2 |  |  |  |  |  | Men, Women | Men |  |  |  |  |
 | Sp5der | 1 | Unisex |  |  | Unisex |  |  |  |  |  |  | bottom |
-| Spanx | 1 |  | Women |  |  |  |  |  |  |  |  | top, outerwear |
+| Spanx | 3 | Women | Women |  | Women | Women |  |  |  |  |  |  |
 | Steve Madden | 1 |  |  |  |  |  | Women |  |  |  |  |  |
 | Stüssy | 1 | Men |  |  |  |  |  |  |  |  |  | bottom, outerwear |
 | Supreme | 2 | Men | Men |  |  |  |  |  |  |  |  | outerwear |
 | Sweaty Betty | 2 | Women | Women |  | Women |  |  |  |  |  |  |  |
 | Talbots | 1 | Women | Women | Women | Women | Women |  |  |  |  |  |  |
 | The Children's Place | 2 | Kids | Kids | Baby, Kids | Kids |  |  |  |  |  |  |  |
-| The North Face / Patagonia (outerwear) | 1 |  |  |  | Unisex |  |  |  |  |  |  | top, bottom |
+| The North Face | 5 | Men, Women | Men, Women |  | Men, Women |  |  |  |  |  |  |  |
 | Theory | 2 | Women | Women |  | Women | Women |  |  |  |  |  |  |
 | Timberland | 1 |  |  |  |  |  | Men |  |  |  |  |  |
 | Todd Snyder | 1 | Men | Men |  |  | Men |  |  |  |  |  | outerwear |
-| Tommy Hilfiger | 2 | Men, Women |  |  |  |  |  |  |  |  |  | bottom, outerwear |
+| Tommy Hilfiger | 7 | Men, Women | Men, Women | Women | Men, Women | Women |  |  |  |  |  |  |
 | Tommy John | 1 |  |  |  |  |  |  |  |  |  |  |  |
 | Tory Burch | 2 | Women | Women | Women | Women | Women |  |  |  |  |  |  |
-| True Religion | 2 |  | Men, Women |  |  |  |  |  |  |  |  | top, outerwear |
+| True Religion | 4 | Men, Women | Men, Women |  | Men, Women |  |  |  |  |  |  |  |
 | Tumi | 1 |  |  |  |  |  |  | Unisex |  |  |  |  |
 | UGG | 2 |  |  |  |  |  | Men, Women |  |  |  |  |  |
 | Under Armour | 3 | Men | Men, Women |  | Men |  |  |  |  |  |  |  |
-| Uniqlo | 2 | Men, Women |  |  |  |  |  |  |  |  |  | bottom, outerwear |
+| Uniqlo | 4 | Men, Women | Unisex |  | Unisex |  |  |  |  |  |  |  |
 | UNTUCKit | 2 | Men, Women |  | Women |  |  |  |  |  |  |  | bottom, outerwear |
 | Urban Outfitters | 2 | Women | Women | Women | Women |  |  |  |  |  |  |  |
 | Vans | 1 |  |  |  |  |  | Unisex |  |  |  |  |  |

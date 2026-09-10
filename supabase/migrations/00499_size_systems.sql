@@ -6,7 +6,7 @@
 -- WHY: the chart shape had department and a free-text garment scope and nowhere
 -- to record WHICH NATIONAL SYSTEM a size label is written in, so the corpus
 -- encoded it inside the label itself — "UK 10 (US 6)", "IT 48 (US 38)",
--- "FR 36 (US 4)", "JP L (=US M)". 115 of 334 charts do this. Every one of
+-- "FR 36 (US 4)", "JP L (=US M)". 115 of 355 charts do this. Every one of
 -- those parentheses is a workaround for a missing field.
 --
 -- The prose is KEPT. This migration adds the structured field beside it; it
@@ -19,7 +19,7 @@
 -- chart of bare numbers stays NULL because a bare "6" could be US or UK and
 -- nothing in the row says which. NULL means "not recorded", never "US".
 --
--- Derived here: 153 charts with a readable system, 2 non-standard size class,
+-- Derived here: 156 charts with a readable system, 4 non-standard size class,
 -- 1 with an ambiguous class (a scope naming several — the Talbots case, whose
 -- scope reads "Misses / Petite / Plus" and which is exactly the folding the
 -- size_class column exists to end).
@@ -91,7 +91,6 @@ begin
   ('reicoop', 'Men', 'Tops', 'alpha', 'standard'),
   ('llbean', 'Men', 'Tops', 'alpha', 'standard'),
   ('mountainhardwear', 'Men', 'Tops', 'alpha', 'standard'),
-  ('thenorthfacepatagoniaouterwear', 'Unisex', 'Outerwear / jackets (alpha)', 'alpha', 'standard'),
   ('chanel', 'Women', 'Jackets & tweed (FR sizing)', 'FR', 'standard'),
   ('chanel', 'Women', 'Dresses & tops (FR sizing)', 'FR', 'standard'),
   ('burberry', 'Women', 'Trench & outerwear (UK sizing)', 'UK', 'standard'),
@@ -217,7 +216,13 @@ begin
   ('luckybrand', 'Men', 'Tops & outerwear (body inches)', 'alpha', 'standard'),
   ('madewell', 'Women', 'Tops & outerwear, plus (body inches)', NULL, 'plus'),
   ('pacsun', 'Women', 'Tops & outerwear (body inches)', 'alpha', 'standard'),
-  ('paige', 'Men', 'Tops & outerwear (body inches)', 'alpha', 'standard')
+  ('paige', 'Men', 'Tops & outerwear (body inches)', 'alpha', 'standard'),
+  ('patagonia', 'Men', 'Tops & outerwear (body inches)', 'alpha', 'standard'),
+  ('patagonia', 'Men', 'Bottoms (body inches)', 'alpha', 'standard'),
+  ('thenorthface', 'Women', 'Jackets & tops, plus (body inches)', NULL, 'plus'),
+  ('truereligion', 'Men', 'Tops & outerwear (body inches)', 'alpha', 'standard'),
+  ('spanx', 'Women', 'Tops & outerwear, plus (body inches)', NULL, 'plus'),
+  ('aimleondore', 'Unisex', 'Bottoms (system conversion only — no body measurements)', 'alpha', 'standard')
     ) AS v(brand_key, department, garment, size_system, size_class)
    where t.brand_key  = v.brand_key
      and t.department = v.department
