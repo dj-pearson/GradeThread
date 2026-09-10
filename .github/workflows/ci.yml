@@ -62,7 +62,16 @@ jobs:
       # a leak should be reported in seconds, not after twenty minutes of tests.
       - name: Held-migration gate
         run: node scripts/held-migration-gate.mjs --ci
-      - run: npm ci
+      # `if: !cancelled()` is load-bearing and was missing until 2026-09-10.
+      # Without it, a failing gate above SKIPS this install, and then every node
+      # script in the rest of the job dies on "Cannot find package" - vault lint,
+      # the Swift mirrors, the env reference, all of them. Main CI was red for
+      # days that way, showing dozens of unrelated errors that were all one
+      # skipped `npm ci`. A held migration is a NORMAL state in this repo, so the
+      # gate blocking must fail the job without making every other check lie.
+      - name: Install dependencies
+        if: ${{ !cancelled() }}
+        run: npm ci
       # The scripts test lane below shells out to "deno run scripts/*.ts" --
       # the operator scripts are Deno, and this job never had it installed. Those
       # tests failed with "deno: not found" and took the whole lane down with

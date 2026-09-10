@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-3308",
+  "nextId": "US-3309",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -4890,6 +4890,21 @@
         "scripts/brand-kb-gap.mjs stops ranking known non-brand values as demand, reading from one shared classification rather than a second hardcoded list"
       ],
       "priority": 6
+    },
+    {
+      "id": "US-3308",
+      "passes": false,
+      "title": "Main CI has failed every run for days, and one skipped npm ci made every other check lie",
+      "description": "Found 2026-09-10. The `CI` workflow has conclusion 'failure' on every run on main going back at least to 2026-09-09, which is the third dark lane found in one day alongside Android CI and iOS CI.\n\nTHE CASCADE, and it is worth understanding before fixing anything else. The `build` job runs `Held-migration gate` first, deliberately, so a leak is reported in seconds rather than after twenty minutes. The very next step was a bare `- run: npm ci` with no `if:` condition. GitHub Actions skips a step with no condition once an earlier step has failed, so a blocking gate meant the install never ran, and then EVERY node script later in the job died with 'Cannot find package'. The failing run 34542908877 therefore reported the Swift-mirror guard as broken, the vault lint as broken, and the env-reference check as broken, when all three were simply running without node_modules. A held migration is a NORMAL state in this repo, so the gate blocking must fail the job WITHOUT making every other check in it report a falsehood. That one-line `if: !cancelled()` is fixed in the same commit as this story is filed.\n\nWHAT WAS ACTUALLY BROKEN, once the noise is removed, is three separate things.\n\n(1) The gate was right to block, but for a stale reason: 00777, 00778, 00781 and 00782 were still marked HELD in PENDING_MIGRATIONS.md while production already had them. Corrected 2026-09-10 with the evidence in the file.\n\n(2) `ios/GradeThread/Help/ProductTerms.swift` was genuinely stale against its generator, carrying 'colour' where US-3233 had changed the source to 'color'. Regenerated.\n\n(3) `vault-lint --strict` reports 86 errors across 238 notes and this is NOT downstream of the skipped install. 26 are knowledge-bearing migration headers with no vault note referencing them, almost all from the brand-pack and size-chart migrations of the last two weeks; the rest are DRIFT on notes whose code_refs changed after the note was last reviewed. This is the only remaining reason CI stays red once the cascade is fixed.",
+      "acceptanceCriteria": [
+        "The held-migration gate can block without taking the rest of the job down with it, and a test or a comment records why the install step needs its condition, since the same shape can return on any step added before it",
+        "vault-lint --strict passes: the 26 knowledge-bearing migration headers get the vault notes they need, and every DRIFT note is re-read and its reviewed date bumped, not just touched",
+        "The 26 are not fixed by shortening the headers. An applied migration is immutable and the knowledge in it cannot be corrected later, which is why the rule exists; each one gets a real note under vault/20-domain/ that carries the knowledge and lists the migration in code_refs",
+        "A DRIFT bump requires evidence that the note was actually re-read against the changed file, since a date bumped without reading is worse than a red lint: it converts a true warning into a false all-clear",
+        "Main CI is green, and the run id that proves it is recorded in the story notes",
+        "Whatever let three CI lanes stay red for days is addressed: name the reason a red lane stops being read here, and either make one of them loud or write down what a red lane means, the way memory/ios-lane-red-baseline.md now does for iOS"
+      ],
+      "priority": 2
     }
   ]
 }
