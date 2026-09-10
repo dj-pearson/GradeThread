@@ -6,16 +6,16 @@ Coverage is measured the way the size-guide panel resolves a chart: a real brand
 
 ## Where it stands
 
-- 168 brands, 400 brand-specific charts.
-- 136 charts link the brand's own guide; 0 have been checked against it by a human.
-- 18 brands are missing at least one group they should cover.
+- 168 brands, 401 brand-specific charts.
+- 137 charts link the brand's own guide; 0 have been checked against it by a human.
+- 15 brands are missing at least one group they should cover.
 
 | Group | Brands covered |
 |---|---:|
 | top | 131 |
-| bottom | 121 |
+| bottom | 123 |
 | dress | 57 |
-| outerwear | 125 |
+| outerwear | 128 |
 | suit | 46 |
 | shoes | 27 |
 | bag | 10 |
@@ -62,7 +62,7 @@ Coverage is measured the way the size-guide panel resolves a chart: a real brand
 | Carter's | 2 | Kids | Kids | Baby, Kids | Kids |  |  |  |  |  |  |  |
 | Celine | 2 | Men, Women | Men, Women | Women | Men, Women | Men |  |  |  |  |  |  |
 | Champion | 6 | Men, Women | Men, Women |  | Men, Women |  |  |  |  |  |  |  |
-| Chanel | 2 | Women |  | Women | Women | Women |  |  |  |  |  | bottom |
+| Chanel | 2 | Women | Women | Women | Women | Women |  |  |  |  |  |  |
 | Chrome Hearts | 1 | Unisex |  |  | Unisex |  |  |  |  |  |  | bottom |
 | Citizens of Humanity | 4 | Men, Women | Men, Women | Women | Men, Women | Men, Women |  |  |  |  |  |  |
 | Clarks | 1 |  |  |  |  |  | Unisex |  |  |  |  |  |
@@ -82,7 +82,7 @@ Coverage is measured the way the size-guide panel resolves a chart: a real brand
 | Express | 2 | Women | Women | Women | Women | Women |  |  |  |  |  |  |
 | Fabletics | 2 | Women | Women | Women | Women |  |  |  |  |  |  |  |
 | Faherty | 3 | Men, Women | Men | Women | Men, Women | Men |  |  |  |  |  |  |
-| Fear of God Essentials | 2 | Unisex | Unisex |  |  |  |  |  |  |  |  | outerwear |
+| Fear of God Essentials | 2 | Unisex | Unisex |  | Unisex |  |  |  |  |  |  |  |
 | Fendi | 2 | Men, Women | Men, Women | Women | Men, Women | Men |  |  |  |  |  |  |
 | Fila | 3 | Unisex |  |  | Unisex |  | Men, Women |  |  |  |  | bottom |
 | Filson | 1 | Men |  |  | Men |  |  |  |  |  |  | bottom |
@@ -98,7 +98,7 @@ Coverage is measured the way the size-guide panel resolves a chart: a real brand
 | Gymshark | 3 | Men, Women | Women |  | Women |  |  |  |  |  |  |  |
 | H&M | 2 | Women | Women | Women | Women |  |  |  |  |  |  |  |
 | Hanna Andersson | 1 | Kids | Kids | Kids | Kids |  |  |  |  |  |  |  |
-| Hellstar | 1 | Unisex |  |  | Unisex |  |  |  |  |  |  | bottom |
+| Hellstar | 2 | Unisex | Unisex |  | Unisex |  |  |  |  |  |  |  |
 | Helly Hansen | 2 | Men, Women | Men, Women |  | Men, Women |  |  |  |  |  |  |  |
 | Hermès | 2 | Men, Women | Men, Women | Women | Men, Women | Men |  |  |  |  |  |  |
 | Herno | 4 | Men, Women | Men, Women | Women | Men, Women | Men |  |  |  |  |  |  |
@@ -111,7 +111,7 @@ Coverage is measured the way the size-guide panel resolves a chart: a real brand
 | Johnnie-O | 5 | Men | Kids, Men, Women |  | Men |  |  |  |  |  |  |  |
 | Kate Spade | 1 | Women | Women | Women | Women | Women |  |  |  |  |  |  |
 | KEEN | 2 |  |  |  |  |  | Men, Women |  |  |  |  |  |
-| Kith | 1 | Men |  |  |  |  |  |  |  |  |  | bottom, outerwear |
+| Kith | 1 | Men |  |  | Men |  |  |  |  |  |  | bottom |
 | Kühl | 2 | Men, Women | Men, Women |  | Men, Women |  |  |  |  |  |  |  |
 | L.L.Bean | 2 | Men | Men |  | Men |  |  |  |  |  |  |  |
 | Lee | 5 | Men, Women | Men, Women |  | Unisex |  |  |  |  |  |  |  |
@@ -141,7 +141,7 @@ Coverage is measured the way the size-guide panel resolves a chart: a real brand
 | Outdoor Voices | 1 | Women | Women | Women | Women |  |  |  |  |  |  |  |
 | PacSun | 2 | Women | Women |  | Women |  |  |  |  |  |  |  |
 | PAIGE | 4 | Men, Women | Men, Women |  | Men, Women | Men, Women |  |  |  |  |  |  |
-| Palace | 1 | Men |  |  |  |  |  |  |  |  |  | bottom, outerwear |
+| Palace | 1 | Men |  |  | Men |  |  |  |  |  |  | bottom |
 | Patagonia | 3 | Men, Women | Men, Women | Women | Men, Women |  |  |  |  |  |  |  |
 | Pendleton | 2 | Men | Men |  | Men |  |  |  |  |  |  |  |
 | Peter Millar | 3 | Men, Women | Men | Women | Men, Women | Men |  |  |  |  |  |  |

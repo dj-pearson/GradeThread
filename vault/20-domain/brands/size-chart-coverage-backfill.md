@@ -477,6 +477,42 @@ renders nothing, Buck Mason and Burberry from batch 7, Filson from batch 8),
 so **read the exception notes before spending a browser session** — that is
 what they are for.
 
+Batch 12 (US-3297) is IN PROGRESS: 401 charts, **134 sourced**, 15 brands with
+a gap. Chanel, Fear of God Essentials and Hellstar are closed, and Kith and
+Palace lost their outerwear half. Six bottoms gaps remain, all on streetwear
+brands whose only chart is chest-based.
+
+⚠ **HOW TO FIND A STREETWEAR SHOPIFY STORE'S SIZE CHART: LOOK FOR THE
+LANDSCAPE IMAGE.** Every technique the earlier batches used fails on these
+stores — `/pages/size-guide` 404s, the PDP has no `<table>` and no modal, and
+`products.json` carries no measurements. The guide is a PNG in the theme's
+`/files/` store, dropped into the product description. What gives it away is
+the ASPECT RATIO: Shopify product photos are square (3000x3000), and the
+chart is the one landscape image on the page.
+
+```js
+Array.from(document.querySelectorAll('img'))
+  .filter(i => i.naturalWidth > 300 && i.naturalWidth !== i.naturalHeight)
+```
+
+On Hellstar's sweatpant PDP that returns exactly one image, 822x436, and it
+is the chart. curl it and READ THE PICTURE. ⚠ Take `currentSrc` through
+`new URL(...)` and print only hostname + pathname; the raw src trips the
+browser tool's query-string guard.
+
+⚠ **A "no brand-published chart" note can be a statement about the TECHNIQUE,
+not the brand.** Hellstar's description literally reads "PLEASE REFER TO THE
+SIZE GUIDE BELOW" and the corpus still carried a chest-only approximation,
+because every fetch-shaped route came back empty. Before recording a brand as
+unsourceable, check whether its guide is simply a picture.
+
+⚠ **WIDEN ONLY ONTO A COLUMN THAT ANSWERS THE QUESTION.** Chanel has two
+charts; only the dresses one carries a HIP, so only that one was widened to
+bottoms. The tweed-jacket chart has bust and waist and was left alone. The
+six streetwear bottoms gaps are still open for exactly this reason: a chest
+measurement does not describe a pair of trousers, and widening those charts
+would put a chest number in front of a seller measuring a waistband.
+
 ⚠ The coverage report measures the IN-CODE corpus, not the database. Prod's
 `brand_size_charts` already held source URLs on the hand-written pack rows
 (329 of 340 sourced after batch 1). The gap this loop closes is the in-code

@@ -1739,8 +1739,15 @@ export const SIZING_CHARTS: SizingChart[] = [
     brandMatch: ["chanel"],
     department: "Women",
     garment: "Dresses & tops (FR sizing)",
-    categoryMatch: ["dress", "top", "blouse", "skirt", "shirt", "knit", "sweater"],
+    categoryMatch: [
+      "dress", "top", "blouse", "skirt", "shirt", "knit", "sweater",
+      "bottom", "pant", "trouser", "short", "jean", "denim", "capri",
+    ],
     note:
+      "US-3297 widened this to BOTTOMS and changed nothing else. This is the " +
+      "only Chanel chart in the corpus carrying a HIP column, which is what " +
+      "makes the widening defensible; the tweed-jacket chart beside it has " +
+      "bust and waist only and was deliberately left alone. " +
       "Chanel is FRENCH sizing (FR = US + 32; FR 42 = US 10). These are BODY " +
       "measurements for the nominal FR grade, not Chanel-published garment specs. " +
       "Chanel RTW runs SMALL against this map — no US vanity sizing. Measure the " +
@@ -2061,7 +2068,12 @@ export const SIZING_CHARTS: SizingChart[] = [
     brandMatch: ["kith"],
     department: "Men",
     garment: "Tops (tees & fleece, US alpha)",
-    categoryMatch: ["tee", "t-shirt", "shirt", "top", "hoodie", "sweatshirt", "crewneck", "fleece", "hooded"],
+    categoryMatch: [
+      "tee", "t-shirt", "shirt", "top", "hoodie", "sweatshirt", "crewneck",
+      "fleece", "hooded",
+      "jacket", "coat", "outerwear", "vest", "puffer", "parka", "anorak",
+      "work jacket", "varsity",
+    ],
     note:
       "Kith is US alpha sizing — no national cross-map applies, unlike BAPE in this " +
       "same group. The house line is cut fuller than a standard tee but nothing " +
@@ -2082,7 +2094,12 @@ export const SIZING_CHARTS: SizingChart[] = [
     brandMatch: ["palace", "palace skateboards"],
     department: "Men",
     garment: "Tops (tees & fleece, US alpha)",
-    categoryMatch: ["tee", "t-shirt", "shirt", "top", "hoodie", "sweatshirt", "crewneck", "fleece", "hooded"],
+    categoryMatch: [
+      "tee", "t-shirt", "shirt", "top", "hoodie", "sweatshirt", "crewneck",
+      "fleece", "hooded",
+      "jacket", "coat", "outerwear", "vest", "puffer", "parka", "anorak",
+      "work jacket", "varsity",
+    ],
     note:
       "Palace is a UK brand on US alpha sizing — despite the origin, no national " +
       "cross-map applies here (contrast BAPE in this same group, whose L is " +
@@ -2106,7 +2123,12 @@ export const SIZING_CHARTS: SizingChart[] = [
     brandMatch: ["fear of god essentials", "fearofgodessentials", "essentials by fear of god"],
     department: "Unisex",
     garment: "Tops (OVERSIZED, alpha)",
-    categoryMatch: ["tee", "t-shirt", "shirt", "top", "hoodie", "sweatshirt", "crewneck", "fleece", "hooded"],
+    categoryMatch: [
+      "tee", "t-shirt", "shirt", "top", "hoodie", "sweatshirt", "crewneck",
+      "fleece", "hooded",
+      "jacket", "coat", "outerwear", "vest", "puffer", "parka", "anorak",
+      "work jacket", "varsity",
+    ],
     note:
       "Fear of God Essentials is cut DELIBERATELY OVERSIZED — dropped shoulders, " +
       "boxy body — so an Essentials L drapes like a US XL, roughly one size up. " +
@@ -12391,6 +12413,42 @@ export const SIZING_CHARTS: SizingChart[] = [
       { size: "8P", measurements: { bust: "37", waist: "29", hip: "40" } },
       { size: "10P", measurements: { bust: "39", waist: "31", hip: "42" } },
       { size: "12P", measurements: { bust: "41", waist: "33", hip: "44" } },
+    ],
+  },
+
+  // ── US-3297: size-chart backfill, batch 12 of 13 ───────────────────────────
+  //
+  // THE ROUTE THAT FINALLY WORKED ON A STREETWEAR BRAND: the guide is a PNG in
+  // the theme's file store, dropped into the product description, so it is
+  // invisible to every technique the earlier batches used. No `<table>`, no
+  // modal, no JSON endpoint, and `/pages/size-guide` 404s. What gives it away
+  // is the ASPECT RATIO — a Shopify product photo is square (3000x3000), and
+  // the size chart is the one landscape image on the page (822x436 here).
+  // Filter `img` by `naturalWidth !== naturalHeight`, take the URL, and read
+  // the picture.
+  {
+    brand: "Hellstar",
+    brandMatch: ["hellstar", "hell star"],
+    department: "Unisex",
+    garment: "Bottoms (alpha, waist + inseam)",
+    categoryMatch: ["bottom", "pant", "sweatpant", "short", "jean", "cargo", "trouser", "jogger"],
+    sourceUrl: "https://hellstar.com/products/hssp01sw1-gry-grey-no-guts-no-glory-sweatpant",
+    note:
+      "Hellstar's own bottoms chart, read off the size-guide image its product " +
+      "pages carry (\"PLEASE REFER TO THE SIZE GUIDE BELOW\" is in the " +
+      "description text). ⚠ EVERY WAIST IS AN EVEN NUMBER two apart, XS 26 " +
+      "through 2XL 36, which is a designed grade rather than a measured body — " +
+      "treat it as the tag's claim and measure the garment. The inseam moves " +
+      "only two and a half inches across the whole run (28.5 to 31), so a " +
+      "Hellstar sweatpant is graded almost entirely on girth. Its /pages/" +
+      "size-guide 404s and no product JSON carries the numbers.",
+    rows: [
+      { size: "XS", measurements: { waist: "26", inseam: "28.5" } },
+      { size: "S", measurements: { waist: "28", inseam: "29" } },
+      { size: "M", measurements: { waist: "30", inseam: "29.5" } },
+      { size: "L", measurements: { waist: "32", inseam: "30" } },
+      { size: "XL", measurements: { waist: "34", inseam: "30.5" } },
+      { size: "2XL", measurements: { waist: "36", inseam: "31" } },
     ],
   },
 ];
