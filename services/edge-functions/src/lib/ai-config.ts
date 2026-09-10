@@ -324,6 +324,15 @@ const CONTENT_MODEL_ALLOWLIST: ReadonlySet<string> = new Set([
   DEFAULTS.lightweightModel,
 ]);
 
+/**
+ * The same set, as an array, for the US-3151 guard that every model an operator
+ * can route content to is still sent output_config.format. Exported rather than
+ * duplicated in the test so adding a model here cannot leave the guard behind.
+ */
+export const CONTENT_MODEL_ALLOWLIST_FOR_TESTS: readonly string[] = [
+  ...CONTENT_MODEL_ALLOWLIST,
+];
+
 export function getContentModel(kind: ContentKind): string {
   const envName = `CONTENT_MODEL_${kind.toUpperCase()}`;
   const override = Deno.env.get(envName)?.trim();

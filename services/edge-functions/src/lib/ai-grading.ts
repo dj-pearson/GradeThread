@@ -711,6 +711,21 @@ ${UNTRUSTED_INPUT_GUARD}
 
 IMPORTANT: You must respond ONLY with valid JSON matching the exact schema requested. No markdown, no explanation, no preamble — just the JSON object.`;
 
+// ⚠ US-3151 AC1 — THE LINE ABOVE IS REDUNDANT AND IS STILL HERE ON PURPOSE.
+// This call already sends output_config.format (the jsonSchema argument at
+// ai-grading.ts:1377, which ai-provider-anthropic.ts renders into
+// output_config.format), so the API already guarantees exactly what the
+// sentence asks for. Deleting it is provably safe in the sense that matters for
+// PARSING — and it is still a change to the bytes the model reads, which makes
+// it a grading prompt change under .claude/skills/grading-engine. That means a
+// draft ai_prompt_versions row, a shadow compare on live traffic, the
+// golden-set eval gate and a canary slice, not an edit in a content session.
+// It rides US-3150's lane (that story moves the schema and rules into the
+// cached system block and needs the same run); US-3150 is not started, and
+// spending a golden-set eval on deleting one redundant sentence buys nothing
+// the eval for US-3150 would not cover for free.
+// The composite twin of this comment is at the matching prompt below.
+
 // ── DB-driven prompt overrides ────────────────────────────────────────
 // Prompts ship as versioned code defaults. An active row in
 // ai_prompt_versions (stage + optional garment_scope) OVERRIDES the code
@@ -1942,6 +1957,12 @@ When synthesizing: consolidate intentional design features into style_attributes
 ${UNTRUSTED_INPUT_GUARD}
 
 IMPORTANT: You must respond ONLY with valid JSON matching the exact schema requested. No markdown, no explanation, no preamble — just the JSON object.`;
+
+// ⚠ US-3151 AC1 — KEPT FOR THE SAME REASON AS THE PER-IMAGE PROMPT ABOVE.
+// The composite call sends output_config.format too (the jsonSchema argument at
+// ai-grading.ts:2811), so this sentence is redundant against a guarantee that
+// is already in force. Removing it is a grading prompt change and goes through
+// the shadow/eval/canary lane with US-3150, not on its own.
 
 // US-1921: free-text inside the per-image analyses is the VISION model's
 // transcription of whatever is visible in the photo — INCLUDING any text a

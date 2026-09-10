@@ -165,6 +165,18 @@ export function parseExtraction(
     warning,
   });
 
+  // ⚠ US-3151 — NOT CONVERTED, and the comment below is the evidence for why
+  // it should be. The blocker is that half of this shape is NULLABLE by design
+  // (vendor, date, total, tax and category are all "or null", and returning
+  // null for an unreadable field is the rule that keeps the model from
+  // guessing). Every schema this repo sends today uses one narrow, production-
+  // proven subset — object / string / integer / array / enum, closed and fully
+  // required — and nullable fields are not in it. Sending a keyword the API
+  // rejects 400s the whole call, which would be worse than the parse it fixes.
+  // Confirm nullable support against the API before wiring it, do not assume.
+  // Blast radius today: fail() returns "We could not read that as a receipt",
+  // so the user retries. No content_scheduler_runs errors come from here.
+  //
   // Models wrap JSON in prose or fences however firmly the prompt asks not to.
   const start = text.indexOf("{");
   const end = text.lastIndexOf("}");

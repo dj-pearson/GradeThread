@@ -16,9 +16,20 @@ Deno.test("parseSafetyVerdict: clean pass", () => {
   assertEquals(r.reasons, []);
 });
 
-Deno.test("parseSafetyVerdict: pass inside a code fence", () => {
+Deno.test("parseSafetyVerdict: a fenced pass now HOLDS", () => {
+  // US-3151: this test used to assert the opposite, and it was right to fail
+  // when the fence-stripping came out. The intent behind it still holds, so it
+  // is rewritten against the new mechanism rather than deleted.
+  //
+  // The request now carries SAFETY_REVIEW_SCHEMA in output_config.format, so a
+  // fenced reply cannot arrive. If one ever does, exactly one thing has
+  // happened: the schema stopped being sent, or stopped being honoured. Quietly
+  // repairing it would hide that behind a verdict that reads fine — and this is
+  // the gate that decides whether a post gets flagged, so a silently degraded
+  // reviewer is the worst available outcome. Fail closed instead.
   const r = parseSafetyVerdict('```json\n{"verdict":"pass","reasons":[]}\n```');
-  assertEquals(r.verdict, "pass");
+  assertEquals(r.verdict, "hold");
+  assertEquals(r.reasons, ["reviewer returned invalid JSON"]);
 });
 
 Deno.test("parseSafetyVerdict: hold with reasons", () => {

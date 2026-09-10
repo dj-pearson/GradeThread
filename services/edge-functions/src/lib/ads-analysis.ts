@@ -202,6 +202,18 @@ export function validateRecommendation(raw: unknown): Recommendation | null {
   };
 }
 
+// ⚠ US-3151 — NOT CONVERTED, and the blocker is the schema, not the effort.
+// Two of a recommendation's fields are open maps by design: `projected_impact`
+// is "an object of numbers, e.g. {spend_saved, conv_delta}" and `payload` is
+// "a machine-applyable object describing the exact change", whose keys differ
+// per change_type. Structured-output mode wants additionalProperties:false and
+// every property in `required` on every object, which is exactly what an open
+// map cannot supply. Closing them means first deciding a fixed key set for
+// every change_type — a product decision, not a wiring change.
+// Blast radius if the parse fails: parseRecommendations returns [], so the run
+// produces zero recommendations rather than an error. This path records no
+// content_scheduler_runs errors and is not part of the 2026-09-08 outage.
+
 /** Parse the model's text block into validated recommendations. */
 export function parseRecommendations(text: string): Recommendation[] {
   const cleaned = text.trim().replace(/^```(?:json)?/i, "").replace(/```$/i, "").trim();

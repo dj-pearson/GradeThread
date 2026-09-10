@@ -268,3 +268,64 @@ export const NEWSLETTER_TOPIC_REFILL_SCHEMA = {
   },
   required: ["candidates"],
 } as const;
+
+// ── The last two callers, converted 2026-09-10 ────────────────────────
+// The 2026-09-08 pass left content-safety.ts and ad-copy-ai.ts asking in prose
+// and hand-parsing, and named them as the complete remaining list. They are
+// here now, so US-3151's grep AC can hold across the whole of src/lib.
+
+/**
+ * content-safety's pre-publish verdict.
+ *
+ * ⚠ THE FAIL-CLOSED GUARD IN parseSafetyVerdict STAYS AND IS TESTED. This is
+ * the one converted caller where an unparseable reply was never an outage: a
+ * bad parse HOLDS the post rather than corrupting it. The schema removes the
+ * failure; deleting the guard with it would swap a tested safe default for an
+ * untested assumption that the API never changes. `verdict` is an enum so
+ * "PASS", "Pass " and "approved" cannot arrive - the normalizer lowercases and
+ * trims anyway, and both belts stay on.
+ */
+export const SAFETY_REVIEW_SCHEMA = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    verdict: { type: "string", enum: ["pass", "hold"] },
+    reasons: STR_ARRAY,
+  },
+  required: ["verdict", "reasons"],
+} as const;
+
+/** ad-copy-ai, Google Ads responsive search assets. */
+export const AD_COPY_GOOGLE_SCHEMA = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    headlines: STR_ARRAY,
+    descriptions: STR_ARRAY,
+  },
+  required: ["headlines", "descriptions"],
+} as const;
+
+/**
+ * ad-copy-ai, Apple Search Ads assets.
+ *
+ * ⚠ THE CHARACTER LIMITS ARE NOT IN HERE, AND CANNOT BE. A JSON Schema can say
+ * `headlines` is an array of strings; it cannot say each one is <= 30 chars.
+ * enforceLines() is what holds that, and it stays for the same reason the prose
+ * schema stays in the content prompts: only one of the two rules is enforceable
+ * by the API, and the other one carries the quality.
+ */
+export const AD_COPY_APPLE_SCHEMA = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    keywords: {
+      type: "object",
+      additionalProperties: false,
+      properties: { exact: STR_ARRAY, broad: STR_ARRAY },
+      required: ["exact", "broad"],
+    },
+    creative: STR_ARRAY,
+  },
+  required: ["keywords", "creative"],
+} as const;

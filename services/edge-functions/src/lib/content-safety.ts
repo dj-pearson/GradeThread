@@ -2,7 +2,9 @@ import {
   getAnthropicClient,
   getLightweightModel,
   modelUsesEffort,
+  outputConfigParams,
 } from "./ai-config.ts";
+import { SAFETY_REVIEW_SCHEMA } from "./content-output-schemas.ts";
 
 // US-486: pre-publish safety/claims review for AI-generated content.
 //
@@ -53,14 +55,18 @@ export function htmlToReviewText(html: string): string {
     .trim();
 }
 
-function stripCodeFence(s: string): string {
-  return s.trim().replace(/^```(?:json)?\s*\n?/i, "").replace(/\n?```\s*$/i, "");
-}
-
 /**
  * Parse + normalize the reviewer model's JSON output. Anything that isn't an
  * unambiguous {"verdict":"pass"} is treated as a hold — defenders don't trust
  * models, especially not the one doing the defending.
+ *
+ * US-3151: the request now carries SAFETY_REVIEW_SCHEMA in
+ * output_config.format, so the reply is a schema-conformant object and there is
+ * no fence to strip. Every branch below STAYS, and that is deliberate: unlike
+ * the blog and social paths, an unreadable reply here was never an outage — it
+ * HOLDS the post. Trading a tested fail-closed default for an untested
+ * assumption that the API's guarantee never lapses is the wrong direction for
+ * the one function whose whole job is not trusting the model.
  */
 export function parseSafetyVerdict(raw: string): {
   verdict: SafetyVerdict;
@@ -68,7 +74,7 @@ export function parseSafetyVerdict(raw: string): {
 } {
   let parsed: unknown;
   try {
-    parsed = JSON.parse(stripCodeFence(raw));
+    parsed = JSON.parse(raw.trim());
   } catch {
     return { verdict: "hold", reasons: ["reviewer returned invalid JSON"] };
   }
@@ -103,9 +109,12 @@ Review the content and HOLD it if it contains ANY of:
 
 PASS content that is ordinary, hedged, on-topic marketing/educational writing. General industry observations ("resale is growing") and clearly framed opinions are fine. Do not hold for style or quality issues.
 
-Respond with ONLY a JSON object, no prose:
-{"verdict": "pass" | "hold", "reasons": ["short reason 1", ...]}
+Return {"verdict": "pass" | "hold", "reasons": ["short reason 1", ...]}.
 reasons is required when holding (cite the specific claim) and may be [] when passing.`;
+// US-3151: the "Respond with ONLY a JSON object, no prose" rule is gone —
+// output_config.format enforces it. The FIELD LIST above stays, because a
+// schema can say `reasons` is an array of strings but not "cite the specific
+// claim", and it cannot say reasons may be empty on a pass.
 
 /**
  * Run the safety/claims check. NEVER throws — every failure path returns a
@@ -134,9 +143,15 @@ export async function reviewContentSafety(
       // Opus 4.6+, Fable) reject `temperature` with a 400, so they get
       // output_config.effort; older Sonnet 4.x/Haiku keep temperature: 0 for a
       // reproducible pass/hold verdict.
-      ...(modelUsesEffort(model)
-        ? { output_config: { effort: "low" as const } }
-        : { temperature: 0 }),
+      //
+      // US-3151: effort and the schema go in ONE output_config, built by
+      // outputConfigParams. Spreading effortParams and then a separate
+      // output_config compiles and silently drops the effort. The effort value
+      // is unchanged ("low" default, now overridable via AI_EFFORT_CONTENT_SAFETY);
+      // the lightweight model is Haiku, which takes the schema and not effort,
+      // so today only `format` goes out here.
+      ...(modelUsesEffort(model) ? {} : { temperature: 0 }),
+      ...outputConfigParams(model, "content_safety", "low", SAFETY_REVIEW_SCHEMA),
       system: REVIEWER_SYSTEM_PROMPT,
       messages: [
         {

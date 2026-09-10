@@ -223,6 +223,11 @@ export function buildStreamSystemPrompt(input: {
     input.pillarMap,
     "",
     "# Output rules",
+    // US-3151 AC3 — KEPT ON PURPOSE, and it is the opposite of the rules this
+    // story deleted elsewhere. The streaming path deliberately emits INSERTABLE
+    // HTML, not a JSON envelope, so there is no schema to enforce and
+    // output_config.format does not apply. This line is the only thing keeping
+    // a fence or a preamble out of text that goes straight into the editor.
     "- Respond with ONLY the HTML content — no JSON, no markdown code fences, no preamble or commentary.",
     "- Use semantic tags: <h2>, <h3>, <p>, <ul><li>, <ol><li>, <blockquote>, <table>. Do NOT emit <html>, <head>, <body>, <script>, inline style, or on* handlers.",
     "- Begin output immediately with the first content tag.",

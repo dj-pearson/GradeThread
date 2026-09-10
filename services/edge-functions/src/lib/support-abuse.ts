@@ -274,6 +274,16 @@ const CLASSIFIER_SYSTEM =
   '{"abuse": boolean, "type": "prompt_injection"|"jailbreak_attempt"|"scope_probe"|"none", ' +
   '"severity": "low"|"medium"|"high"}. No prose.';
 
+// ⚠ US-3151 — NOT CONVERTED, and this is the best remaining candidate of the
+// three. The shape is already closed and enumerable ({abuse: boolean, type:
+// enum, severity: enum}), so it is nearly a drop-in. What stopped it here is
+// that `boolean` is not in the schema subset this repo has actually proven in
+// production (object / string / integer / array / enum), and this classifier
+// FAILS OPEN — a bad parse returns "not flagged" — so a 400 from an unsupported
+// keyword would silently disarm an abuse detector rather than raise an error.
+// Wire it the day boolean is confirmed, or model `abuse` as an enum of "yes" /
+// "no" and convert it now. Not part of the 2026-09-08 content outage.
+
 function parseClassifierJson(raw: string): HeuristicVerdict {
   try {
     const start = raw.indexOf("{");

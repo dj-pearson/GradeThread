@@ -8,11 +8,15 @@
 // automatically inside enterAiFeature("ads", …)).
 
 import {
-  effortParams,
   getAiTemperature,
   getAnthropicClient,
   getDefaultModel,
+  outputConfigParams,
 } from "./ai-config.ts";
+import {
+  AD_COPY_APPLE_SCHEMA,
+  AD_COPY_GOOGLE_SCHEMA,
+} from "./content-output-schemas.ts";
 import { extractTextBlock, jsonParseError } from "./ai-response-text.ts";
 import { enterAiFeature } from "./ai-feature-context.ts";
 import { supabaseAdmin } from "./supabase.ts";
@@ -79,10 +83,6 @@ async function loadBrandKnowledge(): Promise<{
   };
 }
 
-function stripCodeFence(s: string): string {
-  return s.trim().replace(/^```(?:json)?\s*\n?/i, "").replace(/\n?```\s*$/i, "");
-}
-
 function buildSystemPrompt(platform: AdPlatform, brandVoice: string, pillarMap: string): string {
   const lim = AD_LIMITS;
   const platformRules = platform === "google_ads"
@@ -118,7 +118,10 @@ function buildSystemPrompt(platform: AdPlatform, brandVoice: string, pillarMap: 
     "- No unverifiable superlatives (no \"#1\", \"best ever\", \"guaranteed\").",
     "- No ALL-CAPS words and no repeated punctuation (!!, ??).",
     "- Ground every asset in the supplied keyword themes; do not invent features.",
-    "Respond with ONLY the JSON object, no markdown, no commentary.",
+    // US-3151: the "Respond with ONLY the JSON object, no markdown, no
+    // commentary" rule is gone — output_config.format enforces it. The
+    // `Return JSON: {...}` shape lines in platformRules STAY: they name the
+    // fields alongside the char limits the schema cannot express.
   ].join("\n");
 }
 
@@ -163,7 +166,15 @@ export async function generateAdCopy(
 
   const response = await client.messages.create({
     model,
-    ...effortParams(model, "ads_copy", "medium"),
+    // US-3151: effort and the platform schema in ONE output_config. Spreading
+    // effortParams and then setting output_config separately compiles, runs and
+    // drops the effort on the floor. The effort value is unchanged.
+    ...outputConfigParams(
+      model,
+      "ads_copy",
+      "medium",
+      input.platform === "google_ads" ? AD_COPY_GOOGLE_SCHEMA : AD_COPY_APPLE_SCHEMA,
+    ),
     // ⚠️ max_tokens caps THINKING + TEXT on sonnet-5, not text alone. This
     // number was sized on sonnet-4-6, where omitting `thinking` meant no
     // thinking at all — see lib/ai-response-text.ts for the outage that
@@ -177,11 +188,18 @@ export async function generateAdCopy(
 
   const rawText = extractTextBlock(response, "ad-copy-ai");
 
+  // US-3151: output_config.format guarantees a schema-conformant object, so
+  // there is no fence to strip. The guard stays and the message changed:
+  // reaching it now means the SCHEMA or the model changed, not that the model
+  // wrapped its answer in prose.
   let parsed: Record<string, unknown>;
   try {
-    parsed = JSON.parse(stripCodeFence(rawText));
+    parsed = JSON.parse(rawText);
   } catch {
-    console.error("[ad-copy-ai] JSON parse failed:", rawText.slice(0, 300));
+    console.error(
+      "[ad-copy-ai] structured output did not parse - check output_config.format:",
+      rawText.slice(0, 300),
+    );
     throw jsonParseError(response, "ad-copy-ai", rawText);
   }
 
