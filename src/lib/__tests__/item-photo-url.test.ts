@@ -7,6 +7,7 @@
 // public URL only — never the signed one.
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { readdirSync, readFileSync } from "node:fs";
 import {
   _clearItemPhotoUrlCache,
   bumpItemPhotoUrl,
@@ -293,5 +294,91 @@ describe("resolveItemPhotoOriginalUrl (private-bucket originals)", () => {
     );
     expect(url).toContain("tag_original.jpg");
     expect(sign).not.toHaveBeenCalled();
+  });
+});
+
+// ── US-3282: the guard that would have caught this ─────────────────────────
+//
+// US-2273 built the resolver and converted the galleries. It did not stop the
+// NEXT surface from writing `<img src={photo.photo_url}>` again, and two did:
+// the MeasureCard editor in the composer and the photo strip on the review
+// page. Both looked correct in review and in every test, because photo_url is
+// a real public URL for a web-uploaded photo — it is only "" when the seller
+// captured on iPhone, which no test fixture did.
+//
+// So this is a source scan, and it is the kind that can pass against broken
+// code in six known ways. Two things keep it honest: it self-checks the regex
+// against a fixture string on every run, and every remaining hit must be named
+// here with a reason, so the list can only shrink.
+
+describe("US-3282: no surface renders a raw item-photo photo_url", () => {
+  const RAW_SRC = /src=\{[^}]*\.photo_url[^}]*\}/g;
+
+  /**
+   * Files allowed to keep a raw photo_url in an img src, each with the reason
+   * it is not an item_photos row. Adding to this list is a decision; a file
+   * that stops matching fails, so a fix cannot leave a stale entry behind.
+   */
+  const ALLOWED: Record<string, string> = {
+    "src/pages/verified-seller.tsx":
+      "public storefront: a listings projection, not item_photos, and a signed private URL must never appear on a public page",
+  };
+
+  function tsxFiles(dir: string): string[] {
+    const out: string[] = [];
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      const full = `${dir}/${entry.name}`;
+      if (entry.isDirectory()) {
+        if (entry.name === "__tests__" || entry.name === "ui") continue;
+        out.push(...tsxFiles(full));
+      } else if (entry.name.endsWith(".tsx")) {
+        out.push(full);
+      }
+    }
+    return out;
+  }
+
+  it("the pattern actually matches the shape it is looking for", () => {
+    // Mode 7 insurance: a regex that matches nothing reads exactly like a clean
+    // codebase. Prove it fires before trusting a quiet result.
+    const bad = '<img src={photo.photo_url} alt="x" />';
+    expect(bad.match(RAW_SRC)).toHaveLength(1);
+    expect('<ItemPhotoImg photo={photo} />'.match(RAW_SRC)).toBeNull();
+  });
+
+  it("finds every source file it claims to scan", () => {
+    const files = tsxFiles("src");
+    expect(files.length).toBeGreaterThan(100);
+    expect(files).toContain("src/components/flipdesk/measurement-photo-editor.tsx");
+    expect(files).toContain("src/pages/flipdesk/review.tsx");
+  });
+
+  it("leaves no unnamed raw photo_url img in src/", () => {
+    const offenders = tsxFiles("src").filter((f) =>
+      RAW_SRC.test(readFileSync(f, "utf8").replace(/\r\n/g, "\n"))
+    );
+    expect(offenders.filter((f) => !(f in ALLOWED))).toEqual([]);
+  });
+
+  it("every allowlisted file still has the hit it was excused for", () => {
+    for (const file of Object.keys(ALLOWED)) {
+      const src = readFileSync(file, "utf8").replace(/\r\n/g, "\n");
+      expect(RAW_SRC.test(src), `${file} no longer matches — drop it from ALLOWED`)
+        .toBe(true);
+    }
+  });
+
+  it("the MeasureCard editor resolves through the hook, and fetches what it renders", () => {
+    const src = readFileSync(
+      "src/components/flipdesk/measurement-photo-editor.tsx",
+      "utf8",
+    );
+    // The image the seller drags lines on...
+    expect(src).toContain("useItemPhotoDisplayUrl");
+    expect(src).toContain("src={photoSrc}");
+    // ...and the bytes "Turn upright" re-encodes. Fetching photo_url there gave
+    // the page's own HTML for a private photo, so the rotate failed silently.
+    expect(src).toContain("await fetch(photoSrc)");
+    expect(src).not.toContain("await fetch(p.photo_url)");
   });
 });

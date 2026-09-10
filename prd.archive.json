@@ -46063,6 +46063,21 @@
         "A test pins that clear() alone does not re-scope, so the cheap-looking call is not put back"
       ],
       "notes": "Done 2026-09-09. WorkspaceContext.isStaleSelection(_:in:) as a pure static, load() calls WorkspaceScope.handleAccessRevoked instead of clear(); GradeThreadTests/WorkspaceStaleSelectionTests.swift, 6 cases, additive to the existing WorkspaceContextTests which covers switchTo and the scope basics but not this path. Worth noting for whoever picks up the notice UI: .workspaceAccessRevoked is observed on MainShell, and load() runs early, so on a cold launch the notice may post before the observer is live - the same shape as the push deep-link bug fixed earlier on this branch (e7c8b3a). The DATA half of this fix does not depend on that (.workspaceDidChange drives the cache wipe through a Task that does not need a view), but the user-facing sentence may be dropped on a cold launch. Worth confirming on device."
+    },
+    {
+      "id": "US-3282",
+      "passes": true,
+      "title": "An iOS-captured MeasureCard shot renders in the composer measurement editor",
+      "description": "The measurement panel drew the card frame from item_photos.photo_url, which is empty for any photo captured on iPhone: those upload to the private submission-images bucket and the row stores no public URL (US-2273). The editor rendered <img src=\"\">, so the seller saw a broken image with no drag handles, and Turn upright fetched \"\" (the page's own HTML) and failed. The photo grid on the same screen showed the photo correctly, because the galleries already resolve through useItemPhotoDisplayUrl. Same defect on the review page photo strip, which did not even select storage_path.",
+      "acceptanceCriteria": [
+        "The composer measurement editor resolves the card photo through useItemPhotoDisplayUrl({full:true}), so a private-bucket shot renders from a signed URL",
+        "Turn upright re-encodes the same resolved URL it renders, not photo_url",
+        "While a signed URL is minting the panel says so, and a failed mint says the photo could not be loaded, instead of a broken-image glyph",
+        "The review page photo strip renders through ItemPhotoImg and selects storage_path/thumbnail_url",
+        "A source-scan guard fails on any new src={x.photo_url} in src/**/*.tsx outside a named allowlist, self-checks its own regex against a fixture, and fails if an allowlisted file stops matching"
+      ],
+      "priority": 2,
+      "notes": "Done 2026-09-09. Root cause: measurement-photo-editor.tsx read photo.photo_url directly at the img src and inside rotateUpright. photo_url is \"\" for every iOS-captured photo (private submission-images bucket, US-2273), so the editor rendered src=\"\" and the rotate fetched the app's own HTML. Fixed by routing both through useItemPhotoDisplayUrl(photo, {full:true}) — the same resolver the photo grid two cards above already used, which is why the photo looked fine there and broken here. Also fixed the identical raw read in src/pages/flipdesk/review.tsx (it selected no storage_path at all, so it could not have resolved). Guard added in src/lib/__tests__/item-photo-url.test.ts: scans every .tsx under src/ for src={x.photo_url}, allowlists verified-seller.tsx by name and reason (public storefront, listings row, must never carry a signed URL), self-checks the regex against a fixture so a rename cannot disarm it, and fails if an allowlisted file stops matching. Sabotage-verified: reintroducing src={photo.photo_url} fails 2 cases. Verified on the reported item 21d9005c on prod: the grid's copy of the same photo was a signed submission-images URL with naturalWidth 1200 while the editor's img had src=\"\" and naturalWidth 0."
     }
   ]
 }

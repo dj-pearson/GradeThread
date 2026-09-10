@@ -62,6 +62,7 @@ import {
 import { parseEditRecipe, buildEditRecipe } from "@/lib/photo-edit-recipe";
 import { NEUTRAL_ADJUSTMENTS } from "@/lib/image-adjustments";
 import { persistPhotoEdit } from "@/lib/photo-mutations";
+import { useItemPhotoDisplayUrl } from "@/hooks/use-item-photo-url";
 
 interface StoredLine {
   e1: [number, number];
@@ -227,6 +228,25 @@ export function MeasurementPhotoEditor({
       return (data ?? null) as { id: string; photo_url: string } | null;
     },
   });
+
+  /**
+   * US-3282: where the card frame's BYTES actually are.
+   *
+   * This used to be `photo.photo_url`, which is "" for every MeasureCard shot
+   * captured on iOS — those upload to the PRIVATE submission-images bucket and
+   * the row stores no public URL (US-2273). The panel then rendered
+   * `<img src="">`, so the editor came up as a broken image with the drag
+   * handles nowhere, and Turn upright fetched "" (the page's own HTML) and
+   * failed. The photo grid on the same screen showed the same photo fine,
+   * because the galleries already go through this resolver.
+   *
+   * `full: true` because the editor measures against the full-size object, not
+   * a thumbnail — the calibration is in the full image's pixel space.
+   */
+  const { url: photoSrc, failed: photoSrcFailed } = useItemPhotoDisplayUrl(
+    photo ?? {},
+    { full: true },
+  );
 
   const calib = photo?.measure_calibration?.v === 1 ? photo.measure_calibration : null;
   // US-2888: which way the card says is up, and whether we can act on it.
@@ -740,9 +760,13 @@ export function MeasurementPhotoEditor({
   async function rotateUpright() {
     const p = photo;
     if (!p || !calib || uprightTurns === 0) return;
+    if (!photoSrc) {
+      toast.error("Still loading this photo — try again in a moment.");
+      return;
+    }
     setBusy("rotate");
     try {
-      const res = await fetch(p.photo_url);
+      const res = await fetch(photoSrc);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const bitmap = await createImageBitmap(await res.blob());
       // Read the dimensions BEFORE close() — a closed ImageBitmap reports zero,
@@ -1061,11 +1085,21 @@ export function MeasurementPhotoEditor({
         </div>
       )}
 
-      {calib && (
+      {/* US-3282: a private-bucket photo signs asynchronously, and a failed
+          mint says so rather than leaving a broken image with no handles. */}
+      {calib && !photoSrc && (
+        <p className="text-xs text-muted-foreground">
+          {photoSrcFailed
+            ? "Couldn't load this photo. Reload the page, or open it from the Photos grid above."
+            : "Loading the MeasureCard photo..."}
+        </p>
+      )}
+
+      {calib && photoSrc && (
         <>
           <div className="relative inline-block max-w-full">
             <img
-              src={photo.photo_url}
+              src={photoSrc}
               alt="MeasureCard measurement photo"
               className="block h-auto max-w-full rounded"
               style={{ maxWidth: MAX_W, maxHeight: MAX_H }}

@@ -13,6 +13,7 @@ import {
   Zap,
 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
+import { ItemPhotoImg } from "@/components/flipdesk/item-photo-img";
 import type { PriceSetBy } from "@/types/database";
 import { useAuthStore } from "@/stores/auth-store";
 import { PageHeader } from "@/components/ui/page-header";
@@ -95,6 +96,11 @@ interface ReviewItemRow {
 interface ReviewPhotoRow {
   id: string;
   photo_url: string;
+  // US-3282: an iOS-captured photo lives in the private bucket with an empty
+  // photo_url, so the row alone cannot say where its bytes are. ItemPhotoImg
+  // needs the path to sign (US-2273).
+  storage_path: string | null;
+  thumbnail_url: string | null;
   photo_type: string | null;
   sort_order: number;
   created_at: string;
@@ -137,7 +143,7 @@ function useReviewItem(itemId: string | undefined) {
           .maybeSingle(),
         supabase
           .from("item_photos")
-          .select("id, photo_url, photo_type, sort_order, created_at")
+          .select("id, photo_url, storage_path, thumbnail_url, photo_type, sort_order, created_at")
           .eq("inventory_item_id", itemId as string)
           .order("sort_order", { ascending: true }),
         supabase
@@ -549,9 +555,10 @@ export function FlipdeskReviewPage() {
           <CardContent>
             <div className="flex gap-2 overflow-x-auto">
               {photos.slice(0, 8).map((p) => (
-                <img
+                <ItemPhotoImg
                   key={p.id}
-                  src={p.photo_url}
+                  photo={p}
+                  displayWidth={160}
                   alt={p.photo_type ?? "photo"}
                   className="h-20 w-20 shrink-0 rounded-md object-cover"
                   loading="lazy"
