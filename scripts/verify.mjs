@@ -388,6 +388,11 @@ if (on("web")) {
   run("web: production build (incl. prerender)", "npm run build");
   run("web: vitest + coverage", "npm run test:coverage");
   run("web: bundle-size budget + code-splitting", "node scripts/check-bundle-budget.mjs");
+  // Reachability over the prerendered dist/: a page nothing links to, a page
+  // only the header/footer links to, or a page five clicks from home. The
+  // registry guards prove a public page is REGISTERED; this is the one that
+  // proves the site itself mentions it.
+  run("web: internal-link reachability", "node scripts/check-internal-links.mjs");
   // US-2336: the UI anti-pattern gate. Blocks on the tells the project's own
   // guidance rules out (side tabs, gradient text, nested cards); reports the
   // rest against a recorded noise baseline. Runs here rather than as a bare
