@@ -30,6 +30,7 @@ import { ChartSkeleton, LoadingRegion } from "@/components/ui/skeletons";
 import { downloadCsv } from "@/lib/csv-export";
 import { useAuthStore } from "@/stores/auth-store";
 import { fetchSellThrough } from "@/lib/flipdesk-analytics-server";
+import { splitPlaceholderBrandRows } from "@/lib/placeholder-brand";
 import {
   curveHeadline,
   effectivePrice,
@@ -106,12 +107,18 @@ export function PriceCurveReport({
   // the sell-through RPC that the neighbouring tab already caches. A dedicated
   // "distinct brands" endpoint would be a second round trip for a list this
   // page can have for free.
-  const { data: brandRows = [] } = useQuery({
+  const { data: allBrandRows = [] } = useQuery({
     queryKey: ["items_full", "analytics", "sell-through", user?.id, "brand", "all"],
     enabled: !!user,
     staleTime: 5 * 60 * 1000,
     queryFn: () => fetchSellThrough("brand", null),
   });
+  // US-3303: "Unknown" / blank is a sheet placeholder waiting on an AutoLister
+  // merge, so it is never a curve worth filtering to.
+  const brandRows = useMemo(
+    () => splitPlaceholderBrandRows(allBrandRows, (r) => r.group).real,
+    [allBrandRows],
+  );
   const { data: categoryRows = [] } = useQuery({
     queryKey: ["items_full", "analytics", "sell-through", user?.id, "category", "all"],
     enabled: !!user,

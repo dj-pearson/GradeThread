@@ -1,4 +1,4 @@
-import { lazy, Suspense, useMemo } from "react";
+import { lazy, Suspense, useMemo, useState } from "react";
 import { useLocation, useNavigate, useSearchParams } from "react-router";
 import { useQuery } from "@tanstack/react-query";
 import { toast } from "sonner";
@@ -51,6 +51,7 @@ import {
   fetchGradingRoi,
   fetchGradingRoiSummary,
 } from "@/lib/flipdesk-analytics-server";
+import { splitPlaceholderBrandRows } from "@/lib/placeholder-brand";
 import { fetchFinancesDashboard } from "@/lib/finances-dashboard";
 import { ShareOutcomesToggle } from "@/components/flipdesk/share-outcomes-toggle";
 import { EbayAccountHealthCard } from "@/components/flipdesk/ebay-account-health-card";
@@ -436,6 +437,9 @@ function SellThroughReport() {
   const user = useAuthStore((s) => s.user);
   const [preset] = usePresetParam();
   const [groupKey, setGroupKey] = useGroupKeyParam();
+  // US-3303: unrealized rows are hidden by default and never silently. See the
+  // note below the picker for the reasoning.
+  const [showUnrealized, setShowUnrealized] = useState(false);
 
   const periodStart = useMemo(() => presetStart(preset), [preset]);
   const {
@@ -479,7 +483,22 @@ function SellThroughReport() {
   }
   if (isLoading) return <Loading />;
 
-  const chartData = rows.slice(0, 12).map((r) => ({
+  // US-3303: "Unknown" and blank brands are staging placeholders, not brands.
+  // They arrive as text-only sheet rows that AutoLister later merges into the
+  // real item, so until that merge they are unrealized. Grouped by brand they
+  // collapse into one bucket that outranks every real label and answers
+  // nothing. Only the brand grouping is affected — an unbranded item still has
+  // a real category and a real source.
+  const split = splitPlaceholderBrandRows(rows, (r) => r.group);
+  const unrealized = groupKey === "brand" ? split.placeholder : [];
+  const visibleRows =
+    groupKey === "brand" && !showUnrealized ? split.real : rows;
+  const unrealizedItems = unrealized.reduce(
+    (n, r) => n + Math.max(r.listed, r.sold),
+    0,
+  );
+
+  const chartData = visibleRows.slice(0, 12).map((r) => ({
     name: r.group,
     rate: r.sellThrough != null ? Math.round(r.sellThrough * 100) : 0,
     sold: r.sold,
@@ -497,7 +516,7 @@ function SellThroughReport() {
         "Avg net profit",
         "Median days to sell",
       ],
-      rows.map((r) => [
+      visibleRows.map((r) => [
         r.group,
         r.listed,
         r.sold,
@@ -525,13 +544,30 @@ function SellThroughReport() {
           variant="outline"
           size="sm"
           className="ml-auto"
-          disabled={rows.length === 0}
+          disabled={visibleRows.length === 0}
           onClick={exportCsv}
         >
           <Download className="mr-2 h-4 w-4" />
           Export CSV
         </Button>
       </div>
+
+      {unrealized.length > 0 && (
+        <p className="text-xs text-muted-foreground">
+          {showUnrealized ? "Including" : "Hiding"} {unrealizedItems}{" "}
+          {unrealizedItems === 1 ? "item" : "items"} with no brand yet
+          (&quot;Unknown&quot; or blank) — sheet placeholders waiting on an
+          AutoLister merge.{" "}
+          <Button
+            variant="link"
+            size="sm"
+            className="h-auto p-0 text-xs"
+            onClick={() => setShowUnrealized((v) => !v)}
+          >
+            {showUnrealized ? "Hide them" : "Show them"}
+          </Button>
+        </p>
+      )}
 
       {/* US-2820: the one dollar figure, above the charts that explain it. */}
       <Suspense fallback={null}>
@@ -567,10 +603,12 @@ function SellThroughReport() {
           Self-gates (renders nothing when the kill-switch is off). */}
       <InventoryEquityCard />
 
-      {rows.length === 0 ? (
+      {visibleRows.length === 0 ? (
         <Card>
           <CardContent className="py-12 text-center text-sm text-muted-foreground">
-            No listed or sold items in this range yet.
+            {rows.length === 0
+              ? "No listed or sold items in this range yet."
+              : "Every item in this range is still a no-brand placeholder. Show them above, or merge them with AutoLister."}
           </CardContent>
         </Card>
       ) : (
@@ -612,7 +650,7 @@ function SellThroughReport() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {rows.map((r) => (
+                  {visibleRows.map((r) => (
                     <TableRow key={r.group}>
                       <TableCell className="font-medium">{r.group}</TableCell>
                       <TableCell className="text-right tabular-nums">

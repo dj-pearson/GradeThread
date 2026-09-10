@@ -32,6 +32,7 @@ import {
   rankedGroups,
   type VelocityGroupKey,
 } from "@/lib/capital-velocity";
+import { splitPlaceholderBrandRows } from "@/lib/placeholder-brand";
 
 // US-2824 + US-2825: the two "what should I buy more of" reports, on the
 // Sell-through tab.
@@ -215,10 +216,18 @@ export function CapitalVelocityCard({
   // Aged against today, passed in rather than read inside the pure module so
   // the module stays deterministic in a test.
   const asOf = useMemo(() => new Date().toISOString().slice(0, 10), []);
-  const report = useMemo(
-    () => capitalVelocity(items, groupKey, asOf),
-    [items, groupKey, asOf],
-  );
+  // US-3303: grouped by brand, "Unknown" and blank are sheet placeholders that
+  // AutoLister has not merged yet — one bucket of unrealized rows that would
+  // otherwise sit above every real brand in the ranking. Dropped from the rows
+  // only; the account-wide unpricedItems total still counts every item.
+  const report = useMemo(() => {
+    const full = capitalVelocity(items, groupKey, asOf);
+    if (groupKey !== "brand") return full;
+    return {
+      ...full,
+      rows: splitPlaceholderBrandRows(full.rows, (r) => r.group).real,
+    };
+  }, [items, groupKey, asOf]);
   const ranked = useMemo(() => rankedGroups(report), [report]);
   const dead = useMemo(() => deadestCapital(report), [report]);
 
