@@ -9720,6 +9720,141 @@ export const SIZING_CHARTS: SizingChart[] = [
       { size: "4X / 26-28", measurements: { bust: "52.5-56", waist: "46-49.5", hip: "55.5-59" } },
     ],
   },
+
+  // ── US-3287: size-chart backfill, batch 4 ──────────────────────────────────
+  //
+  // Tommy Hilfiger, which is the mass-market pattern again: four plain HTML
+  // tables at two stable URLs, and both of the brand's gaps close from them.
+  //
+  // THE ALPHA SPANS ARE READ, NOT INFERRED, and that matters because a text dump
+  // of these tables loses the colspans — the tops table prints 10 alpha labels
+  // over 20 numeric columns and says nothing about which pairs go together. The
+  // BOTTOMS table on the same page spells the mapping out one label per column
+  // (XXS, XS, XS, S, S, M, M, ...), so the pairing below is Tommy's own, taken
+  // from the table that states it and applied to the one that does not.
+  //
+  // Where an alpha covers two numeric sizes, the row spans both: XL on menswear
+  // is a 36 and a 38, so its chest reads 43.5-45.5 rather than either alone.
+
+  // Tommy Hilfiger — https://usa.tommy.com/en/size-guide-women.html
+  {
+    brand: "Tommy Hilfiger",
+    brandMatch: ["tommy hilfiger", "tommyhilfiger", "tommy jeans"],
+    department: "Women",
+    garment: "Bottoms (alpha/numeric, body inches)",
+    categoryMatch: [
+      "bottom", "pant", "trouser", "jean", "denim", "short", "skirt", "chino",
+      "legging",
+    ],
+    sourceUrl: "https://usa.tommy.com/en/size-guide-women.html",
+    note:
+      "Tommy's published women's bottoms chart. Body measurements, not flat — " +
+      "the waist here is the wearer's, and it runs about an inch above the " +
+      "number on a denim tag. The smallest row carries no numeric on Tommy's " +
+      "own page, so none is invented for it.",
+    rows: [
+      { size: "XXS", measurements: { waist: "24.5", hip: "34.5", thigh: "19.8" } },
+      { size: "XS / 0", measurements: { waist: "25.5", hip: "35.5", thigh: "20.5" } },
+      { size: "XS / 2", measurements: { waist: "26.5", hip: "36.5", thigh: "21.3" } },
+      { size: "S / 4", measurements: { waist: "27.5", hip: "37.5", thigh: "22" } },
+      { size: "S / 6", measurements: { waist: "28.5", hip: "38.5", thigh: "22.8" } },
+      { size: "M / 8", measurements: { waist: "29.5", hip: "39.5", thigh: "23.5" } },
+      { size: "M / 10", measurements: { waist: "30.5", hip: "40.5", thigh: "24.3" } },
+      { size: "L / 12", measurements: { waist: "32", hip: "42", thigh: "25.3" } },
+      { size: "L / 14", measurements: { waist: "33.5", hip: "43.5", thigh: "26.3" } },
+      { size: "XL / 16", measurements: { waist: "35", hip: "45", thigh: "27.3" } },
+      { size: "XL / 18", measurements: { waist: "36.5", hip: "46.5", thigh: "28.3" } },
+      { size: "XXL / 20", measurements: { waist: "38", hip: "48", thigh: "29.3" } },
+      { size: "XXL / 22", measurements: { waist: "39.5", hip: "49.5", thigh: "30.3" } },
+    ],
+  },
+  {
+    brand: "Tommy Hilfiger",
+    brandMatch: ["tommy hilfiger", "tommyhilfiger", "tommy jeans"],
+    department: "Women",
+    garment: "Outerwear (alpha/numeric, body inches)",
+    categoryMatch: ["jacket", "coat", "outerwear", "blazer", "vest", "parka", "puffer"],
+    sourceUrl: "https://usa.tommy.com/en/size-guide-women.html",
+    note:
+      "Tommy publishes no separate women's outerwear table; its jackets are " +
+      "sized off the women's TOPS chart, which is what these rows are. Body " +
+      "measurements, not flat.",
+    rows: [
+      { size: "XXS", measurements: { bust: "32", waist: "24.5", hip: "35", sleeve: "28.5" } },
+      { size: "XS / 0", measurements: { bust: "33", waist: "25.5", hip: "36", sleeve: "29" } },
+      { size: "XS / 2", measurements: { bust: "34", waist: "26.5", hip: "37", sleeve: "29.5" } },
+      { size: "S / 4", measurements: { bust: "35", waist: "27.5", hip: "38", sleeve: "30" } },
+      { size: "S / 6", measurements: { bust: "36", waist: "28.5", hip: "39", sleeve: "30.5" } },
+      { size: "M / 8", measurements: { bust: "37", waist: "29.5", hip: "40", sleeve: "31" } },
+      { size: "M / 10", measurements: { bust: "38.5", waist: "31", hip: "41.5", sleeve: "31.5" } },
+      { size: "L / 12", measurements: { bust: "40", waist: "32.5", hip: "43", sleeve: "32" } },
+      { size: "L / 14", measurements: { bust: "41.5", waist: "34", hip: "44.5", sleeve: "32.5" } },
+      { size: "XL / 16", measurements: { bust: "43", waist: "35.5", hip: "46", sleeve: "33" } },
+      { size: "XL / 18", measurements: { bust: "44.5", waist: "37", hip: "47.5", sleeve: "33.5" } },
+      { size: "XXL / 20", measurements: { bust: "46", waist: "38.5", hip: "49", sleeve: "34" } },
+      { size: "XXL / 22", measurements: { bust: "47.5", waist: "40", hip: "50.5", sleeve: "34.5" } },
+    ],
+  },
+
+  // Tommy Hilfiger — https://usa.tommy.com/en/size-guide-men.html
+  {
+    brand: "Tommy Hilfiger",
+    brandMatch: ["tommy hilfiger", "tommyhilfiger", "tommy jeans"],
+    department: "Men",
+    garment: "Bottoms (WAIST TAG 28-50 — the number is the tag, not the body)",
+    categoryMatch: [
+      "bottom", "pant", "trouser", "jean", "denim", "short", "chino",
+    ],
+    sourceUrl: "https://usa.tommy.com/en/size-guide-men.html",
+    note:
+      "Keyed on the number PRINTED ON THE TAG, which is what a seller reads. " +
+      "Tommy's own chart puts the wearer's waist about 1.5in ABOVE that number " +
+      "— a tagged 32 is a 33.5in body waist — so do not read these as the flat " +
+      "waistband doubled. Body measurements.",
+    rows: [
+      { size: "28", measurements: { waist: "29.5", hip: "35.5", thigh: "20.5" } },
+      { size: "29", measurements: { waist: "30.5", hip: "36.5", thigh: "21.25" } },
+      { size: "30", measurements: { waist: "31.5", hip: "37.5", thigh: "22" } },
+      { size: "31", measurements: { waist: "32.5", hip: "38.5", thigh: "22.5" } },
+      { size: "32", measurements: { waist: "33.5", hip: "39.5", thigh: "23.25" } },
+      { size: "33", measurements: { waist: "34.5", hip: "40.5", thigh: "23.75" } },
+      { size: "34", measurements: { waist: "35.5", hip: "41.5", thigh: "24.5" } },
+      { size: "35", measurements: { waist: "36.5", hip: "42.5", thigh: "25" } },
+      { size: "36", measurements: { waist: "37.5", hip: "43.5", thigh: "25.75" } },
+      { size: "38", measurements: { waist: "39.5", hip: "45.5", thigh: "27" } },
+      { size: "40", measurements: { waist: "41.5", hip: "47.5", thigh: "28.25" } },
+      { size: "42", measurements: { waist: "43.5", hip: "49.5", thigh: "29.5" } },
+      { size: "44", measurements: { waist: "45.5", hip: "51.5", thigh: "30.75" } },
+      { size: "46", measurements: { waist: "47.5", hip: "53.5", thigh: "32" } },
+      { size: "48", measurements: { waist: "49.5", hip: "55.5", thigh: "33.25" } },
+      { size: "50", measurements: { waist: "51.5", hip: "57.5", thigh: "34.5" } },
+    ],
+  },
+  {
+    brand: "Tommy Hilfiger",
+    brandMatch: ["tommy hilfiger", "tommyhilfiger", "tommy jeans"],
+    department: "Men",
+    garment: "Outerwear (alpha, body inches)",
+    categoryMatch: ["jacket", "coat", "outerwear", "blazer", "vest", "parka", "puffer"],
+    sourceUrl: "https://usa.tommy.com/en/size-guide-men.html",
+    note:
+      "Tommy publishes no separate men's outerwear table; its jackets are sized " +
+      "off the men's TOPS chart, which is what these rows are. Each alpha covers " +
+      "TWO numeric sizes on Tommy's own chart, so each row spans both. Body " +
+      "measurements, not flat. Tall (XLT-5XLT) is a separate published chart.",
+    rows: [
+      { size: "XXXS", measurements: { chest: "31.5-32.5", neck: "11-11.5", waist: "25.5-26.5", sleeve: "33.5-33.75" } },
+      { size: "XXS", measurements: { chest: "33.5-34.5", neck: "12-12.5", waist: "27.5-28.5", sleeve: "34-34.25" } },
+      { size: "XS", measurements: { chest: "35.5-36.5", neck: "13-13.5", waist: "29.5-30.5", sleeve: "34.5-34.75" } },
+      { size: "S", measurements: { chest: "37.5-38.5", neck: "14-14.5", waist: "31.5-32.5", sleeve: "35-35.25" } },
+      { size: "M", measurements: { chest: "39.5-40.5", neck: "15-15.5", waist: "33.5-34.5", sleeve: "35.5-35.75" } },
+      { size: "L", measurements: { chest: "41.5-42.5", neck: "16-16.5", waist: "35.5-36.5", sleeve: "36-36.5" } },
+      { size: "XL", measurements: { chest: "43.5-45.5", neck: "17-17.5", waist: "37.5-39.5", sleeve: "36.75-37" } },
+      { size: "XXL", measurements: { chest: "47.5-49.5", neck: "18-18.5", waist: "41.5-43.5", sleeve: "37.5-37.75" } },
+      { size: "XXXL", measurements: { chest: "51.5-53.5", neck: "19-19.5", waist: "45.5-47.5", sleeve: "38.25-38.5" } },
+      { size: "XXXXL", measurements: { chest: "55.5-57.5", neck: "20-20.5", waist: "49.5-51.5", sleeve: "39-39.25" } },
+    ],
+  },
 ];
 
 function norm(s: string | null | undefined): string {

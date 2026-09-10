@@ -6,9 +6,9 @@ Coverage is measured the way the size-guide panel resolves a chart: a real brand
 
 ## Where it stands
 
-- 167 brands, 314 brand-specific charts.
-- 28 charts link the brand's own guide; 0 have been checked against it by a human.
-- 76 brands are missing at least one group they should cover.
+- 167 brands, 318 brand-specific charts.
+- 32 charts link the brand's own guide; 0 have been checked against it by a human.
+- 75 brands are missing at least one group they should cover.
 
 Worked dead ends, skipped by `--gaps` and still listed below:
 
@@ -24,10 +24,10 @@ Worked dead ends, skipped by `--gaps` and still listed below:
 | Group | Brands covered |
 |---|---:|
 | top | 110 |
-| bottom | 92 |
+| bottom | 93 |
 | dress | 51 |
-| outerwear | 97 |
-| suit | 31 |
+| outerwear | 98 |
+| suit | 32 |
 | shoes | 27 |
 | bag | 10 |
 | watch | 1 |
@@ -186,7 +186,7 @@ Worked dead ends, skipped by `--gaps` and still listed below:
 | Theory | 2 | Women | Women |  | Women | Women |  |  |  |  |  |  |
 | Timberland | 1 |  |  |  |  |  | Men |  |  |  |  |  |
 | Todd Snyder | 1 | Men | Men |  |  | Men |  |  |  |  |  | outerwear |
-| Tommy Hilfiger | 2 | Men, Women |  |  |  |  |  |  |  |  |  | bottom, outerwear |
+| Tommy Hilfiger | 6 | Men, Women | Men, Women |  | Men, Women | Men, Women |  |  |  |  |  |  |
 | Tommy John | 1 |  |  |  |  |  |  |  |  |  |  |  |
 | Tory Burch | 2 | Women | Women | Women | Women | Women |  |  |  |  |  |  |
 | True Religion | 2 |  | Men, Women |  |  |  |  |  |  |  |  | top, outerwear |
