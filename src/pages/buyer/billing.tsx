@@ -24,6 +24,8 @@ import { UpgradePreviewDialog } from "@/components/billing/upgrade-preview-dialo
 import { useBillingSummary, useBuyerSubscribe, useBuyerUncancel, useBillingPortal } from "@/hooks/use-billing-summary";
 import { useBuyerEntitlements } from "@/hooks/use-buyer-entitlements";
 import { trackBuyerFunnel } from "@/lib/buyer-analytics";
+import { useDiscounts } from "@/hooks/use-discounts";
+import { SaleBadge } from "@/components/pricing/sale-price";
 
 // US-1801: buyer billing surface. Current plan + renewal + Stripe portal, a
 // monthly/yearly plan picker, cancel/resume, and metered-allowance usage. The
@@ -68,6 +70,8 @@ export function BuyerBillingPage() {
   const [params, setParams] = useSearchParams();
   const { data: summary, isLoading } = useBillingSummary();
   const ent = useBuyerEntitlements();
+  // US-3299: a live sale, if one covers the buyer plans.
+  const { priceFor } = useDiscounts();
   const subscribe = useBuyerSubscribe();
   const uncancel = useBuyerUncancel();
   // US-2125: return from Stripe to THIS page, not the seller's.
@@ -262,7 +266,10 @@ export function BuyerBillingPage() {
             const rank = BUYER_PLAN_RANK[key];
             const isCurrent = rank === effectiveRank;
             const isIncluded = rank <= effectiveRank;
-            const price = interval === "yearly" ? plan.priceYearlyCents : plan.priceMonthlyCents;
+            const listCents = interval === "yearly" ? plan.priceYearlyCents : plan.priceMonthlyCents;
+            // US-3299: a live sale on buyer plans.
+            const sale = priceFor({ kind: "buyer_plan", key, interval }, listCents);
+            const price = sale ? sale.finalCents : listCents;
             return (
               <div
                 key={key}
@@ -275,9 +282,18 @@ export function BuyerBillingPage() {
                   <h3 className="font-semibold">{plan.name}</h3>
                   {isCurrent && <Badge variant="secondary">Current</Badge>}
                 </div>
-                <p className="mt-1 text-2xl font-bold">
+                <p className="mt-1 flex flex-wrap items-baseline gap-x-2 text-2xl font-bold">
+                  {sale && (
+                    <span
+                      className="text-base font-semibold text-muted-foreground line-through"
+                      aria-hidden="true"
+                    >
+                      {dollars(listCents)}
+                    </span>
+                  )}
                   {dollars(price)}
                   {price > 0 && <span className="text-sm font-normal text-muted-foreground">/{interval === "yearly" ? "yr" : "mo"}</span>}
+                  {sale && <SaleBadge sale={sale} />}
                 </p>
                 <ul className="mt-3 flex-1 space-y-1.5 text-xs text-muted-foreground">
                   {/* US-2539: this truncated at five with nothing saying so —

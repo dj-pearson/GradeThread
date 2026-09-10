@@ -2,6 +2,9 @@ import { CreditCard, Sparkles, Wallet } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { GRADETHREAD_TIERS } from "@/lib/constants";
 import type { GradeTierKey } from "@/lib/constants";
+import { useDiscounts } from "@/hooks/use-discounts";
+import { dollarsExact } from "@/lib/discounts";
+import { SalePrice } from "@/components/pricing/sale-price";
 
 // US-950: the billing method that will apply for a grade, mirroring the server
 // precedence in grade-billing.ts — included monthly grades first (Standard
@@ -77,6 +80,11 @@ export function GradePricingSummary({
   const ctx = { creditBalance, includedUsed, includedLimit };
   const selectedMethod = billingMethodForTier(tier, ctx);
   const tierConfig = GRADETHREAD_TIERS[tier];
+  // US-3299: a live sale on grading tiers. Only the CHECKOUT line below cares —
+  // the included-grade and credit paths cost no money, so a discount is not a
+  // fact about them.
+  const { priceFor } = useDiscounts();
+  const tierSale = priceFor({ kind: "grade_tier", key: tier }, tierConfig.priceCents);
 
   return (
     <div className="space-y-3 rounded-lg border bg-muted/30 p-4">
@@ -109,7 +117,12 @@ export function GradePricingSummary({
               <div className="flex items-center justify-between">
                 <span className="text-sm font-medium">{t.label}</span>
                 <span className="text-sm font-semibold tabular-nums">
-                  ${(t.priceCents / 100).toFixed(2)}
+                  <SalePrice
+                    originalCents={t.priceCents}
+                    target={{ kind: "grade_tier", key }}
+                    originalClassName="text-xs font-normal"
+                    hideBadge
+                  />
                 </span>
               </div>
               <p className="mt-0.5 text-xs text-muted-foreground">
@@ -141,8 +154,9 @@ export function GradePricingSummary({
         ) : (
           <p className="font-medium text-brand-red-text">
             No included grades or credits left — a one-time{" "}
-            {tierConfig.label} charge of $
-            {(tierConfig.priceCents / 100).toFixed(2)} applies at checkout after
+            {tierConfig.label} charge of{" "}
+            {dollarsExact(tierSale ? tierSale.finalCents : tierConfig.priceCents)}
+            {tierSale ? ` (${tierSale.label})` : ""} applies at checkout after
             you submit.
           </p>
         )}

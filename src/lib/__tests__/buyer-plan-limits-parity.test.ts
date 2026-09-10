@@ -131,3 +131,55 @@ describe("buyer web advertised feature flags ↔ edge enforced gateFlags", () =>
     }
   }
 });
+
+// US-3299: buyer plan PRICES, added when the edge grew its own copy.
+//
+// Unlike the FlipDesk plans, buyer plans have no pricing_plans row for the edge
+// to read, so BUYER_PLAN_PRICE_CENTS in buyer-plans.ts is a second hand-written
+// copy of numbers the pricing page advertises. It exists so a sale campaign can
+// say what a plan cost before the discount, and it is read at CHECKOUT - a drift
+// means the metadata attributing a sale records a saving against a price nobody
+// was charged.
+//
+// Plain indexOf rather than the RegExp the blocks above use: a backslash-b inside a
+// template literal is a BACKSPACE character, not a word boundary, and the
+// resulting pattern matches nothing while the failure reads "missing free".
+describe("buyer web advertised prices <-> edge list prices (US-3299)", () => {
+  const src = readFileSync(BUYER_PLANS_EDGE, "utf8");
+  const tableAt = src.indexOf("BUYER_PLAN_PRICE_CENTS: Record<");
+  const block = tableAt < 0 ? "" : src.slice(tableAt, src.indexOf("};", tableAt));
+
+  it("the edge price table exists at all", () => {
+    expect(tableAt, "edge buyer-plans.ts no longer exports BUYER_PLAN_PRICE_CENTS")
+      .toBeGreaterThan(-1);
+  });
+
+  for (const plan of PLANS) {
+    for (
+      const [key, webField] of [
+        ["monthly", "priceMonthlyCents"],
+        ["yearly", "priceYearlyCents"],
+      ] as const
+    ) {
+      it(`${plan} ${key} price agrees between the web and the edge`, () => {
+        const planAt = block.indexOf(`${plan}: {`);
+        expect(planAt, `edge BUYER_PLAN_PRICE_CENTS is missing ${plan}`).toBeGreaterThan(-1);
+        const planBlock = block.slice(planAt, block.indexOf("}", planAt));
+
+        const keyAt = planBlock.indexOf(`${key}:`);
+        expect(keyAt, `edge BUYER_PLAN_PRICE_CENTS.${plan} is missing ${key}`)
+          .toBeGreaterThan(-1);
+        const rest = planBlock.slice(keyAt + key.length + 1);
+        const digits = rest.trim().split(/[,}\s]/)[0] ?? "";
+        const edgeVal = Number(digits.replace(/_/g, ""));
+
+        expect(
+          edgeVal,
+          `advertised (web BUYER_PLANS.${plan}.${webField}) vs edge ` +
+            `BUYER_PLAN_PRICE_CENTS.${plan}.${key} drift - a sale would quote a ` +
+            "saving against a price the buyer is not charged",
+        ).toBe(BUYER_PLANS[plan][webField]);
+      });
+    }
+  }
+});

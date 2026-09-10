@@ -19,6 +19,7 @@ import { AutoRenewalDisclosure } from "@/components/billing/auto-renewal-disclos
 import { useBuyCreditPack } from "@/hooks/use-billing-summary";
 import { useRedirectStore } from "@/stores/redirect-store";
 import { track } from "@/lib/analytics";
+import { SalePrice } from "@/components/pricing/sale-price";
 import type { CreditPackSize } from "@/lib/constants";
 import { ArrowRight, Loader2, Lock, ShoppingCart, Sparkles } from "lucide-react";
 
@@ -40,9 +41,9 @@ const FRIENDLY_FEATURE: Record<string, string> = {
   prioritySupport: "Priority support",
 };
 
-function dollars(cents: number): string {
-  return `$${(cents / 100).toFixed(2)}`;
-}
+// US-3299: the local dollars() helper is gone — every price on this dialog now
+// renders through SalePrice, so a live sale reaches the surface a blocked user
+// is looking at, and dollarsExact handles the cents a discount creates.
 
 // ── UpgradeRequiredDialog (US-210) ──────────────────────────────
 //
@@ -162,8 +163,13 @@ export function UpgradeRequiredDialog() {
                 </div>
               </div>
               <div className="text-right">
+                {/* US-3299: a live sale on this plan, if there is one. */}
                 <div className="text-2xl font-bold">
-                  {dollars(requiredPlanConfig.priceMonthlyCents)}
+                  <SalePrice
+                    originalCents={requiredPlanConfig.priceMonthlyCents}
+                    target={{ kind: "flipdesk_plan", key: requiredPlan, interval: "monthly" }}
+                    originalClassName="text-base font-medium"
+                  />
                 </div>
                 <div className="text-xs text-muted-foreground">/mo</div>
               </div>
@@ -171,6 +177,10 @@ export function UpgradeRequiredDialog() {
             <div className="text-sm text-muted-foreground">
               {requiredPlanConfig.features.slice(0, 3).join(" · ")}
             </div>
+            {/* US-3299: LIST price in the disclosure, even during a sale. The
+                sale coupon is duration "once", so it discounts the first invoice
+                and every renewal after that is at list price. This paragraph is
+                the statement of what RECURS. */}
             {/* US-2115: this is the surface the audit called weakest — a user
                 hits it blocked mid-action, under friction, and it carried no
                 renewal or cancellation language at all. The price quoted here
@@ -209,7 +219,13 @@ export function UpgradeRequiredDialog() {
                     <div className="text-lg font-semibold tabular-nums">
                       {pack.credits} credits
                     </div>
-                    <div className="text-sm">${(pack.priceCents / 100).toFixed(2)}</div>
+                    <div className="text-sm">
+                      <SalePrice
+                        originalCents={pack.priceCents}
+                        target={{ kind: "credit_pack", key: String(pack.credits) }}
+                        hideBadge
+                      />
+                    </div>
                     <div className="text-xs text-emerald-700 dark:text-emerald-300">
                       Save ${(saved / 100).toFixed(2)}
                     </div>

@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-3299",
+  "nextId": "US-3300",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -5201,6 +5201,24 @@
         "src/hooks/use-ship-queue.ts splits every .in() filter into IN_FILTER_CHUNK-sized slices. Measured on production 2026-09-09: 205 sale ids is a 8,088-character URL and returns 200; 210 ids is 8,283 characters and the gateway drops it before writing a CORS header, so the browser reports 'blocked by CORS policy' and names no status.",
         "PENDING_MIGRATIONS.md carries 00777 as HELD with the apply order, and says how to confirm it worked afterwards (Money shows a non-zero profit, or rebuild_my_ledger returns an entry count instead of a 400)."
       ]
+    },
+    {
+      "id": "US-3299",
+      "passes": false,
+      "title": "Discount campaigns: operator-scheduled sales across every package (web + Stripe)",
+      "description": "A sale is a row in discount_campaigns: a percent or dollar amount off the packages an admin picks, between two dates. Live/scheduled/expired is derived from the dates, so a window opens and closes with no cron and nothing to switch off by hand; sequential windows are just two rows. Each campaign mints one Stripe coupon with duration once and redeem_by set to the end date, applied at checkout LAST in the existing coupon chain (referral, drip, reward, then campaign) because Stripe allows exactly one coupon per session and a personal reward outranks a site-wide sale. Every web pricing surface renders the list price struck through beside the sale price. iOS and Android are deliberately out of scope. Contract: docs/superpowers/specs/2026-09-09-discount-campaigns-design.md",
+      "acceptanceCriteria": [
+        "Migration 00778 creates discount_campaigns with the value/window/targets check constraints, a public read policy narrowed to enabled AND stripe_coupon_id IS NOT NULL AND starts_at <= now() AND ends_at > now(), and insert/update/delete revoked from anon and authenticated",
+        "src/lib/discounts.ts and services/edge-functions/src/lib/discount-campaigns.ts resolve identically: same vectors on both sides, plus a lockstep source guard that fails when either drifts",
+        "A zero-price package is never discounted and carries no badge (owner decision 2026-09-09)",
+        "Overlapping campaigns resolve deterministically: largest saving, then later start, then id",
+        "Subscription coupons use duration once, so the discount applies to the first invoice only and every renewal is at list price; the auto-renewal disclosures quote LIST price for that reason",
+        "All five package checkouts (flipdesk plan, buyer plan, grade tier, grade credit pack, action credit pack) apply the campaign only when no per-user coupon claimed the slot, delete allow_promotion_codes when they do, and fold the campaign id into their Stripe idempotency key",
+        "/api/admin/discounts requires super_admin plus a fresh MFA step-up on every mutation and writes an audit row for each; a coupon mint failure records stripe_sync_error and the campaign is invisible to both display and checkout until a resync succeeds",
+        "The admin editor on /admin/pricing previews every ticked package as was-price to now-price before saving, and warns before editing a campaign that is currently live",
+        "OPERATOR: apply 00778 to prod, run NOTIFY pgrst reload schema, redeploy the edge, THEN allow the frontend push - the client reads discount_campaigns directly"
+      ],
+      "priority": 40
     }
   ]
 }

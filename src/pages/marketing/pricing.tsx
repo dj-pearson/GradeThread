@@ -20,6 +20,7 @@ import { AutoRenewalDisclosure } from "@/components/billing/auto-renewal-disclos
 import type { FlipdeskPlan as FlipdeskPlanKey } from "@/types/database";
 import { PRICING_FAQS, pricingJsonLd } from "@/pages/marketing/marketing-jsonld";
 import { isBulletComingSoon } from "@/lib/buyer-features";
+import { SaleBanner, SalePrice } from "@/components/pricing/sale-price";
 
 // US-1902: a buyer feature whose surface isn't live yet is labeled so a paying
 // visitor never clicks a promised feature and lands on a placeholder.
@@ -101,6 +102,9 @@ export function PricingPage() {
             All prices are shown in USD and exclude tax — sales tax/VAT is
             calculated at checkout based on your billing location.
           </p>
+          {/* US-3299: renders nothing when no sale is running, so it can live
+              here unconditionally. */}
+          <SaleBanner className="mx-auto mt-8 max-w-2xl" />
         </div>
       </section>
 
@@ -148,12 +152,17 @@ export function PricingPage() {
                   className="flex flex-col rounded-lg border bg-background p-6"
                 >
                   <h3 className="text-lg font-semibold">{plan.name}</h3>
-                  <p className="mt-2 text-3xl font-bold text-brand-navy dark:text-foreground">
-                    {dollars(priceFor(plan, interval))}
-                    <span className="text-sm font-normal text-muted-foreground">
-                      {interval === "yearly" ? "/yr" : "/mo"}
-                    </span>
-                  </p>
+                  {/* US-3299: a live sale strikes the list price and shows the
+                      sale price. With no campaign this renders exactly what
+                      dollars() did. */}
+                  <div className="mt-2 text-3xl font-bold text-brand-navy dark:text-foreground">
+                    <SalePrice
+                      originalCents={priceFor(plan, interval)}
+                      target={{ kind: "flipdesk_plan", key, interval }}
+                      originalClassName="text-xl font-semibold"
+                      suffix={interval === "yearly" ? "/yr" : "/mo"}
+                    />
+                  </div>
                   {/* US-2514: annual pricing existed in FLIPDESK_PLANS and on
                       both in-app billing pages, and was invisible to anyone who
                       had not signed up yet. */}
@@ -291,9 +300,13 @@ export function PricingPage() {
                 className="rounded-lg border bg-background p-6"
               >
                 <h3 className="text-lg font-semibold">{tier.label}</h3>
-                <p className="mt-2 text-3xl font-bold text-brand-navy dark:text-foreground">
-                  {dollars(tier.priceCents)}
-                </p>
+                <div className="mt-2 text-3xl font-bold text-brand-navy dark:text-foreground">
+                  <SalePrice
+                    originalCents={tier.priceCents}
+                    target={{ kind: "grade_tier", key: tier.key }}
+                    originalClassName="text-xl font-semibold"
+                  />
+                </div>
                 <ul className="mt-4 space-y-2 text-sm text-muted-foreground">
                   <li className="flex items-center gap-2">
                     <Check className="h-4 w-4 text-brand-navy dark:text-foreground" />
@@ -334,7 +347,13 @@ export function PricingPage() {
                   {pack.credits}
                 </p>
                 <p className="text-xs text-muted-foreground">credits</p>
-                <p className="mt-2 font-medium">{dollars(pack.priceCents)}</p>
+                <div className="mt-2 font-medium">
+                  <SalePrice
+                    originalCents={pack.priceCents}
+                    target={{ kind: "credit_pack", key: String(pack.credits) }}
+                    hideBadge
+                  />
+                </div>
                 {/* US-2514: `?buy=credits` opens the credit-pack dialog on
                     arrival, so this tile does not just deposit the visitor on
                     Billing and leave them to find the button. */}
@@ -368,10 +387,14 @@ export function PricingPage() {
               return (
                 <div key={key} className="flex flex-col rounded-lg border bg-background p-6">
                   <h3 className="text-lg font-semibold">{plan.name}</h3>
-                  <p className="mt-2 text-3xl font-bold text-brand-navy dark:text-foreground">
-                    {dollars(plan.priceMonthlyCents)}
-                    <span className="text-sm font-normal text-muted-foreground">/mo</span>
-                  </p>
+                  <div className="mt-2 text-3xl font-bold text-brand-navy dark:text-foreground">
+                    <SalePrice
+                      originalCents={plan.priceMonthlyCents}
+                      target={{ kind: "buyer_plan", key, interval: "monthly" }}
+                      originalClassName="text-xl font-semibold"
+                      suffix="/mo"
+                    />
+                  </div>
                   {/* US-2115: same rule as the seller tiles above. */}
                   {plan.priceMonthlyCents > 0 && (
                     <AutoRenewalDisclosure

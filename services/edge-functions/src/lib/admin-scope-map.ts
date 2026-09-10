@@ -270,6 +270,12 @@ export const ADMIN_ROUTER_SCOPES: AdminRouterScope[] = [
     rationale: "Plan/pricing configuration (distinct from per-customer billing actions).",
   },
   {
+    file: "admin-discounts.ts",
+    scope: "ops:write",
+    mode: "router",
+    rationale: "US-3299: sale campaigns. Same class as admin-pricing.ts — it sets list price for everyone, not one customer's bill.",
+  },
+  {
     file: "admin-views.ts",
     scope: "ops:write",
     mode: "router",

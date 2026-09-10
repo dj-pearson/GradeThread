@@ -12,6 +12,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { CREDIT_PACKS, GRADETHREAD_TIERS } from "@/lib/constants";
 import type { CreditPackSize } from "@/lib/constants";
 import { useBillingSummary, useBuyCreditPack } from "@/hooks/use-billing-summary";
+import { SalePrice } from "@/components/pricing/sale-price";
 import { useRedirectStore } from "@/stores/redirect-store";
 import { track } from "@/lib/analytics";
 import { cn } from "@/lib/utils";
@@ -116,8 +117,14 @@ export function CreditPackDialog({
                     </div>
                   </div>
                   <div className="space-y-0.5">
+                    {/* US-3299: struck-through list price + sale price when a
+                        campaign covers this pack. Plain price otherwise. */}
                     <div className="text-2xl font-semibold">
-                      ${dollars(pack.priceCents)}
+                      <SalePrice
+                        originalCents={pack.priceCents}
+                        target={{ kind: "credit_pack", key: String(pack.credits) }}
+                        originalClassName="text-base font-medium"
+                      />
                     </div>
                     <div className="text-xs text-muted-foreground">
                       ${dollars(Math.round(pricePerCredit(pack)))}/credit

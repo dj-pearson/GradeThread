@@ -3613,6 +3613,30 @@ export interface PricingPlanRow {
   updated_by: string | null;
 }
 
+// US-3299: a time-boxed sale campaign. Live/scheduled/expired is DERIVED from
+// starts_at, ends_at and enabled — there is no status column, so a window opens
+// and closes with no cron. The public read policy (00778) exposes only rows that
+// are live right now AND have a minted Stripe coupon; the admin editor reads the
+// whole table through the service-role edge route.
+export interface DiscountCampaignRow {
+  id: string;
+  name: string;
+  description: string | null;
+  discount_type: "percent" | "amount";
+  percent_off: number | null;
+  amount_off_cents: number | null;
+  starts_at: string;
+  ends_at: string;
+  enabled: boolean;
+  targets: { kind: string; key: string; interval?: "monthly" | "yearly" }[];
+  applies_to_all: boolean;
+  stripe_coupon_id: string | null;
+  stripe_sync_error: string | null;
+  revision: number;
+  created_at: string;
+  updated_at: string;
+}
+
 // Closed-loop sale-outcome feedback (US-132). Written via SECURITY DEFINER
 // triggers on sales + disputes — never inserted from app code.
 export interface GradeOutcomeRow {
@@ -4891,6 +4915,12 @@ export interface Database {
       };
       pricing_plans: {
         Row: PricingPlanRow;
+        // Service-role only (audited admin edge route) — clients read but never write.
+        Insert: never;
+        Update: never;
+      };
+      discount_campaigns: {
+        Row: DiscountCampaignRow;
         // Service-role only (audited admin edge route) — clients read but never write.
         Insert: never;
         Update: never;

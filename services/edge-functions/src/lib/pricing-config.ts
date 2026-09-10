@@ -200,7 +200,24 @@ export interface PricingPlanRow {
 interface LoadedPricing {
   matrix: Record<FlipdeskPlan, PlanConfig>;
   priceIds: Record<PaidPlan, Record<BillingInterval, string>>;
+  /**
+   * US-3299: the LIST price in cents, per plan per interval.
+   *
+   * The plan matrix deliberately carries limits and gates but no money, because
+   * nothing enforcing a limit needs the price. A sale does: to say "was $29, now
+   * $23.20" the edge has to know the 29. Same row, same cache, same fallback.
+   */
+  prices: Record<FlipdeskPlan, Record<BillingInterval, number>>;
 }
+
+// Mirror of FLIPDESK_PLANS in src/lib/constants.ts, used when the row is missing
+// or the read fails. src/lib/__tests__/plan-limits-parity.test.ts holds the two together.
+export const FALLBACK_PRICES: Record<FlipdeskPlan, Record<BillingInterval, number>> = {
+  free: { monthly: 0, yearly: 0 },
+  starter: { monthly: 2900, yearly: 29_000 },
+  pro: { monthly: 5900, yearly: 59_000 },
+  business: { monthly: 9900, yearly: 99_000 },
+};
 
 const CACHE_TTL_MS = 30_000;
 let cache: { value: LoadedPricing; expires: number } | null = null;
@@ -233,18 +250,34 @@ async function load(): Promise<LoadedPricing> {
     business: FALLBACK_MATRIX.business,
   };
   const priceIds = envPriceIds();
+  const prices: Record<FlipdeskPlan, Record<BillingInterval, number>> = {
+    free: { ...FALLBACK_PRICES.free },
+    starter: { ...FALLBACK_PRICES.starter },
+    pro: { ...FALLBACK_PRICES.pro },
+    business: { ...FALLBACK_PRICES.business },
+  };
 
   try {
     const { data, error } = await supabaseAdmin
       .from("pricing_plans")
       .select(
-        "key, active_listing_cap, ai_actions_per_month, marketplaces_cap, included_standard_grades_per_month, team_seat_cap, gate_flags, stripe_price_monthly, stripe_price_yearly",
+        "key, active_listing_cap, ai_actions_per_month, marketplaces_cap, included_standard_grades_per_month, team_seat_cap, gate_flags, stripe_price_monthly, stripe_price_yearly, price_monthly_cents, price_yearly_cents",
       );
     if (error) {
       console.error("[pricing-config] read error, using fallback:", error.message);
     } else {
       for (const r of (data ?? []) as PricingPlanRow[]) {
         if (r.key in matrix) matrix[r.key] = rowToConfig(r);
+        if (r.key in prices) {
+          // A price of 0 is meaningful (the free plan), so only a non-numeric
+          // value falls back.
+          if (Number.isFinite(r.price_monthly_cents)) {
+            prices[r.key].monthly = Number(r.price_monthly_cents);
+          }
+          if (Number.isFinite(r.price_yearly_cents)) {
+            prices[r.key].yearly = Number(r.price_yearly_cents);
+          }
+        }
         if (r.key === "starter" || r.key === "pro" || r.key === "business") {
           // Per-field: a non-empty DB value wins; otherwise keep the env fallback.
           if (r.stripe_price_monthly) priceIds[r.key].monthly = r.stripe_price_monthly;
@@ -259,7 +292,7 @@ async function load(): Promise<LoadedPricing> {
     );
   }
 
-  return { matrix, priceIds };
+  return { matrix, priceIds, prices };
 }
 
 async function loadCached(): Promise<LoadedPricing> {
@@ -273,6 +306,13 @@ async function loadCached(): Promise<LoadedPricing> {
 /** The live FlipDesk plan matrix (enforcement limits + feature gates). */
 export async function getPlanMatrix(): Promise<Record<FlipdeskPlan, PlanConfig>> {
   return (await loadCached()).matrix;
+}
+
+/** US-3299: live LIST prices in cents, per plan per interval. */
+export async function getFlipdeskPlanPrices(): Promise<
+  Record<FlipdeskPlan, Record<BillingInterval, number>>
+> {
+  return (await loadCached()).prices;
 }
 
 /** Live Stripe price IDs (DB value if set, else the env var). */

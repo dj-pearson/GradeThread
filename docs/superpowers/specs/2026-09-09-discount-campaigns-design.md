@@ -71,14 +71,23 @@ kind and key, which is the "20% off everything" case from the brief.
 
 ### RLS
 
-- `select` to `anon` and `authenticated` where `enabled = true and ends_at > now()`.
-  Pricing surfaces are public, so the read has to work logged out. The row carries
-  no user data.
-- No `insert` / `update` / `delete` policy. All writes go through the service-role
-  client in `admin-discounts.ts`, which is how `pricing_plans` already works.
-- Registered in the rls-guard operator-table list per the `tenant-isolation` skill.
-  This is a global table with no `user_id`, so the isolation rule is "no tenant
-  column, service-role writes only" rather than an `.eq("user_id", ...)` scope.
+- `select` to `anon` and `authenticated` where **all four** of `enabled`,
+  `stripe_coupon_id is not null`, `starts_at <= now()` and `ends_at > now()` hold.
+  Pricing surfaces are public, so the read has to work logged out, and the row
+  carries no user data. The policy is narrower than the plan called for, on two
+  counts, each with its own failure: exposing a SCHEDULED campaign would let a
+  visitor read next month's unannounced sale out of the network tab and simply
+  wait for it, and exposing an UNSYNCED one would price a card at a discount
+  checkout then refuses. `discount-guards_test.ts` pins all four clauses.
+- No `insert` / `update` / `delete` policy, and writes revoked from `anon` and
+  `authenticated`. Everything goes through the service-role client in
+  `admin-discounts.ts`, which is how `pricing_plans` already works.
+- **No rls-guard entry is needed, verified rather than assumed.** The plan said to
+  register it in `SERVICE_ROLE_ONLY`. That list exists for tables with NO policy
+  at all, so a new zero-policy table fails until a human classifies it. This table
+  has a public read policy and no tenant column, so `rls-guard_test.ts` neither
+  classifies nor flags it; run 2026-09-09, 9 passed. Adding an entry would have
+  been a claim the guard does not make.
 
 The migration follows the US-1108 triple: idempotent SQL, `EXPECTED_SCHEMA_VERSION`
 bumped to `00778` in the same commit, self-record footer. Per the standing owner
@@ -151,10 +160,16 @@ Six checkout entry points get the lookup:
 | `POST /gradethread/credit-pack` | `credit_pack` |
 | `POST /action-credits/checkout` | `action_pack` |
 | `perGradeCheckout` (`/gradethread/per-grade`, `/checkout-session`) | `grade_tier` |
-| `GET /catalog` | returns live campaigns so a client can price without a round trip |
 
 `POST /api-overage/checkout` is deliberately excluded: it bills usage already
 consumed, not a package a visitor chooses to buy.
+
+**`GET /catalog` was in this table and is not wired.** The plan was to return
+live campaigns there so a client could price without a second round trip. The
+browser reads `discount_campaigns` directly instead, through the anon RLS policy:
+that works logged out, which is the case that matters most (the public pricing
+page has no session), and it keeps a hot catalog endpoint from growing a second
+query. Revisit only if a client appears that cannot reach Supabase directly.
 
 The campaign id and the discounted total go into the session `metadata`, so the
 webhook and the revenue reports can attribute a sale to the campaign that made it.
@@ -233,6 +248,18 @@ brand-red pill; the strikethrough is `text-muted-foreground line-through`.
   during a live campaign gets the reward, and `allow_promotion_codes` is absent
   whenever `discounts` is set.
 - A migration test that the table applies idempotently on a throwaway local stack.
+
+**What shipped instead of the behavioural tenant-isolation case.** That case
+would have been ceremony: `discount_campaigns` is a global operator table with no
+tenant column, so there is no cross-tenant read to attempt, and the admin gate is
+already covered by `rbac-scopes_test.ts` and `admin-scope-coverage_test.ts`.
+`services/edge-functions/src/tests/discount-guards_test.ts` pins the properties a
+source scan CAN establish and that a plausible bad edit would break: every
+mutation behind super_admin + step-up, every mutation audited, the public read
+policy still narrowed on all four clauses, writes still revoked from anon, the
+campaign still yielding to a per-user coupon, `allow_promotion_codes` deleted
+wherever `discounts` is set, and the campaign folded into every idempotency key.
+Each was negative-verified by sabotage.
 
 ## Risks
 

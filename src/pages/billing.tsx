@@ -25,6 +25,7 @@ import { track } from "@/lib/analytics";
 import { markCheckoutPending } from "@/lib/checkout-pending";
 import { useRedirectStore, CHECKOUT_INITIATED_KEY } from "@/stores/redirect-store";
 import { FLIPDESK_PLANS, GRADETHREAD_TIERS } from "@/lib/constants";
+import { SalePrice } from "@/components/pricing/sale-price";
 import type { FlipdeskPlanKey } from "@/lib/constants";
 import {
   useBillingSummary,
@@ -273,6 +274,13 @@ export function BillingPage() {
   // US-400: prefer the REAL upcoming Stripe charge (coupons / grandfathered
   // prices / prorations) over the static plan-table price; fall back to the
   // plan table when Stripe didn't return one.
+  //
+  // US-3299: which is why a sale campaign needs NO wiring here. A subscriber who
+  // signed up during one carries the coupon on their Stripe subscription, so the
+  // upcoming invoice already reflects it — and once the "once" coupon is spent,
+  // Stripe reports list price again with no help from this file. Reading the
+  // campaign table here would be a second opinion about the same number, and the
+  // one that is wrong whenever they disagree.
   const planPriceCents = subscription.interval === "yearly"
     ? plan.priceYearlyCents
     : plan.priceMonthlyCents;
@@ -792,7 +800,15 @@ function TierPriceTile({ tierName, tier }: { tierName: string; tier: keyof typeo
   return (
     <div className="rounded-md border border-border p-2 text-center">
       <div className="text-xs text-muted-foreground">{tierName}</div>
-      <div className="font-semibold">${(config.priceCents / 100).toFixed(2)}</div>
+      {/* US-3299: a live sale on grading tiers reaches this tile too. */}
+      <div className="font-semibold">
+        <SalePrice
+          originalCents={config.priceCents}
+          target={{ kind: "grade_tier", key: tier }}
+          originalClassName="text-xs font-normal"
+          hideBadge
+        />
+      </div>
       <div className="text-xs text-muted-foreground">
         {config.creditCost} cr · {config.slaHours}h
       </div>

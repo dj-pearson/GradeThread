@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { ACTION_CREDIT_PACKS } from "@/lib/constants";
+import { SalePrice } from "@/components/pricing/sale-price";
 import type { ActionCreditPackKey } from "@/lib/constants";
 import { useBillingSummary, useBuyActionCredits } from "@/hooks/use-billing-summary";
 import { useActionCreditDialogStore } from "@/stores/action-credit-dialog-store";
@@ -23,9 +24,8 @@ import { Loader2, Zap } from "lucide-react";
 // purpose: the failure mode of merging them is a seller paying and receiving the
 // wrong currency.
 
-function dollars(cents: number): string {
-  return (cents / 100).toFixed(2);
-}
+// US-3299: the local dollars() helper is gone — pack prices render through
+// SalePrice, whose dollarsExact also handles the cents a discount creates.
 
 /** Cents per credit, unrounded. The number the savings badge is derived from. */
 function pricePerCredit(pack: { credits: number; priceCents: number }): number {
@@ -190,8 +190,14 @@ export function ActionCreditDialog({
                     </div>
                   </div>
                   <div className="space-y-0.5">
+                    {/* US-3299: struck-through list price + sale price when a
+                        campaign covers this pack. Plain price otherwise. */}
                     <div className="text-2xl font-semibold">
-                      ${dollars(pack.priceCents)}
+                      <SalePrice
+                        originalCents={pack.priceCents}
+                        target={{ kind: "action_pack", key: pack.key }}
+                        originalClassName="text-base font-medium"
+                      />
                     </div>
                     <div className="text-xs text-muted-foreground">
                       {(pricePerCredit(pack)).toFixed(1)}&cent; per action

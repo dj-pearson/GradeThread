@@ -1,5 +1,57 @@
 # PENDING MIGRATIONS — applied to prod separately from the push
 
+## 🔒 HELD: 00778 — discount campaigns (US-3299)
+
+**Apply AFTER 00777.** Order matters only because 00777 is a live bug fix and
+this is a new feature; they touch nothing in common.
+
+**Risk: LOW.** One new table, its own indexes, its own policy. Nothing existing
+is altered or dropped. `CREATE TABLE IF NOT EXISTS`, `CREATE INDEX IF NOT
+EXISTS`, `DROP TRIGGER`/`DROP POLICY` before create — safe to run twice.
+
+**What it adds.** `public.discount_campaigns`: one row per sale. A percent or a
+dollar amount off a list of packages, between `starts_at` and `ends_at`. There
+is no status column — live, scheduled and expired are all derived from the two
+dates plus `enabled`, so a window opens and closes with nothing scheduled and
+nothing for an operator to remember to switch off.
+
+**⚠ THE FRONTEND READS THIS TABLE FROM THE CLIENT.** `src/hooks/use-discounts.ts`
+queries `discount_campaigns` through the anon key, on the public pricing page and
+on every in-app billing surface. Cloudflare Pages auto-deploys the frontend the
+moment this is pushed. **If the table does not exist yet, every one of those
+queries 404s from PostgREST.**
+
+The failure is soft by construction — the hook catches, returns an empty list,
+and each surface renders list price, which is what it renders today. So nothing
+visibly breaks. It will, however, put a 404 into the console of every visitor to
+`/pricing` until the migration lands, which is exactly the kind of noise that is
+easy to mistake for something worse later. Apply first anyway.
+
+**Nothing else in this commit depends on the table existing.** The edge reads it
+with the service-role client and has the same empty-list fallback
+(`loadDiscountCampaigns` logs and returns `[]`), so checkout keeps working at
+list price whether or not this has been applied.
+
+**Apply order:**
+
+1. `psql` the file (or `scripts/apply-prod-migrations.sh`).
+2. `NOTIFY pgrst, 'reload schema';` — **required**. A new table is invisible to
+   PostgREST until the schema cache reloads, and the client read is the surface
+   that notices.
+3. Redeploy the edge on Coolify (`EXPECTED_SCHEMA_VERSION` is now `00778`; the
+   boot guard refuses to start against an older schema after the grace window).
+4. THEN OK the push.
+
+**After it is live, nothing happens until an operator creates a campaign.** An
+empty table prices everything exactly as it is priced today. The first campaign
+is created at `/admin/pricing` → Sales & discounts, which needs super_admin and
+a fresh MFA step-up, and which mints the Stripe coupon as part of saving.
+
+**Rollback** is `drop table public.discount_campaigns;` plus deleting whatever
+coupons were minted (they carry `metadata.source = 'discount_campaign'`). No
+other table references it.
+
+
 ## 🔒 HELD: 00777 — the Money tab has read $0.00 since 00685 (US-3298)
 
 ⚠ **APPLY THIS ONE FIRST.** It is a one-line fix to a function that has never

@@ -52,6 +52,8 @@ import {
   GRADE_TIERS,
   GARMENT_CATEGORIES,
 } from "@/lib/constants";
+import { useDiscounts } from "@/hooks/use-discounts";
+import { SaleBadge, SalePrice } from "@/components/pricing/sale-price";
 import {
   EXAMPLE_FACTORS,
   EXAMPLE_GRADE,
@@ -151,6 +153,8 @@ function annualSavingsPct(plan: typeof FLIPDESK_PLANS.free): number | null {
 
 function FlipdeskPricingBlock() {
   const [interval, setInterval] = useState<BillingInterval>("monthly");
+  // US-3299: a live sale campaign, if one covers these plans.
+  const { priceFor } = useDiscounts();
 
   return (
     <div className="space-y-6">
@@ -198,14 +202,21 @@ function FlipdeskPricingBlock() {
         {FLIPDESK_ORDER.map((key) => {
           const plan = FLIPDESK_PLANS[key];
           const isPopular = key === "pro";
-          const priceCents =
+          const listCents =
             interval === "yearly" ? plan.priceYearlyCents : plan.priceMonthlyCents;
-          const displayPrice =
-            priceCents === 0
+          // US-3299: the card shows a per-MONTH figure even on the annual toggle,
+          // so the discount is applied to the annual total first and divided
+          // after. Discounting a rounded monthly figure would drift from the
+          // annual total quoted directly below it.
+          const sale = priceFor({ kind: "flipdesk_plan", key, interval }, listCents);
+          const priceCents = sale ? sale.finalCents : listCents;
+          const showPrice = (cents: number) =>
+            cents === 0
               ? "$0"
               : interval === "yearly"
-                ? `$${(priceCents / 12 / 100).toFixed(0)}`
-                : dollars(priceCents);
+                ? `$${(cents / 12 / 100).toFixed(0)}`
+                : dollars(cents);
+          const displayPrice = showPrice(priceCents);
           const savings = annualSavingsPct(plan);
 
           return (
@@ -223,13 +234,22 @@ function FlipdeskPricingBlock() {
               <CardHeader className="pb-3">
                 <CardTitle className="text-lg">{plan.name}</CardTitle>
                 <div className="mt-2">
+                  {sale && (
+                    <span
+                      className="mr-2 text-xl font-semibold text-muted-foreground line-through"
+                      aria-hidden="true"
+                    >
+                      {showPrice(listCents)}
+                    </span>
+                  )}
                   <span className="text-3xl font-bold">{displayPrice}</span>
                   {priceCents > 0 && (
                     <span className="text-sm text-muted-foreground">/mo</span>
                   )}
+                  {sale && <SaleBadge sale={sale} className="ml-2 align-middle" />}
                   {interval === "yearly" && savings != null && (
                     <div className="mt-0.5 text-xs text-emerald-700 dark:text-emerald-300">
-                      {dollars(plan.priceYearlyCents)} billed yearly
+                      {dollars(priceCents)} billed yearly
                     </div>
                   )}
                 </div>
@@ -295,7 +315,11 @@ function GradeThreadPricingBlock() {
                 <CardTitle className="text-lg">{tier.label}</CardTitle>
                 <div className="mt-1">
                   <span className="text-3xl font-bold">
-                    ${(tier.priceCents / 100).toFixed(2)}
+                    <SalePrice
+                      originalCents={tier.priceCents}
+                      target={{ kind: "grade_tier", key: tierKey }}
+                      originalClassName="text-xl font-semibold"
+                    />
                   </span>
                   <span className="text-sm text-muted-foreground"> / grade</span>
                 </div>
@@ -351,15 +375,21 @@ function GradeThreadPricingBlock() {
                   </div>
                   <div className="text-xs text-muted-foreground">credits</div>
                   <div className="mt-0.5 text-sm font-semibold">
-                    {/* US-2075: toFixed(0) rendered a $24.99 pack as "$25" here
-                        while /pricing showed $24.99 — the SAME pack at two
-                        prices on one site, and the rounded one is the page
-                        headlined "transparent pricing". Every CREDIT_PACKS and
-                        GRADETHREAD_TIERS price carries cents, so rounding a
-                        purchase surface always loses real money. (Plan prices
-                        are all whole dollars, which is why toFixed(0) is
-                        legitimate on the plan cards.) */}
-                    ${(pack.priceCents / 100).toFixed(2)}
+                    {/* US-2075: a local toFixed(0) rendered a $24.99 pack as
+                        "$25" here while /pricing showed $24.99 — the SAME pack
+                        at two prices on one site, and the rounded one was on
+                        the page headlined "transparent pricing".
+
+                        US-3299 removed the second formatter rather than fixing
+                        it twice: both pages now render packs through SalePrice,
+                        whose dollarsExact shows cents when there are cents. That
+                        also matters more than it used to, because a discount can
+                        turn a whole-dollar price into a cents-bearing one. */}
+                    <SalePrice
+                      originalCents={pack.priceCents}
+                      target={{ kind: "credit_pack", key: String(pack.credits) }}
+                      hideBadge
+                    />
                   </div>
                 </div>
               );

@@ -12,6 +12,8 @@ import {
 import type { FlipdeskPlanKey } from "@/lib/constants";
 import type { BillingInterval } from "@/types/database";
 import { usePricingPlans } from "@/hooks/use-pricing-plans";
+import { useDiscounts } from "@/hooks/use-discounts";
+import { SaleBadge } from "@/components/pricing/sale-price";
 import { cn } from "@/lib/utils";
 import { Check, X, Crown } from "lucide-react";
 
@@ -39,18 +41,17 @@ const FEATURE_ROWS: Array<{
   { flag: "prioritySupport", label: "Priority support" },
 ];
 
+// US-3299: cents ONLY when there are cents. Plan prices are whole dollars
+// (money-display.test.ts pins that), so toFixed(0) was safe here — until a sale
+// could turn $29 into $24.65. Rounding that to "$25" would show a price the
+// customer is not charged, which is the US-2075 bug in a new place.
 function dollars(cents: number): string {
-  return `$${(cents / 100).toFixed(0)}`;
+  return `$${(cents / 100).toFixed(cents % 100 === 0 ? 0 : 2)}`;
 }
 
-function priceLabel(
-  plan: typeof FLIPDESK_PLANS.free,
-  interval: BillingInterval,
-): string {
-  const cents =
-    interval === "monthly" ? plan.priceMonthlyCents : plan.priceYearlyCents;
+function priceLabel(cents: number, interval: BillingInterval): string {
   if (cents === 0) return "Free";
-  if (interval === "yearly") return `$${(cents / 12 / 100).toFixed(0)}`;
+  if (interval === "yearly") return dollars(Math.round(cents / 12));
   return dollars(cents);
 }
 
@@ -86,6 +87,8 @@ export function FlipdeskPlanComparison({
   );
   // US-587: live, operator-editable plan config (falls back to FLIPDESK_PLANS).
   const { plans } = usePricingPlans();
+  // US-3299: a live sale, if one covers these plans.
+  const { priceFor } = useDiscounts();
 
   return (
     <div className="space-y-4">
@@ -115,6 +118,10 @@ export function FlipdeskPlanComparison({
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         {PLAN_ORDER.map((planKey) => {
           const plan = plans[planKey];
+          const listCents =
+            interval === "monthly" ? plan.priceMonthlyCents : plan.priceYearlyCents;
+          const sale = priceFor({ kind: "flipdesk_plan", key: planKey, interval }, listCents);
+          const payCents = sale ? sale.finalCents : listCents;
           const isCurrent =
             planKey === currentPlan &&
             (currentInterval == null || interval === currentInterval);
@@ -149,17 +156,26 @@ export function FlipdeskPlanComparison({
               <CardHeader className="space-y-2 pb-3">
                 <div className="text-lg font-semibold">{plan.name}</div>
                 <div>
-                  <div className="flex items-baseline gap-1 whitespace-nowrap">
+                  <div className="flex flex-wrap items-baseline gap-1 whitespace-nowrap">
+                    {sale && (
+                      <span
+                        className="text-lg font-semibold text-muted-foreground line-through"
+                        aria-hidden="true"
+                      >
+                        {priceLabel(listCents, interval)}
+                      </span>
+                    )}
                     <span className="text-3xl font-bold">
-                      {priceLabel(plan, interval)}
+                      {priceLabel(payCents, interval)}
                     </span>
                     {plan.priceMonthlyCents > 0 && (
                       <span className="text-sm text-muted-foreground">/mo</span>
                     )}
+                    {sale && <SaleBadge sale={sale} />}
                   </div>
                   {interval === "yearly" && savings != null && (
                     <div className="mt-0.5 text-xs text-emerald-700 dark:text-emerald-300">
-                      {dollars(plan.priceYearlyCents)} billed yearly
+                      {dollars(payCents)} billed yearly
                     </div>
                   )}
                 </div>

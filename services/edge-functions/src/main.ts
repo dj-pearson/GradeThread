@@ -98,6 +98,7 @@ import { handleCredentialsRefreshCron } from "./routes/jobs-credentials-refresh.
 import { adminBillingRoutes } from "./routes/admin-billing.ts";
 import { adminFlagsRoutes } from "./routes/admin-flags.ts";
 import { adminPricingRoutes } from "./routes/admin-pricing.ts";
+import { adminDiscountsRoutes } from "./routes/admin-discounts.ts";
 import { adminConfigRoutes } from "./routes/admin-config.ts";
 import { adminCategoryMapRoutes } from "./routes/admin-category-map.ts";
 import { adminListingCoverageRoutes } from "./routes/admin-listing-coverage.ts";
@@ -1535,6 +1536,7 @@ app.route("/api/admin/feature-flags", adminFlagsRoutes);
 // US-587 data-driven plan pricing/limits editor. Admin JWT + AAL2 via the
 // /api/admin/* group; mutations additionally require super_admin + MFA step-up.
 app.route("/api/admin/pricing", adminPricingRoutes);
+app.route("/api/admin/discounts", adminDiscountsRoutes);
 // US-885 unified pricing config: plan entitlements (reuses pricing_plans) +
 // per-grading-tier / per-credit-pack prices (pricing_config). Same admin JWT +
 // AAL2; mutations require super_admin + MFA step-up.

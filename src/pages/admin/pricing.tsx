@@ -14,6 +14,7 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Skeleton } from "@/components/ui/skeleton";
 import { PageHeader } from "@/components/ui/page-header";
+import { DiscountCampaignsPanel } from "@/components/admin/discount-campaigns-panel";
 import {
   Table,
   TableBody,
@@ -402,6 +403,10 @@ export function AdminPricingPage() {
           )}
         </CardContent>
       </Card>
+
+      {/* US-3299: sales sit under the list prices they discount, so the operator
+          setting one can see what it is discounting FROM. */}
+      <DiscountCampaignsPanel isSuperAdmin={isSuperAdmin} />
 
       {isSuperAdmin && (
         <EditPlanDialog

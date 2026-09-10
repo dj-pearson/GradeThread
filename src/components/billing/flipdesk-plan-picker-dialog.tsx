@@ -13,6 +13,8 @@ import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { FLIPDESK_PLANS, formatMarketplacesCap, TRIAL_DAYS } from "@/lib/constants";
 import { AutoRenewalDisclosure } from "@/components/billing/auto-renewal-disclosure";
+import { useDiscounts } from "@/hooks/use-discounts";
+import { SaleBadge } from "@/components/pricing/sale-price";
 import type { FlipdeskPlanKey } from "@/lib/constants";
 import type { BillingInterval } from "@/types/database";
 import {
@@ -44,18 +46,18 @@ const FEATURE_ROWS: Array<{ flag: keyof typeof FLIPDESK_PLANS.free.gateFlags; la
   { flag: "prioritySupport",  label: "Priority support" },
 ];
 
+// US-3299: cents ONLY when there are cents. Plan prices are whole dollars
+// (money-display.test.ts pins that), so toFixed(0) was safe here — until a sale
+// could turn $29 into $24.65. Rounding that to "$25" shows a price the customer
+// is not charged, which is the US-2075 bug in a new place.
 function dollars(cents: number): string {
   if (cents === 0) return "$0";
-  return `$${(cents / 100).toFixed(0)}`;
+  return `$${(cents / 100).toFixed(cents % 100 === 0 ? 0 : 2)}`;
 }
 
-function priceLabel(plan: typeof FLIPDESK_PLANS.free, interval: BillingInterval): string {
-  const cents = interval === "monthly" ? plan.priceMonthlyCents : plan.priceYearlyCents;
+function priceLabel(cents: number, interval: BillingInterval): string {
   if (cents === 0) return "Free";
-  if (interval === "yearly") {
-    const perMonth = cents / 12 / 100;
-    return `$${perMonth.toFixed(0)}`;
-  }
+  if (interval === "yearly") return dollars(Math.round(cents / 12));
   return dollars(cents);
 }
 
@@ -98,6 +100,8 @@ export function FlipdeskPlanPickerDialog({
   onRequestCancel,
 }: FlipdeskPlanPickerDialogProps) {
   const { data: summary } = useBillingSummary();
+  // US-3299: a live sale, if one covers these plans.
+  const { priceFor } = useDiscounts();
   const subscribe = useFlipdeskSubscribe();
   const isRedirecting = useRedirectStore((s) => s.isRedirecting);
   const portal = useBillingPortal();
@@ -202,6 +206,10 @@ export function FlipdeskPlanPickerDialog({
         <div className="grid items-stretch gap-4 sm:grid-cols-2 xl:grid-cols-4">
           {PLAN_ORDER.map((planKey) => {
             const plan = FLIPDESK_PLANS[planKey];
+            const listCents =
+              interval === "monthly" ? plan.priceMonthlyCents : plan.priceYearlyCents;
+            const sale = priceFor({ kind: "flipdesk_plan", key: planKey, interval }, listCents);
+            const payCents = sale ? sale.finalCents : listCents;
             const isCurrent =
               planKey === currentPlan && interval === currentInterval;
             const sameTierDiffInterval =
@@ -252,17 +260,26 @@ export function FlipdeskPlanPickerDialog({
                 <CardHeader className="space-y-2 pb-3">
                   <div className="text-lg font-semibold">{plan.name}</div>
                   <div>
-                    <div className="flex items-baseline gap-1 whitespace-nowrap">
+                    <div className="flex flex-wrap items-baseline gap-1 whitespace-nowrap">
+                      {sale && (
+                        <span
+                          className="text-lg font-semibold text-muted-foreground line-through"
+                          aria-hidden="true"
+                        >
+                          {priceLabel(listCents, interval)}
+                        </span>
+                      )}
                       <span className="text-3xl font-bold">
-                        {priceLabel(plan, interval)}
+                        {priceLabel(payCents, interval)}
                       </span>
                       {plan.priceMonthlyCents > 0 && (
                         <span className="text-sm text-muted-foreground">/mo</span>
                       )}
+                      {sale && <SaleBadge sale={sale} />}
                     </div>
                     {interval === "yearly" && savings != null && (
                       <div className="mt-0.5 text-xs text-emerald-700 dark:text-emerald-300">
-                        {dollars(plan.priceYearlyCents)} billed yearly
+                        {dollars(payCents)} billed yearly
                       </div>
                     )}
                   </div>
@@ -386,13 +403,14 @@ export function FlipdeskPlanPickerDialog({
                       switch all change the recurring terms, so all three owe
                       the disclosure. The free tile is a cancellation and the
                       current tile is not a point of sale. */}
+                  {/* US-3299: LIST price here, deliberately, even during a sale.
+                      The sale coupon is duration "once", so the discount applies
+                      to the first invoice and every renewal after it is at list
+                      price. This disclosure is the statement of what RECURS, and
+                      quoting the sale price in it would be the false one. */}
                   {planKey !== "free" && !isCurrent && (
                     <AutoRenewalDisclosure
-                      amountCents={
-                        interval === "yearly"
-                          ? plan.priceYearlyCents
-                          : plan.priceMonthlyCents
-                      }
+                      amountCents={listCents}
                       interval={interval}
                       trialDays={showTrialChip ? TRIAL_DAYS : null}
                     />

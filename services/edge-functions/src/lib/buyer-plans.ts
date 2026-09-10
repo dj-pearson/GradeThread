@@ -175,3 +175,21 @@ export const BUYER_PLAN_ENTITLEMENTS: Record<BuyerPlanKey, BuyerPlanEntitlement>
     },
   },
 };
+
+// US-3299: buyer LIST prices in cents, so a sale campaign can say what the plan
+// cost before the discount. Unlike the FlipDesk plans these have no DB row to
+// read, so this is the edge's only copy — LOCKSTEP with BUYER_PLANS in
+// src/lib/constants.ts, held there by src/lib/__tests__/buyer-plan-limits-parity.test.ts.
+//
+// ⚠ KEEP THIS AT THE BOTTOM OF THE FILE. The parity test finds each plan by
+// searching for the first `<plan>: {` and then reads forward to `allowances:`.
+// Put this table above BUYER_PLAN_ENTITLEMENTS and every one of those 48 cases
+// matches this block instead, reads forward into the INTERFACE declaration, and
+// fails with "edge buyer-plans.ts is missing free.extensionChecksPerMonth" —
+// which reads like the entitlements are gone rather than like a new constant
+// moved a search anchor.
+export const BUYER_PLAN_PRICE_CENTS: Record<BuyerPlanKey, { monthly: number; yearly: number }> = {
+  free: { monthly: 0, yearly: 0 },
+  guard: { monthly: 800, yearly: 8000 },
+  connoisseur: { monthly: 1900, yearly: 19_000 },
+};

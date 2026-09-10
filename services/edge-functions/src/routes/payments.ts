@@ -25,6 +25,7 @@ import {
 import { CATALOG_VERSION, serializeCatalog } from "../lib/appstore/products.ts";
 import { refuseWhileImpersonating } from "../lib/destructive-guard.ts";
 import { loadActiveDiscount } from "../lib/rewards-tangible.ts";
+import { applyCampaignDiscount, discountKeySuffix } from "../lib/discount-store.ts";
 import { sanitizeReportedDisclosureVersion } from "../lib/disclosure-versions.ts";
 import { renewalNoticeCopy } from "../lib/renewal-notice-copy.ts";
 import { buyerEventType } from "../lib/billing-reconciliation.ts";
@@ -543,6 +544,15 @@ paymentRoutes.post("/flipdesk/subscribe", async (c) => {
       }
     }
 
+    // US-3299: a site-wide sale, LAST in the chain. The three above were promised
+    // to this one person; this one is offered to everybody, so it only takes the
+    // single coupon slot Stripe allows when none of them wanted it.
+    const campaignDiscount = await applyCampaignDiscount(sessionParams, {
+      kind: "flipdesk_plan",
+      key: plan,
+      interval,
+    });
+
     // US-391: always bind the session to the user's single Stripe customer
     // (created lazily here if needed) so every session reuses one customer.
     sessionParams.customer = await ensureStripeCustomer(stripe, user);
@@ -552,7 +562,11 @@ paymentRoutes.post("/flipdesk/subscribe", async (c) => {
     // Stripe's 24h window (a user has at most one active subscription, so this
     // can't block a legitimate distinct purchase the way it would for packs).
     const session = await stripe.checkout.sessions.create(sessionParams, {
-      idempotencyKey: `flipdesk-subscribe:${userId}:${plan}:${interval}`,
+      // US-3299: the campaign is part of the key. Stripe replays a cached session
+      // for 24h, so without it a user who opened checkout before the sale began
+      // would be handed the pre-sale session and charged list price.
+      idempotencyKey:
+        `flipdesk-subscribe:${userId}:${plan}:${interval}${discountKeySuffix(campaignDiscount)}`,
     });
     // US-932: record checkout intent to the internal event stream (drip trigger
     // substrate) — drives a "started but didn't convert" nudge. Fire-and-forget.
@@ -814,12 +828,21 @@ paymentRoutes.post("/buyer/subscribe", async (c) => {
       allow_promotion_codes: true,
       tax_id_collection: { enabled: true },
     };
+    // US-3299: a site-wide sale. No per-user coupon chain runs on the buyer side,
+    // so this is simply the one discount slot.
+    const campaignDiscount = await applyCampaignDiscount(sessionParams, {
+      kind: "buyer_plan",
+      key: plan,
+      interval,
+    });
+
     // SAME single customer as the seller sub (created lazily if needed).
     sessionParams.customer = await ensureStripeCustomer(stripe, user);
     sessionParams.customer_update = { name: "auto", address: "auto" };
 
     const session = await stripe.checkout.sessions.create(sessionParams, {
-      idempotencyKey: `buyer-subscribe:${userId}:${plan}:${interval}`,
+      idempotencyKey:
+        `buyer-subscribe:${userId}:${plan}:${interval}${discountKeySuffix(campaignDiscount)}`,
     });
     void emitEvent(userId, "checkout_started", {
       properties: { kind: "buyer_subscribe", plan, interval },
@@ -1044,6 +1067,12 @@ paymentRoutes.post("/gradethread/credit-pack", async (c) => {
       allow_promotion_codes: true,
     };
 
+    // US-3299: a site-wide sale on grade credit packs.
+    const campaignDiscount = await applyCampaignDiscount(sessionParams, {
+      kind: "credit_pack",
+      key: packSize,
+    });
+
     // US-391: bind to the single Stripe customer (created/validated lazily)
     // instead of letting Checkout mint a fresh one. ensureStripeCustomer also
     // self-heals a stale test-mode id after the live cutover.
@@ -1055,7 +1084,8 @@ paymentRoutes.post("/gradethread/credit-pack", async (c) => {
     // creating multiple distinct payable sessions, while a deliberate later
     // repurchase still gets its own session. See creditPackIdempotencyKey above.
     const session = await stripe.checkout.sessions.create(sessionParams, {
-      idempotencyKey: creditPackIdempotencyKey(userId, packSize),
+      idempotencyKey: creditPackIdempotencyKey(userId, packSize) +
+        discountKeySuffix(campaignDiscount),
     });
     return c.json({ sessionId: session.id, url: session.url });
   } catch (err) {
@@ -1211,11 +1241,19 @@ paymentRoutes.post("/action-credits/checkout", async (c) => {
       billing_address_collection: "required",
       allow_promotion_codes: true,
     };
+    // US-3299: a site-wide sale on action credit packs.
+    const campaignDiscount = await applyCampaignDiscount(sessionParams, {
+      kind: "action_pack",
+      key: packKey,
+    });
+
     sessionParams.customer = await ensureStripeCustomer(stripe, user);
     sessionParams.customer_update = { name: "auto", address: "auto" };
 
     const session = await stripe.checkout.sessions.create(sessionParams, {
-      idempotencyKey: `action-credits:${ownerId}:${packKey}:${Math.floor(Date.now() / 60000)}`,
+      idempotencyKey: `action-credits:${ownerId}:${packKey}:${
+        Math.floor(Date.now() / 60000)
+      }${discountKeySuffix(campaignDiscount)}`,
     });
     return c.json({ sessionId: session.id, url: session.url });
   } catch (err) {
@@ -1359,6 +1397,14 @@ async function perGradeCheckout(c: Ctx) {
       };
     }
 
+    // US-3299: a site-wide sale, after the earned per-grade reward above. The
+    // reward was promised to this seller and is usually the larger number, so it
+    // keeps the single coupon slot when both apply.
+    const campaignDiscount = await applyCampaignDiscount(sessionParams, {
+      kind: "grade_tier",
+      key: tier,
+    });
+
     // US-391: bind to the single Stripe customer (created lazily) so the
     // per-grade purchase reuses the user's one customer instead of minting a
     // new one when none exists yet.
@@ -1371,7 +1417,8 @@ async function perGradeCheckout(c: Ctx) {
     // key. The submission is single-use (status flips off 'pending' once paid),
     // so the key never needs to outlive that window.
     const session = await stripe.checkout.sessions.create(sessionParams, {
-      idempotencyKey: perGradeIdempotencyKey(userId, submissionId, tier),
+      idempotencyKey: perGradeIdempotencyKey(userId, submissionId, tier) +
+        discountKeySuffix(campaignDiscount),
     });
     return c.json({ sessionId: session.id, url: session.url });
   } catch (err) {

@@ -43,21 +43,35 @@ describe("money display", () => {
     }
   });
 
-  it("the landing page renders pack prices exactly, matching /pricing", () => {
-    // Source guard: the two pages must not disagree about a price. Pinned at
-    // the source because both render from the same constant — a behavioural
-    // test would need both pages mounted to compare a string they both derive.
-    const landing = readFileSync(resolve(process.cwd(), "src/pages/landing.tsx"), "utf8");
-    const packBlock = landing.slice(
-      landing.indexOf("pack.priceCents"),
-      landing.indexOf("pack.priceCents") + 120,
-    );
-    expect(
-      packBlock,
-      "landing renders a credit-pack price with toFixed(0) — that shows $25 for " +
-        "a $24.99 pack while /pricing shows $24.99",
-    ).not.toContain("toFixed(0)");
-    expect(packBlock).toContain("toFixed(2)");
+  it("the landing page and /pricing render pack prices through the SAME formatter", () => {
+    // Source guard: the two pages must not disagree about a price.
+    //
+    // The original bug was landing formatting a pack with a local toFixed(0),
+    // showing $25 for a $24.99 pack while /pricing showed $24.99. That was fixed
+    // by pinning landing to toFixed(2) — which held, but left two independent
+    // formatters one edit apart from disagreeing again.
+    //
+    // US-3299 removed the second formatter instead. Both pages now render packs
+    // through SalePrice, whose dollarsExact prints cents only when there are
+    // cents. That is now load-bearing rather than cosmetic: a live discount can
+    // turn ANY whole-dollar price into a cents-bearing one, so "which constants
+    // carry cents" is no longer a property a formatter can be chosen from.
+    const files = ["src/pages/landing.tsx", "src/pages/marketing/pricing.tsx"];
+    for (const rel of files) {
+      const text = readFileSync(resolve(process.cwd(), rel), "utf8");
+      const at = text.indexOf("kind: \"credit_pack\"");
+      expect(at, `${rel} no longer renders a credit-pack price through SalePrice`)
+        .toBeGreaterThan(-1);
+      // The 400 characters around the target cover the whole <SalePrice> call.
+      const block = text.slice(Math.max(0, at - 400), at + 200);
+      expect(
+        block,
+        `${rel} rounds a credit-pack price to whole dollars — that shows $25 for ` +
+          "a $24.99 pack, and hides the cents a discount creates",
+      ).not.toContain("toFixed(0)");
+      expect(block, `${rel} should format the pack price via SalePrice`)
+        .toContain("SalePrice");
+    }
   });
 
   it("the whole-dollar billing components stay free of cents-bearing money", () => {
