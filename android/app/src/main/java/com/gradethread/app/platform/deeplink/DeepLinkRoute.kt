@@ -60,14 +60,17 @@ sealed class DeepLinkRoute {
             }
         }
 
-        private fun fromWidget(uri: Uri): DeepLinkRoute? =
-            when (uri.pathSegments.firstOrNull()) {
-                "marketplaces" -> MarketplacesTab
-                "money" -> SalesTab(inventoryItemId = null)
-                "shipping" -> Shipping
-                "pending-delists" -> PendingDelists(itemId = segments.getOrNull(2))
-                else -> null
-            }
+        private fun fromWidget(uri: Uri): DeepLinkRoute? = when (uri.pathSegments.firstOrNull()) {
+            "marketplaces" -> MarketplacesTab
+            "money" -> SalesTab(inventoryItemId = null)
+            "shipping" -> Shipping
+            // Index 1, not 2: the widget grammar is `//widget/<dest>[/<id>]`
+            // with no `/app` prefix, so the id sits one segment earlier than
+            // it does in fromAppLink. The line arrived as a copy of that one
+            // and did not compile - `segments` is fromAppLink's local.
+            "pending-delists" -> PendingDelists(itemId = uri.pathSegments.getOrNull(1))
+            else -> null
+        }
 
         /**
          * US-1381: launcher shortcuts.
@@ -79,13 +82,12 @@ sealed class DeepLinkRoute {
          * because the two grammars are edited by different features and a
          * shared one drifts.
          */
-        private fun fromShortcut(uri: Uri): DeepLinkRoute? =
-            when (uri.pathSegments.firstOrNull()) {
-                "capture" -> CaptureItem
-                "add" -> AddItem
-                "money" -> SalesTab(inventoryItemId = null)
-                else -> null
-            }
+        private fun fromShortcut(uri: Uri): DeepLinkRoute? = when (uri.pathSegments.firstOrNull()) {
+            "capture" -> CaptureItem
+            "add" -> AddItem
+            "money" -> SalesTab(inventoryItemId = null)
+            else -> null
+        }
 
         private fun fromAppLink(uri: Uri): DeepLinkRoute? {
             if (uri.host != "gradethread.com") return null
@@ -117,22 +119,28 @@ sealed class DeepLinkRoute {
      * app already handles from an email or a widget. One routing table rather
      * than a second, bespoke set of intent extras that can drift from it.
      */
-    fun toDeepLinkUri(): String {
-        val path = when (this) {
-            is InventoryItem -> "item/$id"
-            InventoryTab -> "inventory"
-            is SalesTab -> inventoryItemId?.let { "sales/$it" } ?: "sales"
-            MarketplacesTab -> "marketplaces"
-            ReconnectEbay -> "reconnect"
-            is NegotiationInbox -> filterItemId?.let { "negotiation/$it" } ?: "negotiation"
-            GradesList -> "grades"
-            CaptureItem -> "capture"
-            AddItem -> "add"
-            is SupportTickets -> ticketId?.let { "support/$it" } ?: "support"
-            Shipping -> "shipping"
-            is PendingDelists -> itemId?.let { "pending-delists/$it" } ?: "pending-delists"
-        }
-        return "https://gradethread.com/app/$path"
+    fun toDeepLinkUri(): String = "https://gradethread.com/app/${deepLinkPath()}"
+
+    /**
+     * The path half of [toDeepLinkUri], on its own.
+     *
+     * Split out only so the branch count stays under detekt's threshold - the
+     * twelfth destination (US-3144's pending-delists) took it to 21. Nothing
+     * else calls this, and it stays private so nothing starts to.
+     */
+    private fun deepLinkPath(): String = when (this) {
+        is InventoryItem -> "item/$id"
+        InventoryTab -> "inventory"
+        is SalesTab -> inventoryItemId?.let { "sales/$it" } ?: "sales"
+        MarketplacesTab -> "marketplaces"
+        ReconnectEbay -> "reconnect"
+        is NegotiationInbox -> filterItemId?.let { "negotiation/$it" } ?: "negotiation"
+        GradesList -> "grades"
+        CaptureItem -> "capture"
+        AddItem -> "add"
+        is SupportTickets -> ticketId?.let { "support/$it" } ?: "support"
+        Shipping -> "shipping"
+        is PendingDelists -> itemId?.let { "pending-delists/$it" } ?: "pending-delists"
     }
 
     /**

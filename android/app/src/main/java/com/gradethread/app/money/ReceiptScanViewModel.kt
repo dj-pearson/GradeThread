@@ -13,6 +13,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import com.gradethread.app.R
+import com.gradethread.app.platform.di.IoDispatcher
 import androidx.compose.ui.platform.LocalContext
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.ViewModel
@@ -20,7 +21,7 @@ import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
-import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -44,6 +45,10 @@ class ReceiptScanViewModel @Inject constructor(
     private val scans: ReceiptScanService,
     private val expenses: ExpenseRepository,
     @ApplicationContext private val context: Context,
+    // US-3119: injected rather than reached for inline. See [IoDispatcher] -
+    // reading the photo on the real IO pool put the read outside the test
+    // scheduler, so `advanceUntilIdle()` returned before the bytes existed.
+    @IoDispatcher private val io: CoroutineDispatcher,
 ) : ViewModel() {
 
     data class State(
@@ -64,7 +69,7 @@ class ReceiptScanViewModel @Inject constructor(
         if (_state.value.scanning) return
         _state.value = State(scanning = true)
         viewModelScope.launch {
-            val bytes = withContext(Dispatchers.IO) { readBytes(uri) }
+            val bytes = withContext(io) { readBytes(uri) }
             if (bytes == null) {
                 _state.value = State(notice = "Couldn't open that photo.")
                 return@launch

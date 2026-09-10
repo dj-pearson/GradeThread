@@ -1,11 +1,20 @@
+// Inherited when US-3119 touched this file: the six MutableStateFlows here are
+// named `_x` after the state field each one feeds, and none of them has a public
+// `x` beside it because they are all exposed through the single combined `state`.
+// Renaming them to satisfy the rule would make this ViewModel the only one in the
+// app that spells its flows differently.
+@file:Suppress("ktlint:standard:backing-property-naming")
+
 package com.gradethread.app.money
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.gradethread.app.platform.di.IoDispatcher
 import com.gradethread.app.sync.SyncTrigger
 import com.gradethread.app.sync.db.GradeThreadDb
 import com.gradethread.app.sync.db.SaleEntity
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -32,6 +41,10 @@ class PayoutReconciliationViewModel @Inject constructor(
     private val payoutImport: PayoutImportService,
     /** US-2489: the server matcher and its review queue. */
     private val payoutQueue: PayoutQueueService,
+    // US-3119: injected rather than reached for inline. See [IoDispatcher] -
+    // the CSV read below sat on the real IO pool, which no test scheduler
+    // advances, so any test of importCsv would assert against nothing.
+    @IoDispatcher private val io: CoroutineDispatcher,
 ) : ViewModel() {
 
     data class State(
@@ -67,6 +80,7 @@ class PayoutReconciliationViewModel @Inject constructor(
 
     private val _importing = MutableStateFlow(false)
     private val _importResult = MutableStateFlow<PayoutImportResult?>(null)
+
     /** The network-backed half of the state, bundled to fit combine's arity. */
     private data class Extras(
         val importing: Boolean,
@@ -121,7 +135,7 @@ class PayoutReconciliationViewModel @Inject constructor(
         _errorMessage.value = null
         _importResult.value = null
         viewModelScope.launch {
-            val csv = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            val csv = kotlinx.coroutines.withContext(io) {
                 runCatching {
                     context.contentResolver.openInputStream(uri)?.use {
                         it.readBytes().toString(Charsets.UTF_8)

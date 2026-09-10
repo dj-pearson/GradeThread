@@ -120,6 +120,19 @@ jobs:
           python3 scripts/no-plurals-as-string.py --self-test
           python3 scripts/no-plurals-as-string.py
 
+      # US-3119: `withContext(Dispatchers.IO)` inside a @HiltViewModel hands the
+      # work to a pool no test scheduler is on, so `advanceUntilIdle()` returns
+      # while the coroutine is still suspended and the test asserts against a
+      # ViewModel that has not run. It presents as the production code being
+      # wrong -- four of ProspectRolesTest's cases sat red on main for months
+      # accusing code that was correct (US-3027). The self-test runs first: the
+      # real scan reporting OK on a tree it can no longer parse reads exactly
+      # like a clean one.
+      - name: ViewModels take @IoDispatcher, not Dispatchers.IO
+        run: |
+          python3 scripts/no-inline-io-dispatcher.py --self-test
+          python3 scripts/no-inline-io-dispatcher.py
+
       # US-2502: a Room version whose schema JSON was never committed can never
       # be migration-tested, and the file cannot be produced after the fact.
       # Versions 3 and 4 were already lost that way; this stops the next one.

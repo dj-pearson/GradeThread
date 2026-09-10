@@ -694,6 +694,14 @@ if (on("android")) {
     // completed is how 31 of these accumulated. Two seconds here.
     run("android: plurals ids stay off the string factory", `${py} scripts/no-plurals-as-string.py`, a);
     run("android: that guard still detects", `${py} scripts/no-plurals-as-string.py --self-test`, a);
+    // US-3119: a @HiltViewModel that reaches for Dispatchers.IO puts its work
+    // on a pool no test scheduler is on, so every test of that path asserts
+    // against a ViewModel that has not run yet -- and passes or fails for
+    // reasons unconnected to the code it names (US-3027 spent a session on it).
+    // Self-test FIRST here: the real scan reports OK on a tree it can no longer
+    // parse, which is indistinguishable from a clean one.
+    run("android: that guard still detects", `${py} scripts/no-inline-io-dispatcher.py --self-test`, a);
+    run("android: ViewModels take @IoDispatcher, not Dispatchers.IO", `${py} scripts/no-inline-io-dispatcher.py`, a);
     // US-2502: a Room version whose schema JSON was never committed cannot be
     // migration-tested, ever. Catch it while the file can still be produced.
     run("android: room schemas exported", "node scripts/check-room-schemas.mjs", a);

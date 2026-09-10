@@ -6,8 +6,9 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.gradethread.app.platform.telemetry.Telemetry
 import dagger.hilt.android.lifecycle.HiltViewModel
+import com.gradethread.app.platform.di.IoDispatcher
 import dagger.hilt.android.qualifiers.ApplicationContext
-import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -25,6 +26,11 @@ class ImportViewModel @Inject constructor(
     private val service: ImportCommitting,
     /** US-2410: the Google Sheets side. Local file import does not touch it. */
     private val sheets: SheetsImporting,
+    // US-3119: injected rather than reached for inline. See [IoDispatcher] -
+    // `withContext(Dispatchers.IO)` here hands the file read to a pool no test
+    // scheduler is on, so `advanceUntilIdle()` returns before the CSV has been
+    // read and every assertion after it is made against an untouched ViewModel.
+    @IoDispatcher private val io: CoroutineDispatcher,
 ) : ViewModel() {
 
     enum class Step { PICK, MAP, PREVIEW, DONE }
@@ -61,7 +67,7 @@ class ImportViewModel @Inject constructor(
     fun load(uri: Uri) {
         _state.value = _state.value.copy(busy = true, error = null)
         viewModelScope.launch {
-            val text = withContext(Dispatchers.IO) {
+            val text = withContext(io) {
                 runCatching {
                     context.contentResolver.openInputStream(uri)?.use { input ->
                         input.readBytes().toString(Charsets.UTF_8)
