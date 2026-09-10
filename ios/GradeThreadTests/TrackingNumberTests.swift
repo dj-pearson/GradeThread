@@ -37,8 +37,12 @@ final class TrackingNumberTests: XCTestCase {
     func test_tooShortAndTooLongAreRejected() {
         XCTAssertFalse(TrackingNumber.isPlausible("1234567"), "seven is short of every carrier")
         XCTAssertTrue(TrackingNumber.isPlausible("12345678"))
-        XCTAssertTrue(TrackingNumber.isPlausible(String(repeating: "A", count: 40)))
-        XCTAssertFalse(TrackingNumber.isPlausible(String(repeating: "A", count: 41)))
+        // US-3304: the filler carries a digit because the rule now requires
+        // one. The boundary being pinned here is the LENGTH, 40 in and 41 out;
+        // the all-"A" string it used to use also happened to assert that prose
+        // is a tracking number, which is the bug the test above catches.
+        XCTAssertTrue(TrackingNumber.isPlausible("1" + String(repeating: "A", count: 39)))
+        XCTAssertFalse(TrackingNumber.isPlausible("1" + String(repeating: "A", count: 40)))
     }
 
     func test_emptyIsNotPlausible() {
