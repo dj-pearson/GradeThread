@@ -9,7 +9,77 @@
 > They are still filed as HELD here because nobody in this session watched
 > them apply. Confirm against prod before trusting either heading.
 
-## 🔒 HELD: 00778 — discount campaigns (US-3299)
+## 🔒 HELD: 00783 — five brands sellers hold, and two refusals (US-3125)
+
+**Risk: LOW.** Data only. Five `brand_knowledge` rows and two `brand_styles`
+rows, no schema change, nothing dropped, no revoke. `on conflict ... do update`
+on both, so a second run rewrites the same values rather than inserting a
+duplicate.
+
+**Apply order: last, and it depends on nothing.** It touches no table that 00777
+or 00778 touch and reads no column those add.
+
+**What it adds.** GANT, Quince, 7Diamonds, Ermenegildo Zegna and Lauren Ralph
+Lauren, each with the brand's own published page as `source_url` and a
+confidence between 0.60 and 0.75. Two registered numbers, both FTC-record
+sourced and both re-read on 2026-09-10: RN 101133 (ERMENEGILDO ZEGNA
+CORPORATION) and RN 177170 (Last Brand, Inc., which 00731 refused and which
+Quince's own Terms of Service now confirms is Quince's operator). GANT,
+7Diamonds and Lauren Ralph Lauren are seeded with NO registered number on
+purpose; the migration says why for each.
+
+**The three of the eight that were already done.** prAna and Pact were seeded by
+00731 and Veronica Beard by 00739, all applied to prod on 2026-09-06 — the same
+day US-3125's measurement was taken, which is why they read as absent in it.
+Nothing here re-seeds them.
+
+**`laurenralphlauren` is a NEW brand_key, not an alias on `ralphlauren`.** That
+is the one decision in this file worth a second look before applying. Ralph
+Lauren Corporation's own page prices Lauren "at a more accessible price point"
+than its other labels, and `poloralphlauren` is already a separate key (00389,
+RN 109514 in 00729). Aliasing it onto the house would price a department-store
+dress off Purple Label comps. Reasoning:
+`vault/20-domain/brands/brand-kb-alias-refusals.md`.
+
+**No client reads anything new.** `brand_knowledge` is read by the edge with the
+service-role client and by the admin curation surface, both of which already
+handle a brand with no row. Nothing in the frontend queries these tables
+directly, so a push before the apply degrades to "the KB does not know GANT",
+which is exactly today's behaviour.
+
+**Verify after applying** (counts from prod on 2026-09-07 were 542 brands):
+
+```sql
+select count(*) from public.brand_knowledge;                 -- expect 547
+select brand_key, canonical_brand, registered_numbers, confidence
+  from public.brand_knowledge
+ where brand_key in ('gant','quince','7diamonds','ermenegildozegna','laurenralphlauren');
+select count(*) from public.brand_styles where brand_key = 'laurenralphlauren';  -- expect 2
+```
+
+**Apply order:**
+
+1. `psql` the file (or `scripts/apply-prod-migrations.sh`).
+2. `NOTIFY pgrst, 'reload schema';` — not strictly required (no schema change),
+   but harmless and it costs nothing to keep the habit.
+3. Redeploy the edge on Coolify (`EXPECTED_SCHEMA_VERSION` is now `00783`).
+4. THEN OK the push.
+
+**Rollback** is `delete from public.brand_knowledge where updated_by =
+'migration:00783';` plus the same on `brand_styles`. No other table references
+these rows by id.
+
+## ✅ APPLIED 2026-09-10: 00778 — discount campaigns (US-3299)
+
+**APPLIED, heading corrected 2026-09-10.** It was still marked HELD while prod
+already had it. Evidence, all read from outside with the public anon key:
+`GET https://functions.gradethread.com/health/ready` reports
+`{expected: 00782, applied: 00782, status: match}`, and prod PostgREST's own
+OpenAPI document lists `discount_campaigns`, a table only 00778 creates. The
+apply script runs migrations in order and self-records each one, so a recorded
+00782 means everything below it ran. A stale HELD heading is not harmless: the
+pre-push `held-migration-gate` blocks on it, so every push in this repo was
+being refused over migrations that had already shipped.
 
 **Apply AFTER 00777.** Order matters only because 00777 is a live bug fix and
 this is a new feature; they touch nothing in common.
@@ -60,7 +130,24 @@ a fresh MFA step-up, and which mints the Stripe coupon as part of saving.
 coupons were minted (they carry `metadata.source = 'discount_campaign'`). No
 other table references it.
 
-## 🔒 HELD: 00777 — the Money tab has read $0.00 since 00685 (US-3300, was US-3298)
+## ✅ APPLIED 2026-09-10: 00777 — the Money tab has read $0.00 since 00685 (US-3300, was US-3298)
+
+**APPLIED, heading corrected 2026-09-10.** It was still marked HELD while prod
+already had it. Evidence, all read from outside with the public anon key:
+`GET https://functions.gradethread.com/health/ready` reports
+`{expected: 00782, applied: 00782, status: match}`, and prod PostgREST's own
+OpenAPI document lists `discount_campaigns`, a table only 00778 creates. The
+apply script runs migrations in order and self-records each one, so a recorded
+00782 means everything below it ran. A stale HELD heading is not harmless: the
+pre-push `held-migration-gate` blocks on it, so every push in this repo was
+being refused over migrations that had already shipped.
+
+**ONE CAVEAT SPECIFIC TO 00777.** The evidence above is the ordering argument,
+not a direct read. 00777 REPLACES `rebuild_ledger_for_user`, and a replaced
+function's presence in the schema proves nothing about which body is live -
+the old one was present too, and returned 400 every time. To settle it
+directly, sign in and press the Money tab's rebuild, or read `ledger_entries`
+for any seller: a non-zero count means the fixed body ran.
 
 ⚠ **APPLY THIS ONE FIRST.** It is a one-line fix to a function that has never
 completed a single run in production, and until it lands every seller's Money
@@ -135,7 +222,17 @@ Money and check that Profit is no longer $0.00, or POST
 instead of a 400.
 
 
-## 🔒 HELD: 00781 — batches 4 through 10 of the sourced size charts (US-3287 to US-3293)
+## ✅ APPLIED 2026-09-10: 00781 — batches 4 through 10 of the sourced size charts (US-3287 to US-3293)
+
+**APPLIED, heading corrected 2026-09-10.** It was still marked HELD while prod
+already had it. Evidence, all read from outside with the public anon key:
+`GET https://functions.gradethread.com/health/ready` reports
+`{expected: 00782, applied: 00782, status: match}`, and prod PostgREST's own
+OpenAPI document lists `discount_campaigns`, a table only 00778 creates. The
+apply script runs migrations in order and self-records each one, so a recorded
+00782 means everything below it ran. A stale HELD heading is not harmless: the
+pre-push `held-migration-gate` blocks on it, so every push in this repo was
+being refused over migrations that had already shipped.
 
 **Risk: LOW.** Same shape as 00780 below: insert-or-update into
 `public.brand_size_charts`, a global reference table with deny-all RLS and no
@@ -222,7 +319,17 @@ but cheap. Redeploy the edge only after 00782, since the boot guard will then
 expect 00782.
 
 
-## 🔒 HELD: 00782 — delete the 14 size-chart rows the code retired (US-3292)
+## ✅ APPLIED 2026-09-10: 00782 — delete the 14 size-chart rows the code retired (US-3292)
+
+**APPLIED, heading corrected 2026-09-10.** It was still marked HELD while prod
+already had it. Evidence, all read from outside with the public anon key:
+`GET https://functions.gradethread.com/health/ready` reports
+`{expected: 00782, applied: 00782, status: match}`, and prod PostgREST's own
+OpenAPI document lists `discount_campaigns`, a table only 00778 creates. The
+apply script runs migrations in order and self-records each one, so a recorded
+00782 means everything below it ran. A stale HELD heading is not harmless: the
+pre-push `held-migration-gate` blocks on it, so every push in this repo was
+being refused over migrations that had already shipped.
 
 **Risk: LOW.** One `delete` against `public.brand_size_charts`, a global
 reference table with deny-all RLS and no tenant data. No schema change.

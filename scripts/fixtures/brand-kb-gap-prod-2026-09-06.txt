@@ -1,0 +1,31 @@
+# The prod measurement US-3125 was filed from, kept so the report can be
+# re-scored offline against a changed KB.
+#
+# Taken 2026-09-06 by tallying inventory_items.brand on prod. This is the part
+# of the top 25 that was WRITTEN DOWN at the time -- the eight the story names
+# with their counts, plus the ten more that 00731's refusal block records with
+# theirs. It is NOT the whole top 25, and it is a snapshot, not a live number.
+#
+# Format: count|brand
+#
+# Re-score:  node scripts/brand-kb-gap.mjs --brands scripts/fixtures/brand-kb-gap-prod-2026-09-06.txt
+# Live:      node scripts/brand-kb-gap.mjs --db
+
+8|Gant
+8|prAna
+7|Quince
+6|7 Diamonds
+6|Ermenegildo Zegna
+6|Lauren Ralph Lauren
+6|Veronica Beard
+6|Pact
+5|Norman Rockwell
+5|St. John
+5|Giorgio Armani
+4|Toad&Co
+4|Desigual
+3|Cashmere
+3|Robert Graham
+3|Travis Mathew
+3|John Varvatos
+3|Sundry

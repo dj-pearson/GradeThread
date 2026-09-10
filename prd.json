@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-3307",
+  "nextId": "US-3308",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -3447,20 +3447,6 @@
       "priority": 4
     },
     {
-      "id": "US-3125",
-      "passes": false,
-      "title": "Eight brands sellers are actually holding are absent from the brand KB entirely",
-      "description": "MEASURED ON PROD 2026-09-06 by joining inventory_items.brand against brand_knowledge, so this is ranked by what sellers hold rather than by what a brand list says matters.\n\nThe top 25 brands by item count, and whether the KB knows them. Eight are absent, and absent means absent - each was re-checked against canonical_brand AND the aliases array with a LIKE on both, not just a key join, because a fuzzy key match failing is the obvious way to file a story for a brand that is already there:\n\n  gant                  8 items\n  prana                 8\n  quince                7\n  7 diamonds            6\n  ermenegildo zegna     6\n  lauren ralph lauren   6\n  veronica beard        6\n  pact                  6\n\n'lauren ralph lauren' is the interesting one: 'polo ralph lauren' IS in the KB, so this is a missing SUB-LABEL of a brand we already carry rather than a missing house. The decoder bar's fourth question applies - which entity does the identifier name - and the two labels size and price differently.\n\n⚠ ONE ENTRY IN THAT TOP 25 IS NOT AN APPAREL BRAND AT ALL: 'norman rockwell', 5 items. That is either licensed-print merchandise where the seller typed the artist, or brand-field noise. Decide which before seeding anything; it is evidence about the brand FIELD, not about the KB.\n\nWHAT THIS STORY IS NOT: it is not 'seed the top N brands from a list'. Every pack in this corpus is sourced per the provenance contract, and the sourcing bar is the point - see vault/20-domain/brands/brand-kb-provenance.md and brand-kb-negative-findings.md. A brand with no source that clears the bar does not get seeded, and recording that refusal is a valid outcome for any of the eight.",
-      "acceptanceCriteria": [
-        "Each of the eight is either seeded with full provenance (source_url + confidence on every row) or REFUSED with the reason recorded, following the existing pack shape. A refusal is a valid outcome and must be as visible as a seed.",
-        "The join that found them is a script rather than a one-off query, so the question 'which brands do our sellers hold that we do not know' can be re-asked. It must match on canonical_brand AND aliases, since a key-only join reports brands we already carry as missing.",
-        "'lauren ralph lauren' is handled as a sub-label decision, not a new house: record whether it is a distinct brand_key or an alias of an existing one, and why.",
-        "The 'norman rockwell' row is triaged: either the brand field is carrying non-brand text and that is a separate finding, or it is licensed merchandise with a real label behind it.",
-        "The seeded packs carry the US-1108 triple, and brand_styles/colorways are added only where a source supports them - an empty sibling table is correct, not a gap to fill."
-      ],
-      "priority": 8
-    },
-    {
       "id": "US-3127",
       "passes": false,
       "title": "brand_colorways has been frozen at 159 rows while the rest of the corpus grew, and covers 40 brands of 230",
@@ -4890,6 +4876,20 @@
         "Any other filter or query comparing a picked date against a stored date is grepped for and either fixed or ruled out in the notes, since this one was invisible to a Calendar.current search"
       ],
       "priority": 5
+    },
+    {
+      "id": "US-3307",
+      "passes": false,
+      "title": "Roughly 8 percent of the brand field is not a brand, so those items have no recorded maker",
+      "description": "Found 2026-09-10 while closing US-3125. Two of the top twenty-five values in inventory_items.brand, ranked by item count on prod, are not brands at all: 'norman rockwell' (5 items), an illustrator who died in 1978 and whose estate licenses images onto blanks, and 'cashmere' (3 items), a fibre. Both were refused from brand_knowledge for the right reason, and refusing them leaves the underlying problem untouched: the garment has a real maker (Gildan, Hanes, an unbranded blank) and we have not recorded it. Every downstream user of the brand field is worse for it. The grader gets no brand context. The comp search queries a licensor or a material instead of a label. The size chart resolver finds nothing and falls through to the generic path. And the brand-KB gap report ranks these rows as demand, so they pull attention toward brands that will never exist. This is a story about the FIELD and the intake paths that fill it, not about the knowledge base.",
+      "acceptanceCriteria": [
+        "The scale is measured rather than estimated: a script counts inventory_items.brand values that resolve to no brand and classifies them (licensor, material, retailer, style word, blank, genuine unknown), and the counts go in the story notes",
+        "A seller-visible path exists to record the real maker when the brand field holds something else, rather than the value being silently ignored or silently trusted",
+        "The AI extract and the manual intake paths are checked for which one produces these values, since a licensor printed large on a shirt front is exactly what a vision pass would read as the brand",
+        "'Unbranded' stays a valid answer and is distinguished from 'we do not know', because eBay ships Unbranded as a real aspect value and conflating the two loses information",
+        "scripts/brand-kb-gap.mjs stops ranking known non-brand values as demand, reading from one shared classification rather than a second hardcoded list"
+      ],
+      "priority": 6
     }
   ]
 }

@@ -82,6 +82,41 @@ holes, stains, a print flaked to illegibility, and a collar with no recovery
 left. This is the Bosca patina call ([[small-leather-goods]]) with much higher
 stakes, because here it is not one line of the grade — it is most of it.
 
+## Some of the top brands sellers hold are not brands
+
+Recorded 2026-09-10 (US-3125, `00783`), because it looks exactly like a KB gap
+and it is a **field** finding.
+
+`inventory_items.brand` is free text and sellers type what the garment shows
+them. Two entries in the top twenty-five by item count, measured on prod
+2026-09-06, are not makers at all:
+
+| value | items | what it actually is |
+|---|---:|---|
+| `norman rockwell` | 5 | a **licensor**. An illustrator who died in 1978; his estate licenses images, and the FTC register returns nothing for the name. What is printed on the front, not what is sewn at the collar. |
+| `cashmere` | 3 | a **fibre**. Recorded in `00731`. |
+
+So roughly 8% of what that field ranks as a brand is something else, and the
+error is in the same family as the RN traps above: **which entity does the
+identifier name?** A Rockwell tee has a real label — Gildan, Hanes, a band-tee
+blank — and that label is the brand. Seeding "Norman Rockwell" into
+`brand_knowledge` would assert that a licensor is a garment maker.
+
+**The triage, spelled out, because "licensed merchandise" is the answer people
+reach for and it does not change the verdict.** It genuinely is licensed
+merchandise. That is exactly why it is refused: licensed merchandise has a real
+garment label behind it, and the KB's job is to know that label. There is no
+version of this row that belongs in `brand_knowledge`.
+
+**What it does warrant is its own work**, on the field rather than on the KB —
+the item's real brand is unrecorded on those items and its grade and its comps
+are both worse for it. That is a separate story, not a pack.
+
+`scripts/brand-kb-gap.mjs` therefore classifies rather than just subtracting: it
+reports MISSING, NOT-A-BRAND (a short, named list with a reason on each) and
+COVERED. A gap report that lists a licensor as missing keeps proposing a pack for
+it, one re-run at a time.
+
 ## A missing RN on a handbag is correct, not a red flag
 
 Earlier packs recorded "no RN — the FTC database is a JS shell that returns
