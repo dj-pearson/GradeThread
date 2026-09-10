@@ -5100,25 +5100,6 @@
       "priority": 2
     },
     {
-      "id": "US-3297",
-      "passes": false,
-      "title": "Size charts, batch 12: the streetwear and luxury holdouts",
-      "description": "Nine brands whose size-guide panel still shows a gap after the eleven-batch backfill (US-3284..US-3294) closed its own lists. Follow vault/20-domain/brands/size-chart-coverage-backfill.md. Batch: Anti Social Social Club (bottom); BAPE (bottom); Chanel (bottom); Chrome Hearts (bottom); Fear of God Essentials (outerwear); Hellstar (bottom); Kith (bottom, outerwear); Palace (bottom, outerwear); Sp5der (bottom). READ THE EXISTING EXCEPTION NOTES FIRST: batch 7 already recorded that Palace publishes no size chart and BAPE's SIZE GUIDE control renders nothing through two click paths. Do not re-litigate a documented exception; either find a route those notes did not try, or widen an existing chart and say so.",
-      "acceptanceCriteria": [
-        "Every brand in the batch either gains a chart from its OWN published guide with sourceUrl set, or is closed by widening an existing chart with a note saying the rows did not change, or is recorded as an exception naming the exact paths that failed",
-        "Every replacement keeps its garment string byte-identical, so the sourced-chart upsert updates in place; re-run the old-versus-new tuple diff and confirm the orphan count did not grow",
-        "measurementBasis is set to flat only where the brand publishes garment specs; body charts leave it absent",
-        "verified stays absent unless a human compared the rows against sourceUrl",
-        "The seed and the sourced-chart migration are regenerated in the same commit and sizing-chart-parity_test.ts passes",
-        "docs/size-chart-coverage.md shows no remaining gap for these nine brands, or the story note names each exception and why"
-      ],
-      "priority": 4,
-      "dependsOn": [
-        "US-3283"
-      ],
-      "notes": "PARTIAL 2026-09-10. Three of nine closed and two half-closed; six bottoms gaps remain.\n\nCLOSED: Chanel (widened its dresses chart, the only Chanel chart with a hip column, to bottoms), Fear of God Essentials (widened tops to outerwear; it already had a bottoms chart), Hellstar (bottoms SOURCED - see the route below). Kith and Palace lost their outerwear half to the same widening; both still lack bottoms.\n\nTHE ROUTE THAT FINALLY WORKED ON A STREETWEAR SHOPIFY STORE, and it is the finding worth keeping: the size guide is a PNG in the theme /files/ store dropped into the product description. Every fetch-shaped technique the earlier batches used comes back empty - /pages/size-guide 404s, the PDP has no table and no modal, products.json carries no measurements. What gives it away is the ASPECT RATIO. Shopify product photos are square (3000x3000); the chart is the one LANDSCAPE image on the page. Filter img by naturalWidth !== naturalHeight, curl the URL, and READ THE PICTURE. On Hellstar that returns exactly one 822x436 image and it is the chart. Take currentSrc through new URL() and print only hostname+pathname or the browser guard blocks the read.\n\nSO A 'no brand-published chart' note can be a statement about the TECHNIQUE rather than the brand. Hellstar's own description reads 'PLEASE REFER TO THE SIZE GUIDE BELOW' and the corpus still carried a chest-only approximation.\n\nSTILL OPEN, all bottoms, all to be tried with the image route: Anti Social Social Club, BAPE, Chrome Hearts, Kith, Palace, Sp5der. Notes for the next pass: ASSC current products.json has NO bottoms at all (every /pant|short/ hit is a short-sleeve tee), so it may be a tops-only brand and an exception rather than a gap. Kith /pages/sizing answers 200 with three tables and all three are FOOTWEAR conversions - the PUMA lesson again - and its products.json is mostly other brands stock, so pick a Kith-label bottom. sp5der-official.com/products.json 404s; find the real store domain. BAPE and Palace are documented batch-7 exceptions - try the image route before re-recording them.\n\nWHY THE SIX ARE NOT CLOSED BY WIDENING: their only chart is chest-based. A chest measurement does not describe trousers, and widening would put a chest number in front of a seller measuring a waistband. Chanel was widened only because its dresses chart carries a hip.\n\n00781 regenerated to 134 sourced rows. Tests 112/0."
-    },
-    {
       "id": "US-3298",
       "passes": false,
       "title": "Size charts, batch 13: the last nine gaps",

@@ -2053,7 +2053,14 @@ export const SIZING_CHARTS: SizingChart[] = [
       "sizes the OTHER way. That is why the US equivalent is written into the size " +
       "label here. These are body-equivalent figures for the nominal JP grade, not " +
       "BAPE-published specs. Measure the garment flat (chest across the underarm " +
-      "seam, doubled) and treat the tag as a claim to check. Does not apply to the " +
+      "seam, doubled) and treat the tag as a claim to check. US-3297 RETRACTS " +
+      "the earlier note that BAPE could not be sourced: its guide is an " +
+      "ordinary HTML page at /pages/size-guide-us that answers a plain fetch " +
+      "with nine tables, reachable only by reading the SIZE GUIDE link off a " +
+      "product page. THESE ROWS STAY as they are because BAPE's own TOPS " +
+      "tables are GARMENT-FLAT (shoulder, length, half-chest) and this chart " +
+      "is a body-equivalent one; the two answer different questions. Its " +
+      "bottoms, women's and kids tables ARE sourced, below. Does not apply to the " +
       "Bapesta, which is a shoe.",
     rows: [
       { size: "JP S (≈US XS)", measurements: { chest: "34-36", length: "25-26" } },
@@ -2106,7 +2113,11 @@ export const SIZING_CHARTS: SizingChart[] = [
       "roughly a US M). Cut boxy by design, which is the intended skate " +
       "silhouette and not a mislabel. These are body-equivalent figures for the " +
       "nominal streetwear grade, not Palace-published specs. Measure the garment " +
-      "flat (chest across the underarm seam, doubled).",
+      "flat (chest across the underarm seam, doubled). US-3297 RETRACTS the " +
+      "earlier note that Palace publishes no size chart. It publishes one PER " +
+      "PRODUCT, embedded as JSON in the PDP markup, and its bottoms are " +
+      "sourced from that below. No equivalent numbers are published for its " +
+      "tees and fleece, so these rows stay an approximation.",
     rows: [
       { size: "S", measurements: { chest: "36-38", length: "27-28" } },
       { size: "M", measurements: { chest: "38-40", length: "28-29" } },
@@ -12449,6 +12460,187 @@ export const SIZING_CHARTS: SizingChart[] = [
       { size: "L", measurements: { waist: "32", inseam: "30" } },
       { size: "XL", measurements: { waist: "34", inseam: "30.5" } },
       { size: "2XL", measurements: { waist: "36", inseam: "31" } },
+    ],
+  },
+
+  // US-3297 continued. TWO MORE ROUTES, both of which the batch-7 notes had
+  // recorded as dead ends. Neither brand was unsourceable; the technique was.
+  //
+  //   BAPE   — its guide is an ordinary HTML page with nine tables that answers
+  //            a plain curl. The path is /pages/size-guide-us, which is only
+  //            discoverable by reading the "SIZE GUIDE" <a> on a product page.
+  //   PALACE — no size-guide page exists at any /pages/ path and the domain
+  //            refuses script execution, but every bottoms PDP embeds its own
+  //            measurements as JSON in the served HTML:
+  //            {"measurements":[{"name":"Waist","measures":[...]}],
+  //             "variant_names":["30","32","34","36"]}
+  //            Fetch the PDP and read it out of the markup.
+  {
+    brand: "BAPE",
+    brandMatch: ["bape", "a bathing ape", "bathing ape"],
+    department: "Men",
+    garment: "Bottoms (alpha, body waist + hip)",
+    categoryMatch: ["bottom", "pant", "sweatpant", "short", "jean", "denim", "cargo", "trouser", "jogger"],
+    sourceUrl: "https://us.bape.com/pages/size-guide-us",
+    note:
+      "BAPE's own men's bottoms chart, BODY inches converted from the " +
+      "centimetres it publishes alongside. ⚠ ITS 2XL HIP RANGE IS PRINTED " +
+      "BACKWARDS: the brand's table reads 43.3-41.3in (110-105cm), a range that " +
+      "counts DOWN, where every other row counts up. Reproduced as published " +
+      "rather than silently reversed — prefer the garment at that size. " +
+      "⚠ UNLIKE THE TOPS TABLES ON THE SAME PAGE, WHICH ARE GARMENT-FLAT " +
+      "(shoulder, length and a half-chest), this one is a body measurement, " +
+      "which is why the two cannot be read the same way. The JP-runs-small " +
+      "warning on BAPE's tops chart does NOT transfer here: this table is " +
+      "already stated against a body, in a range.",
+    rows: [
+      { size: "S", measurements: { waist: "29.1-29.9", hip: "35.4-37.4" } },
+      { size: "M", measurements: { waist: "29.9-31.1", hip: "37.4-39.4" } },
+      { size: "L", measurements: { waist: "31.1-33.1", hip: "39.4-41.3" } },
+      { size: "XL", measurements: { waist: "33.1-35.8", hip: "41.3-43.3" } },
+      { size: "2XL", measurements: { waist: "35.8-39.0", hip: "43.3-41.3" } },
+      { size: "3XL", measurements: { waist: "39-40.9", hip: "45.3-47.2" } },
+    ],
+  },
+  {
+    brand: "BAPE",
+    brandMatch: ["bape", "a bathing ape", "bathing ape"],
+    department: "Women",
+    garment: "Clothing (2XS-M, body)",
+    categoryMatch: [
+      "top", "tee", "shirt", "hoodie", "sweatshirt", "dress", "knit", "sweater",
+      "bottom", "pant", "short", "skirt", "jean", "jacket", "coat", "outerwear",
+    ],
+    sourceUrl: "https://us.bape.com/pages/size-guide-us",
+    note:
+      "BAPE's women's line, BODY inches converted from its published " +
+      "centimetres. ⚠ THE RUN STOPS AT M. BAPE grades women's 2XS to M and " +
+      "nothing above, so a woman who wears a US L is outside the chart " +
+      "entirely — which is the JP-runs-small fact showing up as a missing size " +
+      "rather than as a wrong one. The BANDS OVERLAP by design: XS bust runs " +
+      "31-34.3 and S runs 33.9-37, so a 34in bust is in both.",
+    rows: [
+      { size: "2XS", measurements: { bust: "28.3-31.5", waist: "22.8-25.2", hip: "32.7-35" } },
+      { size: "XS", measurements: { bust: "31-34.3", waist: "25.2-28", hip: "34.3-36.6" } },
+      { size: "S", measurements: { bust: "33.9-37", waist: "27.2-30.3", hip: "35.8-38.2" } },
+      { size: "M", measurements: { bust: "36-40", waist: "29.5-32", hip: "36.5-40" } },
+    ],
+  },
+  {
+    brand: "BAPE",
+    brandMatch: ["bape", "a bathing ape", "bathing ape"],
+    department: "Kids",
+    garment: "Kids (JAPANESE height-cm sizing 70-160)",
+    categoryMatch: [
+      "kid", "baby", "toddler", "top", "tee", "hoodie", "sweatshirt", "shirt",
+      "bottom", "pant", "short", "jacket", "outerwear", "set", "romper",
+    ],
+    sourceUrl: "https://us.bape.com/pages/size-guide-us",
+    note:
+      "BAPE KIDS IS SIZED BY HEIGHT IN CENTIMETRES, not by US age or by T-size: " +
+      "the tag reads 70, 90, 130 and that number IS the child's height in cm. " +
+      "⚠ A '130' IS NOT A US 130 OF ANYTHING and it is not a chest measurement " +
+      "either — read the SYSTEM off the tag before the number. The age column " +
+      "is BAPE's own mapping and the inch heights are converted from its " +
+      "centimetres. Same axis as Mini Boden's British age-years run in that it " +
+      "is a height system, and unlike it in that the label is the height itself.",
+    rows: [
+      { size: "70 (6 months)", measurements: { height: "25.6-29.5 in", age: "6 months" } },
+      { size: "80 (6-9 months)", measurements: { height: "29.5-33.5 in", age: "6-9 months" } },
+      { size: "90 (9-12 months)", measurements: { height: "33.5-37.4 in", age: "9-12 months" } },
+      { size: "100 (1-2 years)", measurements: { height: "37.4-41.3 in", age: "1-2 years" } },
+      { size: "110 (2-3 years)", measurements: { height: "41.3-45.3 in", age: "2-3 years" } },
+      { size: "120 (4-5 years)", measurements: { height: "45.3-49.2 in", age: "4-5 years" } },
+      { size: "130 (5-6 years)", measurements: { height: "49.2-53.1 in", age: "5-6 years" } },
+      { size: "140 (7-9 years)", measurements: { height: "53.1-57.1 in", age: "7-9 years" } },
+      { size: "150 (10 years)", measurements: { height: "57.1-61.0 in", age: "10 years" } },
+      { size: "160 (13 years)", measurements: { height: "61.0-65.0 in", age: "13 years" } },
+    ],
+  },
+  {
+    brand: "Palace",
+    brandMatch: ["palace", "palace skateboards"],
+    department: "Men",
+    garment: "Bottoms (FLAT garment specs, numeric waist tag)",
+    categoryMatch: ["bottom", "pant", "trouser", "jean", "denim", "cargo", "sweatpant", "jogger", "short"],
+    sourceUrl: "https://www.palaceskateboards.com/products/lj5p64qtjskk",
+    note:
+      "⚠ THESE ARE GARMENT MEASUREMENTS, NOT A BODY, and the difference is the " +
+      "whole point on a skate trouser: Palace's size-30 tag carries a 33.5in " +
+      "GARMENT waist, three and a half inches of deliberate ease. Read against " +
+      "a body chart it would look like a mis-tag; it is the cut. Palace " +
+      "publishes no size-guide page at any /pages/ path and its domain refuses " +
+      "script, but every bottoms product page embeds its own measurements as " +
+      "JSON in the served HTML, in centimetres. These are the 10 OZ DOUBLE KNEE " +
+      "PANT's, converted. ⚠ ITS JEANS RUN ABOUT 1cm NARROWER at every size (the " +
+      "P45 publishes 84/89/94/99 against this trouser's 85/90/95/100), so treat " +
+      "the numbers as the brand's cut rather than as a promise about one style. " +
+      "Palace's SHORTS are a separate alpha run measured 'stretched flat' and " +
+      "are not in this chart.",
+    measurementBasis: "flat",
+    rows: [
+      { size: "30", measurements: { waist: "33.5", inseam: "28.5", legOpening: "17.6" } },
+      { size: "32", measurements: { waist: "35.4", inseam: "29.5", legOpening: "17.9" } },
+      { size: "34", measurements: { waist: "37.4", inseam: "30.5", legOpening: "18.1" } },
+      { size: "36", measurements: { waist: "39.4", inseam: "31.5", legOpening: "18.3" } },
+    ],
+  },
+
+  // Sp5der — the third delivery mechanism this batch turned up, and the most
+  // hidden of them. There is no size-guide page and the domain refuses script,
+  // but the PDP loads a THIRD-PARTY APP BUNDLE whose URL is sitting in the
+  // markup, and that bundle carries every chart the brand publishes as JSON:
+  //   https://size-guides-prod.esc-apps-cdn.com/<ts>-app.<shop>.myshopify.com.js
+  // 119 per-style guides in one 432 KB file, each keyed by a product tag.
+  {
+    brand: "Sp5der",
+    brandMatch: ["sp5der", "spider worldwide"],
+    department: "Unisex",
+    garment: "Bottoms (FLAT garment specs, alpha)",
+    categoryMatch: ["bottom", "pant", "sweatpant", "short", "jean", "cargo", "jogger", "trouser"],
+    sourceUrl: "https://sp5derworldwide.com/products/dark-green-heavy-web-sweatpant",
+    measurementBasis: "flat",
+    note:
+      "Sp5der publishes 119 PER-STYLE garment charts, not one brand chart, so " +
+      "these are the JUMBO SWEATPANT's — the run its sweatpants are tagged " +
+      "against. GARMENT measurements. ⚠ THE BRAND LABELS THE COLUMN 'WAIST " +
+      "WIDTH' AND DOES NOT SAY WHETHER IT IS FLAT OR ROUND. Read against its own " +
+      "WORK PANT chart, whose 'HIPS' column is 19.5in at XS, the app's other " +
+      "columns are plainly flat halves; 27in at XS is not, so this one reads as " +
+      "a relaxed waist circumference. Measure the garment and trust the " +
+      "garment. ⚠ THE INSEAM BARELY MOVES: 31.25in at XS to 32.5in at 2XL, " +
+      "a quarter inch per size, so a Sp5der sweatpant is graded on girth alone. " +
+      "Its WORK PANT chart carries the alpha-to-numeric map (XS 28, S 30, M 32, " +
+      "L 34, XL 36) and prints its 2XL as '48', which is a brand typo for 38.",
+    rows: [
+      { size: "XS", measurements: { waist: "27", inseam: "31.25" } },
+      { size: "S", measurements: { waist: "29", inseam: "31.5" } },
+      { size: "M", measurements: { waist: "31", inseam: "31.75" } },
+      { size: "L", measurements: { waist: "33", inseam: "32" } },
+      { size: "XL", measurements: { waist: "35", inseam: "32.25" } },
+      { size: "2XL", measurements: { waist: "37", inseam: "32.5" } },
+    ],
+  },
+  {
+    brand: "Sp5der",
+    brandMatch: ["sp5der", "spider worldwide"],
+    department: "Women",
+    garment: "Bottoms (FLAT garment specs, alpha XS-L)",
+    categoryMatch: ["bottom", "pant", "sweatpant", "short", "legging", "jogger"],
+    sourceUrl: "https://sp5derworldwide.com/products/dark-green-heavy-web-sweatpant",
+    measurementBasis: "flat",
+    note:
+      "Sp5der's WOMEN'S STRAIGHT LEG SWEATPANTS chart from the same app bundle. " +
+      "GARMENT measurements, and here the waist is unmistakably a FLAT half: " +
+      "23in at XS rising to 24.375in at L, barely an inch and a third across the " +
+      "whole run, which no body does. ⚠ THE FRONT RISE IS WHAT ACTUALLY " +
+      "GRADES: 18.125in at XS to 24.125in at L, two full inches per size. The " +
+      "run stops at L.",
+    rows: [
+      { size: "XS", measurements: { waist: "23", inseam: "28" } },
+      { size: "S", measurements: { waist: "23.5", inseam: "28.75" } },
+      { size: "M", measurements: { waist: "23.875", inseam: "29.5" } },
+      { size: "L", measurements: { waist: "24.375", inseam: "30.25" } },
     ],
   },
 ];

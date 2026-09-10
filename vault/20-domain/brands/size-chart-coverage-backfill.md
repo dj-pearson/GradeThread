@@ -477,10 +477,41 @@ renders nothing, Buck Mason and Burberry from batch 7, Filson from batch 8),
 so **read the exception notes before spending a browser session** — that is
 what they are for.
 
-Batch 12 (US-3297) is IN PROGRESS: 401 charts, **134 sourced**, 15 brands with
-a gap. Chanel, Fear of God Essentials and Hellstar are closed, and Kith and
-Palace lost their outerwear half. Six bottoms gaps remain, all on streetwear
-brands whose only chart is chest-based.
+Batch 12 (US-3297): 407 charts, **143 sourced**, 12 brands with a gap. Six of
+nine closed outright (Chanel, Fear of God Essentials, Hellstar, BAPE, Palace,
+Sp5der) and three left as exceptions (Anti Social Social Club, Chrome Hearts,
+Kith).
+
+⚠ **A STREETWEAR BRAND SERVES ITS CHART FOUR DIFFERENT WAYS, AND NONE OF THEM
+IS A SIZE-GUIDE PAGE.** All four turned up in this one batch, and every earlier
+note calling these brands unsourceable was describing the technique rather than
+the brand:
+
+1. **A PNG in the theme file store** (Hellstar). Filter `img` by
+   `naturalWidth !== naturalHeight` — product photos are square, the chart is
+   the one landscape image — then READ THE PICTURE.
+2. **An ordinary HTML page on an undiscoverable path** (BAPE,
+   `/pages/size-guide-us`, nine tables to a plain curl). The path is only
+   findable by reading the SIZE GUIDE `<a>` on a product page.
+3. **JSON embedded in the PDP markup** (Palace):
+   `{"measurements":[{"name":"Waist","measures":[...]}],"variant_names":[...]}`.
+   Its domain refuses script execution, so fetch the HTML and read it.
+4. **A third-party app bundle** (Sp5der): the PDP loads
+   `size-guides-prod.esc-apps-cdn.com/<ts>-app.<shop>.myshopify.com.js`, and
+   that one 432 KB file holds all **119** of the brand's per-style charts as
+   JSON, keyed by product tag. The URL is sitting in the served markup.
+
+⚠ **PER-STYLE IS THE STREETWEAR NORM.** Palace and Sp5der publish garment
+specs per product, not one brand grid, so both charts carry
+`measurementBasis: "flat"` and name the style they came from. Palace's size-30
+tag is a 33.5in GARMENT waist — three and a half inches of deliberate ease, not
+a mis-tag.
+
+⚠ **A PROVENANCE HOST IN A COMMENT TRIPS THE SUBPROCESSOR GUARD.** The derived
+exemption in `subprocessors-complete.test.ts` reads `sourceUrl:` values only, so
+Sp5der's app-bundle host — which appears in a code comment and is never called
+— failed the outbound-host check. It is now a named `NOT_A_PROCESSOR` entry,
+the same treatment the USPS rate-table URL gets.
 
 ⚠ **HOW TO FIND A STREETWEAR SHOPIFY STORE'S SIZE CHART: LOOK FOR THE
 LANDSCAPE IMAGE.** Every technique the earlier batches used fails on these

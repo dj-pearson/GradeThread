@@ -77,6 +77,15 @@ const NOT_A_PROCESSOR: Record<string, string> = {
   "www.tiktok.com": "an outbound share link the user clicks",
   "x.com": "an outbound share link the user clicks",
   "www.w3.org": "an XML namespace, not a request",
+  // US-3297: the host of the Shopify size-guide APP BUNDLE that Sp5der loads.
+  // It appears once, in a COMMENT in lib/sizing-charts.ts, recording where
+  // that brand's published measurements were read from — the same provenance
+  // role the USPS rate URL plays below. The edge service never calls it; the
+  // numbers are constants transcribed by hand. The derived size-chart
+  // exemption does not cover it because that helper reads `sourceUrl:` values
+  // only, and this host is documentation rather than a citation target.
+  "size-guides-prod.esc-apps-cdn.com":
+    "a provenance note in a code comment — nothing calls it, no data leaves",
   // US-2790: the PROVENANCE url for the USPS rate table, recorded in
   // lib/shipping-rates.ts so a reader can check where the numbers came
   // from. Nothing calls it at runtime — the rates are constants read off

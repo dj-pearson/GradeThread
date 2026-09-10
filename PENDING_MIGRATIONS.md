@@ -30,9 +30,10 @@ Marmot's and Mountain Hardwear's bottoms in both departments, Johnnie-O's
 four (men's, big & tall, women's and boys'), and ONE Kate Spade chart that
 replaces two. Batch 10 adds twelve: Orvis in both departments, Pendleton's
 bottoms, REI Co-op's bottoms, three Reformation charts, and a source URL on
-the four tops charts those brands already had. Batch 12 adds
-Hellstar's bottoms, read off the size-guide PNG its product pages carry.
-**134 sourced rows in total**, since the generator re-emits every earlier batch.
+the four tops charts those brands already had. Batch 12 adds seven:
+Hellstar's bottoms, BAPE's bottoms, women's and kids, Palace's bottoms and
+Sp5der's two. **140 sourced rows in total**, since the generator re-emits every
+earlier batch.
 
 **Batch 10 adds NO new orphans, and that is deliberate.** Every replacement in
 it keeps its `garment` string byte-identical, so the upsert updates the

@@ -6,15 +6,15 @@ Coverage is measured the way the size-guide panel resolves a chart: a real brand
 
 ## Where it stands
 
-- 168 brands, 401 brand-specific charts.
-- 137 charts link the brand's own guide; 0 have been checked against it by a human.
-- 15 brands are missing at least one group they should cover.
+- 168 brands, 407 brand-specific charts.
+- 143 charts link the brand's own guide; 0 have been checked against it by a human.
+- 12 brands are missing at least one group they should cover.
 
 | Group | Brands covered |
 |---|---:|
 | top | 131 |
-| bottom | 123 |
-| dress | 57 |
+| bottom | 126 |
+| dress | 58 |
 | outerwear | 128 |
 | suit | 46 |
 | shoes | 27 |
@@ -44,7 +44,7 @@ Coverage is measured the way the size-guide panel resolves a chart: a real brand
 | Athleta | 2 | Women | Women |  | Women |  |  |  |  |  |  |  |
 | Balenciaga | 2 | Men, Women | Men, Women | Women | Men, Women | Men |  |  |  |  |  |  |
 | Banana Republic | 4 | Men, Women | Men, Women | Women | Men, Women | Men, Women |  |  |  |  |  |  |
-| BAPE | 1 | Men |  |  | Men |  |  |  |  |  |  | bottom |
+| BAPE | 4 | Kids, Men, Women | Kids, Men, Women | Kids, Women | Kids, Men, Women |  |  |  |  |  |  |  |
 | Barbour | 2 | Men | Men |  | Men |  |  |  |  |  |  |  |
 | Beyond Yoga | 2 | Women | Women | Women | Women |  |  |  |  |  |  |  |
 | Birkenstock | 1 |  |  |  |  |  | Unisex |  |  |  |  |  |
@@ -141,7 +141,7 @@ Coverage is measured the way the size-guide panel resolves a chart: a real brand
 | Outdoor Voices | 1 | Women | Women | Women | Women |  |  |  |  |  |  |  |
 | PacSun | 2 | Women | Women |  | Women |  |  |  |  |  |  |  |
 | PAIGE | 4 | Men, Women | Men, Women |  | Men, Women | Men, Women |  |  |  |  |  |  |
-| Palace | 1 | Men |  |  | Men |  |  |  |  |  |  | bottom |
+| Palace | 2 | Men | Men |  | Men |  |  |  |  |  |  |  |
 | Patagonia | 3 | Men, Women | Men, Women | Women | Men, Women |  |  |  |  |  |  |  |
 | Pendleton | 2 | Men | Men |  | Men |  |  |  |  |  |  |  |
 | Peter Millar | 3 | Men, Women | Men | Women | Men, Women | Men |  |  |  |  |  |  |
@@ -164,7 +164,7 @@ Coverage is measured the way the size-guide panel resolves a chart: a real brand
 | Sézane | 1 | Women | Women | Women | Women |  |  |  |  |  |  |  |
 | SKIMS | 1 | Women | Women | Women | Women |  |  |  |  |  |  |  |
 | Sorel | 2 |  |  |  |  |  | Men, Women | Men |  |  |  |  |
-| Sp5der | 1 | Unisex |  |  | Unisex |  |  |  |  |  |  | bottom |
+| Sp5der | 3 | Unisex | Unisex, Women |  | Unisex |  |  |  |  |  |  |  |
 | Spanx | 3 | Women | Women |  | Women | Women |  |  |  |  |  |  |
 | Steve Madden | 1 |  |  |  |  |  | Women |  |  |  |  |  |
 | Stüssy | 1 | Men | Men |  | Men |  |  |  |  |  |  |  |
