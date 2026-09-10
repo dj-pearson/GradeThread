@@ -6,7 +6,7 @@
 -- WHY: the chart shape had department and a free-text garment scope and nowhere
 -- to record WHICH NATIONAL SYSTEM a size label is written in, so the corpus
 -- encoded it inside the label itself — "UK 10 (US 6)", "IT 48 (US 38)",
--- "FR 36 (US 4)", "JP L (=US M)". 115 of 325 charts do this. Every one of
+-- "FR 36 (US 4)", "JP L (=US M)". 115 of 327 charts do this. Every one of
 -- those parentheses is a workaround for a missing field.
 --
 -- The prose is KEPT. This migration adds the structured field beside it; it
@@ -19,7 +19,7 @@
 -- chart of bare numbers stays NULL because a bare "6" could be US or UK and
 -- nothing in the row says which. NULL means "not recorded", never "US".
 --
--- Derived here: 147 charts with a readable system, 0 non-standard size class,
+-- Derived here: 148 charts with a readable system, 0 non-standard size class,
 -- 1 with an ambiguous class (a scope naming several — the Talbots case, whose
 -- scope reads "Misses / Petite / Plus" and which is exactly the folding the
 -- size_class column exists to end).
@@ -209,7 +209,8 @@ begin
   ('herno', 'Women', 'Apparel (ITALIAN-SIZED — system conversion only, no measurements)', 'IT', 'standard'),
   ('herno', 'Men', 'Apparel (ITALIAN-SIZED — system conversion only, no measurements)', 'IT', 'standard'),
   ('levis', 'Men', 'Tops & outerwear (alpha, body inches)', 'alpha', 'standard'),
-  ('luckybrand', 'Men', 'Tops & outerwear (alpha, body inches)', 'alpha', 'standard')
+  ('luckybrand', 'Men', 'Tops & outerwear (alpha, body inches)', 'alpha', 'standard'),
+  ('stssy', 'Unisex', 'Outerwear (alpha, body inches, with the brand''s own conversions)', 'alpha', 'standard')
     ) AS v(brand_key, department, garment, size_system, size_class)
    where t.brand_key  = v.brand_key
      and t.department = v.department

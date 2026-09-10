@@ -2018,20 +2018,32 @@ export const SIZING_CHARTS: SizingChart[] = [
     department: "Men",
     garment: "Tops (tees & fleece, US alpha)",
     categoryMatch: ["tee", "t-shirt", "shirt", "top", "hoodie", "sweatshirt", "crewneck", "fleece", "hooded"],
+    sourceUrl: "https://www.stussy.com/pages/size-guide",
     note:
-      "Stüssy is US alpha sizing — no national cross-map applies, unlike BAPE in " +
-      "this same group. Cut relaxed/boxy by design, which is the intended " +
-      "silhouette and not a mislabel. These are body-equivalent figures for the " +
-      "nominal streetwear grade, not Stüssy-published specs. Measure the garment " +
-      "flat (chest across the underarm seam, doubled). NOTE vintage pieces were " +
-      "graded differently from current production, so on this brand especially the " +
-      "tag is a claim to check against the actual measurement.",
+      "⚠ REPLACED WITH STÜSSY'S OWN PUBLISHED NUMBERS (US-3290), and the old " +
+      "estimate was off by nearly a full size. It read S 36-38 / M 38-40 / " +
+      "L 42-44; Stüssy publishes S 42-44 / M 44-46 / L 46-48 — its published S " +
+      "is the same chest the old chart called an L. Anything graded against the " +
+      "old rows was being told a correctly tagged Stüssy tee measured a size " +
+      "large. " +
+      "Two other claims in the old note were also wrong. It said 'no national " +
+      "cross-map applies': Stüssy publishes UK, IT/FR/EU, KR and JP conversions, " +
+      "and they are carried on the outerwear chart below. And the numbers are " +
+      "BODY measurements, not the body-equivalent estimate the old note " +
+      "described — Stüssy cuts loose, so the garment measured flat and doubled " +
+      "reads above these. " +
+      "What survives from the old note, because it is still true and still the " +
+      "thing to watch: vintage pieces were graded differently from current " +
+      "production, so on this brand the tag is a claim to check against the " +
+      "actual measurement. Length is no longer listed — Stüssy publishes none, " +
+      "and the old figures for it were part of the same estimate.",
     rows: [
-      { size: "S", measurements: { chest: "36-38", length: "27-28" } },
-      { size: "M", measurements: { chest: "38-40", length: "28-29" } },
-      { size: "L", measurements: { chest: "42-44", length: "29-30" } },
-      { size: "XL", measurements: { chest: "46-48", length: "30-31" } },
-      { size: "XXL", measurements: { chest: "50-52", length: "31-32" } },
+      { size: "XS", measurements: { chest: "38-40", waist: "26-27" } },
+      { size: "S", measurements: { chest: "42-44", waist: "28-29" } },
+      { size: "M", measurements: { chest: "44-46", waist: "30-31" } },
+      { size: "L", measurements: { chest: "46-48", waist: "32-34" } },
+      { size: "XL", measurements: { chest: "48-50", waist: "35-36" } },
+      { size: "XXL", measurements: { chest: "52-54", waist: "37" } },
     ],
   },
   {
@@ -10001,6 +10013,80 @@ export const SIZING_CHARTS: SizingChart[] = [
       { size: "L", measurements: { chest: "42-44", waist: "36-38" } },
       { size: "XL", measurements: { chest: "46-48", waist: "40-42" } },
       { size: "XXL", measurements: { chest: "50", waist: "44" } },
+    ],
+  },
+
+  // ── US-3290: size-chart backfill, batch 7 ──────────────────────────────────
+  //
+  // Stüssy, and it is the first brand in the loop that publishes BOTH halves a
+  // seller needs on one page: a body-measurement table and an international
+  // conversion. The conversion columns ride along in the outerwear chart rather
+  // than becoming a second chart, because two charts against one query is the
+  // thing US-1734 spent a story fixing — and the size-guide panel prints every
+  // column it is given, so a UK/EU/KR/JP row costs nothing and answers the
+  // question a seller holding a Japanese-market Stüssy tee actually has.
+  //
+  // THESE TWO ARE Unisex WHILE STÜSSY'S TOPS CHART ABOVE STAYS Men, and the
+  // split is deliberate rather than sloppy. Stüssy's published table is not
+  // gendered at all, so Unisex is the accurate answer — but the tops chart is
+  // already in an APPLIED migration under (stssy, Men, ...), and changing its
+  // department changes its key, which would leave the old row live in the DB
+  // with the resolver reading DB-first. Same reasoning as the TNF/Patagonia
+  // decision in US-3288. The practical effect is in the right direction: a
+  // Women's-tagged Stüssy bottom or jacket now resolves, where before nothing did.
+  //
+  // ⚠ THE NUMERIC COLUMN IS A WAIST TAG, NOT A SECOND ALPHA. Stüssy prints
+  // "S = 29-30" and that 29-30 is inches on the waistband of its bottoms. Read
+  // as a US dress size it would be nonsense, which is why the bottoms chart
+  // below carries it in the size label where a seller will recognise it.
+
+  // Stüssy — https://www.stussy.com/pages/size-guide
+  {
+    brand: "Stüssy",
+    brandMatch: ["stussy", "stüssy"],
+    department: "Unisex",
+    garment: "Bottoms (alpha + WAIST TAG, body inches)",
+    categoryMatch: [
+      "bottom", "pant", "trouser", "short", "jean", "denim", "chino", "jogger",
+      "sweatpant", "work pant",
+    ],
+    sourceUrl: "https://www.stussy.com/pages/size-guide",
+    note:
+      "Stüssy's published body-measurement table. The number beside each letter " +
+      "is the WAIST TAG in inches, not a US dress size. Body measurements, not " +
+      "flat — Stüssy cuts loose, so the flat waistband doubled will read above " +
+      "these numbers on most of the range.",
+    rows: [
+      { size: "XS / 28", measurements: { waist: "26-27" } },
+      { size: "S / 29-30", measurements: { waist: "28-29" } },
+      { size: "M / 31-32", measurements: { waist: "30-31" } },
+      { size: "L / 33-34", measurements: { waist: "32-34" } },
+      { size: "XL / 36", measurements: { waist: "35-36" } },
+      { size: "XXL / 38", measurements: { waist: "37" } },
+    ],
+  },
+  {
+    brand: "Stüssy",
+    brandMatch: ["stussy", "stüssy"],
+    department: "Unisex",
+    garment: "Outerwear (alpha, body inches, with the brand's own conversions)",
+    categoryMatch: [
+      "jacket", "coat", "outerwear", "vest", "parka", "anorak", "windbreaker",
+      "bomber", "work jacket",
+    ],
+    sourceUrl: "https://www.stussy.com/pages/size-guide",
+    note:
+      "Stüssy's published body-measurement table, with its own international " +
+      "conversions carried alongside so a foreign-market tag can be read off " +
+      "the same row. Body measurements, not flat. Stüssy's cut is loose and its " +
+      "own chest jumps 2in between XS and S, so the run is not evenly graded.",
+    rows: [
+      { size: "XS", measurements: { chest: "38-40", waist: "26-27", numeric: "28", uk: "36", eu: "44", kr: "90", jp: "2" } },
+      { size: "S", measurements: { chest: "42-44", waist: "28-29", numeric: "29-30", uk: "38", eu: "46", kr: "95", jp: "3" } },
+      { size: "M", measurements: { chest: "44-46", waist: "30-31", numeric: "31-32", uk: "40", eu: "48", kr: "100", jp: "4" } },
+      { size: "L", measurements: { chest: "46-48", waist: "32-34", numeric: "33-34", uk: "42", eu: "50", kr: "105", jp: "5" } },
+      { size: "XL", measurements: { chest: "48-50", waist: "35-36", numeric: "36", uk: "44", eu: "52", kr: "110", jp: "6" } },
+      { size: "XXL", measurements: { chest: "52-54", waist: "37", numeric: "38", uk: "46", eu: "54", kr: "115", jp: "7" } },
     ],
   },
 ];

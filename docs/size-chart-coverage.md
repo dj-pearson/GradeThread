@@ -6,9 +6,9 @@ Coverage is measured the way the size-guide panel resolves a chart: a real brand
 
 ## Where it stands
 
-- 168 brands, 322 brand-specific charts.
-- 38 charts link the brand's own guide; 0 have been checked against it by a human.
-- 73 brands are missing at least one group they should cover.
+- 168 brands, 324 brand-specific charts.
+- 41 charts link the brand's own guide; 0 have been checked against it by a human.
+- 72 brands are missing at least one group they should cover.
 
 Worked dead ends, skipped by `--gaps` and still listed below:
 
@@ -26,9 +26,9 @@ Worked dead ends, skipped by `--gaps` and still listed below:
 | Group | Brands covered |
 |---|---:|
 | top | 113 |
-| bottom | 95 |
+| bottom | 96 |
 | dress | 52 |
-| outerwear | 100 |
+| outerwear | 101 |
 | suit | 33 |
 | shoes | 27 |
 | bag | 10 |
@@ -179,7 +179,7 @@ Worked dead ends, skipped by `--gaps` and still listed below:
 | Sp5der | 1 | Unisex |  |  | Unisex |  |  |  |  |  |  | bottom |
 | Spanx | 1 |  | Women |  |  |  |  |  |  |  |  | top, outerwear |
 | Steve Madden | 1 |  |  |  |  |  | Women |  |  |  |  |  |
-| Stüssy | 1 | Men |  |  |  |  |  |  |  |  |  | bottom, outerwear |
+| Stüssy | 3 | Men | Unisex |  | Unisex |  |  |  |  |  |  |  |
 | Supreme | 2 | Men | Men |  |  |  |  |  |  |  |  | outerwear |
 | Sweaty Betty | 2 | Women | Women |  | Women |  |  |  |  |  |  |  |
 | Talbots | 1 | Women | Women | Women | Women | Women |  |  |  |  |  |  |

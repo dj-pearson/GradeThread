@@ -46224,6 +46224,25 @@
         "US-3283"
       ],
       "notes": "Batch 6 done 2026-09-09. Lucky Brand closed both gaps with two sourced charts. The useful thing about this one: Lucky's own tables are HEADED with their scope — 'Women's Tops, Outerwear, Dresses & Jumpsuits' and 'Men's Tops & Outerwear' — so no inference was needed about what each chart covers, which is the opposite of the Hudson and rag & bone cases where the scope had to be guessed and the charts were therefore left out. Each alpha spans two numeric sizes on both tables and the rows span both. Lucky's 1X-3X PLUS run is a separate published table and is left out so the standard run stays countable. MOTHER was worked and does not close: motherdenim.com publishes ONLY a denim-size conversion (MOTHER 23-34 to US/UK/AU/FR/IT/DE/JP) with no body measurements anywhere, and /pages/size-guide renders no table. A denim conversion cannot answer a tops query, and MOTHER already has a jeans chart, so adding it would put a second chart against the same bottoms query for no gain. MOTHER and Spanx joined WORKED_DEAD_ENDS, which is now at ten."
+    },
+    {
+      "id": "US-3290",
+      "passes": true,
+      "title": "Size charts, batch 7 of 11: UNTUCKit to Chanel",
+      "description": "Ten brands whose size-guide panel shows a gap for a garment group they sell. Follow vault/20-domain/brands/size-chart-coverage-backfill.md. Batch: UNTUCKit (bottom, outerwear); Woolrich (bottom, dress); Wrangler (top, dress); Alo Yoga (dress); Athleta (dress); BAPE (bottom); Beyond Yoga (outerwear); Brandy Melville (outerwear); Buck Mason (outerwear); Chanel (bottom).",
+      "acceptanceCriteria": [
+        "Each brand in the batch has a SizingChart for every group the coverage report lists as missing, with categoryMatch words a seller would actually type",
+        "Every new chart sets sourceUrl to the brand's OWN published guide, never a reseller blog or a marketplace table",
+        "measurementBasis is set to flat only where the brand publishes garment specs; body charts leave it absent",
+        "verified stays absent unless a human compared the rows against sourceUrl, so the panel's tier badge cannot overstate an estimate",
+        "scripts/gen-sizing-chart-seed.mjs is re-run and the regenerated migration lands in the same commit; sizing-chart-parity_test.ts passes",
+        "docs/size-chart-coverage.md is regenerated and shows no remaining gap for these ten brands, or the story note names each exception and why"
+      ],
+      "priority": 4,
+      "dependsOn": [
+        "US-3283"
+      ],
+      "notes": "Batch 7 done 2026-09-10. Stüssy closed both gaps AND the loop found a real defect in an existing chart. THE DEFECT: the Stüssy tops chart in the original seed was an unsourced estimate reading S 36-38 / M 38-40 / L 42-44. Stüssy's own published table is S 42-44 / M 44-46 / L 46-48 — its published S is the same chest the old chart called an L, so every correctly tagged Stüssy tee was being graded as a size large. Replaced in place: same (brand_key, department, garment) key so 00776's upsert updates the DB row rather than orphaning it, rows swapped for the published ones, sourceUrl set. Verified against the local DB: the stssy tops row now reads XS 38-40 with a source_url. Two other claims in that chart's note were also false and are corrected in it — it said 'no national cross-map applies' when Stüssy publishes UK/IT-FR-EU/KR/JP conversions (now carried as columns on the new outerwear chart, since the guide panel prints every column and two separate charts would compete), and it described body-EQUIVALENT estimates when the published numbers are body measurements. The vintage-grading warning survives because it is still true. New charts: bottoms (alpha + waist tag) and outerwear (alpha + chest + the conversions), both Unisex while the tops chart stays Men — deliberate, because changing the tops chart's department changes its key and 00498 is already applied, the same reasoning as the TNF/Patagonia call in US-3288. NOT worked properly this iteration and NOT added to the dead-end list: Palace (the extension has no JavaScript permission for palaceskateboards.com, which is our limitation and not the brand's), PacSun (two more URL guesses 404'd; a product-page modal is untried) and Joe's Jeans (/pages/size-guide redirects to the homepage)."
     }
   ]
 }
