@@ -1609,16 +1609,30 @@ export const SIZING_CHARTS: SizingChart[] = [
     brandMatch: ["rei co-op", "rei coop", "reicoop", "rei"],
     department: "Men",
     garment: "Tops",
-    categoryMatch: ["top", "jacket", "coat", "shell", "hoodie", "fleece", "vest", "rain jacket", "shirt", "long sleeve"],
+    categoryMatch: [
+      "top", "jacket", "coat", "shell", "hoodie", "fleece", "vest",
+      "rain jacket", "shirt", "long sleeve", "tee", "sweater", "knit",
+    ],
+    sourceUrl: "https://www.rei.com/product/236137/rei-co-op-trailmade-pants-mens",
     note:
-      "BODY measurements — NOT flat-garment; house-label shells carry layering " +
-      "room. Standard outdoor-alpha approximation, not REI-fetched figures.",
+      "US-3293 REPLACED the approximation that stood here with REI Co-op's " +
+      "OWN chart, which runs XS-XXXL and adds sleeve length. ⚠ THE OLD " +
+      "ROWS WERE WRONG IN THE MIDDLE: they read L 42-45 correctly but S 35-38 " +
+      "and M 38-41 against a published 36-38 and 39-41, so both overlapped " +
+      "their neighbour by an inch. BODY inches — house-label shells carry " +
+      "layering room over this, so the chart does NOT predict the flat " +
+      "measurement. XS is a single 35in chest, not a range. The guide is a " +
+      "product-page modal (its /help/size-charts and /product-size-charts " +
+      "paths refuse a plain fetch entirely), which is why the source URL " +
+      "points at a trouser.",
     rows: [
-      { size: "S", measurements: { chest: "35-38" } },
-      { size: "M", measurements: { chest: "38-41" } },
-      { size: "L", measurements: { chest: "42-45" } },
-      { size: "XL", measurements: { chest: "46-49" } },
-      { size: "XXL", measurements: { chest: "50-53" } },
+      { size: "XS", measurements: { chest: "35", sleeve: "32" } },
+      { size: "S", measurements: { chest: "36-38", sleeve: "32.5" } },
+      { size: "M", measurements: { chest: "39-41", sleeve: "33" } },
+      { size: "L", measurements: { chest: "42-45", sleeve: "33.5" } },
+      { size: "XL", measurements: { chest: "46-49", sleeve: "34" } },
+      { size: "XXL", measurements: { chest: "50-53", sleeve: "34.75" } },
+      { size: "XXXL", measurements: { chest: "54-57", sleeve: "35.5" } },
     ],
   },
   {
@@ -1789,7 +1803,10 @@ export const SIZING_CHARTS: SizingChart[] = [
     brandMatch: ["prada"],
     department: "Women",
     garment: "Ready-to-wear (IT sizing)",
-    categoryMatch: ["dress", "top", "blouse", "skirt", "jacket", "coat", "knit", "shirt", "sweater"],
+    categoryMatch: [
+      "dress", "top", "blouse", "skirt", "jacket", "coat", "knit", "shirt",
+      "sweater", "bottom", "pant", "trouser", "short", "jean", "denim",
+    ],
     note:
       "Prada is ITALIAN sizing: IT = US + 36 on womenswear (IT 42 = US 6). DO NOT " +
       "read it as French — a 42 on a CHANEL tag is FR 42 = US 10, two sizes " +
@@ -1933,8 +1950,17 @@ export const SIZING_CHARTS: SizingChart[] = [
     brandMatch: ["supreme"],
     department: "Men",
     garment: "Tops (tees & hoodies, US alpha)",
-    categoryMatch: ["tee", "t-shirt", "shirt", "top", "hoodie", "sweatshirt", "crewneck", "hooded"],
+    categoryMatch: [
+      "tee", "t-shirt", "shirt", "top", "hoodie", "sweatshirt", "crewneck",
+      "hooded", "jacket", "coat", "outerwear", "vest", "puffer", "anorak",
+      "work jacket",
+    ],
     note:
+      "US-3293 widened this to OUTERWEAR and changed nothing else. The rows " +
+      "are the same approximation and still carry NO source: Supreme publishes " +
+      "no size chart of any kind. ⚠ ITS OUTERWEAR IS CUT BOXIER THAN ITS " +
+      "TEES and much of it is a drop-shoulder work-jacket silhouette, so the " +
+      "chest here is a floor rather than a fit. Measure the garment. " +
       "Supreme is US alpha sizing — no national cross-map applies, unlike BAPE in " +
       "this same group, whose L is roughly a US M. The cut is BOXY BY DESIGN: a " +
       "Supreme tee is meant to be short and wide, so a wide flat measurement is the " +
@@ -2212,8 +2238,16 @@ export const SIZING_CHARTS: SizingChart[] = [
     categoryMatch: [
       "top", "tee", "shirt", "blouse", "dress", "knit", "sweater", "cardigan",
       "jacket", "long sleeve",
+      "bottom", "pant", "trouser", "short", "skirt", "jean", "denim",
     ],
     note:
+      "US-3293 widened this to BOTTOMS and changed nothing else. ⚠ SEZANE " +
+      "COULD NOT BE SOURCED and this is still an approximation. Its " +
+      "/us/size-guide, /us/page/size-guide and /us/help/size-guide all return " +
+      "403 to a plain fetch, the browser follows every one of them to the " +
+      "/us-en homepage, and no size link appears anywhere in its footer. The " +
+      "waist column below is what makes the widening defensible; there is no " +
+      "hip column, so a bottoms match here answers on waist alone. " +
       "Sézane is a Paris brand on FRENCH national sizing and it runs SMALL against " +
       "a US body: FR 38 is a US 6 — the tag carries a BARE NUMBER that is not a US " +
       "size and not an alpha, and nothing on it says \"FR\". This is the same " +
@@ -2297,24 +2331,37 @@ export const SIZING_CHARTS: SizingChart[] = [
       "dress", "top", "tee", "shirt", "blouse", "knit", "sweater", "cardigan",
       "jacket", "long sleeve",
     ],
+    sourceUrl: "https://www.thereformation.com/fitting-and-sizes.html",
     note:
-      "Reformation is US women's NUMERIC sizing (0-12) on a fitted, dress-led cut — " +
+      "Reformation is US women's NUMERIC sizing (0-24) on a fitted, dress-led cut — " +
       "no national cross-map applies (contrast Sézane in this same group, whose bare " +
       "\"38\" is a US 6, not a US 38: the two look alike on a tag and are not). The " +
       "house cut is close-fitting rather than relaxed, so a snug flat measurement is " +
       "the intended silhouette and NOT a mislabel. These are body-equivalent figures " +
-      "for the nominal grade, not Reformation-published specs. Measure the garment " +
-      "flat (bust across the underarm seam, doubled). The STYLE NAME changes the " +
+      "US-3293 REPLACED the approximation with Reformation's OWN numeric " +
+      "grade, which runs 0-24 rather than stopping at 12 and publishes a HIP " +
+      "column this chart did not have at all. Every value is a single number, " +
+      "not a range: the brand grades to a point. ⚠ THE RUN JUMPS AT 14 — " +
+      "bust goes 41.5 to 45 and waist 33.5 to 37.5, where every step below is " +
+      "two inches or less. That is the brand's own extended-size break, not a " +
+      "transcription slip. Measure the garment flat (bust across the underarm " +
+      "seam, doubled). The STYLE NAME changes the " +
       "price, not the fit — a Juliette and any other named dress in the same size " +
       "are the same grade.",
     rows: [
-      { size: "US 0", measurements: { bust: "32-33", waist: "25-26" } },
-      { size: "US 2", measurements: { bust: "33.5-34.5", waist: "26.5-27.5" } },
-      { size: "US 4", measurements: { bust: "35-36", waist: "28-29" } },
-      { size: "US 6", measurements: { bust: "36.5-37.5", waist: "29.5-30.5" } },
-      { size: "US 8", measurements: { bust: "38-39.5", waist: "31-32.5" } },
-      { size: "US 10", measurements: { bust: "40-41.5", waist: "33-34.5" } },
-      { size: "US 12", measurements: { bust: "42-43.5", waist: "35-36.5" } },
+      { size: "US 0", measurements: { bust: "33", waist: "25", hip: "36" } },
+      { size: "US 2", measurements: { bust: "34", waist: "26", hip: "37" } },
+      { size: "US 4", measurements: { bust: "35", waist: "27", hip: "38" } },
+      { size: "US 6", measurements: { bust: "36", waist: "28", hip: "39" } },
+      { size: "US 8", measurements: { bust: "37.5", waist: "29.5", hip: "40.5" } },
+      { size: "US 10", measurements: { bust: "39.5", waist: "31.5", hip: "42.5" } },
+      { size: "US 12", measurements: { bust: "41.5", waist: "33.5", hip: "44.5" } },
+      { size: "US 14", measurements: { bust: "45", waist: "37.5", hip: "47.5" } },
+      { size: "US 16", measurements: { bust: "47", waist: "39.5", hip: "49.5" } },
+      { size: "US 18", measurements: { bust: "49", waist: "41.5", hip: "51.5" } },
+      { size: "US 20", measurements: { bust: "51", waist: "43.5", hip: "53.5" } },
+      { size: "US 22", measurements: { bust: "53", waist: "45.5", hip: "55.5" } },
+      { size: "US 24", measurements: { bust: "55", waist: "47.5", hip: "57.5" } },
     ],
   },
   {
@@ -5278,8 +5325,17 @@ export const SIZING_CHARTS: SizingChart[] = [
       "bra",
       "exercise dress",
       "long sleeve",
+      "jacket",
+      "coat",
+      "outerwear",
+      "vest",
+      "windbreaker",
+      "anorak",
     ],
     note:
+      "US-3293 widened this to OUTERWEAR and changed nothing else. The rows " +
+      "are the same approximation and still carry NO source; a body chart that " +
+      "describes a brand's tops describes its jackets too. " +
       "BODY measurement — an ESTIMATOR: measure the flat garment and DOUBLE IT. " +
       "The US numeric cross-map is written INSIDE the size label, where the " +
       "model actually reads it. OUTDOOR VOICES IS APPAREL ONLY — it makes no " +
@@ -7147,8 +7203,21 @@ export const SIZING_CHARTS: SizingChart[] = [
       "apparel",
       "denim",
       "blouse",
+      "tee",
+      "shirt",
+      "sweater",
+      "knit",
+      "hoodie",
+      "cardigan",
+      "coat",
+      "outerwear",
     ],
     note:
+      "US-3293 added the words a seller actually types — tee, shirt, sweater, " +
+      "knit, hoodie, cardigan, coat — and changed nothing else. The chart " +
+      "already said top and blouse, which is why the coverage report still " +
+      "called this a gap: the resolver asks with the seller's word, not the " +
+      "merchandiser's. " +
       "THE ONLY BODY-MEASUREMENT CHART IN THIS PACK, and it exists because Rebecca " +
       "Minkoff is the one brand here that sells real RTW (added 2009). " +
       "Brand-published, verbatim from its own size guide. ⚠ PRESERVED AS-PUBLISHED " +
@@ -7864,19 +7933,36 @@ export const SIZING_CHARTS: SizingChart[] = [
     brandMatch: ["pendleton"],
     department: "Men",
     garment: "Wool shirts & tops (alpha, CHEST inches)",
-    categoryMatch: ["shirt", "top", "board shirt", "wool shirt", "overshirt", "jacket"],
+    categoryMatch: [
+      "shirt", "top", "board shirt", "wool shirt", "overshirt", "jacket",
+      "tee", "sweater", "knit", "coat", "outerwear", "vest", "flannel",
+    ],
+    sourceUrl: "https://www.pendleton-usa.com/product/mens-astoria-stretch-chinos/54360Z.html",
     note:
+      "US-3293 REPLACED the approximation that stood here with Pendleton's " +
+      "OWN chart, which runs XS-5X rather than S-XXL and adds hip and sleeve. " +
+      "⚠ PENDLETON PUBLISHES A WAIST COLUMN IDENTICAL TO ITS CHEST COLUMN " +
+      "at every single size, which is not a body and is almost certainly a " +
+      "copy error on the brand's table. The waist is therefore LEFT OUT " +
+      "rather than repeated as if it meant something; chest, neck, hip and " +
+      "sleeve are the columns to trust. ⚠ HIP IS BLANK at XS and at 3X-5X " +
+      "on the brand's own table. The guide is a product-page modal, which is " +
+      "why the source URL points at a chino. " +
       "⚠ VINTAGE PENDLETON WOOL SHIRTS OFTEN RUN SMALLER / BOXIER than the modern " +
       "alpha grid above (mid-century sizing + wool shrinkage) — measure the chest " +
       "flat rather than trusting the tag's alpha letter. ⚠ BLANKETS ARE NOT SIZED " +
       "BY THIS CHART (fixed bed dimensions). Remember the tag ERA, not the size, " +
       "drives vintage value.",
     rows: [
-      { size: "S", measurements: { chest: "35-37", neck: "14.5-15" } },
-      { size: "M", measurements: { chest: "38-40", neck: "15.5-16" } },
-      { size: "L", measurements: { chest: "41-43", neck: "16.5-17" } },
-      { size: "XL", measurements: { chest: "44-46", neck: "17.5-18" } },
-      { size: "XXL", measurements: { chest: "47-50", neck: "18.5-19" } },
+      { size: "XS", measurements: { chest: "33-35", neck: "14", sleeve: "32-32.5" } },
+      { size: "S", measurements: { chest: "36-38", neck: "15", hip: "34-36", sleeve: "33-33.5" } },
+      { size: "M", measurements: { chest: "39-41", neck: "16", hip: "38-40", sleeve: "34-34.5" } },
+      { size: "L", measurements: { chest: "42-45", neck: "17", hip: "42-44", sleeve: "35-35.5" } },
+      { size: "XL", measurements: { chest: "46-49", neck: "18", hip: "46-48", sleeve: "36-36.5" } },
+      { size: "XXL", measurements: { chest: "50-53", neck: "19", hip: "50-52", sleeve: "37-37.5" } },
+      { size: "3X", measurements: { chest: "54-57", neck: "20", sleeve: "38-38.5" } },
+      { size: "4X", measurements: { chest: "58-61", neck: "21", sleeve: "39-39.5" } },
+      { size: "5X", measurements: { chest: "62-65", neck: "22", sleeve: "40-40.5" } },
     ],
   },
   {
@@ -7904,18 +7990,26 @@ export const SIZING_CHARTS: SizingChart[] = [
     brandMatch: ["orvis"],
     department: "Men",
     garment: "Tops & outerwear (alpha, CHEST inches)",
-    categoryMatch: ["top", "shirt", "jacket", "coat", "vest", "barn coat", "field coat"],
+    categoryMatch: [
+      "top", "shirt", "jacket", "coat", "vest", "barn coat", "field coat",
+      "tee", "polo", "sweater", "knit", "outerwear", "flannel",
+    ],
+    sourceUrl: "https://www.orvis.com/mens-clothing-size-information.html",
     note:
-      "Orvis men's tops/outerwear run alpha S-XXL against a chest grid " +
-      "(approximate — verify against the garment). Field/barn coats are cut for " +
-      "layering and measure generously; measure the chest flat. Orvis publishes " +
-      "garment-specific charts per item.",
+      "US-3293 REPLACED the approximation that stood here with Orvis's OWN " +
+      "published grid, and added neck and arm length, which Orvis charts and " +
+      "this corpus did not carry. ⚠ THE OLD ROWS WERE WRONG FROM L UP: " +
+      "they read L 41-43 and XXL 47-49 where Orvis publishes 42-44 and 50-52, " +
+      "a full three inches out at the top of the run. ⚠ SMALL IS A SINGLE " +
+      "36in CHEST, not a range. BODY inches. Field and barn coats are cut for " +
+      "layering and measure generously over this; measure the chest flat. Orvis " +
+      "also publishes garment-specific charts on individual product pages.",
     rows: [
-      { size: "S", measurements: { chest: "35-37" } },
-      { size: "M", measurements: { chest: "38-40" } },
-      { size: "L", measurements: { chest: "41-43" } },
-      { size: "XL", measurements: { chest: "44-46" } },
-      { size: "XXL", measurements: { chest: "47-49" } },
+      { size: "S", measurements: { chest: "36", neck: "14.5", sleeve: "33" } },
+      { size: "M", measurements: { chest: "38-40", neck: "15-15.5", sleeve: "33.5-34" } },
+      { size: "L", measurements: { chest: "42-44", neck: "16-16.5", sleeve: "34.5-35" } },
+      { size: "XL", measurements: { chest: "46-48", neck: "17-17.5", sleeve: "35.5-36" } },
+      { size: "XXL", measurements: { chest: "50-52", neck: "18-18.5", sleeve: "36.5-37" } },
     ],
   },
 
@@ -12003,6 +12097,274 @@ export const SIZING_CHARTS: SizingChart[] = [
       { size: "US 16 (XL, denim 33)", measurements: { bust: "42.75", waist: "35.25", hip: "45.5" } },
       { size: "US 18 (XL)", measurements: { bust: "44.75", waist: "37.25", hip: "47.5" } },
       { size: "US 20/22 (XXL)", measurements: { bust: "46.75", waist: "39.25", hip: "49.5" } },
+    ],
+  },
+
+  // ── US-3293: size-chart backfill, batch 10 of 11 ───────────────────────────
+  //
+  // NINE brands, not ten: Outdoor Research already showed no gap. Five needed a
+  // chart (Orvis, Pendleton, REI Co-op, Reformation, and Sézane, which could
+  // not be sourced); four needed only wider keywords (Outdoor Voices, Prada,
+  // Rebecca Minkoff, Supreme) and are widened in place above.
+  //
+  // ⚠ EVERY REPLACEMENT IN THIS BATCH KEEPS ITS `garment` STRING UNCHANGED, and
+  // that is now the rule rather than a coincidence. The sourced-chart migration
+  // upserts on (brand_key, department, garment), so renaming a scope INSERTS a
+  // second row and strands the old one in `brand_size_charts` with its old
+  // keywords — the defect 00782 exists to clean up. Batches 2 through 8 renamed
+  // freely and left fourteen orphans behind. Keep the string; widen
+  // `categoryMatch` instead, which is not part of the key.
+  //
+  // ⚠ THREE OF THE FOUR APPROXIMATIONS REPLACED HERE WERE WRONG IN THE SAME
+  // PLACE: Orvis, Pendleton and REI Co-op all had L at chest 41-43 where the
+  // brand publishes 42-44 or 42-45, and Orvis's XXL read 47-49 against a
+  // published 50-52. The invented alpha grid this corpus used for outdoor
+  // brands is too narrow at the top of the run, and it is worth assuming that
+  // about any remaining chart whose note says "standard outdoor-alpha
+  // approximation".
+
+  // Orvis — https://www.orvis.com/mens-clothing-size-information.html
+  // ⚠ /size-charts.html and /customer-service/size-charts BOTH 404. The working
+  // pages are linked off any category page and answer a plain curl.
+  {
+    brand: "Orvis",
+    brandMatch: ["orvis"],
+    department: "Men",
+    garment: "Bottoms (alpha ↔ pant waist)",
+    categoryMatch: ["bottom", "pant", "trouser", "short", "chino", "jean", "fishing pant"],
+    sourceUrl: "https://www.orvis.com/mens-clothing-size-information.html",
+    note:
+      "Orvis publishes its men's pant waist as its own small table, separate " +
+      "from the chest grid: the alpha letter maps to a waist inch and nothing " +
+      "else. ⚠ SMALL IS A SINGLE NUMBER (30in), not a range, where every size " +
+      "above it spans two inches. Orvis also sells trousers tagged by waist " +
+      "inch directly, and there the tag IS the measurement.",
+    rows: [
+      { size: "S", measurements: { waist: "30" } },
+      { size: "M", measurements: { waist: "32-34" } },
+      { size: "L", measurements: { waist: "36-38" } },
+      { size: "XL", measurements: { waist: "40-42" } },
+      { size: "XXL", measurements: { waist: "44-46" } },
+    ],
+  },
+  {
+    brand: "Orvis",
+    brandMatch: ["orvis"],
+    department: "Women",
+    garment: "Tops (alpha ↔ US numeric)",
+    categoryMatch: [
+      "top", "tee", "shirt", "blouse", "knit", "sweater", "cardigan", "dress",
+      "jacket", "coat", "outerwear", "vest", "long sleeve",
+    ],
+    sourceUrl: "https://www.orvis.com/womens-clothing-size-information.html",
+    note:
+      "Orvis's own women's tops chart, BODY inches, with the US numeric run " +
+      "written into each label because Orvis publishes both against one grade. " +
+      "⚠ ITS X-SMALL IS A SINGLE US 4 — the run starts at 4, not 0 or 2, so a " +
+      "seller with a US 2 Orvis top is looking at a size Orvis does not chart.",
+    rows: [
+      { size: "XS (US 4)", measurements: { bust: "34.5", waist: "26.5" } },
+      { size: "S (US 6-8)", measurements: { bust: "35.5-36.5", waist: "27.5-28.5" } },
+      { size: "M (US 10-12)", measurements: { bust: "37.5-39", waist: "29.5-31" } },
+      { size: "L (US 14-16)", measurements: { bust: "40.5-42", waist: "32.5-34" } },
+      { size: "XL (US 18-20)", measurements: { bust: "44-46", waist: "36-38" } },
+    ],
+  },
+  {
+    brand: "Orvis",
+    brandMatch: ["orvis"],
+    department: "Women",
+    garment: "Bottoms & denim (alpha ↔ US numeric)",
+    categoryMatch: ["bottom", "pant", "trouser", "short", "skirt", "jean", "denim", "legging", "chino"],
+    sourceUrl: "https://www.orvis.com/womens-clothing-size-information.html",
+    note:
+      "Two Orvis tables in one chart, because both describe the same body and " +
+      "splitting them would make them compete: the alpha bottoms run (waist and " +
+      "hip against the US numeric band) and the separate DENIM run, which is " +
+      "graded every two sizes from 0 to 18. ⚠ THE TWO DISAGREE at the same " +
+      "nominal size — alpha S covers US 6-8 at a 27.5-28.5in waist while the " +
+      "denim table puts US 6 at 28in and US 8 at 29in. Denim is cut to its own " +
+      "grade; use the row that matches the tag in hand.",
+    rows: [
+      { size: "XS (US 4)", measurements: { waist: "26.5", hip: "36.5" } },
+      { size: "S (US 6-8)", measurements: { waist: "27.5-28.5", hip: "37.5-38.5" } },
+      { size: "M (US 10-12)", measurements: { waist: "29.5-31", hip: "39.5-41" } },
+      { size: "L (US 14-16)", measurements: { waist: "32.5-34", hip: "42.5-44" } },
+      { size: "XL (US 18-20)", measurements: { waist: "36-38", hip: "46-48" } },
+      { size: "US 0 (denim)", measurements: { waist: "25", hip: "35" } },
+      { size: "US 2 (denim)", measurements: { waist: "26", hip: "36" } },
+      { size: "US 4 (denim)", measurements: { waist: "27", hip: "37" } },
+      { size: "US 6 (denim)", measurements: { waist: "28", hip: "38" } },
+      { size: "US 8 (denim)", measurements: { waist: "29", hip: "39" } },
+      { size: "US 10 (denim)", measurements: { waist: "30", hip: "40" } },
+      { size: "US 12 (denim)", measurements: { waist: "31.5", hip: "41.5" } },
+      { size: "US 14 (denim)", measurements: { waist: "33", hip: "43" } },
+      { size: "US 16 (denim)", measurements: { waist: "34.5", hip: "44.5" } },
+      { size: "US 18 (denim)", measurements: { waist: "36", hip: "46" } },
+    ],
+  },
+
+  // Pendleton — its guide is a product-page modal (button.b-size_guide_link)
+  // whose two tables are already in the DOM. /size-chart.html and
+  // /pages/size-chart both 404.
+  {
+    brand: "Pendleton",
+    brandMatch: ["pendleton"],
+    department: "Men",
+    garment: "Bottoms (FLAT garment specs, chino)",
+    categoryMatch: ["bottom", "pant", "trouser", "short", "chino", "jean"],
+    sourceUrl: "https://www.pendleton-usa.com/product/mens-astoria-stretch-chinos/54360Z.html",
+    measurementBasis: "flat",
+    note:
+      "⚠ THIS IS A FLAT GARMENT CHART, NOT A BODY ONE, and it comes from ONE " +
+      "STYLE: Pendleton publishes hip, front rise and back rise per product " +
+      "rather than a brand-wide bottoms grid, and these are the Astoria stretch " +
+      "chino's. The WAIST is the tag, and the tag is the waist inch. The hip and " +
+      "rise figures will be close on Pendleton's other chinos and are NOT a " +
+      "promise about its jeans or its wool trousers — measure those. Inseam is " +
+      "32 at every waist in this style. Front rise runs 11 to 12 and back rise " +
+      "16 to 17.25 across the run.",
+    rows: [
+      { size: "30", measurements: { waist: "30", hip: "38.75", inseam: "32" } },
+      { size: "32", measurements: { waist: "32", hip: "40.75", inseam: "32" } },
+      { size: "34", measurements: { waist: "34", hip: "41.75", inseam: "32" } },
+      { size: "36", measurements: { waist: "36", hip: "44.75", inseam: "32" } },
+      { size: "38", measurements: { waist: "38", hip: "46.75", inseam: "32" } },
+      { size: "40", measurements: { waist: "40", hip: "48.75", inseam: "32" } },
+    ],
+  },
+
+  // REI Co-op — its /help/size-charts and /product-size-charts both refuse a
+  // plain curl (no response at all). The chart is a PDP modal.
+  {
+    brand: "REI Co-op",
+    brandMatch: ["rei co-op", "rei coop", "reicoop", "rei"],
+    department: "Men",
+    garment: "Bottoms (alpha + numeric waist tag)",
+    categoryMatch: ["bottom", "pant", "trouser", "short", "hiking pant", "convertible pant", "jean", "chino"],
+    sourceUrl: "https://www.rei.com/product/236137/rei-co-op-trailmade-pants-mens",
+    note:
+      "REI Co-op's own men's chart, BODY inches, carrying an alpha run and a " +
+      "waist-inch run in one table. The numeric run is written W24-W50 here so " +
+      "the two cannot be confused. ⚠ THE TWO RUNS DISAGREE BADLY: alpha M is a " +
+      "32-34in waist against a 37.5-39.5in hip, while the numeric 32 is a 32in " +
+      "waist against a 37.5in hip — the same waist, a hip an inch and a half " +
+      "narrower at the bottom of the band. Read the tag's own system. Inseam is " +
+      "32 at every size in both runs. XS is a single number on every column, " +
+      "not a range.",
+    rows: [
+      { size: "XS", measurements: { waist: "27.5", hip: "33.5", inseam: "32" } },
+      { size: "S", measurements: { waist: "28-30", hip: "34.5-36.5", inseam: "32" } },
+      { size: "M", measurements: { waist: "32-34", hip: "37.5-39.5", inseam: "32" } },
+      { size: "L", measurements: { waist: "36-38", hip: "41-43", inseam: "32" } },
+      { size: "XL", measurements: { waist: "40-42", hip: "44-46.5", inseam: "32" } },
+      { size: "XXL", measurements: { waist: "44-46", hip: "47.5-50.5", inseam: "32" } },
+      { size: "XXXL", measurements: { waist: "48-50", hip: "51.5-54.5", inseam: "32" } },
+      { size: "W24", measurements: { waist: "24", hip: "32", inseam: "32" } },
+      { size: "W26", measurements: { waist: "26", hip: "33.5", inseam: "32" } },
+      { size: "W28", measurements: { waist: "28", hip: "34.5", inseam: "32" } },
+      { size: "W30", measurements: { waist: "30", hip: "36.5", inseam: "32" } },
+      { size: "W31", measurements: { waist: "31", hip: "37", inseam: "32" } },
+      { size: "W32", measurements: { waist: "32", hip: "37.5", inseam: "32" } },
+      { size: "W33", measurements: { waist: "33", hip: "38.5", inseam: "32" } },
+      { size: "W34", measurements: { waist: "34", hip: "39.5", inseam: "32" } },
+      { size: "W35", measurements: { waist: "35", hip: "40.25", inseam: "32" } },
+      { size: "W36", measurements: { waist: "36", hip: "41", inseam: "32" } },
+      { size: "W38", measurements: { waist: "38", hip: "43", inseam: "32" } },
+      { size: "W40", measurements: { waist: "40", hip: "44", inseam: "32" } },
+      { size: "W42", measurements: { waist: "42", hip: "46.5", inseam: "32" } },
+      { size: "W44", measurements: { waist: "44", hip: "47.5", inseam: "32" } },
+      { size: "W46", measurements: { waist: "46", hip: "50.5", inseam: "32" } },
+      { size: "W48", measurements: { waist: "48", hip: "52.5", inseam: "32" } },
+      { size: "W50", measurements: { waist: "50", hip: "54.5", inseam: "32" } },
+    ],
+  },
+
+  // Reformation — https://www.thereformation.com/fitting-and-sizes.html
+  // Nineteen tables, every one published twice (inches, then centimetres).
+  {
+    brand: "Reformation",
+    brandMatch: ["reformation"],
+    department: "Women",
+    garment: "Bottoms & denim (US denim numbering)",
+    categoryMatch: ["bottom", "pant", "trouser", "short", "skirt", "jean", "denim", "legging"],
+    sourceUrl: "https://www.thereformation.com/fitting-and-sizes.html",
+    note:
+      "Reformation grades DENIM on its own axis — a waist number from 23 up, " +
+      "not the US 0-24 run its other clothing uses — and publishes waist " +
+      "against LOW HIP. ⚠ ITS TWO DENIM TABLES DO NOT JOIN UP: a 31 is a " +
+      "33.25in waist and a 32 is a 38.5in waist, a five-inch jump across one " +
+      "size, because the second table is a separate extended run rather than a " +
+      "continuation of the first. Transcribed as published; do not interpolate " +
+      "across the break.",
+    rows: [
+      { size: "23", measurements: { waist: "23.5", hip: "34" } },
+      { size: "24", measurements: { waist: "24.5", hip: "35" } },
+      { size: "25", measurements: { waist: "25.5", hip: "36" } },
+      { size: "26", measurements: { waist: "26.5", hip: "37" } },
+      { size: "27", measurements: { waist: "27.5", hip: "38" } },
+      { size: "28", measurements: { waist: "28.5", hip: "39" } },
+      { size: "29", measurements: { waist: "30", hip: "40.5" } },
+      { size: "30", measurements: { waist: "31.5", hip: "42" } },
+      { size: "31", measurements: { waist: "33.25", hip: "43.75" } },
+      { size: "32", measurements: { waist: "38.5", hip: "49" } },
+      { size: "33", measurements: { waist: "39", hip: "50" } },
+      { size: "34", measurements: { waist: "40", hip: "51" } },
+      { size: "35", measurements: { waist: "41", hip: "52" } },
+      { size: "36", measurements: { waist: "42", hip: "53" } },
+      { size: "38", measurements: { waist: "44", hip: "55" } },
+    ],
+  },
+  {
+    brand: "Reformation",
+    brandMatch: ["reformation"],
+    department: "Women",
+    garment: "Clothing (alpha XS-3X)",
+    categoryMatch: [
+      "top", "tee", "shirt", "blouse", "knit", "sweater", "cardigan", "dress",
+      "jacket", "coat", "outerwear", "blazer", "vest", "jumpsuit", "long sleeve",
+    ],
+    sourceUrl: "https://www.thereformation.com/fitting-and-sizes.html",
+    note:
+      "Reformation's own ALPHA grade, which is the one on its knits and its " +
+      "looser pieces where the numeric run is on its dresses. Every value is a " +
+      "single number, not a range — the brand grades to a point and expects the " +
+      "cut to do the rest. The run continues past XL into 1X-3X on the same " +
+      "table, so the extended sizes are not a separate class here.",
+    rows: [
+      { size: "XS", measurements: { bust: "32", waist: "25", hip: "36" } },
+      { size: "S", measurements: { bust: "34", waist: "27", hip: "38" } },
+      { size: "M", measurements: { bust: "36", waist: "29", hip: "40" } },
+      { size: "L", measurements: { bust: "38", waist: "31", hip: "42" } },
+      { size: "XL", measurements: { bust: "40.5", waist: "33.5", hip: "44.5" } },
+      { size: "1X", measurements: { bust: "44", waist: "37.5", hip: "47.5" } },
+      { size: "2X", measurements: { bust: "47", waist: "40.5", hip: "50.5" } },
+      { size: "3X", measurements: { bust: "50", waist: "43.5", hip: "53.5" } },
+    ],
+  },
+  {
+    brand: "Reformation",
+    brandMatch: ["reformation"],
+    department: "Women",
+    garment: "Clothing, petite (0P-12P)",
+    categoryMatch: [
+      "top", "tee", "shirt", "blouse", "knit", "sweater", "dress", "jacket",
+      "bottom", "pant", "trouser", "skirt", "jumpsuit",
+    ],
+    sourceUrl: "https://www.thereformation.com/fitting-and-sizes.html",
+    note:
+      "Reformation's petite grade, kept apart from the standard chart so the " +
+      "class is stated rather than folded in. The P sizes are NOT simply the " +
+      "regular sizes shortened: a 0P is a 32.5in bust against the regular 0's " +
+      "33in, so the whole grade is drawn in slightly as well as up.",
+    rows: [
+      { size: "0P", measurements: { bust: "32.5", waist: "24.5", hip: "35.5" } },
+      { size: "2P", measurements: { bust: "33.5", waist: "25.5", hip: "36.5" } },
+      { size: "4P", measurements: { bust: "34.5", waist: "26.5", hip: "37.5" } },
+      { size: "6P", measurements: { bust: "35.5", waist: "27.5", hip: "38.5" } },
+      { size: "8P", measurements: { bust: "37", waist: "29", hip: "40" } },
+      { size: "10P", measurements: { bust: "39", waist: "31", hip: "42" } },
+      { size: "12P", measurements: { bust: "41", waist: "33", hip: "44" } },
     ],
   },
 ];

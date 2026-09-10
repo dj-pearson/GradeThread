@@ -6,7 +6,7 @@
 -- WHY: the chart shape had department and a free-text garment scope and nowhere
 -- to record WHICH NATIONAL SYSTEM a size label is written in, so the corpus
 -- encoded it inside the label itself — "UK 10 (US 6)", "IT 48 (US 38)",
--- "FR 36 (US 4)", "JP L (=US M)". 115 of 395 charts do this. Every one of
+-- "FR 36 (US 4)", "JP L (=US M)". 115 of 403 charts do this. Every one of
 -- those parentheses is a workaround for a missing field.
 --
 -- The prose is KEPT. This migration adds the structured field beside it; it
@@ -19,7 +19,7 @@
 -- chart of bare numbers stays NULL because a bare "6" could be US or UK and
 -- nothing in the row says which. NULL means "not recorded", never "US".
 --
--- Derived here: 166 charts with a readable system, 8 non-standard size class,
+-- Derived here: 167 charts with a readable system, 9 non-standard size class,
 -- 1 with an ambiguous class (a scope naming several — the Talbots case, whose
 -- scope reads "Misses / Petite / Plus" and which is exactly the folding the
 -- size_class column exists to end).
@@ -166,7 +166,6 @@ begin
   ('filson', 'Men', 'Tops & outerwear (alpha, CHEST inches)', 'alpha', 'standard'),
   ('redwing', 'Men', 'Boots (US men''s shoe size)', 'US', 'standard'),
   ('timberland', 'Men', 'Boots (US men''s shoe size)', 'US', 'standard'),
-  ('pendleton', 'Men', 'Wool shirts & tops (alpha, CHEST inches)', 'alpha', 'standard'),
   ('barbour', 'Men', 'Waxed & quilted jackets (UK alpha / CHEST inches)', 'alpha', 'standard'),
   ('orvis', 'Men', 'Tops & outerwear (alpha, CHEST inches)', 'alpha', 'standard'),
   ('clarks', 'Unisex', 'Footwear (US/UK/EU + letter width fittings)', 'UK', 'standard'),
@@ -236,7 +235,10 @@ begin
   ('marmot', 'Women', 'Bottoms, plus (1X-3X)', NULL, 'plus'),
   ('johnnieo', 'Men', 'Bottoms, big & tall (42R-56R)', NULL, 'big_and_tall'),
   ('johnnieo', 'Women', 'Bottoms (alpha + US numeric)', 'US', 'standard'),
-  ('katespade', 'Women', 'Clothing (US numeric ↔ alpha ↔ denim waist)', 'US', 'standard')
+  ('katespade', 'Women', 'Clothing (US numeric ↔ alpha ↔ denim waist)', 'US', 'standard'),
+  ('orvis', 'Men', 'Bottoms (alpha ↔ pant waist)', 'alpha', 'standard'),
+  ('orvis', 'Women', 'Bottoms & denim (alpha ↔ US numeric)', 'US', 'standard'),
+  ('reformation', 'Women', 'Clothing, petite (0P-12P)', NULL, 'petite')
     ) AS v(brand_key, department, garment, size_system, size_class)
    where t.brand_key  = v.brand_key
      and t.department = v.department

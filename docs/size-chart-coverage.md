@@ -6,17 +6,17 @@ Coverage is measured the way the size-guide panel resolves a chart: a real brand
 
 ## Where it stands
 
-- 168 brands, 392 brand-specific charts.
-- 124 charts link the brand's own guide; 0 have been checked against it by a human.
-- 29 brands are missing at least one group they should cover.
+- 168 brands, 400 brand-specific charts.
+- 136 charts link the brand's own guide; 0 have been checked against it by a human.
+- 20 brands are missing at least one group they should cover.
 
 | Group | Brands covered |
 |---|---:|
-| top | 130 |
-| bottom | 114 |
-| dress | 56 |
-| outerwear | 122 |
-| suit | 45 |
+| top | 131 |
+| bottom | 120 |
+| dress | 57 |
+| outerwear | 124 |
+| suit | 46 |
 | shoes | 27 |
 | bag | 10 |
 | watch | 1 |
@@ -136,39 +136,39 @@ Coverage is measured the way the size-guide panel resolves a chart: a real brand
 | Off-White | 2 | Unisex | Men |  | Men, Unisex | Men |  |  |  |  |  |  |
 | Old Navy | 2 | Women | Women | Women | Women |  |  |  |  |  |  |  |
 | On Running | 2 |  |  |  |  |  | Men, Women |  |  |  |  |  |
-| Orvis | 1 | Men |  |  | Men |  |  |  |  |  |  | bottom |
+| Orvis | 4 | Men, Women | Men, Women | Women | Men, Women |  |  |  |  |  |  |  |
 | Outdoor Research | 2 | Men, Women | Men, Women |  | Men, Women |  |  |  |  |  |  |  |
-| Outdoor Voices | 1 | Women | Women | Women |  |  |  |  |  |  |  | outerwear |
+| Outdoor Voices | 1 | Women | Women | Women | Women |  |  |  |  |  |  |  |
 | PacSun | 2 | Women | Women |  | Women |  |  |  |  |  |  |  |
 | PAIGE | 4 | Men, Women | Men, Women |  | Men, Women | Men, Women |  |  |  |  |  |  |
 | Palace | 1 | Men |  |  |  |  |  |  |  |  |  | bottom, outerwear |
 | Patagonia | 3 | Men, Women | Men, Women | Women | Men, Women |  |  |  |  |  |  |  |
-| Pendleton | 1 | Men |  |  | Men |  |  |  |  |  |  | bottom |
+| Pendleton | 2 | Men | Men |  | Men |  |  |  |  |  |  |  |
 | Peter Millar | 3 | Men, Women | Men | Women | Men, Women | Men |  |  |  |  |  |  |
 | PINK | 1 | Women | Women |  |  |  |  |  |  |  |  | outerwear |
-| Prada | 2 | Men, Women |  | Women | Men, Women | Men |  |  |  |  |  | bottom |
+| Prada | 2 | Men, Women | Women | Women | Men, Women | Men |  |  |  |  |  |  |
 | PUMA | 4 | Unisex, Women | Unisex, Women |  | Unisex, Women |  | Men, Women |  |  |  |  |  |
 | Rab | 2 | Men, Women | Men, Women |  | Men, Women |  |  |  |  |  |  |  |
 | Rag & Bone | 2 |  | Men, Women |  |  |  |  |  |  |  |  | top, outerwear |
-| Rebecca Minkoff | 2 |  | Women | Women | Women |  |  | Women |  |  |  | top |
+| Rebecca Minkoff | 2 | Women | Women | Women | Women |  |  | Women |  |  |  |  |
 | Red Wing | 1 |  |  |  |  |  | Men |  |  |  |  |  |
 | Reebok | 4 | Unisex | Unisex |  | Unisex |  | Men, Women |  |  |  |  |  |
-| Reformation | 1 | Women |  | Women | Women |  |  |  |  |  |  | bottom |
-| REI Co-op | 1 | Men |  |  | Men |  |  |  |  |  |  | bottom |
+| Reformation | 4 | Women | Women | Women | Women | Women |  |  |  |  |  |  |
+| REI Co-op | 2 | Men | Men |  | Men |  |  |  |  |  |  |  |
 | Rhude | 1 | Unisex |  |  | Unisex |  |  |  |  |  |  | bottom |
 | Saint Laurent | 2 | Men, Women | Men, Women | Women | Men, Women | Men |  |  |  |  |  |  |
 | Salomon | 2 |  |  |  |  |  | Men, Women |  |  |  |  |  |
 | Sam Edelman | 1 |  |  |  |  |  | Women |  |  |  |  |  |
 | Saucony | 2 |  |  |  |  |  | Men, Women |  |  |  |  |  |
 | Savage X Fenty | 2 |  |  |  |  |  |  |  |  |  |  |  |
-| Sézane | 1 | Women |  | Women | Women |  |  |  |  |  |  | bottom |
+| Sézane | 1 | Women | Women | Women | Women |  |  |  |  |  |  |  |
 | SKIMS | 1 | Women | Women | Women | Women |  |  |  |  |  |  |  |
 | Sorel | 2 |  |  |  |  |  | Men, Women | Men |  |  |  |  |
 | Sp5der | 1 | Unisex |  |  | Unisex |  |  |  |  |  |  | bottom |
 | Spanx | 3 | Women | Women |  | Women | Women |  |  |  |  |  |  |
 | Steve Madden | 1 |  |  |  |  |  | Women |  |  |  |  |  |
 | Stüssy | 1 | Men | Men |  | Men |  |  |  |  |  |  |  |
-| Supreme | 2 | Men | Men |  |  |  |  |  |  |  |  | outerwear |
+| Supreme | 2 | Men | Men |  | Men |  |  |  |  |  |  |  |
 | Sweaty Betty | 2 | Women | Women |  | Women |  |  |  |  |  |  |  |
 | Talbots | 1 | Women | Women | Women | Women | Women |  |  |  |  |  |  |
 | The Children's Place | 2 | Kids | Kids | Baby, Kids | Kids |  |  |  |  |  |  |  |

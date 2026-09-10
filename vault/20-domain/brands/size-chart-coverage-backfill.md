@@ -412,6 +412,48 @@ run, alpha band and denim waist in a single table — covering everything it
 makes, which is also what finally reached bottoms. Deleting the two and
 writing one is better than sourcing either.
 
+After batch 10 (US-3293): 400 charts across 168 brands, **133 sourced**, and
+20 brands still carrying a gap. Nine of nine closed — nine and not ten,
+because Outdoor Research already showed no gap. Four needed a new sourced
+chart (Orvis, Pendleton, REI Co-op, Reformation), four needed only wider
+keywords (Outdoor Voices, Prada, Rebecca Minkoff, Supreme), and one is an
+exception.
+
+⚠ **KEEP THE `garment` STRING UNCHANGED ON EVERY REPLACEMENT.** This is now
+the rule, and it follows directly from the orphan defect above: the
+sourced-chart migration upserts on `(brand_key, department, garment)`, so a
+rename INSERTS rather than updates. Widen `categoryMatch` instead — it is not
+part of the key, so widening is free. Batch 10 replaced four charts and added
+eight, and the orphan list stayed at exactly fourteen. Re-run the old-versus-
+new tuple diff after a batch to prove it.
+
+⚠ **THE INVENTED OUTDOOR-ALPHA GRID IS TOO NARROW AT THE TOP OF THE RUN.**
+Orvis, Pendleton and REI Co-op all carried an approximation reading L 41-43
+against a published 42-44 or 42-45, and Orvis's XXL read 47-49 against a
+published 50-52 — three inches out. Assume the same about any remaining chart
+whose note says "standard outdoor-alpha approximation"; the error is
+systematic, not per-brand.
+
+⚠ **A GAP CAN BE A VOCABULARY MISMATCH RATHER THAN A MISSING KEYWORD.**
+Rebecca Minkoff's apparel chart already said "top" and "blouse" and still
+read as a top gap, because the coverage probe asks with "tee", "shirt",
+"hoodie" and "sweater" — the words a seller types. A `categoryMatch` written
+in merchandiser vocabulary resolves for nobody.
+
+⚠ **KNOW WHEN TO STOP.** Sézane is this batch's one exception. Three of its
+size-guide paths return 403 to a plain fetch, the browser follows every one to
+the /us-en homepage, no size link appears in its footer, and the domain trips
+the browser tool's query-string guard on most reads. Two approaches and out:
+its existing tops chart carries a waist column, so the bottom gap was closed
+by widening that chart with a note saying precisely what could not be read.
+A documented exception beats an invented chart and beats an hour of retries.
+
+⚠ **NOT EVERY BRAND HAS A BRAND-WIDE BOTTOMS GRID.** Pendleton publishes hip
+and rise PER PRODUCT and nothing brand-level, so its bottoms chart is one
+style's FLAT garment specs with `measurementBasis: "flat"` and a note naming
+the style. That is honest and useful; a body chart invented from it would be
+neither.
+
 ⚠ The coverage report measures the IN-CODE corpus, not the database. Prod's
 `brand_size_charts` already held source URLs on the hand-written pack rows
 (329 of 340 sourced after batch 1). The gap this loop closes is the in-code

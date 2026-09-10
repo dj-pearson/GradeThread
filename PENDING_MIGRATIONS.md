@@ -1,6 +1,6 @@
 # PENDING MIGRATIONS — applied to prod separately from the push
 
-## 🔒 HELD: 00781 — batches 4 through 9 of the sourced size charts (US-3287 to US-3292)
+## 🔒 HELD: 00781 — batches 4 through 10 of the sourced size charts (US-3287 to US-3293)
 
 **Risk: LOW.** Same shape as 00780 below: insert-or-update into
 `public.brand_size_charts`, a global reference table with deny-all RLS and no
@@ -28,8 +28,16 @@ chart and Reebok's bottoms chart genuinely new. Each carries the brand's own
 Wrangler, Beyond Yoga, UNTUCKit and Woolrich. Batch 9 adds eleven more:
 Marmot's and Mountain Hardwear's bottoms in both departments, Johnnie-O's
 four (men's, big & tall, women's and boys'), and ONE Kate Spade chart that
-replaces two. **121 sourced rows in total**, since the generator re-emits
-every earlier batch.
+replaces two. Batch 10 adds twelve: Orvis in both departments, Pendleton's
+bottoms, REI Co-op's bottoms, three Reformation charts, and a source URL on
+the four tops charts those brands already had. **133 sourced rows in total**,
+since the generator re-emits every earlier batch.
+
+**Batch 10 adds NO new orphans, and that is deliberate.** Every replacement in
+it keeps its `garment` string byte-identical, so the upsert updates the
+existing row instead of inserting a second one. The orphan list 00782 deletes
+is still exactly fourteen after batch 10, which is the check that the rule
+held.
 
 **Batch 8 barely touches this file, and that is the point.** Five of its six
 brands needed only a WIDER `category_match` on a chart they already had, which
