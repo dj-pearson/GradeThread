@@ -6,7 +6,7 @@
 -- WHY: the chart shape had department and a free-text garment scope and nowhere
 -- to record WHICH NATIONAL SYSTEM a size label is written in, so the corpus
 -- encoded it inside the label itself — "UK 10 (US 6)", "IT 48 (US 38)",
--- "FR 36 (US 4)", "JP L (=US M)". 115 of 381 charts do this. Every one of
+-- "FR 36 (US 4)", "JP L (=US M)". 115 of 386 charts do this. Every one of
 -- those parentheses is a workaround for a missing field.
 --
 -- The prose is KEPT. This migration adds the structured field beside it; it
@@ -19,7 +19,7 @@
 -- chart of bare numbers stays NULL because a bare "6" could be US or UK and
 -- nothing in the row says which. NULL means "not recorded", never "US".
 --
--- Derived here: 162 charts with a readable system, 5 non-standard size class,
+-- Derived here: 164 charts with a readable system, 5 non-standard size class,
 -- 1 with an ambiguous class (a scope naming several — the Talbots case, whose
 -- scope reads "Misses / Petite / Plus" and which is exactly the folding the
 -- size_class column exists to end).
@@ -128,8 +128,7 @@ begin
   ('canadagoose', 'Women', 'Outerwear', 'alpha', 'standard'),
   ('mackage', 'Men', 'Outerwear', 'alpha', 'standard'),
   ('mackage', 'Women', 'Outerwear', 'alpha', 'standard'),
-  ('woolrich', 'Men', 'Outerwear & wool', 'alpha', 'standard'),
-  ('woolrich', 'Women', 'Outerwear & wool', 'alpha', 'standard'),
+  ('woolrich', 'Women', 'Outerwear, tops & bottoms', 'alpha', 'standard'),
   ('offwhite', 'Unisex', 'Tops (alpha)', 'alpha', 'standard'),
   ('chromehearts', 'Unisex', 'Tops (alpha)', 'alpha', 'standard'),
   ('aimleondore', 'Unisex', 'Tops (alpha)', 'alpha', 'standard'),
@@ -161,7 +160,7 @@ begin
   ('hm', 'Women', 'Tops & dresses (EU numeric 32-44 / alpha)', 'EU', 'standard'),
   ('talbots', 'Women', 'Misses (US numeric 2-18) / Petite (0P-16P) / Plus (14W-26W)', NULL, NULL),
   ('untuckit', 'Men', 'Button-down shirts (ALPHA S-XXXL) — but dress shirts are NECK x SLEEVE, see note', 'alpha', 'standard'),
-  ('untuckit', 'Women', 'Tops & dresses (ALPHA XS-XL)', 'alpha', 'standard'),
+  ('untuckit', 'Women', 'Tops, bottoms, outerwear & dresses (ALPHA XS-XL)', 'alpha', 'standard'),
   ('johnnieo', 'Men', 'Tops (ALPHA S-XXXL — body measurements)', 'alpha', 'standard'),
   ('vineyardvines', 'Men', 'Tops (ALPHA XS-XXL — body measurements)', 'alpha', 'standard'),
   ('faherty', 'Men', 'Tops (ALPHA XS-XXXL — body measurements)', 'alpha', 'standard'),
@@ -229,7 +228,10 @@ begin
   ('nike', 'Women', 'Bottoms (body inches)', 'alpha', 'standard'),
   ('nike', 'Women', 'Bottoms, plus (body inches)', NULL, 'plus'),
   ('gstarraw', 'Men', 'Tops (body inches)', 'alpha', 'standard'),
-  ('gstarraw', 'Women', 'Tops (body inches)', 'alpha', 'standard')
+  ('gstarraw', 'Women', 'Tops (body inches)', 'alpha', 'standard'),
+  ('wrangler', 'Women', 'Tops (body inches)', 'alpha', 'standard'),
+  ('untuckit', 'Men', 'Jackets (body inches)', 'alpha', 'standard'),
+  ('woolrich', 'Women', 'Bottoms (INCH waist, not a body measurement)', 'alpha', 'standard')
     ) AS v(brand_key, department, garment, size_system, size_class)
    where t.brand_key  = v.brand_key
      and t.department = v.department

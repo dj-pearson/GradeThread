@@ -303,6 +303,42 @@ Rhude's domain does not resolve at all. Sp5der's official store serves an
 chart lives on a JS-only Salesforce help article that the browser could not
 render. Every chart a search returns for Palace and Rhude belongs to a reseller.
 
+After batch 7 (US-3290): 383 charts across 168 brands, **111 sourced**, and 40
+brands still carrying a gap. Four of eight closed — eight and not ten, because
+the story listed Alo Yoga and Athleta and both already showed no gap.
+
+⚠ **NOT EVERY UNSOURCED CHART IS AN APPROXIMATION.** Two of batch 7's four
+brands needed only a URL: Beyond Yoga's and UNTUCKit's women's rows were already
+the brand's own numbers, sitting in the corpus with no `sourceUrl` and a
+`categoryMatch` too narrow to reach the missing group. Re-checking them against
+the live page took a minute and transcribing them again would have taken twenty.
+**Read the existing note before you fetch anything** — if it says
+"brand-published" or "from the official guide", the job is a URL and a widened
+keyword list, not a transcription.
+
+⚠ **A brand's size labels can be offset from US ones, and only its own
+conversion table will tell you.** Woolrich men's runs ONE SIZE LARGER: its
+conversion says Woolrich XXS = USA XXXS through XXXL = USA XXL, so a Woolrich
+men's L is a US M. Its WOMEN'S labels line up normally. That fact is on no page
+Woolrich publishes under a size-chart URL — both return 200 with no table, its
+US store is a separate Shopify shop whose /pages/size-* paths 404, and the only
+place it appears is the product page's size drawer.
+
+⚠ **A table on a size-chart page is not necessarily a size chart.** UNTUCKit's
+is headed "Men's Pants" and is an inseam AVAILABILITY matrix — 30/32/34in,
+ticks and N/A, no measurement anywhere in it. Its only men's bottoms numbers are
+on the SHORTS table.
+
+⚠ **Four exceptions, all the brands' own doing.** Buck Mason publishes a table
+per product and two of its own jackets disagree in both values and column names
+("Chest" vs "Chest Circumference", an inch apart at every size). Brandy Melville
+is a one-size brand whose /pages/size-guide serves a product listing and whose
+measurements live inside each product DESCRIPTION. Chanel's
+/us/fashion/size-guide/ redirects to the collections landing page; its US
+ready-to-wear is boutique-only and it publishes no chart. BAPE's SIZE GUIDE
+control renders nothing through two click paths, which is the Burberry shape and
+worth a human look.
+
 ⚠ The coverage report measures the IN-CODE corpus, not the database. Prod's
 `brand_size_charts` already held source URLs on the hand-written pack rows
 (329 of 340 sourced after batch 1). The gap this loop closes is the in-code

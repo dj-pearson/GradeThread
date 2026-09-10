@@ -1,6 +1,6 @@
 # PENDING MIGRATIONS — applied to prod separately from the push
 
-## 🔒 HELD: 00781 — batches 4, 5 AND 6 of the sourced size charts (US-3287, US-3288, US-3289)
+## 🔒 HELD: 00781 — batches 4 through 7 of the sourced size charts (US-3287 to US-3290)
 
 **Risk: LOW.** Same shape as 00780 below: insert-or-update into
 `public.brand_size_charts`, a global reference table with deny-all RLS and no
@@ -24,8 +24,15 @@ Gallery Dept.; and batch 6, which is almost entirely REPLACEMENTS — Old Navy,
 SKIMS, Rab (both departments), Stussy, PUMA and Reebok all had an approximation
 chart already, so their rows were rewritten in place, with only PUMA's women's
 chart and Reebok's bottoms chart genuinely new. Each carries the brand's own
-`source_url` and `confidence 0.85`; `verified` stays false. 99 sourced rows in
-total, since the generator re-emits every earlier batch.
+`source_url` and `confidence 0.85`; `verified` stays false. Batch 7 adds
+Wrangler, Beyond Yoga, UNTUCKit and Woolrich. **108 sourced rows in total**,
+since the generator re-emits every earlier batch.
+
+**Two of batch 7's four needed only a URL.** Beyond Yoga's and UNTUCKit's
+women's rows were ALREADY the brand's own numbers, sitting in the corpus
+unsourced; what they lacked was `source_url` and a `category_match` wide enough
+to reach the missing group. Worth checking for before transcribing anything:
+not every unsourced chart is an approximation.
 
 **Nine of those 99 rows are UPDATES to charts that already exist in the table**,
 not inserts, and the upsert handles it without special-casing: the key is

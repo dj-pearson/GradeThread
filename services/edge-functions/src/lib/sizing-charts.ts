@@ -284,10 +284,18 @@ export const SIZING_CHARTS: SizingChart[] = [
     brand: "Beyond Yoga",
     brandMatch: ["beyond yoga", "beyondyoga"],
     department: "Women",
-    garment: "Tops",
-    categoryMatch: ["top", "tank", "tee", "shirt", "bra", "hoodie", "sweatshirt", "dress", "long sleeve"],
+    garment: "Tops & outerwear",
+    categoryMatch: [
+      "top", "tank", "tee", "shirt", "bra", "hoodie", "sweatshirt", "dress",
+      "long sleeve", "jacket", "coat", "outerwear", "vest", "cardigan",
+    ],
+    sourceUrl: "https://beyondyoga.com/pages/size-guide",
     note:
-      "BODY measurements from the official guide (XXS-4X). Official rule: when bust and " +
+      "US-3290 added the SOURCE URL and widened this to outerwear: the rows were " +
+      "already the brand's own and were re-checked against the live page in " +
+      "September 2026, and Beyond Yoga publishes ONE chart for everything it " +
+      "makes. ⚠ Its page ships the SAME table twice, the second captioned " +
+      "'TEST NEW TABLE'. BODY measurements from the official guide (XXS-4X). Official rule: when bust and " +
       "waist suggest two sizes, go with the BUST. WARNING — do NOT cross-use this waist " +
       "column with the Bottoms chart: the two charts give different waists for the same " +
       "alpha size and different alpha↔numeric maps. The map is NON-MONOTONIC across the " +
@@ -3630,7 +3638,7 @@ export const SIZING_CHARTS: SizingChart[] = [
     brand: "Woolrich",
     brandMatch: ["woolrich", "john rich"],
     department: "Men",
-    garment: "Outerwear & wool",
+    garment: "Outerwear, tops & bottoms",
     categoryMatch: [
       "jacket",
       "coat",
@@ -3641,7 +3649,15 @@ export const SIZING_CHARTS: SizingChart[] = [
       "wool",
       "flannel",
       "top",
+      "tee",
+      "sweater",
+      "knit",
+      "bottom",
+      "pant",
+      "trouser",
+      "short",
     ],
+    sourceUrl: "https://woolrich.us/products/check-flannel-warren-shirt-grey-brown-check",
     note:
       "BODY measurement — NOT flat-garment. WATCH THE SIZE SYSTEM, IT FOLLOWS THE " +
       "ERA: this US alpha chart covers the American heritage wool (the Made-in-USA " +
@@ -3650,20 +3666,31 @@ export const SIZING_CHARTS: SizingChart[] = [
       "decided by which Woolrich the garment is. Confirm from the origin tag before " +
       "trusting the label. The heritage wool is also cut GENEROUS/boxy as an " +
       "overshirt layer, so the body chart does NOT predict the flat measurement. " +
-      "Standard US-alpha approximation, not brand-fetched specs.",
+      "US-3290 REPLACED the old approximation with Woolrich's OWN numbers. " +
+      "⚠ WOOLRICH'S MEN'S LABELS RUN ONE SIZE LARGER THAN US, and its own " +
+      "conversion says so: Woolrich XXS = USA XXXS, XS = XXS, S = XS, M = S, " +
+      "L = M, XL = L, XXL = XL, XXXL = XXL. A Woolrich men's L is a US M. That " +
+      "fact appears NOWHERE on any page the brand publishes under a size-chart " +
+      "URL — both of those return 200 with no table, and the US store is a " +
+      "separate Shopify shop on woolrich.us whose /pages/size-* paths 404. The " +
+      "working chart is the product page's VIEW SIZE GUIDE drawer, published in " +
+      "centimetres; the inches here are converted from it.",
     rows: [
-      { size: "S", measurements: { chest: "35-37" } },
-      { size: "M", measurements: { chest: "38-40" } },
-      { size: "L", measurements: { chest: "41-43" } },
-      { size: "XL", measurements: { chest: "44-46" } },
-      { size: "XXL", measurements: { chest: "47-49" } },
+      { size: "XXS (US XXXS)", measurements: { chest: "32", waist: "26.75", hip: "32.25", sleeve: "32.5" } },
+      { size: "XS (US XXS)", measurements: { chest: "33.75", waist: "28.75", hip: "34.25", sleeve: "32.75" } },
+      { size: "S (US XS)", measurements: { chest: "35.75", waist: "30.75", hip: "36.25", sleeve: "33.75" } },
+      { size: "M (US S)", measurements: { chest: "37.75", waist: "32.75", hip: "38.25", sleeve: "34.75" } },
+      { size: "L (US M)", measurements: { chest: "40.25", waist: "35", hip: "40.5", sleeve: "35.5" } },
+      { size: "XL (US L)", measurements: { chest: "42.5", waist: "37.5", hip: "43", sleeve: "36" } },
+      { size: "XXL (US XL)", measurements: { chest: "45", waist: "39.75", hip: "45.25", sleeve: "36.5" } },
+      { size: "XXXL (US XXL)", measurements: { chest: "47.25", waist: "42.25", hip: "47.75", sleeve: "37" } },
     ],
   },
   {
     brand: "Woolrich",
     brandMatch: ["woolrich", "john rich"],
     department: "Women",
-    garment: "Outerwear & wool",
+    garment: "Outerwear, tops & bottoms",
     categoryMatch: [
       "jacket",
       "coat",
@@ -3674,19 +3701,32 @@ export const SIZING_CHARTS: SizingChart[] = [
       "wool",
       "flannel",
       "top",
+      "tee",
+      "sweater",
+      "knit",
+      "bottom",
+      "pant",
+      "trouser",
+      "short",
     ],
+    sourceUrl: "https://woolrich.us/products/12gg-cozy-wool-cash-crewneck-black",
     note:
       "BODY measurement — NOT flat-garment. WATCH THE SIZE SYSTEM, IT FOLLOWS THE " +
       "ERA: US alpha on the American heritage wool, possibly EU numbers on the " +
       "Italian-era outerwear (the Arctic Parka) under the SAME label. Confirm which " +
       "Woolrich the garment is from the origin tag before trusting the size. " +
-      "Standard US-alpha approximation, not brand-fetched specs.",
+      "US-3290 REPLACED the old approximation with Woolrich's OWN numbers, " +
+      "converted from the centimetres its product-page size drawer publishes. " +
+      "Unlike its MEN'S run, the women's labels line up normally with US and UK " +
+      "— a Woolrich women's XS is a UK 8 and an IT 40.",
     rows: [
-      { size: "XS", measurements: { bust: "32-33" } },
-      { size: "S", measurements: { bust: "34-35" } },
-      { size: "M", measurements: { bust: "36-37.5" } },
-      { size: "L", measurements: { bust: "38.5-40" } },
-      { size: "XL", measurements: { bust: "41-43" } },
+      { size: "XXS", measurements: { bust: "31.5", waist: "24.5", hip: "34.5", sleeve: "30" } },
+      { size: "XS", measurements: { bust: "33", waist: "26", hip: "36.25", sleeve: "30.5" } },
+      { size: "S", measurements: { bust: "34.75", waist: "27.5", hip: "37.75", sleeve: "31" } },
+      { size: "M", measurements: { bust: "36.25", waist: "29.25", hip: "39.25", sleeve: "31.75" } },
+      { size: "L", measurements: { bust: "37.75", waist: "30.75", hip: "41", sleeve: "32.25" } },
+      { size: "XL", measurements: { bust: "39.75", waist: "32.75", hip: "43", sleeve: "32.75" } },
+      { size: "XXL", measurements: { bust: "41.75", waist: "34.75", hip: "45", sleeve: "33.5" } },
     ],
   },
   {
@@ -6239,7 +6279,7 @@ export const SIZING_CHARTS: SizingChart[] = [
     brand: "UNTUCKit",
     brandMatch: ["untuckit"],
     department: "Women",
-    garment: "Tops & dresses (ALPHA XS-XL)",
+    garment: "Tops, bottoms, outerwear & dresses (ALPHA XS-XL)",
     categoryMatch: [
       "top",
       "shirt",
@@ -6248,8 +6288,23 @@ export const SIZING_CHARTS: SizingChart[] = [
       "shirtdress",
       "tee",
       "sweater",
+      "jacket",
+      "coat",
+      "outerwear",
+      "vest",
+      "bottom",
+      "pant",
+      "trouser",
+      "short",
+      "jean",
     ],
+    sourceUrl: "https://www.untuckit.com/pages/all-size-charts",
     note:
+      "US-3290 added the SOURCE URL and widened this to bottoms and outerwear: " +
+      "the rows were already the brand's own and re-checked against the live page " +
+      "in September 2026, and UNTUCKit publishes ONE women's table headed " +
+      "'Women\u2019s Styles'. ⚠ /pages/size-guide, /pages/size-chart and " +
+      "/pages/mens-size-guide all 404; the working path is /pages/all-size-charts. " +
       "UNTUCKit's women's line (launched 2017, driven by the fact that ~45% of the " +
       "brand's customers were women buying for men) runs ALPHA XS-XL; the waist " +
       "column is the brand's NATURAL waist. Brand-published. As with the men's " +
@@ -11443,6 +11498,143 @@ export const SIZING_CHARTS: SizingChart[] = [
       { size: "XL", measurements: { waist: "39-43", hip: "44-48", inseam: "32.7" } },
       { size: "2XL", measurements: { waist: "43-47", hip: "48-51", inseam: "32.5" } },
       { size: "3XL", measurements: { waist: "48-53", hip: "51-56", inseam: "32.3" } },
+    ],
+  },
+
+  // ── US-3290: size-chart backfill, batch 7 of 11 ────────────────────────────
+  //
+  // EIGHT brands, not ten: the story lists Alo Yoga and Athleta and both already
+  // showed no gap. Four sourced — Wrangler, Beyond Yoga, UNTUCKit and Woolrich —
+  // and four exceptions, all four the brand's own doing.
+  //
+  // Two of the four sourced brands needed only a URL. Beyond Yoga's and
+  // UNTUCKit's women's rows were ALREADY the brand's own numbers, re-checked
+  // against the live page here; what they lacked was `sourceUrl` and a
+  // `categoryMatch` wide enough to reach the missing group, both fixed in place
+  // above. Woolrich's two were approximations and were replaced outright.
+  //
+  // Only the charts below are new.
+
+  // Wrangler — https://www.wrangler.com/size-charts.html, 27 tables on one page,
+  // the same Kontoor platform as Lee. Body inches.
+  {
+    brand: "Wrangler",
+    brandMatch: ["wrangler"],
+    department: "Men",
+    garment: "Tops (body inches)",
+    categoryMatch: [
+      "top", "tee", "shirt", "polo", "sweater", "knit", "hoodie", "sweatshirt",
+      "flannel", "western",
+    ],
+    sourceUrl: "https://www.wrangler.com/size-charts.html",
+    note:
+      "Wrangler's men's tops chart. It runs to 5X, which is wider than most of " +
+      "this corpus and is the workwear norm. Neck is the column to trust on a " +
+      "western snap shirt, where the chest is cut generous by design.",
+    rows: [
+      { size: "XS", measurements: { chest: "34.5-36", neck: "14-14.5", sleeve: "32.5-33" } },
+      { size: "S", measurements: { chest: "36.5-38", neck: "14.5-15", sleeve: "33-33.5" } },
+      { size: "M", measurements: { chest: "38.5-40", neck: "15-15.5", sleeve: "33.5-34" } },
+      { size: "L", measurements: { chest: "41.5-43.5", neck: "16-16.5", sleeve: "34.25-34.75" } },
+      { size: "XL", measurements: { chest: "45-47", neck: "17-17.5", sleeve: "35-35.5" } },
+      { size: "2X", measurements: { chest: "49-51", neck: "18-18.5", sleeve: "35.5-36" } },
+      { size: "3X", measurements: { chest: "53-55", neck: "19-19.5", sleeve: "36.25-36.75" } },
+      { size: "4X", measurements: { chest: "57-59", neck: "20-20.5", sleeve: "37-37.25" } },
+      { size: "5X", measurements: { chest: "61-63", neck: "21-21.5", sleeve: "37.5-38" } },
+    ],
+  },
+  {
+    brand: "Wrangler",
+    brandMatch: ["wrangler"],
+    department: "Women",
+    garment: "Tops (body inches)",
+    categoryMatch: [
+      "top", "tee", "shirt", "blouse", "sweater", "knit", "hoodie", "sweatshirt",
+      "tank", "western",
+    ],
+    sourceUrl: "https://www.wrangler.com/size-charts.html",
+    note:
+      "Wrangler's women's tops chart, which stops at XL where the men's runs to " +
+      "5X. Body measurements.",
+    rows: [
+      { size: "XS", measurements: { bust: "32.5-33.5", waist: "27-28", hip: "34.5-35.5" } },
+      { size: "S", measurements: { bust: "34.5-35.5", waist: "29-30", hip: "36.5-37.5" } },
+      { size: "M", measurements: { bust: "36.5-37.5", waist: "31.25-32.5", hip: "38.5-39.5" } },
+      { size: "L", measurements: { bust: "39-40.5", waist: "34-35.75", hip: "41-42.5" } },
+      { size: "XL", measurements: { bust: "42-44", waist: "37.5-39.5", hip: "44-45.5" } },
+    ],
+  },
+
+  // UNTUCKit men's — the brand's own jackets and shorts tables, which are the
+  // two groups its existing shirt chart does not reach.
+  {
+    brand: "UNTUCKit",
+    brandMatch: ["untuckit"],
+    department: "Men",
+    garment: "Jackets (body inches)",
+    categoryMatch: ["jacket", "coat", "outerwear", "vest", "blazer"],
+    sourceUrl: "https://www.untuckit.com/pages/all-size-charts",
+    note:
+      "UNTUCKit's men's JACKETS chart, separate from its shirt chart and cut " +
+      "about an inch wider at the chest. ⚠ ITS XXL AND XXXL SHARE BOTH NECK AND " +
+      "SLEEVE — only the chest steps between them, which is the same shape of " +
+      "error the brand's shirt chart has at XXL/XXXL and is left as published.",
+    rows: [
+      { size: "S", measurements: { chest: "35-37", neck: "14-14.5", sleeve: "32.5-33.5" } },
+      { size: "M", measurements: { chest: "38-40", neck: "15-15.5", sleeve: "33.5-34.5" } },
+      { size: "L", measurements: { chest: "41-43", neck: "16-16.5", sleeve: "34.5-35.5" } },
+      { size: "XL", measurements: { chest: "44-45", neck: "17-17.5", sleeve: "35.5-36.5" } },
+      { size: "XXL", measurements: { chest: "46-47", neck: "18-18.5", sleeve: "36-37" } },
+      { size: "XXXL", measurements: { chest: "48-50", neck: "18-18.5", sleeve: "36-37" } },
+    ],
+  },
+  {
+    brand: "UNTUCKit",
+    brandMatch: ["untuckit"],
+    department: "Men",
+    garment: "Bottoms (the tag is 2in under the waist)",
+    categoryMatch: ["bottom", "pant", "trouser", "short", "chino", "jean"],
+    sourceUrl: "https://www.untuckit.com/pages/all-size-charts",
+    note:
+      "The only men's bottoms MEASUREMENTS UNTUCKit publishes are on its shorts " +
+      "table, and the tag size sits 2in under the waist the whole way up. ⚠ THE " +
+      "TABLE HEADED 'MEN'S PANTS' IS NOT A SIZE CHART — it is an inseam " +
+      "AVAILABILITY matrix (30in / 32in / 34in, ticks and N/A) and carries no " +
+      "measurement at all. The run skips 31, 37 and 39.",
+    rows: [
+      { size: "30", measurements: { waist: "32" } },
+      { size: "32", measurements: { waist: "34" } },
+      { size: "33", measurements: { waist: "35" } },
+      { size: "34", measurements: { waist: "36" } },
+      { size: "35", measurements: { waist: "37" } },
+      { size: "36", measurements: { waist: "38" } },
+      { size: "38", measurements: { waist: "40" } },
+      { size: "40", measurements: { waist: "42" } },
+    ],
+  },
+
+  // Woolrich women's bottoms — the one Woolrich table published in inches
+  // rather than centimetres, and the one that is a garment waist rather than a
+  // body measurement.
+  {
+    brand: "Woolrich",
+    brandMatch: ["woolrich", "john rich"],
+    department: "Women",
+    garment: "Bottoms (INCH waist, not a body measurement)",
+    categoryMatch: ["bottom", "pant", "trouser", "short", "jean", "chino"],
+    sourceUrl: "https://woolrich.us/products/pants-in-wool-blend-flannel-black",
+    note:
+      "Woolrich labels this one 'Inch Size' and it is the WAIST, unlike every " +
+      "other Woolrich table, which is a body measurement in centimetres. The " +
+      "alpha maps to an even waist inch throughout: XXS is 24 and each step adds " +
+      "two.",
+    rows: [
+      { size: "XXS", measurements: { waist: "24" } },
+      { size: "XS", measurements: { waist: "26" } },
+      { size: "S", measurements: { waist: "28" } },
+      { size: "M", measurements: { waist: "30" } },
+      { size: "L", measurements: { waist: "32" } },
+      { size: "XL", measurements: { waist: "34" } },
     ],
   },
 ];

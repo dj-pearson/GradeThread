@@ -6,17 +6,17 @@ Coverage is measured the way the size-guide panel resolves a chart: a real brand
 
 ## Where it stands
 
-- 168 brands, 378 brand-specific charts.
-- 102 charts link the brand's own guide; 0 have been checked against it by a human.
-- 44 brands are missing at least one group they should cover.
+- 168 brands, 383 brand-specific charts.
+- 111 charts link the brand's own guide; 0 have been checked against it by a human.
+- 40 brands are missing at least one group they should cover.
 
 | Group | Brands covered |
 |---|---:|
-| top | 129 |
-| bottom | 108 |
+| top | 130 |
+| bottom | 110 |
 | dress | 56 |
-| outerwear | 113 |
-| suit | 41 |
+| outerwear | 115 |
+| suit | 42 |
 | shoes | 27 |
 | bag | 10 |
 | watch | 1 |
@@ -46,7 +46,7 @@ Coverage is measured the way the size-guide panel resolves a chart: a real brand
 | Banana Republic | 4 | Men, Women | Men, Women | Women | Men, Women | Men, Women |  |  |  |  |  |  |
 | BAPE | 1 | Men |  |  | Men |  |  |  |  |  |  | bottom |
 | Barbour | 2 | Men | Men |  | Men |  |  |  |  |  |  |  |
-| Beyond Yoga | 2 | Women | Women | Women |  |  |  |  |  |  |  | outerwear |
+| Beyond Yoga | 2 | Women | Women | Women | Women |  |  |  |  |  |  |  |
 | Birkenstock | 1 |  |  |  |  |  | Unisex |  |  |  |  |  |
 | Bogner | 4 | Men, Women | Men, Women |  | Men, Women |  |  |  |  |  |  |  |
 | Bonobos | 3 | Men | Men |  | Men |  |  |  |  |  |  |  |
@@ -184,7 +184,7 @@ Coverage is measured the way the size-guide panel resolves a chart: a real brand
 | UGG | 2 |  |  |  |  |  | Men, Women |  |  |  |  |  |
 | Under Armour | 3 | Men | Men, Women |  | Men |  |  |  |  |  |  |  |
 | Uniqlo | 4 | Men, Women | Unisex |  | Unisex |  |  |  |  |  |  |  |
-| UNTUCKit | 2 | Men, Women |  | Women |  |  |  |  |  |  |  | bottom, outerwear |
+| UNTUCKit | 4 | Men, Women | Men, Women | Women | Men, Women | Men |  |  |  |  |  |  |
 | Urban Outfitters | 2 | Women | Women | Women | Women |  |  |  |  |  |  |  |
 | Vans | 1 |  |  |  |  |  | Unisex |  |  |  |  |  |
 | Vera Bradley | 1 |  |  |  |  |  |  | Women |  |  |  |  |
@@ -192,6 +192,6 @@ Coverage is measured the way the size-guide panel resolves a chart: a real brand
 | Victoria's Secret | 2 |  |  |  |  |  |  |  |  |  |  |  |
 | Vineyard Vines | 2 | Men, Women |  | Women | Men, Women |  |  |  |  |  |  | bottom |
 | Vuori | 3 | Men | Men, Women |  | Men |  |  |  |  |  |  |  |
-| Woolrich | 2 | Men, Women |  |  | Men, Women |  |  |  |  |  |  | bottom |
-| Wrangler | 3 |  | Men, Women |  | Unisex |  |  |  |  |  |  | top |
+| Woolrich | 3 | Men, Women | Men, Women |  | Men, Women |  |  |  |  |  |  |  |
+| Wrangler | 5 | Men, Women | Men, Women |  | Unisex |  |  |  |  |  |  |  |
 | Zara | 2 | Women | Women | Women | Women |  |  |  |  |  |  |  |
