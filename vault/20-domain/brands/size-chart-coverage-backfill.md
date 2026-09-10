@@ -11,7 +11,8 @@ code_refs:
   - services/edge-functions/src/routes/flipdesk-size-bands.ts
   - scripts/gen-sizing-chart-seed.mjs
   - supabase/migrations/00776_sizing_chart_sources.sql
-reviewed: 2026-09-09
+  - supabase/migrations/00777_sizing_chart_sources.sql
+reviewed: 2026-09-10
 tags: [brands, sizing, backfill, runbook]
 summary: How to close a batch of brand size-chart gaps, why coverage is measured through the resolver rather than by counting rows, and what a batch must carry before it can be closed.
 ---
@@ -132,6 +133,28 @@ that is the shape of exception this runbook expects: `frame-store.com`'s own
 Denim Fit Guide page renders empty, its product pages carry no size link, and
 every chart a search turns up belongs to a reseller. FRAME keeps its two denim
 charts and stays on the gap list until the brand publishes again.
+
+After batch 2 (US-3285): 331 charts, **42 sourced across 19 brands**, and 71
+brands still carrying a gap. All ten of batch 2 closed, with no exception.
+
+⚠ **Two of those ten publish no working size-guide PAGE any more** — Mackage's
+`/pages/size-chart` renders a store locator and PAIGE's `/size-guide` renders
+its heading with nothing under it — but both still publish the chart inside the
+product page's Size Guide panel. That is the brand's own page, so the rule in
+step 1 is satisfied and `sourceUrl` points at a product. It is a weaker URL than
+a guide: a discontinued product 404s and a guide page does not. Prefer a guide
+where one exists, use a product where none does, and say so in the chart's note
+so a dead link later has a known cause rather than looking like a typo.
+
+⚠ **Three brands could not be fetched at all without a real browser.** Levi's,
+Madewell, Lucky Brand and PacSun answer `curl` with 403 whatever the headers
+say, and Mackage, MOTHER, Moncler and PAIGE render their tables in JavaScript,
+so an HTTP fetch returns a page with no numbers in it — which reads exactly like
+a brand that stopped publishing. Two things saved time and are worth reusing:
+a Shopify store often ships the whole guide as a JSON asset (Hudson's is
+`/cdn/shop/t/82/assets/size-guide.json`, found by grepping the page source for
+`size-guide.json`), and a table whose cells come back EMPTY through a browser is
+usually rendered in a hidden tab — read `cell.textContent`, not `innerText`.
 
 ⚠ The coverage report measures the IN-CODE corpus, not the database. Prod's
 `brand_size_charts` already held source URLs on the hand-written pack rows

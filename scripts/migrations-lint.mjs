@@ -93,6 +93,31 @@ export const KNOWN_GAPS = new Map([
       "suffix is the safety mechanism (US-2403 — a denied function call " +
       "segfaults the Supabase Postgres image), not an oversight.",
   ],
+  // ⚠ THESE TWO ARE TEMPORARY AND EXPECTED TO BE DELETED, unlike everything
+  // above them. They are not skipped numbers — they are AUTHORED migrations
+  // that a concurrent session applied to prod on 2026-09-10 and had not pushed
+  // when US-3285 landed. `applied_migrations` records both; no file for either
+  // exists on origin/main or on any branch in this checkout, so there is
+  // nothing to point at yet.
+  //
+  // The batch-2 size-chart migration was written as 00777 and renumbered to
+  // 00779 because of them, and that renumber was not cosmetic:
+  // apply-prod-migrations.sh skips every file at or below the highest RECORDED
+  // version, so a file numbered 00777 would have been skipped forever and
+  // silently — US-2726's failure exactly.
+  //
+  // When that session pushes, `filled` fires and these two entries have to go.
+  // That failure is the mechanism working, not a new problem: delete both.
+  [
+    "00777",
+    "TEMPORARY — authored by a concurrent session, applied to prod 2026-09-10, " +
+      "not yet pushed. Delete this entry when the file lands.",
+  ],
+  [
+    "00778",
+    "TEMPORARY — the second of the same pair. Delete this entry when the file " +
+      "lands.",
+  ],
 ]);
 
 export const SHAPE = /^(\d{5,6})_[a-z0-9_]+\.sql(\.BLOCKED)?$/;

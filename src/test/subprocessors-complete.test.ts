@@ -38,6 +38,32 @@ function outboundHosts(): Set<string> {
 }
 
 /**
+ * The brands whose own size guide a chart CITES.
+ *
+ * US-3284 onward: every chart in `sizing-charts.ts` carries `sourceUrl`, the
+ * brand's own published guide, so the composer can link a seller to the real
+ * numbers instead of a web search. It is the same shape as `pe.usps.com` and
+ * `www.vinted.com` below — a provenance URL, read once by a human and recorded,
+ * never called at runtime, carrying nothing about a seller or an item. The
+ * difference is that there will be about a hundred of them by batch 11, which
+ * is too many to keep by hand, so they are DERIVED from the corpus rather than
+ * listed. Only a host that literally appears as a chart's `sourceUrl` is
+ * exempted; the moment any code fetches one, it stops being an exception here
+ * and the brand becomes a real processor.
+ */
+function citedSizeChartHosts(): Set<string> {
+  const src = readFileSync(
+    resolve(process.cwd(), "services/edge-functions/src/lib/sizing-charts.ts"),
+    "utf8",
+  );
+  const hosts = new Set<string>();
+  for (const m of src.matchAll(/sourceUrl:\s*"https:\/\/([a-z0-9.-]+\.[a-z]{2,})/gi)) {
+    hosts.add(m[1]!.toLowerCase());
+  }
+  return hosts;
+}
+
+/**
  * Hosts that are NOT subprocessors of personal data, each with the reason. A
  * host added here is a claim someone has to be able to defend.
  */
@@ -140,8 +166,10 @@ describe("the subprocessor list matches what the code calls (US-2527)", () => {
   it("every outbound host maps to a listed subprocessor or a stated exception", () => {
     const src = page();
     const unaccounted: string[] = [];
+    const cited = citedSizeChartHosts();
     for (const host of outboundHosts()) {
       if (host in NOT_A_PROCESSOR) continue;
+      if (cited.has(host)) continue;
       const owner = HOST_OWNER.find(([re]) => re.test(host))?.[1];
       if (!owner) {
         unaccounted.push(host);

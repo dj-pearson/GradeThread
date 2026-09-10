@@ -227,13 +227,35 @@ Deno.test("note prose never sets a class — only the garment scope does", () =>
 
 // ── The corpus, as it actually is ───────────────────────────────────────────
 
-Deno.test("US-2215: the corpus has exactly one extended chart, and it is folded", () => {
-  // Recorded as a fact, not fabricated into a fix: extended sizing is a
-  // SOURCING gap. The dimension now exists; seeding real plus/petite/tall
-  // charts needs data we do not have.
-  const nonStandard = SIZING_CHARTS.filter((c) => detectSizeClass(c) !== "standard");
-  assertEquals(nonStandard.length, 1, "expected only the Talbots chart");
-  assertEquals(detectSizeClass(nonStandard[0]), null, "and it names several classes");
+Deno.test("US-2215: one chart still names several classes at once, and only one", () => {
+  // This used to read "the corpus has exactly one extended chart" and pin the
+  // count at 1, because extended sizing was a pure SOURCING gap — the dimension
+  // existed and there was no data behind it. US-3285 changed that fact: Levi's
+  // and Madewell both publish a plus run as its own table, so the corpus now
+  // carries real `sizeClass: "plus"` charts and the count will keep rising as
+  // the backfill batches land. Pinning a number here would only teach whoever
+  // hits it to bump the number.
+  //
+  // What is still worth pinning is the SHAPE that goes wrong. Talbots crams
+  // misses, petite and plus into one chart, so `detectSizeClass` refuses and
+  // returns null rather than labelling two thirds of its rows falsely. A second
+  // chart doing that would be a new instance of the mistake, not a new brand.
+  const unclassed = SIZING_CHARTS.filter((c) => detectSizeClass(c) === null);
+  assertEquals(
+    unclassed.map((c) => `${c.brand}|${c.department}`),
+    ["Talbots|Women"],
+    "a chart naming several size classes at once cannot be classed — fold it or split it",
+  );
+
+  // And every other non-standard chart resolves to a single named class.
+  for (const c of SIZING_CHARTS) {
+    const k = detectSizeClass(c);
+    if (k === null || k === "standard") continue;
+    assert(
+      ["plus", "petite", "tall", "big_and_tall", "maternity"].includes(k),
+      `${c.brand}|${c.department} resolved to an unknown size class ${k}`,
+    );
+  }
 });
 
 Deno.test("US-2215: detection never invents a system for a bare-number chart", () => {

@@ -9514,6 +9514,594 @@ export const SIZING_CHARTS: SizingChart[] = [
       { size: "IT 64", measurements: { us: "54", uk: "54", fr: "60", de: "64", jp: "7XL" } },
     ],
   },
+
+  // ── US-3285: size-chart backfill, batch 2 of 11 ────────────────────────────
+  //
+  // Hudson Jeans, Joe's Jeans, Levi's, Lucky Brand, Mackage, Madewell, Moncler,
+  // MOTHER, PacSun and PAIGE. Every chart below was read off the BRAND'S OWN
+  // published guide in September 2026; `verified` is absent on all of them
+  // because an agent transcribed them and no human has re-checked the rows.
+  //
+  // TWO BRANDS HAVE NO WORKING SIZE-GUIDE PAGE, only a per-product drawer.
+  // Mackage's /pages/size-chart now renders a store locator, and PAIGE's
+  // /size-guide renders its heading and intro with no table under it. Both
+  // still publish the chart inside the product page's Size Guide panel, so
+  // `sourceUrl` points at a product rather than a guide. That is the brand's
+  // own page, which is the rule; it is also a URL that can rot, so if the panel
+  // ever shows a dead link for these two, that is why.
+  //
+  // BASIS: none of the ten publishes garment-flat specs, so every chart here is
+  // body and `measurementBasis` is absent. Hudson and Joe's are the two worth
+  // reading twice — see their notes.
+
+  // Hudson Jeans — https://www.hudsonjeans.com/pages/size-guide
+  // Hudson prints separate TOPS and JACKETS tables per department and labels
+  // neither as body or garment.
+  {
+    brand: "Hudson Jeans",
+    brandMatch: ["hudson jeans", "hudsonjeans"],
+    department: "Women",
+    garment: "Tops",
+    categoryMatch: [
+      "top", "tee", "shirt", "blouse", "sweater", "knit", "hoodie", "sweatshirt",
+      "tank", "cardigan",
+    ],
+    sourceUrl: "https://www.hudsonjeans.com/pages/size-guide",
+    note:
+      "Hudson's own women's tops table, alpha with the US numeric beside it. " +
+      "CAUTION: Hudson does not say whether these are body or garment numbers, " +
+      "and its jackets table sits about 3in above this one at the same label, " +
+      "which is how ease behaves. Treat the bust column as generous.",
+    rows: [
+      { size: "XS", measurements: { bust: "33-35", waist: "26-27", hip: "32-33" } },
+      { size: "S", measurements: { bust: "37-39", waist: "28-29", hip: "34-35" } },
+      { size: "M", measurements: { bust: "41-43", waist: "30-31", hip: "36-37" } },
+      { size: "L", measurements: { bust: "45-47", waist: "32-33", hip: "38-39" } },
+      { size: "XL", measurements: { bust: "49-51", waist: "34-35", hip: "40-41" } },
+      { size: "XXL", measurements: { bust: "53", waist: "36", hip: "42" } },
+    ],
+  },
+  {
+    brand: "Hudson Jeans",
+    brandMatch: ["hudson jeans", "hudsonjeans"],
+    department: "Women",
+    garment: "Jackets & outerwear",
+    categoryMatch: ["jacket", "coat", "outerwear", "parka", "blazer", "vest"],
+    sourceUrl: "https://www.hudsonjeans.com/pages/size-guide",
+    note:
+      "Hudson's own women's jackets table. Same waist and hip run as its tops " +
+      "table with the bust about 3in wider, which is the brand's allowance for " +
+      "layering. Hudson does not state whether the numbers are body or garment.",
+    rows: [
+      { size: "XS", measurements: { bust: "36-38", waist: "26-27", hip: "32-33" } },
+      { size: "S", measurements: { bust: "40-42", waist: "28-29", hip: "34-35" } },
+      { size: "M", measurements: { bust: "44-46", waist: "30-31", hip: "36-37" } },
+      { size: "L", measurements: { bust: "48-50", waist: "32-33", hip: "38-39" } },
+      { size: "XL", measurements: { bust: "52-54", waist: "34-35", hip: "40-41" } },
+      { size: "XXL", measurements: { bust: "56", waist: "36", hip: "42" } },
+    ],
+  },
+  {
+    brand: "Hudson Jeans",
+    brandMatch: ["hudson jeans", "hudsonjeans"],
+    department: "Men",
+    garment: "Shirts & tops",
+    categoryMatch: [
+      "top", "tee", "shirt", "polo", "sweater", "knit", "hoodie", "sweatshirt",
+    ],
+    sourceUrl: "https://www.hudsonjeans.com/pages/size-guide",
+    note:
+      "Hudson's own men's shirts table. The chest column starts at 40in for XS, " +
+      "which no XS body carries, so read it as a garment chest even though " +
+      "Hudson does not label it one. The waist column tracks Hudson's men's " +
+      "denim table, where a size 28 jean is listed against a 30in waist.",
+    rows: [
+      { size: "XS", measurements: { chest: "40", waist: "30", hip: "36" } },
+      { size: "S", measurements: { chest: "42", waist: "31-32", hip: "37-38" } },
+      { size: "M", measurements: { chest: "44", waist: "33-34", hip: "39-40" } },
+      { size: "L", measurements: { chest: "46", waist: "35-37", hip: "41-43" } },
+      { size: "XL", measurements: { chest: "48", waist: "39-41", hip: "45-47" } },
+      { size: "XXL", measurements: { chest: "50", waist: "43", hip: "49" } },
+    ],
+  },
+  {
+    brand: "Hudson Jeans",
+    brandMatch: ["hudson jeans", "hudsonjeans"],
+    department: "Men",
+    garment: "Jackets & outerwear",
+    categoryMatch: ["jacket", "coat", "outerwear", "parka", "blazer", "vest"],
+    sourceUrl: "https://www.hudsonjeans.com/pages/size-guide",
+    note:
+      "Hudson's own men's jackets table: the shirts run with 2in more chest at " +
+      "every label, waist and hip unchanged.",
+    rows: [
+      { size: "XS", measurements: { chest: "42", waist: "30", hip: "36" } },
+      { size: "S", measurements: { chest: "44", waist: "31-32", hip: "37-38" } },
+      { size: "M", measurements: { chest: "46", waist: "33-34", hip: "39-40" } },
+      { size: "L", measurements: { chest: "48", waist: "35-37", hip: "41-43" } },
+      { size: "XL", measurements: { chest: "50", waist: "39-41", hip: "45-47" } },
+      { size: "XXL", measurements: { chest: "52", waist: "43", hip: "49" } },
+    ],
+  },
+
+  // Joe's Jeans — https://www.joesjeans.com/pages/size-chart
+  {
+    brand: "Joe's Jeans",
+    brandMatch: ["joes jeans", "joesjeans", "joe's jeans"],
+    department: "Women",
+    garment: "Tops, jackets & dresses (alpha, body inches)",
+    categoryMatch: [
+      "top", "tee", "shirt", "blouse", "sweater", "knit", "hoodie", "sweatshirt",
+      "tank", "cardigan", "jacket", "coat", "outerwear", "blazer", "vest",
+      "dress", "romper", "jumpsuit",
+    ],
+    sourceUrl: "https://www.joesjeans.com/pages/size-chart",
+    note:
+      "Joe's Women's Alpha Size Table, which the brand applies across tops, " +
+      "jackets and dresses. Body measurements. Joe's prints a second women's " +
+      "table carrying shoulder and arm-length columns; that one is garment and " +
+      "is deliberately not transcribed here.",
+    rows: [
+      { size: "XXS / 0", measurements: { bust: "31", waist: "23.5", hip: "33.5" } },
+      { size: "XS / 2", measurements: { bust: "32-33", waist: "24.5-25.5", hip: "34.5-35.5" } },
+      { size: "S / 4", measurements: { bust: "34-35", waist: "26.5-27.5", hip: "36.5-37.5" } },
+      { size: "M / 6-8", measurements: { bust: "36-37", waist: "28.5-29.5", hip: "38.5-39.5" } },
+      { size: "L / 10-12", measurements: { bust: "38-39", waist: "30.5-31.5", hip: "40.5-41.5" } },
+      { size: "XL / 14", measurements: { bust: "40", waist: "32.5", hip: "43" } },
+    ],
+  },
+  {
+    brand: "Joe's Jeans",
+    brandMatch: ["joes jeans", "joesjeans", "joe's jeans"],
+    department: "Men",
+    garment: "Tops & outerwear",
+    categoryMatch: [
+      "top", "tee", "shirt", "polo", "sweater", "knit", "hoodie", "sweatshirt",
+      "jacket", "coat", "outerwear", "blazer", "vest",
+    ],
+    sourceUrl: "https://www.joesjeans.com/pages/size-chart",
+    note:
+      "Joe's men's table, the only one the brand publishes for menswear. It " +
+      "carries neck, shoulder and arm-length columns beside these, so the chest " +
+      "reads garment rather than body; Joe's does not label it either way.",
+    rows: [
+      { size: "S", measurements: { chest: "39", waist: "32.5", hip: "39", neck: "15.5" } },
+      { size: "M", measurements: { chest: "41", waist: "33.5", hip: "40", neck: "16" } },
+      { size: "L", measurements: { chest: "43", waist: "34.5", hip: "41", neck: "16.5" } },
+      { size: "XL", measurements: { chest: "45", waist: "35.5", hip: "42", neck: "17" } },
+      { size: "XXL", measurements: { chest: "47", waist: "36.5", hip: "43", neck: "17.5" } },
+    ],
+  },
+
+  // Levi's — https://www.levi.com/US/en_US/info/sizeguide
+  {
+    brand: "Levi's",
+    brandMatch: ["levi", "levi's", "levis"],
+    department: "Women",
+    garment: "Tops & outerwear (body inches)",
+    categoryMatch: [
+      "top", "tee", "shirt", "blouse", "sweater", "knit", "hoodie", "sweatshirt",
+      "tank", "cardigan", "jacket", "coat", "outerwear", "parka", "trucker",
+      "blazer", "vest",
+    ],
+    sourceUrl: "https://www.levi.com/US/en_US/info/sizeguide",
+    note:
+      "Levi's publishes ONE women's body chart and repeats it verbatim under " +
+      "tops and under outerwear, so a trucker jacket and a tee read the same " +
+      "row. The LMC numbers 0-4 are Levi's Made & Crafted, printed alongside.",
+    rows: [
+      { size: "XXS", measurements: { chest: "31", waist: "24.25", hip: "34" } },
+      { size: "XS / LMC 0", measurements: { chest: "33", waist: "26.25", hip: "36" } },
+      { size: "S / LMC 1", measurements: { chest: "35", waist: "28.25", hip: "38" } },
+      { size: "M / LMC 2", measurements: { chest: "37", waist: "30.25", hip: "40" } },
+      { size: "L / LMC 3", measurements: { chest: "39.5", waist: "32.75", hip: "42.5" } },
+      { size: "XL / LMC 4", measurements: { chest: "42.5", waist: "35.75", hip: "45.5" } },
+      { size: "XXL", measurements: { chest: "45.5", waist: "38.75", hip: "48.5" } },
+    ],
+  },
+  {
+    brand: "Levi's",
+    brandMatch: ["levi", "levi's", "levis"],
+    department: "Women",
+    garment: "Tops & outerwear, plus (body inches)",
+    categoryMatch: [
+      "top", "tee", "shirt", "blouse", "sweater", "knit", "hoodie", "sweatshirt",
+      "tank", "cardigan", "jacket", "coat", "outerwear", "parka", "trucker",
+      "blazer", "vest",
+    ],
+    sizeClass: "plus",
+    sourceUrl: "https://www.levi.com/US/en_US/info/sizeguide",
+    note:
+      "Levi's women's PLUS run, printed as its own table beside the standard " +
+      "one. The alpha and numeric columns do not line up one-to-one; both are " +
+      "kept here as Levi's prints them.",
+    rows: [
+      { size: "1X / 14", measurements: { chest: "42.5", waist: "36.25", hip: "45.25" } },
+      { size: "16", measurements: { chest: "44.5", waist: "38.25", hip: "47.25" } },
+      { size: "2X / 18", measurements: { chest: "46.5", waist: "40.25", hip: "49.25" } },
+      { size: "20", measurements: { chest: "48.5", waist: "42.25", hip: "51.25" } },
+      { size: "3X / 22", measurements: { chest: "50.5", waist: "44.25", hip: "53.5" } },
+      { size: "24", measurements: { chest: "52.5", waist: "46.25", hip: "55.25" } },
+    ],
+  },
+  {
+    brand: "Levi's",
+    brandMatch: ["levi", "levi's", "levis"],
+    department: "Men",
+    garment: "Tops & outerwear (body inches)",
+    categoryMatch: [
+      "top", "tee", "shirt", "polo", "sweater", "knit", "hoodie", "sweatshirt",
+      "jacket", "coat", "outerwear", "parka", "trucker", "blazer", "vest",
+    ],
+    sourceUrl: "https://www.levi.com/US/en_US/info/sizeguide",
+    note:
+      "Levi's men's body chart, XS through 5XL, with the neck column the brand " +
+      "prints for woven shirts and the seat column it prints in place of hip.",
+    rows: [
+      { size: "XS / LMC 0", measurements: { chest: "32-34", waist: "26-28", hip: "32-34", neck: "14.75-14.9" } },
+      { size: "S / LMC 1", measurements: { chest: "35-37", waist: "29-31", hip: "35-37", neck: "15-15.25" } },
+      { size: "M / LMC 2", measurements: { chest: "38-40", waist: "32-34", hip: "38-40", neck: "15.4-15.75" } },
+      { size: "L / LMC 3", measurements: { chest: "41-43", waist: "35-37", hip: "41-43", neck: "16.1-16.5" } },
+      { size: "XL / LMC 4", measurements: { chest: "44-46", waist: "38-40", hip: "44-46", neck: "16.9-17.25" } },
+      { size: "XXL", measurements: { chest: "47-49", waist: "41-43", hip: "47-49", neck: "17.6-18" } },
+      { size: "3XL", measurements: { chest: "50-52", waist: "44-46", hip: "50-52", neck: "18.4-18.75" } },
+      { size: "4XL", measurements: { chest: "54-56", waist: "48-50", hip: "54-56", neck: "19.1-19.5" } },
+      { size: "5XL", measurements: { chest: "58-60", waist: "52-54", hip: "58-60", neck: "20.1-20.5" } },
+    ],
+  },
+
+  // Lucky Brand — womens-size-guide.html / mens-size-guide.html
+  {
+    brand: "Lucky Brand",
+    brandMatch: ["lucky brand", "luckybrand"],
+    department: "Women",
+    garment: "Tops & outerwear (body inches)",
+    categoryMatch: [
+      "top", "tee", "shirt", "blouse", "sweater", "knit", "hoodie", "sweatshirt",
+      "tank", "cardigan", "jacket", "coat", "outerwear", "blazer", "vest",
+    ],
+    sourceUrl: "https://www.luckybrand.com/womens-size-guide.html",
+    note:
+      "Lucky's women's alpha chart with the US numeric run beside it. Body " +
+      "measurements. Lucky's DENIM sizes are inches, not dress sizes — that is " +
+      "a separate chart and the two must not be read across.",
+    rows: [
+      { size: "XS / 0-2", measurements: { bust: "33-34", waist: "25.5-26.5", hip: "36-37" } },
+      { size: "S / 4-6", measurements: { bust: "35-36", waist: "27.5-28.5", hip: "38-39" } },
+      { size: "M / 8-10", measurements: { bust: "37-38", waist: "29.5-30.5", hip: "40-41" } },
+      { size: "L / 12-14", measurements: { bust: "39.5-41", waist: "32-33.5", hip: "42.5-44" } },
+      { size: "XL / 16-18", measurements: { bust: "43-45", waist: "35.5-37.5", hip: "46-48" } },
+      { size: "XXL / 20", measurements: { bust: "47", waist: "39.5", hip: "50" } },
+    ],
+  },
+  {
+    brand: "Lucky Brand",
+    brandMatch: ["lucky brand", "luckybrand"],
+    department: "Men",
+    garment: "Tops & outerwear (body inches)",
+    categoryMatch: [
+      "top", "tee", "shirt", "polo", "sweater", "knit", "hoodie", "sweatshirt",
+      "jacket", "coat", "outerwear", "blazer", "vest",
+    ],
+    sourceUrl: "https://www.luckybrand.com/mens-size-guide.html",
+    note:
+      "Lucky's men's chart pairs each alpha label with two chest and waist " +
+      "rows; both are kept here as a range. Body measurements.",
+    rows: [
+      { size: "S", measurements: { chest: "37-38", waist: "31-32" } },
+      { size: "M", measurements: { chest: "39-40", waist: "33-34" } },
+      { size: "L", measurements: { chest: "42-44", waist: "36-38" } },
+      { size: "XL", measurements: { chest: "46-48", waist: "40-42" } },
+      { size: "XXL", measurements: { chest: "50", waist: "44" } },
+    ],
+  },
+
+  // Mackage — the chart lives in the product page's Size Guide panel; the
+  // brand's /pages/size-chart now renders a store locator with no table.
+  {
+    brand: "Mackage",
+    brandMatch: ["mackage"],
+    department: "Women",
+    garment: "Tops & bottoms (body inches)",
+    categoryMatch: [
+      "top", "tee", "shirt", "blouse", "sweater", "knit", "hoodie", "sweatshirt",
+      "tank", "cardigan", "bottom", "pant", "trouser", "legging", "short",
+      "skirt", "jean",
+    ],
+    sourceUrl: "https://www.mackage.com/products/mai",
+    note:
+      "Mackage publishes one women's body chart and applies it to everything " +
+      "it makes, outerwear included. Arm length is the brand's own column, " +
+      "measured from the back of the neck over the shoulder to the wrist.",
+    rows: [
+      { size: "2XS", measurements: { bust: "31-32", waist: "24-24.5", hip: "34-34.5", sleeve: "30" } },
+      { size: "XS", measurements: { bust: "33-34", waist: "25-26", hip: "35.5-37", sleeve: "30.5" } },
+      { size: "S", measurements: { bust: "35-36", waist: "27-28", hip: "38-39", sleeve: "30.5" } },
+      { size: "M", measurements: { bust: "37-38.5", waist: "29-30.5", hip: "40-41.5", sleeve: "31" } },
+      { size: "L", measurements: { bust: "39.5-40", waist: "31.5-33", hip: "42.5-44", sleeve: "31" } },
+      { size: "XL", measurements: { bust: "42-43", waist: "34-35", hip: "45-46", sleeve: "31" } },
+      { size: "2XL", measurements: { bust: "44-46", waist: "36-38.5", hip: "47-49", sleeve: "31.5" } },
+      { size: "3XL", measurements: { bust: "47-50", waist: "39.5-43", hip: "50-53", sleeve: "31.5" } },
+    ],
+  },
+  {
+    brand: "Mackage",
+    brandMatch: ["mackage"],
+    department: "Men",
+    garment: "Tops & bottoms (body inches)",
+    categoryMatch: [
+      "top", "tee", "shirt", "polo", "sweater", "knit", "hoodie", "sweatshirt",
+      "bottom", "pant", "trouser", "short", "jean",
+    ],
+    sourceUrl: "https://www.mackage.com/products/skai-slb",
+    note:
+      "Mackage's men's alpha chart. The brand prints the same measurements " +
+      "against an EU 32-52 numeric run; the alpha labels are what a Mackage " +
+      "garment tag carries in North America.",
+    rows: [
+      { size: "2XS", measurements: { chest: "32-33", waist: "26.5", sleeve: "31.5" } },
+      { size: "XS", measurements: { chest: "34-35", waist: "27.5-28.5", sleeve: "32" } },
+      { size: "S", measurements: { chest: "35.5-36.5", waist: "30-31", sleeve: "32-32.5" } },
+      { size: "M", measurements: { chest: "37.5-38.5", waist: "32-33", sleeve: "32.5-33" } },
+      { size: "L", measurements: { chest: "39-41", waist: "33.5-35.5", sleeve: "33-33.5" } },
+      { size: "XL", measurements: { chest: "41.5-44.5", waist: "36.5-39.5", sleeve: "33.5-34.5" } },
+      { size: "2XL", measurements: { chest: "45.5-48.5", waist: "40.5-44", sleeve: "34-34.5" } },
+      { size: "3XL", measurements: { chest: "49.5-52.5", waist: "45-48.5", sleeve: "34.5-35.5" } },
+    ],
+  },
+
+  // Madewell — https://www.madewell.com/Tops-SizeChart.html
+  {
+    brand: "Madewell",
+    brandMatch: ["madewell"],
+    department: "Women",
+    garment: "Tops & outerwear (body inches)",
+    categoryMatch: [
+      "top", "tee", "shirt", "blouse", "sweater", "knit", "hoodie", "sweatshirt",
+      "tank", "cardigan", "jacket", "coat", "outerwear", "parka", "blazer",
+      "vest",
+    ],
+    sourceUrl: "https://www.madewell.com/Tops-SizeChart.html",
+    note:
+      "Madewell publishes a chart per category and has none for outerwear, so " +
+      "its tops chart is the brand's answer for jackets and coats too. Body " +
+      "measurements, bust and waist only — Madewell prints no hip column here.",
+    rows: [
+      { size: "XXS / 000", measurements: { bust: "31", waist: "23" } },
+      { size: "XS / 00-0", measurements: { bust: "32-33", waist: "24-25" } },
+      { size: "S / 2-4", measurements: { bust: "34-35", waist: "26-27" } },
+      { size: "M / 6-8", measurements: { bust: "36-37", waist: "28-29" } },
+      { size: "L / 10-12", measurements: { bust: "38-39.5", waist: "30-31.5" } },
+      { size: "XL / 14-16", measurements: { bust: "41-42.5", waist: "33-34.5" } },
+      { size: "XXL / 18", measurements: { bust: "45.5", waist: "37.5" } },
+    ],
+  },
+  {
+    brand: "Madewell",
+    brandMatch: ["madewell"],
+    department: "Women",
+    garment: "Tops & outerwear, plus (body inches)",
+    categoryMatch: [
+      "top", "tee", "shirt", "blouse", "sweater", "knit", "hoodie", "sweatshirt",
+      "tank", "cardigan", "jacket", "coat", "outerwear", "parka", "blazer",
+      "vest",
+    ],
+    sizeClass: "plus",
+    sourceUrl: "https://www.madewell.com/Tops-SizeChart.html",
+    note:
+      "Madewell's W run, printed under the standard one on the same page. A " +
+      "14W is NOT a 14: the W run starts 3in of bust above where the standard " +
+      "run's 14 sits.",
+    rows: [
+      { size: "1X / 14W-16W", measurements: { bust: "44-46", waist: "37-39" } },
+      { size: "2X / 18W-20W", measurements: { bust: "48-50", waist: "41-43" } },
+      { size: "3X / 22W", measurements: { bust: "52", waist: "45" } },
+      { size: "4X / 26W-28W", measurements: { bust: "56-58", waist: "49-51" } },
+    ],
+  },
+
+  // Moncler — https://www.moncler.com/en-us/client-service/size_guide
+  // Moncler prints inches to two decimals converted from centimetres; the
+  // decimals are its own numbers, kept rather than rounded.
+  {
+    brand: "Moncler",
+    brandMatch: ["moncler"],
+    department: "Women",
+    garment: "Tops & bottoms (body inches)",
+    categoryMatch: [
+      "top", "tee", "shirt", "blouse", "sweater", "knit", "hoodie", "sweatshirt",
+      "tank", "cardigan", "bottom", "pant", "trouser", "short", "skirt", "jean",
+      "legging",
+    ],
+    sourceUrl: "https://www.moncler.com/en-us/client-service/size_guide",
+    note:
+      "Moncler publishes ONE women's ready-to-wear chart covering tops and " +
+      "bottoms together, on the Italian 36-54 run with the alpha beside it. " +
+      "Body measurements — Moncler's own instruction is to measure the body, " +
+      "not the garment. Its outerwear uses the separate 0-5 scale.",
+    rows: [
+      { size: "3XS / IT 36", measurements: { bust: "31.10", waist: "23.62", hip: "33.46" } },
+      { size: "XXS / IT 38", measurements: { bust: "32.28", waist: "24.80", hip: "34.65" } },
+      { size: "XS / IT 40", measurements: { bust: "33.86", waist: "26.38", hip: "36.22" } },
+      { size: "S / IT 42", measurements: { bust: "35.43", waist: "27.95", hip: "37.80" } },
+      { size: "M / IT 44", measurements: { bust: "37.01", waist: "29.53", hip: "39.37" } },
+      { size: "L / IT 46", measurements: { bust: "38.58", waist: "31.10", hip: "40.94" } },
+      { size: "XL / IT 48", measurements: { bust: "40.16", waist: "32.68", hip: "42.52" } },
+      { size: "XXL / IT 50", measurements: { bust: "42.52", waist: "35.04", hip: "44.88" } },
+      { size: "3XL / IT 52", measurements: { bust: "44.88", waist: "37.40", hip: "47.24" } },
+      { size: "4XL / IT 54", measurements: { bust: "46.46", waist: "38.98", hip: "48.82" } },
+    ],
+  },
+  {
+    brand: "Moncler",
+    brandMatch: ["moncler"],
+    department: "Men",
+    garment: "Tops (body inches)",
+    categoryMatch: [
+      "top", "tee", "shirt", "polo", "sweater", "knit", "hoodie", "sweatshirt",
+      "cardigan",
+    ],
+    sourceUrl: "https://www.moncler.com/en-us/client-service/size_guide",
+    note:
+      "Moncler's men's tops chart, alpha XXS-4XL against the Italian 42-58 run. " +
+      "Body measurements. Its outerwear uses the separate 0-5 scale.",
+    rows: [
+      { size: "XXS / IT 42", measurements: { chest: "33.07", waist: "28.35", hip: "34.65" } },
+      { size: "XS / IT 44", measurements: { chest: "34.65", waist: "29.92", hip: "36.22" } },
+      { size: "S / IT 46", measurements: { chest: "36.22", waist: "31.50", hip: "37.80" } },
+      { size: "M / IT 48", measurements: { chest: "37.80", waist: "33.07", hip: "39.37" } },
+      { size: "L / IT 50", measurements: { chest: "39.37", waist: "34.65", hip: "40.94" } },
+      { size: "XL / IT 52", measurements: { chest: "41.73", waist: "37.01", hip: "43.31" } },
+      { size: "XXL / IT 54", measurements: { chest: "44.09", waist: "39.37", hip: "45.67" } },
+      { size: "3XL / IT 56", measurements: { chest: "46.46", waist: "41.43", hip: "48.03" } },
+      { size: "4XL / IT 58", measurements: { chest: "48.82", waist: "44.09", hip: "50.39" } },
+    ],
+  },
+  {
+    brand: "Moncler",
+    brandMatch: ["moncler"],
+    department: "Men",
+    garment: "Bottoms (body inches)",
+    categoryMatch: ["bottom", "pant", "trouser", "short", "jean", "chino", "cargo"],
+    sourceUrl: "https://www.moncler.com/en-us/client-service/size_guide",
+    note:
+      "Moncler's men's bottoms chart. Leg is the brand's own inseam column, " +
+      "measured from below the crotch to the floor. Body measurements. The " +
+      "waist run is 2in narrower than the tops chart's at the top sizes, so a " +
+      "Moncler L in trousers is not the same body as a Moncler L in knitwear.",
+    rows: [
+      { size: "XXS / IT 42", measurements: { waist: "28.35", hip: "34.65", inseam: "29.53" } },
+      { size: "XS / IT 44", measurements: { waist: "29.92", hip: "36.22", inseam: "29.92" } },
+      { size: "S / IT 46", measurements: { waist: "31.50", hip: "37.80", inseam: "30.31" } },
+      { size: "M / IT 48", measurements: { waist: "33.07", hip: "39.37", inseam: "30.71" } },
+      { size: "L / IT 50", measurements: { waist: "34.65", hip: "40.94", inseam: "31.10" } },
+      { size: "XL / IT 52", measurements: { waist: "36.61", hip: "42.91", inseam: "31.50" } },
+      { size: "XXL / IT 54", measurements: { waist: "38.58", hip: "44.88", inseam: "31.89" } },
+      { size: "3XL / IT 56", measurements: { waist: "40.55", hip: "46.85", inseam: "32.38" } },
+      { size: "4XL / IT 58", measurements: { waist: "42.52", hip: "48.82", inseam: "32.28" } },
+    ],
+  },
+
+  // MOTHER — https://www.motherdenim.com/pages/size-guide
+  {
+    brand: "MOTHER",
+    brandMatch: ["mother"],
+    department: "Women",
+    garment: "Tops & outerwear (body inches)",
+    categoryMatch: [
+      "top", "tee", "shirt", "blouse", "sweater", "knit", "hoodie", "sweatshirt",
+      "tank", "cardigan", "jacket", "coat", "outerwear", "blazer", "vest",
+    ],
+    sourceUrl: "https://www.motherdenim.com/pages/size-guide",
+    note:
+      "MOTHER publishes one women's chart headed 'Stretch Denim and Tops', so " +
+      "the same body run answers for a tee, a jacket and a jean. The MOTHER " +
+      "size IS the denim waist in inches; the alpha grouping below is the " +
+      "brand's own, three denim sizes to each label.",
+    rows: [
+      { size: "X-SMALL / 23-25", measurements: { bust: "30-32", waist: "23-25", hip: "33-35" } },
+      { size: "SMALL / 26-28", measurements: { bust: "33-35", waist: "26-28", hip: "36-38" } },
+      { size: "MEDIUM / 29-31", measurements: { bust: "36-38", waist: "29-31", hip: "39-41" } },
+      { size: "LARGE / 32-34", measurements: { bust: "39-41", waist: "32-34", hip: "42-44" } },
+    ],
+  },
+  {
+    brand: "MOTHER",
+    brandMatch: ["mother"],
+    department: "Men",
+    garment: "Tops & outerwear (body inches)",
+    categoryMatch: [
+      "top", "tee", "shirt", "polo", "sweater", "knit", "hoodie", "sweatshirt",
+      "jacket", "coat", "outerwear", "vest",
+    ],
+    sourceUrl: "https://www.motherdenim.com/pages/size-guide",
+    note:
+      "MOTHER's men's chart, also headed 'Stretch Denim and Tops'. The MOTHER " +
+      "size IS the denim waist in inches and equals the body waist, which is " +
+      "unusual and is what the brand prints. The run skips 35.",
+    rows: [
+      { size: "X-SMALL / 28", measurements: { chest: "36", waist: "28", hip: "35" } },
+      { size: "SMALL / 29-31", measurements: { chest: "37-39", waist: "29-31", hip: "36-38" } },
+      { size: "MEDIUM / 32-34", measurements: { chest: "40-42", waist: "32-34", hip: "39-41" } },
+      { size: "LARGE-XL / 36", measurements: { chest: "44", waist: "36", hip: "43" } },
+    ],
+  },
+
+  // PacSun — https://www.pacsun.com/sizechart-womens-tops.html
+  {
+    brand: "PacSun",
+    brandMatch: ["pacsun", "pacific sunwear", "bullhead"],
+    department: "Women",
+    garment: "Tops & outerwear (body inches)",
+    categoryMatch: [
+      "top", "tee", "shirt", "blouse", "sweater", "knit", "hoodie", "sweatshirt",
+      "tank", "cardigan", "fleece", "jacket", "coat", "outerwear", "vest",
+    ],
+    sourceUrl: "https://www.pacsun.com/sizechart-womens-tops.html",
+    note:
+      "PacSun's women's Tops Apparel chart, which the brand reprints verbatim " +
+      "on its hoodies-and-fleece page, so one row answers for both. Body " +
+      "measurements, bust and waist only. This is the house chart — John Galt " +
+      "and other brands PacSun carries size on their own.",
+    rows: [
+      { size: "XXS", measurements: { bust: "31-32", waist: "23-24" } },
+      { size: "XS", measurements: { bust: "33-34", waist: "25-26" } },
+      { size: "S", measurements: { bust: "35-36", waist: "27-28" } },
+      { size: "M", measurements: { bust: "37-38", waist: "29-30" } },
+      { size: "L", measurements: { bust: "39.5-41", waist: "31.5-33" } },
+      { size: "XL", measurements: { bust: "42.5", waist: "34.5" } },
+    ],
+  },
+
+  // PAIGE — the chart lives in the product page's Size Guide panel; the brand's
+  // /size-guide renders its heading with no table under it.
+  {
+    brand: "PAIGE",
+    brandMatch: ["paige"],
+    department: "Women",
+    garment: "Tops & outerwear (body inches)",
+    categoryMatch: [
+      "top", "tee", "shirt", "blouse", "sweater", "knit", "hoodie", "sweatshirt",
+      "tank", "cardigan", "jacket", "coat", "outerwear", "blazer", "vest",
+    ],
+    sourceUrl: "https://paige.com/products/women-kyoto-cardigan-camel",
+    note:
+      "PAIGE's women's chart, alpha with the US numeric run beside it. Body " +
+      "measurements, bust and waist only. Two numeric sizes share several alpha " +
+      "labels, which is the brand's own table and not a transcription slip.",
+    rows: [
+      { size: "XXS / 00", measurements: { bust: "31", waist: "23" } },
+      { size: "XS / 0-2", measurements: { bust: "32-33", waist: "24-25" } },
+      { size: "S / 4", measurements: { bust: "34-35", waist: "26-27" } },
+      { size: "M / 6-8", measurements: { bust: "36-37", waist: "28-29" } },
+      { size: "L / 10-12", measurements: { bust: "38-38.5", waist: "30-31.5" } },
+      { size: "XL / 14", measurements: { bust: "40", waist: "33" } },
+      { size: "XXL / 16", measurements: { bust: "41.5", waist: "34.5" } },
+    ],
+  },
+  {
+    brand: "PAIGE",
+    brandMatch: ["paige"],
+    department: "Men",
+    garment: "Tops & outerwear (body inches)",
+    categoryMatch: [
+      "top", "tee", "shirt", "polo", "sweater", "knit", "hoodie", "sweatshirt",
+      "jacket", "coat", "outerwear", "blazer", "vest",
+    ],
+    sourceUrl: "https://paige.com/products/men-matsuda-sweater-dark-heather-grey",
+    note:
+      "PAIGE's men's chart. Two or three chest rows share each alpha label, so " +
+      "each row here is the brand's full range for that label. Body " +
+      "measurements.",
+    rows: [
+      { size: "XS", measurements: { chest: "36-37", waist: "30-31", hip: "36.5-37.5" } },
+      { size: "S", measurements: { chest: "38-39", waist: "32-33", hip: "38.5-39.5" } },
+      { size: "M", measurements: { chest: "40-42", waist: "34-36", hip: "40.5-42.5" } },
+      { size: "L", measurements: { chest: "43-44.5", waist: "37-38", hip: "43.5-44.5" } },
+      { size: "XL", measurements: { chest: "46-47.5", waist: "40-42", hip: "46.5-48.5" } },
+      { size: "XXL", measurements: { chest: "49.5-51.5", waist: "44-46", hip: "50.5-52.5" } },
+    ],
+  },
 ];
 
 function norm(s: string | null | undefined): string {

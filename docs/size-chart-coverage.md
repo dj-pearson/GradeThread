@@ -6,17 +6,17 @@ Coverage is measured the way the size-guide panel resolves a chart: a real brand
 
 ## Where it stands
 
-- 167 brands, 308 brand-specific charts.
-- 22 charts link the brand's own guide; 0 have been checked against it by a human.
-- 81 brands are missing at least one group they should cover.
+- 167 brands, 331 brand-specific charts.
+- 45 charts link the brand's own guide; 0 have been checked against it by a human.
+- 71 brands are missing at least one group they should cover.
 
 | Group | Brands covered |
 |---|---:|
-| top | 105 |
-| bottom | 92 |
-| dress | 50 |
-| outerwear | 92 |
-| suit | 30 |
+| top | 115 |
+| bottom | 94 |
+| dress | 51 |
+| outerwear | 100 |
+| suit | 37 |
 | shoes | 27 |
 | bag | 10 |
 | watch | 1 |
@@ -104,10 +104,10 @@ Coverage is measured the way the size-guide panel resolves a chart: a real brand
 | Herno | 4 | Men, Women | Men, Women | Women | Men, Women | Men |  |  |  |  |  |  |
 | Herschel Supply Co. | 1 |  |  |  |  |  |  | Unisex |  |  |  |  |
 | HOKA | 2 |  |  |  |  |  | Men, Women |  |  |  |  |  |
-| Hudson Jeans | 2 |  | Men, Women |  |  |  |  |  |  |  |  | top, outerwear |
+| Hudson Jeans | 6 | Men, Women | Men, Women |  | Men, Women | Men, Women |  |  |  |  |  |  |
 | J.Crew | 2 | Men | Men |  |  |  |  |  |  |  |  | outerwear |
 | Janie and Jack | 2 | Kids | Kids | Baby, Kids |  | Kids |  |  |  |  |  | outerwear |
-| Joe's Jeans | 2 |  | Men, Women |  |  |  |  |  |  |  |  | top, outerwear |
+| Joe's Jeans | 4 | Men, Women | Men, Women | Women | Men, Women | Men, Women |  |  |  |  |  |  |
 | Johnnie-O | 1 | Men |  |  | Men |  |  |  |  |  |  | bottom |
 | Kate Spade | 2 | Women |  | Women | Women |  |  |  |  |  |  | bottom |
 | KEEN | 2 |  |  |  |  |  | Men, Women |  |  |  |  |  |
@@ -115,21 +115,21 @@ Coverage is measured the way the size-guide panel resolves a chart: a real brand
 | Kühl | 2 | Men, Women | Men, Women |  | Men, Women |  |  |  |  |  |  |  |
 | L.L.Bean | 2 | Men | Men |  | Men |  |  |  |  |  |  |  |
 | Lee | 3 |  | Men, Women |  | Unisex |  |  |  |  |  |  | top |
-| Levi's | 2 |  | Men, Women |  |  |  |  |  |  |  |  | top, outerwear |
+| Levi's | 5 | Men, Women | Men, Women |  | Men, Women | Men, Women |  |  |  |  |  |  |
 | LOFT | 3 | Women | Women | Women | Women | Women |  |  |  |  |  |  |
 | Longchamp | 1 |  |  |  |  |  |  | Unisex |  |  |  |  |
-| Lucky Brand | 2 |  | Men, Women |  |  |  |  |  |  |  |  | top, outerwear |
+| Lucky Brand | 4 | Men, Women | Men, Women |  | Men, Women | Men, Women |  |  |  |  |  |  |
 | Lululemon | 4 | Men, Women | Men, Women |  | Men, Women |  |  |  |  |  |  |  |
-| Mackage | 2 |  |  |  | Men, Women |  |  |  |  |  |  | top, bottom |
-| Madewell | 1 |  | Women |  |  |  |  |  |  |  |  | top, outerwear |
+| Mackage | 4 | Men, Women | Men, Women |  | Men, Women |  |  |  |  |  |  |  |
+| Madewell | 3 | Women | Women |  | Women | Women |  |  |  |  |  |  |
 | Mammut | 2 | Men, Women | Men, Women |  | Men, Women |  |  |  |  |  |  |  |
 | Marc Jacobs | 1 |  |  |  |  |  |  | Women |  |  |  |  |
 | Marmot | 1 | Men |  |  | Men |  |  |  |  |  |  | bottom |
 | Merrell | 2 |  |  |  |  |  | Men, Women |  |  |  |  |  |
 | Michael Kors | 2 | Women | Women | Women | Women | Women |  |  |  |  |  |  |
 | Mini Boden | 1 | Kids | Kids | Kids |  |  |  |  |  |  |  | outerwear |
-| Moncler | 2 |  |  |  | Men, Women |  |  |  |  |  |  | top, bottom |
-| MOTHER | 1 |  | Women |  |  |  |  |  |  |  |  | top, outerwear |
+| Moncler | 5 | Men, Women | Men, Women |  | Men, Women |  |  |  |  |  |  |  |
+| MOTHER | 3 | Men, Women | Women |  | Men, Women | Women |  |  |  |  |  |  |
 | Mountain Hardwear | 1 | Men |  |  | Men |  |  |  |  |  |  | bottom |
 | New Balance | 2 |  |  |  |  |  | Men, Women |  |  |  |  |  |
 | Nike | 2 | Men, Women |  |  | Men, Women |  |  |  |  |  |  | bottom |
@@ -139,8 +139,8 @@ Coverage is measured the way the size-guide panel resolves a chart: a real brand
 | Orvis | 1 | Men |  |  | Men |  |  |  |  |  |  | bottom |
 | Outdoor Research | 2 | Men, Women | Men, Women |  | Men, Women |  |  |  |  |  |  |  |
 | Outdoor Voices | 1 | Women | Women | Women |  |  |  |  |  |  |  | outerwear |
-| PacSun | 1 |  | Women |  |  |  |  |  |  |  |  | top, outerwear |
-| PAIGE | 2 |  | Men, Women |  |  |  |  |  |  |  |  | top, outerwear |
+| PacSun | 2 | Women | Women |  | Women |  |  |  |  |  |  |  |
+| PAIGE | 4 | Men, Women | Men, Women |  | Men, Women | Men, Women |  |  |  |  |  |  |
 | Palace | 1 | Men |  |  |  |  |  |  |  |  |  | bottom, outerwear |
 | Pendleton | 1 | Men |  |  | Men |  |  |  |  |  |  | bottom |
 | Peter Millar | 3 | Men, Women | Men | Women | Men, Women | Men |  |  |  |  |  |  |

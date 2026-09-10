@@ -1,11 +1,63 @@
 # PENDING MIGRATIONS — applied to prod separately from the push
 
-## 🔒 HELD: 00776 — give brand_size_charts the source URLs the charts now carry (US-3284)
+## ✅ APPLIED 2026-09-10: 00779 — batch 2 of the sourced size charts (US-3285)
+
+**Risk: LOW.** Same shape as 00776 below, which is now applied: insert-or-update
+into `public.brand_size_charts`, a global reference table with deny-all RLS and
+no tenant data. No schema change, nothing dropped, nothing revoked. Idempotent.
+
+**⚠ WHY IT IS 00779 AND NOT 00777.** It was written as 00777, and prod already
+records 00777 AND 00778 — applied by a concurrent session whose files are on
+neither `main` nor any branch in this checkout. Keeping 00777 would have been
+worse than a name clash: `apply-prod-migrations.sh` skips every file at or below
+the highest recorded version, so a file numbered 00777 would be skipped forever
+and silently, which is US-2726's failure exactly. Renumbering leaves 00777 and
+00778 as gaps in this repo until that session pushes. Both are in
+`migrations-lint`'s `KNOWN_GAPS` marked TEMPORARY, so CI is not red over
+someone else's unpushed work — and the lint fails the moment those two files
+land, at which point the two entries must be deleted.
+
+**What it does.** 23 more sizing charts, across Hudson Jeans, Joe's Jeans,
+Levi's, Lucky Brand, Mackage, Madewell, Moncler, MOTHER, PacSun and PAIGE, each
+transcribed from the brand's own published guide and carrying a real
+`source_url` plus `confidence 0.85`. `verified` stays false on every one: an
+agent transcribed them, no human has re-checked them, and the size-guide panel
+renders its trust badge straight off that column.
+
+**It re-emits 00776's rows too, and that is by design.** The generator's scope
+is every chart in the corpus carrying a `sourceUrl`, not just this batch's — 42
+rows in total. Re-writing batch 1's 19 with identical values costs nothing and
+spares anyone the bookkeeping of which brand landed in which migration. 00776 is
+already applied, so **00779 alone is what remains**.
+
+**Two brands' `source_url` points at a PRODUCT page, not a guide page.**
+Mackage's `/pages/size-chart` now renders a store locator and PAIGE's
+`/size-guide` renders its heading with no table under it; both still publish the
+chart in the product page's Size Guide panel. Those URLs can rot in a way a
+guide page would not, so a dead link on those two brands has a known cause.
+
+**Apply order:** after 00778, which prod already records. `NOTIFY pgrst, 'reload
+schema';` afterwards is harmless (no table, column or RPC signature changed) but
+cheap. Redeploy the edge afterwards: its boot guard now expects 00779.
+
+**The frontend in the same push is safe without the SQL**, for the same reason
+00776's is — the panel resolves DB-first and falls back to the in-code corpus,
+which already compiles in these charts and their source URLs.
+
+
+## ✅ APPLIED 2026-09-10 (recorded earlier, heading flipped late): 00776 — give brand_size_charts the source URLs the charts now carry (US-3284)
 
 **Risk: LOW.** Insert-or-update into `public.brand_size_charts`, a global
 reference table with deny-all RLS and no tenant data. No schema change, nothing
 dropped, nothing revoked. Every value is derived from committed code, so it is
 idempotent and safe to run twice.
+
+**Applied to prod before this heading was flipped, which is the defect the
+pre-push gate caught.** `applied_migrations` records 00776, so the SQL ran; the
+heading here still said HELD, and 00776's file was already on `origin/main`.
+Nobody was blocked and nothing was broken, but for a day the repo's own answer
+to "is this applied" was wrong. Confirmed 2026-09-10 by reading
+`public.applied_migrations` directly.
 
 **What it does.** 19 sizing charts across 10 brands, each transcribed from the
 brand's OWN published size guide, land with a real `source_url`. Before this

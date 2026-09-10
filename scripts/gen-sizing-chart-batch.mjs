@@ -85,7 +85,8 @@ export function chartToValues(chart, migration) {
 export function buildSql(charts, migration) {
   const sourced = sourcedCharts(charts);
   const values = sourced.map((c) => chartToValues(c, migration)).join(",\n");
-  return `-- US-3284: give brand_size_charts the source URLs the charts now carry.
+  return `-- Size-chart backfill (US-3284 and the batches after it): give
+-- brand_size_charts the source URLs the charts now carry.
 --
 -- GENERATED FILE — do not hand-edit. Regenerate with:
 --   deno run --allow-read --allow-write scripts/gen-sizing-chart-batch.mjs ${migration}
