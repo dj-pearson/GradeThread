@@ -6,17 +6,17 @@ Coverage is measured the way the size-guide panel resolves a chart: a real brand
 
 ## Where it stands
 
-- 167 brands, 308 brand-specific charts.
-- 22 charts link the brand's own guide; 0 have been checked against it by a human.
-- 81 brands are missing at least one group they should cover.
+- 167 brands, 313 brand-specific charts.
+- 27 charts link the brand's own guide; 0 have been checked against it by a human.
+- 77 brands are missing at least one group they should cover.
 
 | Group | Brands covered |
 |---|---:|
-| top | 105 |
+| top | 109 |
 | bottom | 92 |
-| dress | 50 |
-| outerwear | 92 |
-| suit | 30 |
+| dress | 51 |
+| outerwear | 96 |
+| suit | 31 |
 | shoes | 27 |
 | bag | 10 |
 | watch | 1 |
@@ -72,12 +72,12 @@ Coverage is measured the way the size-guide panel resolves a chart: a real brand
 | Cotopaxi | 2 | Men, Women |  |  | Men, Women |  |  |  |  |  |  | bottom |
 | Crocs | 1 |  |  |  |  |  | Unisex |  |  |  |  |  |
 | Denim Tears | 2 | Unisex | Unisex |  | Unisex |  |  |  |  |  |  |  |
-| Dickies | 1 |  | Men |  |  |  |  |  |  |  |  | top, outerwear |
+| Dickies | 2 | Men | Men |  | Men |  |  |  |  |  |  |  |
 | Diesel | 3 |  | Men, Women |  | Unisex |  |  |  |  |  |  | top |
 | Dior | 2 | Men, Women | Men, Women | Women | Men, Women | Men |  |  |  |  |  |  |
 | Dooney & Bourke | 1 |  |  |  |  |  |  | Women |  |  |  |  |
 | Dr. Martens | 1 |  |  |  |  |  | Unisex |  |  |  |  |  |
-| Duluth Trading Co. | 1 |  | Men |  |  |  |  |  |  |  |  | top, outerwear |
+| Duluth Trading Co. | 2 | Men | Men |  | Men |  |  |  |  |  |  |  |
 | Eileen Fisher | 2 | Women | Women | Women | Women |  |  |  |  |  |  |  |
 | Express | 2 | Women | Women | Women |  |  |  |  |  |  |  | outerwear |
 | Fabletics | 2 | Women | Women | Women | Women |  |  |  |  |  |  |  |
@@ -115,13 +115,13 @@ Coverage is measured the way the size-guide panel resolves a chart: a real brand
 | Kühl | 2 | Men, Women | Men, Women |  | Men, Women |  |  |  |  |  |  |  |
 | L.L.Bean | 2 | Men | Men |  | Men |  |  |  |  |  |  |  |
 | Lee | 3 |  | Men, Women |  | Unisex |  |  |  |  |  |  | top |
-| Levi's | 2 |  | Men, Women |  |  |  |  |  |  |  |  | top, outerwear |
+| Levi's | 4 | Men, Women | Men, Women | Women | Men, Women |  |  |  |  |  |  |  |
 | LOFT | 3 | Women | Women | Women | Women | Women |  |  |  |  |  |  |
 | Longchamp | 1 |  |  |  |  |  |  | Unisex |  |  |  |  |
 | Lucky Brand | 2 |  | Men, Women |  |  |  |  |  |  |  |  | top, outerwear |
 | Lululemon | 4 | Men, Women | Men, Women |  | Men, Women |  |  |  |  |  |  |  |
 | Mackage | 2 |  |  |  | Men, Women |  |  |  |  |  |  | top, bottom |
-| Madewell | 1 |  | Women |  |  |  |  |  |  |  |  | top, outerwear |
+| Madewell | 2 | Women | Women |  | Women | Women |  |  |  |  |  |  |
 | Mammut | 2 | Men, Women | Men, Women |  | Men, Women |  |  |  |  |  |  |  |
 | Marc Jacobs | 1 |  |  |  |  |  |  | Women |  |  |  |  |
 | Marmot | 1 | Men |  |  | Men |  |  |  |  |  |  | bottom |

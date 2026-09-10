@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-3297",
+  "nextId": "US-3298",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -5101,24 +5101,6 @@
       "priority": 2
     },
     {
-      "id": "US-3285",
-      "passes": false,
-      "title": "Size charts, batch 2 of 11: Hudson Jeans to PAIGE",
-      "description": "Ten brands whose size-guide panel shows a gap for a garment group they sell. Follow vault/20-domain/brands/size-chart-coverage-backfill.md. Batch: Hudson Jeans (top, outerwear, dress); Joe's Jeans (top, outerwear, dress); Levi's (top, outerwear, dress); Lucky Brand (top, outerwear, dress); Mackage (top, bottom, dress); Madewell (top, outerwear, dress); Moncler (top, bottom, dress); MOTHER (top, outerwear, dress); PacSun (top, outerwear, dress); PAIGE (top, outerwear, dress).",
-      "acceptanceCriteria": [
-        "Each brand in the batch has a SizingChart for every group the coverage report lists as missing, with categoryMatch words a seller would actually type",
-        "Every new chart sets sourceUrl to the brand's OWN published guide, never a reseller blog or a marketplace table",
-        "measurementBasis is set to flat only where the brand publishes garment specs; body charts leave it absent",
-        "verified stays absent unless a human compared the rows against sourceUrl, so the panel's tier badge cannot overstate an estimate",
-        "scripts/gen-sizing-chart-seed.mjs is re-run and the regenerated migration lands in the same commit; sizing-chart-parity_test.ts passes",
-        "docs/size-chart-coverage.md is regenerated and shows no remaining gap for these ten brands, or the story note names each exception and why"
-      ],
-      "priority": 4,
-      "dependsOn": [
-        "US-3283"
-      ]
-    },
-    {
       "id": "US-3286",
       "passes": false,
       "title": "Size charts, batch 3 of 11: Rag & Bone to Anti Social Social Club",
@@ -5293,6 +5275,22 @@
         "A test proves a token minted 31 days ago resolves to reconnect, not to a plan upgrade"
       ],
       "priority": 2
+    },
+    {
+      "id": "US-3297",
+      "passes": false,
+      "title": "Offers and Messages: tabbed tables instead of five stacked cards",
+      "description": "The offers screen renders five cards at once (threshold conflicts, best offers, watchers worth an offer, send offers, messages, analytics), each a full list of bordered row divs in a max-w-3xl column. At any real negotiation volume it is a long scroll with no way to sort by what expires first, no way to search a buyer, and offers and messages competing for the same screen. Rebuild it on the post-sale pattern (US-3208): one section per tab with a count badge, and replace the row-div lists with real sortable tables plus an expandable detail row for the counter/reply forms.",
+      "acceptanceCriteria": [
+        "The page is a Tabs host with ?tab= persistence and legacy anchors resolving, in its own testable module like post-sale-tabs.ts",
+        "Best Offers renders as a sortable table (item, buyer, offer, % of asking, net, expires) that defaults to soonest-expiring first, with Accept/Counter/Decline in the row and the counter form in an expandable detail row",
+        "Buyer messages renders as a table (buyer, subject/preview, received, status) with the reply form in an expandable detail row, keeping the Needs-reply filter",
+        "Both tables have a text filter over item title and buyer name",
+        "Phones get a card list instead of the table, the same md: split listings.tsx uses",
+        "Tab badges show open offer count and unanswered message count, and never render a 0 that is really 'still loading'",
+        "npm run ui:check stays at zero and npx tsc -b passes"
+      ],
+      "priority": 30
     }
   ]
 }

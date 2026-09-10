@@ -9514,6 +9514,164 @@ export const SIZING_CHARTS: SizingChart[] = [
       { size: "IT 64", measurements: { us: "54", uk: "54", fr: "60", de: "64", jp: "7XL" } },
     ],
   },
+
+  // ── US-3285: size-chart backfill, batch 2 ──────────────────────────────────
+  //
+  // Same rules as batch 1: every chart read off the brand's OWN published guide,
+  // `sourceUrl` set, `verified` left absent because an agent transcribed it and
+  // no human has checked it.
+  //
+  // FOUR BRANDS, NOT TEN, and that is the batch working rather than failing.
+  // The other six either publish no numeric chart at all (Bonobos ships a
+  // qualitative fit guide; Mackage's size-chart page renders empty), had their
+  // site erroring at the time (Barbour), or print a table whose column meanings
+  // could not be settled from the page (Hudson's tops and jackets tabs give two
+  // bust runs three inches apart with no statement of whether either is a body
+  // or a garment measurement). The runbook's rule is that a chart nobody can
+  // read confidently does not go in, so those stay on the gap list with a
+  // reason rather than going in as a guess.
+
+  // Dickies — https://www.dickies.com/en-us/pages/mens-tops-size-chart
+  {
+    brand: "Dickies",
+    brandMatch: ["dickies"],
+    department: "Men",
+    garment: "Tops & outerwear (alpha, body inches)",
+    categoryMatch: [
+      "top", "tee", "shirt", "polo", "sweater", "knit", "hoodie", "sweatshirt",
+      "jacket", "coat", "outerwear", "vest", "flannel",
+    ],
+    sourceUrl: "https://www.dickies.com/en-us/pages/mens-tops-size-chart",
+    note:
+      "Dickies' published men's tops chart, which is also what its work jackets " +
+      "are sized off — the brand publishes no separate outerwear table. Body " +
+      "measurements, not flat. Big & Tall is a separate published chart.",
+    rows: [
+      { size: "S", measurements: { neck: "14.5", chest: "34-37", sleeve: "32.25" } },
+      { size: "M", measurements: { neck: "15.5", chest: "38-41", sleeve: "33.5" } },
+      { size: "L", measurements: { neck: "16.5", chest: "42-45", sleeve: "34.25" } },
+      { size: "XL", measurements: { neck: "17.5", chest: "46-49", sleeve: "35" } },
+      { size: "2XL", measurements: { neck: "18.5", chest: "50-53", sleeve: "35.75" } },
+      { size: "3XL", measurements: { neck: "19.5", chest: "54-57", sleeve: "36.5" } },
+      { size: "4XL", measurements: { neck: "20.5", chest: "58-60", sleeve: "37" } },
+      { size: "5XL", measurements: { neck: "21.5", chest: "61-63", sleeve: "37.5" } },
+    ],
+  },
+
+  // Levi's — https://www.levi.com/US/en_US/info/sizeguide
+  // The women's tops table and the women's dresses table are the SAME numbers on
+  // Levi's own page, so one chart covers both.
+  {
+    brand: "Levi's",
+    brandMatch: ["levi", "levi's", "levis"],
+    department: "Men",
+    garment: "Tops & outerwear (alpha, body inches)",
+    categoryMatch: [
+      "top", "tee", "shirt", "polo", "sweater", "knit", "hoodie", "sweatshirt",
+      "jacket", "coat", "outerwear", "trucker", "vest",
+    ],
+    sourceUrl: "https://www.levi.com/US/en_US/info/sizeguide",
+    note:
+      "Levi's men's tops chart, which its own guide says covers T-shirts, " +
+      "shirts, sweatshirts AND Trucker jackets. Body measurements, not flat. " +
+      "Big & Tall is a separate published chart and is not folded in.",
+    rows: [
+      { size: "XS", measurements: { neck: "14.75-14.9", chest: "32-34", waist: "26-28", hip: "32-34" } },
+      { size: "S", measurements: { neck: "15-15.25", chest: "35-37", waist: "29-31", hip: "35-37" } },
+      { size: "M", measurements: { neck: "15.4-15.75", chest: "38-40", waist: "32-34", hip: "38-40" } },
+      { size: "L", measurements: { neck: "16.1-16.5", chest: "41-43", waist: "35-37", hip: "41-43" } },
+      { size: "XL", measurements: { neck: "16.9-17.25", chest: "44-46", waist: "38-40", hip: "44-46" } },
+    ],
+  },
+  {
+    brand: "Levi's",
+    brandMatch: ["levi", "levi's", "levis"],
+    department: "Women",
+    garment: "Tops, outerwear & dresses (alpha, body inches)",
+    categoryMatch: [
+      "top", "tee", "shirt", "blouse", "sweater", "knit", "hoodie", "sweatshirt",
+      "tank", "jacket", "coat", "outerwear", "trucker", "vest", "dress", "romper",
+      "jumpsuit",
+    ],
+    sourceUrl: "https://www.levi.com/US/en_US/info/sizeguide",
+    note:
+      "Levi's prints IDENTICAL numbers under Women's Tops and Women's Dresses, " +
+      "so one chart answers for both. Body measurements, not flat. Plus is a " +
+      "separate published chart. The column Levi's labels CHEST is the bust.",
+    rows: [
+      { size: "XXS", measurements: { bust: "31", waist: "24.25", hip: "34" } },
+      { size: "XS / 0", measurements: { bust: "33", waist: "26.25", hip: "36" } },
+      { size: "S / 1", measurements: { bust: "35", waist: "28.25", hip: "38" } },
+      { size: "M / 2", measurements: { bust: "37", waist: "30.25", hip: "40" } },
+      { size: "L / 3", measurements: { bust: "39.5", waist: "32.75", hip: "42.5" } },
+      { size: "XL / 4", measurements: { bust: "42.5", waist: "35.75", hip: "45.5" } },
+      { size: "XXL", measurements: { bust: "45.5", waist: "38.75", hip: "48.5" } },
+    ],
+  },
+
+  // Madewell — https://www.madewell.com/Tops-SizeChart.html
+  {
+    brand: "Madewell",
+    brandMatch: ["madewell"],
+    department: "Women",
+    garment: "Tops & outerwear (alpha/numeric, body inches)",
+    categoryMatch: [
+      "top", "tee", "shirt", "blouse", "sweater", "knit", "hoodie", "sweatshirt",
+      "tank", "jacket", "coat", "outerwear", "blazer", "vest",
+    ],
+    sourceUrl: "https://www.madewell.com/Tops-SizeChart.html",
+    note:
+      "Madewell's published women's tops chart, bust and waist only — the brand " +
+      "publishes no separate outerwear table. Body measurements, not flat. The " +
+      "14W-26W plus run is a separate size class on the same page and is left " +
+      "out so the standard run stays a countable sequence.",
+    rows: [
+      { size: "XXS / 000", measurements: { bust: "31", waist: "23" } },
+      { size: "XS / 00", measurements: { bust: "32", waist: "24" } },
+      { size: "XS / 0", measurements: { bust: "33", waist: "25" } },
+      { size: "S / 2", measurements: { bust: "34", waist: "26" } },
+      { size: "S / 4", measurements: { bust: "35", waist: "27" } },
+      { size: "M / 6", measurements: { bust: "36", waist: "28" } },
+      { size: "M / 8", measurements: { bust: "37", waist: "29" } },
+      { size: "L / 10", measurements: { bust: "38", waist: "30" } },
+      { size: "L / 12", measurements: { bust: "39.5", waist: "31.5" } },
+      { size: "XL / 14", measurements: { bust: "41", waist: "33" } },
+      { size: "XL / 16", measurements: { bust: "42.5", waist: "34.5" } },
+      { size: "XXL / 18", measurements: { bust: "45.5", waist: "37.5" } },
+    ],
+  },
+
+  // Duluth Trading Co. — https://prd.cc.duluthtrading.com/mens-clothing.html
+  // That host is Duluth's own; it is what their product pages load the table
+  // from, and www.duluthtrading.com/sizing-guide.html is a 404.
+  {
+    brand: "Duluth Trading Co.",
+    // ⚠ NEVER a bare "duluth" — Duluth Pack is a different company. Same
+    // reasoning as the existing Duluth work-pants chart.
+    brandMatch: ["duluth trading", "duluthtrading"],
+    department: "Men",
+    garment: "Tops & outerwear (alpha, body inches)",
+    categoryMatch: [
+      "top", "tee", "shirt", "polo", "sweater", "knit", "hoodie", "sweatshirt",
+      "jacket", "coat", "outerwear", "vest", "flannel",
+    ],
+    sourceUrl: "https://prd.cc.duluthtrading.com/mens-clothing.html",
+    note:
+      "Duluth's published men's clothing chart, which its jackets are sized off " +
+      "too. Body measurements, not flat. The published table also carries a TALL " +
+      "sleeve column (about 1.5in longer, and blank at S, 4XL and 5XL); it is a " +
+      "size class rather than a step in this run and is left out.",
+    rows: [
+      { size: "S", measurements: { neck: "14-14.75", chest: "34-36", sleeve: "32.5-33" } },
+      { size: "M", measurements: { neck: "15-15.75", chest: "38-40", sleeve: "33.5-34" } },
+      { size: "L", measurements: { neck: "16-16.75", chest: "42-44", sleeve: "34.5-35" } },
+      { size: "XL", measurements: { neck: "17-17.75", chest: "46-48", sleeve: "35.5-36" } },
+      { size: "2XL", measurements: { neck: "18-18.75", chest: "50-52", sleeve: "36.5-37" } },
+      { size: "3XL", measurements: { neck: "19-19.75", chest: "54-56", sleeve: "37.5-38" } },
+      { size: "4XL", measurements: { neck: "20-20.75", chest: "58-60", sleeve: "37.5-38" } },
+      { size: "5XL", measurements: { neck: "21-21.75", chest: "62-64", sleeve: "37.5-38" } },
+    ],
+  },
 ];
 
 function norm(s: string | null | undefined): string {

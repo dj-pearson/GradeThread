@@ -8,13 +8,21 @@ code_refs:
   - services/edge-functions/src/lib/size-systems.ts
   - services/edge-functions/src/lib/grading-size.ts
   - services/edge-functions/src/lib/sizing-charts.ts
-reviewed: 2026-09-02
+reviewed: 2026-09-09
 tags: [sizing, brands, conversion, contract]
 summary: Only four size-system conversions are performed, every one derived from paired data already in the corpus; EU, JP, AU and alpha are refused outright, and a refusal is the correct answer rather than a gap.
 ---
 
 # Size-system conversions
 
+> **Re-reviewed 2026-09-09.** Drift flagged `sizing-charts.ts` for the US-3283
+> backfill loop, which appends brand charts. Two of them are size-system charts
+> and neither changes the contract below: Herno publishes an IT-to-US/UK/FR/DE/JP
+> conversion with NO body measurements at all, so it is stored as the brand's own
+> printed conversion rather than as anything this module derives. That is the
+> rule working — the conversion is the BRAND's, read off the brand's page, not
+> one we computed. See [[size-chart-coverage-backfill]].
+>
 > **Re-reviewed 2026-09-02.** Drift flagged `size-systems.ts` for US-3033, which
 > adds `normalizeSizeLabel` -- the join key for the Fit & Measurement Index. It
 > is a COHORT key, not a conversion: it folds "W34 L32", "34x32" and "34X32" onto

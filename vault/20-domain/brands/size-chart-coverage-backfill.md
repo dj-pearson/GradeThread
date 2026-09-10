@@ -87,9 +87,12 @@ Then, once for the batch:
   or below the highest recorded version. Regenerating them keeps the repo honest
   about what the code says; it moves no rows.
 - `gen-sizing-chart-batch.mjs NNNNN` is what actually carries the batch to prod:
-  a NEW migration holding every chart in the corpus that has a `sourceUrl`,
-  upserted. It re-emits earlier batches' rows too, which costs nothing and
-  spares anyone the bookkeeping of which brand landed in which migration.
+  a migration holding every chart in the corpus that has a `sourceUrl`, upserted.
+  It re-emits earlier batches' rows too, which costs nothing and spares anyone
+  the bookkeeping of which brand landed in which migration. **While the current
+  batch migration is still HELD, pass its number and regenerate it in place**
+  rather than adding a new file — the operator's apply list stays at one. Take a
+  new number only once the held one has been applied.
 - `size-chart-coverage.mjs` refreshes `docs/size-chart-coverage.md`.
 - The migration triple applies like any other. Load the `migrations` skill.
 
@@ -115,7 +118,13 @@ the batch file a second time.
 
 - Every brand in the batch has no missing group in the regenerated report, or the
   story note names the brand and says why (guide withdrawn, brand does not sell
-  the group, sizing is bespoke).
+  the group, sizing is bespoke, the published table's columns cannot be read).
+- **A batch of ten need not close ten.** Batch 2 closed four. Six brands were
+  left on the list with reasons: two publish no numeric chart at all, one site
+  was erroring, and one printed two bust runs three inches apart without saying
+  whether either was a body or a garment measurement. Shipping four sourced
+  charts and four honest reasons beats shipping ten charts where six are guesses,
+  and the coverage report re-derives the next batch from what is actually left.
 - Every new chart carries a `sourceUrl` pointing at the brand's own page.
 - The parity test passes, so the DB seed and the in-code corpus agree.
 

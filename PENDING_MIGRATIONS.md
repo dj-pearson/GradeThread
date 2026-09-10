@@ -7,11 +7,17 @@ reference table with deny-all RLS and no tenant data. No schema change, nothing
 dropped, nothing revoked. Every value is derived from committed code, so it is
 idempotent and safe to run twice.
 
-**What it does.** 19 sizing charts across 10 brands, each transcribed from the
-brand's OWN published size guide, land with a real `source_url`. Before this
-batch every one of the corpus's 300-odd charts had `source_url NULL` — which is
-why the composer's "[Brand] size guide" link fell through to a Google search for
-nearly every item a seller edited.
+**What it does.** 24 sizing charts across 14 brands, each transcribed from the
+brand's OWN published size guide, land with a real `source_url`. Before the
+backfill loop started, every one of the corpus's 300-odd charts had
+`source_url NULL` — which is why the composer's "[Brand] size guide" link fell
+through to a Google search for nearly every item a seller edited.
+
+**It grows with each batch while it stays held.** The generator emits every
+sourced chart in the corpus, so a new batch REGENERATES this same file rather
+than queueing another one. That keeps the apply list at one migration. Once you
+apply it, the next batch takes a new number. Batches so far: 1 (US-3284, 19
+charts / 10 brands) and 2 (US-3285, 5 charts / 4 brands).
 
 **Why it is not 00498.** 00498 is the generated backfill of the whole in-code
 corpus and it is ALREADY APPLIED. `apply-prod-migrations.sh` skips every file at
@@ -49,7 +55,8 @@ harmless no-op. That guard was verified against a local Postgres carrying the
 same constraint and the same recorded versions: 00498 and 00499 skipped, 00776
 applied clean twice, 19 rows landed sourced.
 
-**Apply order:** 00776 only, after 00775. Run `NOTIFY pgrst, 'reload schema';`
+**Apply order:** 00776 only, after 00775. Re-applying it after a later batch
+regenerates it is safe and expected — it is an idempotent upsert. Run `NOTIFY pgrst, 'reload schema';`
 afterwards — harmless here (no table, column or RPC signature changed) but
 cheap. Redeploy the edge afterwards: its boot guard now expects 00776.
 
