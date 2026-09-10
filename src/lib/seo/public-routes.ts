@@ -49,6 +49,8 @@ import {
   DEFAULT_OG_IMAGE_PATH,
   DEFAULT_OG_IMAGE_ALT,
   normalizePath,
+  socialCardImageUrl,
+  socialCardProduct,
 } from "./site";
 
 // Re-exported so the 66 existing registry consumers keep working unchanged.
@@ -832,12 +834,36 @@ export const ROUTE_OG_IMAGES: Record<string, { file: string; alt: string }> = {
   },
 };
 
-/** Absolute og:image URL + alt for a route (per-route image, else site default). */
+/**
+ * Absolute og:image URL + alt for a route.
+ *
+ * Three tiers, most specific first:
+ *
+ *   1. A bespoke card in ROUTE_OG_IMAGES — eight routes have one drawn for them.
+ *   2. A branded card rendered from the route's TITLE. This is the tier that was
+ *      missing: 268 of the 276 registered routes fell straight to the default,
+ *      so a share of the eBay fee calculator and a share of the pricing page
+ *      unfurled as the same picture and neither said what it was.
+ *   3. The site-wide default, for a path that is not in the registry at all —
+ *      an SSR surface such as a certificate, which builds its own og:image and
+ *      only reaches this function through a caller that guessed.
+ *
+ * Tier 2 is a QUERY-STRING URL, so escape it when writing it into markup.
+ * head-builder.ts and the <SEO> component both do.
+ */
 export function ogImageForRoute(path: string): { url: string; alt: string } {
-  const entry = ROUTE_OG_IMAGES[normalizePath(path)];
-  return entry
-    ? { url: `${SITE_URL}${entry.file}`, alt: entry.alt }
-    : { url: `${SITE_URL}${DEFAULT_OG_IMAGE_PATH}`, alt: DEFAULT_OG_IMAGE_ALT };
+  const norm = normalizePath(path);
+  const entry = ROUTE_OG_IMAGES[norm];
+  if (entry) return { url: `${SITE_URL}${entry.file}`, alt: entry.alt };
+
+  const route = PUBLIC_ROUTES.find((r) => r.path === norm);
+  if (route) {
+    return {
+      url: socialCardImageUrl(route.title, socialCardProduct(norm)),
+      alt: `${route.title} — GradeThread`,
+    };
+  }
+  return { url: `${SITE_URL}${DEFAULT_OG_IMAGE_PATH}`, alt: DEFAULT_OG_IMAGE_ALT };
 }
 
 

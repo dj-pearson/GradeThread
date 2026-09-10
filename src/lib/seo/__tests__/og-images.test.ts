@@ -7,6 +7,8 @@ import {
   OG_IMAGE_WIDTH,
   OG_IMAGE_HEIGHT,
   ogImageForRoute,
+  getRouteMeta,
+  PUBLIC_ROUTES,
   SITE_URL,
 } from "../public-routes";
 
@@ -38,6 +40,47 @@ describe("OG social images (US-427)", () => {
   it("serves per-route images from /social/ (never the Functions-routed /og/)", () => {
     for (const { file } of Object.values(ROUTE_OG_IMAGES)) {
       expect(file.startsWith("/social/")).toBe(true);
+    }
+  });
+
+  it("gives every registered route a card that names it, not the shared default", () => {
+    // 268 of the 276 routes had no bespoke image and fell to /og-image.png, so
+    // a share of a fee calculator and a share of the pricing page unfurled as
+    // the same picture. Each now gets a branded card rendered from its title.
+    const shared = `${SITE_URL}${DEFAULT_OG_IMAGE_PATH}`;
+    const cards = PUBLIC_ROUTES.map((r) => ogImageForRoute(r.path));
+    expect(cards.filter((c) => c.url === shared)).toEqual([]);
+    // And the cards are distinct, which is the whole point of having them.
+    expect(new Set(cards.map((c) => c.url)).size).toBe(PUBLIC_ROUTES.length);
+    for (const c of cards) expect(c.alt.length).toBeGreaterThan(0);
+  });
+
+  it("renders the card at the ratio whose size matches the declared dimensions", () => {
+    // og:image:width/height are emitted as constants, so the card has to be the
+    // landscape ratio (1200x630) or every unfurl is told the wrong size.
+    expect(OG_IMAGE_WIDTH).toBe(1200);
+    expect(OG_IMAGE_HEIGHT).toBe(630);
+    const url = new URL(ogImageForRoute("/tools/ebay-fee-calculator").url);
+    expect(url.pathname).toBe("/og/social/card");
+    expect(url.searchParams.get("ratio")).toBe("landscape");
+    expect(url.searchParams.get("text")).toBe(
+      getRouteMeta("/tools/ebay-fee-calculator")!.title,
+    );
+  });
+
+  it("puts the FlipDesk mark on FlipDesk pages only", () => {
+    const product = (p: string) =>
+      new URL(ogImageForRoute(p).url).searchParams.get("product");
+    expect(product("/flipdesk/comps")).toBe("flipdesk");
+    expect(product("/tools/ebay-fee-calculator")).toBe("gradethread");
+  });
+
+  it("keeps the social card OUT of the image sitemap's registry", () => {
+    // ROUTE_OG_IMAGES feeds the seo-manifest `image` field and from there
+    // sitemap-images.xml, which is for pictures a page is ABOUT. A social card
+    // is a picture OF the page, so the fallback must not land in here.
+    for (const { file } of Object.values(ROUTE_OG_IMAGES)) {
+      expect(file).not.toContain("/og/social/card");
     }
   });
 
