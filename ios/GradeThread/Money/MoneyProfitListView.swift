@@ -115,7 +115,7 @@ private struct ProfitRowView: View {
                 metric("Cost", currency.formatDisplay(row.costBasis))
                 metric("ROI", row.roi.map { "\(Int(($0 * 100).rounded()))%" } ?? "—")
             }
-            Text(row.saleDate, format: .dateTime.month().day().year())
+            Text(MoneyDate.dayDisplay(row.saleDate))
                 .font(.caption2)
                 .foregroundStyle(.tertiary)
         }

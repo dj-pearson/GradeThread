@@ -117,10 +117,19 @@ enum MoneyAnalyticsRollup {
 
     /// Whole days an item has been held (from `createdAt` to `now`), clamped at
     /// zero so a future timestamp (clock skew) reads as brand new.
+    ///
+    /// US-3302: both ends are reduced to an anchored DAY before subtracting.
+    /// `acquiredDate` comes off a date-only `acquired_date` and is already a
+    /// UTC-midnight anchor, while `now` is a real moment, so measuring straight
+    /// between them added the device's offset from UTC to the span and could
+    /// tip an item one bracket over. `calendar` here is the DEVICE's calendar
+    /// and picks which day `now` is - the subtraction itself is UTC.
     static func daysHeld(
         _ createdAt: Date, now: Date, calendar: Calendar = .current
     ) -> Int {
-        let days = calendar.dateComponents([.day], from: createdAt, to: now).day ?? 0
+        let from = MoneyDate.startOfDay(createdAt)
+        let to = MoneyDate.anchor(localDayOf: now, localCalendar: calendar)
+        let days = MoneyDate.calendar.dateComponents([.day], from: from, to: to).day ?? 0
         return max(days, 0)
     }
 
@@ -192,6 +201,14 @@ enum MoneyAnalyticsRollup {
     /// sale whose item isn't in the local mirror is skipped (no acquisition
     /// date to anchor on). A negative span (sale predates the cached
     /// `createdAt`) clamps to zero.
+    ///
+    /// US-3302: both ends are anchored days (`acquired_date` and `sale_date` are
+    /// date-only columns), so the device's offset from UTC cancels - but a
+    /// LOCAL calendar still miscounts a span that crosses a DST change, because
+    /// the two anchors then sit an hour apart on the wall clock and the last day
+    /// comes up short. The subtraction runs on the UTC calendar, which has no
+    /// DST to fall through. `calendar` is unused for the span and kept for the
+    /// signature's shape.
     static func timeOnMarket(
         items: [LocalInventoryItem],
         sales: [LocalSale],
@@ -207,7 +224,11 @@ enum MoneyAnalyticsRollup {
         var spans: [Int] = []
         for sale in sales where SalePnL.isCompleted(sale) {
             guard let created = createdById[sale.inventoryItemId] else { continue }
-            let days = calendar.dateComponents([.day], from: created, to: sale.saleDate).day ?? 0
+            let days = MoneyDate.calendar.dateComponents(
+                [.day],
+                from: MoneyDate.startOfDay(created),
+                to: MoneyDate.startOfDay(sale.saleDate)
+            ).day ?? 0
             spans.append(max(days, 0))
         }
         guard !spans.isEmpty else { return .empty }
@@ -231,6 +252,14 @@ enum MoneyAnalyticsRollup {
     /// (current month last). Revenue = completed-sale revenue in the month;
     /// expenses = operating expenses dated in the month; cost basis = COGS of
     /// the items those sales moved.
+    ///
+    /// US-3302 - same split as ``MoneyRollup/compute(items:sales:now:calendar:)``:
+    /// `calendar` is the DEVICE's calendar and only names the month `now` is in;
+    /// the boundaries, the ids and the labels are all anchored through
+    /// ``MoneyDate``. Both series this bucket carries are date-only columns -
+    /// `sales.sale_date` and `flipdesk_expenses.spent_on` - so a local boundary
+    /// moved a sale or an expense dated the 1st into the previous month for
+    /// every seller west of UTC, and labelled it with the same wrong month.
     static func cashFlow(
         items: [LocalInventoryItem],
         sales: [LocalSale],
@@ -239,23 +268,15 @@ enum MoneyAnalyticsRollup {
         months: Int = 6,
         calendar: Calendar = .current
     ) -> [CashFlowMonth] {
-        let monthFormatter = DateFormatter()
-        monthFormatter.locale = Locale(identifier: "en_US_POSIX")
-        monthFormatter.dateFormat = "MMM"
-        monthFormatter.timeZone = calendar.timeZone
-
         var costById: [String: Double] = [:]
         for item in items { costById[item.id] = item.acquiredPrice ?? 0 }
 
-        let startOfMonth = calendar.date(
-            from: calendar.dateComponents([.year, .month], from: now)
-        ) ?? now
+        let startOfMonth = MoneyDate.monthAnchor(localMonthOf: now, localCalendar: calendar)
 
         var result: [CashFlowMonth] = []
         for offset in stride(from: months - 1, through: 0, by: -1) {
-            guard let mStart = calendar.date(byAdding: .month, value: -offset, to: startOfMonth)
-            else { continue }
-            let mEnd = calendar.date(byAdding: .month, value: 1, to: mStart) ?? mStart
+            let mStart = MoneyDate.addingMonths(-offset, to: startOfMonth)
+            let mEnd = MoneyDate.addingMonths(1, to: mStart)
 
             let monthSales = sales.filter {
                 $0.saleDate >= mStart && $0.saleDate < mEnd && SalePnL.isCompleted($0)
@@ -266,11 +287,10 @@ enum MoneyAnalyticsRollup {
                 expenses.filter { $0.spentOn >= mStart && $0.spentOn < mEnd }
             ) { $0.amount }
 
-            let comps = calendar.dateComponents([.year, .month], from: mStart)
             result.append(CashFlowMonth(
-                id: "\(comps.year ?? 0)-\(comps.month ?? 0)",
+                id: MoneyDate.monthKey(mStart),
                 monthStart: mStart,
-                label: monthFormatter.string(from: mStart),
+                label: MoneyDate.monthLabel(mStart),
                 revenue: revenue,
                 expenses: monthExpenses,
                 costBasis: costBasis

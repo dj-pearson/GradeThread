@@ -43,10 +43,12 @@ final class ExpenseStore {
     static let bucketingCalendar: Calendar = MoneyDate.calendar
 
     /// Sum of expenses dated in the current calendar month.
-    func thisMonthTotal(now: Date = .now, calendar: Calendar = ExpenseStore.bucketingCalendar) -> Double {
-        guard let startOfMonth = calendar.date(
-            from: calendar.dateComponents([.year, .month], from: now)
-        ) else { return 0 }
+    /// US-3302: `calendar` is the DEVICE's calendar and names the month; the
+    /// boundary is anchored in UTC by ``MoneyDate/monthAnchor(localMonthOf:localCalendar:)``.
+    /// Naming the month in UTC too put a seller east of UTC in the previous
+    /// month for the first hours of every 1st.
+    func thisMonthTotal(now: Date = .now, calendar: Calendar = .current) -> Double {
+        let startOfMonth = MoneyDate.monthAnchor(localMonthOf: now, localCalendar: calendar)
         // US-790: sum in exact Decimal so a month of expenses can't drift.
         return Money.sum(expenses.filter { $0.date >= startOfMonth }) { $0.amount }
     }

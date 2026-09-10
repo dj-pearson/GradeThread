@@ -145,7 +145,7 @@ private struct SaleRow: View {
                 .font(.subheadline.weight(.medium))
                 .lineLimit(2)
             HStack(spacing: 6) {
-                Text(sale.saleDate, format: .dateTime.month().day().year())
+                Text(MoneyDate.dayDisplay(sale.saleDate))
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 if let buyer = sale.buyerUsername, !buyer.isEmpty {

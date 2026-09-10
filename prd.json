@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-3306",
+  "nextId": "US-3307",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -4865,20 +4865,6 @@
       "notes": "Renumbered from US-3298 to US-3300 on 2026-09-10 while merging origin/main. Two sessions ran the backlog in parallel and both minted US-3298: this story on the local side, and 'Size charts, batch 13: the last nine gaps' on the remote, which is already archived. The remote won the id because it was pushed first; nothing about this story's scope changed. Its migration is 00777_ledger_rebuild_safeupdate.sql."
     },
     {
-      "id": "US-3302",
-      "passes": false,
-      "title": "iOS money totals bucket a sale into the wrong month for anyone west of UTC",
-      "description": "Found 2026-09-10 while fixing US-3231, and it is the same root cause. sales.sale_date is declared timestamptz but every writer sends a date-only YYYY-MM-DD, so Postgres stores midnight UTC and the row is a DAY, not a moment. US-3231 fixed the financial export's range and its CSV renderer to read those anchors in UTC. The month rollups were not touched: MoneyMetrics.swift:60 and :79 and MoneyAnalyticsRollup.swift:261 bucket the same anchored saleDate with Calendar.current, so a sale the seller recorded on 1 September is anchored at 1 Sep 00:00Z, read back as 31 Aug 19:00 in Chicago, and counted in August's revenue. Every seller west of UTC has month totals that disagree with their own export by whatever sold on the first of the month. East of UTC the error runs the other way at month end. Nothing warns, because both the wrong bucket and the label come from the same local calendar and agree with each other.",
-      "acceptanceCriteria": [
-        "MoneyMetrics and MoneyAnalyticsRollup bucket saleDate by its UTC calendar month, using the same MoneyDate helpers US-3231 introduced rather than a second copy of the rule",
-        "A test builds a sale anchored at the first of a month and asserts it lands in that month for a device in Chicago and a device in Tokyo, with the two producing identical buckets",
-        "The month LABEL is derived from the same UTC calendar as the bucket, so a total and its heading cannot disagree",
-        "Any other Calendar.current use on an anchored sale or acquisition date is found and listed in the story notes, fixed or explicitly ruled out with a reason",
-        "The iOS financial export CSV and the Money tab month totals agree for the same period, asserted in a test that drives both from one fixture"
-      ],
-      "priority": 4
-    },
-    {
       "id": "US-3305",
       "passes": false,
       "title": "Two model-selection defects in the AI config: Opus 5 silently loses its effort setting, and one ads route takes any model the caller names",
@@ -4889,6 +4875,19 @@
         "admin-ads.ts:292 validates body.model against the same allowlist the rest of the file uses, and rejects an unknown model with a message naming what is allowed rather than passing it through",
         "A test covers the rejection path, since an allowlist that is never exercised is the shape of guard this repo has been bitten by before",
         "Every other place a model name can enter from a request body is grepped for and either validated or named in the story notes with why it is safe"
+      ],
+      "priority": 5
+    },
+    {
+      "id": "US-3306",
+      "passes": false,
+      "title": "InventoryFilterCriteria.DateBand needs opposite time-zone rules for its two bands, and has one",
+      "description": "Found 2026-09-10 during the US-3302 sweep, and it does not look like the bug it is: no Calendar is involved anywhere in it, so a grep for Calendar.current never finds it. DateBand compares two DatePicker moments (a from and a to, both picked in the seller's own zone) against a stored date. For saleDates that stored value is sales.sale_date, which is a date-only YYYY-MM-DD widened by Postgres to midnight UTC, so it is a DAY anchored to UTC and the comparison has to be made on the UTC calendar. For purchaseDates it is inventory_items.created_at, a real server timestamp, where comparing local moments is correct. The same struct therefore needs opposite rules for its two bands, and today applies one rule to both. The visible effect is a sale filter that includes or excludes the boundary day depending on where the seller is standing, silently, with no wrong number on screen to give it away. Fixing it changes filter results, which is why US-3302 left it alone rather than folding it in.",
+      "acceptanceCriteria": [
+        "saleDates compares against the UTC-anchored day using the MoneyDate helpers US-3231 and US-3302 built, and purchaseDates keeps comparing local moments against created_at",
+        "The two rules are named in the code at the point of comparison, saying which stored value each band reads and why the zone rule differs, because the next reader will see one struct and assume one rule",
+        "A test filters a fixture containing a sale anchored to the first of a month and an item created that same day, from a device in Chicago and one in Tokyo, and asserts both bands return the same rows in both zones",
+        "Any other filter or query comparing a picked date against a stored date is grepped for and either fixed or ruled out in the notes, since this one was invisible to a Calendar.current search"
       ],
       "priority": 5
     }

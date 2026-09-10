@@ -35,24 +35,30 @@ struct MoneyMetrics: Equatable {
 }
 
 enum MoneyRollup {
+
+    /// US-3302 - `calendar` is the DEVICE's calendar, and it decides exactly one
+    /// thing: which month `now` falls in. Every boundary and every label below
+    /// come off ``MoneyDate``, because a stored `sale_date` is a DAY anchored at
+    /// UTC midnight, not a moment (see ``FinancialExport/dayBounds(startDay:endDay:)``
+    /// for the full round trip).
+    ///
+    /// This used to bucket with the device calendar on both sides. A sale the
+    /// seller recorded on 1 September is stored as `2026-09-01`, widened to
+    /// 1 Sep 00:00Z, and read back in Chicago as 31 Aug 19:00 - so it fell below
+    /// a 1 Sep 00:00 CDT boundary and was counted in AUGUST. The month label
+    /// came off the same local calendar, so the heading agreed with the wrong
+    /// total and nothing on screen looked wrong; only the CSV export, which
+    /// US-3231 had already moved to UTC, disagreed.
     static func compute(
         items: [LocalInventoryItem],
         sales: [LocalSale],
         now: Date,
         calendar: Calendar = .current
     ) -> MoneyMetrics {
-        // Build the month-label formatter against the calendar's timezone so
-        // bucket boundaries and labels agree (and tests stay deterministic).
-        let monthFormatter = DateFormatter()
-        monthFormatter.locale = Locale(identifier: "en_US_POSIX")
-        monthFormatter.dateFormat = "MMM"
-        monthFormatter.timeZone = calendar.timeZone
         var costById: [String: Double] = [:]
         for item in items { costById[item.id] = item.acquiredPrice ?? 0 }
 
-        let startOfMonth = calendar.date(
-            from: calendar.dateComponents([.year, .month], from: now)
-        ) ?? now
+        let startOfMonth = MoneyDate.monthAnchor(localMonthOf: now, localCalendar: calendar)
 
         // Only COMPLETED sales count toward revenue/profit (00111). Profit via
         // the shared SalePnL helper so Money, Home, Analytics + web all agree.
@@ -72,17 +78,15 @@ enum MoneyRollup {
         // 6-month revenue series, oldest first.
         var months: [MonthlyRevenue] = []
         for offset in stride(from: 5, through: 0, by: -1) {
-            guard let mStart = calendar.date(byAdding: .month, value: -offset, to: startOfMonth)
-            else { continue }
-            let mEnd = calendar.date(byAdding: .month, value: 1, to: mStart) ?? mStart
+            let mStart = MoneyDate.addingMonths(-offset, to: startOfMonth)
+            let mEnd = MoneyDate.addingMonths(1, to: mStart)
             let rev = Money.sum(
                 sales.filter { $0.saleDate >= mStart && $0.saleDate < mEnd && SalePnL.isCompleted($0) }
             ) { SalePnL.revenue($0) }
-            let comps = calendar.dateComponents([.year, .month], from: mStart)
             months.append(MonthlyRevenue(
-                id: "\(comps.year ?? 0)-\(comps.month ?? 0)",
+                id: MoneyDate.monthKey(mStart),
                 monthStart: mStart,
-                label: monthFormatter.string(from: mStart),
+                label: MoneyDate.monthLabel(mStart),
                 revenue: rev
             ))
         }

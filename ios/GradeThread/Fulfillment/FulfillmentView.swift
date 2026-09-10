@@ -140,7 +140,7 @@ private struct FulfillmentRow: View {
                 .font(.subheadline.weight(.medium))
                 .lineLimit(2)
             HStack(spacing: 6) {
-                Text(order.soldDate, format: .dateTime.month().day().year())
+                Text(MoneyDate.dayDisplay(order.soldDate))
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 if let buyer = order.buyerUsername, !buyer.isEmpty {

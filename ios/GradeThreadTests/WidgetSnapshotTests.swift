@@ -50,8 +50,14 @@ final class WidgetSnapshotTests: XCTestCase {
         XCTAssertEqual(snapshot.activeListings, 3)
     }
 
+    /// US-3302: the zone is PINNED. `Calendar(identifier:)` picks up the
+    /// runner's own zone, and the runner's zone is UTC, so this case could only
+    /// ever have exercised the one arrangement where a local `startOfDay` and a
+    /// UTC anchor are the same instant. See
+    /// ``MoneyMonthBucketTests`` for the Chicago case it could not see.
     func test_compute_soldToday_bucketsByStartOfDay() {
-        let cal = Calendar(identifier: .gregorian)
+        var cal = Calendar(identifier: .gregorian)
+        cal.timeZone = TimeZone(identifier: "UTC")!
         let now = Date(timeIntervalSince1970: 1_700_000_000) // fixed instant
         let startOfToday = cal.startOfDay(for: now)
         let sales = [

@@ -74,8 +74,14 @@ enum WidgetSnapshotPublisher {
     /// Pure rollup. `listings`/`sales` are the full local mirror; we
     /// filter here so the caller doesn't have to pre-shape the data.
     ///
-    /// - "Sold today" buckets by the sale's `saleDate` against the start
-    ///   of `now`'s local day.
+    /// - "Sold today" buckets by the sale's `saleDate` against `now`'s local
+    ///   calendar day, ANCHORED at UTC midnight (US-3302). `sale_date` is a
+    ///   date-only column widened to midnight UTC, so comparing it against a
+    ///   local `startOfDay` made the tile read zero every day of the year for
+    ///   every seller west of UTC: a sale recorded today in Chicago is stored
+    ///   at 00:00Z, which is 19:00 YESTERDAY locally, so it never cleared
+    ///   today's local boundary. `calendar` picks which day it is; MoneyDate
+    ///   anchors it.
     /// - "Pending payout" is every sale missing a `payoutReference`,
     ///   netting platform fees out of the sale price (never below zero —
     ///   a fee greater than the sale price is bad data, not a negative
@@ -99,7 +105,7 @@ enum WidgetSnapshotPublisher {
         // Only completed sales count — cancelled/refunded orders are excluded
         // (00111).
         let completedSales = sales.filter { SalePnL.isCompleted($0) }
-        let startOfToday = calendar.startOfDay(for: now)
+        let startOfToday = MoneyDate.anchor(localDayOf: now, localCalendar: calendar)
         let todaysSales = completedSales.filter { $0.saleDate >= startOfToday }
         let soldTodayGross = Money.sum(todaysSales) { $0.salePrice }
 
