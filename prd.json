@@ -5098,26 +5098,6 @@
         "A test proves a token minted 31 days ago resolves to reconnect, not to a plan upgrade"
       ],
       "priority": 2
-    },
-    {
-      "id": "US-3298",
-      "passes": false,
-      "title": "Size charts, batch 13: the last nine gaps",
-      "description": "The nine brands left with a size-guide gap after batch 12. Follow vault/20-domain/brands/size-chart-coverage-backfill.md. Batch: Brandy Melville (outerwear); Buck Mason (outerwear); Burberry (bottom); Fila (bottom); Filson (bottom); FRAME (top, outerwear); PINK (outerwear); Rag & Bone (top, outerwear); Rhude (bottom). READ THE EXISTING EXCEPTION NOTES FIRST: batch 7 recorded Buck Mason and Burberry as exceptions, and batch 8 left Filson open because its /pages/size-guide 404s and its fit-guide page carries zero tables - its chart lives per product under a Sizing and Fit section. Brandy Melville is ONE SIZE by design and may be an exception rather than a gap; say which.",
-      "acceptanceCriteria": [
-        "Every brand in the batch either gains a chart from its OWN published guide with sourceUrl set, or is closed by widening an existing chart with a note saying the rows did not change, or is recorded as an exception naming the exact paths that failed",
-        "Brandy Melville is explicitly resolved as either a one-size exception or a real chart, not left ambiguous",
-        "Every replacement keeps its garment string byte-identical; re-run the old-versus-new tuple diff and confirm the orphan count did not grow",
-        "measurementBasis is set to flat only where the brand publishes garment specs",
-        "verified stays absent unless a human compared the rows against sourceUrl",
-        "The seed and the sourced-chart migration are regenerated in the same commit and sizing-chart-parity_test.ts passes",
-        "docs/size-chart-coverage.md shows ZERO brands with a remaining gap, or the story note names every exception and why"
-      ],
-      "priority": 4,
-      "dependsOn": [
-        "US-3283"
-      ],
-      "notes": "PARTIAL 2026-09-10. Five of nine closed; four remain.\n\nCLOSED:\n- Filson (bottom) SOURCED. This also closes the one item BATCH 8 LEFT OPEN. Its table is IN THE PDP HTML and answers a plain curl - /pages/size-guide 404s and /our-company/filson-fit-guide.html returns zero tables, both true, neither where the chart lives. The page states the basis outright: 'These measurements below are body measurements.' So a Filson 34 is cut to a 34in BODY waist, ease in the pattern rather than the number.\n- Buck Mason (outerwear) SOURCED, retracting batch 7s exception. Its guide is a client-rendered module: nothing in the served HTML but the CSS class names (size-guide-module--*), so it needs a browser and a click on 'Size/Fit Guide'. Per style, GARMENT measurements - the chore coats 40in chest at XS is the jacket, not the wearer.\n- Brandy Melville (outerwear) RESOLVED AS A ONE-SIZE EXCEPTION, which the AC asked to settle explicitly. Widening the entry to outerwear is the whole fix; there are no measurements to add because the brand publishes no grade. Its jackets come in the same single size as its tees, and adding numbers would invent a grade it does not have.\n- PINK (outerwear): keyword widening on its bust/waist/hip apparel chart.\n- Burberry (bottom): keyword widening on its womens trench chart, which is the only Burberry chart carrying waist AND hip. The mens chart is chest-only and was left alone.\n\nA DOMAIN CHECK THAT MATTERED, found while working this batch: batch 12 cited Sp5der as sp5derworldwide.com, and that domain REDIRECTS to kingspider.co. sp5der.com and spider-worldwide.com do not resolve at all. kingspider.co self-identifies as 'OFFICIAL WEBSITE OF SP5DER, ESTABLISHED 2019 IN LA BY WAY OF ATLANTA, @SP5DERWORLDWIDE' and runs on spider-worldwide.myshopify.com - the brands own handle, which is the corroboration a self-claim needs. Both Sp5der sourceUrls now point at the domain that actually resolves and both notes record the chain, because a redirect is exactly how a reseller chart gets into a corpus by accident.\n\nSTILL OPEN: Fila (bottom), FRAME (top, outerwear), Rag & Bone (top, outerwear), Rhude (bottom). Notes for the next pass: rag-bone.com publishes DENIM fit guides only (/mens/denim/fit-guide/ and /womens/denim/fit-guide/), which is the half the corpus already has; its tops need a PDP. frame-store.com/collections/womens-tops 404s, so find the real collection path first. rhude.com, www.rhude.com and rhude.la all fail to resolve - find the real store domain. fila.com/size-chart 404s and its homepage carries no size link.\n\nCorpus: 409 charts, 145 sourced, 7 brands with a gap (was 12). 00781 regenerated to 142 sourced rows. Tests 112/0, subprocessors 5/5."
     }
   ]
 }

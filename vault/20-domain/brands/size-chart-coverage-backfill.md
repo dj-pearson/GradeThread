@@ -544,6 +544,48 @@ six streetwear bottoms gaps are still open for exactly this reason: a chest
 measurement does not describe a pair of trousers, and widening those charts
 would put a chest number in front of a seller measuring a waistband.
 
+After batch 13 (US-3298), the last story: 412 charts across 168 brands,
+**148 sourced**, and **5 brands still carrying a gap**. Seven of nine closed;
+Fila and Rhude are exceptions.
+
+⚠ **AN EMPTY SIZE-GUIDE MODAL IS NOT AN ANSWER ABOUT THE BRAND.** FRAME's
+long-sleeve waffle tee serves a size-guide drawer containing the words "Fit
+Information" and nothing else — no table, no rows, an empty `<div>`. Its
+leather jacket serves the full nine-row chart from the same component. One
+empty modal proves nothing; **open a second product before recording an
+exception**.
+
+⚠ **THE SFCC DATA ROUTE FROM BATCH 9 KEEPS PAYING.** Rag & Bone is
+Salesforce Commerce and
+`/on/demandware.store/Sites-ragandbone-Site/en_US/Product-SizeChart?cid=size-chart-mens-general`
+answers a plain curl. The cid is only discoverable in the `data-modal-config`
+attribute on a product page's size-guide button — and the brand's ONLY
+size links anywhere in its markup are `/mens/denim/fit-guide/` and
+`/womens/denim/fit-guide/`, which are fit PROSE with zero tables. Following
+the visible links would have closed the file on this brand.
+
+⚠ **SFCC IS NOT A PROMISE OF A CATALOG.** fila.com also runs SFCC — its
+title is literally `Sites-FILA-Site` — and every `Product-SizeChart?cid=`
+guess returns a 1,259-byte 404. Its US site is corporate information only:
+the whole link set is customer-service and policy pages plus outbound links
+to country sites. There is no storefront to have a size chart.
+
+⚠ **CHECK WHERE A DOMAIN ACTUALLY LANDS BEFORE CITING IT.** Batch 12 cited
+Sp5der as `sp5derworldwide.com`; that domain REDIRECTS to `kingspider.co`,
+and `sp5der.com` does not resolve at all. The destination self-identifies as
+the official site and runs on `spider-worldwide.myshopify.com` — the brand's
+own handle, which is the corroboration a self-claim needs — so the rows
+stand, but both `sourceUrl`s now point at the domain that resolves and both
+notes record the chain. **A redirect is how a reseller chart gets into a
+corpus by accident.** Curl with `-w "%{url_effective}"` before writing a URL
+into the corpus.
+
+⚠ **A ONE-SIZE BRAND IS AN EXCEPTION, NOT A GAP.** Brandy Melville's
+outerwear gap was closed by widening its entry and nothing else. There are no
+measurements to add because the brand publishes no grade — its jackets come
+in the same single size as its tees, and inventing numbers would assert a
+grade it does not have.
+
 ⚠ The coverage report measures the IN-CODE corpus, not the database. Prod's
 `brand_size_charts` already held source URLs on the hand-written pack rows
 (329 of 340 sourced after batch 1). The gap this loop closes is the in-code

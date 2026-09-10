@@ -6,17 +6,17 @@ Coverage is measured the way the size-guide panel resolves a chart: a real brand
 
 ## Where it stands
 
-- 168 brands, 409 brand-specific charts.
-- 145 charts link the brand's own guide; 0 have been checked against it by a human.
-- 7 brands are missing at least one group they should cover.
+- 168 brands, 412 brand-specific charts.
+- 148 charts link the brand's own guide; 0 have been checked against it by a human.
+- 5 brands are missing at least one group they should cover.
 
 | Group | Brands covered |
 |---|---:|
-| top | 131 |
+| top | 133 |
 | bottom | 128 |
-| dress | 58 |
-| outerwear | 131 |
-| suit | 46 |
+| dress | 60 |
+| outerwear | 133 |
+| suit | 48 |
 | shoes | 27 |
 | bag | 10 |
 | watch | 1 |
@@ -88,7 +88,7 @@ Coverage is measured the way the size-guide panel resolves a chart: a real brand
 | Filson | 2 | Men | Men |  | Men |  |  |  |  |  |  |  |
 | Fjällräven | 2 | Men, Women | Men, Women |  | Men, Women |  |  |  |  |  |  |  |
 | Fossil | 2 |  |  |  |  |  |  | Men | Unisex |  |  |  |
-| FRAME | 2 |  | Men, Women |  |  |  |  |  |  |  |  | top, outerwear |
+| FRAME | 3 | Women | Men, Women | Women | Women | Women |  |  |  |  |  |  |
 | Free People | 2 | Women | Women | Women | Women |  |  |  |  |  |  |  |
 | G-Star RAW | 5 | Men, Women | Men, Women |  | Unisex |  |  |  |  |  |  |  |
 | Gallery Dept. | 2 | Unisex | Unisex |  | Unisex |  |  |  |  |  |  |  |
@@ -149,7 +149,7 @@ Coverage is measured the way the size-guide panel resolves a chart: a real brand
 | Prada | 2 | Men, Women | Women | Women | Men, Women | Men |  |  |  |  |  |  |
 | PUMA | 4 | Unisex, Women | Unisex, Women |  | Unisex, Women |  | Men, Women |  |  |  |  |  |
 | Rab | 2 | Men, Women | Men, Women |  | Men, Women |  |  |  |  |  |  |  |
-| Rag & Bone | 2 |  | Men, Women |  |  |  |  |  |  |  |  | top, outerwear |
+| Rag & Bone | 4 | Men, Women | Men, Women | Women | Men, Women | Men, Women |  |  |  |  |  |  |
 | Rebecca Minkoff | 2 | Women | Women | Women | Women |  |  | Women |  |  |  |  |
 | Red Wing | 1 |  |  |  |  |  | Men |  |  |  |  |  |
 | Reebok | 4 | Unisex | Unisex |  | Unisex |  | Men, Women |  |  |  |  |  |

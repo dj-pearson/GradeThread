@@ -12746,6 +12746,108 @@ export const SIZING_CHARTS: SizingChart[] = [
       { size: "XXL", measurements: { chest: "53", length: "31.75", sleeve: "36.25", shoulder: "19.75" } },
     ],
   },
+
+  // Rag & Bone — the SFCC data route from batch 9 (Marmot) works here too:
+  //   /on/demandware.store/Sites-ragandbone-Site/en_US/Product-SizeChart?cid=size-chart-mens-general
+  // (swap mens/womens). It answers a plain curl with a rendered fragment.
+  // ⚠ The brand's own /mens/denim/fit-guide/ and /womens/denim/fit-guide/ pages,
+  // which are the only size links anywhere in its markup, return ZERO tables —
+  // they are fit PROSE. The cid above is only discoverable by reading the
+  // data-modal-config attribute on a product page's size-guide button.
+  {
+    brand: "Rag & Bone",
+    brandMatch: ["rag & bone", "rag and bone", "rag bone", "ragbone"],
+    department: "Men",
+    garment: "Tops & outerwear (alpha, body inches)",
+    categoryMatch: [
+      "top", "tee", "shirt", "polo", "sweater", "knit", "hoodie", "sweatshirt",
+      "jacket", "coat", "outerwear", "blazer", "vest", "overshirt", "long sleeve",
+    ],
+    sourceUrl: "https://www.rag-bone.com/on/demandware.store/Sites-ragandbone-Site/en_US/Product-SizeChart?cid=size-chart-mens-general",
+    note:
+      "Rag & Bone's own men's chart, BODY inches, with its own caveat attached: " +
+      "\"This size chart provides general sizing information, which can vary " +
+      "depending on style.\" ⚠ ITS CHEST AND HIP COLUMNS ARE IDENTICAL AT " +
+      "EVERY SIZE (33-34 and 33-34 at XXS, all the way up), which is not a body " +
+      "and is the same shape of copy error Pendleton's table has between chest " +
+      "and waist. Chest, waist and neck are the columns to trust; the hip is " +
+      "left in only because removing it would misrepresent what the brand " +
+      "publishes. ⚠ THE GRADE JUMPS AT XL: two inches per size up to L, then " +
+      "three to XL and four to XXL.",
+    rows: [
+      { size: "XXS", measurements: { chest: "33-34", waist: "26-27", hip: "33-34", neck: "14.5-15" } },
+      { size: "XS", measurements: { chest: "35-36", waist: "28-29", hip: "35-36", neck: "15-15.5" } },
+      { size: "S", measurements: { chest: "37-38", waist: "30-31", hip: "37-38", neck: "15.5-16" } },
+      { size: "M", measurements: { chest: "39-40", waist: "32-33", hip: "39-40", neck: "16-16.5" } },
+      { size: "L", measurements: { chest: "41-42", waist: "34-35", hip: "41-42", neck: "16.5-17" } },
+      { size: "XL", measurements: { chest: "44-45", waist: "37-38", hip: "44-45", neck: "17-17.5" } },
+      { size: "XXL", measurements: { chest: "48-49", waist: "41-42", hip: "48-49", neck: "17.5-18" } },
+    ],
+  },
+  {
+    brand: "Rag & Bone",
+    brandMatch: ["rag & bone", "rag and bone", "rag bone", "ragbone"],
+    department: "Women",
+    garment: "Tops & outerwear (alpha ↔ US numeric, body inches)",
+    categoryMatch: [
+      "top", "tee", "shirt", "blouse", "knit", "sweater", "cardigan", "dress",
+      "jacket", "coat", "outerwear", "blazer", "vest", "long sleeve",
+    ],
+    sourceUrl: "https://www.rag-bone.com/on/demandware.store/Sites-ragandbone-Site/en_US/Product-SizeChart?cid=size-chart-womens-general",
+    note:
+      "Rag & Bone's own women's chart, BODY inches, with the US numeric run " +
+      "written into each label because the brand publishes both against one " +
+      "grade. Its own measuring note: \"Stand naturally with your arms at your " +
+      "sides. Use a soft measuring tape, keeping it straight, level, and snug.\" " +
+      "⚠ XXS AND XS ARE SINGLE NUMBERS, not ranges, where every size above " +
+      "them spans two. The run stops at XL / US 16.",
+    rows: [
+      { size: "XXS (US 00)", measurements: { bust: "31", waist: "24", hip: "34.5" } },
+      { size: "XS (US 0)", measurements: { bust: "32", waist: "25", hip: "35.5" } },
+      { size: "S (US 2-4)", measurements: { bust: "33-34", waist: "26-27", hip: "36.5-37.5" } },
+      { size: "M (US 6-8)", measurements: { bust: "35-36", waist: "28-29", hip: "38.5-39.5" } },
+      { size: "L (US 10-12)", measurements: { bust: "38-39", waist: "30-32", hip: "40.5-42.5" } },
+      { size: "XL (US 14-16)", measurements: { bust: "41-42", waist: "33-35", hip: "43.5-45.5" } },
+    ],
+  },
+
+  // FRAME — a client-rendered drawer, and the first one in this corpus that is
+  // EMPTY on some products and populated on others. Its long-sleeve waffle tee
+  // serves a size-guide modal containing the words "Fit Information" and
+  // literally nothing else; its leather jacket serves the full table from the
+  // same component. Do not conclude from one empty modal that a brand publishes
+  // no measurements — open a second product.
+  {
+    brand: "FRAME",
+    brandMatch: ["frame", "frame denim"],
+    department: "Women",
+    garment: "Tops & outerwear (alpha ↔ US numeric, body inches)",
+    categoryMatch: [
+      "top", "tee", "shirt", "blouse", "knit", "sweater", "cardigan", "dress",
+      "jacket", "coat", "outerwear", "blazer", "vest", "long sleeve",
+    ],
+    sourceUrl: "https://frame-store.com/products/the-leather-runway-jacket-wf26lja016-blk",
+    note:
+      "FRAME's own women's chart, BODY inches, with the US numeric run written " +
+      "into each label. ⚠ IT GRADES IN HALF STEPS: S/M and M/L are real " +
+      "published sizes sitting between S and M and between M and L, which is " +
+      "why the numeric run climbs 00, 0, 2, 4, 6, 8 rather than skipping. " +
+      "⚠ THE BUST JUMPS THREE INCHES FROM M/L TO L (36-37 to 40-42) where " +
+      "every other step is one, and the waist and hip do NOT jump with it. That " +
+      "is the brand's own break, reproduced rather than smoothed — prefer the " +
+      "garment at L and above.",
+    rows: [
+      { size: "XXS (US 00)", measurements: { bust: "31-32", waist: "23-24.75", hip: "34.5-35.25" } },
+      { size: "XS (US 0)", measurements: { bust: "32-33", waist: "25-25.75", hip: "35.5-36.25" } },
+      { size: "S (US 2)", measurements: { bust: "33-34", waist: "26-26.75", hip: "36.5-37.25" } },
+      { size: "S/M (US 4)", measurements: { bust: "34-35", waist: "27-27.75", hip: "37.5-38.25" } },
+      { size: "M (US 6)", measurements: { bust: "35-36", waist: "27.5-28.5", hip: "38.5-39.25" } },
+      { size: "M/L (US 8)", measurements: { bust: "36-37", waist: "29-29.75", hip: "39.5-40.25" } },
+      { size: "L (US 10)", measurements: { bust: "40-42", waist: "30-30.75", hip: "40.5-41.25" } },
+      { size: "L/XL (US 12)", measurements: { bust: "42-44", waist: "31-31.75", hip: "41.5-42.25" } },
+      { size: "XL (US 14)", measurements: { bust: "44-46", waist: "32-33", hip: "42.5-43.25" } },
+    ],
+  },
 ];
 
 function norm(s: string | null | undefined): string {
