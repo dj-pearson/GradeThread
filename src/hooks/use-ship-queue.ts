@@ -95,6 +95,41 @@ interface ListingQueryRow {
   platform_listing_id: string | null;
 }
 
+/**
+ * How many ids may go into one PostgREST `in.(...)` filter (US-3298).
+ *
+ * The gateway in front of PostgREST rejects a request line over 8 KB, and it
+ * does so BEFORE any CORS header is written — so the browser reports "blocked
+ * by CORS policy", names no status, and points at the wrong problem entirely.
+ *
+ * Measured against production on 2026-09-09 with this exact query: 205 ids is a
+ * URL of 8,088 characters and returns 200; 210 ids is 8,283 characters and
+ * fails outright. A UUID costs 39 characters once supabase-js percent-encodes
+ * the separating comma, so the cliff sits a little over 200 and the account
+ * that found it had 210 unshipped sales. Nothing was broken at 150.
+ *
+ * 100 is half the proven limit, which leaves room for a longer select list or
+ * a second filter without anyone having to redo the arithmetic. The queue reads
+ * up to 500 sales, so this is a real split rather than a formality.
+ *
+ * It fails QUIETLY, which is the reason to fix it rather than raise a cap: both
+ * of these reads are best-effort by design, so the seller sees a ship queue
+ * with the money columns blank and no indication that anything went wrong.
+ */
+export const IN_FILTER_CHUNK = 100;
+
+/** Runs `read` over `values` in {@link IN_FILTER_CHUNK}-sized slices, concatenated. */
+export async function inChunks<T>(
+  values: string[],
+  read: (slice: string[]) => Promise<T[]>,
+): Promise<T[]> {
+  const out: T[] = [];
+  for (let i = 0; i < values.length; i += IN_FILTER_CHUNK) {
+    out.push(...(await read(values.slice(i, i + IN_FILTER_CHUNK))));
+  }
+  return out;
+}
+
 /** Orders sold and not yet shipped, ranked by deadline. */
 export function useShipQueue(enabled = true) {
   const query = useQuery({
@@ -116,16 +151,17 @@ export function useShipQueue(enabled = true) {
       if (sales.length === 0) return [];
 
       const itemIds = [...new Set(sales.map((s) => s.inventory_item_id).filter(Boolean))];
-      const { data: itemData, error: itemErr } = await supabase
-        .from("inventory_items")
-        .select(
-          "id, title, sku, size, location_bin, container, grade_value, grade_label, certificate_url",
-        )
-        .in("id", itemIds);
-      if (itemErr) throw itemErr;
-      const items = new Map(
-        (((itemData ?? []) as unknown) as ItemQueryRow[]).map((i) => [i.id, i]),
-      );
+      const itemData = await inChunks(itemIds, async (slice) => {
+        const { data, error: itemErr } = await supabase
+          .from("inventory_items")
+          .select(
+            "id, title, sku, size, location_bin, container, grade_value, grade_label, certificate_url",
+          )
+          .in("id", slice);
+        if (itemErr) throw itemErr;
+        return ((data ?? []) as unknown) as ItemQueryRow[];
+      });
+      const items = new Map(itemData.map((i) => [i.id, i]));
 
       // US-3205: money from sale_pnl, never recomputed here.
       //
@@ -140,30 +176,34 @@ export function useShipQueue(enabled = true) {
       // failure here leaves the columns blank rather than emptying the queue.
       const saleIds = sales.map((s) => s.id);
       const pnlById = new Map<string, PnlQueryRow>();
-      const { data: pnlData, error: pnlErr } = await supabase
-        .from("sale_pnl")
-        .select("sale_id, cost_basis, net")
-        .in("sale_id", saleIds);
-      if (pnlErr) {
-        console.warn("[ship-queue] sale_pnl unavailable:", pnlErr.message);
-      } else {
-        for (const r of ((pnlData ?? []) as unknown) as PnlQueryRow[]) {
-          pnlById.set(r.sale_id, r);
-        }
+      try {
+        const pnlData = await inChunks(saleIds, async (slice) => {
+          const { data, error: pnlErr } = await supabase
+            .from("sale_pnl")
+            .select("sale_id, cost_basis, net")
+            .in("sale_id", slice);
+          if (pnlErr) throw pnlErr;
+          return ((data ?? []) as unknown) as PnlQueryRow[];
+        });
+        for (const r of pnlData) pnlById.set(r.sale_id, r);
+      } catch (err) {
+        console.warn("[ship-queue] sale_pnl unavailable:", (err as Error).message);
       }
 
       // The listing the buyer actually bought from. Most recent first, so an
       // item relisted after a cancellation links to the live one.
       const linkByItem = new Map<string, string>();
-      const { data: listingData, error: listingErr } = await supabase
-        .from("listings")
-        .select("inventory_item_id, listing_url, platform_listing_id")
-        .in("inventory_item_id", itemIds)
-        .order("listed_at", { ascending: false, nullsFirst: false });
-      if (listingErr) {
-        console.warn("[ship-queue] listing links unavailable:", listingErr.message);
-      } else {
-        for (const r of ((listingData ?? []) as unknown) as ListingQueryRow[]) {
+      try {
+        const listingData = await inChunks(itemIds, async (slice) => {
+          const { data, error: listingErr } = await supabase
+            .from("listings")
+            .select("inventory_item_id, listing_url, platform_listing_id")
+            .in("inventory_item_id", slice)
+            .order("listed_at", { ascending: false, nullsFirst: false });
+          if (listingErr) throw listingErr;
+          return ((data ?? []) as unknown) as ListingQueryRow[];
+        });
+        for (const r of listingData) {
           if (!r.inventory_item_id || linkByItem.has(r.inventory_item_id)) continue;
           const url = (r.listing_url ?? "").trim() ||
             (r.platform_listing_id
@@ -171,6 +211,8 @@ export function useShipQueue(enabled = true) {
               : "");
           if (url) linkByItem.set(r.inventory_item_id, url);
         }
+      } catch (err) {
+        console.warn("[ship-queue] listing links unavailable:", (err as Error).message);
       }
 
       return sales.map((s) => {
