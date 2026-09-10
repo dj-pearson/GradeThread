@@ -25,6 +25,11 @@ function state(over: Partial<ExtensionSetupState> = {}): ExtensionSetupState {
     installed: false,
     reachable: false,
     signedIn: false,
+    // US-3296: the connection's own lifecycle. `null` is the honest default
+    // here -- it is what an older extension build reports, and what "we have
+    // not asked yet" looks like.
+    tokenStatus: null,
+    tokenExpiresAt: null,
     sellerEnabled: false,
     tosAccepted: false,
     channels: [],

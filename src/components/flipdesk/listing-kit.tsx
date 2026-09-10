@@ -52,6 +52,7 @@ import {
   isListerPlatform,
   listerUnavailableReason,
   listerBlockCause,
+  type ListerBlockCause,
   onListerListed,
   sendToLister,
 } from "@/lib/lister-extension";
@@ -243,7 +244,12 @@ function PlatformPanel({
   // extension had simply never been connected was told to buy a plan they were
   // already paying for, under a link to /pricing. Which one it is comes from the
   // extension too — the same GT_PING the Marketplaces setup card reads.
-  const [blockedBy, setBlockedBy] = useState<null | "signin" | "plan">(null);
+  //
+  // US-3296: a THIRD reason, and the one that had been silently breaking every
+  // connected seller. The token lasts 30 days and nothing renewed it, so an
+  // install that connected in March was anonymous by May — indistinguishable,
+  // from here, from one that never connected. "Reconnect" is its own answer.
+  const [blockedBy, setBlockedBy] = useState<ListerBlockCause | null>(null);
   // US-2777: the seller's country domain per platform, for the DIRECT send.
   // Read here rather than at the send, because a query cannot be started inside
   // a click handler and a send that had to wait for it would be a send that
@@ -488,7 +494,11 @@ function PlatformPanel({
         const cause = await listerBlockCause(res);
         setBlockedBy(cause);
         toast.error(
-          cause === "signin"
+          cause === "reconnect"
+            // US-3296: the connection lasted 30 days and nothing renewed it, so
+            // this seller connected once and was dropped without being told.
+            ? "Your GradeThread connection expired. Reconnect the extension."
+            : cause === "signin"
             ? "The extension is not connected to your GradeThread account yet."
             : "Cross-listing needs an active paid FlipDesk plan.",
         );
@@ -724,7 +734,21 @@ function PlatformPanel({
       {blockedBy && (
         <div className="flex items-start gap-2 rounded-md border border-amber-300 bg-amber-50 p-2.5 text-xs text-amber-900 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-200">
           <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-          {blockedBy === "signin"
+          {blockedBy === "reconnect"
+            ? (
+              <span>
+                Your GradeThread connection expired, so the extension cannot tell
+                which account to list for. Nothing is wrong with your plan.{" "}
+                <Link
+                  to="/connect-extension"
+                  className="font-medium underline underline-offset-2"
+                >
+                  Reconnect the extension
+                </Link>
+                .
+              </span>
+            )
+            : blockedBy === "signin"
             ? (
               <span>
                 The extension is installed but not connected to your GradeThread

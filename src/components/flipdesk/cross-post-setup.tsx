@@ -37,7 +37,39 @@ export interface Step {
   title: string;
   body: string;
   state: StepState;
+  /**
+   * US-3296 AC4: one line of fact under the body — currently the connection's
+   * expiry date. Kept separate from `body` so a test can read it, and so the
+   * date renders in its own muted line rather than being buried in a paragraph.
+   */
+  detail?: string;
   action?: React.ReactNode;
+}
+
+/**
+ * US-3296 AC4: when this connection runs out, in words a seller can act on.
+ *
+ * Returns undefined when there is nothing honest to say — no extension, an
+ * older build that does not report an expiry, or no token at all. An invented
+ * or guessed date would be worse than no date: the whole failure mode here is
+ * a surface that was confidently wrong about the connection.
+ */
+export function connectionDetail(s: ExtensionSetupState): string | undefined {
+  if (!s.reachable) return undefined;
+  if (s.tokenStatus === "none" || s.tokenStatus === null) return undefined;
+  if (!s.tokenExpiresAt) return undefined;
+  const when = new Date(s.tokenExpiresAt);
+  if (Number.isNaN(when.getTime())) return undefined;
+  const on = when.toLocaleDateString(undefined, {
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+  });
+  if (s.tokenStatus === "expired") return `Expired ${on}.`;
+  if (s.tokenStatus === "expiring") {
+    return `Expires ${on}. It renews itself the next time you use GradeThread.`;
+  }
+  return `Connected until ${on}. It renews itself before then.`;
 }
 
 function StepRow({ step, index }: { step: Step; index: number }) {
@@ -72,6 +104,12 @@ function StepRow({ step, index }: { step: Step; index: number }) {
         <p className="max-w-prose text-xs leading-relaxed text-muted-foreground">
           {step.body}
         </p>
+        {/* US-3296 AC4: the expiry date shows on a DONE step too — that is the
+            state it matters in. A seller only asks "when does this run out?"
+            about a connection that currently works. */}
+        {step.detail && (
+          <p className="text-xs leading-relaxed text-muted-foreground/80">{step.detail}</p>
+        )}
         {!done && step.action}
       </div>
     </li>
@@ -96,6 +134,7 @@ function StepRow({ step, index }: { step: Step; index: number }) {
 export function buildSteps(s: ExtensionSetupState): Step[] {
   const storeUrl = extensionWebStoreUrl();
   const readyChannels = s.channels.filter((c) => c.canList);
+  const expired = s.tokenStatus === "expired";
 
   return [
     {
@@ -123,14 +162,27 @@ export function buildSteps(s: ExtensionSetupState): Step[] {
     },
     {
       key: "signin",
-      title: "Connect it to this account",
-      body:
-        "Open the extension and choose Sign in. It hands the extension a short-lived token " +
-        "so it knows which FlipDesk account to list for. No password and no marketplace cookie is involved.",
+      // US-3296: connect and RECONNECT are different instructions, and telling
+      // them apart needed a fact the server cannot supply. The connection lasts
+      // 30 days; when it lapses the server sees an anonymous caller, so this
+      // step read "not done" for a seller who had connected months earlier and
+      // told them to do the thing they had already done.
+      title: expired ? "Reconnect it to this account" : "Connect it to this account",
+      body: expired
+        ? "This browser was connected, and the connection has run out. It lasts 30 days and " +
+          "renews itself while you use GradeThread, so this only happens after a long gap. " +
+          "Reconnect and everything picks up where it left off."
+        : "Open the extension and choose Sign in. It hands the extension a short-lived token " +
+          "so it knows which FlipDesk account to list for. No password and no marketplace cookie is involved.",
       state: s.signedIn ? "done" : "todo",
+      // AC4: once connected, say when it runs out. A date is the difference
+      // between "this broke" and "this was always going to happen today".
+      detail: connectionDetail(s),
       action: (
         <Button variant="outline" size="sm" asChild className="mt-1">
-          <Link to="/connect-extension">Connect the extension</Link>
+          <Link to="/connect-extension">
+            {expired ? "Reconnect the extension" : "Connect the extension"}
+          </Link>
         </Button>
       ),
     },

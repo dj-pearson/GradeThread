@@ -109,6 +109,13 @@ const RETURN_SHIELD_ENDPOINT =
 // the signed extension token. A request without one is a 401 by design.
 const APPRAISE_ENDPOINT = "https://functions.gradethread.com/api/flipdesk/scout/appraise-url";
 const ENTITLEMENTS_ENDPOINT = "https://functions.gradethread.com/api/grading/public/entitlements";
+// US-3296: trade the stored token for a fresh one. Deliberately on the public
+// mount rather than a seller mount: the request that most needs to work carries
+// an ALREADY EXPIRED token, and every authed mount 401s that before a handler
+// runs. The server checks the signature itself and accepts an expired token
+// inside its grace window.
+const TOKEN_RENEW_ENDPOINT =
+  "https://functions.gradethread.com/api/grading/public/extension-token/renew";
 // US-2698: sold-sync observation intake. A SELLER endpoint, unlike every other
 // constant above, so it sits behind the seller token and the server's own
 // FlipDesk gate rather than the anonymous public quota.
@@ -775,6 +782,121 @@ async function recordUsage(event, surface) {
   } catch (_e) { /* storage unavailable — the event is simply not counted */ }
 }
 
+// ── the account token's own lifecycle (US-3296) ──────────────────────────
+//
+// THE BUG. mintExtensionToken issues 30 days, and the ONLY place it was ever
+// handed over was /connect-extension, from a button a seller presses once.
+// Nothing re-minted it. So every connected seller silently dropped to the
+// ANONYMOUS entitlements about a month after connecting, every Lister action
+// then failed, and the extension could not tell "my token lapsed" from "I was
+// never connected" — because the server's answer to both is the same anonymous
+// payload. A Business seller ended up looking at /pricing.
+//
+// Two halves fix it. The web app re-hands a fresh token when it can see the
+// extension (src/lib/extension-token-handoff.ts), and this half lets the
+// extension ASK, so a browser that was closed straight through the expiry
+// recovers on its next wake rather than waiting for the seller to guess.
+//
+// WHAT IS STORED. `gtBuyerTokenExpiresAt` is unix MILLISECONDS, read out of the
+// token's own middle segment. It is scheduling data only: the extension holds
+// no secret and cannot verify anything, so this decides WHEN to ask the server
+// and never what the answer is.
+const TOKEN_KEYS = ["gtBuyerToken", "gtBuyerTokenExpiresAt"];
+// Never renew more than once every ten minutes, whatever wakes us. The sweep
+// alarm alone fires every five, and onStartup lands on top of it.
+const TOKEN_RENEW_MIN_GAP_MS = 10 * 60 * 1000;
+let lastTokenRenewAt = 0;
+let tokenRenewInFlight = null;
+
+/** The stored token and what state it is in. Never throws. */
+async function readTokenState(now) {
+  try {
+    const got = await ext.storage.local.get(TOKEN_KEYS);
+    const token = typeof got.gtBuyerToken === "string" && got.gtBuyerToken
+      ? got.gtBuyerToken
+      : null;
+    if (!token) return { token: null, expiresAtMs: null, state: "none" };
+    // Prefer the stored expiry; fall back to reading it off the token, which is
+    // what every install upgraded from an older build will need exactly once.
+    const expiresAtMs = Number(got.gtBuyerTokenExpiresAt) ||
+      self.GT_REGISTRY.tokenExpiryMs(token);
+    return {
+      token: token,
+      expiresAtMs: expiresAtMs || null,
+      state: self.GT_REGISTRY.tokenStateFrom(expiresAtMs, now || Date.now()),
+    };
+  } catch (_e) {
+    return { token: null, expiresAtMs: null, state: "none" };
+  }
+}
+
+/** Store a token and the expiry read from it, and drop the caches it invalidates. */
+async function storeToken(token) {
+  const expiresAtMs = self.GT_REGISTRY.tokenExpiryMs(token);
+  await ext.storage.local.set({
+    gtBuyerToken: token,
+    gtBuyerTokenExpiresAt: expiresAtMs,
+  });
+  await invalidateEntCache();
+  // Entitlements (which paid signals a grade includes) just changed, so drop
+  // the recall cache — a return visit should re-grade with the new account's
+  // tier rather than replay the anonymous read.
+  await clearGradeCache();
+}
+
+/**
+ * Renew the stored token if it is expiring or already expired.
+ *
+ * Returns the resulting state, so a caller can report it without a second read.
+ * NEVER deletes the token on failure, and that is deliberate: a deleted token
+ * reads as "never connected", which is the exact confusion this story exists to
+ * end. A dead token that is still on disk keeps saying "reconnect".
+ */
+async function renewTokenIfNeeded(force) {
+  const now = Date.now();
+  if (tokenRenewInFlight) return tokenRenewInFlight;
+  if (!force && now - lastTokenRenewAt < TOKEN_RENEW_MIN_GAP_MS) {
+    return readTokenState(now);
+  }
+
+  tokenRenewInFlight = (async () => {
+    const before = await readTokenState(now);
+    if (!before.token) return before;
+    if (!force && !self.GT_REGISTRY.shouldRenewToken(before.state)) return before;
+    lastTokenRenewAt = now;
+
+    try {
+      const resp = await fetch(TOKEN_RENEW_ENDPOINT, {
+        method: "POST",
+        headers: { Authorization: "Bearer " + before.token },
+        cache: "no-store",
+      });
+      if (!resp.ok) {
+        // 401 = past the grace window (or forged). Leave the token where it is:
+        // its stored expiry keeps reporting "expired", which is what makes the
+        // popup and the SaaS say "reconnect" instead of "connect". Anything
+        // else (503, offline, a proxy) is transient and must not change state.
+        return await readTokenState(Date.now());
+      }
+      const json = await resp.json();
+      if (!json || typeof json.token !== "string" || !json.token) {
+        return await readTokenState(Date.now());
+      }
+      await storeToken(json.token);
+      return await readTokenState(Date.now());
+    } catch (_e) {
+      // Offline. The next tick tries again; nothing is lost.
+      return await readTokenState(Date.now());
+    }
+  })();
+
+  try {
+    return await tokenRenewInFlight;
+  } finally {
+    tokenRenewInFlight = null;
+  }
+}
+
 // ── entitlements (US-1873) ───────────────────────────────────────────────
 // Resolve the account's tools from the signed token. Cached briefly in
 // storage.session; a token set/clear invalidates it. FAIL-SAFE to anonymous.
@@ -835,8 +957,18 @@ async function getEntitlements(force) {
 }
 
 async function getCapabilities(force) {
-  const [ent, settings] = await Promise.all([getEntitlements(force), getSettings()]);
-  return self.GT_REGISTRY.resolveCapabilities(ent, settings);
+  const [ent, settings, token] = await Promise.all([
+    getEntitlements(force),
+    getSettings(),
+    // US-3296: the stored token's state travels with the capabilities, because
+    // the entitlements payload CANNOT carry it. An expired token authenticates
+    // nothing, so the server answers it with the anonymous entitlements and the
+    // account it named appears nowhere in the reply. Without this the popup, the
+    // composer and the Marketplaces card all read a lapsed connection as one
+    // that never existed.
+    readTokenState(Date.now()),
+  ]);
+  return self.GT_REGISTRY.resolveCapabilities(ent, settings, token.state);
 }
 
 // ── the buyer grade call ──────────────────────────────────────────────────
@@ -2040,13 +2172,23 @@ async function sellerAllowed() {
   return caps.lister === true;
 }
 
-// US-3295: null when the Lister is granted, else "signin" or "plan".
+// US-3295 / US-3296: null when the Lister is granted, else "signin",
+// "reconnect" or "plan".
 //
-// The two are not the same problem and they do not have the same fix. An
-// install with no account token receives the ANONYMOUS entitlements from the
-// server whatever the account pays, so reporting that as "upgrade your plan"
-// sent Business sellers to /pricing to buy what they already had.
+// These are not the same problem and they do not have the same fix. An install
+// with no account token receives the ANONYMOUS entitlements from the server
+// whatever the account pays, so reporting that as "upgrade your plan" sent
+// Business sellers to /pricing to buy what they already had. An install whose
+// token LAPSED gets the same anonymous answer, which is why it needs its own
+// word: those sellers connected months ago and are not helped by being told to
+// connect.
+//
+// US-3296: renew before judging. A token that is merely expired-and-renewable
+// is not a block at all, and the seller pressing Send is the best moment to
+// find that out. The call is a storage read unless the token is actually inside
+// its renewal window, so this costs nothing on the ordinary path.
 async function listerBlock() {
+  await renewTokenIfNeeded(false);
   return self.GT_REGISTRY.listerBlockReason(await getCapabilities(false));
 }
 
@@ -2091,9 +2233,16 @@ async function beginJob(kind, payload, sender, sendResponse, clientRef) {
     // the right thing either way.
     sendResponse({
       ok: false,
-      needsSignIn: block === "signin",
+      // US-3296: "reconnect" also sets needsSignIn. An older gradethread.com
+      // build has never heard of needsReconnect, and Connect is the screen that
+      // fixes both — so the fallback lands somewhere useful rather than on
+      // /pricing. The precise word rides on its own flag for builds that know it.
+      needsSignIn: block === "signin" || block === "reconnect",
+      needsReconnect: block === "reconnect",
       needsUpgrade: block === "plan",
-      error: block === "signin"
+      error: block === "reconnect"
+        ? "Your GradeThread connection has expired. Open GradeThread, connect the extension again, then try again."
+        : block === "signin"
         ? "The GradeThread extension is not connected to your account yet. Open it and choose Sign in, then try again."
         : isDelist
         ? "Auto-delist is a FlipDesk seller feature — upgrade your GradeThread plan to enable it."
@@ -2389,8 +2538,18 @@ async function drainQueue() {
 }
 
 // Run it when the browser opens — the moment the whole feature is named after.
+//
+// US-3296 AC2 rides the same wake, and it is THE case this story is about: a
+// browser closed on a Friday and opened five weeks later comes up with a dead
+// token and, before this, nothing that would ever mint another one. The renewal
+// is fired alongside the drain rather than before it — a drain on a lapsed
+// token is a 401 the queue already handles, and the next five-minute sweep
+// picks the work up with the fresh token.
 if (ext.runtime.onStartup) {
-  ext.runtime.onStartup.addListener(function () { void drainQueue(); });
+  ext.runtime.onStartup.addListener(function () {
+    void drainQueue();
+    void renewTokenIfNeeded(false);
+  });
 }
 
 // ── US-3061: the worker tab ───────────────────────────────────────────────
@@ -2844,6 +3003,11 @@ if (ext.alarms && ext.alarms.onAlarm) {
       // queued at lunchtime without the seller doing anything, and one more
       // periodic alarm for that would be a second thing to get wrong.
       void drainQueue();
+      // US-3296: and the account token itself. It rides this tick for exactly
+      // the reason above — a browser left open for weeks must not need the
+      // seller to do anything — and it is cheap, because renewTokenIfNeeded
+      // returns immediately unless the token is inside its renewal window.
+      void renewTokenIfNeeded(false);
       // US-9202: and the edits FlipDesk is waiting to apply on extension
       // channels. One per tick, unfocused, gated like everything else.
       void drainPendingRevises();
@@ -2956,6 +3120,12 @@ function handleExternalMessage(msg, sender, sendResponse) {
 
   if (msg.type === "GT_PING" || msg.type === "GT_LISTER_PING") {
     (async () => {
+      // US-3296: a ping from gradethread.com is the best renewal opportunity
+      // there is — the seller is signed in, online, and looking at us. Try
+      // first, so the capabilities below describe the connection as it is AFTER
+      // the renewal rather than the dead one the ping arrived to find. Throttled
+      // and never fatal: a failure just leaves the state it read.
+      const token = await renewTokenIfNeeded(false);
       const caps = await getCapabilities(false);
       sendResponse({
         ok: true,
@@ -2965,6 +3135,13 @@ function handleExternalMessage(msg, sender, sendResponse) {
         version: ext.runtime.getManifest().version,
         platforms: SUPPORTED_LISTER,
         capabilities: caps,
+        // US-3296: the connection's own state and end date, so the Marketplaces
+        // setup card can show when it runs out and say "reconnect" rather than
+        // "connect" once it has. "none" | "active" | "expiring" | "expired".
+        tokenStatus: token.state,
+        tokenExpiresAt: token.expiresAtMs
+          ? new Date(token.expiresAtMs).toISOString()
+          : null,
         // US-2719: the four things the SaaS's cross-posting setup has to show,
         // in one round trip. The web page could already infer "installed" from
         // the bridge marker and "signed in" from capabilities.authenticated,
@@ -3003,21 +3180,29 @@ function handleExternalMessage(msg, sender, sendResponse) {
         sendResponse({ ok: false, error: "No token." });
         return;
       }
-      await ext.storage.local.set({ gtBuyerToken: msg.token });
-      await invalidateEntCache();
-      // Entitlements (which paid signals a grade includes) just changed, so drop
-      // the recall cache — a return visit should re-grade with the new account's
-      // tier rather than replay the anonymous read.
-      await clearGradeCache();
+      // US-3296: storeToken also writes the token's expiry, which is what every
+      // later "is this still good?" question is answered from. Before this the
+      // extension knew it had a token and had no idea when it died.
+      await storeToken(msg.token);
       const caps = await getCapabilities(true);
-      sendResponse({ ok: true, capabilities: caps });
+      const token = await readTokenState(Date.now());
+      sendResponse({
+        ok: true,
+        capabilities: caps,
+        tokenStatus: token.state,
+        tokenExpiresAt: token.expiresAtMs
+          ? new Date(token.expiresAtMs).toISOString()
+          : null,
+      });
     })();
     return true;
   }
 
   if (msg.type === "GT_CLEAR_TOKEN") {
     (async () => {
-      await ext.storage.local.remove("gtBuyerToken");
+      // US-3296: the expiry goes with the token. This is the ONE path that may
+      // erase it — a signing-out seller really is back to "never connected".
+      await ext.storage.local.remove(TOKEN_KEYS);
       await invalidateEntCache();
       await clearGradeCache();
       sendResponse({ ok: true, capabilities: await getCapabilities(true) });

@@ -4831,6 +4831,71 @@ Deno.test({
   },
 });
 
+// ── Extension token renewal (US-3296) ──────────────────────────────────────
+//
+// The route that MINTS. It exists because an extension token lived 30 days with
+// nothing to renew it, so every connected seller silently became an anonymous
+// one about a month after connecting. It deliberately accepts an EXPIRED token
+// — that is the whole point, a browser closed through the expiry has no other
+// way back — which makes "what it refuses" the property worth pinning.
+//
+// Two things must hold. A token we did not sign mints nothing, however
+// plausible its shape: the middle segment is a plain readable timestamp, so
+// `<victim-id>.<far-future>.<anything>` is the obvious forgery to try, and
+// accepting it would hand a stranger a real 30-day token for somebody else's
+// account. And the account is named ONLY by the signature — there is no body,
+// no id and no filter a caller can supply.
+Deno.test({
+  name: "extension token renewal rejects missing/forged tokens",
+  ignore: !CONFIGURED,
+  fn: async () => {
+    const url = `${BASE}/api/grading/public/extension-token/renew`;
+
+    const noAuth = await fetch(url, { method: "POST" });
+    await noAuth.body?.cancel();
+    assertEquals(noAuth.status, 401, "POST extension-token/renew with no token must be 401");
+
+    for (
+      const bad of [
+        "garbage",
+        "a.b.c",
+        "user-a.9999999999999.deadbeef",
+        // A well-formed id and a live expiry, signed with nothing.
+        "00000000-0000-0000-0000-000000000000.9999999999.deadbeefdeadbeef",
+      ]
+    ) {
+      const res = await fetch(url, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${bad}` },
+      });
+      const body = await res.text();
+      assertDenied(res.status, `POST extension-token/renew with a forged token (${bad})`);
+      assert(
+        !body.includes('"token"'),
+        `a refused renewal must not return a token (${bad})`,
+      );
+    }
+  },
+});
+
+Deno.test({
+  name: "extension token renewal ignores a user_id planted in the request body",
+  ignore: !CONFIGURED,
+  fn: async () => {
+    const res = await fetch(`${BASE}/api/grading/public/extension-token/renew`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        user_id: "00000000-0000-0000-0000-000000000000",
+        userId: "00000000-0000-0000-0000-000000000000",
+      }),
+    });
+    const body = await res.text();
+    assertEquals(res.status, 401, "a body-supplied user id must not authenticate anyone");
+    assert(!body.includes('"token"'), "no token may be minted for a body-supplied id");
+  },
+});
+
 // ── Extension listing ingestion (US-1808) ──────────────────────────────────
 //
 // The other extension-token door, and the one that WRITES. It takes no row id —

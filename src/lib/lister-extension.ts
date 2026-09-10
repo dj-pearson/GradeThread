@@ -139,6 +139,12 @@ export interface ListerResult {
   needsUpgrade?: boolean;
   /** US-3295: refused because the install carries no account token. */
   needsSignIn?: boolean;
+  /**
+   * US-3296: refused because the install's account token EXPIRED. Also sets
+   * `needsSignIn`, so an older gradethread.com build still lands on Connect
+   * rather than on /pricing — this flag only sharpens the words.
+   */
+  needsReconnect?: boolean;
   timedOut?: boolean;
   /** US-1874: the marketplace tab was closed before the job could finish. */
   tabClosed?: boolean;
@@ -607,7 +613,18 @@ export interface ExtensionResponse {
    * `listerBlockCause` asks the extension directly when it is absent.
    */
   needsSignIn?: boolean;
+  /** US-3296: the gate refused because the stored account token has expired. */
+  needsReconnect?: boolean;
   capabilities?: Record<string, unknown>;
+  /**
+   * US-3296: the stored token's own state, which the entitlements payload
+   * cannot carry — an expired token authenticates nothing, so the server
+   * answers it anonymously and the account it named is nowhere in the reply.
+   * "none" | "active" | "expiring" | "expired"; absent on older builds.
+   */
+  tokenStatus?: string;
+  /** US-3296: when the connection runs out, ISO. Null when nothing is stored. */
+  tokenExpiresAt?: string | null;
   /**
    * US-1874: this reply is the TRANSPORT failing, not the extension answering.
    * The overwhelmingly common cause is Chrome killing the MV3 service worker while
@@ -990,13 +1007,24 @@ export function closetImportFailureText(
  * other one: telling someone who already pays to pay again. Sending them to
  * Connect at worst costs a click they did not need.
  */
+export type ListerBlockCause = "signin" | "reconnect" | "plan";
+
 export async function listerBlockCause(
-  res: Pick<ListerResult, "needsUpgrade" | "needsSignIn">,
+  res: Pick<ListerResult, "needsUpgrade" | "needsSignIn" | "needsReconnect">,
   ping: (msg: { type: string }) => Promise<ExtensionResponse> = sendExtensionMessage,
-): Promise<"signin" | "plan"> {
+): Promise<ListerBlockCause> {
+  // US-3296: the sharpest answer first. "reconnect" is sent only by a build
+  // that can tell an expired token from an absent one, and it also sets
+  // needsSignIn, so this order is what keeps the two apart.
+  if (res.needsReconnect) return "reconnect";
   if (res.needsSignIn) return "signin";
   try {
     const pong = await ping({ type: "GT_PING" });
+    // US-3296: a connection that HAS lapsed. The seller connected — months ago,
+    // usually — and the token ran out with nothing to renew it. Telling them to
+    // connect is nearly as wrong as telling them to buy a plan: it describes a
+    // state they were already in and does not name what changed.
+    if (pong?.tokenStatus === "expired") return "reconnect";
     return pong?.capabilities?.authenticated === true ? "plan" : "signin";
   } catch {
     return "signin";

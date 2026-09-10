@@ -51,7 +51,17 @@ import {
   type TagGroundTruth,
 } from "../lib/ai-tag-ocr.ts";
 import { parseRegisteredNumber, registeredNumberKey } from "../lib/registered-numbers.ts";
-import { bearerFromHeader, verifyExtensionToken } from "../lib/extension-token.ts";
+import {
+  bearerFromHeader,
+  decideExtensionTokenRenewal,
+  EXTENSION_TOKEN_RENEW_GRACE_SECONDS,
+  type ExtensionTokenInspection,
+  inspectExtensionToken,
+  isExtensionTokenNearingExpiry,
+  isRenewableExtensionToken,
+  mintExtensionToken,
+  verifyExtensionToken,
+} from "../lib/extension-token.ts";
 import { resolveExtensionGates } from "../lib/extension-gates.ts";
 import {
   EXTENSION_MAX_IMAGES_ANON,
@@ -387,16 +397,117 @@ publicGradingRoutes.get("/entitlements", async (c) => {
     c.req.header("x-gt-extension-id")?.trim().slice(0, 64) || null,
     Date.now(),
   );
-  const verified = await verifyExtensionToken(bearerFromHeader(c.req.header("authorization")));
-  if (!verified) {
-    return c.json({ ...ANONYMOUS_EXTENSION_ENTITLEMENTS, quota }, 200, { "Cache-Control": "no-store" });
+  // US-3296: WHY the caller is anonymous, when it is.
+  //
+  // This route used to ask verifyExtensionToken, which answers null for "no
+  // token" and null for "a token we minted, a month ago, that has now lapsed".
+  // Collapsing those is what let a connected Business seller silently drop to
+  // the anonymous entitlements and then be told to buy a plan. The flags below
+  // are advisory — they change no gate and unlock nothing — but they are what
+  // lets the extension renew and the UI say "reconnect" instead of "connect".
+  const seen = await inspectExtensionToken(bearerFromHeader(c.req.header("authorization")));
+  const tokenFacts = extensionTokenFacts(seen);
+  if (seen.status !== "valid" || !seen.userId) {
+    return c.json({ ...ANONYMOUS_EXTENSION_ENTITLEMENTS, ...tokenFacts, quota }, 200, {
+      "Cache-Control": "no-store",
+    });
   }
   try {
-    const ent = await getExtensionEntitlements(verified.userId);
-    return c.json({ ...ent, quota }, 200, { "Cache-Control": "no-store, private" });
+    const ent = await getExtensionEntitlements(seen.userId);
+    return c.json({ ...ent, ...tokenFacts, quota }, 200, { "Cache-Control": "no-store, private" });
   } catch (err) {
     console.error("public-grading /entitlements:", err instanceof Error ? err.message : String(err));
-    return c.json({ ...ANONYMOUS_EXTENSION_ENTITLEMENTS, quota }, 200, { "Cache-Control": "no-store" });
+    return c.json({ ...ANONYMOUS_EXTENSION_ENTITLEMENTS, ...tokenFacts, quota }, 200, {
+      "Cache-Control": "no-store",
+    });
+  }
+});
+
+/**
+ * US-3296: the token block every extension-facing answer carries.
+ *
+ * `tokenExpiresAt` is an ISO string and only ever present when the signature
+ * verified, so no caller can learn an expiry by inventing a token. `renewable`
+ * is the single bit the extension actually schedules on — it folds "still
+ * valid" and "expired but inside the grace window" into one answer, so a client
+ * never has to re-derive the grace arithmetic and get it slightly different.
+ */
+function extensionTokenFacts(seen: ExtensionTokenInspection, nowMs: number = Date.now()) {
+  return {
+    tokenStatus: seen.status,
+    tokenExpiresAt: seen.expiresAt === null ? null : new Date(seen.expiresAt * 1000).toISOString(),
+    renewable: isRenewableExtensionToken(seen, nowMs),
+    renewNow: seen.status === "expired" ||
+      (seen.status === "valid" && isExtensionTokenNearingExpiry(seen.expiresAt, nowMs)),
+  };
+}
+
+// ── Extension token renewal (US-3296) ────────────────────────────────────
+// POST /extension-token/renew — the extension trades its own token for a fresh
+// one. THIS IS THE HALF THAT DID NOT EXIST.
+//
+// mintExtensionToken issues 30 days and the only door to it was
+// /connect-extension, behind a button a seller presses once. Nothing re-minted:
+// no refresh, no re-handoff, no warning. Every connected seller therefore
+// dropped to the anonymous entitlements about a month after connecting, and
+// every Lister action failed from then on. US-3295 made that failure say the
+// right words; it did not stop the failure happening.
+//
+// WHY IT LIVES HERE and not behind extensionOrUserAuthMiddleware: the request
+// that most needs to succeed carries an ALREADY EXPIRED token, and that
+// middleware 401s it before the handler runs. So the route inspects the token
+// itself and accepts a correctly signed one inside the grace window.
+//
+// TENANCY (US-268): the account is `seen.userId`, which exists only once the
+// HMAC verified. Nothing is read from the body — there is no body — and no
+// multi-tenant table is queried at all. The only read is
+// auth.admin.getUserById on that signed id, which is the same account re-check
+// extension-or-user-auth.ts does, and for the same reason: a token must not
+// outlive the account it names.
+publicGradingRoutes.post("/extension-token/renew", async (c) => {
+  const seen = await inspectExtensionToken(bearerFromHeader(c.req.header("authorization")));
+  const decision = decideExtensionTokenRenewal(seen);
+
+  if (decision.outcome === "connect") {
+    return c.json(
+      { error: "This browser has never been connected to a GradeThread account.", reason: "connect" },
+      401,
+    );
+  }
+  if (decision.outcome === "reconnect") {
+    // Past the grace window, forged, or a shape we never minted. All three want
+    // the same words: sign in on gradethread.com and connect again.
+    return c.json(
+      {
+        error: "This connection has expired. Open GradeThread and connect the extension again.",
+        reason: "reconnect",
+        graceDays: Math.round(EXTENSION_TOKEN_RENEW_GRACE_SECONDS / 86400),
+      },
+      401,
+    );
+  }
+
+  try {
+    const { data, error } = await supabaseAdmin.auth.admin.getUserById(decision.userId);
+    if (error || !data.user) {
+      return c.json({ error: "This connection is no longer valid.", reason: "reconnect" }, 401);
+    }
+    if (!data.user.email_confirmed_at) {
+      return c.json(
+        { error: "Email not verified. Please confirm your email to continue.", code: "email_unverified" },
+        403,
+      );
+    }
+    const { token, expiresAt } = await mintExtensionToken(decision.userId);
+    return c.json({ token, expiresAt }, 200, { "Cache-Control": "no-store, private" });
+  } catch (err) {
+    console.error(
+      "public-grading /extension-token/renew:",
+      err instanceof Error ? err.message : String(err),
+    );
+    // Deliberately NOT a 401: a renewal that failed on our side must not read as
+    // "you are signed out", or a five-minute outage logs every install out.
+    return c.json({ error: "Could not renew the connection. Try again shortly." }, 503);
   }
 });
 

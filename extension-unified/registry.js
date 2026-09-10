@@ -87,7 +87,7 @@
   //   lister   : cross-post — granted iff the account has an active paid FlipDesk
   //              plan (sellerEnabled from the signed token's entitlements).
   //   delist   : end-a-live-listing — same seller gate as lister.
-  function resolveCapabilities(entitlements, settings) {
+  function resolveCapabilities(entitlements, settings, tokenState) {
     var ent = normalizeEntitlements(entitlements);
     var s = settings && typeof settings === "object" ? settings : {};
     return {
@@ -103,19 +103,91 @@
       // US-3051: absent (null) unless the endpoint reported it. Never a number
       // this file made up.
       quota: ent.quota || null,
+      // US-3296: the STORED token's own state, which the entitlements payload
+      // cannot carry — an expired token authenticates nothing, so the server
+      // answers it with the anonymous entitlements and the account it named is
+      // nowhere in the reply. Derived locally from the expiry the extension
+      // wrote down when it stored the token. Defaults to "none", which is what
+      // an install with no token has always been.
+      tokenStatus: normalizeTokenState(tokenState),
     };
   }
 
-  // US-3295: WHICH gate closed the Lister — "signin" or "plan".
+  // US-3296: the four states a stored token can be in.
   //
-  // `lister` is false for two unrelated reasons and the extension used to report
-  // both as "upgrade your plan". An install with no account token gets the
-  // ANONYMOUS entitlements from the server no matter what the account pays, so a
-  // Business seller who had never connected the extension was told to buy the
-  // plan they already had. Returns null when the Lister is granted.
+  //   none     — nothing stored. This browser was never connected.
+  //   active   — stored, signed, and not near its end.
+  //   expiring — stored and inside the renewal window. Still works.
+  //   expired  — stored and past its end. Works for nothing.
+  //
+  // "expired" is the one that had no name. It looked exactly like "none" from
+  // every surface, so a seller who connected five weeks ago was told to connect
+  // — or, before US-3295, to buy the plan they were already paying for.
+  var TOKEN_STATES = ["none", "active", "expiring", "expired"];
+
+  function normalizeTokenState(raw) {
+    return TOKEN_STATES.indexOf(raw) === -1 ? "none" : raw;
+  }
+
+  // Classify a stored token from its expiry. PURE — no storage, no clock of its
+  // own, so the tests and the worker agree by construction.
+  //
+  // MIRRORS lib/extension-token.ts on the edge (EXTENSION_TOKEN_RENEW_WITHIN_
+  // SECONDS). The server is the authority on whether a token is dead; this is
+  // the client deciding when to ASK, which it must be able to do while offline
+  // and without spending a request to find out.
+  var RENEW_WITHIN_MS = 7 * 24 * 60 * 60 * 1000;
+
+  function tokenStateFrom(expiresAtMs, now) {
+    var exp = Number(expiresAtMs);
+    if (!expiresAtMs || !isFinite(exp)) return "none";
+    if (exp <= now) return "expired";
+    return exp - now <= RENEW_WITHIN_MS ? "expiring" : "active";
+  }
+
+  // Should the extension try to renew right now? Expiring and expired both
+  // qualify — the second is the case that matters, because a browser closed
+  // through the expiry has no other way back.
+  function shouldRenewToken(state) {
+    var s = normalizeTokenState(state);
+    return s === "expiring" || s === "expired";
+  }
+
+  // Read the expiry out of a token WITHOUT trusting it. (US-3296)
+  //
+  // The middle segment of `userId.expires.hmac` is a plain unix timestamp. The
+  // extension cannot verify the signature — it has no secret, by design — so
+  // this is used ONLY for scheduling: when to ask the server for a fresh token.
+  // No gate, no entitlement and no UI claim is ever decided from it; the server
+  // re-derives everything from the signature it can actually check.
+  function tokenExpiryMs(token) {
+    if (typeof token !== "string") return null;
+    var parts = token.split(".");
+    if (parts.length !== 3) return null;
+    var secs = Number(parts[1]);
+    if (!isFinite(secs) || secs <= 0) return null;
+    return secs * 1000;
+  }
+
+  // US-3295 / US-3296: WHICH gate closed the Lister — "signin", "reconnect" or
+  // "plan".
+  //
+  // `lister` is false for three unrelated reasons and the extension used to
+  // report all of them as "upgrade your plan". An install with no account token
+  // gets the ANONYMOUS entitlements from the server no matter what the account
+  // pays, so a Business seller who had never connected the extension was told to
+  // buy the plan they already had. An install whose token LAPSED looks identical
+  // to one that never had a token, which is US-3296: the seller connected
+  // months ago and is now being told to connect.
+  //
+  // Order matters. A stored-but-dead token is checked before `authenticated`,
+  // because an expired token makes every server answer anonymous — so
+  // `authenticated` is false for a fully paid, previously connected account.
+  // Returns null when the Lister is granted.
   function listerBlockReason(caps) {
     var c = caps && typeof caps === "object" ? caps : {};
     if (c.lister === true) return null;
+    if (c.tokenStatus === "expired") return "reconnect";
     return c.authenticated === true ? "plan" : "signin";
   }
 
@@ -133,6 +205,13 @@
     normalizeEntitlements: normalizeEntitlements,
     resolveCapabilities: resolveCapabilities,
     listerBlockReason: listerBlockReason,
+    // US-3296: the token-lifecycle helpers. Pure, so the worker and the tests
+    // share one definition of "expiring".
+    tokenStateFrom: tokenStateFrom,
+    normalizeTokenState: normalizeTokenState,
+    shouldRenewToken: shouldRenewToken,
+    tokenExpiryMs: tokenExpiryMs,
+    TOKEN_RENEW_WITHIN_MS: RENEW_WITHIN_MS,
     normalizeQuota: normalizeQuota,
     maxImagesFor: maxImagesFor,
     MAX_IMAGES_ANON: MAX_IMAGES_ANON,

@@ -7,6 +7,7 @@ import { useRealtimeSubmissions } from "@/hooks/use-realtime-submission";
 import { useRealtimeListingState } from "@/hooks/use-realtime-listing-state";
 import { useCheckoutReconciler } from "@/hooks/use-checkout-reconciler";
 import { useSurfaceTitle } from "@/hooks/use-surface-title";
+import { useExtensionTokenHandoff } from "@/hooks/use-extension-token-handoff";
 import { RouteAnnouncer } from "@/components/route-announcer";
 import { CommandPalette } from "@/components/flipdesk/command-palette";
 import { ShortcutsHelp } from "@/components/dashboard/shortcuts-help";
@@ -37,6 +38,12 @@ export function DashboardLayout() {
   // the tab strip, in history and in a bookmark. Derived from the surfaces
   // registry, not written per page.
   useSurfaceTitle();
+  // US-3296: the extension's account token lives 30 days and nothing ever
+  // renewed it, so every connected seller silently dropped to the anonymous
+  // entitlements about a month after connecting and every Lister action failed.
+  // Re-hands a fresh one when the extension is here and its token is near the
+  // end. Silent, throttled to once every six hours, never blocks a render.
+  useExtensionTokenHandoff();
 
   return (
     <div className="flex h-screen flex-col overflow-hidden">

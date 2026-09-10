@@ -226,6 +226,22 @@ function renderAccount(caps) {
       if (chipDot) chipDot.textContent = "B";
       if (avatar) avatar.textContent = "B";
     }
+  } else if (caps && caps.tokenStatus === "expired") {
+    // US-3296: this install HAS been connected. Its token simply ran out, which
+    // makes every server answer anonymous and made this branch say "Not signed
+    // in" to a seller who signed in months ago. Reconnect and connect are not
+    // the same instruction: one of them tells a paying customer the product has
+    // forgotten them.
+    state.textContent = "Connection expired";
+    disconnect.hidden = false;
+    connect.textContent = "Reconnect";
+    summary.textContent =
+      "Your account connection ran out. Buyer research still works. Reconnect to get your read limit and seller tools back.";
+    roleSub.textContent = "Reconnect";
+    if (chip) { chip.dataset.state = "anon"; chip.setAttribute("aria-label", "Account: connection expired, reconnect"); }
+    if (chipLabel) chipLabel.textContent = "Reconnect";
+    if (chipDot) chipDot.textContent = "";
+    if (avatar) avatar.textContent = "!";
   } else {
     state.textContent = "Not signed in";
     disconnect.hidden = true;

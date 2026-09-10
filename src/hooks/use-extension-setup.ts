@@ -35,6 +35,22 @@ export interface ExtensionSetupState {
   reachable: boolean;
   /** A signed extension token is stored, so it knows which account this is. */
   signedIn: boolean;
+  /**
+   * US-3296: the STORED token's own state, which `signedIn` cannot express.
+   *
+   * `signedIn` comes from `capabilities.authenticated`, which is the SERVER's
+   * answer — and an expired token authenticates nothing, so the server answers
+   * it exactly as it answers a browser that never connected. That is how a
+   * seller who connected five weeks ago ended up being told to connect (and,
+   * before US-3295, to buy the plan they were paying for). The extension knows
+   * the difference because it wrote down the expiry; this is it saying so.
+   *
+   * `null` on an older build that does not report it — which must read as
+   * "unknown", never as "fine".
+   */
+  tokenStatus: "none" | "active" | "expiring" | "expired" | null;
+  /** US-3296 AC4: when the connection runs out, ISO. Null when nothing is stored. */
+  tokenExpiresAt: string | null;
   /** The account is on an active paid FlipDesk plan. */
   sellerEnabled: boolean;
   /** The Lister clickwrap has been accepted, in the extension, from its own copy. */
@@ -57,11 +73,19 @@ interface PingResponse {
   version?: string;
   tosAccepted?: boolean;
   channels?: ExtensionChannel[];
+  tokenStatus?: string;
+  tokenExpiresAt?: string | null;
   capabilities?: {
     authenticated?: boolean;
     sellerEnabled?: boolean;
     lister?: boolean;
   };
+}
+
+function normalizeTokenStatus(raw: unknown): ExtensionSetupState["tokenStatus"] {
+  return raw === "none" || raw === "active" || raw === "expiring" || raw === "expired"
+    ? raw
+    : null;
 }
 
 /** The answer when nothing is installed — every step open, nothing claimed. */
@@ -70,6 +94,8 @@ function emptyState(): ExtensionSetupState {
     installed: false,
     reachable: false,
     signedIn: false,
+    tokenStatus: null,
+    tokenExpiresAt: null,
     sellerEnabled: false,
     tosAccepted: false,
     channels: [],
@@ -99,6 +125,12 @@ export function useExtensionSetup(enabled = true) {
         ...base,
         reachable: true,
         signedIn: caps.authenticated === true,
+        // US-3296: reported verbatim, never inferred. An unrecognised value
+        // (an older build, a future state) collapses to null rather than being
+        // guessed at -- guessing is what produced "not connected" for a
+        // connection that had simply run out.
+        tokenStatus: normalizeTokenStatus(res.tokenStatus),
+        tokenExpiresAt: typeof res.tokenExpiresAt === "string" ? res.tokenExpiresAt : null,
         sellerEnabled: caps.sellerEnabled === true,
         // An older build does not report this. Treating "did not say" as
         // "accepted" would show a green step for a gate that will refuse the
