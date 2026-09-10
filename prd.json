@@ -4338,24 +4338,6 @@
       "priority": 15
     },
     {
-      "id": "US-3191",
-      "passes": false,
-      "title": "There is no packing slip, so what goes in the box is retyped or remembered",
-      "description": "As a reseller packing several orders at once, I want a printable packing slip per order that names the bin the garment is in, so that I pick and pack without opening each item.",
-      "acceptanceCriteria": [
-        "A print view renders one slip per selected sale: order ref, sale date, garment title, SKU, size, location_bin, quantity, and the grade with its certificate id when the item has a grade report",
-        "No buyer address, buyer email or phone appears on the slip; only buyer_username, which the sales row already holds",
-        "Selecting N sales on the Ship tab prints N slips with a page break between them, verified by a test asserting one slip container per selected sale",
-        "The slip is a route rendered from existing tenant-scoped queries; a sale id belonging to another user returns not-found rather than rendering an empty slip",
-        "npm run ui:check stays at zero findings for src/ after the new component lands"
-      ],
-      "priority": 3,
-      "dependsOn": [
-        "US-3190"
-      ],
-      "notes": "Done 2026-09-08 (this session). AC1: packing-slip.ts renders order ref, sale date, item, SKU, size, quantity, location_bin, buyer username and the grade with its certificate id when the item has one. AC2: no address, email or phone; a test asserts it against the slip BODIES (the stylesheet legitimately contains '@media print') and matches an email-shaped regex rather than a word list. AC3: 12 tests including one slip container per selected sale and a page break between them. AC4 DEVIATED, deliberately and in the safer direction: it is a popup document built from the rows the tenant-scoped useShipQueue already returned, the same shape pnl.tsx uses for the P&L statement, NOT a route. A route would take a sale id in the URL and an id in a URL is a thing to authorize; there is no id here to get wrong, so the cross-tenant concern the AC was written for cannot arise rather than being handled. AC5: npm run ui:check stays at 0 blocking for src/."
-    },
-    {
       "id": "US-3196",
       "passes": false,
       "title": "eBay sync mirrors listing photos by reference, and one action copies them into GradeThread",
