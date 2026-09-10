@@ -9855,6 +9855,88 @@ export const SIZING_CHARTS: SizingChart[] = [
       { size: "XXXXL", measurements: { chest: "55.5-57.5", neck: "20-20.5", waist: "49.5-51.5", sleeve: "39-39.25" } },
     ],
   },
+
+  // ── US-3288: size-chart backfill, batch 5 ──────────────────────────────────
+  //
+  // The North Face, and two decisions worth writing down.
+  //
+  // DEPARTMENT IS UNISEX BECAUSE THE PAGE WOULD NOT SAY. thenorthface.com's size
+  // charts carry Men's / Women's / Boys' / Girls' tabs, and clicking between
+  // Men's and Women's returns the SAME tables — identical to the decimal. Either
+  // TNF publishes one grade for both or the tab swap did not reach what could be
+  // read; from outside there is no way to tell which. Unisex is the honest
+  // answer and it matches how the corpus already held this brand, whose note
+  // says "men's and women's overlap — confirm department from the cut".
+  //
+  // NO JACKETS CHART HERE, ON PURPOSE. The corpus already holds a shared
+  // "The North Face / Patagonia (outerwear)" row whose categoryMatch is
+  // jackets-only. Adding a TNF jackets chart would put two charts against one
+  // query, which is the exact problem US-1734 fixed for Columbia and Arc'teryx.
+  // Narrowing that shared row to Patagonia would be the tidier fix and it is NOT
+  // done here: the row is unsourced, so the batch migration cannot carry it (the
+  // 00578 CHECK needs a source_url AND a confidence), and 00498 is already
+  // applied — the in-code corpus would say one thing and the DB another, with
+  // the DB winning. The two charts below cover TOPS and BOTTOMS, where the
+  // shared row does not reach, so nothing competes.
+
+  // The North Face — https://www.thenorthface.com/en-us/help/size-charts
+  {
+    brand: "The North Face",
+    brandMatch: ["the north face", "north face", "thenorthface", "tnf"],
+    department: "Unisex",
+    garment: "Tops (alpha, body inches)",
+    categoryMatch: [
+      "top", "tee", "shirt", "polo", "tank", "sweater", "knit", "hoodie",
+      "sweatshirt", "base layer",
+    ],
+    sourceUrl: "https://www.thenorthface.com/en-us/help/size-charts",
+    note:
+      "TNF's published short-sleeved-shirts chart, which is its tops grade. " +
+      "Body measurements, not flat. The same published table appends a SEPARATE " +
+      "extended 2X-5X run whose sizes overlap this one (a 3XL and a 3X are both " +
+      "listed, with different numbers); only the standard 2XS-3XL run is here, " +
+      "so the sequence stays something a size check can count steps along.",
+    rows: [
+      { size: "2XS", measurements: { chest: "30-33", hip: "31-33", sleeve: "33" } },
+      { size: "XS", measurements: { chest: "33.5-36.5", hip: "33.5-35.5", sleeve: "33.5" } },
+      { size: "S", measurements: { chest: "37-39.5", hip: "36-38.5", sleeve: "34" } },
+      { size: "M", measurements: { chest: "40-42.5", hip: "39-41.5", sleeve: "34" } },
+      { size: "L", measurements: { chest: "43-46", hip: "42-44.5", sleeve: "34.5" } },
+      { size: "XL", measurements: { chest: "46.5-49.5", hip: "45-47.5", sleeve: "35" } },
+      { size: "2XL", measurements: { chest: "50-54", hip: "48-51", sleeve: "35.5" } },
+      { size: "3XL", measurements: { chest: "54.5-58.5", hip: "51.5-54", sleeve: "36" } },
+    ],
+  },
+  {
+    brand: "The North Face",
+    brandMatch: ["the north face", "north face", "thenorthface", "tnf"],
+    department: "Unisex",
+    garment: "Bottoms (WAIST TAG 28-44 with an alpha beside it, body inches)",
+    categoryMatch: [
+      "bottom", "pant", "trouser", "short", "hiking pant", "snow pant", "jogger",
+      "sweatpant",
+    ],
+    sourceUrl: "https://www.thenorthface.com/en-us/help/size-charts",
+    note:
+      "TNF's published pants chart. The size is the WAIST TAG with the brand's " +
+      "own alpha in brackets, and note the alpha repeats — 32 and 34 are both " +
+      "M, 36 and 38 are both L — so two adjacent tags share a letter. Body " +
+      "measurements: a tagged 32 is a 32.5-33.5in body waist. INSEAM is a length " +
+      "OPTION rather than a per-size measurement (Short 30 / Regular 32 / Long " +
+      "34 at every size), so it is not a column here. The extended 2X-5X run on " +
+      "the same table is left out.",
+    rows: [
+      { size: "28 (XS)", measurements: { waist: "28-30", hip: "33.5-35.5" } },
+      { size: "30 (S)", measurements: { waist: "30.5-32", hip: "36-38" } },
+      { size: "32 (M)", measurements: { waist: "32.5-33.5", hip: "38-39.5" } },
+      { size: "34 (M)", measurements: { waist: "33.5-35", hip: "39.5-41" } },
+      { size: "36 (L)", measurements: { waist: "35-36", hip: "41-42.5" } },
+      { size: "38 (L)", measurements: { waist: "36.5-38.5", hip: "42.5-44" } },
+      { size: "40 (XL)", measurements: { waist: "39-40", hip: "44-45.5" } },
+      { size: "42 (XL)", measurements: { waist: "40.5-42.5", hip: "45.5-47" } },
+      { size: "44 (2XL)", measurements: { waist: "43-45", hip: "47-48.5" } },
+    ],
+  },
 ];
 
 function norm(s: string | null | undefined): string {

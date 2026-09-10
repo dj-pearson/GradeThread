@@ -6,9 +6,9 @@ Coverage is measured the way the size-guide panel resolves a chart: a real brand
 
 ## Where it stands
 
-- 167 brands, 318 brand-specific charts.
-- 32 charts link the brand's own guide; 0 have been checked against it by a human.
-- 75 brands are missing at least one group they should cover.
+- 168 brands, 320 brand-specific charts.
+- 36 charts link the brand's own guide; 0 have been checked against it by a human.
+- 74 brands are missing at least one group they should cover.
 
 Worked dead ends, skipped by `--gaps` and still listed below:
 
@@ -23,10 +23,10 @@ Worked dead ends, skipped by `--gaps` and still listed below:
 
 | Group | Brands covered |
 |---|---:|
-| top | 110 |
-| bottom | 93 |
+| top | 112 |
+| bottom | 95 |
 | dress | 51 |
-| outerwear | 98 |
+| outerwear | 99 |
 | suit | 32 |
 | shoes | 27 |
 | bag | 10 |
@@ -182,7 +182,8 @@ Worked dead ends, skipped by `--gaps` and still listed below:
 | Sweaty Betty | 2 | Women | Women |  | Women |  |  |  |  |  |  |  |
 | Talbots | 1 | Women | Women | Women | Women | Women |  |  |  |  |  |  |
 | The Children's Place | 2 | Kids | Kids | Baby, Kids | Kids |  |  |  |  |  |  |  |
-| The North Face / Patagonia (outerwear) | 1 |  |  |  | Unisex |  |  |  |  |  |  | top, bottom |
+| The North Face | 3 | Unisex | Unisex |  | Unisex |  |  |  |  |  |  |  |
+| The North Face / Patagonia (outerwear) | 3 | Unisex | Unisex |  | Unisex |  |  |  |  |  |  |  |
 | Theory | 2 | Women | Women |  | Women | Women |  |  |  |  |  |  |
 | Timberland | 1 |  |  |  |  |  | Men |  |  |  |  |  |
 | Todd Snyder | 1 | Men | Men |  |  | Men |  |  |  |  |  | outerwear |

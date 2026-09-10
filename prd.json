@@ -5101,24 +5101,6 @@
       "priority": 2
     },
     {
-      "id": "US-3288",
-      "passes": false,
-      "title": "Size charts, batch 5 of 11: Duluth Trading Co. to Nike",
-      "description": "Ten brands whose size-guide panel shows a gap for a garment group they sell. Follow vault/20-domain/brands/size-chart-coverage-backfill.md. Batch: Duluth Trading Co. (top, outerwear); Fear of God Essentials (outerwear, dress); Fila (bottom, dress); G-Star RAW (top, dress); Gallery Dept. (bottom, dress); Gap (outerwear, dress); Hellstar (bottom, dress); Kith (bottom, outerwear); Lee (top, dress); Nike (bottom, dress).",
-      "acceptanceCriteria": [
-        "Each brand in the batch has a SizingChart for every group the coverage report lists as missing, with categoryMatch words a seller would actually type",
-        "Every new chart sets sourceUrl to the brand's OWN published guide, never a reseller blog or a marketplace table",
-        "measurementBasis is set to flat only where the brand publishes garment specs; body charts leave it absent",
-        "verified stays absent unless a human compared the rows against sourceUrl, so the panel's tier badge cannot overstate an estimate",
-        "scripts/gen-sizing-chart-seed.mjs is re-run and the regenerated migration lands in the same commit; sizing-chart-parity_test.ts passes",
-        "docs/size-chart-coverage.md is regenerated and shows no remaining gap for these ten brands, or the story note names each exception and why"
-      ],
-      "priority": 4,
-      "dependsOn": [
-        "US-3283"
-      ]
-    },
-    {
       "id": "US-3289",
       "passes": false,
       "title": "Size charts, batch 6 of 11: Old Navy to StÃ¼ssy",

@@ -46186,6 +46186,25 @@
         "US-3283"
       ],
       "notes": "Batch 4 done 2026-09-09. Tommy Hilfiger closed both its gaps with four charts off its own two size-guide pages: women's bottoms, women's outerwear (Tommy publishes no separate outerwear table, so its jackets are sized off the women's tops chart), men's bottoms and men's outerwear. THE ALPHA SPANS WERE READ, NOT INFERRED, and that is the transferable bit: a text dump of these tables loses the colspans — the tops table prints 10 alpha labels over 20 numeric columns and says nothing about the pairing — but the BOTTOMS table on the same page spells it out one label per column, so the pairing is Tommy's own, taken from the table that states it. Men's bottoms are keyed on the number PRINTED ON THE TAG because that is what a seller reads, with a note that Tommy's own chart puts the wearer's waist about 1.5in above it. Spanx's /pages/size-chart renders no table and was not added. NEXT ITERATION'S FIRST TARGET: The North Face. thenorthface.com/en-us/help/size-charts DOES render clean chest/hip/sleeve tables, but the corpus holds it as a COMBINED 'The North Face / Patagonia (outerwear)' entry with brandMatch ['north face','patagonia'], created when neither brand had its own chart. Giving TNF its own sourced charts means narrowing that shared row to patagonia only — exactly the move US-1734 already made for Columbia and Arc'teryx, and the reason is written in that entry's own comment. Two things to settle first: which of the two published tables is men's and which women's, and how to handle the 2X-5X plus rows appended to both."
+    },
+    {
+      "id": "US-3288",
+      "passes": true,
+      "title": "Size charts, batch 5 of 11: Duluth Trading Co. to Nike",
+      "description": "Ten brands whose size-guide panel shows a gap for a garment group they sell. Follow vault/20-domain/brands/size-chart-coverage-backfill.md. Batch: Duluth Trading Co. (top, outerwear); Fear of God Essentials (outerwear, dress); Fila (bottom, dress); G-Star RAW (top, dress); Gallery Dept. (bottom, dress); Gap (outerwear, dress); Hellstar (bottom, dress); Kith (bottom, outerwear); Lee (top, dress); Nike (bottom, dress).",
+      "acceptanceCriteria": [
+        "Each brand in the batch has a SizingChart for every group the coverage report lists as missing, with categoryMatch words a seller would actually type",
+        "Every new chart sets sourceUrl to the brand's OWN published guide, never a reseller blog or a marketplace table",
+        "measurementBasis is set to flat only where the brand publishes garment specs; body charts leave it absent",
+        "verified stays absent unless a human compared the rows against sourceUrl, so the panel's tier badge cannot overstate an estimate",
+        "scripts/gen-sizing-chart-seed.mjs is re-run and the regenerated migration lands in the same commit; sizing-chart-parity_test.ts passes",
+        "docs/size-chart-coverage.md is regenerated and shows no remaining gap for these ten brands, or the story note names each exception and why"
+      ],
+      "priority": 4,
+      "dependsOn": [
+        "US-3283"
+      ],
+      "notes": "Batch 5 done 2026-09-09. The North Face closed both its gaps with two sourced charts (tops, bottoms) off thenorthface.com/en-us/help/size-charts. TWO DECISIONS WORTH KEEPING. (1) DEPARTMENT IS UNISEX BECAUSE THE PAGE WOULD NOT SAY: the size-chart page carries Men's/Women's/Boys'/Girls' tabs and clicking between Men's and Women's returns tables identical to the decimal. Either TNF publishes one grade for both or the tab swap did not reach what could be read, and from outside there is no telling which — so Unisex, which is also how the corpus already held this brand. (2) NO TNF JACKETS CHART, ON PURPOSE. The corpus holds a shared 'The North Face / Patagonia (outerwear)' row whose categoryMatch is jackets-only; adding a TNF jackets chart would put two charts against one query, the exact problem US-1734 fixed for Columbia and Arc'teryx. Narrowing that shared row to Patagonia is the tidier fix and was deliberately NOT done: the row is unsourced so the batch migration cannot carry it (00578's CHECK needs source_url AND confidence), 00498 is already applied, and the resolver is DB-first — the code would say one thing and the DB another, with the DB winning. Verified by probe: 'hoodie' resolves to TNF's sourced tops chart, 'pants' to its sourced bottoms chart, and 'jacket' still to the shared outerwear row, with no competition on any of the three. Also: both published tables append a SEPARATE extended 2X-5X run whose sizes overlap the standard one (a 3XL and a 3X are both listed with different numbers); only the standard run is stored, so the sequence stays countable. Inseam is a length option (Short 30 / Regular 32 / Long 34 at every size) rather than a per-size measurement, so it is in the note rather than a column."
     }
   ]
 }
