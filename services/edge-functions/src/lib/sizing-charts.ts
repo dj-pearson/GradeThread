@@ -6483,6 +6483,15 @@ export const SIZING_CHARTS: SizingChart[] = [
       "jacket",
       "tie",
       "necktie",
+      "bottom",
+      "pant",
+      "trouser",
+      "short",
+      "chino",
+      "jean",
+      "coat",
+      "outerwear",
+      "vest",
     ],
     note:
       "Vineyard Vines' own published men's chart. ⚠ FLAGGED FOR HUMAN VERIFICATION, " +
@@ -6493,7 +6502,14 @@ export const SIZING_CHARTS: SizingChart[] = [
       "grade: 'Big' 1X-6X and 'Tall' XL-5X at the SAME GIRTH as Big but +2in of " +
       "sleeve — so Big vs Tall is a SLEEVE-LENGTH fact, a real discriminator. " +
       "MEN'S BOTTOMS are sold as WAIST x INSEAM IN INCHES, but no brand-published " +
-      "numeric men's-pant chart exists — the waist column here is per alpha size.",
+      "numeric men's-pant chart exists — the waist column here is per alpha size. " +
+      "US-3294 widened this chart to BOTTOMS on the strength of that waist " +
+      "column and changed no numbers. ⚠ VINEYARD VINES COULD NOT BE " +
+      "RE-SOURCED: /pages/size-charts and /size-chart.html are both 410 GONE, " +
+      "/size-charts answers 200 but renders no table at all (it serves a " +
+      "script payload), and its category pages render no product links to " +
+      "reach a size-guide modal from. So the rows stay unsourced and the " +
+      "discontinuity flagged above stays flagged.",
     rows: [
       {
         size: "XS",
@@ -6858,8 +6874,18 @@ export const SIZING_CHARTS: SizingChart[] = [
       "tailoring",
       "chore coat",
       "outerwear",
+      "jacket",
+      "coat",
+      "parka",
+      "vest",
+      "overshirt",
     ],
     note:
+      "US-3294 added \"jacket\", \"coat\" and \"parka\" and changed nothing else. " +
+      "The list already carried \"chore coat\" and \"outerwear\", which is exactly " +
+      "why this still read as an outerwear gap: matching is a SUBSTRING TEST ON " +
+      "THE QUERY, so the query \"jacket\" contains neither of them and the chart " +
+      "never resolved. A longer keyword is a NARROWER one, not a broader one. " +
       "⚠ NO BRAND-PUBLISHED MEASUREMENTS ARE SEEDED FOR TODD SNYDER, AND THAT IS " +
       "DELIBERATE: toddsnyder.com RETURNS HTTP 403 TO AUTOMATED FETCHING ON EVERY " +
       "SIZE-GUIDE PATH, so no chart could be obtained and NONE IS INVENTED. This row " +

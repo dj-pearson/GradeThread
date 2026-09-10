@@ -454,6 +454,29 @@ style's FLAT garment specs with `measurementBasis: "flat"` and a note naming
 the style. That is honest and useful; a body chart invented from it would be
 neither.
 
+After batch 11 (US-3294), the last story in the program: 400 charts across 168
+brands, **133 sourced**, and **18 brands still carrying a gap**. Batch 11 was
+the smallest of the eleven — SIX brands listed, TWO real: Sweaty Betty,
+Theory, Under Armour and Vuori had all been closed by earlier batches'
+widenings before their own story came up. Todd Snyder and Vineyard Vines were
+both keyword-only.
+
+⚠ **A LONGER KEYWORD IS A NARROWER ONE.** Todd Snyder's `categoryMatch`
+already contained "chore coat" and "outerwear" and it STILL read as an
+outerwear gap, because matching is `query.includes(keyword)` — a substring
+test on the QUERY. The query "jacket" contains neither string, so the chart
+never resolved. Adding words to a list does not widen it unless the words are
+SHORTER and are the ones the resolver actually asks with.
+
+⚠ **THE ELEVEN BATCHES DID NOT CLOSE THE CORPUS, AND THAT IS NOT A FAILURE OF
+THE BATCHES.** Each story's brand list was snapshotted when the program was
+written; the eighteen brands still short were never on any of the eleven
+lists. US-3297 and US-3298 carry them. Several are already documented
+exceptions from earlier batches (Palace publishes no chart, BAPE's control
+renders nothing, Buck Mason and Burberry from batch 7, Filson from batch 8),
+so **read the exception notes before spending a browser session** — that is
+what they are for.
+
 ⚠ The coverage report measures the IN-CODE corpus, not the database. Prod's
 `brand_size_charts` already held source URLs on the hand-written pack rows
 (329 of 340 sourced after batch 1). The gap this loop closes is the in-code

@@ -8,14 +8,14 @@ Coverage is measured the way the size-guide panel resolves a chart: a real brand
 
 - 168 brands, 400 brand-specific charts.
 - 136 charts link the brand's own guide; 0 have been checked against it by a human.
-- 20 brands are missing at least one group they should cover.
+- 18 brands are missing at least one group they should cover.
 
 | Group | Brands covered |
 |---|---:|
 | top | 131 |
-| bottom | 120 |
+| bottom | 121 |
 | dress | 57 |
-| outerwear | 124 |
+| outerwear | 125 |
 | suit | 46 |
 | shoes | 27 |
 | bag | 10 |
@@ -175,7 +175,7 @@ Coverage is measured the way the size-guide panel resolves a chart: a real brand
 | The North Face | 5 | Men, Women | Men, Women |  | Men, Women |  |  |  |  |  |  |  |
 | Theory | 2 | Women | Women |  | Women | Women |  |  |  |  |  |  |
 | Timberland | 1 |  |  |  |  |  | Men |  |  |  |  |  |
-| Todd Snyder | 1 | Men | Men |  |  | Men |  |  |  |  |  | outerwear |
+| Todd Snyder | 1 | Men | Men |  | Men | Men |  |  |  |  |  |  |
 | Tommy Hilfiger | 7 | Men, Women | Men, Women | Women | Men, Women | Women |  |  |  |  |  |  |
 | Tommy John | 1 |  |  |  |  |  |  |  |  |  |  |  |
 | Tory Burch | 2 | Women | Women | Women | Women | Women |  |  |  |  |  |  |
@@ -190,7 +190,7 @@ Coverage is measured the way the size-guide panel resolves a chart: a real brand
 | Vera Bradley | 1 |  |  |  |  |  |  | Women |  |  |  |  |
 | Versace | 2 | Men, Women | Men, Women | Women | Men, Women | Men |  |  |  |  |  |  |
 | Victoria's Secret | 2 |  |  |  |  |  |  |  |  |  |  |  |
-| Vineyard Vines | 2 | Men, Women |  | Women | Men, Women |  |  |  |  |  |  | bottom |
+| Vineyard Vines | 2 | Men, Women | Men | Women | Men, Women |  |  |  |  |  |  |  |
 | Vuori | 3 | Men | Men, Women |  | Men |  |  |  |  |  |  |  |
 | Woolrich | 3 | Men, Women | Men, Women |  | Men, Women |  |  |  |  |  |  |  |
 | Wrangler | 5 | Men, Women | Men, Women |  | Unisex |  |  |  |  |  |  |  |
