@@ -6,16 +6,16 @@ Coverage is measured the way the size-guide panel resolves a chart: a real brand
 
 ## Where it stands
 
-- 168 brands, 407 brand-specific charts.
-- 143 charts link the brand's own guide; 0 have been checked against it by a human.
-- 12 brands are missing at least one group they should cover.
+- 168 brands, 409 brand-specific charts.
+- 145 charts link the brand's own guide; 0 have been checked against it by a human.
+- 7 brands are missing at least one group they should cover.
 
 | Group | Brands covered |
 |---|---:|
 | top | 131 |
-| bottom | 126 |
+| bottom | 128 |
 | dress | 58 |
-| outerwear | 128 |
+| outerwear | 131 |
 | suit | 46 |
 | shoes | 27 |
 | bag | 10 |
@@ -52,11 +52,11 @@ Coverage is measured the way the size-guide panel resolves a chart: a real brand
 | Bonobos | 3 | Men | Men |  | Men |  |  |  |  |  |  |  |
 | Bottega Veneta | 2 | Men, Women | Men, Women | Women | Men, Women | Men |  |  |  |  |  |  |
 | Brahmin | 1 |  |  |  |  |  |  | Women |  |  |  |  |
-| Brandy Melville | 1 | Women | Women | Women |  |  |  |  |  |  |  | outerwear |
+| Brandy Melville | 1 | Women | Women | Women | Women |  |  |  |  |  |  |  |
 | Brooks | 2 |  |  |  |  |  | Men, Women |  |  |  |  |  |
 | Brooks Brothers | 6 | Men | Men |  | Men | Men | Men, Women |  |  |  |  |  |
-| Buck Mason | 1 | Men | Men |  |  |  |  |  |  |  |  | outerwear |
-| Burberry | 2 | Men |  |  | Men, Women | Men, Women |  |  |  |  |  | bottom |
+| Buck Mason | 2 | Men | Men |  | Men |  |  |  |  |  |  |  |
+| Burberry | 2 | Men | Women |  | Men, Women | Men, Women |  |  |  |  |  |  |
 | Calvin Klein | 2 |  |  |  |  |  |  |  |  |  |  |  |
 | Canada Goose | 4 | Men, Women | Men, Women |  | Men, Women |  |  |  |  |  |  |  |
 | Carter's | 2 | Kids | Kids | Baby, Kids | Kids |  |  |  |  |  |  |  |
@@ -85,7 +85,7 @@ Coverage is measured the way the size-guide panel resolves a chart: a real brand
 | Fear of God Essentials | 2 | Unisex | Unisex |  | Unisex |  |  |  |  |  |  |  |
 | Fendi | 2 | Men, Women | Men, Women | Women | Men, Women | Men |  |  |  |  |  |  |
 | Fila | 3 | Unisex |  |  | Unisex |  | Men, Women |  |  |  |  | bottom |
-| Filson | 1 | Men |  |  | Men |  |  |  |  |  |  | bottom |
+| Filson | 2 | Men | Men |  | Men |  |  |  |  |  |  |  |
 | Fjällräven | 2 | Men, Women | Men, Women |  | Men, Women |  |  |  |  |  |  |  |
 | Fossil | 2 |  |  |  |  |  |  | Men | Unisex |  |  |  |
 | FRAME | 2 |  | Men, Women |  |  |  |  |  |  |  |  | top, outerwear |
@@ -145,7 +145,7 @@ Coverage is measured the way the size-guide panel resolves a chart: a real brand
 | Patagonia | 3 | Men, Women | Men, Women | Women | Men, Women |  |  |  |  |  |  |  |
 | Pendleton | 2 | Men | Men |  | Men |  |  |  |  |  |  |  |
 | Peter Millar | 3 | Men, Women | Men | Women | Men, Women | Men |  |  |  |  |  |  |
-| PINK | 1 | Women | Women |  |  |  |  |  |  |  |  | outerwear |
+| PINK | 1 | Women | Women |  | Women |  |  |  |  |  |  |  |
 | Prada | 2 | Men, Women | Women | Women | Men, Women | Men |  |  |  |  |  |  |
 | PUMA | 4 | Unisex, Women | Unisex, Women |  | Unisex, Women |  | Men, Women |  |  |  |  |  |
 | Rab | 2 | Men, Women | Men, Women |  | Men, Women |  |  |  |  |  |  |  |

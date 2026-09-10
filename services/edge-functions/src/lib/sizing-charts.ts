@@ -1768,7 +1768,10 @@ export const SIZING_CHARTS: SizingChart[] = [
     brandMatch: ["burberry"],
     department: "Women",
     garment: "Trench & outerwear (UK sizing)",
-    categoryMatch: ["trench", "coat", "jacket", "outerwear", "blazer"],
+    categoryMatch: [
+      "trench", "coat", "jacket", "outerwear", "blazer",
+      "bottom", "pant", "trouser", "short", "skirt", "jean", "denim",
+    ],
     note:
       "Burberry womenswear is UK sizing: UK = US + 4 (UK 12 = US 8). A UK 12 " +
       "trench is NOT a US 12 — mislabeling it costs two sizes. These are BODY " +
@@ -5798,8 +5801,20 @@ export const SIZING_CHARTS: SizingChart[] = [
       "jean",
       "short",
       "skirt",
+      "jacket",
+      "coat",
+      "outerwear",
+      "vest",
+      "cardigan",
+      "puffer",
     ],
     note:
+      "US-3298 RESOLVED THE OPEN QUESTION: Brandy Melville is a ONE-SIZE " +
+      "EXCEPTION, not a missing chart, and widening this entry to outerwear " +
+      "is the whole fix. There are no measurements to add because the brand " +
+      "publishes no grade to measure — its jackets come in the same single " +
+      "size as its tees. Adding numbers here would invent a grade the brand " +
+      "does not have. " +
       "⚠ 'ONE SIZE' HERE MEANS SMALL, NOT UNIVERSAL. Brandy Melville sells " +
       "essentially one size, roughly US 00-4 / XS-S — it is not a generous " +
       "one-size-fits-all and it does not fit most people. A model that reads 'One " +
@@ -8509,7 +8524,12 @@ export const SIZING_CHARTS: SizingChart[] = [
     brandMatch: ["pink"],
     department: "Women",
     garment: "Loungewear / apparel (alpha XS-XL, body inches)",
-    categoryMatch: ["loungewear", "hoodie", "sweatpants", "legging", "top", "tee", "panty", "bralette", "sleepwear"],
+    categoryMatch: [
+      "loungewear", "hoodie", "sweatpants", "legging", "top", "tee",
+      "panty", "bralette", "sleepwear",
+      "jacket", "coat", "outerwear", "vest", "puffer", "windbreaker",
+      "quarter zip", "half zip",
+    ],
     note:
       "⚠ PINK IS NOT VICTORIA'S SECRET — a younger, LOWER-band line; comp a PINK " +
       "hoodie/legging on the PINK ladder, not the VS lingerie one. Apparel sizes " +
@@ -12598,9 +12618,17 @@ export const SIZING_CHARTS: SizingChart[] = [
     department: "Unisex",
     garment: "Bottoms (FLAT garment specs, alpha)",
     categoryMatch: ["bottom", "pant", "sweatpant", "short", "jean", "cargo", "jogger", "trouser"],
-    sourceUrl: "https://sp5derworldwide.com/products/dark-green-heavy-web-sweatpant",
+    sourceUrl: "https://kingspider.co/products/dark-green-heavy-web-sweatpant",
     measurementBasis: "flat",
     note:
+      "⚠ CHECK THE DOMAIN BEFORE TRUSTING A SP5DER SOURCE. sp5der.com and " +
+      "spider-worldwide.com do not resolve at all, and sp5derworldwide.com " +
+      "REDIRECTS to kingspider.co. That store self-identifies as 'OFFICIAL " +
+      "WEBSITE OF SP5DER, ESTABLISHED 2019 IN LA BY WAY OF ATLANTA, " +
+      "@SP5DERWORLDWIDE' and runs on spider-worldwide.myshopify.com — the " +
+      "brand's own handle, which is the corroboration a self-claim needs. " +
+      "Recorded here because a redirect chain is exactly how a reseller chart " +
+      "gets into a corpus by accident. " +
       "Sp5der publishes 119 PER-STYLE garment charts, not one brand chart, so " +
       "these are the JUMBO SWEATPANT's — the run its sweatpants are tagged " +
       "against. GARMENT measurements. ⚠ THE BRAND LABELS THE COLUMN 'WAIST " +
@@ -12627,9 +12655,11 @@ export const SIZING_CHARTS: SizingChart[] = [
     department: "Women",
     garment: "Bottoms (FLAT garment specs, alpha XS-L)",
     categoryMatch: ["bottom", "pant", "sweatpant", "short", "legging", "jogger"],
-    sourceUrl: "https://sp5derworldwide.com/products/dark-green-heavy-web-sweatpant",
+    sourceUrl: "https://kingspider.co/products/dark-green-heavy-web-sweatpant",
     measurementBasis: "flat",
     note:
+      "⚠ See the domain warning on the unisex chart: sp5der.com does not " +
+      "resolve and sp5derworldwide.com redirects to kingspider.co. " +
       "Sp5der's WOMEN'S STRAIGHT LEG SWEATPANTS chart from the same app bundle. " +
       "GARMENT measurements, and here the waist is unmistakably a FLAT half: " +
       "23in at XS rising to 24.375in at L, barely an inch and a third across the " +
@@ -12641,6 +12671,79 @@ export const SIZING_CHARTS: SizingChart[] = [
       { size: "S", measurements: { waist: "23.5", inseam: "28.75" } },
       { size: "M", measurements: { waist: "23.875", inseam: "29.5" } },
       { size: "L", measurements: { waist: "24.375", inseam: "30.25" } },
+    ],
+  },
+
+  // ── US-3298: size-chart backfill, batch 13 of 13 ───────────────────────────
+  //
+  // Two more brands whose earlier "could not be sourced" note was about the
+  // technique. Both keep their guide in a per-product table, and neither has a
+  // /pages/size-guide of any kind.
+  //
+  //   FILSON     — the table is IN THE PDP HTML and answers a plain curl. Batch
+  //                8 gave up on it after /pages/size-guide 404'd and
+  //                /our-company/filson-fit-guide.html returned zero tables;
+  //                both were true and neither was where the chart lives.
+  //   BUCK MASON — a client-rendered module. Nothing is in the served HTML
+  //                except the CSS class names (`size-guide-module--*`), so it
+  //                needs a browser and a click on "Size/Fit Guide".
+  {
+    brand: "Filson",
+    brandMatch: ["filson", "c.c. filson"],
+    department: "Men",
+    garment: "Bottoms (waist tag, body inches)",
+    categoryMatch: ["bottom", "pant", "trouser", "short", "jean", "chino", "dungaree", "cargo", "work pant"],
+    sourceUrl: "https://www.filson.com/products/field-cargo-pants-black",
+    note:
+      "Filson's own bottoms chart, and its page states the basis outright: " +
+      "\"These measurements below are body measurements. Use a flexible tape " +
+      "measure... This is a general guide. Fit varies between products, " +
+      "dependent on their intended use.\" So THE TAG IS THE BODY WAIST here, not " +
+      "a garment one — a Filson 34 is cut to fit a 34in waist, and the ease is " +
+      "in the pattern rather than in the number. The hip column is the useful " +
+      "one: it grades by two inches up to 36 and then by 1.75, so the run tightens " +
+      "at the top. This CLOSES THE ITEM BATCH 8 LEFT OPEN.",
+    rows: [
+      { size: "28", measurements: { waist: "28", hip: "34.5" } },
+      { size: "30", measurements: { waist: "30", hip: "36.5" } },
+      { size: "32", measurements: { waist: "32", hip: "38.5" } },
+      { size: "33", measurements: { waist: "33", hip: "39.5" } },
+      { size: "34", measurements: { waist: "34", hip: "40.5" } },
+      { size: "35", measurements: { waist: "35", hip: "41.5" } },
+      { size: "36", measurements: { waist: "36", hip: "42.5" } },
+      { size: "38", measurements: { waist: "38", hip: "44.25" } },
+      { size: "40", measurements: { waist: "40", hip: "46" } },
+      { size: "42", measurements: { waist: "42", hip: "47.75" } },
+      { size: "44", measurements: { waist: "44", hip: "49.5" } },
+      { size: "46", measurements: { waist: "46", hip: "51.25" } },
+      { size: "48", measurements: { waist: "48", hip: "53" } },
+    ],
+  },
+  {
+    brand: "Buck Mason",
+    brandMatch: ["buck mason", "buckmason"],
+    department: "Men",
+    garment: "Outerwear (FLAT garment specs, chore coat)",
+    categoryMatch: ["jacket", "coat", "outerwear", "vest", "chore coat", "overshirt", "bomber", "parka"],
+    sourceUrl: "https://www.buckmason.com/products/black-felted-chore-coat",
+    measurementBasis: "flat",
+    note:
+      "⚠ GARMENT measurements, not a body, and per style: Buck Mason renders " +
+      "its guide client-side behind a \"Size/Fit Guide\" button and publishes a " +
+      "different table for each piece. These are the FELTED CHORE COAT's. The " +
+      "CHEST here is the finished garment round, so 40in at XS is the jacket, not " +
+      "the wearer — read against a body chart it would look two sizes too big. " +
+      "⚠ THE CHEST GRADE IS UNEVEN: two inches from XS to M, then three from M " +
+      "to L and L to XL and XL to XXL, so the top half of the run jumps. " +
+      "SHOULDER TO SHOULDER is the column that separates this from a shirt " +
+      "chart and the one to measure on a used coat.",
+    rows: [
+      { size: "XS", measurements: { chest: "40", length: "28", sleeve: "32.5", shoulder: "16.5" } },
+      { size: "S", measurements: { chest: "42", length: "28.75", sleeve: "33.25", shoulder: "17" } },
+      { size: "M", measurements: { chest: "44", length: "29.5", sleeve: "34", shoulder: "17.5" } },
+      { size: "L", measurements: { chest: "47", length: "30.25", sleeve: "34.75", shoulder: "18.25" } },
+      { size: "XL", measurements: { chest: "50", length: "31", sleeve: "35.5", shoulder: "19" } },
+      { size: "XXL", measurements: { chest: "53", length: "31.75", sleeve: "36.25", shoulder: "19.75" } },
     ],
   },
 ];
