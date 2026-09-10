@@ -92,3 +92,45 @@ describe("each static segment's lastmod is its own", () => {
     expect(newestLastmod(buying)).toBe("2026-05-05");
   });
 });
+
+// The image sitemap carries a <loc> for the PAGE, so it makes the same claim
+// the URL sitemap makes. Both now read one advertisability predicate; before
+// that, marketingImageUrls() applied neither the US-2098 conditional-index rule
+// nor the US-9008 canonical rule, so an image-bearing route that either rule
+// excluded would have been advertised in sitemap-images.xml and withheld from
+// sitemap-marketing.xml. No route is both image-bearing and excluded today,
+// which is exactly why this needs a guard rather than a code reading.
+
+const OVERRIDDEN = {
+  generatedAt: "2026-01-01T00:00:00.000Z",
+  routes: [
+    { path: "/pricing", lastModified: "2026-02-02", image: { file: "/og/pricing.png", alt: "Pricing" } },
+    {
+      path: "/compare/depop-vs-poshmark",
+      lastModified: "2026-02-03",
+      canonicalPath: "/blog/depop-vs-poshmark-which-should-you-use",
+      image: { file: "/og/compare.png", alt: "Depop vs Poshmark" },
+    },
+  ],
+};
+
+describe("the image sitemap withholds what the URL sitemap withholds", () => {
+  it("drops a canonicalised route from the image entries, not just from the URLs", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) =>
+        String(url).includes("/seo-manifest.json")
+          ? { ok: true, status: 200, json: async () => OVERRIDDEN }
+          : { ok: false, status: 404, json: async () => ({}) },
+      ) as never,
+    );
+
+    const { marketingImageUrls } = await import("../../functions/_shared/sitemap");
+    const images = await marketingImageUrls(ENV);
+    const urls = await staticUrls(ENV);
+
+    // Both surfaces agree, and both agree by excluding the same page.
+    expect(images.map((e) => e.loc)).toEqual(["https://gradethread.com/pricing"]);
+    expect(urls.map((u) => u.loc)).toEqual(["https://gradethread.com/pricing"]);
+  });
+});
