@@ -17,6 +17,12 @@ import {
 // waiting on them.
 
 const OFFERS = "src/pages/flipdesk/offers.tsx";
+// US-3297 split the two inboxes out of the page into their own table
+// components. The coverage claim has to follow the eBay hooks, so these are
+// read wherever the guard used to read only the page.
+const OFFERS_TABLE = "src/components/flipdesk/best-offers-table.tsx";
+const MESSAGES_TABLE = "src/components/flipdesk/buyer-messages-table.tsx";
+const OFFERS_SURFACE = [OFFERS, OFFERS_TABLE, MESSAGES_TABLE];
 const POST_SALE = "src/pages/flipdesk/post-sale.tsx";
 const NOTE = "src/components/flipdesk/platform-coverage-note.tsx";
 
@@ -34,10 +40,16 @@ describe("both surfaces state what they cover (US-2541)", () => {
     // Both screens drive the eBay hooks only, so the note must say eBay only.
     expect(FEATURE_COVERAGE.offers).toEqual(["ebay"]);
     expect(FEATURE_COVERAGE.post_sale).toEqual(["ebay"]);
-    const offers = read(OFFERS);
-    // If a non-eBay hook ever appears on this page, the coverage map has to
-    // move with it — this is the pairing that keeps the note honest.
-    expect(offers).not.toMatch(/use(Etsy|Depop|Shopify|Poshmark)[A-Za-z]*\(/);
+    // If a non-eBay hook ever appears on this surface, the coverage map has to
+    // move with it — this is the pairing that keeps the note honest. Checked
+    // across the page AND the two table components it delegates the inboxes to,
+    // so moving a hook one file down does not move it out of the guard.
+    for (const file of OFFERS_SURFACE) {
+      expect(
+        read(file),
+        `${file} drives a non-eBay marketplace hook while the note claims eBay only`,
+      ).not.toMatch(/use(Etsy|Depop|Shopify|Poshmark)[A-Za-z]*\(/);
+    }
   });
 
   it("every registered marketplace is accounted for", () => {
@@ -96,7 +108,9 @@ describe("both surfaces state what they cover (US-2541)", () => {
 
 describe("an empty list looks like an answer (US-2541)", () => {
   it("the messages list uses a real empty state", () => {
-    const src = read(OFFERS);
+    // US-3297 moved the inbox into its own table component; the empty state
+    // moved with it.
+    const src = read(MESSAGES_TABLE);
     expect(src).not.toMatch(/<p className="text-sm text-muted-foreground">No recent messages\.<\/p>/);
     expect(src).toMatch(/title="No recent buyer messages"/);
     // And it repeats the coverage where the ambiguity actually bites.

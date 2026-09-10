@@ -6,7 +6,7 @@
 -- WHY: the chart shape had department and a free-text garment scope and nowhere
 -- to record WHICH NATIONAL SYSTEM a size label is written in, so the corpus
 -- encoded it inside the label itself — "UK 10 (US 6)", "IT 48 (US 38)",
--- "FR 36 (US 4)", "JP L (=US M)". 115 of 331 charts do this. Every one of
+-- "FR 36 (US 4)", "JP L (=US M)". 115 of 415 charts do this. Every one of
 -- those parentheses is a workaround for a missing field.
 --
 -- The prose is KEPT. This migration adds the structured field beside it; it
@@ -19,7 +19,7 @@
 -- chart of bare numbers stays NULL because a bare "6" could be US or UK and
 -- nothing in the row says which. NULL means "not recorded", never "US".
 --
--- Derived here: 151 charts with a readable system, 0 non-standard size class,
+-- Derived here: 170 charts with a readable system, 9 non-standard size class,
 -- 1 with an ambiguous class (a scope naming several — the Talbots case, whose
 -- scope reads "Misses / Petite / Plus" and which is exactly the folding the
 -- size_class column exists to end).
@@ -72,7 +72,7 @@ begin
   ('vuori', 'Men', 'Bottoms (shorts / joggers)', 'alpha', 'standard'),
   ('vuori', 'Men', 'Tops', 'alpha', 'standard'),
   ('vuori', 'Women', 'Bottoms (leggings / shorts)', 'alpha', 'standard'),
-  ('jcrew', 'Men', 'Shirts (alpha)', 'alpha', 'standard'),
+  ('jcrew', 'Men', 'Shirts & outerwear (alpha)', 'alpha', 'standard'),
   ('freepeople', 'Women', 'Tops & dresses (alpha)', 'alpha', 'standard'),
   ('lululemon', 'Men', 'Tops', 'alpha', 'standard'),
   ('nike', 'Men', 'Tops', 'alpha', 'standard'),
@@ -91,7 +91,6 @@ begin
   ('reicoop', 'Men', 'Tops', 'alpha', 'standard'),
   ('llbean', 'Men', 'Tops', 'alpha', 'standard'),
   ('mountainhardwear', 'Men', 'Tops', 'alpha', 'standard'),
-  ('thenorthfacepatagoniaouterwear', 'Unisex', 'Outerwear / jackets (alpha)', 'alpha', 'standard'),
   ('chanel', 'Women', 'Jackets & tweed (FR sizing)', 'FR', 'standard'),
   ('chanel', 'Women', 'Dresses & tops (FR sizing)', 'FR', 'standard'),
   ('burberry', 'Women', 'Trench & outerwear (UK sizing)', 'UK', 'standard'),
@@ -99,12 +98,10 @@ begin
   ('prada', 'Women', 'Ready-to-wear (IT sizing)', 'IT', 'standard'),
   ('prada', 'Men', 'Ready-to-wear (IT sizing)', 'IT', 'standard'),
   ('michaelkors', 'Women', 'Bottoms (US numeric)', 'US', 'standard'),
-  ('katespade', 'Women', 'Dresses (US numeric)', 'US', 'standard'),
   ('toryburch', 'Women', 'Tops & dresses (US numeric)', 'US', 'standard'),
   ('toryburch', 'Women', 'Bottoms (US numeric)', 'US', 'standard'),
   ('supreme', 'Men', 'Tops (tees & hoodies, US alpha)', 'alpha', 'standard'),
   ('supreme', 'Men', 'Bottoms (US numeric waist)', 'US', 'standard'),
-  ('stssy', 'Men', 'Tops (tees & fleece, US alpha)', 'alpha', 'standard'),
   ('bape', 'Men', 'Tops (JAPANESE sizing)', 'JP', 'standard'),
   ('kith', 'Men', 'Tops (tees & fleece, US alpha)', 'alpha', 'standard'),
   ('palace', 'Men', 'Tops (tees & fleece, US alpha)', 'alpha', 'standard'),
@@ -130,8 +127,7 @@ begin
   ('canadagoose', 'Women', 'Outerwear', 'alpha', 'standard'),
   ('mackage', 'Men', 'Outerwear', 'alpha', 'standard'),
   ('mackage', 'Women', 'Outerwear', 'alpha', 'standard'),
-  ('woolrich', 'Men', 'Outerwear & wool', 'alpha', 'standard'),
-  ('woolrich', 'Women', 'Outerwear & wool', 'alpha', 'standard'),
+  ('woolrich', 'Women', 'Outerwear, tops & bottoms', 'alpha', 'standard'),
   ('offwhite', 'Unisex', 'Tops (alpha)', 'alpha', 'standard'),
   ('chromehearts', 'Unisex', 'Tops (alpha)', 'alpha', 'standard'),
   ('aimleondore', 'Unisex', 'Tops (alpha)', 'alpha', 'standard'),
@@ -149,10 +145,8 @@ begin
   ('fila', 'Unisex', 'Tops (alpha)', 'alpha', 'standard'),
   ('puma', 'Men', 'Footwear (US/UK/EU — RUNS SMALL, size is STAMPED)', 'US', 'standard'),
   ('puma', 'Women', 'Footwear (US/UK/EU — RUNS SMALL, size is STAMPED)', 'US', 'standard'),
-  ('puma', 'Unisex', 'Tops (alpha)', 'alpha', 'standard'),
   ('reebok', 'Men', 'Footwear (US/UK/EU — classics RUN LARGE, size is STAMPED)', 'US', 'standard'),
   ('reebok', 'Women', 'Footwear (US/UK/EU — classics RUN LARGE, size is STAMPED)', 'US', 'standard'),
-  ('reebok', 'Unisex', 'Tops (alpha)', 'alpha', 'standard'),
   ('asics', 'Men', 'Footwear (US/UK/EU + width — RUNS SMALL AND NARROW)', 'US', 'standard'),
   ('asics', 'Women', 'Footwear (US/UK/EU + width — RUNS SMALL AND NARROW)', 'US', 'standard'),
   ('onrunning', 'Men', 'Footwear (US/UK/EU — RUNS SMALL AND NARROW)', 'US', 'standard'),
@@ -165,14 +159,13 @@ begin
   ('hm', 'Women', 'Tops & dresses (EU numeric 32-44 / alpha)', 'EU', 'standard'),
   ('talbots', 'Women', 'Misses (US numeric 2-18) / Petite (0P-16P) / Plus (14W-26W)', NULL, NULL),
   ('untuckit', 'Men', 'Button-down shirts (ALPHA S-XXXL) — but dress shirts are NECK x SLEEVE, see note', 'alpha', 'standard'),
-  ('untuckit', 'Women', 'Tops & dresses (ALPHA XS-XL)', 'alpha', 'standard'),
+  ('untuckit', 'Women', 'Tops, bottoms, outerwear & dresses (ALPHA XS-XL)', 'alpha', 'standard'),
   ('johnnieo', 'Men', 'Tops (ALPHA S-XXXL — body measurements)', 'alpha', 'standard'),
   ('vineyardvines', 'Men', 'Tops (ALPHA XS-XXL — body measurements)', 'alpha', 'standard'),
   ('faherty', 'Men', 'Tops (ALPHA XS-XXXL — body measurements)', 'alpha', 'standard'),
   ('filson', 'Men', 'Tops & outerwear (alpha, CHEST inches)', 'alpha', 'standard'),
   ('redwing', 'Men', 'Boots (US men''s shoe size)', 'US', 'standard'),
   ('timberland', 'Men', 'Boots (US men''s shoe size)', 'US', 'standard'),
-  ('pendleton', 'Men', 'Wool shirts & tops (alpha, CHEST inches)', 'alpha', 'standard'),
   ('barbour', 'Men', 'Waxed & quilted jackets (UK alpha / CHEST inches)', 'alpha', 'standard'),
   ('orvis', 'Men', 'Tops & outerwear (alpha, CHEST inches)', 'alpha', 'standard'),
   ('clarks', 'Unisex', 'Footwear (US/UK/EU + letter width fittings)', 'UK', 'standard'),
@@ -208,12 +201,47 @@ begin
   ('denimtears', 'Unisex', 'Tops & outerwear (alpha — GARMENT FLAT specs, inches)', 'alpha', 'standard'),
   ('herno', 'Women', 'Apparel (ITALIAN-SIZED — system conversion only, no measurements)', 'IT', 'standard'),
   ('herno', 'Men', 'Apparel (ITALIAN-SIZED — system conversion only, no measurements)', 'IT', 'standard'),
-  ('levis', 'Men', 'Tops & outerwear (alpha, body inches)', 'alpha', 'standard'),
-  ('luckybrand', 'Men', 'Tops & outerwear (alpha, body inches)', 'alpha', 'standard'),
-  ('stssy', 'Unisex', 'Outerwear (alpha, body inches, with the brand''s own conversions)', 'alpha', 'standard'),
-  ('truereligion', 'Men', 'Tops & outerwear (alpha, body inches)', 'alpha', 'standard'),
-  ('arcteryx', 'Men', 'Bottoms (alpha, body inches converted from the brand''s cm)', 'alpha', 'standard'),
-  ('arcteryx', 'Women', 'Bottoms (alpha, body inches converted from the brand''s cm)', 'alpha', 'standard')
+  ('hudsonjeans', 'Women', 'Tops', 'alpha', 'standard'),
+  ('hudsonjeans', 'Women', 'Jackets & outerwear', 'alpha', 'standard'),
+  ('hudsonjeans', 'Men', 'Shirts & tops', 'alpha', 'standard'),
+  ('hudsonjeans', 'Men', 'Jackets & outerwear', 'alpha', 'standard'),
+  ('joesjeans', 'Men', 'Tops & outerwear', 'alpha', 'standard'),
+  ('levis', 'Women', 'Tops & outerwear, plus (body inches)', NULL, 'plus'),
+  ('luckybrand', 'Men', 'Tops & outerwear (body inches)', 'alpha', 'standard'),
+  ('madewell', 'Women', 'Tops & outerwear, plus (body inches)', NULL, 'plus'),
+  ('pacsun', 'Women', 'Tops & outerwear (body inches)', 'alpha', 'standard'),
+  ('paige', 'Men', 'Tops & outerwear (body inches)', 'alpha', 'standard'),
+  ('patagonia', 'Men', 'Tops & outerwear (body inches)', 'alpha', 'standard'),
+  ('patagonia', 'Men', 'Bottoms (body inches)', 'alpha', 'standard'),
+  ('thenorthface', 'Women', 'Jackets & tops, plus (body inches)', NULL, 'plus'),
+  ('truereligion', 'Men', 'Tops & outerwear (body inches)', 'alpha', 'standard'),
+  ('spanx', 'Women', 'Tops & outerwear, plus (body inches)', NULL, 'plus'),
+  ('aimleondore', 'Unisex', 'Bottoms (system conversion only — no body measurements)', 'alpha', 'standard'),
+  ('arcteryx', 'Men', 'Bottoms, alpha (body inches)', 'alpha', 'standard'),
+  ('arcteryx', 'Women', 'Bottoms, alpha (body inches)', 'alpha', 'standard'),
+  ('barbour', 'Men', 'Tops & bottoms (body inches, CONVERTED from Barbour''s cm)', 'alpha', 'standard'),
+  ('bonobos', 'Men', 'Shirts, standard fit (GARMENT inches)', 'alpha', 'standard'),
+  ('bonobos', 'Men', 'Outerwear (GARMENT inches)', 'alpha', 'standard'),
+  ('diesel', 'Women', 'Tops (body inches)', 'alpha', 'standard'),
+  ('nike', 'Women', 'Bottoms (body inches)', 'alpha', 'standard'),
+  ('nike', 'Women', 'Bottoms, plus (body inches)', NULL, 'plus'),
+  ('gstarraw', 'Men', 'Tops (body inches)', 'alpha', 'standard'),
+  ('gstarraw', 'Women', 'Tops (body inches)', 'alpha', 'standard'),
+  ('wrangler', 'Women', 'Tops (body inches)', 'alpha', 'standard'),
+  ('untuckit', 'Men', 'Jackets (body inches)', 'alpha', 'standard'),
+  ('woolrich', 'Women', 'Bottoms (INCH waist, not a body measurement)', 'alpha', 'standard'),
+  ('marmot', 'Men', 'Bottoms, big & tall (1XT-4XT)', NULL, 'big_and_tall'),
+  ('marmot', 'Women', 'Bottoms (alpha + US numeric)', 'US', 'standard'),
+  ('marmot', 'Women', 'Bottoms, plus (1X-3X)', NULL, 'plus'),
+  ('johnnieo', 'Men', 'Bottoms, big & tall (42R-56R)', NULL, 'big_and_tall'),
+  ('johnnieo', 'Women', 'Bottoms (alpha + US numeric)', 'US', 'standard'),
+  ('katespade', 'Women', 'Clothing (US numeric ↔ alpha ↔ denim waist)', 'US', 'standard'),
+  ('orvis', 'Men', 'Bottoms (alpha ↔ pant waist)', 'alpha', 'standard'),
+  ('orvis', 'Women', 'Bottoms & denim (alpha ↔ US numeric)', 'US', 'standard'),
+  ('reformation', 'Women', 'Clothing, petite (0P-12P)', NULL, 'petite'),
+  ('sp5der', 'Women', 'Bottoms (FLAT garment specs, alpha XS-L)', 'alpha', 'standard'),
+  ('buckmason', 'Men', 'Outerwear (FLAT garment specs, chore coat)', 'alpha', 'standard'),
+  ('ragbone', 'Men', 'Tops & outerwear (alpha, body inches)', 'alpha', 'standard')
     ) AS v(brand_key, department, garment, size_system, size_class)
    where t.brand_key  = v.brand_key
      and t.department = v.department

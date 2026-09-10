@@ -1,5 +1,14 @@
 # PENDING MIGRATIONS — applied to prod separately from the push
 
+> **Merged 2026-09-10.** 00777 and 00778 were authored by the session that
+> ran the money-tab and discount-campaign work and were not on origin/main
+> when the size-chart batches were numbered — which is why those batches
+> skip from 00776 to 00779. Both entries below are carried over from that
+> side verbatim. ⚠ The incoming branch's `migrations-lint.mjs` recorded both
+> as ALREADY APPLIED to prod on 2026-09-10, from reading `applied_migrations`.
+> They are still filed as HELD here because nobody in this session watched
+> them apply. Confirm against prod before trusting either heading.
+
 ## 🔒 HELD: 00778 — discount campaigns (US-3299)
 
 **Apply AFTER 00777.** Order matters only because 00777 is a live bug fix and
@@ -51,8 +60,7 @@ a fresh MFA step-up, and which mints the Stripe coupon as part of saving.
 coupons were minted (they carry `metadata.source = 'discount_campaign'`). No
 other table references it.
 
-
-## 🔒 HELD: 00777 — the Money tab has read $0.00 since 00685 (US-3298)
+## 🔒 HELD: 00777 — the Money tab has read $0.00 since 00685 (US-3300, was US-3298)
 
 ⚠ **APPLY THIS ONE FIRST.** It is a one-line fix to a function that has never
 completed a single run in production, and until it lands every seller's Money
@@ -126,31 +134,219 @@ Money and check that Profit is no longer $0.00, or POST
 `/rest/v1/rpc/rebuild_my_ledger` as a signed-in user and expect an entry count
 instead of a 400.
 
-## 🔒 HELD: 00776 — give brand_size_charts the source URLs the charts now carry (US-3284)
+
+## 🔒 HELD: 00781 — batches 4 through 10 of the sourced size charts (US-3287 to US-3293)
+
+**Risk: LOW.** Same shape as 00780 below: insert-or-update into
+`public.brand_size_charts`, a global reference table with deny-all RLS and no
+tenant data. No schema change, nothing dropped, nothing revoked. Idempotent.
+
+**ONE FILE CARRIES TWO BATCHES, on purpose.** 00781 was written for batch 4 and
+then REGENERATED to include batch 5 rather than opening an 00782. The generator
+emits every chart in the corpus carrying a `sourceUrl`, so a second number would
+have held the same rows under a different name. That is only safe because 00781
+has never been applied anywhere; once a file is recorded in `applied_migrations`
+the next batch must take a new number.
+
+**HELD FROM THE PUSH, unlike 00779 and 00780.** The standing rule is back: a
+commit touching `supabase/migrations/` is committed locally and the operator
+pushes it. This one has NOT been applied to prod and has NOT been pushed.
+
+**What it does.** Batch 4's 16 charts across Arc'teryx, Barbour, Bogner,
+Bonobos, Brooks Brothers, Dickies and Diesel, plus REPLACED rows on Cotopaxi's
+two; batch 5's 10 across Nike, Gap, G-Star RAW, Lee, Duluth Trading Co. and
+Gallery Dept.; and batch 6, which is almost entirely REPLACEMENTS — Old Navy,
+SKIMS, Rab (both departments), Stussy, PUMA and Reebok all had an approximation
+chart already, so their rows were rewritten in place, with only PUMA's women's
+chart and Reebok's bottoms chart genuinely new. Each carries the brand's own
+`source_url` and `confidence 0.85`; `verified` stays false. Batch 7 adds
+Wrangler, Beyond Yoga, UNTUCKit and Woolrich. Batch 9 adds eleven more:
+Marmot's and Mountain Hardwear's bottoms in both departments, Johnnie-O's
+four (men's, big & tall, women's and boys'), and ONE Kate Spade chart that
+replaces two. Batch 10 adds twelve: Orvis in both departments, Pendleton's
+bottoms, REI Co-op's bottoms, three Reformation charts, and a source URL on
+the four tops charts those brands already had. Batch 12 adds seven:
+Hellstar's bottoms, BAPE's bottoms, women's and kids, Palace's bottoms and
+Sp5der's two. Batch 13 adds five: Filson's bottoms,
+Buck Mason's outerwear, Rag & Bone in both departments and FRAME's women's.
+**145 sourced rows in total**, since the generator re-emits every earlier batch.
+
+**Batch 10 adds NO new orphans, and that is deliberate.** Every replacement in
+it keeps its `garment` string byte-identical, so the upsert updates the
+existing row instead of inserting a second one. The orphan list 00782 deletes
+is still exactly fourteen after batch 10, which is the check that the rule
+held.
+
+**Batch 8 barely touches this file, and that is the point.** Five of its six
+brands needed only a WIDER `category_match` on a chart they already had, which
+changes the in-code corpus and adds no sourced row; only Girlfriend Collective
+gained a `source_url`. A coverage gap is not always a missing chart — sometimes
+it is a chart whose keywords do not reach the group it already describes.
+
+**Two of batch 7's four needed only a URL.** Beyond Yoga's and UNTUCKit's
+women's rows were ALREADY the brand's own numbers, sitting in the corpus
+unsourced; what they lacked was `source_url` and a `category_match` wide enough
+to reach the missing group. Worth checking for before transcribing anything:
+not every unsourced chart is an approximation.
+
+**⚠ CORRECTION — the surviving old rows are NOT inert, and 00782 below is the
+fix.** This paragraph used to say that where a replacement changed the
+`garment` string the old row "survives under its old garment and stops
+resolving. Inert, not harmful; sweep them together later if it ever matters."
+The first half is right and the conclusion is wrong. `brand-knowledge.ts`
+prefers the DB WHOLESALE: if `brand_size_charts` returns any row for a brand,
+those rows are the entire answer and the in-code corpus is never consulted.
+The old row keeps its old `category_match`, which still matches the same
+garment words — so a Woolrich jacket resolves the retired approximation AND
+the brand's own numbers, competing for the same three-chart budget. That is
+the US-1734 two-competing-charts problem arriving by a new route. Fourteen
+rows are in that state; 00782 deletes them by name.
+
+**Cotopaxi's two rows are an UPDATE, not an insert, and that is the point.**
+Its men's and women's charts existed as approximations with no source. Rather
+than add a second competing pair, this batch rewrote them in place with the
+brand's published numbers and widened `category_match` to reach bottoms. The
+upsert handles it: same `brand_key`, `department` and `garment`, new `rows`,
+`note`, `source_url` and `category_match`.
+
+**THREE charts are FLAT, which is new.** Bonobos states above its own table that
+the numbers are garment dimensions, so its two charts carry
+`measurement_basis = 'flat'`, and Gallery Dept.'s bottoms chart is garment too
+(its columns are front rise and leg opening). Every chart shipped before 00781
+was body. If the size check starts reporting those three brands as oversized,
+that column is the first place to look.
+
+**Apply order:** after 00780, and BEFORE 00782. `NOTIFY pgrst, 'reload
+schema';` afterwards is harmless (no table, column or RPC signature changed)
+but cheap. Redeploy the edge only after 00782, since the boot guard will then
+expect 00782.
+
+
+## 🔒 HELD: 00782 — delete the 14 size-chart rows the code retired (US-3292)
+
+**Risk: LOW.** One `delete` against `public.brand_size_charts`, a global
+reference table with deny-all RLS and no tenant data. No schema change.
+Idempotent: a second run deletes nothing.
+
+**What it does.** Removes exactly fourteen `(brand_key, department, garment)`
+rows, listed by name in the file. Every one is a pre-backfill approximation
+whose garment scope no longer exists in `sizing-charts.ts`, left behind
+because batches 2 through 8 renamed the scope when they widened a chart
+("Tops" → "Tops & outerwear") and the upsert key includes `garment`. Two of
+the fourteen are Kate Spade's, deleted because batch 9 replaced both of its
+invented charts with the brand's own single clothing chart.
+
+**Why a hand-listed delete rather than "delete anything not in the corpus".**
+A derived delete would also remove hand-written pack rows that were never
+generated from code, and nothing in the table distinguishes them.
+
+The fourteen: beyondyoga/Women/Tops; express/Women/Tops (US numeric 00-18 /
+alpha); jcrew/Men/Shirts (alpha); katespade/Women/Dresses (US numeric);
+katespade/Women/Tops & knits (US alpha); oldnavy/Women/Tops (alpha, RUNS
+LARGE); puma/Unisex/Tops (alpha); reebok/Unisex/Tops (alpha); skims/Women/
+Intimates apparel / shapewear; stssy/Men/Tops (tees & fleece, US alpha);
+thenorthfacepatagoniaouterwear/Unisex/Outerwear / jackets (alpha);
+untuckit/Women/Tops & dresses (ALPHA XS-XL); woolrich/Men/Outerwear & wool;
+woolrich/Women/Outerwear & wool.
+
+**Apply order:** after 00781. `NOTIFY pgrst, 'reload schema';` afterwards is
+harmless but cheap. Redeploy the edge afterwards: its boot guard will expect
+00782.
+
+
+## ✅ APPLIED 2026-09-10: 00780 — batch 3 of the sourced size charts (US-3286)
+
+**Risk: LOW.** Same shape as 00779 below: insert-or-update into
+`public.brand_size_charts`, a global reference table with deny-all RLS and no
+tenant data. No schema change, nothing dropped, nothing revoked. Idempotent.
+
+**What it does.** 22 more sizing charts across Tommy Hilfiger, Patagonia, The
+North Face, True Religion, Abercrombie & Fitch, Spanx, Uniqlo and Aime Leon
+Dore, each transcribed from the brand's own published guide with a real
+`source_url` and `confidence 0.85`. `verified` stays false on every one.
+
+**It re-emits every earlier batch's rows too** — 64 in total — because the
+generator's scope is every chart carrying a `sourceUrl`, not just this batch's.
+Re-writing identical values costs nothing and spares the bookkeeping of which
+brand landed in which migration.
+
+**One chart was DELETED from the in-code corpus and is NOT deleted from the
+table.** The shared "The North Face / Patagonia (outerwear)" pseudo-brand row is
+gone from `sizing-charts.ts` now that both brands have real charts of their own.
+The DB row from the original seed survives under `brand_key` for that combined
+name and nothing resolves it any more, because the resolver reads brand names,
+not keys. It is inert rather than harmful; leave it or sweep it later, but do
+not add a DELETE to a generated upsert migration.
+
+**Apply order:** after 00779. `NOTIFY pgrst, 'reload schema';` afterwards is
+harmless (no table, column or RPC signature changed) but cheap. Redeploy the
+edge afterwards: its boot guard now expects 00780.
+
+
+## ✅ APPLIED 2026-09-10: 00779 — batch 2 of the sourced size charts (US-3285)
+
+**Risk: LOW.** Same shape as 00776 below, which is now applied: insert-or-update
+into `public.brand_size_charts`, a global reference table with deny-all RLS and
+no tenant data. No schema change, nothing dropped, nothing revoked. Idempotent.
+
+**⚠ WHY IT IS 00779 AND NOT 00777.** It was written as 00777, and prod already
+records 00777 AND 00778 — applied by a concurrent session whose files are on
+neither `main` nor any branch in this checkout. Keeping 00777 would have been
+worse than a name clash: `apply-prod-migrations.sh` skips every file at or below
+the highest recorded version, so a file numbered 00777 would be skipped forever
+and silently, which is US-2726's failure exactly. Renumbering leaves 00777 and
+00778 as gaps in this repo until that session pushes. Both are in
+`migrations-lint`'s `KNOWN_GAPS` marked TEMPORARY, so CI is not red over
+someone else's unpushed work — and the lint fails the moment those two files
+land, at which point the two entries must be deleted.
+
+**What it does.** 23 more sizing charts, across Hudson Jeans, Joe's Jeans,
+Levi's, Lucky Brand, Mackage, Madewell, Moncler, MOTHER, PacSun and PAIGE, each
+transcribed from the brand's own published guide and carrying a real
+`source_url` plus `confidence 0.85`. `verified` stays false on every one: an
+agent transcribed them, no human has re-checked them, and the size-guide panel
+renders its trust badge straight off that column.
+
+**It re-emits 00776's rows too, and that is by design.** The generator's scope
+is every chart in the corpus carrying a `sourceUrl`, not just this batch's — 42
+rows in total. Re-writing batch 1's 19 with identical values costs nothing and
+spares anyone the bookkeeping of which brand landed in which migration. 00776 is
+already applied, so **00779 alone is what remains**.
+
+**Two brands' `source_url` points at a PRODUCT page, not a guide page.**
+Mackage's `/pages/size-chart` now renders a store locator and PAIGE's
+`/size-guide` renders its heading with no table under it; both still publish the
+chart in the product page's Size Guide panel. Those URLs can rot in a way a
+guide page would not, so a dead link on those two brands has a known cause.
+
+**Apply order:** after 00778, which prod already records. `NOTIFY pgrst, 'reload
+schema';` afterwards is harmless (no table, column or RPC signature changed) but
+cheap. Redeploy the edge afterwards: its boot guard now expects 00779.
+
+**The frontend in the same push is safe without the SQL**, for the same reason
+00776's is — the panel resolves DB-first and falls back to the in-code corpus,
+which already compiles in these charts and their source URLs.
+
+
+## ✅ APPLIED 2026-09-10 (recorded earlier, heading flipped late): 00776 — give brand_size_charts the source URLs the charts now carry (US-3284)
 
 **Risk: LOW.** Insert-or-update into `public.brand_size_charts`, a global
 reference table with deny-all RLS and no tenant data. No schema change, nothing
 dropped, nothing revoked. Every value is derived from committed code, so it is
 idempotent and safe to run twice.
 
-**What it does.** 40 sizing charts across 25 brands, each transcribed from the
-brand's OWN published size guide, land with a real `source_url`. Before the
-backfill loop started, every one of the corpus's 300-odd charts had
-`source_url NULL` — which is why the composer's "[Brand] size guide" link fell
-through to a Google search for nearly every item a seller edited.
+**Applied to prod before this heading was flipped, which is the defect the
+pre-push gate caught.** `applied_migrations` records 00776, so the SQL ran; the
+heading here still said HELD, and 00776's file was already on `origin/main`.
+Nobody was blocked and nothing was broken, but for a day the repo's own answer
+to "is this applied" was wrong. Confirmed 2026-09-10 by reading
+`public.applied_migrations` directly.
 
-**It grows with each batch while it stays held.** The generator emits every
-sourced chart in the corpus, so a new batch REGENERATES this same file rather
-than queueing another one. That keeps the apply list at one migration. Once you
-apply it, the next batch takes a new number. Batches so far: 1 (US-3284, 19 charts / 10 brands), 2 (US-3285, 5 / 4),
-3 (US-3286, 1 / 1), 4 (US-3287, 4 / 1), 5 (US-3288, 2 / 1), 6 (US-3289, 2 / 1)
-7 (US-3290, 3 / 1), 8 (US-3291, 2 / 1) and 9 (US-3292, 2 / 1).
-
-**One of these CORRECTS an existing row rather than adding one.** Batch 7 found
-that the Stüssy tops chart — an unsourced estimate from the original seed — was
-nearly a full size small (it read S 36-38 where Stüssy publishes S 42-44). The
-upsert replaces that row in place, so applying 00776 fixes a wrong chart as well
-as adding new ones.
+**What it does.** 19 sizing charts across 10 brands, each transcribed from the
+brand's OWN published size guide, land with a real `source_url`. Before this
+batch every one of the corpus's 300-odd charts had `source_url NULL` — which is
+why the composer's "[Brand] size guide" link fell through to a Google search for
+nearly every item a seller edited.
 
 **Why it is not 00498.** 00498 is the generated backfill of the whole in-code
 corpus and it is ALREADY APPLIED. `apply-prod-migrations.sh` skips every file at
@@ -188,8 +384,7 @@ harmless no-op. That guard was verified against a local Postgres carrying the
 same constraint and the same recorded versions: 00498 and 00499 skipped, 00776
 applied clean twice, 19 rows landed sourced.
 
-**Apply order:** 00776 only, after 00775. Re-applying it after a later batch
-regenerates it is safe and expected — it is an idempotent upsert. Run `NOTIFY pgrst, 'reload schema';`
+**Apply order:** 00776 only, after 00775. Run `NOTIFY pgrst, 'reload schema';`
 afterwards — harmless here (no table, column or RPC signature changed) but
 cheap. Redeploy the edge afterwards: its boot guard now expects 00776.
 

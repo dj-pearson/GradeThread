@@ -1,21 +1,8 @@
-import { useEffect, useState } from "react";
-import { useQueryClient } from "@tanstack/react-query";
+import { useMemo, useState } from "react";
+import { useSearchParams } from "react-router";
 import { toast } from "sonner";
 import { toastError } from "@/lib/toast-error";
-import {
-  Check,
-  ChevronLeft,
-  ChevronRight,
-  ImageOff,
-  Info,
-  Loader2,
-  MessageSquare,
-  Reply,
-  Send,
-  Sparkles,
-  Tag,
-  X,
-} from "lucide-react";
+import { ImageOff, Info, Loader2, Send } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { PageHeader } from "@/components/ui/page-header";
@@ -24,8 +11,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Skeleton } from "@/components/ui/skeleton";
-import { ErrorState } from "@/components/ui/error-state";
-import { EmptyState } from "@/components/ui/empty-state";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { PlatformCoverageNote } from "@/components/flipdesk/platform-coverage-note";
 import {
   useEbayBestOffers,
@@ -33,86 +19,42 @@ import {
   useEbayEligibleOffers,
   useEbayMessages,
   useEbayNegotiationCapability,
-  useEbayReplyMessage,
-  useEbayRespondOffer,
   useEbaySendOffer,
-  resolveInventoryItemIdForEbayItem,
-  type EbayBestOffer,
-  type EbayBuyerMessage,
 } from "@/hooks/use-ebay";
-import { useNegotiationDraft } from "@/hooks/use-ai-extract";
-import { applyNegotiationDraft } from "@/pages/flipdesk/negotiation-draft-prefill";
 import { PageHelp } from "@/components/help/page-help";
 import { OfferAnalyticsCard } from "@/components/flipdesk/offer-analytics-card";
 import { OfferThresholdConflicts } from "@/components/flipdesk/offer-threshold-conflicts";
 import { SendOffersToday } from "@/components/flipdesk/send-offers-today";
+import { BestOffersPanel } from "@/components/flipdesk/best-offers-table";
+import { BuyerMessagesPanel } from "@/components/flipdesk/buyer-messages-table";
+import { isOpenOffer } from "@/pages/flipdesk/offers-sort";
 import {
-  formatMoney,
-  grossMarginCents,
-  marginPct,
-  netMarginCents,
-  netMarginPct,
-  pctOfList,
-  readExpiry,
-} from "@/pages/flipdesk/offer-economics";
+  DEFAULT_OFFERS_TAB,
+  OFFERS_TABS,
+  offersTabCounts,
+  resolveOffersTabId,
+  type OffersTabId,
+} from "@/pages/flipdesk/offers-tabs";
 
 // US-1040/1041: web parity for eBay Best Offers (accept/decline/counter), send
 // offers to interested buyers, and the buyer-message inbox — features that were
 // edge + iOS only.
-// US-2236 AC3: high-volume negotiation shouldn't render one flat list. Both the
-// offers and messages lists page client-side at this size.
-const LIST_PAGE_SIZE = 15;
-
-// US-2494: the AI drafter reads the local inventory item (title, asking price,
-// cost), so an offer or message on a listing FlipDesk never imported has nothing
-// to draft from. Said once, used by both forms.
-const NO_LOCAL_ITEM =
-  "This listing isn't linked to a FlipDesk item, so there's nothing for the draft to read.";
-
-function Pager({
-  page,
-  pageCount,
-  onPage,
-}: {
-  page: number;
-  pageCount: number;
-  onPage: (p: number) => void;
-}) {
-  if (pageCount <= 1) return null;
-  return (
-    <div className="flex items-center justify-center gap-3 pt-1">
-      <Button
-        size="sm"
-        variant="outline"
-        disabled={page === 0}
-        onClick={() => onPage(page - 1)}
-        aria-label="Previous page"
-      >
-        <ChevronLeft className="h-4 w-4" />
-      </Button>
-      <span className="text-xs text-muted-foreground">
-        Page {page + 1} of {pageCount}
-      </span>
-      <Button
-        size="sm"
-        variant="outline"
-        disabled={page >= pageCount - 1}
-        onClick={() => onPage(page + 1)}
-        aria-label="Next page"
-      >
-        <ChevronRight className="h-4 w-4" />
-      </Button>
-    </div>
-  );
-}
-
+//
+// US-3297 rebuilt the surface. It used to be six sections stacked in one 768px
+// column, all rendered at once, each list a run of bordered divs about 140px
+// tall per row. Two of those sections are inboxes with their own clocks, and
+// neither could be sorted — so "which offer expires first" and "who is still
+// waiting on a reply" both meant reading the whole page. It is now one section
+// per tab (see offers-tabs.ts) with real tables (best-offers-table.tsx,
+// buyer-messages-table.tsx) that sort, filter, page, and put the long-form
+// detail one click down instead of in the way of the next row.
 export function FlipdeskOffersPage() {
   const { data: connection, isLoading: connLoading } = useEbayConnection();
   const connected = !!connection;
 
   if (connLoading) {
     return (
-      <div className="mx-auto max-w-3xl space-y-4 p-2">
+      <div className="mx-auto max-w-6xl space-y-4 p-2">
         <Skeleton className="h-8 w-48" />
         <Skeleton className="h-48 w-full" />
       </div>
@@ -134,395 +76,121 @@ export function FlipdeskOffersPage() {
   }
 
   return (
-    <div className="mx-auto max-w-3xl space-y-6">
+    // Wider than the old max-w-3xl, because the content is now a table. Seven
+    // columns in a 768px column would wrap the item title to three lines and
+    // undo the row height the table was built to win back.
+    <div className="mx-auto max-w-6xl space-y-6">
       <PageHeader
         title="Offers & Messages"
-        subtitle="Respond to buyer Best Offers, send offers to interested buyers, and reply to buyer messages — all on your live eBay listings."
-              actions={<PageHelp slug="offers-and-buyer-messages" />}
+        subtitle="Answer Best Offers before they expire, reply to buyers, and offer your watchers a discount. The number on each tab is what is waiting on you."
+        actions={<PageHelp slug="offers-and-buyer-messages" />}
       />
       {/* US-2541: FlipDesk registers eleven marketplaces and this screen reads
           one. Without saying so, an empty list means "no offers" to a seller
           who also lists on Poshmark — when it means "we do not read Poshmark". */}
       <PlatformCoverageNote feature="offers" noun="Offers and buyer messages" />
-      {/* US-2944: above the offers, because it is about the ones that will
-          never reach this list — eBay answers them first. Renders nothing when
-          there is no rule or no conflict. */}
-      <OfferThresholdConflicts />
-      <BestOffersCard />
-      {/* US-2943: above the manual send-offer picker, because it is the answer
-          to the question that picker makes the seller work out for themselves —
-          which items are worth offering today. */}
-      <SendOffersToday />
-      <SendOfferCard />
-      <MessagesCard />
-      {/* Last: the open offers are the work, this is the pattern behind them. */}
-      <OfferAnalyticsCard />
+      <OffersTabs />
     </div>
   );
 }
 
-// ── Best Offers ─────────────────────────────────────────────────────
-function BestOffersCard() {
-  const {
-    data: offers = [],
-    isLoading,
-    error,
-    refetch,
-    isFetching,
-  } = useEbayBestOffers();
-  const [page, setPage] = useState(0);
-  const pageCount = Math.max(1, Math.ceil(offers.length / LIST_PAGE_SIZE));
-  const safePage = Math.min(page, pageCount - 1);
-  const pagedOffers = offers.slice(
-    safePage * LIST_PAGE_SIZE,
-    safePage * LIST_PAGE_SIZE + LIST_PAGE_SIZE,
-  );
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2 text-base">
-          <Tag className="h-4 w-4 text-brand-red-text" />
-          Best Offers
-          {offers.length > 0 && (
-            <Badge variant="secondary" className="ml-1">
-              {offers.length}
-            </Badge>
-          )}
-        </CardTitle>
-      </CardHeader>
-      <CardContent className="space-y-3">
-        {isLoading ? (
-          <Skeleton className="h-20 w-full" />
-        ) : error ? (
-          <ErrorState
-            className="py-6"
-            hideSupport
-            title="Couldn't load offers"
-            description={(error as Error).message}
-            onRetry={() => refetch()}
-            retrying={isFetching}
-          />
-        ) : offers.length === 0 ? (
-          <EmptyState
-            icon={Tag}
-            title="No open offers"
-            description="When a buyer offers less than your asking price, it lands here with a drafted reply. Nothing is sent until you send it."
-            action={{
-              label: "Check your listings",
-              to: "/dashboard/flipdesk/inventory",
-            }}
-          />
-        ) : (
-          <>
-            {pagedOffers.map((o) => (
-              <OfferRow key={o.bestOfferId} offer={o} />
-            ))}
-            <Pager page={safePage} pageCount={pageCount} onPage={setPage} />
-          </>
-        )}
-      </CardContent>
-    </Card>
-  );
-}
+/**
+ * One section on screen, chosen by a tab, instead of six stacked.
+ *
+ * The tab lives in `?tab=`, like the inventory table and the post-sale page, so
+ * a tab is a link a seller can bookmark or send to a teammate.
+ *
+ * BOTH INBOX QUERIES RUN HERE, on every tab, and that is deliberate rather than
+ * an oversight: the badges are the reason the tabs work, and a badge that only
+ * appears once you visit the tab is worse than no badge. Both queries are the
+ * same ones the panels use, so TanStack serves the panel from cache when the
+ * tab opens — the counts cost nothing extra.
+ */
+function OffersTabs() {
+  const [searchParams, setSearchParams] = useSearchParams();
+  const tab: OffersTabId =
+    resolveOffersTabId(searchParams.get("tab")) ?? DEFAULT_OFFERS_TAB;
 
-function OfferRow({ offer }: { offer: EbayBestOffer }) {
-  const qc = useQueryClient();
-  const respond = useEbayRespondOffer();
-  const draft = useNegotiationDraft();
-  const [countering, setCountering] = useState(false);
-  const [counterPrice, setCounterPrice] = useState("");
-  const [counterNote, setCounterNote] = useState("");
-  const [warnings, setWarnings] = useState<string[]>([]);
-  const busy = respond.isPending;
-  const cur = offer.currency ?? "USD";
-  // US-2941. The economics module is shared with nothing on this page by
-  // accident: it is the same arithmetic the edge's margin floor applies, so the
-  // number the seller reads and the number an automation acts on cannot differ.
-  const economics = {
-    offerPrice: offer.price,
-    listPrice: offer.listPriceCents != null ? offer.listPriceCents / 100 : null,
-    itemCost: offer.itemCost,
-    // US-3194: eBay's cut, the postage and the grading fee, so the number
-    // beside the Accept button is what actually lands.
-    shippingCost: offer.shippingCost,
-    gradingCost: offer.gradingCost,
+  const offers = useEbayBestOffers();
+  const messages = useEbayMessages();
+
+  const counts = useMemo(
+    () =>
+      offersTabCounts({
+        openOffers: (offers.data ?? []).filter((o) => isOpenOffer(o)).length,
+        unansweredMessages: (messages.data ?? []).filter((m) => !m.answered)
+          .length,
+      }),
+    [offers.data, messages.data],
+  );
+  const countLoading: Record<OffersTabId, boolean> = {
+    offers: offers.isLoading,
+    messages: messages.isLoading,
+    send: false,
+    insights: false,
   };
-  const sharePct = pctOfList(economics);
-  const margin = grossMarginCents(economics);
-  const marginShare = marginPct(economics);
-  const net = netMarginCents(economics);
-  const netShare = netMarginPct(economics);
-  // Re-read on every render rather than memoized: the row re-renders on the
-  // 90-second background refetch, which is exactly when the countdown should
-  // move. Memoizing it would freeze the clock until the offer changed.
-  const expiry = readExpiry(offer.expiresAt);
 
-  async function act(action: "Accept" | "Decline" | "Counter") {
-    const counter = Number(counterPrice);
-    if (action === "Counter" && (!Number.isFinite(counter) || counter <= 0)) {
-      toast.error("Enter a valid counter price.");
-      return;
-    }
-    try {
-      await respond.mutateAsync({
-        bestOfferId: offer.bestOfferId,
-        itemId: offer.itemId,
-        action,
-        counterPrice: action === "Counter" ? counter : undefined,
-        message:
-          action === "Counter" ? counterNote.trim() || undefined : undefined,
-      });
-      await qc.invalidateQueries({ queryKey: ["ebay_best_offers"] });
-      toast.success(
-        action === "Accept"
-          ? "Offer accepted."
-          : action === "Decline"
-            ? "Offer declined."
-            : "Counter offer sent.",
-      );
-    } catch (err) {
-      toastError(err, "Couldn't respond.");
-    }
-  }
-
-  // US-2494: one AI action per press, so this only ever runs from the button.
-  // The offer carries eBay's item id; the drafter needs the local row's UUID.
-  async function draftCounter() {
-    const itemId = await resolveInventoryItemIdForEbayItem(offer.itemId);
-    if (!itemId) {
-      toast.error(NO_LOCAL_ITEM);
-      return;
-    }
-    const typed = Number(counterPrice);
-    const result = await draft
-      .mutateAsync({
-        item_id: itemId,
-        mode: "counter",
-        offer_price: offer.price ?? undefined,
-        currency: cur,
-        buyer_message: offer.message ?? undefined,
-        proposed_counter:
-          Number.isFinite(typed) && typed > 0 ? typed : undefined,
-      })
-      .catch(() => null); // toasted by the hook's shared AI error mapping
-    if (!result) return;
-    const next = applyNegotiationDraft(
-      { price: counterPrice, note: counterNote },
-      result,
-    );
-    setCounterPrice(next.price);
-    setCounterNote(next.note);
-    // JSON boundary: an older edge build without the guardrail omits warnings.
-    setWarnings(result.warnings ?? []);
+  function setTab(next: OffersTabId) {
+    const params = new URLSearchParams(searchParams);
+    params.set("tab", next);
+    // replace: tabbing is looking around, not navigation. Twelve taps through
+    // the tabs should not mean twelve presses of the back button to leave.
+    setSearchParams(params, { replace: true });
   }
 
   return (
-    <div className="rounded-md border p-3">
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <p className="truncate text-sm font-medium">
-            {offer.itemTitle || offer.itemId}
-          </p>
-          <p className="text-xs text-muted-foreground">
-            {offer.buyerUsername ? `${offer.buyerUsername} · ` : ""}
-            {offer.price != null
-              ? `${cur} ${offer.price.toFixed(2)}`
-              : "—"}
-            {offer.quantity ? ` · qty ${offer.quantity}` : ""}
-          </p>
-          {/* US-2941: the three numbers that decide it, on the row. Deciding
-              used to mean opening the item in another tab to find out what it
-              cost and what it was listed at — and offers expire. */}
-          <p className="text-xs text-muted-foreground">
-            {sharePct != null ? `${sharePct}% of asking` : "asking price unknown"}
-            {" · "}
-            {/* US-3194: NET is the primary figure. The gross number was what
-                the seller read before, and it ignored eBay's cut and the
-                postage — on a $36 offer that is about $13.60 of difference,
-                which is the gap between a sale worth taking and one that is
-                not. Gross stays visible so the two can be compared rather than
-                the number appearing to have silently changed. */}
-            {net == null ? (
-              "cost unknown"
-            ) : (
-              <>
-                <span className="font-medium text-foreground">
-                  {formatMoney(net, cur)} net
-                </span>
-                {netShare != null ? ` (${netShare}%)` : ""}
-                {margin != null
-                  ? ` · ${formatMoney(margin, cur)} before fees${
-                    marginShare != null ? ` (${marginShare}%)` : ""
-                  }`
-                  : ""}
-              </>
-            )}
-          </p>
-          {/* Buyer memory: same person, third offer, second item. Invisible
-              before US-2939 started storing offers. */}
-          {offer.buyerHistory && offer.buyerHistory.priorOffers > 0 && (
-            <p className="text-xs text-muted-foreground">
-              This buyer has offered {offer.buyerHistory.priorOffers} time
-              {offer.buyerHistory.priorOffers === 1 ? "" : "s"} before
-              {offer.buyerHistory.bestPriorCents != null
-                ? `, best ${formatMoney(offer.buyerHistory.bestPriorCents, cur)}`
-                : ""}
-              {offer.buyerHistory.everAccepted ? " · you accepted one" : ""}.
-            </p>
-          )}
-          {offer.message && (
-            <p className="mt-1 text-xs italic text-muted-foreground">
-              "{offer.message}"
-            </p>
-          )}
-        </div>
-        <div className="flex shrink-0 flex-col items-end gap-1">
-          {offer.status && (
-            <Badge variant="outline" className="text-[10px]">
-              {offer.status}
-            </Badge>
-          )}
-          {/* Hours, not days: eBay offers commonly run 48, so a day countdown
-              says "1d left" about something that expires before lunch. */}
-          {expiry && (
-            <Badge
-              variant={
-                expiry.urgency === "expired" || expiry.urgency === "last_hours"
-                  ? "destructive"
-                  : "outline"
-              }
-              className="text-[10px]"
-            >
-              {expiry.label}
-            </Badge>
-          )}
-        </div>
-      </div>
-
-      {countering ? (
-        <div className="mt-3 space-y-2">
-          <div className="flex flex-wrap items-center gap-2">
-            <Input
-              aria-label="Counter offer price"
-              type="number"
-              step="0.01"
-              min="0.01"
-              value={counterPrice}
-              onChange={(e) => setCounterPrice(e.target.value)}
-              placeholder="Counter price"
-              className="h-8 w-32"
-            />
-            <Button size="sm" className="h-8" disabled={busy} onClick={() => act("Counter")}>
-              {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "Send counter"}
-            </Button>
-            <Button
-              size="sm"
-              variant="outline"
-              className="h-8"
-              disabled={busy || draft.isPending}
-              onClick={draftCounter}
-            >
-              {draft.isPending ? (
-                <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
-              ) : (
-                <Sparkles className="mr-1 h-3.5 w-3.5" />
-              )}
-              Draft with AI
-            </Button>
-            <Button
-              size="sm"
-              variant="ghost"
-              className="h-8"
-              onClick={() => {
-                setCountering(false);
-                setWarnings([]);
-              }}
-            >
-              Cancel
-            </Button>
-          </div>
-          {/* US-2236 AC2: margin at this counter, so a below-break-even offer is
-              visible. Only when we know the item's cost.
-
-              US-3194: NET, by the same arithmetic as the row above. A counter is
-              an offer to sell at that price, so it loses the same fees and the
-              same postage — showing it gross was how a counter that lost money
-              could read as a positive margin. */}
-          {offer.itemCost != null &&
-            Number.isFinite(Number(counterPrice)) &&
-            Number(counterPrice) > 0 &&
-            (() => {
-              const counterEconomics = {
-                ...economics,
-                offerPrice: Number(counterPrice),
-              };
-              const counterNet = netMarginCents(counterEconomics);
-              if (counterNet == null) return null;
-              const below = counterNet < 0;
-              return (
-                <p
-                  className={
-                    below
-                      ? "text-xs font-medium text-destructive"
-                      : "text-xs text-muted-foreground"
-                  }
+    <>
+      <Tabs value={tab} onValueChange={(v) => setTab(v as OffersTabId)}>
+        <TabsList className="flex flex-wrap">
+          {OFFERS_TABS.map((t) => (
+            <TabsTrigger key={t.id} value={t.id} className="gap-2">
+              {t.label}
+              {/* No badge while the query is still running, and none on a tab
+                  that counts nothing. A "0" that is really "not known yet"
+                  reads as "nothing waiting", which is the one wrong answer
+                  this page must not give. */}
+              {t.counted && !countLoading[t.id] && counts[t.id] > 0 && (
+                <Badge
+                  variant={tab === t.id ? "default" : "secondary"}
+                  className="px-1.5 py-0 text-[10px] tabular-nums"
                 >
-                  {below ? "Loses money" : "Nets"}: {formatMoney(counterNet, cur)}
-                  {" · "}cost {cur} {offer.itemCost.toFixed(2)} after fees and
-                  postage
-                </p>
-              );
-            })()}
-          <Textarea
-            aria-label="Note to the buyer"
-            value={counterNote}
-            onChange={(e) => setCounterNote(e.target.value)}
-            rows={2}
-            placeholder="Optional note to the buyer"
-          />
-          {warnings.length > 0 && (
-            <ul className="space-y-0.5">
-              {warnings.map((w) => (
-                <li key={w} className="text-xs font-medium text-destructive">
-                  {w}
-                </li>
-              ))}
-            </ul>
-          )}
-          <p className="text-xs text-muted-foreground">
-            Drafting spends one AI action and never overwrites what you typed.
-          </p>
-        </div>
-      ) : (
-        <div className="mt-3 flex flex-wrap gap-2">
-          <Button size="sm" className="h-8" disabled={busy} onClick={() => act("Accept")}>
-            <Check className="mr-1 h-3.5 w-3.5" /> Accept
-          </Button>
-          <Button
-            size="sm"
-            variant="outline"
-            className="h-8"
-            disabled={busy}
-            onClick={() => setCountering(true)}
-          >
-            <Reply className="mr-1 h-3.5 w-3.5" /> Counter
-          </Button>
-          <Button
-            size="sm"
-            variant="ghost"
-            className="h-8 text-destructive"
-            disabled={busy}
-            onClick={() => act("Decline")}
-          >
-            <X className="mr-1 h-3.5 w-3.5" /> Decline
-          </Button>
-        </div>
+                  {counts[t.id].toLocaleString()}
+                </Badge>
+              )}
+            </TabsTrigger>
+          ))}
+        </TabsList>
+      </Tabs>
+
+      {tab === "offers" && (
+        <>
+          {/* US-2944: above the table, because it is about the offers that will
+              never reach it — eBay answers those first. Renders nothing when
+              there is no rule or no conflict. */}
+          <OfferThresholdConflicts />
+          <BestOffersPanel />
+        </>
       )}
-    </div>
+      {tab === "messages" && <BuyerMessagesPanel />}
+      {tab === "send" && (
+        <>
+          {/* US-2943: above the manual picker, because it is the answer to the
+              question the picker makes the seller work out for themselves —
+              which items are worth offering today. */}
+          <SendOffersToday />
+          <SendOfferCard />
+        </>
+      )}
+      {tab === "insights" && <OfferAnalyticsCard />}
+    </>
   );
 }
 
 // ── Send offers to interested buyers ────────────────────────────────
+//
+// Unchanged by US-3297 apart from where it lives. This is a picker, not a
+// queue: the seller chooses from a short eligibility list and sends once, so
+// there is nothing here to sort by and nothing waiting to be answered.
 function SendOfferCard() {
   const [open, setOpen] = useState(false);
   // US-1967: ask whether the feature works before offering it. The eligible
@@ -611,7 +279,7 @@ function SendOfferCard() {
               )}
               <p className="text-xs text-muted-foreground">
                 Best Offers from buyers are unaffected — you can still accept,
-                decline, and counter them above.
+                decline, and counter them on the Offers tab.
               </p>
             </div>
           </div>
@@ -715,222 +383,5 @@ function SendOfferCard() {
         )}
       </CardContent>
     </Card>
-  );
-}
-
-// ── Buyer messages ──────────────────────────────────────────────────
-function MessagesCard() {
-  const {
-    data: messages = [],
-    isLoading,
-    error,
-    refetch,
-    isFetching,
-  } = useEbayMessages();
-  // US-2236 AC3: "unread" for a buyer thread is one that still needs a reply —
-  // EbayBuyerMessage exposes `answered`, so unanswered is the actionable subset.
-  const [unansweredOnly, setUnansweredOnly] = useState(false);
-  const [page, setPage] = useState(0);
-  const unansweredCount = messages.filter((m) => !m.answered).length;
-  const filtered = unansweredOnly ? messages.filter((m) => !m.answered) : messages;
-  const pageCount = Math.max(1, Math.ceil(filtered.length / LIST_PAGE_SIZE));
-  const safePage = Math.min(page, pageCount - 1);
-  const pagedMessages = filtered.slice(
-    safePage * LIST_PAGE_SIZE,
-    safePage * LIST_PAGE_SIZE + LIST_PAGE_SIZE,
-  );
-  useEffect(() => {
-    setPage(0);
-  }, [unansweredOnly]);
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2 text-base">
-          <MessageSquare className="h-4 w-4 text-brand-red-text" />
-          Buyer messages
-        </CardTitle>
-      </CardHeader>
-      <CardContent className="space-y-3">
-        {!isLoading && !error && messages.length > 0 && (
-          <div className="flex items-center gap-2">
-            <Button
-              size="sm"
-              variant={unansweredOnly ? "default" : "outline"}
-              onClick={() => setUnansweredOnly((v) => !v)}
-            >
-              Needs reply
-              {unansweredCount > 0 && (
-                <Badge variant="secondary" className="ml-1.5">
-                  {unansweredCount}
-                </Badge>
-              )}
-            </Button>
-          </div>
-        )}
-        {isLoading ? (
-          <Skeleton className="h-20 w-full" />
-        ) : error ? (
-          <ErrorState
-            className="py-6"
-            hideSupport
-            title="Couldn't load messages"
-            description={(error as Error).message}
-            onRetry={() => refetch()}
-            retrying={isFetching}
-          />
-        ) : messages.length === 0 ? (
-          // US-2541: a bare sentence where every other list on this surface
-          // gets a real empty state — and this one is the most ambiguous of
-          // them, because "no messages" reads as coverage the page does not
-          // have.
-          <EmptyState
-            className="py-8"
-            icon={MessageSquare}
-            title="No recent buyer messages"
-            description="eBay messages from the last 30 days appear here. Messages on your other marketplaces are not read by GradeThread."
-          />
-        ) : filtered.length === 0 ? (
-          <EmptyState
-            className="py-8"
-            icon={Check}
-            title="Nothing needs a reply"
-            description="Every recent message has been answered. Clear the filter to see them all."
-          />
-        ) : (
-          <>
-            {pagedMessages.map((m) => (
-              <MessageRow key={m.messageId} message={m} />
-            ))}
-            <Pager page={safePage} pageCount={pageCount} onPage={setPage} />
-          </>
-        )}
-      </CardContent>
-    </Card>
-  );
-}
-
-function MessageRow({ message }: { message: EbayBuyerMessage }) {
-  const qc = useQueryClient();
-  const reply = useEbayReplyMessage();
-  const draft = useNegotiationDraft();
-  const [open, setOpen] = useState(false);
-  const [text, setText] = useState("");
-  const canReply = !!message.itemId && !!message.senderUsername;
-
-  // US-2494: one AI action per press. The message carries eBay's item id; the
-  // drafter reads the local inventory row, so resolve one to the other first.
-  async function draftReply() {
-    if (!message.itemId) return;
-    const itemId = await resolveInventoryItemIdForEbayItem(message.itemId);
-    if (!itemId) {
-      toast.error(NO_LOCAL_ITEM);
-      return;
-    }
-    const result = await draft
-      .mutateAsync({
-        item_id: itemId,
-        mode: "reply",
-        buyer_message: message.body ?? undefined,
-      })
-      .catch(() => null); // toasted by the hook's shared AI error mapping
-    if (!result) return;
-    setText(applyNegotiationDraft({ price: "", note: text }, result).note);
-  }
-
-  async function send() {
-    if (!text.trim()) {
-      toast.error("Enter a reply.");
-      return;
-    }
-    if (!message.itemId || !message.senderUsername) return;
-    try {
-      await reply.mutateAsync({
-        messageId: message.messageId,
-        itemId: message.itemId,
-        recipientId: message.senderUsername,
-        body: text.trim(),
-      });
-      await qc.invalidateQueries({ queryKey: ["ebay_messages"] });
-      toast.success("Reply sent.");
-      setText("");
-      setOpen(false);
-    } catch (err) {
-      toastError(err, "Couldn't reply.");
-    }
-  }
-
-  return (
-    <div className="rounded-md border p-3">
-      <div className="flex items-start justify-between gap-2">
-        <div className="min-w-0">
-          <p className="text-sm font-medium">
-            {message.senderUsername || "Buyer"}
-            {message.subject ? ` · ${message.subject}` : ""}
-          </p>
-          {message.body && (
-            <p className="mt-1 whitespace-pre-wrap text-sm text-muted-foreground">
-              {message.body}
-            </p>
-          )}
-        </div>
-        {message.answered && (
-          <Badge variant="secondary" className="shrink-0 text-[10px]">
-            Replied
-          </Badge>
-        )}
-      </div>
-      {open ? (
-        <div className="mt-2 space-y-2">
-          <Textarea
-            aria-label="Reply to this buyer"
-            value={text}
-            onChange={(e) => setText(e.target.value)}
-            rows={3}
-            placeholder="Your reply"
-            autoFocus
-          />
-          <div className="flex gap-2">
-            <Button size="sm" onClick={send} disabled={reply.isPending}>
-              {reply.isPending ? (
-                <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />
-              ) : (
-                <Reply className="mr-2 h-3.5 w-3.5" />
-              )}
-              Send reply
-            </Button>
-            <Button
-              size="sm"
-              variant="outline"
-              disabled={reply.isPending || draft.isPending}
-              onClick={draftReply}
-            >
-              {draft.isPending ? (
-                <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />
-              ) : (
-                <Sparkles className="mr-2 h-3.5 w-3.5" />
-              )}
-              Draft with AI
-            </Button>
-            <Button size="sm" variant="ghost" onClick={() => setOpen(false)}>
-              Cancel
-            </Button>
-          </div>
-          <p className="text-xs text-muted-foreground">
-            Drafting spends one AI action and never overwrites what you typed.
-          </p>
-        </div>
-      ) : (
-        <Button
-          size="sm"
-          variant="outline"
-          className="mt-2 h-8"
-          disabled={!canReply}
-          title={canReply ? undefined : "This message can't be replied to here."}
-          onClick={() => setOpen(true)}
-        >
-          <Reply className="mr-1 h-3.5 w-3.5" /> Reply
-        </Button>
-      )}
-    </div>
   );
 }

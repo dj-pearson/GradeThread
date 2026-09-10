@@ -134,7 +134,9 @@ describe("primary lists say what goes in them (US-2866)", () => {
   // real action. Pinned so they cannot quietly go back.
   const CONVERTED: Array<[file: string, title: string]> = [
     ["src/pages/support-tickets.tsx", "No support tickets yet"],
-    ["src/pages/flipdesk/offers.tsx", "No open offers"],
+    // US-3297 moved the offers list out of the page and into its own table
+    // component. The empty state went with it.
+    ["src/components/flipdesk/best-offers-table.tsx", "No open offers"],
     ["src/pages/flipdesk/autolister-drafts.tsx", "No unpublished drafts yet"],
     ["src/pages/flipdesk/bulk-pricing.tsx", "No active eBay listings"],
   ];
