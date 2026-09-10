@@ -6,9 +6,11 @@ status: current
 source_of_truth: vault
 code_refs:
   - scripts/size-chart-coverage.mjs
+  - scripts/gen-sizing-chart-batch.mjs
   - services/edge-functions/src/lib/sizing-charts.ts
   - services/edge-functions/src/routes/flipdesk-size-bands.ts
   - scripts/gen-sizing-chart-seed.mjs
+  - supabase/migrations/00776_sizing_chart_sources.sql
 reviewed: 2026-09-09
 tags: [brands, sizing, backfill, runbook]
 summary: How to close a batch of brand size-chart gaps, why coverage is measured through the resolver rather than by counting rows, and what a batch must carry before it can be closed.
@@ -38,12 +40,15 @@ Two consequences worth keeping in mind:
 - **Adding a chart is not the same as closing a gap.** A chart whose
   `categoryMatch` misses the words sellers use resolves for nobody. Re-run the
   script after adding one; if the cell is still blank, the keywords are wrong.
-- **A brand is only judged on groups it should cover.** An apparel brand is
-  expected to cover tops, bottoms and outerwear; dresses count only for a brand
-  that sells to women or unisex at all. A shoe brand is judged on shoes. Without
-  that rule the report ranks Rolex as the corpus's biggest gap and puts "missing
-  dresses" against Dickies, and a priority list nobody believes is a priority
-  list nobody works.
+- **A brand is only judged on groups it should cover:** tops, bottoms and
+  outerwear for an apparel brand, and for anything else only what it already
+  sells. Without that rule the report ranks Rolex as the corpus's biggest gap.
+- **Dresses are printed but never counted as a gap.** Batch 1 taught this: the
+  rule used to be "dresses count for any brand selling to women or unisex", and
+  three of that batch's ten brands came back still flagged — Canada Goose,
+  Champion and Denim Tears, none of which makes a dress. Three false gaps in ten
+  is enough to send later batches chasing charts that cannot exist. The dress
+  column is still printed per brand, so a real gap stays visible.
 
 ## One batch
 
@@ -75,13 +80,36 @@ until the previous one lands. For each brand in the batch:
 
 Then, once for the batch:
 
-- `deno run --allow-read --allow-write scripts/gen-sizing-chart-seed.mjs` to
-  regenerate the `brand_size_charts` backfill migration. `sizing-chart-parity_test.ts`
-  fails if the committed SQL and the code disagree, so this is not optional.
-- `deno run --allow-read --allow-write scripts/size-chart-coverage.mjs` to
-  refresh `docs/size-chart-coverage.md`.
-- The migration triple applies to the regenerated SQL like any other. Load the
-  `migrations` skill.
+- `gen-sizing-chart-seed.mjs` and `gen-size-systems-migration.mjs` regenerate
+  00498 and 00499. `sizing-chart-parity_test.ts` re-derives both and fails on
+  drift, so this is not optional — **but neither file ever reaches prod again.**
+  They are already applied, and `apply-prod-migrations.sh` skips every file at
+  or below the highest recorded version. Regenerating them keeps the repo honest
+  about what the code says; it moves no rows.
+- `gen-sizing-chart-batch.mjs NNNNN` is what actually carries the batch to prod:
+  a NEW migration holding every chart in the corpus that has a `sourceUrl`,
+  upserted. It re-emits earlier batches' rows too, which costs nothing and
+  spares anyone the bookkeeping of which brand landed in which migration.
+- `size-chart-coverage.mjs` refreshes `docs/size-chart-coverage.md`.
+- The migration triple applies like any other. Load the `migrations` skill.
+
+**A sourced row needs a CONFIDENCE, not just a URL.** `brand_size_charts_sourced`
+(00578) is a CHECK on both columns, added NOT VALID so the legacy unsourced rows
+stay readable — but it fires on every INSERT and on every UPDATE. Batch 1 shipped
+its first cut with the URL alone and prod rejected all 19 rows with 23514. The
+batch generator now writes `0.85`, the top of the range the hand-written packs
+use, which is the right end when the numbers are the brand's own and the only
+uncertainty is the transcription. `verified` stays false: confidence rates the
+DATA, `verified` records whether a HUMAN checked, and the panel's trust badge
+reads the second one.
+
+**00498 and 00499 are regenerated but must never be RE-RUN.** A hand re-run on
+prod fails: 00498 would insert the batch's rows unsourced, and 00499's UPDATE
+touches every chart in the table, so the NOT VALID check fires on both. Both now
+sit behind an `applied_migrations` check that raises a notice and returns.
+Verify a batch the way batch 1 was verified: apply all three files to a local
+Postgres that already records 00498/00499 and carries the constraint, then apply
+the batch file a second time.
 
 ## A batch is done when
 
@@ -91,13 +119,24 @@ Then, once for the batch:
 - Every new chart carries a `sourceUrl` pointing at the brand's own page.
 - The parity test passes, so the DB seed and the in-code corpus agree.
 
-## Where it stood at the start
+## Where it stands
 
-2026-09-09, before the first batch: 167 brands, 289 brand-specific charts, **106
-brands missing at least one group they should cover**, **0 charts carrying the
-brand's own guide URL** and 0 verified against one. That last pair is why the old
-Measurements link fell through to a Google search for nearly every brand: the
-fallback was not a fallback, it was the normal case.
+2026-09-09, before batch 1: 167 brands, 289 brand-specific charts, **0 charts
+carrying the brand's own guide URL** and 0 verified against one. That pair is why
+the old Measurements link fell through to a Google search for nearly every brand:
+the fallback was not a fallback, it was the normal case.
+
+After batch 1 (US-3284): 308 charts, **19 of them sourced across 10 brands**, and
+81 brands still carrying a gap. Nine of the ten closed. **FRAME did not**, and
+that is the shape of exception this runbook expects: `frame-store.com`'s own
+Denim Fit Guide page renders empty, its product pages carry no size link, and
+every chart a search turns up belongs to a reseller. FRAME keeps its two denim
+charts and stays on the gap list until the brand publishes again.
+
+⚠ The coverage report measures the IN-CODE corpus, not the database. Prod's
+`brand_size_charts` already held source URLs on the hand-written pack rows
+(329 of 340 sourced after batch 1). The gap this loop closes is the in-code
+fallback's, which is what every client compiles in.
 
 Related: [[brand-taxonomy-overview]], [[size-system-conversions]],
 [[measurement-accuracy]].

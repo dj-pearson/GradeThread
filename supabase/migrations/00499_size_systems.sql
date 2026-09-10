@@ -6,7 +6,7 @@
 -- WHY: the chart shape had department and a free-text garment scope and nowhere
 -- to record WHICH NATIONAL SYSTEM a size label is written in, so the corpus
 -- encoded it inside the label itself — "UK 10 (US 6)", "IT 48 (US 38)",
--- "FR 36 (US 4)", "JP L (=US M)". 115 of 292 charts do this. Every one of
+-- "FR 36 (US 4)", "JP L (=US M)". 115 of 311 charts do this. Every one of
 -- those parentheses is a workaround for a missing field.
 --
 -- The prose is KEPT. This migration adds the structured field beside it; it
@@ -19,7 +19,7 @@
 -- chart of bare numbers stays NULL because a bare "6" could be US or UK and
 -- nothing in the row says which. NULL means "not recorded", never "US".
 --
--- Derived here: 137 charts with a readable system, 0 non-standard size class,
+-- Derived here: 145 charts with a readable system, 0 non-standard size class,
 -- 1 with an ambiguous class (a scope naming several — the Talbots case, whose
 -- scope reads "Misses / Petite / Plus" and which is exactly the folding the
 -- size_class column exists to end).
@@ -38,11 +38,30 @@ comment on column public.brand_size_charts.size_system is
 comment on column public.brand_size_charts.size_class is
   'US-2215 extended size class (standard|plus|petite|tall|big_and_tall|maternity). NULL = the chart names several and cannot be reduced to one.';
 
-update public.brand_size_charts AS t
-   set size_system = v.size_system,
-       size_class  = v.size_class,
-       updated_at  = now()
-  from (values
+-- ⚠ ALREADY APPLIED IN PRODUCTION, AND REGENERATED ANYWAY. Rebuilt whenever
+-- sizing-charts.ts changes, because sizing-chart-parity_test.ts re-derives it
+-- and fails on drift — but the UPDATE must never run again on a database that
+-- already has it. 00578 added brand_size_charts_sourced (source_url non-blank
+-- AND confidence non-null) NOT VALID: the legacy unsourced rows stay readable,
+-- but a NOT VALID check still fires on any row you UPDATE, and this statement
+-- touches every chart in the table. A hand re-run on prod therefore FAILS on
+-- the first unsourced row, which is what happened on 2026-09-09.
+--
+-- The two ADD COLUMNs stay outside the guard: they are already IF NOT EXISTS
+-- and a no-op is the whole point of them.
+
+do $mig$
+begin
+  if exists (select 1 from public.applied_migrations where version = '00499') then
+    raise notice '00499 already applied; skipping the size_system/size_class update';
+    return;
+  end if;
+
+  update public.brand_size_charts AS t
+     set size_system = v.size_system,
+         size_class  = v.size_class,
+         updated_at  = now()
+    from (values
   ('aloyoga', 'Women', 'Bottoms (leggings / pants)', 'alpha', 'standard'),
   ('aloyoga', 'Women', 'Tops', 'alpha', 'standard'),
   ('aloyoga', 'Men', 'Tops', 'alpha', 'standard'),
@@ -180,11 +199,21 @@ update public.brand_size_charts AS t
   ('cotopaxi', 'Women', 'Apparel (US alpha, body inches)', 'alpha', 'standard'),
   ('khl', 'Women', 'Apparel (US alpha, body inches)', 'alpha', 'standard'),
   ('outdoorresearch', 'Men', 'Apparel (US alpha, body inches)', 'alpha', 'standard'),
-  ('outdoorresearch', 'Women', 'Apparel (US alpha, body inches)', 'alpha', 'standard')
-  ) AS v(brand_key, department, garment, size_system, size_class)
- where t.brand_key  = v.brand_key
-   and t.department = v.department
-   and t.garment    = v.garment;
+  ('outdoorresearch', 'Women', 'Apparel (US alpha, body inches)', 'alpha', 'standard'),
+  ('7forallmankind', 'Women', 'Tops, jackets & dresses (alpha, body inches)', 'alpha', 'standard'),
+  ('agjeans', 'Men', 'Tops & outerwear (alpha, body inches)', 'alpha', 'standard'),
+  ('americaneagle', 'Men', 'Tops & outerwear (alpha, body inches)', 'alpha', 'standard'),
+  ('bananarepublic', 'Men', 'Bottoms & outerwear (alpha, body inches)', 'alpha', 'standard'),
+  ('citizensofhumanity', 'Men', 'Tops & outerwear (alpha, body inches)', 'alpha', 'standard'),
+  ('denimtears', 'Unisex', 'Tops & outerwear (alpha — GARMENT FLAT specs, inches)', 'alpha', 'standard'),
+  ('herno', 'Women', 'Apparel (ITALIAN-SIZED — system conversion only, no measurements)', 'IT', 'standard'),
+  ('herno', 'Men', 'Apparel (ITALIAN-SIZED — system conversion only, no measurements)', 'IT', 'standard')
+    ) AS v(brand_key, department, garment, size_system, size_class)
+   where t.brand_key  = v.brand_key
+     and t.department = v.department
+     and t.garment    = v.garment;
+end
+$mig$;
 
 -- US-1108: self-record the applied version so the edge boot guard stays truthful.
 insert into public.applied_migrations (version) values ('00499') on conflict do nothing;

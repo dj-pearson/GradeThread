@@ -97,16 +97,37 @@ comment on column public.brand_size_charts.size_system is
 comment on column public.brand_size_charts.size_class is
   'US-2215 extended size class (standard|plus|petite|tall|big_and_tall|maternity). NULL = the chart names several and cannot be reduced to one.';
 
-update public.brand_size_charts AS t
-   set size_system = v.size_system,
-       size_class  = v.size_class,
-       updated_at  = now()
-  from (values
+-- ⚠ ALREADY APPLIED IN PRODUCTION, AND REGENERATED ANYWAY. Rebuilt whenever
+-- sizing-charts.ts changes, because sizing-chart-parity_test.ts re-derives it
+-- and fails on drift — but the UPDATE must never run again on a database that
+-- already has it. 00578 added brand_size_charts_sourced (source_url non-blank
+-- AND confidence non-null) NOT VALID: the legacy unsourced rows stay readable,
+-- but a NOT VALID check still fires on any row you UPDATE, and this statement
+-- touches every chart in the table. A hand re-run on prod therefore FAILS on
+-- the first unsourced row, which is what happened on 2026-09-09.
+--
+-- The two ADD COLUMNs stay outside the guard: they are already IF NOT EXISTS
+-- and a no-op is the whole point of them.
+
+do $mig$
+begin
+  if exists (select 1 from public.applied_migrations where version = '${MIGRATION}') then
+    raise notice '${MIGRATION} already applied; skipping the size_system/size_class update';
+    return;
+  end if;
+
+  update public.brand_size_charts AS t
+     set size_system = v.size_system,
+         size_class  = v.size_class,
+         updated_at  = now()
+    from (values
 ${values}
-  ) AS v(brand_key, department, garment, size_system, size_class)
- where t.brand_key  = v.brand_key
-   and t.department = v.department
-   and t.garment    = v.garment;
+    ) AS v(brand_key, department, garment, size_system, size_class)
+   where t.brand_key  = v.brand_key
+     and t.department = v.department
+     and t.garment    = v.garment;
+end
+$mig$;
 
 -- US-1108: self-record the applied version so the edge boot guard stays truthful.
 insert into public.applied_migrations (version) values ('${MIGRATION}') on conflict do nothing;

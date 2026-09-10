@@ -1,0 +1,151 @@
+// US-3284: emit the migration that carries SOURCED sizing charts to prod.
+//
+// WHY THIS EXISTS ALONGSIDE gen-sizing-chart-seed.mjs, which already generates a
+// backfill of every chart. Two reasons, both found by running the first backfill
+// batch rather than by reading the code:
+//
+//   1. **00498 is already applied.** `apply-prod-migrations.sh` skips every file
+//      at or below the highest recorded version, so regenerating 00498 in place
+//      updates the repo and reaches prod never. The parity guard still requires
+//      that regeneration — it re-derives 00498 and fails on drift — so both
+//      happen: 00498 stays the truthful record of the code, and a NEW migration
+//      is what actually moves the rows.
+//   2. **00498 writes `source_url = NULL` by contract**, and its guard asserts
+//      it. That was right when no chart had a source. The whole point of the
+//      backfill loop is that charts now DO, and a sourced chart landing in the
+//      DB with a null source is the provenance defect
+//      vault/20-domain/brands/brand-kb-provenance.md exists to prevent.
+//
+// SCOPE: every chart in SIZING_CHARTS that carries a `sourceUrl`. Not just this
+// batch's. Re-emitting an earlier batch's rows costs nothing — the upsert writes
+// identical values — and it means no bookkeeping about which brand landed in
+// which migration, which is the kind of bookkeeping that goes wrong on batch 7.
+//
+// Usage:
+//   deno run --allow-read --allow-write scripts/gen-sizing-chart-batch.mjs 00776
+
+import { SIZING_CHARTS } from "../services/edge-functions/src/lib/sizing-charts.ts";
+import { brandKey } from "../services/edge-functions/src/lib/brand-normalize.ts";
+
+/** Single-quote escape for a SQL literal. */
+function q(v) {
+  return `'${String(v).replace(/'/g, "''")}'`;
+}
+
+/** text[] literal, or the empty-array default. */
+function arr(values) {
+  if (!values || values.length === 0) return `'{}'::text[]`;
+  return `ARRAY[${values.map(q).join(",")}]::text[]`;
+}
+
+export function sourcedCharts(charts) {
+  return charts.filter((c) => typeof c.sourceUrl === "string" && c.sourceUrl.trim() !== "");
+}
+
+export function chartToValues(chart, migration) {
+  const json = JSON.stringify(chart.rows);
+  for (const delim of ["$json$", "$mig$"]) {
+    if (json.includes(delim)) {
+      throw new Error(`chart ${brandKey(chart.brand)} contains the ${delim} delimiter`);
+    }
+  }
+  return [
+    "  (",
+    [
+      q(brandKey(chart.brand)),
+      q(chart.brand),
+      arr(chart.brandMatch),
+      q(chart.department),
+      q(chart.garment),
+      arr(chart.categoryMatch),
+      `$json$${json}$json$::jsonb`,
+      chart.note ? q(chart.note) : "NULL",
+      q(chart.sourceUrl),
+      // CONFIDENCE IS REQUIRED, not decorative: 00578 put a CHECK on this table
+      // (brand_size_charts_sourced) demanding a non-blank source_url AND a
+      // non-null confidence, so a row with the URL alone is REJECTED at insert.
+      // That is how the first apply of this migration failed.
+      //
+      // 0.85 is the top of the range the hand-written packs use (0.50-0.85) and
+      // is the right end for these: the numbers came off the brand's own
+      // published guide, so the only uncertainty left is the transcription.
+      //
+      // `verified` still stays false, and the two are not the same claim.
+      // Confidence rates the DATA; verified records whether a HUMAN checked it.
+      // The size-guide panel renders its trust badge straight off `verified`,
+      // and an agent transcribing a page is not a human checking one.
+      "0.85",
+      "false",
+      q(`migration:${migration}`),
+    ].join(", "),
+    ")",
+  ].join("");
+}
+
+export function buildSql(charts, migration) {
+  const sourced = sourcedCharts(charts);
+  const values = sourced.map((c) => chartToValues(c, migration)).join(",\n");
+  return `-- US-3284: give brand_size_charts the source URLs the charts now carry.
+--
+-- GENERATED FILE — do not hand-edit. Regenerate with:
+--   deno run --allow-read --allow-write scripts/gen-sizing-chart-batch.mjs ${migration}
+--
+-- ${sourced.length} charts across ${new Set(sourced.map((c) => c.brand)).size} brands, each read off the brand's OWN published
+-- guide. Until this batch every chart in the corpus had source_url NULL, which
+-- is why the composer's "[Brand] size guide" link fell through to a Google
+-- search for almost every item a seller edited.
+--
+-- UPSERT, not insert-only. 00498's backfill is deliberately insert-only so an
+-- unsourced row can never overwrite a hand-sourced pack row. This migration is
+-- the other direction: it carries the source, so on conflict it WRITES.
+--
+-- The conflict path MUST set confidence too, and that is not a preference. An
+-- 00498 residue row has source_url NULL and confidence NULL; writing only the
+-- URL leaves confidence NULL, and brand_size_charts_sourced fires on the UPDATE
+-- exactly as it fires on an INSERT.
+--
+-- Every row carries source_url AND confidence 0.85, because 00578's
+-- brand_size_charts_sourced CHECK requires both — the URL alone is rejected.
+-- 0.85 is the top of the packs' range: the numbers are the brand's own, and the
+-- only uncertainty left is the transcription. verified stays false; that column
+-- records whether a HUMAN checked, and none has.
+--
+-- Risk: LOW. A global reference table with deny-all RLS and no tenant data.
+-- Idempotent and re-run safe: every value is derived from the committed code.
+
+insert into public.brand_size_charts
+  (brand_key, brand_label, brand_match, department, garment, category_match, rows, note, source_url, confidence, verified, updated_by) values
+${values}
+on conflict (brand_key, department, garment) do update set
+  brand_label    = excluded.brand_label,
+  brand_match    = excluded.brand_match,
+  category_match = excluded.category_match,
+  rows           = excluded.rows,
+  note           = excluded.note,
+  source_url     = excluded.source_url,
+  confidence     = excluded.confidence,
+  updated_by     = excluded.updated_by;
+
+-- US-1108: self-record the applied version so the edge boot guard stays truthful.
+insert into public.applied_migrations (version) values ('${migration}') on conflict do nothing;
+`;
+}
+
+if (import.meta.main) {
+  const migration = Deno.args[0];
+  if (!/^\d{5}$/.test(migration ?? "")) {
+    console.error("usage: gen-sizing-chart-batch.mjs NNNNN");
+    Deno.exit(1);
+  }
+  const out = new URL(
+    `../supabase/migrations/${migration}_sizing_chart_sources.sql`,
+    import.meta.url,
+  );
+  const sql = buildSql(SIZING_CHARTS, migration);
+  await Deno.writeTextFile(out, sql);
+  console.log(
+    `✓ wrote ${sourcedCharts(SIZING_CHARTS).length} sourced charts to ${
+      out.pathname.split("/").pop()
+    }`,
+  );
+}

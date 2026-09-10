@@ -98,10 +98,38 @@ export function buildSql(charts) {
 -- Risk: LOW. Insert-only into a global reference table with deny-all RLS and no
 -- tenant data. Idempotent and re-run safe.
 
-insert into public.brand_size_charts
+--
+-- ⚠ ALREADY APPLIED IN PRODUCTION, AND REGENERATED ANYWAY. This file is rebuilt
+-- whenever sizing-charts.ts changes, because sizing-chart-parity_test.ts
+-- re-derives it and fails on drift. A rebuilt copy must never RUN again on a
+-- database that already has it, for two reasons that are both real:
+--
+--   * apply-prod-migrations.sh skips every file at or below the highest
+--     recorded version, so a re-run only ever happens when a human runs the
+--     file by hand — which is exactly what happened on 2026-09-09.
+--   * A hand re-run FAILS. 00578 added brand_size_charts_sourced (source_url
+--     non-blank AND confidence non-null) NOT VALID, so the legacy unsourced
+--     rows stay readable — but any INSERT or UPDATE must satisfy it, and every
+--     row below is deliberately unsourced.
+--
+-- So the statement sits behind an applied_migrations check: on a fresh database
+-- it runs, on prod it raises a notice and does nothing. New charts reach prod
+-- through the batch migrations gen-sizing-chart-batch.mjs emits, which carry a
+-- real source_url and confidence.
+
+do $mig$
+begin
+  if exists (select 1 from public.applied_migrations where version = '00498') then
+    raise notice '00498 already applied; skipping the unsourced backfill';
+    return;
+  end if;
+
+  insert into public.brand_size_charts
   (brand_key, brand_label, brand_match, department, garment, category_match, rows, note, source_url, confidence, verified, updated_by) values
 ${values}
-on conflict (brand_key, department, garment) do nothing;
+  on conflict (brand_key, department, garment) do nothing;
+end
+$mig$;
 
 -- US-1108: self-record the applied version so the edge boot guard stays truthful.
 insert into public.applied_migrations (version) values ('${MIGRATION}') on conflict do nothing;

@@ -97,15 +97,19 @@ function buildCoverage() {
     //   1. A brand that sells apparel is expected to cover the apparel groups.
     //      One that sells only shoes or only watches is expected to cover only
     //      what it already sells.
-    //   2. Dresses count only for a brand that sells to women or unisex at all.
-    //      A men's denim label is not missing a dress chart.
+    //   2. DRESSES ARE NOT A GAP, only a reported column.
+    //
+    // Rule 2 was learned the hard way in batch 1 (US-3284). The rule used to be
+    // "dresses count for any brand that sells to women or unisex", and three of
+    // that batch's ten brands came back still flagged: Canada Goose, Champion
+    // and Denim Tears, none of which makes a dress. Three false gaps in ten is
+    // enough to send whole later batches chasing charts that cannot exist, and
+    // a brand that genuinely sells dresses is still visible — the dress column
+    // is printed per brand either way. A gap you can see beats a gap that
+    // schedules work.
     const apparel = ["top", "bottom", "outerwear"];
     const sellsApparel = apparel.some((g) => groups[g].length > 0) || groups.dress.length > 0;
-    const departments = new Set(charts.map((c) => c.department));
-    const sellsWomens = departments.has("Women") || departments.has("Unisex");
-    const expected = sellsApparel
-      ? [...apparel, ...(sellsWomens ? ["dress"] : [])]
-      : GROUPS.filter((g) => groups[g].length > 0);
+    const expected = sellsApparel ? apparel : GROUPS.filter((g) => groups[g].length > 0);
     const missing = expected.filter((g) => groups[g].length === 0);
     return {
       brand,

@@ -6,17 +6,17 @@ Coverage is measured the way the size-guide panel resolves a chart: a real brand
 
 ## Where it stands
 
-- 167 brands, 289 brand-specific charts.
-- 0 charts link the brand's own guide; 0 have been checked against it by a human.
-- 106 brands are missing at least one group they should cover.
+- 167 brands, 308 brand-specific charts.
+- 22 charts link the brand's own guide; 0 have been checked against it by a human.
+- 81 brands are missing at least one group they should cover.
 
 | Group | Brands covered |
 |---|---:|
-| top | 98 |
-| bottom | 88 |
-| dress | 43 |
-| outerwear | 84 |
-| suit | 24 |
+| top | 105 |
+| bottom | 92 |
+| dress | 50 |
+| outerwear | 92 |
+| suit | 30 |
 | shoes | 27 |
 | bag | 10 |
 | watch | 1 |
@@ -27,53 +27,53 @@ Coverage is measured the way the size-guide panel resolves a chart: a real brand
 
 | Brand | Charts | top | bottom | dress | outerwear | suit | shoes | bag | watch | headwear | accessory | Missing |
 |---|---:|---|---|---|---|---|---|---|---|---|---|---|
-| 7 For All Mankind | 2 |  | Men, Women |  |  |  |  |  |  |  |  | top, outerwear, dress |
-| Abercrombie & Fitch | 2 | Men | Women |  |  |  |  |  |  |  |  | outerwear, dress |
-| Aerie | 3 | Women | Men, Women |  |  |  |  |  |  |  |  | outerwear, dress |
-| AG Jeans | 2 |  | Men, Women |  |  |  |  |  |  |  |  | top, outerwear, dress |
-| Aimé Leon Dore | 1 | Unisex |  |  | Unisex |  |  |  |  |  |  | bottom, dress |
+| 7 For All Mankind | 3 | Women | Men, Women | Women | Women | Women |  |  |  |  |  |  |
+| Abercrombie & Fitch | 2 | Men | Women |  |  |  |  |  |  |  |  | outerwear |
+| Aerie | 6 | Men, Women | Men, Women | Women | Men, Women | Men, Women |  |  |  |  |  |  |
+| AG Jeans | 4 | Men, Women | Men, Women | Women | Men, Women | Men, Women |  |  |  |  |  |  |
+| Aimé Leon Dore | 1 | Unisex |  |  | Unisex |  |  |  |  |  |  | bottom |
 | Allen Edmonds | 1 |  |  |  |  |  | Men |  |  |  |  |  |
-| Alo Yoga | 3 | Men, Women | Women |  | Men, Women |  |  |  |  |  |  | dress |
-| American Eagle | 2 |  | Men, Women |  |  |  |  |  |  |  |  | top, outerwear, dress |
+| Alo Yoga | 3 | Men, Women | Women |  | Men, Women |  |  |  |  |  |  |  |
+| American Eagle | 5 | Men, Women | Men, Women | Women | Men, Women | Men, Women |  |  |  |  |  |  |
 | Ann Taylor | 2 | Women | Women | Women | Women | Women |  |  |  |  |  |  |
 | Anthropologie | 2 | Women | Women | Women | Women |  |  |  |  |  |  |  |
-| Anti Social Social Club | 1 | Unisex |  |  | Unisex |  |  |  |  |  |  | bottom, dress |
-| Arc'teryx | 2 | Men, Women |  |  | Men, Women |  |  |  |  |  |  | bottom, dress |
+| Anti Social Social Club | 1 | Unisex |  |  | Unisex |  |  |  |  |  |  | bottom |
+| Arc'teryx | 2 | Men, Women |  |  | Men, Women |  |  |  |  |  |  | bottom |
 | Aritzia | 2 | Women | Women | Women | Women |  |  |  |  |  |  |  |
 | ASICS | 2 |  |  |  |  |  | Men, Women |  |  |  |  |  |
-| Athleta | 2 | Women | Women |  | Women |  |  |  |  |  |  | dress |
+| Athleta | 2 | Women | Women |  | Women |  |  |  |  |  |  |  |
 | Balenciaga | 2 | Men, Women | Men, Women | Women | Men, Women | Men |  |  |  |  |  |  |
-| Banana Republic | 2 | Men, Women |  |  |  |  |  |  |  |  |  | bottom, outerwear, dress |
+| Banana Republic | 4 | Men, Women | Men, Women | Women | Men, Women | Men, Women |  |  |  |  |  |  |
 | BAPE | 1 | Men |  |  | Men |  |  |  |  |  |  | bottom |
 | Barbour | 1 |  |  |  | Men |  |  |  |  |  |  | top, bottom |
 | Beyond Yoga | 2 | Women | Women | Women |  |  |  |  |  |  |  | outerwear |
 | Birkenstock | 1 |  |  |  |  |  | Unisex |  |  |  |  |  |
-| Bogner | 2 |  | Men, Women |  | Men, Women |  |  |  |  |  |  | top, dress |
+| Bogner | 2 |  | Men, Women |  | Men, Women |  |  |  |  |  |  | top |
 | Bonobos | 1 |  | Men |  |  |  |  |  |  |  |  | top, outerwear |
 | Bottega Veneta | 2 | Men, Women | Men, Women | Women | Men, Women | Men |  |  |  |  |  |  |
 | Brahmin | 1 |  |  |  |  |  |  | Women |  |  |  |  |
 | Brandy Melville | 1 | Women | Women | Women |  |  |  |  |  |  |  | outerwear |
 | Brooks | 2 |  |  |  |  |  | Men, Women |  |  |  |  |  |
-| Brooks Brothers | 4 | Men |  |  | Men | Men | Men, Women |  |  |  |  | bottom, dress |
+| Brooks Brothers | 4 | Men |  |  | Men | Men | Men, Women |  |  |  |  | bottom |
 | Buck Mason | 1 | Men | Men |  |  |  |  |  |  |  |  | outerwear |
-| Burberry | 2 | Men |  |  | Men, Women | Men, Women |  |  |  |  |  | bottom, dress |
+| Burberry | 2 | Men |  |  | Men, Women | Men, Women |  |  |  |  |  | bottom |
 | Calvin Klein | 2 |  |  |  |  |  |  |  |  |  |  |  |
-| Canada Goose | 2 |  |  |  | Men, Women |  |  |  |  |  |  | top, bottom, dress |
+| Canada Goose | 4 | Men, Women | Men, Women |  | Men, Women |  |  |  |  |  |  |  |
 | Carter's | 2 | Kids | Kids | Baby, Kids | Kids |  |  |  |  |  |  |  |
 | Celine | 2 | Men, Women | Men, Women | Women | Men, Women | Men |  |  |  |  |  |  |
-| Champion | 2 | Men, Women |  |  |  |  |  |  |  |  |  | bottom, outerwear, dress |
+| Champion | 6 | Men, Women | Men, Women |  | Men, Women |  |  |  |  |  |  |  |
 | Chanel | 2 | Women |  | Women | Women | Women |  |  |  |  |  | bottom |
-| Chrome Hearts | 1 | Unisex |  |  | Unisex |  |  |  |  |  |  | bottom, dress |
-| Citizens of Humanity | 2 |  | Men, Women |  |  |  |  |  |  |  |  | top, outerwear, dress |
+| Chrome Hearts | 1 | Unisex |  |  | Unisex |  |  |  |  |  |  | bottom |
+| Citizens of Humanity | 4 | Men, Women | Men, Women | Women | Men, Women | Men, Women |  |  |  |  |  |  |
 | Clarks | 1 |  |  |  |  |  | Unisex |  |  |  |  |  |
 | Cole Haan | 2 |  |  |  |  |  | Men, Women |  |  |  |  |  |
-| Columbia | 3 | Men, Women | Men |  | Men, Women |  |  |  |  |  |  | dress |
+| Columbia | 3 | Men, Women | Men |  | Men, Women |  |  |  |  |  |  |  |
 | Converse | 1 |  |  |  |  |  | Unisex |  |  |  |  |  |
-| Cotopaxi | 2 | Men, Women |  |  | Men, Women |  |  |  |  |  |  | bottom, dress |
+| Cotopaxi | 2 | Men, Women |  |  | Men, Women |  |  |  |  |  |  | bottom |
 | Crocs | 1 |  |  |  |  |  | Unisex |  |  |  |  |  |
-| Denim Tears | 1 |  | Unisex |  |  |  |  |  |  |  |  | top, outerwear, dress |
+| Denim Tears | 2 | Unisex | Unisex |  | Unisex |  |  |  |  |  |  |  |
 | Dickies | 1 |  | Men |  |  |  |  |  |  |  |  | top, outerwear |
-| Diesel | 3 |  | Men, Women |  | Unisex |  |  |  |  |  |  | top, dress |
+| Diesel | 3 |  | Men, Women |  | Unisex |  |  |  |  |  |  | top |
 | Dior | 2 | Men, Women | Men, Women | Women | Men, Women | Men |  |  |  |  |  |  |
 | Dooney & Bourke | 1 |  |  |  |  |  |  | Women |  |  |  |  |
 | Dr. Martens | 1 |  |  |  |  |  | Unisex |  |  |  |  |  |
@@ -82,79 +82,79 @@ Coverage is measured the way the size-guide panel resolves a chart: a real brand
 | Express | 2 | Women | Women | Women |  |  |  |  |  |  |  | outerwear |
 | Fabletics | 2 | Women | Women | Women | Women |  |  |  |  |  |  |  |
 | Faherty | 3 | Men, Women | Men | Women | Men, Women | Men |  |  |  |  |  |  |
-| Fear of God Essentials | 2 | Unisex | Unisex |  |  |  |  |  |  |  |  | outerwear, dress |
+| Fear of God Essentials | 2 | Unisex | Unisex |  |  |  |  |  |  |  |  | outerwear |
 | Fendi | 2 | Men, Women | Men, Women | Women | Men, Women | Men |  |  |  |  |  |  |
-| Fila | 3 | Unisex |  |  | Unisex |  | Men, Women |  |  |  |  | bottom, dress |
+| Fila | 3 | Unisex |  |  | Unisex |  | Men, Women |  |  |  |  | bottom |
 | Filson | 1 | Men |  |  | Men |  |  |  |  |  |  | bottom |
-| Fjällräven | 2 | Men, Women | Men, Women |  | Men, Women |  |  |  |  |  |  | dress |
+| Fjällräven | 2 | Men, Women | Men, Women |  | Men, Women |  |  |  |  |  |  |  |
 | Fossil | 2 |  |  |  |  |  |  | Men | Unisex |  |  |  |
-| FRAME | 2 |  | Men, Women |  |  |  |  |  |  |  |  | top, outerwear, dress |
+| FRAME | 2 |  | Men, Women |  |  |  |  |  |  |  |  | top, outerwear |
 | Free People | 2 | Women | Women | Women | Women |  |  |  |  |  |  |  |
-| G-Star RAW | 3 |  | Men, Women |  | Unisex |  |  |  |  |  |  | top, dress |
-| Gallery Dept. | 1 | Unisex |  |  | Unisex |  |  |  |  |  |  | bottom, dress |
-| Gap | 2 | Women | Women |  |  |  |  |  |  |  |  | outerwear, dress |
+| G-Star RAW | 3 |  | Men, Women |  | Unisex |  |  |  |  |  |  | top |
+| Gallery Dept. | 1 | Unisex |  |  | Unisex |  |  |  |  |  |  | bottom |
+| Gap | 2 | Women | Women |  |  |  |  |  |  |  |  | outerwear |
 | Girlfriend Collective | 1 | Women | Women | Women |  |  |  |  |  |  |  | outerwear |
 | Gymboree | 2 | Kids | Kids | Baby, Kids |  |  |  |  |  |  |  | outerwear |
-| Gymshark | 3 | Men, Women | Women |  | Women |  |  |  |  |  |  | dress |
+| Gymshark | 3 | Men, Women | Women |  | Women |  |  |  |  |  |  |  |
 | H&M | 2 | Women | Women | Women | Women |  |  |  |  |  |  |  |
 | Hanna Andersson | 1 | Kids | Kids | Kids |  |  |  |  |  |  |  | outerwear |
-| Hellstar | 1 | Unisex |  |  | Unisex |  |  |  |  |  |  | bottom, dress |
-| Helly Hansen | 2 | Men, Women | Men, Women |  | Men, Women |  |  |  |  |  |  | dress |
+| Hellstar | 1 | Unisex |  |  | Unisex |  |  |  |  |  |  | bottom |
+| Helly Hansen | 2 | Men, Women | Men, Women |  | Men, Women |  |  |  |  |  |  |  |
 | Hermès | 2 | Men, Women | Men, Women | Women | Men, Women | Men |  |  |  |  |  |  |
-| Herno | 2 |  |  |  | Men, Women | Men |  |  |  |  |  | top, bottom, dress |
+| Herno | 4 | Men, Women | Men, Women | Women | Men, Women | Men |  |  |  |  |  |  |
 | Herschel Supply Co. | 1 |  |  |  |  |  |  | Unisex |  |  |  |  |
 | HOKA | 2 |  |  |  |  |  | Men, Women |  |  |  |  |  |
-| Hudson Jeans | 2 |  | Men, Women |  |  |  |  |  |  |  |  | top, outerwear, dress |
+| Hudson Jeans | 2 |  | Men, Women |  |  |  |  |  |  |  |  | top, outerwear |
 | J.Crew | 2 | Men | Men |  |  |  |  |  |  |  |  | outerwear |
 | Janie and Jack | 2 | Kids | Kids | Baby, Kids |  | Kids |  |  |  |  |  | outerwear |
-| Joe's Jeans | 2 |  | Men, Women |  |  |  |  |  |  |  |  | top, outerwear, dress |
+| Joe's Jeans | 2 |  | Men, Women |  |  |  |  |  |  |  |  | top, outerwear |
 | Johnnie-O | 1 | Men |  |  | Men |  |  |  |  |  |  | bottom |
 | Kate Spade | 2 | Women |  | Women | Women |  |  |  |  |  |  | bottom |
 | KEEN | 2 |  |  |  |  |  | Men, Women |  |  |  |  |  |
 | Kith | 1 | Men |  |  |  |  |  |  |  |  |  | bottom, outerwear |
-| Kühl | 2 | Men, Women | Men, Women |  | Men, Women |  |  |  |  |  |  | dress |
+| Kühl | 2 | Men, Women | Men, Women |  | Men, Women |  |  |  |  |  |  |  |
 | L.L.Bean | 2 | Men | Men |  | Men |  |  |  |  |  |  |  |
-| Lee | 3 |  | Men, Women |  | Unisex |  |  |  |  |  |  | top, dress |
-| Levi's | 2 |  | Men, Women |  |  |  |  |  |  |  |  | top, outerwear, dress |
+| Lee | 3 |  | Men, Women |  | Unisex |  |  |  |  |  |  | top |
+| Levi's | 2 |  | Men, Women |  |  |  |  |  |  |  |  | top, outerwear |
 | LOFT | 3 | Women | Women | Women | Women | Women |  |  |  |  |  |  |
 | Longchamp | 1 |  |  |  |  |  |  | Unisex |  |  |  |  |
-| Lucky Brand | 2 |  | Men, Women |  |  |  |  |  |  |  |  | top, outerwear, dress |
-| Lululemon | 4 | Men, Women | Men, Women |  | Men, Women |  |  |  |  |  |  | dress |
-| Mackage | 2 |  |  |  | Men, Women |  |  |  |  |  |  | top, bottom, dress |
-| Madewell | 1 |  | Women |  |  |  |  |  |  |  |  | top, outerwear, dress |
-| Mammut | 2 | Men, Women | Men, Women |  | Men, Women |  |  |  |  |  |  | dress |
+| Lucky Brand | 2 |  | Men, Women |  |  |  |  |  |  |  |  | top, outerwear |
+| Lululemon | 4 | Men, Women | Men, Women |  | Men, Women |  |  |  |  |  |  |  |
+| Mackage | 2 |  |  |  | Men, Women |  |  |  |  |  |  | top, bottom |
+| Madewell | 1 |  | Women |  |  |  |  |  |  |  |  | top, outerwear |
+| Mammut | 2 | Men, Women | Men, Women |  | Men, Women |  |  |  |  |  |  |  |
 | Marc Jacobs | 1 |  |  |  |  |  |  | Women |  |  |  |  |
 | Marmot | 1 | Men |  |  | Men |  |  |  |  |  |  | bottom |
 | Merrell | 2 |  |  |  |  |  | Men, Women |  |  |  |  |  |
 | Michael Kors | 2 | Women | Women | Women | Women | Women |  |  |  |  |  |  |
 | Mini Boden | 1 | Kids | Kids | Kids |  |  |  |  |  |  |  | outerwear |
-| Moncler | 2 |  |  |  | Men, Women |  |  |  |  |  |  | top, bottom, dress |
-| MOTHER | 1 |  | Women |  |  |  |  |  |  |  |  | top, outerwear, dress |
+| Moncler | 2 |  |  |  | Men, Women |  |  |  |  |  |  | top, bottom |
+| MOTHER | 1 |  | Women |  |  |  |  |  |  |  |  | top, outerwear |
 | Mountain Hardwear | 1 | Men |  |  | Men |  |  |  |  |  |  | bottom |
 | New Balance | 2 |  |  |  |  |  | Men, Women |  |  |  |  |  |
-| Nike | 2 | Men, Women |  |  | Men, Women |  |  |  |  |  |  | bottom, dress |
-| Off-White | 2 | Unisex | Men |  | Men, Unisex | Men |  |  |  |  |  | dress |
-| Old Navy | 2 | Women | Women |  |  |  |  |  |  |  |  | outerwear, dress |
+| Nike | 2 | Men, Women |  |  | Men, Women |  |  |  |  |  |  | bottom |
+| Off-White | 2 | Unisex | Men |  | Men, Unisex | Men |  |  |  |  |  |  |
+| Old Navy | 2 | Women | Women |  |  |  |  |  |  |  |  | outerwear |
 | On Running | 2 |  |  |  |  |  | Men, Women |  |  |  |  |  |
 | Orvis | 1 | Men |  |  | Men |  |  |  |  |  |  | bottom |
-| Outdoor Research | 2 | Men, Women | Men, Women |  | Men, Women |  |  |  |  |  |  | dress |
+| Outdoor Research | 2 | Men, Women | Men, Women |  | Men, Women |  |  |  |  |  |  |  |
 | Outdoor Voices | 1 | Women | Women | Women |  |  |  |  |  |  |  | outerwear |
-| PacSun | 1 |  | Women |  |  |  |  |  |  |  |  | top, outerwear, dress |
-| PAIGE | 2 |  | Men, Women |  |  |  |  |  |  |  |  | top, outerwear, dress |
+| PacSun | 1 |  | Women |  |  |  |  |  |  |  |  | top, outerwear |
+| PAIGE | 2 |  | Men, Women |  |  |  |  |  |  |  |  | top, outerwear |
 | Palace | 1 | Men |  |  |  |  |  |  |  |  |  | bottom, outerwear |
 | Pendleton | 1 | Men |  |  | Men |  |  |  |  |  |  | bottom |
 | Peter Millar | 3 | Men, Women | Men | Women | Men, Women | Men |  |  |  |  |  |  |
-| PINK | 1 | Women | Women |  |  |  |  |  |  |  |  | outerwear, dress |
+| PINK | 1 | Women | Women |  |  |  |  |  |  |  |  | outerwear |
 | Prada | 2 | Men, Women |  | Women | Men, Women | Men |  |  |  |  |  | bottom |
-| PUMA | 3 | Unisex |  |  | Unisex |  | Men, Women |  |  |  |  | bottom, dress |
-| Rab | 2 |  | Men, Women |  | Men, Women |  |  |  |  |  |  | top, dress |
-| Rag & Bone | 2 |  | Men, Women |  |  |  |  |  |  |  |  | top, outerwear, dress |
+| PUMA | 3 | Unisex |  |  | Unisex |  | Men, Women |  |  |  |  | bottom |
+| Rab | 2 |  | Men, Women |  | Men, Women |  |  |  |  |  |  | top |
+| Rag & Bone | 2 |  | Men, Women |  |  |  |  |  |  |  |  | top, outerwear |
 | Rebecca Minkoff | 2 |  | Women | Women | Women |  |  | Women |  |  |  | top |
 | Red Wing | 1 |  |  |  |  |  | Men |  |  |  |  |  |
-| Reebok | 3 | Unisex |  |  | Unisex |  | Men, Women |  |  |  |  | bottom, dress |
+| Reebok | 3 | Unisex |  |  | Unisex |  | Men, Women |  |  |  |  | bottom |
 | Reformation | 1 | Women |  | Women | Women |  |  |  |  |  |  | bottom |
 | REI Co-op | 1 | Men |  |  | Men |  |  |  |  |  |  | bottom |
-| Rhude | 1 | Unisex |  |  | Unisex |  |  |  |  |  |  | bottom, dress |
+| Rhude | 1 | Unisex |  |  | Unisex |  |  |  |  |  |  | bottom |
 | Saint Laurent | 2 | Men, Women | Men, Women | Women | Men, Women | Men |  |  |  |  |  |  |
 | Salomon | 2 |  |  |  |  |  | Men, Women |  |  |  |  |  |
 | Sam Edelman | 1 |  |  |  |  |  | Women |  |  |  |  |  |
@@ -163,26 +163,26 @@ Coverage is measured the way the size-guide panel resolves a chart: a real brand
 | Sézane | 1 | Women |  | Women | Women |  |  |  |  |  |  | bottom |
 | SKIMS | 1 |  | Women | Women |  |  |  |  |  |  |  | top, outerwear |
 | Sorel | 2 |  |  |  |  |  | Men, Women | Men |  |  |  |  |
-| Sp5der | 1 | Unisex |  |  | Unisex |  |  |  |  |  |  | bottom, dress |
-| Spanx | 1 |  | Women |  |  |  |  |  |  |  |  | top, outerwear, dress |
+| Sp5der | 1 | Unisex |  |  | Unisex |  |  |  |  |  |  | bottom |
+| Spanx | 1 |  | Women |  |  |  |  |  |  |  |  | top, outerwear |
 | Steve Madden | 1 |  |  |  |  |  | Women |  |  |  |  |  |
 | Stüssy | 1 | Men |  |  |  |  |  |  |  |  |  | bottom, outerwear |
 | Supreme | 2 | Men | Men |  |  |  |  |  |  |  |  | outerwear |
-| Sweaty Betty | 2 | Women | Women |  | Women |  |  |  |  |  |  | dress |
+| Sweaty Betty | 2 | Women | Women |  | Women |  |  |  |  |  |  |  |
 | Talbots | 1 | Women | Women | Women | Women | Women |  |  |  |  |  |  |
 | The Children's Place | 2 | Kids | Kids | Baby, Kids | Kids |  |  |  |  |  |  |  |
-| The North Face / Patagonia (outerwear) | 1 |  |  |  | Unisex |  |  |  |  |  |  | top, bottom, dress |
-| Theory | 2 | Women | Women |  | Women | Women |  |  |  |  |  | dress |
+| The North Face / Patagonia (outerwear) | 1 |  |  |  | Unisex |  |  |  |  |  |  | top, bottom |
+| Theory | 2 | Women | Women |  | Women | Women |  |  |  |  |  |  |
 | Timberland | 1 |  |  |  |  |  | Men |  |  |  |  |  |
 | Todd Snyder | 1 | Men | Men |  |  | Men |  |  |  |  |  | outerwear |
-| Tommy Hilfiger | 2 | Men, Women |  |  |  |  |  |  |  |  |  | bottom, outerwear, dress |
+| Tommy Hilfiger | 2 | Men, Women |  |  |  |  |  |  |  |  |  | bottom, outerwear |
 | Tommy John | 1 |  |  |  |  |  |  |  |  |  |  |  |
 | Tory Burch | 2 | Women | Women | Women | Women | Women |  |  |  |  |  |  |
-| True Religion | 2 |  | Men, Women |  |  |  |  |  |  |  |  | top, outerwear, dress |
+| True Religion | 2 |  | Men, Women |  |  |  |  |  |  |  |  | top, outerwear |
 | Tumi | 1 |  |  |  |  |  |  | Unisex |  |  |  |  |
 | UGG | 2 |  |  |  |  |  | Men, Women |  |  |  |  |  |
-| Under Armour | 3 | Men | Men, Women |  | Men |  |  |  |  |  |  | dress |
-| Uniqlo | 2 | Men, Women |  |  |  |  |  |  |  |  |  | bottom, outerwear, dress |
+| Under Armour | 3 | Men | Men, Women |  | Men |  |  |  |  |  |  |  |
+| Uniqlo | 2 | Men, Women |  |  |  |  |  |  |  |  |  | bottom, outerwear |
 | UNTUCKit | 2 | Men, Women |  | Women |  |  |  |  |  |  |  | bottom, outerwear |
 | Urban Outfitters | 2 | Women | Women | Women | Women |  |  |  |  |  |  |  |
 | Vans | 1 |  |  |  |  |  | Unisex |  |  |  |  |  |
@@ -190,7 +190,7 @@ Coverage is measured the way the size-guide panel resolves a chart: a real brand
 | Versace | 2 | Men, Women | Men, Women | Women | Men, Women | Men |  |  |  |  |  |  |
 | Victoria's Secret | 2 |  |  |  |  |  |  |  |  |  |  |  |
 | Vineyard Vines | 2 | Men, Women |  | Women | Men, Women |  |  |  |  |  |  | bottom |
-| Vuori | 3 | Men | Men, Women |  | Men |  |  |  |  |  |  | dress |
-| Woolrich | 2 | Men, Women |  |  | Men, Women |  |  |  |  |  |  | bottom, dress |
-| Wrangler | 3 |  | Men, Women |  | Unisex |  |  |  |  |  |  | top, dress |
+| Vuori | 3 | Men | Men, Women |  | Men |  |  |  |  |  |  |  |
+| Woolrich | 2 | Men, Women |  |  | Men, Women |  |  |  |  |  |  | bottom |
+| Wrangler | 3 |  | Men, Women |  | Unisex |  |  |  |  |  |  | top |
 | Zara | 2 | Women | Women | Women | Women |  |  |  |  |  |  |  |

@@ -1,5 +1,65 @@
 # PENDING MIGRATIONS — applied to prod separately from the push
 
+## 🔒 HELD: 00776 — give brand_size_charts the source URLs the charts now carry (US-3284)
+
+**Risk: LOW.** Insert-or-update into `public.brand_size_charts`, a global
+reference table with deny-all RLS and no tenant data. No schema change, nothing
+dropped, nothing revoked. Every value is derived from committed code, so it is
+idempotent and safe to run twice.
+
+**What it does.** 19 sizing charts across 10 brands, each transcribed from the
+brand's OWN published size guide, land with a real `source_url`. Before this
+batch every one of the corpus's 300-odd charts had `source_url NULL` — which is
+why the composer's "[Brand] size guide" link fell through to a Google search for
+nearly every item a seller edited.
+
+**Why it is not 00498.** 00498 is the generated backfill of the whole in-code
+corpus and it is ALREADY APPLIED. `apply-prod-migrations.sh` skips every file at
+or below the highest recorded version, so regenerating it in place updates the
+repo and reaches prod never. 00498 is still regenerated in this commit because
+its parity guard re-derives it and fails on drift; 00776 is what actually moves
+the rows. 00498 also writes `source_url = NULL` by contract and its own guard
+asserts that, which is correct for an unsourced backfill and wrong for these.
+
+**Upsert, not insert-only.** 00498 is deliberately insert-only so an unsourced
+row can never overwrite a hand-sourced pack row. This one carries the source, so
+on conflict it writes `rows`, `note`, `source_url`, `category_match`,
+`brand_match` and `brand_label`. `confidence` is left alone, because a pack may
+have set one and this batch has none to offer. `verified` stays false: an agent
+transcribed these, a human has not checked them, and the size-guide panel renders
+its trust badge straight off that column.
+
+**Both required columns, and this is what the first apply got wrong.** 00578
+added `brand_size_charts_sourced` — a CHECK that `source_url` is non-blank AND
+`confidence` is non-null — as NOT VALID, so the legacy unsourced rows stay
+readable while any new INSERT or UPDATE must satisfy it. The first cut of 00776
+set the URL and left confidence NULL, and prod rejected every row with 23514.
+Each row now carries `confidence 0.85`: the top of the range the hand-written
+packs use, which is the right end when the numbers came off the brand's own
+page and the only uncertainty left is the transcription. `verified` stays false,
+because that column records whether a HUMAN checked and none has.
+
+**⚠ DO NOT re-apply 00498 or 00499.** They are already applied, they are
+regenerated in this commit only because `sizing-chart-parity_test.ts` re-derives
+them and fails on drift, and running them by hand on prod FAILS — 00498 now
+inserts 19 deliberately-unsourced rows, and 00499's UPDATE touches every chart
+in the table, so the NOT VALID check fires on both. Both files now sit behind an
+`applied_migrations` check and print a notice instead, so a hand re-run is a
+harmless no-op. That guard was verified against a local Postgres carrying the
+same constraint and the same recorded versions: 00498 and 00499 skipped, 00776
+applied clean twice, 19 rows landed sourced.
+
+**Apply order:** 00776 only, after 00775. Run `NOTIFY pgrst, 'reload schema';`
+afterwards — harmless here (no table, column or RPC signature changed) but
+cheap. Redeploy the edge afterwards: its boot guard now expects 00776.
+
+**The frontend in the same push is safe without the SQL.** The size-guide panel
+resolves charts DB-first and falls back to the in-code corpus, which already has
+these charts and their source URLs compiled in. Until 00776 applies a seller sees
+exactly the same panel; what is missing is the admin console's ability to edit
+these rows.
+
+
 ## ✅ APPLIED 2026-09-09: 00775 — widen flipdesk_import_runs.origin to accept 'grailed' (US-3261)
 
 **Risk: LOW.** One named CHECK constraint dropped and re-added with one extra

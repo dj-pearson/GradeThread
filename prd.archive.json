@@ -46093,6 +46093,25 @@
       ],
       "priority": 2,
       "notes": "Done 2026-09-09. Reported as 'Send to Poshmark says I need a paid plan and I have Business'. The plan was never the problem: the Marketplaces setup card on the same account reads Install=Done, 'Connect it to this account'=Not yet, so the extension holds no token, receives ANONYMOUS_EXTENSION_ENTITLEMENTS (sellerEnabled:false whatever the account pays) and refuses. background.js beginJob then answered needsUpgrade for that, and listing-kit.tsx rendered 'Cross-listing needs an active paid FlipDesk plan' with a /pricing link. Fix: registry.js gains listerBlockReason(caps) -> null|'signin'|'plan' (fail-safe 'signin'); beginJob and appraiseListing send needsSignIn separately and word their errors accordingly; the web resolves via listerBlockCause in lister-extension.ts, which believes a new build's needsSignIn and otherwise asks the extension over GT_PING. Deliberately asymmetric: unreachable/silent/malformed resolves to 'signin', because sending a Free seller to Connect costs a click and sending a Business seller to /pricing is the failure that happened. The account's own plan record is still never consulted (US-2720 rule intact). Tests: src/test/lister-block-cause.test.ts (12 cases incl. the truthy-non-true and throwing-ping paths) and extension-unified/test/registry.test.cjs. NOTE: the web half deploys with the frontend and fixes the wording for every seller immediately; the background.js half only reaches sellers after a Chrome/Firefox store release. Underlying cause of the disconnect filed as US-3296 (the 30-day token has no renewal path)."
+    },
+    {
+      "id": "US-3284",
+      "passes": true,
+      "title": "Size charts, batch 1 of 11: 7 For All Mankind to Herno",
+      "description": "Ten brands whose size-guide panel shows a gap for a garment group they sell. Follow vault/20-domain/brands/size-chart-coverage-backfill.md. Batch: 7 For All Mankind (top, outerwear, dress); AG Jeans (top, outerwear, dress); American Eagle (top, outerwear, dress); Banana Republic (bottom, outerwear, dress); Canada Goose (top, bottom, dress); Champion (bottom, outerwear, dress); Citizens of Humanity (top, outerwear, dress); Denim Tears (top, outerwear, dress); FRAME (top, outerwear, dress); Herno (top, bottom, dress).",
+      "acceptanceCriteria": [
+        "Each brand in the batch has a SizingChart for every group the coverage report lists as missing, with categoryMatch words a seller would actually type",
+        "Every new chart sets sourceUrl to the brand's OWN published guide, never a reseller blog or a marketplace table",
+        "measurementBasis is set to flat only where the brand publishes garment specs; body charts leave it absent",
+        "verified stays absent unless a human compared the rows against sourceUrl, so the panel's tier badge cannot overstate an estimate",
+        "scripts/gen-sizing-chart-seed.mjs is re-run and the regenerated migration lands in the same commit; sizing-chart-parity_test.ts passes",
+        "docs/size-chart-coverage.md is regenerated and shows no remaining gap for these ten brands, or the story note names each exception and why"
+      ],
+      "priority": 4,
+      "dependsOn": [
+        "US-3283"
+      ],
+      "notes": "Batch 1 done 2026-09-09. 19 charts across 10 brands, each transcribed from the brand's OWN published guide and carrying a real source_url — the first sourced charts in the corpus. Nine of ten closed; the coverage report shows no remaining gap for them. EXCEPTION: FRAME. frame-store.com's Denim Fit Guide page renders empty, its product pages carry no size link, and every FRAME chart a search returns belongs to a reseller, so the runbook's do-not-substitute rule applies and FRAME keeps only its two denim charts. THREE THINGS THE BATCH TAUGHT, all now in the runbook: (1) brand_size_charts_sourced (00578) is a CHECK on source_url AND confidence — the first cut of 00776 set only the URL and prod rejected all 19 rows with 23514; the generator now writes confidence 0.85 with verified still false. (2) 00498 and 00499 are already applied and must never be re-run: 00498 would insert this batch's rows unsourced and 00499's UPDATE touches every chart, so the NOT VALID check fires on both. They are regenerated only because the parity guard re-derives them; both now sit behind an applied_migrations check. (3) The coverage script's dress rule produced three false gaps in ten brands (Canada Goose, Champion, Denim Tears make no dresses), so dresses are printed per brand but no longer counted as a gap. Verified against a local Postgres carrying the same constraint and the same recorded versions: 00498/00499 skipped with a notice, 00776 applied clean twice, 19 rows landed with source_url and confidence 0.85. | Closed with batch 1 shipped: 9 of 10 brands sourced, FRAME documented as an exception. Migration 00776 is HELD in PENDING_MIGRATIONS.md."
     }
   ]
 }

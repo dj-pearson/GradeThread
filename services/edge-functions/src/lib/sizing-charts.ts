@@ -8982,6 +8982,538 @@ export const SIZING_CHARTS: SizingChart[] = [
       { size: "9-10Y (134-140 cm)", measurements: { height: "53-55 in", age: "9-10 years" } },
     ],
   },
+
+  // ── US-3284: size-chart backfill, batch 1 of 11 ────────────────────────────
+  //
+  // Ten brands whose size-guide panel (US-3283) showed a gap for a garment
+  // group they actually sell. Every chart below was read off the BRAND'S OWN
+  // published guide in September 2026 and carries `sourceUrl` pointing at it —
+  // the first charts in this corpus to do so, which is why the old Measurements
+  // link fell through to a Google search for nearly every brand.
+  //
+  // `verified` is absent on all of them ON PURPOSE. It means a human compared
+  // the rows against the source, and what happened here is that an agent
+  // transcribed them. The panel's tier badge then says "from the brand's
+  // published guide", which is exactly true and no more.
+  //
+  // THE PATTERN THAT KEPT REPEATING: most of these brands publish ONE body
+  // chart per department and apply it to every garment they make. A bust is a
+  // bust whether the garment over it is a tee, a parka or a dress, so one set
+  // of numbers is registered under several `categoryMatch` lists rather than
+  // copied into invented per-garment charts. Where a brand really does publish
+  // per-garment numbers (Champion's bottoms, AE's dresses) those are separate
+  // charts, because there the brand made a separate claim.
+
+  // 7 For All Mankind — https://7forallmankind.com/pages/size-chart
+  // Published in centimetres with an inch column written in eighths ("32 5/8");
+  // the eighths are transcribed as decimals, which is the same number.
+  {
+    brand: "7 For All Mankind",
+    brandMatch: ["7 for all mankind", "7forallmankind", "seven for all mankind", "7fam"],
+    department: "Women",
+    garment: "Tops, jackets & dresses (alpha, body inches)",
+    categoryMatch: [
+      "top", "tee", "shirt", "blouse", "sweater", "knit", "hoodie", "sweatshirt",
+      "tank", "jacket", "coat", "outerwear", "blazer", "vest", "dress", "romper",
+      "jumpsuit",
+    ],
+    sourceUrl: "https://7forallmankind.com/pages/size-chart",
+    note:
+      "7FAM publishes ONE women's body chart and applies it to tops, jackets and " +
+      "dresses alike. Body measurements, not flat. The brand prints centimetres " +
+      "first; these are its own inch column with the eighths written as decimals.",
+    rows: [
+      { size: "XXS", measurements: { bust: "31.875", waist: "23", hip: "33" } },
+      { size: "XS", measurements: { bust: "32.625-33.5", waist: "24-25", hip: "34-35" } },
+      { size: "S", measurements: { bust: "34.25-35", waist: "26-27", hip: "36-37" } },
+      { size: "M", measurements: { bust: "36.25-37.375", waist: "28-29", hip: "38-39" } },
+      { size: "L", measurements: { bust: "38.625-39.75", waist: "30-31", hip: "40-41" } },
+      { size: "XL", measurements: { bust: "41-42.125", waist: "31.875-32.875", hip: "42-43" } },
+      { size: "XXL", measurements: { bust: "43.25-44.5", waist: "33.875-35.875", hip: "43.875-45.75" } },
+    ],
+  },
+
+  // AG Jeans — https://www.agjeans.com/pages/womens-size-guide
+  // The published table is keyed on DENIM WAIST (23-34) with the alpha and US
+  // numeric columns beside it; the alpha rows are what a top or jacket carries.
+  {
+    brand: "AG Jeans",
+    brandMatch: ["ag jeans", "agjeans", "adriano goldschmied"],
+    department: "Women",
+    garment: "Tops, jackets & dresses (alpha, body inches)",
+    categoryMatch: [
+      "top", "tee", "shirt", "blouse", "sweater", "knit", "hoodie", "sweatshirt",
+      "tank", "jacket", "coat", "outerwear", "blazer", "vest", "dress", "romper",
+      "jumpsuit",
+    ],
+    sourceUrl: "https://www.agjeans.com/pages/womens-size-guide",
+    note:
+      "AG publishes one women's body chart keyed on denim waist, with alpha and " +
+      "US numeric alongside. The alpha rows are here; the denim-waist rows are on " +
+      "AG's jeans chart. Body measurements, not flat.",
+    rows: [
+      { size: "XXS / 00", measurements: { bust: "30", waist: "23", hip: "33" } },
+      { size: "XS / 0", measurements: { bust: "31-32", waist: "24-25", hip: "34-35" } },
+      { size: "S / 4", measurements: { bust: "33-34", waist: "26-27", hip: "36-37" } },
+      { size: "M / 6", measurements: { bust: "35-36", waist: "28-29", hip: "38-39" } },
+      { size: "L / 10", measurements: { bust: "37-38.5", waist: "30-31", hip: "40-41.5" } },
+      { size: "XL / 14", measurements: { bust: "39.5-41", waist: "32-33", hip: "42.5-44" } },
+      { size: "XXL / 18", measurements: { bust: "42-43.5", waist: "34", hip: "45-46.5" } },
+    ],
+  },
+  {
+    brand: "AG Jeans",
+    brandMatch: ["ag jeans", "agjeans", "adriano goldschmied"],
+    department: "Men",
+    garment: "Tops & outerwear (alpha, body inches)",
+    categoryMatch: [
+      "top", "tee", "shirt", "polo", "sweater", "knit", "hoodie", "sweatshirt",
+      "jacket", "coat", "outerwear", "blazer", "vest",
+    ],
+    sourceUrl: "https://www.agjeans.com/pages/mens-size-guide",
+    note:
+      "AG publishes one men's body chart keyed on denim waist (28-44), with the " +
+      "alpha and chest columns beside it. Body measurements, not flat.",
+    rows: [
+      { size: "XS", measurements: { chest: "35.5-36.5", waist: "28-29", hip: "34.5-35.5" } },
+      { size: "S", measurements: { chest: "37.5-38.5", waist: "30-31", hip: "36.5-37.5" } },
+      { size: "M", measurements: { chest: "39.5-40.5", waist: "32-33", hip: "38.5-39.5" } },
+      { size: "L", measurements: { chest: "41.5-42.5", waist: "34-36", hip: "40.5-42.5" } },
+      { size: "XL", measurements: { chest: "43.5-44.5", waist: "38-40", hip: "44.5-46.5" } },
+      { size: "XXL", measurements: { chest: "46.5-48", waist: "42-44", hip: "48-49.5" } },
+    ],
+  },
+
+  // American Eagle — https://www.ae.com/us/en/content/help/women-size-chart
+  // AE is the one brand in this batch that publishes a DIFFERENT table per
+  // garment: the tops chart carries bust alone, the dresses chart adds waist
+  // and hip. Both are kept, because AE made two separate claims.
+  {
+    brand: "American Eagle",
+    brandMatch: ["american eagle", "americaneagle", "aerie"],
+    department: "Women",
+    garment: "Tops & outerwear (alpha/numeric, body inches)",
+    categoryMatch: [
+      "top", "tee", "shirt", "blouse", "sweater", "knit", "hoodie", "sweatshirt",
+      "tank", "jacket", "coat", "outerwear", "blazer", "vest",
+    ],
+    sourceUrl: "https://www.ae.com/us/en/content/help/women-size-chart",
+    note:
+      "AE's women's tops chart carries BUST ONLY, and AE publishes no separate " +
+      "outerwear chart — its jackets are sized off this one. Body measurements.",
+    rows: [
+      { size: "XXS / 00", measurements: { bust: "31" } },
+      { size: "XS / 0", measurements: { bust: "32" } },
+      { size: "XS / 2", measurements: { bust: "33" } },
+      { size: "S / 4", measurements: { bust: "34" } },
+      { size: "S / 6", measurements: { bust: "35" } },
+      { size: "M / 8", measurements: { bust: "36" } },
+      { size: "M / 10", measurements: { bust: "37.5" } },
+      { size: "L / 12", measurements: { bust: "39" } },
+      { size: "L / 14", measurements: { bust: "40.5" } },
+      { size: "XL / 16", measurements: { bust: "42" } },
+      { size: "XXL / 18", measurements: { bust: "44" } },
+    ],
+  },
+  {
+    brand: "American Eagle",
+    brandMatch: ["american eagle", "americaneagle", "aerie"],
+    department: "Women",
+    garment: "Dresses & skirts (alpha/numeric, body inches)",
+    categoryMatch: ["dress", "skirt", "romper", "jumpsuit"],
+    sourceUrl: "https://www.ae.com/us/en/content/help/women-size-chart",
+    note: "AE's dresses-and-skirts chart. Body measurements, not flat.",
+    rows: [
+      { size: "XXS / 00", measurements: { bust: "31", waist: "23.5", hip: "33" } },
+      { size: "XS / 0", measurements: { bust: "32", waist: "24.5", hip: "34" } },
+      { size: "XS / 2", measurements: { bust: "33", waist: "25.5", hip: "35" } },
+      { size: "S / 4", measurements: { bust: "34", waist: "26.5", hip: "36" } },
+      { size: "S / 6", measurements: { bust: "35", waist: "27.5", hip: "37" } },
+      { size: "M / 8", measurements: { bust: "36", waist: "28.5", hip: "38" } },
+      { size: "M / 10", measurements: { bust: "37.5", waist: "30", hip: "39.5" } },
+      { size: "L / 12", measurements: { bust: "39", waist: "31.5", hip: "41" } },
+      { size: "L / 14", measurements: { bust: "40.5", waist: "33", hip: "42.5" } },
+      { size: "XL / 16", measurements: { bust: "42", waist: "34.5", hip: "44" } },
+      { size: "XXL / 18", measurements: { bust: "44", waist: "36.5", hip: "46" } },
+    ],
+  },
+  {
+    brand: "American Eagle",
+    brandMatch: ["american eagle", "americaneagle", "aerie"],
+    department: "Men",
+    garment: "Tops & outerwear (alpha, body inches)",
+    categoryMatch: [
+      "top", "tee", "shirt", "polo", "sweater", "knit", "hoodie", "sweatshirt",
+      "jacket", "coat", "outerwear", "blazer", "vest",
+    ],
+    sourceUrl: "https://www.ae.com/us/en/content/help/men-size-chart",
+    note:
+      "AE's men's tops chart; its jackets are sized off the same one. The " +
+      "published table also carries M/L/XL Tall rows with the SAME neck and " +
+      "chest and about an inch more sleeve — left out here so the run stays a " +
+      "sequence a size check can count steps along.",
+    rows: [
+      { size: "XXS", measurements: { neck: "13-13.5", chest: "32-34", sleeve: "30.5" } },
+      { size: "XS", measurements: { neck: "13.5-14", chest: "35-36", sleeve: "31.5" } },
+      { size: "S", measurements: { neck: "14.5-15", chest: "37-39", sleeve: "32.5" } },
+      { size: "M", measurements: { neck: "15-15.5", chest: "40-42", sleeve: "33.5" } },
+      { size: "L", measurements: { neck: "15.5-16", chest: "43-45", sleeve: "34.5" } },
+      { size: "XL", measurements: { neck: "16.5-17", chest: "46-48", sleeve: "35.5" } },
+      { size: "XXL", measurements: { neck: "17-18", chest: "49-51", sleeve: "36.5" } },
+      { size: "XXXL", measurements: { neck: "18-19", chest: "52-54", sleeve: "37.5" } },
+    ],
+  },
+
+  // Banana Republic — https://bananarepublic.gap.com/browse/info.do?cid=35404
+  // One body chart per department, shown unchanged behind every category in
+  // BR's own category picker. Registered once per group rather than copied.
+  {
+    brand: "Banana Republic",
+    brandMatch: ["banana republic", "bananarepublic"],
+    department: "Women",
+    garment: "Bottoms, dresses & outerwear (alpha/numeric, body inches)",
+    categoryMatch: [
+      "bottom", "pant", "trouser", "jean", "denim", "short", "skirt", "chino",
+      "legging", "dress", "romper", "jumpsuit", "jacket", "coat", "outerwear",
+      "blazer", "vest",
+    ],
+    sourceUrl: "https://bananarepublic.gap.com/browse/info.do?cid=35404",
+    note:
+      "BR shows this same women's body chart behind every category in its own " +
+      "picker (tops, bottoms, blazers & outerwear, dresses, skirts), so one set " +
+      "of numbers answers for all of them. Body measurements, not flat. Petite " +
+      "and Tall are separate published charts and are not folded in here.",
+    rows: [
+      { size: "XXS / 000", measurements: { bust: "30.5", waist: "24", hip: "33.5", sleeve: "30" } },
+      { size: "XXS / 00", measurements: { bust: "31.5", waist: "25", hip: "34.5", sleeve: "30" } },
+      { size: "XS / 0", measurements: { bust: "32.5", waist: "26", hip: "35.5", sleeve: "31" } },
+      { size: "XS / 2", measurements: { bust: "33.5", waist: "27", hip: "36.5", sleeve: "31" } },
+      { size: "S / 4", measurements: { bust: "34.5", waist: "28", hip: "37.5", sleeve: "31.5" } },
+      { size: "S / 6", measurements: { bust: "35.5", waist: "29", hip: "38.5", sleeve: "31.5" } },
+      { size: "M / 8", measurements: { bust: "36.5", waist: "30", hip: "39.5", sleeve: "32" } },
+      { size: "M / 10", measurements: { bust: "37.5", waist: "31", hip: "40.5", sleeve: "32" } },
+      { size: "L / 12", measurements: { bust: "39", waist: "32.5", hip: "42", sleeve: "32.5" } },
+      { size: "L / 14", measurements: { bust: "40.5", waist: "34", hip: "43.5", sleeve: "32.5" } },
+      { size: "XL / 16", measurements: { bust: "42.5", waist: "36", hip: "45.5", sleeve: "33.5" } },
+      { size: "XL / 18", measurements: { bust: "44.5", waist: "38", hip: "47.5", sleeve: "33.5" } },
+      { size: "XXL / 20", measurements: { bust: "47.5", waist: "41", hip: "50.5", sleeve: "34" } },
+    ],
+  },
+  {
+    brand: "Banana Republic",
+    brandMatch: ["banana republic", "bananarepublic"],
+    department: "Men",
+    garment: "Bottoms & outerwear (alpha, body inches)",
+    categoryMatch: [
+      "bottom", "pant", "trouser", "chino", "short", "jean", "denim",
+      "jacket", "coat", "outerwear", "blazer", "vest",
+    ],
+    sourceUrl: "https://bananarepublic.gap.com/browse/info.do?cid=35404",
+    note:
+      "BR's men's regular chart, shown unchanged behind shirts, bottoms, blazers " +
+      "and outerwear alike. Body measurements. The belt column is a belt SIZE, " +
+      "not a body measurement, and is left out. Tall is a separate chart.",
+    rows: [
+      { size: "XXS", measurements: { waist: "25-26", chest: "32-33", neck: "13-13.5", sleeve: "31" } },
+      { size: "XS", measurements: { waist: "27-28", chest: "34-35", neck: "13-13.5", sleeve: "32" } },
+      { size: "S", measurements: { waist: "29-31", chest: "36-37", neck: "14-14.5", sleeve: "33" } },
+      { size: "M", measurements: { waist: "32-34", chest: "38-40", neck: "15-15.5", sleeve: "34" } },
+      { size: "L", measurements: { waist: "36-38", chest: "41-44", neck: "16-16.5", sleeve: "35" } },
+      { size: "XL", measurements: { waist: "40-42", chest: "45-48", neck: "17-17.5", sleeve: "36" } },
+      { size: "XXL", measurements: { waist: "44-46", chest: "49-52", neck: "18-18.5", sleeve: "37" } },
+    ],
+  },
+
+  // Canada Goose
+  // https://www.canadagoose.com/us/en/customer-service/support/sizing-charts-sizefit.html
+  // The Standard chart is the brand's whole apparel chart, not an outerwear one:
+  // knitwear, hoodies and pants are sized off it too. Fusion Fit is a separate
+  // published chart and is NOT folded in.
+  {
+    brand: "Canada Goose",
+    brandMatch: ["canada goose", "canadagoose"],
+    department: "Women",
+    garment: "Tops & bottoms (Standard fit, body inches)",
+    categoryMatch: [
+      "top", "tee", "shirt", "sweater", "knit", "hoodie", "sweatshirt", "fleece",
+      "bottom", "pant", "trouser", "legging", "short", "jogger", "sweatpant",
+    ],
+    sourceUrl: "https://www.canadagoose.com/us/en/customer-service/support/sizing-charts-sizefit.html",
+    note:
+      "Canada Goose's Women's STANDARD chart, which is the brand's apparel chart " +
+      "rather than an outerwear one. BODY measurements — on the parkas the " +
+      "existing outerwear rows cover, down loft puts the flat chest well above " +
+      "these numbers. Fusion Fit is a separate published chart, not this one.",
+    rows: [
+      { size: "3XS", measurements: { bust: "27.75-29", waist: "22-22.75", hip: "31.75-33", sleeve: "28.25-29.5" } },
+      { size: "2XS", measurements: { bust: "29.75-31", waist: "24-25", hip: "33.75-35", sleeve: "29-29.5" } },
+      { size: "XS", measurements: { bust: "31.75-33", waist: "25.75-27", hip: "35.75-37", sleeve: "29.75-30.25" } },
+      { size: "S", measurements: { bust: "33.75-35", waist: "27.75-29", hip: "38-38.75", sleeve: "30.5-31" } },
+      { size: "M", measurements: { bust: "35.75-37", waist: "29.75-31", hip: "40-40.75", sleeve: "31.25-31.75" } },
+      { size: "L", measurements: { bust: "38.5-40", waist: "32.5-33.75", hip: "42.5-44", sleeve: "31.75-32.25" } },
+      { size: "XL", measurements: { bust: "41.25-42.75", waist: "35.25-37", hip: "45.5-46.75", sleeve: "32.5-33" } },
+      { size: "2XL", measurements: { bust: "44.75-46.75", waist: "38.75-40.75", hip: "48.75-51", sleeve: "33.25-33.75" } },
+      { size: "3XL", measurements: { bust: "48.75-51", waist: "42.75-44.75", hip: "53-55", sleeve: "34.25-34.5" } },
+    ],
+  },
+  {
+    brand: "Canada Goose",
+    brandMatch: ["canada goose", "canadagoose"],
+    department: "Men",
+    garment: "Tops & bottoms (Standard fit, body inches)",
+    categoryMatch: [
+      "top", "tee", "shirt", "sweater", "knit", "hoodie", "sweatshirt", "fleece",
+      "bottom", "pant", "trouser", "short", "jogger", "sweatpant",
+    ],
+    sourceUrl: "https://www.canadagoose.com/us/en/customer-service/support/sizing-charts-sizefit.html",
+    note:
+      "Canada Goose's Men's STANDARD chart — the brand's apparel chart, not an " +
+      "outerwear one. BODY measurements. Chest and hip are published as the same " +
+      "figures on this chart; that is what the brand prints, not a transcription " +
+      "slip. Fusion Fit is separate.",
+    rows: [
+      { size: "3XS", measurements: { chest: "29.75-31", waist: "22.75-24", hip: "29.75-31", sleeve: "31.75-33" } },
+      { size: "2XS", measurements: { chest: "33-33.75", waist: "25.75-27", hip: "33-33.75", sleeve: "32.25-32.5" } },
+      { size: "XS", measurements: { chest: "35-35.75", waist: "27.75-29", hip: "35-35.75", sleeve: "33-34.25" } },
+      { size: "S", measurements: { chest: "37-38", waist: "29.75-31", hip: "37-38", sleeve: "33.75-34.25" } },
+      { size: "M", measurements: { chest: "38.75-40", waist: "31.75-33", hip: "38.75-40", sleeve: "34.5-35" } },
+      { size: "L", measurements: { chest: "41.25-42.75", waist: "34.5-35.75", hip: "41.25-42.75", sleeve: "35.25-35.75" } },
+      { size: "XL", measurements: { chest: "44.25-46", waist: "37.25-38.75", hip: "44.25-46", sleeve: "35.75-36.5" } },
+      { size: "2XL", measurements: { chest: "48-50", waist: "40.75-42.75", hip: "48-50", sleeve: "36.5-37.25" } },
+      { size: "3XL", measurements: { chest: "51.75-53.75", waist: "44.75-46.75", hip: "51.75-53.75", sleeve: "37.75-38" } },
+    ],
+  },
+
+  // Champion — https://www.champion.com/pages/mens-clothing-size-guide
+  // Champion publishes a real BOTTOMS table separate from its tops one, which is
+  // why these are separate charts rather than one apparel chart.
+  {
+    brand: "Champion",
+    brandMatch: ["champion"],
+    department: "Men",
+    garment: "Bottoms (alpha, body inches)",
+    categoryMatch: [
+      "bottom", "pant", "short", "jogger", "sweatpant", "trouser", "legging", "tight",
+    ],
+    sourceUrl: "https://www.champion.com/pages/mens-clothing-size-guide",
+    note: "Champion's published men's bottoms chart. Body measurements, not flat.",
+    rows: [
+      { size: "XS", measurements: { waist: "28-30", hip: "34-36" } },
+      { size: "S", measurements: { waist: "30-32", hip: "36-38" } },
+      { size: "M", measurements: { waist: "32-35", hip: "38-41" } },
+      { size: "L", measurements: { waist: "35-39", hip: "41-45" } },
+      { size: "XL", measurements: { waist: "39-44", hip: "45-48" } },
+      { size: "2XL", measurements: { waist: "44-48", hip: "48-52" } },
+    ],
+  },
+  {
+    brand: "Champion",
+    brandMatch: ["champion"],
+    department: "Women",
+    garment: "Bottoms (alpha/numeric, body inches)",
+    categoryMatch: [
+      "bottom", "pant", "short", "jogger", "sweatpant", "trouser", "legging", "tight", "skirt",
+    ],
+    sourceUrl: "https://www.champion.com/pages/womens-clothing-size-guide",
+    note: "Champion's published women's bottoms chart. Body measurements, not flat.",
+    rows: [
+      { size: "XS / 0-2", measurements: { waist: "25-27", hip: "35-37" } },
+      { size: "S / 4-6", measurements: { waist: "27-29", hip: "37-39" } },
+      { size: "M / 8-10", measurements: { waist: "29-31", hip: "39-41" } },
+      { size: "L / 12-14", measurements: { waist: "31-33", hip: "41-43" } },
+      { size: "XL / 16-18", measurements: { waist: "33-35", hip: "43-45" } },
+      { size: "2XL / 20-22", measurements: { waist: "35-38", hip: "45-48" } },
+    ],
+  },
+  {
+    brand: "Champion",
+    brandMatch: ["champion"],
+    department: "Men",
+    garment: "Outerwear (alpha, body inches)",
+    categoryMatch: ["jacket", "coat", "outerwear", "vest", "windbreaker", "parka"],
+    sourceUrl: "https://www.champion.com/pages/mens-clothing-size-guide",
+    note:
+      "Champion publishes no separate outerwear chart; its jackets are sized off " +
+      "the men's TOPS chart, which is what these rows are. Body measurements.",
+    rows: [
+      { size: "XS", measurements: { chest: "32-36", waist: "28-30" } },
+      { size: "S", measurements: { chest: "36-38", waist: "30-32" } },
+      { size: "M", measurements: { chest: "38-41", waist: "32-35" } },
+      { size: "L", measurements: { chest: "41-45", waist: "35-39" } },
+      { size: "XL", measurements: { chest: "45-49", waist: "39-44" } },
+      { size: "2XL", measurements: { chest: "49-53", waist: "44-48" } },
+    ],
+  },
+  {
+    brand: "Champion",
+    brandMatch: ["champion"],
+    department: "Women",
+    garment: "Outerwear (alpha/numeric, body inches)",
+    categoryMatch: ["jacket", "coat", "outerwear", "vest", "windbreaker", "parka"],
+    sourceUrl: "https://www.champion.com/pages/womens-clothing-size-guide",
+    note:
+      "Champion publishes no separate outerwear chart; its jackets are sized off " +
+      "the women's TOPS chart, which is what these rows are. Body measurements.",
+    rows: [
+      { size: "XS / 0-2", measurements: { bust: "32-34", waist: "25-27", hip: "35-37" } },
+      { size: "S / 4-6", measurements: { bust: "34-36", waist: "27-29", hip: "37-39" } },
+      { size: "M / 8-10", measurements: { bust: "36-38", waist: "29-31", hip: "39-41" } },
+      { size: "L / 12-14", measurements: { bust: "38-40", waist: "31-33", hip: "41-43" } },
+      { size: "XL / 16-18", measurements: { bust: "40-42", waist: "33-35", hip: "43-45" } },
+      { size: "2XL / 20-22", measurements: { bust: "42-45", waist: "35-38", hip: "45-48" } },
+    ],
+  },
+
+  // Citizens of Humanity — https://citizensofhumanity.com/pages/coh-size-chart
+  // One body chart per department, keyed on denim waist with alpha spanning
+  // pairs of columns. Each alpha row here takes the span across both.
+  {
+    brand: "Citizens of Humanity",
+    brandMatch: ["citizens of humanity", "citizensofhumanity"],
+    department: "Women",
+    garment: "Tops, jackets & dresses (alpha, body inches)",
+    categoryMatch: [
+      "top", "tee", "shirt", "blouse", "sweater", "knit", "hoodie", "sweatshirt",
+      "tank", "jacket", "coat", "outerwear", "blazer", "vest", "dress", "romper",
+      "jumpsuit",
+    ],
+    sourceUrl: "https://citizensofhumanity.com/pages/coh-size-chart",
+    note:
+      "CoH publishes ONE women's body chart, keyed on denim waist 22-34 with " +
+      "alpha spanning pairs of columns; each alpha row here spans both. Body " +
+      "measurements, not flat.",
+    rows: [
+      { size: "XS / 0", measurements: { bust: "31.5-32.5", waist: "24.5-25.5", hip: "34.5-35.5" } },
+      { size: "S / 2", measurements: { bust: "33.5-34.5", waist: "26.5-27.5", hip: "36.5-37.5" } },
+      { size: "M / 6", measurements: { bust: "35.5-36.5", waist: "28.5-29.5", hip: "38.5-39.5" } },
+      { size: "L / 10", measurements: { bust: "37.5-38.5", waist: "30.5-31.5", hip: "40.5-41.5" } },
+      { size: "XL / 12", measurements: { bust: "39.5-40.5", waist: "32.5-33.5", hip: "42.5-43.5" } },
+    ],
+  },
+  {
+    brand: "Citizens of Humanity",
+    brandMatch: ["citizens of humanity", "citizensofhumanity"],
+    department: "Men",
+    garment: "Tops & outerwear (alpha, body inches)",
+    categoryMatch: [
+      "top", "tee", "shirt", "polo", "sweater", "knit", "hoodie", "sweatshirt",
+      "jacket", "coat", "outerwear", "blazer", "vest",
+    ],
+    sourceUrl: "https://citizensofhumanity.com/pages/coh-size-chart",
+    note:
+      "CoH's men's body chart, keyed on denim waist 28-40 with alpha spanning " +
+      "pairs of columns. The chart labels the chest row BUST for both " +
+      "departments; it is the chest measurement. Body measurements, not flat.",
+    rows: [
+      { size: "XS", measurements: { chest: "35.5-36.5", waist: "29-30", hip: "35-36" } },
+      { size: "S", measurements: { chest: "37.5-38.5", waist: "31-32", hip: "37-38" } },
+      { size: "M", measurements: { chest: "39.5-40.5", waist: "33-34", hip: "39-40" } },
+      { size: "L", measurements: { chest: "41.5-42.5", waist: "35-36", hip: "41-42" } },
+      { size: "XL", measurements: { chest: "43.5-44.5", waist: "37-38", hip: "43-44" } },
+      { size: "XXL", measurements: { chest: "45.5-46.5", waist: "39-40", hip: "45-46" } },
+    ],
+  },
+
+  // Denim Tears — the size chart printed on the brand's own product pages
+  // (https://denimtears.com/products/ss26-ao-adg-stamp-hoodie-grey). There is no
+  // site-wide guide: denimtears.com/size-guide is a 404.
+  //
+  // The ONLY `flat` chart in this batch, and the reason the basis field exists:
+  // these are garment specs, so the band builder must not add ease on top.
+  {
+    brand: "Denim Tears",
+    brandMatch: ["denim tears", "denimtears"],
+    department: "Unisex",
+    garment: "Tops & outerwear (alpha — GARMENT FLAT specs, inches)",
+    categoryMatch: [
+      "top", "tee", "shirt", "hoodie", "sweatshirt", "sweater", "knit", "crewneck",
+      "jacket", "coat", "outerwear", "vest",
+    ],
+    measurementBasis: "flat",
+    sourceUrl: "https://denimtears.com/products/ss26-ao-adg-stamp-hoodie-grey",
+    note:
+      "Denim Tears publishes no site-wide size guide (its /size-guide URL 404s); " +
+      "this is the chart printed on the brand's own hoodie product pages. FLAT " +
+      "GARMENT specs, not body: 'chest width' is the pit-to-pit half, measured " +
+      "the way a seller measures it. XL and XXL share a body length in the " +
+      "brand's own table.",
+    rows: [
+      { size: "XS", measurements: { chest: "23.25", length: "26", sleeve: "33.5" } },
+      { size: "S", measurements: { chest: "24.25", length: "26.75", sleeve: "34.75" } },
+      { size: "M", measurements: { chest: "25.25", length: "27.5", sleeve: "36" } },
+      { size: "L", measurements: { chest: "26.5", length: "28.25", sleeve: "37" } },
+      { size: "XL", measurements: { chest: "27.75", length: "29", sleeve: "38" } },
+      { size: "XXL", measurements: { chest: "29", length: "29", sleeve: "39" } },
+    ],
+  },
+
+  // Herno — https://us.herno.com/en/sizeguide_women_clothing.html
+  //
+  // A SIZE-SYSTEM chart with no body measurements in it at all, which is the
+  // whole reason US-3283 split the readable guide from the band table. Herno
+  // publishes only the IT conversion, so the size CHECK has nothing to check
+  // and stays silent, while the size GUIDE shows the one thing a seller holding
+  // an Italian-sized coat actually needs.
+  {
+    brand: "Herno",
+    brandMatch: ["herno"],
+    department: "Women",
+    garment: "Apparel (ITALIAN-SIZED — system conversion only, no measurements)",
+    categoryMatch: [
+      "top", "tee", "shirt", "blouse", "sweater", "knit", "dress", "skirt",
+      "bottom", "pant", "trouser", "short", "romper", "jumpsuit",
+    ],
+    sizeSystem: "IT",
+    sourceUrl: "https://us.herno.com/en/sizeguide_women_clothing.html",
+    note:
+      "Herno sizes everything it makes on the Italian 36-56 run and publishes NO " +
+      "body measurements — only this conversion. An IT 42 is a US 6; reading the " +
+      "number as a US size is the mistake this chart exists to stop.",
+    rows: [
+      { size: "IT 36", measurements: { us: "0", uk: "4", fr: "32", de: "30", jp: "5" } },
+      { size: "IT 38", measurements: { us: "2", uk: "6", fr: "34", de: "32", jp: "7" } },
+      { size: "IT 40", measurements: { us: "4", uk: "8", fr: "36", de: "34", jp: "9" } },
+      { size: "IT 42", measurements: { us: "6", uk: "10", fr: "38", de: "36", jp: "11" } },
+      { size: "IT 44", measurements: { us: "8", uk: "12", fr: "40", de: "38", jp: "13" } },
+      { size: "IT 46", measurements: { us: "10", uk: "14", fr: "42", de: "40", jp: "15" } },
+      { size: "IT 48", measurements: { us: "12", uk: "16", fr: "44", de: "42", jp: "17" } },
+      { size: "IT 50", measurements: { us: "14", uk: "18", fr: "46", de: "44", jp: "19" } },
+      { size: "IT 52", measurements: { us: "16", uk: "20", fr: "48", de: "46", jp: "21" } },
+      { size: "IT 54", measurements: { us: "18", uk: "22", fr: "50", de: "48", jp: "23" } },
+      { size: "IT 56", measurements: { us: "20", uk: "24", fr: "52", de: "50", jp: "25" } },
+    ],
+  },
+  {
+    brand: "Herno",
+    brandMatch: ["herno"],
+    department: "Men",
+    garment: "Apparel (ITALIAN-SIZED — system conversion only, no measurements)",
+    categoryMatch: [
+      "top", "tee", "shirt", "polo", "sweater", "knit", "bottom", "pant",
+      "trouser", "short", "chino",
+    ],
+    sizeSystem: "IT",
+    sourceUrl: "https://us.herno.com/en/sizeguide_men_clothing.html",
+    note:
+      "Herno sizes menswear on the Italian 42-64 run and publishes NO body " +
+      "measurements. On this chart the US column is the CHEST IN INCHES (IT 48 " +
+      "= US 38) and the column Herno labels JP is the alpha run — that is how " +
+      "the brand prints it.",
+    rows: [
+      { size: "IT 42", measurements: { us: "32", uk: "32", fr: "38", de: "42", jp: "XXS" } },
+      { size: "IT 44", measurements: { us: "34", uk: "34", fr: "40", de: "44", jp: "XS" } },
+      { size: "IT 46", measurements: { us: "36", uk: "36", fr: "42", de: "46", jp: "S" } },
+      { size: "IT 48", measurements: { us: "38", uk: "38", fr: "44", de: "48", jp: "M" } },
+      { size: "IT 50", measurements: { us: "40", uk: "40", fr: "46", de: "50", jp: "L" } },
+      { size: "IT 52", measurements: { us: "42", uk: "42", fr: "48", de: "52", jp: "XL" } },
+      { size: "IT 54", measurements: { us: "44", uk: "44", fr: "50", de: "54", jp: "XXL" } },
+      { size: "IT 56", measurements: { us: "46", uk: "46", fr: "52", de: "56", jp: "3XL" } },
+      { size: "IT 58", measurements: { us: "48", uk: "48", fr: "54", de: "58", jp: "4XL" } },
+      { size: "IT 60", measurements: { us: "50", uk: "50", fr: "56", de: "60", jp: "5XL" } },
+      { size: "IT 62", measurements: { us: "52", uk: "52", fr: "58", de: "62", jp: "6XL" } },
+      { size: "IT 64", measurements: { us: "54", uk: "54", fr: "60", de: "64", jp: "7XL" } },
+    ],
+  },
 ];
 
 function norm(s: string | null | undefined): string {
