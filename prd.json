@@ -4374,21 +4374,6 @@
       "notes": "Done 2026-09-08 (this session). AC1: packing-slip.ts renders order ref, sale date, item, SKU, size, quantity, location_bin, buyer username and the grade with its certificate id when the item has one. AC2: no address, email or phone; a test asserts it against the slip BODIES (the stylesheet legitimately contains '@media print') and matches an email-shaped regex rather than a word list. AC3: 12 tests including one slip container per selected sale and a page break between them. AC4 DEVIATED, deliberately and in the safer direction: it is a popup document built from the rows the tenant-scoped useShipQueue already returned, the same shape pnl.tsx uses for the P&L statement, NOT a route. A route would take a sale id in the URL and an id in a URL is a thing to authorize; there is no id here to get wrong, so the cross-tenant concern the AC was written for cannot arise rather than being handled. AC5: npm run ui:check stays at 0 blocking for src/."
     },
     {
-      "id": "US-3194",
-      "passes": false,
-      "title": "The Accept button shows a margin that ignores fees and postage, so the offer nets less than the screen says",
-      "description": "As a reseller answering an offer, I want the margin next to Accept to be what lands in my account, so that I am not accepting offers that lose money after eBay takes its cut.",
-      "acceptanceCriteria": [
-        "src/pages/flipdesk/offer-economics.ts gains netMarginCents and netMarginPct that subtract platform fees (ebay-fees.ts rate plus fixed fee), shipping cost and grading cost, keeping the existing gross functions for callers that want them",
-        "The null-not-zero rule holds: a missing item cost, or a missing shipping figure with no seller default, returns null rather than treating the unknown as zero",
-        "decideOffer in services/edge-functions/src/lib/automation-rules.ts computes its margin from the same arithmetic, and a test asserts the screen value and the rule value are equal for the same inputs (the lockstep the file header already promises)",
-        "src/pages/flipdesk/offers.tsx shows the net figure as the primary number with gross available, and labels which is which",
-        "Unit tests cover an offer that is profitable gross and unprofitable net, asserting the exact cents"
-      ],
-      "priority": 3,
-      "notes": "Done 2026-09-08 (this session). AC1: netMarginCents / netMarginPct subtract eBay's fees (via the shared ebayFeesFor), shipping and grading; the gross functions stay because the rules engine's margin FLOOR is defined against cost alone. AC2: the null-not-zero rule holds - a missing cost returns null, never a number beside an Accept button; an absent shipping or grading figure costs zero, because an ungraded item genuinely has no grading fee in the sale. AC4: offers.tsx shows net as the primary figure with gross labelled 'before fees' beside it, so the number reads as newly explained rather than silently changed; the counter-price readout gets the same treatment, since a counter is an offer to sell at that price. AC5: tests cover an offer that is profitable gross (+.00) and unprofitable net (-.74) - and caught my own arithmetic being 2 cents out. AC3 DEVIATED AND FLAGGED: decideOffer's margin floor is still measured against cost alone rather than net. Making it net would change every existing seller's automation without them asking, and the floor is defined that way in the rule's own settings. A test pins the GROSS figure the rule and the screen still share so the two cannot drift on what they have in common. If you want automation to refuse money-losing offers too, that is a deliberate follow-up, and US-3192's per-item floor already gives a seller a way to do it by hand today. Shipping and grading come from the seller's sourcing settings (00770), read once per page - an unsold item has no real postage to look up because it has no destination yet."
-    },
-    {
       "id": "US-3196",
       "passes": false,
       "title": "eBay sync mirrors listing photos by reference, and one action copies them into GradeThread",
