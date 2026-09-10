@@ -81,7 +81,7 @@ reference table with deny-all RLS and no tenant data. No schema change, nothing
 dropped, nothing revoked. Every value is derived from committed code, so it is
 idempotent and safe to run twice.
 
-**What it does.** 31 sizing charts across 21 brands, each transcribed from the
+**What it does.** 33 sizing charts across 22 brands, each transcribed from the
 brand's OWN published size guide, land with a real `source_url`. Before the
 backfill loop started, every one of the corpus's 300-odd charts had
 `source_url NULL` — which is why the composer's "[Brand] size guide" link fell
@@ -91,7 +91,7 @@ through to a Google search for nearly every item a seller edited.
 sourced chart in the corpus, so a new batch REGENERATES this same file rather
 than queueing another one. That keeps the apply list at one migration. Once you
 apply it, the next batch takes a new number. Batches so far: 1 (US-3284, 19 charts / 10 brands), 2 (US-3285, 5 / 4),
-3 (US-3286, 1 / 1), 4 (US-3287, 4 / 1) and 5 (US-3288, 2 / 1).
+3 (US-3286, 1 / 1), 4 (US-3287, 4 / 1), 5 (US-3288, 2 / 1) and 6 (US-3289, 2 / 1).
 
 **Why it is not 00498.** 00498 is the generated backfill of the whole in-code
 corpus and it is ALREADY APPLIED. `apply-prod-migrations.sh` skips every file at

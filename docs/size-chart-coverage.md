@@ -6,9 +6,9 @@ Coverage is measured the way the size-guide panel resolves a chart: a real brand
 
 ## Where it stands
 
-- 168 brands, 320 brand-specific charts.
-- 36 charts link the brand's own guide; 0 have been checked against it by a human.
-- 74 brands are missing at least one group they should cover.
+- 168 brands, 322 brand-specific charts.
+- 38 charts link the brand's own guide; 0 have been checked against it by a human.
+- 73 brands are missing at least one group they should cover.
 
 Worked dead ends, skipped by `--gaps` and still listed below:
 
@@ -20,14 +20,16 @@ Worked dead ends, skipped by `--gaps` and still listed below:
 - **Rag & Bone** — its size-chart page renders three of the run's rows and a corrupted conversion table, and its own how-to-measure describes measuring a GARMENT flat, so the basis is unstated (US-3286)
 - **PAIGE** — paige.com/size-guide renders no chart at all (US-3286)
 - **Moncler** — the size guide sits behind a panel that never emits a table; the 0-5 scale is published only as prose (US-3286)
+- **MOTHER** — publishes ONLY a denim-size conversion (MOTHER 23-34 to US/UK/AU/FR/IT/DE/JP) with no body measurements anywhere, and /pages/size-guide renders no table (US-3289)
+- **Spanx** — its /pages/size-chart renders no table (US-3287)
 
 | Group | Brands covered |
 |---|---:|
-| top | 112 |
+| top | 113 |
 | bottom | 95 |
-| dress | 51 |
-| outerwear | 99 |
-| suit | 32 |
+| dress | 52 |
+| outerwear | 100 |
+| suit | 33 |
 | shoes | 27 |
 | bag | 10 |
 | watch | 1 |
@@ -129,7 +131,7 @@ Worked dead ends, skipped by `--gaps` and still listed below:
 | Levi's | 4 | Men, Women | Men, Women | Women | Men, Women |  |  |  |  |  |  |  |
 | LOFT | 3 | Women | Women | Women | Women | Women |  |  |  |  |  |  |
 | Longchamp | 1 |  |  |  |  |  |  | Unisex |  |  |  |  |
-| Lucky Brand | 2 |  | Men, Women |  |  |  |  |  |  |  |  | top, outerwear |
+| Lucky Brand | 4 | Men, Women | Men, Women | Women | Men, Women | Men, Women |  |  |  |  |  |  |
 | Lululemon | 4 | Men, Women | Men, Women |  | Men, Women |  |  |  |  |  |  |  |
 | Mackage | 2 |  |  |  | Men, Women |  |  |  |  |  |  | top, bottom |
 | Madewell | 2 | Women | Women |  | Women | Women |  |  |  |  |  |  |

@@ -9937,6 +9937,72 @@ export const SIZING_CHARTS: SizingChart[] = [
       { size: "44 (2XL)", measurements: { waist: "43-45", hip: "47-48.5" } },
     ],
   },
+
+  // ── US-3289: size-chart backfill, batch 6 ──────────────────────────────────
+  //
+  // Lucky Brand, whose own size guide names the scope for us: one table headed
+  // "Women's Tops, Outerwear, Dresses & Jumpsuits" and one headed "Men's Tops &
+  // Outerwear". No inference needed about what each chart covers — the brand
+  // wrote it on the table.
+  //
+  // MOTHER was worked and does not close: motherdenim.com publishes ONLY a size
+  // CONVERSION chart keyed on its denim size (MOTHER 23-34 to US / UK / AU / FR
+  // / IT / DE / JP), with no body measurements anywhere, and its /pages/size-guide
+  // renders no table at all. A denim-size conversion cannot answer a tops query,
+  // and MOTHER already has a jeans chart, so adding it would put a second chart
+  // against the same bottoms query for no gain.
+
+  // Lucky Brand — https://www.luckybrand.com/womens-size-guide.html
+  {
+    brand: "Lucky Brand",
+    brandMatch: ["lucky brand", "luckybrand"],
+    department: "Women",
+    garment: "Tops, outerwear & dresses (alpha/numeric, body inches)",
+    categoryMatch: [
+      "top", "tee", "shirt", "blouse", "sweater", "knit", "hoodie", "sweatshirt",
+      "tank", "jacket", "coat", "outerwear", "blazer", "vest", "dress", "romper",
+      "jumpsuit",
+    ],
+    sourceUrl: "https://www.luckybrand.com/womens-size-guide.html",
+    note:
+      "Lucky's own table is headed 'Women's Tops, Outerwear, Dresses & " +
+      "Jumpsuits', so the scope here is the brand's, not an inference. Body " +
+      "measurements, not flat. Each alpha covers two numeric sizes and the row " +
+      "spans both. The 1X-3X PLUS run is a separate published table and is left " +
+      "out so this run stays a countable sequence.",
+    rows: [
+      { size: "XS / 0-2", measurements: { bust: "33-34", waist: "25.5-26.5", hip: "36-37" } },
+      { size: "S / 4-6", measurements: { bust: "35-36", waist: "27.5-28.5", hip: "38-39" } },
+      { size: "M / 8-10", measurements: { bust: "37-38", waist: "29.5-30.5", hip: "40-41" } },
+      { size: "L / 12-14", measurements: { bust: "39.5-41", waist: "32-33.5", hip: "42.5-44" } },
+      { size: "XL / 16-18", measurements: { bust: "43-45", waist: "35.5-37.5", hip: "46-48" } },
+      { size: "XXL / 20", measurements: { bust: "47", waist: "39.5", hip: "50" } },
+    ],
+  },
+
+  // Lucky Brand — https://www.luckybrand.com/mens-size-guide.html
+  {
+    brand: "Lucky Brand",
+    brandMatch: ["lucky brand", "luckybrand"],
+    department: "Men",
+    garment: "Tops & outerwear (alpha, body inches)",
+    categoryMatch: [
+      "top", "tee", "shirt", "polo", "sweater", "knit", "hoodie", "sweatshirt",
+      "jacket", "coat", "outerwear", "blazer", "vest", "flannel",
+    ],
+    sourceUrl: "https://www.luckybrand.com/mens-size-guide.html",
+    note:
+      "Lucky's own table is headed 'Men's Tops & Outerwear'. Body measurements, " +
+      "not flat. Each alpha except XXL covers two chest values on the published " +
+      "table and the row spans both.",
+    rows: [
+      { size: "S", measurements: { chest: "37-38", waist: "31-32" } },
+      { size: "M", measurements: { chest: "39-40", waist: "33-34" } },
+      { size: "L", measurements: { chest: "42-44", waist: "36-38" } },
+      { size: "XL", measurements: { chest: "46-48", waist: "40-42" } },
+      { size: "XXL", measurements: { chest: "50", waist: "44" } },
+    ],
+  },
 ];
 
 function norm(s: string | null | undefined): string {

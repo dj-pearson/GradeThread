@@ -5101,24 +5101,6 @@
       "priority": 2
     },
     {
-      "id": "US-3289",
-      "passes": false,
-      "title": "Size charts, batch 6 of 11: Old Navy to StÃ¼ssy",
-      "description": "Ten brands whose size-guide panel shows a gap for a garment group they sell. Follow vault/20-domain/brands/size-chart-coverage-backfill.md. Batch: Old Navy (outerwear, dress); Palace (bottom, outerwear); PINK (outerwear, dress); PUMA (bottom, dress); Rab (top, dress); Reebok (bottom, dress); Rhude (bottom, dress); SKIMS (top, outerwear); Sp5der (bottom, dress); StÃ¼ssy (bottom, outerwear).",
-      "acceptanceCriteria": [
-        "Each brand in the batch has a SizingChart for every group the coverage report lists as missing, with categoryMatch words a seller would actually type",
-        "Every new chart sets sourceUrl to the brand's OWN published guide, never a reseller blog or a marketplace table",
-        "measurementBasis is set to flat only where the brand publishes garment specs; body charts leave it absent",
-        "verified stays absent unless a human compared the rows against sourceUrl, so the panel's tier badge cannot overstate an estimate",
-        "scripts/gen-sizing-chart-seed.mjs is re-run and the regenerated migration lands in the same commit; sizing-chart-parity_test.ts passes",
-        "docs/size-chart-coverage.md is regenerated and shows no remaining gap for these ten brands, or the story note names each exception and why"
-      ],
-      "priority": 4,
-      "dependsOn": [
-        "US-3283"
-      ]
-    },
-    {
       "id": "US-3290",
       "passes": false,
       "title": "Size charts, batch 7 of 11: UNTUCKit to Chanel",

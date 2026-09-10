@@ -82,6 +82,9 @@ const WORKED_DEAD_ENDS = {
   "PAIGE": "paige.com/size-guide renders no chart at all (US-3286)",
   "Moncler":
     "the size guide sits behind a panel that never emits a table; the 0-5 scale is published only as prose (US-3286)",
+  "MOTHER":
+    "publishes ONLY a denim-size conversion (MOTHER 23-34 to US/UK/AU/FR/IT/DE/JP) with no body measurements anywhere, and /pages/size-guide renders no table (US-3289)",
+  "Spanx": "its /pages/size-chart renders no table (US-3287)",
 };
 
 /**

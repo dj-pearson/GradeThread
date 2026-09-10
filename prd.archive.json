@@ -46205,6 +46205,25 @@
         "US-3283"
       ],
       "notes": "Batch 5 done 2026-09-09. The North Face closed both its gaps with two sourced charts (tops, bottoms) off thenorthface.com/en-us/help/size-charts. TWO DECISIONS WORTH KEEPING. (1) DEPARTMENT IS UNISEX BECAUSE THE PAGE WOULD NOT SAY: the size-chart page carries Men's/Women's/Boys'/Girls' tabs and clicking between Men's and Women's returns tables identical to the decimal. Either TNF publishes one grade for both or the tab swap did not reach what could be read, and from outside there is no telling which — so Unisex, which is also how the corpus already held this brand. (2) NO TNF JACKETS CHART, ON PURPOSE. The corpus holds a shared 'The North Face / Patagonia (outerwear)' row whose categoryMatch is jackets-only; adding a TNF jackets chart would put two charts against one query, the exact problem US-1734 fixed for Columbia and Arc'teryx. Narrowing that shared row to Patagonia is the tidier fix and was deliberately NOT done: the row is unsourced so the batch migration cannot carry it (00578's CHECK needs source_url AND confidence), 00498 is already applied, and the resolver is DB-first — the code would say one thing and the DB another, with the DB winning. Verified by probe: 'hoodie' resolves to TNF's sourced tops chart, 'pants' to its sourced bottoms chart, and 'jacket' still to the shared outerwear row, with no competition on any of the three. Also: both published tables append a SEPARATE extended 2X-5X run whose sizes overlap the standard one (a 3XL and a 3X are both listed with different numbers); only the standard run is stored, so the sequence stays countable. Inseam is a length option (Short 30 / Regular 32 / Long 34 at every size) rather than a per-size measurement, so it is in the note rather than a column."
+    },
+    {
+      "id": "US-3289",
+      "passes": true,
+      "title": "Size charts, batch 6 of 11: Old Navy to StÃ¼ssy",
+      "description": "Ten brands whose size-guide panel shows a gap for a garment group they sell. Follow vault/20-domain/brands/size-chart-coverage-backfill.md. Batch: Old Navy (outerwear, dress); Palace (bottom, outerwear); PINK (outerwear, dress); PUMA (bottom, dress); Rab (top, dress); Reebok (bottom, dress); Rhude (bottom, dress); SKIMS (top, outerwear); Sp5der (bottom, dress); StÃ¼ssy (bottom, outerwear).",
+      "acceptanceCriteria": [
+        "Each brand in the batch has a SizingChart for every group the coverage report lists as missing, with categoryMatch words a seller would actually type",
+        "Every new chart sets sourceUrl to the brand's OWN published guide, never a reseller blog or a marketplace table",
+        "measurementBasis is set to flat only where the brand publishes garment specs; body charts leave it absent",
+        "verified stays absent unless a human compared the rows against sourceUrl, so the panel's tier badge cannot overstate an estimate",
+        "scripts/gen-sizing-chart-seed.mjs is re-run and the regenerated migration lands in the same commit; sizing-chart-parity_test.ts passes",
+        "docs/size-chart-coverage.md is regenerated and shows no remaining gap for these ten brands, or the story note names each exception and why"
+      ],
+      "priority": 4,
+      "dependsOn": [
+        "US-3283"
+      ],
+      "notes": "Batch 6 done 2026-09-09. Lucky Brand closed both gaps with two sourced charts. The useful thing about this one: Lucky's own tables are HEADED with their scope — 'Women's Tops, Outerwear, Dresses & Jumpsuits' and 'Men's Tops & Outerwear' — so no inference was needed about what each chart covers, which is the opposite of the Hudson and rag & bone cases where the scope had to be guessed and the charts were therefore left out. Each alpha spans two numeric sizes on both tables and the rows span both. Lucky's 1X-3X PLUS run is a separate published table and is left out so the standard run stays countable. MOTHER was worked and does not close: motherdenim.com publishes ONLY a denim-size conversion (MOTHER 23-34 to US/UK/AU/FR/IT/DE/JP) with no body measurements anywhere, and /pages/size-guide renders no table. A denim conversion cannot answer a tops query, and MOTHER already has a jeans chart, so adding it would put a second chart against the same bottoms query for no gain. MOTHER and Spanx joined WORKED_DEAD_ENDS, which is now at ten."
     }
   ]
 }
