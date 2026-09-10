@@ -1,20 +1,28 @@
 # PENDING MIGRATIONS — applied to prod separately from the push
 
-## 🔒 HELD: 00781 — batch 4 of the sourced size charts (US-3287)
+## 🔒 HELD: 00781 — batches 4 AND 5 of the sourced size charts (US-3287, US-3288)
 
 **Risk: LOW.** Same shape as 00780 below: insert-or-update into
 `public.brand_size_charts`, a global reference table with deny-all RLS and no
 tenant data. No schema change, nothing dropped, nothing revoked. Idempotent.
 
+**ONE FILE CARRIES TWO BATCHES, on purpose.** 00781 was written for batch 4 and
+then REGENERATED to include batch 5 rather than opening an 00782. The generator
+emits every chart in the corpus carrying a `sourceUrl`, so a second number would
+have held the same rows under a different name. That is only safe because 00781
+has never been applied anywhere; once a file is recorded in `applied_migrations`
+the next batch must take a new number.
+
 **HELD FROM THE PUSH, unlike 00779 and 00780.** The standing rule is back: a
 commit touching `supabase/migrations/` is committed locally and the operator
 pushes it. This one has NOT been applied to prod and has NOT been pushed.
 
-**What it does.** 16 new sizing charts across Arc'teryx, Barbour, Bogner,
+**What it does.** Batch 4's 16 charts across Arc'teryx, Barbour, Bogner,
 Bonobos, Brooks Brothers, Dickies and Diesel, plus REPLACED rows on Cotopaxi's
-two existing charts. Each carries the brand's own `source_url` and
-`confidence 0.85`; `verified` stays false. 80 sourced rows in total, since the
-generator re-emits every earlier batch.
+two; and batch 5's 10 across Nike, Gap, G-Star RAW, Lee, Duluth Trading Co. and
+Gallery Dept. Each carries the brand's own `source_url` and `confidence 0.85`;
+`verified` stays false. 90 sourced rows in total, since the generator re-emits
+every earlier batch.
 
 **Cotopaxi's two rows are an UPDATE, not an insert, and that is the point.**
 Its men's and women's charts existed as approximations with no source. Rather
@@ -23,11 +31,12 @@ brand's published numbers and widened `category_match` to reach bottoms. The
 upsert handles it: same `brand_key`, `department` and `garment`, new `rows`,
 `note`, `source_url` and `category_match`.
 
-**One chart is FLAT, which is new.** Bonobos states above its own table that the
-numbers are garment dimensions, so its two charts carry
-`measurement_basis = 'flat'`. Every chart shipped before this was body. If the
-size check starts reporting Bonobos items as oversized, that column is the first
-place to look.
+**THREE charts are FLAT, which is new.** Bonobos states above its own table that
+the numbers are garment dimensions, so its two charts carry
+`measurement_basis = 'flat'`, and Gallery Dept.'s bottoms chart is garment too
+(its columns are front rise and leg opening). Every chart shipped before 00781
+was body. If the size check starts reporting those three brands as oversized,
+that column is the first place to look.
 
 **Apply order:** after 00780. `NOTIFY pgrst, 'reload schema';` afterwards is
 harmless (no table, column or RPC signature changed) but cheap. Redeploy the

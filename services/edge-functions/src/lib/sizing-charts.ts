@@ -11043,6 +11043,283 @@ export const SIZING_CHARTS: SizingChart[] = [
       { size: "L", measurements: { bust: "37-38", shoulder: "41-43" } },
     ],
   },
+
+  // ── US-3288: size-chart backfill, batch 5 of 11 ────────────────────────────
+  //
+  // Sourced here: Nike, Gap, G-Star RAW, Lee, Duluth Trading Co. and Gallery
+  // Dept. FOUR EXCEPTIONS — Fila, Kith, Hellstar and Fear of God Essentials —
+  // and the story note says exactly what is wrong with each, because they are
+  // not the same kind of wrong. Fila's US STORE IS CLOSED.
+  //
+  // `verified` is absent throughout.
+
+  // Nike — https://www.nike.com/size-fit/mens_bottoms_alpha and
+  // .../womens-bottoms-alpha. ⚠ The two URLs are not spelled the same way:
+  // men's uses UNDERSCORES, women's uses HYPHENS, and each 404s on the other's
+  // form. Body measurements.
+  {
+    brand: "Nike",
+    brandMatch: ["nike", "nike sportswear", "nikelab"],
+    department: "Men",
+    garment: "Bottoms (body inches)",
+    categoryMatch: ["bottom", "pant", "trouser", "short", "jogger", "tight", "legging"],
+    sourceUrl: "https://www.nike.com/size-fit/mens_bottoms_alpha",
+    note:
+      "Nike's men's bottoms chart. Every size also comes in TALL for a 6'0\"-6'5\" " +
+      "height with IDENTICAL waist and hip — that is a length class, not a size, " +
+      "so a men's L Tall and a men's L fit the same body.",
+    rows: [
+      { size: "XXS", measurements: { waist: "22.5-25.5", hip: "28.5-31.5" } },
+      { size: "XS", measurements: { waist: "25.5-29", hip: "31.5-35" } },
+      { size: "S", measurements: { waist: "29-32", hip: "35-37.5" } },
+      { size: "M", measurements: { waist: "32-35", hip: "37.5-41" } },
+      { size: "L", measurements: { waist: "35-38", hip: "41-44" } },
+      { size: "XL", measurements: { waist: "38-43", hip: "44-47" } },
+      { size: "XXL", measurements: { waist: "43-47.5", hip: "47-50.5" } },
+      { size: "3XL", measurements: { waist: "47.5-52.5", hip: "50.5-53.5" } },
+      { size: "4XL", measurements: { waist: "52.5-57", hip: "53.5-58.5" } },
+    ],
+  },
+  {
+    brand: "Nike",
+    brandMatch: ["nike", "nike sportswear", "nikelab"],
+    department: "Women",
+    garment: "Bottoms (body inches)",
+    categoryMatch: ["bottom", "pant", "trouser", "short", "jogger", "tight", "legging", "skirt"],
+    sourceUrl: "https://www.nike.com/size-fit/womens-bottoms-alpha",
+    note:
+      "Nike's women's bottoms chart. Waist and hip only — no inseam, because " +
+      "Nike sizes length by product rather than by a length class here.",
+    rows: [
+      { size: "XXS", measurements: { waist: "21.25-23.5", hip: "30.5-33" } },
+      { size: "XS", measurements: { waist: "23.5-26", hip: "33-35.5" } },
+      { size: "S", measurements: { waist: "26-29", hip: "35.5-38.5" } },
+      { size: "M", measurements: { waist: "29-31.5", hip: "38.5-41" } },
+      { size: "L", measurements: { waist: "31.5-34.5", hip: "41-44" } },
+      { size: "XL", measurements: { waist: "34.5-38.5", hip: "44-47" } },
+      { size: "XXL", measurements: { waist: "38.5-42.5", hip: "47-50" } },
+    ],
+  },
+  {
+    brand: "Nike",
+    brandMatch: ["nike", "nike sportswear", "nikelab"],
+    department: "Women",
+    garment: "Bottoms, plus (body inches)",
+    categoryMatch: ["bottom", "pant", "trouser", "short", "jogger", "tight", "legging"],
+    sizeClass: "plus",
+    sourceUrl: "https://www.nike.com/size-fit/womens-bottoms-alpha",
+    note:
+      "Nike's women's PLUS run, its own table on the same page. It picks up " +
+      "where XXL stops rather than overlapping it, so the two read as one " +
+      "continuous run — unusual, and worth knowing before assuming a 1X and an " +
+      "XL are close.",
+    rows: [
+      { size: "0X", measurements: { waist: "40-43", hip: "48-51" } },
+      { size: "1X", measurements: { waist: "43-45.5", hip: "51-54" } },
+      { size: "2X", measurements: { waist: "45.5-49", hip: "54-57" } },
+      { size: "3X", measurements: { waist: "49-53", hip: "57-61" } },
+      { size: "4X", measurements: { waist: "53-57", hip: "61-65" } },
+    ],
+  },
+
+  // Gap — the chart page freezes a browser, but Gap serves the same data as
+  // plain JSON: /Asset_Archive/AllBrands/sizeChart/v3/data/gap/us_charts.js maps
+  // a cid to a filename, and .../current/<file> is the chart. Body measurements.
+  {
+    brand: "Gap",
+    brandMatch: ["gap", "gap factory"],
+    department: "Women",
+    garment: "Tops & outerwear (body inches)",
+    categoryMatch: [
+      "top", "tee", "shirt", "blouse", "sweater", "knit", "hoodie", "sweatshirt",
+      "tank", "cardigan", "jacket", "coat", "outerwear", "parka", "blazer",
+      "vest", "dress",
+    ],
+    sourceUrl: "https://www.gap.com/customer-service/size-charts?cid=2103",
+    note:
+      "Gap publishes NO outerwear chart — its manifest holds tops and bottoms " +
+      "only — so this is the brand's answer for jackets too. Gap also prints " +
+      "PETITE and TALL versions with the SAME bust, waist and hip and only the " +
+      "sleeve changed (about 1.5in shorter and 2in longer), so those are length " +
+      "classes rather than sizes.",
+    rows: [
+      { size: "XXS / 000-00", measurements: { bust: "30.25-31.25", waist: "23.5-24.5", sleeve: "30.5-30.75" } },
+      { size: "XS / 0-2", measurements: { bust: "32.25-33.25", waist: "25.5-26.5", sleeve: "30.875-31.125" } },
+      { size: "S / 4-6", measurements: { bust: "34.25-35.25", waist: "27.5-28.5", sleeve: "31.25-31.5" } },
+      { size: "M / 8-10", measurements: { bust: "36.25-37.25", waist: "29.5-30.5", sleeve: "31.75-31.875" } },
+      { size: "L / 12-14", measurements: { bust: "38.75-40.25", waist: "32-33.5", sleeve: "32.125-32.5" } },
+      { size: "XL / 16-18", measurements: { bust: "42-43.75", waist: "35.5-37.5", sleeve: "32.75-33.125" } },
+      { size: "XXL / 20-22", measurements: { bust: "45.75-47.75", waist: "39.5-41.5", sleeve: "33.5-33.875" } },
+    ],
+  },
+
+  // G-Star RAW — https://www.g-star.com/en_us/size-guide. The page renders all
+  // 48 tables at once in both units; these are its inch tables. Body inches.
+  {
+    brand: "G-Star RAW",
+    brandMatch: ["g-star", "g star", "gstar", "g-star raw"],
+    department: "Men",
+    garment: "Tops (body inches)",
+    categoryMatch: [
+      "top", "tee", "shirt", "polo", "sweater", "knit", "hoodie", "sweatshirt",
+      "cardigan",
+    ],
+    sourceUrl: "https://www.g-star.com/en_us/size-guide",
+    note:
+      "G-Star's men's tops chart. ⚠ ITS CHEST AND HIP ARE THE SAME NUMBER AT " +
+      "EVERY SIZE — that is what the brand prints, not a transcription slip, and " +
+      "it means the hip column carries no independent signal here. Arm length is " +
+      "measured from the centre back neck.",
+    rows: [
+      { size: "XXS", measurements: { chest: "31.5", waist: "26", hip: "31.5", sleeve: "33.25" } },
+      { size: "XS", measurements: { chest: "33.875", waist: "28.25", hip: "33.875", sleeve: "33.625" } },
+      { size: "S", measurements: { chest: "36.25", waist: "30.75", hip: "36.25", sleeve: "34.125" } },
+      { size: "M", measurements: { chest: "38.625", waist: "33", hip: "38.625", sleeve: "34.625" } },
+      { size: "L", measurements: { chest: "41", waist: "35.375", hip: "41", sleeve: "35.25" } },
+      { size: "XL", measurements: { chest: "44.125", waist: "38.625", hip: "44.125", sleeve: "35.875" } },
+      { size: "XXL", measurements: { chest: "47.25", waist: "41.75", hip: "47.25", sleeve: "36.375" } },
+    ],
+  },
+  {
+    brand: "G-Star RAW",
+    brandMatch: ["g-star", "g star", "gstar", "g-star raw"],
+    department: "Women",
+    garment: "Tops (body inches)",
+    categoryMatch: [
+      "top", "tee", "shirt", "blouse", "sweater", "knit", "hoodie", "sweatshirt",
+      "tank", "cardigan",
+    ],
+    sourceUrl: "https://www.g-star.com/en_us/size-guide",
+    note:
+      "G-Star's women's tops chart, which unlike its men's does give hip its own " +
+      "numbers. Body measurements, converted by G-Star itself — the page carries " +
+      "both a centimetre and an inch table and these are the inch one.",
+    rows: [
+      { size: "XXS", measurements: { bust: "30.75", waist: "24", hip: "33.5", sleeve: "29.625" } },
+      { size: "XS", measurements: { bust: "32.25", waist: "25.625", hip: "35", sleeve: "30.25" } },
+      { size: "S", measurements: { bust: "33.875", waist: "27.125", hip: "36.625", sleeve: "30.75" } },
+      { size: "M", measurements: { bust: "36.25", waist: "29.5", hip: "39", sleeve: "31.25" } },
+      { size: "L", measurements: { bust: "38.625", waist: "31.875", hip: "41.375", sleeve: "31.75" } },
+      { size: "XL", measurements: { bust: "41", waist: "34.25", hip: "43.75", sleeve: "32.25" } },
+      { size: "XXL", measurements: { bust: "43.25", waist: "36.625", hip: "46.125", sleeve: "32.875" } },
+    ],
+  },
+
+  // Lee — https://www.lee.com/size-charts.html. ⚠ /shop/men-size-charts is a
+  // broken search page that renders "Results 0"; the .html page is the real one.
+  {
+    brand: "Lee",
+    brandMatch: ["lee", "lee jeans"],
+    department: "Women",
+    garment: "Tops (body inches)",
+    categoryMatch: [
+      "top", "tee", "shirt", "blouse", "sweater", "knit", "hoodie", "sweatshirt",
+      "tank", "cardigan",
+    ],
+    sourceUrl: "https://www.lee.com/size-charts.html",
+    note:
+      "Lee's women's tops chart. Each alpha label covers two numeric sizes and " +
+      "the ranges here span both. The run goes to 4XL, which is wider than most " +
+      "of this corpus and is Lee's own.",
+    rows: [
+      { size: "XXS", measurements: { bust: "31-31.5", waist: "25-25.5", hip: "33.5-34", sleeve: "29-29.5" } },
+      { size: "XS", measurements: { bust: "32-33.5", waist: "26-27.5", hip: "34.5-36", sleeve: "29.5-30" } },
+      { size: "S", measurements: { bust: "34-35.5", waist: "28-29.5", hip: "36.5-38", sleeve: "30-30.5" } },
+      { size: "M", measurements: { bust: "36-37.5", waist: "30-31.5", hip: "38.5-40", sleeve: "30.5-31" } },
+      { size: "L", measurements: { bust: "38-40.5", waist: "32-34.5", hip: "40.5-43", sleeve: "31-31.5" } },
+      { size: "XL", measurements: { bust: "41-44", waist: "35-38.5", hip: "43.5-46.5", sleeve: "31.5-32.25" } },
+      { size: "XXL", measurements: { bust: "44.5-48", waist: "39-43", hip: "47-50.5", sleeve: "32.25-33" } },
+      { size: "3XL", measurements: { bust: "48.5-52", waist: "43.5-47.5", hip: "51-54.5", sleeve: "33-33.75" } },
+      { size: "4XL", measurements: { bust: "52.5-56", waist: "48-52", hip: "55-58.5", sleeve: "33.75-34.75" } },
+    ],
+  },
+  {
+    brand: "Lee",
+    brandMatch: ["lee", "lee jeans"],
+    department: "Men",
+    garment: "Tops (body inches)",
+    categoryMatch: [
+      "top", "tee", "shirt", "polo", "sweater", "knit", "hoodie", "sweatshirt",
+    ],
+    sourceUrl: "https://www.lee.com/size-charts.html",
+    note:
+      "Lee's men's tops chart, with the matching jean waist in the size label. " +
+      "⚠ LEE'S CHEST COLUMN REPEATS IN PAIRS — S and M share 34.5-36, L and XL " +
+      "share 36.5-38, 2XL and 3XL share 38.5-40 — while neck, waist and hips " +
+      "step at every size. That is Lee's own table, so a 37in chest lands " +
+      "between two sizes by design and the neck or waist is the tiebreaker.",
+    rows: [
+      { size: "XS / 27-28", measurements: { chest: "33-34.5", waist: "26.5-27", hip: "32.5-33", neck: "14-14.5", sleeve: "32-32.5" } },
+      { size: "S / 29-30", measurements: { chest: "34.5-36", waist: "27.5-28", hip: "33.5-34", neck: "14.5-15", sleeve: "32.5-33" } },
+      { size: "M / 31-32", measurements: { chest: "34.5-36", waist: "28.5-29", hip: "34-34.5", neck: "15-15.5", sleeve: "32.5-33" } },
+      { size: "L / 34-36", measurements: { chest: "36.5-38", waist: "29.5-30", hip: "35-35.5", neck: "16-16.5", sleeve: "33-33.5" } },
+      { size: "XL / 38-40", measurements: { chest: "36.5-38", waist: "30.5-31", hip: "36-36.5", neck: "17-17.5", sleeve: "33-33.5" } },
+      { size: "2XL / 42-44", measurements: { chest: "38.5-40", waist: "31.5-32", hip: "37-37.5", neck: "18-18.5", sleeve: "33.5-34" } },
+      { size: "3XL / 46-48", measurements: { chest: "38.5-40", waist: "32.5-33", hip: "38-38.5", neck: "19-19.5", sleeve: "33.5-34" } },
+    ],
+  },
+
+  // Duluth Trading Co. — https://prd.cc.duluthtrading.com/mens-clothing.html.
+  // ⚠ Duluth's customer-facing /customer-service/size-charts.html renders
+  // nothing; the working chart is on its own prd.cc. host.
+  {
+    brand: "Duluth Trading Co.",
+    brandMatch: ["duluth trading", "duluthtrading", "duluth"],
+    department: "Men",
+    garment: "Tops & outerwear (body inches)",
+    categoryMatch: [
+      "top", "tee", "shirt", "polo", "sweater", "knit", "hoodie", "sweatshirt",
+      "flannel", "jacket", "coat", "outerwear", "vest",
+    ],
+    sourceUrl: "https://prd.cc.duluthtrading.com/mens-clothing.html",
+    note:
+      "Duluth publishes no separate outerwear chart, so its men's clothing " +
+      "chart answers for jackets too. It prints a TALL sleeve alongside the " +
+      "regular one, and tall stops at 3XL where regular runs to 5XL — so a " +
+      "4XL Tall does not exist rather than being unlisted.",
+    rows: [
+      { size: "S", measurements: { chest: "34-36", neck: "14-14.75", sleeve: "32.5-33" } },
+      { size: "M", measurements: { chest: "38-40", neck: "15-15.75", sleeve: "33.5-34" } },
+      { size: "L", measurements: { chest: "42-44", neck: "16-16.75", sleeve: "34.5-35" } },
+      { size: "XL", measurements: { chest: "46-48", neck: "17-17.75", sleeve: "35.5-36" } },
+      { size: "2XL", measurements: { chest: "50-52", neck: "18-18.75", sleeve: "36.5-37" } },
+      { size: "3XL", measurements: { chest: "54-56", neck: "19-19.75", sleeve: "37.5-38" } },
+      { size: "4XL", measurements: { chest: "58-60", neck: "20-20.75", sleeve: "37.5-38" } },
+      { size: "5XL", measurements: { chest: "62-64", neck: "21-21.75", sleeve: "37.5-38" } },
+    ],
+  },
+
+  // Gallery Dept. — per-product tables, but ONE row is the same on all of them.
+  {
+    brand: "Gallery Dept.",
+    brandMatch: ["gallery dept", "gallery department", "gallerydept"],
+    department: "Unisex",
+    garment: "Bottoms (GARMENT waist — the tag is 2in under it)",
+    categoryMatch: ["bottom", "pant", "trouser", "short", "jean", "denim", "sweatpant"],
+    sourceUrl: "https://gallerydept.com/collections/bottoms/products/twisted-wide-leg-black",
+    measurementBasis: "flat",
+    note:
+      "Gallery Dept. publishes a table PER PRODUCT and only the waist row is " +
+      "the same on all of them: the tag size is 2in under the garment waist, " +
+      "the whole way up, and the run skips 37 and 39. Everything else in their " +
+      "table is per-style and deliberately NOT here — between two of their own " +
+      "jeans the low hip differs by 2in at the same size, the front rise by " +
+      "1.5in, the inseam by 1.25in and the leg opening by 2.25in. Garment " +
+      "measurements, so do not add ease.",
+    rows: [
+      { size: "28", measurements: { waist: "30" } },
+      { size: "29", measurements: { waist: "31" } },
+      { size: "30", measurements: { waist: "32" } },
+      { size: "31", measurements: { waist: "33" } },
+      { size: "32", measurements: { waist: "34" } },
+      { size: "33", measurements: { waist: "35" } },
+      { size: "34", measurements: { waist: "36" } },
+      { size: "35", measurements: { waist: "37" } },
+      { size: "36", measurements: { waist: "38" } },
+      { size: "38", measurements: { waist: "40" } },
+      { size: "40", measurements: { waist: "42" } },
+    ],
+  },
 ];
 
 function norm(s: string | null | undefined): string {

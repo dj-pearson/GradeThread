@@ -6,17 +6,17 @@ Coverage is measured the way the size-guide panel resolves a chart: a real brand
 
 ## Where it stands
 
-- 168 brands, 366 brand-specific charts.
-- 83 charts link the brand's own guide; 0 have been checked against it by a human.
-- 56 brands are missing at least one group they should cover.
+- 168 brands, 376 brand-specific charts.
+- 93 charts link the brand's own guide; 0 have been checked against it by a human.
+- 50 brands are missing at least one group they should cover.
 
 | Group | Brands covered |
 |---|---:|
-| top | 124 |
-| bottom | 103 |
-| dress | 54 |
-| outerwear | 108 |
-| suit | 40 |
+| top | 127 |
+| bottom | 105 |
+| dress | 55 |
+| outerwear | 110 |
+| suit | 41 |
 | shoes | 27 |
 | bag | 10 |
 | watch | 1 |
@@ -77,7 +77,7 @@ Coverage is measured the way the size-guide panel resolves a chart: a real brand
 | Dior | 2 | Men, Women | Men, Women | Women | Men, Women | Men |  |  |  |  |  |  |
 | Dooney & Bourke | 1 |  |  |  |  |  |  | Women |  |  |  |  |
 | Dr. Martens | 1 |  |  |  |  |  | Unisex |  |  |  |  |  |
-| Duluth Trading Co. | 1 |  | Men |  |  |  |  |  |  |  |  | top, outerwear |
+| Duluth Trading Co. | 2 | Men | Men |  | Men |  |  |  |  |  |  |  |
 | Eileen Fisher | 2 | Women | Women | Women | Women |  |  |  |  |  |  |  |
 | Express | 2 | Women | Women | Women |  |  |  |  |  |  |  | outerwear |
 | Fabletics | 2 | Women | Women | Women | Women |  |  |  |  |  |  |  |
@@ -90,9 +90,9 @@ Coverage is measured the way the size-guide panel resolves a chart: a real brand
 | Fossil | 2 |  |  |  |  |  |  | Men | Unisex |  |  |  |
 | FRAME | 2 |  | Men, Women |  |  |  |  |  |  |  |  | top, outerwear |
 | Free People | 2 | Women | Women | Women | Women |  |  |  |  |  |  |  |
-| G-Star RAW | 3 |  | Men, Women |  | Unisex |  |  |  |  |  |  | top |
-| Gallery Dept. | 1 | Unisex |  |  | Unisex |  |  |  |  |  |  | bottom |
-| Gap | 2 | Women | Women |  |  |  |  |  |  |  |  | outerwear |
+| G-Star RAW | 5 | Men, Women | Men, Women |  | Unisex |  |  |  |  |  |  |  |
+| Gallery Dept. | 2 | Unisex | Unisex |  | Unisex |  |  |  |  |  |  |  |
+| Gap | 3 | Women | Women | Women | Women | Women |  |  |  |  |  |  |
 | Girlfriend Collective | 1 | Women | Women | Women |  |  |  |  |  |  |  | outerwear |
 | Gymboree | 2 | Kids | Kids | Baby, Kids |  |  |  |  |  |  |  | outerwear |
 | Gymshark | 3 | Men, Women | Women |  | Women |  |  |  |  |  |  |  |
@@ -114,7 +114,7 @@ Coverage is measured the way the size-guide panel resolves a chart: a real brand
 | Kith | 1 | Men |  |  |  |  |  |  |  |  |  | bottom, outerwear |
 | Kühl | 2 | Men, Women | Men, Women |  | Men, Women |  |  |  |  |  |  |  |
 | L.L.Bean | 2 | Men | Men |  | Men |  |  |  |  |  |  |  |
-| Lee | 3 |  | Men, Women |  | Unisex |  |  |  |  |  |  | top |
+| Lee | 5 | Men, Women | Men, Women |  | Unisex |  |  |  |  |  |  |  |
 | Levi's | 5 | Men, Women | Men, Women |  | Men, Women | Men, Women |  |  |  |  |  |  |
 | LOFT | 3 | Women | Women | Women | Women | Women |  |  |  |  |  |  |
 | Longchamp | 1 |  |  |  |  |  |  | Unisex |  |  |  |  |
@@ -132,7 +132,7 @@ Coverage is measured the way the size-guide panel resolves a chart: a real brand
 | MOTHER | 3 | Men, Women | Women |  | Men, Women | Women |  |  |  |  |  |  |
 | Mountain Hardwear | 1 | Men |  |  | Men |  |  |  |  |  |  | bottom |
 | New Balance | 2 |  |  |  |  |  | Men, Women |  |  |  |  |  |
-| Nike | 2 | Men, Women |  |  | Men, Women |  |  |  |  |  |  | bottom |
+| Nike | 5 | Men, Women | Men, Women |  | Men, Women |  |  |  |  |  |  |  |
 | Off-White | 2 | Unisex | Men |  | Men, Unisex | Men |  |  |  |  |  |  |
 | Old Navy | 2 | Women | Women |  |  |  |  |  |  |  |  | outerwear |
 | On Running | 2 |  |  |  |  |  | Men, Women |  |  |  |  |  |

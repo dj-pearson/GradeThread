@@ -229,6 +229,47 @@ records that it happened. What must NOT be folded in is Barbour's separate
 advice to add 4-6in for layering — that is a fit instruction about waxed
 jackets, not part of the measurements.
 
+After batch 5 (US-3288): 376 charts across 168 brands, **93 sourced**, and 50
+brands still carrying a gap. Six of ten closed, and the four that did not are
+the most instructive part of the batch.
+
+⚠ **"No chart" has at least four different causes, and the note must say
+which.** Batch 5 hit all four at once:
+- **Fila's US STORE IS CLOSED.** fila.com serves "the shop is on pause" and
+  every deeper URL returns a Korean 404. Nothing to take because there is no
+  store. Recheck when it reopens.
+- **Kith** publishes a table per product and they disagree — its overshirt and
+  its moto jacket differ in EVERY column at the same size. Chrome Hearts' shape.
+- **Hellstar's** own `/pages/size-chart` exists and renders a product grid with
+  no table on it, and every chart a search returns belongs to a reseller
+  (pushas, hellstars-store, hell-star, restockar). The do-not-substitute rule.
+- **Fear of God Essentials** is a control that does not work: the product page
+  carries a SIZE CHART element whose text is in the DOM but which opens nothing,
+  through two different click paths, and `/pages/size-guide` 404s.
+
+⚠ **A per-product corpus can still yield ONE brand-level row.** Gallery Dept.
+prints a different table on every product, but the WAIST row is identical on all
+of them: the tag size is 2in under the garment waist, the whole way up. That is
+a brand fact and it closes the gap. Everything else in their table is per-style
+and was left out — between two of their own jeans the low hip differs by 2in at
+the same size, the front rise by 1.5in, the inseam by 1.25in. **Check two
+products before concluding either way**; one product tells you nothing about
+which rows are brand-level.
+
+⚠ **When a brand's page fights you, look for the data instead.** Gap's chart
+page freezes a browser, but Gap serves the same numbers as plain JSON:
+`/Asset_Archive/AllBrands/sizeChart/v3/data/gap/us_charts.js` maps a `cid` to a
+filename and `.../current/<file>` is the chart. Hudson's Shopify JSON in batch 2
+was the same trick. Grep the page source for `.json` or a `data/` path before
+resorting to clicks.
+
+⚠ **Two brands' URLs are spelled inconsistently between departments.** Nike's
+men's bottoms chart is `mens_bottoms_alpha` with UNDERSCORES and its women's is
+`womens-bottoms-alpha` with HYPHENS; each 404s on the other's form. Lee's
+`/shop/men-size-charts` is a broken search page rendering "Results 0" while
+`/size-charts.html` carries all 23 tables. A 404 is not evidence a brand stopped
+publishing until the other spelling has been tried.
+
 ⚠ The coverage report measures the IN-CODE corpus, not the database. Prod's
 `brand_size_charts` already held source URLs on the hand-written pack rows
 (329 of 340 sourced after batch 1). The gap this loop closes is the in-code
