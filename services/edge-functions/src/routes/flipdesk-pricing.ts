@@ -43,6 +43,7 @@ import {
 } from "../lib/reprice-port.ts";
 import {
   decideNewPriceCents,
+  effectiveFloorCents,
   isDue,
   type ListingFacts,
   normalizeRuleInput,
@@ -115,6 +116,17 @@ function daysSince(iso: string): number {
   const t = new Date(iso).getTime();
   if (!isFinite(t)) return 0;
   return Math.max(0, Math.floor((Date.now() - t) / 86_400_000));
+}
+
+/**
+ * US-3192: inventory_items.floor_price is dollars; every floor in the pricing
+ * code is integer cents. Null stays null — the absence of a floor is not a
+ * floor of zero, and effectiveFloorCents relies on that distinction.
+ */
+function itemFloorCents(floorPriceDollars: number | null): number | null {
+  return typeof floorPriceDollars === "number" && Number.isFinite(floorPriceDollars)
+    ? Math.round(floorPriceDollars * 100)
+    : null;
 }
 
 /**
@@ -529,9 +541,12 @@ async function buildPreviewRow(
 ): Promise<RepricePreviewRow> {
   const item = listing.inventory_items;
   const currentCents = Math.round(listing.listing_price * 100);
-  const floorCents = computeFloorCents(
-    item.acquired_price,
-    DEFAULT_MARGIN_FLOOR_PCT,
+  // US-3192: the margin floor is a percentage of cost and disappears entirely
+  // when the cost basis is unknown. The seller's hard floor on the garment
+  // covers exactly that case, so the binding floor is the higher of the two.
+  const floorCents = effectiveFloorCents(
+    computeFloorCents(item.acquired_price, DEFAULT_MARGIN_FLOOR_PCT),
+    itemFloorCents(item.floor_price),
   );
   const base = {
     listing_id: listing.id,
@@ -1303,9 +1318,15 @@ async function applyRepriceFor(
       skipped.push({ listing_id: req.listingId, reason: "not_found" });
       continue;
     }
-    const floor = computeFloorCents(
-      listing.inventory_items.acquired_price,
-      DEFAULT_MARGIN_FLOOR_PCT,
+    // US-3192: same composition as the preview above. This is the write, so it
+    // is the one that has to hold: the client sends a price and the server
+    // re-derives the floor rather than trusting what the preview showed.
+    const floor = effectiveFloorCents(
+      computeFloorCents(
+        listing.inventory_items.acquired_price,
+        DEFAULT_MARGIN_FLOOR_PCT,
+      ),
+      itemFloorCents(listing.inventory_items.floor_price),
     );
     if (floor != null && req.priceCents < floor) {
       skipped.push({ listing_id: req.listingId, reason: "below_margin_floor" });

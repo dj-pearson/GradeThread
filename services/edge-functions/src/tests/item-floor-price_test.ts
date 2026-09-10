@@ -138,3 +138,61 @@ Deno.test("US-3192: the cost-based floor still binds when it is the higher one",
   assertEquals(outcome.decision, "skip");
   assertEquals(outcome.reason, "below_margin_floor");
 });
+
+// ── The fifth path, found 2026-09-10 ──────────────────────────────
+//
+// The header above names four callers. There was a fifth: the bulk
+// match-to-comp reprice at POST /api/flipdesk/pricing/reprice/preview and
+// /reprice/apply. Both selected inventory_items.floor_price into the row and
+// then priced off computeFloorCents(acquired_price) alone, so a seller who
+// said "never below $28 on this jacket" could bulk-reprice it to $12 and the
+// server would accept the write. The apply site is the one that matters: it
+// re-derives the floor rather than trusting the preview, which is exactly why
+// its floor being wrong was invisible from the screen.
+//
+// These are source-pinned rather than behavioural because the two floor sites
+// live inside unexported route helpers that need a Supabase round trip. They
+// assert the composition is present; item-floor-price's arithmetic tests above
+// cover what the composition then does.
+const PRICING_ROUTE = await Deno.readTextFile(
+  new URL("../routes/flipdesk-pricing.ts", import.meta.url),
+);
+
+Deno.test("US-3192: the bulk reprice PREVIEW composes the item floor", () => {
+  const site = PRICING_ROUTE.match(
+    /const floorCents = effectiveFloorCents\(\s*computeFloorCents\([^)]*\),\s*itemFloorCents\(item\.floor_price\),\s*\)/,
+  );
+  assertEquals(
+    site !== null,
+    true,
+    "buildPreviewRow no longer composes itemFloorCents into its margin floor - " +
+      "the preview would show a suggested price below the seller's hard floor",
+  );
+});
+
+Deno.test("US-3192: the bulk reprice APPLY composes the item floor", () => {
+  const site = PRICING_ROUTE.match(
+    /const floor = effectiveFloorCents\(\s*computeFloorCents\([\s\S]{0,120}?\),\s*itemFloorCents\(listing\.inventory_items\.floor_price\),\s*\)/,
+  );
+  assertEquals(
+    site !== null,
+    true,
+    "applyRepriceFor no longer composes itemFloorCents into its margin floor - " +
+      "a client could write a price below the seller's hard floor",
+  );
+});
+
+Deno.test("US-3192: itemFloorCents keeps null as null, never zero", () => {
+  // Pinned because effectiveFloorCents depends on the distinction: a null
+  // coerced to 0 makes max() pick the other floor's value or 0, which silently
+  // deletes the floor rather than failing.
+  const helper = PRICING_ROUTE.match(
+    /function itemFloorCents\(floorPriceDollars: number \| null\): number \| null \{[\s\S]*?\n\}/,
+  );
+  assertEquals(helper !== null, true, "itemFloorCents is gone from flipdesk-pricing.ts");
+  assertEquals(
+    /:\s*null;/.test(helper![0]),
+    true,
+    "itemFloorCents no longer returns null for an absent floor",
+  );
+});

@@ -8917,3 +8917,82 @@ Deno.test({
     );
   },
 });
+
+Deno.test({
+  // US-3192 AC6: the bulk match-to-comp reprice preview reads the item's
+  // floor_price straight off inventory_items. There was no case for this route
+  // at all, so the scoping was correct and unguarded. The leak to watch for is
+  // not the status: the route returns per-listing rows, and a foreign row
+  // carrying margin_floor_cents tells B what A refuses to sell that garment
+  // for, which is a costing figure.
+  name: "B cannot preview a reprice of A's listing, or read its floor",
+  ignore: !CONFIGURED || !Deno.env.get("TEST_USER_A_LISTING_ID"),
+  fn: async () => {
+    const aId = Deno.env.get("TEST_USER_A_LISTING_ID")!;
+    const res = await fetch(`${BASE}/api/flipdesk/pricing/reprice/preview`, {
+      method: "POST",
+      headers: authHeaders(B_JWT!),
+      body: JSON.stringify({ listingIds: [aId] }),
+    });
+    const body = (await res.json().catch(() => ({}))) as {
+      items?: Array<{
+        listing_id: string;
+        title?: string;
+        current_price_cents?: number;
+        margin_floor_cents?: number | null;
+      }>;
+    };
+    // A plan gate, an eBay-not-configured 503, or an auth denial all mean B
+    // never reached A's row.
+    if (DENIED.has(res.status) || res.status === 402 || res.status === 503) return;
+    assertEquals(res.status, 200, "reprice/preview should return 200 with per-row items");
+    const row = (body.items ?? []).find((r) => r.listing_id === aId);
+    assert(
+      row === undefined,
+      `reprice/preview returned a row for A's listing ${aId} to user B: ${
+        JSON.stringify(row).slice(0, 200)
+      }`,
+    );
+  },
+});
+
+Deno.test({
+  // US-3192 AC6, the write half. reprice/apply re-derives the floor server-side
+  // rather than trusting the preview, so it is the site where a cross-tenant id
+  // would actually change A's price - and it pushes to A's live eBay offer.
+  // The route reports per-row outcomes, so the isolation property is in the
+  // row, not the status.
+  name: "B cannot apply a reprice to A's listing",
+  ignore: !CONFIGURED || !Deno.env.get("TEST_USER_A_LISTING_ID"),
+  fn: async () => {
+    const aId = Deno.env.get("TEST_USER_A_LISTING_ID")!;
+    const res = await fetch(`${BASE}/api/flipdesk/pricing/reprice/apply`, {
+      method: "POST",
+      headers: authHeaders(B_JWT!),
+      body: JSON.stringify({ items: [{ listing_id: aId, price_cents: 100 }] }),
+    });
+    const body = (await res.json().catch(() => ({}))) as {
+      applied?: number;
+      ebay_synced?: number;
+      skipped?: Array<{ listing_id: string; reason: string }>;
+    };
+    if (DENIED.has(res.status) || res.status === 402 || res.status === 503) return;
+    assertEquals(res.status, 200, "reprice/apply should return 200 with per-row results");
+    assertEquals(
+      body.applied ?? 0,
+      0,
+      `reprice/apply wrote a price to A's listing ${aId} for user B - cross-tenant write`,
+    );
+    assertEquals(
+      body.ebay_synced ?? 0,
+      0,
+      `reprice/apply pushed a price to A's live eBay offer for user B`,
+    );
+    const skip = (body.skipped ?? []).find((s) => s.listing_id === aId);
+    assert(
+      skip === undefined || skip.reason === "not_found",
+      `reprice/apply reached A's row for B and reported "${skip?.reason}" - ` +
+        `a floor or margin reason means the row was loaded, which is itself a read`,
+    );
+  },
+});
