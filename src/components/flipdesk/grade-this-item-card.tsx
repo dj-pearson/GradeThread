@@ -41,6 +41,8 @@ import {
   type ValidationItem,
 } from "@/hooks/use-grading";
 import { supabase } from "@/lib/supabase";
+import { useLatestRun } from "@/hooks/use-latest-run";
+import { acceptValidation } from "@/components/flipdesk/grading-validation-run";
 import { GARMENT_TYPES, GARMENT_CATEGORIES } from "@/lib/constants";
 import {
   deriveGarmentDefaults,
@@ -103,6 +105,9 @@ export function GradeThisItemCard({
   const validate = useValidateGrading();
   const submit = useSubmitForGrading();
   const qc = useQueryClient();
+  // US-3223: shared ownership of the validation block below. Two writers race
+  // for it -- the tier effect and saveGarment. See grading-validation-run.ts.
+  const validationRuns = useLatestRun();
   const [tier, setTier] = useState<GradingTier>("standard");
   const [validation, setValidation] = useState<ValidationItem | null>(null);
   const [planRemaining, setPlanRemaining] = useState<number | null>(null);
@@ -154,25 +159,25 @@ export function GradeThisItemCard({
     // (Standard -> Detailed -> Standard) let an older response land last, so
     // the card showed ANOTHER tier's price, credit balance and "grades
     // remaining" beside the button that charges for this one.
-    let superseded = false;
+    //
+    // The flag is shared with saveGarment (which validates too) rather than
+    // local to the effect, so the two cannot overwrite each other either.
+    const run = validationRuns.begin();
     validate
       .mutateAsync({ inventoryItemId: item.id, tier })
       .then((res) => {
-        if (superseded) return;
-        setValidation(res.items[0] ?? null);
-        setPlanRemaining(
-          Number.isFinite(res.user.grades_remaining)
-            ? res.user.grades_remaining
-            : null,
-        );
-        setIncludedRemaining(res.user.included_remaining ?? null);
-        setCreditBalance(res.user.credit_balance ?? null);
+        const patch = acceptValidation(run, res);
+        if (!patch) return;
+        setValidation(patch.validation);
+        setPlanRemaining(patch.planRemaining);
+        setIncludedRemaining(patch.includedRemaining);
+        setCreditBalance(patch.creditBalance);
       })
       .catch(() => {
         /* surfaced by hook's onError */
       });
     return () => {
-      superseded = true;
+      run.superseded = true;
     };
     // item.updated_at: re-validate after an edit+save (e.g. setting the
     // garment_type/garment_category that the readiness gate requires) — the
@@ -264,11 +269,23 @@ export function GradeThisItemCard({
         .eq("id", item.id);
       if (error) throw error;
       await qc.invalidateQueries({ queryKey: ["items_full"] });
+      // US-3223: this re-validate races the tier effect. Flipping the tier
+      // picker while the save is in flight paints the new tier's numbers, and
+      // then THIS response landed on top with the tier the save started with —
+      // leaving another tier's price and credit balance beside a Submit button
+      // that charges the tier on screen. Whichever run started last wins.
+      const run = validationRuns.begin();
       const res = await validate.mutateAsync({
         inventoryItemId: item.id,
         tier,
       });
-      setValidation(res.items[0] ?? null);
+      const patch = acceptValidation(run, res);
+      if (patch) {
+        setValidation(patch.validation);
+        setPlanRemaining(patch.planRemaining);
+        setIncludedRemaining(patch.includedRemaining);
+        setCreditBalance(patch.creditBalance);
+      }
       toast.success("Garment details saved.");
     } catch (err) {
       toastError(err, "Couldn't save.");

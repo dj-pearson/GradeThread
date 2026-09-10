@@ -24,6 +24,8 @@ import {
   useEbayShipOrder,
   useEbayShippingRates,
 } from "@/hooks/use-ebay";
+import { useLatestRun } from "@/hooks/use-latest-run";
+import { acceptRateQuote } from "@/components/flipdesk/ship-rate-quote";
 import type { ItemFullRow } from "@/types/database";
 
 // US-1039: mark a sold order shipped and push the tracking number + carrier to
@@ -82,6 +84,8 @@ export function ShipOrderDialog({
   const rates = useEbayShippingRates();
   const buyLabel = useEbayBuyLabel();
   const reprint = useEbayReprintLabel();
+  // US-3223: ownership of the quote that Buy submits. See ship-rate-quote.ts.
+  const quoteRuns = useLatestRun();
   const [weight, setWeight] = useState("1");
   const [quoteId, setQuoteId] = useState<string | null>(null);
   const [rateOptions, setRateOptions] = useState<EbayShippingRate[]>([]);
@@ -90,6 +94,10 @@ export function ShipOrderDialog({
 
   useEffect(() => {
     if (item) {
+      // US-3223: a rate-shop for the PREVIOUS order can still be in flight here.
+      // Clearing the quote is not enough -- without this the old response lands
+      // afterwards and re-arms Buy with another order's quote id.
+      quoteRuns.supersede();
       setTracking("");
       setCarrier("USPS");
       setWeight("1");
@@ -98,6 +106,8 @@ export function ShipOrderDialog({
       setSelectedRateId(null);
       setLabelUrl(null);
     }
+    // quoteRuns is a stable ref-backed owner; it never changes identity.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [item]);
 
   // The item's most-recent sale — both the label flow and the manual flow need
@@ -123,6 +133,12 @@ export function ShipOrderDialog({
       toast.error("Enter a parcel weight above zero.");
       return;
     }
+    // US-3223: "Get rates" is disabled while the RATE call is pending, but
+    // loadSale() runs first and the button is live for that whole round trip.
+    // Two clicks at two weights leaves two quotes racing, and the older one
+    // landing last would hand Buy a quote id for a parcel weight the seller has
+    // already changed. See ship-rate-quote.ts.
+    const run = quoteRuns.begin();
     try {
       const sale = await loadSale();
       if (!sale?.platform_order_id) {
@@ -133,21 +149,16 @@ export function ShipOrderDialog({
         saleId: sale.id,
         parcel: { weightValue: w },
       });
-      setQuoteId(quote.shippingQuoteId);
-      setRateOptions(quote.rates);
-      // Preselect the cheapest KNOWN price so the common case is one click —
-      // but never auto-buy; the seller still confirms.
-      const priced = quote.rates.filter((r) => r.totalCostCents != null);
-      const cheapest = priced.reduce<EbayShippingRate | null>(
-        (best, r) =>
-          best == null || r.totalCostCents! < best.totalCostCents! ? r : best,
-        null,
-      );
-      setSelectedRateId(cheapest?.rateId ?? null);
+      const patch = acceptRateQuote(run, quote);
+      if (!patch) return;
+      setQuoteId(patch.quoteId);
+      setRateOptions(patch.rateOptions);
+      setSelectedRateId(patch.selectedRateId);
       if (quote.rates.length === 0) {
         toast.error("eBay returned no rates for this parcel.");
       }
     } catch (err) {
+      if (run.superseded) return;
       const e = err as Error & { code?: string };
       toastError(
         e,

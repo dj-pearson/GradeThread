@@ -4796,18 +4796,6 @@
       ]
     },
     {
-      "id": "US-3223",
-      "passes": false,
-      "title": "Stale async responses can overwrite newer state, and only three sites were audited",
-      "description": "An effect that fires a request per run and writes the answer to state has no ordering guarantee: a slower earlier response lands after a faster later one and wins. Three were found and fixed 2026-09-09. grade-this-item-card.tsx re-validated on every grading-tier change, so flipping Standard -> Detailed -> Standard could leave another tier's price, credit balance and grades-remaining beside the button that charges for this one. bulk-reprice-dialog.tsx held one selection's prices while showing another's summary, and Apply sends those rows verbatim, so the seller would have confirmed prices they were never shown. command-palette.tsx debounced both of its searches, which cancels a PENDING query but never one in flight. Two more the scanner flagged were checked by hand and are fine (auth-confirm guards with a ref; the palette's recent-searches load is idempotent). The scanner is narrow: useEffect + await/.then + a setState call, no guard keyword, within 120 lines. Other shapes exist.",
-      "acceptanceCriteria": [
-        "The audit is widened past that heuristic: async work started from an event handler or a mutation callback that writes state can go stale the same way, and the money-shaped surfaces go first (anything whose result is what a confirm button then submits).",
-        "Any site found gets the same treatment as the three fixed: a run-scoped flag set in the effect cleanup, checked before every setState, with a comment naming the interleaving that made it wrong. Do not reach for a global request-id counter; the flag reads at the call site and the counter does not.",
-        "No repo-wide guard test unless it can be made to fire without false positives. The scanner used here flagged 5 and 2 were correct code; a guard with that hit rate teaches people to add suppressions. If a guard is written, it carries a self-check and a named-exclusion list like flipdesk-error-state.test.ts does."
-      ],
-      "priority": 5
-    },
-    {
       "id": "US-3231",
       "passes": false,
       "title": "iOS: the financial export's date range is off by a few hours at the boundaries",

@@ -69,6 +69,7 @@ import {
   type StagedPhoto,
 } from "@/components/flipdesk/intake-photo-stager";
 import { useNavigationGuard } from "@/hooks/use-navigation-guard";
+import { useLatestRun } from "@/hooks/use-latest-run";
 import { uploadItemPhoto } from "@/lib/item-photo-upload";
 import { Switch } from "@/components/ui/switch";
 import { useReviewFlowEnabled, useSetReviewFlow } from "@/hooks/use-review-flow";
@@ -192,6 +193,9 @@ export function FlipdeskIntakePage() {
 
   // AI Fill state
   const aiExtract = useAiExtract();
+  // US-3223: ownership of the AI extract result, which survives a form reset
+  // unless something invalidates it.
+  const aiExtractRuns = useLatestRun();
   const [aiResult, setAiResult] = useState<AiExtractResponse | null>(null);
   const [aiPanelOpen, setAiPanelOpen] = useState(false);
   const [aiFields, setAiFields] = useState<Set<string>>(new Set());
@@ -252,8 +256,16 @@ export function FlipdeskIntakePage() {
     ] as const) {
       if (form[k] && String(form[k]).trim()) known[k] = form[k];
     }
+    // US-3223: AI Fill is disabled while the extract is pending, but Save is
+    // not. "Save & add another" resets the form for the NEXT garment while this
+    // request is still out, and the response then lands on the blank form --
+    // opening the panel with the previous item's brand, size and color, and
+    // feeding the previous item's garment_type/garment_category straight into
+    // the next insert at deriveGarmentDefaults below.
+    const run = aiExtractRuns.begin();
     try {
       const result = await aiExtract.mutateAsync({ text, known_fields: known });
+      if (run.superseded) return;
       setAiResult(result);
       setAiPanelOpen(true);
     } catch {
@@ -451,6 +463,9 @@ export function FlipdeskIntakePage() {
         });
         setAiFields(new Set());
         setAiMeta({});
+        // US-3223: an AI extract for the garment just saved must not repopulate
+        // the panel for the blank one that replaces it.
+        aiExtractRuns.supersede();
         setAiResult(null);
         setStagedPhotos([]);
         setMeasurements({});
@@ -532,6 +547,9 @@ export function FlipdeskIntakePage() {
         });
         setAiFields(new Set());
         setAiMeta({});
+        // US-3223: an AI extract for the garment just saved must not repopulate
+        // the panel for the blank one that replaces it.
+        aiExtractRuns.supersede();
         setAiResult(null);
         setStagedPhotos([]);
         setMeasurements({});

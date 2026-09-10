@@ -1,6 +1,8 @@
 import { useMemo, useState } from "react";
 import { useSearchParams } from "react-router";
 import { edgeFetch } from "@/lib/edge-fetch";
+import { useLatestRun } from "@/hooks/use-latest-run";
+import { acceptResolution, type ResolvedUser } from "@/pages/admin/bulk-resolve";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -75,14 +77,6 @@ const OP_META: Record<BulkOp, { label: string; target: "users" | "submissions"; 
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
-interface ResolvedUser {
-  input: string;
-  user_id: string;
-  email: string;
-  full_name: string | null;
-  suspended: boolean;
-}
-
 interface PerTargetResult {
   id: string;
   ok: boolean;
@@ -111,6 +105,8 @@ export function AdminBulkPage() {
   const [credits, setCredits] = useState("5");
   const [reason, setReason] = useState("");
 
+  // US-3223: ownership of the resolved-target list. See bulk-resolve.ts.
+  const resolveRuns = useLatestRun();
   const [resolving, setResolving] = useState(false);
   const [resolved, setResolved] = useState<ResolvedUser[] | null>(null);
   const [unknown, setUnknown] = useState<string[]>([]);
@@ -144,12 +140,17 @@ export function AdminBulkPage() {
   );
 
   function resetResolution() {
+    // US-3223: editing the target box is what makes an in-flight resolve wrong.
+    // Without this the response lands after the clear and puts the OLD list
+    // back, and Confirm then fires at accounts no longer in the box.
+    resolveRuns.supersede();
     setResolved(null);
     setUnknown([]);
     setSummary(null);
   }
 
   async function resolveTargets() {
+    const run = resolveRuns.begin();
     setResolving(true);
     setSummary(null);
     try {
@@ -160,14 +161,20 @@ export function AdminBulkPage() {
       });
       const json = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(json.error || "Failed to resolve targets.");
-      setResolved(json.resolved ?? []);
-      setUnknown(json.unknown ?? []);
-      if ((json.unknown ?? []).length > 0) {
-        toast.warning(`${json.unknown.length} entr${json.unknown.length === 1 ? "y" : "ies"} didn't match any account.`);
+      const patch = acceptResolution(run, json);
+      if (!patch) return;
+      setResolved(patch.resolved);
+      setUnknown(patch.unknown);
+      if (patch.unknown.length > 0) {
+        toast.warning(`${patch.unknown.length} entr${patch.unknown.length === 1 ? "y" : "ies"} didn't match any account.`);
       }
     } catch (err) {
+      if (run.superseded) return;
       toast.error(err instanceof Error ? err.message : "Failed to resolve targets.");
     } finally {
+      // Unconditional: the Resolve button is disabled while `resolving`, so this
+      // run is the only one that can be in flight. A superseded run still has to
+      // put the spinner down or the button never comes back.
       setResolving(false);
     }
   }
