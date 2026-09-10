@@ -72,7 +72,7 @@ begin
   ('vuori', 'Men', 'Bottoms (shorts / joggers)', 'alpha', 'standard'),
   ('vuori', 'Men', 'Tops', 'alpha', 'standard'),
   ('vuori', 'Women', 'Bottoms (leggings / shorts)', 'alpha', 'standard'),
-  ('jcrew', 'Men', 'Shirts (alpha)', 'alpha', 'standard'),
+  ('jcrew', 'Men', 'Shirts & outerwear (alpha)', 'alpha', 'standard'),
   ('freepeople', 'Women', 'Tops & dresses (alpha)', 'alpha', 'standard'),
   ('lululemon', 'Men', 'Tops', 'alpha', 'standard'),
   ('nike', 'Men', 'Tops', 'alpha', 'standard'),

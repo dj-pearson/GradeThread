@@ -339,6 +339,31 @@ ready-to-wear is boutique-only and it publishes no chart. BAPE's SIZE GUIDE
 control renders nothing through two click paths, which is the Burberry shape and
 worth a human look.
 
+After batch 8 (US-3291): 383 charts across 168 brands, **112 sourced**, and 35
+brands still carrying a gap. Five of six closed — six and not ten, because the
+story listed Columbia, Fjällräven, Gymshark and Helly Hansen and all four
+already showed no gap.
+
+⚠ **A COVERAGE GAP IS NOT ALWAYS A MISSING CHART.** Five of batch 8's six gaps
+were outerwear-only, on brands that already had a chart describing the same
+body — the keywords just did not reach the group. Widening `categoryMatch`
+closed them and added no rows and no `sourceUrl`, because nothing new was
+claimed. **Run the resolver before deciding what a gap needs**: a two-minute
+`findSizingCharts` check tells you whether you are looking at a missing chart or
+a missing keyword, and they are very different jobs.
+
+⚠ **The batch-7 lesson cuts BOTH ways.** Batch 7 found two unsourced charts
+whose rows were already the brand's own. Batch 8 found the opposite: Girlfriend
+Collective's rows were an approximation about an inch off, drifting further up
+the run — XXS read bust 30-32 where the brand publishes 29-31. CHECK; do not
+assume in either direction.
+
+⚠ **A widening still needs a note that says what it is.** Each of the four
+unsourced widenings carries a line saying the rows are the same approximation,
+that the brand's own page could not be read from here, and that a body chart
+describing a brand's tops describes its jackets too. Without that, the next
+reader cannot tell a widened approximation from a sourced chart.
+
 ⚠ The coverage report measures the IN-CODE corpus, not the database. Prod's
 `brand_size_charts` already held source URLs on the hand-written pack rows
 (329 of 340 sourced after batch 1). The gap this loop closes is the in-code

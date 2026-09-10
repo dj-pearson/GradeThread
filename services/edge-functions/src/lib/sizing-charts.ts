@@ -468,9 +468,19 @@ export const SIZING_CHARTS: SizingChart[] = [
     brand: "J.Crew",
     brandMatch: ["j.crew", "jcrew", "j crew"],
     department: "Men",
-    garment: "Shirts (alpha)",
-    categoryMatch: ["shirt", "tee", "polo", "oxford", "sweater", "hoodie"],
-    note: "J.Crew men's shirts run alpha; chest is the primary signal. Dress shirts also sold neck x sleeve.",
+    garment: "Shirts & outerwear (alpha)",
+    categoryMatch: [
+      "shirt", "tee", "polo", "oxford", "sweater", "hoodie", "jacket", "coat",
+      "outerwear", "blazer", "vest",
+    ],
+    note:
+      "US-3291 widened this to OUTERWEAR and nothing else changed. The rows are " +
+      "the same approximation and still carry NO source: the brand's own " +
+      "size-chart page could not be read from here (403 to a plain fetch, and " +
+      "the browser tool refuses script on the domain), so no new claim is made. " +
+      "A body chart that describes a brand's tops describes its jackets too, and " +
+      "an approximate chart beats the empty panel the seller had before. " +
+      "J.Crew men's shirts run alpha; chest is the primary signal. Dress shirts also sold neck x sleeve.",
     rows: [
       { size: "XS", measurements: { chest: "32-34" } },
       { size: "S", measurements: { chest: "35-37" } },
@@ -5357,11 +5367,21 @@ export const SIZING_CHARTS: SizingChart[] = [
       "hoodie",
       "dress",
       "long sleeve",
+      "jacket",
+      "coat",
+      "outerwear",
+      "vest",
     ],
+    sourceUrl: "https://girlfriend.com/pages/size-guide-tops",
     note:
-      "BODY measurement — an ESTIMATOR: measure the flat garment and DOUBLE IT. " +
-      "The US numeric cross-map is written INSIDE the size label, where the " +
-      "model actually reads it. Girlfriend Collective is APPAREL ONLY (no " +
+      "US-3291 REPLACED the old approximation with Girlfriend Collective's OWN " +
+      "published numbers, from its two guides (bust on the tops page, waist and " +
+      "hip on the bottoms page), and widened this to outerwear. ⚠ THE OLD " +
+      "ROWS WERE ABOUT AN INCH OFF AND DRIFTED FURTHER UP THE RUN — XXS read " +
+      "bust 30-32 where the brand publishes 29-31. The US numeric cross-map that " +
+      "used to sit in the size label is GONE, because the brand does not publish " +
+      "one; the label is now the brand's own, including its XXXL spelling where " +
+      "this chart previously said 3XL. Girlfriend Collective is APPAREL ONLY (no " +
       "footwear) and WOMEN'S ONLY, so no men's chart is seeded rather than " +
       "inventing one. THIS IS THE WIDEST SIZE RUN IN THE KNOWLEDGE BASE — XXS " +
       "THROUGH 6XL — AND THAT IS THE POINT OF THE BRAND, not a footnote: a plus " +
@@ -5380,17 +5400,17 @@ export const SIZING_CHARTS: SizingChart[] = [
       "high-abrasion zones and the stretch-sheerness explicitly and say what you " +
       "found. Standard US alpha/numeric approximation — capped confidence.",
     rows: [
-      { size: "XXS (≈US 0-2)", measurements: { bust: "30-32", waist: "23-25", hip: "33-35" } },
-      { size: "XS (≈US 2-4)", measurements: { bust: "32-34", waist: "25-27", hip: "35-37" } },
-      { size: "S (≈US 4-6)", measurements: { bust: "34-36", waist: "27-29", hip: "37-39" } },
-      { size: "M (≈US 8-10)", measurements: { bust: "36-38", waist: "29-31", hip: "39-41" } },
-      { size: "L (≈US 12-14)", measurements: { bust: "38-41", waist: "31-34", hip: "41-44" } },
-      { size: "XL (≈US 16-18)", measurements: { bust: "41-44", waist: "34-37", hip: "44-47" } },
-      { size: "2XL (≈US 18-20)", measurements: { bust: "44-47", waist: "37-40", hip: "47-50" } },
-      { size: "3XL (≈US 22-24)", measurements: { bust: "47-50", waist: "40-43", hip: "50-53" } },
-      { size: "4XL (≈US 26)", measurements: { bust: "50-53", waist: "43-46", hip: "53-56" } },
-      { size: "5XL (≈US 28)", measurements: { bust: "53-56", waist: "46-49", hip: "56-59" } },
-      { size: "6XL (≈US 30-32)", measurements: { bust: "56-59", waist: "49-52", hip: "59-62" } },
+      { size: "XXS", measurements: { bust: "29-31", waist: "22-24", hip: "32-34" } },
+      { size: "XS", measurements: { bust: "31-33", waist: "24-26", hip: "34-36" } },
+      { size: "S", measurements: { bust: "33-35", waist: "26-28", hip: "36-39" } },
+      { size: "M", measurements: { bust: "35-37.5", waist: "28-30.5", hip: "39-41.5" } },
+      { size: "L", measurements: { bust: "37.5-40.5", waist: "30.5-33", hip: "41.5-44" } },
+      { size: "XL", measurements: { bust: "40.5-43", waist: "33-35.5", hip: "44-46.5" } },
+      { size: "XXL", measurements: { bust: "43-46.5", waist: "35.5-39", hip: "46.5-50" } },
+      { size: "XXXL", measurements: { bust: "46.5-50", waist: "39-42.5", hip: "50-53.5" } },
+      { size: "4XL", measurements: { bust: "50-53.5", waist: "42.5-46", hip: "53.5-57" } },
+      { size: "5XL", measurements: { bust: "53.5-57", waist: "46-49.5", hip: "57-60.5" } },
+      { size: "6XL", measurements: { bust: "57-60.5", waist: "49.5-53", hip: "60.5-64" } },
     ],
   },
 
@@ -5524,9 +5544,18 @@ export const SIZING_CHARTS: SizingChart[] = [
     brand: "Express",
     brandMatch: ["express"],
     department: "Women",
-    garment: "Tops (US numeric 00-18 / alpha)",
-    categoryMatch: ["top", "tee", "shirt", "blouse", "dress", "sweater", "tank", "bodysuit"],
+    garment: "Tops & outerwear (US numeric 00-18 / alpha)",
+    categoryMatch: [
+      "top", "tee", "shirt", "blouse", "dress", "sweater", "tank", "bodysuit",
+      "jacket", "coat", "outerwear", "blazer", "vest",
+    ],
     note:
+      "US-3291 widened this to OUTERWEAR and nothing else changed. The rows are " +
+      "the same approximation and still carry NO source: the brand's own " +
+      "size-chart page could not be read from here (403 to a plain fetch, and " +
+      "the browser tool refuses script on the domain), so no new claim is made. " +
+      "A body chart that describes a brand's tops describes its jackets too, and " +
+      "an approximate chart beats the empty panel the seller had before. " +
       "Express women's tops run US numeric 00-18 and ALSO alpha (XS-XL) " +
       "depending on the line — the Portofino shirt is typically alpha, the " +
       "wear-to-work tops numeric. Bust is the primary signal. Aggregator-sourced " +
@@ -8895,8 +8924,17 @@ export const SIZING_CHARTS: SizingChart[] = [
     brandMatch: ["carter's", "carters"],
     department: "Kids",
     garment: "Toddler & Kids (2T-5T ↔ numeric 4-16 / XS-XL)",
-    categoryMatch: ["tee", "shirt", "top", "pant", "pants", "legging", "short", "hoodie", "jacket", "sweater", "pajama", "dress", "skirt", "jeans", "uniform", "polo", "toddler", "kid"],
+    categoryMatch: [
+      "tee", "shirt", "top", "pant", "pants", "legging", "short", "hoodie",
+      "jacket", "coat", "outerwear", "parka", "puffer", "vest", "sweater",
+      "pajama", "dress", "skirt", "jeans", "uniform", "polo", "toddler", "kid",
+    ],
     note:
+      "US-3291 widened this to OUTERWEAR and nothing else changed. The rows are " +
+      "the same approximation and still carry NO source: the brand's own " +
+      "size-chart page could not be read from here, so no new claim is made. " +
+      "A body chart that describes a brand's tops describes its jackets too, " +
+      "and an approximate chart beats the empty panel the seller had before. " +
       "TODDLER is T-SIZES (2T-5T); KIDS is NUMERIC (4-16) or ALPHA (XS-XL) — a " +
       "DIFFERENT system from baby months, and the SAME numeric label means different " +
       "garments across brands, so read the SYSTEM off the label. ⚠ A KIDS SIZE (4T / " +
@@ -9023,8 +9061,18 @@ export const SIZING_CHARTS: SizingChart[] = [
     brandMatch: ["gymboree"],
     department: "Kids",
     garment: "Toddler & Kids (2T-5T ↔ numeric 4-14)",
-    categoryMatch: ["tee", "shirt", "top", "pant", "pants", "legging", "short", "hoodie", "dress", "skirt", "jeans", "activewear", "gymgo", "jogger", "set", "toddler", "kid"],
+    categoryMatch: [
+      "tee", "shirt", "top", "pant", "pants", "legging", "short", "hoodie",
+      "jacket", "coat", "outerwear", "parka", "puffer", "vest", "dress",
+      "skirt", "jeans", "activewear", "gymgo", "jogger", "set", "toddler", "kid",
+    ],
     note:
+      "US-3291 widened this to OUTERWEAR and nothing else changed. The rows are " +
+      "the same approximation and still carry NO source: Gymboree's own " +
+      "/pages/size-chart returns 403 to a plain fetch, so no new claim is made. " +
+      "A body chart that describes a brand's tops describes its jackets too, " +
+      "and an approximate chart beats the empty panel the seller had before. " +
+
       "TODDLER is T-SIZES (2T-5T); KIDS is NUMERIC (4-14) — a DIFFERENT system from " +
       "baby months. Read the SYSTEM off the label. ⚠ A KIDS SIZE IS THE SIZE, NOT A " +
       "CODE — and for a VINTAGE Gymboree COLLECTION the value is the LINE NAME, never " +
@@ -9044,7 +9092,11 @@ export const SIZING_CHARTS: SizingChart[] = [
     brandMatch: ["hanna andersson", "hannaandersson"],
     department: "Kids",
     garment: "Baby & Kids (HEIGHT IN CM ↔ US age)",
-    categoryMatch: ["pajama", "sleeper", "bodysuit", "dress", "top", "tee", "pant", "legging", "romper", "onesie", "footie", "long johns", "playwear", "baby", "kid"],
+    categoryMatch: [
+      "pajama", "sleeper", "bodysuit", "dress", "top", "tee", "pant", "legging",
+      "romper", "onesie", "footie", "long johns", "playwear", "jacket", "coat",
+      "outerwear", "parka", "puffer", "vest", "baby", "kid",
+    ],
     note:
       "HANNA ANDERSSON SIZES BY HEIGHT IN CM, not US age — 50 / 60 / 70 / 80 / 90 / " +
       "100 / 110 / 120 / 130 / 140 / 150 = the child's HEIGHT in centimetres, a " +

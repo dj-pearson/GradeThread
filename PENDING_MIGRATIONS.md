@@ -1,6 +1,6 @@
 # PENDING MIGRATIONS — applied to prod separately from the push
 
-## 🔒 HELD: 00781 — batches 4 through 7 of the sourced size charts (US-3287 to US-3290)
+## 🔒 HELD: 00781 — batches 4 through 8 of the sourced size charts (US-3287 to US-3291)
 
 **Risk: LOW.** Same shape as 00780 below: insert-or-update into
 `public.brand_size_charts`, a global reference table with deny-all RLS and no
@@ -25,8 +25,14 @@ SKIMS, Rab (both departments), Stussy, PUMA and Reebok all had an approximation
 chart already, so their rows were rewritten in place, with only PUMA's women's
 chart and Reebok's bottoms chart genuinely new. Each carries the brand's own
 `source_url` and `confidence 0.85`; `verified` stays false. Batch 7 adds
-Wrangler, Beyond Yoga, UNTUCKit and Woolrich. **108 sourced rows in total**,
+Wrangler, Beyond Yoga, UNTUCKit and Woolrich. **109 sourced rows in total**,
 since the generator re-emits every earlier batch.
+
+**Batch 8 barely touches this file, and that is the point.** Five of its six
+brands needed only a WIDER `category_match` on a chart they already had, which
+changes the in-code corpus and adds no sourced row; only Girlfriend Collective
+gained a `source_url`. A coverage gap is not always a missing chart — sometimes
+it is a chart whose keywords do not reach the group it already describes.
 
 **Two of batch 7's four needed only a URL.** Beyond Yoga's and UNTUCKit's
 women's rows were ALREADY the brand's own numbers, sitting in the corpus

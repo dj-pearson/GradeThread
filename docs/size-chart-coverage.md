@@ -7,16 +7,16 @@ Coverage is measured the way the size-guide panel resolves a chart: a real brand
 ## Where it stands
 
 - 168 brands, 383 brand-specific charts.
-- 111 charts link the brand's own guide; 0 have been checked against it by a human.
-- 40 brands are missing at least one group they should cover.
+- 112 charts link the brand's own guide; 0 have been checked against it by a human.
+- 35 brands are missing at least one group they should cover.
 
 | Group | Brands covered |
 |---|---:|
 | top | 130 |
 | bottom | 110 |
 | dress | 56 |
-| outerwear | 115 |
-| suit | 42 |
+| outerwear | 120 |
+| suit | 44 |
 | shoes | 27 |
 | bag | 10 |
 | watch | 1 |
@@ -79,7 +79,7 @@ Coverage is measured the way the size-guide panel resolves a chart: a real brand
 | Dr. Martens | 1 |  |  |  |  |  | Unisex |  |  |  |  |  |
 | Duluth Trading Co. | 2 | Men | Men |  | Men |  |  |  |  |  |  |  |
 | Eileen Fisher | 2 | Women | Women | Women | Women |  |  |  |  |  |  |  |
-| Express | 2 | Women | Women | Women |  |  |  |  |  |  |  | outerwear |
+| Express | 2 | Women | Women | Women | Women | Women |  |  |  |  |  |  |
 | Fabletics | 2 | Women | Women | Women | Women |  |  |  |  |  |  |  |
 | Faherty | 3 | Men, Women | Men | Women | Men, Women | Men |  |  |  |  |  |  |
 | Fear of God Essentials | 2 | Unisex | Unisex |  |  |  |  |  |  |  |  | outerwear |
@@ -93,11 +93,11 @@ Coverage is measured the way the size-guide panel resolves a chart: a real brand
 | G-Star RAW | 5 | Men, Women | Men, Women |  | Unisex |  |  |  |  |  |  |  |
 | Gallery Dept. | 2 | Unisex | Unisex |  | Unisex |  |  |  |  |  |  |  |
 | Gap | 3 | Women | Women | Women | Women | Women |  |  |  |  |  |  |
-| Girlfriend Collective | 1 | Women | Women | Women |  |  |  |  |  |  |  | outerwear |
-| Gymboree | 2 | Kids | Kids | Baby, Kids |  |  |  |  |  |  |  | outerwear |
+| Girlfriend Collective | 1 | Women | Women | Women | Women |  |  |  |  |  |  |  |
+| Gymboree | 2 | Kids | Kids | Baby, Kids | Kids |  |  |  |  |  |  |  |
 | Gymshark | 3 | Men, Women | Women |  | Women |  |  |  |  |  |  |  |
 | H&M | 2 | Women | Women | Women | Women |  |  |  |  |  |  |  |
-| Hanna Andersson | 1 | Kids | Kids | Kids |  |  |  |  |  |  |  | outerwear |
+| Hanna Andersson | 1 | Kids | Kids | Kids | Kids |  |  |  |  |  |  |  |
 | Hellstar | 1 | Unisex |  |  | Unisex |  |  |  |  |  |  | bottom |
 | Helly Hansen | 2 | Men, Women | Men, Women |  | Men, Women |  |  |  |  |  |  |  |
 | Hermès | 2 | Men, Women | Men, Women | Women | Men, Women | Men |  |  |  |  |  |  |
@@ -105,7 +105,7 @@ Coverage is measured the way the size-guide panel resolves a chart: a real brand
 | Herschel Supply Co. | 1 |  |  |  |  |  |  | Unisex |  |  |  |  |
 | HOKA | 2 |  |  |  |  |  | Men, Women |  |  |  |  |  |
 | Hudson Jeans | 6 | Men, Women | Men, Women |  | Men, Women | Men, Women |  |  |  |  |  |  |
-| J.Crew | 2 | Men | Men |  |  |  |  |  |  |  |  | outerwear |
+| J.Crew | 2 | Men | Men |  | Men | Men |  |  |  |  |  |  |
 | Janie and Jack | 2 | Kids | Kids | Baby, Kids |  | Kids |  |  |  |  |  | outerwear |
 | Joe's Jeans | 4 | Men, Women | Men, Women | Women | Men, Women | Men, Women |  |  |  |  |  |  |
 | Johnnie-O | 1 | Men |  |  | Men |  |  |  |  |  |  | bottom |
