@@ -18,6 +18,7 @@ import {
   matchesUnlistedFilter,
   resolveTabId,
   resolveUnlistedFilter,
+  tabSupportsSelection,
   type TabId,
 } from "@/pages/flipdesk/inventory-tabs";
 import type { ItemFullRow, ItemStatus } from "@/types/database";
@@ -215,6 +216,26 @@ describe("tab definitions are well-formed", () => {
       expect(t.emptyCta.label).not.toBe("");
       expect(t.emptyCta.to).not.toBe("");
     }
+  });
+
+  // US-3195 AC3: the Aged tab has to be selectable or its bulk markdown is
+  // unreachable. It was not — `selectable` was a literal `isUnlisted || isSold
+  // || isActive`, so no checkbox column rendered on Aged and the bulk bar never
+  // appeared, on the one tab whose entire purpose is doing something to a
+  // batch of rows at once.
+  it("Aged rows can be selected, so the bulk markdown has a way in", () => {
+    expect(tabSupportsSelection("aged")).toBe(true);
+  });
+
+  it("keeps selection off the tabs that never had it", () => {
+    expect(tabSupportsSelection("shipped")).toBe(false);
+    expect(tabSupportsSelection("returned")).toBe(false);
+    expect(tabSupportsSelection("archived")).toBe(false);
+    expect(tabSupportsSelection("all")).toBe(false);
+    // And on the three that did.
+    expect(tabSupportsSelection("unlisted")).toBe(true);
+    expect(tabSupportsSelection("sold")).toBe(true);
+    expect(tabSupportsSelection("active")).toBe(true);
   });
 
   it("sorts every tab by a real column", () => {

@@ -58,6 +58,7 @@ import {
   summarizeBulkEdit,
 } from "../lib/bulk-listing-edit.ts";
 import { writeAuditLog } from "../lib/audit-log.ts";
+import { computeMarkdownCents } from "../lib/repricing-rules.ts";
 import { deriveListingOrigin } from "../lib/sync-precedence.ts";
 import { requireFlipdesk } from "../lib/plan-gate.ts";
 import { markItemListed } from "../lib/active-listings.ts";
@@ -939,6 +940,57 @@ flipdeskListingsRoutes.post("/:id/end", async (c) => {
 });
 
 
+/**
+ * US-3195 AC3: one percentage markdown, decided by the SHARED repricing rule.
+ *
+ * WHY computeMarkdownCents AND NOT THE ARITHMETIC THAT USED TO BE HERE. This
+ * route had its own `current * (1 - pct/100)` and its own `next < floor`
+ * compare, which meant the bulk path and the automated repricing engine each
+ * carried a private definition of what a floor is. The engine's is the composed
+ * one (effectiveFloorCents: the rule's floor and the item's, higher wins, and a
+ * null is the absence of a floor rather than a floor of zero), and a floor that
+ * three of the four callers honour is not a floor the seller can rely on.
+ *
+ * THE SHARED RULE CLAMPS; THIS ROUTE STILL REFUSES. That difference is
+ * deliberate and it is why the function is called twice. An automation running
+ * on the seller's own schedule should take the floor and move on. A person who
+ * typed "-20%" across a selection should not have some rows silently priced at
+ * a different number — the row that got a price nobody asked for is the one
+ * they never notice. So the rule computes both the asked-for price and the
+ * floor-bound one, and the two disagreeing IS the refusal signal. The floor
+ * itself is never re-derived here.
+ *
+ * Cents in, dollars out. The old `toFixed(2)` rounded to nearest and this
+ * floors, so a drop can land one cent lower than it used to — downward, which
+ * is the safe direction for a markdown and the direction every other markdown
+ * in the system already takes.
+ */
+export type MarkdownPlan =
+  | { ok: true; price: number }
+  | { ok: false; reason: "zero" }
+  | { ok: false; reason: "floor"; floor: number };
+
+export function planPercentageMarkdown(
+  currentPrice: number,
+  dropPct: number,
+  itemFloorPrice: number | null,
+): MarkdownPlan {
+  const currentCents = Math.round(currentPrice * 100);
+  const floorCents =
+    typeof itemFloorPrice === "number" && Number.isFinite(itemFloorPrice) &&
+      itemFloorPrice >= 0
+      ? Math.round(itemFloorPrice * 100)
+      : null;
+  const asked = computeMarkdownCents(currentCents, dropPct, null, null);
+  const bounded = computeMarkdownCents(currentCents, dropPct, null, floorCents);
+  if (asked <= 0) return { ok: false, reason: "zero" };
+  // bounded is never below asked; they differ exactly when the floor bound it.
+  if (bounded !== asked) {
+    return { ok: false, reason: "floor", floor: (floorCents as number) / 100 };
+  }
+  return { ok: true, price: asked / 100 };
+}
+
 // POST /bulk-price — US-2163: reprice a SELECTION in one request.
 //
 // Replaces a browser loop that fired one HTTP call per selected listing (200
@@ -1034,6 +1086,13 @@ flipdeskListingsRoutes.post("/bulk-price", async (c) => {
     /** US-9202: live on an extension channel; the desktop extension applies it. */
     queued?: boolean;
     error?: string;
+    /**
+     * US-3195: WHY a row was refused, for the callers that have to say
+     * something different about it. Only "floor" so far — the seller's own
+     * limit stopping their own percentage, which is not a failure and must not
+     * be counted as one.
+     */
+    reason?: "floor";
   }
   const results: RowResult[] = [];
 
@@ -1074,8 +1133,8 @@ flipdeskListingsRoutes.post("/bulk-price", async (c) => {
         });
         continue;
       }
-      next = Number((current * (1 - dropPct! / 100)).toFixed(2));
-      if (next <= 0) {
+      const plan = planPercentageMarkdown(current, dropPct!, row.item_floor_price);
+      if (!plan.ok && plan.reason === "zero") {
         results.push({
           listing_id: id,
           ok: false,
@@ -1083,23 +1142,16 @@ flipdeskListingsRoutes.post("/bulk-price", async (c) => {
         });
         continue;
       }
-      // US-3192/US-3195: the seller's hard floor on this garment.
-      //
-      // SKIPPED AND NAMED, not clamped to the floor. The seller asked for a
-      // specific percentage off; quietly substituting a different price is the
-      // behaviour that makes a bulk tool untrustworthy, and the row that got a
-      // price nobody asked for is the one they never notice. Only the percentage
-      // path is guarded: an explicit per-row price IS the seller typing a number
-      // for that garment, which is them overriding their own floor deliberately.
-      const floor = row.item_floor_price;
-      if (typeof floor === "number" && Number.isFinite(floor) && next < floor) {
+      if (!plan.ok) {
         results.push({
           listing_id: id,
           ok: false,
-          error: `That drop goes below this item's floor of $${floor.toFixed(2)}.`,
+          reason: "floor",
+          error: `That drop goes below this item's floor of $${plan.floor.toFixed(2)}.`,
         });
         continue;
       }
+      next = plan.price;
     }
 
     const previous = row.listing_price;

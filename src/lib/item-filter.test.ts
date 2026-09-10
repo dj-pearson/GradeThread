@@ -5,12 +5,14 @@ import {
   describeRule,
   encodeQuery,
   evalQuery,
+  fieldValue,
   opLabel,
   opsForField,
   type FilterField,
   type FilterOp,
   type FilterQuery,
 } from "./item-filter";
+import { sortByField } from "@/pages/flipdesk/listings-filter";
 import type { ItemFullRow } from "@/types/database";
 
 // Minimal ItemFullRow factory — only the fields the filter reads matter; the
@@ -186,6 +188,72 @@ describe("numeric facets", () => {
     expect(
       evalQuery(makeItem({ grade_value: null }), rule("grade", "gte", "8")),
     ).toBe(false);
+  });
+});
+
+// US-3195 AC1: the days_listed accessor itself, not just the rule that reads
+// it. The parallel helper in aged-inventory.ts has always been tested; this
+// FilterField never was, and the two can drift because they are two functions
+// computing the same number from the same column.
+//
+// The whole point of the field is the null. A drafted item has not been listed
+// for zero days — it has not been listed — and a zero here would put every
+// never-listed row inside "days listed >= 60", which is the death-pile filter.
+describe("days_listed (US-3195)", () => {
+  const DAY = 24 * 60 * 60 * 1000;
+  const daysAgo = (n: number) => new Date(Date.now() - n * DAY).toISOString();
+
+  it("a listing that has never been listed is null, not zero", () => {
+    const v = fieldValue(makeItem({ list_date: null }), "days_listed");
+    expect(v).toBeNull();
+    // Spelled out because `0` and `null` both read as falsy and the bug this
+    // guards against is exactly the two being treated as the same thing.
+    expect(v).not.toBe(0);
+  });
+
+  it("an unparseable list_date is null too, not NaN", () => {
+    expect(fieldValue(makeItem({ list_date: "not a date" }), "days_listed")).toBeNull();
+  });
+
+  it("counts whole days since list_date for a listing that has one", () => {
+    expect(fieldValue(makeItem({ list_date: daysAgo(90) }), "days_listed")).toBe(90);
+  });
+
+  it("is a different number from days_in_status for the same row", () => {
+    // The row that motivated the field: repriced yesterday, listed eight
+    // months ago. days_in_status says 1 and says nothing about dead stock.
+    const it_ = makeItem({ list_date: daysAgo(240), updated_at: daysAgo(1) });
+    expect(fieldValue(it_, "days_in_status")).toBe(1);
+    expect(fieldValue(it_, "days_listed")).toBe(240);
+  });
+
+  it("a never-listed row falls out of a days_listed threshold rather than into it", () => {
+    const never = makeItem({ list_date: null });
+    expect(evalQuery(never, rule("days_listed", "gte", "60"))).toBe(false);
+    // Not even ">= 0", which is what a zero would satisfy.
+    expect(evalQuery(never, rule("days_listed", "gte", "0"))).toBe(false);
+    expect(evalQuery(never, rule("days_listed", "isnull"))).toBe(true);
+  });
+
+  it("sorts LAST in both directions, because the column it derives from is null", () => {
+    // The Aged tab orders on list_date (inventory-tabs.ts), so this is the
+    // production sorter, not a comparator written for the test. Oldest first
+    // must not open on the rows that were never listed at all.
+    const rows = [
+      makeItem({ id: "never", list_date: null }),
+      makeItem({ id: "old", list_date: daysAgo(200) }),
+      makeItem({ id: "new", list_date: daysAgo(3) }),
+    ];
+    expect(sortByField([...rows], "list_date", "asc").map((r) => r.id)).toEqual([
+      "old",
+      "new",
+      "never",
+    ]);
+    expect(sortByField([...rows], "list_date", "desc").map((r) => r.id)).toEqual([
+      "new",
+      "old",
+      "never",
+    ]);
   });
 });
 

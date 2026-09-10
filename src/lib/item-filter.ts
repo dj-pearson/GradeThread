@@ -215,7 +215,16 @@ export function opLabel(field: FilterField, op: FilterOp): string {
   return OP_LABELS[op];
 }
 
-function fieldValue(it: ItemListRow, field: FilterField): string | number | null {
+/**
+ * The value a rule compares against, for one row and one field.
+ *
+ * EXPORTED SINCE US-3195. It is the whole of what a FilterField means, and
+ * until now the only way to reach it was through evalQuery, so `days_listed`
+ * could be asserted as a predicate but never as a VALUE — and the thing that
+ * matters about it is that a never-listed row is null and not zero. A test that
+ * can only ask "did the rule match?" cannot tell those two apart.
+ */
+export function fieldValue(it: ItemListRow, field: FilterField): string | number | null {
   switch (field) {
     case "brand":
       return it.brand;

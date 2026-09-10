@@ -88,6 +88,13 @@ interface Props {
   isShipped: boolean;
   isSold: boolean;
   isUnlisted: boolean;
+  /**
+   * US-3195: the death pile. Its own column set, deliberately NOT a widened
+   * `isActive` — Active is a performance view (impressions, CTR, quality) and
+   * this is a triage view (cost basis, current price, floor). The two tabs
+   * answer different questions about the same rows.
+   */
+  isAged: boolean;
 
   // ── selection ───────────────────────────────────────────────────────────
   selectable: boolean;
@@ -208,6 +215,7 @@ export function ListingsTable({
   isShipped,
   isSold,
   isUnlisted,
+  isAged,
   selectable,
   selected,
   allOnPageSelected,
@@ -435,6 +443,78 @@ export function ListingsTable({
                     Score
                   </TableHead>
                 </>
+              ) : isAged ? (
+                <>
+                  {/* US-3195 AC2: the five figures a markdown decision needs —
+                      how long it has sat, whether anyone is looking, what it
+                      cost, what it is priced at now, and the floor the seller
+                      said they would not go under.
+
+                      The Aged tab used to fall through to the generic branch
+                      and show Cost / Target / List / Sale / Net: four columns
+                      about a sale that has not happened, on the one screen
+                      whose whole subject is that it has not happened. */}
+                  <TableHead className="w-20 text-right">
+                    <SortHeader
+                      field="list_date"
+                      align="right"
+                      columnSort={columnSort}
+                      onToggle={toggleColumnSort}
+                    >
+                      Days listed
+                    </SortHeader>
+                  </TableHead>
+                  <TableHead className="w-16 text-right">
+                    <SortHeader
+                      field="listing_views"
+                      align="right"
+                      columnSort={columnSort}
+                      onToggle={toggleColumnSort}
+                    >
+                      Views
+                    </SortHeader>
+                  </TableHead>
+                  <TableHead className="w-16 text-right">
+                    <SortHeader
+                      field="listing_watchers"
+                      align="right"
+                      columnSort={columnSort}
+                      onToggle={toggleColumnSort}
+                    >
+                      Watchers
+                    </SortHeader>
+                  </TableHead>
+                  <TableHead className="w-20 text-right">
+                    <SortHeader
+                      field="purchase_price"
+                      align="right"
+                      columnSort={columnSort}
+                      onToggle={toggleColumnSort}
+                    >
+                      Cost
+                    </SortHeader>
+                  </TableHead>
+                  <TableHead className="w-24 text-right">
+                    <SortHeader
+                      field="list_price"
+                      align="right"
+                      columnSort={columnSort}
+                      onToggle={toggleColumnSort}
+                    >
+                      Price
+                    </SortHeader>
+                  </TableHead>
+                  <TableHead className="w-20 text-right">
+                    <SortHeader
+                      field="floor_price"
+                      align="right"
+                      columnSort={columnSort}
+                      onToggle={toggleColumnSort}
+                    >
+                      Floor
+                    </SortHeader>
+                  </TableHead>
+                </>
               ) : isActive ? (
                 <>
                   <TableHead className="w-24 text-right">
@@ -611,7 +691,7 @@ export function ListingsTable({
                   date, not the age: first click is oldest-touched first
                   (highest age). Same shape as "Days listed", which has sorted
                   on list_date since it shipped. */}
-              {!isSold && !isActive && (
+              {!isSold && !isActive && !isAged && (
                 <TableHead className="w-16 text-right">
                   <SortHeader
                     field="updated_at"
@@ -946,6 +1026,44 @@ export function ListingsTable({
                         </span>
                       </TableCell>
                     </>
+                  ) : isAged ? (
+                    <>
+                      <TableCell className="text-right tabular-nums">
+                        {daysSince(it.list_date) ?? "—"}
+                      </TableCell>
+                      <TableCell className="text-right tabular-nums text-muted-foreground">
+                        {it.listing_views ?? "—"}
+                      </TableCell>
+                      <TableCell className="text-right tabular-nums text-muted-foreground">
+                        {it.listing_watchers ?? "—"}
+                      </TableCell>
+                      {/* Cost basis is READ-ONLY here. This screen exists to
+                          decide what to do about money already spent; editing
+                          the number it is reasoning from belongs on the item,
+                          not one keystroke away from a bulk markdown. */}
+                      <TableCell className="text-right tabular-nums">
+                        {fmtMoney(it.purchase_price) || "—"}
+                      </TableCell>
+                      <TableCell
+                        className="text-right tabular-nums"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <InlineCell
+                          value={it.list_price}
+                          label="List price"
+                          rowLabel={rowLabel}
+                          type="number"
+                          align="right"
+                          onChange={(v) => updateListingPrice(it, v)}
+                        />
+                      </TableCell>
+                      {/* An unset floor is an em dash, never $0.00 — the
+                          absence of a floor is not a floor of zero, and the
+                          bulk markdown treats it the same way. */}
+                      <TableCell className="text-right tabular-nums text-muted-foreground">
+                        {fmtMoney(it.floor_price) || "—"}
+                      </TableCell>
+                    </>
                   ) : isActive ? (
                     <>
                       <TableCell
@@ -1174,7 +1292,7 @@ export function ListingsTable({
                       />
                     </TableCell>
                   )}
-                  {!isSold && !isActive && (
+                  {!isSold && !isActive && !isAged && (
                     <TableCell className="text-right">
                       {age != null && (
                         <span

@@ -551,14 +551,14 @@ behind every row the listings table shows, and it does so by DROPPING the
 the drop succeeds and the create fails, the listings page has no function to
 call and every tab is empty until it is fixed.
 
-**⚠️ NOT VERIFIED AGAINST A REAL POSTGRES.** `src/test/listing-page-sql-parity.test.ts`
-is the test that runs this function and its TypeScript twin over the same rows
-and demands identical ids in identical order. It needs a database and it
-SKIPPED — Docker cannot run in the environment this was written in, and starting
-the daemon was attempted and refused. So the SQL is reviewed and unexecuted.
-Run the parity lane before or straight after applying:
-`LISTING_PARITY_DB=1 npx vitest run src/test/listing-page-sql-parity.test.ts`
-against a local stack. Everything else in the stack has been executed.
+**VERIFIED 2026-09-10.** `LISTING_PARITY_DB=1 npx vitest run
+src/test/listing-page-sql-parity.test.ts` was run against the live
+`supabase_db_gradethread` container: **87 passed / 0 failed**. That test runs
+this function and its TypeScript twin over the same rows and demands identical
+ids in identical order. Prod exposes exactly one `flipdesk_listing_page`
+overload, the 12-argument one carrying `p_aged_threshold_days`, so the drop and
+the create both landed. The earlier "reviewed and unexecuted" warning here is
+retired.
 
 **Apply order:** after 00770. Run `NOTIFY pgrst, 'reload schema';` afterwards
 (a new column AND a changed function signature), then redeploy the edge.

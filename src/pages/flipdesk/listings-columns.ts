@@ -46,6 +46,10 @@ export const LISTINGS_COLUMN_LIST = [
   "days_to_sell",
   "tracking",
   "target_price",
+  // US-3195: the seller's hard floor on the garment (00769). The Aged tab
+  // prints it next to the current price — a markdown decision made without the
+  // floor in view is a markdown the bulk action then refuses.
+  "floor_price",
   "grade_value",
   "grade_label",
   "certificate_url",

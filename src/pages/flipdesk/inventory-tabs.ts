@@ -181,6 +181,30 @@ export const UNLISTED_FILTER_LABELS: Readonly<Record<UnlistedFilter, string>> = 
   needs_review: "Needs review",
 };
 
+/**
+ * Which tabs let a seller tick rows and act on the batch.
+ *
+ * US-3195: Aged joins them, and it is the reason this is a named rule rather
+ * than a `||` chain in the page. The tab shipped with a bulk markdown that
+ * could not be reached, because `selectable` was spelled out in listings.tsx as
+ * three tab ids and adding a fourth tab does not edit that line. Selection is a
+ * property of what a tab is FOR, so it lives next to the tab list.
+ *
+ * The four that stay off: 'all' mixes every status, so a batch action on it
+ * means something different per row; Shipped, Returned and Archived are
+ * histories, and there is nothing left to do to their rows in bulk.
+ */
+const SELECTABLE_TABS: ReadonlySet<TabId> = new Set<TabId>([
+  "unlisted",
+  "active",
+  "aged",
+  "sold",
+]);
+
+export function tabSupportsSelection(tab: TabId): boolean {
+  return SELECTABLE_TABS.has(tab);
+}
+
 export function resolveUnlistedFilter(
   raw: string | null | undefined,
 ): UnlistedFilter {

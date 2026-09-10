@@ -13,7 +13,6 @@ import {
   Loader2,
   Megaphone,
   Truck,
-  Star,
   XCircle,
   TrendingDown,
   RefreshCw,
@@ -81,6 +80,7 @@ import { useInventorySelection } from "@/stores/inventory-selection";
 import { useInventoryStatusCounts } from "@/hooks/use-inventory-status-counts";
 import { useAgedThreshold } from "@/hooks/use-aged-threshold";
 import { AgedStrip } from "@/components/flipdesk/aged-strip";
+import { listingsEmptyState } from "@/pages/flipdesk/listings-empty-state";
 import { MarkListedDialog } from "@/components/flipdesk/mark-listed-dialog";
 import { PublishToEbayDialog } from "@/components/flipdesk/publish-to-ebay-dialog";
 import { RecordSaleDialog } from "@/components/flipdesk/record-sale-dialog";
@@ -117,6 +117,7 @@ import {
   DRAFT_LIKE_STATUSES,
   UNLISTED_FILTERS,
   UNLISTED_FILTER_LABELS,
+  tabSupportsSelection,
   resolveUnlistedFilter,
 } from "@/pages/flipdesk/inventory-tabs";
 import { type SoldFilter } from "@/pages/flipdesk/listings-filter";
@@ -452,7 +453,10 @@ export function FlipdeskListingsPage() {
   // US-2174: a hidden tab must not poll.
   const visible = useDocumentVisible();
   const isShipped = tab === "shipped";
-  const selectable = isUnlisted || isSold || isActive;
+  // US-3195 AC3: which tabs allow a batch action is a property of the tab, not
+  // a `||` chain here — Aged shipped with a bulk markdown nothing could reach
+  // because adding a tab does not edit a hardcoded list of three ids.
+  const selectable = tabSupportsSelection(tab);
 
   // Power-user shortcut: 'a' toggles select-all on the current page (only on
   // tabs that support selection). Plain 'a' (no Ctrl/Cmd) so it never collides
@@ -1377,51 +1381,16 @@ export function FlipdeskListingsPage() {
             <TableLoadingSkeleton rows={10} columns={7} />
           ) : pageRows.length === 0 ? (
             <EmptyState
-              icon={
-                tab === "unlisted"
-                  ? unlistedFilter === "all"
-                    ? Sparkles
-                    : FileText
-                  : tab === "active"
-                    ? Star
-                    : tab === "sold"
-                      ? TrendingDown
-                      : tab === "shipped"
-                        ? Truck
-                        : tab === "returned"
-                          ? RotateCcw
-                          : Rocket
-              }
-              title={
-                tab === "unlisted"
-                  ? unlistedFilter === "all"
-                    ? "Nothing waiting to list"
-                    : `Nothing under ${UNLISTED_FILTER_LABELS[unlistedFilter]}`
-                  : tab === "active"
-                    ? "No active listings"
-                    : tab === "sold"
-                      ? "No sold items match this filter"
-                      : tab === "shipped"
-                        ? "Nothing shipped yet"
-                        : tab === "returned"
-                          ? "No returns"
-                          : "No items yet"
-              }
-              description={
-                tab === "unlisted"
-                  ? unlistedFilter === "all"
-                    ? "Items you add will wait here until they are published. Add an item to get started."
-                    : "Pick All above to see every unlisted item."
-                  : tab === "active"
-                    ? "Listings live on a marketplace will show here once you publish."
-                    : tab === "sold"
-                      ? "Sold items will appear here as orders come in."
-                      : tab === "shipped"
-                        ? "Items you've marked shipped will be tracked here."
-                        : tab === "returned"
-                          ? "Returned orders will be tracked here."
-                          : "Add an item to start building your listing pipeline."
-              }
+              // US-3195 AC5: the icon/title/description chains moved to
+              // listings-empty-state.ts. They were three parallel ternaries
+              // kept in the same order by hand, and the Aged tab was added to
+              // the tab list and to none of them — so an account full of
+              // healthy listings with nothing stale read "No items yet".
+              {...listingsEmptyState({
+                tab,
+                unlistedFilter,
+                agedThresholdDays,
+              })}
               action={
                 activeTab.emptyCta.to.startsWith("?")
                   ? {
@@ -1489,6 +1458,7 @@ export function FlipdeskListingsPage() {
                 pageRows={pageRows}
                 tab={tab}
                 isActive={isActive}
+                isAged={isAgedTab}
                 isUnlisted={isUnlisted}
                 isShipped={isShipped}
                 isSold={isSold}
@@ -1762,6 +1732,71 @@ export function FlipdeskListingsPage() {
                         : `Resubmit ${selected.size} to eBay`}
                     </Button>
                   ) : null}
+                  <Button
+                    variant="destructive"
+                    onClick={bulkEndListings}
+                    disabled={busy}
+                  >
+                    <XCircle className="mr-2 h-4 w-4" />
+                    End {selected.size}
+                  </Button>
+                </>
+              ) : isAgedTab ? (
+                <>
+                  {/* US-3195 AC3: the whole reason this tab is selectable.
+                      Mark it down or pull it — the two things a seller can do
+                      about dead stock — and nothing else, so the bar does not
+                      turn into the Active tab's eight buttons on a screen
+                      whose job is one decision per row.
+
+                      The drop runs through the SAME /bulk-price route the
+                      Active tab uses, which is what makes it respect the
+                      per-item floor from US-3192: the refusal lives in the
+                      route, so it covers every caller rather than this
+                      screen. Rows it leaves alone come back BY NAME. */}
+                  <Select value={bulkDropPct} onValueChange={setBulkDropPct}>
+                    <SelectTrigger
+                      aria-label="Markdown percentage"
+                      className="h-9 w-28"
+                    >
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {["5", "10", "15", "20", "25"].map((p) => (
+                        <SelectItem key={p} value={p}>
+                          −{p}%
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  {dropProgress ? (
+                    <>
+                      <span className="text-sm tabular-nums text-muted-foreground">
+                        <Loader2 className="mr-2 inline h-4 w-4 animate-spin" />
+                        {dropProgress.done} / {dropProgress.total}
+                      </span>
+                      <Button
+                        variant="outline"
+                        onClick={() => {
+                          dropCancelled.current = true;
+                        }}
+                      >
+                        Stop
+                      </Button>
+                    </>
+                  ) : (
+                    <Button onClick={bulkPriceDrop} disabled={busy}>
+                      {busy ? (
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      ) : (
+                        <TrendingDown className="mr-2 h-4 w-4" />
+                      )}
+                      Mark down {selected.size}
+                    </Button>
+                  )}
+                  {/* "or pull them" — the other half of the story. These are
+                      live listings, so this is the same end-listing path the
+                      Active tab uses. */}
                   <Button
                     variant="destructive"
                     onClick={bulkEndListings}

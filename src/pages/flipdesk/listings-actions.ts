@@ -69,11 +69,52 @@ import {
   type StatusUndoEntry,
 } from "@/lib/bulk-status-undo";
 import { ITEM_STATUS_LABELS } from "@/lib/constants";
+import { itemRowLabel } from "@/lib/item-row-label";
 import type { ItemFullRow, ItemStatus, ListingInsert } from "@/types/database";
 
 /** A mutation hook's call surface, narrowed to what a handler actually uses. */
 interface MutationLike<TVars, TResult> {
   mutateAsync: (vars: TVars) => Promise<TResult>;
+}
+
+/**
+ * US-3195 AC3: the bulk markdown's floor refusals, as a sentence with NAMES in
+ * it.
+ *
+ * The edge route refuses to price a garment under the seller's own floor rather
+ * than clamping to it (US-3192) — the seller asked for a percentage, and a
+ * different number substituted quietly is the behaviour that makes a bulk tool
+ * untrustworthy. But a refusal reported as "3 failed" is one the seller cannot
+ * act on: the Aged screen exists so they can do something about specific
+ * garments, and a count tells them nothing about which three to open.
+ *
+ * `reason` is not on BulkPriceRowResult. The wire carries it, this parameter
+ * declares it structurally, and the shared interface is left alone deliberately
+ * — a discriminator on the response type is a change to a hook every lifecycle
+ * caller shares, and it can be made on its own later.
+ *
+ * Returns null when nothing hit a floor, so the caller shows no toast at all.
+ */
+export function describeFloorSkips(
+  results: readonly { listing_id: string; ok: boolean; reason?: string }[],
+  items: readonly ItemFullRow[],
+  max = 5,
+): string | null {
+  const skipped = results.filter((r) => !r.ok && r.reason === "floor");
+  if (skipped.length === 0) return null;
+  const names = skipped.map((r) => {
+    const it = items.find((i) => i.listing_id === r.listing_id);
+    return it ? itemRowLabel(it) : `listing ${r.listing_id.slice(0, 8)}`;
+  });
+  // Trimmed, because a toast holding forty titles is a toast nobody reads.
+  // Some names beat none: the seller can filter the Aged tab by floor price
+  // for the rest, and the count is still exact.
+  const shown = names.slice(0, max).join(", ");
+  const rest = names.length - Math.min(names.length, max);
+  const list = rest > 0 ? `${shown} and ${rest} more` : shown;
+  return `${names.length} left at ${
+    names.length === 1 ? "its" : "their"
+  } current price: ${list}. That drop would have gone under the floor you set.`;
 }
 
 export interface ListingsActionDeps {
@@ -695,7 +736,20 @@ export function makeListingsActions(d: ListingsActionDeps) {
         }
         : undefined;
 
-      if (res.failed === 0) {
+      // US-3195 AC3: a floor refusal is not a failure — it is the seller's own
+      // setting doing its job — so it gets its own sentence, with the garment
+      // names in it, and it is kept OUT of the failure count. Reporting "2
+      // failed" for two listings that behaved exactly as configured sends the
+      // seller looking for a marketplace problem that does not exist.
+      const floorNote = describeFloorSkips(res.results, items);
+      if (floorNote) {
+        toast.warning(floorNote, { duration: 15_000 });
+      }
+      const realFailures = res.results.filter(
+        (r) => !r.ok && (r as { reason?: string }).reason !== "floor",
+      );
+
+      if (realFailures.length === 0) {
         toast.success(
           `Dropped price ${pct}% on ${res.succeeded} listing${
             res.succeeded === 1 ? "" : "s"
@@ -706,9 +760,9 @@ export function makeListingsActions(d: ListingsActionDeps) {
       } else {
         // Name the first real reason rather than a bare count — "3 failed" with
         // no cause is what sends a seller to support.
-        const firstError = res.results.find((r) => !r.ok)?.error;
+        const firstError = realFailures[0]?.error;
         toast.warning(
-          `Dropped ${res.succeeded}, ${res.failed} failed.${
+          `Dropped ${res.succeeded}, ${realFailures.length} failed.${
             firstError ? ` First: ${firstError}` : ""
           }`,
           { duration: 15_000, action: undoAction },

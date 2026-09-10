@@ -465,6 +465,104 @@ describe("US-2173: bulk actions", () => {
     expect(warn?.msg).toContain("already repriced");
   });
 
+  // ── US-3195 AC3: the floor refusals get NAMES ────────────────────────────
+  //
+  // The edge route refuses to price a garment through the seller's own floor
+  // (US-3192) rather than clamping it — the seller asked for a percentage and a
+  // different number quietly substituted is the behaviour that makes a bulk
+  // tool untrustworthy. But a refusal reported as "3 failed" is a refusal the
+  // seller cannot act on: they have no way to find which three, and the whole
+  // point of the Aged screen is to act on named items.
+
+  function floorRow(listingId: string, floor: number) {
+    return {
+      listing_id: listingId,
+      ok: false,
+      reason: "floor",
+      error: `That drop goes below this item's floor of $${floor.toFixed(2)}.`,
+    };
+  }
+
+  function withResults(rows: unknown[], items: Row[]) {
+    return deps({
+      items,
+      selected: new Set(items.map((i) => i.id)),
+      bulkPrice: {
+        mutateAsync: () =>
+          Promise.resolve({
+            ok: true,
+            total: rows.length,
+            succeeded: rows.filter((r) => (r as { ok: boolean }).ok).length,
+            failed: rows.filter((r) => !(r as { ok: boolean }).ok).length,
+            results: rows,
+          }),
+      },
+    } as Partial<Deps>);
+  }
+
+  it("bulkPriceDrop names the items it left alone for hitting their floor", async () => {
+    const items = [
+      item({ id: "i1", listing_id: "L1", item_title: "Nike Windbreaker" }),
+      item({ id: "i2", listing_id: "L2", item_title: "Levi 501 Black" }),
+      item({ id: "i3", listing_id: "L3", item_title: "Carhartt Detroit" }),
+    ];
+    const a = makeListingsActions(
+      withResults(
+        [
+          { listing_id: "L1", ok: true, price: 36, previous_price: 40, pushed: true },
+          floorRow("L2", 30),
+          floorRow("L3", 25),
+        ],
+        items,
+      ),
+    );
+    await a.bulkPriceDrop();
+    const all = toasts.map((t) => t.msg).join(" | ");
+    expect(all).toContain("Levi 501 Black");
+    expect(all).toContain("Carhartt Detroit");
+    // And says WHY, so the seller knows this is their own setting talking and
+    // not a marketplace rejection they need to chase.
+    expect(all.toLowerCase()).toContain("floor");
+    // The row that went through is not named as a problem.
+    expect(all).not.toContain("Nike Windbreaker");
+  });
+
+  it("a floor refusal is not reported as an anonymous count", async () => {
+    const items = [item({ id: "i1", listing_id: "L1", item_title: "Levi 501 Black" })];
+    const a = makeListingsActions(withResults([floorRow("L1", 30)], items));
+    await a.bulkPriceDrop();
+    const named = toasts.find((t) => t.msg.includes("Levi 501 Black"));
+    expect(named, JSON.stringify(toasts)).toBeTruthy();
+  });
+
+  it("a long list of floor refusals is trimmed but still names some", async () => {
+    const items = Array.from({ length: 12 }, (_, i) =>
+      item({ id: `i${i}`, listing_id: `L${i}`, item_title: `Garment ${i}` }),
+    );
+    const a = makeListingsActions(
+      withResults(items.map((it) => floorRow(it.listing_id as string, 20)), items),
+    );
+    await a.bulkPriceDrop();
+    const named = toasts.find((t) => t.msg.includes("Garment 0"))!;
+    expect(named).toBeTruthy();
+    // Not a wall of twelve titles in a toast.
+    expect(named.msg).toContain("more");
+  });
+
+  it("a marketplace failure is still reported as a failure, not as a floor skip", async () => {
+    const items = [item({ id: "i1", listing_id: "L1", item_title: "Nike Windbreaker" })];
+    const a = makeListingsActions(
+      withResults(
+        [{ listing_id: "L1", ok: false, error: "eBay rejected the revise." }],
+        items,
+      ),
+    );
+    await a.bulkPriceDrop();
+    const all = toasts.map((t) => t.msg).join(" | ");
+    expect(all).toContain("eBay rejected the revise.");
+    expect(all.toLowerCase()).not.toContain("floor");
+  });
+
   it("bulkPublishToEbay does nothing without a connection", async () => {
     let called = 0;
     const a = makeListingsActions(
