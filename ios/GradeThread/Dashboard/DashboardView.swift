@@ -94,7 +94,20 @@ struct DashboardView: View {
         // US-967: rebuild the 14-day trend series only when sales or items
         // change, not on every `body` re-evaluation (where it was read 3×).
         .onChange(of: trendSignature, initial: true) { _, _ in
-            trendPoints = DashboardTrend.dailySeries(sales: sales, items: items, days: 14, now: .now)
+            // US-3302: both arguments are anchored, and they have to be passed
+            // together. `sale_date` is a date-only column stored at midnight
+            // UTC, so `dailySeries` bucketing it with the DEVICE's calendar
+            // plotted every sale one day early west of UTC and left the last
+            // day of the axis permanently empty. `now` becomes UTC midnight of
+            // the seller's own day (so the axis still ends on THEIR today) and
+            // the calendar is UTC (so a sale lands on the day it was recorded).
+            trendPoints = DashboardTrend.dailySeries(
+                sales: sales,
+                items: items,
+                days: 14,
+                now: MoneyDate.anchor(localDayOf: .now),
+                calendar: MoneyDate.calendar
+            )
         }
         // US-1263: rebuild the metrics rollup + aging/graded subsets only when a
         // field they actually read changes, not on every unrelated re-render.

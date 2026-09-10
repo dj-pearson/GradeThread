@@ -147,16 +147,17 @@ struct MoneyView: View {
     /// can't drift from the list shown below it.
     private func expensesThisMonthTotal(
         now: Date = .now,
-        // US-1494: this is the total actually DISPLAYED (line "…this month" + the
-        // net-profit calc). `spent_on` is parsed at UTC midnight, so bucket in UTC
-        // too — Calendar.current put a boundary-day expense in the wrong month for
-        // users behind/ahead of UTC. (The ExpenseStore.thisMonthTotal fix landed on
-        // the older, cache-less helper; this is the live path.)
-        calendar: Calendar = ExpenseStore.bucketingCalendar
+        // The DEVICE's calendar, and it names the month only. US-1494 is why the
+        // boundary is not local: `spent_on` is parsed at UTC midnight, so a
+        // Calendar.current boundary put an expense dated the 1st in the wrong
+        // month. US-3302 is why naming the month is not UTC either - see below.
+        calendar: Calendar = .current
     ) -> Double {
-        guard let startOfMonth = calendar.date(
-            from: calendar.dateComponents([.year, .month], from: now)
-        ) else { return 0 }
+        // US-3302: this used to read `now` in UTC as well, which is the other
+        // half of the same bug. A seller in Tokyo opening the tab at 8am on
+        // 1 October is still on 30 September in UTC, so the tile showed
+        // September's expenses against October's revenue.
+        let startOfMonth = MoneyDate.monthAnchor(localMonthOf: now, localCalendar: calendar)
         return Money.sum(expenses.filter { $0.spentOn >= startOfMonth }) { $0.amount }
     }
 
@@ -870,7 +871,7 @@ private struct ExpenseRow: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text(expense.categoryValue.label)
                     .font(.subheadline)
-                Text(expense.spentOn, format: .dateTime.month().day().year())
+                Text(MoneyDate.dayDisplay(expense.spentOn))
                     .font(.caption2)
                     .foregroundStyle(.secondary)
             }
@@ -902,7 +903,7 @@ private struct SalePreviewRow: View {
         HStack(spacing: 10) {
             VStack(alignment: .leading, spacing: 2) {
                 Text(title).font(.subheadline).lineLimit(1)
-                Text(date, format: .dateTime.month().day().year())
+                Text(MoneyDate.dayDisplay(date))
                     .font(.caption2)
                     .foregroundStyle(.secondary)
             }
