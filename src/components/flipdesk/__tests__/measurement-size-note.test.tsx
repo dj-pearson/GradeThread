@@ -31,6 +31,8 @@ const LULULEMON_MENS_TOPS: SizeBandsResponse = {
     { size: "XL", index: 4, bands: { chest: [23.5, 28] } },
     { size: "XXL", index: 5, bands: { chest: [25, 29.5] } },
   ],
+  chart: null,
+  alternates: [],
 };
 
 const bands = vi.hoisted(() => ({ current: null as SizeBandsResponse | null }));
@@ -191,16 +193,21 @@ describe("living beside the US-2827 cohort note", () => {
   });
 });
 
-describe("the size guide link", () => {
-  it("points at the brand's own guide when the chart carries one", async () => {
+describe("the size guide trigger", () => {
+  // US-3283 moved the guide behind a dialog. The two assertions that used to
+  // live here — brand URL when the chart has one, search when it does not —
+  // moved with it, to size-guide-panel.test.tsx, because they are now claims
+  // about the panel's body rather than about this form.
+  it("names the brand and opens a dialog rather than leaving the app", async () => {
     const html = await render({ ...BASE, onSizeChange: () => {} });
-    expect(html).toContain("https://shop.lululemon.com/help/size-guide");
+    expect(html).toContain("Lululemon size guide");
+    expect(html).toContain('aria-haspopup="dialog"');
+    // The whole point of the change: no outbound link on the form itself.
     expect(html).not.toContain("google.com/search");
   });
 
-  it("falls back to the search when the chart has no source URL", async () => {
-    bands.current = { ...LULULEMON_MENS_TOPS, sourceUrl: null };
-    const html = await render({ ...BASE, onSizeChange: () => {} });
-    expect(html).toContain("google.com/search");
+  it("still offers the guide on an item with no size yet", async () => {
+    const html = await render({ ...BASE, size: "", onSizeChange: () => {} });
+    expect(html).toContain("Lululemon size guide");
   });
 });

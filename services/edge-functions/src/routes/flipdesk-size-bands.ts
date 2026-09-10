@@ -2,7 +2,7 @@
 //
 // GET /api/flipdesk/size-bands?brand=&garment=&gender=
 //   → { tier, brandLabel, department, garment, sourceUrl, sizeSystem,
-//       sizeClass, measurementBasis, rows }
+//       sizeClass, measurementBasis, rows, chart, alternates }
 //
 // WHY A BAND TABLE AND NOT A VERDICT. US-2915 chose this shape over a
 // per-keystroke "is this size wrong?" endpoint and over bundling the 292-chart
@@ -29,6 +29,7 @@ import { failSafe } from "../lib/http-errors.ts";
 import { resolveBrandKnowledgePack } from "../lib/brand-knowledge.ts";
 import { findSizingCharts, type SizingChart } from "../lib/sizing-charts.ts";
 import { measurementGroupFor } from "../lib/measurement-templates.ts";
+import { buildSizeGuide, type SizeGuideChart } from "../lib/size-guide.ts";
 import {
   detectSizeClass,
   detectSizeSystem,
@@ -57,6 +58,20 @@ export interface SizeBandsResponse {
   sizeClass: string | null;
   measurementBasis: MeasurementBasis;
   rows: SizeBandRow[];
+  /**
+   * US-3283: the same chart in the brand's own words, for the size-guide panel.
+   *
+   * This is deliberately NOT derived from `rows`. The band table drops every
+   * column it cannot turn into a flat inch measurement, which on a footwear or
+   * bag chart is every column there is. It is also populated on some responses
+   * where `rows` is empty on purpose: when a brand sells to two departments and
+   * the item does not say which, the CHECK stays quiet (guessing there would
+   * put a women's chart behind a men's tee) while the GUIDE still has something
+   * honest to show, with `alternates` carrying the other department.
+   */
+  chart: SizeGuideChart | null;
+  /** Other charts the same brand publishes for this garment. Capped at four. */
+  alternates: SizeGuideChart[];
 }
 
 const EMPTY: SizeBandsResponse = {
@@ -69,6 +84,8 @@ const EMPTY: SizeBandsResponse = {
   sizeClass: null,
   measurementBasis: "body",
   rows: [],
+  chart: null,
+  alternates: [],
 };
 
 /**
@@ -106,7 +123,39 @@ function tierFor(chart: SizingChart): SizeChartTier {
   return chart.verified === true ? "verified" : "brand";
 }
 
-function respond(chart: SizingChart, garmentQuery: string): SizeBandsResponse {
+/**
+ * The readable charts for the size-guide panel: the best one first, then the
+ * others the same brand publishes for this garment.
+ *
+ * Resolved SEPARATELY from the band table on purpose. The check below refuses
+ * to pick between a men's and a women's chart when the item does not say which,
+ * and that refusal is right — but it is a refusal to JUDGE, not a reason to
+ * hide the brand's own published numbers. Here both charts come back and the
+ * seller picks.
+ */
+function guidesFor(
+  pool: SizingChart[],
+  department: string | null,
+): { chart: SizeGuideChart | null; alternates: SizeGuideChart[] } {
+  // Department-matching charts lead; the rest follow rather than disappear.
+  const preferred = department
+    ? pool.filter((ch) => ch.department === department || ch.department === "Unisex")
+    : [];
+  const rest = pool.filter((ch) => !preferred.includes(ch));
+  const built: SizeGuideChart[] = [];
+  for (const ch of [...preferred, ...rest]) {
+    const guide = buildSizeGuide(ch, tierFor(ch));
+    if (guide) built.push(guide);
+    if (built.length >= 5) break;
+  }
+  return { chart: built[0] ?? null, alternates: built.slice(1) };
+}
+
+function respond(
+  chart: SizingChart,
+  garmentQuery: string,
+  guides: { chart: SizeGuideChart | null; alternates: SizeGuideChart[] },
+): SizeBandsResponse {
   const basis: MeasurementBasis = chart.measurementBasis === "flat" ? "flat" : "body";
   const group = measurementGroupFor(garmentQuery || chart.garment);
   return {
@@ -119,6 +168,7 @@ function respond(chart: SizingChart, garmentQuery: string): SizeBandsResponse {
     sizeClass: chart.sizeClass ?? detectSizeClass(chart),
     measurementBasis: basis,
     rows: buildSizeBands(chart, group, basis),
+    ...guides,
   };
 }
 
@@ -166,6 +216,10 @@ flipdeskSizeBandsRoutes.get("/", async (c) => {
     const isBrandPool = pool.length > 0;
     if (!isBrandPool) pool = genericPool;
 
+    // US-3283. Built from the pool BEFORE the check narrows it, so the panel
+    // still has the brand's own charts on every path the check goes quiet on.
+    const guides = guidesFor(pool, department);
+
     // A brand that sells to more than one department, and an item that does not
     // say which: guessing here would put a women's chart behind a men's tee.
     // Drop to the generic table instead, which is honest about being an estimate.
@@ -177,12 +231,12 @@ flipdeskSizeBandsRoutes.get("/", async (c) => {
     // Still ambiguous after the department filter (no gender, and the generic
     // pool itself spans Men and Women) — say nothing rather than pick one.
     if (narrowed.length > 1 && !department && departmentsIn(narrowed).size > 1) {
-      return c.json(EMPTY);
+      return c.json({ ...EMPTY, ...guides });
     }
     const chart = narrowed[0];
-    if (!chart) return c.json(EMPTY);
+    if (!chart) return c.json({ ...EMPTY, ...guides });
 
-    return c.json(respond(chart, garment));
+    return c.json(respond(chart, garment, guides));
   } catch (err) {
     return failSafe(c, 500, "Could not load size bands", err, "size-bands");
   }

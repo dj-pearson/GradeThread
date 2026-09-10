@@ -24,6 +24,8 @@ function bandsFor(over: Partial<SizeBandsResponse> = {}): SizeBandsResponse {
     sizeSystem: "alpha",
     sizeClass: "standard",
     measurementBasis: "body",
+    chart: null,
+    alternates: [],
     rows: [
       { size: "XS", index: 0, bands: { chest: [18, 22.5] } },
       { size: "S", index: 1, bands: { chest: [19, 23.5] } },

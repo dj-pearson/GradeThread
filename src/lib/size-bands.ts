@@ -23,6 +23,8 @@ export const NO_SIZE_BANDS: SizeBandsResponse = {
   sizeClass: null,
   measurementBasis: "body",
   rows: [],
+  chart: null,
+  alternates: [],
 };
 
 export function sizeBandsQueryKey(
@@ -49,5 +51,14 @@ export async function fetchSizeBands(
   // Trust the shape only as far as the fields the check reads. A malformed
   // response must render nothing, never a note built on undefined.
   if (!Array.isArray(body.rows) || !body.tier) return NO_SIZE_BANDS;
-  return { ...NO_SIZE_BANDS, ...body, rows: body.rows };
+  return {
+    ...NO_SIZE_BANDS,
+    ...body,
+    rows: body.rows,
+    // US-3283: the panel iterates both of these. A spread that let `undefined`
+    // through from an older edge build would crash the composer on open, so
+    // they are pinned to their empty shape rather than trusted.
+    chart: body.chart ?? null,
+    alternates: Array.isArray(body.alternates) ? body.alternates : [],
+  };
 }

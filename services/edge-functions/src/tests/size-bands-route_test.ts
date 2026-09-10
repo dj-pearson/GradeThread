@@ -29,6 +29,18 @@ interface Body {
   sizeClass: string | null;
   measurementBasis: string;
   rows: Array<{ size: string; index: number; bands: Record<string, [number, number]> }>;
+  chart: Guide | null;
+  alternates: Guide[];
+}
+
+interface Guide {
+  brand: string;
+  department: string;
+  garment: string;
+  tier: string;
+  sourceUrl: string | null;
+  columns: Array<{ key: string; label: string; bandKey: string | null }>;
+  rows: Array<{ size: string; index: number; values: Record<string, string>; footnote: string | null }>;
 }
 
 async function get(query: string): Promise<{ status: number; body: Body; headers: Headers }> {
@@ -132,4 +144,59 @@ Deno.test("size system and class are read off the chart, never guessed", async (
   // nothing in the row says which, so the system stays null.
   const numeric = await get("brand=Lululemon&garment=legging&gender=women");
   assertEquals(numeric.body.sizeSystem, null);
+});
+
+// ── US-3283: the readable chart the size-guide panel renders ────────────────
+
+Deno.test("a brand chart also comes back in the brand's own words", async () => {
+  const { body } = await get("brand=Lululemon&garment=tee&gender=men");
+  assertEquals(body.chart?.brand, "Lululemon");
+  assertEquals(body.chart?.department, "Men");
+  assertEquals(body.chart?.tier, "brand");
+  // Verbatim, not the derived flat band: the band for XS is [18, 22.5] and the
+  // chart says 32-34. Printing the band here would tell a seller their brand
+  // publishes numbers it does not publish.
+  assertEquals(body.chart?.rows[0]?.size, "XS");
+  assertEquals(body.chart?.rows[0]?.values.chest, "33-35");
+  assertEquals(body.chart?.columns[0]?.key, "chest");
+  assertEquals(body.chart?.columns[0]?.bandKey, "chest");
+});
+
+Deno.test("an ambiguous department still returns both charts for the panel", async () => {
+  // The band table stays empty here on purpose (see the case above) — but a
+  // GUIDE has something honest to say, and hiding it was the whole reason the
+  // old link went to a web search.
+  const { body } = await get("brand=Lululemon&garment=tee");
+  assert(body.tier !== "brand", "the CHECK must still refuse to pick a department");
+  assertEquals(body.brandLabel, null);
+  assert(body.chart !== null, "the GUIDE must still have a chart to show");
+  assertEquals(body.chart?.brand, "Lululemon");
+  const departments = new Set(
+    [body.chart!, ...body.alternates].map((g) => g.department),
+  );
+  assert(
+    departments.has("Men") && departments.has("Women"),
+    `both departments must be offered, got ${[...departments].join(", ")}`,
+  );
+});
+
+Deno.test("a footwear chart keeps the columns the band table cannot hold", async () => {
+  const { body } = await get("brand=New%20Balance&garment=sneakers&gender=men");
+  const keys = (body.chart?.columns ?? []).map((c) => c.key);
+  assert(keys.length > 0, "a footwear chart must still produce columns");
+  assert(
+    keys.some((k) => k === "us" || k === "uk" || k === "eu" || k === "footLength"),
+    `footwear columns must survive, got ${keys.join(", ")}`,
+  );
+});
+
+Deno.test("a garment with no chart at all returns chart null, not an empty grid", async () => {
+  const { body } = await get("brand=Rolex&garment=wristwatch&gender=men");
+  assertEquals(body.chart, null);
+  assertEquals(body.alternates, []);
+});
+
+Deno.test("the guide is capped so one brand cannot return the whole corpus", async () => {
+  const { body } = await get("brand=Lululemon&garment=tee");
+  assert(body.alternates.length <= 4, `alternates capped at 4, got ${body.alternates.length}`);
 });

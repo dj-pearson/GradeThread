@@ -37,6 +37,43 @@ export interface SizeBandRow {
 /** How much the chart behind a verdict is worth trusting. */
 export type SizeChartTier = "verified" | "brand" | "generic" | "none";
 
+// ── The readable chart (US-3283) ────────────────────────────────────────────
+//
+// Built on the edge by services/edge-functions/src/lib/size-guide.ts and shipped
+// alongside the band table. The shaping lives there and only there — this side
+// declares the shape it renders and does no derivation of its own, so a chart
+// column that means something specific on a footwear guide cannot acquire a
+// second meaning in the browser.
+
+export interface SizeGuideColumn {
+  key: string;
+  label: string;
+  /** Set when the item's own measurement can be compared against this column. */
+  bandKey: SizeBandKey | null;
+}
+
+export interface SizeGuideRow {
+  size: string;
+  index: number;
+  /** Column key → the chart's printed value, verbatim. */
+  values: Record<string, string>;
+  footnote: string | null;
+}
+
+export interface SizeGuideChart {
+  brand: string;
+  department: string;
+  garment: string;
+  note: string | null;
+  sizeSystem: string | null;
+  sizeClass: string | null;
+  measurementBasis: "body" | "flat";
+  sourceUrl: string | null;
+  tier: SizeChartTier;
+  columns: SizeGuideColumn[];
+  rows: SizeGuideRow[];
+}
+
 /** The body of GET /api/flipdesk/size-bands. */
 export interface SizeBandsResponse {
   tier: SizeChartTier;
@@ -48,6 +85,13 @@ export interface SizeBandsResponse {
   sizeClass: string | null;
   measurementBasis: "body" | "flat";
   rows: SizeBandRow[];
+  /**
+   * The brand's chart as printed. Present on some responses where `rows` is
+   * empty on purpose — see the field comment on the edge route — so the panel
+   * must key off THIS, never off `rows.length`.
+   */
+  chart: SizeGuideChart | null;
+  alternates: SizeGuideChart[];
 }
 
 export type SizeCheckStatus = "ok" | "off" | "unknown";

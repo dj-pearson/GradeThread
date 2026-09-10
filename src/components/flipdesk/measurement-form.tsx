@@ -1,7 +1,7 @@
 import { useId, useState } from "react";
 import { Link } from "react-router";
 import { useQuery } from "@tanstack/react-query";
-import { ExternalLink, Info } from "lucide-react";
+import { Info } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
@@ -10,9 +10,9 @@ import { useMeasurementPrefs } from "@/stores/measurement-prefs";
 import {
   MEASUREMENT_TEMPLATES,
   measurementGroupFor,
-  sizeGuideUrl,
   type MeasurementField,
 } from "@/lib/measurement-templates";
+import { SizeGuidePanel } from "./size-guide-panel";
 import { useAuthStore } from "@/stores/auth-store";
 import {
   bandFor,
@@ -132,9 +132,13 @@ export function MeasurementForm({
   // on the result, so it re-runs on every keystroke with no network call.
   const brandKey = (brand ?? "").trim() || null;
   const genderKey = (gender ?? "").trim() || null;
+  // US-3283: no longer gated on the item having a size. The size CHECK needs
+  // one (resolveSizeRow returns null without it, so the verdict is `unknown`),
+  // but the size GUIDE is most useful on an item that has not been sized yet —
+  // which is exactly the item this query used to refuse to fetch a chart for.
   const { data: sizeBands = NO_SIZE_BANDS } = useQuery<SizeBandsResponse>({
     queryKey: sizeBandsQueryKey(brandKey, cohortKey, genderKey),
-    enabled: !!user && !!cohortKey && !!sizeKey,
+    enabled: !!user && !!cohortKey,
     staleTime: 30 * 60 * 1000,
     queryFn: () => fetchSizeBands(brandKey, cohortKey, genderKey),
   });
@@ -246,17 +250,13 @@ export function MeasurementForm({
           )}
         </div>
         <div className="flex items-center gap-2">
-          {brand && (
-            <a
-              href={sizeGuideUrl(brand, sizeBands.sourceUrl)}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex items-center gap-1 text-xs text-brand-red-text hover:underline"
-            >
-              {brand} size guide
-              <ExternalLink className="h-3 w-3" />
-            </a>
-          )}
+          <SizeGuidePanel
+            brand={brand}
+            group={group}
+            bands={sizeBands}
+            size={size}
+            values={values}
+          />
           {/* in / cm toggle — applies to length fields */}
           <div className="flex overflow-hidden rounded-md border text-xs">
             {(["in", "cm"] as const).map((u) => (

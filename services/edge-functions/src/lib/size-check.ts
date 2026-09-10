@@ -164,7 +164,7 @@ export function parseChartValue(raw: string | undefined | null): [number, number
  * Allow-listing the real keys is the only safe direction: an unknown key is
  * ignored rather than guessed at.
  */
-function bandKeyFor(chartKey: string): SizeBandKey | null {
+export function bandKeyFor(chartKey: string): SizeBandKey | null {
   const k = chartKey.trim().toLowerCase();
   if (k === "chest") return "chest";
   if (k === "bust") return "bust";
