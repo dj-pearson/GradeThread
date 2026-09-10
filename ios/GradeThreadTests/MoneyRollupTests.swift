@@ -73,7 +73,7 @@ final class MoneyRollupTests: XCTestCase {
         let start = Date(timeIntervalSince1970: 1_699_000_000)
         let end = Date(timeIntervalSince1970: 1_701_000_000)
 
-        let txns = FinancialExport.transactions(sales: [inRange, outOfRange], items: [item], start: start, end: end)
+        let txns = FinancialExport.transactions(sales: [inRange, outOfRange], items: [item], from: start, until: end)
         XCTAssertEqual(txns.count, 1, "out-of-range sale excluded")
         XCTAssertEqual(txns.first?.net, 100 - 15 - 10)
 
@@ -97,7 +97,7 @@ final class MoneyRollupTests: XCTestCase {
         let start = Date(timeIntervalSince1970: 1_699_000_000)
         let end = Date(timeIntervalSince1970: 1_701_000_000)
 
-        let txns = FinancialExport.transactions(sales: [sale], items: [item], start: start, end: end)
+        let txns = FinancialExport.transactions(sales: [sale], items: [item], from: start, until: end)
         let txn = try XCTUnwrap(txns.first)
         // revenue 108 − fees 18 − sellerCosts 9 − cogs 10 = 71
         XCTAssertEqual(txn.net, 71, accuracy: 0.001)
@@ -115,8 +115,8 @@ final class MoneyRollupTests: XCTestCase {
         let sale = makeSale(itemId: "a", price: 50, fees: 5, date: Date(timeIntervalSince1970: 1_700_000_000))
         let csv = FinancialExport.csv(
             sales: [sale], items: [item],
-            start: Date(timeIntervalSince1970: 1_699_000_000),
-            end: Date(timeIntervalSince1970: 1_701_000_000)
+            startDay: Date(timeIntervalSince1970: 1_699_000_000),
+            endDay: Date(timeIntervalSince1970: 1_701_000_000)
         )
         XCTAssertTrue(csv.contains("SUMMARY"))
         XCTAssertTrue(csv.contains("Net Profit,40.00"))
