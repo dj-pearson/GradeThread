@@ -46262,6 +46262,25 @@
         "US-3283"
       ],
       "notes": "Batch 8 done 2026-09-10. True Religion closed both gaps with two sourced charts off its own per-garment chart pages. THE FINDING WORTH KEEPING: True Religion's two departments are graded differently and it is not symmetric. The men's run steps a flat 2in per size the whole way (35-36, 37-38, 39-40 and so on). The women's does not — 1in wide at XXS and XS, 2in at S, 3in at M, and FOUR inches at L (38.5-42.5). A women's L therefore spans what the men's chart would call L through XL, so the size check will be correspondingly quieter on women's items. That is the brand's own grading, not a transcription artefact, and it is stated in the chart note because a 4in band otherwise reads as a mistake. The men's chart is CHEST ONLY; True Religion publishes no waist, neck or sleeve for menswear tops and none was invented. Abercrombie & Fitch was worked and joins WORKED_DEAD_ENDS (now eleven): /shop/us/help/sizechart renders no table and /shop/us/size-guide is a 404. Uniqlo was looked at but only reached FAQ-host pages describing HOW to measure rather than a chart, so it stays on the live list rather than the dead-end list."
+    },
+    {
+      "id": "US-3292",
+      "passes": true,
+      "title": "Size charts, batch 9 of 11: Janie and Jack to Off-White",
+      "description": "Ten brands whose size-guide panel shows a gap for a garment group they sell. Follow vault/20-domain/brands/size-chart-coverage-backfill.md. Batch: Janie and Jack (outerwear); Johnnie-O (bottom); Kate Spade (bottom); KÃ¼hl (dress); Lululemon (dress); Mammut (dress); Marmot (bottom); Mini Boden (outerwear); Mountain Hardwear (bottom); Off-White (dress).",
+      "acceptanceCriteria": [
+        "Each brand in the batch has a SizingChart for every group the coverage report lists as missing, with categoryMatch words a seller would actually type",
+        "Every new chart sets sourceUrl to the brand's OWN published guide, never a reseller blog or a marketplace table",
+        "measurementBasis is set to flat only where the brand publishes garment specs; body charts leave it absent",
+        "verified stays absent unless a human compared the rows against sourceUrl, so the panel's tier badge cannot overstate an estimate",
+        "scripts/gen-sizing-chart-seed.mjs is re-run and the regenerated migration lands in the same commit; sizing-chart-parity_test.ts passes",
+        "docs/size-chart-coverage.md is regenerated and shows no remaining gap for these ten brands, or the story note names each exception and why"
+      ],
+      "priority": 4,
+      "dependsOn": [
+        "US-3283"
+      ],
+      "notes": "Batch 9 done 2026-09-10. Arc'teryx closed its bottoms gap with two sourced charts. TWO THINGS WORTH KEEPING. (1) ARC'TERYX PUBLISHES IN CENTIMETRES and its own inches tab does not change the numbers in the page — the tables stay metric — so the stored inches are a unit conversion of the brand's own figures rather than a second source, kept to one decimal so nothing is quietly rounded away. That is a conversion, not an invention, and the note says which. (2) ALPHA ONLY THOUGH A NUMERIC RUN EXISTS, and the reason is mechanical: Arc'teryx's alpha and numeric runs are SEPARATE grades, not two labels for the same rows — a men's XXS is a 71cm waist while a men's 28 is 75cm. checkSize counts row-index distance, so a single run going XXS, XS, S ... XXL, 28, 29, 30 would make 'two sizes off' meaningless across the seam. Alpha wins because it is what Arc'teryx bottoms are mostly tagged with in resale, and the numeric run is named in the note so the panel still says it exists. Inseam on both charts is a Short/Regular/Tall option at every size rather than a per-size measurement, so it stays out of the columns. UNTUCKit was attempted and its /pages/size-guide is a 404; the real page is /pages/size-fit-chart, which was not reached this iteration, so UNTUCKit stays on the live list rather than the dead-end list."
     }
   ]
 }

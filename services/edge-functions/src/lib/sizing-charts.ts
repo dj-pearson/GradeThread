@@ -10156,6 +10156,82 @@ export const SIZING_CHARTS: SizingChart[] = [
       { size: "XXXL", measurements: { chest: "47-48" } },
     ],
   },
+
+  // ── US-3292: size-chart backfill, batch 9 ──────────────────────────────────
+  //
+  // Arc'teryx bottoms, and two things about it are worth stating.
+  //
+  // THE BRAND PUBLISHES IN CENTIMETRES. Its own inches tab does not change the
+  // numbers in the page — the tables stay metric — so the inches below are a
+  // unit conversion of Arc'teryx's own figures, not a second source. That is a
+  // conversion, not an invention: the same measurement in another unit. Kept to
+  // one decimal so nothing is quietly rounded away.
+  //
+  // ALPHA ONLY, THOUGH A NUMERIC RUN EXISTS. Arc'teryx publishes both an alpha
+  // run and a numeric one, and they are SEPARATE grades rather than two labels
+  // for the same rows — a men's XXS is a 71cm waist while a men's 28 is 75cm.
+  // Putting both in one chart would break the thing the size check depends on:
+  // `checkSize` counts row-index distance, so a run that goes XXS, XS, S ... XXL,
+  // 28, 29, 30 makes "two sizes off" meaningless across the seam. Alpha wins
+  // because it is what Arc'teryx bottoms are mostly tagged with in resale. The
+  // numeric run is named in the note so the panel still says it exists.
+
+  // Arc'teryx — https://arcteryx.com/us/en/help/sizing/mens/bottoms
+  {
+    brand: "Arc'teryx",
+    brandMatch: ["arc'teryx", "arcteryx", "arc teryx"],
+    department: "Men",
+    garment: "Bottoms (alpha, body inches converted from the brand's cm)",
+    categoryMatch: [
+      "bottom", "pant", "trouser", "short", "hiking pant", "ski pant", "bib",
+      "legging", "jogger",
+    ],
+    sourceUrl: "https://arcteryx.com/us/en/help/sizing/mens/bottoms",
+    note:
+      "Body measurements, not flat, converted from Arc'teryx's own centimetres " +
+      "(the site's inches tab does not change the published table). Arc'teryx " +
+      "ALSO publishes a numeric men's run, 28 through 38, which is a separate " +
+      "grade rather than a relabelling — its 28 is a 29.5in waist while this " +
+      "chart's XXS is 28.0in. Inseam is offered Short / Regular / Tall at every " +
+      "size, so it is a length option rather than a per-size measurement.",
+    rows: [
+      { size: "XXS", measurements: { waist: "28", hip: "33.5" } },
+      { size: "XS", measurements: { waist: "29.9", hip: "35.4" } },
+      { size: "S", measurements: { waist: "31.9", hip: "37.4" } },
+      { size: "M", measurements: { waist: "33.9", hip: "39.4" } },
+      { size: "L", measurements: { waist: "37", hip: "42.5" } },
+      { size: "XL", measurements: { waist: "40.2", hip: "45.7" } },
+      { size: "XXL", measurements: { waist: "44.1", hip: "49.6" } },
+    ],
+  },
+
+  // Arc'teryx — https://arcteryx.com/us/en/help/sizing/womens
+  {
+    brand: "Arc'teryx",
+    brandMatch: ["arc'teryx", "arcteryx", "arc teryx"],
+    department: "Women",
+    garment: "Bottoms (alpha, body inches converted from the brand's cm)",
+    categoryMatch: [
+      "bottom", "pant", "trouser", "short", "hiking pant", "ski pant", "bib",
+      "legging", "jogger",
+    ],
+    sourceUrl: "https://arcteryx.com/us/en/help/sizing/womens",
+    note:
+      "Body measurements, not flat, converted from Arc'teryx's own centimetres. " +
+      "A numeric women's run (00 through 16) is published alongside and is a " +
+      "separate grade — its 00 is a 61cm waist against this chart's XXS at 60cm " +
+      "— so it is not folded in. Inseam is a Short / Regular / Tall option at " +
+      "every size rather than a per-size measurement.",
+    rows: [
+      { size: "XXS", measurements: { waist: "23.6", hip: "33.1" } },
+      { size: "XS", measurements: { waist: "25.6", hip: "35" } },
+      { size: "S", measurements: { waist: "27.6", hip: "37" } },
+      { size: "M", measurements: { waist: "29.5", hip: "39" } },
+      { size: "L", measurements: { waist: "32.7", hip: "42.1" } },
+      { size: "XL", measurements: { waist: "36.6", hip: "46.1" } },
+      { size: "XXL", measurements: { waist: "40.6", hip: "50" } },
+    ],
+  },
 ];
 
 function norm(s: string | null | undefined): string {

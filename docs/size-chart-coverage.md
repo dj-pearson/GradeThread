@@ -6,9 +6,9 @@ Coverage is measured the way the size-guide panel resolves a chart: a real brand
 
 ## Where it stands
 
-- 168 brands, 326 brand-specific charts.
-- 43 charts link the brand's own guide; 0 have been checked against it by a human.
-- 71 brands are missing at least one group they should cover.
+- 168 brands, 328 brand-specific charts.
+- 45 charts link the brand's own guide; 0 have been checked against it by a human.
+- 70 brands are missing at least one group they should cover.
 
 Worked dead ends, skipped by `--gaps` and still listed below:
 
@@ -27,7 +27,7 @@ Worked dead ends, skipped by `--gaps` and still listed below:
 | Group | Brands covered |
 |---|---:|
 | top | 114 |
-| bottom | 96 |
+| bottom | 97 |
 | dress | 52 |
 | outerwear | 102 |
 | suit | 34 |
@@ -52,7 +52,7 @@ Worked dead ends, skipped by `--gaps` and still listed below:
 | Ann Taylor | 2 | Women | Women | Women | Women | Women |  |  |  |  |  |  |
 | Anthropologie | 2 | Women | Women | Women | Women |  |  |  |  |  |  |  |
 | Anti Social Social Club | 1 | Unisex |  |  | Unisex |  |  |  |  |  |  | bottom |
-| Arc'teryx | 2 | Men, Women |  |  | Men, Women |  |  |  |  |  |  | bottom |
+| Arc'teryx | 4 | Men, Women | Men, Women |  | Men, Women |  |  |  |  |  |  |  |
 | Aritzia | 2 | Women | Women | Women | Women |  |  |  |  |  |  |  |
 | ASICS | 2 |  |  |  |  |  | Men, Women |  |  |  |  |  |
 | Athleta | 2 | Women | Women |  | Women |  |  |  |  |  |  |  |
