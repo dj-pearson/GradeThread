@@ -1,6 +1,6 @@
 # PENDING MIGRATIONS — applied to prod separately from the push
 
-## 🔒 HELD: 00781 — batches 4 through 8 of the sourced size charts (US-3287 to US-3291)
+## 🔒 HELD: 00781 — batches 4 through 9 of the sourced size charts (US-3287 to US-3292)
 
 **Risk: LOW.** Same shape as 00780 below: insert-or-update into
 `public.brand_size_charts`, a global reference table with deny-all RLS and no
@@ -25,8 +25,11 @@ SKIMS, Rab (both departments), Stussy, PUMA and Reebok all had an approximation
 chart already, so their rows were rewritten in place, with only PUMA's women's
 chart and Reebok's bottoms chart genuinely new. Each carries the brand's own
 `source_url` and `confidence 0.85`; `verified` stays false. Batch 7 adds
-Wrangler, Beyond Yoga, UNTUCKit and Woolrich. **109 sourced rows in total**,
-since the generator re-emits every earlier batch.
+Wrangler, Beyond Yoga, UNTUCKit and Woolrich. Batch 9 adds eleven more:
+Marmot's and Mountain Hardwear's bottoms in both departments, Johnnie-O's
+four (men's, big & tall, women's and boys'), and ONE Kate Spade chart that
+replaces two. **121 sourced rows in total**, since the generator re-emits
+every earlier batch.
 
 **Batch 8 barely touches this file, and that is the point.** Five of its six
 brands needed only a WIDER `category_match` on a chart they already had, which
@@ -40,13 +43,18 @@ unsourced; what they lacked was `source_url` and a `category_match` wide enough
 to reach the missing group. Worth checking for before transcribing anything:
 not every unsourced chart is an approximation.
 
-**Nine of those 99 rows are UPDATES to charts that already exist in the table**,
-not inserts, and the upsert handles it without special-casing: the key is
-`brand_key` + `department` + `garment`, and where a replacement changed the
-`garment` string (Old Navy, SKIMS, Stussy, PUMA, Reebok) the old row survives
-under its old garment and stops resolving, exactly like the deleted North
-Face/Patagonia row from batch 3. Inert, not harmful; sweep them together later
-if it ever matters.
+**⚠ CORRECTION — the surviving old rows are NOT inert, and 00782 below is the
+fix.** This paragraph used to say that where a replacement changed the
+`garment` string the old row "survives under its old garment and stops
+resolving. Inert, not harmful; sweep them together later if it ever matters."
+The first half is right and the conclusion is wrong. `brand-knowledge.ts`
+prefers the DB WHOLESALE: if `brand_size_charts` returns any row for a brand,
+those rows are the entire answer and the in-code corpus is never consulted.
+The old row keeps its old `category_match`, which still matches the same
+garment words — so a Woolrich jacket resolves the retired approximation AND
+the brand's own numbers, competing for the same three-chart budget. That is
+the US-1734 two-competing-charts problem arriving by a new route. Fourteen
+rows are in that state; 00782 deletes them by name.
 
 **Cotopaxi's two rows are an UPDATE, not an insert, and that is the point.**
 Its men's and women's charts existed as approximations with no source. Rather
@@ -62,9 +70,42 @@ the numbers are garment dimensions, so its two charts carry
 was body. If the size check starts reporting those three brands as oversized,
 that column is the first place to look.
 
-**Apply order:** after 00780. `NOTIFY pgrst, 'reload schema';` afterwards is
-harmless (no table, column or RPC signature changed) but cheap. Redeploy the
-edge afterwards: its boot guard will expect 00781.
+**Apply order:** after 00780, and BEFORE 00782. `NOTIFY pgrst, 'reload
+schema';` afterwards is harmless (no table, column or RPC signature changed)
+but cheap. Redeploy the edge only after 00782, since the boot guard will then
+expect 00782.
+
+
+## 🔒 HELD: 00782 — delete the 14 size-chart rows the code retired (US-3292)
+
+**Risk: LOW.** One `delete` against `public.brand_size_charts`, a global
+reference table with deny-all RLS and no tenant data. No schema change.
+Idempotent: a second run deletes nothing.
+
+**What it does.** Removes exactly fourteen `(brand_key, department, garment)`
+rows, listed by name in the file. Every one is a pre-backfill approximation
+whose garment scope no longer exists in `sizing-charts.ts`, left behind
+because batches 2 through 8 renamed the scope when they widened a chart
+("Tops" → "Tops & outerwear") and the upsert key includes `garment`. Two of
+the fourteen are Kate Spade's, deleted because batch 9 replaced both of its
+invented charts with the brand's own single clothing chart.
+
+**Why a hand-listed delete rather than "delete anything not in the corpus".**
+A derived delete would also remove hand-written pack rows that were never
+generated from code, and nothing in the table distinguishes them.
+
+The fourteen: beyondyoga/Women/Tops; express/Women/Tops (US numeric 00-18 /
+alpha); jcrew/Men/Shirts (alpha); katespade/Women/Dresses (US numeric);
+katespade/Women/Tops & knits (US alpha); oldnavy/Women/Tops (alpha, RUNS
+LARGE); puma/Unisex/Tops (alpha); reebok/Unisex/Tops (alpha); skims/Women/
+Intimates apparel / shapewear; stssy/Men/Tops (tees & fleece, US alpha);
+thenorthfacepatagoniaouterwear/Unisex/Outerwear / jackets (alpha);
+untuckit/Women/Tops & dresses (ALPHA XS-XL); woolrich/Men/Outerwear & wool;
+woolrich/Women/Outerwear & wool.
+
+**Apply order:** after 00781. `NOTIFY pgrst, 'reload schema';` afterwards is
+harmless but cheap. Redeploy the edge afterwards: its boot guard will expect
+00782.
 
 
 ## ✅ APPLIED 2026-09-10: 00780 — batch 3 of the sourced size charts (US-3286)

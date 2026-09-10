@@ -1871,48 +1871,6 @@ export const SIZING_CHARTS: SizingChart[] = [
     ],
   },
   {
-    brand: "Kate Spade",
-    brandMatch: ["kate spade", "katespade"],
-    department: "Women",
-    garment: "Dresses (US numeric)",
-    categoryMatch: ["dress", "gown", "jumpsuit"],
-    note:
-      "Kate Spade is US sizing — no national cross-map applies, unlike the " +
-      "European half of this brand group — and it runs true-to-large. These are " +
-      "BODY measurements for the nominal US numeric grade, not Kate " +
-      "Spade-published garment specs. Mainline, outlet and the discontinued " +
-      "Saturday label share the same size grade — the LINE changes the price, not " +
-      "the fit.",
-    rows: [
-      { size: "US 0", measurements: { bust: "32-33", waist: "24-25", hip: "34.5-35.5" } },
-      { size: "US 2", measurements: { bust: "33-34", waist: "25-26", hip: "35.5-36.5" } },
-      { size: "US 4", measurements: { bust: "34-35", waist: "26-27", hip: "36.5-37.5" } },
-      { size: "US 6", measurements: { bust: "35.5-36.5", waist: "27.5-28.5", hip: "38-39" } },
-      { size: "US 8", measurements: { bust: "37-38", waist: "29-30", hip: "39.5-40.5" } },
-      { size: "US 10", measurements: { bust: "38.5-39.5", waist: "30.5-31.5", hip: "41-42" } },
-      { size: "US 12", measurements: { bust: "40-41", waist: "32-33", hip: "42.5-43.5" } },
-    ],
-  },
-  {
-    brand: "Kate Spade",
-    brandMatch: ["kate spade", "katespade"],
-    department: "Women",
-    garment: "Tops & knits (US alpha)",
-    categoryMatch: ["top", "blouse", "shirt", "knit", "sweater", "cardigan", "jacket"],
-    note:
-      "Kate Spade is US sizing — no national cross-map applies — and it runs " +
-      "true-to-large. These are BODY measurements for the nominal US alpha grade, " +
-      "not Kate Spade-published garment specs. Measure the garment flat (bust " +
-      "across the underarm seam, doubled).",
-    rows: [
-      { size: "XS (US 0-2)", measurements: { bust: "32-34", waist: "24-26" } },
-      { size: "S (US 4-6)", measurements: { bust: "34-36.5", waist: "26-28.5" } },
-      { size: "M (US 8-10)", measurements: { bust: "37-39.5", waist: "29-31.5" } },
-      { size: "L (US 12-14)", measurements: { bust: "40-42.5", waist: "32-34.5" } },
-      { size: "XL (US 16)", measurements: { bust: "43-45", waist: "35-37" } },
-    ],
-  },
-  {
     brand: "Tory Burch",
     brandMatch: ["tory burch", "toryburch"],
     department: "Women",
@@ -6381,14 +6339,18 @@ export const SIZING_CHARTS: SizingChart[] = [
       "jacket",
       "outerwear",
     ],
+    sourceUrl: "https://www.johnnie-o.com/size-guide/mens-tops",
     note:
       "Johnnie-O's own published chart — BODY measurements, not flat-garment. ⚠ " +
       "NOTE THE DISCONTINUITY, REPRODUCED FAITHFULLY: XXL chest ends at 48 and XXXL " +
       "starts at 50 (and the waist jumps 48→49), so there is a gap in the brand's " +
       "own grade. It may be a brand-side typo — do NOT silently 'fix' it; prefer " +
       "the garment. Brand guidance is 'true to size', sizing up if between sizes. " +
-      "THE STANDARD (non-big-&-tall) BOTTOMS CHART COULD NOT BE SOURCED and is " +
-      "deliberately absent; big & tall bottoms run 42R-56R (42R = 41-42in waist).",
+      "US-3292 RETRACTS THE SENTENCE THAT USED TO SIT HERE, which said the "  +
+      "standard bottoms chart could not be sourced. It could: Johnnie-O keeps " +
+      "its guides at /size-guide/<audience>-<group>, NOT under /pages/, which " +
+      "is why three earlier guesses 404'd. Bottoms, big & tall bottoms, " +
+      "women's bottoms and boys' bottoms are all separate charts now.",
     rows: [
       {
         size: "S",
@@ -8976,8 +8938,16 @@ export const SIZING_CHARTS: SizingChart[] = [
     brandMatch: ["janie and jack", "janieandjack", "janie & jack"],
     department: "Kids",
     garment: "Toddler & Kids (2T-5T ↔ numeric 4-16)",
-    categoryMatch: ["dress", "top", "shirt", "pant", "pants", "sweater", "cardigan", "skirt", "short", "suit", "set", "knit", "toddler", "kid"],
+    categoryMatch: [
+      "dress", "top", "shirt", "pant", "pants", "sweater", "cardigan",
+      "skirt", "short", "suit", "set", "knit", "toddler", "kid",
+      "jacket", "coat", "outerwear", "vest", "puffer", "snowsuit", "parka",
+    ],
     note:
+      "US-3292 widened this to OUTERWEAR and changed nothing else. The rows " +
+      "are the same approximation and still carry NO source: a child's chest " +
+      "and height describe the coat as well as the shirt, and an approximate " +
+      "chart beats the empty panel a seller had before. " +
       "TODDLER is T-SIZES (2T-5T); KIDS is NUMERIC (4-12) — a DIFFERENT system from " +
       "baby months. Read the SYSTEM off the label. ⚠ A KIDS SIZE IS THE SIZE, NOT A " +
       "CODE. J&J special-occasion pieces comp as coordinated SETS. Body-equivalent " +
@@ -9124,8 +9094,17 @@ export const SIZING_CHARTS: SizingChart[] = [
     brandMatch: ["mini boden", "miniboden", "baby boden"],
     department: "Kids",
     garment: "Baby & Kids (AGE-YEARS ↔ height cm, British)",
-    categoryMatch: ["dress", "top", "tee", "pant", "legging", "romper", "bodysuit", "onesie", "sleeper", "sleepsuit", "applique", "playsuit", "short", "jumper", "baby", "kid"],
+    categoryMatch: [
+      "dress", "top", "tee", "pant", "legging", "romper", "bodysuit",
+      "onesie", "sleeper", "sleepsuit", "applique", "playsuit", "short",
+      "jumper", "baby", "kid",
+      "jacket", "coat", "outerwear", "vest", "puffer", "snowsuit", "anorak",
+    ],
     note:
+      "US-3292 widened this to OUTERWEAR and changed nothing else. The rows " +
+      "are the same approximation and still carry NO source: bodenusa.com now " +
+      "redirects to us.boden.com and no size-guide path there answered, so no " +
+      "new claim is made about the numbers. " +
       "MINI BODEN IS BRITISH — SIZED BY AGE-YEARS (0-3M, 3-6M ... then 2-3Y, 3-4Y, " +
       "4-5Y ...) + HEIGHT in cm, a DIFFERENT system from the US months/T/numeric axis. " +
       "THE SYSTEM is the signal: read the age-band off the tag (a \"2-3Y\" label is an " +
@@ -11687,6 +11666,343 @@ export const SIZING_CHARTS: SizingChart[] = [
       { size: "M", measurements: { waist: "30" } },
       { size: "L", measurements: { waist: "32" } },
       { size: "XL", measurements: { waist: "34" } },
+    ],
+  },
+
+  // ── US-3292: size-chart backfill, batch 9 of 11 ────────────────────────────
+  //
+  // SIX brands, not ten: the story lists Kühl, Lululemon, Mammut and Off-White
+  // as well, and all four already showed no gap. Of the six, four are new
+  // sourced charts (Marmot, Mountain Hardwear, Johnnie-O, Kate Spade) and two
+  // are keyword widenings of charts that already describe the body (Janie and
+  // Jack, Mini Boden), handled in place above.
+  //
+  // ⚠ TWO SIZE-GUIDE DELIVERY MECHANISMS turned up here that a plain fetch
+  // cannot see, and both are worth trying before giving a brand up:
+  //
+  //   1. SALESFORCE COMMERCE, data route. Marmot's /pages/size-chart is 410
+  //      GONE, but /on/demandware.store/Sites-marmot-Site/default/
+  //      Product-SizeChart?cid=size-chart-mens-bottoms answers a plain curl
+  //      with clean HTML tables. Swap mens/womens and tops/bottoms in the cid.
+  //   2. SALESFORCE COMMERCE, modal route. Mountain Hardwear is the SAME
+  //      platform and that URL shape returns 200 with ZERO tables. Its guide is
+  //      a product-page modal built from divs, opened by
+  //      `button.js-sizeguide-modal`, and its footer "Size Guides" link points
+  //      at /sizefit, which serves the RAW JSON template as text rather than a
+  //      rendered page. So the citation here is a product URL.
+  //
+  // Johnnie-O's guide is at /size-guide/<audience>-<group> — NOT under /pages/,
+  // which is why three earlier /pages/ guesses 404'd.
+
+  // Marmot — https://www.marmot.com/on/demandware.store/Sites-marmot-Site/
+  // default/Product-SizeChart?cid=size-chart-mens-bottoms
+  // Marmot states "all measurements are in inches and correspond to actual body
+  // measurements, not the garment dimensions".
+  {
+    brand: "Marmot",
+    brandMatch: ["marmot"],
+    department: "Men",
+    garment: "Bottoms (alpha + numeric waist tag)",
+    categoryMatch: ["bottom", "pant", "trouser", "short", "hiking pant", "snow pant", "jean", "chino"],
+    sourceUrl:
+      "https://www.marmot.com/on/demandware.store/Sites-marmot-Site/default/Product-SizeChart?cid=size-chart-mens-bottoms",
+    note:
+      "Marmot's own men's bottoms chart, BODY inches — the page says so: " +
+      "measurements \"correspond to actual body measurements, not the garment " +
+      "dimensions\". Marmot publishes TWO runs for the same trousers and they " +
+      "DISAGREE where they overlap: alpha M is a 31-34in waist while the numeric " +
+      "32 is 31-33in. Both are kept, as Marmot keeps them, with the numeric run " +
+      "written W28-W44 so the two cannot be confused for one another. Inseam is " +
+      "a separate axis and is the SAME at every size: 30 short, 32 regular, 34 " +
+      "long.",
+    rows: [
+      { size: "XS", measurements: { waist: "25-28", hip: "31-34" } },
+      { size: "S", measurements: { waist: "28-31", hip: "34-37" } },
+      { size: "M", measurements: { waist: "31-34", hip: "37-40" } },
+      { size: "L", measurements: { waist: "34-37", hip: "40-43" } },
+      { size: "XL", measurements: { waist: "37-40", hip: "43-46" } },
+      { size: "XXL", measurements: { waist: "40-43", hip: "46-49" } },
+      { size: "W28", measurements: { waist: "27-29", hip: "33-35" } },
+      { size: "W30", measurements: { waist: "29-31", hip: "35-37" } },
+      { size: "W32", measurements: { waist: "31-33", hip: "37-39" } },
+      { size: "W34", measurements: { waist: "33-35", hip: "39-41" } },
+      { size: "W36", measurements: { waist: "35-37", hip: "41-43" } },
+      { size: "W38", measurements: { waist: "37-39", hip: "43-45" } },
+      { size: "W40", measurements: { waist: "39-41", hip: "45-47" } },
+      { size: "W42", measurements: { waist: "41-43", hip: "47-49" } },
+      { size: "W44", measurements: { waist: "43-45", hip: "49-51" } },
+    ],
+  },
+  {
+    brand: "Marmot",
+    brandMatch: ["marmot"],
+    department: "Men",
+    garment: "Bottoms, big & tall (1XT-4XT)",
+    categoryMatch: ["bottom", "pant", "trouser", "short", "hiking pant", "snow pant"],
+    sourceUrl:
+      "https://www.marmot.com/on/demandware.store/Sites-marmot-Site/default/Product-SizeChart?cid=size-chart-mens-bottoms",
+    note:
+      "Marmot's extended men's bottoms run, kept apart from the standard chart " +
+      "so the class is stated rather than folded in. BODY inches. ⚠ THE SAME " +
+      "WAISTS ARE PUBLISHED TWICE WITH DIFFERENT HIPS: the tall table gives 1XT " +
+      "a 44-48in hip and the non-tall big table gives the same 40-44in waist a " +
+      "43-45in hip. The tall figures are the ones here; measure the garment " +
+      "before trusting either.",
+    rows: [
+      { size: "1XT", measurements: { waist: "40-44", hip: "44-48" } },
+      { size: "2XT", measurements: { waist: "44-48", hip: "48-52" } },
+      { size: "3XT", measurements: { waist: "48-52", hip: "52-56" } },
+      { size: "4XT", measurements: { waist: "52-56", hip: "56-60" } },
+    ],
+  },
+  {
+    brand: "Marmot",
+    brandMatch: ["marmot"],
+    department: "Women",
+    garment: "Bottoms (alpha + US numeric)",
+    categoryMatch: ["bottom", "pant", "trouser", "short", "legging", "hiking pant", "snow pant", "jean"],
+    sourceUrl:
+      "https://www.marmot.com/on/demandware.store/Sites-marmot-Site/default/Product-SizeChart?cid=size-chart-womens-bottoms",
+    note:
+      "Marmot's own women's bottoms chart, BODY inches. As on the men's side " +
+      "Marmot publishes an alpha run and a numeric run and they do not agree " +
+      "exactly where they overlap, so both are kept. Inseam is a separate axis " +
+      "and the same at every size: 28.5 short, 30.5 regular, 32.5 long.",
+    rows: [
+      { size: "XS (US 0-2)", measurements: { waist: "25-27", hip: "34-36" } },
+      { size: "S (US 4-6)", measurements: { waist: "27-29", hip: "36-38" } },
+      { size: "M (US 8-10)", measurements: { waist: "29-31", hip: "38-40" } },
+      { size: "L (US 12-14)", measurements: { waist: "31-34", hip: "40-43" } },
+      { size: "XL (US 16-18)", measurements: { waist: "34-38", hip: "43-47" } },
+      { size: "XXL (US 20-22)", measurements: { waist: "38-42", hip: "47-51" } },
+      { size: "US 2", measurements: { waist: "26-27", hip: "35-36" } },
+      { size: "US 4", measurements: { waist: "27-28", hip: "36-37" } },
+      { size: "US 6", measurements: { waist: "28-29", hip: "37-38" } },
+      { size: "US 8", measurements: { waist: "29-30", hip: "38-39" } },
+      { size: "US 10", measurements: { waist: "30-31", hip: "39-40" } },
+      { size: "US 12", measurements: { waist: "31-32.5", hip: "40-41.5" } },
+      { size: "US 14", measurements: { waist: "32.5-34", hip: "41.5-43" } },
+      { size: "US 16", measurements: { waist: "34-36", hip: "43-45" } },
+      { size: "US 18", measurements: { waist: "36-38", hip: "45-47" } },
+    ],
+  },
+  {
+    brand: "Marmot",
+    brandMatch: ["marmot"],
+    department: "Women",
+    garment: "Bottoms, plus (1X-3X)",
+    categoryMatch: ["bottom", "pant", "trouser", "short", "legging", "hiking pant", "snow pant"],
+    sourceUrl:
+      "https://www.marmot.com/on/demandware.store/Sites-marmot-Site/default/Product-SizeChart?cid=size-chart-womens-bottoms",
+    note:
+      "Marmot's extended women's bottoms run, kept apart from the standard " +
+      "chart so the class is stated rather than folded in. BODY inches. The W " +
+      "numbers in the labels are Marmot's own cross-map.",
+    rows: [
+      { size: "1X (16W-18W)", measurements: { waist: "36-40", hip: "46-50" } },
+      { size: "2X (20W-22W)", measurements: { waist: "40-44", hip: "50-54" } },
+      { size: "3X (24W-26W)", measurements: { waist: "44-48", hip: "54-58" } },
+    ],
+  },
+
+  // Mountain Hardwear — the guide is a product-page modal; see the header note.
+  {
+    brand: "Mountain Hardwear",
+    brandMatch: ["mountain hardwear", "mountainhardwear", "mhw"],
+    department: "Men",
+    garment: "Bottoms (alpha, with the pant-size tag in the label)",
+    categoryMatch: ["bottom", "pant", "trouser", "short", "hiking pant", "snow pant", "climbing pant"],
+    sourceUrl: "https://www.mountainhardwear.com/p/mens-hardwear-ap-pant-2122691.html",
+    note:
+      "Mountain Hardwear's own men's bottoms chart, BODY inches — its measuring " +
+      "guide reads \"use a soft, flexible tape measure from a sewing kit\", which " +
+      "is a body instruction. The numeric pant sizes in each label are Mountain " +
+      "Hardwear's own mapping, and note that ONE LETTER COVERS TWO WAIST TAGS. " +
+      "⚠ THE HIP COLUMN SKIPS 47: XL ends at 46 and XXL starts at 48, so no body " +
+      "lands cleanly in between. Left as published. There is no XS. Inseam is a " +
+      "separate axis: 30 short, 32 regular, 34 long.",
+    rows: [
+      { size: "S (pant 30, 31)", measurements: { waist: "29-31", hip: "36-38" } },
+      { size: "M (pant 32, 33)", measurements: { waist: "32-33", hip: "39-40" } },
+      { size: "L (pant 34, 36)", measurements: { waist: "34-36", hip: "41-43" } },
+      { size: "XL (pant 38, 40)", measurements: { waist: "37-39", hip: "44-46" } },
+      { size: "XXL (pant 42)", measurements: { waist: "41-43", hip: "48-50" } },
+    ],
+  },
+  {
+    brand: "Mountain Hardwear",
+    brandMatch: ["mountain hardwear", "mountainhardwear", "mhw"],
+    department: "Women",
+    garment: "Bottoms (alpha, with the US numeric tag in the label)",
+    categoryMatch: ["bottom", "pant", "trouser", "short", "legging", "hiking pant", "snow pant", "climbing pant"],
+    sourceUrl: "https://www.mountainhardwear.com/p/mens-hardwear-ap-pant-2122691.html",
+    note:
+      "Mountain Hardwear's own women's bottoms chart, BODY inches, read from the " +
+      "same product-page modal as the men's. ⚠ THE XL ROW IS A SINGLE NUMBER ON " +
+      "BOTH COLUMNS where every row below it is a range — 34.5in waist and 44.5in " +
+      "hip, not a span. That is how the brand publishes it. Inseam is a separate " +
+      "axis: 30 short, 32 regular, 34 long.",
+    rows: [
+      { size: "XS (US 0/2)", measurements: { waist: "25-26", hip: "35-36" } },
+      { size: "S (US 4/6)", measurements: { waist: "27-28", hip: "37-38" } },
+      { size: "M (US 8/10)", measurements: { waist: "29-30", hip: "39-40" } },
+      { size: "L (US 12/14)", measurements: { waist: "31-33", hip: "41.5-43" } },
+      { size: "XL (US 16)", measurements: { waist: "34.5", hip: "44.5" } },
+    ],
+  },
+
+  // Johnnie-O — https://www.johnnie-o.com/size-guide/mens-bottoms
+  // The chart the tops entry above used to say "COULD NOT BE SOURCED".
+  {
+    brand: "Johnnie-O",
+    brandMatch: ["johnnie-o", "johnnieo", "johnnie o"],
+    department: "Men",
+    garment: "Bottoms (numeric waist + alpha, body measurements)",
+    categoryMatch: ["bottom", "pant", "trouser", "short", "chino", "jean", "golf pant"],
+    sourceUrl: "https://www.johnnie-o.com/size-guide/mens-bottoms",
+    note:
+      "Johnnie-O's own men's bottoms chart, BODY measurements. It publishes a " +
+      "numeric waist run AND an alpha run in one table with the same three " +
+      "columns, and the two do not line up: the numeric 32 is a 31-32.5in waist " +
+      "while alpha M is 32-34in. Both are kept as published. The numeric run " +
+      "carries ODD sizes (33, 35, 37) that most brands skip, and then skips 39. " +
+      "THIGH is Johnnie-O's own third column and is unusual in this corpus — it " +
+      "is the single most useful measurement on a golf trouser.",
+    rows: [
+      { size: "30", measurements: { waist: "29-30.5", seat: "38.5-39", thigh: "22-22.5" } },
+      { size: "32", measurements: { waist: "31-32.5", seat: "39.5-41", thigh: "22.5-23.5" } },
+      { size: "33", measurements: { waist: "32.5-33.5", seat: "41.5-42", thigh: "23.5-24" } },
+      { size: "34", measurements: { waist: "33.5-34.5", seat: "42.5-43", thigh: "24-24.5" } },
+      { size: "35", measurements: { waist: "34.5-35.5", seat: "43.5-44", thigh: "24.5-25" } },
+      { size: "36", measurements: { waist: "35.5-36.5", seat: "44.5-45", thigh: "25-25.5" } },
+      { size: "37", measurements: { waist: "36.5-37.5", seat: "45.5-46", thigh: "25.5-26" } },
+      { size: "38", measurements: { waist: "37.5-38.5", seat: "46.5-47", thigh: "26-26.5" } },
+      { size: "40", measurements: { waist: "39-40.5", seat: "48.5-49", thigh: "26.5-27.5" } },
+      { size: "S", measurements: { waist: "30-32", seat: "38-41", thigh: "22-23" } },
+      { size: "M", measurements: { waist: "32-34", seat: "41-43", thigh: "23-24" } },
+      { size: "L", measurements: { waist: "34-36", seat: "43-45", thigh: "24-25" } },
+      { size: "XL", measurements: { waist: "36-38", seat: "45-47", thigh: "25-26" } },
+      { size: "XXL", measurements: { waist: "39-42", seat: "48-50", thigh: "26-28" } },
+    ],
+  },
+  {
+    brand: "Johnnie-O",
+    brandMatch: ["johnnie-o", "johnnieo", "johnnie o"],
+    department: "Men",
+    garment: "Bottoms, big & tall (42R-56R)",
+    categoryMatch: ["bottom", "pant", "trouser", "short", "chino", "golf pant"],
+    sourceUrl: "https://www.johnnie-o.com/size-guide/mens-big-and-tall-bottoms",
+    note:
+      "Johnnie-O's extended men's bottoms run, BODY measurements. The label IS " +
+      "close to the waist: 42R is a 41-42in waist and every step adds two. Note " +
+      "the THIGH column jumps from the standard chart's 26-28in at XXL to 32in " +
+      "at 42R, which is a bigger step than the waist takes.",
+    rows: [
+      { size: "42R", measurements: { waist: "41-42", seat: "50-51", thigh: "32-32.5" } },
+      { size: "44R", measurements: { waist: "43-44", seat: "52-53", thigh: "33-33.5" } },
+      { size: "46R", measurements: { waist: "45-46", seat: "54-55", thigh: "34-34.5" } },
+      { size: "48R", measurements: { waist: "47-48", seat: "56-57", thigh: "35-35.5" } },
+      { size: "50R", measurements: { waist: "49-50", seat: "58-59", thigh: "36-36.5" } },
+      { size: "52R", measurements: { waist: "51-52", seat: "60-61", thigh: "37-37.5" } },
+      { size: "54R", measurements: { waist: "53-54", seat: "62-63", thigh: "38-38.5" } },
+      { size: "56R", measurements: { waist: "55-56", seat: "64-65", thigh: "39-39.5" } },
+    ],
+  },
+  {
+    brand: "Johnnie-O",
+    brandMatch: ["johnnie-o", "johnnieo", "johnnie o"],
+    department: "Women",
+    garment: "Bottoms (alpha + US numeric)",
+    categoryMatch: ["bottom", "pant", "trouser", "short", "skirt", "legging", "chino", "jean"],
+    sourceUrl: "https://www.johnnie-o.com/size-guide/womens-bottoms",
+    note:
+      "Johnnie-O's own women's bottoms chart, BODY measurements. The numeric run " +
+      "gives a SINGLE value per size where the alpha run gives a range, and the " +
+      "two agree at the bottom of each alpha band. Johnnie-O's women's line is " +
+      "much smaller than its men's and stops at XL / US 14.",
+    rows: [
+      { size: "XS", measurements: { waist: "26-27", hip: "35.5-36.5" } },
+      { size: "S", measurements: { waist: "28-29", hip: "37.5-38.5" } },
+      { size: "M", measurements: { waist: "30-31", hip: "39.5-40.5" } },
+      { size: "L", measurements: { waist: "32-33.5", hip: "41.5-42.5" } },
+      { size: "XL", measurements: { waist: "34-35", hip: "43-44" } },
+      { size: "US 0", measurements: { waist: "26", hip: "35.5" } },
+      { size: "US 2", measurements: { waist: "27", hip: "36.5" } },
+      { size: "US 4", measurements: { waist: "28", hip: "37.5" } },
+      { size: "US 6", measurements: { waist: "29", hip: "38.5" } },
+      { size: "US 8", measurements: { waist: "30", hip: "39.5" } },
+      { size: "US 10", measurements: { waist: "31", hip: "40.5" } },
+      { size: "US 12", measurements: { waist: "32.5", hip: "42" } },
+      { size: "US 14", measurements: { waist: "34.5", hip: "43.5" } },
+    ],
+  },
+  {
+    brand: "Johnnie-O",
+    brandMatch: ["johnnie-o", "johnnieo", "johnnie o"],
+    department: "Kids",
+    garment: "Boys' bottoms (numeric 4-16)",
+    categoryMatch: ["bottom", "pant", "trouser", "short", "chino", "boy", "kid"],
+    sourceUrl: "https://www.johnnie-o.com/size-guide/boys-bottoms",
+    note:
+      "Johnnie-O's own boys' bottoms chart. ⚠ THE WAIST IS A SINGLE VALUE, NOT A " +
+      "RANGE, and the brand publishes it in EIGHTHS of an inch (21 3/4, 22 1/2, " +
+      "23 1/2), transcribed here as decimals — the same number. INSEAM is the " +
+      "second column and is published the same way. The run jumps 8 to 10 to 12 " +
+      "to 14 to 16, so a boy between two is between two sizes.",
+    rows: [
+      { size: "4", measurements: { waist: "21", inseam: "17.5" } },
+      { size: "5", measurements: { waist: "21.75", inseam: "19.125" } },
+      { size: "6", measurements: { waist: "22.5", inseam: "20.875" } },
+      { size: "7", measurements: { waist: "23.5", inseam: "22.75" } },
+      { size: "8", measurements: { waist: "25.5", inseam: "24" } },
+      { size: "10", measurements: { waist: "27.5", inseam: "26.5" } },
+      { size: "12", measurements: { waist: "29.5", inseam: "29" } },
+      { size: "14", measurements: { waist: "31.25", inseam: "30.375" } },
+      { size: "16", measurements: { waist: "33", inseam: "31.5" } },
+    ],
+  },
+
+  // Kate Spade — its ONE published clothing chart, which REPLACES the two
+  // approximations this corpus used to carry (see the US-3292 note below).
+  {
+    brand: "Kate Spade",
+    brandMatch: ["kate spade", "katespade"],
+    department: "Women",
+    garment: "Clothing (US numeric ↔ alpha ↔ denim waist)",
+    categoryMatch: [
+      "top", "blouse", "shirt", "knit", "sweater", "cardigan", "tee",
+      "dress", "gown", "jumpsuit",
+      "bottom", "pant", "trouser", "short", "skirt", "jean", "denim", "legging",
+      "jacket", "coat", "outerwear", "blazer", "vest",
+    ],
+    sourceUrl: "https://www.katespade.com/products/cargo-pants/KL706-301.html",
+    note:
+      "US-3292 REPLACED Kate Spade's two approximations (a 'Dresses (US " +
+      "numeric)' chart and a 'Tops & knits (US alpha)' chart, both invented " +
+      "grades) with the brand's OWN single clothing chart, which covers " +
+      "everything it makes and finally reaches BOTTOMS. Kate Spade publishes " +
+      "the numeric run, the alpha band it sits in, and a separate DENIM waist " +
+      "size all in one table; the alpha band and the denim size are written " +
+      "into each label here. BODY inches — the brand's own column headings are " +
+      "CHEST, WAIST and LOW HIP. ⚠ ITS SMALLEST SIZE, US 000, CARRIES NO " +
+      "MEASUREMENTS AT ALL (denim 23 and three N/As), so it is omitted rather " +
+      "than guessed. ⚠ THE WAIST JUMPS 2.5in FROM US 10 TO US 12 where every " +
+      "other step is 1in — the brand's own grade break. The chart is published " +
+      "as a product-page modal; there is no standalone size-chart URL that " +
+      "answers (/size-chart.html renders no table).",
+    rows: [
+      { size: "US 00 (XXS, denim 24)", measurements: { bust: "31.75", waist: "24.25", hip: "34.5" } },
+      { size: "US 0 (XS, denim 25)", measurements: { bust: "32.75", waist: "25.25", hip: "35.5" } },
+      { size: "US 2 (XS, denim 26)", measurements: { bust: "33.75", waist: "26.25", hip: "36.5" } },
+      { size: "US 4 (S, denim 27)", measurements: { bust: "34.75", waist: "27.25", hip: "37.5" } },
+      { size: "US 6 (S, denim 28)", measurements: { bust: "35.75", waist: "28.25", hip: "38.5" } },
+      { size: "US 8 (M, denim 29)", measurements: { bust: "36.75", waist: "29.25", hip: "39.5" } },
+      { size: "US 10 (M, denim 30)", measurements: { bust: "37.75", waist: "30.25", hip: "40.5" } },
+      { size: "US 12 (L, denim 31)", measurements: { bust: "39.25", waist: "32.75", hip: "42" } },
+      { size: "US 14 (L, denim 32)", measurements: { bust: "40.75", waist: "33.25", hip: "43.5" } },
+      { size: "US 16 (XL, denim 33)", measurements: { bust: "42.75", waist: "35.25", hip: "45.5" } },
+      { size: "US 18 (XL)", measurements: { bust: "44.75", waist: "37.25", hip: "47.5" } },
+      { size: "US 20/22 (XXL)", measurements: { bust: "46.75", waist: "39.25", hip: "49.5" } },
     ],
   },
 ];

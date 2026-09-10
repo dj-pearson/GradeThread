@@ -6,17 +6,17 @@ Coverage is measured the way the size-guide panel resolves a chart: a real brand
 
 ## Where it stands
 
-- 168 brands, 383 brand-specific charts.
-- 112 charts link the brand's own guide; 0 have been checked against it by a human.
-- 35 brands are missing at least one group they should cover.
+- 168 brands, 392 brand-specific charts.
+- 124 charts link the brand's own guide; 0 have been checked against it by a human.
+- 29 brands are missing at least one group they should cover.
 
 | Group | Brands covered |
 |---|---:|
 | top | 130 |
-| bottom | 110 |
+| bottom | 114 |
 | dress | 56 |
-| outerwear | 120 |
-| suit | 44 |
+| outerwear | 122 |
+| suit | 45 |
 | shoes | 27 |
 | bag | 10 |
 | watch | 1 |
@@ -106,10 +106,10 @@ Coverage is measured the way the size-guide panel resolves a chart: a real brand
 | HOKA | 2 |  |  |  |  |  | Men, Women |  |  |  |  |  |
 | Hudson Jeans | 6 | Men, Women | Men, Women |  | Men, Women | Men, Women |  |  |  |  |  |  |
 | J.Crew | 2 | Men | Men |  | Men | Men |  |  |  |  |  |  |
-| Janie and Jack | 2 | Kids | Kids | Baby, Kids |  | Kids |  |  |  |  |  | outerwear |
+| Janie and Jack | 2 | Kids | Kids | Baby, Kids | Kids | Kids |  |  |  |  |  |  |
 | Joe's Jeans | 4 | Men, Women | Men, Women | Women | Men, Women | Men, Women |  |  |  |  |  |  |
-| Johnnie-O | 1 | Men |  |  | Men |  |  |  |  |  |  | bottom |
-| Kate Spade | 2 | Women |  | Women | Women |  |  |  |  |  |  | bottom |
+| Johnnie-O | 5 | Men | Kids, Men, Women |  | Men |  |  |  |  |  |  |  |
+| Kate Spade | 1 | Women | Women | Women | Women | Women |  |  |  |  |  |  |
 | KEEN | 2 |  |  |  |  |  | Men, Women |  |  |  |  |  |
 | Kith | 1 | Men |  |  |  |  |  |  |  |  |  | bottom, outerwear |
 | Kühl | 2 | Men, Women | Men, Women |  | Men, Women |  |  |  |  |  |  |  |
@@ -124,13 +124,13 @@ Coverage is measured the way the size-guide panel resolves a chart: a real brand
 | Madewell | 3 | Women | Women |  | Women | Women |  |  |  |  |  |  |
 | Mammut | 2 | Men, Women | Men, Women |  | Men, Women |  |  |  |  |  |  |  |
 | Marc Jacobs | 1 |  |  |  |  |  |  | Women |  |  |  |  |
-| Marmot | 1 | Men |  |  | Men |  |  |  |  |  |  | bottom |
+| Marmot | 5 | Men | Men, Women |  | Men |  |  |  |  |  |  |  |
 | Merrell | 2 |  |  |  |  |  | Men, Women |  |  |  |  |  |
 | Michael Kors | 2 | Women | Women | Women | Women | Women |  |  |  |  |  |  |
-| Mini Boden | 1 | Kids | Kids | Kids |  |  |  |  |  |  |  | outerwear |
+| Mini Boden | 1 | Kids | Kids | Kids | Kids |  |  |  |  |  |  |  |
 | Moncler | 5 | Men, Women | Men, Women |  | Men, Women |  |  |  |  |  |  |  |
 | MOTHER | 3 | Men, Women | Women |  | Men, Women | Women |  |  |  |  |  |  |
-| Mountain Hardwear | 1 | Men |  |  | Men |  |  |  |  |  |  | bottom |
+| Mountain Hardwear | 3 | Men | Men, Women |  | Men |  |  |  |  |  |  |  |
 | New Balance | 2 |  |  |  |  |  | Men, Women |  |  |  |  |  |
 | Nike | 5 | Men, Women | Men, Women |  | Men, Women |  |  |  |  |  |  |  |
 | Off-White | 2 | Unisex | Men |  | Men, Unisex | Men |  |  |  |  |  |  |

@@ -14,6 +14,7 @@ code_refs:
   - supabase/migrations/00779_sizing_chart_sources.sql
   - supabase/migrations/00780_sizing_chart_sources.sql
   - supabase/migrations/00781_sizing_chart_sources.sql
+  - supabase/migrations/00782_retire_orphaned_size_charts.sql
 reviewed: 2026-09-10
 tags: [brands, sizing, backfill, runbook]
 summary: How to close a batch of brand size-chart gaps, why coverage is measured through the resolver rather than by counting rows, and what a batch must carry before it can be closed.
@@ -363,6 +364,53 @@ unsourced widenings carries a line saying the rows are the same approximation,
 that the brand's own page could not be read from here, and that a body chart
 describing a brand's tops describes its jackets too. Without that, the next
 reader cannot tell a widened approximation from a sourced chart.
+
+After batch 9 (US-3292): 394 charts across 168 brands, **121 sourced**, and
+29 brands still carrying a gap. Six of six closed — six and not ten, because
+the story listed Kühl, Lululemon, Mammut and Off-White and all four already
+showed no gap. Four needed a new sourced chart (Marmot, Mountain Hardwear,
+Johnnie-O, Kate Spade) and two needed only wider keywords (Janie and Jack,
+Mini Boden).
+
+⚠ **THE SAME PLATFORM CAN SERVE ITS GUIDE TWO WAYS, AND ONE OF THEM IS
+INVISIBLE TO CURL.** Marmot and Mountain Hardwear both run Salesforce
+Commerce. Marmot's `/pages/size-chart` is 410 GONE, but the data route
+`/on/demandware.store/Sites-marmot-Site/default/Product-SizeChart?cid=size-chart-mens-bottoms`
+answers a plain curl with clean HTML tables (swap mens/womens, tops/bottoms
+in the cid). The identical URL shape on Mountain Hardwear returns 200 with
+ZERO tables: its guide is a product-page modal built from divs, opened by
+`button.js-sizeguide-modal`. **Try the data route first; fall back to the
+browser and the modal.**
+
+⚠ **A 404 ON `/pages/size-guide` MEANS THE PATH IS WRONG, NOT THAT THE CHART
+IS MISSING.** Johnnie-O's tops chart carried a note saying its standard
+bottoms chart "COULD NOT BE SOURCED and is deliberately absent". It could:
+the guides live at `/size-guide/<audience>-<group>` — `mens-bottoms`,
+`womens-bottoms`, `boys-bottoms`, `mens-big-and-tall-bottoms` — with no
+`/pages/` prefix at all. The route was one link-text query away on any
+product page. **Read the size-guide link off a PDP before recording a
+brand as unsourceable.**
+
+⚠ **A GARMENT RENAME LEAVES A LIVE ROW IN PROD, AND IT IS NOT INERT.** The
+upsert key on the sourced-chart migrations is
+`(brand_key, department, garment)`. Batches 2 through 8 renamed the garment
+scope whenever they widened a chart ("Tops" → "Tops & outerwear"), so each
+rename INSERTED a row instead of updating one, and the retired
+approximation stayed in `brand_size_charts` with its old keywords. The
+earlier note in PENDING_MIGRATIONS.md called those rows inert. They are not:
+`brand-knowledge.ts` prefers the DB WHOLESALE — any row for a brand makes
+the DB the entire answer — so a Woolrich jacket would resolve the
+approximation AND the brand's own numbers, competing for the same
+three-chart budget. 00782 deletes the fourteen by name. **When a batch
+renames or removes a chart, the DB needs a delete; the upsert cannot see
+it.**
+
+⚠ **ONE OFFICIAL CHART CAN REPLACE TWO INVENTED ONES.** Kate Spade carried a
+"Dresses (US numeric)" chart and a "Tops & knits (US alpha)" chart, both
+grades this corpus made up. The brand publishes ONE clothing chart — numeric
+run, alpha band and denim waist in a single table — covering everything it
+makes, which is also what finally reached bottoms. Deleting the two and
+writing one is better than sourcing either.
 
 ⚠ The coverage report measures the IN-CODE corpus, not the database. Prod's
 `brand_size_charts` already held source URLs on the hand-written pack rows

@@ -6,7 +6,7 @@
 -- WHY: the chart shape had department and a free-text garment scope and nowhere
 -- to record WHICH NATIONAL SYSTEM a size label is written in, so the corpus
 -- encoded it inside the label itself — "UK 10 (US 6)", "IT 48 (US 38)",
--- "FR 36 (US 4)", "JP L (=US M)". 115 of 386 charts do this. Every one of
+-- "FR 36 (US 4)", "JP L (=US M)". 115 of 395 charts do this. Every one of
 -- those parentheses is a workaround for a missing field.
 --
 -- The prose is KEPT. This migration adds the structured field beside it; it
@@ -19,7 +19,7 @@
 -- chart of bare numbers stays NULL because a bare "6" could be US or UK and
 -- nothing in the row says which. NULL means "not recorded", never "US".
 --
--- Derived here: 164 charts with a readable system, 5 non-standard size class,
+-- Derived here: 166 charts with a readable system, 8 non-standard size class,
 -- 1 with an ambiguous class (a scope naming several — the Talbots case, whose
 -- scope reads "Misses / Petite / Plus" and which is exactly the folding the
 -- size_class column exists to end).
@@ -98,7 +98,6 @@ begin
   ('prada', 'Women', 'Ready-to-wear (IT sizing)', 'IT', 'standard'),
   ('prada', 'Men', 'Ready-to-wear (IT sizing)', 'IT', 'standard'),
   ('michaelkors', 'Women', 'Bottoms (US numeric)', 'US', 'standard'),
-  ('katespade', 'Women', 'Dresses (US numeric)', 'US', 'standard'),
   ('toryburch', 'Women', 'Tops & dresses (US numeric)', 'US', 'standard'),
   ('toryburch', 'Women', 'Bottoms (US numeric)', 'US', 'standard'),
   ('supreme', 'Men', 'Tops (tees & hoodies, US alpha)', 'alpha', 'standard'),
@@ -231,7 +230,13 @@ begin
   ('gstarraw', 'Women', 'Tops (body inches)', 'alpha', 'standard'),
   ('wrangler', 'Women', 'Tops (body inches)', 'alpha', 'standard'),
   ('untuckit', 'Men', 'Jackets (body inches)', 'alpha', 'standard'),
-  ('woolrich', 'Women', 'Bottoms (INCH waist, not a body measurement)', 'alpha', 'standard')
+  ('woolrich', 'Women', 'Bottoms (INCH waist, not a body measurement)', 'alpha', 'standard'),
+  ('marmot', 'Men', 'Bottoms, big & tall (1XT-4XT)', NULL, 'big_and_tall'),
+  ('marmot', 'Women', 'Bottoms (alpha + US numeric)', 'US', 'standard'),
+  ('marmot', 'Women', 'Bottoms, plus (1X-3X)', NULL, 'plus'),
+  ('johnnieo', 'Men', 'Bottoms, big & tall (42R-56R)', NULL, 'big_and_tall'),
+  ('johnnieo', 'Women', 'Bottoms (alpha + US numeric)', 'US', 'standard'),
+  ('katespade', 'Women', 'Clothing (US numeric ↔ alpha ↔ denim waist)', 'US', 'standard')
     ) AS v(brand_key, department, garment, size_system, size_class)
    where t.brand_key  = v.brand_key
      and t.department = v.department
