@@ -1584,7 +1584,15 @@ async function ingestListing(msg) {
 async function appraiseListing(msg) {
   const caps = await getCapabilities(false);
   if (!caps.sellerEnabled) {
-    return { ok: false, status: 403, needsUpgrade: true, error: "FlipDesk plan required." };
+    // US-3295: same two causes as the Lister gate, same rule about naming them.
+    return caps.authenticated === true
+      ? { ok: false, status: 403, needsUpgrade: true, error: "FlipDesk plan required." }
+      : {
+        ok: false,
+        status: 401,
+        needsSignIn: true,
+        error: "Connect this extension to your GradeThread account to appraise listings.",
+      };
   }
   const { gtBuyerToken } = await ext.storage.local.get("gtBuyerToken");
   if (!gtBuyerToken || typeof gtBuyerToken !== "string") {
@@ -2032,6 +2040,16 @@ async function sellerAllowed() {
   return caps.lister === true;
 }
 
+// US-3295: null when the Lister is granted, else "signin" or "plan".
+//
+// The two are not the same problem and they do not have the same fix. An
+// install with no account token receives the ANONYMOUS entitlements from the
+// server whatever the account pays, so reporting that as "upgrade your plan"
+// sent Business sellers to /pricing to buy what they already had.
+async function listerBlock() {
+  return self.GT_REGISTRY.listerBlockReason(await getCapabilities(false));
+}
+
 // AC5: the request handlers are async and their bodies await storage, the network
 // (entitlements) and tabs.create — any of which can throw. They are invoked from a
 // listener that has already returned `true` to hold the response port open, so an
@@ -2065,11 +2083,19 @@ async function startJob(kind, payload, sender, sendResponse, clientRef) {
 async function beginJob(kind, payload, sender, sendResponse, clientRef) {
   const isDelist = kind === "delist";
 
-  if (!(await sellerAllowed())) {
+  const block = await listerBlock();
+  if (block) {
+    // Both flags are sent, and only one is ever true. `needsUpgrade` stays the
+    // wire name an older gradethread.com build recognises; a build that does not
+    // know `needsSignIn` falls through to the plain error string, which now says
+    // the right thing either way.
     sendResponse({
       ok: false,
-      needsUpgrade: true,
-      error: isDelist
+      needsSignIn: block === "signin",
+      needsUpgrade: block === "plan",
+      error: block === "signin"
+        ? "The GradeThread extension is not connected to your account yet. Open it and choose Sign in, then try again."
+        : isDelist
         ? "Auto-delist is a FlipDesk seller feature — upgrade your GradeThread plan to enable it."
         : "Cross-listing is a FlipDesk seller feature — upgrade your GradeThread plan to enable the Lister.",
     });

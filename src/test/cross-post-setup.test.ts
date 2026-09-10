@@ -81,11 +81,15 @@ describe("an unavailable cross-post says which of the two causes it is (US-2720)
     expect(src).toContain('=== "verifying"');
   });
 
-  it("needsUpgrade renders a plan link, and is never inferred", () => {
+  it("a refusal renders a link, and which link is never inferred from our plan", () => {
     const src = code(KIT);
     expect(src).toContain("res.needsUpgrade");
-    expect(src).toContain("setNeedsUpgrade(true)");
+    expect(src).toContain("listerBlockCause(res)");
     expect(src).toContain('to="/pricing"');
+    // US-3295: and the other half of the gate has its own destination.
+    expect(src).toContain('to="/connect-extension"');
+    // The account's own plan is still never consulted here.
+    expect(src).not.toContain("useBuyerEntitlements");
   });
 });
 

@@ -131,8 +131,14 @@ export interface ListerResult {
   /**
    * US-1873 seller gate: the account isn't on a paid FlipDesk plan. The background
    * has always returned this; the type just never admitted it.
+   *
+   * US-3295: older builds send it for the UNCONNECTED case too, which is a
+   * different problem with a different fix. Route it through `listerBlockCause`
+   * rather than reading it as "buy a plan".
    */
   needsUpgrade?: boolean;
+  /** US-3295: refused because the install carries no account token. */
+  needsSignIn?: boolean;
   timedOut?: boolean;
   /** US-1874: the marketplace tab was closed before the job could finish. */
   tabClosed?: boolean;
@@ -595,6 +601,12 @@ export interface ExtensionResponse {
   timedOut?: boolean;
   needsConsent?: boolean;
   needsUpgrade?: boolean;
+  /**
+   * US-3295: the seller gate refused because this install has no account token,
+   * NOT because the plan is Free. Sent only by builds that tell the two apart;
+   * `listerBlockCause` asks the extension directly when it is absent.
+   */
+  needsSignIn?: boolean;
   capabilities?: Record<string, unknown>;
   /**
    * US-1874: this reply is the TRANSPORT failing, not the extension answering.
@@ -951,3 +963,42 @@ export function closetImportFailureText(
   }
 }
 
+
+/**
+ * US-3295: WHICH seller gate refused this send — the connection, or the plan.
+ *
+ * The extension turns the Lister off whenever `capabilities.lister` is false,
+ * and that is false for two unrelated reasons: the install holds no account
+ * token (so the server answers with the anonymous entitlements, which carry
+ * sellerEnabled:false whatever the account pays), or it holds one and the
+ * account really is on Free. Builds up to and including the current store
+ * release report BOTH as `needsUpgrade`.
+ *
+ * That is why a Business seller was shown "Cross-listing needs an active paid
+ * FlipDesk plan" with a link to /pricing. The plan was never the problem; the
+ * extension had simply never been connected, and the one screen that says so
+ * (Marketplaces → Set up cross-posting) was not the screen they were on.
+ *
+ * Newer builds answer `needsSignIn` and are believed outright. For everything
+ * else we ask the extension what it is — `capabilities.authenticated` from the
+ * same GT_PING the setup card reads. Asking the extension keeps the US-2720
+ * rule intact: the enforcing party is still the one being consulted, never our
+ * own view of the account's plan.
+ *
+ * UNREACHABLE OR SILENT ⇒ "signin". An extension that cannot answer a ping has
+ * not proved it holds a token, and the failure that costs something real is the
+ * other one: telling someone who already pays to pay again. Sending them to
+ * Connect at worst costs a click they did not need.
+ */
+export async function listerBlockCause(
+  res: Pick<ListerResult, "needsUpgrade" | "needsSignIn">,
+  ping: (msg: { type: string }) => Promise<ExtensionResponse> = sendExtensionMessage,
+): Promise<"signin" | "plan"> {
+  if (res.needsSignIn) return "signin";
+  try {
+    const pong = await ping({ type: "GT_PING" });
+    return pong?.capabilities?.authenticated === true ? "plan" : "signin";
+  } catch {
+    return "signin";
+  }
+}

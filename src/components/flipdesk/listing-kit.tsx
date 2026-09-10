@@ -51,6 +51,7 @@ import {
   isListerAvailable,
   isListerPlatform,
   listerUnavailableReason,
+  listerBlockCause,
   onListerListed,
   sendToLister,
 } from "@/lib/lister-extension";
@@ -231,10 +232,18 @@ function PlatformPanel({
   // promotes it once the seller has actually hit Submit on the marketplace.
   const [prefilled, setPrefilled] = useState(false);
   const [confirming, setConfirming] = useState(false);
-  // US-2720: set only by an explicit needsUpgrade answer FROM the extension —
-  // never inferred from the plan we think the account is on, because the
-  // extension is the thing enforcing it.
-  const [needsUpgrade, setNeedsUpgrade] = useState(false);
+  // US-2720: set only by an explicit refusal FROM the extension — never
+  // inferred from the plan we think the account is on, because the extension is
+  // the thing enforcing it.
+  //
+  // US-3295: a REASON now, not a boolean. The extension refuses a send whenever
+  // `caps.lister` is false, and that is false for two unrelated reasons: the
+  // install has no account token at all, or it has one and the account is on
+  // Free. Older builds report both as `needsUpgrade`, so a Business seller whose
+  // extension had simply never been connected was told to buy a plan they were
+  // already paying for, under a link to /pricing. Which one it is comes from the
+  // extension too — the same GT_PING the Marketplaces setup card reads.
+  const [blockedBy, setBlockedBy] = useState<null | "signin" | "plan">(null);
   // US-2777: the seller's country domain per platform, for the DIRECT send.
   // Read here rather than at the send, because a query cannot be started inside
   // a click handler and a send that had to wait for it would be a send that
@@ -471,12 +480,18 @@ function PlatformPanel({
         toast.error("Open the GradeThread Lister and accept its terms first.");
         return;
       }
-      // US-2720: the seller gate is an active paid FlipDesk plan
-      // (resolveSellerEntitlement in the edge). "Unauthorized" as a bare toast
-      // reads as a bug; it is a plan, and a plan has a link.
-      if (res.needsUpgrade) {
-        setNeedsUpgrade(true);
-        toast.error("Cross-listing needs an active paid FlipDesk plan.");
+      // US-2720/US-3295: the seller gate is an active paid FlipDesk plan
+      // (resolveSellerEntitlement in the edge) AND a connected install.
+      // "Unauthorized" as a bare toast reads as a bug; each of these is a step,
+      // and each step has its own link.
+      if (res.needsUpgrade || res.needsSignIn) {
+        const cause = await listerBlockCause(res);
+        setBlockedBy(cause);
+        toast.error(
+          cause === "signin"
+            ? "The extension is not connected to your GradeThread account yet."
+            : "Cross-listing needs an active paid FlipDesk plan.",
+        );
         return;
       }
       if (!res.ok && !res.filled) {
@@ -706,16 +721,32 @@ function PlatformPanel({
           reason={flowVerifying ? "verifying" : unavailableReason!}
         />
       )}
-      {needsUpgrade && (
+      {blockedBy && (
         <div className="flex items-start gap-2 rounded-md border border-amber-300 bg-amber-50 p-2.5 text-xs text-amber-900 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-200">
           <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-          <span>
-            Cross-listing needs an active paid FlipDesk plan.{" "}
-            <Link to="/pricing" className="font-medium underline underline-offset-2">
-              See plans
-            </Link>
-            .
-          </span>
+          {blockedBy === "signin"
+            ? (
+              <span>
+                The extension is installed but not connected to your GradeThread
+                account, so it cannot tell which account to list for.{" "}
+                <Link
+                  to="/connect-extension"
+                  className="font-medium underline underline-offset-2"
+                >
+                  Connect the extension
+                </Link>
+                .
+              </span>
+            )
+            : (
+              <span>
+                Cross-listing needs an active paid FlipDesk plan.{" "}
+                <Link to="/pricing" className="font-medium underline underline-offset-2">
+                  See plans
+                </Link>
+                .
+              </span>
+            )}
         </div>
       )}
 

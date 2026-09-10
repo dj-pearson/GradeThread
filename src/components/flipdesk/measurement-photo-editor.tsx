@@ -234,9 +234,9 @@ export function MeasurementPhotoEditor({
    *
    * This used to be `photo.photo_url`, which is "" for every MeasureCard shot
    * captured on iOS — those upload to the PRIVATE submission-images bucket and
-   * the row stores no public URL (US-2273). The panel then rendered
-   * `<img src="">`, so the editor came up as a broken image with the drag
-   * handles nowhere, and Turn upright fetched "" (the page's own HTML) and
+   * the row stores no public URL (US-2273). The panel then rendered an img
+   * element with an empty src, so the editor came up as a broken image with the
+   * drag handles nowhere, and Turn upright fetched "" (the page's own HTML) and
    * failed. The photo grid on the same screen showed the same photo fine,
    * because the galleries already go through this resolver.
    *

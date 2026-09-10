@@ -129,4 +129,56 @@ assert.deepStrictEqual(
   assert.ok(/x-gt-extension-id/.test(entFetch), "fetchEntitlements must send the install id so the server keys the quota as the grade call does");
 }
 
-console.log("registry.test.cjs: capability gating + fail-safe normalization + TTL + quota all pass");
+// ── US-3295: the gate has to say WHICH gate it is ──────────────────────────
+//
+// The Lister is refused for two unrelated reasons and the extension reported
+// both as "upgrade your plan". An install holding no account token receives the
+// ANONYMOUS entitlements from the server regardless of what the account pays,
+// so a Business seller who had never connected the extension was told, in the
+// composer, to buy the plan they were already paying for -- under a link to
+// /pricing. Naming the cause is the whole fix.
+assert.strictEqual(
+  R.listerBlockReason(R.resolveCapabilities({ authenticated: false, sellerEnabled: false }, {})),
+  "signin",
+  "no token → connect the extension, NOT buy a plan",
+);
+assert.strictEqual(
+  R.listerBlockReason(R.resolveCapabilities({ authenticated: true, sellerEnabled: false, flipdeskPlan: "free" }, {})),
+  "plan",
+  "connected and on Free → the plan really is the gate",
+);
+assert.strictEqual(
+  R.listerBlockReason(R.resolveCapabilities({ authenticated: true, sellerEnabled: true, flipdeskPlan: "business" }, {})),
+  null,
+  "connected and paid → no block at all",
+);
+// Fail-safe both ways: garbage is unauthenticated, so it asks for a connection
+// rather than a payment.
+assert.strictEqual(R.listerBlockReason(null), "signin");
+assert.strictEqual(R.listerBlockReason(undefined), "signin");
+assert.strictEqual(R.listerBlockReason({}), "signin");
+
+// And the background actually uses it, on both gated paths.
+{
+  const bg = fs.readFileSync(path.resolve(__dirname, "..", "background.js"), "utf8");
+  assert.ok(
+    /listerBlockReason\(/.test(bg),
+    "background.js must resolve the block reason through the registry, not re-derive it",
+  );
+  assert.ok(
+    /needsSignIn: block === "signin"/.test(bg),
+    "beginJob must report needsSignIn separately from needsUpgrade",
+  );
+  assert.ok(
+    bg.indexOf("Cross-listing is a FlipDesk seller feature") >
+      bg.indexOf("is not connected to your account yet"),
+    "the unconnected message must be the FIRST branch of the refusal, ahead of the plan one",
+  );
+  const appraise = bg.slice(bg.indexOf("async function appraiseListing"));
+  assert.ok(
+    /needsSignIn: true/.test(appraise.slice(0, 1200)),
+    "appraiseListing must distinguish an unconnected install from a Free plan",
+  );
+}
+
+console.log("registry.test.cjs: capability gating + fail-safe normalization + TTL + quota + block-reason all pass");

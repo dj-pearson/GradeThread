@@ -106,6 +106,19 @@
     };
   }
 
+  // US-3295: WHICH gate closed the Lister — "signin" or "plan".
+  //
+  // `lister` is false for two unrelated reasons and the extension used to report
+  // both as "upgrade your plan". An install with no account token gets the
+  // ANONYMOUS entitlements from the server no matter what the account pays, so a
+  // Business seller who had never connected the extension was told to buy the
+  // plan they already had. Returns null when the Lister is granted.
+  function listerBlockReason(caps) {
+    var c = caps && typeof caps === "object" ? caps : {};
+    if (c.lister === true) return null;
+    return c.authenticated === true ? "plan" : "signin";
+  }
+
   // Freshness of a cached entitlements entry ({ at:number, ent }). The endpoint
   // sends no-store; the extension caches briefly so a content-script boot on every
   // page doesn't re-hit the endpoint. Kept short (see ENT_TTL_MS in background.js)
@@ -119,6 +132,7 @@
     ANONYMOUS_ENTITLEMENTS: ANONYMOUS_ENTITLEMENTS,
     normalizeEntitlements: normalizeEntitlements,
     resolveCapabilities: resolveCapabilities,
+    listerBlockReason: listerBlockReason,
     normalizeQuota: normalizeQuota,
     maxImagesFor: maxImagesFor,
     MAX_IMAGES_ANON: MAX_IMAGES_ANON,
