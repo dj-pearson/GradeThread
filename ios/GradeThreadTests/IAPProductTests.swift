@@ -23,8 +23,15 @@ final class IAPProductTests: XCTestCase {
     }
 
     func test_catalog_shape() {
-        XCTAssertEqual(IAPCatalog.allIds.count, 10)
+        // US-3304: 14, not 10. US-3138 added four Action Credit packs and this
+        // number was not moved with them. It could not fail, because iOS CI had
+        // not compiled since 2026-08-31.
+        XCTAssertEqual(IAPCatalog.allIds.count, 14)
         XCTAssertEqual(IAPCatalog.consumables.count, 4)
+        // Action Credits buy AI actions, grade credits buy grades, and the two
+        // lists are separate on purpose. Counted here so the next pack added to
+        // one of them cannot land in the other unnoticed.
+        XCTAssertEqual(IAPCatalog.actionCredits.count, 4)
         XCTAssertEqual(IAPCatalog.subscriptions(interval: "monthly").count, 3)
         XCTAssertEqual(IAPCatalog.subscriptions(interval: "yearly").count, 3)
     }

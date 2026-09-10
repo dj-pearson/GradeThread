@@ -4928,21 +4928,6 @@
         "The iOS financial export CSV and the Money tab month totals agree for the same period, asserted in a test that drives both from one fixture"
       ],
       "priority": 4
-    },
-    {
-      "id": "US-3304",
-      "passes": false,
-      "title": "iOS has not compiled on main for ten days, so every iOS test in the backlog is unverified",
-      "description": "Found 2026-09-10. iOS CI last succeeded on main 2026-08-31 (b8b032a2d). The eight most recent runs all fail with 'Command SwiftCompile failed' in both the Build + test job and the UI tests job. Swift builds nowhere else: the dev machine is Windows and xcodebuild is macOS-only, so this lane is the ONLY thing that compiles the app or runs an XCTest. Ten days of iOS commits are therefore unverified, and several stories rest their evidence on XCTests that have not executed since 2026-08-31, including US-2337's four SyncEngine prune cases and US-2688's dispute-encoding cases. US-3231's nine new date-boundary tests, committed today, are in the same position. The same shape was found on the Android lane the same day: it had been red since 2026-09-06 and was hiding a plain compile break that nobody looked for, because a red lane stops being read. Treat any 'the iOS tests cover this' claim written after 2026-08-31 as a claim about a suite that did not run.",
-      "acceptanceCriteria": [
-        "The actual compiler error is named, with the file and line and the commit that introduced it, rather than described as 'SwiftCompile failed'",
-        "iOS CI goes green on main, and the run id that proves it is recorded in the story notes",
-        "Every XCTest that has not executed since 2026-08-31 runs, and any that fails is either fixed or filed with its failure text; a suite that compiles but reports zero tests is a failure for this story's purposes",
-        "The errors are worked through in the knowledge that Swift reports ONE error and stops, so a fixed break can reveal another; the story is not done at the first green compile of one file",
-        "Whatever let ten days pass unnoticed is addressed: either the lane fails loudly enough to be seen, or the reason it was ignored is written down so the next reader knows what a red iOS lane means",
-        "The sixteen ios/Scripts guards still pass, and any guard that would have caught this break but did not is named"
-      ],
-      "priority": 1
     }
   ]
 }

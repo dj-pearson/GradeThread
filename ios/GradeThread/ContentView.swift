@@ -209,10 +209,18 @@ struct ContentView: View {
                     // the previous one's currency, sourcing budget, onboarding
                     // answers and radar consent.
                     AccountScopedDefaults.clear()
-                    // US-1262 wrote this reset "e.g. on sign-out" and nothing
-                    // ever called it, so a snoozed reconcile badge silently
-                    // muted the next user's own unreconciled orders.
-                    reconcileBadge.reset()
+                    // US-3304: that call covers the reconcile snooze too. US-1262
+                    // wrote `ReconcileBadgeStore.reset()` "e.g. on sign-out" and
+                    // nothing called it, and US-3238 tried to call it from HERE,
+                    // which does not compile: the store is `@State` on MainShell,
+                    // not on ContentView, and it broke the iOS lane for a day.
+                    // The two halves of that reset are both handled anyway. The
+                    // PERSISTED half is the pair of snooze keys, which are in
+                    // `accountScopedKeys` above. The IN-MEMORY half dies with the
+                    // view: ProtectedRouteShell renders LoginView instead of
+                    // MainShell the moment the phase flips, so the store is
+                    // destroyed and the next sign-in builds a fresh one, whose
+                    // init reads the now-cleared keys and starts at zero.
                     // Capture strongly before nil-ing (mirrors the invalidateScope
                     // pattern above): a deferred `Task { await syncEngine?.stop() }`
                     // reads the `@State` optional when the task RUNS — after the

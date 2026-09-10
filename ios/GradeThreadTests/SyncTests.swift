@@ -1182,9 +1182,18 @@ final class SyncTests: XCTestCase {
     func test_clearItemDirtyFlags_unfreezesRowSoServerEditApplies() async throws {
         let container = try inMemoryContainer()
         let ctx = ModelContext(container)
+        // US-3304: the row is stamped BEFORE the two server snapshots below.
+        // It used to default to `.now`, which put it three months ahead of
+        // them, and the test only passed because the old code let a stale
+        // snapshot through on a dirty row and rewound the clock to June on the
+        // way past. US-3276 stopped that - correctly - so the setup has to
+        // state the freshness it always relied on instead of borrowing it from
+        // a bug.
         let item = LocalInventoryItem(
             id: "a", userId: "u1", title: "Local offline edit",
-            status: "cataloged", hasLocalChanges: true
+            status: "cataloged",
+            updatedAt: ISO8601DateFormatter().date(from: "2026-06-01T00:00:00Z") ?? .distantPast,
+            hasLocalChanges: true
         )
         ctx.insert(item)
         try ctx.save()

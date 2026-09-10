@@ -26,7 +26,12 @@ final class PushNotificationTests: XCTestCase {
     }
 
     func test_category_allCases_listsAll() {
-        XCTAssertEqual(NotificationCategoryID.allCases.count, 11)
+        // US-3304: 19, not 11. `delist.needed` and the seven post-order
+        // categories (offer.responded, return.opened, inquiry.opened,
+        // case.opened, case.deadline, cancellation.requested, dispute.opened)
+        // were added between 2026-08-31 and 2026-09-10, while iOS CI could not
+        // compile, so this count never got the chance to object.
+        XCTAssertEqual(NotificationCategoryID.allCases.count, 19)
     }
 
     func test_category_labelsAreUserReadable() {
@@ -219,8 +224,18 @@ final class PushNotificationTests: XCTestCase {
     }
 
     func test_category_actions_onlyLiveCategoriesGetButtons() {
-        XCTAssertEqual(NotificationCategoryID.offerReceived.actions, [.acceptOffer, .counterOffer])
-        XCTAssertEqual(NotificationCategoryID.saleCreated.actions, [.markShipped])
+        // US-3304: this asserts `declaredActions` now, not `actions`. US-3274
+        // put a second gate in front of the buttons - a declared action is only
+        // REGISTERED when the payload carries the ids it needs, and no sender
+        // stamps any yet - so `.actions` is empty for the two that need ids.
+        // That behaviour has its own file, NotificationActionAvailabilityTests;
+        // what this test is for is the declaration, which is unchanged.
+        XCTAssertEqual(
+            NotificationCategoryID.offerReceived.declaredActions, [.acceptOffer, .counterOffer])
+        XCTAssertEqual(NotificationCategoryID.saleCreated.declaredActions, [.markShipped])
+        XCTAssertEqual(NotificationCategoryID.tokenExpiring.declaredActions, [.reconnectEbay])
+        // reconnectEbay needs nothing from the payload, so it is the one that
+        // survives the second gate.
         XCTAssertEqual(NotificationCategoryID.tokenExpiring.actions, [.reconnectEbay])
     }
 
@@ -290,12 +305,18 @@ final class PushNotificationTests: XCTestCase {
     }
 
     func test_plan_markShipped_withSaleId_andTracking() {
+        // US-3304: the typed text has to be a plausible tracking number now
+        // (US-3272). "1Z999" is five characters and no carrier issues one that
+        // short, so the old fixture falls back to a deep link. A whole UPS
+        // number instead - the assertion is about the sale id and the text
+        // being carried through, not about the shape rule, which
+        // TrackingNumberTests owns.
         XCTAssertEqual(
             NotificationActionPlan.from(
                 actionIdentifier: "order.mark_shipped",
                 userInfo: ["sale_id": "s9"],
-                userText: "1Z999"),
-            .markShipped(saleId: "s9", tracking: "1Z999"))
+                userText: "1Z999AA10123456784"),
+            .markShipped(saleId: "s9", tracking: "1Z999AA10123456784"))
     }
 
     func test_plan_markShipped_blankTracking_isNil() {

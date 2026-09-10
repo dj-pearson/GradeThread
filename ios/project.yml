@@ -186,6 +186,27 @@ targets:
             CFBundleURLName: com.gradethread.app.oauth
             CFBundleURLSchemes:
               - com.gradethread.app
+        # US-3101 home-screen quick actions, and US-3304 is why they are HERE.
+        # b8b510b06 added them to the committed GradeThread/Info.plist only, and
+        # the note thirty lines above says exactly what happens next: xcodegen
+        # regenerates that file from this block, so the three shortcuts were
+        # stripped out of every build the runner ever produced. Long-press on
+        # the app icon did nothing. QuickEntryTests reads the committed plist,
+        # which still had them, and would not have caught it either - it failed
+        # for the opposite reason, on the regenerated file, once the suite could
+        # finally compile again.
+        UIApplicationShortcutItems:
+          - UIApplicationShortcutItemType: com.gradethread.app.shortcut.prospect
+            UIApplicationShortcutItemTitle: "What's it worth?"
+            UIApplicationShortcutItemSubtitle: Photograph an item for comps
+            UIApplicationShortcutItemIconType: UIApplicationShortcutIconTypeCapturePhoto
+          - UIApplicationShortcutItemType: com.gradethread.app.shortcut.addItem
+            UIApplicationShortcutItemTitle: Add an item
+            UIApplicationShortcutItemIconType: UIApplicationShortcutIconTypeAdd
+          - UIApplicationShortcutItemType: com.gradethread.app.shortcut.scout
+            UIApplicationShortcutItemTitle: Scout deals
+            UIApplicationShortcutItemSubtitle: Find underpriced listings
+            UIApplicationShortcutItemIconType: UIApplicationShortcutIconTypeSearch
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.gradethread.app
