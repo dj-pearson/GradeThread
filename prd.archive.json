@@ -46243,6 +46243,25 @@
         "US-3283"
       ],
       "notes": "Batch 7 done 2026-09-10. Stüssy closed both gaps AND the loop found a real defect in an existing chart. THE DEFECT: the Stüssy tops chart in the original seed was an unsourced estimate reading S 36-38 / M 38-40 / L 42-44. Stüssy's own published table is S 42-44 / M 44-46 / L 46-48 — its published S is the same chest the old chart called an L, so every correctly tagged Stüssy tee was being graded as a size large. Replaced in place: same (brand_key, department, garment) key so 00776's upsert updates the DB row rather than orphaning it, rows swapped for the published ones, sourceUrl set. Verified against the local DB: the stssy tops row now reads XS 38-40 with a source_url. Two other claims in that chart's note were also false and are corrected in it — it said 'no national cross-map applies' when Stüssy publishes UK/IT-FR-EU/KR/JP conversions (now carried as columns on the new outerwear chart, since the guide panel prints every column and two separate charts would compete), and it described body-EQUIVALENT estimates when the published numbers are body measurements. The vintage-grading warning survives because it is still true. New charts: bottoms (alpha + waist tag) and outerwear (alpha + chest + the conversions), both Unisex while the tops chart stays Men — deliberate, because changing the tops chart's department changes its key and 00498 is already applied, the same reasoning as the TNF/Patagonia call in US-3288. NOT worked properly this iteration and NOT added to the dead-end list: Palace (the extension has no JavaScript permission for palaceskateboards.com, which is our limitation and not the brand's), PacSun (two more URL guesses 404'd; a product-page modal is untried) and Joe's Jeans (/pages/size-guide redirects to the homepage)."
+    },
+    {
+      "id": "US-3291",
+      "passes": true,
+      "title": "Size charts, batch 8 of 11: Columbia to J.Crew",
+      "description": "Ten brands whose size-guide panel shows a gap for a garment group they sell. Follow vault/20-domain/brands/size-chart-coverage-backfill.md. Batch: Columbia (dress); Express (outerwear); Filson (bottom); FjÃ¤llrÃ¤ven (dress); Girlfriend Collective (outerwear); Gymboree (outerwear); Gymshark (dress); Hanna Andersson (outerwear); Helly Hansen (dress); J.Crew (outerwear).",
+      "acceptanceCriteria": [
+        "Each brand in the batch has a SizingChart for every group the coverage report lists as missing, with categoryMatch words a seller would actually type",
+        "Every new chart sets sourceUrl to the brand's OWN published guide, never a reseller blog or a marketplace table",
+        "measurementBasis is set to flat only where the brand publishes garment specs; body charts leave it absent",
+        "verified stays absent unless a human compared the rows against sourceUrl, so the panel's tier badge cannot overstate an estimate",
+        "scripts/gen-sizing-chart-seed.mjs is re-run and the regenerated migration lands in the same commit; sizing-chart-parity_test.ts passes",
+        "docs/size-chart-coverage.md is regenerated and shows no remaining gap for these ten brands, or the story note names each exception and why"
+      ],
+      "priority": 4,
+      "dependsOn": [
+        "US-3283"
+      ],
+      "notes": "Batch 8 done 2026-09-10. True Religion closed both gaps with two sourced charts off its own per-garment chart pages. THE FINDING WORTH KEEPING: True Religion's two departments are graded differently and it is not symmetric. The men's run steps a flat 2in per size the whole way (35-36, 37-38, 39-40 and so on). The women's does not — 1in wide at XXS and XS, 2in at S, 3in at M, and FOUR inches at L (38.5-42.5). A women's L therefore spans what the men's chart would call L through XL, so the size check will be correspondingly quieter on women's items. That is the brand's own grading, not a transcription artefact, and it is stated in the chart note because a 4in band otherwise reads as a mistake. The men's chart is CHEST ONLY; True Religion publishes no waist, neck or sleeve for menswear tops and none was invented. Abercrombie & Fitch was worked and joins WORKED_DEAD_ENDS (now eleven): /shop/us/help/sizechart renders no table and /shop/us/size-guide is a 404. Uniqlo was looked at but only reached FAQ-host pages describing HOW to measure rather than a chart, so it stays on the live list rather than the dead-end list."
     }
   ]
 }

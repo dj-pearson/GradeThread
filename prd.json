@@ -5101,24 +5101,6 @@
       "priority": 2
     },
     {
-      "id": "US-3291",
-      "passes": false,
-      "title": "Size charts, batch 8 of 11: Columbia to J.Crew",
-      "description": "Ten brands whose size-guide panel shows a gap for a garment group they sell. Follow vault/20-domain/brands/size-chart-coverage-backfill.md. Batch: Columbia (dress); Express (outerwear); Filson (bottom); FjÃ¤llrÃ¤ven (dress); Girlfriend Collective (outerwear); Gymboree (outerwear); Gymshark (dress); Hanna Andersson (outerwear); Helly Hansen (dress); J.Crew (outerwear).",
-      "acceptanceCriteria": [
-        "Each brand in the batch has a SizingChart for every group the coverage report lists as missing, with categoryMatch words a seller would actually type",
-        "Every new chart sets sourceUrl to the brand's OWN published guide, never a reseller blog or a marketplace table",
-        "measurementBasis is set to flat only where the brand publishes garment specs; body charts leave it absent",
-        "verified stays absent unless a human compared the rows against sourceUrl, so the panel's tier badge cannot overstate an estimate",
-        "scripts/gen-sizing-chart-seed.mjs is re-run and the regenerated migration lands in the same commit; sizing-chart-parity_test.ts passes",
-        "docs/size-chart-coverage.md is regenerated and shows no remaining gap for these ten brands, or the story note names each exception and why"
-      ],
-      "priority": 4,
-      "dependsOn": [
-        "US-3283"
-      ]
-    },
-    {
       "id": "US-3292",
       "passes": false,
       "title": "Size charts, batch 9 of 11: Janie and Jack to Off-White",

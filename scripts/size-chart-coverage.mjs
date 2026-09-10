@@ -85,6 +85,8 @@ const WORKED_DEAD_ENDS = {
   "MOTHER":
     "publishes ONLY a denim-size conversion (MOTHER 23-34 to US/UK/AU/FR/IT/DE/JP) with no body measurements anywhere, and /pages/size-guide renders no table (US-3289)",
   "Spanx": "its /pages/size-chart renders no table (US-3287)",
+  "Abercrombie & Fitch":
+    "abercrombie.com/shop/us/help/sizechart renders no table, and /shop/us/size-guide is a 404 (US-3291)",
 };
 
 /**

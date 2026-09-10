@@ -10089,6 +10089,73 @@ export const SIZING_CHARTS: SizingChart[] = [
       { size: "XXL", measurements: { chest: "52-54", waist: "37", numeric: "38", uk: "46", eu: "54", kr: "115", jp: "7" } },
     ],
   },
+
+  // ── US-3291: size-chart backfill, batch 8 ──────────────────────────────────
+  //
+  // True Religion, off its own per-garment chart pages.
+  //
+  // ⚠ THE TWO DEPARTMENTS ARE GRADED DIFFERENTLY AND IT IS NOT SYMMETRIC. The
+  // men's run steps a flat 2in per size the whole way (35-36, 37-38, 39-40 …).
+  // The women's does NOT: it starts 1in wide at XXS and XS, then widens to 2in
+  // at S, 3in at M and FOUR inches at L (38.5-42.5). A women's L therefore
+  // spans what the men's chart would call L through XL, and a size check on a
+  // women's item will be correspondingly quieter. That is True Religion's own
+  // grading, not a transcription artefact — worth stating because a band that
+  // wide looks like a mistake.
+
+  // True Religion — https://www.truereligion.com/sizechart-womens-tops.html
+  {
+    brand: "True Religion",
+    brandMatch: ["true religion", "truereligion"],
+    department: "Women",
+    garment: "Tops & outerwear (alpha, body inches)",
+    categoryMatch: [
+      "top", "tee", "shirt", "blouse", "sweater", "knit", "hoodie", "sweatshirt",
+      "tank", "jacket", "coat", "outerwear", "blazer", "vest",
+    ],
+    sourceUrl: "https://www.truereligion.com/sizechart-womens-tops.html",
+    note:
+      "True Religion's published women's tops chart, which is also what its " +
+      "jackets are sized off — the brand publishes no separate outerwear table. " +
+      "Body measurements, not flat. The bands widen sharply up the run (1in at " +
+      "XXS, 4in at L); that is the brand's own grading.",
+    rows: [
+      { size: "XXS", measurements: { bust: "31.5-32.5", waist: "23-24" } },
+      { size: "XS", measurements: { bust: "32.5-33.5", waist: "24.5-25.5" } },
+      { size: "S", measurements: { bust: "33.5-35.5", waist: "26-27.5" } },
+      { size: "M", measurements: { bust: "35.5-38.5", waist: "28-29.5" } },
+      { size: "L", measurements: { bust: "38.5-42.5", waist: "30-34.5" } },
+      { size: "XL", measurements: { bust: "42.5-46", waist: "35-38" } },
+      { size: "2XL", measurements: { bust: "46-49", waist: "39-42" } },
+      { size: "3XL", measurements: { bust: "49-52", waist: "43-46" } },
+    ],
+  },
+
+  // True Religion — https://www.truereligion.com/sizechart-mens-tops.html
+  {
+    brand: "True Religion",
+    brandMatch: ["true religion", "truereligion"],
+    department: "Men",
+    garment: "Tops & outerwear (alpha, body inches)",
+    categoryMatch: [
+      "top", "tee", "shirt", "polo", "sweater", "knit", "hoodie", "sweatshirt",
+      "jacket", "coat", "outerwear", "vest",
+    ],
+    sourceUrl: "https://www.truereligion.com/sizechart-mens-tops.html",
+    note:
+      "True Religion's published men's tops chart, which its jackets are sized " +
+      "off too. CHEST ONLY — the brand publishes no waist, neck or sleeve for " +
+      "menswear tops, and none is invented here. Body measurements, not flat.",
+    rows: [
+      { size: "XS", measurements: { chest: "35-36" } },
+      { size: "S", measurements: { chest: "37-38" } },
+      { size: "M", measurements: { chest: "39-40" } },
+      { size: "L", measurements: { chest: "41-42" } },
+      { size: "XL", measurements: { chest: "43-44" } },
+      { size: "XXL", measurements: { chest: "45-46" } },
+      { size: "XXXL", measurements: { chest: "47-48" } },
+    ],
+  },
 ];
 
 function norm(s: string | null | undefined): string {

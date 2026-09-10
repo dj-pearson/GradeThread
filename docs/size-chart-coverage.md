@@ -6,9 +6,9 @@ Coverage is measured the way the size-guide panel resolves a chart: a real brand
 
 ## Where it stands
 
-- 168 brands, 324 brand-specific charts.
-- 41 charts link the brand's own guide; 0 have been checked against it by a human.
-- 72 brands are missing at least one group they should cover.
+- 168 brands, 326 brand-specific charts.
+- 43 charts link the brand's own guide; 0 have been checked against it by a human.
+- 71 brands are missing at least one group they should cover.
 
 Worked dead ends, skipped by `--gaps` and still listed below:
 
@@ -22,14 +22,15 @@ Worked dead ends, skipped by `--gaps` and still listed below:
 - **Moncler** — the size guide sits behind a panel that never emits a table; the 0-5 scale is published only as prose (US-3286)
 - **MOTHER** — publishes ONLY a denim-size conversion (MOTHER 23-34 to US/UK/AU/FR/IT/DE/JP) with no body measurements anywhere, and /pages/size-guide renders no table (US-3289)
 - **Spanx** — its /pages/size-chart renders no table (US-3287)
+- **Abercrombie & Fitch** — abercrombie.com/shop/us/help/sizechart renders no table, and /shop/us/size-guide is a 404 (US-3291)
 
 | Group | Brands covered |
 |---|---:|
-| top | 113 |
+| top | 114 |
 | bottom | 96 |
 | dress | 52 |
-| outerwear | 101 |
-| suit | 33 |
+| outerwear | 102 |
+| suit | 34 |
 | shoes | 27 |
 | bag | 10 |
 | watch | 1 |
@@ -192,7 +193,7 @@ Worked dead ends, skipped by `--gaps` and still listed below:
 | Tommy Hilfiger | 6 | Men, Women | Men, Women |  | Men, Women | Men, Women |  |  |  |  |  |  |
 | Tommy John | 1 |  |  |  |  |  |  |  |  |  |  |  |
 | Tory Burch | 2 | Women | Women | Women | Women | Women |  |  |  |  |  |  |
-| True Religion | 2 |  | Men, Women |  |  |  |  |  |  |  |  | top, outerwear |
+| True Religion | 4 | Men, Women | Men, Women |  | Men, Women | Women |  |  |  |  |  |  |
 | Tumi | 1 |  |  |  |  |  |  | Unisex |  |  |  |  |
 | UGG | 2 |  |  |  |  |  | Men, Women |  |  |  |  |  |
 | Under Armour | 3 | Men | Men, Women |  | Men |  |  |  |  |  |  |  |
