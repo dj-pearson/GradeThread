@@ -13,6 +13,7 @@ code_refs:
   - supabase/migrations/00776_sizing_chart_sources.sql
   - supabase/migrations/00779_sizing_chart_sources.sql
   - supabase/migrations/00780_sizing_chart_sources.sql
+  - supabase/migrations/00781_sizing_chart_sources.sql
 reviewed: 2026-09-10
 tags: [brands, sizing, backfill, runbook]
 summary: How to close a batch of brand size-chart gaps, why coverage is measured through the resolver rather than by counting rows, and what a batch must carry before it can be closed.
@@ -188,6 +189,45 @@ dishonest — its Officer Pant lists a 29.5in relaxed waist at size 28 while its
 Elasticated Trouser lists 26in at XS. What IS brand-wide is the alpha-to-numeric
 conversion printed identically on every product, so that is all its chart
 claims. Herno's Italian-sizing entry is the same pattern from batch 1.
+
+After batch 4 (US-3287): 366 charts across 168 brands, **83 sourced**, and 56
+brands still carrying a gap. Eight of ten closed.
+
+⚠ **A batch can REPLACE a chart, and this one did.** Cotopaxi already had a
+men's and a women's chart, both approximations with no source, and both too
+narrow to reach bottoms. Adding a sourced pair beside them would have recreated
+the two-competing-charts problem US-1734 fixed for The North Face, so batch 4
+rewrote the existing two in place: real rows, a real `sourceUrl`, and a widened
+`categoryMatch`. **Prefer this to adding a duplicate whenever a brand already
+has a chart in the department you are filling.** The generated migration handles
+it without special-casing, because the upsert keys on brand, department and
+garment and those did not change.
+
+⚠ **THE FIRST `flat` CHART IN THE CORPUS.** Bonobos states it above its own
+table — "Measurements reflect garment dimensions. All units are in inches" — so
+its two charts carry `measurementBasis: "flat"`. Everything shipped in batches 1
+through 3 was body. This is what step 3 has been waiting for: the rule was never
+"assume body", it was "record what the brand says", and until now no brand in
+the backfill had said this.
+
+⚠ **Two exceptions, and one of them is MINE rather than the brand's.** Chrome
+Hearts is the brand's: `/pages/size-guide` 404s and its per-product tables
+disagree with each other — its leggings chart starts at XS with a 20-25in waist,
+its long johns chart has no XS at all and starts at S with 23-28in — so there is
+no brand-level bottoms chart to take, and it has no conversion table to fall
+back on the way Aimé Leon Dore does. **Burberry is a tooling failure and should
+not be left as an exception without a human look**: its own
+`/customer-service/faqs/size-guide/` redirects to Contact Us on both the US and
+CA sites, and the chart lives only in a product-page modal on a page that made
+the browser renderer unresponsive three times running. That is a different claim
+from "the brand stopped publishing", and the note should not blur them.
+
+⚠ **A cm-only brand is fine; say so in the note.** Barbour publishes
+centimetres with no unit toggle anywhere. Converting its own columns to inches
+is arithmetic on the brand's numbers, not a substitution, and the chart note
+records that it happened. What must NOT be folded in is Barbour's separate
+advice to add 4-6in for layering — that is a fit instruction about waxed
+jackets, not part of the measurements.
 
 ⚠ The coverage report measures the IN-CODE corpus, not the database. Prod's
 `brand_size_charts` already held source URLs on the hand-written pack rows

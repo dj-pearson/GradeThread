@@ -1,5 +1,39 @@
 # PENDING MIGRATIONS — applied to prod separately from the push
 
+## 🔒 HELD: 00781 — batch 4 of the sourced size charts (US-3287)
+
+**Risk: LOW.** Same shape as 00780 below: insert-or-update into
+`public.brand_size_charts`, a global reference table with deny-all RLS and no
+tenant data. No schema change, nothing dropped, nothing revoked. Idempotent.
+
+**HELD FROM THE PUSH, unlike 00779 and 00780.** The standing rule is back: a
+commit touching `supabase/migrations/` is committed locally and the operator
+pushes it. This one has NOT been applied to prod and has NOT been pushed.
+
+**What it does.** 16 new sizing charts across Arc'teryx, Barbour, Bogner,
+Bonobos, Brooks Brothers, Dickies and Diesel, plus REPLACED rows on Cotopaxi's
+two existing charts. Each carries the brand's own `source_url` and
+`confidence 0.85`; `verified` stays false. 80 sourced rows in total, since the
+generator re-emits every earlier batch.
+
+**Cotopaxi's two rows are an UPDATE, not an insert, and that is the point.**
+Its men's and women's charts existed as approximations with no source. Rather
+than add a second competing pair, this batch rewrote them in place with the
+brand's published numbers and widened `category_match` to reach bottoms. The
+upsert handles it: same `brand_key`, `department` and `garment`, new `rows`,
+`note`, `source_url` and `category_match`.
+
+**One chart is FLAT, which is new.** Bonobos states above its own table that the
+numbers are garment dimensions, so its two charts carry
+`measurement_basis = 'flat'`. Every chart shipped before this was body. If the
+size check starts reporting Bonobos items as oversized, that column is the first
+place to look.
+
+**Apply order:** after 00780. `NOTIFY pgrst, 'reload schema';` afterwards is
+harmless (no table, column or RPC signature changed) but cheap. Redeploy the
+edge afterwards: its boot guard will expect 00781.
+
+
 ## ✅ APPLIED 2026-09-10: 00780 — batch 3 of the sourced size charts (US-3286)
 
 **Risk: LOW.** Same shape as 00779 below: insert-or-update into

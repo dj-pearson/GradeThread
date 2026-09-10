@@ -6,16 +6,16 @@ Coverage is measured the way the size-guide panel resolves a chart: a real brand
 
 ## Where it stands
 
-- 168 brands, 352 brand-specific charts.
-- 67 charts link the brand's own guide; 0 have been checked against it by a human.
-- 64 brands are missing at least one group they should cover.
+- 168 brands, 366 brand-specific charts.
+- 83 charts link the brand's own guide; 0 have been checked against it by a human.
+- 56 brands are missing at least one group they should cover.
 
 | Group | Brands covered |
 |---|---:|
-| top | 119 |
-| bottom | 99 |
+| top | 124 |
+| bottom | 103 |
 | dress | 54 |
-| outerwear | 106 |
+| outerwear | 108 |
 | suit | 40 |
 | shoes | 27 |
 | bag | 10 |
@@ -38,23 +38,23 @@ Coverage is measured the way the size-guide panel resolves a chart: a real brand
 | Ann Taylor | 2 | Women | Women | Women | Women | Women |  |  |  |  |  |  |
 | Anthropologie | 2 | Women | Women | Women | Women |  |  |  |  |  |  |  |
 | Anti Social Social Club | 1 | Unisex |  |  | Unisex |  |  |  |  |  |  | bottom |
-| Arc'teryx | 2 | Men, Women |  |  | Men, Women |  |  |  |  |  |  | bottom |
+| Arc'teryx | 6 | Men, Women | Men, Women |  | Men, Women |  |  |  |  |  |  |  |
 | Aritzia | 2 | Women | Women | Women | Women |  |  |  |  |  |  |  |
 | ASICS | 2 |  |  |  |  |  | Men, Women |  |  |  |  |  |
 | Athleta | 2 | Women | Women |  | Women |  |  |  |  |  |  |  |
 | Balenciaga | 2 | Men, Women | Men, Women | Women | Men, Women | Men |  |  |  |  |  |  |
 | Banana Republic | 4 | Men, Women | Men, Women | Women | Men, Women | Men, Women |  |  |  |  |  |  |
 | BAPE | 1 | Men |  |  | Men |  |  |  |  |  |  | bottom |
-| Barbour | 1 |  |  |  | Men |  |  |  |  |  |  | top, bottom |
+| Barbour | 2 | Men | Men |  | Men |  |  |  |  |  |  |  |
 | Beyond Yoga | 2 | Women | Women | Women |  |  |  |  |  |  |  | outerwear |
 | Birkenstock | 1 |  |  |  |  |  | Unisex |  |  |  |  |  |
-| Bogner | 2 |  | Men, Women |  | Men, Women |  |  |  |  |  |  | top |
-| Bonobos | 1 |  | Men |  |  |  |  |  |  |  |  | top, outerwear |
+| Bogner | 4 | Men, Women | Men, Women |  | Men, Women |  |  |  |  |  |  |  |
+| Bonobos | 3 | Men | Men |  | Men |  |  |  |  |  |  |  |
 | Bottega Veneta | 2 | Men, Women | Men, Women | Women | Men, Women | Men |  |  |  |  |  |  |
 | Brahmin | 1 |  |  |  |  |  |  | Women |  |  |  |  |
 | Brandy Melville | 1 | Women | Women | Women |  |  |  |  |  |  |  | outerwear |
 | Brooks | 2 |  |  |  |  |  | Men, Women |  |  |  |  |  |
-| Brooks Brothers | 4 | Men |  |  | Men | Men | Men, Women |  |  |  |  | bottom |
+| Brooks Brothers | 6 | Men | Men |  | Men | Men | Men, Women |  |  |  |  |  |
 | Buck Mason | 1 | Men | Men |  |  |  |  |  |  |  |  | outerwear |
 | Burberry | 2 | Men |  |  | Men, Women | Men, Women |  |  |  |  |  | bottom |
 | Calvin Klein | 2 |  |  |  |  |  |  |  |  |  |  |  |
@@ -69,11 +69,11 @@ Coverage is measured the way the size-guide panel resolves a chart: a real brand
 | Cole Haan | 2 |  |  |  |  |  | Men, Women |  |  |  |  |  |
 | Columbia | 3 | Men, Women | Men |  | Men, Women |  |  |  |  |  |  |  |
 | Converse | 1 |  |  |  |  |  | Unisex |  |  |  |  |  |
-| Cotopaxi | 2 | Men, Women |  |  | Men, Women |  |  |  |  |  |  | bottom |
+| Cotopaxi | 2 | Men, Women | Men, Women |  | Men, Women |  |  |  |  |  |  |  |
 | Crocs | 1 |  |  |  |  |  | Unisex |  |  |  |  |  |
 | Denim Tears | 2 | Unisex | Unisex |  | Unisex |  |  |  |  |  |  |  |
-| Dickies | 1 |  | Men |  |  |  |  |  |  |  |  | top, outerwear |
-| Diesel | 3 |  | Men, Women |  | Unisex |  |  |  |  |  |  | top |
+| Dickies | 2 | Men | Men |  | Men |  |  |  |  |  |  |  |
+| Diesel | 5 | Men, Women | Men, Women |  | Unisex |  |  |  |  |  |  |  |
 | Dior | 2 | Men, Women | Men, Women | Women | Men, Women | Men |  |  |  |  |  |  |
 | Dooney & Bourke | 1 |  |  |  |  |  |  | Women |  |  |  |  |
 | Dr. Martens | 1 |  |  |  |  |  | Unisex |  |  |  |  |  |
