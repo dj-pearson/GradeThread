@@ -443,6 +443,12 @@ async function renderCertificate(context: Ctx): Promise<Response> {
       bodyHtml,
       // US-1665 AC4: a certificate with no garment photos is a thin page — keep
       // it out of the index (it still resolves + carries structured data).
+      //
+      // GET /api/content/public/certificates.json applies the same rule when it
+      // builds sitemap-certs.xml, so this page and the sitemap agree about which
+      // certificates are worth crawling. It cannot be a shared import (that
+      // endpoint runs in Deno, this runs in Cloudflare Pages), so changing the
+      // rule here means changing it there in the same commit.
       noindex: !cert.hero_image_url,
     },
     { cacheControl: SSR_CACHE_CONTROL },
