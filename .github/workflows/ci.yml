@@ -300,6 +300,14 @@ jobs:
         if: ${{ !cancelled() && steps.build.outcome == 'success' }}
         run: node scripts/check-bundle-budget.mjs
 
+      # Reachability over the prerendered dist/: a public page nothing links to,
+      # a page only the header/footer links to, or a page five clicks from home.
+      # Reads dist/, so like the bundle guard above it runs only on a successful
+      # build rather than on `!cancelled()` alone.
+      - name: Internal-link reachability guard
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        run: node scripts/check-internal-links.mjs
+
   e2e:
     name: E2E (Playwright)
     runs-on: ubuntu-latest

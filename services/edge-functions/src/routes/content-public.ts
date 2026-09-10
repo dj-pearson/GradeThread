@@ -40,7 +40,11 @@ import { parseRegisteredNumber, registeredNumberKey } from "../lib/registered-nu
 import { filterListablePhotos } from "../lib/item-photo-storage.ts";
 import { verifyPreviewToken } from "../lib/preview-token.ts";
 import { verifyCertIntegrity } from "../lib/cert-integrity.ts";
-import { isCertificateWithheld } from "../lib/certificate-visibility.ts";
+import {
+  isCertificateWithheld,
+  indexableCertificates,
+  type CertificateListRow,
+} from "../lib/certificate-visibility.ts";
 import {
   buildCertGallery,
   galleryRowAt,
@@ -2339,7 +2343,7 @@ contentPublicRoutes.get("/certificates.json", async (c) => {
   let q = supabaseAdmin
     .from("grade_reports")
     .select(
-      "certificate_id, created_at, submissions!inner(status, flagged, moderation_status)",
+      "certificate_id, created_at, submission_id, submissions!inner(status, flagged, moderation_status)",
     )
     .not("certificate_id", "is", null)
     .order("created_at", { ascending: false })
@@ -2354,14 +2358,38 @@ contentPublicRoutes.get("/certificates.json", async (c) => {
   // the cursor (the crawler just sees a shorter page).
   const nextCursor =
     raw.length === limit ? raw[raw.length - 1]?.created_at ?? null : null;
-  const rows = raw.filter((r) => {
-    // supabase-js returns a to-one embed as an object (occasionally an array).
-    const s = r as { submissions?: unknown };
-    const sub = Array.isArray(s.submissions) ? s.submissions[0] : s.submissions;
-    return !isCertificateWithheld(
-      sub as { status?: string | null; flagged?: boolean | null; moderation_status?: string | null } | null,
+  // Which of this page's submissions actually have a garment photo. A
+  // certificate with none is served `noindex` by the SSR page (US-1665 AC4 — it
+  // resolves and carries its structured data, it is just too thin to rank), and
+  // this list did not know that, so every photoless certificate was advertised
+  // at priority 0.7 and then told the crawler not to index it.
+  const submissionIds = [
+    ...new Set(
+      raw
+        .map((r) => (r as { submission_id?: string | null }).submission_id)
+        .filter((id): id is string => typeof id === "string"),
+    ),
+  ];
+  let withPhotos = new Set<string>();
+  if (submissionIds.length > 0) {
+    const { data: imageRows, error: imageError } = await supabaseAdmin
+      .from("submission_images")
+      .select("submission_id")
+      .in("submission_id", submissionIds);
+    // Fail the request rather than serving a list that silently drops every
+    // certificate: the sitemap builder turns an unreachable upstream into a 503
+    // (US-2097), and an empty 200 would be cached for an hour as "these pages
+    // do not exist".
+    if (imageError) return publicError(c, imageError, "query");
+    withPhotos = new Set(
+      (imageRows ?? []).map((r) => (r as { submission_id: string }).submission_id),
     );
-  });
+  }
+
+  // Both rules in one pure place, so the endpoint cannot apply one and forget
+  // the other again.
+  const rows = indexableCertificates(raw as CertificateListRow[], withPhotos);
+
   return c.json({
     certificates: rows.map((r) => ({
       id: r.certificate_id,

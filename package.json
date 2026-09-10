@@ -14,6 +14,7 @@
     "og:image": "node scripts/generate-og-image.mjs",
     "sync:aspects": "node scripts/sync-aspect-registry.mjs",
     "lint": "eslint .",
+    "seo:links": "node scripts/check-internal-links.mjs",
     "ui:check": "node scripts/check-ui-antipatterns.mjs",
     "ui:check:authed": "node scripts/check-ui-authed.mjs",
     "unwired:check": "node scripts/check-unwired-modules.mjs",

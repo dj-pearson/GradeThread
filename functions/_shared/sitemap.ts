@@ -287,8 +287,39 @@ async function indexableConditionalPaths(env: PagesEnv): Promise<Set<string>> {
   return new Set(paths.filter((_, i) => verdicts[i]));
 }
 
+/**
+ * The routes a sitemap is allowed to advertise, and the ONE place that decides.
+ *
+ * Two rules, both of which exist because advertising a URL is a claim:
+ *
+ *   • US-2098 — a conditionally-indexed route is listed only while it would
+ *     actually render indexable. /state-of-durability serves `noindex` until it
+ *     has enough cohorts, and telling a crawler to fetch a page we then tell it
+ *     to drop is the contradiction that story was written about.
+ *   • US-9008 — a route whose canonical points elsewhere stays live and linked,
+ *     but listing it here contradicts the canonical we just served.
+ *
+ * It is a shared helper rather than a rule repeated per builder because the
+ * repeated version had already drifted: marketingImageUrls() applied neither
+ * check, so an image-bearing route that was canonicalised or held back would
+ * have been advertised at <loc> in sitemap-images.xml while sitemap-marketing
+ * .xml correctly withheld it. No route is both image-bearing and excluded
+ * today, so this closes the gap before it opens rather than after.
+ */
+async function advertisableRoutes(
+  env: PagesEnv,
+  manifest: SeoManifest,
+): Promise<ManifestRoute[]> {
+  const indexable = await indexableConditionalPaths(env);
+  return manifest.routes.filter((r) => {
+    if (r.path in CONDITIONALLY_INDEXED && !indexable.has(r.path)) return false;
+    if (r.canonicalPath && r.canonicalPath !== r.path) return false;
+    return true;
+  });
+}
+
 /** US-1679: partition the manifest routes into marketing vs grading pSEO. */
-async function partitionedStaticUrls(
+export async function partitionedStaticUrls(
   env: PagesEnv,
 ): Promise<{
   marketing: SitemapUrl[];
@@ -307,16 +338,11 @@ async function partitionedStaticUrls(
       buying: [],
     };
   }
-  const indexable = await indexableConditionalPaths(env);
   const marketing: SitemapUrl[] = [];
   const grading: SitemapUrl[] = [];
   const care: SitemapUrl[] = [];
   const buying: SitemapUrl[] = [];
-  for (const r of manifest.routes) {
-    if (r.path in CONDITIONALLY_INDEXED && !indexable.has(r.path)) continue;
-    // US-9008: a route whose canonical points elsewhere stays live and linked,
-    // but advertising it here would contradict the canonical we just served.
-    if (r.canonicalPath && r.canonicalPath !== r.path) continue;
+  for (const r of await advertisableRoutes(env, manifest)) {
     const url = manifestRouteToUrl(base, r, manifest.generatedAt);
     if (isCareRoute(r.path)) care.push(url);
     // US-3093: checked before grading for the same reason care is — a /buying
@@ -402,13 +428,23 @@ export async function careRatio(
 }
 
 /**
- * All static registry routes (marketing + grading). Kept for the legacy
- * sitemap-static.xml alias + the single-file /sitemap.xml path; the index now
- * links the marketing/grading split instead (US-1679).
+ * ALL static registry routes, every partition of them. Two callers depend on
+ * that word "all": the legacy /sitemap-static.xml alias, and the single-urlset
+ * branch of /sitemap.xml that runs whenever the grand total sits under
+ * SITEMAP_MAX_URLS. A segment left out here is a page nothing advertises.
+ *
+ * ⚠ US-3093 added the `buying` partition and did not add it here, so every
+ * /buying page was missing from /sitemap-static.xml and from the single-urlset
+ * /sitemap.xml, and was undercounted in the total that decides which of the two
+ * shapes /sitemap.xml takes. The segment file served them, but only a crawler
+ * that had already found the index knew the segment existed.
+ *
+ * Build it by spreading the partition object rather than naming fields, so the
+ * NEXT cluster cannot be forgotten the same way.
  */
 export async function staticUrls(env: PagesEnv): Promise<SitemapUrl[]> {
-  const { marketing, grading, care } = await partitionedStaticUrls(env);
-  return [...marketing, ...grading, ...care];
+  const partitions = await partitionedStaticUrls(env);
+  return Object.values(partitions).flat();
 }
 
 export async function blogUrls(env: PagesEnv): Promise<SitemapUrl[]> {
@@ -1105,7 +1141,11 @@ export async function marketingImageUrls(
 ): Promise<ImageSitemapEntry[]> {
   const base = siteUrl(env);
   const manifest = await fetchManifest(env);
-  const fromManifest = (manifest?.routes ?? []).filter((r) => r.image?.file);
+  // Same advertisability rules as the URL sitemap. An image entry carries a
+  // <loc> for the PAGE, so a page the URL sitemap withholds must be withheld
+  // here too.
+  const advertisable = manifest ? await advertisableRoutes(env, manifest) : [];
+  const fromManifest = advertisable.filter((r) => r.image?.file);
 
   if (fromManifest.length > 0) {
     return fromManifest.map((r) => ({
