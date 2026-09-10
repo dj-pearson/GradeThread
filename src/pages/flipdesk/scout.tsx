@@ -204,7 +204,10 @@ export function FlipdeskScoutPage() {
   // The seller's standing target, so a number set once in Buy decision is not
   // typed again here. Read-only: the field below overrides it for this scan.
   const { data: storedTargetPct } = useQuery({
-    queryKey: ["sourcing-target", user?.id],
+    // Underscore, matching what sourcing-target-setting.tsx reads AND
+    // invalidates. It was a hyphen here, so saving a new target refreshed the
+    // settings card and left this page showing the old number until a reload.
+    queryKey: ["sourcing_target", user?.id],
     enabled: Boolean(user?.id),
     queryFn: async () => {
       const { data } = await supabase

@@ -81,7 +81,35 @@ export interface BuyDecision {
  * is the pre-US-3193 behaviour for that line only.
  */
 export interface SourcingCosts {
-  /** Postage for one parcel. */
+  /**
+   * Postage for one parcel.
+   *
+   * ⚠ NO PREDICTED PARCEL FEEDS THIS AT SOURCING TIME, and that is a finding
+   * rather than an omission. US-3193 was written expecting "the predicted
+   * parcel when one exists, the seller's default otherwise", and one never
+   * exists here. estimateParcel (lib/parcel-estimate.ts) needs a
+   * ParcelGarmentCategory, a material and tape MEASUREMENTS — chest, waist or
+   * shoe size — and the four surfaces that compute a ceiling carry none of the
+   * three:
+   *   - POST /            (scan)        categoryId + q/brand + price filters
+   *   - POST /appraise                  photo, barcode, q, brand, an eBay
+   *                                     categoryId and a free-text size
+   *   - POST /appraise-url              a listing URL, title, brand, size
+   *   - POST /prospect                  photos; the vision identify yields
+   *                                     `garmentType: string | null`, free
+   *                                     text and not the parcel enum
+   * None of them reads inventory_items — the only reference in the whole route
+   * file is inside POST /buy, which runs AFTER the decision and CREATES the
+   * item. Nobody has measured a garment they have not bought yet, so there is
+   * no measurement to predict from, and feeding estimateParcel a null category
+   * returns the 12 oz `other` base weight: a fabricated figure sitting ABOVE
+   * the true lower bound, which would block good buys.
+   *
+   * The field stays a per-call input rather than a lookup, so the day a
+   * surface DOES hold a measured garment it can pass a predicted figure here
+   * without touching the ceiling maths. Until then the seller's own default is
+   * the honest source, and it is theirs to set (migration 00770).
+   */
   shippingCents?: number | null;
   /** Mailer, tape, label. */
   suppliesCents?: number | null;

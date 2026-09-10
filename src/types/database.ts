@@ -2821,6 +2821,16 @@ export interface FlipdeskSettingsRow {
   // edge's scout-decision.ts), which is also the threshold that decides whether
   // Scout calls an item a maybe.
   sourcing_target_roi_pct: number | null;
+  // US-3193 (migration 00770): what it costs this seller to turn one sourced
+  // garment into a completed sale, beyond the marketplace's cut. Subtracted
+  // before the buy ceiling divides by the target return, so the ceiling is a
+  // price they can actually pay. NULL means "use the code default"
+  // (DEFAULT_SOURCING_*_CENTS in the edge's scout-decision.ts); 0 is a real
+  // answer and is honoured literally. Bounded 0..100000 cents by the column's
+  // own CHECK. Written by components/flipdesk/sourcing-target-setting.tsx.
+  sourcing_shipping_cost_cents: number | null;
+  sourcing_supplies_cost_cents: number | null;
+  sourcing_grading_cost_cents: number | null;
   // US-9204 (migration 00715): the seller's own choice about the one-screen
   // review flow. NULL means decide by account age (see src/lib/review-flow.ts).
   review_flow_enabled: boolean | null;
@@ -2865,6 +2875,11 @@ export interface FlipdeskSettingsInsert {
   cross_post_channels?: string[] | null;
   lister_locales?: Record<string, string> | null;
   sourcing_target_roi_pct?: number | null;
+  // US-3193 (migration 00770). Each is independently optional: omitting one
+  // leaves it NULL, which the ceiling reads as "use the code default".
+  sourcing_shipping_cost_cents?: number | null;
+  sourcing_supplies_cost_cents?: number | null;
+  sourcing_grading_cost_cents?: number | null;
 }
 
 export type FlipdeskSettingsUpdate = Partial<

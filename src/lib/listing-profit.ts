@@ -23,6 +23,34 @@ export interface ProfitInputs {
   gradingCost?: number | null;
   /** Seller-paid shipping label, if known. */
   shippingCost?: number | null;
+  /**
+   * US-3193: mailer, tape and label for one parcel, if known.
+   *
+   * THE THIRD LINE, ADDED SO THE TWO COST SETS MATCH. sourcingCeiling in the
+   * edge's scout-decision.ts subtracts shipping + supplies + grading; this
+   * function subtracted cost basis + grading + shipping and had no supplies
+   * line at all. The ceiling was therefore stricter than the profit screen by
+   * one mailer — the safe direction, and still two numbers disagreeing when a
+   * seller reads them a minute apart.
+   *
+   * ⚠ THE DEFAULTS STILL DIFFER, DELIBERATELY, and the difference is not
+   * drift. Every cost line here defaults to ZERO when the caller passes
+   * nothing, because this function reports on ONE listing whose costs the
+   * caller is expected to know and a guessed figure would be presented as that
+   * listing's fact. The ceiling defaults each line to a real lower-bound
+   * figure instead, because it hands a seller a spending limit for a garment
+   * nobody has measured yet and an unset line there means "we do not know",
+   * not "it is free". Under-estimating on a ceiling is the failure US-3193
+   * exists to fix.
+   *
+   * ⚠ AND NO CALLER PASSES IT YET, which is the same gap `shippingCost` has:
+   * the header of src/lib/parcel-estimate.ts names it — a shippingCost "if
+   * known" is almost never known, so the bulk margin floor prices postage at
+   * zero. Wiring the predicted parcel into these callers is US-2790's remit,
+   * not this story's. What this story owed was the matching cost SET, so that
+   * the wiring has all three lines to fill when it arrives.
+   */
+  suppliesCost?: number | null;
   /** eBay final-value fee fraction (default 13.6%, from EBAY_FEE_RATE). */
   feeRate?: number;
   /** Fixed per-order fee (default $0.40). */
@@ -32,7 +60,7 @@ export interface ProfitInputs {
 export interface ProfitEstimate {
   /** Estimated marketplace fees (FVF + fixed). */
   fees: number;
-  /** Your costs: cost basis + grading + shipping. */
+  /** Your costs: cost basis + grading + shipping + supplies (US-3193). */
   costs: number;
   /** price − fees − costs (can be negative). */
   net: number;
@@ -47,6 +75,8 @@ export interface MarginFloorInputs {
   costBasis?: number | null;
   gradingCost?: number | null;
   shippingCost?: number | null;
+  /** US-3193: the same third line ProfitInputs carries — see the note there. */
+  suppliesCost?: number | null;
   feeRate?: number;
   fixedFee?: number;
 }
@@ -66,7 +96,8 @@ export function priceForMargin(input: MarginFloorInputs): number | null {
   const costs =
     Math.max(0, input.costBasis ?? 0) +
     Math.max(0, input.gradingCost ?? 0) +
-    Math.max(0, input.shippingCost ?? 0);
+    Math.max(0, input.shippingCost ?? 0) +
+    Math.max(0, input.suppliesCost ?? 0);
   const m = input.targetMarginPct / 100;
   const denom = 1 - feeRate - m;
   if (denom <= 0) return null;
@@ -80,9 +111,10 @@ export function estimateListingProfit(input: ProfitInputs): ProfitEstimate {
   const costBasis = Math.max(0, input.costBasis ?? 0);
   const grading = Math.max(0, input.gradingCost ?? 0);
   const shipping = Math.max(0, input.shippingCost ?? 0);
+  const supplies = Math.max(0, input.suppliesCost ?? 0);
 
   const fees = price > 0 ? price * feeRate + fixedFee : 0;
-  const costs = costBasis + grading + shipping;
+  const costs = costBasis + grading + shipping + supplies;
   const net = price - fees - costs;
   const marginPct = price > 0 ? (net / price) * 100 : 0;
   return { fees, costs, net, marginPct };

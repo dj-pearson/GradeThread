@@ -7,6 +7,13 @@ import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { supabase } from "@/lib/supabase";
 import { useAuthStore } from "@/stores/auth-store";
+import {
+  DEFAULT_SOURCING_COST_CENTS,
+  SOURCING_COST_FIELDS,
+  type SourcingCostKey,
+  centsToCostInput,
+  parseCostInput,
+} from "@/components/flipdesk/sourcing-cost-fields";
 
 // US-2851: the margin you are actually sourcing to.
 //
@@ -20,6 +27,16 @@ import { useAuthStore } from "@/stores/auth-store";
 // matters: a seller who leaves this empty should know what they are getting,
 // not discover it by reverse-engineering a ceiling.
 //
+// US-3193: AND THE COSTS THAT CEILING SUBTRACTS. Migration 00770 added
+// sourcing_shipping_cost_cents, sourcing_supplies_cost_cents and
+// sourcing_grading_cost_cents; the edge read all three from the day they
+// landed, and nothing in the product could set them. So the whole promise that
+// the figures are the SELLER'S — that a seller shipping heavy coats or buying
+// mailers in bulk gets a ceiling built on their own numbers — was true for
+// nobody, and every account silently ran on the code defaults. The four fields
+// belong in one block and save in one upsert because they are one row and one
+// decision: what you sell for, minus what it costs you to send it.
+//
 // RLS on flipdesk_settings scopes the row to the signed-in user (00134), so
 // this reads and writes with the plain client and no explicit filter.
 
@@ -28,29 +45,52 @@ export const DEFAULT_SOURCING_TARGET_PCT = 30;
 /** Mirrors the CHECK in migration 00666. */
 export const MAX_SOURCING_TARGET_PCT = 1000;
 
+/** The four columns this block owns, as they come back from the row. */
+interface SourcingSettings {
+  sourcing_target_roi_pct: number | null;
+  sourcing_shipping_cost_cents: number | null;
+  sourcing_supplies_cost_cents: number | null;
+  sourcing_grading_cost_cents: number | null;
+}
+
+type CostDrafts = Record<SourcingCostKey, string>;
+
+const EMPTY_COSTS: CostDrafts = { shipping: "", supplies: "", grading: "" };
+
 export function SourcingTargetSetting() {
   const user = useAuthStore((s) => s.user);
   const qc = useQueryClient();
   const [draft, setDraft] = useState("");
+  const [costDrafts, setCostDrafts] = useState<CostDrafts>(EMPTY_COSTS);
   const [saving, setSaving] = useState(false);
 
   const { data: stored } = useQuery({
     queryKey: ["sourcing_target", user?.id],
     enabled: Boolean(user?.id),
-    queryFn: async (): Promise<number | null> => {
+    queryFn: async (): Promise<SourcingSettings | null> => {
       const { data, error } = await supabase
         .from("flipdesk_settings")
-        .select("sourcing_target_roi_pct")
+        .select(
+          "sourcing_target_roi_pct, sourcing_shipping_cost_cents, sourcing_supplies_cost_cents, sourcing_grading_cost_cents",
+        )
         .eq("user_id", user!.id)
         .maybeSingle();
       if (error) throw error;
-      return (data as { sourcing_target_roi_pct: number | null } | null)
-        ?.sourcing_target_roi_pct ?? null;
+      return (data as SourcingSettings | null) ?? null;
     },
   });
 
   useEffect(() => {
-    setDraft(stored == null ? "" : String(stored));
+    setDraft(
+      stored?.sourcing_target_roi_pct == null
+        ? ""
+        : String(stored.sourcing_target_roi_pct),
+    );
+    setCostDrafts({
+      shipping: centsToCostInput(stored?.sourcing_shipping_cost_cents),
+      supplies: centsToCostInput(stored?.sourcing_supplies_cost_cents),
+      grading: centsToCostInput(stored?.sourcing_grading_cost_cents),
+    });
   }, [stored]);
 
   async function save() {
@@ -66,12 +106,25 @@ export function SourcingTargetSetting() {
       }
       value = n;
     }
+
+    // US-3193: every cost line is validated BEFORE anything is written, so a
+    // bad third field cannot leave the first two saved and the row half-edited.
+    const costs: Record<string, number | null> = {};
+    for (const field of SOURCING_COST_FIELDS) {
+      const parsed = parseCostInput(costDrafts[field.key]);
+      if (!parsed.ok) {
+        toast.error(`${field.label}: ${parsed.error}`);
+        return;
+      }
+      costs[field.column] = parsed.cents;
+    }
+
     setSaving(true);
     try {
       const { error } = await supabase
         .from("flipdesk_settings")
         .upsert(
-          { user_id: user.id, sourcing_target_roi_pct: value } as never,
+          { user_id: user.id, sourcing_target_roi_pct: value, ...costs } as never,
           { onConflict: "user_id" },
         );
       if (error) throw error;
@@ -115,10 +168,46 @@ export function SourcingTargetSetting() {
             <span className="text-muted-foreground">%</span>
           </div>
         </div>
-        <Button size="sm" variant="outline" disabled={saving} onClick={() => void save()}>
-          Save
-        </Button>
       </div>
+
+      <div className="space-y-2 border-t pt-3">
+        <div className="space-y-0.5">
+          <p className="font-medium">What it costs you to sell it</p>
+          <p className="text-xs text-muted-foreground">
+            Scout takes these off before it works out your maximum buy price, so
+            the number on screen is one you can actually pay. Leave a field blank
+            to use our figure for it.
+          </p>
+        </div>
+        <div className="flex flex-wrap items-start gap-4">
+          {SOURCING_COST_FIELDS.map((field) => (
+            <div key={field.key} className="space-y-1">
+              <Label htmlFor={field.inputId} className="text-xs">
+                {field.label}
+              </Label>
+              <div className="flex items-center gap-1">
+                <span className="text-muted-foreground">$</span>
+                <Input
+                  id={field.inputId}
+                  inputMode="decimal"
+                  className="w-24"
+                  placeholder={centsToCostInput(
+                    DEFAULT_SOURCING_COST_CENTS[field.key],
+                  )}
+                  value={costDrafts[field.key]}
+                  onChange={(e) =>
+                    setCostDrafts((prev) => ({ ...prev, [field.key]: e.target.value }))}
+                />
+              </div>
+              <p className="max-w-[15rem] text-xs text-muted-foreground">{field.help}</p>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <Button size="sm" variant="outline" disabled={saving} onClick={() => void save()}>
+        Save
+      </Button>
     </div>
   );
 }
