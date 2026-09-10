@@ -1,6 +1,6 @@
 # PENDING MIGRATIONS — applied to prod separately from the push
 
-## 🔒 HELD: 00781 — batches 4 AND 5 of the sourced size charts (US-3287, US-3288)
+## 🔒 HELD: 00781 — batches 4, 5 AND 6 of the sourced size charts (US-3287, US-3288, US-3289)
 
 **Risk: LOW.** Same shape as 00780 below: insert-or-update into
 `public.brand_size_charts`, a global reference table with deny-all RLS and no
@@ -19,10 +19,21 @@ pushes it. This one has NOT been applied to prod and has NOT been pushed.
 
 **What it does.** Batch 4's 16 charts across Arc'teryx, Barbour, Bogner,
 Bonobos, Brooks Brothers, Dickies and Diesel, plus REPLACED rows on Cotopaxi's
-two; and batch 5's 10 across Nike, Gap, G-Star RAW, Lee, Duluth Trading Co. and
-Gallery Dept. Each carries the brand's own `source_url` and `confidence 0.85`;
-`verified` stays false. 90 sourced rows in total, since the generator re-emits
-every earlier batch.
+two; batch 5's 10 across Nike, Gap, G-Star RAW, Lee, Duluth Trading Co. and
+Gallery Dept.; and batch 6, which is almost entirely REPLACEMENTS — Old Navy,
+SKIMS, Rab (both departments), Stussy, PUMA and Reebok all had an approximation
+chart already, so their rows were rewritten in place, with only PUMA's women's
+chart and Reebok's bottoms chart genuinely new. Each carries the brand's own
+`source_url` and `confidence 0.85`; `verified` stays false. 99 sourced rows in
+total, since the generator re-emits every earlier batch.
+
+**Nine of those 99 rows are UPDATES to charts that already exist in the table**,
+not inserts, and the upsert handles it without special-casing: the key is
+`brand_key` + `department` + `garment`, and where a replacement changed the
+`garment` string (Old Navy, SKIMS, Stussy, PUMA, Reebok) the old row survives
+under its old garment and stops resolving, exactly like the deleted North
+Face/Patagonia row from batch 3. Inert, not harmful; sweep them together later
+if it ever matters.
 
 **Cotopaxi's two rows are an UPDATE, not an insert, and that is the point.**
 Its men's and women's charts existed as approximations with no source. Rather

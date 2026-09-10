@@ -270,6 +270,39 @@ men's bottoms chart is `mens_bottoms_alpha` with UNDERSCORES and its women's is
 `/size-charts.html` carries all 23 tables. A 404 is not evidence a brand stopped
 publishing until the other spelling has been tried.
 
+After batch 6 (US-3289): 378 charts across 168 brands, **102 sourced**, and 44
+brands still carrying a gap. Six of ten closed.
+
+⚠ **BY BATCH 6 THE DEFAULT IS REPLACE, NOT ADD.** Six of this batch's ten
+brands already had an approximation chart, so their rows were rewritten in place
+and their `categoryMatch` widened to reach the missing group — Old Navy, SKIMS,
+Rab (both departments), Stüssy, PUMA and Reebok. Only two charts in the whole
+batch are genuinely new. The corpus is dense enough now that adding beside an
+existing chart is usually the wrong move; check what the brand already has
+before writing anything.
+
+⚠ **A brand's OWN page can be the wrong page.** PUMA's US size-charts page has
+21 tables on it and NOT ONE carries a body measurement — they are country
+conversions and how-to-measure captions. The real chart is on PUMA's AU site.
+"The page has tables" is not the same as "the page has a size chart", and a
+count of tables will lie to you.
+
+⚠ **Two of a brand's own tables can disagree, and then they need two charts.**
+Reebok's tops table wants a 33-36in waist at M and its bottoms table wants
+32-35in. Registering one chart under both groups would have made the size check
+answer differently depending on nothing the seller can see. Rab is the same
+shape in a different way: what Rab calls XXL is a US XL and its 3XL is a US XXL,
+both printed on its own page, so the size labels carry both.
+
+⚠ **Four exceptions, all four the brand's own doing.** Palace has no size
+guide anywhere on its own site — palaceskateboards.com carries only /advice and
+/shops, shop.palaceskateboards.com/pages/size-guide 404s, and
+boring.palaceskateboards.com renders the words "Boring Stuff" and nothing else.
+Rhude's domain does not resolve at all. Sp5der's official store serves an
+88-byte placeholder for every URL including its own size-guide path. PINK's
+chart lives on a JS-only Salesforce help article that the browser could not
+render. Every chart a search returns for Palace and Rhude belongs to a reseller.
+
 ⚠ The coverage report measures the IN-CODE corpus, not the database. Prod's
 `brand_size_charts` already held source URLs on the hand-written pack rows
 (329 of 340 sourced after batch 1). The gap this loop closes is the in-code

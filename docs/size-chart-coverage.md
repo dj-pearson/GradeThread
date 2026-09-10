@@ -6,16 +6,16 @@ Coverage is measured the way the size-guide panel resolves a chart: a real brand
 
 ## Where it stands
 
-- 168 brands, 376 brand-specific charts.
-- 93 charts link the brand's own guide; 0 have been checked against it by a human.
-- 50 brands are missing at least one group they should cover.
+- 168 brands, 378 brand-specific charts.
+- 102 charts link the brand's own guide; 0 have been checked against it by a human.
+- 44 brands are missing at least one group they should cover.
 
 | Group | Brands covered |
 |---|---:|
-| top | 127 |
-| bottom | 105 |
-| dress | 55 |
-| outerwear | 110 |
+| top | 129 |
+| bottom | 108 |
+| dress | 56 |
+| outerwear | 113 |
 | suit | 41 |
 | shoes | 27 |
 | bag | 10 |
@@ -134,7 +134,7 @@ Coverage is measured the way the size-guide panel resolves a chart: a real brand
 | New Balance | 2 |  |  |  |  |  | Men, Women |  |  |  |  |  |
 | Nike | 5 | Men, Women | Men, Women |  | Men, Women |  |  |  |  |  |  |  |
 | Off-White | 2 | Unisex | Men |  | Men, Unisex | Men |  |  |  |  |  |  |
-| Old Navy | 2 | Women | Women |  |  |  |  |  |  |  |  | outerwear |
+| Old Navy | 2 | Women | Women | Women | Women |  |  |  |  |  |  |  |
 | On Running | 2 |  |  |  |  |  | Men, Women |  |  |  |  |  |
 | Orvis | 1 | Men |  |  | Men |  |  |  |  |  |  | bottom |
 | Outdoor Research | 2 | Men, Women | Men, Women |  | Men, Women |  |  |  |  |  |  |  |
@@ -147,12 +147,12 @@ Coverage is measured the way the size-guide panel resolves a chart: a real brand
 | Peter Millar | 3 | Men, Women | Men | Women | Men, Women | Men |  |  |  |  |  |  |
 | PINK | 1 | Women | Women |  |  |  |  |  |  |  |  | outerwear |
 | Prada | 2 | Men, Women |  | Women | Men, Women | Men |  |  |  |  |  | bottom |
-| PUMA | 3 | Unisex |  |  | Unisex |  | Men, Women |  |  |  |  | bottom |
-| Rab | 2 |  | Men, Women |  | Men, Women |  |  |  |  |  |  | top |
+| PUMA | 4 | Unisex, Women | Unisex, Women |  | Unisex, Women |  | Men, Women |  |  |  |  |  |
+| Rab | 2 | Men, Women | Men, Women |  | Men, Women |  |  |  |  |  |  |  |
 | Rag & Bone | 2 |  | Men, Women |  |  |  |  |  |  |  |  | top, outerwear |
 | Rebecca Minkoff | 2 |  | Women | Women | Women |  |  | Women |  |  |  | top |
 | Red Wing | 1 |  |  |  |  |  | Men |  |  |  |  |  |
-| Reebok | 3 | Unisex |  |  | Unisex |  | Men, Women |  |  |  |  | bottom |
+| Reebok | 4 | Unisex | Unisex |  | Unisex |  | Men, Women |  |  |  |  |  |
 | Reformation | 1 | Women |  | Women | Women |  |  |  |  |  |  | bottom |
 | REI Co-op | 1 | Men |  |  | Men |  |  |  |  |  |  | bottom |
 | Rhude | 1 | Unisex |  |  | Unisex |  |  |  |  |  |  | bottom |
@@ -162,12 +162,12 @@ Coverage is measured the way the size-guide panel resolves a chart: a real brand
 | Saucony | 2 |  |  |  |  |  | Men, Women |  |  |  |  |  |
 | Savage X Fenty | 2 |  |  |  |  |  |  |  |  |  |  |  |
 | Sézane | 1 | Women |  | Women | Women |  |  |  |  |  |  | bottom |
-| SKIMS | 1 |  | Women | Women |  |  |  |  |  |  |  | top, outerwear |
+| SKIMS | 1 | Women | Women | Women | Women |  |  |  |  |  |  |  |
 | Sorel | 2 |  |  |  |  |  | Men, Women | Men |  |  |  |  |
 | Sp5der | 1 | Unisex |  |  | Unisex |  |  |  |  |  |  | bottom |
 | Spanx | 3 | Women | Women |  | Women | Women |  |  |  |  |  |  |
 | Steve Madden | 1 |  |  |  |  |  | Women |  |  |  |  |  |
-| Stüssy | 1 | Men |  |  |  |  |  |  |  |  |  | bottom, outerwear |
+| Stüssy | 1 | Men | Men |  | Men |  |  |  |  |  |  |  |
 | Supreme | 2 | Men | Men |  |  |  |  |  |  |  |  | outerwear |
 | Sweaty Betty | 2 | Women | Women |  | Women |  |  |  |  |  |  |  |
 | Talbots | 1 | Women | Women | Women | Women | Women |  |  |  |  |  |  |

@@ -6,7 +6,7 @@
 -- WHY: the chart shape had department and a free-text garment scope and nowhere
 -- to record WHICH NATIONAL SYSTEM a size label is written in, so the corpus
 -- encoded it inside the label itself — "UK 10 (US 6)", "IT 48 (US 38)",
--- "FR 36 (US 4)", "JP L (=US M)". 115 of 379 charts do this. Every one of
+-- "FR 36 (US 4)", "JP L (=US M)". 115 of 381 charts do this. Every one of
 -- those parentheses is a workaround for a missing field.
 --
 -- The prose is KEPT. This migration adds the structured field beside it; it
@@ -19,7 +19,7 @@
 -- chart of bare numbers stays NULL because a bare "6" could be US or UK and
 -- nothing in the row says which. NULL means "not recorded", never "US".
 --
--- Derived here: 165 charts with a readable system, 5 non-standard size class,
+-- Derived here: 162 charts with a readable system, 5 non-standard size class,
 -- 1 with an ambiguous class (a scope naming several — the Talbots case, whose
 -- scope reads "Misses / Petite / Plus" and which is exactly the folding the
 -- size_class column exists to end).
@@ -103,7 +103,6 @@ begin
   ('toryburch', 'Women', 'Bottoms (US numeric)', 'US', 'standard'),
   ('supreme', 'Men', 'Tops (tees & hoodies, US alpha)', 'alpha', 'standard'),
   ('supreme', 'Men', 'Bottoms (US numeric waist)', 'US', 'standard'),
-  ('stssy', 'Men', 'Tops (tees & fleece, US alpha)', 'alpha', 'standard'),
   ('bape', 'Men', 'Tops (JAPANESE sizing)', 'JP', 'standard'),
   ('kith', 'Men', 'Tops (tees & fleece, US alpha)', 'alpha', 'standard'),
   ('palace', 'Men', 'Tops (tees & fleece, US alpha)', 'alpha', 'standard'),
@@ -148,10 +147,8 @@ begin
   ('fila', 'Unisex', 'Tops (alpha)', 'alpha', 'standard'),
   ('puma', 'Men', 'Footwear (US/UK/EU — RUNS SMALL, size is STAMPED)', 'US', 'standard'),
   ('puma', 'Women', 'Footwear (US/UK/EU — RUNS SMALL, size is STAMPED)', 'US', 'standard'),
-  ('puma', 'Unisex', 'Tops (alpha)', 'alpha', 'standard'),
   ('reebok', 'Men', 'Footwear (US/UK/EU — classics RUN LARGE, size is STAMPED)', 'US', 'standard'),
   ('reebok', 'Women', 'Footwear (US/UK/EU — classics RUN LARGE, size is STAMPED)', 'US', 'standard'),
-  ('reebok', 'Unisex', 'Tops (alpha)', 'alpha', 'standard'),
   ('asics', 'Men', 'Footwear (US/UK/EU + width — RUNS SMALL AND NARROW)', 'US', 'standard'),
   ('asics', 'Women', 'Footwear (US/UK/EU + width — RUNS SMALL AND NARROW)', 'US', 'standard'),
   ('onrunning', 'Men', 'Footwear (US/UK/EU — RUNS SMALL AND NARROW)', 'US', 'standard'),
