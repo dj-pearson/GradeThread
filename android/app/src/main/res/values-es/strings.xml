@@ -562,7 +562,11 @@
     <string name="marketplaces_delist_queue">Poner en cola para mi escritorio</string>
     <string name="marketplaces_delist_did_it_myself">Ya lo retiré yo</string>
     <string name="marketplaces_delist_open">Retirarlo allí</string>
-    <string name="marketplaces_delist_show_all">Ver los %1$d anuncios</string>
+    <plurals name="marketplaces_delist_show_all">
+        <item quantity="one">Ver %1$d anuncio</item>
+        <item quantity="many">Ver los %1$d anuncios</item>
+        <item quantity="other">Ver los %1$d anuncios</item>
+    </plurals>
     <string name="marketplaces_no_listings_cached_yet_sync">Aún no hay anuncios guardados. Sincroniza para traer los que están activos en eBay.</string>
     <string name="marketplaces_rename_this_account">Cambia el nombre de esta cuenta</string>
     <string name="marketplaces_label">Etiqueta</string>
@@ -2010,6 +2014,8 @@
     <string name="inventory_sort_highest_comp">Precio comparable más alto</string>
     <string name="inventory_sort_highest_grade">Nota más alta</string>
     <string name="inventory_sort_sku">SKU</string>
+    <string name="inventory_sort_sourced_by_az">Conseguido por, de la A a la Z</string>
+    <string name="inventory_sort_sourced_by_za">Conseguido por, de la Z a la A</string>
     <string name="inventory_stage_all">Todo</string>
     <string name="inventory_stage_to_list">Por publicar</string>
     <string name="inventory_stage_drafts">Borradores</string>

@@ -608,7 +608,10 @@
     <string name="marketplaces_delist_did_it_myself">I ended it myself</string>
     <!-- US-3144: open the live listing on its marketplace, where the seller is already signed in. -->
     <string name="marketplaces_delist_open">End it there</string>
-    <string name="marketplaces_delist_show_all">Show all %1$d listings</string>
+    <plurals name="marketplaces_delist_show_all">
+        <item quantity="one">Show %1$d listing</item>
+        <item quantity="other">Show all %1$d listings</item>
+    </plurals>
     <string name="marketplaces_no_listings_cached_yet_sync">No listings cached yet. Sync to pull the ones live on eBay.</string>
     <string name="marketplaces_rename_this_account">Rename this account</string>
     <string name="marketplaces_label">Label</string>

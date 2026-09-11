@@ -722,6 +722,12 @@ if (on("android")) {
     // stops ratcheting. Its own self-test runs first: a counter that has
     // stopped matching reports zero, which reads as "the debt was paid".
     run("android: lint/detekt baselines only shrink", "node scripts/check-baseline-ratchet.mjs", a);
+    // US-3121: android-ci.yml splits the 55 screenshot classes across four
+    // runners using plan-screenshot-shards.mjs. Its three failure modes - a
+    // class in two shards, a class in none, an empty shard - all render as a
+    // normal green run, so the partition proves itself on every lane run rather
+    // than only on the runner that is about to depend on it.
+    run("android: screenshot shard planner still partitions", "node scripts/plan-screenshot-shards.mjs --self-test", a);
 
     run("android: format (spotless/ktlint)", `${gw} :app:spotlessCheck`, a);
     run("android: static analysis (detekt)", `${gw} :app:detekt`, a);

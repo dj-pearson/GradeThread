@@ -379,28 +379,138 @@ jobs:
   # about 8 minutes, and the release build, the bundle and the ABI budget never
   # ran at all.
   #
-  # WHY IT IS THAT SLOW: `verifyRoborazziDebug` re-runs the WHOLE unit suite -
-  # 2,550 tests - and then renders and compares 55 screenshot classes. Four of
-  # those classes take 5m26s on a developer machine, so the full set is over an
-  # hour of rendering on top of the suite. There is no timeout that fits this
-  # inside a job that also has to build a release bundle.
+  # WHY IT IS THAT SLOW - AND THE ANSWER IS NOT "there are 55 of them"
+  # (US-3121, measured 2026-09-10). The shards below pass `--tests`, so each one
+  # runs only its own classes and NOT the 2,550-test unit suite; that part of
+  # the sentence this replaces stopped being true when the job was split.
+  #
+  # THIRTEEN GOLDENS OUT OF 395 ARE 93% OF THE TIME, AND ALL THIRTEEN FAIL.
+  # Measured by running the whole set locally with `--continue` and reading the
+  # per-testcase times out of app/build/test-results/testDebugUnitTest:
+  # 246.1 test-minutes across 395 goldens, MEDIAN 0.6 SECONDS, 373 of them under
+  # ten seconds - and then these:
+  #
+  #     1201.9s  FAIL  BulkGradeScreenshotTest > loading_light
+  #     1200.5s  FAIL  RadarNearbyScreenshotTest > loading_light
+  #     1200.2s  FAIL  GradeRequestScreenshotTest > processing_light
+  #     1198.1s  FAIL  SupportScreenshotTest > loading_light
+  #     1197.9s  FAIL  BulkGradeScreenshotTest > submitting_light
+  #     1189.9s  FAIL  AutolisterSessionScreenshotTest > loading_light
+  #     1189.2s  FAIL  ItemCanvasScreenshotTest > loading_light
+  #     1149.3s  FAIL  AiExtractScreenshotTest > running_light
+  #     1028.8s  FAIL  ReferralsScreenshotTest > loading_light
+  #      984.7s  FAIL  RadarVenueDetailScreenshotTest > loading_light
+  #      842.0s  FAIL  TeamScreenshotTest > loading_light
+  #      822.9s  FAIL  SnapScreenshotTest > evaluating_light
+  #      820.1s  FAIL  SupportThreadScreenshotTest > loading_light
+  #
+  # Every one is a waiting state, and every one is a failing assertion. They are
+  # the same fact twice. `captureRoboImage` renders and then waits for the
+  # composition to go idle; Material3's indeterminate `CircularProgressIndicator`
+  # and `LinearProgressIndicator` hold a `rememberInfiniteTransition` that asks
+  # for another frame forever, so the capture spins the Robolectric Choreographer
+  # at 100% of a core for a quarter of an hour and then photographs the spinner
+  # at whatever angle it stopped on. A JVM thread dump during the run has all
+  # four test forks inside `captureRoboImage`, one of them in
+  # `InfiniteTransition.onFrame` <- `BroadcastFrameClock.sendFrame` <-
+  # `Recomposer.runRecomposeAndApplyChanges` <- `Choreographer`. An angle nobody
+  # chose cannot match a committed PNG. Eight of the thirteen are confirmed red
+  # on CI run 34223941706 by name as well as here on Windows; the other five sat
+  # on the shard that was killed before it reported.
+  #
+  # ⚠ AND NO AMOUNT OF SHARDING FIXES IT. Gradle hands whole CLASSES to forks, so
+  # two 20-minute goldens in ONE class run back to back: BulkGradeScreenshotTest
+  # is 2404.8s - forty minutes - on its own, on any machine, alone on a runner.
+  # That is the ceiling this job kept hitting, and the timeout below is set from
+  # it rather than from a guess.
+  #
+  # ⚠ AND FINISHING IS NOT THE SAME AS PASSING. The same local run put 57 of the
+  # 395 goldens red: the thirteen above plus 44 more, concentrated in
+  # ProspectScreenshotTest (12), DraftsLibraryScreenshotTest (8),
+  # TeamScreenshotTest (7), GradeRequestScreenshotTest (6) and
+  # InventoryListScreenshotTest (5). CI run 34223941706 failed the SAME names on
+  # its shard 2, so these are not a Windows-versus-Linux rendering difference -
+  # they are goldens that were not re-recorded when their screens changed.
+  # Re-recording is an owner's call, not a side effect of a CI story, so this
+  # job will complete and still report red until someone makes it.
+  #
+  # ⚠ THE ACTUAL FIX IS A SEPARATE STORY, deliberately. It is either capturing
+  # through `createComposeRule()` (whose `MainTestClock` installs the
+  # `InfiniteAnimationPolicy` that stops exactly this) or making the
+  # indeterminate indicators respect reduced motion the way
+  # ui/components/Skeleton.kt already does. Both rewrite how every screenshot is
+  # taken and both require re-recording those thirteen goldens, which is not a
+  # rider on a story about CI duration. Checked and ruled out on the way past:
+  # Roborazzi's `RoborazziComposeOptions { inspectionMode(true) }` only provides
+  # `LocalInspectionMode`, and neither androidx.compose.animation.core's
+  # `InfiniteTransition` nor Material3's `ProgressIndicatorKt` reads it.
   #
   # STILL BLOCKING, deliberately. It was made blocking on 2026-08-29 after
   # `continue-on-error` rewrote its conclusion to "success" for four straight
   # runs whose logs said BUILD FAILED. A separate job keeps it both visible and
   # fatal while letting everything else finish; what it must never go back to is
   # green-when-red.
+  #
+  # US-3121 AC4 - DO ALL 55 CLASSES HAVE TO RENDER ON EVERY PUSH? Yes, and the
+  # three alternatives were each considered and rejected for a reason:
+  #
+  #   Cut the set. The expensive goldens are the loading, saving and error
+  #   states, which are the ones no human ever opens the app to look at. They
+  #   are the coverage, not the padding. Dropping them to save minutes would
+  #   trade the assertion for the clock.
+  #
+  #   Run only when UI files change. A Composable's rendering depends on its
+  #   ViewModel state class, its string resources, its theme tokens and its
+  #   model types, so any path filter narrow enough to skip work is wide enough
+  #   to miss a change that moved pixels. This workflow already skips pushes
+  #   that touch no `android/**` file, which is the safe half of the idea.
+  #
+  #   Make it non-blocking. Tried, 2026-08-25 to 2026-08-29. The API reported
+  #   "success" on four runs whose logs said BUILD FAILED. Never again.
+  #
+  # So: shard it until it fits, on measured weights rather than on a count.
   screenshots:
-    name: Screenshots ${{ matrix.shard }}/4
+    name: Screenshots ${{ matrix.shard }}/${{ strategy['job-total'] }}
     runs-on: ubuntu-latest
-    # Each shard is about a quarter of the rendering, on its own runner with its
-    # own cores. 45 is the same ceiling build-and-test has.
-    timeout-minutes: 45
+    # US-3121: 60, up from 45, and the number comes from a measurement rather
+    # than from rounding up. `plan-screenshot-shards.mjs --of 4 --plan` on the
+    # 2026-09-10 weights predicts, as wall clock over four forks:
+    #
+    #   shard 0   15 classes   40.1 min     <- carries BulkGradeScreenshotTest
+    #   shard 1    4 classes   20.7 min
+    #   shard 2   19 classes   20.4 min
+    #   shard 3   17 classes   20.2 min
+    #
+    # Three shards land near 20 minutes because each carries a few 20-minute
+    # spinner goldens that render on separate forks. Shard 0 is 40 because
+    # BulkGradeScreenshotTest alone is 40.1: it holds TWO of those goldens, and
+    # one class runs in one fork, back to back. 40 plus about 4 of checkout,
+    # JDK, Gradle and compile is 44, which is why 45 killed this job twice.
+    #
+    # This ceiling comes back DOWN to 45 the moment the spinner story lands. It
+    # is sized for one known class, not for growth.
+    timeout-minutes: 60
     strategy:
-      # Every shard reports. fail-fast would cancel three of them the moment one
-      # golden moved, which is exactly when you want to see the other three.
+      # Every shard reports. fail-fast would cancel the others the moment one
+      # golden moved, which is exactly when you want to see the rest.
       fail-fast: false
       matrix:
+        # US-3121: STILL FOUR, and that is a measured decision rather than the
+        # status quo. Eight was the obvious move and it buys nothing. Predicted
+        # wall clock per shard, from the 2026-09-10 weights:
+        #
+        #   4 shards   40.1, 20.7, 20.4, 20.2
+        #   8 shards   40.1, 20.7, 20.4, 20.2, 20.1, 20.0, 20.0, 17.5
+        #
+        # Same worst case, same second-worst. Four more runners per push for
+        # 2.7 minutes off the shortest shard. The wall is set by the spinner
+        # goldens (see the note above the job), each about 20 minutes, and a
+        # shard runs four forks - so a shard absorbs several of them for free
+        # and splitting further only splits the cheap remainder.
+        #
+        # The count and the `--of` the planner is given are the same number by
+        # construction: the step reads `strategy['job-total']`, so raising this
+        # list later cannot leave classes rendered by nobody.
         shard: [0, 1, 2, 3]
     # The same block build-and-test carries, and for the same reason: the tests
     # build the real Hilt graph and NetworkModule asserts this is non-blank.
@@ -417,6 +527,13 @@ jobs:
         with:
           distribution: temurin
           java-version: "21"
+
+      # US-3121: the shard planner is Node, not Gradle. Pinned to the same
+      # version build-and-test uses rather than riding whatever the image ships.
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
 
       - name: Set up Gradle (cached)
         uses: gradle/actions/setup-gradle@v4
@@ -460,50 +577,112 @@ jobs:
       # "BUILD FAILED" — continue-on-error rewrites a STEP's conclusion. A
       # non-blocking step is meant to be visible and merely not fatal; this one
       # could not be seen from the API at all.
-      # ⚠ SHARDED BECAUSE ONE RUNNER CANNOT DO IT, MEASURED TWICE (US-3121).
-      # Its own job with a 90-minute timeout was still killed at 90m19s, and
-      # that was WITH maxParallelForks added in the same session - which did
-      # work, taking build-and-test from 24m11s to 18m52s, and did not rescue
-      # this. 393 goldens across 55 classes is roughly 13 seconds each, so the
-      # rendering is simply bigger than one job.
+      # ⚠ SHARDED BECAUSE ONE RUNNER CANNOT DO IT, MEASURED THREE TIMES
+      # (US-3121). Its own job with a 90-minute timeout was killed at 90m19s,
+      # and that was WITH maxParallelForks added in the same session - which
+      # did work, taking build-and-test from 24m11s to 18m52s, and did not
+      # rescue this.
       #
-      # The split is by class over `find`, not a hand-kept list: a new
-      # *ScreenshotTest lands in a shard automatically, and `awk NR % 4` is a
-      # complete partition of the sorted set, so no class can fall between two
-      # shards. The step fails if its share is empty, which is what a broken
-      # glob looks like - and a broken glob would otherwise report four green
-      # shards that rendered nothing.
+      # ⚠ AND FOUR SHARDS WERE NOT ENOUGH EITHER, which the story could not
+      # know because no sharded run had finished when it was written. Run
+      # 34223941706 (2026-09-08) is the first whose shards actually rendered:
+      #
+      #     shard 0   13 classes,  76 tests   13m54s
+      #     shard 1   14 classes, 105 tests   35m28s
+      #     shard 2   14 classes, 105 tests   19m08s
+      #     shard 3   14 classes, 109 tests   killed at the 45-minute ceiling
+      #
+      # Two shards with the SAME test count, 1.9x apart. `awk NR % 4` is a
+      # complete partition and a terrible schedule: it balanced the thing that
+      # is easy to count and not the thing that costs. Run 34052016341 the day
+      # before put the ceiling on the same two shards, so the cost is a
+      # property of the CLASSES and not of the runner.
+      #
+      # WHAT IT DOES NOW: scripts/plan-screenshot-shards.mjs reads a measured
+      # second-count per class from scripts/screenshot-shard-weights.json and
+      # packs the shards longest-first (LPT). Same guarantees as the awk it
+      # replaces - every class in exactly one shard, a new *ScreenshotTest
+      # picked up automatically - plus a balanced one. `--of` comes from
+      # `strategy['job-total']`, so growing the matrix above cannot leave a
+      # range of classes rendered by nobody.
+      #
+      # The point of weighting rather than counting: it spreads the twelve
+      # spinner classes evenly instead of stacking five of them on one runner,
+      # which is what took the old shard 1 to 86.6 class-minutes while shard 0
+      # got 22.1. `--plan` prints the prediction and the step below prints the
+      # actual, so the two can be read against each other in the log without
+      # downloading anything.
+      #
+      # The self-test runs first. A partition that has quietly stopped
+      # partitioning reports a clean shard list and renders half the set, which
+      # is the same shape of failure as the four green shards this replaced.
       - name: Screenshot tests (Roborazzi)
         if: ${{ !inputs.record_screenshots }}
         run: |
           set -euo pipefail
-          classes=$(find app/src/test -name '*ScreenshotTest.kt' | sed 's|.*/java/||; s|/|.|g; s|[.]kt$||' | sort)
-          total=$(echo "$classes" | grep -c . || true)
-          mine=$(echo "$classes" | awk 'NR % 4 == '"${{ matrix.shard }}")
+          node scripts/plan-screenshot-shards.mjs --self-test
+          node scripts/plan-screenshot-shards.mjs --of ${{ strategy['job-total'] }} --plan
+          mine=$(node scripts/plan-screenshot-shards.mjs \
+            --of ${{ strategy['job-total'] }} --shard ${{ matrix.shard }})
           count=$(echo "$mine" | grep -c . || true)
-          echo "shard ${{ matrix.shard }}: $count of $total screenshot classes"
-          echo "$mine" | sed 's/^/  /'
           if [ "$count" -eq 0 ]; then
             echo "::error::shard ${{ matrix.shard }} matched no screenshot classes"
             exit 1
           fi
+          echo "shard ${{ matrix.shard }} renders $count classes:"
+          echo "$mine" | sed 's/^/  /'
           args=""
           for c in $mine; do args="$args --tests $c"; done
-          ./gradlew :app:verifyRoborazziDebug $args --stacktrace
+          # Timed and reported whether it passes or fails: the whole reason this
+          # story exists is that nobody had a per-shard number to compare
+          # against the prediction printed above.
+          started=$(date +%s)
+          status=0
+          ./gradlew :app:verifyRoborazziDebug $args --stacktrace || status=$?
+          elapsed=$(( $(date +%s) - started ))
+          echo "shard ${{ matrix.shard }}: $count classes actually took ${elapsed}s" \
+            | tee -a "$GITHUB_STEP_SUMMARY"
+          exit $status
 
-      # Recording stays WHOLE, and only on shard 0: it rewrites every golden and
-      # uploads the directory, so four shards would race and upload a quarter
-      # of the set each.
+      # US-3121: recording is sharded TOO, and it did not used to be.
+      #
+      # It ran whole on shard 0 so that one artifact held the whole golden set.
+      # That was a landmine: rendering all 393 on one runner is the exact thing
+      # measured at 90m19s against a 90-minute ceiling, so a `record_screenshots`
+      # dispatch would have been killed part-way through and uploaded nothing.
+      # Nobody hit it because nobody has dispatched a recording since the split.
+      #
+      # Each shard now records ITS OWN classes and uploads only the PNGs it
+      # actually rewrote, so the goldens come back as N zips that unpack into
+      # the same flat directory without fighting.
+      #
+      # ⚠ THE "ONLY" IS LOAD-BEARING. Uploading src/test/screenshots wholesale
+      # would put all 393 files in every zip - each shard's fresh work plus 340
+      # checked-in copies of everyone else's - and unpacking them in any order
+      # would overwrite half the new goldens with the old ones, silently, with
+      # every zip looking complete. Hence the marker file and `-newer`.
       - name: Re-record the screenshot goldens
-        if: ${{ inputs.record_screenshots && matrix.shard == 0 }}
-        run: ./gradlew :app:recordRoborazziDebug --stacktrace
+        if: ${{ inputs.record_screenshots }}
+        run: |
+          set -euo pipefail
+          mine=$(node scripts/plan-screenshot-shards.mjs \
+            --of ${{ strategy['job-total'] }} --shard ${{ matrix.shard }})
+          args=""
+          for c in $mine; do args="$args --tests $c"; done
+          marker="$RUNNER_TEMP/record-started"
+          touch "$marker"
+          ./gradlew :app:recordRoborazziDebug $args --stacktrace
+          mkdir -p "$RUNNER_TEMP/recorded-goldens"
+          find app/src/test/screenshots -name '*.png' -newer "$marker" \
+            -exec cp {} "$RUNNER_TEMP/recorded-goldens/" \;
+          echo "shard ${{ matrix.shard }} re-recorded $(ls "$RUNNER_TEMP/recorded-goldens" | wc -l) goldens"
 
       - name: Upload the re-recorded goldens
-        if: ${{ inputs.record_screenshots && matrix.shard == 0 }}
+        if: ${{ inputs.record_screenshots }}
         uses: actions/upload-artifact@v4
         with:
-          name: roborazzi-goldens
-          path: android/app/src/test/screenshots/
+          name: roborazzi-goldens-${{ matrix.shard }}
+          path: ${{ runner.temp }}/recorded-goldens/
           if-no-files-found: error
           retention-days: 7
 

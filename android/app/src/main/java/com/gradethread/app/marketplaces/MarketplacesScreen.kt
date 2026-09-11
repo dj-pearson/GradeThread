@@ -26,6 +26,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import com.gradethread.app.R
 import androidx.compose.ui.Modifier
@@ -421,8 +422,12 @@ private fun ColumnScope.DelistAndQueueSections(state: MarketplacesViewModel.Stat
         ) {
             TextButton(onClick = actions.clearDelistFocus) {
                 Text(
-                    stringResource(
-                        R.string.marketplaces_delist_show_all,
+                    // A plural, not a string: lint's PluralsCandidate flags
+                    // "%1$d listings" as an error, and it is right - one left
+                    // over reads as "Show all 1 listings".
+                    pluralStringResource(
+                        R.plurals.marketplaces_delist_show_all,
+                        state.pendingDelists.size,
                         state.pendingDelists.size,
                     ),
                 )

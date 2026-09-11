@@ -34,6 +34,9 @@ class PushRoutingTest {
                 "listing.ended",
                 "aging.digest",
                 "support.reply",
+                // US-3144, added to the enum by 2c399dfe5 and not to this
+                // list, which is why the whole unit lane was red.
+                "delist.needed",
             ),
             PushCategory.entries.map { it.id },
         )
