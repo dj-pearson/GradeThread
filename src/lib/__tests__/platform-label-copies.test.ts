@@ -41,10 +41,13 @@
 //     fifth copy and the only Android file that disagrees with its own
 //     platform. Android was out of scope for the change that added this file;
 //     a Kotlin copy needs its own parser, on the JVM side or here.
-//   - src/components/analytics/listing-suggestions.tsx agrees on every key it
-//     has and is missing four (etsy, shopify, whatnot, vinted), so it renders a
-//     raw key for those. It is registered as a SUBSET copy below rather than
-//     left unseen.
+//
+// CLOSED, 2026-09-11 by US-3392: src/components/analytics/listing-suggestions.tsx
+// held a 12-key map with 8 keys in it and printed a raw key for etsy, shopify,
+// whatnot and vinted. All eight values it carried were byte-identical to
+// constants.ts (facebook had said "Facebook Marketplace" since the file's first
+// commit), so nothing deliberate was overwritten. The copy is gone, it imports
+// MARKETPLACE_LABELS, and its registry entry went with it.
 import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import { resolve, sep } from "node:path";
@@ -114,17 +117,13 @@ const COPIES: readonly LabelCopy[] = [
       "Keyed by BadgeArrivalPlatform, the marketplaces that can carry a " +
       "verified badge back to us. Same type-enforced narrowing.",
   },
-  {
-    file: "src/components/analytics/listing-suggestions.tsx",
-    constName: "labels",
-    mode: "subset",
-    why:
-      "OPEN GAP, not a design. Keyed by plain string and missing etsy, " +
-      "shopify, whatnot and vinted, so the suggestion panel prints a raw key " +
-      "for those four. Every key it does carry is correct. Out of scope for " +
-      "US-3388, which was fenced to the four files above; registered here so " +
-      "it is a known number rather than a fresh discovery.",
-  },
+  // src/components/analytics/listing-suggestions.tsx was the sixth entry, a
+  // subset copy with a written-down gap. US-3392 deleted the copy: the file is
+  // under src/, so it imports MARKETPLACE_LABELS like any other module and
+  // there is nothing left here to compare. The entry goes with it, because an
+  // entry whose const no longer exists fails "every registered file still
+  // exists and still holds its const" -- which is the guard working, not a
+  // reason to keep a dead registration. One fewer copy beats a guarded copy.
 ];
 
 /**

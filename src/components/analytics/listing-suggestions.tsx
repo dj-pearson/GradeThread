@@ -10,7 +10,10 @@ import {
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { GRADING_REVIEW_CONFIDENCE_THRESHOLD } from "@/lib/constants";
+import {
+  GRADING_REVIEW_CONFIDENCE_THRESHOLD,
+  MARKETPLACE_LABELS,
+} from "@/lib/constants";
 import { cn } from "@/lib/utils";
 import { writeStored } from "@/lib/safe-storage";
 import type {
@@ -156,18 +159,18 @@ function generateListingSuggestions(
   return suggestions;
 }
 
+// US-3392: the canonical map, not a copy of it. This file used to hold 8 of the
+// 12 platform keys, so a suggestion about etsy, shopify, whatnot or vinted fell
+// through to the fallback and printed the raw lowercase key at a seller. Every
+// value it did carry already matched constants.ts, facebook included, so nothing
+// deliberate was lost by deleting it. `platform` is ListingRow.platform, a plain
+// string off the row, which is why the lookup is widened rather than typed to
+// the union: an unknown value has to reach the fallback rather than fail to
+// compile.
+const PLATFORM_LABELS: Record<string, string | undefined> = MARKETPLACE_LABELS;
+
 function formatPlatform(platform: string): string {
-  const labels: Record<string, string> = {
-    ebay: "eBay",
-    poshmark: "Poshmark",
-    mercari: "Mercari",
-    depop: "Depop",
-    grailed: "Grailed",
-    facebook: "Facebook Marketplace",
-    offerup: "OfferUp",
-    other: "Other",
-  };
-  return labels[platform] ?? platform;
+  return PLATFORM_LABELS[platform] ?? platform;
 }
 
 const SUGGESTION_ICON = {
