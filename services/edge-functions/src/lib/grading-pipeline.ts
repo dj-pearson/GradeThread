@@ -21,7 +21,11 @@ import {
   type VerificationImage,
 } from "./ai-grading.ts";
 import { DEFECT_WEIGHTS_VERSION } from "./defect-weighting.ts";
-import { loadReferenceAnchors, referenceAnchorsActive } from "./reference-anchors.ts";
+import {
+  loadReferenceAnchors,
+  referenceAnchorsActive,
+  type ReferenceAnchor,
+} from "./reference-anchors.ts";
 import {
   downloadSubmissionBytes,
   FABRIC_ZOOM_PHASE,
@@ -642,6 +646,99 @@ async function escalateGrade(
     compositeResult,
     partialSuccess: failedOptional.length > 0,
   };
+}
+
+/**
+ * US-2279 + US-3366: the second-opinion composite, on the SAME evidence the
+ * primary composite read, under a different model.
+ *
+ * Extracted so the request it really sends can be driven in a test. The defect
+ * this function exists to prevent was an argument that was never written, and a
+ * source scan cannot see one of those; `composite-evidence_test.ts` stubs
+ * `messages.create` and reads the body the SDK was handed.
+ *
+ * THE SIX DEFAULTED ARGUMENTS, DECIDED ONE AT A TIME (US-3366 AC1):
+ *
+ *   baselineBlock       PASSED. A few hundred tokens of trusted, server-built
+ *                       text. It is the single most likely source of a false
+ *                       disagreement: the primary grades a garment against its
+ *                       brand+style baseline and the second opinion, without it,
+ *                       grades the same garment against nothing. Cheapest
+ *                       confound to remove, so it goes first.
+ *   tagBlock            PASSED. Same argument, smaller: a transcribed care/size
+ *                       label is trusted ground truth the primary already used
+ *                       to pick fabric criteria. Tens of tokens.
+ *   verificationImages  PASSED, and this is the one that costs money. Image
+ *                       blocks are the expensive part of a composite. Passed
+ *                       anyway, because a photo the primary SAW and the second
+ *                       opinion did not is precisely the confound the feature
+ *                       cannot tolerate: |delta| would then measure evidence,
+ *                       not models. Today this is [] in production (the
+ *                       `grading_composite_visual` setting defaults to
+ *                       enabled:false), so the change costs nothing until
+ *                       somebody turns that on, and on the day they do both
+ *                       reads see the same photos.
+ *   referenceAnchors    PASSED, same reasoning and the same bill. Server-chosen,
+ *                       server-labeled category anchors that recalibrate the
+ *                       scale. A second model judged against a different scale
+ *                       than the first is a disagreement about the ruler.
+ *                       Double-gated off today (flag AND a passing anchor eval),
+ *                       so it is likewise free until it is not.
+ *   suppressExemplars   PASSED as false, which is what the primary passes. This
+ *                       is a LIVE grade, not an eval leg: suppressing would
+ *                       compare a with-exemplars grade against a
+ *                       without-exemplars one. Written out rather than left to
+ *                       the default, because "the default happened to be right"
+ *                       is how the other five got here.
+ *   fabricCloseupMissing / labelIllegible
+ *                       PASSED as false, and this is a genuinely different
+ *                       decision from the four above rather than the same one
+ *                       repeated. Neither flag reaches the prompt: they cap
+ *                       confidence, force review and emit one analytics event
+ *                       each. The second opinion's confidence is discarded here
+ *                       (only `overall_score` is read), so passing them true
+ *                       would change nothing the caller uses and would fire
+ *                       `grading.no_fabric_closeup` / `grading.illegible_label`
+ *                       a SECOND time for one submission, double-counting the
+ *                       exact populations US-2397 and US-3320 added them to
+ *                       count. They are also unreachable as true from here:
+ *                       either flag forces needs_human_review on the primary,
+ *                       and `shouldSeekSecondOpinion` refuses anything already
+ *                       routed to a person. Both halves are pinned in
+ *                       `composite-evidence_test.ts`.
+ */
+export function secondOpinionComposite(
+  perImageResults: PerImageAnalysis[],
+  garmentInfo: GarmentInfo,
+  submissionId: string,
+  model: string,
+  // These four carry the PIPELINE's own variable names, not compositeGrade's.
+  // That is load-bearing: `composite-evidence_test.ts` pairs this function's
+  // arguments with the primary call site's by name, so a caller that hands it
+  // "" where the primary hands compositeBaselineBlock fails the guard. Renaming
+  // one of these without renaming the pipeline local fails it too, loudly.
+  compositeBaselineBlock: string,
+  verificationImages: VerificationImage[],
+  tagBlock: string,
+  referenceAnchors: ReferenceAnchor[],
+): Promise<CompositeGradeResult> {
+  // US-3366 [composite-call: second-opinion]
+  return compositeGrade(
+    perImageResults,
+    garmentInfo,
+    // No prompt override: the second opinion measures the MODEL, so it must run
+    // the same active prompt the primary resolved, canary bucket included.
+    undefined,
+    model,
+    submissionId,
+    compositeBaselineBlock,
+    verificationImages,
+    false,
+    tagBlock,
+    false,
+    false,
+    referenceAnchors,
+  );
 }
 
 /**
@@ -2555,6 +2652,7 @@ export async function processSubmission(submissionId: string) {
       )
       : [];
 
+    // US-3366 [composite-call: primary]
     let compositeResult: CompositeGradeResult = await compositeGrade(
       perImageResults,
       garmentInfo,
@@ -2893,12 +2991,22 @@ export async function processSubmission(submissionId: string) {
         console.log(
           `[Pipeline] second opinion for ${submissionId} (${soCfg.model}): ${decision.reason}`,
         );
-        const second = await compositeGrade(
+        const second = await secondOpinionComposite(
           perImageResults,
           garmentInfo,
-          undefined,
-          soCfg.model,
           submissionId,
+          soCfg.model,
+          // US-3366: the SAME four locals the primary composite above was
+          // handed. This call used to stop at five arguments, so the second
+          // model graded without the baseline, the tag transcription, the
+          // verification photos or the reference anchors, and a disagreement
+          // could then be the missing context rather than the model. Every
+          // argument is written out in `secondOpinionComposite`, with the
+          // reason for each one recorded beside it.
+          compositeBaselineBlock,
+          verificationImages,
+          tagBlock,
+          referenceAnchors,
         );
         const verdict = evaluateSecondOpinion(
           compositeResult.overall_score,

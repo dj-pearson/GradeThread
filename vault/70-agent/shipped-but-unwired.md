@@ -286,6 +286,23 @@ now does is in `second-opinion_test.ts`, and it reads the migrations directory
 for the key rather than the code for the call. **When a feature's switch is a
 row, the row is part of the wiring.**
 
+**And the caller was not correct either (US-3366, 2026-09-11).** The sentence
+above says "the wiring guards source-scan the caller, and the caller was
+correct". That held for the call's SHAPE and not for its contents: the second
+opinion called `compositeGrade` with five arguments where the primary grade
+passed twelve, so it re-graded without the trusted baseline, the label
+transcription, the verification photos or the reference anchors. It was a read of
+LESS evidence by a different model, which means a disagreement could be the
+missing context rather than the model, and that is the opposite of what the check
+claims to measure. The four wiring guards all passed, because **a source scan
+cannot see an argument that was never written**: the text it would have to match
+is absent, and absence reads exactly like a deliberate default. Two things were
+needed to close it: a test that DRIVES the call and reads the request body the
+SDK was handed (`composite-evidence_test.ts`), and a drift guard that derives the
+parameter list from the callee's own signature and fails when one call site
+carries an argument the other does not. A guard written against a list of
+argument names would have gone stale the first time a thirteenth was added.
+
 ## Deliberately dead — and why that was not enough
 
 ### `grade-badge.ts` — retired by policy, then DELETED (US-2382, 2026-08-02)
