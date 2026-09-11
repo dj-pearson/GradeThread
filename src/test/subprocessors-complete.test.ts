@@ -122,6 +122,13 @@ const NOT_A_PROCESSOR: Record<string, string> = {
   // code the seller just approved. Anthropic is separately listed as a
   // subprocessor for the grading calls, which DO send data.
   "claude.ai": "an OAuth redirect the seller's browser follows, not a call we make",
+  // US-3342 (ee2afb66f, 2026-09-11). The provenance URL for the Anthropic
+  // token prices in lib/ai-usage.ts, recorded as PRICE_SOURCE so a reader can
+  // re-check a rate rather than hunt for the page. Same shape as pe.usps.com
+  // and www.vinted.com above: the string is only ever assigned to a `source:`
+  // field on a price row, nothing fetches it, and no data leaves. Anthropic
+  // itself is separately listed for the grading calls, which DO send data.
+  "platform.claude.com": "a cited source URL for published token prices, never called",
 };
 
 /** Which listed subprocessor a host belongs to. */

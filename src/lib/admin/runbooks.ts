@@ -204,11 +204,15 @@ export const RUNBOOKS: Runbook[] = [
   {
     slug: "rollback",
     sourceNote: "vault/10-ops/rollback.md",
-    // 2026-08-09: re-read against the note, which gained a warning that the
-    // /health release field is unreliable (US-2001, measured). Added the same
-    // caveat to the edge step below — the identify-the-build step is the one an
-    // operator reaches for mid-incident, and it was quietly blind.
-    reviewed: "2026-08-09",
+    // 2026-09-11: re-read both against vault/10-ops/rollback.md, which moved on
+    // 2026-09-11 (ee2afb66f). The 2026-08-09 caveat below had gone the wrong way
+    // round: the note now records a measurement that /health answers a real
+    // 40-char SHA matching the tip of origin/main. Confirmed here the same day,
+    // release d36d827cabb7f6c0341aa382a1fa9e78c8f997d0. So the shipped copy was
+    // telling an operator mid-incident to ignore the one field that now works.
+    // Rewritten, and the open question (which of two mechanisms sets the stamp)
+    // carried across, because a hand-set variable goes stale on the next deploy.
+    reviewed: "2026-09-11",
     title: "Roll back a bad deploy",
     category: "Deploy",
     summary:
@@ -241,7 +245,8 @@ export const RUNBOOKS: Runbook[] = [
       "",
       "- Coolify → Deployments → redeploy the previous successful commit, or revert the commit on `main` and let the webhook redeploy.",
       "- The edge is backward-compatible with the prior frontend, so an edge rollback is safe to do on its own.",
-      "- **Do not expect `/health` to tell you which build is running.** It returned `release: \"dev\"` when last measured (2026-08-09, US-2001), so identify the build from Coolify's deployment history instead. Check `curl -s https://functions.gradethread.com/health | jq .release` now rather than during an incident — if it still says `dev`, setting `SOURCE_COMMIT` as a Coolify environment variable fixes it without a rebuild.",
+      "- **`/health` names the running build, and it was blind for a month, so check it rather than assume.** `curl -s https://functions.gradethread.com/health | jq .release` returned a real commit SHA on 2026-09-11; it returned `\"dev\"` on 2026-08-09 and `\"unknown\"` on 2026-08-22 (US-2001). If it answers a placeholder, identify the build from Coolify's deployment history instead, and setting `SOURCE_COMMIT` as a Coolify environment variable fixes the stamp without a rebuild.",
+      "- **Do not assume the stamp keeps itself current.** Where it comes from is not established: either the Dockerfile's `ARG SOURCE_COMMIT` chain or a `COMMIT_SHA` variable typed into the Coolify UI. If it is the typed one, it is only right until the next deploy, and a rollback would then name the wrong build.",
       "",
       "## Database",
       "",

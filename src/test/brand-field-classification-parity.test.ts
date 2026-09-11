@@ -18,7 +18,7 @@
 // ⚠ A scan can only fail one way. It proves the two lists match; it cannot prove
 // the edge CALLS the field-scoped check at every site. The Deno tests in
 // services/edge-functions/src/tests/ai-placeholder-values_test.ts do that part.
-// See vault/70-agent/guards-that-do-not-guard.md.
+// See vault/70-agent/guards-that-cannot-fail.md.
 
 import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";

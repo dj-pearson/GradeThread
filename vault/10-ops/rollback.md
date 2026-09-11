@@ -33,21 +33,17 @@ The edge image is tagged with the commit SHA (`Dockerfile` `ARG GIT_SHA` →
 visible at `GET /health` (`release` field) and a specific prior build can be
 redeployed deterministically.
 
-> [!warning] ⚠ In production this has not been true, and a rollback depends on it
-> `GET /health` on `functions.gradethread.com` returned `release: "dev"` when
-> last measured (2026-08-09), so **you cannot currently read the running commit
-> off the health endpoint**, and step 3 below cannot confirm what it claims to.
-> This is US-2001. Check it before you need it, not during an incident:
-> `curl -s https://functions.gradethread.com/health | jq .release`.
+> [!warning] Check the release stamp BEFORE you need it, not during an incident
+> `curl -s https://functions.gradethread.com/health | jq .release`. This field has
+> been wrong twice: `"dev"` on 2026-08-09 and `"unknown"` on 2026-08-22, so step
+> 3 below could not confirm what it claimed to (US-2001). It answers a real commit
+> SHA as of 2026-09-11.
 >
-> If it still says `dev`, the fastest fix is to set `SOURCE_COMMIT` as an
-> ordinary Coolify environment variable — since the release-identity fix, a
-> runtime value overrides the image's placeholder without a rebuild. See
-> `services/edge-functions/COOLIFY.md`.
->
-> Until then, identify the build from **Coolify's own deployment history**
-> rather than from the service. The rollback procedure itself still works; it is
-> the verification step that is blind.
+> If it ever answers a placeholder again, set `SOURCE_COMMIT` as an ordinary
+> Coolify environment variable, which overrides the image's placeholder without a
+> rebuild (see `services/edge-functions/COOLIFY.md`), and until it is fixed
+> identify the build from **Coolify's own deployment history**. The rollback
+> procedure still works either way; it is the verification step that goes blind.
 
 1. Coolify → edge-functions resource → **Deployments** history.
 2. Redeploy the last-known-good commit (Coolify rebuilds that ref) — or, if
