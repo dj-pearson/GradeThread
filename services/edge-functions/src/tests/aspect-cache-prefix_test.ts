@@ -7,14 +7,22 @@
 // just cache_read_tokens: 0 forever — which reads exactly like a breakpoint in
 // the wrong place and would send the next reader back to move it again.
 //
-// The minimums are 1,024 tokens for Sonnet and 2,048 for Haiku, and the split
-// matters here specifically: US-545 routes the COMMON apparel categories to
-// Haiku, so the model with the higher bar takes the bulk of AutoLister volume.
+// WARNING - CORRECTED 2026-09-11. This header used to say "1,024 tokens for Sonnet and
+// 2,048 for Haiku". Sonnet 5 is right; HAIKU 4.5 IS 4,096, twice what was
+// written, and the whole point of this file is the comparison against that
+// number. The minimums are not monotonic across generations - 512 on Opus 5,
+// 1,024 on Sonnet 5, 4,096 on Haiku 4.5 - so there is no way to reason one out,
+// only to look it up. Source: Anthropic's prompt-caching reference, API
+// minimum-cacheable-prefix table.
 //
-// Measured 2026-09-05: a typical 25-aspect apparel schema is ~17.6 KB, roughly
-// 4,200-5,500 tokens. Comfortably over both. So the per-model minimum is NOT
-// why the ledger reads zero, and the next suspect is the 5-minute ephemeral TTL
-// against the gap between two drafts of the SAME category.
+// The split matters here specifically: US-545 routes the COMMON apparel
+// categories to Haiku (getHaikuModel -> the lightweight tier), so the model with
+// the HIGHER bar takes the bulk of AutoLister volume.
+//
+// Measured 2026-09-11: a typical 25-aspect apparel schema is 17,643 chars,
+// ~7,330 tokens. Clears 4,096 with room. So the per-model minimum is NOT why the
+// ledger reads zero, and the leading suspect stays the batch ORDERING described
+// in this story's notes.
 
 import "./_env.ts";
 import { assert, assertEquals } from "@std/assert";
@@ -22,22 +30,35 @@ import { aspectCacheBreakpoints, buildAspectTool } from "../lib/ai-extract.ts";
 import { MAX_AI_ASPECTS } from "../lib/aspect-priority.ts";
 
 /**
- * Bytes to tokens, as a RANGE rather than a constant.
+ * Characters to tokens for a request that carries `tools`.
  *
- * A single chars-per-token figure is a guess dressed as a measurement. JSON
- * with repeated keys and short enum strings runs denser than prose, so the
- * bound that matters is the pessimistic one: if even 4.2 chars/token clears the
- * minimum, the prefix is cacheable on any plausible tokenizer.
+ * WARNING: the plain chars/N ratios are WRONG for a tools-bearing request, and wrong in
+ * the direction that gets a working breakpoint deleted. Fitted 2026-09-11
+ * against fifteen real count_tokens results (US-3148):
+ *
+ *     tokens = chars / 2.514 + 312        (max residual 69 tokens)
+ *
+ * The ~312 constant is the tool-use system block Anthropic prepends whenever
+ * `tools` is present. count_tokens sees it; a character count cannot. The
+ * earlier version of this file used chars/4.2 as a "pessimistic bound", which
+ * put a typical apparel schema at 4,201 tokens - 105 over Haiku's real 4,096,
+ * i.e. it would have read as barely-passing on a bar it had already got wrong.
+ *
+ * `withoutToolBlock` is the same fit with the constant dropped, for the case
+ * where the tool-use block turns out NOT to sit inside the tools prefix. Both
+ * bounds are reported because which one applies is not something this box can
+ * settle without an API call, and the conclusion happens not to depend on it.
  */
-function tokenRange(json: string): { low: number; high: number } {
+function estimateTokens(json: string): { fitted: number; withoutToolBlock: number } {
   return {
-    low: Math.round(json.length / 4.2),
-    high: Math.round(json.length / 3.2),
+    fitted: Math.round(json.length / 2.514 + 312),
+    withoutToolBlock: Math.round(json.length / 2.514),
   };
 }
 
-const SONNET_MIN = 1024;
-const HAIKU_MIN = 2048;
+/** Anthropic's minimum cacheable prefix. Below it a breakpoint is IGNORED. */
+const SONNET_MIN = 1024; // claude-sonnet-5
+const HAIKU_MIN = 4096; // claude-haiku-4-5
 
 function aspect(
   name: string,
@@ -95,34 +116,42 @@ const TYPICAL_APPAREL = [
 
 Deno.test("a typical apparel schema clears BOTH per-model cache minimums", () => {
   const { tool } = buildAspectTool(TYPICAL_APPAREL as never);
-  const { low } = tokenRange(JSON.stringify(tool));
+  const json = JSON.stringify(tool);
+  const { fitted, withoutToolBlock } = estimateTokens(json);
 
-  // The pessimistic bound clears the higher minimum, so the conclusion does not
-  // depend on which tokenizer estimate you believe.
+  // Both bounds clear the higher minimum, so the conclusion does not depend on
+  // whether the prepended tool-use block counts inside the tools prefix.
   assert(
-    low >= HAIKU_MIN,
-    `the refine prefix is ~${low} tokens at the pessimistic bound, under Haiku's ` +
-      `${HAIKU_MIN}-token minimum — the breakpoint would be silently ignored and ` +
-      `cache_read_tokens would read 0 no matter where it is placed`,
+    withoutToolBlock >= HAIKU_MIN,
+    `the refine prefix is ${json.length} chars, ~${withoutToolBlock}-${fitted} ` +
+      `tokens, under Haiku 4.5's ${HAIKU_MIN}-token minimum - the breakpoint ` +
+      `would be silently ignored and cache_read_tokens would read 0 no matter ` +
+      `where it is placed`,
   );
-  assert(low >= SONNET_MIN);
+  assert(withoutToolBlock >= SONNET_MIN);
 });
 
-Deno.test("⚠ a LEAN category is the one that cannot cache on Haiku", () => {
-  // Eight aspects is a real shape for a narrow category, and it lands between
-  // the two minimums. Recorded rather than asserted away: if the ledger ever
-  // shows cache reads on Sonnet categories and zeroes on Haiku ones, this is
-  // where to look first. US-545 routes the COMMON apparel categories to Haiku,
-  // so the model with the higher bar carries the bulk of the volume.
+Deno.test("WARNING: a LEAN category cannot cache on Haiku, and that is recorded not fixed", () => {
+  // Eight aspects is a real shape for a narrow category, and at ~3,000-3,300
+  // tokens it sits UNDER Haiku 4.5's 4,096 and over Sonnet 5's 1,024. The
+  // earlier version of this test called that "between the two minimums" against
+  // a Haiku bar of 2,048 and declined to assert either way; with the real bar it
+  // is a one-sided answer and worth pinning.
+  //
+  // It is not a live hole today: isEasyAspectCategory (the only thing that routes
+  // a refine call to Haiku) matches t-shirt/jean/dress/sneaker-shaped leaves, and
+  // those are exactly the categories eBay returns 20-30 aspects for. The risk is
+  // a future signal added to that list for a narrow category. If the ledger ever
+  // shows cache reads on Sonnet categories and zeroes on Haiku ones, start here.
   const { tool } = buildAspectTool(TYPICAL_APPAREL.slice(0, 8) as never);
-  const { low, high } = tokenRange(JSON.stringify(tool));
-  assert(low >= SONNET_MIN, "even a lean category clears Sonnet's minimum");
+  const { fitted, withoutToolBlock } = estimateTokens(JSON.stringify(tool));
+  assert(withoutToolBlock >= SONNET_MIN, "even a lean category clears Sonnet's minimum");
   assert(
-    high >= SONNET_MIN,
-    "a lean category fell under Sonnet's minimum too — the schema shrank",
+    fitted < HAIKU_MIN,
+    `a lean eight-aspect schema now estimates at ${fitted} tokens, at or over ` +
+      `Haiku's ${HAIKU_MIN} - if the schema really did grow that much, this ` +
+      `caveat is obsolete and should be deleted rather than loosened`,
   );
-  // No assertion about Haiku: this fixture straddles that line, and pinning it
-  // either way would be pinning the estimate rather than the behaviour.
 });
 
 Deno.test("the breakpoints sit on the tool AND the system block", () => {
@@ -166,6 +195,11 @@ Deno.test("the schema is byte-stable across calls for the same category", () => 
 
 Deno.test("the ceiling case is nowhere near the minimums", () => {
   const big = [...TYPICAL_APPAREL, ...TYPICAL_APPAREL].slice(0, MAX_AI_ASPECTS);
-  const { low } = tokenRange(JSON.stringify(buildAspectTool(big as never).tool));
-  assert(low > HAIKU_MIN * 2, `ceiling schema only ~${low} tokens`);
+  const { withoutToolBlock } = estimateTokens(
+    JSON.stringify(buildAspectTool(big as never).tool),
+  );
+  assert(
+    withoutToolBlock > HAIKU_MIN * 2,
+    `ceiling schema only ~${withoutToolBlock} tokens`,
+  );
 });

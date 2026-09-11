@@ -23,6 +23,8 @@ const {
   selectTagOcrPhotos,
   planTagRoleWriteback,
   shouldRunTagRolePass,
+  tagRolePassAlreadyAnswered,
+  readTagRolePassAnswers,
 } = await import("../lib/ai-tag-ocr.ts");
 
 Deno.test("normalizeTagOcr keeps legible string fields and clamps confidence", () => {
@@ -300,5 +302,115 @@ Deno.test("shouldRunTagRolePass: fewer than two identified photos -> skip", () =
   assertEquals(
     shouldRunTagRolePass([{ id: "a", type: "detail" }, { type: "detail" }]),
     false,
+  );
+});
+
+// -- US-3047: paying twice for a tagless item --------------------------------
+//
+// shouldRunTagRolePass above closes the case where the seller has already roled
+// every photo. It cannot close the one that costs the most, because that one
+// leaves no trace: an item that genuinely has NO label keeps every photo on the
+// generic `detail` default forever, since planTagRoleWriteback only relabels
+// rows the classifier called `tag`. So the second generation of a tagless
+// vintage piece asks the same question and pays for the same answer. The
+// verdict has to be written down, and these pin the reading of it.
+//
+// Not running the OCR on an item with no label photo is the CORRECT outcome,
+// not a coverage failure - AC5's 60% is a share of drafts that have a label to
+// read, not a quota to be met by inventing a tag read.
+
+Deno.test("tagRolePassAlreadyAnswered: a recorded 'no label' over the same photos skips the call", () => {
+  assertEquals(
+    tagRolePassAlreadyAnswered(["a", "b"], [
+      { foundTag: false, askedPhotoIds: ["a", "b"] },
+    ]),
+    true,
+  );
+});
+
+Deno.test("tagRolePassAlreadyAnswered: a recorded FIND never suppresses anything", () => {
+  // A found label needs no suppression - the writeback moved the row to `tag`
+  // and selectTagOcrPhotos short-circuits the branch. Reading a `true` as an
+  // answer here would be the wrong kind of skip.
+  assertEquals(
+    tagRolePassAlreadyAnswered(["a", "b"], [
+      { foundTag: true, askedPhotoIds: ["a", "b"] },
+    ]),
+    false,
+  );
+});
+
+Deno.test("tagRolePassAlreadyAnswered: a photo the verdict never saw re-opens the question", () => {
+  // The seller added a photo after the pass ran. It could be the label, and
+  // nothing has looked at it.
+  assertEquals(
+    tagRolePassAlreadyAnswered(["a", "b", "c"], [
+      { foundTag: false, askedPhotoIds: ["a", "b"] },
+    ]),
+    false,
+  );
+  // Deleting one, though, leaves a set that was already judged.
+  assertEquals(
+    tagRolePassAlreadyAnswered(["a"], [
+      { foundTag: false, askedPhotoIds: ["a", "b"] },
+    ]),
+    true,
+  );
+});
+
+Deno.test("tagRolePassAlreadyAnswered: no history, and no photos, both mean ask", () => {
+  assertEquals(tagRolePassAlreadyAnswered(["a", "b"], []), false);
+  assertEquals(
+    tagRolePassAlreadyAnswered([], [
+      { foundTag: false, askedPhotoIds: ["a", "b"] },
+    ]),
+    false,
+  );
+});
+
+Deno.test("readTagRolePassAnswers: only rows carrying a real verdict count", () => {
+  const rows = [
+    // A generation from before this shipped: the pass ran, nothing recorded.
+    { suggested_fields: { listing_gen: { photo_role_model: "x" } } },
+    // A generation where the pass was skipped: null is not a "no".
+    {
+      suggested_fields: {
+        listing_gen: { photo_role_found_tag: null, photo_role_photo_ids: [] },
+      },
+    },
+    // A row from a different feature entirely.
+    { suggested_fields: { measure: { anything: 1 } } },
+    { suggested_fields: null },
+    {},
+    // The one real verdict.
+    {
+      suggested_fields: {
+        listing_gen: {
+          photo_role_found_tag: false,
+          photo_role_photo_ids: ["a", "b", 7],
+        },
+      },
+    },
+  ];
+  const answers = readTagRolePassAnswers(rows);
+  assertEquals(answers.length, 1);
+  assertEquals(answers[0], { foundTag: false, askedPhotoIds: ["a", "b"] });
+});
+
+Deno.test("readTagRolePassAnswers -> tagRolePassAlreadyAnswered: the two halves compose", () => {
+  // The shape the DB actually hands back, end to end, so a rename in the
+  // payload cannot pass the parser test and still break the skip.
+  const rows = [{
+    suggested_fields: {
+      listing_gen: {
+        photo_role_model: "claude-sonnet-5",
+        photo_role_found_tag: false,
+        photo_role_photo_ids: ["p1", "p2", "p3"],
+      },
+    },
+  }];
+  assertEquals(
+    tagRolePassAlreadyAnswered(["p1", "p2", "p3"], readTagRolePassAnswers(rows)),
+    true,
   );
 });

@@ -73,6 +73,77 @@ export function shouldRunTagRolePass<
 }
 
 /**
+ * US-3047: one recorded verdict from a tag-role pass that already ran on an
+ * item, read back off ai_enrichment_log.
+ */
+export interface TagRolePassAnswer {
+  /** Did that pass find a label photo? */
+  foundTag: boolean;
+  /** The photo ids that pass actually showed the classifier. */
+  askedPhotoIds: string[];
+}
+
+/**
+ * US-3047: has a previous pass already answered "is one of these a label?" with
+ * NO, for exactly these photos?
+ *
+ * shouldRunTagRolePass on its own leaves a real hole: an item that genuinely has
+ * no label - a tagless vintage piece, a set the seller never shot a tag for -
+ * keeps its photos on the generic `detail` default no matter how many times the
+ * classifier looks, because planTagRoleWriteback only relabels rows it calls
+ * `tag`. So the answer never gets recorded, and the second, third and fourth
+ * generation of that item each pay for the same vision call to be told the same
+ * thing. A FOUND label needs none of this: the writeback moves the row to `tag`
+ * and selectTagOcrPhotos short-circuits the branch next time.
+ *
+ * The photo ids are half the record on purpose. A verdict is only about the
+ * photos it saw, so a set the seller has ADDED to is an open question again; a
+ * set they have only deleted from was already judged. Hence subset, not equality.
+ * Pure.
+ */
+export function tagRolePassAlreadyAnswered(
+  candidateIds: readonly string[],
+  history: readonly TagRolePassAnswer[],
+): boolean {
+  if (candidateIds.length === 0) return false;
+  return history.some((h) => {
+    if (h.foundTag) return false;
+    const asked = new Set(h.askedPhotoIds);
+    return candidateIds.every((id) => asked.has(id));
+  });
+}
+
+/**
+ * US-3047: pull the recorded tag-role verdicts out of ai_enrichment_log rows.
+ *
+ * A row written before this shipped, or by a generation where the pass never
+ * ran, carries a null `photo_role_found_tag` and is skipped - "we did not ask"
+ * is not "we asked and the answer was no", and reading it as one would suppress
+ * the first real call. Pure; the caller owns the tenant-scoped query.
+ */
+export function readTagRolePassAnswers(
+  rows: readonly { suggested_fields?: unknown }[],
+): TagRolePassAnswer[] {
+  const out: TagRolePassAnswer[] = [];
+  for (const row of rows) {
+    const gen = (row?.suggested_fields as
+      | { listing_gen?: Record<string, unknown> }
+      | null
+      | undefined)?.listing_gen;
+    if (!gen) continue;
+    const found = gen.photo_role_found_tag;
+    if (typeof found !== "boolean") continue;
+    const ids = gen.photo_role_photo_ids;
+    if (!Array.isArray(ids)) continue;
+    out.push({
+      foundTag: found,
+      askedPhotoIds: ids.filter((v): v is string => typeof v === "string"),
+    });
+  }
+  return out;
+}
+
+/**
  * 2026-09-02: what to do with a holistic role pass when nothing was typed tag.
  * The photos the classifier called `tag` are read by OCR whatever their stored
  * type; only rows still on the generic `detail` default (or untyped) are

@@ -168,10 +168,12 @@ import {
   extractTagGroundTruth,
   mergeTagGroundTruth,
   planTagRoleWriteback,
+  readTagRolePassAnswers,
   selectTagOcrPhotos,
   shouldRunTagRolePass,
   tagAttributeFill,
   tagImageSource,
+  tagRolePassAlreadyAnswered,
   type TagGroundTruth,
 } from "./ai-tag-ocr.ts";
 import { classifyPhotoRoles } from "./ai-photo-roles.ts";
@@ -2149,6 +2151,12 @@ interface ItemRow {
 // whole photo set.
 const MAX_TAG_OCR_PHOTOS = 4;
 
+// US-3047: how far back to look for a tag-role verdict on this item. The read
+// only happens on the branch that is about to spend a vision call, and only the
+// rows a generation wrote carry a verdict, so a handful covers every realistic
+// regeneration history without turning the check into its own cost.
+const TAG_ROLE_HISTORY_ROWS = 8;
+
 // The size-estimate pass reads a ruler off the measurement / flat-lay shots and
 // a fit off the rest; it was sent EVERY photo on the item, uncapped, when the
 // tag had no size. Six, measurement-first, is the listing-pass budget and more
@@ -2344,6 +2352,10 @@ export async function generateListing(
   let roleTokensOut = 0;
   let roleCost = 0;
   let roleModel: string | null = null;
+  // US-3047: the pass's VERDICT, so a second generation over a tagless item does
+  // not buy the same answer twice. null = the pass did not run this time.
+  let roleFoundTag: boolean | null = null;
+  let roleAskedPhotoIds: string[] = [];
   let tagPhotos = selectTagOcrPhotos(photos, MAX_TAG_OCR_PHOTOS);
   // 2026-09-02: on prod, 150 of 1001 items had a tag-typed photo and OCR ran
   // on 11 of ~300 generations - the label was usually sitting under `detail`.
@@ -2357,7 +2369,47 @@ export async function generateListing(
     const candidates = photos.filter(
       (p): p is ListingGenPhoto & { id: string } => !!p.id,
     );
+    const candidateIds = candidates.map((p) => p.id);
+    // US-3047: and only when the question is still OPEN. An item that really
+    // has no label keeps every photo on the `detail` default however many times
+    // the classifier looks at it, so without this the second and third
+    // generation of a tagless piece each pay for the same vision call to be
+    // told the same thing. A found label needs no record: the writeback below
+    // moves the row to `tag` and selectTagOcrPhotos short-circuits next time.
+    //
+    // Tenant-scoped on user_id AND inventory_item_id (US-268) - this is the
+    // service-role client, so the scoping is the isolation.
+    let answered = false;
     if (candidates.length >= 2) {
+      const { data: priorRows, error: priorErr } = await supabaseAdmin
+        .from("ai_enrichment_log")
+        .select("suggested_fields")
+        .eq("user_id", ownerId)
+        .eq("inventory_item_id", itemId)
+        .order("created_at", { ascending: false })
+        .limit(TAG_ROLE_HISTORY_ROWS);
+      if (priorErr) {
+        // Non-fatal: a failed read means we ask again, which is the old
+        // behaviour and costs money rather than correctness.
+        console.warn(
+          "[AI Listing] tag role history read failed:",
+          priorErr.message,
+        );
+      } else {
+        answered = tagRolePassAlreadyAnswered(
+          candidateIds,
+          readTagRolePassAnswers(
+            (priorRows ?? []) as { suggested_fields?: unknown }[],
+          ),
+        );
+        if (answered) {
+          console.log(
+            `[AI Listing] tag role pass skipped on item ${itemId}: a previous pass already found no label in these ${candidateIds.length} photo(s)`,
+          );
+        }
+      }
+    }
+    if (candidates.length >= 2 && !answered) {
       try {
         const rolePass = await classifyPhotoRoles(
           candidates.map((p) => ({ id: p.id, url: p.url })),
@@ -2368,6 +2420,10 @@ export async function generateListing(
         roleCost = estimateCost(rolePass.model, rolePass.tokensIn, rolePass.tokensOut);
         const plan = planTagRoleWriteback(candidates, rolePass.roles);
         tagPhotos = plan.tagPhotos.slice(0, MAX_TAG_OCR_PHOTOS);
+        // The verdict, recorded whichever way it went. A `false` here is what
+        // stops the next batch asking again.
+        roleFoundTag = plan.tagPhotos.length > 0;
+        roleAskedPhotoIds = candidateIds;
         if (plan.writeback.length > 0) {
           const { error } = await supabaseAdmin
             .from("item_photos")
@@ -3544,6 +3600,13 @@ export async function generateListing(
           photo_role_model: roleModel,
           photo_role_tokens_in: roleTokensIn,
           photo_role_tokens_out: roleTokensOut,
+          // US-3047: the VERDICT and the photos it was about. `false` is the
+          // load-bearing value - it is what tells the next generation of a
+          // tagless item not to buy the same answer again. Null means the pass
+          // did not run, which is not the same claim; readTagRolePassAnswers
+          // skips those rather than reading them as a no.
+          photo_role_found_tag: roleFoundTag,
+          photo_role_photo_ids: roleAskedPhotoIds,
           // US-2425: coverage travels WITH the generation telemetry, so a run's
           // cost and its completeness can be read off the same row — otherwise
           // "we spent more and got more" stays an assertion.
