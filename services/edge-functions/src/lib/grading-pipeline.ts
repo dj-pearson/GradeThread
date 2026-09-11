@@ -3262,6 +3262,10 @@ export async function processSubmission(submissionId: string) {
         functional_elements_score: compositeResult.factor_scores.functional_elements,
         odor_cleanliness_score: compositeResult.factor_scores.odor_cleanliness,
         ...(releaseAt ? { release_at: releaseAt } : {}),
+        // US-3330: the flaw keeping this from the next tier, words only.
+        ...(compositeResult.limiting_flaw
+          ? { limiting_flaw: compositeResult.limiting_flaw }
+          : {}),
         ai_summary: compositeResult.ai_summary,
         // US-759: longer buyer-facing certified write-up.
         buyer_writeup: compositeResult.buyer_writeup,

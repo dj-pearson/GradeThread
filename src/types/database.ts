@@ -912,6 +912,9 @@ export interface GradeReportRow {
   // US-3326: when a held grade is released to its owner. Null = not held.
   // Owner reads cannot see the row before this time (RLS, migration 00786).
   release_at?: string | null;
+  // US-3330: the flaw keeping this grade from the next tier; cleared when a
+  // human adjusts the grade, because it would describe the AI's grade.
+  limiting_flaw?: { defect: string; location: string; next_tier: string } | null;
   // The reviewer who finalized it, and when.
   reviewed_by: string | null;
   reviewed_at: string | null;
@@ -1024,6 +1027,9 @@ export interface PublicGradeReportRow {
   // judge Cleanliness. Optional: absent before 00787 is applied.
   seller_statements?: string[];
   cleanliness_visible?: boolean;
+  // US-3330 (00788): the flaw keeping this grade from the next tier. Strings
+  // only; null when no single flaw is limiting.
+  limiting_flaw?: { defect: string; location: string; next_tier: string } | null;
   // Non-clothing grading (migration 00231): generic { factor_key: score } map +
   // the rubric that produced it (e.g. "sports_cards"). Null on clothing & legacy
   // certificates — the cert renders the typed factor columns instead.

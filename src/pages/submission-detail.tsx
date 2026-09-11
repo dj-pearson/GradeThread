@@ -67,6 +67,7 @@ import { ScoreExplainer } from "@/components/grading/score-explainer";
 import { WhatHappensNext } from "@/components/submission/what-happens-next";
 import { formatReadyBy, useGradeTurnaround } from "@/hooks/use-grade-turnaround";
 import { cleanlinessVisible } from "@/lib/cleanliness";
+import { limitingFlawSentence } from "@/lib/limiting-flaw";
 import {
   HUMAN_REVIEW,
   WHERE_IT_APPEARS,
@@ -1136,6 +1137,12 @@ export function SubmissionDetailPage() {
                 <p className="whitespace-pre-wrap text-sm leading-relaxed">
                   {gradeReport.ai_summary}
                 </p>
+                {/* US-3330: which single flaw keeps this from the next tier. */}
+                {limitingFlawSentence(gradeReport.limiting_flaw) && (
+                  <p className="text-sm font-medium">
+                    {limitingFlawSentence(gradeReport.limiting_flaw)}
+                  </p>
+                )}
                 {/* US-514: AI-transparency disclosure (mirrors the public
                     certificate + Terms §5). */}
                 <p className="rounded-md bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:bg-amber-950/40 dark:text-amber-300">

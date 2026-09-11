@@ -124,6 +124,7 @@ import { boardWindow, loadBoard, loadCohort } from "../lib/leaderboards-data.ts"
 import { loadSeasonTimezone } from "../lib/rewards-seasons.ts";
 import { PILLAR_CORNERSTONE_URL, PILLAR_LABELS } from "../lib/content-interlink.ts";
 import { cleanlinessVisible, normalizeSellerStatements } from "../lib/cleanliness-visibility.ts";
+import { publicLimitingFlaw } from "../lib/limiting-flaw.ts";
 
 // US-580: these endpoints are anonymous/unauthenticated, so a 500 body must
 // NEVER carry raw error.message — that leaks DB/PostgREST internals (table
@@ -1400,7 +1401,7 @@ contentPublicRoutes.get("/certificates/:id", async (c) => {
   // Same rule as public_grade_reports.cleanliness_visible (00787).
   const { data: piaRow } = await supabaseAdmin
     .from("grade_reports")
-    .select("per_image_analysis")
+    .select("per_image_analysis, limiting_flaw")
     .eq("certificate_id", certId)
     .not("certificate_id", "is", null)
     .maybeSingle();
@@ -1464,6 +1465,11 @@ contentPublicRoutes.get("/certificates/:id", async (c) => {
       // US-3329: false when no analyzed photo could judge Cleanliness.
       cleanliness_visible: cleanlinessVisible(
         (piaRow as { per_image_analysis?: unknown } | null)?.per_image_analysis,
+      ),
+      // US-3330: the flaw keeping this from the next tier. Rebuilt from its
+      // three string keys, like the view does, so no number can ride along.
+      limiting_flaw: publicLimitingFlaw(
+        (piaRow as { limiting_flaw?: unknown } | null)?.limiting_flaw,
       ),
       hero_image_url: heroImageUrl,
       // US-1413: full ordered gallery (signed URLs) for the SPA photo grid +

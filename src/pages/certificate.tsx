@@ -48,6 +48,7 @@ import {
   rubricForKey,
 } from "@/lib/rubrics";
 import { sellerStatementLabels } from "@/lib/cleanliness";
+import { limitingFlawSentence } from "@/lib/limiting-flaw";
 import { confidenceInfo } from "@/lib/passport-confidence";
 import { VerifiedBadge } from "@/components/verified/verified-badge";
 import { ReportCertificateDialog } from "@/components/certificate/report-certificate-dialog";
@@ -1141,6 +1142,12 @@ export function CertificatePage() {
               </CardDescription>
             </CardHeader>
             <CardContent>
+              {/* US-3330: which single flaw keeps this from the next tier. */}
+              {limitingFlawSentence(gradeReport.limiting_flaw) && (
+                <p className="mb-3 text-sm font-medium">
+                  {limitingFlawSentence(gradeReport.limiting_flaw)}
+                </p>
+              )}
               <ul className="space-y-3">
                 {defects.map((d, i) => (
                   <li

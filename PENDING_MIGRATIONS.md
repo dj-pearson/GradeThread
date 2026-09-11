@@ -9,6 +9,28 @@
 > They are still filed as HELD here because nobody in this session watched
 > them apply. Confirm against prod before trusting either heading.
 
+## ⏸ HELD: 00788 — the flaw that keeps a grade from the next level (US-3330)
+
+**Risk: MEDIUM, because it recreates `public_grade_reports` again.** Adds
+`grade_reports.limiting_flaw jsonb`, then `CREATE OR REPLACE VIEW` generated
+from 00787's statement verbatim plus one appended column that rebuilds
+`limiting_flaw` from its three string keys only. Applied with 00787 inside a
+rolled-back transaction on the local stack, 2026-09-11.
+
+**Apply order: after 00787.** Then `NOTIFY pgrst, 'reload schema';` and
+redeploy the edge (boot guard expects 00788).
+
+**⚠ Edge code in the same change writes the column on new grades and clears it
+on every adjustment**, so the new edge must not run before the SQL. The boot
+guard enforces that. The web reads the view column as optional.
+
+**Check it landed:**
+
+```sql
+select count(*) from information_schema.columns
+where table_name = 'public_grade_reports' and column_name = 'limiting_flaw';  -- 1
+```
+
 ## ⏸ HELD: 00787 — seller smoke-free / pet-free statement, and "not visible in these photos" (US-3329)
 
 **Risk: MEDIUM, because it recreates `public_grade_reports`.** Adds

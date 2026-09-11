@@ -71,6 +71,10 @@ export async function applyGradeAdjustment(
     overall_score: overall,
     grade_tier: tier,
     ...factors,
+    // US-3330: the limiting-flaw line was computed from the AI's factors.
+    // After a human correction it would describe a grade that no longer
+    // exists, so it is cleared rather than left stale.
+    limiting_flaw: null,
     ...extra,
   };
 

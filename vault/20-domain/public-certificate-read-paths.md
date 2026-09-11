@@ -10,6 +10,8 @@ code_refs:
   - src/test/public-grade-report-view-parity.test.ts
   - supabase/migrations/00787_seller_statements_cleanliness_visible.sql
   - services/edge-functions/src/tests/cleanliness-statements_test.ts
+  - services/edge-functions/src/tests/limiting-flaw_test.ts
+  - supabase/migrations/00788_grade_limiting_flaw.sql
 reviewed: 2026-09-11
 tags: [certificates, public, schema, gotcha]
 summary: A public certificate is served by two independent projections — an edge column allowlist and a Postgres view — and adding a column to one has twice shipped as "done" while the other stayed silent.
@@ -79,6 +81,12 @@ reduces `per_image_analysis` to the one boolean in a separate read, so the
 internal trace never joins the row that gets spread into the payload.
 `cleanliness-statements_test.ts` pins the view column order, the edge fields,
 and that `per_image_analysis` stays out of the cert column allowlists.
+
+`limiting_flaw` (US-3330, 00788) follows the same shape, with one extra rule: both
+paths rebuild it from its three string keys (the view with `jsonb_build_object`,
+the edge with `publicLimitingFlaw`), so a stray numeric field in the stored JSON
+could never publish the per-defect penalty. The raw column is in neither the
+view's projection nor the cert column allowlist; `limiting-flaw_test.ts` pins both.
 
 ## Two fields are deliberately on the edge path only
 

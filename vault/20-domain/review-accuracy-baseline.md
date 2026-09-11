@@ -14,10 +14,12 @@ code_refs:
   - services/edge-functions/src/tests/review-baseline_test.ts
   - supabase/migrations/00784_human_review_ai_baseline.sql
   - supabase/migrations/00785_grade_flaws_only.sql
-reviewed: 2026-09-10
+reviewed: 2026-09-11
 tags: [grading, accuracy, calibration, human-review, contract]
 summary: Once a reviewer adjusts a grade, grade_reports holds the human's scores, so the AI's side of every accuracy comparison must come from the earliest human_reviews snapshot, never from the report.
 ---
+
+> [!note] Re-reviewed 2026-09-11. grade-adjustment.ts now also clears grade_reports.limiting_flaw on every adjustment (US-3330). It still overwrites the report with the human's scores, which is the fact this note rests on; the AI side still has to come from the review snapshot.
 
 # Which number is the AI's
 

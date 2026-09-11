@@ -133,6 +133,8 @@ const ROUTE_ADDED = new Set([
   // (which stays off the spread row). The view projects both too (00787).
   "seller_statements",
   "cleanliness_visible",
+  // US-3330: rebuilt from three string keys in the route, never spread raw.
+  "limiting_flaw",
 ]);
 
 /** Top-level field names of `interface PublicCertificate { … }`. */

@@ -53,6 +53,8 @@ interface PublicCertificate {
   seller_statements?: string[] | null;
   /** US-3329: false when no analyzed photo could judge Cleanliness. */
   cleanliness_visible?: boolean | null;
+  /** US-3330: the flaw keeping this from the next tier. Strings only. */
+  limiting_flaw?: { defect: string; location: string; next_tier: string } | null;
   overall_score: number;
   grade_tier: string;
   fabric_condition_score: number;
@@ -252,6 +254,13 @@ async function renderCertificate(context: Ctx): Promise<Response> {
     (cert as { rubric_key?: string | null }).rubric_key,
   );
 
+  // US-3330: one sentence naming the flaw that keeps this from the next tier.
+  // Model text, so escaped; phrased like src/lib/limiting-flaw.ts.
+  const lf = cert.limiting_flaw;
+  const limitingFlawHtml = lf && lf.defect && lf.next_tier
+    ? `<p style="margin:12px 0 0;font-weight:600">The ${escape(lf.defect.charAt(0).toLowerCase() + lf.defect.slice(1))}${lf.location ? ` (${escape(lf.location)})` : ""} is what keeps this from ${escape(lf.next_tier)}.</p>`
+    : "";
+
   // Factor breakdown as colored bars (was a plain table).
   const factorsHtml = `${conditionOnlyHtml}<div class="cert-factors">${
     FACTORS.map((f) => {
@@ -264,7 +273,7 @@ async function renderCertificate(context: Ctx): Promise<Response> {
       }
       return `<div class="cert-factor"><div class="cert-factor-top"><span>${f.label} <span class="cert-factor-w">(${f.weight}%)</span></span><span class="cert-factor-score">${v.toFixed(1)}</span></div><div class="cert-factor-bar"><div class="cert-factor-fill" style="width:${pct}%;background:${scoreColor(v)}"></div></div></div>`;
     }).join("")
-  }</div>`;
+  }</div>${limitingFlawHtml}`;
 
   // Provenance / assurance badges.
   const badges: string[] = [];

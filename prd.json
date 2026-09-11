@@ -4891,20 +4891,6 @@
       "notes": "LOOP-DONE-CODE 2026-09-11. Code done; only the OPERATOR AC remains. New GET /api/grade/turnaround (owner-scoped: submissions filtered by workspaceOwnerId ?? userId first, reports keyed on those ids, no request input) returns sla_hours per tier from pricing config (compiled fallback), hold_enabled, and release_times for the caller held grades. Web: useGradeTurnaround hook; submission detail gets a Ready by branch (held grades are invisible to its direct read by design) with WhatHappensNext showing readyByCopy; the submissions list shows Ready by under the status badge on both layouts; the tier picker says Delivered within X from the live hours instead of ~X hours from the constant; turnaroundCopy(tier, live) drops the minutes claim for held tiers when the hold is on and is word-for-word unchanged otherwise. No score or tier is shown before release (the report is not readable until then). iOS and Android filed as US-3341 with the reason (Swift cannot compile here; web first). Verified: grade-turnaround-copy vitest 6/6 + grading-journey-parity 23/23 (its mount count moved from 2 to 3 on purpose: the held branch is a third waiting state), grade-turnaround-route_test 3/3 sabotaged (owner scope removed: red, restored: green), new live tenant-isolation case (B never sees A in release_times), tsc -b, eslint, ui:check, deno check clean. OWNER: choose the SLA hours per tier in admin pricing config (/admin/config-pricing). Today Express 1h, Premium 12h, Standard 48h; you floated about 4h, 24h and 7 days. The hold, the picker copy and Ready by all read the new values without a deploy."
     },
     {
-      "id": "US-3330",
-      "passes": false,
-      "title": "Name the one flaw that keeps a grade from the next level",
-      "description": "A seller sees 7.6 Very Good and the factor math, but not what stands between the item and Excellent. The defect weighting already knows which flaw costs the most points. One sentence, for example: the 1 cm stain on the left cuff is what keeps this from Excellent.",
-      "acceptanceCriteria": [
-        "Server-side: find the genuine defect whose removal raises the overall most, and whether that crosses into the next tier.",
-        "Only the flaw's description, location and the next tier's name leave the server. Penalty numbers never do (BASE_WEIGHT stays unpublished; test-asserted).",
-        "Shown on the seller report and the certificate; absent when no single flaw is limiting or the grade is already top tier.",
-        "After a human adjustment the line is recomputed against the final grade or hidden, never stale.",
-        "Tests for the selection logic and the no-numbers rule."
-      ],
-      "priority": 35
-    },
-    {
       "id": "US-3331",
       "passes": false,
       "title": "Check photos for blur and darkness before the seller pays, not after",

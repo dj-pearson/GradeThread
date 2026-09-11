@@ -65,6 +65,7 @@ import {
   computeWeightedOverall,
   type FactorScores as ReportFactorScores,
 } from "./human-review.ts";
+import { findLimitingFlaw, type LimitingFlaw } from "./limiting-flaw.ts";
 
 // Version names for the in-code default prompts. These MUST match the seeded
 // rows in ai_prompt_versions (migration 00050) so the accuracy loop can
@@ -327,6 +328,12 @@ export interface CompositeGradeResult {
    * computed exactly as before.
    */
   flaws_only?: FlawsOnlyGrade;
+  /**
+   * US-3330: the one genuine flaw whose removal lifts the grade into a higher
+   * tier, or null. Description, location and tier name only; never a number,
+   * because the per-defect penalty is deliberately unpublished.
+   */
+  limiting_flaw?: LimitingFlaw | null;
   // Actual model that produced the composite grade. Recorded so the
   // accuracy tracker can attribute error rates per model, not just per
   // prompt version.
@@ -3157,6 +3164,9 @@ export async function compositeGrade(
     // can't exceed what the structured defects justify. The model may still grade
     // lower (it sees things the taxonomy misses); a large model↔ceiling gap is a
     // calibration / own-review signal.
+    // US-3330: the model's own factor read, before the defect ceilings are
+    // applied, so the limiting-flaw search re-runs the SAME weighting.
+    const modelFactors: FactorScores = { ...(parsed.factor_scores as FactorScores) };
     const weighting = applyDefectWeighting(
       parsed.factor_scores as FactorScores,
       defectsFound.map((d): WeightedDefect => ({
@@ -3391,6 +3401,18 @@ export async function compositeGrade(
       model: compositeModel,
       // US-3325: recorded beside the grade, never blended into it.
       flaws_only: flawsOnlyGrade(weighting.ceilingByFactor),
+      // US-3330: which single flaw keeps this from the next tier. Words only.
+      limiting_flaw: findLimitingFlaw(
+        modelFactors,
+        defectsFound.map((d) => ({
+          defect: d.defect,
+          defect_type: coerceDefectType(d.defect_type),
+          severity: d.severity,
+          size_bucket: coerceSizeBucket(d.size_bucket),
+          area_pct: d.area_pct,
+          location: d.location,
+        })),
+      ),
       // US-1537: cross-photo contradictions from the verification pass —
       // recorded on the report; the pipeline lowers confidence when non-empty.
       verification_discrepancies: normalizeVerificationDiscrepancies(
