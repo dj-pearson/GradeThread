@@ -96,7 +96,13 @@ Deno.test("US-2350 AC3: an admin cannot self-serve delete their account", async 
   );
   const at = src.indexOf('accountRoutes.post("/delete"');
   assert(at > -1, "the delete route was renamed");
-  const body = src.slice(at, at + 4000);
+  // Sliced to the NEXT route registration rather than to a fixed 4000 chars.
+  // The fixed window was a hidden dependency on byte offsets: US-2351 added a
+  // comment above the password re-auth and pushed admin_self_delete_blocked out
+  // of the window, so this case went red without the rule it guards changing at
+  // all. A guard that fails on unrelated edits above it gets read as noise.
+  const next = src.indexOf("accountRoutes.", at + 1);
+  const body = src.slice(at, next > -1 ? next : src.length);
   assert(
     body.includes("admin_self_delete_blocked"),
     "an admin can self-delete again",

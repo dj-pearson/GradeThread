@@ -10,7 +10,7 @@ code_refs:
   - services/edge-functions/src/lib/destructive-guard.ts
   - supabase/migrations/00521_impersonation_sessions.sql
   - services/edge-functions/src/tests/impersonation-bounds_test.ts
-reviewed: 2026-09-05
+reviewed: 2026-09-11
 tags: [admin, security, impersonation, audit]
 summary: Impersonation is capped at 30 minutes, recorded server-side, revoked on stop, and refused by every destructive route while it is live.
 ---
@@ -66,7 +66,16 @@ doing it. The admin's trail said only "impersonation started".
    rule ever could. Both are in
    [[impersonation-session-revocation]], which owns the mechanism.
 4. **Destructive routes refuse while it is live.** Account delete, subscription
-   cancel, billing portal, and every marketplace disconnect.
+   cancel, billing portal, every marketplace disconnect, QuickBooks, and
+   **grading spend** (`/grade/submit`, `/grade/pay/:id`, `/grade/snap`).
+
+   ⚠ **Grading spend was named in the acceptance criteria and had no guard at
+   all until 2026-09-11 (US-2351).** Eleven call sites were guarded and these
+   three were not, so an impersonating admin could spend the user's credits or
+   charge their card. The rule for finding the set is mechanical rather than
+   by eye: every grade handler that gates on `isAiBudgetExhausted` is a spend
+   handler and must carry the guard, and a derived case in
+   `impersonation-bounds_test.ts` now fails if a new one appears without it.
 
 The marker is a database row rather than a token claim on purpose. A claim would
 be equally invisible to any route that does not parse it, and — worse — could not
@@ -128,6 +137,20 @@ unreachable auth service means the password cannot be proved, and "cannot prove"
 must not read as "proved" on the one endpoint that permanently destroys an
 account. OAuth accounts have no password and are exempt — demanding one that does
 not exist is not a control.
+
+> [!warning] The exemption itself failed OPEN until 2026-09-11 (US-2351)
+> The password check fails closed. The decision of **whether to demand a
+> password** did not. It read `data?.user?.app_metadata?.providers ?? []` and
+> discarded the error, so an auth-service outage produced an empty provider
+> list, which read as "OAuth account, nothing to ask", and the account deleted
+> with no re-authentication at all. A guard can fail closed and still sit
+> behind a question that fails open.
+>
+> It now reads the error and refuses with 503 `reauth_unavailable` when it
+> cannot tell how the account signs in, and it reads both `app_metadata.
+> providers` and the older singular `app_metadata.provider`, because an
+> account carrying only the singular form would have been treated as
+> password-less. Found by DRIVING the route, not by reading it.
 
 Admins cannot self-delete at all; see [[audit-log-access-control]].
 

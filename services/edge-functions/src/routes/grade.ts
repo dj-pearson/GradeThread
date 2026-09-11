@@ -70,6 +70,7 @@ import {
 import { getGradePricing } from "../lib/pricing-config.ts";
 import { parseSellerStatements } from "../lib/cleanliness-visibility.ts";
 import { buildPhotoReportCard, parseReportLimit } from "../lib/photo-report-card.ts";
+import { refuseWhileImpersonating } from "../lib/destructive-guard.ts";
 
 // US-614: free monthly Snap-to-Value cap per effective FlipDesk plan (-1 = unlimited).
 const SNAP_CAP: Record<string, number> = {
@@ -319,6 +320,16 @@ async function failVideoGrading(
 
 // ── POST /submit ─────────────────────────────────────────────────
 gradeRoutes.post("/submit", async (c) => {
+  // US-2351 AC3: "grading spend" is one of the four destructive surfaces the
+  // story names, and it was the one still unguarded. Submitting a grade debits
+  // the seller's credits or charges their card, and the submission row, the
+  // ledger entry and the Stripe event would every one of them read as the
+  // seller's own doing. An admin who genuinely needs to reproduce a grading
+  // problem does it on their own account, where the spend is theirs.
+  {
+    const blocked = await refuseWhileImpersonating(c, "Submitting a grade");
+    if (blocked) return blocked;
+  }
   const userId = c.get("userId");
   const ownerId = c.get("workspaceOwnerId") ?? userId;
   const role = c.get("workspaceRole") ?? "owner";
@@ -1380,6 +1391,11 @@ gradeRoutes.post("/submit", async (c) => {
 // calls this after a credit-pack purchase completes (Stripe returns to a
 // success URL) so the new balance is consumed without a second click.
 gradeRoutes.post("/pay/:id", async (c) => {
+  // US-2351 AC3: same spend, one click later. See /submit.
+  {
+    const blocked = await refuseWhileImpersonating(c, "Paying for a grade");
+    if (blocked) return blocked;
+  }
   const userId = c.get("userId");
   const ownerId = c.get("workspaceOwnerId") ?? userId;
 
@@ -1697,6 +1713,13 @@ function bytesToBase64(bytes: Uint8Array): string {
 }
 
 gradeRoutes.post("/snap", async (c) => {
+  // US-2351 AC3: Snap runs the owner-billed grading vision, which is why it
+  // already refuses a read-only viewer. An impersonating admin spends the same
+  // budget with the same invisibility.
+  {
+    const blocked = await refuseWhileImpersonating(c, "Using Snap-to-Value");
+    if (blocked) return blocked;
+  }
   const snapOwnerId = c.get("workspaceOwnerId") ?? c.get("userId");
   // US-507: Snap rides the grading vision, so it honors the grading kill-switch.
   // US-2406: owner-scoped so targeting applies (see /submit).

@@ -192,6 +192,47 @@ Deno.test("US-2351 AC3: EVERY marketplace disconnect is guarded, derived not lis
   );
 });
 
+Deno.test("US-2351 AC3: every GRADING SPEND route is guarded, derived not listed", () => {
+  // AC3 names four destructive surfaces: account delete, subscription cancel,
+  // marketplace disconnect and GRADING SPEND. The first three were guarded on
+  // 2026-08-03 and the fourth was not; the AC was marked done and the gap went
+  // unrecorded for the five weeks to 2026-09-11, while this file's enumeration
+  // read as complete — the same way the marketplace list read as complete while
+  // Whatnot sat outside it.
+  //
+  // Derived from the AI-budget gate rather than listed. A handler that asks
+  // `isAiBudgetExhausted` before it runs is, by construction, one that spends
+  // the workspace owner's money on a model call; a fourth one is covered the day
+  // it is written rather than the day someone remembers this test.
+  const grade = read("../routes/grade.ts");
+  const starts: number[] = [];
+  const re = /gradeRoutes\.(?:post|get|put|patch|delete)\(/g;
+  for (let m = re.exec(grade); m; m = re.exec(grade)) starts.push(m.index);
+  assert(starts.length > 5, "the route scan found nothing — this asserts nothing now");
+
+  const unguarded: string[] = [];
+  let spendRoutes = 0;
+  for (let i = 0; i < starts.length; i++) {
+    const chunk = grade.slice(starts[i]!, starts[i + 1] ?? grade.length);
+    if (!chunk.includes("isAiBudgetExhausted(")) continue;
+    spendRoutes++;
+    if (!chunk.includes("refuseWhileImpersonating(c,")) {
+      unguarded.push(/gradeRoutes\.\w+\("([^"]+)"/.exec(chunk)?.[1] ?? `#${i}`);
+    }
+  }
+  assert(
+    spendRoutes >= 3,
+    `only ${spendRoutes} spending route(s) discovered — the derivation broke`,
+  );
+  assertEquals(
+    unguarded,
+    [],
+    "a grading route spends the owner's credits or card with no impersonation " +
+      "guard — the submission, the ledger row and the Stripe event would all " +
+      "read as the seller's own",
+  );
+});
+
 Deno.test("US-2351 AC3: the guard refuses rather than merely reporting", () => {
   assert(GUARD.includes("impersonation_blocked"), "the refusal code is gone");
   assert(/403/.test(GUARD), "the guard no longer returns a refusal status");

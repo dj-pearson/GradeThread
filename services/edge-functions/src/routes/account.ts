@@ -661,9 +661,43 @@ accountRoutes.post("/delete", async (c) => {
   // OAuth accounts have no password to check and are exempt, deliberately: the
   // alternative is demanding a password that does not exist. They are covered by
   // the impersonation refusal above and by the confirm string.
+  //
+  // ⚠ THE EXEMPTION IS THE DANGEROUS PART, and it used to fail OPEN. The check
+  // ran only when the identity lookup came back saying "this account has an
+  // email provider", so a lookup that errored, timed out, or returned a user
+  // object shaped differently produced an empty provider list — which read as
+  // "OAuth account, no password to ask for" and deleted the account without
+  // asking for anything. verifyPassword failing closed did not help: it was
+  // never called. A drive test caught it by answering the auth API with an
+  // empty body, which is what an outage looks like from here.
+  //
+  // So "cannot tell what this account signs in with" is now its own refusal.
+  // Both spellings of the provider metadata are read (`providers` is the list,
+  // `provider` the older singular) because being wrong about this costs the
+  // account.
   {
-    const { data: authUser } = await supabaseAdmin.auth.admin.getUserById(userId);
-    const providers = (authUser?.user?.app_metadata?.providers ?? []) as string[];
+    const { data: authUser, error: authErr } = await supabaseAdmin.auth.admin
+      .getUserById(userId);
+    if (authErr || !authUser?.user) {
+      console.error(
+        `[account/delete] identity lookup failed for ${userId}:`,
+        authErr?.message ?? "no user returned",
+      );
+      return c.json(
+        {
+          error:
+            "We couldn't verify your sign-in method just now, so nothing was " +
+            "deleted. Try again in a minute.",
+          code: "reauth_unavailable",
+        },
+        503,
+      );
+    }
+    const meta = authUser.user.app_metadata ?? {};
+    const providers = [
+      ...((meta.providers ?? []) as string[]),
+      ...(typeof meta.provider === "string" ? [meta.provider] : []),
+    ];
     const hasPassword = providers.includes("email");
     if (hasPassword) {
       const password = typeof body.password === "string" ? body.password : "";

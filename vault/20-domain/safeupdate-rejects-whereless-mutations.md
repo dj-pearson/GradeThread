@@ -10,7 +10,7 @@ code_refs:
   - supabase/migrations/00777_ledger_rebuild_safeupdate.sql
   - supabase/migrations/00697_home_office.sql
   - src/lib/ledger.ts
-reviewed: 2026-09-09
+reviewed: 2026-09-11
 tags: [postgres, migrations, ledger, prod-only]
 summary: Production loads the safeupdate extension and rejects any UPDATE or DELETE with no WHERE clause as SQLSTATE 21000. The local image does not have it, so the statement applies green locally, in verify:db and in CI, and fails for the first time on a real user's request — which is how one DELETE kept the Money tab at $0.00 for four months.
 ---
