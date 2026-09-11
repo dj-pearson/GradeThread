@@ -196,6 +196,7 @@ import { buildTitleSyncPatch, type TitleSyncPatch } from "@/lib/title-sync-patch
 import { BrandFieldNotice } from "@/components/flipdesk/brand-field-notice";
 import { MergeSkuDialog } from "@/components/flipdesk/merge-sku-dialog";
 import { RecordSaleDialog } from "@/components/flipdesk/record-sale-dialog";
+import { PendingDelistBanner } from "@/components/flipdesk/pending-delist-banner";
 import { ItemDetailsCard } from "@/components/flipdesk/composer/item-details-card";
 import { StorageSkuCard } from "@/components/flipdesk/composer/storage-sku-card";
 import { PhotosCard } from "@/components/flipdesk/composer/photos-card";
@@ -3910,6 +3911,11 @@ export function FlipdeskComposerPage({
               directly under the channel picker because it is a readout OF that
               picker — move the picker and this has to move with it. */}
           <PublishReadinessCard rows={publishReadiness} loading={ebayPreflightLoading} />
+
+          {/* US-3367: a sale elsewhere leaves delists waiting on the seller's
+              browser. Shown here, above the kit, because the composer is where
+              they look after a sale, not the Listings page. */}
+          <PendingDelistBanner itemId={item.id} />
 
           <ListingKit
             itemId={item.id}
