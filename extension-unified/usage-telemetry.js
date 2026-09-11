@@ -10,7 +10,15 @@
 // dashboard with nothing in between is not a funnel.
 //
 // This is that missing middle, and it is deliberately the SMALLEST thing that
-// answers it: two counters.
+// answers it: a handful of counters.
+//
+// US-3060 (AC6) added the third, `badge_shown`. It counts a verified badge that
+// was actually PAINTED on a marketplace page, split by where - the overlay bar
+// on a listing page, or a chip on a search-results card. It is a render count,
+// never a lookup count: a listing we refused to badge (a withheld certificate,
+// two sellers disagreeing about one listing id) and a listing that was simply
+// never graded are the SAME empty answer by design, so the extension cannot
+// tell them apart and must not pretend to. See research/listing-badge.js.
 //
 // WHAT IT IS NOT. It is not an event stream. Nothing here records WHEN a read
 // happened, WHICH listing it was, or in what order anything occurred — a
@@ -50,11 +58,16 @@
   // The whole vocabulary. Anything not in here is dropped rather than sent, and
   // the server enforces the same closed list — the client is not trusted to be
   // the only guard (a modified extension must not be able to widen this).
-  const EVENTS = ["read", "click_through"];
-  // A click's surface, which is the SAME word already on the link as utm_medium
-  // (attribution.js). Reporting the surface is what separates "the overlay
+  const EVENTS = ["read", "click_through", "badge_shown"];
+  // Where a counted thing happened. For a click this is the SAME word already on
+  // the link as utm_medium (attribution.js); for a badge it is which of the two
+  // badge surfaces painted it. Reporting it is what separates "the overlay
   // converts" from "the popup converts"; it is a bounded enum, not free text.
-  const SURFACES = ["popup", "overlay", "flip", "onboarding"];
+  //
+  // "scan" is the search-results grid (US-2237's scan mode) - the only surface
+  // here that no outbound link carries as a utm_medium, because a chip on a grid
+  // card links to the certificate with utm_medium=badge like every other badge.
+  const SURFACES = ["popup", "overlay", "flip", "onboarding", "scan"];
 
   // Send at most every 6 hours, or once a batch reaches 50 events. Both bounds
   // matter: the interval is what strips timing out of the payload, and the count
@@ -68,6 +81,20 @@
   // A batch may hold at most one key per event × surface combination, so this is
   // a structural bound rather than a policy — asserted in the tests so a widened
   // vocabulary can't silently grow the payload.
+  //
+  // WHAT IT PROTECTS, since US-3060 moved it from 10 to 18. It is not a privacy
+  // control (the vocabulary is what refuses a URL or an id) and it is not a rate
+  // limit (the per-IP window is). It bounds the SIZE of one anonymous, unauthed
+  // body: the endpoint writes one row per key, so this is the fan-out of a
+  // single POST, and a `counts` object longer than the vocabulary can possibly
+  // produce is not our extension and is refused WHOLESALE rather than filtered -
+  // partial acceptance would let a caller pad a real tally with junk and still
+  // land the real part.
+  //
+  // It is an upper bound, not a census: `read` never carries a surface and
+  // `badge_shown` only ever carries two of the five, so a real batch tops out
+  // well under 18. That over-approximation is the point - the formula stays
+  // correct without anybody having to maintain a table of which pairs are real.
   const MAX_KEYS = EVENTS.length * (SURFACES.length + 1);
 
   const EVENT_SET = new Set(EVENTS);

@@ -45,11 +45,22 @@ const ATTR = loadIntoSelf("attribution.js").GT_ATTRIBUTION;
 const manifest = JSON.parse(fs.readFileSync(path.join(dir, "manifest.json"), "utf8"));
 
 // ── 1. the vocabulary is closed ────────────────────────────────────────────
-assert.deepStrictEqual(USAGE.EVENTS, ["read", "click_through"], "the event vocabulary is the AC");
-assert.deepStrictEqual(USAGE.SURFACES, ["popup", "overlay", "flip", "onboarding"]);
+assert.deepStrictEqual(
+  USAGE.EVENTS,
+  ["read", "click_through", "badge_shown"],
+  "the event vocabulary is the AC",
+);
+assert.deepStrictEqual(USAGE.SURFACES, ["popup", "overlay", "flip", "onboarding", "scan"]);
 
 assert.strictEqual(USAGE.counterKey("read"), "read");
 assert.strictEqual(USAGE.counterKey("click_through", "overlay"), "click_through:overlay");
+// US-3060 (AC6): the two surfaces a verified badge can be painted on. The
+// render path in research/marketplace.js sends exactly these two words, and
+// test/listing-badge.test.cjs drives it and pushes what it sent back through
+// counterKey - so a word dropped from the vocabulary fails there too rather
+// than becoming a counter that silently never exists.
+assert.strictEqual(USAGE.counterKey("badge_shown", "overlay"), "badge_shown:overlay");
+assert.strictEqual(USAGE.counterKey("badge_shown", "scan"), "badge_shown:scan");
 // An unknown EVENT is dropped outright — a typo must not mint a counter.
 assert.strictEqual(USAGE.counterKey("browsed", "overlay"), "");
 // An unknown SURFACE on a known event degrades to the bare event rather than
@@ -160,8 +171,25 @@ assert.strictEqual(USAGE.shouldFlush(USAGE.emptyBatch(0), USAGE.FLUSH_AFTER_MS *
 
 // The structural bound on a batch: one key per event × surface, plus the bare
 // form. Widening the vocabulary must be a visible decision, not a payload that
-// quietly grows.
-assert.strictEqual(USAGE.MAX_KEYS, 2 * (4 + 1));
+// quietly grows. It bounds the fan-out of ONE anonymous POST - the endpoint
+// writes a row per key - and a longer `counts` is refused wholesale.
+assert.strictEqual(USAGE.MAX_KEYS, 3 * (5 + 1));
+assert.strictEqual(USAGE.MAX_KEYS, USAGE.EVENTS.length * (USAGE.SURFACES.length + 1));
+// And it must actually bound the keys the vocabulary can mint, rather than
+// being a number somebody remembered. Count them by CALLING counterKey.
+{
+  const keys = new Set();
+  for (const e of USAGE.EVENTS) {
+    keys.add(USAGE.counterKey(e));
+    for (const s of USAGE.SURFACES) keys.add(USAGE.counterKey(e, s));
+  }
+  keys.delete("");
+  assert.ok(
+    keys.size <= USAGE.MAX_KEYS,
+    `the vocabulary can mint ${keys.size} keys but MAX_KEYS is ${USAGE.MAX_KEYS}, so a ` +
+      "batch our own extension produced would be refused wholesale by /usage",
+  );
+}
 
 // ── 4. somebody else's link is never counted ───────────────────────────────
 {

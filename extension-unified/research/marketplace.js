@@ -89,6 +89,11 @@
   // re-renders on scroll from becoming a request per scroll.
   let certBadges = Object.create(null);
   const certGate = CERT ? CERT.makeBadgeGate() : null;
+  // US-3060 (AC6): the detail-page bar is painted by renderLauncher AND by
+  // renderResult, so a shopper who asks for a read sees ONE badge through two
+  // renders. This makes the counter count badges rather than renders. Reset by
+  // invalidate(), so the next listing in the same tab is counted again.
+  let certBarCounted = false;
   let onSearchPage = false;
   // US-2238 flip-mode state. `caps` is the resolved capability map; the Flip
   // panel only exists for an install whose account has an active FlipDesk plan.
@@ -147,6 +152,10 @@
     // listing. Carrying the old page's answer over would open collapsed on a
     // stranger's item, or full-height on the next one of yours.
     openCollapsed = false;
+    // US-3060 (AC6): a new page is a new badge. Without this the second graded
+    // listing a shopper opens in the same tab would go uncounted, and the
+    // counter would under-report by exactly the shoppers who browse the most.
+    certBarCounted = false;
   }
 
   async function send(msg) {
@@ -155,6 +164,17 @@
     } catch (_e) {
       return null; // worker asleep / context invalidated
     }
+  }
+
+  // US-1757 (AC2) / US-3060 (AC6): one opt-in usage counter, fire-and-forget.
+  //
+  // The background is the SINGLE place consent is checked and the only place the
+  // vocabulary is applied (GT_USAGE.record inside recordUsage), so a call from
+  // here is a no-op message for anyone who has not opted in, and a typo'd word
+  // is dropped rather than inventing a counter. Never awaited: a tally must
+  // never sit in front of a shopper's render.
+  function sendUsage(event, surface) {
+    send({ type: "GT_CC_USAGE", event: event, surface: surface });
   }
 
   // A stable identity for THIS listing, so a return visit recalls the same grade
@@ -490,7 +510,23 @@
   /** Prepend the bar to an overlay body when this listing has a certificate. */
   function maybeCertBar(body) {
     const bar = certBar(certBadgeHere());
-    if (bar) body.insertBefore(bar, body.firstChild);
+    if (!bar) return;
+    body.insertBefore(bar, body.firstChild);
+    // US-3060 (AC6). WHAT IS COUNTED: one badge_shown:overlay per listing page
+    // on which this bar was painted into a card the shopper can read.
+    //
+    // NOT ONCE PER RENDER - renderLauncher and renderResult both carry the bar,
+    // so a shopper who asks for a read would otherwise be two badges.
+    //
+    // AND NOT WHILE COLLAPSED. US-2622 opens the card as its header bar alone on
+    // a listing the VIEWER OWNS; the body is hidden, so the badge is built and
+    // not seen, and this counter answers "how often does a shopper meet a
+    // certificate on a marketplace page". A seller looking at their own item is
+    // not that. The flag stays false, so the count still lands the moment they
+    // expand - which is a render this same function performs.
+    if (certBarCounted || openCollapsed) return;
+    certBarCounted = true;
+    sendUsage("badge_shown", "overlay");
   }
 
   function renderLauncher() {
@@ -1384,6 +1420,7 @@
     // them. The two answer different questions — "is this price fair for what
     // the seller claims" and "has this exact listing been graded" — and a card
     // can honestly carry both. Absent when there is no hit, which is most cards.
+    let certChipAdded = false;
     if (certBadge) {
       const href = CERT.certificateUrl(ATTR, certBadge, (adapter && adapter.key) || "");
       if (href) {
@@ -1396,12 +1433,31 @@
         // card before the new tab opened.
         chip.addEventListener("click", function (e) { e.stopPropagation(); });
         wrap.appendChild(chip);
+        certChipAdded = true;
       }
     }
 
+    let mounted = false;
     try {
       card.node.appendChild(mountedBadge.host);
+      mounted = true;
     } catch (_e) { /* detached node (the grid re-rendered) — drop this badge */ }
+
+    // US-3060 (AC6). WHAT IS COUNTED: one badge_shown:scan per result card that
+    // ends up carrying a certificate chip that reached the page.
+    //
+    // AFTER the mount, and OUTSIDE its try. After, because a detached node -
+    // the grid re-rendered under us mid-scan - drops the badge, and a badge
+    // that never reached the page was never shown. Outside, because a throw
+    // from inside that block is read as "the node was detached": a counter
+    // sitting in there would have its own failures filed as mount failures,
+    // and would silently take the mount's catch with it.
+    //
+    // Once per card is already structural: collectCards skips any node carrying
+    // SCAN_MARK, so a re-scan on scroll or a filter change badges only cards
+    // that had none. New cards from infinite scroll are new badges and are
+    // counted; the same card is never counted twice.
+    if (mounted && certChipAdded) sendUsage("badge_shown", "scan");
   }
 
   async function runScan() {

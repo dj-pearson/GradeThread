@@ -162,6 +162,53 @@ Deno.test("usage: every event/surface the extension can send is accepted", async
   }
 });
 
+Deno.test("usage: the server knows no word the extension cannot send", async () => {
+  // THE OTHER DIRECTION, and it is the half that was missing. The test above
+  // catches a word the CLIENT gained and the server did not. This catches a word
+  // the SERVER has and the client does not - which is how a widening lands on
+  // one side only and the counter reads as a permanent zero while both files
+  // look deliberate. US-3060 added badge_shown and needed both lists moved.
+  const src = await Deno.readTextFile(
+    new URL("../../../../extension-unified/usage-telemetry.js", import.meta.url),
+  );
+  const list = (name: string): string[] => {
+    const m = new RegExp(`const ${name} = \\[([^\\]]*)\\]`).exec(src);
+    assert(m, `usage-telemetry.js must declare ${name}`);
+    return Array.from(m![1].matchAll(/"([^"]+)"/g)).map((x) => x[1]);
+  };
+  const events = new Set(list("EVENTS"));
+  const surfaces = new Set(list("SURFACES"));
+
+  // Probe the server's OWN sets by behaviour rather than by importing them: a
+  // word it accepts bare is an event, and a word it accepts after "read:" is a
+  // surface. Nothing here restates either list.
+  for (const event of ["read", "click_through", "badge_shown"]) {
+    if (parseUsagePing({ counts: { [event]: 1 } }) === null) continue;
+    assert(
+      events.has(event),
+      `/usage accepts the event "${event}" but usage-telemetry.js cannot send it`,
+    );
+  }
+  for (const surface of ["popup", "overlay", "flip", "onboarding", "scan"]) {
+    if (parseUsagePing({ counts: { [`read:${surface}`]: 1 } }) === null) continue;
+    assert(
+      surfaces.has(surface),
+      `/usage accepts the surface "${surface}" but usage-telemetry.js cannot send it`,
+    );
+  }
+
+  // And the probe itself must not go vacuous: if every candidate above stopped
+  // being accepted, the loops would pass by testing nothing.
+  assert(
+    parseUsagePing({ counts: { badge_shown: 1 } }) !== null,
+    "badge_shown is the counter US-3060 AC6 asks for and /usage refuses it",
+  );
+  assert(
+    parseUsagePing({ counts: { "badge_shown:scan": 1 } }) !== null,
+    "the scan-mode badge surface is refused, so half the counter never lands",
+  );
+});
+
 Deno.test("usage: the vocabulary is still CLOSED", () => {
   // The guard on the guard. If someone ever replaces the closed sets with a
   // permissive check, the lockstep test above still passes (everything the

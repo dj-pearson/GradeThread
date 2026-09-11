@@ -408,3 +408,297 @@ const OVERLAY_CSS = fs.readFileSync(
     );
   }
 })();
+
+// -- badge_shown: the counter, DRIVEN rather than grepped (US-3060 AC6) ------
+//
+// The section above scans marketplace.js for wiring, which is what a scan is
+// good for - WHERE a thing is mounted. "The counter fires when a badge is
+// painted" is not that question. A grep for the call is satisfied by a call in
+// an unreachable branch, by one that runs on every render rather than once, and
+// by one that runs when nothing was painted. All three are the bug, and all
+// three read green to a scan.
+//
+// So the REAL render functions are sliced out of marketplace.js and executed
+// against stubs. They are closures inside a 1700-line IIFE that boots on load,
+// so every free name they use is handed in as a parameter: this runs the
+// shipped source, not a copy of it.
+//
+// WHAT badge_shown COUNTS, stated once so two people count the same thing:
+// a badge that was PAINTED. One "badge_shown:overlay" per listing page whose
+// overlay card carried the certificate bar in a readable (non-collapsed) state,
+// counted once however many times that card re-renders. One "badge_shown:scan"
+// per search-result card that ends up carrying a certificate chip that reached
+// the page.
+//
+// WHAT IT DOES NOT COUNT, and this is a decision rather than an omission: a
+// listing we did NOT badge is not counted at all, as neither a hit nor a miss.
+// The extension cannot tell a refusal from a miss - a withheld certificate and
+// two sellers disagreeing about one listing id return the SAME empty answer as
+// a listing nobody ever graded, deliberately, so that absence is never a claim.
+// A client-side "no badge here" tally would therefore be almost entirely
+// ungraded listings with the refusals invisible inside it, and it would also be
+// a count of how many listings the shopper opened, which is browsing volume and
+// is not what the toggle asked consent for. The refusal rate has both its
+// numerator and its denominator on the edge, where `found` against ids
+// requested and the reason for each suppression are known; that is where it
+// belongs if we want it.
+
+const USAGE = load("usage-telemetry.js", "GT_USAGE");
+const ATTRIBUTION = load("attribution.js", "GT_ATTRIBUTION");
+
+/** A DOM stub with the handful of surfaces the render functions touch. */
+function makeNode(tag, cls, text) {
+  return {
+    tag: String(tag || "div"),
+    className: cls || "",
+    textContent: text == null ? "" : String(text),
+    children: [],
+    attrs: {},
+    firstChild: null,
+    appendChild(n) {
+      this.children.push(n);
+      if (!this.firstChild) this.firstChild = n;
+      return n;
+    },
+    insertBefore(n) {
+      this.children.unshift(n);
+      this.firstChild = n;
+      return n;
+    },
+    setAttribute(k, v) {
+      this.attrs[k] = v;
+    },
+    addEventListener() {},
+  };
+}
+
+function stubEl(tag, cls, text) {
+  return makeNode(tag, cls, text);
+}
+
+/** Slice a run of real source out of marketplace.js, with a vacuity floor. */
+function sliceSource(from, to) {
+  const a = MARKETPLACE.indexOf(from);
+  assert.ok(a > -1, `marketplace.js no longer contains ${from} - re-anchor this slice`);
+  const b = MARKETPLACE.indexOf(to, a);
+  assert.ok(b > a, `marketplace.js no longer contains ${to} after ${from}`);
+  const src = MARKETPLACE.slice(a, b);
+  // A slice that collapsed to nothing would make every case below pass by
+  // driving an empty function. Same reasoning as a corpus floor on a scan.
+  assert.ok(src.length > 400, `the slice from ${from} is only ${src.length} chars`);
+  return src;
+}
+
+// A recorder that is also a VOCABULARY check: everything the render path sends
+// goes back through the real GT_USAGE.counterKey, so an event or a surface
+// dropped from usage-telemetry.js fails right here rather than becoming a
+// counter that silently never exists.
+function makeUsageRecorder() {
+  const sent = [];
+  return {
+    sent,
+    send(event, surface) {
+      const key = USAGE.counterKey(event, surface);
+      assert.notStrictEqual(
+        key,
+        "",
+        `the render path sent ("${event}", "${surface}"), which usage-telemetry.js ` +
+          "drops - the badge would render and the counter would never exist",
+      );
+      // An unknown SURFACE does not drop the counter, it collapses to the bare
+      // event - so the two badge surfaces would silently merge into one number
+      // and nobody could tell a detail-page badge from a grid chip again.
+      assert.strictEqual(
+        key,
+        event + ":" + surface,
+        `the render path sent the surface "${surface}", which usage-telemetry.js ` +
+          `does not know, so the counter collapsed to "${key}" and the two badge ` +
+          "surfaces became one indistinguishable number",
+      );
+      sent.push(key);
+    },
+  };
+}
+
+const POSH_ID = "5f3a1b2c4d5e6f7a8b9c0d1e";
+const POSH_URL = "https://poshmark.com/listing/Nice-Jacket-" + POSH_ID;
+const BADGE_ROW = { listingId: POSH_ID, grade: 8.5, tier: "Excellent", path: "/cert/GT-ABC" };
+
+// -- the detail-page bar -----------------------------------------------------
+
+const DETAIL_SRC = sliceSource("function certBadgeHere()", "function renderLauncher()");
+
+function mountDetail(opts) {
+  const o = opts || {};
+  const usage = makeUsageRecorder();
+  const build = new Function(
+    "CERT", "ATTR", "adapter", "certBadges", "location", "el",
+    "openCollapsed", "certBarCounted", "sendUsage",
+    DETAIL_SRC +
+      "\nreturn { maybeCertBar: maybeCertBar," +
+      " setCollapsed: function (v) { openCollapsed = v; } };",
+  );
+  const api = build(
+    BADGE,
+    ATTRIBUTION,
+    { key: "poshmark" },
+    o.badges || Object.create(null),
+    { href: o.href || POSH_URL },
+    stubEl,
+    Boolean(o.collapsed),
+    false,
+    usage.send,
+  );
+  return { api, usage };
+}
+
+(function theOverlayBarCountsExactlyOnce() {
+  const badges = Object.create(null);
+  badges[POSH_ID] = BADGE_ROW;
+  const { api, usage } = mountDetail({ badges });
+
+  // renderLauncher's render.
+  const launcher = makeNode("div");
+  api.maybeCertBar(launcher);
+  assert.strictEqual(launcher.children.length, 1, "the bar was not painted at all");
+  assert.strictEqual(launcher.children[0].className, "gt-cc-cert");
+  assert.deepStrictEqual(usage.sent, ["badge_shown:overlay"]);
+
+  // ...and then renderResult's, on the same page. ONE badge, two renders.
+  const result = makeNode("div");
+  api.maybeCertBar(result);
+  assert.strictEqual(result.children.length, 1, "the bar stopped painting on the second render");
+  assert.deepStrictEqual(
+    usage.sent,
+    ["badge_shown:overlay"],
+    "the bar is painted by renderLauncher AND renderResult, so counting per render " +
+      "makes every shopper who asks for a read into two badges",
+  );
+})();
+
+(function noHitIsNotCountedAtAll() {
+  // The listing has no certificate - or has one we refused to hand over. The
+  // extension cannot tell those apart, by design, so it counts NEITHER. A
+  // "badge withheld" counter here would be a tally of listings opened.
+  const { api, usage } = mountDetail({ badges: Object.create(null) });
+  const body = makeNode("div");
+  api.maybeCertBar(body);
+  assert.strictEqual(body.children.length, 0, "a miss painted a bar");
+  assert.deepStrictEqual(usage.sent, [], "a listing with no badge must count as nothing");
+})();
+
+(function anUnparseableListingUrlIsNotCounted() {
+  const badges = Object.create(null);
+  badges[POSH_ID] = BADGE_ROW;
+  const { api, usage } = mountDetail({ badges, href: "https://poshmark.com/closet/someone" });
+  const body = makeNode("div");
+  api.maybeCertBar(body);
+  assert.deepStrictEqual(usage.sent, []);
+})();
+
+(function aCollapsedOwnListingIsNotAShopperSeeingABadge() {
+  // US-2622 opens the card as its header bar alone on a listing the VIEWER
+  // OWNS. The bar is built into a hidden body. This counter answers "how often
+  // does a shopper meet a certificate on a marketplace page", and a seller
+  // looking at their own item is not that.
+  const badges = Object.create(null);
+  badges[POSH_ID] = BADGE_ROW;
+  const { api, usage } = mountDetail({ badges, collapsed: true });
+
+  const collapsed = makeNode("div");
+  api.maybeCertBar(collapsed);
+  assert.strictEqual(collapsed.children.length, 1, "the bar must still be BUILT, only not counted");
+  assert.deepStrictEqual(usage.sent, []);
+
+  // And the moment they expand it, it counts - the flag was never spent.
+  api.setCollapsed(false);
+  const expanded = makeNode("div");
+  api.maybeCertBar(expanded);
+  assert.deepStrictEqual(usage.sent, ["badge_shown:overlay"]);
+})();
+
+// -- the scan-mode card chip -------------------------------------------------
+
+const SCAN_SRC = sliceSource("function renderBadge(card, result)", "async function runScan()");
+
+function mountScan(opts) {
+  const o = opts || {};
+  const usage = makeUsageRecorder();
+  const build = new Function(
+    "SCAN", "CERT", "ATTR", "certBadges", "adapter", "SHADOW", "CSS", "document",
+    "themePref", "el", "S", "window", "SCAN_MARK", "sendUsage",
+    SCAN_SRC + "\nreturn renderBadge;",
+  );
+  const triage = { cls: "gt-cc-b", parts: [{ cls: "gt-cc-p", text: "Fair price" }] };
+  const renderBadge = build(
+    {
+      badgeFor: () => (o.triage ? triage : null),
+      STRINGS: { footnote: "rough triage" },
+    },
+    BADGE,
+    o.noAttribution ? null : ATTRIBUTION,
+    o.badges || Object.create(null),
+    { key: "poshmark" },
+    { createBadgeHost: () => ({ root: makeNode("div"), host: makeNode("div") }) },
+    "/* sheet */",
+    null,
+    null,
+    stubEl,
+    { badgeCta: "Check condition" },
+    { open() {} },
+    "data-gt-cc-scanned",
+    usage.send,
+  );
+  const node = makeNode("div");
+  if (o.detached) {
+    node.appendChild = () => {
+      throw new Error("node is not attached to the document");
+    };
+  }
+  return { renderBadge, usage, card: { node, href: o.href || POSH_URL, key: "k" } };
+}
+
+(function aCertOnlyCardCountsOnce() {
+  const badges = Object.create(null);
+  badges[POSH_ID] = BADGE_ROW;
+  const { renderBadge, usage, card } = mountScan({ badges, triage: false });
+  renderBadge(card, {});
+  assert.strictEqual(card.node.children.length, 1, "the chip host never reached the card");
+  assert.deepStrictEqual(usage.sent, ["badge_shown:scan"]);
+})();
+
+(function aTriageOnlyCardCountsNothing() {
+  // A price chip is not a verified badge. Counting it would make badge_shown a
+  // number about comps.
+  const { renderBadge, usage, card } = mountScan({ badges: Object.create(null), triage: true });
+  renderBadge(card, {});
+  assert.strictEqual(card.node.children.length, 1, "the triage badge stopped rendering");
+  assert.deepStrictEqual(usage.sent, []);
+})();
+
+(function aBadgeThatNeverReachedThePageWasNeverShown() {
+  // The grid re-rendered under the scan and the node is detached, so the mount
+  // throws and the badge is dropped. Counting before the mount would report
+  // badges nobody could have seen.
+  const badges = Object.create(null);
+  badges[POSH_ID] = BADGE_ROW;
+  const { renderBadge, usage, card } = mountScan({ badges, detached: true });
+  renderBadge(card, {});
+  assert.deepStrictEqual(usage.sent, []);
+})();
+
+(function aChipWithNowhereHonestToPointIsNotCounted() {
+  // certificateUrl returns null with no attribution module, so no chip is
+  // appended - and an absent chip is not a shown badge.
+  const badges = Object.create(null);
+  badges[POSH_ID] = BADGE_ROW;
+  const { renderBadge, usage, card } = mountScan({ badges, noAttribution: true, triage: true });
+  renderBadge(card, {});
+  assert.deepStrictEqual(usage.sent, []);
+})();
+
+console.log(
+  "listing-badge.test.cjs: badge_shown driven through the real render source - " +
+    "once per page on the overlay bar, once per card in scan mode, nothing for a " +
+    "listing we did not badge",
+);

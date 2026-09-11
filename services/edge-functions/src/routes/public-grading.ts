@@ -854,15 +854,25 @@ publicGradingRoutes.post("/selector-health", async (c) => {
 //
 // THE SERVER ENFORCES THE PRIVACY PROMISE, exactly as /selector-health does: a
 // modified extension must not be able to turn an anonymous tally into a usage
-// record. The vocabulary is CLOSED (two events, four surfaces), counts are
+// record. The vocabulary is CLOSED (three events, five surfaces), counts are
 // clamped, and there is no free-text column to write a URL or an id into. The IP
 // rate-limits and is never persisted.
+//
+// US-3060 (AC6) added `badge_shown`: a verified badge that was actually painted
+// on a marketplace page, by surface. Still a bag of totals - a badge count is
+// not a listing, and nothing here says WHICH listing carried one.
 //
 // A ping carries TOTALS, not events — no timestamps, no ordering, no per-listing
 // anything (usage-telemetry.js explains why that shape). One row per counter, so
 // the query "reads per surface this week" is a plain GROUP BY.
-const USAGE_EVENTS = new Set(["read", "click_through"]);
-const USAGE_SURFACES = new Set(["popup", "overlay", "flip", "onboarding"]);
+// !! LOCKSTEP WITH extension-unified/usage-telemetry.js. The two files never
+// import each other, and extension-usage_test.ts reads the shipped module and
+// fails if either list gains or loses a word the other does not. A drift is
+// silent in the worst possible way: the extension keeps sending, the endpoint
+// keeps answering 204, and the counter never appears in the table at all -
+// which reads as a zero rather than as a break.
+const USAGE_EVENTS = new Set(["read", "click_through", "badge_shown"]);
+const USAGE_SURFACES = new Set(["popup", "overlay", "flip", "onboarding", "scan"]);
 // Mirrors GT_USAGE.MAX_COUNT. The client already saturates here; the server
 // clamps again because the client's cap is a courtesy, not a guarantee.
 const USAGE_MAX_COUNT = 999;
