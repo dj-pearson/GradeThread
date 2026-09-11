@@ -4904,19 +4904,6 @@
       ]
     },
     {
-      "id": "US-3337",
-      "passes": false,
-      "title": "Photo report card: show sellers how their photos score over time",
-      "description": "Every grade stores per-photo quality (blur, lighting, framing, legibility) in per_image_analysis, and sellers never see it. A small card turns it into one tip per weak photo slot.",
-      "acceptanceCriteria": [
-        "Rates of blur, lighting, framing and legibility problems by photo slot over the seller's last N grades, tenant-scoped.",
-        "One concrete tip for the weakest slot.",
-        "Dashboard card with an empty state.",
-        "Tenant-isolation test case for any new route."
-      ],
-      "priority": 42
-    },
-    {
       "id": "US-3338",
       "passes": false,
       "title": "A light zoom pass on the fabric close-up for every grade (flagged, cost-capped)",

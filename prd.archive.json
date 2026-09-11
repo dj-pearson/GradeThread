@@ -47164,6 +47164,20 @@
       ],
       "priority": 41,
       "notes": "Done 2026-09-11 in 83f3f70b6. src/lib/flaw-zones.ts maps each numbered callout flaw to a zone (location keyword at a word start, edge HINT_ALIASES order, parity-tested; else front/back/label photo; else unmapped). src/components/certificate/flaw-map.tsx draws pins with the callout numbers on silhouetteFor(category), aria-hidden, with a numbered text list including 'location not mapped'. Mounted in the Defect Callouts card on certificate.tsx using renderableAnnotations so every pin has a matching photo callout. Tests: flaw-zones.test.ts 10, flaw-map.test.tsx 3; six sabotages bite. Not done: the SSR cert (functions/cert) has no outline, so the map is SPA-only, same as the coverage heatmap."
+    },
+    {
+      "id": "US-3337",
+      "passes": true,
+      "title": "Photo report card: show sellers how their photos score over time",
+      "description": "Every grade stores per-photo quality (blur, lighting, framing, legibility) in per_image_analysis, and sellers never see it. A small card turns it into one tip per weak photo slot.",
+      "acceptanceCriteria": [
+        "Rates of blur, lighting, framing and legibility problems by photo slot over the seller's last N grades, tenant-scoped.",
+        "One concrete tip for the weakest slot.",
+        "Dashboard card with an empty state.",
+        "Tenant-isolation test case for any new route."
+      ],
+      "priority": 42,
+      "notes": "Done 2026-09-11 in 092b39bb0. Edge: lib/photo-report-card.ts (pure: slots front/back/label/close-up/flaw/measurement; blur mild+severe, lighting dim+dark, framing partial, legibility on labels only; unmeasured photos excluded; tip needs 3+ photos), GET /api/grade/photo-report-card in grade.ts (owner-scoped, last 20 visible grades, max 50, counts only). Web: hooks/use-photo-report-card.ts, widget grading.photo-report on seller+consignment default boards above the plan card, empty state. Tests: photo-report-card_test.ts 10 (incl. route source guard), grading-photo-report.test.tsx 3; five sabotages bite. Tenant-isolation case US-3337 added with a seeded completed grade of A's; it type-checks and ignores cleanly without the fixture, but was NOT run live here: the local kong could not start because supabase_kong_empty-stage-starter holds port 54321. CI's Tenant Isolation lane is the first live run. Local stack note: 00787-00789 were applied to the throwaway local db to try the run."
     }
   ]
 }
