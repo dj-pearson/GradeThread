@@ -59,8 +59,14 @@ Deno.test("retention runs BEFORE any destructive step, not just before the delet
   // moved rather than the assertion being dropped.
   // US-3398: the call gained the purge recorder, so all three anchors in this
   // file moved with it instead of being loosened to `removeAll(`.
+  // US-3404: the Stripe teardown moved into `deleteStripeCustomerForRecord`,
+  // which is defined near the TOP of this file and shared with the admin path.
+  // So `stripe.customers.del(` now appears above every handler and anchoring on
+  // it would pass this ordering check by accident forever. The anchor is the
+  // CALL SITE, which is the thing whose position actually matters. The `await `
+  // prefix is what keeps it off the exported definition one screen up.
   const storagePurge = src.indexOf("await removeAll(bucket, objectPaths, purge)");
-  const stripeDelete = src.indexOf("stripe.customers.del(");
+  const stripeDelete = src.indexOf("await deleteStripeCustomerForRecord(");
 
   assert(storagePurge !== -1, "storage purge call not found — this guard is stale");
   assert(stripeDelete !== -1, "Stripe customer delete not found — this guard is stale");
@@ -254,10 +260,20 @@ Deno.test("US-2652: the admin branch severs the passport linkage explicitly", as
 
 Deno.test("US-2652: the admin branch deletes the Stripe customer", async () => {
   const src = await adminComplianceSource();
+  // US-3404: the call moved behind `deleteStripeCustomerForRecord`, which both
+  // erasure paths now share so the record they write cannot drift. The literal
+  // `stripe.customers.del(` is no longer in this file, and loosening the guard
+  // to "some Stripe symbol appears" would let the delete be dropped entirely.
   assert(
-    /stripe\.customers\.del\(/.test(src),
-    "the admin erasure leaves the Stripe customer — the person's name, email " +
-      "and billing address — at the processor after reporting the erasure done",
+    /await deleteStripeCustomerForRecord\(/.test(src),
+    "the admin erasure leaves the Stripe customer (the person's name, email " +
+      "and billing address) at the processor after reporting the erasure done",
+  );
+  assert(
+    /from "\.\/account\.ts"/.test(src),
+    "deleteStripeCustomerForRecord must come from routes/account.ts, so the " +
+      "two erasure paths share one implementation rather than drifting the " +
+      "way the storage sweep did before US-2649",
   );
   // Via the shared factory, not a fourth copy of it. Four hand-rolled Stripe
   // clients is how one of them ends up on a different API version.
@@ -274,7 +290,9 @@ Deno.test("US-2652: both teardowns run before the users row is anonymized", asyn
   // reason the email purge does.
   const src = await adminComplianceSource();
   const passport = src.indexOf('.from("owner_nodes")');
-  const stripe = src.indexOf("stripe.customers.del(");
+  // US-3404: anchored on the call site of the shared helper for the same reason
+  // as the guard above.
+  const stripe = src.indexOf("await deleteStripeCustomerForRecord(");
   const anonymize = src.indexOf("anonEmail");
   assert(passport > -1 && stripe > -1 && anonymize > -1, "this guard is stale — anchors moved");
   assert(passport < anonymize, "the passport teardown must precede the anonymize");

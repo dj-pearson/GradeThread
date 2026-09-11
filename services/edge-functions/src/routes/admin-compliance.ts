@@ -11,6 +11,12 @@ import {
 import { retainFinancialRecords } from "../lib/financial-retention.ts";
 import { purgeEmailKeyedPii } from "../lib/account-email-purge.ts";
 import { getStripe } from "../lib/stripe-client.ts";
+// US-3404: the Stripe half of the erasure record, shared with the self-serve
+// path so the two cannot drift the way the storage sweep did before US-2649.
+// It sits in account.ts rather than lib/ only because this story's scope fence
+// allowed the two route files and no new module; route-to-route imports are an
+// established idiom here (affiliate.ts from referrals.ts, and ~25 more).
+import { deleteStripeCustomerForRecord } from "./account.ts";
 import { writeAuditLog } from "../lib/audit-log.ts";
 import { requireStepUp } from "../lib/step-up.ts";
 import {
@@ -634,22 +640,22 @@ async function processDelete(
   //
   //     Best-effort: a missing or already-deleted customer must not block the
   //     rest of the erasure.
-  let stripeDeleted = false;
-  if (u.stripe_customer_id) {
-    const stripe = getStripe();
-    if (stripe) {
-      try {
-        await stripe.customers.del(u.stripe_customer_id);
-        stripeDeleted = true;
-      } catch (err) {
-        console.error(
-          `[admin-compliance] Stripe customer delete failed for ${userId}:`,
-          err instanceof Error ? err.message : String(err),
-        );
-      }
-    }
-  }
-  void stripeDeleted;
+  //
+  //     US-3404: THE RESULT USED TO BE DISCARDED. This block computed
+  //     `stripeDeleted` and then threw it away with `void stripeDeleted;`, while
+  //     step 5 below wrote the literal `false` into account_deletion_log. So the
+  //     formal erasure record said the customer survived whether it survived or
+  //     not, from 2026-08-16 -- the day US-2652 (25cce1300) made this branch
+  //     delete the customer at all. Before that the `false` was true by
+  //     construction, which is how it survived the review that added the delete.
+  //
+  //     Nothing about the deletion changes here. Same call, same argument, same
+  //     best-effort catch. Only the claim changes.
+  const stripeRecord = await deleteStripeCustomerForRecord(
+    u.stripe_customer_id,
+    u.stripe_customer_id ? getStripe() : null,
+    (message) => console.error(`[admin-compliance] ${message} (user ${userId})`),
+  );
 
   // 2b. US-2651: erase the PII the cascade cannot reach, keyed by EMAIL.
   //
@@ -709,7 +715,11 @@ async function processDelete(
     deleted_user_id: userId,
     source: "admin",
     had_stripe_customer: !!u.stripe_customer_id,
-    stripe_deleted: false,
+    // US-3404: what the Stripe call actually did, not a literal false. The
+    // status column says which of the four outcomes it was, because a bare
+    // false cannot tell "no customer existed" from "the delete failed" -- and
+    // on this path it could not tell either from "it worked".
+    ...stripeRecord,
     // US-3398: what the purge actually did, not a literal true. The status
     // column carries "incomplete", which is the answer this row could not give
     // before and the one a partly-swept erasure needs.
@@ -726,14 +736,32 @@ async function processDelete(
     return c.json({ error: "Erasure ran but finalizing the request failed" }, 500);
   }
 
+  // US-3404: the same recorder the deletion row was written from, so the audit
+  // line and the row cannot disagree about the sweep they both describe.
+  const purgeRecord = purge.logFields();
   await writeAuditLog(c, {
     action: "compliance.data_request_delete",
     targetType: "data_request",
     targetId: requestId,
     details: {
       user_id: userId,
-      // US-2649: every bucket now, not just the two this branch used to sweep.
-      storage_objects_purged: Object.values(owned).reduce((n, p) => n + p.length, 0),
+      // US-3404: and what the Stripe teardown did, which this line never said
+      // at all. The deletion row is admin-only and the audit trail is where an
+      // operator actually looks first.
+      stripe_delete_status: stripeRecord.stripe_delete_status,
+      // US-3404: `storage_objects_purged` counted what the collector FOUND and
+      // called it purged. It was a count of intentions: every listing refusal
+      // and every failed remove above still landed in that number, so the audit
+      // line and the deletion row could disagree by hundreds of objects with
+      // nothing saying which was right. Two keys now, named for what each one
+      // is, and the status so a reader does not have to subtract to find out
+      // something went wrong.
+      //
+      // US-2649: `found` covers every bucket, not just the two this branch used
+      // to sweep.
+      storage_objects_found: Object.values(owned).reduce((n, p) => n + p.length, 0),
+      storage_objects_removed: purgeRecord.storage_objects_removed,
+      storage_purge_status: purgeRecord.storage_purge_status,
       mode: "anonymize_retain_financial",
     },
   });

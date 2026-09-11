@@ -186,6 +186,117 @@ function getStripe(): Stripe | null {
   return new Stripe(key, { apiVersion: "2024-04-10", timeout: 20_000, maxNetworkRetries: 2 });
 }
 
+// ── US-3404: the Stripe half of the erasure record ───────────────────────────
+//
+// THE DEFECT. routes/admin-compliance.ts computed `stripeDeleted`, threw it
+// away with `void stripeDeleted;`, and wrote the literal `false` into
+// account_deletion_log. So every admin erasure -- the FORMAL path, the one a
+// written request goes through and the one whose record gets shown to whoever
+// asked -- reported that the customer survived, whether it survived or not.
+//
+// THE DIRECTION MATTERS AND IT IS NOT THE SAFE ONE. US-3398 fixed a literal
+// `true` one column over, which lied optimistically. This one lies
+// pessimistically, so nobody was falsely reassured -- but a customer or a
+// regulator asking "was my payment record removed" got a no that means nothing,
+// and a no that means nothing is the answer you cannot walk back later.
+//
+// WHY A BOOLEAN IS NOT ENOUGH, same reasoning as 00795. `stripe_deleted: false`
+// currently collapses FOUR outcomes: the account had no Stripe customer at all;
+// Stripe was not configured in the container so nothing was attempted; the call
+// was made and failed; and (on the admin path) the call succeeded and the record
+// lied. Only the last is a defect, but a reader at a psql prompt cannot tell any
+// of them apart. So the boolean is NARROWED to "the delete call returned without
+// throwing" and a status column carries which of the four happened.
+//
+// WHY THIS LIVES IN A ROUTE FILE. It belongs in lib/. US-3404's scope fence
+// allowed the two route files and no new lib, and admin-compliance.ts already
+// imports across (this repo has ~25 route-to-route imports, e.g. affiliate.ts
+// from referrals.ts). Moving it to lib/account-stripe-record.ts is a mechanical
+// follow-up and the ratchet in stripe-deletion-record_test.ts does not care
+// where it lives -- it cares that no route writes the column by hand.
+//
+// NO PII IN THE RECORD. 00064 is explicit: no email, name or address, ever. A
+// Stripe error for customers.del is normally "No such customer: 'cus_x'" and the
+// customer id is already its own column (US-2562), but "normally" is not a
+// guarantee about a vendor's error strings, so anything email-shaped is redacted
+// here and the note is capped. The guarantee is ours to keep, not Stripe's.
+
+/**
+ * Which of the four outcomes the erasure hit. `unverified` is not reachable
+ * from here: it is the column default in 00796, and it means either a row
+ * written before that migration or a writer that left the column off.
+ */
+export type StripeDeleteStatus =
+  | "no_customer"
+  | "not_attempted"
+  | "deleted"
+  | "failed"
+  | "unverified";
+
+/** The account_deletion_log columns this owns. Spread into the insert. */
+export interface StripeDeleteLogFields {
+  stripe_deleted: boolean;
+  stripe_delete_status: StripeDeleteStatus;
+  stripe_delete_error: string | null;
+}
+
+/** The one Stripe method the erasure calls. Narrow so a test can drive it. */
+export interface StripeCustomerDeleter {
+  customers: { del(id: string): Promise<unknown> };
+}
+
+/** Longest reason kept on the row. A vendor error is a hint, not a transcript. */
+export const MAX_STRIPE_ERROR_CHARS = 300;
+
+const EMAIL_SHAPED = /[^\s@<>"']+@[^\s@<>"']+\.[A-Za-z]{2,}/g;
+
+/** Vendor text, made safe for a table that promises to hold no PII. */
+function scrubStripeError(raw: string): string {
+  const redacted = raw.replace(EMAIL_SHAPED, "[redacted-email]").replace(/\s+/g, " ").trim();
+  return redacted.length > MAX_STRIPE_ERROR_CHARS
+    ? `${redacted.slice(0, MAX_STRIPE_ERROR_CHARS - 3)}...`
+    : redacted;
+}
+
+/**
+ * Delete the Stripe customer and say what happened, in the shape the record
+ * stores.
+ *
+ * BEST-EFFORT, UNCHANGED. It never throws and it never blocks the rest of the
+ * erasure: a missing or already-deleted customer must not leave a person
+ * half-erased. Nothing here deletes more than before, and nothing deletes where
+ * the old code refused -- the call site, the argument and the catch are the
+ * same. The change is entirely in what we then CLAIM about it.
+ */
+export async function deleteStripeCustomerForRecord(
+  customerId: string | null | undefined,
+  stripe: StripeCustomerDeleter | null,
+  report: (message: string) => void,
+): Promise<StripeDeleteLogFields> {
+  const id = typeof customerId === "string" ? customerId.trim() : "";
+  if (!id) {
+    // Not a failure and not a success. `had_stripe_customer` on the same row
+    // says the same thing, and the two must never disagree.
+    return { stripe_deleted: false, stripe_delete_status: "no_customer", stripe_delete_error: null };
+  }
+  if (!stripe) {
+    // A container without STRIPE_SECRET_KEY erases the account and leaves the
+    // customer standing. That is the case the old `false` hid best: it reads
+    // identical to a failed call and to a customer that never existed.
+    const reason = "Stripe is not configured in this container; the customer was not touched";
+    report(reason);
+    return { stripe_deleted: false, stripe_delete_status: "not_attempted", stripe_delete_error: reason };
+  }
+  try {
+    await stripe.customers.del(id);
+    return { stripe_deleted: true, stripe_delete_status: "deleted", stripe_delete_error: null };
+  } catch (err) {
+    const reason = scrubStripeError(err instanceof Error ? err.message : String(err));
+    report(`Stripe customer delete failed: ${reason}`);
+    return { stripe_deleted: false, stripe_delete_status: "failed", stripe_delete_error: reason };
+  }
+}
+
 // Supabase storage .remove() takes an array; chunk to stay well under any
 // request-size limits when a user has many photos.
 //
@@ -720,23 +831,24 @@ accountRoutes.post("/delete", async (c) => {
   }
 
   // 2. Delete the Stripe customer (this also cancels any active subscriptions).
-  let stripeDeleted = false;
-  if (user?.stripe_customer_id) {
-    const stripe = getStripe();
-    if (stripe) {
-      try {
-        await stripe.customers.del(user.stripe_customer_id);
-        stripeDeleted = true;
-      } catch (err) {
-        // Best-effort: a missing/already-deleted customer shouldn't block
-        // erasure of the rest of the account.
-        console.error(
-          `[account/delete] Stripe customer delete failed for ${userId}:`,
-          err instanceof Error ? err.message : String(err),
-        );
-      }
-    }
-  }
+  //
+  //    US-3404: this path already wrote the value it computed, so it was never
+  //    the lie admin-compliance.ts was. What it could not say was WHICH kind of
+  //    false: no customer, no Stripe key in the container, or a call that ran
+  //    and failed all recorded identically. It writes the status now so the
+  //    column is readable on both sources rather than on one of them -- a
+  //    three-value column that half the table leaves at `unverified` is a
+  //    column nobody will trust.
+  //
+  //    Best-effort is unchanged: a missing or already-deleted customer must not
+  //    block erasure of the rest of the account.
+  //    The client is still built only when there is a customer to delete, which
+  //    is what the old `if` did; the helper would ignore it either way.
+  const stripeRecord = await deleteStripeCustomerForRecord(
+    user?.stripe_customer_id,
+    user?.stripe_customer_id ? getStripe() : null,
+    (message) => console.error(`[account/delete] ${message} (user ${userId})`),
+  );
 
   // 3. Write the non-PII compliance record BEFORE the cascade (US-275). This
   //    table has no FK to auth.users, so it survives deletion as proof that
@@ -748,7 +860,12 @@ accountRoutes.post("/delete", async (c) => {
         deleted_user_id: userId,
         source: "self_serve",
         had_stripe_customer: !!user?.stripe_customer_id,
-        stripe_deleted: stripeDeleted,
+        // US-3404: what the Stripe call actually did. `stripe_deleted` is true
+        // only when customers.del returned without throwing;
+        // `stripe_delete_status` carries which of the four outcomes this was,
+        // because "false" alone cannot tell a customer that never existed from
+        // one the call failed to remove.
+        ...stripeRecord,
         // US-3398: what the purge actually did. `storage_purged` is true only
         // when every list and every remove succeeded; `storage_purge_status`
         // carries the third answer a boolean cannot ("incomplete"), and the
