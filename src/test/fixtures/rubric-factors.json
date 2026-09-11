@@ -116,7 +116,16 @@
     "  3,5,9,8,5  -> 0.75+1.25+1.80+1.60+0.50 = 5.90 (a collapsed crown and a bent brim on a clean band)",
     "  8,8,6,7,6  -> 2.00+2.00+1.20+1.40+0.60 = 7.20",
     "The second pair is the rubric's design stated as numbers: crown and brim together are half",
-    "the score, so a cap that is no longer a hat grades lower than a hat nobody wants to wear."
+    "the score, so a cap that is no longer a hat grades lower than a hat nobody wants to wear.",
+    "",
+    "US-2225: bags (.30/.20/.15/.15/.10/.10) is the third novel vector and the only one with six",
+    "factors. Worked by hand, in factor order corners_edges, exterior, handles_straps, hardware,",
+    "interior, structure:",
+    "  6,8,7,9,8,9 -> 1.80+1.60+1.05+1.35+0.80+0.90 = 7.50",
+    "  3,9,9,9,9,9 -> 0.90+1.80+1.35+1.35+0.90+0.90 = 7.20 (worn corners, everything else near mint)",
+    "  9,9,5,9,3,9 -> 2.70+1.80+0.75+1.35+0.30+0.90 = 7.80 (a cracked handle and a stained lining)",
+    "The last two are the rubric's point: corner wear is the first thing a bag buyer checks and",
+    "weighs the most, so it costs more than a tired handle and a dirty interior together."
   ],
   "weighted_cases": [
     { "rubric": "sports_cards", "scores": { "surface": 10, "corners": 10, "edges": 10, "centering": 10 }, "expected_overall": 10 },
@@ -136,7 +145,11 @@
     { "rubric": "headwear", "scores": { "crown_structure": 10, "brim": 10, "sweatband": 10, "fabric_graphics": 10, "hardware_closure": 10 }, "expected_overall": 10 },
     { "rubric": "headwear", "scores": { "crown_structure": 9, "brim": 9, "sweatband": 4, "fabric_graphics": 7, "hardware_closure": 10 }, "expected_overall": 7.7 },
     { "rubric": "headwear", "scores": { "crown_structure": 3, "brim": 5, "sweatband": 9, "fabric_graphics": 8, "hardware_closure": 5 }, "expected_overall": 5.9 },
-    { "rubric": "headwear", "scores": { "crown_structure": 8, "brim": 8, "sweatband": 6, "fabric_graphics": 7, "hardware_closure": 6 }, "expected_overall": 7.2 }
+    { "rubric": "headwear", "scores": { "crown_structure": 8, "brim": 8, "sweatband": 6, "fabric_graphics": 7, "hardware_closure": 6 }, "expected_overall": 7.2 },
+    { "rubric": "bags", "scores": { "corners_edges": 10, "exterior": 10, "handles_straps": 10, "hardware": 10, "interior": 10, "structure": 10 }, "expected_overall": 10 },
+    { "rubric": "bags", "scores": { "corners_edges": 6, "exterior": 8, "handles_straps": 7, "hardware": 9, "interior": 8, "structure": 9 }, "expected_overall": 7.5 },
+    { "rubric": "bags", "scores": { "corners_edges": 3, "exterior": 9, "handles_straps": 9, "hardware": 9, "interior": 9, "structure": 9 }, "expected_overall": 7.2 },
+    { "rubric": "bags", "scores": { "corners_edges": 9, "exterior": 9, "handles_straps": 5, "hardware": 9, "interior": 3, "structure": 9 }, "expected_overall": 7.8 }
   ],
   "_refusal_readme": [
     "Inputs on which BOTH mirrors must THROW rather than return a number, with the SAME message.",
@@ -191,6 +204,11 @@
       "why": "headwear with the sweatband omitted — the factor US-2223 exists for; scored as 0 it would grade a clean cap as ruined",
       "rubric": "headwear",
       "scores": { "crown_structure": 8, "brim": 8, "fabric_graphics": 8, "hardware_closure": 8 }
+    },
+    {
+      "why": "bags with corners_edges omitted — the heaviest bag factor at 30%, and the one a buyer checks first",
+      "rubric": "bags",
+      "scores": { "exterior": 8, "handles_straps": 8, "hardware": 8, "interior": 8, "structure": 8 }
     }
   ]
 }
