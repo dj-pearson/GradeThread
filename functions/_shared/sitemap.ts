@@ -95,19 +95,138 @@ interface AuthorSitemap {
   authors: Array<{ slug: string; updated_at: string | null }>;
 }
 
-// Fetch a same-origin static asset (the build-emitted manifest). Falls back to
-// null so the sitemap still renders (blog/cert sections) if it's missing.
-async function fetchManifest(env: PagesEnv): Promise<SeoManifest | null> {
+/**
+ * US-3382: reading the manifest has THREE outcomes, not two.
+ *
+ * This returned `null` for a 500, a 429, an 8s timeout, a malformed body and a
+ * genuinely-missing asset alike. "The manifest is absent" and "we could not
+ * read it" have OPPOSITE right answers. A fresh deploy genuinely has no manifest
+ * for a moment, and a stale-but-correct fallback is the right response to that.
+ * A 500 is not that: it means the count we are about to publish is unknown, and
+ * publishing it anyway is how 274 of /sitemap-static.xml's URLs became 1.
+ *
+ * MEASURED 2026-09-11 against the real 276-route registry: manifest 200 ->
+ * staticUrls() = 275; manifest 500 -> 1; manifest 429 -> 1. All three served 200
+ * with SITEMAP_HEADERS, and withEdgeCache stores publicly-cacheable 200s, so one
+ * blip is an hour of telling crawlers 274 pages do not exist.
+ *
+ * Only 404/410 mean absent. Everything else throws UpstreamUnavailable, the same
+ * convention fetchEdgeJson (below) and blog-render's fetchJson already use.
+ *
+ * MALFORMED IS A READ FAILURE, NOT AN ABSENCE, and that is the case worth
+ * naming: Cloudflare Pages answers a missing asset by serving the SPA shell,
+ * which is a 200 whose body is HTML. Reading that as "no manifest" is precisely
+ * the mistake this guard exists to stop.
+ */
+type ManifestRead =
+  | { state: "ok"; manifest: SeoManifest }
+  | { state: "absent" };
+
+async function fetchManifest(env: PagesEnv): Promise<ManifestRead> {
+  let res: Response;
   try {
-    const res = await fetch(`${siteUrl(env)}/seo-manifest.json`, {
+    res = await fetch(`${siteUrl(env)}/seo-manifest.json`, {
       signal: AbortSignal.timeout(8_000),
       cf: { cacheTtl: 300, cacheEverything: true },
     } as RequestInit);
-    if (!res.ok) return null;
-    return (await res.json()) as SeoManifest;
-  } catch {
-    return null;
+  } catch (e) {
+    console.error("[sitemap] seo-manifest.json unreachable:", e);
+    throw new UpstreamUnavailable(
+      `seo-manifest ${e instanceof Error ? e.name : "unknown"}`,
+    );
   }
+  if (!res.ok) {
+    if (res.status === 404 || res.status === 410) {
+      console.error(
+        "[sitemap] seo-manifest.json is ABSENT (404). Treating it as a build " +
+          "that has not landed yet, not as an empty registry.",
+      );
+      return { state: "absent" };
+    }
+    console.error(`[sitemap] seo-manifest.json read failed: status ${res.status}`);
+    throw new UpstreamUnavailable(`seo-manifest status ${res.status}`);
+  }
+  try {
+    const manifest = (await res.json()) as SeoManifest;
+    if (!Array.isArray(manifest?.routes)) {
+      throw new Error("manifest carries no routes array");
+    }
+    return { state: "ok", manifest };
+  } catch (e) {
+    console.error("[sitemap] malformed seo-manifest.json:", e);
+    throw new UpstreamUnavailable("seo-manifest malformed-json");
+  }
+}
+
+/**
+ * US-3382 AC4: the last-known-good size of the static registry, and the ONE
+ * place it is written down.
+ *
+ * WHERE THIS NUMBER COMES FROM, because that is the hard part. A Pages Function
+ * holds no state between requests, so "what did this document look like
+ * yesterday" cannot be read at the edge. There are two sources that survive a
+ * cold start, and this uses both:
+ *
+ *   1. THE MANIFEST ITSELF, whenever it loads. It is a build artifact that
+ *      declares how many routes the build emitted, so `routes.length` is the
+ *      expected size measured by the build that is currently deployed. It needs
+ *      no constant, cannot rot, and is right for a site of any size.
+ *   2. THIS CONSTANT, for the case where the manifest did NOT load - which is
+ *      exactly when source 1 is unavailable and a floor matters most.
+ *
+ * MEASURED 2026-09-11: PUBLIC_ROUTES carried 276 routes, partitionedStaticUrls()
+ * returned 275 of them (/state-of-durability is conditionally withheld), and
+ * production's /sitemap-static.xml served 274.
+ *
+ * src/test/sitemap-url-floor.test.ts keeps it honest in both directions: it
+ * fails if the live registry drops below the floor (the floor would then 503 a
+ * healthy build) and if the constant rots so far below the registry that the
+ * floor stops meaning anything. Update it there, not by guessing here.
+ */
+export const STATIC_URLS_LAST_KNOWN_GOOD = 275;
+
+/**
+ * Refuse below 60% of the expected count. Generous on purpose: a deliberate
+ * cluster retirement should not page anybody, while the failure this catches
+ * removes 99.6% of the set (275 -> 1).
+ */
+export const URL_FLOOR_FRACTION = 0.6;
+
+/**
+ * Below this many expected URLs, NO ratio floor is applied at all.
+ *
+ * This is what keeps a legitimately small site from tripping the guard. A
+ * percentage of a small number is noise: a three-route site that withholds one
+ * route to a canonical has "lost 33%" and has a perfectly correct sitemap. The
+ * floor is a statement about a collapse, and a collapse needs a population.
+ */
+export const URL_FLOOR_MIN_SAMPLE = 20;
+
+/**
+ * US-3382 AC4: refuse to serve a document that collapsed.
+ *
+ * "200 with fewer URLs than yesterday" is the ONLY symptom either failure in
+ * this file ever produces - there is no error, no log line and no alert on the
+ * path that produced it - so the count itself has to be the assertion. Throws
+ * UpstreamUnavailable so every existing caller turns it into the 503 they
+ * already handle, rather than inventing a second failure convention.
+ */
+export function enforceUrlFloor(
+  label: string,
+  count: number,
+  expected: number,
+): void {
+  if (expected < URL_FLOOR_MIN_SAMPLE) return;
+  const floor = Math.ceil(expected * URL_FLOOR_FRACTION);
+  if (count >= floor) return;
+  console.error(
+    `[sitemap] ${label} collapsed to ${count} URLs against an expected ${expected} ` +
+      `(floor ${floor}). Refusing to serve it: a short sitemap served 200 tells ` +
+      `crawlers the missing pages do not exist.`,
+  );
+  throw new UpstreamUnavailable(
+    `${label} floor: ${count} < ${floor} (expected ${expected})`,
+  );
 }
 
 /**
@@ -328,16 +447,29 @@ export async function partitionedStaticUrls(
   buying: SitemapUrl[];
 }> {
   const base = siteUrl(env);
-  const manifest = await fetchManifest(env);
-  if (!manifest) {
-    // Manifest missing — at least advertise the home page (a marketing URL).
-    return {
-      marketing: [{ loc: `${base}/`, lastmod: today(), changefreq: "weekly", priority: 1.0 }],
-      grading: [],
-      care: [],
-      buying: [],
-    };
+  const read = await fetchManifest(env);
+  if (read.state === "absent") {
+    // US-3382: the manifest is genuinely NOT THERE (404), which is a deploy that
+    // has not landed rather than a read we could not make. Degrade to the home
+    // page, then let the floor decide whether that document is worth serving.
+    //
+    // On this site it is not: one URL against a last-known-good of 275 is a 99.6%
+    // collapse, so the floor converts it to a 503 + Retry-After, which is the
+    // right answer DURING a deploy - come back when the build has landed. On a
+    // site with fewer than URL_FLOOR_MIN_SAMPLE routes the floor does not apply
+    // and the home page is served, which is the behaviour this fallback was
+    // written for.
+    const marketing = [
+      { loc: `${base}/`, lastmod: today(), changefreq: "weekly", priority: 1.0 },
+    ];
+    enforceUrlFloor(
+      "static sitemap (seo-manifest absent)",
+      marketing.length,
+      STATIC_URLS_LAST_KNOWN_GOOD,
+    );
+    return { marketing, grading: [], care: [], buying: [] };
   }
+  const manifest = read.manifest;
   const marketing: SitemapUrl[] = [];
   const grading: SitemapUrl[] = [];
   const care: SitemapUrl[] = [];
@@ -352,6 +484,16 @@ export async function partitionedStaticUrls(
     else if (isGradingRoute(r.path)) grading.push(url);
     else marketing.push(url);
   }
+  // US-3382: the manifest LOADED, so it declares how many routes this build
+  // emitted - the expected size, measured by the deploy that is live right now.
+  // Anything that eats most of them between here and there (a conditional-index
+  // probe failing en masse, a canonical rule that matches more than intended) is
+  // the same silent collapse arriving by a different route.
+  enforceUrlFloor(
+    "static sitemap",
+    marketing.length + grading.length + care.length + buying.length,
+    manifest.routes.length,
+  );
   return { marketing, grading, care, buying };
 }
 
@@ -1129,22 +1271,30 @@ const FALLBACK_MARKETING_IMAGES: Array<{
  * Static marketing image entries, derived from the build-emitted manifest so
  * they cannot drift from ROUTE_OG_IMAGES (US-2111).
  *
- * Falls back to FALLBACK_MARKETING_IMAGES when the manifest is unreachable or
- * carries no image-bearing routes. The empty-image-set case is treated as a
- * failure rather than as "there are no marketing images": a manifest emitted by
- * an older build predates the `image` field entirely, and reading that as an
- * intentional zero would silently empty the image sitemap on the first deploy
- * after a rollback.
+ * Falls back to FALLBACK_MARKETING_IMAGES when the manifest is ABSENT or carries
+ * no image-bearing routes. The empty-image-set case is treated as a failure
+ * rather than as "there are no marketing images": a manifest emitted by an older
+ * build predates the `image` field entirely, and reading that as an intentional
+ * zero would silently empty the image sitemap on the first deploy after a
+ * rollback.
+ *
+ * US-3382: "absent" and "could not read" diverge HERE, and this is the site
+ * where the distinction pays. A 404 means the deploy has not landed, and a
+ * stale-but-correct set of nine share cards beats an empty image sitemap - the
+ * reasoning FALLBACK_MARKETING_IMAGES was written for. A 500 or a timeout means
+ * we do not know what the set is, and fetchManifest now throws, so
+ * sitemap-images.xml answers 503 through the guard it already has.
  */
 export async function marketingImageUrls(
   env: PagesEnv,
 ): Promise<ImageSitemapEntry[]> {
   const base = siteUrl(env);
-  const manifest = await fetchManifest(env);
+  const read = await fetchManifest(env);
   // Same advertisability rules as the URL sitemap. An image entry carries a
   // <loc> for the PAGE, so a page the URL sitemap withholds must be withheld
   // here too.
-  const advertisable = manifest ? await advertisableRoutes(env, manifest) : [];
+  const advertisable =
+    read.state === "ok" ? await advertisableRoutes(env, read.manifest) : [];
   const fromManifest = advertisable.filter((r) => r.image?.file);
 
   if (fromManifest.length > 0) {
@@ -1161,8 +1311,8 @@ export async function marketingImageUrls(
   }
 
   console.error(
-    "[sitemap] seo-manifest carried no route images; serving the static " +
-      "fallback marketing set, which MAY BE STALE.",
+    `[sitemap] seo-manifest ${read.state === "absent" ? "is ABSENT" : "carried no route images"}` +
+      "; serving the static fallback marketing set, which MAY BE STALE.",
   );
   return FALLBACK_MARKETING_IMAGES.map((m) => ({
     loc: m.path === "/" ? `${base}/` : `${base}${m.path}`,

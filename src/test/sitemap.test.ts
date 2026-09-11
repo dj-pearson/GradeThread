@@ -99,11 +99,20 @@ describe("staticUrls (from seo-manifest.json)", () => {
     expect(urls[1]!.changefreq).toBe("yearly");
   });
 
-  it("falls back to the home page when the manifest is missing", async () => {
+  // US-3382: this used to assert that a missing manifest served a ONE-URL
+  // sitemap, status 200, with SITEMAP_HEADERS, which withEdgeCache then stored
+  // for an hour. Measured on prod 2026-09-11, that fallback replaced 274 real
+  // URLs with the home page and reported success.
+  //
+  // The home-page degradation is still there and still only fires on a 404 (the
+  // build has not landed). What changed is that the floor then refuses to
+  // publish it: one URL against a last-known-good of 275 is a 99.6% collapse,
+  // and every caller turns the throw into a 503 + Retry-After, which tells a
+  // crawler to come back rather than that 274 pages were deleted. See
+  // src/test/sitemap-url-floor.test.ts for the full matrix.
+  it("refuses to serve a one-URL sitemap when the manifest is missing", async () => {
     vi.stubGlobal("fetch", mockFetch({}));
-    const urls = await staticUrls(env);
-    expect(urls).toHaveLength(1);
-    expect(urls[0]!.loc).toBe("https://gradethread.com/");
+    await expect(staticUrls(env)).rejects.toThrow(/absent/);
   });
 
   // US-1679: the static registry splits into marketing vs grading pSEO segments.

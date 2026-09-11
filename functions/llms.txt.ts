@@ -1,18 +1,41 @@
-// /llms.txt — a Markdown map of the site for LLMs / AI answer engines
+// /llms.txt, a Markdown map of the site for LLMs and AI answer engines
 // (PRD: tasks/prd-seo-hardening.md, US-295; registry-driven in US-431).
 //
-// The section list is no longer hand-curated: it's derived from the build-emitted
-// dist/seo-manifest.json (which IS src/lib/seo/public-routes.ts → PUBLIC_ROUTES),
-// the same source the sitemap uses. A new public page therefore auto-appears here
-// with no hand-edit, and src/test/llms-txt.test.ts fails CI if a registry route
-// goes missing from the output.
+// The route list is derived from the build-emitted dist/seo-manifest.json (which
+// IS src/lib/seo/public-routes.ts, PUBLIC_ROUTES), the same source the sitemap
+// uses, so a new public page appears here with no hand-edit.
+//
+// US-3382 corrected this header, which is worth saying because it claimed two
+// things that were not true of the code under it:
+//
+//   • "no longer hand-curated". There WAS a hand-written 8-route list below,
+//     FALLBACK_ROUTES, and it shipped silently whenever the manifest read
+//     failed. Measured 2026-09-11 against the real registry: a 500 on the
+//     manifest took this file from 281 entries to 13, served 200 and cached for
+//     an hour. The list is deleted; a manifest we cannot read is now a 503.
+//   • "src/test/llms-txt.test.ts fails CI if a registry route goes missing".
+//     That test renders buildLlmsSections() with PUBLIC_ROUTES passed in by
+//     hand, so it proves the SERIALIZER keeps every route. It never called this
+//     function and could not see what it served. The guard that covers THIS
+//     file is src/test/llms-txt-upstream-failure.test.ts, which drives
+//     onRequestGet against a failing upstream and asserts the status.
+//
+// Both claims are the same species of bug as the one they were hiding: a
+// statement about a guard that nobody re-checked. Do not restore either without
+// the test that makes it true.
 
 import {
   siteUrl,
   edgeApi,
+  UpstreamUnavailable,
+  upstreamUnavailableResponse,
   type PagesEnv,
   withEdgeCache,
 } from "./_shared/blog-render";
+import {
+  enforceUrlFloor,
+  STATIC_URLS_LAST_KNOWN_GOOD,
+} from "./_shared/sitemap";
 import {
   buildLlmsTxt,
   buildLlmsSections,
@@ -64,32 +87,55 @@ const LLMS_HELP_LIMIT = 40;
 // so the file stays a curated map, not a full feed (that's rss.xml/sitemap).
 const LLMS_ARTICLE_LIMIT = 25;
 
-async function fetchJsonSafe<T>(url: string, init?: RequestInit): Promise<T | null> {
+/**
+ * US-3382: this replaces fetchJsonSafe, which had SIX call sites and zero
+ * failure detection. It collapsed a 500, a 429, an 8s timeout and a malformed
+ * body into the same null a genuinely-empty collection produces, and every
+ * caller then wrote `?? []`.
+ *
+ * Three-valued instead, the same convention as blog-render's fetchJson and the
+ * sitemap's fetchEdgeJson, so this file stops being the one exception:
+ *
+ *   • 200        -> the data.
+ *   • 404 / 410  -> `null`, which means EMPTY and is a real answer. A new
+ *                   install with no certificates is not a failure, and must not
+ *                   take the whole file down.
+ *   • anything else, a network error, a timeout, a malformed body -> throw,
+ *     because we do not know what is there and a guess gets cached for an hour.
+ */
+async function fetchJsonOrThrow<T>(
+  label: string,
+  url: string,
+  init?: RequestInit,
+): Promise<T | null> {
+  let res: Response;
   try {
-    const res = await fetch(url, {
+    res = await fetch(url, {
       signal: AbortSignal.timeout(8_000),
       cf: { cacheTtl: 300, cacheEverything: true },
       ...init,
     } as RequestInit);
-    if (!res.ok) return null;
+  } catch (e) {
+    console.error(`[llms.txt] ${label} unreachable:`, e);
+    throw new UpstreamUnavailable(
+      `${label} ${e instanceof Error ? e.name : "unknown"}`,
+    );
+  }
+  if (!res.ok) {
+    if (res.status === 404 || res.status === 410) {
+      console.error(`[llms.txt] ${label} reports no such collection (${res.status})`);
+      return null;
+    }
+    console.error(`[llms.txt] ${label} failed: status ${res.status}`);
+    throw new UpstreamUnavailable(`${label} status ${res.status}`);
+  }
+  try {
     return (await res.json()) as T;
-  } catch {
-    return null;
+  } catch (e) {
+    console.error(`[llms.txt] malformed JSON from ${label}:`, e);
+    throw new UpstreamUnavailable(`${label} malformed-json`);
   }
 }
-
-// Static fallback so /llms.txt still renders the core map if the manifest asset
-// is somehow unavailable (e.g. a partial deploy).
-const FALLBACK_ROUTES: LlmsRoute[] = [
-  { path: "/", title: "GradeThread home", priority: 1.0 },
-  { path: "/how-it-works", title: "How It Works", priority: 0.9 },
-  { path: "/pricing", title: "Pricing", priority: 0.9 },
-  { path: "/condition-grading", title: "What Is Clothing Condition Grading?", priority: 0.9 },
-  { path: "/grading-standard", title: "The GradeThread Grading Standard", priority: 0.8 },
-  { path: "/transparency", title: "Grading Accuracy & Transparency Report", priority: 0.8 },
-  { path: "/for-resellers", title: "For Resellers", priority: 0.8 },
-  { path: "/faq", title: "Frequently Asked Questions", priority: 0.7 },
-];
 
 /**
  * US-2615: served from the worker cache.
@@ -104,40 +150,89 @@ const FALLBACK_ROUTES: LlmsRoute[] = [
  * fetch rebuilt it. Answer engines poll llms.txt; that is the point of it.
  */
 export const onRequestGet: PagesFunction<PagesEnv> = (context) =>
-  withEdgeCache(context, () => renderLlmsTxtResponse(context.env));
+  withEdgeCache(context, () => renderLlmsTxt(context.env));
 
-async function renderLlmsTxtResponse(env: PagesEnv): Promise<Response> {
+/**
+ * US-3382: one upstream failure is now a 503, not a shorter file.
+ *
+ * The precedent is already in this tree twice and this file was the exception:
+ * llms-full.txt.ts:33-53 answers 503 on exactly this class of failure, saying "a
+ * partial standard is worse than none", and the sitemap throws
+ * UpstreamUnavailable from the same endpoints this reads.
+ *
+ * THE CACHE IS WHY IT MATTERS HERE MORE THAN ANYWHERE. This response carries
+ * `public, max-age=3600` and goes through withEdgeCache, which stores exactly
+ * one thing: a publicly-cacheable 200. A degraded file is therefore not one bad
+ * response, it is an hour of them, handed to answer engines that poll this file
+ * precisely because it claims to be the map. upstreamUnavailableResponse() is a
+ * 503 with Retry-After and `no-store`, which withEdgeCache refuses to store.
+ */
+async function renderLlmsTxt(env: PagesEnv): Promise<Response> {
+  try {
+    return await buildLlmsTxtResponse(env);
+  } catch (e) {
+    if (e instanceof UpstreamUnavailable) {
+      console.error("[llms.txt] upstream unavailable, serving 503:", e.message);
+      return upstreamUnavailableResponse();
+    }
+    throw e;
+  }
+}
+
+async function buildLlmsTxtResponse(env: PagesEnv): Promise<Response> {
   const base = siteUrl(env);
   const api = edgeApi(env);
 
-  const manifest = await fetchJsonSafe<SeoManifest>(`${base}/seo-manifest.json`);
-  const routes: LlmsRoute[] = manifest?.routes?.length
-    ? manifest.routes.map((r) => ({
-        path: r.path,
-        title: r.title,
-        description: r.description,
-        priority: r.priority,
-      }))
-    : FALLBACK_ROUTES;
+  // The spine of the document. A 404 here means the build has not landed, which
+  // is still not a document worth publishing: the hand-written 8-route fallback
+  // that used to cover this case is what turned a manifest blip into a file
+  // claiming the site has eight pages.
+  const manifest = await fetchJsonOrThrow<SeoManifest>(
+    "seo-manifest.json",
+    `${base}/seo-manifest.json`,
+  );
+  const routes: LlmsRoute[] = (manifest?.routes ?? []).map((r) => ({
+    path: r.path,
+    title: r.title,
+    description: r.description,
+    priority: r.priority,
+  }));
+  // US-3382 AC4: the floor. The manifest is this file's only route source, so
+  // its size IS the document's size, and "200 with fewer routes than yesterday"
+  // is the only symptom the failure produces. The expected count comes from
+  // STATIC_URLS_LAST_KNOWN_GOOD, which the sitemap owns because both files read
+  // the same artifact and a second copy of the number would drift from it;
+  // src/test/sitemap-url-floor.test.ts holds it against the live registry.
+  enforceUrlFloor("llms.txt route map", routes.length, STATIC_URLS_LAST_KNOWN_GOOD);
 
-  // Representative dynamic URLs — best-effort, gracefully omitted on failure.
+  // Representative dynamic URLs. Each of the five is a real section of the map,
+  // so a read we could not make propagates rather than quietly shortening the
+  // file; a 404 is the one answer that legitimately means "this section is
+  // empty" and renders as an omitted section.
   const [certs, sellers, authors, posts, help] = await Promise.all([
-    fetchJsonSafe<CertSitemap>(`${api}/api/content/public/certificates.json`, {
-      headers: { Accept: "application/json" },
-    }),
-    fetchJsonSafe<SellerSitemap>(`${api}/api/content/public/sellers.json`, {
-      headers: { Accept: "application/json" },
-    }),
-    fetchJsonSafe<AuthorSitemap>(`${api}/api/content/public/authors.json`, {
-      headers: { Accept: "application/json" },
-    }),
+    fetchJsonOrThrow<CertSitemap>(
+      "certificates.json",
+      `${api}/api/content/public/certificates.json`,
+      { headers: { Accept: "application/json" } },
+    ),
+    fetchJsonOrThrow<SellerSitemap>(
+      "sellers.json",
+      `${api}/api/content/public/sellers.json`,
+      { headers: { Accept: "application/json" } },
+    ),
+    fetchJsonOrThrow<AuthorSitemap>(
+      "authors.json",
+      `${api}/api/content/public/authors.json`,
+      { headers: { Accept: "application/json" } },
+    ),
     // US-877: recent published posts (newest first) for the Recent Articles
-    // section — title + one-line excerpt summary + URL.
-    fetchJsonSafe<PostsIndex>(
+    // section: title, a one-line excerpt summary, and the URL.
+    fetchJsonOrThrow<PostsIndex>(
+      "posts",
       `${api}/api/content/public/posts?limit=${LLMS_ARTICLE_LIMIT}`,
       { headers: { Accept: "application/json" } },
     ),
-    fetchJsonSafe<HelpIndex>(`${api}/api/content/public/help`, {
+    fetchJsonOrThrow<HelpIndex>("help", `${api}/api/content/public/help`, {
       headers: { Accept: "application/json" },
     }),
   ]);
