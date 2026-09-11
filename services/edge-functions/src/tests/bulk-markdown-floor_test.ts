@@ -9,6 +9,9 @@
 // The route still REFUSES rather than clamping, which is the one place it
 // diverges from the automation on purpose — see planPercentageMarkdown.
 
+// US-2379: first, before anything that reads env at import. flipdesk-listings.ts
+// pulls in the edge config chain, so this file reaches env-at-import through it.
+import "./_env.ts";
 import { assertEquals } from "@std/assert";
 import { planPercentageMarkdown } from "../routes/flipdesk-listings.ts";
 import { computeMarkdownCents } from "../lib/repricing-rules.ts";

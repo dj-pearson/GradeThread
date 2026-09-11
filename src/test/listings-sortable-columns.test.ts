@@ -43,6 +43,10 @@ const EXPECTED_SORTABLE = [
   "updated_at", // Age, which is rendered as days-since-updated
   "purchase_price", // Cost
   "target_price", // Target / List
+  // US-3195 added the Aged tab, which renders the seller's hard floor. It is a
+  // REAL items_full column - 00769 appended floor_price to the view, and prod
+  // PostgREST lists it - so sorting it cannot raise 22023. Reviewed 2026-09-10.
+  "floor_price", // Floor (Aged)
   "sale_price", // Sale / Sold $
   "net_profit", // Net
   "payout",

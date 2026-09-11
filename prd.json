@@ -4613,7 +4613,8 @@
         "The migration triple is complete: EXPECTED_SCHEMA_VERSION bumped in the same commit, self-record footer present, PENDING_MIGRATIONS.md entry added as HELD until applied",
         "No other row in the seeded chart disagrees with src/lib/chart-of-accounts.ts once the guard is green again"
       ],
-      "priority": 1620
+      "priority": 2,
+      "notes": "2026-09-10: THIS IS KEEPING MAIN CI RED, which is why the priority moved from 1620 to 2. src/lib/chart-of-accounts.test.ts fails on exactly this row: the TypeScript chart says 'Labor that went into the goods' and the row seeded by 00684 says 'Labour'. It was invisible for a while because the whole CI job was dying earlier, at a held-migration gate that skipped npm ci and made every later check print 'Cannot find package' (US-3308). With that cascade fixed, this is one of the last real failures left. The fix needs a migration, so it waits on the owner's OK like every other one."
     },
     {
       "id": "US-3259",
