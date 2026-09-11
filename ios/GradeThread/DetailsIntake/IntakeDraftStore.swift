@@ -130,7 +130,11 @@ enum IntakeDraftStore {
         form.sourceId = draft.sourceId
         form.container = draft.container
         form.sourcedBy = draft.sourcedBy
-        form.purchaseDate = draft.purchaseDate
+        // US-3310: purchaseDate is an anchored day everywhere else, so a
+        // draft written before that rule (a raw moment, with a time on
+        // it) is normalized on the way back in. Identity for a value that
+        // is already anchored, which is every draft written from now on.
+        form.purchaseDate = MoneyDate.startOfDay(draft.purchaseDate)
         form.purchasePriceText = draft.purchasePriceText
         form.notes = draft.notes
     }
