@@ -39,23 +39,31 @@
     facebook: "Facebook Marketplace",
   };
 
-  // Four states reach a client. `done` never does — the GET filters it out —
-  // so it is absent here on purpose rather than by omission.
+  // FIVE states reach a client since US-3370, and the fifth is the one this
+  // file used to say could never arrive. `done` reached the wire when the GET
+  // grew `finishedNeedsReview`: finished runs from the last 48 hours that left
+  // the seller something to do. It is a state, not a success; "Ran" is the
+  // whole claim, and the row's reason or photo note says what is left.
   var STATE_LABELS = {
     queued: "Waiting",
     claimed: "Running now",
     failed: "Failed",
     expired: "Expired",
+    done: "Ran",
   };
 
-  // Maps to the popup's .pop-status modifiers. "warn" for running is deliberate:
-  // a claimed row means a background marketplace tab is open right now, which is
-  // something the seller should be able to account for.
+  // Maps to the popup's .pop-status modifiers, of which exactly three exist:
+  // on, warn, off (popup.css). "warn" for running is deliberate: a claimed row
+  // means a background marketplace tab is open right now, which is something
+  // the seller should be able to account for. `done` is "warn" for the same
+  // reason and not "off": nothing failed, and a red pill on a listing that is
+  // live on the marketplace is the wrong alarm.
   var STATE_CLASS = {
     queued: "on",
     claimed: "warn",
     failed: "off",
     expired: "off",
+    done: "warn",
   };
 
   // US-3050: what a claimed row is doing right now, in the seller's words.
@@ -105,6 +113,51 @@
     if (row && row.status === "failed") {
       return "GradeThread could not finish this one and did not say why. Open " +
         "the marketplace and do it by hand, or queue it again.";
+    }
+    return null;
+  }
+
+  /**
+   * US-3374: the one string a FINISHED row must carry.
+   *
+   * `reasonFor` above is for work that never happened, and two of its three
+   * arms say so out loud ("queue it again", "do it by hand"). Neither sentence
+   * can go in front of a run that reached the marketplace: told that nothing
+   * happened and to queue it again, a seller makes a second listing.
+   *
+   * So these are the finished causes, in the order the edge's own
+   * finishedNeedsReview lists them (routes/flipdesk-extension-queue.ts), minus
+   * the one it leads with. `photosWitness === "none"` is deliberately ABSENT:
+   * US-3367 already wrote that sentence as `photoNote`, and a row that renders
+   * both prints the same paragraph twice.
+   *
+   * THAT IS ALSO WHY `photoState` IS AN ARGUMENT. A refused witness almost
+   * always arrives with `photosFailed` set as well (the same run, counted two
+   * ways), so the count arm is skipped when photoNote is already going to say
+   * it, and two lines that nearly agree never end up stacked under one row.
+   *
+   * Every arm points at the listing rather than at the queue, because the
+   * listing is where the remaining work is.
+   */
+  function finishedReasonFor(row, platformLabel, photoState) {
+    var res = row && row.result && typeof row.result === "object" ? row.result : {};
+    var who = platformLabel || "the marketplace";
+    // The flow's own words, when it had any. Already seller-facing prose, and
+    // an independent fact from the photos: a run can fill the form, get no
+    // photos in, and still have something of its own to report.
+    if (typeof res.error === "string" && res.error.trim()) return res.error.trim();
+    if (photoState !== "refused" && typeof res.photosFailed === "number" && res.photosFailed > 0) {
+      return (res.photosFailed === 1 ? "One photo " : res.photosFailed + " photos ") +
+        "did not go in. The listing is on " + who + " already, so add them " +
+        "there rather than running this again.";
+    }
+    if (res.manual === true) {
+      return "GradeThread filled what it could and handed the rest back. Open " +
+        "the listing on " + who + " and finish it there.";
+    }
+    if (res.unverified === true) {
+      return "We clicked save and " + who + " never confirmed it took. Open the " +
+        "listing there and check it before you count this one as posted.";
     }
     return null;
   }
@@ -236,13 +289,30 @@
     return null;
   }
 
+  /**
+   * The listing this row is about, when there is one to open.
+   *
+   * TWO SOURCES SINCE US-3374. The payload copy is what a delist/revise/relist
+   * was pointed at, and it is the only one a row has before it runs. A `list`
+   * job has none: the listing does not exist until the run creates it, and the
+   * URL of the one it created comes back on the RESULT (`listingUrl` is in
+   * background.js's QUEUE_RESULT_FIELDS as an always-sent key). Reading only
+   * the payload is why a finished cross-post had no link to the very listing
+   * its note tells the seller to go and fix.
+   *
+   * https only, and only ever rendered as a link. A queue row is server-held
+   * but client-originated, which makes it exactly as trusted as a message from
+   * a page, the same standard the drain applies before it opens a tab.
+   */
   function urlFor(row) {
     var p = row && row.payload && typeof row.payload === "object" ? row.payload : {};
-    var u = p.listingUrl;
-    // https only, and only ever rendered as a link. A queue row is server-held
-    // but client-originated, which makes it exactly as trusted as a message
-    // from a page — the same standard the drain applies before it opens a tab.
-    return typeof u === "string" && /^https:\/\//i.test(u) ? u : null;
+    var res = row && row.result && typeof row.result === "object" ? row.result : {};
+    var candidates = [p.listingUrl, res.listingUrl];
+    for (var i = 0; i < candidates.length; i++) {
+      var u = candidates[i];
+      if (typeof u === "string" && /^https:\/\//i.test(u)) return u;
+    }
+    return null;
   }
 
   /**
@@ -260,6 +330,10 @@
     var now = typeof o.now === "number" ? o.now : Date.now();
     var status = typeof row.status === "string" ? row.status : "queued";
     var attention = status === "failed" || status === "expired";
+    // US-3374. Kept strictly apart from `attention`, which means "this never
+    // reached the marketplace" everywhere it is read. A finished row is the
+    // opposite fact and every action below turns on the difference.
+    var finished = status === "done";
     var at = asMs(row.created_at);
     // The running row's stage, when the worker has a job for it. A claimed row
     // with no local job is one another browser claimed, and it stays
@@ -294,15 +368,44 @@
       at: at,
       ageMs: at === null ? null : Math.max(0, now - at),
       needsAttention: attention,
-      reason: attention ? reasonFor(row) : null,
+      // US-3374: a finished row gets a reason too, from its own vocabulary.
+      // A row that renders a state badge and nothing else is the blank row
+      // US-3371 spent a story finding.
+      reason: attention
+        ? reasonFor(row)
+        : (finished ? finishedReasonFor(row, platformLabel, photoState) : null),
+      finished: finished,
       listingUrl: urlFor(row),
       canCancel: status === "queued",
-      canDismiss: attention,
+      // US-3374: DISMISS MEANS TWO DIFFERENT THINGS AND SAYS SO.
+      //
+      // On a failed or expired row it throws away an instruction that never
+      // ran: after it, nothing anywhere remembers the seller asked. On a
+      // finished row the marketplace already has the listing, and DELETE /:id
+      // (which takes a `done` row; it filters on id and user_id only) removes
+      // the NOTICE and nothing else. One word for both is how a seller reads
+      // "Dismiss" as "undo that listing", so the label and the hint change with
+      // the state and the three surfaces ask rather than deciding.
+      canDismiss: attention || finished,
+      dismissLabel: finished ? "Clear" : (attention ? "Dismiss" : null),
+      dismissHint: finished
+        ? "This clears the notice only. The listing stays up on " + platformLabel + "."
+        : null,
       // A failed or expired row can be asked for again. The instruction is
       // still on the row (kind, platform, the item or listing it names, the
       // payload snapshot), so a retry is a new row with the same instruction
       // and the dead one removed — see retryBody. Only kinds this build knows
       // are offered: re-queueing a kind the drain will refuse again is a loop.
+      //
+      // IT IS `attention`, NOT `attention || finished`, AND THAT IS US-3374's
+      // ONE REAL DECISION. Retry re-queues the identical instruction, so a
+      // finished run gets the identical run: the same uploader handed the same
+      // file list, which is the sentence photoNoteFor has been saying since
+      // US-3367: "running this again hands the same uploader the same list
+      // and gets the same nothing". Worse, it runs a second cross-post against
+      // a marketplace that already has the first, which is a duplicate
+      // listing. The action that helps is opening the listing, and that is the
+      // one a finished row offers (`listingUrl`).
       canRetry: attention && Object.prototype.hasOwnProperty.call(KIND_LABELS, row.kind),
       source: typeof row.source === "string" ? row.source : "",
       // Kept for retryBody; never rendered.
@@ -334,14 +437,19 @@
   }
 
   /**
-   * Order: what went wrong, then what is running, then what is waiting —
-   * oldest first inside each group.
+   * Order: what went wrong, then what ran and wants a look, then what is
+   * running, then what is waiting, oldest first inside each group.
    *
    * The oldest-first tail matches the drain, which claims by `created_at`
    * ascending. A list ordered newest-first would show the seller a different
    * next job than the one the extension is actually about to run.
+   *
+   * US-3374 puts `done` SECOND rather than last. The top two groups are both
+   * work a human has to do; the bottom two are progress. A finished cross-post
+   * whose photos were refused is a live listing with no images on it, which is
+   * not something to read under the waiting queue.
    */
-  var GROUP = { failed: 0, expired: 0, claimed: 1, queued: 2 };
+  var GROUP = { failed: 0, expired: 0, done: 1, claimed: 2, queued: 3 };
 
   function sortRows(views) {
     return (views || []).slice().sort(function (a, b) {
@@ -355,19 +463,29 @@
   }
 
   /**
-   * Turn the API's two lists into one ordered view list.
+   * Turn the API's THREE lists into one ordered view list.
    *
-   * They arrive separated (`pending` / `needsAttention`) precisely so a client
-   * cannot render the second as the first. Merging them here is safe only
-   * because `state` survives on every row and drives both the badge and the
-   * grouping — the separation is preserved in what the seller SEES, which is
-   * the thing the split was protecting.
+   * They arrive separated (`pending` / `needsAttention` / `finishedNeedsReview`)
+   * precisely so a client cannot render one as another. Merging them here is
+   * safe only because `state` survives on every row and drives the badge, the
+   * grouping and which actions the row offers; the separation is preserved in
+   * what the seller SEES, which is the thing the split was protecting.
+   *
+   * THE THIRD CONCAT IS US-3374 AND IT IS THE WHOLE STORY. The key shipped in
+   * US-3370 and background.js has forwarded it since; this function read two of
+   * the three and the rows were dropped on the floor. Folding them into either
+   * existing list was measured and is worse than dropping them: into `pending`
+   * a `done` row lands under Waiting with a stateClass no stylesheet answers and
+   * turns on "Run it now", and under needsAttention the web tells the seller
+   * nothing happened on the marketplace and to queue it again, which is how one
+   * listing becomes two.
    */
   function buildList(payload, opts) {
     var p = payload && typeof payload === "object" ? payload : {};
     var rows = []
       .concat(Array.isArray(p.pending) ? p.pending : [])
-      .concat(Array.isArray(p.needsAttention) ? p.needsAttention : []);
+      .concat(Array.isArray(p.needsAttention) ? p.needsAttention : [])
+      .concat(Array.isArray(p.finishedNeedsReview) ? p.finishedNeedsReview : []);
     var views = [];
     for (var i = 0; i < rows.length; i++) {
       var v = viewRow(rows[i], opts);
@@ -377,22 +495,37 @@
   }
 
   /**
-   * The list split into the three groups the popup labels, in render order.
+   * The list split into the four groups the popup labels, in render order.
    * Empty groups are omitted so the popup never draws a heading over nothing.
    * The rows inside each keep sortRows' order, so the "waiting" group reads
    * top-to-bottom in the order the drain will run them.
+   *
+   * THE HEADING HAS TO NAME WHAT THE ROWS ARE (US-3374). "Needs you" and
+   * "Waiting" are both false of a finished run, and a seller reads the heading
+   * before the row. "Ran, check the listing" says the two things that separate
+   * this group from the other three: it happened, and the rest is on the
+   * marketplace rather than here.
    */
-  var GROUP_ORDER = ["attention", "running", "waiting"];
-  var GROUP_LABELS = { attention: "Needs you", running: "Running now", waiting: "Waiting" };
+  var GROUP_ORDER = ["attention", "review", "running", "waiting"];
+  var GROUP_LABELS = {
+    attention: "Needs you",
+    review: "Ran, check the listing",
+    running: "Running now",
+    waiting: "Waiting",
+  };
 
   function groupOf(view) {
+    // `done` is tested FIRST and by state, not by a flag. A finished row sets
+    // neither `needsAttention` nor anything else the other arms read, so a
+    // fall-through would put it under Waiting, which is exactly the bug.
+    if (view.state === "done") return "review";
     if (view.state === "claimed") return "running";
     if (view.needsAttention) return "attention";
     return "waiting";
   }
 
   function groupRows(views) {
-    var by = { attention: [], running: [], waiting: [] };
+    var by = { attention: [], review: [], running: [], waiting: [] };
     for (var i = 0; i < (views || []).length; i++) by[groupOf(views[i])].push(views[i]);
     var out = [];
     for (var g = 0; g < GROUP_ORDER.length; g++) {
@@ -411,10 +544,20 @@
    * exists to end.
    */
   function summarize(views) {
-    var out = { waiting: 0, running: 0, attention: 0, total: 0 };
+    var out = { waiting: 0, running: 0, attention: 0, review: 0, total: 0 };
     for (var i = 0; i < (views || []).length; i++) {
       var v = views[i];
-      if (v.state === "claimed") out.running++;
+      // US-3374 AC2: `done` is counted FIRST, into a bucket of its own.
+      // `waiting` is the else-arm, and every consumer of it drives a call to
+      // action for work that has not happened yet: the popup hides "Run it
+      // now" on `waiting < 1` and "Cancel all" on `waiting < 2`. One finished
+      // row falling through to it turns both on for a queue with nothing left
+      // to run. `attention` is no better: it names "Clear N failed", and the
+      // row did not fail. `total` DOES include it, deliberately, for the same
+      // reason it includes the attention rows: it is the nav badge, the row
+      // wants a human, and a badge that cannot see it is silence.
+      if (v.state === "done") out.review++;
+      else if (v.state === "claimed") out.running++;
       else if (v.needsAttention) out.attention++;
       else out.waiting++;
       out.total++;
@@ -455,6 +598,12 @@
     if (c.attention) {
       parts.push(c.attention === 1 ? "1 needs you" : c.attention + " need you");
     }
+    // Last, and worded so it cannot be read as pending work. "1 ran with a
+    // problem" is the only one of the four parts in the past tense, which is
+    // the distinction the whole story turns on.
+    if (c.review) {
+      parts.push(c.review === 1 ? "1 ran with a problem" : c.review + " ran with problems");
+    }
     return parts.join(" · ");
   }
 
@@ -477,6 +626,7 @@
     summarize: summarize,
     statusLine: statusLine,
     reasonFor: reasonFor,
+    finishedReasonFor: finishedReasonFor,
     titleFor: titleFor,
   };
 })(typeof self !== "undefined" ? self : globalThis);

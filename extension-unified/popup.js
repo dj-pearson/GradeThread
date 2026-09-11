@@ -1584,16 +1584,34 @@ async function renderQueue(caps) {
   const retryable = rows.filter((r) => r.canRetry).length;
   retryAll.hidden = retryable < 2;
   retryAll.textContent = "Retry all " + retryable;
+  // Counted off `attention` and NOT off canDismiss, which US-3374 widened to
+  // cover finished rows. A button that says "failed" must act on failures only.
   clearFailed.hidden = counts.attention < 2;
   clearFailed.textContent = "Clear " + counts.attention + " failed";
   cancelAll.hidden = counts.waiting < 2;
 
+  // One sentence per true thing, and nothing about a group that is not on
+  // screen. The finished sentence is the one that has to contradict the other
+  // two out loud: the rows under it DID reach the marketplace, so the fix is
+  // there and running them again makes a second listing.
+  const noteBits = [];
+  if (counts.waiting || counts.running) {
+    noteBits.push(
+      "GradeThread runs the waiting ones in a background tab, one at a time, " +
+        "without taking your focus.",
+    );
+  }
+  if (counts.attention) {
+    noteBits.push("The ones under Needs you never reached the marketplace. Retry or clear them.");
+  }
+  if (counts.review) {
+    noteBits.push(
+      "The ones under Ran, check the listing did reach it. Fix those on the " +
+        "marketplace: running them again makes a second listing.",
+    );
+  }
   note.hidden = false;
-  note.textContent = counts.attention
-    ? "GradeThread runs the waiting ones in a background tab. The ones under " +
-      "Needs you never reached the marketplace. Retry or clear them."
-    : "GradeThread runs these in a background tab, one at a time, without " +
-      "taking your focus.";
+  note.textContent = noteBits.join(" ");
 
   for (const group of QUEUE_VIEW.groupRows(rows)) {
     const head = document.createElement("li");
@@ -1680,11 +1698,29 @@ function renderQueueRow(list, row, caps) {
     right.appendChild(retry);
   }
 
+  // US-3374: the action that HELPS a finished row, and the only one that does.
+  // Its note tells the seller to fix this on the marketplace; the link is how
+  // they get there. A `list` job carries no URL until it has run, so this is
+  // the first row type that can offer it: the result brings back the URL of
+  // the listing the run created (queue-view.js urlFor).
+  if (row.finished && row.listingUrl) {
+    const open = document.createElement("a");
+    open.className = "pop-linkbtn";
+    open.href = row.listingUrl;
+    open.target = "_blank";
+    open.rel = "noopener noreferrer";
+    open.textContent = "Open the listing";
+    right.appendChild(open);
+  }
+
   if (row.canCancel || row.canDismiss) {
     const drop = document.createElement("button");
     drop.type = "button";
     drop.className = "pop-linkbtn quiet";
-    drop.textContent = row.canCancel ? "Cancel" : "Dismiss";
+    // The word comes from the view, never from here. On a finished row it is
+    // "Clear", because the listing is live and "Dismiss" reads as undoing it.
+    drop.textContent = row.canCancel ? "Cancel" : (row.dismissLabel || "Dismiss");
+    if (row.dismissHint) drop.title = row.dismissHint;
     drop.addEventListener("click", async () => {
       drop.disabled = true;
       drop.textContent = "…";
@@ -1712,7 +1748,10 @@ function renderQueueRow(list, row, caps) {
   // of fixing it.
   if (row.reason) {
     const why = document.createElement("li");
-    why.className = "pop-delist-why";
+    // US-3374: a finished row's reason takes the warn tint. The failure tint
+    // in front of a listing that is live on the marketplace is the same
+    // overstatement as putting it under "Didn't run".
+    why.className = "pop-delist-why" + (row.finished ? " is-review" : "");
     why.textContent = row.reason;
     list.appendChild(why);
   }
@@ -1726,7 +1765,7 @@ function renderQueueRow(list, row, caps) {
   // line that means their listing has no images on it.
   if (row.photoAlert && row.photoNote) {
     const photos = document.createElement("li");
-    photos.className = "pop-delist-why";
+    photos.className = "pop-delist-why" + (row.finished ? " is-review" : "");
     photos.textContent = row.photoNote;
     list.appendChild(photos);
   }
@@ -1810,7 +1849,11 @@ function wireQueue() {
   if (clearFailed) {
     clearFailed.addEventListener("click", () => bulk(
       clearFailed,
-      (r) => r.canDismiss,
+      // US-3374: `canDismiss` now covers finished rows too, and this button
+      // says "failed". It walks the rows that actually failed; a bulk control
+      // whose label and whose selection disagree is how a seller clears a
+      // notice about a live listing they have not looked at yet.
+      (r) => r.canDismiss && r.needsAttention,
       (r) => send({ type: "GT_QUEUE_CANCEL", id: r.id }),
       "cleared",
     ));

@@ -119,7 +119,8 @@ function row(over) {
     needsAttention: [row({ id: "c", status: "failed" }), row({ id: "d", status: "expired" })],
   }, { now: NOW });
   const counts = V.summarize(list);
-  assert.deepStrictEqual(counts, { waiting: 1, running: 1, attention: 2, total: 4 });
+  // `review` is US-3374's fourth bucket and is 0 here: nothing finished.
+  assert.deepStrictEqual(counts, { waiting: 1, running: 1, attention: 2, review: 0, total: 4 });
   assert.strictEqual(
     counts.total, 4,
     "the badge total must include failed/expired rows — a badge that drops to " +
@@ -202,7 +203,11 @@ function row(over) {
   assert.strictEqual(V.viewRow({ id: 7 }, { now: NOW }), null);
   assert.deepStrictEqual(V.buildList(null, { now: NOW }), []);
   assert.deepStrictEqual(V.buildList({ pending: "nope" }, { now: NOW }), []);
-  assert.deepStrictEqual(V.summarize(null), { waiting: 0, running: 0, attention: 0, total: 0 });
+  assert.deepStrictEqual(V.buildList({ finishedNeedsReview: "nope" }, { now: NOW }), []);
+  assert.deepStrictEqual(
+    V.summarize(null),
+    { waiting: 0, running: 0, attention: 0, review: 0, total: 0 },
+  );
   // A row with no created_at sorts last rather than to the epoch, which would
   // put it above every real job.
   const list = V.buildList({

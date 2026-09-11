@@ -130,6 +130,11 @@
     meta.className = "pop-delist-meta";
     var bits = [view.kindLabel, view.platformLabel];
     if (view.reason) bits.push(view.reason);
+    // US-3374: the photo refusal too. Same gap the side panel had: a finished
+    // cross-post whose uploader rendered nothing carries all of its words in
+    // photoNote and none in `reason`, so this line showed the verb and the
+    // platform and said nothing about the listing having no images on it.
+    if (view.photoAlert && view.photoNote) bits.push(view.photoNote);
     meta.textContent = bits.join(" · ");
     meta.title = meta.textContent;
 

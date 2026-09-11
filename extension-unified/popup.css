@@ -810,6 +810,12 @@ kbd {
   padding: 6px 8px;
   margin: -2px 0 4px 36px;
 }
+/* US-3374: the same line under a row that RAN and left something to do.
+ * The failure tint would be a lie about it (nothing failed, the listing is
+ * live on the marketplace), so it takes the warn pair the row's own badge
+ * uses. Colour only: the shape, the radius and the indent stay identical, so
+ * the two read as one kind of line and not as two components. */
+.pop-delist-why.is-review { color: var(--warn); background: var(--warn-soft); }
 /* A failed or expired row, marked on the row itself and not only its badge.
  * A surface tint rather than an accent bar. */
 .pop-delist.is-attention { background: #fff7f8; }
@@ -825,6 +831,9 @@ kbd {
 }
 .pop-qgroup::after { content: ""; flex: 1 1 auto; height: 1px; background: var(--line); }
 .pop-qgroup[data-group="attention"] { color: var(--bad); }
+/* US-3374. Warn rather than bad: "Ran, check the listing" is work that
+   happened, and a red heading over it reads as a failure it was not. */
+.pop-qgroup[data-group="review"] { color: var(--warn); }
 .pop-qgroup[data-group="running"] { color: var(--warn); }
 /* The running group's marker. Static: the label beside it already says
    "Running now", and a pulse would only decorate that. */

@@ -146,6 +146,13 @@
         // The reason a row will not run, on the same line. "Failed" with no
         // reason is the message that makes someone uninstall rather than retry.
         if (row.reason) bits.push(row.reason);
+        // US-3374: and the photo refusal, which is neither a failure nor a
+        // reason. The popup has rendered it since US-3367 and this line did
+        // not, so the one row shape whose ONLY words live in photoNote, a
+        // finished cross-post whose uploader took the files and showed none of
+        // them, read here as "Ran · Cross-post · Poshmark" and nothing else.
+        // That is the US-3371 blank row again, one story later.
+        if (row.photoAlert && row.photoNote) bits.push(row.photoNote);
         status.textContent = bits.join(" · ");
         status.title = status.textContent;
         li.appendChild(status);
@@ -154,6 +161,21 @@
         // some marketplace tab and pulling it would leave that tab half done —
         // the rule lives in queue-view.js and is pinned there, so this asks
         // rather than deciding.
+        // US-3374: a finished row's one useful action. The panel is beside the
+        // marketplace tab the seller is already working in, which makes it the
+        // surface where "go and fix it there" is a single click. Retry is not
+        // offered on any row here and must not start being: on a finished row
+        // it re-runs a cross-post the marketplace already took.
+        if (row.finished && row.listingUrl) {
+          const open = document.createElement("a");
+          open.className = "pop-btn pop-btn-ghost";
+          open.href = row.listingUrl;
+          open.target = "_blank";
+          open.rel = "noopener noreferrer";
+          open.textContent = "Open the listing";
+          li.appendChild(open);
+        }
+
         if (row.canCancel) {
           const cancel = document.createElement("button");
           cancel.type = "button";
