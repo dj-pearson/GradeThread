@@ -97,4 +97,62 @@ final class DisputeFilingTests: XCTestCase {
         XCTAssertTrue(result.photos.isEmpty)
         XCTAssertEqual(result.skipped, 0)
     }
+
+    // MARK: - What the customer reads (US-2688)
+
+    func testAServerMessageNamingAPropertyIsNotShownToTheCustomer() {
+        // The exact string a seller saw for two days.
+        XCTAssertEqual(
+            DisputeErrorCopy.customerFacing("gradeReportId is required"),
+            DisputeErrorCopy.fallback
+        )
+        // And the snake_case spelling of the same defect.
+        XCTAssertEqual(
+            DisputeErrorCopy.customerFacing("grade_report_id is required."),
+            DisputeErrorCopy.fallback
+        )
+    }
+
+    func testTheServerKeepsOwningTheMessagesItWordsForPeople() {
+        // The whole point of US-2153 is that the window length is named by the
+        // side that enforces it. Swallowing these would be a worse bug than the
+        // one above: the seller would stop being told the window had closed.
+        for message in [
+            "The 7-day window to dispute this grade has passed.",
+            "You've already filed a dispute for this grade.",
+            "At most 8 evidence photos are allowed",
+            "Couldn't file the dispute",
+            "We couldn't tell which grade this dispute is about. Go back to the "
+                + "grade report and start the dispute from there.",
+        ] {
+            XCTAssertEqual(DisputeErrorCopy.customerFacing(message), message, message)
+        }
+    }
+
+    func testAnEmptyServerMessageFallsBack() {
+        XCTAssertEqual(DisputeErrorCopy.customerFacing("   "), DisputeErrorCopy.fallback)
+    }
+
+    func testTheDetectorLooksAtTokensNotTheWholeString() {
+        // A sentence that merely mentions a field still reads as a developer
+        // string, which is correct - nobody can act on it.
+        XCTAssertTrue(DisputeErrorCopy.namesAProperty("Missing field itemId"))
+        // Ordinary copy with punctuation and capitals must not trip it.
+        XCTAssertFalse(DisputeErrorCopy.namesAProperty("Please try again."))
+        XCTAssertFalse(DisputeErrorCopy.namesAProperty("Grade report not found"))
+    }
+
+    func testBrandNamesAreNotMistakenForFieldNames() {
+        // eBay, iPhone and iOS are camelCase by shape and ordinary words in
+        // seller copy. Flagging one would swap a good sentence for a generic
+        // apology - the opposite of the fix.
+        for message in [
+            "We couldn't reach eBay. Try again in a minute.",
+            "Take the photo on your iPhone in daylight.",
+            "Update iOS to continue.",
+        ] {
+            XCTAssertFalse(DisputeErrorCopy.namesAProperty(message), message)
+            XCTAssertEqual(DisputeErrorCopy.customerFacing(message), message, message)
+        }
+    }
 }

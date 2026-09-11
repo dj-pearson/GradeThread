@@ -305,7 +305,20 @@ struct DisputeSheet: View {
             // actually hit — the window has closed, a dispute already exists —
             // arrive worded by the side that owns the rule. Nothing here
             // hardcodes the window length, which is the point of US-2153.
-            phase = .failed(FriendlyErrorCopy.userMessage(for: error))
+            //
+            // US-2688: pass that string through DisputeErrorCopy first. Handing
+            // the server's wording to the customer is right until the server's
+            // wording is "gradeReportId is required", which is what a seller
+            // read for two days. FriendlyErrorCopy already turns an offline
+            // failure into something actionable; this covers the other case it
+            // cannot see, a rejection worded for a developer.
+            let raw = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+            phase = .failed(
+                FriendlyErrorCopy.actionMessage(
+                    for: error,
+                    fallback: DisputeErrorCopy.customerFacing(raw)
+                )
+            )
         }
     }
 }

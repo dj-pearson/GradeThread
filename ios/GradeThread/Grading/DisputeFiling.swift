@@ -50,3 +50,54 @@ struct DisputeRequest: Encodable, Equatable {
         try JSONEncoder.iso8601.encode(self)
     }
 }
+
+/// US-2688, the half of this bug that is about the customer rather than the wire.
+///
+/// The sheet shows the server's own `error` string, and that is deliberate: the
+/// two rejections a seller can actually hit - the 7-day window has closed, a
+/// dispute already exists - are worded by the side that owns the rule, and
+/// US-2153 exists so the window length is never hardcoded here.
+///
+/// The failure mode is what happens when the server's string is NOT customer
+/// copy. "gradeReportId is required" went straight to the screen of someone who
+/// had just paid for a grade, was inside a window they could not reopen, and had
+/// no way to act on it. The edge no longer sends that, but the sheet should not
+/// depend on every future validation message being written with a customer in
+/// mind. A developer string reaching a customer is a defect wherever it starts.
+///
+/// Pure and free of any view, so it is tested directly rather than through UI.
+enum DisputeErrorCopy {
+    /// Shown instead of a message a person cannot act on.
+    static let fallback =
+        "We couldn't file your dispute. Please try again, and contact support if it keeps happening."
+
+    /// True when `message` reads like an identifier out of the source rather
+    /// than a sentence: a snake_case or camelCase token with no spaces in it.
+    /// Prose never contains one; a validation message written against a field
+    /// name always does.
+    ///
+    /// The camelCase head must be at least three letters, and that is not a
+    /// tuning knob - it is what keeps `eBay`, `iPhone` and `iOS` out. All three
+    /// are camelCase by shape and all three are ordinary words in seller copy,
+    /// so a rule without it would replace a perfectly good sentence about eBay
+    /// with a generic apology. A real field name starts with a whole word:
+    /// grade, item, listing, payout.
+    static func namesAProperty(_ message: String) -> Bool {
+        let snake = "^[a-z][a-z0-9]*(_[a-z0-9]+)+$"
+        let camel = "^[a-z]{3}[a-z0-9]*([A-Z][a-zA-Z0-9]*)+$"
+        for token in message.split(whereSeparator: { $0 == " " || $0 == "\n" || $0 == "\t" }) {
+            let word = token.trimmingCharacters(in: CharacterSet(charactersIn: "\"'`.,:;()[]"))
+            if word.isEmpty { continue }
+            if word.range(of: snake, options: .regularExpression) != nil { return true }
+            if word.range(of: camel, options: .regularExpression) != nil { return true }
+        }
+        return false
+    }
+
+    /// The line to put on screen for a server message.
+    static func customerFacing(_ message: String) -> String {
+        let trimmed = message.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty { return fallback }
+        return namesAProperty(trimmed) ? fallback : trimmed
+    }
+}

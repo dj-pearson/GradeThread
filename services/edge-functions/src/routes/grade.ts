@@ -1945,13 +1945,39 @@ gradeRoutes.post("/dispute", async (c) => {
         : "";
   const gradeReportId = rawGradeReportId.trim();
   const reason = typeof body.reason === "string" ? body.reason.trim() : "";
+  // US-2688, the other half of the same defect: what the customer READS.
+  //
+  // These strings are rendered verbatim by the iOS sheet and the web page, so a
+  // validation message here is customer copy whether or not it was written as
+  // such. "gradeReportId is required" is what a seller saw for two days while
+  // every filing from an iPhone failed, and it tells them nothing they can act
+  // on. Someone filing a dispute is already unhappy and is inside a window that
+  // closes; being handed a property name is its own injury.
+  //
+  // Say what is wrong and what to do. The property name belongs in `field`, for
+  // an API caller or a log, never in `error`.
   if (!gradeReportId) {
     return c.json(
-      { error: "gradeReportId (or grade_report_id) is required" },
+      {
+        error:
+          "We couldn't tell which grade this dispute is about. Go back to the " +
+          "grade report and start the dispute from there.",
+        code: "DISPUTE_MISSING_REPORT",
+        field: "grade_report_id",
+      },
       400,
     );
   }
-  if (!reason) return c.json({ error: "reason is required" }, 400);
+  if (!reason) {
+    return c.json(
+      {
+        error: "Tell us what's wrong with the grade so we can review it.",
+        code: "DISPUTE_MISSING_REASON",
+        field: "reason",
+      },
+      400,
+    );
+  }
   const images = Array.isArray(body.images)
     ? body.images.filter(
         (x): x is string => typeof x === "string" && x.length > 0,
@@ -2111,12 +2137,44 @@ gradeRoutes.post("/authenticity-appeal", async (c) => {
   }
 
   const body = await c.req.json().catch(() => ({})) as Record<string, unknown>;
+  // US-2688: the dispute route's bug, one function down, still armed.
+  //
+  // This read was `body.gradeReportId` alone. Only the web calls it today and
+  // the web hand-builds camelCase, so it works - but iOS encodes every EdgeAPI
+  // request with .convertToSnakeCase and no CodingKeys alias can stop it, so
+  // the day an appeal screen ships on the phone, every appeal 400s exactly the
+  // way every dispute did. The seller contesting a red_flags verdict published
+  // on their public certificate is the last person who should meet that.
+  //
+  // Reading both spellings costs one `??` and cannot be undone by a client
+  // change. ios/Scripts/check-request-key-casing.py fails the day a phone call
+  // site appears without it.
+  const rawAppealReportId =
+    typeof body.gradeReportId === "string"
+      ? body.gradeReportId
+      : typeof body.grade_report_id === "string"
+        ? body.grade_report_id
+        : "";
+  if (!rawAppealReportId.trim()) {
+    // Ahead of validateAppeal, whose own message for this case names the column
+    // (`grade_report_id is required.`) and is rendered to the customer verbatim.
+    return c.json(
+      {
+        error:
+          "We couldn't tell which assessment you're appealing. Open the grade " +
+          "report and start the appeal from there.",
+        code: "APPEAL_MISSING_REPORT",
+        field: "grade_report_id",
+      },
+      400,
+    );
+  }
   const invalid = validateAppeal({
-    grade_report_id: body.gradeReportId,
+    grade_report_id: rawAppealReportId,
     reason: body.reason,
   });
   if (invalid) return c.json({ error: invalid }, 400);
-  const gradeReportId = String(body.gradeReportId).trim();
+  const gradeReportId = rawAppealReportId.trim();
   const reason = String(body.reason).trim().slice(0, 2000);
 
   // Ownership (US-268): grade_reports carries no user_id, so verify through the

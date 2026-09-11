@@ -290,6 +290,12 @@ const IOS_GUARDS = [
   // 5.2.2 rejection is resolved by authorization from the marketplace that does
   // not exist. So the sentences are checked rather than trusted.
   ["the in-app delist matches what we told Apple", "check-web-delist.py"],
+  // US-2688: the only guard here that reads BOTH trees, because the bug lives
+  // between them. Every EdgeAPI request is encoded with .convertToSnakeCase, so
+  // a route reading a camelCase body key is unreachable from the phone - which
+  // Swift and TypeScript both look correct about, and which no single-tree scan
+  // can see. It cost every grade dispute filed from an iPhone for two days.
+  ["iOS request keys match the routes that read them", "check-request-key-casing.py"],
 ];
 
 const results = [];
