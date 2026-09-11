@@ -353,6 +353,7 @@ if (on("web")) {
   // costs every one of them. Cheap enough to sit beside prd-lint.
   run("web: doc path refs", "node scripts/doc-refs.mjs");
   run("web: comment path refs", "node scripts/check-comment-path-refs.mjs");
+  run("web: operator script read checks", "node scripts/check-operator-read-checks.mjs");
   // US-2802: a form field the edge parses that no client can send. Pure file
   // reads, no Docker, no network — and it catches the one kind of dead code
   // where every visible piece is alive and the missing piece is in another

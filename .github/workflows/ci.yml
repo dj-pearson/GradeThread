@@ -231,6 +231,13 @@ jobs:
       - name: Comment path refs
         if: ${{ !cancelled() }}
         run: node scripts/check-comment-path-refs.mjs
+
+      # US-3396: an operator script that renders a failed read as a real number.
+      # One printed DO NOT BUILD THE PUBLIC PAGES when its first read failed, and
+      # exited 0, so a dropped read and a real verdict were byte-identical.
+      - name: Operator script read checks
+        if: ${{ !cancelled() }}
+        run: node scripts/check-operator-read-checks.mjs
       # US-2802: form fields the edge parses that no client can send. The first
       # run found that the photo Live Capture tier has never issued its badge
       # once — evaluateLiveCapture returns early on an opt-in nothing sets — and

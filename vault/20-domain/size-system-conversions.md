@@ -8,7 +8,7 @@ code_refs:
   - services/edge-functions/src/lib/size-systems.ts
   - services/edge-functions/src/lib/grading-size.ts
   - services/edge-functions/src/lib/sizing-charts.ts
-reviewed: 2026-09-10
+reviewed: 2026-09-11
 tags: [sizing, brands, conversion, contract]
 summary: Only four size-system conversions are performed, every one derived from paired data already in the corpus; EU, JP, AU and alpha are refused outright, and a refusal is the correct answer rather than a gap.
 ---
@@ -160,3 +160,5 @@ above exists, so a chart added tomorrow is *read* rather than stored.
 
 - [[brand-kb-decoder-bar]] — the discipline this note applies to sizing.
 - [[brand-kb-negative-findings]] — the other place absence is recorded as correct.
+
+> **Re-read 2026-09-11.** US-3324 changed one brand's `brand_match` array in `sizing-charts.ts`; no size system, conversion or chart shape this note describes moved.

@@ -259,6 +259,15 @@ procedure: **`vault/10-ops/backups.md`**; mechanism: `scripts/ops/backup-postgre
 (BACKUPS.md drill log). This section is the **prod** drill: restore a real
 offsite dump on a scratch host. Record the result here so the drill has a home.
 
+**`restore-postgres.sh` refuses the first time you run it, on every target,
+including the scratch one (US-3394).** That is not a fault and there is no flag
+that turns it off: the refusal prints a credential-free
+`RESTORE_CONFIRM_TARGET='<host>:<port>/<dbname>'` line, and you re-run with it
+once you have read it and confirmed it names the scratch host. `--clean` drops
+every object in the target, so naming the target back is the whole interface.
+`ALLOW_PROD_RESTORE` is no longer read; setting it prints a note saying so and
+the restore still refuses. See [[backups]] §"The restore guard (US-3394)".
+
 | Drill date | Backup restored (timestamp) | Restore target | Result (ok/fail) | By |
 |---|---|---|---|---|
 |  |  |  |  |  |
@@ -276,7 +285,10 @@ offsite dump on a scratch host. Record the result here so the drill has a home.
   nightly dump confirmed in the offsite bucket (with `.sha256` sidecar)
 - ☐ R2 lifecycle rules created (30d on `pg/` and `storage-deleted/`)
 - ☐ A prod offsite dump restored to a scratch Supabase Postgres via
-  `restore-postgres.sh` and sanity-queried (row counts plausible)
+  `restore-postgres.sh`, confirmed back with `RESTORE_CONFIRM_TARGET` on the
+  second run, and ending on the script's own `PASS` line (it judges the counts,
+  the `schema_migrations` row and the table coverage itself; the exit code
+  matches the verdict)
 - ☐ Restore runtime recorded above (informs RTO; targets in `vault/10-ops/backups.md`)
 - ☐ `ALERT_WEBHOOK_URL` on both backup crons verified (break one on purpose,
   see the alert)

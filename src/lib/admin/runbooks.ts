@@ -258,7 +258,25 @@ export const RUNBOOKS: Runbook[] = [
   {
     slug: "restore-drill",
     sourceNote: "vault/10-ops/backups.md",
-    reviewed: "2026-08-17",
+    // Re-read 2026-09-11 (US-3401), and there were two things to carry.
+    //
+    // (1) US-3394 replaced the restore's production guard. The old check only
+    // fired on a target containing "gradethread.com", which no GradeThread
+    // Postgres DSN contains, so it never fired at all. The replacement refuses
+    // EVERY target and makes the operator name back host:port/dbname. This copy
+    // said nothing about it, which is the worst place for that gap to sit: the
+    // in-app runbook is what somebody follows mid-incident without having read
+    // the script, so they would have hit an unexplained refusal AFTER --clean
+    // had already begun dropping objects. Step 2 now leads with the refusal and
+    // a callout carries the three properties backups.md says not to soften.
+    //
+    // (2) The storage callout repeated a claim backups.md corrected the same
+    // day: a wrong crypt password does NOT yield garbage names, rclone crypt is
+    // authenticated and fails the transfer itself. The case the sample check
+    // really catches is a same-name/size/modtime file that `rclone copy` skips.
+    // Left as-is it would have told an operator the sample check proves the
+    // password, which it does not.
+    reviewed: "2026-09-11",
     title: "Backup & restore drill",
     category: "Resilience",
     summary:
@@ -283,10 +301,12 @@ export const RUNBOOKS: Runbook[] = [
       "## Drill steps",
       "",
       "1. **Take a fresh backup** of prod Postgres using the documented backup procedure. Note the timestamp and size. The artifact is encrypted on the host, so what lands offsite is `.age`.",
-      "2. **Restore into a throwaway target** (a scratch database / staging instance), never over prod. `restore-postgres.sh` verifies the checksum, then DECRYPTS, then restores — so you must point `BACKUP_AGE_IDENTITY` at the private key file first. **An age-encrypted dump without its identity is random bytes forever.** The identity needs at least two independent, durable homes, and neither of them may be the machine being backed up.",
-      "3. **Verify integrity** — row counts on the high-value tables (users, submissions, grade_reports, listings, sales) are in the expected range, and a spot-checked certificate row resolves.",
+      "2. **Restore into a throwaway target** (a scratch database / staging instance), never over prod. **The first run refuses, on purpose.** The refusal prints the exact line to re-run with, `RESTORE_CONFIRM_TARGET='<host>:<port>/<dbname>'`; read it, confirm it names the throwaway and not prod, then paste it back and run again. Separately, `restore-postgres.sh` verifies the checksum and then DECRYPTS, so you must point `BACKUP_AGE_IDENTITY` at the private key file first. **An age-encrypted dump without its identity is random bytes forever.** The identity needs at least two independent, durable homes, and neither of them may be the machine being backed up.",
+      "3. **Verify integrity.** The script judges this itself and ends on a single `PASS` or `FAIL` line, with the exit code matching. It fails the run on an empty table, an empty `schema_migrations`, or any table listed in the dump and absent from the target. `pg_restore` reporting \"errors ignored\" for pre-existing Supabase scaffolding is expected and is not a failure; `pg_restore` failing for any other reason now stops the run instead of being swallowed. Set `SOURCE_DB_URL` when a source database is reachable and it compares the two value-for-value. Spot-check a certificate row by hand on top of that.",
       "4. **Time it.** Record how long the restore took end-to-end; that number is your real RTO.",
       "5. **Tear down** the throwaway target.",
+      "",
+      "> **The refusal in step 2 is the guard, and it refuses EVERY target (US-3394).** There is no target it lets through unconfirmed, including a scratch one, because `--clean` drops every object in whatever you pointed it at before it writes anything. Three properties follow, and none of them is a nuisance to route around. The confirmation is the target's own `host:port/dbname`, so a blanket flag left in a shell profile or a CI environment cannot satisfy it, and confirming one database does not let you restore over a different one. It is credential-free, so you never re-type a password into a second place mid-incident and the line is safe in scrollback. And `ALLOW_PROD_RESTORE` is **no longer read**: if you are following an older copy of this runbook that sets it, the script prints a note saying so and still refuses.",
       "",
       "## The photos are a second restore, with its own script (US-2659)",
       "",
@@ -295,7 +315,7 @@ export const RUNBOOKS: Runbook[] = [
       "1. **Full rebuild** (the volume is gone): `RCLONE_REMOTE=r2crypt:gradethread-backups bash scripts/ops/restore-storage.sh /var/lib/supabase/storage` into an EMPTY target.",
       "2. **One deleted photo** is a different operation: restore the dated `storage-deleted/<ts>` prefix into a SCRATCH directory and copy the single file across. Never point the full-rebuild form at the live volume to recover one object — it pulls the whole prefix and drags every other file back to its backed-up state.",
       "",
-      "> **`rclone` exiting 0 is not success.** It returns 0 for a copy that produced zero files, and a crypt remote with the wrong password does not error on *listing* — it yields names that decrypt to garbage. `restore-storage.sh` therefore refuses an empty restore and re-checks a sample byte-for-byte; that content check is the only thing that actually proves the password.",
+      "> **`rclone` exiting 0 is not success.** It returns 0 for a copy that produced zero files, so an empty result prints like a pass. This line used to add that a wrong crypt password yields names which decrypt to garbage, and that was measured wrong on 2026-09-11: crypt is authenticated, so a bad password fails the transfer inside rclone itself. The case that gets *through* rclone is a file already sitting in the target under the same name, size and modtime. `rclone copy` **skips** it, the script reports `restored N file(s)`, and the bytes are someone else's. `restore-storage.sh` therefore refuses an empty restore and re-checks a sample byte-for-byte, which is what catches that impostor, and it is the pair to `RESTORE_ALLOW_NONEMPTY=1`. Never turn the sample off, least of all when you have turned the non-empty refusal off.",
       "",
       "> **The decryption password lives on the host this backup exists to survive losing.** If that box is gone, every object in R2 is unreadable ciphertext and no script here can help. This is the open half of US-2659 and it is an operator action, not a code change.",
       "",

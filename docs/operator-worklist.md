@@ -672,6 +672,8 @@ priority 1978
 
 on the prod DB host, install the backup cron and confirm a dump plus its .sha256 lands in the offsite bucket, then run restore-postgres.sh against a REAL offsite dump on a scratch host and record the measured timing (AC1, AC2, AC4). Until the cron is proven to run, the real RPO is not 24 hours, it is total loss.
 
+restore-postgres.sh refuses the first run on every target, including the scratch host (US-3394). That is expected: the refusal prints a credential-free RESTORE_CONFIRM_TARGET='<host>:<port>/<dbname>' line, and you re-run with it once you have read it and checked it names the scratch host. Nothing turns the gate off: ALLOW_PROD_RESTORE is no longer read, and setting it prints a note saying so while the restore still refuses. The full procedure is vault/10-ops/backups.md.
+
 ### US-2434 — Email-keyed PII retained for accounts deleted BEFORE the US-2005 purge shipped is still queryable
 
 priority 1982

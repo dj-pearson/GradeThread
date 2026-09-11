@@ -12,7 +12,7 @@ code_refs:
   - src/pages/legal/privacy.tsx
   - src/pages/legal/__tests__/privacy-buyer.test.tsx
   - extension-unified/SUBMISSION.md
-reviewed: 2026-09-10
+reviewed: 2026-09-11
 tags: [buyer, privacy, legal, consent, contract]
 summary: Buyer personal data is enumerated in one register that the export iterates; legally-sensitive buyer copy is either behind an operator kill-switch that defaults off or bound to a fixed disclosure, and both are asserted rather than described.
 ---
@@ -172,3 +172,5 @@ makes no network request of its own, and is enabled only on hosts already
 in host_permissions. So NO new data reaches a server and no buyer
 disclosure changed. Nothing this note asserts has moved -- re-read to
 confirm, which is the only reason the date below moved.
+
+> **Re-read 2026-09-11.** US-3398 changed only the deletion-log fields `account.ts` writes; the erasure shape and the FK assertion this note describes are untouched.

@@ -9,7 +9,7 @@ code_refs:
   - supabase/migrations/00037_pricing_split.sql
   - services/edge-functions/src/lib/credit-ledger.ts
   - services/edge-functions/src/routes/account.ts
-reviewed: 2026-08-16
+reviewed: 2026-09-11
 tags: [billing, ledger, retention, privacy, contract]
 summary: grade_credit_transactions is a financial record — no foreign key deletes it, no trigger permits editing it, and account erasure redacts the PII around it instead of removing it.
 ---
@@ -79,6 +79,14 @@ The redaction writes a marker object rather than NULL, so a reader can tell
 `subscription_events_redacted` in 00595. The retention is therefore checkable
 from the log rather than asserted in a code comment. `stripe_customer_id` is an
 opaque handle, not PII, and it is the join key a representment starts from.
+
+> **Re-read 2026-09-11 against the US-3398 change to `account.ts`.** The
+> retention claims above still hold. One column on that same table does NOT:
+> `storage_purged` was a hardcoded `true` on both erasure paths from 00064
+> until US-3398, so it says nothing about any row written before then and
+> **cannot be read historically**. `stripe_deleted` has the same shape in the
+> other direction (US-3404). Checkable-from-the-log is true of the three
+> columns 00595 added, and was not true of the two beside them.
 
 ## 2. It cannot be edited
 

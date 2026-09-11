@@ -71,6 +71,16 @@ issue notifications enabled.
 3. If the volume/data is lost → restore from backup: `vault/10-ops/backups.md` → "Restore
    procedure" (verified by drill; `scripts/ops/restore-postgres.sh`). Prefer
    PITR when WAL archiving covers the loss window.
+   **`restore-postgres.sh` refuses the first run on every target (US-3394)**, so
+   expect it: the refusal prints a credential-free
+   `RESTORE_CONFIRM_TARGET='<host>:<port>/<dbname>'` line, and you re-run with it
+   after reading it. Nothing turns the gate off: `ALLOW_PROD_RESTORE` is no
+   longer read, and setting it prints a note saying so while the restore still
+   refuses. The gate sits in front of everything destructive, so a refusal means
+   the target was not touched. **Do not route around it by calling `pg_restore` by hand.**
+   `--clean` drops every object before it writes, and the hand-run loses the
+   checksum, the table-coverage check and the PASS/FAIL verdict that tell you
+   whether the database you just replaced is fit for service.
 4. After recovery: run `integrity-scan` cron; verify a test grade + certificate.
 
 ### 2. Edge crash-loop — or a hang, which looks the same and behaves the opposite

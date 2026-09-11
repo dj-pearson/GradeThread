@@ -4,7 +4,6 @@ type: reference
 status: current
 source_of_truth: vault
 code_refs:
-  - supabase/migrations/00794_storage_policies_deny_anon_list.sql
   - services/edge-functions/src/tests/storage-anon-list_test.ts
 reviewed: 2026-09-11
 tags: [ops, security, storage, supabase, rls]
