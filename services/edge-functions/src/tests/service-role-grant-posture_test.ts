@@ -90,6 +90,22 @@ const GRANT_RE = new RegExp(
 
 const TABLE_RE = /CREATE TABLE(?:\s+IF NOT EXISTS)?\s+(?:public\.)?(\w+)\s*\(/gi;
 
+// US-3355. RLS is the ONLY layer on 88 of the 142 registered operator tables,
+// so this guard has to read it rather than assume it.
+//
+// Both forms rls-guard_test.ts recognises, plus the one it does not: a DISABLE.
+// Nothing in the corpus disables RLS today, which is exactly why the guard
+// should already understand the statement - the first one to appear is the
+// interesting one, and a set that only ever grows would score it as still on.
+const RLS_TOGGLE_RE =
+  /ALTER TABLE\s+(?:IF EXISTS\s+)?(?:public\.)?(\w+)\s+(ENABLE|DISABLE) ROW LEVEL SECURITY/gi;
+// 00381 turns RLS on for the seven ads_* tables inside a DO block:
+//   FOREACH t IN ARRAY ARRAY['a','b',...] LOOP
+//     EXECUTE format('ALTER TABLE public.%I ENABLE ROW LEVEL SECURITY;', t);
+// A static reader that misses this scores seven protected tables as bare.
+const RLS_LOOP_RE =
+  /FOREACH\s+\w+\s+IN\s+ARRAY\s+ARRAY\s*\[([\s\S]*?)\]\s*LOOP([\s\S]*?)END LOOP/gi;
+
 // Same CREATE/DROP-in-file-order treatment rls-guard_test.ts uses, for the same
 // reason: a policy a later migration dropped is not a policy.
 const POLICY_RE =
@@ -165,6 +181,8 @@ export interface Violation {
 export interface Analysis {
   /** Every table the migrations CREATE. */
   tables: Set<string>;
+  /** Tables whose RLS is ON after replaying every ENABLE/DISABLE in file order. */
+  rlsEnabled: Set<string>;
   /** Privileges anon/authenticated still hold after replaying every DDL. */
   held: Map<string, Record<ClientRole, Set<Priv>>>;
   /** Privileges some migration explicitly revoked, per role. */
@@ -197,6 +215,31 @@ export function analyze(fullSql: string, registry: Iterable<string>): Analysis {
     const t = m[1]!;
     tables.add(t);
     if (!held.has(t)) held.set(t, fullPrivs());
+  }
+
+  // RLS, replayed in FILE ORDER across both spellings so a DISABLE that lands
+  // after an ENABLE wins, and a loop that enables after a stray DISABLE wins
+  // back. Events are sorted by their offset in the joined corpus, which is the
+  // order the migrations apply in.
+  const rlsEvents: { at: number; table: string; on: boolean }[] = [];
+  for (const m of fullSql.matchAll(RLS_TOGGLE_RE)) {
+    rlsEvents.push({
+      at: m.index ?? 0,
+      table: m[1]!,
+      on: m[2]!.toUpperCase() === "ENABLE",
+    });
+  }
+  for (const m of fullSql.matchAll(RLS_LOOP_RE)) {
+    if (!/ENABLE ROW LEVEL SECURITY/i.test(m[2] ?? "")) continue;
+    for (const lit of (m[1] ?? "").matchAll(/'([a-z0-9_]+)'/gi)) {
+      rlsEvents.push({ at: m.index ?? 0, table: lit[1]!, on: true });
+    }
+  }
+  rlsEvents.sort((a, b) => a.at - b.at);
+  const rlsEnabled = new Set<string>();
+  for (const e of rlsEvents) {
+    if (e.on) rlsEnabled.add(e.table);
+    else rlsEnabled.delete(e.table);
   }
 
   const revoked = new Map<string, Record<ClientRole, Set<Priv>>>();
@@ -294,7 +337,16 @@ export function analyze(fullSql: string, registry: Iterable<string>): Analysis {
     }
   }
 
-  return { tables, held, revoked, policies, declared, grantStatements, violations };
+  return {
+    tables,
+    rlsEnabled,
+    held,
+    revoked,
+    policies,
+    declared,
+    grantStatements,
+    violations,
+  };
 }
 
 async function loadMigrations(): Promise<string> {
@@ -378,6 +430,229 @@ Deno.test("US-3350: the guard is reading a real corpus (floor assertions)", asyn
   for (const known of ["quest_definitions", "garment_baselines", "oauth_grants"]) {
     assert(registry.includes(known), `${known} missing from the parsed registry`);
   }
+});
+
+// US-3355: the 88 registered operator tables that have never been revoked from.
+//
+// This is a CENSUS with a ratchet on it, not an allowlist anyone should want to
+// grow. Each of these holds all seven privileges for anon and authenticated from
+// the Supabase default grant at CREATE TABLE, and RLS-with-zero-policies is the
+// only thing keeping a client out. On 2026-09-11 prod's PostgREST OpenAPI
+// document, fetched with the anon key that ships in the browser bundle,
+// advertised 87 of them and published 941 of their column names; the 88th,
+// grading_reference_photos (00789), is absent only because prod has not applied
+// that migration yet.
+//
+// The assertion below is a SUBSET check, so the list can only shrink: revoking
+// one is free, and a NEW registered table that ships without a revoke fails
+// until someone either revokes it or adds the name here with a reason.
+//
+// Grouped by what a policy on it would actually hand a client. The grouping is
+// the point - a job lock and a table of authentication tells are not the same
+// risk, and the retrofit order in [[service-role-tables]] follows these groups.
+const NO_REVOKE_OPERATOR_TABLES = [
+  // 1. Credential and session material in flight. A read is a step toward
+  // completing somebody else's handshake; code_verifier is the PKCE secret.
+  "cloud_storage_oauth_states",
+  "google_oauth_states",
+  "google_photos_import_sessions",
+  "oauth_states",
+  "phone_capture_photos",
+  "phone_capture_sessions",
+  "qbo_oauth_states",
+  // 2. The connector's OAuth authorization server. Secrets are hashed, so a
+  // read is a read of who authorized whom; a WRITE mints a grant and skips the
+  // consent screen, which is the one thing an authorization server must refuse.
+  "oauth_access_tokens",
+  "oauth_authorization_codes",
+  "oauth_clients",
+  "oauth_grants",
+  "oauth_refresh_tokens",
+  // 3. Identity, money and legal records about named people. Names, home
+  // addresses, a taxpayer id, Stripe and App Store identifiers, and an abuse
+  // record that accuses a specific user.
+  "affiliate_tax_profiles",
+  "ai_usage_events",
+  "appstore_processed_transactions",
+  "billing_reconciliation_flags",
+  "email_consent_audit",
+  "flipdesk_subscription_events",
+  "google_processed_purchases",
+  "guarantee_claims",
+  "guarantee_remedies",
+  "measure_card_requests",
+  "pending_refunds",
+  "subscription_agreements",
+  "subscription_cancellations",
+  "support_abuse_events",
+  // 4. One seller's operational data, readable by another. The sharpest is
+  // api_idempotency_records, which stores a prior response BODY verbatim.
+  "ad_click_attributions",
+  "api_idempotency_records",
+  "badge_click_events",
+  "ebay_pending_webhook_events",
+  "flipdesk_sync_conflicts",
+  "google_sheet_sync_state",
+  "help_deflections",
+  "help_feedback",
+  "mcp_tool_calls",
+  "measure_corrections",
+  "support_assistant_usage",
+  // 5. The admin surface and the permission model itself. Reading these is an
+  // org chart and an internal roadmap; WRITING admin_scope_grants or role_scopes
+  // is privilege escalation in one INSERT.
+  "admin_notifications",
+  "admin_saved_views",
+  "admin_scope_grants",
+  "admin_task_comments",
+  "admin_task_projects",
+  "admin_tasks",
+  "bulk_admin_operations",
+  "permission_scopes",
+  "role_scopes",
+  // 6. The agent kernel. agent_proposals is the queue an operator approves from,
+  // so a write is a request to execute something on the platform's behalf.
+  "agent_handoffs",
+  "agent_memory",
+  "agent_proposals",
+  "agent_run_steps",
+  "agent_runs",
+  "agents",
+  // 7. GradeThread's own paid acquisition: budgets, spend, and the search terms
+  // that convert. Competitive intelligence about the company, not about a user.
+  "ads_accounts",
+  "ads_ad_groups",
+  "ads_ads",
+  "ads_campaigns",
+  "ads_change_audit",
+  "ads_keywords",
+  "ads_metrics_daily",
+  "ads_recommendations",
+  "ads_search_terms",
+  "ads_sync_runs",
+  // 8. Proprietary reference data - the brand knowledge base, the authenticity
+  // tells, the style-code decoders and their crawl state. Months of backfill,
+  // and authenticity_references read the other way round is a counterfeiter's
+  // checklist of what a grader looks for.
+  "authenticity_references",
+  "brand_colorways",
+  "brand_knowledge",
+  "brand_size_charts",
+  "brand_style_codes",
+  "brand_styles",
+  "durability_aggregates",
+  "garment_baselines",
+  "garment_measurement_stats",
+  "impact_factors",
+  "registered_number_lookups",
+  "registered_number_registry",
+  "registered_number_sightings",
+  "style_code_brand_candidates",
+  "style_code_discovery_state",
+  "style_code_names",
+  "style_code_observations",
+  "style_code_prospect_state",
+  "style_code_sweeps",
+  // 9. Grading internals. grade_report_revisions is deny-all even though the
+  // data is public, because the only correct read re-applies the withhold check
+  // (US-2569); a read policy would make the revision trail the way around it.
+  "grade_flaws_only",
+  "grade_report_revisions",
+  "grading_reference_photos",
+  // 10. Reward and pricing economics. Readable, it is which quest pays best and
+  // what every plan used to cost; writable, it mints XP.
+  "pricing_plan_revisions",
+  "quest_definitions",
+  "reward_quests",
+  // 11. No identity to scope to at all (US-2592). Grain is (article, surface,
+  // day), which is what lets a public help page increment it with no consent
+  // prompt. Lowest value of the 88 and still in the published API surface.
+  "help_article_views",
+];
+
+/** Registered operator tables whose RLS this corpus never turns on. */
+export function rlsGaps(a: Analysis, registry: Iterable<string>): string[] {
+  const out: string[] = [];
+  for (const t of registry) {
+    if (!a.tables.has(t)) continue;
+    if (!a.rlsEnabled.has(t)) out.push(t);
+  }
+  return out.sort();
+}
+
+/** Registered tables with no REVOKE that the census above does not name. */
+export function unpinnedNoRevoke(
+  a: Analysis,
+  registry: Iterable<string>,
+  pinned: Iterable<string>,
+): string[] {
+  const known = new Set(pinned);
+  const out: string[] = [];
+  for (const t of registry) {
+    if (!a.tables.has(t)) continue;
+    if (a.revoked.has(t)) continue;
+    if (!known.has(t)) out.push(t);
+  }
+  return out.sort();
+}
+
+// US-3355 AC1/AC2. rls-guard_test.ts asserts RLS-enabled only for tables its
+// `checked` set reaches: owner-column tables, PARENT_SCOPED, and
+// SERVICE_ONLY_FORCED. A SERVICE_ROLE_ONLY entry alone does NOT put a table in
+// that set - it only excuses the table from needing a policy. So 37 of these 88
+// (admin_tasks, the six agent_* tables, the five brand_* tables, the style_code_*
+// family, oauth_clients, oauth_access_tokens, oauth_refresh_tokens and the rest)
+// are registered as deny-all while nothing in CI asserts the deny.
+//
+// This closes that without a second registry and without touching rls-guard:
+// every table the registry names must have RLS on, whether or not the other
+// guard happens to reach it. For the 88 it is the only layer there is.
+Deno.test("US-3355: every registered operator table has RLS enabled", async () => {
+  const sql = await loadMigrations();
+  const registry = parseServiceRoleRegistry(await Deno.readTextFile(RLS_GUARD_SRC));
+  const a = analyze(sql, registry);
+
+  // Vacuity floor: a broken RLS regex reads as "nothing to report" otherwise.
+  assert(
+    a.rlsEnabled.size >= 300,
+    `only ${a.rlsEnabled.size} tables parsed as RLS-enabled - RLS_TOGGLE_RE probably broke`,
+  );
+
+  const gaps = rlsGaps(a, registry);
+  assertEquals(
+    gaps,
+    [],
+    `registered service-role tables with no ENABLE ROW LEVEL SECURITY: ${gaps.join(", ")}`,
+  );
+});
+
+// US-3355 AC2. The ratchet. Shrinking is free; growing needs a name and a line.
+Deno.test("US-3355: no NEW registered table ships without a REVOKE", async () => {
+  const sql = await loadMigrations();
+  const registrySrc = await Deno.readTextFile(RLS_GUARD_SRC);
+  const registry = parseServiceRoleRegistry(registrySrc);
+  const a = analyze(sql, registry);
+
+  const unpinned = unpinnedNoRevoke(a, registry, NO_REVOKE_OPERATOR_TABLES);
+  assertEquals(
+    unpinned,
+    [],
+    `registered in SERVICE_ROLE_ONLY with no table REVOKE and not in the ` +
+      `US-3355 census: ${unpinned.join(", ")}. Add ` +
+      `"revoke all on public.<table> from anon, authenticated;" to the ` +
+      `migration, or add the name to NO_REVOKE_OPERATOR_TABLES with the reason.`,
+  );
+
+  // The census must not rot the other way either: an entry naming a table the
+  // registry no longer claims is a line nobody will re-read.
+  const registrySet = new Set(registry);
+  const stale = NO_REVOKE_OPERATOR_TABLES.filter((t) => !registrySet.has(t));
+  assertEquals(stale, [], `census names tables no longer in SERVICE_ROLE_ONLY: ${stale.join(", ")}`);
+  assertEquals(
+    new Set(NO_REVOKE_OPERATOR_TABLES).size,
+    NO_REVOKE_OPERATOR_TABLES.length,
+    "duplicate entry in NO_REVOKE_OPERATOR_TABLES",
+  );
 });
 
 // Behavioural self-checks: synthetic SQL through the SAME analyze(), one case
@@ -490,6 +765,72 @@ Deno.test("US-3350 self-check: the CRLF corpus is parsed, not silently emptied",
   assert(a.tables.has("ops_widgets"), "CRLF DDL was not parsed");
   assertEquals(a.revoked.size, 0, "a commented-out REVOKE must not count");
   assertEquals(a.violations.length, 2);
+});
+
+Deno.test("US-3355 self-check: a registered table whose RLS was never enabled is reported", () => {
+  const a = synth(`create table if not exists public.ops_widgets (id uuid primary key);`);
+  assertEquals(rlsGaps(a, SYNTH_REGISTRY), ["ops_widgets"]);
+});
+
+Deno.test("US-3355 self-check: a later DISABLE beats an earlier ENABLE", () => {
+  const on = synth(`
+    create table if not exists public.ops_widgets (id uuid primary key);
+    alter table public.ops_widgets enable row level security;
+  `);
+  assertEquals(rlsGaps(on, SYNTH_REGISTRY), [], "ENABLE alone must read as on");
+
+  const off = synth(`
+    create table if not exists public.ops_widgets (id uuid primary key);
+    alter table public.ops_widgets enable row level security;
+    alter table public.ops_widgets disable row level security;
+  `);
+  assertEquals(rlsGaps(off, SYNTH_REGISTRY), ["ops_widgets"]);
+});
+
+Deno.test("US-3355 self-check: RLS enabled inside a FOREACH loop counts (00381's ads_* shape)", () => {
+  const a = synth(`
+    create table if not exists public.ops_widgets (id uuid primary key);
+    do $$
+    declare t text;
+    begin
+      foreach t in array array['ops_widgets','other_thing'] loop
+        execute format('ALTER TABLE public.%I ENABLE ROW LEVEL SECURITY;', t);
+      end loop;
+    end $$;
+  `);
+  assertEquals(rlsGaps(a, SYNTH_REGISTRY), []);
+});
+
+Deno.test("US-3355 self-check: a loop that does NOT enable RLS is not credited", () => {
+  const a = synth(`
+    create table if not exists public.ops_widgets (id uuid primary key);
+    do $$
+    declare t text;
+    begin
+      foreach t in array array['ops_widgets'] loop
+        execute format('COMMENT ON TABLE public.%I IS ''hi'';', t);
+      end loop;
+    end $$;
+  `);
+  assertEquals(rlsGaps(a, SYNTH_REGISTRY), ["ops_widgets"]);
+});
+
+Deno.test("US-3355 self-check: an unpinned registered table with no REVOKE is reported", () => {
+  const a = synth(`
+    create table if not exists public.ops_widgets (id uuid primary key);
+    alter table public.ops_widgets enable row level security;
+  `);
+  assertEquals(unpinnedNoRevoke(a, SYNTH_REGISTRY, []), ["ops_widgets"]);
+  assertEquals(unpinnedNoRevoke(a, SYNTH_REGISTRY, ["ops_widgets"]), []);
+});
+
+Deno.test("US-3355 self-check: a revoke lets a table off the census without an entry", () => {
+  const a = synth(`
+    create table if not exists public.ops_widgets (id uuid primary key);
+    alter table public.ops_widgets enable row level security;
+    revoke all on public.ops_widgets from anon, authenticated;
+  `);
+  assertEquals(unpinnedNoRevoke(a, SYNTH_REGISTRY, []), []);
 });
 
 Deno.test("US-3350 self-check: the registry parser reads a Set literal, not prose", () => {

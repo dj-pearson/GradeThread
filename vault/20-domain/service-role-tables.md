@@ -9,7 +9,7 @@ code_refs:
   - services/edge-functions/src/tests/service-role-grant-posture_test.ts
 reviewed: 2026-09-11
 tags: [security, rls, tenant-isolation, contract]
-summary: rls-guard discovers tenant tables by regex on the CREATE TABLE block - any column ending in user_id or owner_id - so an operator table must be registered in SERVICE_ROLE_ONLY; the same file also enforces the (select auth.uid()) initplan form, with a five-entry exemption list whose entries fall into two DIFFERENT cases - a negligible table, and a policy already superseded by a corrective migration. Of the two layers an operator table is supposed to have, only RLS-with-zero-policies is load-bearing: 88 of the 142 registered tables carry no REVOKE at all, so service-role-grant-posture_test.ts fails any of them that gains a policy while its grant is open.
+summary: rls-guard discovers tenant tables by regex on the CREATE TABLE block - any column ending in user_id or owner_id - so an operator table must be registered in SERVICE_ROLE_ONLY; the same file also enforces the (select auth.uid()) initplan form, with a five-entry exemption list whose entries fall into two DIFFERENT cases - a negligible table, and a policy already superseded by a corrective migration. Of the two layers an operator table is supposed to have, only RLS-with-zero-policies is load-bearing: 88 of the 142 registered tables carry no REVOKE at all, so service-role-grant-posture_test.ts fails any of them that gains a policy while its grant is open. Those 88 are listed here by name and grouped by what a policy would expose, and the recommendation is to retrofit revoke all in three enumerated batches (94 tables with the six write-only ones), because prod's anon OpenAPI document already publishes 87 of them and 941 column names.
 ---
 
 > **Re-reviewed 2026-09-11.** Drift flagged `rls-guard_test.ts` for US-3334,
@@ -34,12 +34,14 @@ whose name ENDS in `user_id` or `owner_id`**, not the bare token.
 
 An **operator table** carries no tenant data: config caches and ops bookkeeping
 like `garment_baselines`, `grading_exemplar_sets`, `abuse_signals`,
-`content_moderation_flags`. It is deny-all: RLS on, zero policies, and ideally
-`revoke ... from anon, authenticated` as well.
+`content_moderation_flags`. It is deny-all: RLS on, zero policies, and
+`revoke all on table public.<name> from anon, authenticated` as well.
 
-**That last clause is aspiration, not description, and the section below is
-the measurement.** This note used to state the revoke as part of the definition.
-Most operator tables do not have one.
+**That last clause was aspiration rather than description until US-3355, and the
+sections below are the measurement.** 88 of the 142 registered tables still have
+no revoke. For a NEW table it is now a rule instead of an aspiration:
+`service-role-grant-posture_test.ts` fails a registered table that ships without
+one unless its name is added to that file's census with a reason.
 
 ## Which of the two layers is load-bearing (US-3350, measured 2026-09-11)
 
@@ -122,6 +124,147 @@ no-revoke rule keeps its full force over `REVOKE ... ON FUNCTION`.
 > This note is about TABLES. For `SECURITY DEFINER` functions the edge calls,
 > see [[admin-rpc-guards]] — `is_admin()` is always false for the service role,
 > so a bare `is_admin()` guard rejects every call the edge makes.
+
+## The 88 by name, and what a policy on each would expose (US-3355, 2026-09-11)
+
+**The exposure is not only hypothetical, and that is what decided this.** Prod's
+PostgREST OpenAPI document, fetched with the anon key that ships in the browser
+bundle (`GET https://api.gradethread.com/rest/v1/`, HTTP 200, 2,280,327 bytes,
+449 paths), **advertises 87 of the 88 and publishes 941 of their column names.**
+The 88th, `grading_reference_photos`, is absent only because prod has not
+applied 00789. So `tin_encrypted`, `client_secret_hash`, `code_verifier`,
+`access_token_enc`, `authentication_tells` and 936 more column names are already
+public, before any policy exists. A `revoke all` removes a table from that
+document: the 64 `revoke all` tables are absent from it, and the 6 registered
+tables that revoked only writes are present, with no exception either way.
+
+The list is pinned in code as `NO_REVOKE_OPERATOR_TABLES` in
+`service-role-grant-posture_test.ts`, with a subset assertion so it can only
+shrink and a new registered table cannot join it silently. The groups below are
+that list, in the same order.
+
+| # | What a client would get if a policy appeared | Tables |
+|---|---|---|
+| 1 | **Credential and session material in flight.** A read is a step toward completing somebody else's handshake; `code_verifier` is the PKCE secret and `access_token_enc` is a live token. | `cloud_storage_oauth_states`, `google_oauth_states`, `google_photos_import_sessions`, `oauth_states`, `phone_capture_photos`, `phone_capture_sessions`, `qbo_oauth_states` |
+| 2 | **The connector's OAuth authorization server.** Secrets are hashed, so a read is a read of who authorized whom; a WRITE mints a grant and skips the consent screen. | `oauth_access_tokens`, `oauth_authorization_codes`, `oauth_clients`, `oauth_grants`, `oauth_refresh_tokens` |
+| 3 | **Identity, money and legal records about named people.** Legal names, home addresses, a taxpayer id, Stripe and App Store identifiers, and an abuse record that accuses a specific user. | `affiliate_tax_profiles`, `ai_usage_events`, `appstore_processed_transactions`, `billing_reconciliation_flags`, `email_consent_audit`, `flipdesk_subscription_events`, `google_processed_purchases`, `guarantee_claims`, `guarantee_remedies`, `measure_card_requests`, `pending_refunds`, `subscription_agreements`, `subscription_cancellations`, `support_abuse_events` |
+| 4 | **One seller's operational data, readable by another.** The sharpest is `api_idempotency_records`, which stores a prior response BODY verbatim (US-2563). | `ad_click_attributions`, `api_idempotency_records`, `badge_click_events`, `ebay_pending_webhook_events`, `flipdesk_sync_conflicts`, `google_sheet_sync_state`, `help_deflections`, `help_feedback`, `mcp_tool_calls`, `measure_corrections`, `support_assistant_usage` |
+| 5 | **The admin surface and the permission model itself.** Readable it is an org chart and an internal roadmap; writing `admin_scope_grants` or `role_scopes` is privilege escalation in one INSERT. | `admin_notifications`, `admin_saved_views`, `admin_scope_grants`, `admin_task_comments`, `admin_task_projects`, `admin_tasks`, `bulk_admin_operations`, `permission_scopes`, `role_scopes` |
+| 6 | **The agent kernel.** `agent_proposals` is the queue an operator approves from, so a write is a request to execute something on the platform's behalf. | `agent_handoffs`, `agent_memory`, `agent_proposals`, `agent_run_steps`, `agent_runs`, `agents` |
+| 7 | **GradeThread's own paid acquisition:** budgets, spend and the search terms that convert. Competitive intelligence about the company, not about a user. | `ads_accounts`, `ads_ad_groups`, `ads_ads`, `ads_campaigns`, `ads_change_audit`, `ads_keywords`, `ads_metrics_daily`, `ads_recommendations`, `ads_search_terms`, `ads_sync_runs` |
+| 8 | **Proprietary reference data:** the brand knowledge base, the authenticity tells, the style-code decoders and their crawl state. Months of backfill, and `authenticity_references` read the other way round is a counterfeiter's checklist of what a grader looks for. | `authenticity_references`, `brand_colorways`, `brand_knowledge`, `brand_size_charts`, `brand_style_codes`, `brand_styles`, `durability_aggregates`, `garment_baselines`, `garment_measurement_stats`, `impact_factors`, `registered_number_lookups`, `registered_number_registry`, `registered_number_sightings`, `style_code_brand_candidates`, `style_code_discovery_state`, `style_code_names`, `style_code_observations`, `style_code_prospect_state`, `style_code_sweeps` |
+| 9 | **Grading internals.** `grade_report_revisions` is deny-all even though the data is public, because the only correct read re-applies the withhold check (US-2569). | `grade_flaws_only`, `grade_report_revisions`, `grading_reference_photos` |
+| 10 | **Reward and pricing economics.** Readable it is which quest pays best and what every plan used to cost; writable it mints XP. | `pricing_plan_revisions`, `quest_definitions`, `reward_quests` |
+| 11 | **No identity to scope to at all** (US-2592). Grain is `(article, surface, day)`, which is what lets a public help page increment it with no consent prompt. | `help_article_views` |
+
+### Six more that revoked only their writes
+
+`abuse_signals`, `content_moderation_flags`, `identification_provenance`,
+`listing_publications`, `rate_limit_overrides` and `reward_budget_breaches` are
+registered in `SERVICE_ROLE_ONLY` (the claim that no client reads them) and
+their migrations revoke `insert, update, delete` while leaving `SELECT`. All six
+are present in prod's anon document. Their revoke should be `all`, so they
+belong in the retrofit below, which makes it **94 tables, not 88**.
+
+## The recommendation: retrofit, enumerated, in three batches
+
+**Do the revoke.** Not because of the future `CREATE POLICY` the tripwire already
+covers, but because the schema of 87 tables is published to the anon key today
+and a `revoke all` is what takes it back.
+
+**It is a behavioural no-op for every shipped client.** 4,042 files were scanned
+across `src`, `functions`, `ios`, `android`, `extension`, `extension-condition`,
+`extension-unified`, `sdk`, `e2e`, `scripts`, `remotion`, `content` and `public`
+for `.from("<table>")` and `rest/v1/<table>`: **not one of the 88 is read through
+a client path.** The single non-edge hit is `scripts/seed-official-style-names.mjs`
+on `style_code_names`, which requires `SUPABASE_SERVICE_ROLE_KEY` and so bypasses
+grants entirely. Every one of the 88 has zero client-reachable policies already,
+so no client read works today either. The revoke turns a `200 []` nobody asks for
+into a `permission denied` nobody asks for.
+
+### What 00527 being parked actually says
+
+`00527_revoke_public_function_execute.sql.BLOCKED` is the nearest precedent and
+it argues for the SHAPE here, not against the work. Its reason has two parts and
+only one of them transfers.
+
+- **The crash half does not transfer.** 00527 revokes `EXECUTE` on functions, and
+  a denied function call segfaults the backend and terminates every session. A
+  denied table read returns a clean `permission denied for table`. Measured back
+  to back, above.
+- **The blast-radius half does transfer.** 00527 answered one demonstrated hole,
+  `grant_grade_credits` callable by anon, by removing privilege from **every
+  function in the schema**. The owner's recorded answer was to fix the object
+  that had the hole. So: name the 94 tables, never write
+  `revoke all on all tables in schema public`, which is 00527's exact shape and
+  would strip every tenant table on the way past.
+
+**Reject the structural version too.**
+`ALTER DEFAULT PRIVILEGES ... REVOKE ALL ON TABLES FROM anon, authenticated`
+would close new tables by default and looks like the real fix. It is not the one
+to take: it inverts the convention the whole schema is written against, and the
+next tenant table someone adds would ship unreadable with no error anywhere, the
+failure shape this note exists to avoid.
+
+### The SQL, described rather than written
+
+Three migrations, riskiest first, so a rollback is a batch rather than the lot:
+**A** = groups 1 and 2 (12 tables), **B** = groups 3 and 4 (25),
+**C** = groups 5 to 11 plus the six write-only ones (57).
+
+Per table, one statement:
+
+```sql
+revoke all on table public.<name> from anon, authenticated;
+```
+
+- **Idempotent for free.** Revoking a privilege that is already absent is a no-op
+  and raises nothing, so a re-run is safe and 00527's `.BLOCKED` glob problem
+  does not arise.
+- **Guard each on existence.** `grading_reference_photos` (00789) is not applied
+  to prod, so a bare statement naming it aborts the whole migration. Wrap the
+  batch in a `DO` block that skips any name where
+  `to_regclass('public.<name>') is null`.
+- **Nothing else in the file.** No `REVOKE ... ON FUNCTION`, no `ALTER DEFAULT
+  PRIVILEGES`, no policy, no `GRANT` (`service_role` and `postgres` already hold
+  everything and must not be named).
+
+**Effect on existing rows: none.** `REVOKE` rewrites `pg_class.relacl` in the
+catalog. No row is read, written, locked or rewritten, no index is touched, and
+no sequence, function or policy changes. It takes a brief `ACCESS EXCLUSIVE`
+lock per table for the catalog update, instant on an idle table but it will
+queue behind a long-running query, so apply it off-peak.
+
+**What a caller sees afterwards:** `anon`/`authenticated` SELECT goes from
+`200 []` to `permission denied for table <name>` with the supautils GRANT hint
+appended, and the table leaves `GET /rest/v1/`. The edge service is unaffected;
+it holds the service-role key.
+
+**Verification is credential-free and takes one request.** Re-fetch
+`GET https://api.gradethread.com/rest/v1/` with the anon key and confirm the
+batch's tables are gone. Today's baseline is **449 paths**; each batch should
+drop it by its own size, ending at roughly **356** once all three are applied.
+
+### The coverage hole this turned up, now closed
+
+`rls-guard_test.ts` asserts RLS-enabled only for tables its `checked` set
+reaches: owner-column tables, `PARENT_SCOPED`, and `SERVICE_ONLY_FORCED`. **A
+`SERVICE_ROLE_ONLY` entry alone does not put a table in that set**, and it only
+excuses the table from needing a policy. So **37 of the 88** were registered as
+deny-all with nothing in CI asserting the deny: `admin_tasks` and its two
+siblings, all six `agent_*` tables, all five `brand_*` tables, the six
+`style_code_*` tables, `oauth_clients`, `oauth_access_tokens`,
+`oauth_refresh_tokens`, `authenticity_references`, `garment_baselines`,
+`impact_factors`, `durability_aggregates`, the three `registered_number_*`
+tables, `permission_scopes`, `role_scopes`, `phone_capture_photos`,
+`pricing_plan_revisions`, `quest_definitions`, `grade_report_revisions` and
+`help_article_views`.
+
+That last one was recorded as a single-table gap in the 2026-09-01 re-review
+below. It was 37. `service-role-grant-posture_test.ts` now asserts RLS-enabled
+for **every** table the registry names, whichever guard happens to discover it,
+and it reads `DISABLE ROW LEVEL SECURITY` in file order so the first one to
+appear is caught rather than scored as still on. All 142 pass today.
 
 > **Re-reviewed 2026-09-10.** Drift flagged `rls-guard_test.ts` for five new
 > entries across three stories. `marketplace_supply_cells` and
