@@ -68,6 +68,7 @@ import {
   isBeforeRelease,
 } from "../lib/grade-release.ts";
 import { getGradePricing } from "../lib/pricing-config.ts";
+import { parseSellerStatements } from "../lib/cleanliness-visibility.ts";
 
 // US-614: free monthly Snap-to-Value cap per effective FlipDesk plan (-1 = unlimited).
 const SNAP_CAP: Record<string, number> = {
@@ -845,6 +846,9 @@ gradeRoutes.post("/submit", async (c) => {
       brand: brand?.trim() || null,
       description: description?.trim() || null,
       style_attributes: styleAttributes,
+      // US-3329: the seller's own smoke-free / pet-free statements. Stored for
+      // the certificate only; the grading pipeline never reads this column.
+      seller_statements: parseSellerStatements(formData),
       verified_capture_opt_in: verifiedCaptureOptIn,
       live_capture_opt_in: liveCaptureOptIn,
       verified_360_opt_in: verified360OptIn,

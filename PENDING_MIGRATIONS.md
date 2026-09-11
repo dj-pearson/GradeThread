@@ -9,6 +9,31 @@
 > They are still filed as HELD here because nobody in this session watched
 > them apply. Confirm against prod before trusting either heading.
 
+## ⏸ HELD: 00787 — seller smoke-free / pet-free statement, and "not visible in these photos" (US-3329)
+
+**Risk: MEDIUM, because it recreates `public_grade_reports`.** Adds
+`submissions.seller_statements text[] NOT NULL DEFAULT '{}'` with a CHECK
+limiting it to `smoke_free` / `pet_free`, then `CREATE OR REPLACE VIEW` with
+every 00571 column unchanged and in order, plus two APPENDED columns:
+`seller_statements` and `cleanliness_visible`. Applied cleanly (with 00784 to
+00786) inside a rolled-back transaction on the local stack, 2026-09-11.
+
+**Apply order: after 00786.** Then `NOTIFY pgrst, 'reload schema';` and
+redeploy the edge (boot guard expects 00787).
+
+**⚠ Edge code in the same change WRITES `seller_statements` on every submit**
+and reads it on the certificate endpoint, so the new edge must not run before
+the SQL; the boot guard enforces that. The web reads both view columns as
+optional, so an early frontend deploy renders exactly what it does today.
+
+**Check it landed:**
+
+```sql
+select column_name from information_schema.columns
+where table_name = 'public_grade_reports'
+  and column_name in ('seller_statements', 'cleanliness_visible');  -- 2 rows
+```
+
 ## ⏸ HELD: 00786 — grades wait for the turnaround the customer paid for (US-3326)
 
 **Risk: MEDIUM, because it rewrites two RLS policies.** Adds three nullable

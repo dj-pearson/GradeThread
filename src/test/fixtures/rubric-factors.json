@@ -59,7 +59,7 @@
         { "key": "structural_integrity", "label": "Structural Integrity", "weight": 0.25 },
         { "key": "cosmetic_appearance", "label": "Cosmetic Appearance", "weight": 0.2 },
         { "key": "functional_elements", "label": "Functional Elements", "weight": 0.15 },
-        { "key": "odor_cleanliness", "label": "Odor & Cleanliness", "weight": 0.1 }
+        { "key": "odor_cleanliness", "label": "Cleanliness", "weight": 0.1 }
       ]
     },
     "sports_cards": {

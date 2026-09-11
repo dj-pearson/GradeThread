@@ -12,6 +12,8 @@ import {
 import { Textarea } from "@/components/ui/textarea";
 import { FieldError, FormErrorSummary } from "@/components/ui/form-feedback";
 import { GARMENT_TYPES, GARMENT_CATEGORIES } from "@/lib/constants";
+import { Checkbox } from "@/components/ui/checkbox";
+import { SELLER_STATEMENT_OPTIONS, type SellerStatementKey } from "@/lib/cleanliness";
 
 type GarmentType = (typeof GARMENT_TYPES)[number];
 type GarmentCategory = (typeof GARMENT_CATEGORIES)[number];
@@ -22,6 +24,11 @@ export interface GarmentInfo {
   brand: string;
   title: string;
   description: string;
+  /**
+   * US-3329: optional statements the seller makes about the item's home.
+   * Shown on the certificate as the seller's claim; never graded.
+   */
+  sellerStatements?: SellerStatementKey[];
 }
 
 // This groups GARMENT_CATEGORIES by type; it does not get to hold a DIFFERENT
@@ -70,6 +77,9 @@ export function GarmentInfoForm({
   );
   const [brand, setBrand] = useState(defaultValues?.brand ?? "");
   const [title, setTitle] = useState(defaultValues?.title ?? "");
+  const [sellerStatements, setSellerStatements] = useState<SellerStatementKey[]>(
+    defaultValues?.sellerStatements ?? [],
+  );
   const [description, setDescription] = useState(
     defaultValues?.description ?? ""
   );
@@ -138,6 +148,7 @@ export function GarmentInfoForm({
       brand: brand.trim(),
       title: title.trim(),
       description: description.trim(),
+      sellerStatements,
     });
   }
 
@@ -249,6 +260,34 @@ export function GarmentInfoForm({
           {description.length}/500
         </p>
       </div>
+
+      {/* US-3329: smell cannot be graded from photos. A seller can state it,
+          and the certificate shows it as their statement, not as a check. */}
+      <fieldset className="space-y-2">
+        <legend className="text-sm font-medium">About the home it comes from (optional)</legend>
+        <div className="flex flex-wrap gap-x-6 gap-y-2">
+          {SELLER_STATEMENT_OPTIONS.map((o) => (
+            <div key={o.key} className="flex items-center gap-2">
+              <Checkbox
+                id={`statement-${o.key}`}
+                checked={sellerStatements.includes(o.key)}
+                onCheckedChange={(v) =>
+                  setSellerStatements((prev) =>
+                    v === true
+                      ? [...new Set([...prev, o.key])]
+                      : prev.filter((k) => k !== o.key)
+                  )}
+              />
+              <Label htmlFor={`statement-${o.key}`} className="font-normal">
+                {o.label}
+              </Label>
+            </div>
+          ))}
+        </div>
+        <p className="text-xs text-muted-foreground">
+          Photos cannot show smell, so we do not grade it. Your certificate shows these as your statement.
+        </p>
+      </fieldset>
 
       <Button type="submit" className="w-full">
         Continue

@@ -907,6 +907,8 @@ export function NewSubmissionPage() {
       formData.append("tier", tier);
       if (garmentInfo.brand) formData.append("brand", garmentInfo.brand);
       if (garmentInfo.description) formData.append("description", garmentInfo.description);
+      // US-3329: the seller's own smoke-free / pet-free statements.
+      for (const s of garmentInfo.sellerStatements ?? []) formData.append("seller_statements", s);
       // US-949: link this submission to the prior needs_photos/expired one so the
       // server references it and marks the old one superseded (excluded from
       // active counts). Server re-validates ownership + retakeable status.

@@ -123,6 +123,7 @@ import {
 import { boardWindow, loadBoard, loadCohort } from "../lib/leaderboards-data.ts";
 import { loadSeasonTimezone } from "../lib/rewards-seasons.ts";
 import { PILLAR_CORNERSTONE_URL, PILLAR_LABELS } from "../lib/content-interlink.ts";
+import { cleanlinessVisible, normalizeSellerStatements } from "../lib/cleanliness-visibility.ts";
 
 // US-580: these endpoints are anonymous/unauthenticated, so a 500 body must
 // NEVER carry raw error.message — that leaks DB/PostgREST internals (table
@@ -1325,7 +1326,7 @@ contentPublicRoutes.get("/certificates/:id", async (c) => {
       // user_id is read for the US-1912 seller-integrity lookup below and is
       // NEVER put on the response — the fields below are picked one by one, so
       // it cannot ride along by accident the way a spread would let it.
-      "user_id, title, brand, garment_type, garment_category, description, flagged, moderation_status, status",
+      "user_id, title, brand, garment_type, garment_category, description, flagged, moderation_status, status, seller_statements",
     )
     .eq("id", rep.submission_id)
     .maybeSingle();
@@ -1393,6 +1394,17 @@ contentPublicRoutes.get("/certificates/:id", async (c) => {
   // section simply does not render — a certificate never shows a bad standing,
   // only an earned good one. Nothing identifying is added beyond the handle the
   // seller already published.
+  // US-3329: whether any analyzed photo could judge Cleanliness. Read as its
+  // own column and reduced to one boolean here, so per_image_analysis (internal
+  // eval trace) never joins the report row that gets spread into the payload.
+  // Same rule as public_grade_reports.cleanliness_visible (00787).
+  const { data: piaRow } = await supabaseAdmin
+    .from("grade_reports")
+    .select("per_image_analysis")
+    .eq("certificate_id", certId)
+    .not("certificate_id", "is", null)
+    .maybeSingle();
+
   const sellerIntegrity = await loadCertSellerIntegrity(
     (submission as { user_id?: string | null } | null)?.user_id ?? null,
   );
@@ -1445,6 +1457,14 @@ contentPublicRoutes.get("/certificates/:id", async (c) => {
       // can't disagree; the generated credential/disclosure blocks are dropped
       // because the certificate already makes both claims itself.
       description: certDescriptionText(submission?.description),
+      // US-3329: the seller's own statements, shown as theirs; never graded.
+      seller_statements: normalizeSellerStatements(
+        (submission as { seller_statements?: unknown } | null)?.seller_statements,
+      ),
+      // US-3329: false when no analyzed photo could judge Cleanliness.
+      cleanliness_visible: cleanlinessVisible(
+        (piaRow as { per_image_analysis?: unknown } | null)?.per_image_analysis,
+      ),
       hero_image_url: heroImageUrl,
       // US-1413: full ordered gallery (signed URLs) for the SPA photo grid +
       // defect callouts. The SSR path ignores this and uses hero_image_url only.

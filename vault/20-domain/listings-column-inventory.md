@@ -8,10 +8,12 @@ code_refs:
   - src/test/listings-select-star.test.ts
   - src/test/listing-row-schema-parity.test.ts
   - src/types/database.ts
-reviewed: 2026-09-10
+reviewed: 2026-09-11
 tags: [schema, listings, flipdesk, perf]
 summary: What the listings table's ninety-odd columns are for, why none of them is provably dead, and the rule for reading them.
 ---
+
+> [!note] Re-reviewed 2026-09-11. src/types/database.ts gained PublicGradeReportRow.seller_statements / cleanliness_visible and GradeReportRow.release_at (US-3326, US-3329). Checked: none is a listings column, and nothing this note inventories moved.
 
 # The listings table — column inventory and read policy
 

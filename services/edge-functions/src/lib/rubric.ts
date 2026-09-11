@@ -106,7 +106,7 @@ const CLOTHING: Rubric = {
     { key: "structural_integrity", label: "Structural Integrity", weight: 0.25, guidance: "Seams, hems, construction, shape retention." },
     { key: "cosmetic_appearance", label: "Cosmetic Appearance", weight: 0.2, guidance: "Visual appeal, color consistency, print condition." },
     { key: "functional_elements", label: "Functional Elements", weight: 0.15, guidance: "Zippers, buttons, closures, pockets, elastic." },
-    { key: "odor_cleanliness", label: "Odor & Cleanliness", weight: 0.1, guidance: "Cleanliness indicators, staining patterns." },
+    { key: "odor_cleanliness", label: "Cleanliness", weight: 0.1, guidance: "Cleanliness indicators, staining patterns." },
   ],
   promptGuidance:
     "Grade this garment's condition relative to its as-manufactured state. Intentional design features are not defects.",

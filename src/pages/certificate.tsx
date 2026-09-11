@@ -47,6 +47,7 @@ import {
   needsAuthenticitySeparation,
   rubricForKey,
 } from "@/lib/rubrics";
+import { sellerStatementLabels } from "@/lib/cleanliness";
 import { confidenceInfo } from "@/lib/passport-confidence";
 import { VerifiedBadge } from "@/components/verified/verified-badge";
 import { ReportCertificateDialog } from "@/components/certificate/report-certificate-dialog";
@@ -602,6 +603,9 @@ export function CertificatePage() {
     score: gradeReport.factor_scores?.[f.key] ?? clothingColumnScore[f.key] ?? 0,
   }));
 
+  // US-3329: the seller's own statements, as display labels.
+  const sellerStatements = sellerStatementLabels(gradeReport.seller_statements);
+
   // US-328: genuine defects, worst-first. Empty for clean items / historical
   // grades that never persisted structured defects.
   const defects = [...(gradeReport.defects_found ?? [])].sort(
@@ -967,7 +971,8 @@ export function CertificatePage() {
           (submission.brand ||
             submission.garment_type ||
             submission.garment_category ||
-            submission.description) && (
+            submission.description ||
+            sellerStatements.length > 0) && (
             <Card>
               <CardHeader>
                 <CardTitle className="text-base">About this item</CardTitle>
@@ -1002,6 +1007,14 @@ export function CertificatePage() {
                     {submission.description}
                   </p>
                 )}
+                {/* US-3329: the seller's own statements, labelled as theirs. */}
+                {sellerStatements.length > 0 && (
+                  <p className="text-sm">
+                    <span className="font-medium">Seller states:</span>{" "}
+                    {sellerStatements.join(" · ")}.{" "}
+                    <span className="text-muted-foreground">Not checked by GradeThread.</span>
+                  </p>
+                )}
                 {/* US-1787: per-grade circularity impact estimate. */}
                 <CertImpactLine garmentType={submission.garment_type} />
               </CardContent>
@@ -1027,6 +1040,26 @@ export function CertificatePage() {
               </p>
             )}
             {factorScores.map(({ key, label, weight, score }) => {
+              // US-3329: no photo could judge cleanliness, so the score is a
+              // neutral placeholder. Say so rather than print it as a finding.
+              if (key === "odor_cleanliness" && gradeReport.cleanliness_visible === false) {
+                return (
+                  <div key={key} className="space-y-1">
+                    <div className="flex items-center justify-between text-sm">
+                      <span className="font-medium">
+                        {label}{" "}
+                        <span className="text-muted-foreground">
+                          ({(weight * 100).toFixed(0)}%)
+                        </span>
+                      </span>
+                      <span className="text-muted-foreground">n/a</span>
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      Not visible in these photos.
+                    </p>
+                  </div>
+                );
+              }
               return (
                 <div key={key} className="space-y-1.5">
                   <div className="flex items-center justify-between text-sm">

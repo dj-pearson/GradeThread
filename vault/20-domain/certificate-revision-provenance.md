@@ -8,10 +8,12 @@ code_refs:
   - services/edge-functions/src/lib/grade-adjustment.ts
   - services/edge-functions/src/routes/content-public.ts
   - services/edge-functions/src/tests/certificate-revision-stamp_test.ts
-reviewed: 2026-09-10
+reviewed: 2026-09-11
 tags: [grading, certificates, provenance, seo]
 summary: A certificate records when its certified content was last rewritten in place; NULL means never revised, and a regrade must never set it.
 ---
+
+> [!note] Re-reviewed 2026-09-11. content-public.ts gained two certificate payload fields, seller_statements and cleanliness_visible (US-3329). Checked: nothing here about how a superseded certificate resolves, or what a revision records, depends on them.
 
 # Certificate revision provenance
 

@@ -128,6 +128,11 @@ const ROUTE_ADDED = new Set([
   // at all — the route resolves it from the submission's owner, so it belongs
   // here rather than in the report allowlist.
   "seller_integrity",
+  // US-3329: the seller's own statements come from submissions, and
+  // cleanliness_visible is a boolean the route derives from per_image_analysis
+  // (which stays off the spread row). The view projects both too (00787).
+  "seller_statements",
+  "cleanliness_visible",
 ]);
 
 /** Top-level field names of `interface PublicCertificate { … }`. */

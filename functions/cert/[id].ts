@@ -49,6 +49,10 @@ interface PublicCertificate {
   garment_type: string | null;
   garment_category: string | null;
   description: string | null;
+  /** US-3329: the seller's own statements (smoke_free, pet_free). Their claim. */
+  seller_statements?: string[] | null;
+  /** US-3329: false when no analyzed photo could judge Cleanliness. */
+  cleanliness_visible?: boolean | null;
   overall_score: number;
   grade_tier: string;
   fabric_condition_score: number;
@@ -253,6 +257,11 @@ async function renderCertificate(context: Ctx): Promise<Response> {
     FACTORS.map((f) => {
       const v = Number(cert[f.key]);
       const pct = Math.max(0, Math.min(100, v * 10));
+      // US-3329: when no photo could judge cleanliness the score is a neutral
+      // placeholder, so say that instead of printing it as a finding.
+      if (f.key === "odor_cleanliness_score" && cert.cleanliness_visible === false) {
+        return `<div class="cert-factor"><div class="cert-factor-top"><span>${f.label} <span class="cert-factor-w">(${f.weight}%)</span></span><span class="cert-factor-score">n/a</span></div><p style="margin:4px 0 0;font-size:12px;opacity:.75">Not visible in these photos.</p></div>`;
+      }
       return `<div class="cert-factor"><div class="cert-factor-top"><span>${f.label} <span class="cert-factor-w">(${f.weight}%)</span></span><span class="cert-factor-score">${v.toFixed(1)}</span></div><div class="cert-factor-bar"><div class="cert-factor-fill" style="width:${pct}%;background:${scoreColor(v)}"></div></div></div>`;
     }).join("")
   }</div>`;
@@ -326,9 +335,21 @@ async function renderCertificate(context: Ctx): Promise<Response> {
   const descriptionHtml = cert.description
     ? `<p>${escape(cert.description).replace(/\n/g, "<br>")}</p>`
     : "";
+  // US-3329: the seller's own statements, labelled as theirs. Fixed labels
+  // from a known list, so nothing seller-typed is rendered here.
+  const statementLabels: Record<string, string> = {
+    smoke_free: "Smoke-free home",
+    pet_free: "Pet-free home",
+  };
+  const statements = (cert.seller_statements ?? [])
+    .map((k) => statementLabels[k])
+    .filter((l): l is string => Boolean(l));
+  const sellerStatesHtml = statements.length
+    ? `<p><strong>Seller states:</strong> ${statements.join(" · ")}. Not checked by GradeThread.</p>`
+    : "";
   const aboutHtml =
-    aboutRows || descriptionHtml
-      ? `<h2>About this item</h2>${aboutRows ? `<table><tbody>${aboutRows}</tbody></table>` : ""}${descriptionHtml}`
+    aboutRows || descriptionHtml || sellerStatesHtml
+      ? `<h2>About this item</h2>${aboutRows ? `<table><tbody>${aboutRows}</tbody></table>` : ""}${descriptionHtml}${sellerStatesHtml}`
       : "";
 
   // US-433: one trail for the visible breadcrumb + the BreadcrumbList JSON-LD.

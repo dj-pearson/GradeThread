@@ -66,6 +66,7 @@ import { supabase } from "@/lib/supabase";
 import { ScoreExplainer } from "@/components/grading/score-explainer";
 import { WhatHappensNext } from "@/components/submission/what-happens-next";
 import { formatReadyBy, useGradeTurnaround } from "@/hooks/use-grade-turnaround";
+import { cleanlinessVisible } from "@/lib/cleanliness";
 import {
   HUMAN_REVIEW,
   WHERE_IT_APPEARS,
@@ -1065,6 +1066,26 @@ export function SubmissionDetailPage() {
               <CardContent className="space-y-4">
                 {factorScores.map(({ key, score }) => {
                   const factor = GRADE_FACTORS[key];
+                  // US-3329: no photo could judge cleanliness, so the score is a
+                  // neutral placeholder. Say so, and say what would fix it.
+                  if (key === "odor_cleanliness" && !cleanlinessVisible(gradeReport.per_image_analysis)) {
+                    return (
+                      <div key={key} className="space-y-1">
+                        <div className="flex items-center justify-between text-sm">
+                          <span className="font-medium">
+                            {factor.label}{" "}
+                            <span className="text-muted-foreground">
+                              ({(factor.weight * 100).toFixed(0)}%)
+                            </span>
+                          </span>
+                          <span className="text-muted-foreground">n/a</span>
+                        </div>
+                        <p className="text-xs text-muted-foreground">
+                          Not visible in these photos. A close-up of the collar, underarms or any marks lets it be judged next time.
+                        </p>
+                      </div>
+                    );
+                  }
                   return (
                     <div key={key} className="space-y-1.5">
                       <div className="flex items-center justify-between text-sm">

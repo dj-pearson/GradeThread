@@ -1019,6 +1019,11 @@ export interface PublicGradeReportRow {
   // so it never existed as a file before this submission. A stronger reading of
   // the badge above, never a second badge — it is never true on its own.
   video_live_capture_verified?: boolean;
+  // US-3329 (00787): the seller's own statements (smoke_free, pet_free), shown
+  // as their claim and never graded; and false when no analyzed photo could
+  // judge Cleanliness. Optional: absent before 00787 is applied.
+  seller_statements?: string[];
+  cleanliness_visible?: boolean;
   // Non-clothing grading (migration 00231): generic { factor_key: score } map +
   // the rubric that produced it (e.g. "sports_cards"). Null on clothing & legacy
   // certificates — the cert renders the typed factor columns instead.

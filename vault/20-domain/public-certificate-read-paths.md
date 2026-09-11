@@ -8,7 +8,9 @@ code_refs:
   - services/edge-functions/src/routes/content-public.ts
   - src/pages/certificate.tsx
   - src/test/public-grade-report-view-parity.test.ts
-reviewed: 2026-09-10
+  - supabase/migrations/00787_seller_statements_cleanliness_visible.sql
+  - services/edge-functions/src/tests/cleanliness-statements_test.ts
+reviewed: 2026-09-11
 tags: [certificates, public, schema, gotcha]
 summary: A public certificate is served by two independent projections — an edge column allowlist and a Postgres view — and adding a column to one has twice shipped as "done" while the other stayed silent.
 ---
@@ -67,6 +69,16 @@ projections**, each with its own column list. Neither knows about the other.
 **A new publicly-visible `grade_reports` column must be added to BOTH, in the
 same commit.** Extending one and calling the story done is the default failure,
 not an unusual one.
+
+
+**Done both ways, 2026-09-11 (US-3329):** `seller_statements` and
+`cleanliness_visible` reach the SPA through the view (00787, appended last) and
+the SSR page through the edge payload. Neither is a `grade_reports` column on
+the edge side: the route reads `seller_statements` from the submission and
+reduces `per_image_analysis` to the one boolean in a separate read, so the
+internal trace never joins the row that gets spread into the payload.
+`cleanliness-statements_test.ts` pins the view column order, the edge fields,
+and that `per_image_analysis` stays out of the cert column allowlists.
 
 ## Two fields are deliberately on the edge path only
 
