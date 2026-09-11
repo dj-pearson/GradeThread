@@ -325,6 +325,47 @@ This is checkable against the KB rather than merely asserted: Coach **sews** a
 creed patch carrying the style number into the bag, and got a decoder. A bag
 *can* carry a code. Most simply do not.
 
+## The Lululemon size dot is not a dot CODE, so there is nothing to decode
+
+Recorded 2026-09-11 (US-3086), because the name invites exactly one wrong guess
+and that guess is expensive.
+
+"Size dot" sounds like a ring of dots around a circle whose **count** or
+**position** encodes the size, the way a date wheel encodes a month. Several
+brands do work that way. Lululemon does not:
+
+> "In the center of the size dot, you will see the numeric size of the garment."
+> — [The Resale Doctor](https://theresaledoctor.com/lululemon-style-number/)
+
+Two independent sources agree, and both describe the same physical object: the
+size is **printed as a number in the middle of the circle**, and the circle's
+rim carries a style number, not a size. Reading starts at the bottom left, "the
+6:30 position on a clock", where the `W` or `M` sits
+([Sarah Scoop](https://sarahscoop.com/how-to-read-lululemon-size-dot/)), and the
+letter beside the size is the LENGTH — `S` short, `R` regular, `T` tall — not a
+size at all.
+
+**So there is no dot-to-size mapping to source, and the correct outcome is to
+refuse to build one.** A pattern invented for it would be unfalsifiable: nobody
+prints dots, so no photograph could ever contradict it, and it would produce a
+confident size on every Lululemon garment the OCR pointed it at. Sizes go into
+listings; a wrong one ships the wrong garment to a buyer.
+
+What the code does instead, and has done since US-1712: `size_dot` in
+`DEFAULT_DECODER_SPECS` matches `^\s*(?<size>\d{1,2})\s*$` — **a lone printed
+number** — and it is in `REGION_SCOPED_DECODER_KINDS`, so it fires only once a
+caller has isolated the centre of the circle. Nothing does yet. The rim is a
+separate problem with a separate answer; see [[brand-kb-decoder-bar]]'s fifth
+guard for why a rim that reads two ways is refused too.
+
+**The 6:30 anchor is real and is still not usable.** The garment does have a
+first character. A transcription does not: the model returns a flat string with
+no clock position attached, which is the entire premise of the rotation search.
+Recording the anchor here is worth it anyway, because it says why the decoders
+anchor on `[WM]` rather than on length — and why a rim containing no `W` and no
+`M` in any rotation is not a hard Lululemon rim, it is evidence the string is
+not a Lululemon rim reading.
+
 ## Folklore that survives repetition
 
 - **Johnnie-O has no "hangover collar".** It is not a snap and it is not on the

@@ -58,6 +58,18 @@ export interface ListingStyleCode {
   source: ListingStyleCodeSource | null;
   /** Decoder hit inside the brand's pack, when one fired. */
   decoded: DecodeResult | null;
+  /**
+   * US-3086: what the rim rotation salvage pass concluded, or null when it
+   * never ran (no pack, or the string decoded whole without needing it).
+   * "it ran and found nothing" and "it was never allowed to run" are different
+   * facts and an operator reading a backfill summary has to tell them apart.
+   */
+  rimOutcome: RimOutcome | null;
+  /**
+   * The distinct canonical codes the rotation search found, sorted. One entry
+   * when it decoded; two or more when it REFUSED as ambiguous; empty otherwise.
+   */
+  rimContenders: string[];
 }
 
 function confident(
@@ -175,9 +187,29 @@ export function styleCodeRimWindows(
   code: string,
   specs: DecoderSpec[],
 ): string[] {
+  const { exact, repaired } = styleCodeRimCandidates(code, specs);
+  return [...new Set([...exact, ...repaired])];
+}
+
+/**
+ * The same windows, kept in their two TIERS instead of flattened.
+ *
+ * `exact` matched a spec as transcribed. `repaired` matched only after the
+ * confusable letter slot on the last character was mended, which is a claim
+ * about what the printer printed rather than a reading of it. The tiers are
+ * judged separately (see `decodeRim`): a guess must never be able to veto a
+ * clean read, and two guesses must never be told apart by their order.
+ *
+ * Pure and deduplicated within each tier; the string as read is never returned.
+ */
+export function styleCodeRimCandidates(
+  code: string,
+  specs: DecoderSpec[],
+): { exact: string[]; repaired: string[] } {
+  const none = { exact: [], repaired: [] };
   const s = code.trim();
-  if (specs.length === 0) return [];
-  if (s.length <= RIM_MIN_WINDOW || s.length > RIM_MAX_LENGTH) return [];
+  if (specs.length === 0) return none;
+  if (s.length <= RIM_MIN_WINDOW || s.length > RIM_MAX_LENGTH) return none;
   const doubled = s + s;
   const exact: string[] = [];
   const repaired: string[] = [];
@@ -210,7 +242,109 @@ export function styleCodeRimWindows(
       }
     }
   }
-  return [...new Set([...exact, ...repaired])];
+  return { exact: [...new Set(exact)], repaired: [...new Set(repaired)] };
+}
+
+// ── a circle with two readings has no right answer (US-3086) ───────────────
+//
+// The fifth guard, and the one the first cut of this search did not have.
+// Sliding an anchored shape along a doubled string is not a lookup: a long
+// enough rim contains SEVERAL windows the shape accepts, and the search offered
+// them in spec-then-position order, so the first one won at the decoder's full
+// confidence and the loser was never mentioned. "W3DUTSM7AK1S" carries two
+// complete six-character style numbers; "W3DUTSLM4C80" carries one plainly and
+// mints a second (M4C80W) out of the WRAP, from characters that were never
+// adjacent on the garment.
+//
+// Nothing in the string can break that tie, because the rim has no first
+// character - that is the whole reason the rotation search exists. So the
+// decoder REFUSES. A style code is filed onto the MPN aspect a buyer searches
+// and into the learned index other listings read from, and an unfiled code
+// costs one empty field while a wrong one ships the wrong garment.
+
+export type RimOutcome =
+  /** Exactly one identity survived; `code` is the spelling to file under. */
+  | "decoded"
+  /** Two or more identities matched and nothing chooses between them. */
+  | "ambiguous"
+  /** No window of any rotation matched any shape. */
+  | "no_match";
+
+export interface RimDecode {
+  outcome: RimOutcome;
+  /** The spelling to file, set only when `outcome` is "decoded". */
+  code: string | null;
+  decoded: DecodeResult | null;
+  /** Distinct canonical identities found, sorted. >= 2 exactly when ambiguous. */
+  contenders: string[];
+}
+
+/**
+ * The identity a window claims. Two windows AGREE when they claim the same one:
+ * "LW3DUTS" and "W3DUTS" are two windows and one garment, because the leading L
+ * is a brand prefix rather than part of the code (US-2714). Agreement is not a
+ * contest, or the three rims US-3085 left raw would stop decoding.
+ */
+function rimIdentity(
+  brandKey: string,
+  window: string,
+  hit: DecodeResult,
+): string {
+  const canonical = hit.canonicalCode?.trim();
+  if (canonical) return canonical.toUpperCase();
+  const norm = canonicalStyleCode(brandKey, window);
+  return (norm || window).toUpperCase();
+}
+
+/**
+ * Decode a transcription by rotation, or refuse. Pure.
+ *
+ * Exact windows are judged first and alone: if any of them decodes, the
+ * repaired tier is never consulted, so a mended character cannot veto a clean
+ * read. Within a tier, one surviving identity decodes and two or more refuse.
+ *
+ * `rimSpecs` empty means no search at all, which is how the caller keeps this
+ * inside a resolved pack. `packSpecs` is what `decodeTagCode` is given, so a
+ * window still has to satisfy the same decoder the whole string would have.
+ */
+export function decodeRim(
+  brandKey: string,
+  code: string,
+  rimSpecs: DecoderSpec[],
+  packSpecs: DecoderSpec[],
+): RimDecode {
+  const { exact, repaired } = styleCodeRimCandidates(code, rimSpecs);
+  for (const tier of [exact, repaired]) {
+    const byIdentity = new Map<string, { code: string; decoded: DecodeResult }>();
+    for (const window of tier) {
+      const hit = decodeTagCode(brandKey, window, packSpecs);
+      if (!hit) continue;
+      const id = rimIdentity(brandKey, window, hit);
+      // First window wins WITHIN an identity: they agree on the garment, and
+      // the spec order the caller already relies on picks the spelling.
+      if (!byIdentity.has(id)) byIdentity.set(id, { code: window, decoded: hit });
+    }
+    if (byIdentity.size === 0) continue;
+    const contenders = [...byIdentity.keys()].sort();
+    if (byIdentity.size > 1) {
+      return { outcome: "ambiguous", code: null, decoded: null, contenders };
+    }
+    const only = [...byIdentity.values()][0]!;
+    return {
+      outcome: "decoded",
+      code: only.code,
+      decoded: only.decoded,
+      contenders,
+    };
+  }
+  // No window of any rotation matched any shape. This is a DIFFERENT failure
+  // from ambiguity and it is reported as one: a transcription can be wrong as
+  // well as rotated. A dropped or invented character puts the string here, and
+  // so does a tag that is not a Lululemon rim at all. Both of the two prod
+  // strings that stayed raw on 2026-09-02 land here, and the answer in every
+  // case is the same - file the string exactly as read, decode nothing, and
+  // leave a human or a re-photograph to settle it.
+  return { outcome: "no_match", code: null, decoded: null, contenders: [] };
 }
 
 export function resolveListingStyleCode(args: {
@@ -243,6 +377,8 @@ export function resolveListingStyleCode(args: {
     // The first spelling a decoder recognises wins; otherwise the code as read.
     let code = c.code;
     let decoded: DecodeResult | null = null;
+    let rimOutcome: RimOutcome | null = null;
+    let rimContenders: string[] = [];
     if (key) {
       const tryAll = (spellings: string[]) => {
         for (const spelling of spellings) {
@@ -257,15 +393,37 @@ export function resolveListingStyleCode(args: {
       };
       // Whole-string spellings first; the rim windows are the salvage pass, so
       // a code that reads straight through never pays for the search.
-      if (!tryAll(styleCodeSpellings(c.code))) {
-        tryAll(styleCodeRimWindows(c.code, rimSpecs));
+      if (!tryAll(styleCodeSpellings(c.code)) && rimSpecs.length > 0) {
+        const rim = decodeRim(key, c.code, rimSpecs, specs);
+        rimOutcome = rim.outcome;
+        rimContenders = rim.contenders;
+        // "ambiguous" and "no_match" both leave the code exactly as read. The
+        // refusal is not a fallback to a weaker guess; it is the answer.
+        if (rim.outcome === "decoded" && rim.code) {
+          code = rim.code;
+          decoded = rim.decoded;
+        }
       }
     }
     const norm = canonicalStyleCode(key, code);
     if (norm.length < MIN_STYLE_CODE_LENGTH) continue;
-    return { styleCodeRaw: code, styleCodeNorm: norm, source: c.source, decoded };
+    return {
+      styleCodeRaw: code,
+      styleCodeNorm: norm,
+      source: c.source,
+      decoded,
+      rimOutcome,
+      rimContenders,
+    };
   }
-  return { styleCodeRaw: null, styleCodeNorm: "", source: null, decoded: null };
+  return {
+    styleCodeRaw: null,
+    styleCodeNorm: "",
+    source: null,
+    decoded: null,
+    rimOutcome: null,
+    rimContenders: [],
+  };
 }
 
 // ── the product name from the style-code index ─────────────────────────────

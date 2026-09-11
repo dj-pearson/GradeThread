@@ -9,10 +9,17 @@ code_refs:
   - services/edge-functions/src/tests/subscription-copy-register_test.ts
   - src/test/subscription-disclosure-coverage.test.ts
   - src/test/legal-page-dates-and-crossrefs.test.ts
-reviewed: 2026-08-27
+reviewed: 2026-09-11
 tags: [legal, billing, subscriptions, compliance, counsel]
 summary: Every place GradeThread tells a customer about a recurring charge, its ending, or where their data goes — who drafted the wording, and whether counsel has seen it.
 ---
+
+> **Re-reviewed 2026-09-11.** email.ts changed for US-3233, one word: 'cancelling' to 'canceling' in the
+> billing-change email. No disclosure was added, removed or reworded, and this
+> register tracks WHICH disclosures each email carries. Re-read against the diff:
+> still accurate. Note the register's own prose at line 75 still writes
+> 'cancelled' when quoting the statute's requirement, which is vault prose rather
+> than shipped copy and is deliberately out of that sweep's scope.
 
 # Subscription copy review register
 

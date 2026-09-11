@@ -307,6 +307,70 @@ identification of one.**
 > learned index keys on. Declining beats false-firing, which is the eyewear
 > pack's conclusion in a new costume.
 
+### The fifth guard: two readings of one circle is a REFUSAL (US-3086)
+
+Added 2026-09-11, because the four guards above are all about whether a window
+*may* be read, and none of them asks how many windows read.
+
+Sliding an anchored shape along a doubled string is not a lookup. A long enough
+rim contains **several** windows the shape accepts, and the first cut of the
+search offered them in spec-then-position order, so the first one won at the
+decoder's full 0.85 confidence and the loser was never mentioned anywhere.
+Measured on the shipped code before this was fixed: `W3DUTSM7AK1S` carries two
+complete six-character style numbers and filed silently as `W3DUTS`.
+
+The second shape is worse, because neither half looks wrong. The search doubles
+the string, so the tail and the head form windows **that were never adjacent on
+the garment**. `W3DUTSLM4C80` reads `W3DUTS` plainly, and wrapping its trailing
+`LM4C80` onto its leading `W` spells `M4C80W` just as legally. The wrap is the
+feature; it is also a code mint.
+
+Nothing in the string can break either tie, because the rim has no first
+character — that is the entire reason the rotation search exists. So
+`decodeRim()` refuses: `outcome: "ambiguous"`, no decode, the string filed
+exactly as transcribed, and the contenders returned so a human can see what it
+declined to choose between.
+
+**Why refusing is the right answer and not a cop-out.** A style code lands on
+the MPN aspect a buyer searches and in the learned style index other listings
+read from, so a wrong one propagates and an absent one does not. An unfiled code
+costs one empty field. A confidently wrong one ships the wrong garment, and the
+50% coin-flip the ordering silently performed had no evidence behind it at all.
+This is the same call as the two prod rims above, one level up: there it was one
+reading that required inventing a character, here it is two readings where the
+evidence chooses neither.
+
+Two rules make the refusal usable rather than merely safe:
+
+- **Agreement is not a contest.** `LW3DUTS` and `W3DUTS` are two windows and one
+  garment — the leading `L` is a brand prefix, not part of the code (US-2714).
+  Windows are grouped by the canonical identity they claim, so only a
+  disagreement about the GARMENT refuses. Without this the three rims US-3085
+  left raw would have stopped decoding.
+- **A guess never vetoes a clean read.** Exact windows and repaired ones are
+  judged in separate tiers, and the repaired tier is consulted only when nothing
+  matched as transcribed. A mended confusable digit is a claim about what the
+  printer printed; letting one contradict a window that needed no mending would
+  turn every `0` on a rim into a refusal.
+
+### And a string that fits NO rotation is a different failure
+
+Worth naming separately, because the two are easy to conflate and they call for
+different work. **A transcription can be wrong as well as rotated.** A dropped
+or invented character puts a string where no window of any rotation matches any
+shape, and so does a tag that is simply not a Lululemon rim.
+
+`decodeRim()` reports that as `outcome: "no_match"` rather than folding it into
+the ambiguous case. The action is the same — file the string exactly as read,
+decode nothing — but the diagnosis is not: an ambiguous rim was photographed
+fine and needs a person, while a `no_match` rim usually needs re-photographing.
+Both of the two prod strings that stayed raw on 2026-09-02 are `no_match`.
+
+`rimOutcome` is `null` when the search never ran at all, which is a third thing
+again: no pack, or the string decoded whole and never needed salvaging. "It ran
+and found nothing" and "it was never allowed to run" read identically in a
+backfill summary otherwise.
+
 ## A decoder CONTRADICTION now caps the authenticity verdict (US-2138)
 
 A decode that is *impossible* — a code dating to the future — no longer only

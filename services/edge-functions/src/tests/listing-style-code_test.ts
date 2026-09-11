@@ -13,6 +13,7 @@ const {
   resolveListingStyleCode,
   styleCodeSpellings,
   styleCodeRimWindows,
+  styleCodeRimCandidates,
   rimDecoderSpecs,
   learnedStyleForListing,
   applyLearnedStyleToListing,
@@ -284,7 +285,14 @@ Deno.test("nothing anywhere: null code, empty norm", () => {
     brand: null,
     pack: null,
   });
-  assertEquals(r, { styleCodeRaw: null, styleCodeNorm: "", source: null, decoded: null });
+  assertEquals(r, {
+    styleCodeRaw: null,
+    styleCodeNorm: "",
+    source: null,
+    decoded: null,
+    rimOutcome: null,
+    rimContenders: [],
+  });
 });
 
 // ── the product name from the style-code index ─────────────────────────────
@@ -374,4 +382,110 @@ Deno.test("applyLearnedStyleToListing: a seller-typed style is never replaced; a
   assertEquals(guess.knownFields.style, undefined);
   assertEquals(guess.tagGroundTruth, undefined);
   assertEquals(guess.tagAttributes.model, undefined);
+});
+
+// ── US-3086: a circle with two readings has no right answer ────────────────
+//
+// The rotation search slides an anchored shape along a string, so a long enough
+// rim contains more than one window the shape accepts. Until this was written
+// the first window in spec order won silently, at the decoder's full 0.85
+// confidence, and the loser was never mentioned. That code goes onto the MPN
+// aspect a buyer searches and into the learned style index other listings read,
+// so a wrong one is worse than none.
+
+Deno.test("two rotations that read as different codes decode to NOTHING", () => {
+  // Two complete six-character style numbers in one transcription. Nothing in
+  // the string says which one the garment is, and a circle has no first
+  // character to break the tie with.
+  const r = luluCode("W3DUTSM7AK1S");
+  assertEquals(r.styleCodeRaw, "W3DUTSM7AK1S");
+  assertEquals(r.decoded, null);
+  assertEquals(r.rimOutcome, "ambiguous");
+  assertEquals(r.rimContenders, ["M7AK1S", "W3DUTS"]);
+});
+
+Deno.test("the WRAP itself can mint a second code, and that is still a refusal", () => {
+  // The nastier shape, because neither half looks wrong. The search doubles the
+  // string, so the tail and the head form windows that were never adjacent on
+  // the garment: "W3DUTSLM4C80" carries W3DUTS plainly, and wrapping the
+  // trailing "LM4C80" onto the leading "W" spells M4C80W just as legally.
+  const r = luluCode("W3DUTSLM4C80");
+  assertEquals(r.decoded, null);
+  assertEquals(r.rimOutcome, "ambiguous");
+  assertEquals(r.rimContenders, ["M4C80W", "W3DUTS"]);
+});
+
+Deno.test("windows that AGREE on the code are not ambiguous", () => {
+  // "LW3DUTS" and "W3DUTS" are two windows and one identity - the leading L is
+  // the brand prefix (US-2714). Agreement must not be read as a contest, or the
+  // three rims US-3085 left raw would stop decoding.
+  const r = luluCode("LW3DUTS224000011302");
+  assertEquals(r.styleCodeNorm, "W3DUTS");
+  assertEquals(r.rimOutcome, "decoded");
+  assertEquals(r.rimContenders, ["W3DUTS"]);
+});
+
+Deno.test("a REPAIRED window never contests a window that matched as transcribed", () => {
+  // "W3DUTS" matches exactly. "LW5B030" only matches once its trailing 0 is
+  // read as O, which is a guess about what the printer printed. A guess that
+  // could veto a clean read would turn every confusable digit into a refusal,
+  // so the tiers are judged separately and the exact tier settles it alone.
+  const r = luluCode("W3DUTSLW5B030");
+  assertEquals(r.styleCodeRaw, "W3DUTS");
+  assertEquals(r.styleCodeNorm, "W3DUTS");
+  assertEquals(r.rimOutcome, "decoded");
+  assertEquals(r.rimContenders, ["W3DUTS"]);
+  // Both tiers are still on offer to a caller that wants them.
+  const specs = rimDecoderSpecs("lululemon", []);
+  assertEquals(styleCodeRimCandidates("W3DUTSLW5B030", specs), {
+    exact: ["W3DUTS"],
+    repaired: ["LW5B03O", "W5B03O"],
+  });
+});
+
+Deno.test("repaired windows that disagree with EACH OTHER also refuse", () => {
+  // Same rule one tier down: when nothing matched as transcribed, two mended
+  // readings are two guesses, and picking one is inventing a garment.
+  const r = luluCode("W5B030M4C801");
+  assertEquals(r.styleCodeRaw, "W5B030M4C801");
+  assertEquals(r.decoded, null);
+  assertEquals(r.rimOutcome, "ambiguous");
+  assertEquals(r.rimContenders, ["M4C80I", "W5B03O"]);
+  // Neither reading matched as transcribed: both needed a confusable digit
+  // mended into the colour slot, and the two mends point at different garments.
+  assertEquals(styleCodeRimCandidates("W5B030M4C801", rimDecoderSpecs("lululemon", [])), {
+    exact: [],
+    repaired: ["W5B03O", "M4C80I"],
+  });
+});
+
+Deno.test("a transcription that matches no shape at any rotation is filed as read", () => {
+  // The OTHER failure, and a different one: not a rotation we cannot choose
+  // between, but a string no rotation fits. A dropped or invented character
+  // does this, and so does a tag that is simply not a Lululemon rim. Both of
+  // the prod strings that stayed raw on 2026-09-02 land here.
+  for (const raw of ["S7502T9LM4C847", "ERNSFD78042289140204"]) {
+    const r = luluCode(raw);
+    assertEquals(r.styleCodeRaw, raw);
+    assertEquals(r.decoded, null);
+    assertEquals(r.rimOutcome, "no_match");
+    assertEquals(r.rimContenders, []);
+  }
+});
+
+Deno.test("rimOutcome is null when the rotation search never ran", () => {
+  // It ran and found nothing vs it was never allowed to run are different
+  // facts, and an operator reading a backfill summary needs to tell them apart.
+  assertEquals(luluCode("LW6AMYSP60417").rimOutcome, null); // decoded whole
+  assertEquals(luluCode("0000F80000DLW5B0303", null).rimOutcome, null); // no pack
+  assertEquals(
+    resolveListingStyleCode({
+      ocr: { style_code: { value: "DD1391-100", confidence: 0.9 } },
+      itemAttributes: null,
+      sneakerStyleCode: null,
+      brand: "Nike",
+      pack: null,
+    }).rimOutcome,
+    null,
+  );
 });

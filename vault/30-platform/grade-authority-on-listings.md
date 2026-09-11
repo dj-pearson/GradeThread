@@ -11,10 +11,14 @@ code_refs:
   - src/lib/listing-templates.ts
   - src/test/no-dead-column-writes.test.ts
   - src/components/flipdesk/composer/photos-card.tsx
-reviewed: 2026-09-10
+reviewed: 2026-09-11
 tags: [ebay, listings, grading, policy, contract]
 summary: A grade reaches a marketplace listing as text and a structured specific only — never burned into a photo, never as a QR slab image, never as a link.
 ---
+
+> **Re-reviewed 2026-09-11.** flipdesk-ebay.ts changed for US-3265, in the policy-create handler only. Nothing
+> about how the grade reaches a listing moved. Re-read against the diff: still
+> accurate.
 
 # How a grade appears on a listing — text only
 

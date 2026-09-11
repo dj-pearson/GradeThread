@@ -10,10 +10,14 @@ code_refs:
   - src/pages/flipdesk/grid.tsx
   - src/lib/title-sync-patch.ts
   - services/edge-functions/src/routes/flipdesk-ebay.ts
-reviewed: 2026-09-10
+reviewed: 2026-09-11
 tags: [flipdesk, listings, publishing, contract]
 summary: Publish prefers the listings-row snapshot over the item, so any surface writing the item's title, description or price must reach the draft row too.
 ---
+
+> **Re-reviewed 2026-09-11.** flipdesk-ebay.ts changed for US-3265, which added an opt-in read-back and a
+> post-create confirmation to the BUSINESS POLICIES handler. Nothing on the draft
+> snapshot path moved. Re-read against the diff: still accurate.
 
 # The draft snapshot shadows the item
 
