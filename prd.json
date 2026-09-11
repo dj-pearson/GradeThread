@@ -4867,18 +4867,6 @@
       "priority": 6
     },
     {
-      "id": "US-3313",
-      "passes": false,
-      "title": "Two files still say six brands carry a registered number; it is 121 across 115",
-      "description": "Found 2026-09-10 during US-3128 and left alone because both files were outside that agent's fence. vault/40-growth/rn-lookup.md and services/edge-functions/scripts/seed-registered-numbers.ts both state that roughly six brands of about 180 carry a seeded RN. Measured the same day against the migrations: 121 numbers across 115 brands, out of 549 brand_knowledge rows. The figure has been stale for about a year. It matters more than a typo because both files are the entry points somebody reads before deciding whether the RN corpus is worth using at all, and 6 of 180 reads as a prototype while 115 of 549 reads as a corpus. services/edge-functions/src/lib/registered-numbers.ts carried the same stale comment and was corrected in US-3128.",
-      "acceptanceCriteria": [
-        "Both files state the measured figure and name the script that produces it, so the next reader re-runs rather than trusting a number",
-        "Neither file hardcodes the count in a way that goes stale silently: either it is generated, or it carries the date it was measured and the command that measures it",
-        "A grep finds no other surviving copy of the six-of-180 figure anywhere in the repo"
-      ],
-      "priority": 9
-    },
-    {
       "id": "US-3314",
       "passes": false,
       "title": "acquired_date rows written from iOS before 2026-09-10 are off by one day and cannot be repaired from the stored value",
