@@ -103,7 +103,7 @@ const ALLOWED: Record<string, string> = {
 function revokingMigrations(): Map<string, string[]> {
   const out = new Map<string, string[]>();
   for (const file of readdirSync(MIGRATIONS).sort()) {
-    if (!/^\d{5}_.*\.sql(\.BLOCKED)?$/.test(file)) continue;
+    if (!/^\d{5,}_.*\.sql(\.BLOCKED)?$/.test(file)) continue;
     const sql = readFileSync(join(MIGRATIONS, file), "utf8")
       .split("\n")
       .filter((l) => !l.trim().startsWith("--"))

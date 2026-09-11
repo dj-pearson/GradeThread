@@ -117,6 +117,27 @@ function parseBatch(body: Record<string, unknown>): ObservationBatch | null {
   };
 }
 
+/**
+ * Say out loud that a write failed, instead of dropping the result on the floor.
+ *
+ * US-3363. The confirmed-sale block ran
+ * `.update({ listing_status: "sold", sold_at: sale.soldAt })` on `listings`,
+ * and `public.listings` has no `sold_at` column. PostgREST answers HTTP 400
+ * PGRST204 for the WHOLE patch, so `listing_status` was not set either: every
+ * extension-confirmed sale on Poshmark, Mercari, Grailed, Vinted and Facebook
+ * booked a sale row and left its listing reading live. Nothing here read the
+ * result, so it reported success and sat unnoticed.
+ *
+ * Every write in this file now goes through this. The ones that are best-effort
+ * by design log and carry on -- a sale that already happened must not be undone
+ * by a notification or a review row -- but none of them are silent any more.
+ */
+function writeFailed(what: string, error: { message: string } | null): boolean {
+  if (!error) return false;
+  console.error(`[flipdesk-sync] ${what} failed: ${error.message}`);
+  return true;
+}
+
 /** Is this account allowed to sync at all? Same resolution as the Lister gate. */
 async function sellerGate(ownerId: string): Promise<boolean> {
   const { data } = await supabaseAdmin
@@ -232,7 +253,7 @@ flipdeskSyncRoutes.post("/observations", async (c) => {
     // Channel state is recorded on EVERY read, including the failing ones —
     // that record is the whole point of the failing status, and a read that
     // wrote nothing at all would look exactly like a read that never happened.
-    await supabaseAdmin
+    const { error: stateErr } = await supabaseAdmin
       .from("marketplace_sync_state")
       .upsert({
         user_id: ownerId,
@@ -244,6 +265,7 @@ flipdeskSyncRoutes.post("/observations", async (c) => {
         ...(plan.channelStatus === "ok" ? { last_ok_at: batch.observedAt } : {}),
         updated_at: new Date().toISOString(),
       }, { onConflict: "user_id,platform" });
+    writeFailed(`sync state for ${batch.platform}`, stateErr);
 
     if (plan.channelStatus !== "ok") {
       return c.json({
@@ -280,15 +302,21 @@ flipdeskSyncRoutes.post("/observations", async (c) => {
       const withListing = rows.filter((r) => r.listing_id !== null);
       const withoutListing = rows.filter((r) => r.listing_id === null);
       if (withListing.length > 0) {
-        await supabaseAdmin.from("marketplace_sync_reviews").upsert(withListing, {
-          onConflict: "user_id,platform,reason,listing_id",
-          ignoreDuplicates: false,
-        });
+        const { error } = await supabaseAdmin
+          .from("marketplace_sync_reviews")
+          .upsert(withListing, {
+            onConflict: "user_id,platform,reason,listing_id",
+            ignoreDuplicates: false,
+          });
+        writeFailed(`${withListing.length} review row(s) with a listing`, error);
       }
       // count_gap and circuit_breaker carry no listing id, so the partial index
       // does not cover them; they are plain inserts and are expected to recur.
       if (withoutListing.length > 0) {
-        await supabaseAdmin.from("marketplace_sync_reviews").insert(withoutListing);
+        const { error } = await supabaseAdmin
+          .from("marketplace_sync_reviews")
+          .insert(withoutListing);
+        writeFailed(`${withoutListing.length} review row(s) with no listing`, error);
       }
     }
 
@@ -300,7 +328,7 @@ flipdeskSyncRoutes.post("/observations", async (c) => {
     // grows one row per poll forever, which is the exact failure the review
     // queue's other unique index exists to prevent.
     if (plan.unmatched.length > 0) {
-      await supabaseAdmin.from("marketplace_sync_reviews").upsert(
+      const { error } = await supabaseAdmin.from("marketplace_sync_reviews").upsert(
         plan.unmatched.map((u) => ({
           user_id: ownerId,
           platform: batch.platform,
@@ -317,10 +345,14 @@ flipdeskSyncRoutes.post("/observations", async (c) => {
         })),
         { onConflict: "user_id,platform,dedupe_key", ignoreDuplicates: false },
       );
+      writeFailed(`${plan.unmatched.length} unmatched sale row(s)`, error);
     }
 
     // ── confirmed sales ────────────────────────────────────────────────────
     let delisted = 0;
+    /** Listings this batch actually flipped to sold, and the ones it could not. */
+    let markedSold = 0;
+    let markSoldFailed = 0;
     // planSaleEffects owns the shape of a confirmed sale (units, date half,
     // which listing the sibling delist keys on) so that shape is asserted by
     // marketplace-observations_test.ts instead of living only here.
@@ -340,13 +372,29 @@ flipdeskSyncRoutes.post("/observations", async (c) => {
         });
       if (dupErr) continue; // unique violation: another poll already booked it
 
-      await supabaseAdmin
+      // WHEN a thing sold belongs to the sale, not to the listing (US-3363).
+      // `public.listings` carries no sold_at and never has: `items_full`
+      // computes `sale_date`, `sold_at_raw` and `days_to_sell` from the sales
+      // lateral join, and a second copy on the listing would be a value that
+      // can disagree with itself. `is_active` is not set either -- the
+      // trg_listings_sync_is_active trigger derives it from listing_status.
+      //
+      // The ledger insert above already blocks a retry of this sale, so a
+      // failure here is PERMANENT: the sale is booked and the listing still
+      // reads live. That is exactly the state this story found in production,
+      // so it is counted and returned rather than swallowed.
+      const { error: soldErr } = await supabaseAdmin
         .from("listings")
-        .update({ listing_status: "sold", sold_at: sale.soldAt })
+        .update({ listing_status: "sold" })
         .eq("id", sale.listingId)
         .eq("inventory_item_id", sale.itemId);
+      if (writeFailed(`marking listing ${sale.listingId} sold`, soldErr)) {
+        markSoldFailed++;
+      } else {
+        markedSold++;
+      }
 
-      await supabaseAdmin.from("sales").insert({
+      const { error: saleErr } = await supabaseAdmin.from("sales").insert({
         inventory_item_id: sale.itemId,
         listing_id: sale.listingId,
         platform_order_id: sale.dedupeKey,
@@ -361,6 +409,7 @@ flipdeskSyncRoutes.post("/observations", async (c) => {
         buyer_id: null,
         status: "completed",
       });
+      writeFailed(`recording the sale for listing ${sale.listingId}`, saleErr);
 
       // The handoff this whole story exists for. Best-effort by construction:
       // autoEndCrossListings never throws, and a sale must not fail because a
@@ -423,6 +472,10 @@ flipdeskSyncRoutes.post("/observations", async (c) => {
       unmatched: plan.unmatched.length,
       breakerTripped: plan.breakerTripped,
       siblingsHandled: delisted,
+      // US-3363: how many listings this batch actually flipped. `confirmed`
+      // says what the planner decided; these say what the database did.
+      markedSold,
+      markSoldFailed,
     });
   } catch (err) {
     return failSafe(c, 502, "Couldn't record the sync observations.", err, "flipdesk.sync.observations");
@@ -538,13 +591,22 @@ flipdeskSyncRoutes.post("/reviews/:id/claim", async (c) => {
     return failSafe(c, 500, "Couldn't link that listing.", updErr, "flipdesk.sync.claim");
   }
 
-  await supabaseAdmin
+  // The link above is the part that matters and it has already happened, so a
+  // failure here does not fail the request -- it leaves a row the seller has
+  // already dealt with sitting open, which is worth saying rather than hiding.
+  const { error: resolveErr } = await supabaseAdmin
     .from("marketplace_sync_reviews")
     .update({ status: "resolved", updated_at: new Date().toISOString() })
     .eq("id", review.id)
     .eq("user_id", ownerId);
+  const resolved = !writeFailed(`resolving review ${review.id}`, resolveErr);
 
-  return c.json({ ok: true, listing_id: listing.id, listing_url: review.listing_url });
+  return c.json({
+    ok: true,
+    listing_id: listing.id,
+    listing_url: review.listing_url,
+    review_resolved: resolved,
+  });
 });
 
 // POST /reviews/:id/dismiss — the seller has looked and there is nothing to do.

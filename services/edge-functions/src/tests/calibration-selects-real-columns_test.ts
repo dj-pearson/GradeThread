@@ -47,7 +47,7 @@ const SCRIPT = Deno.readTextFileSync(
 /** Every migration's SQL, concatenated in apply order. */
 function allMigrationSql(): string {
   const files = [...Deno.readDirSync(MIGRATIONS_DIR)]
-    .filter((e) => e.isFile && /^\d{5}_.*\.sql$/.test(e.name))
+    .filter((e) => e.isFile && /^\d{5,}_.*\.sql$/.test(e.name))
     .map((e) => e.name)
     .sort();
   return files

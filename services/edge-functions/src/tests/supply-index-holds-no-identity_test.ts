@@ -319,7 +319,7 @@ const TABLE_LEVEL_KEYWORDS = new Set([
  */
 function migrationsIn(dir: URL): Array<[string, string]> {
   return [...Deno.readDirSync(dir)]
-    .filter((e) => e.isFile && /^\d{5}_.*\.sql$/.test(e.name))
+    .filter((e) => e.isFile && /^\d{5,}_.*\.sql$/.test(e.name))
     .map((e) => e.name)
     .sort()
     .map((name) =>

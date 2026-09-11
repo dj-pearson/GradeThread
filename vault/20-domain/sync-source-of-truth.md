@@ -287,6 +287,30 @@ above.
 - **No push-before-pull, no per-field dirty-tracking, no outbound retry queue for live-listing edits.** Earlier drafts needed these to protect local edits from an authoritative eBay pull. Provenance makes them unnecessary: GT-originated listings are never overwritten on editable fields, and eBay-originated listings are read-only mirrors with no local edits to protect.
 - **The eBay per-field `source_of_truth` pin (US-148) is retired** for the eBay↔FlipDesk axis — provenance supersedes it. (See US-1078 notes on safe removal; the Google Sheets merge does not depend on it.)
 
+## Which table owns a sale's date
+
+`public.sales` owns **when** something sold, and `public.listings` owns only
+**that** it did. The listing row carries `listing_status` (`draft`, `active`,
+`ended`, `sold`, `relisted`) and no sale timestamp at all -- `listed_at` is its
+only lifecycle instant. Every surface that shows a sold date reads it from the
+sales row: `items_full` computes `sale_date` as
+`COALESCE(sales.sold_at, sales.sale_date)`, exposes `sold_at_raw` as
+`sales.sold_at`, and derives `days_to_sell` from one column of each table.
+
+This is a one-way rule, and it exists because the alternative is a value that
+can disagree with itself. US-3363, 2026-09-11: `flipdesk-sync.ts` had been
+patching `listings` with `{ listing_status: "sold", sold_at }`, which PostgREST
+refuses whole with `PGRST204` -- so the STATUS did not land either, and every
+extension-confirmed sale on Poshmark, Mercari, Grailed, Vinted and Facebook left
+its listing reading live while the sales row existed. No reader anywhere in the
+tree wanted `listings.sold_at`; the field was simply never checked against the
+schema. `is_active` is also not written by hand on that path: the
+`trg_listings_sync_is_active` trigger derives it from `listing_status`.
+
+Guarded by `services/edge-functions/src/tests/edge-writes-real-columns_test.ts`,
+which derives every table's real columns from the migrations and fails if any
+edge query names one that does not exist.
+
 ## Surface parity (web + iOS + Android)
 
 These rules are surface-agnostic. **iOS enforces the identical model** (US-1086), and **Android joined it with US-1351**: eBay-originated listings are read-only mirrors with an "edit it on eBay" affordance; GradeThread-originated listings are editable in-app and push up via the same edge endpoints. There is **no client-side precedence logic** on any of the three — the edge service is the single enforcement point (server rejects writes to locked eBay-owned fields regardless of client). What a client's local merge does with provenance is a CACHE decision only: it picks which copy the device shows until the next pull, never what the server accepts. CSV/Sheets reconciliation stays entirely server-side.

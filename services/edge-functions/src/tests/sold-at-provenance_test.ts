@@ -484,18 +484,6 @@ const REGISTRY: Record<string, readonly Site[]> = {
       table: "marketplace_sync_observations",
     },
     {
-      text: '.update({ listing_status: "sold", sold_at: sale.soldAt })',
-      kind: "other_table_write",
-      table: "listings",
-      why:
-        "US-3315 FINDING, NOT A BLESSING: public.listings has no sold_at " +
-        "column. Measured against the local stack 2026-09-11, this PATCH " +
-        "returns HTTP 400 PGRST204 while the same PATCH without the field " +
-        "returns 200, and the result is never checked -- so an " +
-        "extension-confirmed sale never flips its listing to sold. Filed " +
-        "rather than fixed here; this file was owned by another change.",
-    },
-    {
       text: "sold_at: sale.soldAt,",
       kind: "sales_write",
       provenance: "scraped_day_or_instant",
