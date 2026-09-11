@@ -7,6 +7,7 @@ source_of_truth: code
 code_refs:
   - services/edge-functions/src/routes/flipdesk-ebay.ts
   - services/edge-functions/src/lib/ebay-client.ts
+  - services/edge-functions/src/lib/ebay-sku.ts
   - services/edge-functions/src/routes/flipdesk-automations.ts
   - services/edge-functions/src/lib/active-listings.ts
   - services/edge-functions/src/lib/marketplace-adapters/ebay.ts
@@ -499,6 +500,92 @@ verdict is not something a quantity push resolves.
 Pinned by `ebay-listing-state_test.ts` (the floor, both directions) and
 `src/test/ebay-out-of-stock-restock.test.tsx` (the composer and sync shapes,
 verified to fail against the pre-fix code).
+
+## The SKU eBay holds is not the SKU on the item (2026-09-11, US-3357)
+
+Everything above assumes the pull can find the local item behind an eBay
+listing. It finds it through one map, built once per pass in `doListingsPull`:
+
+```ts
+// skuToItemId: inventory_items.sku -> inventory_items.id
+.from("inventory_items").select("id, sku, ...").eq("user_id", userId)
+```
+
+**eBay is not keyed on that column.** `deriveInventorySku` (`lib/ebay-sku.ts`)
+mints the Inventory API key at publish, and `listings.inventory_sku` (migration
+00477) pins what the listing actually went live under. The two agree only when
+the seller typed a SKU into the composer's *SKU / Item #* field and never
+changed it. That field is optional, `composer-save.ts` saves it as
+`trimOrNull(state.storageSku)`, and `inventory_items.sku` is a nullable column
+with no default and no trigger. A blank field therefore publishes under
+`FD-<first 8 of the item uuid>` while the local row keeps `sku = NULL`.
+
+So four classes of SKU come back from `GET /sell/inventory/v1/inventory_item`
+that `skuToItemId` cannot resolve:
+
+| Class | Where the SKU came from | Recoverable locally? |
+|---|---|---|
+| Minted | item published with a blank SKU, so eBay holds `FD-xxxxxxxx` | yes, via `listings.inventory_sku` |
+| Renamed | seller edited `inventory_items.sku` after publishing (the case 00477 was written for) | yes, same column |
+| Variant | `variantSku(baseSku, variant)` per member of a variation listing; only `baseSku` is stored | yes, by re-deriving from `listings.variations` |
+| Foreign | listed by another tool, or left behind after the local item was deleted | no |
+
+### What that costs
+
+1. **The item's own live listing is reported as an orphan.** The offer falls to
+   the `else` branch and is upserted into `flipdesk_ebay_listings` with
+   `title: null`, so the seller is asked on the Reconciliation page to link a
+   listing GradeThread itself published. The legacy Trading pass would have
+   supplied the title, but it dedupes against `processedListingIds`, which the
+   modern pass has already filled, so the better record never gets written.
+2. **Ended-without-sale never fires for those items.** `endedItemIds.add` and
+   the absent-listing branch both sit behind a resolved `itemId`. An unsold
+   listing on a blank-SKU item stays `listed` locally forever, which is the
+   single thing the per-SKU offer read exists to catch (see `OFFER_RECHECK_MS`).
+3. **The read is never remembered, so it is paid on every pass.** The US-3111
+   stamp is `update(inventory_items).eq(user_id).in("sku", chunk)`, and an
+   UPDATE matching no row is a 200 with an empty body, not an error. US-3110
+   made the gap countable as `offers_unstamped` on the pull-complete line.
+
+### Why this is not a missing table
+
+The obvious repair for (3) is a memo table keyed `(user_id, sku)` holding a
+`checked_at`. It is the wrong shape: three of the four classes above resolve to
+an inventory item that already has an `ebay_offer_checked_at` column, so a memo
+table would be storing a second answer to a question the schema can already
+answer, and the fourth class should not be asked about at all. The rows would
+also never be pruned, because nothing deletes an eBay inventory item when a
+local item is deleted: `DELETE /items/:sku` requires a matching
+`inventory_items.sku` row, which by definition these do not have.
+
+The repair is a join, and it needs no migration. Migration 00477 already created
+`idx_listings_user_inventory_sku ON listings (user_id, inventory_sku) WHERE
+inventory_sku IS NOT NULL` for exactly this lookup. Resolve each eBay SKU to an
+`inventory_items.id` through that index, stamp `.in("id", ids)` instead of
+`.in("sku", skus)`, and feed the same map to `selectSkusToSkip`. The residue
+after that is the Foreign class alone, and for an ACTIVE foreign listing the
+legacy `GetMyeBaySelling` pass already produces a richer orphan row in seven
+paged calls rather than one call per SKU, so the per-SKU read buys nothing.
+
+### Reading the size of it
+
+The Minted and Renamed classes are countable from the database without touching
+a container log or eBay:
+
+```sql
+select count(*) filter (where l.inventory_sku like 'FD-%')            as minted,
+       count(*) filter (where l.inventory_sku not like 'FD-%')        as renamed,
+       count(*)                                                       as total
+from public.listings l
+join public.inventory_items i on i.id = l.inventory_item_id
+where l.platform = 'ebay'
+  and l.inventory_sku is not null
+  and l.inventory_sku is distinct from i.sku;
+```
+
+The Foreign class is only visible in the pull's own log line, because a SKU with
+no live offer produces no orphan row either: the `!o.listingId` branch resolves
+no item and falls straight through to `skipped`.
 
 ## Related
 
