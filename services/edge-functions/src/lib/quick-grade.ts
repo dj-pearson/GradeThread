@@ -14,6 +14,7 @@ import {
   type GarmentInfo,
   type PerImageAnalysis,
 } from "./ai-grading.ts";
+import { labelIllegibleFor } from "./image-quality.ts";
 import { safeFetch } from "./ssrf.ts";
 import { captureException } from "./observability.ts";
 import { AiCeilingError } from "./ai-limiter.ts";
@@ -132,6 +133,14 @@ export interface QuickGradeAnalysis {
   /** How many images were SUBMITTED, so the partial-set cap can still fire. */
   requested: number;
   fabricCloseupMissing: boolean;
+  /**
+   * US-3320: a `label` image came back unreadable. Usually false here (a quick
+   * grade is front/back shots off a listing and rarely carries a label slot at
+   * all), and carried for the same reason as the flag above: every cap the full
+   * pipeline applies has to reach this composite too, or quick-grade reports a
+   * confidence the full path would have capped.
+   */
+  labelIllegible: boolean;
 }
 
 /**
@@ -202,8 +211,20 @@ export async function analyzeQuickImages(
   // Passed through so compositeGrade applies the same cap the full path does;
   // with a close-up present this argument is false and nothing changes.
   const fabricCloseupMissing = !dataUris.some((d) => /detail|fabric/i.test(d.type));
+  // US-3320: read off what the vision pass actually SAID, not off the submitted
+  // types - unlike the close-up above, this is a property of the read, not of
+  // which slots were filled.
+  const labelIllegible = labelIllegibleFor(
+    perImage.map((r) => ({ image_type: r.image_type, quality: r.quality })),
+  );
 
-  return { perImage, usages, requested: inputs.length, fabricCloseupMissing };
+  return {
+    perImage,
+    usages,
+    requested: inputs.length,
+    fabricCloseupMissing,
+    labelIllegible,
+  };
 }
 
 /**
@@ -239,7 +260,7 @@ export async function compositeQuickGrade(
     description: garmentInput?.description ?? null,
     style_attributes: garmentInput?.style_attributes,
   };
-  const { perImage, fabricCloseupMissing } = analysis;
+  const { perImage, fabricCloseupMissing, labelIllegible } = analysis;
   const usages = [...analysis.usages];
 
   const composite = await compositeGrade(
@@ -253,6 +274,7 @@ export async function compositeQuickGrade(
     false,
     "",
     fabricCloseupMissing,
+    labelIllegible,
   );
   if (composite.usage) usages.push({ phase: "quick_composite", usage: composite.usage });
 

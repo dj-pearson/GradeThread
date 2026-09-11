@@ -2267,6 +2267,17 @@ export const PROMPT_INJECTION_CONFIDENCE_CAP = 0.5;
 // never equalled (US-2308). If one moves, the other should not follow by
 // accident.
 export const NO_FABRIC_CLOSEUP_CONFIDENCE_CAP = 0.6;
+// US-3320: the brand/care label came back unreadable, so the fiber composition
+// went untranscribed and the composite's fabric-specific criteria ran without
+// it. Below the default review threshold, and paired with a force-review flag
+// for the same reason as the cap above.
+//
+// A third 0.6, and a third standalone constant, on the reasoning US-2308 wrote
+// down: these three answer different questions — an image we failed to analyze,
+// an image the seller never took, and a tag the camera caught but the model
+// could not read. Tying any of them to another is how a comment ends up
+// claiming a number it does not hold.
+export const ILLEGIBLE_LABEL_CONFIDENCE_CAP = 0.6;
 
 const FACTOR_KEYS: (keyof FactorScores)[] = [
   "fabric_condition",
@@ -2326,6 +2337,19 @@ export interface ConfidencePolicyInput {
    * with the owner: "if it does have the detail then it is business as usual".
    */
   fabricCloseupMissing?: boolean;
+  /**
+   * US-3320: the `label` shot came back `legible: false`, so brand/size/care
+   * text went unread and `fiber_content` untranscribed — the composite's
+   * fabric-specific criteria ran on a composition it never saw.
+   *
+   * Until 2026-09-10 this case could not reach grading either: the image-quality
+   * gate abstained on it, and for a tagless garment (a Lululemon size dot, a
+   * heat-transfer waistband) the retake it asked for did not exist. Allowing it
+   * is the same deliberate trade as the flag above, and this cap is the other
+   * half of it. Optional → absent/false leaves behavior byte-identical for every
+   * submission whose label WAS read.
+   */
+  labelIllegible?: boolean;
 }
 
 export interface ConfidencePolicyResult {
@@ -2386,6 +2410,12 @@ export function applyGradingConfidencePolicy(
       NO_FABRIC_CLOSEUP_CONFIDENCE_CAP,
     );
   }
+  if (input.labelIllegible) {
+    confidenceCeiling = Math.min(
+      confidenceCeiling,
+      ILLEGIBLE_LABEL_CONFIDENCE_CAP,
+    );
+  }
   const finalConfidence = Math.min(input.confidenceScore, confidenceCeiling);
   const needsHumanReview = finalConfidence < input.reviewThreshold ||
     input.authenticityFlagged ||
@@ -2394,7 +2424,10 @@ export function applyGradingConfidencePolicy(
     // Forced, not merely implied by the cap. The cap sits below the DEFAULT
     // review threshold, but the threshold is configurable (and calibrated) — a
     // permissive one would otherwise let an unreviewed fabric guess ship.
-    (input.fabricCloseupMissing ?? false);
+    (input.fabricCloseupMissing ?? false) ||
+    // US-3320: same reasoning — the cap sits below the DEFAULT threshold, and
+    // a grade built on an unread composition must not ship on a permissive one.
+    (input.labelIllegible ?? false);
   return { finalConfidence, needsHumanReview, confidenceCeiling };
 }
 
@@ -2685,6 +2718,10 @@ export async function compositeGrade(
   // read off the full-garment shots. Caps confidence and forces review below.
   // Default false → byte-identical for every submission that has a close-up.
   fabricCloseupMissing = false,
+  // US-3320: the label shot was unreadable, so the fiber composition is unknown
+  // to the fabric criteria below. Caps confidence and forces review.
+  // Default false → byte-identical for every submission whose label was read.
+  labelIllegible = false,
 ): Promise<CompositeGradeResult> {
   const startTime = Date.now();
   const compositeModel = modelOverride && isAllowedGradingModel(modelOverride)
@@ -3164,6 +3201,22 @@ export async function compositeGrade(
         garment_category: garmentInfo.garment_category,
       });
     }
+    if (labelIllegible) {
+      console.warn(
+        `[AI Grading] label unreadable in the analyzed set — capping confidence ` +
+          `at ${ILLEGIBLE_LABEL_CONFIDENCE_CAP} and routing to human review | ` +
+          `prompt_version=${promptVersion}`,
+      );
+      // US-3320: emitted so the tagless-garment population is countable. The
+      // gate used to abstain on these, so they showed up as "needs_photos" and
+      // were indistinguishable from genuinely bad photos — which is why the
+      // Lululemon case went unnoticed until a seller reported one.
+      void captureServer("grading-engine", "grading.illegible_label", {
+        prompt_version: promptVersion,
+        garment_category: garmentInfo.garment_category,
+        brand: garmentInfo.brand ?? null,
+      });
+    }
     const policy = applyGradingConfidencePolicy({
       confidenceScore,
       authenticityFlagged,
@@ -3171,6 +3224,7 @@ export async function compositeGrade(
       reviewThreshold: effectiveThreshold,
       injectionSuspected,
       fabricCloseupMissing,
+      labelIllegible,
     });
     let finalConfidence = policy.finalConfidence;
     let needsHumanReview = policy.needsHumanReview;

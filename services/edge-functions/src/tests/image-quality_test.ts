@@ -7,6 +7,7 @@ import {
   DEFAULT_IMAGE_QUALITY,
   evaluateImageQuality,
   type ImageQuality,
+  labelIllegibleFor,
   type QualityImageInput,
 } from "../lib/image-quality.ts";
 
@@ -134,19 +135,82 @@ Deno.test("partial framing on front/back blocks", () => {
   );
 });
 
-Deno.test("illegible label blocks", () => {
+Deno.test("US-3320: an illegible label WARNS and still grades", () => {
+  // Was an abstain until 2026-09-10. It refused a real submission whose only
+  // tag is a Lululemon silicone size DOT — a size number and a style code, no
+  // brand name and no care text — so `legible` came back false on a sharp,
+  // well-framed photo of the only tag the garment has. The ask ("retake a
+  // sharp, straight-on close-up of the brand/care label") named a photo that
+  // does not exist, so no retake could ever clear it.
   const r = evaluateImageQuality([
     img("front"),
     img("back"),
     img("label", { legible: false }),
     img("detail"),
   ]);
-  assert(r.abstain);
+  assert(!r.abstain);
+  assert(r.labelIllegible);
   assert(
     r.issues.some((i) =>
-      i.problem === "illegible_label" && i.severity === "block"
+      i.problem === "illegible_label" && i.severity === "warn"
     ),
   );
+  // A warning must never leak into the abstention asks — those are the
+  // "we cannot grade this" list, and this one is gradeable.
+  assertEquals(r.photo_requests.length, 0);
+});
+
+Deno.test("US-3320: mild blur on the label does not resurrect the block", () => {
+  // The exact shape of submission b3673c27: blur "mild" (a warn everywhere
+  // else) alongside legible=false. A rule that blocked whenever the label also
+  // had ANY capture note would have left this submission exactly as broken.
+  const r = evaluateImageQuality([
+    img("front"),
+    img("back"),
+    img("label", { legible: false, blur: "mild" }),
+    img("detail"),
+  ]);
+  assert(!r.abstain);
+  assert(r.labelIllegible);
+  assertEquals(r.photo_requests.length, 0);
+});
+
+Deno.test("US-3320: a label that IS unusable still blocks on its own defect", () => {
+  // Dropping the legibility block must not make a genuinely unusable label
+  // gradeable. Severe blur and darkness on a core shot block as they always
+  // did — that ask is actionable, because a retake really does fix it.
+  for (const q of [{ blur: "severe" as const }, { lighting: "dark" as const }]) {
+    const r = evaluateImageQuality([
+      img("front"),
+      img("back"),
+      img("label", { ...q, legible: false }),
+      img("detail"),
+    ]);
+    assert(r.abstain, JSON.stringify(q));
+    assert(r.labelIllegible, JSON.stringify(q));
+  }
+});
+
+Deno.test("US-3320: a readable label leaves labelIllegible false (no cap)", () => {
+  const r = evaluateImageQuality(goodSet());
+  assert(!r.labelIllegible);
+  assert(r.ok);
+});
+
+Deno.test("US-3320: labelIllegibleFor matches the gate", () => {
+  // The escalation re-grade builds its own analyzed set and must recompute the
+  // flag rather than inherit it — the same hole US-1642 found in the
+  // partial-image cap and US-2397 found in the fabric one.
+  assert(labelIllegibleFor([img("label", { legible: false })]));
+  assert(!labelIllegibleFor([img("label")]));
+  // Only LABEL slots carry the signal; `legible` is meaningless elsewhere and
+  // the per-image prompt tells the model to set it true on non-labels anyway.
+  assert(!labelIllegibleFor([img("detail", { legible: false })]));
+  // `label_2` is deliberately OUT of scope — see LEGIBILITY_TYPES. Widening it
+  // would cap grades that have always shipped uncapped.
+  assert(!labelIllegibleFor([img("label_2", { legible: false })]));
+  // A missing quality field is "not measured", never "illegible".
+  assert(!labelIllegibleFor([{ image_type: "label" }]));
 });
 
 Deno.test("mild blur / dim light on core shots warn but still grade", () => {

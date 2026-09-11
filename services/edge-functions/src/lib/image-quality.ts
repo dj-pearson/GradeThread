@@ -74,6 +74,17 @@ export interface QualityGateResult {
    * because a copy edit would silently switch the cap off.
    */
   fabricCloseupMissing: boolean;
+  /**
+   * US-3320: a `label` slot came back `legible: false`, so brand/size/care text
+   * could not be read off the tag and the fiber composition went untranscribed.
+   *
+   * This USED to abstain. It no longer does — see the issue construction below
+   * for why the ask was unanswerable. What it must never do is get that grade
+   * for free: the caller caps confidence and routes to a human
+   * (ILLEGIBLE_LABEL_CONFIDENCE_CAP in ai-grading.ts). Reported as an explicit
+   * boolean for the same reason as its sibling above.
+   */
+  labelIllegible: boolean;
 }
 
 // Required angles for a gradeable submission (AC #3).
@@ -117,6 +128,36 @@ export function fabricCloseupMissingFor(imageTypes: Iterable<string>): boolean {
     if (t.startsWith("detail")) return false;
   }
   return true;
+}
+
+/**
+ * Slots whose `legible` flag is meaningful HERE.
+ *
+ * Deliberately narrower than LABEL_IMAGE_TYPES in ai-grading.ts, which also
+ * holds `label_2`: that set drives the high-res re-read, which only ever spends
+ * a vision call, while this one drives a confidence CAP. Widening it to
+ * `label_2` would newly cap grades that have always shipped uncapped, for
+ * submissions that have nothing to do with the bug this closes. The primary
+ * label is where brand/size/care live and where the gate has always looked.
+ */
+const LEGIBILITY_TYPES = new Set<string>(["label"]);
+
+/**
+ * Did any label slot come back unreadable?
+ *
+ * The ONE definition of that rule, exported for the same reason as
+ * `fabricCloseupMissingFor`: the escalation re-grade in grading-pipeline.ts
+ * builds its own analyzed set on the stronger model and must RECOMPUTE the flag
+ * rather than inherit it, or it ships an uncapped escalated grade. That is the
+ * hole US-1642 found in the partial-image cap and US-2397 closed for fabric.
+ *
+ * A missing `quality` object means "not measured", never "illegible" — the same
+ * benefit of the doubt DEFAULT_IMAGE_QUALITY gives everywhere else.
+ */
+export function labelIllegibleFor(images: QualityImageInput[]): boolean {
+  return images.some(
+    (i) => LEGIBILITY_TYPES.has(i.image_type) && i.quality?.legible === false,
+  );
 }
 
 export function evaluateImageQuality(
@@ -223,14 +264,31 @@ export function evaluateImageQuality(
       });
     }
 
-    // Label legibility — can't verify brand/size/care from an unreadable label.
-    if (img.image_type === "label" && q.legible === false) {
+    // Label legibility — brand/size/care could not be read off the tag.
+    //
+    // WARN, not BLOCK (US-3320). This blocked until 2026-09-10, and the ask it
+    // produced was unanswerable on a whole class of garment. `legible` is
+    // defined for the vision pass as "the brand/size/care text is readable", so
+    // a tagless garment scores false on a perfect photo: the only tag on a
+    // Lululemon Base Pace tight is a silicone size DOT with a size number and a
+    // style code, brand heat-pressed on the leg. Submission b3673c27 had all
+    // six photos, one blocking issue, and no retake that could clear it.
+    //
+    // The same trade as the fabric close-up one above: a slower, checked grade
+    // instead of no grade, never the same grade for less. An unread label means
+    // an untranscribed fiber composition, so the composite's fabric criteria run
+    // without it — the caller caps confidence and routes to a human.
+    //
+    // A label that is genuinely unusable still blocks, on its OWN defect:
+    // severe blur and darkness are core-shot blocks a few lines up, and those
+    // asks are actionable because a retake really does fix them.
+    if (LEGIBILITY_TYPES.has(img.image_type) && q.legible === false) {
       issues.push({
         image_type: img.image_type,
         problem: "illegible_label",
-        severity: "block",
+        severity: "warn",
         message:
-          "The label isn't readable — retake a sharp, straight-on close-up of the brand/care label.",
+          "We couldn't read the brand/care label, so a person will check this grade before it is final. If the garment has a printed care tag, a straight-on close-up gets you a faster, more certain grade next time.",
       });
     }
   }
@@ -255,6 +313,7 @@ export function evaluateImageQuality(
     ok: issues.length === 0,
     abstain,
     fabricCloseupMissing,
+    labelIllegible: labelIllegibleFor(images),
     issues,
     photo_requests,
     summary,

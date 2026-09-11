@@ -95,6 +95,7 @@ import {
 import {
   evaluateImageQuality,
   fabricCloseupMissingFor,
+  labelIllegibleFor,
   REQUIRED_IMAGE_TYPES,
 } from "./image-quality.ts";
 import { withImageBufferSlot } from "./grading-capacity.ts";
@@ -596,6 +597,14 @@ async function escalateGrade(
     // first one — the escalation can drop an optional detail image, and an
     // escalated grade must never be the way an uncapped fabric guess ships.
     fabricCloseupMissingFor(perImageResults.map((r) => r.image_type)),
+    // US-3320: recomputed from THIS pass's reads for the same reason. The
+    // escalation re-runs every per-image analysis on the stronger model, which
+    // can legitimately READ a label the first pass could not — inheriting the
+    // first pass's flag would keep a cap the evidence no longer supports, and
+    // forgetting it would drop one the evidence still does.
+    labelIllegibleFor(
+      perImageResults.map((r) => ({ image_type: r.image_type, quality: r.quality })),
+    ),
   );
   // US-1642: surface whether the ESCALATION dropped an optional image. The
   // caller ORs this into partialSuccess so a defect/detail image that failed to
@@ -2199,6 +2208,10 @@ export async function processSubmission(submissionId: string) {
       // US-2397: grading without a fabric close-up is allowed now, but never at
       // full confidence — this caps it and forces the human check.
       qualityGate.fabricCloseupMissing,
+      // US-3320: same for an unreadable label. The gate used to abstain on it,
+      // which for a tagless garment (a Lululemon size dot, a heat-transfer
+      // waistband) asked the seller for a photo that does not exist.
+      qualityGate.labelIllegible,
     );
 
     // US-1066: escalate a low-confidence / high-value first-pass grade to the

@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-3320",
+  "nextId": "US-3323",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -4901,6 +4901,35 @@
         "The edge suite's real baseline is recorded in the notes as a number with a date, so the next person can tell a regression from the backlog"
       ],
       "priority": 3
+    },
+    {
+      "id": "US-3321",
+      "passes": false,
+      "title": "The per-image prompt defines 'legible' as brand+size+care, so a tagless garment scores false on a perfect photo",
+      "description": "As the grading engine, I want 'legible' to mean 'the text printed on this tag is readable' rather than 'brand, size and care text are all present', so that a Lululemon size dot or a heat-transfer waistband reads as a legible tag instead of an unread one and does not carry an unearned confidence cap.",
+      "acceptanceCriteria": [
+        "The per-image quality rule in PER_IMAGE_PROMPT (ai-grading.ts, the 'legible:' clause) is redefined to judge whether the text that IS present on the tag can be read, and to name the tagless cases explicitly: a heat-transfer print, a silicone size dot, a waistband stamp.",
+        "The change ships through the full prompt lifecycle, never as a hot edit: a new PER_IMAGE_PROMPT_VERSION, a draft ai_prompt_versions row, grading-shadow comparison on live traffic, then the grading-eval gate (EVAL_MAX_MAE / EVAL_MIN_AGREEMENT) before activation.",
+        "At least three golden-set cases (grading_eval_cases) are added from real tagless garments — a Lululemon size dot, a Nike heat-transfer neck print, and one printed care tag — tagged so eval reports slice them.",
+        "After activation, the grading.illegible_label event rate for brands with tagless construction drops measurably; a submission whose only tag is a size dot grades uncapped by ILLEGIBLE_LABEL_CONFIDENCE_CAP."
+      ],
+      "dependsOn": [
+        "US-3320"
+      ]
+    },
+    {
+      "id": "US-3322",
+      "passes": false,
+      "title": "The US-2154 label re-read runs after the abstain gate and only on paid Forensic, so it never rescued an unread label",
+      "description": "As the grading pipeline, I want the high-res label re-read to have a chance to clear an illegible flag before anything acts on it, so that the recovery path built for exactly this case is not dead code on the path where it matters.",
+      "acceptanceCriteria": [
+        "Document or correct the ordering: runRereadPass is called at grading-pipeline.ts step 4c, AFTER evaluateImageQuality at step 4b, and only inside the  block — so on a standard grade an illegible label reached the gate with no re-read at all.",
+        "Decide and record whether the label re-read should run on a standard grade when the ONLY reason it was selected is quality.legible === false (selectLabelsForReread also fires on empty fiber_content, which is common and would add a vision call to most grades — that arm must stay behind the paid gate).",
+        "If the re-read is moved earlier, ILLEGIBLE_LABEL_CONFIDENCE_CAP is computed from the MERGED read, not the first-pass one, so a label the sharper read could actually read carries no cap."
+      ],
+      "dependsOn": [
+        "US-3320"
+      ]
     }
   ]
 }

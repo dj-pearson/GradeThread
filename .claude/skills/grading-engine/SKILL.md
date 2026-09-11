@@ -88,7 +88,8 @@ inert until they pass the eval gate and are explicitly activated
   partial image set (cap **0.6**, `PARTIAL_IMAGE_CONFIDENCE_CAP`), peer-norm
   outlier (cap 0.7, `PEER_NORM_CONFIDENCE_CAP`, US-1536), ≥2
   visual-verification discrepancies (US-1537), **no fabric close-up** (cap
-  **0.6**, `NO_FABRIC_CLOSEUP_CONFIDENCE_CAP`, US-2397).
+  **0.6**, `NO_FABRIC_CLOSEUP_CONFIDENCE_CAP`, US-2397), **unreadable label**
+  (cap **0.6**, `ILLEGIBLE_LABEL_CONFIDENCE_CAP`, US-3320).
   These caps are DIFFERENT numbers and all are named constants — this doc
   said 0.7 for both the first two, and so did peer-norm.ts's own comment, which
   claimed its 0.7 "matched" the partial-image cap it has never equalled
@@ -102,6 +103,16 @@ inert until they pass the eval gate and are explicitly activated
   cost sellers grades they had the photos for. The grade happens, capped and
   human-checked. **With a close-up present, every path is byte-identical** —
   that is the other half of the decision and it is test-guarded.
+- **An unreadable label no longer abstains either (US-3320).** Same gate, same
+  shape, and the reason is worth keeping: the per-image prompt defines
+  `legible` as "the brand/size/care text is readable", so a garment whose only
+  tag is a silicone size DOT (Lululemon) or a heat-transfer waistband scores
+  `legible: false` on a sharp, well-framed photo. The gate then asked the seller
+  to retake a photo the garment does not have, and no retake could ever clear
+  it. A label that is genuinely unusable still blocks on its OWN defect: severe
+  blur and darkness are core-shot blocks, and those asks are actionable.
+  `labelIllegibleFor` in `image-quality.ts` is the one definition; the
+  escalation re-grade must recompute it, never inherit it.
 - Caps COMPOSE via min-of-caps; penalties floor at 0. Never raise confidence
   post-composite. New caps: follow `composeConfidenceCap` (peer-norm.ts).
 - **The mechanism, not just the rule (US-2299).** "Never raise post-composite"

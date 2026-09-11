@@ -161,6 +161,17 @@ Deno.test("US-2309: quick-grade passes the missing-close-up signal to the compos
   assert(QUICK_GRADE_SRC.includes("fabricCloseupMissing"));
 });
 
+Deno.test("US-3320: quick-grade passes the illegible-label signal too", () => {
+  // The US-2309 contract is that every cap the full pipeline applies reaches
+  // this composite as well. A new cap that skips quick-grade recreates exactly
+  // the divergence US-2309 existed to close: a Snap-to-Value or /prospect
+  // estimate reporting a confidence the full path would have capped.
+  assert(QUICK_GRADE_SRC.includes("labelIllegible"));
+  // Read off what the vision pass SAID, not off which slots were submitted —
+  // unlike the close-up flag, this is a property of the read.
+  assert(QUICK_GRADE_SRC.includes("labelIllegibleFor("));
+});
+
 Deno.test("US-2309: quick-grade returns its ceiling", () => {
   // Nothing boosts a quick grade today. The ceiling leaves the function anyway,
   // so the next caller to add a boost does not have to discover the rule.

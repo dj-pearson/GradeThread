@@ -20,6 +20,7 @@ const {
   DEFAULTED_FACTOR_CONFIDENCE_CAP,
   AUTHENTICITY_FLAG_CONFIDENCE_CAP,
   NO_FABRIC_CLOSEUP_CONFIDENCE_CAP,
+  ILLEGIBLE_LABEL_CONFIDENCE_CAP,
 } = await import("../lib/ai-grading.ts");
 
 const VALID = {
@@ -354,4 +355,115 @@ Deno.test("US-2397: the escalation re-grade recomputes the flag", () => {
   );
   assertEquals(src.split("fabricCloseupMissingFor(").length - 1, 1);
   assert(src.includes("qualityGate.fabricCloseupMissing"));
+});
+
+// ── US-3320: grading a garment whose label cannot be read ───────────────────
+//
+// The image-quality gate used to ABSTAIN on `legible: false`, so this state
+// could not reach the grader at all. It refused submission b3673c27 — a
+// Lululemon Base Pace tight whose only tag is a silicone size DOT carrying a
+// size number and a style code, with the brand heat-pressed on the leg instead.
+// The per-image prompt defines `legible` as "the brand/size/care text is
+// readable", so the model answered correctly and the gate drew the wrong
+// conclusion: it asked for a retake of a photo the garment does not have.
+//
+// These tests pin the price of grading it anyway. An unread label means the
+// fiber composition is unread, and the composite's fabric-specific criteria run
+// without it — so the grade happens, but it can never be a confident one.
+
+Deno.test("US-3320: an illegible label caps confidence AND forces review", () => {
+  const r = applyGradingConfidencePolicy({
+    confidenceScore: 0.95,
+    authenticityFlagged: false,
+    defaultedFactorCount: 0,
+    reviewThreshold: 0.75,
+    labelIllegible: true,
+  });
+  assertEquals(r.finalConfidence, ILLEGIBLE_LABEL_CONFIDENCE_CAP);
+  assertEquals(r.confidenceCeiling, ILLEGIBLE_LABEL_CONFIDENCE_CAP);
+  assert(r.needsHumanReview);
+});
+
+Deno.test("US-3320: review is FORCED, not merely implied by the threshold", () => {
+  const r = applyGradingConfidencePolicy({
+    confidenceScore: 0.95,
+    authenticityFlagged: false,
+    defaultedFactorCount: 0,
+    reviewThreshold: 0.1,
+    labelIllegible: true,
+  });
+  assert(r.needsHumanReview);
+  assertEquals(r.finalConfidence, ILLEGIBLE_LABEL_CONFIDENCE_CAP);
+});
+
+Deno.test("US-3320: the cap LOWERS the ceiling, so no later boost lifts it", () => {
+  // The US-2299 rule: a cap that lowers finalConfidence but not the reported
+  // ceiling is invisible — the review gate fires, the grade looks handled, and
+  // the next provenance boost puts the STORED number back over the cap.
+  const r = applyGradingConfidencePolicy({
+    confidenceScore: 0.4,
+    authenticityFlagged: false,
+    defaultedFactorCount: 0,
+    reviewThreshold: 0.75,
+    labelIllegible: true,
+  });
+  assertEquals(r.finalConfidence, 0.4);
+  assertEquals(r.confidenceCeiling, ILLEGIBLE_LABEL_CONFIDENCE_CAP);
+});
+
+Deno.test("US-3320: with a readable label, behavior is byte-identical", () => {
+  const base = {
+    confidenceScore: 0.9,
+    authenticityFlagged: false,
+    defaultedFactorCount: 0,
+    reviewThreshold: 0.75,
+  };
+  const omitted = applyGradingConfidencePolicy(base);
+  const explicit = applyGradingConfidencePolicy({
+    ...base,
+    labelIllegible: false,
+  });
+  assertEquals(omitted, explicit);
+  assertEquals(explicit.finalConfidence, 0.9);
+  assertEquals(explicit.confidenceCeiling, 1);
+  assert(!explicit.needsHumanReview);
+});
+
+Deno.test("US-3320: composes by MIN with the other caps", () => {
+  const r = applyGradingConfidencePolicy({
+    confidenceScore: 1,
+    authenticityFlagged: false,
+    defaultedFactorCount: 1, // 0.5 cap — lower than this one
+    reviewThreshold: 0.75,
+    labelIllegible: true,
+  });
+  assertEquals(r.confidenceCeiling, DEFAULTED_FACTOR_CONFIDENCE_CAP);
+  assert(ILLEGIBLE_LABEL_CONFIDENCE_CAP > DEFAULTED_FACTOR_CONFIDENCE_CAP);
+});
+
+Deno.test("US-3320: the escalation re-grade recomputes the flag", () => {
+  // Same source assertion as its US-2397 sibling, for the same reason: an
+  // escalated grade is a SECOND compositeGrade call over a freshly analyzed
+  // set, and inheriting the first pass's flag is how the partial-image cap was
+  // lost on escalation once already (US-1642).
+  const src = Deno.readTextFileSync(
+    new URL("../lib/grading-pipeline.ts", import.meta.url),
+  );
+  assertEquals(src.split("labelIllegibleFor(").length - 1, 1);
+  assert(src.includes("qualityGate.labelIllegible"));
+});
+
+Deno.test("US-3320: the tagless population is countable", () => {
+  // The gate used to abstain on an unread label, so these submissions landed in
+  // `needs_photos` indistinguishable from genuinely bad photos — which is why
+  // the Lululemon case went unnoticed until a seller reported one. The event is
+  // the only way to ask "how many garments have no readable tag" from now on.
+  const src = Deno.readTextFileSync(
+    new URL("../lib/ai-grading.ts", import.meta.url),
+  );
+  assert(src.includes('"grading.illegible_label"'));
+  const at = src.indexOf('"grading.illegible_label"');
+  const block = src.slice(at, at + 300);
+  assert(block.includes("garment_category"), "needs a category to slice by");
+  assert(block.includes("brand"), "brand is what makes the pattern visible");
 });
