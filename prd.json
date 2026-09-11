@@ -4903,19 +4903,6 @@
       ]
     },
     {
-      "id": "US-3336",
-      "passes": false,
-      "title": "Pin each flaw on the garment outline on the certificate",
-      "description": "The certificate already draws a garment outline for photo coverage (coverage-heatmap.tsx) and numbered defect callouts on photos. Putting the same numbers on the outline gives buyers the damage map at a glance.",
-      "acceptanceCriteria": [
-        "Map each genuine defect to an inspection zone from the coverage catalog using its location text and source photo.",
-        "Render numbered pins on the outline matching the callout numbers; flaws that cannot be mapped are listed as location not mapped.",
-        "A text list carries the same information for screen readers.",
-        "Tests for the mapping."
-      ],
-      "priority": 41
-    },
-    {
       "id": "US-3337",
       "passes": false,
       "title": "Photo report card: show sellers how their photos score over time",

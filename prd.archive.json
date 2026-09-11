@@ -47150,6 +47150,20 @@
       ],
       "priority": 39,
       "notes": "Done 2026-09-11 in 7955ef7c4. Table 00789 grading_reference_photos (deny-all, SERVICE_ROLE_ONLY + SERVICE_ONLY_FORCED), HELD in PENDING_MIGRATIONS.md. Routes in admin-grading.ts: GET /reference-photos, GET /reference-photos/candidates/:reportId, POST /reference-photos (step-up, audit, refusals audited), POST /reference-photos/:id/revoke (step-up, audit, soft revoke). Eligibility in lib/reference-photos.ts: finalized grade plus staff owner or share_sale_outcomes, read from the rows; category and grade never from the body. List re-checks consent (still_eligible) and signs only eligible images, TTL 900. Card: src/components/admin/reference-gallery-card.tsx on the admin grading page. Tests reference-photos_test.ts 11/11, four sabotages each bite (consent ignored, TTL 3600, step-up removed, category from body). US-3335 must skip rows with still_eligible false."
+    },
+    {
+      "id": "US-3336",
+      "passes": true,
+      "title": "Pin each flaw on the garment outline on the certificate",
+      "description": "The certificate already draws a garment outline for photo coverage (coverage-heatmap.tsx) and numbered defect callouts on photos. Putting the same numbers on the outline gives buyers the damage map at a glance.",
+      "acceptanceCriteria": [
+        "Map each genuine defect to an inspection zone from the coverage catalog using its location text and source photo.",
+        "Render numbered pins on the outline matching the callout numbers; flaws that cannot be mapped are listed as location not mapped.",
+        "A text list carries the same information for screen readers.",
+        "Tests for the mapping."
+      ],
+      "priority": 41,
+      "notes": "Done 2026-09-11 in 83f3f70b6. src/lib/flaw-zones.ts maps each numbered callout flaw to a zone (location keyword at a word start, edge HINT_ALIASES order, parity-tested; else front/back/label photo; else unmapped). src/components/certificate/flaw-map.tsx draws pins with the callout numbers on silhouetteFor(category), aria-hidden, with a numbered text list including 'location not mapped'. Mounted in the Defect Callouts card on certificate.tsx using renderableAnnotations so every pin has a matching photo callout. Tests: flaw-zones.test.ts 10, flaw-map.test.tsx 3; six sabotages bite. Not done: the SSR cert (functions/cert) has no outline, so the map is SPA-only, same as the coverage heatmap."
     }
   ]
 }
