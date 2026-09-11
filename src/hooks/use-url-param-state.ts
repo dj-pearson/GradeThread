@@ -140,6 +140,19 @@ export function parsePageParam(raw: string | null | undefined): number {
  *
  * Page 1 writes NO param, so the top of a list keeps a clean shareable URL and
  * every existing bookmark still means what it meant.
+ *
+ * The returned setter is STABLE for the life of the component, and that is
+ * load-bearing rather than a micro-optimisation.
+ *
+ * react-router's `setSearchParams` is a `useCallback` over `[navigate,
+ * searchParams]`, so it is a NEW function every time the URL changes. A setter
+ * built directly on it inherits that, and any effect listing the setter in its
+ * deps then fires on EVERY navigation. Inventory's "reset to page 1 when the
+ * criteria change" effect does list it, which is how the pager stopped working
+ * entirely: clicking Next navigated to `?page=2`, the new URL handed the effect
+ * a "changed" dependency, and it sent the seller straight back to page 1 in the
+ * same breath. Nothing looked broken in the code; the button simply did
+ * nothing. Holding the writer in a ref is what keeps the identity still.
  */
 export function useUrlPageState(
   key = "page",
@@ -147,13 +160,19 @@ export function useUrlPageState(
   const [searchParams, setSearchParams] = useSearchParams();
   const page = parsePageParam(searchParams.get(key));
 
+  // Assigned during render, not in an effect: an effect would run AFTER the
+  // effects of child components, so a reset fired on the same commit would
+  // write through last render's params.
+  const writeRef = useRef(setSearchParams);
+  writeRef.current = setSearchParams;
+
   const setPage = useCallback(
     (next: number | ((prev: number) => number)) => {
-      setSearchParams(
+      writeRef.current(
         (prev) => {
           const params = new URLSearchParams(prev);
-          // Read the CURRENT param inside the updater. Closing over `page`
-          // would make two pager clicks in one tick land on the same number.
+          // Read the CURRENT param inside the updater rather than closing over
+          // `page`, so the setter can stay stable without going stale.
           const current = parsePageParam(params.get(key));
           const resolved = typeof next === "function" ? next(current) : next;
           const value = parsePageParam(String(Math.floor(resolved)));
@@ -166,7 +185,7 @@ export function useUrlPageState(
         { replace: true },
       );
     },
-    [key, setSearchParams],
+    [key],
   );
 
   return [page, setPage];

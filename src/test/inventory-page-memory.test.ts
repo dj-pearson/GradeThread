@@ -11,6 +11,21 @@ const TABLE = readFileSync(resolve(here, "../pages/flipdesk/listings-table.tsx")
 const ITEM = readFileSync(resolve(here, "../pages/flipdesk/item.tsx"), "utf8");
 const GRID = readFileSync(resolve(here, "../pages/flipdesk/grid.tsx"), "utf8");
 
+/**
+ * Code lines only.
+ *
+ * Both of the not-to-match assertions below are about `setPage(`, and both
+ * effects explain in a comment WHY they no longer call it. Without this the
+ * guard reads its own documentation and fires on correct code.
+ */
+function codeOnly(src: string): string {
+  return src
+    .replace(/\/\*[\s\S]*?\*\//g, "")
+    .split("\n")
+    .filter((l) => !/^\s*\/\//.test(l))
+    .join("\n");
+}
+
 describe("parsePageParam", () => {
   it("reads a normal page", () => {
     expect(parsePageParam("3")).toBe(3);
@@ -76,22 +91,57 @@ describe("rows-per-page rides along, because the page number means nothing witho
 });
 
 describe("the three things that would undo the restore", () => {
-  it("the tab effect resets the page only after the first run", () => {
+  // These pin the PROPERTY, not the spelling. The first version of this
+  // block asserted the literal `if (tabMountedRef.current) { ... setPage(1)`,
+  // which went red on the fix rather than on a regression: the page reset had
+  // to STOP being a separate setPage call, because two setSearchParams writes
+  // in one tick do not queue and the second overwrites the first. The
+  // behavioural half lives in
+  // src/pages/flipdesk/__tests__/inventory-page-restore.test.tsx.
+  it("the tab effect resets the page only after the first run, in its own params write", () => {
     // On mount the tab is already whatever ?tab= said, so a reset here would
     // throw away the ?page= that arrived on the same URL.
-    const effect = LISTINGS.slice(
-      LISTINGS.indexOf("writeLastInventoryTab(tab);"),
-      LISTINGS.indexOf("}, [tab]);"),
-    );
-    expect(effect).toMatch(/if \(tabMountedRef\.current\) \{[\s\S]*setPage\(1\)/);
+    const start = LISTINGS.indexOf("const tabMountedRef");
+    expect(start).toBeGreaterThan(-1);
+    const effect = codeOnly(LISTINGS.slice(start, LISTINGS.indexOf("}, [tab]);", start)));
+    // It can tell a mount from a real tab change...
+    expect(effect).toMatch(/tabMountedRef\.current/);
+    // ...and a real change drops the page, guarded rather than unconditional...
+    expect(effect).toMatch(/if \(\w+\) next\.delete\("page"\);/);
+    // ...in the SAME URLSearchParams it writes. A second navigation in the
+    // same tick is not a second write, it is an overwrite of the first.
+    expect(effect).not.toMatch(/setPage\(/);
+  });
+
+  it("the filter effect does the same, so the encoded filter is not written back stale", () => {
+    const start = LISTINGS.indexOf("const filterMountedRef");
+    expect(start).toBeGreaterThan(-1);
+    const effect = codeOnly(LISTINGS.slice(start, LISTINGS.indexOf("}, [filterQuery]);", start)));
+    expect(effect).toMatch(/filterMountedRef\.current/);
+    expect(effect).toMatch(/if \(\w+\) next\.delete\("page"\);/);
+    expect(effect).not.toMatch(/setPage\(/);
   });
 
   it("the criteria effect resets the page only after the first run", () => {
     const start = LISTINGS.indexOf("const criteriaMountedRef");
     expect(start).toBeGreaterThan(-1);
-    const effect = LISTINGS.slice(start, LISTINGS.indexOf("sortPreset]);", start));
+    const effect = LISTINGS.slice(start, LISTINGS.indexOf("setPage]);", start));
     expect(effect).toMatch(/if \(!criteriaMountedRef\.current\) \{/);
     expect(effect).toMatch(/criteriaMountedRef\.current = true;\s*\n\s*return;/);
+    // And it must NOT own the two resets that now travel with their own params
+    // write, or it re-introduces the overwrite from the other side.
+    const deps = LISTINGS.slice(LISTINGS.indexOf("}, [search,", start), LISTINGS.indexOf("setPage]);", start));
+    expect(deps).not.toMatch(/\bfilterQuery\b/);
+    expect(deps).not.toMatch(/\btab\b/);
+  });
+
+  it("the sort request is memoized, or every render re-fires the reset", () => {
+    // sortOptionsForTab builds fresh objects per call, so an unmemoized
+    // `columnSort` never compares equal and the criteria effect fires on every
+    // render. Harmless while setPage was useState (setting 1 over 1 does not
+    // re-render); an infinite navigation loop once it writes the URL.
+    expect(LISTINGS).toMatch(/useMemo\(\(\) => resolveSortOption\(sortParam, tab\), \[sortParam, tab\]\)/);
+    expect(LISTINGS).toMatch(/useMemo\(\(\) => sortOptionsForTab\(tab\), \[tab\]\)/);
   });
 
   it("the clamp waits for the query to resolve", () => {

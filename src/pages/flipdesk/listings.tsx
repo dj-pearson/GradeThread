@@ -268,8 +268,17 @@ export function FlipdeskListingsPage() {
   // mode switches. The menu is per tab (inventory-sort.ts); a value the
   // current tab's menu lacks resolves to that tab's default.
   const [sortParam, setSortParam] = useUrlParamState("sort", "default");
-  const sortOptions = sortOptionsForTab(tab);
-  const sortOption = resolveSortOption(sortParam, tab);
+  // US-3207 follow-up: MEMOIZED, and not for speed. sortOptionsForTab builds a
+  // fresh array of fresh objects on every call, so `sortOption.column` had a
+  // new identity every render, which put `columnSort` in the criteria effect's
+  // dep list as a value that never compares equal. While setPage was useState
+  // that was invisible: setPage(1) with the page already 1 is a no-op and React
+  // does not re-render. Once setPage became a URL write it navigated on every
+  // render, and every navigation produced a new location, so picking "Most
+  // views" (or any sort whose option is an inline literal rather than a module
+  // const) span the page forever. Measured: the behavioural suite hung.
+  const sortOptions = useMemo(() => sortOptionsForTab(tab), [tab]);
+  const sortOption = useMemo(() => resolveSortOption(sortParam, tab), [sortParam, tab]);
   // A clicked column header overrides the menu until the third click clears
   // it, or a menu pick replaces it. Kept separate from the menu so the seller
   // can take control of one column without losing the stage tab they're in.
@@ -429,10 +438,20 @@ export function FlipdeskListingsPage() {
 
   // Keep ?filter= in the URL synced with the builder so the link survives
   // copy-paste between teammates.
+  const filterMountedRef = useRef(false);
   useEffect(() => {
+    const filterChanged = filterMountedRef.current;
+    filterMountedRef.current = true;
     const next = new URLSearchParams(searchParams);
     if (filterQuery.rules.length === 0) next.delete("filter");
     else next.set("filter", encodeQuery(filterQuery));
+    // US-3207 follow-up: the page reset for a filter change belongs in THIS
+    // params object, for the reason spelled out on the tab effect below  -
+    // setSearchParams does not queue, so the criteria effect's separate
+    // setPage(1) navigated to params built before this write and put the OLD
+    // encoded filter back. Removing one chip of two left `?filter=` naming both
+    // rules while the screen showed one. Measured, not reasoned about.
+    if (filterChanged) next.delete("page");
     if (next.toString() !== searchParams.toString()) {
       setSearchParams(next, { replace: true });
     }
@@ -476,21 +495,30 @@ export function FlipdeskListingsPage() {
   // tab genuinely changes.
   const tabMountedRef = useRef(false);
   useEffect(() => {
+    // US-3207: skip on mount, like the selection clear below. An inbound
+    // `?page=3` from the item page's back link arrives with the tab already
+    // resolved, so resetting here would throw the restore away on the very
+    // render that was supposed to honour it. A real tab CHANGE still resets.
+    const tabChanged = tabMountedRef.current;
     const next = new URLSearchParams(searchParams);
     // Always written, the default tab included. A bare URL now means "the remembered
     // tab", so a URL that names the tab is the only one that can be shared or
     // bookmarked and mean the same thing to the next reader.
     next.set("tab", tab);
+    // The page reset for a tab change goes in THIS params object rather than
+    // through setPage. react-router's setSearchParams does NOT queue: two calls
+    // in the same tick both build on the params of the render they were made
+    // in, so the second silently overwrites the first. A separate setPage(1)
+    // here navigated to a URL built before `tab` was set, which put `?tab=`
+    // back to the tab the seller had just left while the screen showed the new
+    // one, and the state.from round trip through an item then returned them to
+    // the wrong tab. Measured on every tab click, page 1 included.
+    if (tabChanged) next.delete("page");
     if (next.toString() !== searchParams.toString()) {
       setSearchParams(next, { replace: true });
     }
     writeLastInventoryTab(tab);
-    // US-3207: skip on mount, like the selection clear below. An inbound
-    // `?page=3` from the item page's back link arrives with the tab already
-    // resolved, so resetting here would throw the restore away on the very
-    // render that was supposed to honour it. A real tab CHANGE still resets.
-    if (tabMountedRef.current) {
-      setPage(1);
+    if (tabChanged) {
       setSelected(new Set());
     } else {
       tabMountedRef.current = true;
@@ -505,6 +533,10 @@ export function FlipdeskListingsPage() {
   // `safePage` clamped the pager on the same render. Server-side, the OFFSET is
   // what gets sent, so narrowing the filter from page 6 asks for rows 500-600
   // of a 40-row result and the table renders empty while the pager says page 1.
+  //
+  // `filterQuery` is NOT in the dep list any more, and neither is `tab`: those
+  // two reset the page inside their own params write above. A second write in
+  // the same tick is not a second write, it is an overwrite.
   //
   // Re-sorting belongs in this list for the same reason, and it matters more
   // now that every header sorts rather than six of them: page 6 of a list
@@ -523,7 +555,7 @@ export function FlipdeskListingsPage() {
       return;
     }
     setPage(1);
-  }, [search, pageSize, soldFilter, unlistedFilter, filterQuery, columnSort, sortPreset, setPage]);
+  }, [search, pageSize, soldFilter, unlistedFilter, columnSort, sortPreset, setPage]);
 
 
   // US-419: keyed under a DISTINCT "listings" suffix — NOT the bare
