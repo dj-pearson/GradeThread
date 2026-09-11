@@ -28,6 +28,10 @@ import { Button } from "@/components/ui/button";
 import { PageHeader } from "@/components/ui/page-header";
 import { TruncatedNotice } from "@/components/flipdesk/truncated-notice";
 import { itemRowLabel } from "@/lib/item-row-label";
+import {
+  MISSING_SPECIFICS_ORDER_LABEL,
+  summariseMissingSpecifics,
+} from "@/lib/aspect-coverage-copy";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { LoadingRegion, SkeletonRows } from "@/components/ui/skeletons";
@@ -1092,9 +1096,16 @@ export function FlipdeskAutolisterDraftsPage() {
                                     ? "text-amber-600 dark:text-amber-400"
                                     : "text-muted-foreground",
                               )}
+                              // US-3346: A to Z, and the count of what did not
+                              // fit. The order used to be described as eBay's
+                              // demand ranking; eBay sends no such ranking on
+                              // this tree. See src/lib/aspect-coverage-copy.ts.
                               title={
                                 cov.missing.length > 0
-                                  ? `Missing: ${cov.missing.slice(0, 6).join(", ")}`
+                                  ? `Missing (${MISSING_SPECIFICS_ORDER_LABEL}): ${
+                                      summariseMissingSpecifics(cov.missing, 6)
+                                        .text
+                                    }`
                                   : "All recommended specifics filled"
                               }
                             >

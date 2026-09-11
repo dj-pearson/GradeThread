@@ -558,6 +558,40 @@ added to fill. Cutting the cap protects the coverage metric while
 hurting the fields the gate is chasing. Measure the token saving before
 trading it.
 
+**US-3346 (2026-09-11) re-measured this and closed the copy half only.**
+The census was re-run end to end and the absence held on the raw response
+bytes: 98.8 MB of `get_item_aspects_for_category` body across all 457
+leaves contains the string `relevanceIndicator` zero times, and the fresh
+capture is byte-identical to the checked-in one once `capturedAt` is
+removed. Three seller-facing surfaces said the unfilled list was eBay's
+own ordering (the composer coverage card, the publish dialog, the
+AutoLister drafts tooltip); all three now say "A to Z" and name the
+reason in a title attribute, through `src/lib/aspect-coverage-copy.ts`.
+`src/test/aspect-demand-absent.test.ts` goes red the day a refreshed
+capture carries a single search count, which is the day this whole
+section stops being true.
+
+**The ordering itself is still an open product decision.** What the
+system can observe today, honestly costed:
+
+- *Fill rate across the seller's own sold listings.* The data exists
+  (`listings.item_specifics_override` joined to sales) but the ranking is
+  circular: an aspect nobody fills scores lowest, so the list would
+  promote exactly the aspects already filled. Per-seller volume is also
+  far too thin to rank 20 aspects. Needs an aggregate and a migration.
+  Not worth building.
+- *What comps declare.* `visual-aspect-consensus.ts` already counts how
+  many live listings declare each aspect, but only over the twelve names
+  in `IDENTITY_ASPECTS`, and only when a visual match ran for that item.
+  It cannot order a twenty-name list, and it measures what SELLERS type,
+  not what buyers filter on.
+- *Recommended first, then shortest to fill.* Free today. `aspectMode`
+  and the allowed-value count are already in the cached leaf payload, so
+  a SELECTION_ONLY aspect with six choices can lead a FREE_TEXT one. It
+  ranks by effort, not by value, and would have to say so.
+- *Stop ordering and group instead* (pick-from-a-list versus type-it-in).
+  Also free, and the only option that claims nothing.
+
 Re-run before trusting any of this in a later quarter: `node
 scripts/aspect-demand-cut.mjs --refresh` then `node
 scripts/aspect-demand-cut.mjs`. Related: [[ebay-aspect-value-limit]],

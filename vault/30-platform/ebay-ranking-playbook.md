@@ -54,8 +54,13 @@ statements) rather than tool-vendor SEO blogs. Drove the listing-SEO epic **US-1
    eBay warns inaccurate tiers reduce visibility. This maps directly onto GradeThread grades —
    a differentiator no generic lister has.
 8. **Clothing aspect mandates**: Brand, Color, Department, Type required on all new/revised CSA
-   listings (since 2021) + Size/Size Type/Style/Material by subcategory. Recommended aspects are
-   ranked by real 30-day buyer search volume per category.
+   listings (since 2021) + Size/Size Type/Style/Material by subcategory. eBay's Taxonomy API
+   *defines* a per-category demand rank for recommended aspects (`relevanceIndicator.searchCount`)
+   but **does not populate it on the apparel tree**: 0 of 8,748 aspect rows across all 457 leaves
+   under 11450 on EBAY_US carry one, measured on the raw response bytes 2026-09-11 (US-3044,
+   re-measured US-3346). So there is no demand ordering of recommended aspects to work from here;
+   treat the recommended tier as a flat set. Re-check with
+   `node scripts/aspect-demand-cut.mjs --refresh`.
 9. **Promoted Listings 2025-26**: Standard→General (CPS), Advanced→Priority (CPC); Priority now
    owns the top ad slot (US/CA); **Jan 13 2026** General moved to 30-day halo attribution
    (material cost change). No evidence promotion changes organic rank except via sales velocity.

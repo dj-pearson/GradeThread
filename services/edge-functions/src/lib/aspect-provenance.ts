@@ -70,16 +70,24 @@ export interface AspectCoverage {
   filled: number;
   /// Total recommended aspects for the category.
   total: number;
-  /// Unfilled recommended aspect names, ranked by search volume (desc) — eBay's
-  /// own ordering of what buyers filter on most.
+  /// Unfilled recommended aspect names. **ALPHABETICAL on EBAY_US apparel**,
+  /// whatever the sort below looks like it is doing.
   ///
-  /// MEASURED 2026-09-11 (US-3044): on EBAY_US apparel that ordering does not
-  /// exist. `relevanceIndicator` is absent from all 8,748 aspect rows of all
-  /// 457 leaves under 11450, so every rank ties at 0 and the sort below falls
-  /// through to ALPHABETICAL. Anything telling a seller this list is "what
-  /// buyers filter on most" is telling them something we cannot currently
-  /// know. Re-check with `node scripts/aspect-demand-cut.mjs --refresh`
-  /// before relying on it, here or in the UI copy.
+  /// MEASURED 2026-09-11 (US-3044, re-measured on the raw response bytes for
+  /// US-3346): eBay publishes no aspect demand on this tree.
+  /// `relevanceIndicator` is absent from all 8,748 aspect rows of all 457
+  /// leaves under 11450, so every rank ties at 0 and the sort below falls
+  /// through to its final key, the name. The UI used to tell sellers this list
+  /// was eBay's own ordering of what buyers look for; it is the alphabet, and
+  /// src/lib/aspect-coverage-copy.ts now says so in the three places that
+  /// render it. Re-check with `node scripts/aspect-demand-cut.mjs --refresh`
+  /// before claiming anything stronger, here or in the UI copy.
+  ///
+  /// This ORDER IS LOAD-BEARING for the callers, which all truncate: six names
+  /// in the composer, eight chips in the publish dialog, six in the drafts
+  /// tooltip. A prefix of an alphabetical list is the letters A to C on every
+  /// garment in the catalog, so each of those surfaces also shows how many
+  /// names it dropped.
   ///
   /// Also note `missing` is NOT the set the AI was asked about. It is computed
   /// from the RAW leaf payload, while the tool schema is capped at
@@ -114,7 +122,8 @@ export function recommendedAspectCoverage(
       missing.push({ name, rank: a.relevanceIndicator?.searchCount ?? 0 });
     }
   }
-  // Highest search volume first; stable by name on ties for a deterministic order.
+  // Highest demand first, then by name. On EBAY_US apparel every rank is 0, so
+  // this IS the name sort and nothing else (US-3346).
   missing.sort((a, b) => b.rank - a.rank || a.name.localeCompare(b.name));
   return { filled, total: recommended.length, missing: missing.map((m) => m.name) };
 }

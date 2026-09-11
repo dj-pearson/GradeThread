@@ -1523,9 +1523,12 @@ export function buildAspectSpecsForCategory(
     });
   }
 
-  // US-2420: required first, then by eBay's own 30-day buyer-search volume.
-  // The old sort was required → RECOMMENDED → OPTIONAL, which cut Theme,
-  // Accents and Occasion out of the schema before the model could fill them.
+  // US-2420: required first, then by eBay's own aspect demand. The old sort was
+  // required → RECOMMENDED → OPTIONAL, which cut Theme, Accents and Occasion
+  // out of the schema before the model could fill them.
+  // US-3346: eBay sends no demand on the US apparel tree, so what this actually
+  // produces there is required → RECOMMENDED → OPTIONAL → alphabetical. Read
+  // the header of aspect-priority.ts before relying on the order.
   return prioritizeByDemand(specs, raw);
 }
 
@@ -1761,8 +1764,10 @@ export function deriveInventoryAspects(
 export interface AspectCoverageTier {
   filled: number;
   total: number;
-  /** The unfilled aspect names — ranked by buyer search volume for the
-   *  recommended tier, in category-spec order for the required one. */
+  /** The unfilled aspect names. The recommended tier is sorted by eBay's aspect
+   *  demand where eBay publishes it, which on US apparel is nowhere, so it
+   *  arrives ALPHABETICAL (US-3346 — see aspect-provenance.ts). The required
+   *  tier is in category-spec order. Mirrored in src/types/database.ts. */
   missing: string[];
 }
 

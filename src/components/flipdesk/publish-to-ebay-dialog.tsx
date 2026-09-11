@@ -21,6 +21,11 @@ import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
 import { EBAY_CONDITION_OPTIONS, EBAY_DEPARTMENT_OPTIONS } from "@/lib/constants";
 import {
+  MISSING_SPECIFICS_ORDER_LABEL,
+  MISSING_SPECIFICS_ORDER_NOTE,
+  summariseMissingSpecifics,
+} from "@/lib/aspect-coverage-copy";
+import {
   usePublishToEbay,
   useSetItemAspect,
   useValidatePublish,
@@ -69,6 +74,9 @@ export function PublishToEbayDialog({
 
   const summary: PublishSummary | undefined = validate.data?.summary;
   const coverage = validate.data?.recommendedCoverage;
+  // US-3346: eight chips plus a count of what did not fit. A prefix of an
+  // alphabetical list is not a shortlist, so the remainder has to be visible.
+  const missingSummary = summariseMissingSpecifics(coverage?.missing ?? [], 8);
   const blockers = validate.data?.blockers ?? [];
   // US-1896: non-blocking picture-standards + title-quality warnings, and the
   // hero-thumbnail reorder nudge. Surfaced but never block publish.
@@ -296,10 +304,11 @@ export function PublishToEbayDialog({
             </ul>
           )}
 
-        {/* US-1895: recommended-aspect coverage (non-blocking). eBay's
-            RECOMMENDED specifics ranked by 30-day buyer search volume — filling
-            them lifts findability. Computed on the edge (single source with the
-            required-blocker rule), rendered here. */}
+        {/* US-1895: recommended-aspect coverage (non-blocking). Filling eBay's
+            RECOMMENDED specifics lifts findability. Computed on the edge
+            (single source with the required-blocker rule), rendered here.
+            US-3346: the list is alphabetical and says so. See
+            src/lib/aspect-coverage-copy.ts for the census behind that. */}
         {!result && !validate.isPending && coverage && coverage.total > 0 && (
           <div className="space-y-2 rounded-md border p-3">
             <div className="flex items-center justify-between text-sm font-medium">
@@ -326,11 +335,13 @@ export function PublishToEbayDialog({
             {coverage.missing.length > 0 && (
               <>
                 <p className="text-xs text-muted-foreground">
-                  Filling these (eBay's most-searched, in order) helps buyers find
-                  the listing:
+                  Filling these helps buyers find the listing.{" "}
+                  <span title={MISSING_SPECIFICS_ORDER_NOTE}>
+                    Listed {MISSING_SPECIFICS_ORDER_LABEL}:
+                  </span>
                 </p>
                 <div className="flex flex-wrap gap-1">
-                  {coverage.missing.slice(0, 8).map((name) => (
+                  {missingSummary.shown.map((name) => (
                     <span
                       key={name}
                       className="rounded-full border bg-muted/50 px-2 py-0.5 text-xs"
@@ -338,6 +349,11 @@ export function PublishToEbayDialog({
                       {name}
                     </span>
                   ))}
+                  {missingSummary.moreCount > 0 && (
+                    <span className="px-2 py-0.5 text-xs text-muted-foreground">
+                      and {missingSummary.moreCount} more
+                    </span>
+                  )}
                 </div>
                 <Link
                   to={`/dashboard/flipdesk/items/${itemId}/draft`}

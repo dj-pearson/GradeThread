@@ -1631,8 +1631,10 @@ export interface ListingCategoryCandidate {
 export interface ListingAspectCoverageTier {
   filled: number;
   total: number;
-  /** The unfilled aspect names — ranked by buyer search volume for the
-   *  recommended tier, in category-spec order for the required one. */
+  /** The unfilled aspect names. The recommended tier is sorted by eBay's
+   *  aspect demand where eBay publishes it, which on US apparel is nowhere, so
+   *  it arrives ALPHABETICAL (US-3346). The required tier is in category-spec
+   *  order. */
   missing: string[];
 }
 

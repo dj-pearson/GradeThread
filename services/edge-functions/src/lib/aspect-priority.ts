@@ -111,17 +111,29 @@ export interface RankableSpec {
 }
 
 /**
- * Order specs by what a buyer is most likely to filter on, then cap.
+ * Order specs by eBay's published aspect demand where it exists, then cap.
+ *
+ * ⚠ THE NAME IS ASPIRATIONAL ON THE TREE THIS PRODUCT ACTUALLY SELLS ON, and
+ * US-3346 exists because that was not written down anywhere a caller would see
+ * it. On EBAY_US apparel eBay publishes NO demand: `relevanceIndicator` is
+ * absent from all 8,748 aspect rows of all 457 leaves under 11450, re-measured
+ * 2026-09-11 on the raw response bytes. Step 2 below therefore scores every
+ * aspect zero and the real ordering is step 1, then RECOMMENDED before
+ * OPTIONAL, then ALPHABETICAL. **This function does not rank by demand here.**
+ * It is not renamed because the logic is correct and a marketplace that does
+ * send the field gets a genuine demand rank out of it; src/test/
+ * aspect-demand-absent.test.ts goes red the day EBAY_US starts sending it.
  *
  * Ordering:
  *  1. Every REQUIRED aspect, in eBay's own order. These are never dropped —
  *     a missing required aspect blocks the publish outright (see
  *     requiredMissingAspects in aspect-provenance.ts), so trading one away for
  *     an optional aspect is never the right call.
- *  2. Everything else by `relevanceIndicator.searchCount` descending.
+ *  2. Everything else by `relevanceIndicator.searchCount` descending. Absent
+ *     on US apparel, so in practice a no-op that leaves every aspect tied.
  *  3. Ties broken RECOMMENDED before OPTIONAL, then by name, so the schema (and
  *     therefore the prompt, and therefore the cache key) is deterministic for a
- *     given category.
+ *     given category. On US apparel this is the WHOLE sort, not a tie-break.
  *
  * `cap` bounds the RESULT, but only the non-required tail is ever cut: a
  * category with more required aspects than the cap returns all of them rather

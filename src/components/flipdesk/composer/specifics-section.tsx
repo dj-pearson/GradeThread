@@ -1,6 +1,11 @@
 import { EbayCategoryPicker } from "@/components/flipdesk/ebay-category-picker";
 import { Card, CardContent } from "@/components/ui/card";
 import { LoadingRegion, SkeletonRows } from "@/components/ui/skeletons";
+import {
+  MISSING_SPECIFICS_ORDER_LABEL,
+  MISSING_SPECIFICS_ORDER_NOTE,
+  summariseMissingSpecifics,
+} from "@/lib/aspect-coverage-copy";
 import { cn } from "@/lib/utils";
 import type { ItemFullRow, ListingCategoryCandidate } from "@/types/database";
 import type { AspectSourceMap } from "@/lib/aspect-provenance";
@@ -70,9 +75,10 @@ export function SpecificsSection({
 }: SpecificsSectionProps) {
   return (
     <div id="composer-category">
-    {/* US-1895: recommended-aspect coverage (non-blocking). eBay's
-        RECOMMENDED specifics ranked by 30-day buyer search volume — filling
-        them lifts findability. Required specifics stay a publish blocker. */}
+    {/* US-1895: recommended-aspect coverage (non-blocking). Filling eBay's
+        RECOMMENDED specifics lifts findability; required specifics stay a
+        publish blocker. US-3346: the list is alphabetical and says so. See
+        src/lib/aspect-coverage-copy.ts for the census behind that. */}
     {aspectCoverage && aspectCoverage.total > 0 && (
       <Card className="mb-4">
         <CardContent className="space-y-2 py-3">
@@ -99,9 +105,11 @@ export function SpecificsSection({
           </div>
           {aspectCoverage.missing.length > 0 && (
             <p className="text-xs text-muted-foreground">
-              Most-searched still empty:{" "}
+              <span title={MISSING_SPECIFICS_ORDER_NOTE}>
+                Still empty ({MISSING_SPECIFICS_ORDER_LABEL}):
+              </span>{" "}
               <span className="text-foreground">
-                {aspectCoverage.missing.slice(0, 6).join(", ")}
+                {summariseMissingSpecifics(aspectCoverage.missing, 6).text}
               </span>
               . Fill them in the specifics below (use “Derive from item” to
               autofill what we can).
