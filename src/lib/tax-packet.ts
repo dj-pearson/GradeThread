@@ -356,7 +356,7 @@ export function buildPacketCsv(input: PacketInput): string {
   L.push("");
   L.push(
     escapeCsvCell(
-      "GradeThread does the arithmetic on the seller's own records. It does not give tax advice, does not file anything, and takes no position on any judgement call. Every figure should be checked before it is filed.",
+      "GradeThread does the arithmetic on the seller's own records. It does not give tax advice, does not file anything, and takes no position on any judgment call. Every figure should be checked before it is filed.",
     ),
   );
   return L.join("\n");

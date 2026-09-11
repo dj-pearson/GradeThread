@@ -52,7 +52,7 @@ export const SWITCH_FROM_PAGES: SwitchFromPage[] = [
     description:
       "Moving from Vendoo to FlipDesk: which columns of the Vendoo export import as items, what stays behind, and how live listings come across.",
     definition:
-      "Vendoo's inventory export imports into FlipDesk as items with title, description, brand, size, category, SKU, price, cost, dates and status already mapped. Photos, tags and colour do not come through a CSV, and live listings on the extension marketplaces are claimed separately from your own browser. Plan an afternoon, most of it waiting on photo uploads.",
+      "Vendoo's inventory export imports into FlipDesk as items with title, description, brand, size, category, SKU, price, cost, dates and status already mapped. Photos, tags and color do not come through a CSV, and live listings on the extension marketplaces are claimed separately from your own browser. Plan an afternoon, most of it waiting on photo uploads.",
     transfers: [
       "Items: one FlipDesk inventory item per export row, with the title and description as written",
       "Brand, size and category, matched to FlipDesk's own category list where the words line up",
@@ -100,7 +100,7 @@ export const SWITCH_FROM_PAGES: SwitchFromPage[] = [
     description:
       "Moving from List Perfectly to FlipDesk: which export columns import as items, what stays behind, and how live listings on each marketplace come across.",
     definition:
-      "List Perfectly's export imports into FlipDesk as items with title, description, brand, size, category, SKU, price, cost of goods, dates and status mapped for you. Photos, keywords and colour do not come through a CSV, and live listings on the extension marketplaces are claimed separately from your own browser. Plan an afternoon.",
+      "List Perfectly's export imports into FlipDesk as items with title, description, brand, size, category, SKU, price, cost of goods, dates and status mapped for you. Photos, keywords and color do not come through a CSV, and live listings on the extension marketplaces are claimed separately from your own browser. Plan an afternoon.",
     transfers: [
       "Items: one FlipDesk inventory item per export row, with the title and description as written",
       "Brand, size and category, matched to FlipDesk's own category list where the words line up",

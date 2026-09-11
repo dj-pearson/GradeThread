@@ -130,7 +130,7 @@ export function AccountDeletionPage() {
         </li>
         <li>
           <strong>A deletion record.</strong> We log that an account was deleted
-          and when, so we can prove the request was honoured. It does not contain
+          and when, so we can prove the request was honored. It does not contain
           your name, email address or content.
         </li>
       </ul>

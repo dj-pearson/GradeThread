@@ -1169,7 +1169,7 @@ export async function sendSubscriptionStartedEmail(
       starting ${formatDate(data.periodEnd)}, until you cancel.
       <br>
       You can <a href="${manageUrl}?cancel=1" style="color: ${BRAND_RED};">cancel anytime</a>
-      — cancelling stops future charges and keeps your plan active until the end of the period you've paid for.
+      — canceling stops future charges and keeps your plan active until the end of the period you've paid for.
     </p>
 
     ${ctaButton("Go to Billing", manageUrl)}

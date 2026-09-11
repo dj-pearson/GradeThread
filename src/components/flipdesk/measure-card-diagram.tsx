@@ -71,7 +71,7 @@ export function MeasureCardDiagram({ className }: { className?: string }) {
           fill="#64748b"
         >
           {g.centerRectInches.w}in × {g.centerRectInches.h}in between corner
-          centres
+          centers
         </text>
       </svg>
       <figcaption className="mt-2 text-xs text-muted-foreground">

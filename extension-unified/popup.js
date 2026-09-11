@@ -1807,7 +1807,7 @@ function wireQueue() {
       cancelAll,
       (r) => r.canCancel, // queued only — never a claimed row (queue-view.js)
       (r) => send({ type: "GT_QUEUE_CANCEL", id: r.id }),
-      "cancelled",
+      "canceled",
     ));
   }
 }

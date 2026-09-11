@@ -104,7 +104,7 @@ const PLATFORM_FACTS: Record<string, PlatformFacts> = {
     returns: "Money-back-guarantee cases for 'item not as described'; eBay tends to side with buyers on condition, and repeated cases hurt your seller metrics.",
     bestFor: "volume and specialist sellers who want reach and comp depth",
     carriesOver:
-      "Photos and description text, if you keep copies. eBay wants item specifics (brand, size, colour, style) that other platforms do not ask for, so expect to fill gaps rather than paste.",
+      "Photos and description text, if you keep copies. eBay wants item specifics (brand, size, color, style) that other platforms do not ask for, so expect to fill gaps rather than paste.",
     leftBehind:
       "Your feedback score, seller level and sold history all start from zero. On eBay that matters more than most: seller metrics feed Cassini, so a new account ranks below an established one on identical listings.",
     conditionWording:
@@ -231,7 +231,7 @@ const PLATFORM_FACTS: Record<string, PlatformFacts> = {
     carriesOver:
       "Photos and copy. Vinted's form is simple, and there is no seller fee, so the cost of relisting is your time only.",
     leftBehind:
-      "Ratings and any following. Vinted's search leans on freshness, so a new seller is not penalised the way an eBay one is.",
+      "Ratings and any following. Vinted's search leans on freshness, so a new seller is not penalized the way an eBay one is.",
     // ⚠ CORRECTED 2026-09-05 (US-3091). This said "from new with tags to
     // satisfactory", which is eBay's and Poshmark's vocabulary rather than
     // Vinted's. Vinted's own options are New / Like new / Very good / Good /
@@ -340,7 +340,7 @@ function templatedComparison(
       },
       {
         q: `Can I sell the same item on ${a.name} and ${b.name} at once?`,
-        a: `Yes, and most sellers past a certain volume do. The catch is delisting: an item that sells on one and stays live on the other becomes a cancelled order and a metrics hit. That is the problem cross-listing tools exist to solve, by removing the listing everywhere the moment it sells.`,
+        a: `Yes, and most sellers past a certain volume do. The catch is delisting: an item that sells on one and stays live on the other becomes a canceled order and a metrics hit. That is the problem cross-listing tools exist to solve, by removing the listing everywhere the moment it sells.`,
       },
     ],
   };

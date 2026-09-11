@@ -50,6 +50,19 @@ const NOT_A_LANE_CHECK: Record<string, string> = {
     "grade 15, shrink-only) plus a self-check that extraction still finds " +
     "the codebase. Run the script directly to find the work: " +
     "`node scripts/check-copy-reading-level.mjs --all`.",
+  "check-us-spelling.mjs":
+    "GATED, BUT NOT AS ITS OWN LANE (US-3233 AC2). The gate is " +
+    "src/test/us-spelling-guard.test.ts, which imports this script, runs " +
+    "run() and asserts zero findings and zero stale allow entries, runs " +
+    "selfCheckProblems() so a rule that has quietly stopped matching cannot " +
+    "read as a clean tree, and pins the two AC3 path exemptions by name. That " +
+    "test rides vitest, which runs in verify:web AND in the frontend CI job, " +
+    "so the check is in both places the way this file wants — a second " +
+    "`node scripts/check-us-spelling.mjs` invocation would walk src/, ios/ " +
+    "and the edge a second time on every push and assert nothing the test " +
+    "does not. Run the script directly when you want the report rather than " +
+    "the pass/fail: `node scripts/check-us-spelling.mjs`, or " +
+    "`--self-check` for just the rule.",
   "check-close-claims.mjs":
     "a commit-msg HOOK (.githooks/commit-msg), not a lane check. It reads the " +
     "message being written, which neither verify nor CI has.",

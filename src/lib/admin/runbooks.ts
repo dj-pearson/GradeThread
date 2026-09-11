@@ -184,7 +184,7 @@ export const RUNBOOKS: Runbook[] = [
       "- A Stripe webhook trigger, a certificate page render, and the SEO endpoints all succeed.",
       "- For a release that touches the money/grade path, also run the Playwright critical-path e2e.",
       "",
-      "**Before calling a shipped frontend fix broken, rule out the service worker.** The PWA precaches the app into Cache Storage, and a hard reload clears the HTTP cache but not that — so a correct deploy can keep serving the old behaviour. Check in a private window first; if the fix works there, unregister the service worker and clear site data rather than re-deploying.",
+      "**Before calling a shipped frontend fix broken, rule out the service worker.** The PWA precaches the app into Cache Storage, and a hard reload clears the HTTP cache but not that — so a correct deploy can keep serving the old behavior. Check in a private window first; if the fix works there, unregister the service worker and clear site data rather than re-deploying.",
       "",
       "If readiness is `not_ready` or a feature shows missing, fix the env/migration and redeploy that layer — don't leave a half-green deploy in rotation.",
     ].join("\n"),

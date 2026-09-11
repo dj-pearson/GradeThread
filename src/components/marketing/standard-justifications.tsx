@@ -15,7 +15,7 @@ const JUSTIFICATIONS: { icon: LucideIcon; title: string; body: string }[] = [
   {
     icon: Scale,
     title: "Objective",
-    body: "Every garment is scored against one rubric — five weighted factors on a fixed 1.0–10.0 scale — not a subjective, seller-by-seller eyeball judgement.",
+    body: "Every garment is scored against one rubric — five weighted factors on a fixed 1.0–10.0 scale — not a subjective, seller-by-seller eyeball judgment.",
   },
   {
     icon: ScrollText,
@@ -34,7 +34,7 @@ const JUSTIFICATIONS: { icon: LucideIcon; title: string; body: string }[] = [
     // still differentiating is that the METHOD is fixed — same rubric, same
     // weights, same scale for everyone — rather than a seller-by-seller
     // eyeball. Claim the method, not an identity we have not measured.
-    body: "Every grade uses the same fixed rubric and weights — the same five factors, scored the same way, whoever submits the item. Not a seller-by-seller eyeball judgement.",
+    body: "Every grade uses the same fixed rubric and weights — the same five factors, scored the same way, whoever submits the item. Not a seller-by-seller eyeball judgment.",
   },
   {
     icon: ShieldCheck,

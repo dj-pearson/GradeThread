@@ -119,7 +119,7 @@ public final class CameraSession: NSObject {
         shouldBeRunning = false
         // Tearing the session down cancels any in-flight capture: its delegate
         // will never fire, so resolve the awaiting Task now instead of leaking it.
-        finishPendingCapture(.failure(CameraError.captureFailed("Capture cancelled.")))
+        finishPendingCapture(.failure(CameraError.captureFailed("Capture canceled.")))
         let session = self.session
         sessionQueue.async {
             if session.isRunning { session.stopRunning() }

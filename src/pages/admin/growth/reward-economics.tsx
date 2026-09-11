@@ -370,7 +370,7 @@ export function GrowthRewardEconomicsPage() {
           <div>
             <h2 className="font-semibold">Budget and guardrails</h2>
             <p className="text-sm text-muted-foreground">
-              Caps are in what a grant costs us to honour, not list price. The guardrails
+              Caps are in what a grant costs us to honor, not list price. The guardrails
               only ever narrow these numbers.
             </p>
           </div>

@@ -84,9 +84,9 @@ export const CARE_MATRIX: readonly MatrixEntry[] = [
       "Enzyme detergent digests silk, because silk is a protein and so is the stain. What to use instead, and why water alone leaves a ring on silk.",
     h1: "Getting a stain out of silk",
     differs:
-      "Silk is a protein fibre, so the enzyme detergent that lifts a protein stain digests the garment along with it.",
+      "Silk is a protein fiber, so the enzyme detergent that lifts a protein stain digests the garment along with it.",
     steps: [
-      "Blot with a dry white cloth. Coloured cloth transfers dye into silk far more readily than into cotton.",
+      "Blot with a dry white cloth. Colored cloth transfers dye into silk far more readily than into cotton.",
       "Work with cool water and a drop of pH-neutral detergent, never an enzyme or biological one.",
       "Treat the WHOLE panel rather than the spot. Silk shows a tide line where a treated area meets an untreated one, which is a second, larger problem than the stain.",
       "Roll in a towel to blot, then dry flat away from heat and sun.",
@@ -100,10 +100,10 @@ export const CARE_MATRIX: readonly MatrixEntry[] = [
     fiber: "wool_cashmere",
     title: "How to Get a Stain Out of Wool",
     description:
-      "Wool is a protein, so a biological detergent attacks the fibre and not just the stain. The cool-water, no-agitation method that does not felt it.",
+      "Wool is a protein, so a biological detergent attacks the fiber and not just the stain. The cool-water, no-agitation method that does not felt it.",
     h1: "Getting a stain out of wool",
     differs:
-      "Wool is a protein fibre and it felts. Enzymes eat it, and the agitation that shifts a stain from cotton mats it permanently.",
+      "Wool is a protein fiber and it felts. Enzymes eat it, and the agitation that shifts a stain from cotton mats it permanently.",
     steps: [
       "Lift any solids off with a blunt edge before adding water. Pressing them in is most of the damage.",
       "Use cool water and a wool-safe, non-biological detergent.",
@@ -145,7 +145,7 @@ export const CARE_MATRIX: readonly MatrixEntry[] = [
       "The alcohol that dissolves ink also dissolves silk dye, so the standard method trades an ink mark for a bleached one.",
     steps: [
       "Test on an inside seam first, and wait for it to dry. Silk dye lifts slowly enough to look fine while wet.",
-      "If the test lifts colour, stop. This is a professional job and nothing at home improves it.",
+      "If the test lifts color, stop. This is a professional job and nothing at home improves it.",
       "If it does not, back the fabric with a white cloth and apply the smallest possible amount with a cotton bud.",
       "Blot from the outside of the mark inward, moving to clean cloth constantly.",
       "Rinse the area with cool water immediately rather than letting the alcohol sit.",
@@ -161,13 +161,13 @@ export const CARE_MATRIX: readonly MatrixEntry[] = [
       "Alcohol removes the leather's finish along with the ink and leaves a dull patch. What actually lifts a fresh mark, and why a set one is a repair.",
     h1: "Getting ink out of leather",
     differs:
-      "Alcohol strips the leather's finish, so it removes the ink and the colour underneath it in the same pass.",
+      "Alcohol strips the leather's finish, so it removes the ink and the color underneath it in the same pass.",
     steps: [
       "Act immediately. Ink that has been on leather for a day has soaked past the finish and is no longer a cleaning problem.",
       "Blot, never wipe. Wiping spreads ink along the grain and into a much larger area.",
       "Use a leather-specific ink lifter, worked from the outside in with a cotton bud.",
       "Recondition the panel afterwards.",
-      "For a set mark, the honest options are a professional colour touch-up or living with it.",
+      "For a set mark, the honest options are a professional color touch-up or living with it.",
     ],
     neverDo:
       "No alcohol, no acetone, no magic eraser. The magic eraser is an abrasive and it takes the top layer of finish off.",
@@ -178,19 +178,19 @@ export const CARE_MATRIX: readonly MatrixEntry[] = [
     fiber: "synthetic",
     title: "Pilling on Synthetics: Why It Stays",
     description:
-      "Pills on fleece and technical knits do not comb out the way wool pills do, because the fibre is stronger than the yarn holding it.",
+      "Pills on fleece and technical knits do not comb out the way wool pills do, because the fiber is stronger than the yarn holding it.",
     h1: "Pilling on synthetics",
     differs:
-      "A synthetic pill is anchored by a fibre stronger than the yarn around it, so shaving removes the pill and leaves the anchor to make another.",
+      "A synthetic pill is anchored by a fiber stronger than the yarn around it, so shaving removes the pill and leaves the anchor to make another.",
     steps: [
       "Shave it if you are photographing or wearing it soon, and expect it back after two or three washes.",
       "Use the lowest setting. Synthetic knits are thinner than they look and a shaver goes through fleece easily.",
-      "Do not comb. A sweater comb needs a fibre that breaks, and polyester does not break.",
+      "Do not comb. A sweater comb needs a fiber that breaks, and polyester does not break.",
       "Wash inside out, cold, on a gentle cycle, and never with anything abrasive like denim or towels.",
       "Accept the ceiling: on a fleece, pilling is the wear indicator. It is what a heavily worn fleece looks like and there is no version where it goes away for good.",
     ],
     neverDo:
-      "Do not treat this the way you would treat wool pilling. Wool pills are dead fibre coming off; synthetic pills are the garment telling you how much life it has left.",
+      "Do not treat this the way you would treat wool pilling. Wool pills are dead fiber coming off; synthetic pills are the garment telling you how much life it has left.",
   },
   {
     flaw: "pilling",
@@ -200,7 +200,7 @@ export const CARE_MATRIX: readonly MatrixEntry[] = [
       "Wool pills genuinely come off, which is why a comb beats a shaver here. Where a cashmere knit is too fine for a blade to be safe.",
     h1: "De-pilling wool and cashmere",
     differs:
-      "Wool pills are dead fibre that has already left the yarn, so unlike synthetics they come away for good.",
+      "Wool pills are dead fiber that has already left the yarn, so unlike synthetics they come away for good.",
     steps: [
       "Use a sweater comb rather than an electric shaver on anything fine, cashmere especially. A blade cuts a hole in a loose knit faster than you can react.",
       "Lay the garment flat and hold the fabric taut beside the area you are working, never underneath it.",
@@ -236,15 +236,15 @@ export const CARE_MATRIX: readonly MatrixEntry[] = [
     fiber: "cotton_denim",
     title: "How to Unshrink Cotton and Denim",
     description:
-      "Cotton shrinkage is fibres pulled tight rather than locked together, so it genuinely comes back. The soak-and-stretch method, and denim's version of it.",
+      "Cotton shrinkage is fibers pulled tight rather than locked together, so it genuinely comes back. The soak-and-stretch method, and denim's version of it.",
     h1: "Unshrinking cotton and denim",
     differs:
-      "Cotton shrinkage is tension rather than felting, so the fibres are undamaged and the size is genuinely recoverable.",
+      "Cotton shrinkage is tension rather than felting, so the fibers are undamaged and the size is genuinely recoverable.",
     steps: [
-      "Soak in lukewarm water with conditioner for 30 minutes, the same as any fibre.",
+      "Soak in lukewarm water with conditioner for 30 minutes, the same as any fiber.",
       "For denim, put it on damp and move in it. Body heat and movement stretch denim back better than hands do.",
       "For a t-shirt, stretch it flat on a towel, working from the middle outward.",
-      "Do not rinse the conditioner out. It is what is keeping the fibres slippery while you work.",
+      "Do not rinse the conditioner out. It is what is keeping the fibers slippery while you work.",
       "Air dry. A dryer undoes all of it in twenty minutes.",
     ],
     neverDo:
@@ -256,10 +256,10 @@ export const CARE_MATRIX: readonly MatrixEntry[] = [
     fiber: "silk",
     title: "Rust on Silk: What Not to Try",
     description:
-      "Lemon juice and sun is the standard rust method and it destroys silk. Why oxalic acid is no better on a protein fibre, and what is left to try.",
+      "Lemon juice and sun is the standard rust method and it destroys silk. Why oxalic acid is no better on a protein fiber, and what is left to try.",
     h1: "Rust marks on silk",
     differs:
-      "Every effective home rust treatment is an acid, and acids weaken protein fibres. On silk the fibre fails before the rust does.",
+      "Every effective home rust treatment is an acid, and acids weaken protein fibers. On silk the fiber fails before the rust does.",
     steps: [
       "Do not use lemon juice, and above all do not put silk in direct sun to dry it out.",
       "Rinse the area with cool water in case the deposit is loose surface rust rather than a bonded stain.",
@@ -267,7 +267,7 @@ export const CARE_MATRIX: readonly MatrixEntry[] = [
       "Meanwhile, remove whatever caused it. Rust on stored silk is almost always the hanger or a fastening plus damp.",
     ],
     neverDo:
-      "No chlorine bleach, ever, on rust of any kind: it reacts with iron and sets the mark darker and permanently. On silk it also destroys the fibre.",
+      "No chlorine bleach, ever, on rust of any kind: it reacts with iron and sets the mark darker and permanently. On silk it also destroys the fiber.",
   },
   // ── Odour: one fibre holds it and one cannot be washed at all ──────────
   {
@@ -275,16 +275,16 @@ export const CARE_MATRIX: readonly MatrixEntry[] = [
     fiber: "synthetic",
     title: "Smoke Smell in Synthetics",
     description:
-      "Polyester and fleece bind the oils that carry smoke, so odour survives a wash that clears cotton. What works on a technical fabric, and what seals it in.",
+      "Polyester and fleece bind the oils that carry smoke, so odor survives a wash that clears cotton. What works on a technical fabric, and what seals it in.",
     h1: "Smoke smell in synthetic fabrics",
     differs:
-      "Synthetics are oleophilic: they bind the oils that carry smoke, so odour survives a wash that would clear it from cotton.",
+      "Synthetics are oleophilic: they bind the oils that carry smoke, so odor survives a wash that would clear it from cotton.",
     steps: [
-      "Air outdoors first, as with any fibre. It still does more than any product.",
-      "Wash with a detergent made for technical fabrics, or add an odour-eliminating additive. Ordinary detergent does not release oil from polyester.",
-      "Skip the fabric softener. It coats the fibre and seals the odour in, which is the single most common mistake here.",
+      "Air outdoors first, as with any fiber. It still does more than any product.",
+      "Wash with a detergent made for technical fabrics, or add an odor-eliminating additive. Ordinary detergent does not release oil from polyester.",
+      "Skip the fabric softener. It coats the fiber and seals the odor in, which is the single most common mistake here.",
       "Never tumble dry between attempts. Heat sets it into a synthetic much harder than into cotton.",
-      "If two rounds fail, it is in the fibre for good. That is a real outcome on synthetics and it is why a smoke-exposed fleece is worth very little.",
+      "If two rounds fail, it is in the fiber for good. That is a real outcome on synthetics and it is why a smoke-exposed fleece is worth very little.",
     ],
     neverDo:
       "No fabric softener and no dryer sheets. Both are the opposite of what the fabric needs and they make the next attempt harder.",
@@ -392,19 +392,19 @@ export const CARE_MATRIX: readonly MatrixEntry[] = [
     fiber: "linen",
     title: "Collar Wear on Linen Shirts",
     description:
-      "Linen is stiff and inelastic, so a collar fold abrades through rather than just going grey. How to tell soiling from fibre loss before you scrub.",
+      "Linen is stiff and inelastic, so a collar fold abrades through rather than just going gray. How to tell soiling from fiber loss before you scrub.",
     h1: "Collar wear on linen",
     differs:
-      "Linen fibres are stiff and inelastic, so a repeated fold abrades them through rather than just soiling them. The grey line may be thinning, not dirt.",
+      "Linen fibers are stiff and inelastic, so a repeated fold abrades them through rather than just soiling them. The gray line may be thinning, not dirt.",
     steps: [
-      "Hold the collar to the light. If light comes through the fold line, that is fibre loss and no amount of washing changes it.",
+      "Hold the collar to the light. If light comes through the fold line, that is fiber loss and no amount of washing changes it.",
       "If it is soiling, work a little shampoo into the fold and leave it 30 minutes, then wash warm.",
       "Do not scrub a linen fold. The stiffness that makes linen crease also makes it break under abrasion.",
       "Press with steam and plenty of moisture; a dry hot iron on a worn linen fold cuts it.",
       "For a worn edge on a shirt worth keeping, turning the collar works on linen as it does on cotton.",
     ],
     neverDo:
-      "Do not treat linen creasing as a defect to be removed. Wrinkling is inherent to the fibre and pressing it out repeatedly is what wears the folds through.",
+      "Do not treat linen creasing as a defect to be removed. Wrinkling is inherent to the fiber and pressing it out repeatedly is what wears the folds through.",
   },
   {
     flaw: "sun-fading",
@@ -414,7 +414,7 @@ export const CARE_MATRIX: readonly MatrixEntry[] = [
       "Yellowing in stored linen is oxidation rather than destroyed dye, so unlike sun fading some of it genuinely comes out. How to tell which you have.",
     h1: "Yellowed and faded linen",
     differs:
-      "Yellowing in stored linen is oxidation of the fibre and residues in it, not destroyed dye, so unlike sun fading some of it genuinely comes out.",
+      "Yellowing in stored linen is oxidation of the fiber and residues in it, not destroyed dye, so unlike sun fading some of it genuinely comes out.",
     steps: [
       "Work out which you have. Even yellowing across a folded garment is storage oxidation; lighter patches where light fell are sun fading and permanent.",
       "For yellowing, soak in oxygen bleach and warm water for several hours, not chlorine.",
@@ -423,7 +423,7 @@ export const CARE_MATRIX: readonly MatrixEntry[] = [
       "Store it unstarched afterwards. Starch is food for the reaction that yellowed it.",
     ],
     neverDo:
-      "No chlorine bleach on linen. It weakens the fibre and often turns the yellow browner rather than removing it.",
+      "No chlorine bleach on linen. It weakens the fiber and often turns the yellow browner rather than removing it.",
   },
 ];
 

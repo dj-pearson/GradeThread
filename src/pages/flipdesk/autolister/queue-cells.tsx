@@ -127,7 +127,7 @@ export function SizeConflictBadge({
         variant="outline"
         className="gap-1 border-amber-500/40 bg-amber-500/10 text-[10px] text-amber-700 dark:text-amber-300"
         title={
-          `Labelled ${conflict.labelled}, but the measurements point to ` +
+          `Labeled ${conflict.labelled}, but the measurements point to ` +
           `${conflict.impliedSize}${estimate}. Publishing is not blocked.`
         }
       >

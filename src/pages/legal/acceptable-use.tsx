@@ -207,7 +207,7 @@ export function AcceptableUsePage() {
         <li>
           <strong>Do not use it to evade a marketplace&rsquo;s limits.</strong>{" "}
           That includes circumventing listing caps, rate limits, suspensions, or
-          bans, and operating accounts you are not authorised to operate.
+          bans, and operating accounts you are not authorized to operate.
         </li>
         <li>
           <strong>One person, your own accounts.</strong> Do not use the

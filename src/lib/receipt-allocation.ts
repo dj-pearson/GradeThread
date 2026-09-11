@@ -283,8 +283,8 @@ export function remainderExpense(
   return {
     amount_cents: plan.remainder_cents,
     description: vendor
-      ? `${vendor} — not itemised`
-      : "Receipt remainder — not itemised",
+      ? `${vendor} — not itemized`
+      : "Receipt remainder — not itemized",
     spent_on: spentOn,
   };
 }

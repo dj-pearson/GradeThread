@@ -896,8 +896,8 @@ const listSalesTool: McpToolDefinition = {
   description:
     "List the seller's completed sales over a date range, with sale price, fees, shipping cost " +
     "and net profit per item, plus a roll-up of the rows returned. Call this when the seller asks " +
-    "what sold, how a period went, or which marketplace is performing. Cancelled and refunded " +
-    "sales are excluded by default because they are not revenue.",
+    "what sold, how a period went, or which marketplace is performing. Sales with status " +
+    "`cancelled` or `refunded` are excluded by default because they are not revenue.",
   inputSchema: {
     type: "object",
     properties: {

@@ -98,7 +98,7 @@ struct RadarNearbyView: View {
                 .listRowInsets(EdgeInsets())
                 .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
             } footer: {
-                Text(String(localized: "Pins sit at the centre of an approximate area, not at an exact address."))
+                Text(String(localized: "Pins sit at the center of an approximate area, not at an exact address."))
             }
         }
     }

@@ -98,6 +98,23 @@ Deno.test("an ungraded item omits the grade rather than claiming zero", () => {
   assertEquals(parsed!.fibreContent, "100% cotton");
 });
 
+Deno.test("US-3233: a block published with the old 'Fibre content' label still reads back", () => {
+  // The label was British until US-3233. Descriptions carrying the old spelling
+  // are already live on eBay and cannot be rewritten from here, so the parser
+  // keeps reading it. This is the case that fails if the alias is deleted as a
+  // typo: the block parses, every other fact survives, and the fiber content
+  // alone comes back null.
+  const current = upsertListingFactsBlock("", facts({ fibreContent: "100% cotton" }));
+  const legacy = current.replace("Fiber content:", "Fibre content:");
+  assert(legacy.includes("Fibre content:"), "the legacy fixture did not get built");
+
+  const parsed = parseListingFactsBlock(legacy);
+  assertEquals(parsed!.fibreContent, "100% cotton");
+  // And the rename did not change what a NEW block writes.
+  assert(current.includes("Fiber content:"), "new blocks must write the US spelling");
+  assert(!current.includes("Fibre content:"), "new blocks must not write the British one");
+});
+
 Deno.test("no facts at all produces no block, not an empty one", () => {
   const empty: ListingFacts = {
     grade: null,

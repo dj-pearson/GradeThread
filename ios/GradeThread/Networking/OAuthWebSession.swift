@@ -37,7 +37,7 @@ enum OAuthWebSession {
         var errorDescription: String? {
             switch self {
             case .cancelled:
-                return "Sign-in was cancelled."
+                return "Sign-in was canceled."
             case .noCallback:
                 return "No callback URL received."
             case .failed(let message):

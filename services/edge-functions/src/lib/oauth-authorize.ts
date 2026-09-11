@@ -105,7 +105,7 @@ export async function validateAuthorizeRequest(
       ok: false,
       kind: "fatal",
       error: "invalid_client",
-      description: "We do not recognise the application making this request.",
+      description: "We do not recognize the application making this request.",
     };
   }
   const client = resolved.client;

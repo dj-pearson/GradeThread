@@ -85,7 +85,7 @@ const FAQS: Array<{ q: string; a: string }> = [
   },
   {
     q: "Why does passwordless not always mean what it sounds like?",
-    a: "Some tools connect through an extension that reads your live marketplace session out of your browser and sends it to their servers. No password changes hands, which is a genuine improvement. But their servers are then holding a fully privileged session to your account, and they act from their data centre rather than from your home connection, which is what triggers the unusual-login lockouts sellers report. Ask any tool what its extension does with your cookies.",
+    a: "Some tools connect through an extension that reads your live marketplace session out of your browser and sends it to their servers. No password changes hands, which is a genuine improvement. But their servers are then holding a fully privileged session to your account, and they act from their data center rather than from your home connection, which is what triggers the unusual-login lockouts sellers report. Ask any tool what its extension does with your cookies.",
   },
   {
     q: "How would I check that you are telling the truth?",

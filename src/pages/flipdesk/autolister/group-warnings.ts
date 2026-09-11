@@ -245,7 +245,7 @@ export function sizeWarningsFrom(
   return conflicts.map((c) => ({
     key: `size-${c.itemId}`,
     groupId: c.itemId,
-    label: `${quoted(c.name)} is labelled ${c.labelled} but measures like ${c.impliedSize}`,
+    label: `${quoted(c.name)} is labeled ${c.labelled} but measures like ${c.impliedSize}`,
   }));
 }
 

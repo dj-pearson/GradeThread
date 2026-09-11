@@ -30,7 +30,8 @@ describe("the crosslisting handoff on comparison pages (US-9018)", () => {
 
   it("names the delisting problem, which is the job the tool does", () => {
     const html = renderCompare("vinted-vs-mercari");
-    expect(html).toContain("cancelled order");
+    // US-3233: "canceled", one L. The page is US copy for US resellers.
+    expect(html).toContain("canceled order");
     expect(html).toContain("Vinted");
     expect(html).toContain("Mercari");
   });

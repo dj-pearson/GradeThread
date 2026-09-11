@@ -100,7 +100,7 @@ export const CALCULATORS: readonly Calculator[] = [
     description:
       "The real payout on an eBay sale: category final value fee, per-order fixed fee, insertion fees past the free allotment, promoted listings and the overseas cut.",
     h1: "eBay fee calculator",
-    cardBlurb: "Every eBay fee on one sale, itemised, including the ones sellers forget.",
+    cardBlurb: "Every eBay fee on one sale, itemized, including the ones sellers forget.",
     primaryKeyword: "ebay fee calculator",
     handoff: {
       surface: "bookkeeping",
@@ -166,7 +166,7 @@ export const CALCULATORS: readonly Calculator[] = [
     faqs: [
       {
         q: "What is the cheapest way to ship clothes?",
-        a: "For a single garment under a pound, USPS Ground Advantage in a poly mailer, which starts at $6.93 and never passes $8.40 no matter how far it goes. That is cheaper than every flat rate option and cheaper than the one pound Ground Advantage rate. Above about ten pounds, or for anything travelling to Zone 7 or 8, a Priority Mail Flat Rate box usually wins because it ignores both weight and distance.",
+        a: "For a single garment under a pound, USPS Ground Advantage in a poly mailer, which starts at $6.93 and never passes $8.40 no matter how far it goes. That is cheaper than every flat rate option and cheaper than the one pound Ground Advantage rate. Above about ten pounds, or for anything traveling to Zone 7 or 8, a Priority Mail Flat Rate box usually wins because it ignores both weight and distance.",
       },
       {
         q: "Why did my package cost more than the scale said?",
@@ -377,7 +377,7 @@ export const CALCULATORS: readonly Calculator[] = [
     handoff: {
       surface: "comps",
       heading: "The comp you typed in was the hard part",
-      body: "Everything on this page rests on one number you had to go and find, for one item. FlipDesk pulls comparable eBay listings per item and keeps them condition-aware, so you are pricing an Excellent piece against comparable Excellent ones rather than against an average of mint and worn. It also says whether the number is an asking price or one of your own realised sales, which is the part that decides how much to trust it.",
+      body: "Everything on this page rests on one number you had to go and find, for one item. FlipDesk pulls comparable eBay listings per item and keeps them condition-aware, so you are pricing an Excellent piece against comparable Excellent ones rather than against an average of mint and worn. It also says whether the number is an asking price or one of your own realized sales, which is the part that decides how much to trust it.",
       cta: "See how FlipDesk prices by condition",
     },
     secondaryKeywords: [
@@ -648,7 +648,7 @@ export const CALCULATORS: readonly Calculator[] = [
       },
       {
         q: "Do you need a lightbox or special lighting?",
-        a: "No, and buying one is usually the wrong first purchase. Daylight from a window at midday, with the garment on the floor or a table and your body not casting a shadow across it, beats most cheap lightboxes. What actually helps: a plain mid-tone surface, turning off the room light so you are not mixing warm bulbs with daylight, and taking every photo of one item in the same spot so the colour matches across the gallery.",
+        a: "No, and buying one is usually the wrong first purchase. Daylight from a window at midday, with the garment on the floor or a table and your body not casting a shadow across it, beats most cheap lightboxes. What actually helps: a plain mid-tone surface, turning off the room light so you are not mixing warm bulbs with daylight, and taking every photo of one item in the same spot so the color matches across the gallery.",
       },
       {
         q: "Should you shoot flat lay or on a model?",
@@ -687,7 +687,7 @@ export const CALCULATORS: readonly Calculator[] = [
     faqs: [
       {
         q: "What should an eBay listing template include?",
-        a: "Eight things, in this order: a title that leads with brand and item type, the category, the condition, a condition description naming every flaw, item specifics (brand, size, colour, material), measurements taken flat, the description prose, and the price. The first and the sixth are where listings are won. Titles are cut at 80 characters and the words past that are gone rather than shortened, so the ones a buyer types have to be at the front. Measurements matter more than adjectives because a size label is a manufacturer's opinion and a chest measurement is not.",
+        a: "Eight things, in this order: a title that leads with brand and item type, the category, the condition, a condition description naming every flaw, item specifics (brand, size, color, material), measurements taken flat, the description prose, and the price. The first and the sixth are where listings are won. Titles are cut at 80 characters and the words past that are gone rather than shortened, so the ones a buyer types have to be at the front. Measurements matter more than adjectives because a size label is a manufacturer's opinion and a chest measurement is not.",
       },
       {
         q: "How long can an eBay title be?",

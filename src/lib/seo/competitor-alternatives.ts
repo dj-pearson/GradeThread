@@ -79,7 +79,7 @@ export const COMPETITOR_ALTERNATIVES: CompetitorAlternative[] = [
     definition:
       "Vendoo remains a strong pick for per-item inventory control across many marketplaces. Resellers most often look elsewhere over extension-dependent syncing, cost at higher listing volumes, or wanting a tool that also addresses condition-driven returns. List Perfectly is the closest like-for-like on breadth, Crosslist competes on bulk speed, Flyp suits hands-off selling, and FlipDesk is the option if returns rather than listing speed are your bottleneck.",
     intro:
-      "If you are searching for a Vendoo alternative you already know what crosslisting is worth — the question is whether a different tool fixes the specific thing that is costing you. This page is organised around that: what Vendoo does well enough that switching may not help, the reasons resellers commonly move, and which tool matches which reason.",
+      "If you are searching for a Vendoo alternative you already know what crosslisting is worth — the question is whether a different tool fixes the specific thing that is costing you. This page is organized around that: what Vendoo does well enough that switching may not help, the reasons resellers commonly move, and which tool matches which reason.",
     strengths: [
       "Broad marketplace support with well-established inventory and delisting workflows",
       "Per-item control that suits sellers who manage listings individually rather than in bulk",
@@ -133,7 +133,7 @@ export const COMPETITOR_ALTERNATIVES: CompetitorAlternative[] = [
     definition:
       "List Perfectly leads on marketplace breadth and community, and for sellers who list everywhere that is hard to beat. Resellers commonly look elsewhere over tier pricing at higher volumes, extension reliance, or wanting deeper analytics and lifecycle coverage. Vendoo is the closest like-for-like, Crosslist competes on bulk speed, Flyp suits hands-off selling, and FlipDesk is the pick when condition-driven returns are the real cost.",
     intro:
-      "Searching for a List Perfectly alternative usually means one specific thing has started costing you — price at your volume, an automation gap, or returns. This page is organised around which tool fixes which of those, including the case for staying put.",
+      "Searching for a List Perfectly alternative usually means one specific thing has started costing you — price at your volume, an automation gap, or returns. This page is organized around which tool fixes which of those, including the case for staying put.",
     strengths: [
       "Among the widest marketplace coverage available in a single tool",
       "Large, active community and a deep bank of learning resources",

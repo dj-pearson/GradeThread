@@ -149,7 +149,7 @@ export function pairAnswer(pair: CrosslistPair): string {
   const read = canReadCloset(pair.from)
     ? `read out of ${pair.fromLabel} by the extension`
     : `rebuilt from the item's photos`;
-  return `A ${pair.fromLabel} listing is ${read}, checked once in FlipDesk, then ${how} — with the condition grade travelling with the item.`;
+  return `A ${pair.fromLabel} listing is ${read}, checked once in FlipDesk, then ${how} — with the condition grade traveling with the item.`;
 }
 
 export function getCrosslistPairBySlug(slug: string): CrosslistPair | undefined {

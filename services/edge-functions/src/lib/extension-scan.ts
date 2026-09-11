@@ -44,7 +44,7 @@ export const MAX_SCAN_COMP_BUCKETS = 3;
 export const SCAN_THIN_PHOTO_FLOOR = 3;
 
 export const SCAN_DISCLAIMER =
-  "Based on the seller's stated condition and asking price only — no photos were analysed. " +
+  "Based on the seller's stated condition and asking price only — no photos were analyzed. " +
   "Open a listing for a GradeThread condition read.";
 
 export interface ScanCardInput {

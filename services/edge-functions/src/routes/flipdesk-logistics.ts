@@ -909,7 +909,7 @@ flipdeskLogisticsRoutes.post("/sales/:saleId/label/void", async (c) => {
     return failSafe(
       c,
       500,
-      "The label was cancelled but we couldn't update the sale.",
+      "The label was canceled but we couldn't update the sale.",
       error,
       "logistics.void",
     );

@@ -120,7 +120,7 @@ export const FLIPDESK_LANDINGS: FlipdeskLanding[] = [
       },
       {
         heading: "Priced from comps, and told which kind",
-        body: "Each draft comes with a suggested price drawn from comparable eBay listings, kept condition-aware so an item graded Excellent is priced against comparable Excellent items rather than a blind average. Those are live asking prices, and the draft says so. Once you have sold three comparable items yourself, it prices from your own realised sales instead and tells you it switched.",
+        body: "Each draft comes with a suggested price drawn from comparable eBay listings, kept condition-aware so an item graded Excellent is priced against comparable Excellent items rather than a blind average. Those are live asking prices, and the draft says so. Once you have sold three comparable items yourself, it prices from your own realized sales instead and tells you it switched.",
       },
       {
         heading: "You stay in control",
@@ -190,16 +190,16 @@ export const FLIPDESK_LANDINGS: FlipdeskLanding[] = [
     keywordTarget: "ebay comps tool",
     title: "eBay Comps Tool for Clothing Resellers",
     description:
-      "FlipDesk pulls comparable eBay listings per item, keeps them condition-aware, and says whether the number is an asking price or one of your own realised sales.",
-    h1: "Comps by condition, labelled by where they came from",
+      "FlipDesk pulls comparable eBay listings per item, keeps them condition-aware, and says whether the number is an asking price or one of your own realized sales.",
+    h1: "Comps by condition, labeled by where they came from",
     intro:
-      "FlipDesk pulls comparable eBay listings for your item and keeps them condition-aware. Instead of averaging a blur of mint and worn listings, it prices an Excellent (8) piece against comparable Excellent ones. It also tells you what kind of number you are looking at, which most tools do not: comps from eBay are what sellers are ASKING today, and they read high. Once you have sold three comparable items yourself, FlipDesk prices from those realised sales instead and says it has switched.",
+      "FlipDesk pulls comparable eBay listings for your item and keeps them condition-aware. Instead of averaging a blur of mint and worn listings, it prices an Excellent (8) piece against comparable Excellent ones. It also tells you what kind of number you are looking at, which most tools do not: comps from eBay are what sellers are ASKING today, and they read high. Once you have sold three comparable items yourself, FlipDesk prices from those realized sales instead and says it has switched.",
     appName: "FlipDesk Comps",
     appDescription:
-      "Comp pricing tool for clothing resellers: pulls comparable eBay listings, filters them by condition, and labels each number as a live asking price or one of the seller's own realised sales.",
+      "Comp pricing tool for clothing resellers: pulls comparable eBay listings, filters them by condition, and labels each number as a live asking price or one of the seller's own realized sales.",
     featureList: [
       "Pulls comparable eBay listings per item",
-      "Labels every number as an asking price or a realised sale",
+      "Labels every number as an asking price or a realized sale",
       "Condition-aware comps (price by grade, not a blind average)",
       "Relevance-ranked comp queries (brand, size, stopword trimming)",
       "Zero-result fallback ladder (progressive broadening)",
@@ -218,7 +218,7 @@ export const FLIPDESK_LANDINGS: FlipdeskLanding[] = [
     faqs: [
       {
         q: "How do I find eBay comps for used clothing?",
-        a: "Search eBay for comparable items and filter by condition, because an average that mixes mint and worn items misleads. Tick Sold items while you are there: active listings are asking prices and many never sell. FlipDesk pulls the comparable listings for you and keeps them condition-aware, and tells you whether the number in front of you is an asking price or one of your own realised sales.",
+        a: "Search eBay for comparable items and filter by condition, because an average that mixes mint and worn items misleads. Tick Sold items while you are there: active listings are asking prices and many never sell. FlipDesk pulls the comparable listings for you and keeps them condition-aware, and tells you whether the number in front of you is an asking price or one of your own realized sales.",
       },
       {
         q: "Why do condition-aware comps matter?",

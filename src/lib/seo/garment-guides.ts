@@ -211,7 +211,7 @@ export const GARMENT_GUIDES: GarmentGuide[] = [
       "How to grade a used cashmere sweater: pilling, moth holes, and felting from hot washes, plus graded examples on the 1–10 condition scale.",
     h1: "Grading a used cashmere sweater",
     intro:
-      "Grading a used cashmere sweater is stricter than ordinary knitwear because the fibre is fine and the price is high. Buyers expect softness, so the grade turns on pilling, moth holes, and felting from a hot wash — cashmere pills fast, so honest pilling assessment separates a premium piece from a tired one.",
+      "Grading a used cashmere sweater is stricter than ordinary knitwear because the fiber is fine and the price is high. Buyers expect softness, so the grade turns on pilling, moth holes, and felting from a hot wash — cashmere pills fast, so honest pilling assessment separates a premium piece from a tired one.",
     criteria: [
       "Softness and loft vs. a felted, flattened hand from washing",
       "Pilling density — cashmere pills quickly, so grade the amount",
@@ -241,7 +241,7 @@ export const GARMENT_GUIDES: GarmentGuide[] = [
     faqs: [
       {
         q: "Why is a moth hole such a big deal on cashmere?",
-        a: "Because cashmere is a premium fibre bought for its condition, a single moth hole is highly visible and hard to repair invisibly. Buyers discount holed cashmere sharply, so even one hole moves the grade down more than the same hole would on a cheaper acrylic knit.",
+        a: "Because cashmere is a premium fiber bought for its condition, a single moth hole is highly visible and hard to repair invisibly. Buyers discount holed cashmere sharply, so even one hole moves the grade down more than the same hole would on a cheaper acrylic knit.",
       },
     ],
   },
@@ -340,7 +340,7 @@ export const GARMENT_GUIDES: GarmentGuide[] = [
       "How to grade a used hoodie: fleece matting, cuff pilling, zippers, and drawcords, with a photo checklist and graded examples on the 1–10 scale.",
     h1: "Grading a used hoodie",
     intro:
-      "Grading a used hoodie centres on the fleece interior and the drawcord hardware. Pilling on the cuffs and hem, a matted or greyed fleece lining, and a broken zipper or missing drawcords lead the grade, while pocket stress and a stretched-out neck opening round out the inspection.",
+      "Grading a used hoodie centers on the fleece interior and the drawcord hardware. Pilling on the cuffs and hem, a matted or grayed fleece lining, and a broken zipper or missing drawcords lead the grade, while pocket stress and a stretched-out neck opening round out the inspection.",
     criteria: [
       "Cuff and hem ribbing pilling and stretch recovery",
       "Interior fleece — matting, greying, or pilling of the loops",
@@ -354,7 +354,7 @@ export const GARMENT_GUIDES: GarmentGuide[] = [
       },
       {
         name: "Inspect the fleece",
-        text: "Turn it inside out. Fresh, lofty fleece grades high; matted, pilled, or greyed fleece shows heavy wash cycles and lowers the grade.",
+        text: "Turn it inside out. Fresh, lofty fleece grades high; matted, pilled, or grayed fleece shows heavy wash cycles and lowers the grade.",
       },
       {
         name: "Test hardware and cords",
@@ -364,7 +364,7 @@ export const GARMENT_GUIDES: GarmentGuide[] = [
     gradedExamples: [
       { grade: "9 (NWOT)", note: "Lofty fleece, tight cuffs, both drawcords present." },
       { grade: "6 (Good)", note: "Slightly matted fleece, cuffs intact, zipper smooth." },
-      { grade: "3 (Poor)", note: "Greyed matted fleece, stretched cuffs, one drawcord missing." },
+      { grade: "3 (Poor)", note: "Grayed matted fleece, stretched cuffs, one drawcord missing." },
     ],
     relatedFlawSlugs: ["pilling", "stretching", "seam-stress"],
     faqs: [
@@ -426,7 +426,7 @@ export const GARMENT_GUIDES: GarmentGuide[] = [
       "How to grade a used wool coat: pilling, moth holes, bald patches, and lining, with a photo checklist and graded examples on the 1–10 scale.",
     h1: "Grading a used wool coat",
     intro:
-      "Grading a used wool coat separates surface pilling from real fibre loss. Wool felts and pills at friction points, so the grade weighs pilling, moth holes, and bald patches, then checks the lining and structure — a coat lives or dies on its shoulders, buttons, and a clean, intact lining.",
+      "Grading a used wool coat separates surface pilling from real fiber loss. Wool felts and pills at friction points, so the grade weighs pilling, moth holes, and bald patches, then checks the lining and structure — a coat lives or dies on its shoulders, buttons, and a clean, intact lining.",
     criteria: [
       "Pilling and felting at collar, cuffs, and sides",
       "Moth holes and bald patches in the wool face",
@@ -436,7 +436,7 @@ export const GARMENT_GUIDES: GarmentGuide[] = [
     steps: [
       {
         name: "Read the wool surface",
-        text: "Check the collar, cuffs, and underarms for pilling, felting, and thin bald spots. Fibre loss and bald patches cap the grade.",
+        text: "Check the collar, cuffs, and underarms for pilling, felting, and thin bald spots. Fiber loss and bald patches cap the grade.",
       },
       {
         name: "Backlight for moth holes",
@@ -456,7 +456,7 @@ export const GARMENT_GUIDES: GarmentGuide[] = [
     faqs: [
       {
         q: "Do moth holes ruin a wool coat's grade?",
-        a: "They lower it significantly. Wool is a favourite of clothes moths, and holes in the visible face fabric are hard to repair invisibly. A few small holes drop a coat into the lower grades; scattered holing usually makes it a repair-or-parts piece rather than a wearable one.",
+        a: "They lower it significantly. Wool is a favorite of clothes moths, and holes in the visible face fabric are hard to repair invisibly. A few small holes drop a coat into the lower grades; scattered holing usually makes it a repair-or-parts piece rather than a wearable one.",
       },
     ],
   },
@@ -558,7 +558,7 @@ export const GARMENT_GUIDES: GarmentGuide[] = [
       "Grading a used silk blouse is delicate work. Silk shows every insult — the grade leads with water spotting, deodorant and perfume stains, and the underarm degradation antiperspirant causes, then checks for snags, seam slippage, and the yellowing that ages white silk. One set stain can define the grade.",
     criteria: [
       "Water spots, perfume, and deodorant staining",
-      "Underarm fibre degradation from antiperspirant",
+      "Underarm fiber degradation from antiperspirant",
       "Snags, pulls, and seam slippage in the woven silk",
       "Yellowing or dulling of the silk's sheen",
     ],
@@ -585,7 +585,7 @@ export const GARMENT_GUIDES: GarmentGuide[] = [
     faqs: [
       {
         q: "Can deodorant stains be removed from a silk blouse?",
-        a: "Often not fully. Antiperspirant aluminium salts bond with silk protein and can permanently yellow, stiffen, or degrade the underarm fabric. Because the damage is usually set and weakens the fibre, underarm staining is a significant flaw that lowers a silk blouse's grade even when the rest of the garment is pristine.",
+        a: "Often not fully. Antiperspirant aluminum salts bond with silk protein and can permanently yellow, stiffen, or degrade the underarm fabric. Because the damage is usually set and weakens the fiber, underarm staining is a significant flaw that lowers a silk blouse's grade even when the rest of the garment is pristine.",
       },
     ],
   },
@@ -727,7 +727,7 @@ export const GARMENT_GUIDES: GarmentGuide[] = [
       "How to grade a used maxi dress: the dragging hem, underarm stains, zippers, and seam slippage, with graded examples on the 1–10 scale.",
     h1: "Grading a used maxi dress",
     intro:
-      "Grading a used maxi dress spans a lot of fabric, so the grade leads with the hem that drags the ground — fraying, dirt, and snags at the floor-length edge — then checks the underarms, zipper, and any thin, flowy fabric for pulls, seam slippage, and the stains that show on light colours.",
+      "Grading a used maxi dress spans a lot of fabric, so the grade leads with the hem that drags the ground — fraying, dirt, and snags at the floor-length edge — then checks the underarms, zipper, and any thin, flowy fabric for pulls, seam slippage, and the stains that show on light colors.",
     criteria: [
       "Floor-length hem — fraying, dirt line, and snags from dragging",
       "Underarm staining and odor on a full-coverage bodice",
@@ -745,7 +745,7 @@ export const GARMENT_GUIDES: GarmentGuide[] = [
       },
       {
         name: "Run the closure",
-        text: "Zip the full length and test any hook or tie, then scan light-coloured fabric for stains that read strongly against the base.",
+        text: "Zip the full length and test any hook or tie, then scan light-colored fabric for stains that read strongly against the base.",
       },
     ],
     gradedExamples: [
@@ -886,7 +886,7 @@ export const GARMENT_GUIDES: GarmentGuide[] = [
     faqs: [
       {
         q: "What's the difference between pilling and nap loss on flannel?",
-        a: "Pilling is loose fibre balled up on the surface; nap loss is the brushed fuzz being rubbed away entirely, leaving the flat weave exposed. Both lower a flannel's grade, but nap loss is more serious — it's permanent and changes the shirt's soft look and feel that buyers want.",
+        a: "Pilling is loose fiber balled up on the surface; nap loss is the brushed fuzz being rubbed away entirely, leaving the flat weave exposed. Both lower a flannel's grade, but nap loss is more serious — it's permanent and changes the shirt's soft look and feel that buyers want.",
       },
     ],
   },
@@ -899,7 +899,7 @@ export const GARMENT_GUIDES: GarmentGuide[] = [
       "How to grade used corduroy pants: crushed and bald wale, sheen, thinning, and hems, with graded examples on the 1–10 condition scale.",
     h1: "Grading used corduroy pants",
     intro:
-      "Grading used corduroy pants is about the wales. The ribbed pile flattens and goes bald at the seat, knees, and inner thighs, so the grade leads with crushed or worn-away wale, then checks for the colour sheen where the pile is gone, plus hems, pocket bags, and set stains in the ridges.",
+      "Grading used corduroy pants is about the wales. The ribbed pile flattens and goes bald at the seat, knees, and inner thighs, so the grade leads with crushed or worn-away wale, then checks for the color sheen where the pile is gone, plus hems, pocket bags, and set stains in the ridges.",
     criteria: [
       "Wale and pile condition — crushed, flattened, or bald patches",
       "Sheen at seat and knees where the pile has worn away",
@@ -1124,7 +1124,7 @@ export const GARMENT_GUIDES: GarmentGuide[] = [
     steps: [
       {
         name: "Inspect the fleece",
-        text: "Turn the joggers inside out; matted, greyed, or pilled fleece signals heavy washing and lowers the grade.",
+        text: "Turn the joggers inside out; matted, grayed, or pilled fleece signals heavy washing and lowers the grade.",
       },
       {
         name: "Test the elastic",
@@ -1138,7 +1138,7 @@ export const GARMENT_GUIDES: GarmentGuide[] = [
     gradedExamples: [
       { grade: "9 (NWOT)", note: "Lofty fleece, snappy cuffs, drawcord intact." },
       { grade: "6 (Good)", note: "Slight fleece matting, cuffs hold, no thinning." },
-      { grade: "3 (Poor)", note: "Greyed matted fleece and blown-out ankle cuffs." },
+      { grade: "3 (Poor)", note: "Grayed matted fleece and blown-out ankle cuffs." },
     ],
     relatedFlawSlugs: ["pilling", "stretching", "fabric-thinning"],
     faqs: [
@@ -1243,11 +1243,11 @@ export const GARMENT_GUIDES: GarmentGuide[] = [
       "How to grade a used wool suit: jacket structure, trouser seat wear, and matched-set condition, with graded examples on the 1–10 scale.",
     h1: "Grading a used wool suit",
     intro:
-      "Grading a used wool suit means grading two pieces as a set, and the weakest piece leads. The grade weighs jacket structure and elbow shine plus trouser seat and inner-thigh wear, then checks that both halves match in colour and wear — a suit is only as good as its more-worn component.",
+      "Grading a used wool suit means grading two pieces as a set, and the weakest piece leads. The grade weighs jacket structure and elbow shine plus trouser seat and inner-thigh wear, then checks that both halves match in color and wear — a suit is only as good as its more-worn component.",
     criteria: [
       "Jacket structure — shoulders, lapel roll, no bubbled fusing",
       "Elbow shine and trouser seat and inner-thigh wear",
-      "Colour and wear match between jacket and trousers",
+      "Color and wear match between jacket and trousers",
       "Lining, buttons, and moth holes across both pieces",
     ],
     steps: [
@@ -1261,12 +1261,12 @@ export const GARMENT_GUIDES: GarmentGuide[] = [
       },
       {
         name: "Match the set",
-        text: "Confirm jacket and trousers match in colour and wear level and check both for moth holes; the more-worn piece caps the grade.",
+        text: "Confirm jacket and trousers match in color and wear level and check both for moth holes; the more-worn piece caps the grade.",
       },
     ],
     gradedExamples: [
       { grade: "9 (NWOT)", note: "Crisp jacket, clean seat, both pieces matching." },
-      { grade: "6 (Good)", note: "Light elbow shine, trousers sound, colours match." },
+      { grade: "6 (Good)", note: "Light elbow shine, trousers sound, colors match." },
       { grade: "3 (Poor)", note: "Bubbled jacket chest and shiny worn trouser seat." },
     ],
     relatedFlawSlugs: ["fabric-thinning", "moth-holes", "seam-stress"],
@@ -1316,7 +1316,7 @@ export const GARMENT_GUIDES: GarmentGuide[] = [
     faqs: [
       {
         q: "Do wrinkles lower a linen shirt's grade?",
-        a: "No. Linen wrinkles and shows slubs by nature — that relaxed, textured look is expected and isn't a flaw. What lowers a linen shirt's grade is genuine fibre weakening: thinning that lets light through, small holes, and seam slippage in the loose weave, which are the real signs of a garment near the end of its life.",
+        a: "No. Linen wrinkles and shows slubs by nature — that relaxed, textured look is expected and isn't a flaw. What lowers a linen shirt's grade is genuine fiber weakening: thinning that lets light through, small holes, and seam slippage in the loose weave, which are the real signs of a garment near the end of its life.",
       },
     ],
   },

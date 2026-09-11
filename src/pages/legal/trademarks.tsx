@@ -146,7 +146,7 @@ export function TrademarksPage() {
         widgets may be displayed by sellers and marketplaces in connection with
         a genuine, unaltered GradeThread grade. Any other use requires our
         written permission. See our{" "}
-        <Link to="/terms">Terms of Service</Link> for the full licence.
+        <Link to="/terms">Terms of Service</Link> for the full license.
       </p>
 
       <h2 id="report">8. Questions or corrections</h2>

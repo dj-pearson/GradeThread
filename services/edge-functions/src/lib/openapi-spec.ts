@@ -64,7 +64,7 @@ const idempotencyResponses = {
     ...errorResponse,
     description:
       "A request with this Idempotency-Key is still being processed (IDEMPOTENCY_IN_PROGRESS). " +
-      "Honour Retry-After.",
+      "Honor Retry-After.",
   },
   "422": {
     ...errorResponse,
@@ -359,7 +359,7 @@ export const OPENAPI_SPEC = {
         tags: ["Inventory"],
         summary: "List completed sales",
         description:
-          "Defaults to status=completed; cancelled and refunded sales are not revenue. " +
+          "Defaults to `status=completed`; sales with status `cancelled` or `refunded` are not revenue. " +
           "meta.totals rolls up the RETURNED page and says so via totals.page_only.",
         security: [{ ApiKeyAuth: ["read"] }],
         parameters: [

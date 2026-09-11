@@ -54,9 +54,20 @@ const LABELS = {
   grade: "Condition grade",
   factors: "Grade breakdown",
   measurements: "Measurements (flat, inches)",
-  fibre: "Fibre content",
+  fibre: "Fiber content",
   flaws: "Disclosed flaws",
 } as const;
+
+/**
+ * The British spelling this label carried until US-3233.
+ *
+ * It is a READ-side alias and nothing writes it any more. Every description
+ * published before the rename still says "Fibre content:" inside its markers,
+ * and those live on eBay where nothing here can rewrite them; dropping the
+ * alias would make every one of them parse back with a null fiber content on
+ * the next revise. Do not delete it because it looks like a typo.
+ */
+const LEGACY_FIBRE_LABEL = "Fibre content";
 
 function escapeHtml(s: string): string {
   return s
@@ -203,7 +214,7 @@ export function parseListingFactsBlock(description: string): ListingFacts | null
         .map(splitTrailingNumber)
         .filter((f) => f !== null)
         .map((f) => ({ label: f!.label, inches: f!.score }));
-    } else if (label === LABELS.fibre) {
+    } else if (label === LABELS.fibre || label === LEGACY_FIBRE_LABEL) {
       facts.fibreContent = value;
     } else if (label === LABELS.flaws) {
       facts.flaws = splitList(value);

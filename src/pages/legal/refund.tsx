@@ -21,7 +21,7 @@ export function RefundPage() {
         <li>
           <strong>Subscriptions.</strong> FlipDesk plans billed monthly or
           annually in advance through Stripe, renewing automatically until
-          cancelled.
+          canceled.
         </li>
         <li>
           <strong>Per-grade purchases and credit packs.</strong> One-time
@@ -89,7 +89,7 @@ export function RefundPage() {
           for <strong>digital content</strong> supplied on a non-tangible medium
           (e.g. a generated grade or certificate), you lose your right of
           withdrawal once performance has begun with your prior consent and
-          acknowledgement.
+          acknowledgment.
         </li>
       </ul>
       <p>

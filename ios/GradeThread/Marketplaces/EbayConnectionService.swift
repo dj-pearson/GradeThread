@@ -48,7 +48,7 @@ public final class EbayConnectionService: NSObject, EbayConnectionsProviding {
         public var errorDescription: String? {
             switch self {
             case .userCancelled:
-                return "eBay sign-in was cancelled."
+                return "eBay sign-in was canceled."
             case .stateExpired:
                 return "Connection state expired — try connecting again."
             case .noActiveConnection:

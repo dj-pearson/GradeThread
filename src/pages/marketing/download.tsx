@@ -44,7 +44,7 @@ const PITCH: Record<
   },
   chrome: {
     moment: "At the desk",
-    body: "Listings get written on a laptop, in a marketplace tab you are already signed in to. The extension fills that tab from the item you already catalogued, so one garment is not typed out five times for five sites.",
+    body: "Listings get written on a laptop, in a marketplace tab you are already signed in to. The extension fills that tab from the item you already cataloged, so one garment is not typed out five times for five sites.",
     bullets: [
       "Cross-list to Poshmark, Mercari, Grailed, Vinted and Facebook",
       "Lists from your own logged-in tab",

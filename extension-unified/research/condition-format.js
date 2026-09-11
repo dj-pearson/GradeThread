@@ -153,7 +153,7 @@
       "speak to what the report recorded.",
     shieldRefusal:
       "The flaw being complained about is not one the listing disclosed. There " +
-      "is nothing here that argues in your favour, and a refund is worth " +
+      "is nothing here that argues in your favor, and a refund is worth " +
       "considering.",
     shieldCopy: "Copy the wording",
     shieldCopied: "Copied",

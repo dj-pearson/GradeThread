@@ -60,7 +60,7 @@ export const RN_LOOKUP_META = {
     },
     {
       q: "What is a CA number?",
-      a: "A CA number is the Canadian equivalent, issued under Canada's textile labelling rules. We read and answer them, but our index is built around the US register.",
+      a: "A CA number is the Canadian equivalent, issued under Canada's textile labeling rules. We read and answer them, but our index is built around the US register.",
     },
     {
       q: "Where does your data come from?",

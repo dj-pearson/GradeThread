@@ -90,7 +90,7 @@ export function PartnersPage() {
           </div>
           <p className="mt-4 text-sm text-muted-foreground">
             Sign in, open Referrals, then the Creator tab. Accepting the terms applies to
-            the programme; we admit creators one at a time.
+            the program; we admit creators one at a time.
           </p>
         </div>
       </section>

@@ -216,7 +216,7 @@ export function MarketplaceFeeCalculatorPage({ platform }: { platform: Marketpla
         <div className="mx-auto max-w-3xl">
           <h2 className="text-3xl font-bold">The same sale on all five platforms</h2>
           <p className="mt-2 text-muted-foreground">
-            Your numbers, run through every fee schedule. eBay is modelled as
+            Your numbers, run through every fee schedule. eBay is modeled as
             apparel with no Store and good standing; its full model has more
             levers than that.
           </p>

@@ -193,7 +193,7 @@ enum EbayConnectResult: Equatable {
         guard rawCode.count <= 64 else { return genericErrorMessage }
         switch rawCode.lowercased() {
         case "access_denied":
-            return "eBay sign-in was cancelled."
+            return "eBay sign-in was canceled."
         case "invalid_scope":
             return "eBay rejected the requested permissions. Please try again."
         case "invalid_state", "state_expired":

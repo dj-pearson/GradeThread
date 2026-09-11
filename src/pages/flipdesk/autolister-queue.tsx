@@ -2,14 +2,11 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router";
 import { BatchNav } from "./autolister/batch-nav";
 import {
-  MeasurementsBadge,
-  PhotoQaBadge,
-  PreflightBadge,
   PublishConfirmDialog,
-  SizeConflictBadge,
   type PreflightItem,
-  QueueCoverThumb,
 } from "./autolister/queue-cells";
+// US-3309: the rows are a table now, in their own module.
+import { QueueTable, type QueueTier } from "./autolister/queue-table";
 import {
   sizeCheckableDraft,
   useApplySizeFix,
@@ -21,19 +18,7 @@ import { ITEM_COVERS_KEY, useAutolisterItemCovers } from "./autolister/use-item-
 import { queueRowTitle } from "./autolister/queue-row-title";
 import { useBatchFinishedToast } from "./autolister/use-batch-finished-toast";
 import { toast } from "sonner";
-import {
-  CheckCircle2,
-  Loader2,
-  XCircle,
-  Clock,
-  RefreshCw,
-  ArrowRight,
-  Rocket,
-  ExternalLink,
-  AlertTriangle,
-  Camera,
-  ImagePlus,
-} from "lucide-react";
+import { Loader2, RefreshCw, Rocket, Camera } from "lucide-react";
 import { PageHeader } from "@/components/ui/page-header";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -68,8 +53,6 @@ import {
   type AutolisterJob,
 } from "@/hooks/use-autolister";
 import { useEbayConnection } from "@/hooks/use-ebay";
-import { ReconcilePanel } from "@/components/flipdesk/reconcile-panel";
-import { VirtualList } from "@/components/flipdesk/virtual-list";
 import { PhotoUploader } from "@/components/flipdesk/photo-uploader";
 import type { ItemCategory, ItemStatus } from "@/types/database";
 import { cn } from "@/lib/utils";
@@ -78,20 +61,6 @@ import { FilterEmpty } from "@/components/flipdesk/filter-empty";
 // AutoLister queue / progress view (US-318). Polls the batch until it finishes,
 // shows per-item status, links completed drafts to the editor, and lets the
 // user re-run only the failed items.
-
-function StatusIcon({ status }: { status: AutolisterJob["status"] }) {
-  switch (status) {
-    case "success":
-      return <CheckCircle2 className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />;
-    case "failed":
-      return <XCircle className="h-4 w-4 text-destructive" />;
-    case "running":
-      return <Loader2 className="h-4 w-4 animate-spin text-primary" />;
-    default:
-      return <Clock className="h-4 w-4 text-muted-foreground" />;
-  }
-}
-
 
 // US-1559: minimum spacing between /listings/validate request STARTS. The edge
 // rate-limits /ebay/listings/* at 30/min; ~24 starts/min leaves headroom for
@@ -337,7 +306,7 @@ export function FlipdeskAutolisterQueuePage() {
   // (US-537), so a seller can accept the high-confidence ones in one click and
   // focus review on the rest. (Hard eBay blockers are still caught by the
   // /listings/validate pre-flight at publish time, so "green" = AI-confident.)
-  type Tier = "green" | "amber" | "red";
+  type Tier = QueueTier;
   function tierOf(job: AutolisterJob): Tier {
     if (job.status === "failed") return "red";
     const review = job.listing_id ? reviewByListing[job.listing_id] : undefined;
@@ -398,6 +367,25 @@ export function FlipdeskAutolisterQueuePage() {
       const next = new Set(prev);
       if (next.has(itemId)) next.delete(itemId);
       else next.add(itemId);
+      return next;
+    });
+  }
+
+  // US-3309: select-all now lives on the table's header checkbox, so it needs
+  // to be a real toggle rather than the one-way "Select all in view" link it
+  // replaced — a header checkbox that only ever selects is a checkbox that lies
+  // about its own state.
+  const selectableInView = visibleJobs.filter((j) => j.status === "success");
+  const allInViewSelected =
+    selectableInView.length > 0 &&
+    selectableInView.every((j) => selectedIds.has(j.inventory_item_id));
+  function toggleSelectAllInView() {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      for (const j of selectableInView) {
+        if (allInViewSelected) next.delete(j.inventory_item_id);
+        else next.add(j.inventory_item_id);
+      }
       return next;
     });
   }
@@ -796,21 +784,10 @@ export function FlipdeskAutolisterQueuePage() {
         )}
       </Card>
 
-      {/* US-554: select-all / clear for the publishable rows in view. */}
+      {/* US-3309: the count strip. "Select all in view" moved onto the
+          table's header checkbox, where a table puts it. */}
       {!isRunning && succeededJobs.length > 0 && (
         <div className="flex items-center gap-3 text-xs text-muted-foreground">
-          <button
-            type="button"
-            className="underline-offset-2 hover:underline"
-            onClick={() => {
-              const ids = visibleJobs
-                .filter((j) => j.status === "success")
-                .map((j) => j.inventory_item_id);
-              setSelectedIds(new Set(ids));
-            }}
-          >
-            Select all in view
-          </button>
           {selectedIds.size > 0 && (
             <button
               type="button"
@@ -826,187 +803,39 @@ export function FlipdeskAutolisterQueuePage() {
         </div>
       )}
 
-      {/* Per-item rows — virtualized (US-416) so a 1k+ item batch stays smooth. */}
       {!isRunning && visibleJobs.length === 0 && jobs.length > 0 && (
         <FilterEmpty noun="draft" total={jobs.length}
           clearLabel="Show all drafts" onClear={() => setQueueFilter("all")} />
       )}
+      {/* US-3309: columns, not one flex line. Virtualized (US-416) for a 1k+
+          batch via the spacer-row technique, so the columns stay aligned. */}
       {visibleJobs.length > 0 && (
-        <VirtualList
-          items={visibleJobs}
-          getKey={(job) => job.id}
-          estimateSize={120}
-          gap={8}
-          className="max-h-[70dvh] pr-1"
-          renderItem={(job) => {
-            const pub = bulkPublish.results[job.inventory_item_id];
-            // US-550: tier dot (only meaningful once a draft is generated).
-            const tier = job.status === "success" ? tierOf(job) : null;
-            const tierColor =
-              tier === "green"
-                ? "bg-emerald-500"
-                : tier === "amber"
-                  ? "bg-amber-500"
-                  : null;
-            const selectable = job.status === "success";
-            return (
-            <div className="space-y-1.5">
-            <div
-              className="flex items-center gap-3 rounded-md border px-3 py-2 text-sm"
-            >
-              {/* US-554: multi-select a publishable (succeeded) draft. */}
-              {selectable && !isRunning ? (
-                <input
-                  type="checkbox"
-                  className="h-4 w-4 shrink-0 accent-emerald-600"
-                  checked={selectedIds.has(job.inventory_item_id)}
-                  onChange={() => toggleSelected(job.inventory_item_id)}
-                  aria-label={`Select ${titleOf(job.inventory_item_id)}`}
-                />
-              ) : (
-                <span className="w-4 shrink-0" aria-hidden="true" />
-              )}
-              {tierColor && (
-                <span
-                  className={cn("h-2 w-2 shrink-0 rounded-full", tierColor)}
-                  aria-hidden="true"
-                />
-              )}
-              <StatusIcon status={job.status} />
-              <QueueCoverThumb
-                cover={coverByItem[job.inventory_item_id]}
-                label={titleOf(job.inventory_item_id)}
-              />
-              <span className="flex-1 truncate">
-                {titleOf(job.inventory_item_id)}
-              </span>
-
-              {/* US-537: photo readiness — nudge a reshoot before publish. */}
-              <PhotoQaBadge meta={itemMeta[job.inventory_item_id]} />
-              {/* Add or replace this draft's photos in place — fixes a missing
-                  required photo without a round-trip to the composer. */}
-              {job.status === "success" && (
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  className="h-7 shrink-0 gap-1 px-2 text-xs text-muted-foreground"
-                  onClick={() => {
-                    const m = itemMeta[job.inventory_item_id];
-                    photosDirtyRef.current = false;
-                    setPhotoItem({
-                      id: job.inventory_item_id,
-                      title: titleOf(job.inventory_item_id),
-                      category: m?.category ?? null,
-                      status: m?.status ?? null,
-                    });
-                  }}
-                  title="Add or replace this draft's photos"
-                >
-                  <ImagePlus className="h-3 w-3" />
-                  Add photos
-                </Button>
-              )}
-              <MeasurementsBadge
-                has={itemMeta[job.inventory_item_id]?.hasMeasurements}
-              />
-              {/* US-2919: the size on the label disagrees with the numbers on
-                  the item. Never gates publish — it offers the fix and stops. */}
-              <SizeConflictBadge
-                conflict={sizeConflicts[job.inventory_item_id]}
-                onFix={applySizeFix}
-              />
-
-              {/* US-954: background eBay pre-flight — ready / will-block(reason)
-                  before the publish dialog is ever opened. Will-block reasons
-                  deep-link to the offending field in the composer. */}
-              {job.status === "success" && (
-                <PreflightBadge
-                  itemId={job.inventory_item_id}
-                  state={preflightByItem[job.inventory_item_id]}
-                  enabled={!!ebayConnection}
-                />
-              )}
-
-              {/* US-541: AI flagged this draft as low-confidence — surface a
-                  "Needs review" nudge so the seller checks it before publish. */}
-              {job.status === "success" &&
-                job.listing_id &&
-                reviewByListing[job.listing_id]?.needsReview && (
-                  <Badge
-                    variant="outline"
-                    className="gap-1 border-amber-500/40 bg-amber-500/10 text-[10px] text-amber-700 dark:text-amber-300"
-                    title={
-                      (reviewByListing[job.listing_id]?.fields.length ?? 0) > 0
-                        ? `AI is unsure about: ${reviewByListing[job.listing_id]!.fields.join(", ")}`
-                        : "The AI was uncertain about this listing — give it a look before publishing."
-                    }
-                  >
-                    <AlertTriangle className="h-3 w-3" />
-                    Needs review
-                  </Badge>
-                )}
-
-              {/* Generation error */}
-              {job.status === "failed" && job.error && !pub && (
-                <span className="max-w-xs truncate text-xs text-destructive" title={job.error}>
-                  {job.error}
-                </span>
-              )}
-
-              {/* Publish state (once a bulk publish has touched this item) */}
-              {pub?.status === "publishing" && (
-                <Badge variant="secondary" className="gap-1">
-                  <Loader2 className="h-3 w-3 animate-spin" />
-                  Publishing
-                </Badge>
-              )}
-              {pub?.status === "failed" && (
-                // US-567: the mapped, actionable eBay message deep-links to the
-                // composer so the seller can fix the offending field.
-                <Link
-                  to={`/dashboard/flipdesk/items/${job.inventory_item_id}/draft`}
-                  className="max-w-xs truncate text-xs text-destructive underline-offset-2 hover:underline"
-                  title={`${pub.error} — click to fix in the composer`}
-                >
-                  {pub.error}
-                </Link>
-              )}
-              {pub?.status === "success" ? (
-                pub.listingUrl ? (
-                  <a
-                    href={pub.listingUrl}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="inline-flex items-center gap-1 text-xs text-emerald-600 hover:underline dark:text-emerald-400"
-                  >
-                    Live on eBay
-                    <ExternalLink className="h-3 w-3" />
-                  </a>
-                ) : (
-                  <Badge variant="default">Live</Badge>
-                )
-              ) : (
-                job.status === "success" && (
-                  <Button asChild size="sm" variant="ghost">
-                    <Link to={`/dashboard/flipdesk/items/${job.inventory_item_id}/draft`}>
-                      Review
-                      <ArrowRight className="ml-1 h-3 w-3" />
-                    </Link>
-                  </Button>
-                )
-              )}
-            </div>
-
-            {/* Field-by-field reconcile against the seller's imported record —
-                only meaningful once the draft exists (status success). */}
-            {job.status === "success" && (
-              <ReconcilePanel
-                itemId={job.inventory_item_id}
-                title={titleOf(job.inventory_item_id)}
-              />
-            )}
-            </div>
-            );
+        <QueueTable
+          jobs={visibleJobs}
+          isRunning={isRunning}
+          ebayConnected={!!ebayConnection}
+          titleOf={titleOf}
+          tierOf={(job) => (job.status === "success" ? tierOf(job) : null)}
+          itemMeta={itemMeta}
+          coverByItem={coverByItem}
+          reviewByListing={reviewByListing}
+          sizeConflicts={sizeConflicts}
+          preflightByItem={preflightByItem}
+          publishResults={bulkPublish.results}
+          selectedIds={selectedIds}
+          onToggleSelected={toggleSelected}
+          onToggleSelectAll={toggleSelectAllInView}
+          allInViewSelected={allInViewSelected}
+          onApplySizeFix={applySizeFix}
+          onEditPhotos={(job) => {
+            const m = itemMeta[job.inventory_item_id];
+            photosDirtyRef.current = false;
+            setPhotoItem({
+              id: job.inventory_item_id,
+              title: titleOf(job.inventory_item_id),
+              category: m?.category ?? null,
+              status: m?.status ?? null,
+            });
           }}
         />
       )}

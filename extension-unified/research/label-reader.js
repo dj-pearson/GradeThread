@@ -44,7 +44,7 @@
   const FIELDS = [
     { key: "brand", label: "Brand" },
     { key: "size", label: "Size" },
-    { key: "fiberContent", label: "Fibre content" },
+    { key: "fiberContent", label: "Fiber content" },
     { key: "styleCode", label: "Style code" },
     { key: "rn", label: "RN" },
   ];

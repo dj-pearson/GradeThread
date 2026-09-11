@@ -175,7 +175,7 @@ final class EbayConnectionTests: XCTestCase {
     func test_sanitizedErrorMessage_accessDenied_readsAsCancelled() {
         XCTAssertEqual(
             EbayConnectResult.sanitizedErrorMessage(forCode: "ACCESS_DENIED"),
-            "eBay sign-in was cancelled.")
+            "eBay sign-in was canceled.")
     }
 
     func test_callbackParse_noKnownParams_returnsNil() {

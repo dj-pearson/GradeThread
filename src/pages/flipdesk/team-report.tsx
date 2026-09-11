@@ -550,7 +550,7 @@ export function ThroughputCard({
               Who is producing
             </CardTitle>
             <CardDescription>
-              Items catalogued and listings created per teammate, by week.
+              Items cataloged and listings created per teammate, by week.
             </CardDescription>
           </div>
           {data.rows.length > 0 && (

@@ -182,7 +182,7 @@ export function ComparisonPage({ slug: slugProp }: { slug?: string }) {
             Relisting by hand is fine for ten items and painful past twenty, and
             the expensive part is not the typing. It is the item that sells on{" "}
             {cmp.platformA} and stays live on {cmp.platformB}, which becomes a
-            cancelled order and a hit to your metrics. FlipDesk lists once,
+            canceled order and a hit to your metrics. FlipDesk lists once,
             publishes to both, and pulls the listing everywhere the moment it
             sells — with the condition grade carried across, so the wording
             change between platforms does not turn a clean relist into a

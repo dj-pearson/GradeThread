@@ -78,7 +78,7 @@ final class ScheduledDropsStore {
         drops.removeAll { $0.id == drop.id }
         do {
             try await service.cancel(listingId: drop.id)
-            actionBanner = "Scheduled drop cancelled."
+            actionBanner = "Scheduled drop canceled."
             HapticFeedback.success()
         } catch {
             drops = snapshot

@@ -236,7 +236,7 @@ export function promotionRefusal(
     return {
       status: 400,
       error:
-        "A source is required to promote — add the listing or catalogue URL this name came from",
+        "A source is required to promote — add the listing or catalog URL this name came from",
     };
   }
   return null;

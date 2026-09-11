@@ -225,11 +225,11 @@ export const FLAW_ENTRIES: FlawEntry[] = [
     removalHeading: "How to get pills off a garment",
     removal: [
       "Lay the garment flat on a hard surface. Doing this on your lap stretches the knit, the fabric lifts into the blade, and the shaver cuts it.",
-      "Work out how loose the knit is first. If you can see daylight between the stitches, or the fibre is cashmere, mohair or angora, use a comb rather than a blade.",
+      "Work out how loose the knit is first. If you can see daylight between the stitches, or the fiber is cashmere, mohair or angora, use a comb rather than a blade.",
       "Go over the pilled area with a fabric shaver on its lowest setting, holding it flat and letting its own weight do the work. Pressing down is what makes a hole.",
       "Work in one direction, in short strokes, and empty the shaver often. A full chamber stops cutting and starts pressing pills back into the fabric.",
       "Stop when the surface reads smooth from a low angle. Chasing the last few pills is how people shave a hole in a sleeve, and the last few are not the ones anybody notices.",
-      "Look at what is underneath. Pills are fibre that has already left the yarn, so a patch that reads thin or shiny after shaving was thin before you started. That is fabric thinning, not pilling, and it does not come back.",
+      "Look at what is underneath. Pills are fiber that has already left the yarn, so a patch that reads thin or shiny after shaving was thin before you started. That is fabric thinning, not pilling, and it does not come back.",
     ],
     methods: [
       {
@@ -258,14 +258,14 @@ export const FLAW_ENTRIES: FlawEntry[] = [
         verdict: "situational",
         cost: "A few dollars",
         works: "Good on heavy cotton and fleece, where it lifts pills without cutting anything.",
-        risk: "Abrades the surface it is dragged across, so it dulls a dark colour over repeated use and is wrong for anything fine.",
+        risk: "Abrades the surface it is dragged across, so it dulls a dark color over repeated use and is wrong for anything fine.",
       },
       {
         name: "Sticky tape or a lint roller",
         verdict: "avoid",
         cost: "You already own one",
         works: "Nothing, for this. It lifts loose fluff sitting on the surface.",
-        risk: "No damage, but no result either. A pill is anchored by fibres still attached to the yarn, which is the whole difference between a pill and lint.",
+        risk: "No damage, but no result either. A pill is anchored by fibers still attached to the yarn, which is the whole difference between a pill and lint.",
       },
       {
         name: "Scissors",
@@ -301,7 +301,7 @@ export const FLAW_ENTRIES: FlawEntry[] = [
         action: "The yarn is already gone. Shaving reveals thinning rather than fixing it, so disclose and price accordingly.",
       },
     ],
-    prevention: "Pilling is abrasion, so it comes from friction rather than dirt, and washing more often makes it worse rather than better. Turn knitwear inside out, use a mesh bag, wash cold on a gentle cycle and skip the dryer, where the tumbling does in one cycle what a week of wear does. Wash synthetics separately from cotton, because a polyester pill is anchored by a fibre stronger than the yarn around it and rubbing the two together is what forms them. The underarm and the side you carry a bag on will always go first, whatever you do.",
+    prevention: "Pilling is abrasion, so it comes from friction rather than dirt, and washing more often makes it worse rather than better. Turn knitwear inside out, use a mesh bag, wash cold on a gentle cycle and skip the dryer, where the tumbling does in one cycle what a week of wear does. Wash synthetics separately from cotton, because a polyester pill is anchored by a fiber stronger than the yarn around it and rubbing the two together is what forms them. The underarm and the side you carry a bag on will always go first, whatever you do.",
     relatedSlugs: ["fabric-thinning", "sun-fading"],
     faqs: [
       {
@@ -310,15 +310,15 @@ export const FLAW_ENTRIES: FlawEntry[] = [
       },
       {
         q: "Why do clothes pill in the first place?",
-        a: "Friction, not dirt. Every rub breaks a few fibres loose from the yarn; they stay attached at one end and tangle with each other into a ball. That is why it appears at the underarm, the inner thigh and wherever a bag strap sits, and why a garment that is never worn never pills however long it hangs there.",
+        a: "Friction, not dirt. Every rub breaks a few fibers loose from the yarn; they stay attached at one end and tangle with each other into a ball. That is why it appears at the underarm, the inner thigh and wherever a bag strap sits, and why a garment that is never worn never pills however long it hangs there.",
       },
       {
         q: "Do some fabrics pill more than others?",
-        a: "Yes, and the reason is counter-intuitive. Pilling starts on almost everything; what differs is whether the pill falls off. Short-staple natural fibres shed their pills, so cotton and wool look better than they are. Synthetics do not: a polyester or nylon fibre is stronger than the yarn holding it, so the pill stays put and accumulates. Blends are the worst of both, which is why a 50/50 sweatshirt pills more visibly than either fibre alone.",
+        a: "Yes, and the reason is counter-intuitive. Pilling starts on almost everything; what differs is whether the pill falls off. Short-staple natural fibers shed their pills, so cotton and wool look better than they are. Synthetics do not: a polyester or nylon fiber is stronger than the yarn holding it, so the pill stays put and accumulates. Blends are the worst of both, which is why a 50/50 sweatshirt pills more visibly than either fiber alone.",
       },
       {
         q: "Will removing pills damage the garment?",
-        a: "It can, and the two ways it happens are avoidable. Cutting a hole comes from pressing down, working over a seam, or using a blade on a loose knit; hold the tool flat, let its weight do the work and use a comb on anything you can see daylight through. The subtler one is that shaving does not put fibre back, so a patch that has pilled and been shaved repeatedly gets genuinely thin. At that point you are managing thinning, not pilling.",
+        a: "It can, and the two ways it happens are avoidable. Cutting a hole comes from pressing down, working over a seam, or using a blade on a loose knit; hold the tool flat, let its weight do the work and use a comb on anything you can see daylight through. The subtler one is that shaving does not put fiber back, so a patch that has pilled and been shaved repeatedly gets genuinely thin. At that point you are managing thinning, not pilling.",
       },
       {
         q: "Can you stop clothes pilling permanently?",
@@ -355,7 +355,7 @@ export const FLAW_ENTRIES: FlawEntry[] = [
     removalHeading: "Sun fading does not come out",
     removal: [
       "Nothing removes it. UV has broken the dye molecules; there is no dye left to lift or redistribute.",
-      "Dyeing the whole garment can even it out, but it changes the colour for good and rarely matches the original.",
+      "Dyeing the whole garment can even it out, but it changes the color for good and rarely matches the original.",
       "For a black garment gone brown, a black dye bath is the only honest option, and it will not restore the original shade.",
     ],
     prevention: "Dry clothes in shade or inside out, and never store anything on a windowsill or in a car. A single summer in a sunlit wardrobe will fade the shoulder of a hanging garment while the rest stays true, which is the pattern that makes fading obvious.",
@@ -373,7 +373,7 @@ export const FLAW_ENTRIES: FlawEntry[] = [
     alternateNames: ["moth damage"],
     title: "How to Darn a Hole in a Sweater",
     description:
-      "Kill whatever is still in the fibres first, then harvest matching yarn from an inside seam and weave the darn in two directions. Above 5mm it shows.",
+      "Kill whatever is still in the fibers first, then harvest matching yarn from an inside seam and weave the darn in two directions. Above 5mm it shows.",
     h1: "Moth holes",
     definition:
       "Moth holes are small, irregular holes chewed by clothes-moth larvae, most common in wool, cashmere, and other animal fibers. They're often clustered and can be tiny, so they're easy to miss — and because they're structural damage, they weigh heavily on the grade.",
@@ -391,12 +391,12 @@ export const FLAW_ENTRIES: FlawEntry[] = [
     comesOut: "no",
     removalHeading: "Moth holes cannot be removed, only mended",
     removal: [
-      "First, kill whatever is still in the fibres: 72 hours in a sealed bag in the freezer, or a hot tumble if the fabric allows.",
+      "First, kill whatever is still in the fibers: 72 hours in a sealed bag in the freezer, or a hot tumble if the fabric allows.",
       "Wash or dry-clean before mending, because larvae feed on the body oils in the fabric, not the wool itself.",
       "For a hole under about 5mm, darn it with matching yarn pulled from an inside seam allowance.",
       "For anything larger, invisible mending by a specialist is the only result that does not read as a repair, and it costs more than most garments are worth.",
     ],
-    prevention: "Moths eat protein fibres and are drawn to sweat and food traces, so store wool clean and never store it dirty for a season. Cedar and lavender deter, they do not kill. Airtight containers work; a full wardrobe with airflow does not.",
+    prevention: "Moths eat protein fibers and are drawn to sweat and food traces, so store wool clean and never store it dirty for a season. Cedar and lavender deter, they do not kill. Airtight containers work; a full wardrobe with airflow does not.",
     repair: {
       name: "Darn a moth hole in a sweater",
       difficulty: "Moderate",
@@ -406,7 +406,7 @@ export const FLAW_ENTRIES: FlawEntry[] = [
       supplies: ["Matching yarn, ideally pulled from an inside seam of the garment"],
       steps: [
         {
-          name: "Kill whatever is still in the fibres first",
+          name: "Kill whatever is still in the fibers first",
           text: "72 hours sealed in a bag in the freezer. Mending a garment that still has larvae in it produces a second hole beside your repair.",
         },
         {
@@ -449,7 +449,7 @@ export const FLAW_ENTRIES: FlawEntry[] = [
     alternateNames: ["armpit stains", "sweat stains", "yellow underarm stains"],
     title: "How to Get Underarm Stains Out",
     description:
-      "Yellow underarm marks are aluminium bonded to protein, not sweat. The enzyme-then-oxygen sequence that shifts them, and the dryer step that sets them forever.",
+      "Yellow underarm marks are aluminum bonded to protein, not sweat. The enzyme-then-oxygen sequence that shifts them, and the dryer step that sets them forever.",
     h1: "Pit stains",
     definition:
       "Pit stains are the yellow, crusty discoloration under the arms of shirts, formed when sweat reacts with antiperspirant aluminum and body oils. Over months they stiffen the fabric, resist ordinary washing, and often spread to the collar — counting against both odor-and-cleanliness and fabric-condition on the grade.",
@@ -467,13 +467,13 @@ export const FLAW_ENTRIES: FlawEntry[] = [
     comesOut: "sometimes",
     removalHeading: "How to get underarm staining out",
     removal: [
-      "Work out which problem you have. A yellow crust is aluminium from antiperspirant bonded to protein; a dulled, stiff patch is fabric damage underneath it.",
+      "Work out which problem you have. A yellow crust is aluminum from antiperspirant bonded to protein; a dulled, stiff patch is fabric damage underneath it.",
       "Soak the area in an enzyme detergent solution for at least an hour, longer for old marks.",
       "For yellowing, make a paste of oxygen bleach and warm water, work it in, and leave it 30 minutes before washing.",
       "Wash on the hottest setting the label allows, and air dry. Heat from a dryer sets anything left behind permanently.",
-      "Repeat once. If two rounds have not shifted it, the fibres are stained through and it will not move.",
+      "Repeat once. If two rounds have not shifted it, the fibers are stained through and it will not move.",
     ],
-    prevention: "The yellowing is aluminium, so it is the antiperspirant rather than the sweat. Let it dry fully before dressing, wash shirts after every wear rather than airing them, and never put an unwashed shirt through a hot dryer.",
+    prevention: "The yellowing is aluminum, so it is the antiperspirant rather than the sweat. Let it dry fully before dressing, wash shirts after every wear rather than airing them, and never put an unwashed shirt through a hot dryer.",
     relatedSlugs: ["deodorant-marks", "stains-general", "collar-wear"],
     faqs: [
       {
@@ -508,7 +508,7 @@ export const FLAW_ENTRIES: FlawEntry[] = [
     removal: [
       "Nothing brings it back. Crocking is unfixed dye rubbing off onto something else, so the damage is a loss from the garment, not a deposit on it.",
       "Washing a crocking garment removes the loose surface dye, which stops it marking other things but leaves the faded look.",
-      "The dye it deposited on other garments is a separate problem: treat that as a colour-bleed stain, quickly, before it sets.",
+      "The dye it deposited on other garments is a separate problem: treat that as a color-bleed stain, quickly, before it sets.",
     ],
     prevention: "Wash new dark denim and anything raw or overdyed on its own, cold, inside out, before the first wear. A cup of white vinegar in the first wash is folklore for setting dye and does very little; washing separately does the work.",
     relatedSlugs: ["color-bleeding", "sun-fading"],
@@ -545,7 +545,7 @@ export const FLAW_ENTRIES: FlawEntry[] = [
     removal: [
       "Turn the garment inside out and find where the stitching has actually gone. Puckering usually starts before the thread breaks.",
       "A split seam on a straight run resews easily: backstitch by hand or run it through a machine 3mm outside the original line.",
-      "Where the fabric itself has pulled away from the stitch line, add a strip of fusible interfacing behind it first. Sewing straight back into torn fibres tears again.",
+      "Where the fabric itself has pulled away from the stitch line, add a strip of fusible interfacing behind it first. Sewing straight back into torn fibers tears again.",
       "Seams under real tension (crotch, armhole, waistband on a fitted garment) need the seam allowance checked. If there is under 6mm to work with, a repair will not hold.",
     ],
     prevention: "Most seam stress is a sizing problem rather than a quality one. Buy for the widest part, do not force a fastening, and hang trousers rather than folding them at the hip.",
@@ -707,7 +707,7 @@ export const FLAW_ENTRIES: FlawEntry[] = [
     alternateNames: ["worn-thin fabric", "sheer wear", "threadbare"],
     title: "Thin, Worn Fabric: What Can Be Done",
     description:
-      "Thinning cannot be reversed because the fibres are gone. How to stop it becoming a hole, and the wash habits that cause most of it.",
+      "Thinning cannot be reversed because the fibers are gone. How to stop it becoming a hole, and the wash habits that cause most of it.",
     h1: "Fabric thinning",
     definition:
       "Fabric thinning is the loss of material where a textile has been abraded so much that it grows sheer, weak, and close to wearing through. It appears at elbows, knees, seats, and collar folds, often before an actual hole forms, and it weighs heavily on the fabric-condition factor.",
@@ -725,7 +725,7 @@ export const FLAW_ENTRIES: FlawEntry[] = [
     comesOut: "no",
     removalHeading: "Thin fabric cannot be thickened",
     removal: [
-      "Nothing restores it. The fibres have abraded away and what is left is what you have.",
+      "Nothing restores it. The fibers have abraded away and what is left is what you have.",
       "Fusible interfacing on the back stops it becoming a hole and stiffens the area visibly. On a garment worth keeping, that trade is often worth it.",
       "Do not press a thin area with a hot iron. It will go through.",
     ],
@@ -768,7 +768,7 @@ export const FLAW_ENTRIES: FlawEntry[] = [
       "Work the remaining slack outward along the row a stitch at a time, in both directions, so no single stitch carries the excess.",
       "Steam the area and let it dry flat. Most snags become invisible at this point.",
     ],
-    prevention: "Snags come from jewellery, velcro, rough nails and zips in the same wash load. Rings and watches off before dressing, knitwear in a mesh bag, and fasten every zip in the drum.",
+    prevention: "Snags come from jewelry, velcro, rough nails and zips in the same wash load. Rings and watches off before dressing, knitwear in a mesh bag, and fasten every zip in the drum.",
     repair: {
       name: "Fix a snag in a sweater",
       difficulty: "Easy",
@@ -799,7 +799,7 @@ export const FLAW_ENTRIES: FlawEntry[] = [
         },
         {
           name: "Steam and dry flat",
-          text: "Steam relaxes the fibres back into shape. Lay the garment flat to dry. Most snags are invisible at this point.",
+          text: "Steam relaxes the fibers back into shape. Lay the garment flat to dry. Most snags are invisible at this point.",
         },
       ],
     },
@@ -835,7 +835,7 @@ export const FLAW_ENTRIES: FlawEntry[] = [
     comesOut: "sometimes",
     removalHeading: "How to approach a stain you cannot identify",
     removal: [
-      "Blot, never rub. Rubbing drives the stain into the fibre and abrades the surface around it, which shows even after the stain goes.",
+      "Blot, never rub. Rubbing drives the stain into the fiber and abrades the surface around it, which shows even after the stain goes.",
       "Start with cold water. Heat sets protein stains, which is most of the ones on clothing, and once set they never come out.",
       "Work from the outside of the mark inward, or you will spread it into a larger, fainter ring.",
       "If cold water alone does nothing, use an enzyme detergent and give it an hour, not five minutes.",
@@ -856,7 +856,7 @@ export const FLAW_ENTRIES: FlawEntry[] = [
     alternateNames: ["rips", "punctures", "splits"],
     title: "How to Fix a Hole in Jeans or Anything",
     description:
-      "Stabilise the edges first, then pick ladder stitch, a backing patch, or machine darning by what kind of opening you actually have.",
+      "Stabilize the edges first, then pick ladder stitch, a backing patch, or machine darning by what kind of opening you actually have.",
     h1: "Holes and tears",
     definition:
       "Holes and tears are breaks in the fabric where fibers have been severed or ripped apart, from a small puncture to a long split along a seam or panel. Unlike thinning, the material is already open, so they are structural damage that caps the grade well below the Excellent tiers.",
@@ -874,7 +874,7 @@ export const FLAW_ENTRIES: FlawEntry[] = [
     comesOut: "sometimes",
     removalHeading: "How to mend a hole or a tear",
     removal: [
-      "Stabilise the edges before anything else. A few drops of fray stopper or a running stitch around the opening stops it growing while you work.",
+      "Stabilize the edges before anything else. A few drops of fray stopper or a running stitch around the opening stops it growing while you work.",
       "For a clean tear along the grain, close it with a ladder stitch from the right side; it disappears into the weave.",
       "For a hole with missing fabric, back it with a patch cut 25mm larger than the hole on every side and secure from the inside.",
       "On denim, darn across the hole with a machine in matching thread over a backing patch. That is what every commercial repair does.",
@@ -890,7 +890,7 @@ export const FLAW_ENTRIES: FlawEntry[] = [
       supplies: ["Backing patch in matching denim", "Thread matching the fabric"],
       steps: [
         {
-          name: "Stabilise the edges",
+          name: "Stabilize the edges",
           text: "A running stitch or a few drops of fray stopper around the opening stops it growing while you work. Skip this and the hole is bigger by the time you finish.",
         },
         {
@@ -967,7 +967,7 @@ export const FLAW_ENTRIES: FlawEntry[] = [
     alternateNames: ["shrunk garment", "size loss"],
     title: "How to Unshrink Clothes",
     description:
-      "Conditioner relaxes the fibres and detergent does not. The 30-minute soak and flat-stretch that recovers most of the size, and the point where it stops working.",
+      "Conditioner relaxes the fibers and detergent does not. The 30-minute soak and flat-stretch that recovers most of the size, and the point where it stops working.",
     h1: "Shrinkage",
     definition:
       "Shrinkage is the permanent reduction in a garment's dimensions after hot washing or drying, most severe in untreated cotton, wool, and rayon. It shows as short sleeves, a cropped body, or tight fit versus the labeled size, and while not damage exactly, it misrepresents size and affects fit-driven grading.",
@@ -985,7 +985,7 @@ export const FLAW_ENTRIES: FlawEntry[] = [
     comesOut: "sometimes",
     removalHeading: "How to unshrink a garment",
     removal: [
-      "Fill a basin with lukewarm water and add a capful of hair conditioner or baby shampoo. The conditioner relaxes the fibres; detergent will not.",
+      "Fill a basin with lukewarm water and add a capful of hair conditioner or baby shampoo. The conditioner relaxes the fibers; detergent will not.",
       "Soak for up to 30 minutes. Wool and cotton both need the full time.",
       "Squeeze the water out without rinsing, then roll the garment in a towel and press to get it damp rather than wet.",
       "Lay it flat and stretch it gently back to size a section at a time, working outward from the middle. Pin it to shape on a towel if it will not hold.",
@@ -1006,7 +1006,7 @@ export const FLAW_ENTRIES: FlawEntry[] = [
         },
         {
           name: "Add conditioner, not detergent",
-          text: "One capful of hair conditioner or baby shampoo. Conditioner coats the fibres and lets them slide past each other; detergent does the opposite and will do nothing here.",
+          text: "One capful of hair conditioner or baby shampoo. Conditioner coats the fibers and lets them slide past each other; detergent does the opposite and will do nothing here.",
         },
         {
           name: "Soak for up to 30 minutes",
@@ -1014,7 +1014,7 @@ export const FLAW_ENTRIES: FlawEntry[] = [
         },
         {
           name: "Squeeze out the water without rinsing",
-          text: "Leave the conditioner in. Press the water out rather than wringing, which twists fibres you are about to stretch.",
+          text: "Leave the conditioner in. Press the water out rather than wringing, which twists fibers you are about to stretch.",
         },
         {
           name: "Roll in a towel",
@@ -1062,7 +1062,7 @@ export const FLAW_ENTRIES: FlawEntry[] = [
     comesOut: "sometimes",
     removalHeading: "How to shrink a stretched garment back",
     removal: [
-      "Identify the fibre first. Cotton and wool can be brought back; anything with elastane that has gone slack is finished, because the elastic itself has failed.",
+      "Identify the fiber first. Cotton and wool can be brought back; anything with elastane that has gone slack is finished, because the elastic itself has failed.",
       "For cotton, wash hot and tumble dry. That is the exact process everyone else is trying to avoid, and here it is the fix.",
       "For wool, wet the stretched area with warm water, work it gently between your hands, and lay it flat to reshape. Stop early; this is felting under control and it does not reverse.",
       "For a stretched neckline or cuff specifically, steam it and let it dry flat, which recovers more than washing does.",
@@ -1077,7 +1077,7 @@ export const FLAW_ENTRIES: FlawEntry[] = [
       supplies: [],
       steps: [
         {
-          name: "Check the fibre before you do anything",
+          name: "Check the fiber before you do anything",
           text: "Cotton and wool come back. Anything with elastane that has gone slack does not, because the elastic itself has failed and no amount of heat restores it.",
         },
         {
@@ -1086,7 +1086,7 @@ export const FLAW_ENTRIES: FlawEntry[] = [
         },
         {
           name: "Work it gently between your hands",
-          text: "For wool, a small amount of controlled friction pulls the fibres back together. Stop early. This is felting under control and it does not reverse.",
+          text: "For wool, a small amount of controlled friction pulls the fibers back together. Stop early. This is felting under control and it does not reverse.",
         },
         {
           name: "Steam and reshape",
@@ -1112,12 +1112,12 @@ export const FLAW_ENTRIES: FlawEntry[] = [
     alternateNames: ["dye run", "color run", "wash bleeding"],
     title: "How to Get Bled Dye Out of Clothing",
     description:
-      "Do not dry it. Rewash cold immediately, then colour-run remover on the exact packet timing, because these strip the garment's own colour too.",
+      "Do not dry it. Rewash cold immediately, then color-run remover on the exact packet timing, because these strip the garment's own color too.",
     h1: "Color bleeding",
     definition:
       "Color bleeding is the migration of dye from one area or garment into another during washing, leaving pink-tinged whites or muddied panels. Distinct from crocking's dry rub, it happens wet and often ruins a light section permanently, so it counts against cosmetic appearance and, when severe, fabric-condition.",
     howToDetect: [
-      "Inspect white or light panels next to dark ones for pink or grey tinting",
+      "Inspect white or light panels next to dark ones for pink or gray tinting",
       "Check collars, plackets, and colorblocked seams where dye pools",
       "Look for an overall dulled, muddied cast on a formerly crisp color",
     ],
@@ -1132,11 +1132,11 @@ export const FLAW_ENTRIES: FlawEntry[] = [
     removal: [
       "Do not dry it. Every attempt below stops working once the garment has been through heat.",
       "Rewash immediately, cold, on its own, with detergent and no other garments to bleed onto.",
-      "If that fails, soak in a colour-run remover following the packet timing exactly. These are reducing agents and they will strip the garment's own colour if left too long.",
+      "If that fails, soak in a color-run remover following the packet timing exactly. These are reducing agents and they will strip the garment's own color if left too long.",
       "For white cotton only, oxygen bleach and a long soak is the safer second attempt.",
       "Check in daylight while damp. Dye looks lighter wet than it will dry.",
     ],
-    prevention: "Separate by colour and wash anything new on its own the first time. A colour catcher sheet works and costs pennies against the garment it saves.",
+    prevention: "Separate by color and wash anything new on its own the first time. A color catcher sheet works and costs pennies against the garment it saves.",
     relatedSlugs: ["crocking", "bleach-spots"],
     faqs: [
       {
@@ -1172,7 +1172,7 @@ export const FLAW_ENTRIES: FlawEntry[] = [
       "For a fresh white smear, rub the fabric against itself, or use a dry sponge or a pair of tights. It lifts straight off.",
       "For built-up crust, soak the area in white vinegar for an hour, then work it with a soft brush.",
       "Follow with an enzyme detergent wash on the warmest setting the label allows.",
-      "For yellowing underneath, treat it as a pit stain instead: this is aluminium bonded to protein and vinegar alone will not shift it.",
+      "For yellowing underneath, treat it as a pit stain instead: this is aluminum bonded to protein and vinegar alone will not shift it.",
     ],
     prevention: "Apply less than feels necessary and let it dry completely before dressing. Most build-up comes from putting a shirt on over wet product.",
     relatedSlugs: ["pit-stains", "stains-general"],
@@ -1210,7 +1210,7 @@ export const FLAW_ENTRIES: FlawEntry[] = [
       "Air it outdoors first, ideally in moving air, for a full day. This alone removes more than any product.",
       "Wash with an ordinary detergent plus a cup of white vinegar in the drum. Vinegar neutralises rather than masks.",
       "If it persists, seal the garment in a bag with an open box of baking soda for 48 hours, then rewash.",
-      "Do not tumble dry between attempts. Heat bakes smoke residue into the fibres and after that nothing works.",
+      "Do not tumble dry between attempts. Heat bakes smoke residue into the fibers and after that nothing works.",
       "Accept that heavy, long-term smoke exposure in wool or a lined coat often does not come out at all.",
     ],
     prevention: "Smoke binds to oils in the fabric, so a clean garment holds less of it. Store clean, and never bag a garment that smells; enclosed air concentrates it.",
@@ -1231,10 +1231,10 @@ export const FLAW_ENTRIES: FlawEntry[] = [
       "Sunlight kills what is producing the smell and it is the step people skip. Then a vinegar soak and the hottest wash the label allows.",
     h1: "Mildew and musty odor",
     definition:
-      "Mildew odor is the damp, musty smell of mold that grows when fabric is stored wet or humid, sometimes with grey or black speckling. It penetrates fibers and can spread to nearby garments, signals possible staining and fiber weakening, and is judged under odor-and-cleanliness with a cosmetic penalty if spotting shows.",
+      "Mildew odor is the damp, musty smell of mold that grows when fabric is stored wet or humid, sometimes with gray or black speckling. It penetrates fibers and can spread to nearby garments, signals possible staining and fiber weakening, and is judged under odor-and-cleanliness with a cosmetic penalty if spotting shows.",
     howToDetect: [
       "Smell for a damp, earthy, basement-like note, strongest at folds",
-      "Inspect for grey, black, or pink speckling in creases and along hems",
+      "Inspect for gray, black, or pink speckling in creases and along hems",
       "Check storage-prone areas — pockets, cuffs, and the inside of collars",
     ],
     gradeImpact:
@@ -1242,22 +1242,22 @@ export const FLAW_ENTRIES: FlawEntry[] = [
     fixability:
       "Sometimes removable. A vinegar soak, sunlight, and thorough drying kill light mildew and clear the smell; deep-set mold spotting can permanently discolor fibers and may return in humidity.",
     disclosure:
-      "Disclose both smell and any marks ('musty odor with light grey speckling at the hem'). Mildew hints at how the piece was stored, and buyers who receive an undisclosed musty item almost always return it.",
+      "Disclose both smell and any marks ('musty odor with light gray speckling at the hem'). Mildew hints at how the piece was stored, and buyers who receive an undisclosed musty item almost always return it.",
     comesOut: "sometimes",
     removalHeading: "How to get mildew smell out",
     removal: [
-      "Get it dry and get it into sunlight. UV kills the mould that is producing the smell, and this is the step people skip.",
+      "Get it dry and get it into sunlight. UV kills the mold that is producing the smell, and this is the step people skip.",
       "Brush off any visible growth outdoors, not over a laundry basket.",
       "Soak in a solution of one part white vinegar to four parts water for an hour.",
       "Wash on the hottest setting the label allows, with detergent, and dry fully in the sun.",
-      "If the smell returns as the garment warms, the growth is still in the fibres. Repeat once, then stop; a third round will not work either.",
+      "If the smell returns as the garment warms, the growth is still in the fibers. Repeat once, then stop; a third round will not work either.",
     ],
     prevention: "Mildew needs damp and darkness. Never store anything even slightly damp, never leave a wash in the drum overnight, and do not store clothing in a sealed plastic tub in an unheated space.",
     relatedSlugs: ["smoke-odor", "rust-spots"],
     faqs: [
       {
         q: "Does mildew odor mean there's mold damage too?",
-        a: "Often. The musty smell comes from mold, which can also leave grey, black, or pink speckling and weaken fibers where it grew. Inspect creases and hems for spotting whenever you detect the odor, and grade both the smell and any staining you find.",
+        a: "Often. The musty smell comes from mold, which can also leave gray, black, or pink speckling and weaken fibers where it grew. Inspect creases and hems for spotting whenever you detect the odor, and grade both the smell and any staining you find.",
       },
     ],
   },
@@ -1287,8 +1287,8 @@ export const FLAW_ENTRIES: FlawEntry[] = [
     removal: [
       "Do not use chlorine bleach. It reacts with iron and sets the stain permanently, darker than it started. This is the single most common mistake on rust.",
       "For white cotton, cover the mark with lemon juice and salt and put it in direct sun until it dries.",
-      "Rinse and repeat rather than leaving it on for hours; lemon juice in strong sun will weaken the fibre.",
-      "For coloured fabric or anything delicate, use a commercial oxalic-acid rust remover and follow the timing exactly.",
+      "Rinse and repeat rather than leaving it on for hours; lemon juice in strong sun will weaken the fiber.",
+      "For colored fabric or anything delicate, use a commercial oxalic-acid rust remover and follow the timing exactly.",
       "Rust that has come from a corroding metal fastening on the garment itself will come back. Replace the fastening or the mark returns.",
     ],
     prevention: "Rust marks on stored clothing almost always come from the hanger, the zip or a stud, plus damp. Dry storage and plastic or wooden hangers remove the cause.",
@@ -1363,9 +1363,9 @@ export const FLAW_ENTRIES: FlawEntry[] = [
     comesOut: "no",
     removalHeading: "Bleach spots are permanent",
     removal: [
-      "There is nothing to remove. Bleach has destroyed the dye in that spot; the fabric is undamaged and simply has no colour left.",
+      "There is nothing to remove. Bleach has destroyed the dye in that spot; the fabric is undamaged and simply has no color left.",
       "A fabric marker or dye pen matched to the garment will disguise a small spot and will not survive many washes.",
-      "Dyeing the whole garment a darker shade is the only durable option, and it changes everything including the stitching, which usually takes dye differently and ends up a different colour.",
+      "Dyeing the whole garment a darker shade is the only durable option, and it changes everything including the stitching, which usually takes dye differently and ends up a different color.",
       "On a garment with several spots, over-dyeing to black is the realistic answer.",
     ],
     prevention: "Most bleach spots come from splashback while cleaning, or from an acne or whitening product on a towel or pillowcase, not from laundry bleach. Change before you clean, and keep pale bathroom textiles away from those products.",
@@ -1639,7 +1639,7 @@ export const FLAW_ENTRIES: FlawEntry[] = [
     alternateNames: ["worn buttons", "faded buttons", "dulled buttons"],
     title: "Faded Buttons: Replace the Whole Set",
     description:
-      "Colour cannot be restored to a faded button. Why one new button looks worse than eight old ones, and why keeping the originals protects the value.",
+      "Color cannot be restored to a faded button. Why one new button looks worse than eight old ones, and why keeping the originals protects the value.",
     h1: "Button fading",
     definition:
       "Button fading is the dulling, chipping, or color loss of a garment's buttons themselves — brass gone dull, painted logos worn off, or dyed buttons sun-bleached. Distinct from missing buttons, the fastener is present but tired, so it reads as a minor cosmetic flaw that nudges the grade down a notch.",
@@ -1657,7 +1657,7 @@ export const FLAW_ENTRIES: FlawEntry[] = [
     comesOut: "no",
     removalHeading: "Faded buttons are replaced, not restored",
     removal: [
-      "Colour cannot be brought back to a plastic or dyed-shell button. The fix is replacement.",
+      "Color cannot be brought back to a plastic or dyed-shell button. The fix is replacement.",
       "Replace the whole set rather than one. A single new button next to seven old ones is more obvious than eight faded ones.",
       "Keep the originals. On a branded garment the buttons are part of what a buyer authenticates against, and a replaced set lowers value even when it looks better.",
     ],
@@ -1676,17 +1676,17 @@ export const FLAW_ENTRIES: FlawEntry[] = [
     alternateNames: ["worn collar", "collar fraying", "ring around the collar"],
     title: "How to Clean and Fix a Worn Collar",
     description:
-      "A grey collar is oil and comes out; a frayed edge is abrasion and does not. Shampoo works on the first because collar grime is mostly skin and hair oil.",
+      "A gray collar is oil and comes out; a frayed edge is abrasion and does not. Shampoo works on the first because collar grime is mostly skin and hair oil.",
     h1: "Collar wear",
     definition:
       "Collar wear is the fraying, graying, and thinning along a shirt or jacket collar where it rubs the neck and jaw all day. Often paired with a stubborn ring of grime, it is one of the first places a dress shirt shows age and weighs on both fabric-condition and cleanliness.",
     howToDetect: [
       "Inspect the collar fold and points for fraying and thinning threads",
-      "Look for a grey or yellow grime ring along the inside collar edge",
+      "Look for a gray or yellow grime ring along the inside collar edge",
       "Check where the collar meets the neckband for a worn, shiny patch",
     ],
     gradeImpact:
-      "Collar wear spans Fabric Condition (30%) and Cleanliness (10%). Light edge fuzz or a washable grime ring keeps a shirt near Good (6); a frayed, thinned, or permanently grey collar pulls it to Fair (5), since the collar frames the whole garment.",
+      "Collar wear spans Fabric Condition (30%) and Cleanliness (10%). Light edge fuzz or a washable grime ring keeps a shirt near Good (6); a frayed, thinned, or permanently gray collar pulls it to Fair (5), since the collar frames the whole garment.",
     fixability:
       "Partly fixable. A grime ring often washes out with a pretreat, and dress-shirt collars can sometimes be turned by a tailor to hide fraying; thinned or frayed fabric itself doesn't recover.",
     disclosure:
@@ -1694,9 +1694,9 @@ export const FLAW_ENTRIES: FlawEntry[] = [
     comesOut: "sometimes",
     removalHeading: "How to clean and repair a worn collar",
     removal: [
-      "Separate the two problems: a grey collar is soil and comes out, a frayed collar edge is abrasion and does not.",
+      "Separate the two problems: a gray collar is soil and comes out, a frayed collar edge is abrasion and does not.",
       "For soiling, work an enzyme detergent or a little shampoo directly into the fold, leave it 30 minutes, then wash warm. Shampoo works because collar grime is mostly hair and skin oil.",
-      "For light fraying, trim the loose fibres flush and press. It buys time and does not fix anything.",
+      "For light fraying, trim the loose fibers flush and press. It buys time and does not fix anything.",
       "For a worn collar on a shirt worth keeping, a tailor can turn it, the same operation as turning cuffs.",
     ],
     prevention: "Wash shirts after every wear rather than airing them. Collar soil is oil, oil oxidises, and an oxidised collar mark is significantly harder to remove than a fresh one.",

@@ -348,7 +348,7 @@ export function FlipdeskRadarPage() {
               <p className="text-sm font-medium">Where are you sourcing?</p>
               <p className="text-sm text-muted-foreground">
                 We do not know yet, because you have no stores with a place on
-                the map. Share your location once to centre the map, or add a
+                the map. Share your location once to center the map, or add a
                 source and link it.
               </p>
             </div>

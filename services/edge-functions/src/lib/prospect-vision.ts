@@ -90,7 +90,7 @@ const IDENTIFY_TOOL: Anthropic.Tool = {
       },
       color: {
         type: "string",
-        description: "The single dominant colour, one word.",
+        description: "The single dominant color, one word.",
       },
       descriptors: {
         type: "array",
@@ -153,7 +153,7 @@ export async function identifyProspectGarment(
     type: "text",
     text:
       "Identify this one garment for resale. Read the tag for brand, size and style code; " +
-      "read the garment photo for type, colour and cut. Be specific about the cut - " +
+      "read the garment photo for type, color and cut. Be specific about the cut - " +
       "'cropped top' and 'off the shoulder' are what a buyer searches for, 'top' is not. " +
       "If you cannot read something, leave that field out rather than guessing.",
   });

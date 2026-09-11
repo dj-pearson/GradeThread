@@ -3363,7 +3363,7 @@ export function FlipdeskComposerPage({
               Live on eBay, but out of stock — nobody can buy it
             </p>
             <p className="text-xs text-amber-800 dark:text-amber-300/90">
-              eBay set the quantity to zero and left it there. A cancelled order
+              eBay set the quantity to zero and left it there. A canceled order
               does this: eBay takes the quantity down when the order is placed
               and never puts it back. The listing itself is fine, so don't relist
               it — that would create a second one. Restock it instead.

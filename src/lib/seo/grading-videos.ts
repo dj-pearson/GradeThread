@@ -130,7 +130,7 @@ export const GRADING_SHORTS: GradingShort[] = [
       {
         at: "0:18",
         shot: "Side-by-side of even darkening versus a cracked, peeling panel.",
-        say: "Check two: separate patina from damage. Even darkening and softening is desirable and is not penalised. Surface cracking, peeling finish and abraded colour loss are.",
+        say: "Check two: separate patina from damage. Even darkening and softening is desirable and is not penalized. Surface cracking, peeling finish and abraded color loss are.",
       },
       {
         at: "0:29",
@@ -253,8 +253,8 @@ export const GRADING_SHORTS: GradingShort[] = [
       },
       {
         at: "0:17",
-        shot: "Close-up of lofty fleece next to matted, greyed fleece.",
-        say: "Check two: read the fleece. Fresh and lofty grades high. Matted, pilled or greyed loops mean a lot of wash cycles, and that lowers the grade.",
+        shot: "Close-up of lofty fleece next to matted, grayed fleece.",
+        say: "Check two: read the fleece. Fresh and lofty grades high. Matted, pilled or grayed loops mean a lot of wash cycles, and that lowers the grade.",
       },
       {
         at: "0:27",
@@ -264,7 +264,7 @@ export const GRADING_SHORTS: GradingShort[] = [
       {
         at: "0:35",
         shot: "Grade card overlay: 9 NWOT, 6 Good, 3 Poor.",
-        say: "Lofty fleece, tight cuffs, both cords, that is a nine. Slightly matted with a smooth zip, six. Greyed fleece, stretched cuffs, one cord gone, three. Full checklist on GradeThread.",
+        say: "Lofty fleece, tight cuffs, both cords, that is a nine. Slightly matted with a smooth zip, six. Grayed fleece, stretched cuffs, one cord gone, three. Full checklist on GradeThread.",
       },
     ],
   },
@@ -342,7 +342,7 @@ export const GRADING_SHORTS: GradingShort[] = [
       {
         at: "0:07",
         shot: "Close-up of collar, cuff and underarm pilling and felting.",
-        say: "Check one: read the wool surface. Collar, cuffs, underarms. Pilling and felting are one thing. A thin, bald patch is fibre that is gone, and that caps the grade.",
+        say: "Check one: read the wool surface. Collar, cuffs, underarms. Pilling and felting are one thing. A thin, bald patch is fiber that is gone, and that caps the grade.",
       },
       {
         at: "0:18",

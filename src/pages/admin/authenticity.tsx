@@ -141,7 +141,7 @@ function GateBanner() {
       <p className="mt-1 text-xs text-amber-900/80 dark:text-amber-300/80">
         These prompt versions are producing verdicts for real users — including on
         a public endpoint — without having passed an accuracy gate. The gate
-        cannot pass until the golden set has labelled cases for the brands being
+        cannot pass until the golden set has labeled cases for the brands being
         assessed.
       </p>
       <ul className="mt-2 space-y-1 text-xs text-amber-900/80 dark:text-amber-300/80">

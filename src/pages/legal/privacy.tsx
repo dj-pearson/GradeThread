@@ -566,7 +566,7 @@ export function PrivacyPage() {
         it.
       </p>
       <p>
-        <strong>Contributions are not labelled with you.</strong> Instead of
+        <strong>Contributions are not labeled with you.</strong> Instead of
         your account, each observation carries a scrambled code derived from it,
         so we can count how many different people scanned a place without
         knowing which people. That code is regenerated every week, so
