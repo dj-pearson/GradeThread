@@ -345,6 +345,23 @@ so the list stays falsifiable.
 > up, so the two settings are a pair. Never turn the sample off, least of all
 > when you have turned the non-empty refusal off.
 
+> [!note] **A rotten object and a lost key print the same sentence, measured 2026-09-11**
+> Corrupt one object in the bucket (bit rot, a truncated multipart upload, a
+> partial overwrite) and the restore stops with `failed to authenticate
+> decrypted block - bad password?`, exit 1, having written the other files.
+> Reproduced by flipping one byte of a ciphertext object, and again by cutting 8
+> bytes off its tail; both give that message. It is the *same* message a wrong
+> crypt password gives, and the difference is the count:
+>
+> - **one object fails, the rest copy** -> that object is damaged. Recover it
+>   from a dated `storage-deleted/<ts>` prefix, or accept the loss of that file.
+>   The key is fine.
+> - **every object fails, or the listing itself fails** -> the password or salt
+>   is wrong. Nothing in the bucket is readable until the right one is produced.
+>
+> Do not read "bad password?" off a single file and conclude the key is gone.
+> Drill step 8 keeps this case exercised.
+
 ### Partial vs full — different operations (US-2659 AC5)
 
 |  | Full rebuild | Single-object recovery |
@@ -386,6 +403,23 @@ directory in a throwaway config, so the real config is never read or written.
 bash scripts/ops/restore-storage-drill.sh   # PASS/FAIL
 ```
 
+> [!warning] **The encryption check was scanning an empty directory (fixed 2026-09-11)**
+> `rclone` under Git Bash is a native Windows binary, so it read the drill's
+> MSYS work path `/tmp/drill.X/remote` as `C:\tmp\drill.X\remote` and wrote the
+> whole mirror there. The shell's own `$REMOTE_DIR` pointed somewhere else, so
+> the step that greps the remote for plaintext was grepping a directory with
+> nothing in it. It found no plaintext, printed PASS, and had inspected zero
+> bytes. Every other step goes through rclone, which knew where it really wrote,
+> so the drill stayed green and 15 abandoned remote trees piled up outside the
+> work directory the cleanup trap deletes.
+>
+> The drill now converts the path with `cygpath -w` before handing it to rclone,
+> and counts the objects it is about to scan: fewer objects on the remote than
+> files in the source is a FAIL, and the PASS line names the count
+> (`no plaintext across 8 encrypted object(s)`). A pass that cannot say how much
+> it looked at is the shape this repo keeps finding in its own guards.
+> Pinned by `src/test/storage-drill-remote-visibility.test.ts`.
+
 > [!warning] **What the drill cannot prove.** It uses an ephemeral password, so
 > it proves the *round trip* works. It says nothing about whether the REAL crypt
 > password and salt exist anywhere other than the DB host — and that host is the
@@ -402,6 +436,7 @@ bash scripts/ops/restore-storage-drill.sh   # PASS/FAIL
 | 2026-08-16 | **Encrypted** artifact: local stack at migration **00609** → `rage` encrypt → sha256 → verify → decrypt → fresh `public.ecr.aws/supabase/postgres:17.6.1.106` scratch container. **388 RLS policies**, up from 375 in August. ⚠ All row counts were **0** — the stack was the throwaway one `supabase db reset` builds, so this run proves the schema, policy and encryption path and says nothing about restoring DATA. The 2026-08-08 row above is the one that covers that. | PASS — migration 00609 and all 388 policies matched source | dump 1s, restore 8s | US-2618 loop |
 | 2026-08-16 | **STORAGE**, first time ever: 8-file volume (submission-images incl. label shots + item-photos) → `backup-storage.sh` → ephemeral rclone **crypt** remote → `restore-storage.sh` → fresh dir. Verified no plaintext on the remote, file count, and every file SHA-256. Then deleted one object, re-synced, and recovered the original bytes from `storage-deleted/<ts>/`. | PASS — 8/8 byte-identical, deleted object recovered intact | <10s | US-2659 |
 | 2026-09-11 | **STORAGE**, re-run of the above plus a 7th step: an impostor of the same name and size planted in the target, which `rclone copy` skips. Each of the four refusals was also fired by hand against a local crypt remote (missing remote, missing target arg, `alias` remote, non-empty target, empty prefix), and both new guards were sabotage-verified: emptying the hash loop reports `compared 0 file(s) but the source has 8`, and `RESTORE_SAMPLE=0` lets the impostor through with exit 0. | PASS — 7/7 checks, 8/8 byte-identical; impostor caught with `contents differ`, exit 1 | ~13s | US-2659 |
+| 2026-09-11 | **STORAGE**, 8 steps. The 8th is new: one object on the remote corrupted (one byte flipped, and separately 8 bytes cut off the tail) to prove a rotten object stops the restore instead of landing as clean bytes. This run also found that the plaintext scan had been reading an EMPTY directory on every Windows run since 2026-08-16 (see the warning above), so the mirror's one encryption claim had never actually been checked; it now scans 8 real ciphertext objects and says so. Both new guards sabotage-verified: reverting the path conversion gives `the remote directory holds 0 file(s) for 8 source file(s)`, and making the restore swallow rclone's error gives `restore exited 0 on a corrupted remote object`. | PASS — 8/8 checks, 8/8 byte-identical; corrupted object stopped the restore at exit 1 with `failed to authenticate decrypted block` | ~15s | US-2659 |
 | _before launch_ | A real **prod** offsite dump → scratch host (LAUNCH_CHECKLIST §5) | | | |
 
 > [!danger] **LAUNCH GATE:** the local drill proves the *procedure*; §5 of

@@ -17,6 +17,8 @@
 #      a different operation from a full rebuild (AC5)
 #   7. put an impostor of the same name and size in a target and prove the
 #      restore refuses it, because rclone copy will SKIP it
+#   8. corrupt an object ON THE REMOTE and prove the restore stops rather than
+#      writing rotten bytes into the target
 #
 # STEP 2 IS THE POINT AND IS NOT OPTIONAL. The mirror is a crypt remote, and
 # "the backup is encrypted with a password nobody can produce" is the actual
@@ -83,11 +85,25 @@ fi
 step "2. defining an ephemeral crypt remote (throwaway config)"
 mkdir -p "$REMOTE_DIR"
 rclone config create drillbase local >/dev/null
+# rclone is a NATIVE WINDOWS binary under Git Bash, so it does not understand
+# the MSYS path this shell just made: it read "/tmp/drill.X/remote" as
+# "C:\tmp\drill.X\remote" and wrote the whole mirror there, somewhere the
+# shell's own $REMOTE_DIR never pointed. Measured 2026-09-11, and it had been
+# true for every run: the directory step 3 scans for plaintext was EMPTY, so
+# the encryption claim passed without looking at a single byte, and 15 runs'
+# worth of remotes were left behind outside the work dir the trap cleans.
+# cygpath hands rclone the same directory the shell can see. The count guard in
+# step 3 is what makes the failure loud if this ever drifts again.
+if command -v cygpath >/dev/null 2>&1; then
+  REMOTE_DIR_RCLONE="$(cygpath -w "$REMOTE_DIR")"
+else
+  REMOTE_DIR_RCLONE="$REMOTE_DIR"
+fi
 # obscure: rclone stores passwords obscured, and config create expects that form.
 CRYPT_PASS="$(rclone obscure "drill-$(date -u +%s)-$$")"
 CRYPT_SALT="$(rclone obscure "drill-salt-$$")"
 rclone config create drillcrypt crypt \
-  remote "drillbase:$REMOTE_DIR" \
+  remote "drillbase:$REMOTE_DIR_RCLONE" \
   password "$CRYPT_PASS" \
   password2 "$CRYPT_SALT" >/dev/null
 REMOTE_TYPE="$(rclone config show drillcrypt | sed -n 's/^type[[:space:]]*=[[:space:]]*//p' | head -1)"
@@ -101,12 +117,22 @@ fi
 step "3. backup-storage.sh -> crypt remote"
 STORAGE_DIR="$SOURCE_DIR" RCLONE_REMOTE="drillcrypt:" \
   bash scripts/ops/backup-storage.sh
-# The bytes on "disk" must NOT be readable. This is what distinguishes a crypt
-# remote from a plain one, and it is the claim vault/10-ops/backups.md makes.
-if grep -rqs "label photo bytes" "$REMOTE_DIR"; then
-  bad "plaintext found in the remote directory - the mirror is NOT encrypted"
+# COUNT THE OBJECTS BEFORE BELIEVING THE SCAN. A grep over an empty directory
+# finds no plaintext, which prints exactly like an encrypted mirror. That is
+# not a hypothetical: it is what this step did on every Windows run until
+# 2026-09-11 (see step 2). Nothing else in the drill notices, because steps 4-7
+# go through rclone and rclone knows where it really wrote.
+REMOTE_OBJECTS="$(find "$REMOTE_DIR" -type f 2>/dev/null | wc -l | tr -d ' ')"
+if [ "$REMOTE_OBJECTS" -lt "$SOURCE_COUNT" ]; then
+  bad "the remote directory holds $REMOTE_OBJECTS file(s) for $SOURCE_COUNT source file(s). The plaintext scan below would have read as a pass without inspecting anything. rclone wrote somewhere this shell cannot see - check the cygpath conversion in step 2."
 else
-  ok "no plaintext in the remote directory"
+  # The bytes on "disk" must NOT be readable. This is what distinguishes a
+  # crypt remote from a plain one, and it is the claim backups.md makes.
+  if grep -rqs "label photo bytes" "$REMOTE_DIR"; then
+    bad "plaintext found in the remote directory - the mirror is NOT encrypted"
+  else
+    ok "no plaintext across $REMOTE_OBJECTS encrypted object(s) in the remote directory"
+  fi
 fi
 
 # --- 4. restore, using the real script --------------------------------------
@@ -198,6 +224,42 @@ elif [ "$IMPOSTOR_CODE" -ne 0 ] && printf '%s' "$IMPOSTOR_OUT" | grep -q "conten
   ok "restore exited $IMPOSTOR_CODE on a skipped impostor (rclone check --download saw 'contents differ')"
 else
   bad "restore exited $IMPOSTOR_CODE and did NOT flag the impostor - a wrong-byte file passed as a clean restore"
+fi
+
+# --- 8. a rotten object on the remote must stop the restore -----------------
+# Step 7 covers a wrong-byte file in the TARGET. This is the other direction: a
+# wrong-byte object in the REMOTE, which is what bit rot, a truncated multipart
+# upload or a partially overwritten object looks like. Truncating the tail of a
+# crypt object cuts the Poly1305 tag off its last block.
+# THE MESSAGE IS THE SAME ONE A LOST PASSWORD PRODUCES ("failed to authenticate
+# decrypted block - bad password?"), which is the operationally important part
+# and is written up in backups.md: ONE object failing is a rotten object, EVERY
+# object failing is the wrong key. Do not conclude the key is lost from a single
+# file. Runs last because it damages the drill's own remote.
+step "8. a corrupted object on the remote must stop the restore"
+ROTTEN="$(find "$REMOTE_DIR" -type f | head -1)"
+ROTTEN_SIZE="$( [ -n "$ROTTEN" ] && wc -c < "$ROTTEN" | tr -d ' ' || echo 0)"
+if [ -z "$ROTTEN" ] || [ "$ROTTEN_SIZE" -le 16 ]; then
+  bad "found no remote object big enough to corrupt (size ${ROTTEN_SIZE}) - step 8 proved nothing"
+else
+  head -c "$((ROTTEN_SIZE - 8))" "$ROTTEN" > "$ROTTEN.trunc" && mv "$ROTTEN.trunc" "$ROTTEN"
+  ROTTEN_NOW="$(wc -c < "$ROTTEN" | tr -d ' ')"
+  if [ "$ROTTEN_NOW" -ge "$ROTTEN_SIZE" ]; then
+    # The sabotage did not take, so a clean restore below would mean nothing.
+    bad "failed to corrupt the remote object (still $ROTTEN_NOW bytes) - step 8 proved nothing"
+  else
+    set +e
+    ROT_OUT="$(RCLONE_REMOTE="drillcrypt:" \
+      bash scripts/ops/restore-storage.sh "$WORK_DIR/rotten" 2>&1)"
+    ROT_CODE=$?
+    set -e
+    if [ "$ROT_CODE" -ne 0 ] \
+       && printf '%s' "$ROT_OUT" | grep -q "failed to authenticate decrypted block"; then
+      ok "restore exited $ROT_CODE on a corrupted object (rclone: 'failed to authenticate decrypted block')"
+    else
+      bad "restore exited $ROT_CODE on a corrupted remote object - rotten ciphertext passed as a clean restore"
+    fi
+  fi
 fi
 
 # --- result -----------------------------------------------------------------
