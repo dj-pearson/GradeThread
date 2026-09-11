@@ -109,7 +109,14 @@
     "",
     "watches and shoes share clothing's .30/.25/.20/.15/.10 vector, so their cases reuse sums",
     "already verified by weighted-grade-cases.json. sports_cards (.30/.25/.25/.20) is the only",
-    "novel weight vector and carries the arithmetic in its own right."
+    "novel weight vector and carries the arithmetic in its own right.",
+    "",
+    "US-2223: headwear (.25/.25/.20/.20/.10) is the second novel vector. Worked by hand:",
+    "  9,9,4,7,10 -> 2.25+2.25+0.80+1.40+1.00 = 7.70 (a grim sweatband on a sound cap)",
+    "  3,5,9,8,5  -> 0.75+1.25+1.80+1.60+0.50 = 5.90 (a collapsed crown and a bent brim on a clean band)",
+    "  8,8,6,7,6  -> 2.00+2.00+1.20+1.40+0.60 = 7.20",
+    "The second pair is the rubric's design stated as numbers: crown and brim together are half",
+    "the score, so a cap that is no longer a hat grades lower than a hat nobody wants to wear."
   ],
   "weighted_cases": [
     { "rubric": "sports_cards", "scores": { "surface": 10, "corners": 10, "edges": 10, "centering": 10 }, "expected_overall": 10 },
@@ -125,7 +132,11 @@
     { "rubric": "shoes", "scores": { "upper": 1, "outsole": 1, "structure": 1, "cosmetic": 1, "interior_odor": 1 }, "expected_overall": 1 },
     { "rubric": "shoes", "scores": { "upper": 7.5, "outsole": 7, "structure": 7.5, "cosmetic": 7, "interior_odor": 7 }, "expected_overall": 7.3 },
     { "rubric": "shoes", "scores": { "upper": 5, "outsole": 9, "structure": 5, "cosmetic": 9, "interior_odor": 5 }, "expected_overall": 6.6 },
-    { "rubric": "clothing", "scores": { "fabric_condition": 8.5, "structural_integrity": 9, "cosmetic_appearance": 8, "functional_elements": 7.5, "odor_cleanliness": 9.5 }, "expected_overall": 8.5 }
+    { "rubric": "clothing", "scores": { "fabric_condition": 8.5, "structural_integrity": 9, "cosmetic_appearance": 8, "functional_elements": 7.5, "odor_cleanliness": 9.5 }, "expected_overall": 8.5 },
+    { "rubric": "headwear", "scores": { "crown_structure": 10, "brim": 10, "sweatband": 10, "fabric_graphics": 10, "hardware_closure": 10 }, "expected_overall": 10 },
+    { "rubric": "headwear", "scores": { "crown_structure": 9, "brim": 9, "sweatband": 4, "fabric_graphics": 7, "hardware_closure": 10 }, "expected_overall": 7.7 },
+    { "rubric": "headwear", "scores": { "crown_structure": 3, "brim": 5, "sweatband": 9, "fabric_graphics": 8, "hardware_closure": 5 }, "expected_overall": 5.9 },
+    { "rubric": "headwear", "scores": { "crown_structure": 8, "brim": 8, "sweatband": 6, "fabric_graphics": 7, "hardware_closure": 6 }, "expected_overall": 7.2 }
   ],
   "_refusal_readme": [
     "Inputs on which BOTH mirrors must THROW rather than return a number, with the SAME message.",
@@ -175,6 +186,11 @@
       "why": "empty object — every factor missing",
       "rubric": "clothing",
       "scores": {}
+    },
+    {
+      "why": "headwear with the sweatband omitted — the factor US-2223 exists for; scored as 0 it would grade a clean cap as ruined",
+      "rubric": "headwear",
+      "scores": { "crown_structure": 8, "brim": 8, "fabric_graphics": 8, "hardware_closure": 8 }
     }
   ]
 }
