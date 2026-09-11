@@ -2,7 +2,7 @@
 
 ## WHAT IS STILL WAITING FOR YOU, 2026-09-11
 
-Four migrations are finished and parked on branches. Merge them in this order.
+Six migrations are finished and parked on branches. Merge them in this order.
 Each branch is one merge and carries its own SQL, manifest and version bump.
 
 | Order | Branch | Migration | What it does |
@@ -11,6 +11,8 @@ Each branch is one merge and carries its own SQL, manifest and version bump.
 | 2 | `held-v2/us-3397-00794` | 00794 | stop anon enumerating the storage buckets |
 | 3 | `held-v2/us-3398-00795` | 00795 | the deletion log stops claiming a purge it never checked |
 | 4 | `held-v2/us-3256-00797` | 00797 | the seeded cogs_labor row says Labour, the chart says Labor |
+| 5 | `held-v2/us-3410-00798` | 00798 | COMMENTs recording five objects prod has and no migration builds |
+| 6 | `held-v2/us-3312-00799` | 00799 | two brand_knowledge notes that are false in prod |
 
 Why 00796 is missing from that list: it is ALREADY ON MAIN AND ALREADY APPLIED
 TO PROD. It went out with the 2026-09-11 merge push and prod's /health/ready
@@ -25,6 +27,16 @@ US-3256's moved, from 00790 to 00797, because 00790 was taken. The edge boot
 guard on the three gap-filling branches expects 00796, not their own number,
 because the watermark is already past them. A gap under the watermark is
 invisible to the watermark and is exactly what the migration manifest catches.
+
+**Order is not optional for 00798 and 00799.** Each branch carries KNOWN_GAPS
+entries for the held numbers BELOW it and deletes its own when it lands, so the
+lint is green at every step of an ascending merge. Merge them out of order and
+`migrations-lint` fails, which is the right outcome rather than a silent one.
+
+00798 and 00799 were RENUMBERED down from 00800 and 00801 before either was ever
+committed or applied. Two agents in the same pass were handed 00798 and 00799 and
+neither turned out to need a migration, so the higher numbers would have left two
+permanent phantom gaps.
 
 `scripts/migrations-lint.mjs` carries a KNOWN_GAPS entry for each of the three,
 and each branch DELETES ITS OWN ENTRY when it lands, so the list cannot go

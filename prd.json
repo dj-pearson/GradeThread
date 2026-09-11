@@ -4431,7 +4431,8 @@
         "A test or a re-run of scripts/ops/ftc-rn-recheck.mjs shows the column still reconciles afterwards, so a note edit cannot quietly change a verdict",
         "OPERATOR: the owner approves this migration before it is pushed, and the apply is confirmed against prod rather than assumed"
       ],
-      "priority": 6
+      "priority": 6,
+      "notes": "2026-09-11: BUILT AND PARKED ON held-v2/us-3312-00799, RENUMBERED from 00801 before it was ever committed or applied. AC5 says the owner approves this migration before it is pushed, so it is not on main and this story stays open until you do. THE PREMISE WAS RE-MEASURED BEFORE ANY SQL WAS WRITTEN, which matters because it rests on an external register. Live, unauthenticated, 2026-09-11: search=77302 gives HTTP 200 and one row, RN 77302, ZARA USA INC., APPAREL. search=32054 gives RN 32054, JOSEPH KRAFT, an unrelated registrant. search=66170 gives RN 66170, URBAN OUTFITTERS, INC., SHIRTS. search=CANADA gives 46 rows and EVERY ONE IS TYPE RN. ONE CORRECTION TO THE STORY, AND IT IS THE USEFUL KIND: the register is NOT auth-gated, but it IS USER-AGENT GATED. curl with its default UA gets 403; a browser UA gets 200. The story's claim about authentication holds, but 'a plain GET' needs a browser UA to be literally true. AC2, THE NARROW REPLACE, AND FOUR OUTCOMES WITH NONE OF THEM QUIET: updated N row(s), already current so no-op, no brand row so skipped, or DRIFTED, which RAISEs an exception and does NOT self-record. ZERO ROWS MATCHED IS NEVER SILENT, which is the whole point of a narrow substring over a sentence rewrite. AC1, DOUBLE-APPLY PROOF against the local Postgres, never prod: run 1 said 'updated 1 row(s)' for each brand and INSERT 0 1; run 2 said 'already current ... no-op' and INSERT 0 0; md5(notes) identical after runs 2 and 3. The rows were then restored to their 00466 baseline md5s and applied_migrations has no row for it. AC3, BOTH FACTS IN THE URBAN OUTFITTERS NOTE: CA numbers are issued by the Competition Bureau of Canada so CA 32054 can be neither confirmed nor refuted on the FTC register, never drop the prefix because search=32054 returns JOSEPH KRAFT, AND search=66170 prints URBAN OUTFITTERS, INC. which is URBN's legal name as well as a sibling brand, so the match does not narrow scope past Anthropologie and Free People. Either fact alone leaves the next reader able to make the other mistake. AC4: ftc-rn-recheck reports 121 numbers across 115 brands, unchanged, with CONFIRMED RN 77302 -> ZARA USA, INC. and CONFIRMED RN 66170 -> URBAN OUTFITTERS, INC. and CROSS-KIND CA 32054 -> RN JOSEPH KRAFT. NO VERDICT MOVED. FOUR SABOTAGES AND THE SECOND ONE IS THE LESSON: deleting the JOSEPH KRAFT clause STAYED GREEN THE FIRST TIME, because the assertion was matching the HEADER COMMENT rather than the note text. Every content assertion was rescoped to the do-block body, and the same sabotage then reddens with 'expected do $mig$... to contain RN 32054, JOSEPH KRAFT, an unrelated registrant'. A guard that reads a file's own comments about itself is not reading the code. Plus a LIVE DB sabotage: rewording the Zara sentence in Postgres made the apply fail with 'ERROR: [00801] zara note DRIFTED' and leave applied_migrations with zero rows for it. WHAT TO DO WHEN YOU APPLY IT: confirm the two NOTICE lines both say 'updated 1 row(s)'. IF EITHER SAYS DRIFTED, prod's text differs from 00466 and the substring needs re-targeting. DO NOT FORCE IT. COULD NOT VERIFY: prod's current text for either row. The local .env holds a placeholder service key and there is no PROD_SSH_HOST, so both rows were read from a local stack built from the same migrations. THAT IS EXACTLY WHY THE MATCH IS NARROW AND THE FAILURE IS LOUD. ONE CORRECTION TO CLAUDE.md FOUND ALONG THE WAY: the '88 brand_knowledge rows fail tag_eras_all_sourced' warning is STALE. 00760 fixed the last 45 and VALIDATEd all three constraints, and both rows here pass."
     },
     {
       "id": "US-3314",
@@ -4909,32 +4910,6 @@
         "Every other file touched by that merge is checked for the same shape, since two files had it and only one was found by compiling"
       ],
       "priority": 4
-    },
-    {
-      "id": "US-3409",
-      "passes": false,
-      "title": "A failed extension writeback returns silently from listing-kit, and the only trace is a container log line",
-      "description": "Found 2026-09-11 by US-2727, which was fenced out of it.\n\n`src/components/flipdesk/listing-kit.tsx:381` is `if (!wb.ok) return;`. That is the AUTOMATIC capture path, so a writeback that fails takes the seller nowhere and says nothing. The listing simply does not appear.\n\nThis is the repo's most-repeated defect shape, one level up: `edgeFetch` does not throw on a non-2xx, its own header at `src/lib/edge-fetch.ts:25-26` says callers must inspect `res.ok`, and here the caller inspects it and then throws the answer away. A try/catch would not have helped, and neither did having the check.\n\nThe second half is observability. `WRITEBACK_INSERT` appears in exactly one file, with **no Sentry capture and no ops event**, so the next failure of this path is visible only in the Coolify container log, which nobody reads until a seller complains. US-2727's whole diagnosis started from a seller complaint for that reason.\n\nThe fix is not a toast for its own sake. Decide what the seller should see when an automatic capture fails, and make the failure reach somewhere a human looks without one.",
-      "acceptanceCriteria": [
-        "A failed automatic writeback reaches the seller in a way that matches what they can do about it, and the wording is decided rather than defaulted to a red toast",
-        "The failure reaches Sentry or an ops event, because a Coolify container log is not a place anyone looks before a complaint",
-        "Every other bare `if (!res.ok) return;` in src/ is enumerated, since this one was found by accident while reading a different story",
-        "A test drives a non-2xx writeback and asserts the surface changes, rather than asserting the check exists"
-      ],
-      "priority": 5
-    },
-    {
-      "id": "US-3410",
-      "passes": false,
-      "title": "listings.ebay_drift exists in production and in no migration in the repo",
-      "description": "Found 2026-09-11 by US-2727 and confirmed independently by the head, reading prod's PostgREST OpenAPI document with the anon key.\n\n`listings.ebay_drift` is present in production. `grep -rln ebay_drift supabase/migrations/` returns **nothing**. So a column exists on a core table that no file in this repo creates, and a fresh local stack built from the migrations does not have it.\n\nIt is nullable and nothing in this repo reads or writes it, so it breaks nothing today. That is exactly why it is worth settling now rather than after something starts depending on it.\n\nTwo possibilities and they need different answers: somebody ran SQL by hand against prod, or a migration that created it was deleted from the tree after being applied. The second has happened here before (00636/00637 were applied and then removed, and 00638 exists to clean up after them).\n\n**The general question is the valuable one.** Nobody has compared prod's full column set against what the migrations produce. This column was found by accident while reading about a different one.",
-      "acceptanceCriteria": [
-        "The full prod column set is diffed against what the migrations build, since this one was found by accident and one instance means the check has never been run",
-        "Each difference is classified as hand-run SQL, a withdrawn migration, or a migration that failed halfway, with the evidence",
-        "Whatever is decided about ebay_drift is recorded where the next reader lands, which for a column is a COMMENT ON COLUMN rather than a note",
-        "The diff is cheap enough to re-run, because a schema drifts continuously and a one-off audit answers only for today"
-      ],
-      "priority": 5
     },
     {
       "id": "US-3411",
