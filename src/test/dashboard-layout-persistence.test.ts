@@ -65,6 +65,18 @@ describe("dashboard layout persistence", () => {
   });
 });
 
+/**
+ * Source with comments blanked out, so PROSE about a table does not read as
+ * code touching it. A doc comment listing example jsonb columns tripped this
+ * scan once (services/edge-functions/src/tests/_migration-columns.ts), and a
+ * false positive on a guard is how a guard stops being read.
+ */
+function codeOnly(src: string): string {
+  return src
+    .replace(/\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\n]/g, " "))
+    .replace(/\/\/[^\n]*/g, (m) => " ".repeat(m.length));
+}
+
 function filesContaining(root: string, needle: string): string[] {
   const hits: string[] = [];
   const walk = (dir: string) => {
@@ -75,7 +87,7 @@ function filesContaining(root: string, needle: string): string[] {
         continue;
       }
       if (!/\.ts$/.test(entry)) continue;
-      if (readFileSync(path, "utf8").includes(needle)) hits.push(path);
+      if (codeOnly(readFileSync(path, "utf8")).includes(needle)) hits.push(path);
     }
   };
   walk(root);
