@@ -90,3 +90,42 @@ regexes = [
   '''whsec_your-webhook-secret''',
   '''re_your-resend-api-key''',
 ]
+
+# ── US-3393, measured 2026-09-11. The App Review demo credentials.
+#
+# `ios/fastlane/metadata/review_information/demo_password.txt` is TRACKED and is
+# not gitignored, and two different things write the operator's REAL production
+# demo-account password into it: `scripts/seed-review-demo-account.mjs` (fixed by
+# US-3393 - it no longer writes it) and the Fastfile's `inject_review_credentials`
+# private lane, which still does, just before `deliver` runs.
+#
+# The default ruleset does NOT catch that. Measured with gitleaks 8.30.1 (the
+# version this repo pins in .githooks/pre-commit and secret-scan.yml) against a
+# throwaway repo mirroring the path: a bare one-line password staged at that path
+# produced "no leaks found" in all three shapes tried (32-char alphanumeric,
+# 32-char with symbols, 44-char base64). The same value written as
+# `password = "..."` on the SAME path DID fire, so the path is not allowlisted -
+# the generic-api-key rule simply has no keyword next to the value to match on.
+# A file whose entire contents are the secret is the blind spot.
+#
+# So this rule inverts the usual shape: at these two paths ANY content is a
+# finding unless it is exactly the committed placeholder. That is safe because
+# the files are only ever allowed to hold a placeholder in git - the real values
+# are injected from ENV at release time and must never be committed.
+#
+# If this fires on you: you ran `fastlane release` locally and the lane left the
+# live credentials in your working tree. Restore the placeholders
+# (`git checkout -- ios/fastlane/metadata/review_information/`) and commit again.
+[[rules]]
+  id = "gradethread-appreview-demo-credential"
+  description = "App Review demo credential in a git-tracked fastlane file (US-3393)"
+  path = '''ios/fastlane/metadata/review_information/demo_(password|user)\.txt$'''
+  # Any non-whitespace run. No entropy floor on purpose: a weak password is
+  # still a live credential, and entropy is what made the default rules miss it.
+  regex = '''\S{3,}'''
+  [rules.allowlist]
+    regexTarget = "match"
+    regexes = [
+      '''^REVIEW_DEMO_PASSWORD_PLACEHOLDER$''',
+      '''^REVIEW_DEMO_EMAIL_PLACEHOLDER@gradethread\.com$''',
+    ]
