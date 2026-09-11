@@ -63,6 +63,15 @@ import {
   sendGradePreliminaryEmail,
 } from "./email.ts";
 import { TIER_SLA_HOURS } from "./grade-pricing.ts";
+import {
+  computeReleaseAt,
+  GRADE_RELEASE_HOLD_DEFAULT,
+  GRADE_RELEASE_HOLD_SETTING,
+  type GradeReleaseHoldSetting,
+  holdEnabled,
+  isBeforeRelease,
+} from "./grade-release.ts";
+import { getGradePricing } from "./pricing-config.ts";
 import { notifyAdminsGradeReviewNeeded } from "./grade-review-notify.ts";
 import { autoApproveThreshold, shouldAutoApprove } from "./grade-auto-approve.ts";
 import { submitUrls, certificateUrl } from "./indexnow.ts";
@@ -1091,6 +1100,217 @@ export interface FinalizeGradeReviewResult {
   ok: boolean;
   alreadyFinal?: boolean;
   linkedItemId?: string | null;
+  /**
+   * US-3326: the decision is recorded but the grade waits for its paid
+   * turnaround. Nothing went live and nobody was notified; the grade-release
+   * job (or a super admin) finishes it at releaseAt.
+   */
+  held?: boolean;
+  releaseAt?: string | null;
+}
+
+// US-3326: park a decided grade until its release time. Exactly one caller
+// flips pending -> held (the filter is the lock); a second call on an already
+// held grade is a no-op that still reports held, so a double-click cannot
+// double-record. The submission goes to pending_review, where every public
+// and seller surface already treats a grade as not yet official.
+async function holdDecidedGrade(
+  reportId: string,
+  submissionId: string,
+  releaseAt: string | null,
+  opts: { reviewerId: string | null; modified: boolean },
+): Promise<FinalizeGradeReviewResult> {
+  const nowIso = new Date().toISOString();
+  const { data: held, error: holdErr } = await supabaseAdmin
+    .from("grade_reports")
+    .update({
+      review_status: "held",
+      held_modified: opts.modified,
+      reviewed_by: opts.reviewerId,
+      reviewed_at: nowIso,
+      human_reviewed: true,
+      needs_human_review: false,
+      review_claimed_by: null,
+      review_claimed_at: null,
+    })
+    .eq("id", reportId)
+    .is("finalized_at", null)
+    .eq("review_status", "pending")
+    .select("id")
+    .maybeSingle();
+  if (holdErr) {
+    console.error(
+      `[Pipeline] hold UPDATE failed for report ${reportId}: ${holdErr.message}`,
+    );
+    return { ok: false };
+  }
+  if (!held) {
+    const { data: current } = await supabaseAdmin
+      .from("grade_reports")
+      .select("review_status")
+      .eq("id", reportId)
+      .maybeSingle();
+    if ((current as { review_status?: string } | null)?.review_status !== "held") {
+      return { ok: false };
+    }
+  }
+  await applyPreliminaryReview(submissionId);
+  console.log(
+    `[Pipeline] Grade HELD until ${releaseAt} for submission ${submissionId} ` +
+      `(${opts.modified ? "modified" : "approved"})`,
+  );
+  return { ok: true, held: true, releaseAt };
+}
+
+/**
+ * US-3326: release a held grade: the grade-release job when its time comes, or
+ * a super admin early. ONE function for both, so a scheduled release and a
+ * manual one cannot behave differently. Go-live runs through finalizeGradeReview,
+ * whose finalized_at flip makes it exactly-once however many callers race.
+ */
+export async function releaseHeldGrade(
+  reportId: string,
+  opts: { early?: boolean } = {},
+): Promise<{ released: boolean; reason?: string }> {
+  const { data } = await supabaseAdmin
+    .from("grade_reports")
+    .select("id, review_status, held_modified, reviewed_by, reviewed_at, release_at, finalized_at")
+    .eq("id", reportId)
+    .maybeSingle();
+  const g = data as {
+    review_status: string;
+    held_modified: boolean | null;
+    reviewed_by: string | null;
+    reviewed_at: string | null;
+    release_at: string | null;
+    finalized_at: string | null;
+  } | null;
+  if (!g) return { released: false, reason: "not_found" };
+  if (g.finalized_at) return { released: false, reason: "already_final" };
+  if (g.review_status !== "held") return { released: false, reason: "not_held" };
+  if (isBeforeRelease(g.release_at)) {
+    if (!opts.early) return { released: false, reason: "not_due" };
+    // Early: move the release time to now, so the owner RLS policy reveals the
+    // grade at the same moment go-live runs.
+    const { error } = await supabaseAdmin
+      .from("grade_reports")
+      .update({ release_at: new Date().toISOString() })
+      .eq("id", reportId)
+      .eq("review_status", "held");
+    if (error) {
+      return { released: false, reason: `release_at update failed: ${error.message}` };
+    }
+  }
+  const result = await finalizeGradeReview(
+    reportId,
+    { reviewerId: g.reviewed_by, modified: g.held_modified === true },
+    { force: true, reviewedAt: g.reviewed_at },
+  );
+  if (!result.ok) return { released: false, reason: "finalize_failed" };
+  if (result.alreadyFinal) return { released: false, reason: "already_final" };
+  // The final-grade email is this grade's release notice.
+  await supabaseAdmin
+    .from("grade_reports")
+    .update({ release_notified_at: new Date().toISOString() })
+    .eq("id", reportId)
+    .is("release_notified_at", null);
+  return { released: true };
+}
+
+/**
+ * US-3326: a grade still waiting for a human when its release time comes
+ * becomes visible to its owner (the RLS policy is time-based) as a preliminary
+ * grade, exactly as an un-held one always has been. Send the preliminary notice
+ * the pipeline held back, once: the conditional update is the claim.
+ */
+export async function notifyPreliminaryAtRelease(reportId: string): Promise<boolean> {
+  const nowIso = new Date().toISOString();
+  const { data: claimed } = await supabaseAdmin
+    .from("grade_reports")
+    .update({ release_notified_at: nowIso })
+    .eq("id", reportId)
+    .eq("review_status", "pending")
+    .lte("release_at", nowIso)
+    .is("release_notified_at", null)
+    .select("id, submission_id, overall_score, grade_tier")
+    .maybeSingle();
+  const c = claimed as {
+    submission_id: string;
+    overall_score: number;
+    grade_tier: string;
+  } | null;
+  if (!c) return false;
+  const { data: sub } = await supabaseAdmin
+    .from("submissions")
+    .select("user_id, title")
+    .eq("id", c.submission_id)
+    .maybeSingle();
+  const owner = sub as { user_id: string; title: string | null } | null;
+  if (!owner?.user_id) return false;
+  const { data: item } = await supabaseAdmin
+    .from("inventory_items")
+    .select("id")
+    .eq("submission_id", c.submission_id)
+    .maybeSingle();
+  sendPreliminaryNotices({
+    userId: owner.user_id,
+    title: owner.title ?? "Your submission",
+    submissionId: c.submission_id,
+    overallScore: Number(c.overall_score),
+    gradeTier: c.grade_tier,
+    linkedItemId: (item as { id?: string } | null)?.id ?? null,
+  });
+  return true;
+}
+
+// The seller's "your preliminary grade is ready" email (respecting the grade
+// pref) and in-app notice. Fire-and-forget, as it always was.
+function sendPreliminaryNotices(n: {
+  userId: string;
+  title: string;
+  submissionId: string;
+  overallScore: number;
+  gradeTier: string;
+  linkedItemId: string | null;
+}): void {
+  const previewLink = n.linkedItemId
+    ? `/dashboard/flipdesk/items/${n.linkedItemId}`
+    : `/dashboard/submissions/${n.submissionId}`;
+  (async () => {
+    try {
+      const { data: user } = await supabaseAdmin
+        .from("users")
+        .select("email, full_name, notification_preferences")
+        .eq("id", n.userId)
+        .single();
+
+      const emailEnabled =
+        user?.notification_preferences?.grade_complete?.email !== false;
+
+      if (user?.email && emailEnabled) {
+        await sendGradePreliminaryEmail(user.email, {
+          userName: user.full_name || "there",
+          submissionTitle: n.title,
+          overallScore: n.overallScore,
+          gradeTier: n.gradeTier,
+          submissionId: n.submissionId,
+        });
+      }
+    } catch (emailErr) {
+      console.error(
+        `[Pipeline] Preliminary email error for submission ${n.submissionId}:`,
+        emailErr instanceof Error ? emailErr.message : String(emailErr),
+      );
+    }
+  })();
+
+  void notifyGradePreliminary(n.userId, n.title, previewLink)
+    .catch((notifyErr) =>
+      console.error(
+        `[Pipeline] Preliminary notify error for submission ${n.submissionId}:`,
+        notifyErr instanceof Error ? notifyErr.message : String(notifyErr),
+      )
+    );
 }
 
 // Mandatory review: a human reviewer (super-admin/reviewer) has approved or
@@ -1111,10 +1331,14 @@ export async function finalizeGradeReview(
   // when a super-admin/reviewer finalized it. reviewed_by null + approved is the
   // derivable "auto-approved" marker.
   opts: { reviewerId: string | null; modified: boolean },
+  // US-3326: `force` is the release itself (the grade-release job, or a super
+  // admin releasing early) and skips the hold. `reviewedAt` carries the time
+  // the reviewer actually decided, so a release hours later does not restamp it.
+  release: { force?: boolean; reviewedAt?: string | null } = {},
 ): Promise<FinalizeGradeReviewResult> {
   const { data: report } = await supabaseAdmin
     .from("grade_reports")
-    .select("id, submission_id, overall_score, grade_tier, certificate_id, finalized_at")
+    .select("id, submission_id, overall_score, grade_tier, certificate_id, finalized_at, release_at")
     .eq("id", reportId)
     .maybeSingle();
   if (!report) return { ok: false };
@@ -1126,9 +1350,18 @@ export async function finalizeGradeReview(
     grade_tier: string;
     certificate_id: string | null;
     finalized_at: string | null;
+    release_at?: string | null;
   };
   // Already finalized — don't re-run go-live or re-notify.
   if (r.finalized_at) return { ok: true, alreadyFinal: true };
+
+  // US-3326: decided, but its paid turnaround has not come. Record the
+  // decision as 'held' (the public view, the queue and every aggregate key
+  // on approved/modified or pending, so a held row is in none of them) and
+  // stop before any go-live wiring.
+  if (!release.force && isBeforeRelease(r.release_at)) {
+    return await holdDecidedGrade(r.id, r.submission_id, r.release_at ?? null, opts);
+  }
 
   const overallScore = Number(r.overall_score);
   const nowIso = new Date().toISOString();
@@ -1144,7 +1377,7 @@ export async function finalizeGradeReview(
       review_status: opts.modified ? "modified" : "approved",
       finalized_at: nowIso,
       reviewed_by: opts.reviewerId,
-      reviewed_at: nowIso,
+      reviewed_at: release.reviewedAt ?? nowIso,
       human_reviewed: true,
       needs_human_review: false,
       review_claimed_by: null,
@@ -1365,7 +1598,7 @@ export async function processSubmission(submissionId: string) {
     // --- Step 1: Fetch submission record ---
     const { data: submission, error: submissionError } = await supabaseAdmin
       .from("submissions")
-      .select("id, user_id, garment_type, garment_category, brand, title, description, status, style_attributes, verified_capture_opt_in, live_capture_opt_in, verified_360_opt_in, capture_360, authenticity_addon, forensic_addon, service_tier, created_at, regrade_of_garment_id, video_graded, video_duration_seconds, video_capture_source, closet_item_id")
+      .select("id, user_id, garment_type, garment_category, brand, title, description, status, style_attributes, verified_capture_opt_in, live_capture_opt_in, verified_360_opt_in, capture_360, authenticity_addon, forensic_addon, service_tier, created_at, paid_at, regrade_of_garment_id, video_graded, video_duration_seconds, video_capture_source, closet_item_id")
       .eq("id", submissionId)
       .single();
 
@@ -2988,6 +3221,30 @@ export async function processSubmission(submissionId: string) {
     //
     // Regenerating the NUMBER is safe: cert-integrity hashes certificate_id, not
     // the number, so `integrity` computed above stays valid across a retry.
+    // US-3326: when the release hold is on, a non-Express grade is released to
+    // its owner at paid time plus the tier turnaround, not the moment it is
+    // final. NULL (hold off, Express, or no usable SLA) means not held, and the
+    // insert below is then byte-identical to before.
+    const holdSetting = await getSetting<GradeReleaseHoldSetting>(
+      GRADE_RELEASE_HOLD_SETTING,
+      GRADE_RELEASE_HOLD_DEFAULT,
+    );
+    const serviceTier =
+      (submission as { service_tier?: string }).service_tier ?? "standard";
+    let releaseAt: string | null = null;
+    if (holdEnabled(holdSetting)) {
+      const pricing = await getGradePricing().catch(() => null);
+      releaseAt = computeReleaseAt({
+        enabled: true,
+        tier: serviceTier,
+        slaHours:
+          pricing?.tiers[serviceTier as keyof typeof pricing.tiers]?.slaHours ??
+            TIER_SLA_HOURS[serviceTier as keyof typeof TIER_SLA_HOURS],
+        paidAt: (submission as { paid_at?: string | null }).paid_at,
+        createdAt: (submission as { created_at?: string | null }).created_at,
+      });
+    }
+
     let certificateNumberAttempt = certificateNumber;
     let gradeReport: { id: string } | null = null;
     let reportError: { code?: string | null; message?: string | null } | null = null;
@@ -3004,6 +3261,7 @@ export async function processSubmission(submissionId: string) {
         cosmetic_appearance_score: compositeResult.factor_scores.cosmetic_appearance,
         functional_elements_score: compositeResult.factor_scores.functional_elements,
         odor_cleanliness_score: compositeResult.factor_scores.odor_cleanliness,
+        ...(releaseAt ? { release_at: releaseAt } : {}),
         ai_summary: compositeResult.ai_summary,
         // US-759: longer buyer-facing certified write-up.
         buyer_writeup: compositeResult.buyer_writeup,
@@ -3551,47 +3809,20 @@ export async function processSubmission(submissionId: string) {
         `confidence=${compositeResult.confidence_score} | total_ms=${totalMs}`
     );
 
-    const previewLink = linkedItemId
-      ? `/dashboard/flipdesk/items/${linkedItemId}`
-      : `/dashboard/submissions/${submissionId}`;
-
     // Tell the SELLER their preliminary grade is ready — email (respecting the
-    // grade pref) + the in-app "pending review" notice.
-    (async () => {
-      try {
-        const { data: user } = await supabaseAdmin
-          .from("users")
-          .select("email, full_name, notification_preferences")
-          .eq("id", submission.user_id)
-          .single();
-
-        const emailEnabled =
-          user?.notification_preferences?.grade_complete?.email !== false;
-
-        if (user?.email && emailEnabled) {
-          await sendGradePreliminaryEmail(user.email, {
-            userName: user.full_name || "there",
-            submissionTitle: submission.title,
-            overallScore: compositeResult.overall_score,
-            gradeTier: compositeResult.grade_tier,
-            submissionId,
-          });
-        }
-      } catch (emailErr) {
-        console.error(
-          `[Pipeline] Preliminary email error for submission ${submissionId}:`,
-          emailErr instanceof Error ? emailErr.message : String(emailErr)
-        );
-      }
-    })();
-
-    void notifyGradePreliminary(submission.user_id, submission.title, previewLink)
-      .catch((notifyErr) =>
-        console.error(
-          `[Pipeline] Preliminary notify error for submission ${submissionId}:`,
-          notifyErr instanceof Error ? notifyErr.message : String(notifyErr),
-        )
-      );
+    // grade pref) + the in-app "pending review" notice. US-3326: not while the
+    // grade is held for its paid turnaround; the owner cannot see it yet, and
+    // the grade-release job sends this notice when they can.
+    if (!isBeforeRelease(releaseAt)) {
+      sendPreliminaryNotices({
+        userId: submission.user_id,
+        title: submission.title,
+        submissionId,
+        overallScore: compositeResult.overall_score,
+        gradeTier: compositeResult.grade_tier,
+        linkedItemId,
+      });
+    }
 
     // Alert REVIEWERS — a grade is waiting to be finalized. In-app for every
     // admin + super-admin; email to the super-admins. Best-effort.

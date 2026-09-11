@@ -59,6 +59,7 @@ import { valueAtGrade } from "../lib/condition-value.ts";
 import { suggestCategories } from "../lib/ebay-client.ts";
 import { effectivePlanFor } from "../lib/grade-pricing.ts";
 import { refundReservedSnap } from "../lib/grade-refund.ts";
+import { isBeforeRelease } from "../lib/grade-release.ts";
 
 // US-614: free monthly Snap-to-Value cap per effective FlipDesk plan (-1 = unlimited).
 const SNAP_CAP: Record<string, number> = {
@@ -1499,6 +1500,7 @@ gradeRoutes.get("/status/:id", async (c) => {
   }
 
   let gradeReport = null;
+  let gradeReleaseAt: string | null = null;
   // Mandatory review: the owner sees their grade once it exists — both the
   // PRELIMINARY grade while it's in review (status='pending_review') and the
   // final grade once finalized (status='completed'). review_status on the report
@@ -1523,14 +1525,22 @@ gradeRoutes.get("/status/:id", async (c) => {
           "verified_capture, original_photos, authenticity_assessment, " +
           "human_reviewed, review_status, finalized_at, certificate_id, " +
           "content_hash, content_signature, integrity_version, model_version, " +
-          "view_count, garment_id, created_at",
+          "view_count, garment_id, created_at, release_at",
       )
       .eq("submission_id", id)
       // US-479: a regraded submission keeps superseded history — return only the
       // active report.
       .is("superseded_at", null)
       .maybeSingle();
-    gradeReport = report || null;
+    // US-3326: a grade held for its paid turnaround is not the owner's to see
+    // yet. The RLS policy hides it from direct reads; this service-role read
+    // must hide it the same way. The release time is returned instead.
+    const heldUntil = (report as { release_at?: string | null } | null)?.release_at ?? null;
+    if (report && isBeforeRelease(heldUntil)) {
+      gradeReleaseAt = heldUntil;
+    } else {
+      gradeReport = report || null;
+    }
   }
 
   return c.json({
@@ -1539,6 +1549,8 @@ gradeRoutes.get("/status/:id", async (c) => {
     payment_status: submission.payment_status,
     paid_at: submission.paid_at,
     grade_report: gradeReport,
+    // US-3326: set while a finished grade waits for its paid turnaround.
+    grade_release_at: gradeReleaseAt,
     // US-332: actionable photo requests when the quality gate abstained.
     quality_feedback: submission.quality_feedback ?? null,
     created_at: submission.created_at,

@@ -19,6 +19,7 @@
 // clears it.
 
 import { supabaseAdmin } from "./supabase.ts";
+import { isBeforeRelease } from "./grade-release.ts";
 
 // deno-lint-ignore no-explicit-any
 export type GradesDb = any;
@@ -98,7 +99,7 @@ export const GRADES_PAGE_MAX = 100;
 const REPORT_COLUMNS =
   "id, submission_id, overall_score, grade_tier, fabric_condition_score, structural_integrity_score, " +
   "cosmetic_appearance_score, functional_elements_score, odor_cleanliness_score, confidence_score, " +
-  "ai_summary, detailed_notes, model_version, certificate_id, needs_human_review, created_at";
+  "ai_summary, detailed_notes, model_version, certificate_id, needs_human_review, created_at, release_at";
 
 /**
  * Which of these reports already have a human review recorded.
@@ -158,7 +159,10 @@ export async function getGrade(
       .is("superseded_at", null)
       .maybeSingle();
 
-    if (data) {
+    // US-3326: a grade held for its paid turnaround does not exist yet, as far
+    // as its owner can tell. The RLS policy hides it from direct reads; this
+    // service-role read has to hide it the same way.
+    if (data && !isBeforeRelease((data as { release_at?: string | null }).release_at)) {
       const r = data as Record<string, unknown>;
       const reviewed = await reviewedReportIds([String(r.id)], db);
       const needs = r.needs_human_review === true;
@@ -237,10 +241,12 @@ export async function listGrades(
     const { data: reportRows } = await db
       .from("grade_reports")
       .select(
-        "id, submission_id, overall_score, grade_tier, confidence_score, certificate_id, needs_human_review",
+        "id, submission_id, overall_score, grade_tier, confidence_score, certificate_id, needs_human_review, release_at",
       )
       .in("submission_id", gradedIds);
     for (const row of (reportRows ?? []) as Array<Record<string, unknown>>) {
+      // US-3326: held for its paid turnaround; see the single-grade read above.
+      if (isBeforeRelease(row.release_at as string | null)) continue;
       reports[String(row.submission_id)] = row;
     }
   }

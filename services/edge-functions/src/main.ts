@@ -202,6 +202,7 @@ import { handleMeasurementAggregateCron } from "./routes/jobs-measurement-aggreg
 import { handleListingPromptPromoteCron } from "./routes/jobs-listing-prompt-promote.ts";
 import { handleExemplarAssemblyCron } from "./routes/jobs-exemplar-assembly.ts";
 import { handleConfidenceCalibrationCron } from "./routes/jobs-confidence-calibration.ts";
+import { handleGradeReleaseCron } from "./routes/jobs-grade-release.ts";
 import {
   handleCompReadCron,
   handleCompReadReclaimCron,
@@ -1868,6 +1869,8 @@ app.post("/api/jobs/exemplar-assembly", (c) => handleExemplarAssemblyCron(c));
 // thresholds from human-review outcomes; enforcement stays behind the
 // setting's own enabled flag. Weekly (e.g. Sun 13:00 UTC).
 app.post("/api/jobs/confidence-calibration", (c) => handleConfidenceCalibrationCron(c));
+// US-3326: release grades held for their paid turnaround (every 5 minutes).
+app.post("/api/jobs/grade-release", (c) => handleGradeReleaseCron(c));
 // US-2845. Both job-secret gated. The process cron is inert until the
 // `comp_read` feature flag is turned on, which US-2842 has not authorised yet.
 app.post("/api/jobs/comp-read", (c) => handleCompReadCron(c));

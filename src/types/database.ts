@@ -904,10 +904,14 @@ export interface GradeReportRow {
   human_reviewed: boolean;
   // Mandatory-review lifecycle (migration 00312). pending = preliminary AI grade
   // awaiting human finalization (certificate withheld); approved = reviewer
-  // agreed as-is; modified = reviewer adjusted the scores before finalizing.
-  review_status: "pending" | "approved" | "modified";
+  // agreed as-is; modified = reviewer adjusted the scores before finalizing;
+  // held (US-3326) = decided, waiting for the paid turnaround before release.
+  review_status: "pending" | "approved" | "modified" | "held";
   // When the grade was finalized (made official + public). Null while preliminary.
   finalized_at: string | null;
+  // US-3326: when a held grade is released to its owner. Null = not held.
+  // Owner reads cannot see the row before this time (RLS, migration 00786).
+  release_at?: string | null;
   // The reviewer who finalized it, and when.
   reviewed_by: string | null;
   reviewed_at: string | null;

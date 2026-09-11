@@ -9,6 +9,42 @@
 > They are still filed as HELD here because nobody in this session watched
 > them apply. Confirm against prod before trusting either heading.
 
+## ⏸ HELD: 00786 — grades wait for the turnaround the customer paid for (US-3326)
+
+**Risk: MEDIUM, because it rewrites two RLS policies.** Adds three nullable
+columns to `grade_reports`, widens the `review_status` CHECK with `'held'`,
+adds a partial index, recreates the owner and workspace SELECT policies with
+one extra predicate `(release_at IS NULL OR release_at <= now())`, and seeds
+`system_settings.grade_release_hold = {"enabled": false}`. Every existing row
+has `release_at` NULL, so the rewritten policies return exactly what they
+returned before; nothing changes until the setting is turned on.
+
+**Apply order: after 00785.** Then `NOTIFY pgrst, 'reload schema';`, then
+redeploy the edge (boot guard expects 00786).
+
+**⚠ Edge code in the same change reads the new columns.** The report insert
+writes `release_at` only when the hold is on, and `finalizeGradeReview` selects
+`release_at` on every finalize, so the new edge must not run before the SQL.
+The boot guard enforces that.
+
+**Operator steps after applying:**
+1. Add the Coolify scheduled task for `/api/jobs/grade-release`, every 5
+   minutes (block in `services/edge-functions/CRON_SETUP.md`). Without it held
+   grades never release.
+2. Turn the hold on only when ready:
+   `update system_settings set value = '{"enabled": true}' where key = 'grade_release_hold';`
+   Turning it off later releases every held grade on the next job run.
+
+**Check it landed:**
+
+```sql
+select column_name from information_schema.columns
+where table_name = 'grade_reports'
+  and column_name in ('release_at', 'held_modified', 'release_notified_at');  -- 3 rows
+select pg_get_constraintdef(oid) from pg_constraint
+where conname = 'grade_reports_review_status_check';                      -- includes 'held'
+```
+
 ## ✅ APPLIED 2026-09-10 (owner): 00785 — the flaws-only grade gets its own deny-all table (US-3325)
 
 **Owner reported "785 applied" on 2026-09-10.** ⚠ The file was rewritten a few

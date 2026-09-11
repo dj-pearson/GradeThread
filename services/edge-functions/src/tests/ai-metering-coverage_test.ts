@@ -120,6 +120,10 @@ const ALLOWLIST: Record<string, string> = {
   "grading-submit.ts": "FlipDesk grading submissions — billed per-grade. Moved out of routes/flipdesk-grading.ts by US-9129; see DELEGATED_LIBS.",
   "webhooks.ts": "payment webhooks re-enter the grading pipeline (per-grade billing)",
   "support-assistant.ts": "support assistant is an operator cost, not user AI spend",
+  "jobs-grade-release.ts":
+    "US-3326 release cron: imports grading-pipeline only for releaseHeldGrade " +
+    "and notifyPreliminaryAtRelease, which write rows and send notices. It makes " +
+    "no model call at all; the grade it releases was billed per-grade when it was made.",
   "jobs-grading-self-consistency.ts":
     "US-2035 reproducibility sampler: an internal cron, not a user action. " +
     "Metering it would charge whoever's submission happened to be sampled for " +

@@ -120,6 +120,10 @@ export const CRON_REGISTRY: CronDef[] = [
   // US-1773: cross-garment durability aggregation (daily) backing the public durability rankings.
   { name: "durability-aggregate", label: "Durability aggregation", schedule: "0 2 * * *", category: "grading", endpoint: "/api/jobs/durability-aggregate", recorded: true },
   // US-1557: weekly per-category review-threshold calibration (shadow-first).
+  // US-3326: releases grades held for their paid turnaround, and sends the
+  // preliminary notice for still-in-review grades that became visible. Idle
+  // (released 0) unless the grade_release_hold setting is on.
+  { name: "grade-release", label: "Grade release (paid turnaround)", schedule: "*/5 * * * *", category: "grading", endpoint: "/api/jobs/grade-release", recorded: true, healthy: "200 with {ok:true, hold_enabled, released, preliminary_notices, failures:[]}; released and preliminary_notices are 0 while the hold is off" },
   { name: "confidence-calibration", label: "Confidence calibration", schedule: "0 13 * * 0", category: "grading", endpoint: "/api/jobs/confidence-calibration", recorded: true },
   { name: "stuck-submissions", label: "Stuck-submission recovery", schedule: "*/10 * * * *", category: "grading", endpoint: "/api/jobs/stuck-submissions", recorded: true },
   { name: "push-token-prune", label: "Push-token prune", schedule: "0 3 * * *", category: "maintenance", endpoint: "/api/jobs/push-token-prune", recorded: true },

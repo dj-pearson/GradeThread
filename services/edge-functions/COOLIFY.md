@@ -457,6 +457,7 @@ curl -fsS -X POST -H "X-Internal-Job-Secret: $<SECRET_ENV>" http://localhost:878
 | flipdesk-import-reclaim | `*/5 * * * *` | `/api/jobs/flipdesk-import-reclaim` | `$FLIPDESK_INTERNAL_JOB_SECRET` |  |
 | google-sheet-sync | `*/5 * * * *` | `/api/flipdesk/google/sync/push` | `$FLIPDESK_INTERNAL_JOB_SECRET` |  |
 | googleplay-expiry-sweep | `50 1 * * *` | `/api/jobs/googleplay-expiry-sweep` | `$FLIPDESK_INTERNAL_JOB_SECRET` |  |
+| grade-release | `*/5 * * * *` | `/api/jobs/grade-release` | `$FLIPDESK_INTERNAL_JOB_SECRET` | 200 with {ok:true, hold_enabled, released, preliminary_notices, failures:[]}; released and preliminary_notices are 0 while the hold is off |
 | grading-batch-reclaim | `*/5 * * * *` | `/api/jobs/grading-batch-reclaim` | `$FLIPDESK_INTERNAL_JOB_SECRET` |  |
 | grading-monitor | `0 */12 * * *` | `/api/jobs/grading-monitor` | `$FLIPDESK_INTERNAL_JOB_SECRET` |  |
 | grading-self-consistency | `20 4 * * 1` | `/api/jobs/grading-self-consistency` | `$FLIPDESK_INTERNAL_JOB_SECRET` |  |
@@ -498,7 +499,7 @@ curl -fsS -X POST -H "X-Internal-Job-Secret: $<SECRET_ENV>" http://localhost:878
 | thumbnail-backfill | `*/5 * * * *` | `/api/jobs/thumbnail-backfill` | `$FLIPDESK_INTERNAL_JOB_SECRET` |  |
 | trial-expiry | `15 0 * * *` | `/api/jobs/trial-expiry` | `$FLIPDESK_INTERNAL_JOB_SECRET` |  |
 
-_89 scheduled jobs. Default healthy response: 200 `{"ok":true,...}` (idle runs report skipped/zero counts). Generated from `src/lib/cron-runs.ts` CRON_REGISTRY — do not hand-edit._
+_90 scheduled jobs. Default healthy response: 200 `{"ok":true,...}` (idle runs report skipped/zero counts). Generated from `src/lib/cron-runs.ts` CRON_REGISTRY — do not hand-edit._
 <!-- cron-registry:end -->
 
 > **Cadence notes (US-496):**
