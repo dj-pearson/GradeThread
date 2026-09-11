@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-3403",
+  "nextId": "US-3404",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -4968,20 +4968,6 @@
       "priority": 4
     },
     {
-      "id": "US-3397",
-      "passes": false,
-      "title": "Anyone with the anon key can list every object in item-photos, including 3,557 staged uploads",
-      "description": "Found 2026-09-11 by US-3391 while measuring how many staged orphans exist. It is a bigger finding than the story that produced it.\n\n`00017` writes `CREATE POLICY \"item-photos public read\" ... FOR SELECT USING (bucket_id = 'item-photos')` **with no `TO` clause**, so it applies to `anon`.\n\n`POST /storage/v1/object/list/item-photos` with the anon key **from the deployed frontend bundle** returns HTTP 200 and walks the whole tree. Measured: **3,557 objects, 2.2 GB, under `{owner}/_staging/`** across the bucket's owner folders. The other four buckets return `[]`.\n\nSo \"readable by URL forever\" understates it. **Nobody needs to have kept a URL.** A stranger can enumerate every seller's uploads, including 2,745 files the Google Photos importer staged straight from a picker before the seller reviewed them.\n\n**Do not fix this by excluding `_staging` from the read policy.** Measured by the same story: `item_photos.storage_path` points straight back into `_staging/`, so live listing images, including ones eBay is serving right now, are at `_staging/` paths today. Narrowing the policy first would break published listings. The copy-on-adopt has to come first.\n\nThe narrow fix, adding `TO authenticated` or restricting the path, still needs care: the bucket is public by design for listing imagery, and `getPublicUrl` is used on the AutoLister cover-QA path.",
-      "acceptanceCriteria": [
-        "Whether anon can list the bucket is re-measured against prod before and after, because the whole finding is one policy clause",
-        "Listing is refused for anon while public READ of a known object URL still works, since the bucket is public by design for listing imagery",
-        "The fix does not narrow the path, because live listing images sit at _staging/ paths today and would go dark",
-        "Every other storage policy is checked for a missing TO clause, since this one was found by accident and a policy without TO applies to every role",
-        "A test asserts anon cannot list, driven against a real PostgREST rather than by reading the migration; policies drift from their creating migration and this repo has been bitten by that twice"
-      ],
-      "priority": 1
-    },
-    {
       "id": "US-3398",
       "passes": false,
       "title": "account_deletion_log records storage_purged true even when the purge failed",
@@ -5041,6 +5027,19 @@
         "All five are settled in one pass, not just migrations, since grading-engine is already known to have drifted in a way that changes a grading cap",
         "skills-sync goes green, and it is run to prove it rather than reasoned about",
         "If the copies stay, something keeps them byte-identical; a comment asking people to remember is what produced two spellings of one runbook"
+      ],
+      "priority": 6
+    },
+    {
+      "id": "US-3403",
+      "passes": false,
+      "title": "Any signed-up user can still enumerate four storage buckets after 00794",
+      "description": "Left over from US-3397, deliberately and with the reason recorded.\n\n00794 scopes `item-photos` to the owner folder or a workspace member. The other four public-read policies get `TO authenticated` and nothing else, so **a logged-in stranger can still list `avatars`, `cert-assets`, `content-images` and `content-videos`**.\n\nSignup is open, so \"authenticated\" is not a meaningful barrier. It is a much smaller exposure than anon, because it costs an account and leaves a user id in the request, but it is real.\n\n**Each of the four needs its own decision about who legitimately reads it**, which is why US-3397 did not guess:\n- `cert-assets` and `content-images` are published marketing and certificate imagery, so enumeration may be genuinely harmless. Say so if it is.\n- `avatars` is per-user and currently empty.\n- `content-videos` is currently empty.\n\nTwo of the four being empty today is why this is not urgent and also why it is cheap to settle now, before something is written into them.\n\nThe measured shape to copy is in US-3397's note: a public bucket is served by `buckets.public` on a superuser connection, so a SELECT policy can be as narrow as you like without taking public reads dark.",
+      "acceptanceCriteria": [
+        "Each of the four gets a decision about who may enumerate it, with the reason; harmless is an acceptable answer if it is argued",
+        "Whatever is chosen is measured against a real storage-api before and after, because the whole of US-3397 turned on a behaviour nobody had tested",
+        "The two empty buckets are settled before anything is written into them, since that is the cheapest this will ever be",
+        "US-3397's ratchet is extended to whatever rule comes out of this, so a new bucket cannot arrive with the old shape"
       ],
       "priority": 6
     }
