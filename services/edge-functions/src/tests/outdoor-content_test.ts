@@ -14,6 +14,7 @@
 //
 // brand-knowledge.ts + sizing-charts.ts import supabase at load → dummy env first.
 import { assert, assertEquals } from "@std/assert";
+import { chartId, declaresMeasurementBasis } from "./_chart-properties.ts";
 
 Deno.env.set(
   "SUPABASE_URL",
@@ -254,6 +255,14 @@ Deno.test("US-1734: the group's charts are reachable per brand + are BODY measur
   // This group's basis error runs OPPOSITE to activewear: an outdoor shell is cut
   // with layering room, so its FLAT chest measures above the body chest it is
   // sized to. Every chart must therefore say which basis it is.
+  //
+  // US-3319 rewrote this. It used to read `/BODY/i.test(c.note)`, which pinned
+  // the WORD and the FIELD rather than the property, and the backfill broke it
+  // by writing the basis into `garment` instead ("Bottoms, US numeric (body
+  // inches)"). `declaresMeasurementBasis` reads the text the prompt actually
+  // shows AND cross-checks it against `measurementBasis`, so a flat-spec chart
+  // whose prose says "body" — the ease-on-ease bug that field exists to stop —
+  // now fails where the old form passed it.
   const group = [
     "Columbia",
     "Arc'teryx",
@@ -269,7 +278,11 @@ Deno.test("US-1734: the group's charts are reachable per brand + are BODY measur
     const mine = charts.filter((c) => c.brand === brand);
     assert(mine.length > 0, `${brand} has at least one chart`);
     for (const c of mine) {
-      assert(/BODY/i.test(c.note ?? ""), `${brand} ${c.garment} note states the BODY basis`);
+      assert(
+        declaresMeasurementBasis(c),
+        `${chartId(c)} must state its measurement basis where the prompt shows ` +
+          `it, and agree with measurementBasis=${c.measurementBasis ?? "(body)"}`,
+      );
     }
   }
 });
@@ -287,30 +300,43 @@ Deno.test("US-1734: L.L.Bean's chart warns that the classic cut runs GENEROUS", 
   );
 });
 
-Deno.test("US-1734: Columbia + Arc'teryx no longer double-match the shared outerwear chart", () => {
-  // Before 00453 the shared 00389 "The North Face / Patagonia (outerwear)" chart
-  // also claimed columbia + arcteryx. Now that each has its OWN chart, leaving
-  // them on the shared row would return TWO charts with the same numbers for one
-  // brand, competing for the 3-chart prompt budget.
-  for (const brand of ["Columbia", "Arc'teryx"]) {
-    const charts = findSizingCharts(brand, "jacket");
-    assert(
-      !charts.some((c) => c.brand.includes("The North Face / Patagonia")),
-      `${brand} must not also match the shared outerwear chart`,
-    );
-    assert(
-      charts.every((c) => c.brand === brand),
-      `${brand} resolves only its own charts`,
-    );
-  }
-
-  // The shared chart still serves the two brands that have no own-brand chart —
-  // narrowing it must not strand them.
-  for (const brand of ["The North Face", "Patagonia"]) {
-    const charts = findSizingCharts(brand, "jacket");
-    assert(
-      charts.some((c) => c.brand === "The North Face / Patagonia (outerwear)"),
-      `${brand} still reaches the shared outerwear chart`,
-    );
+Deno.test("US-1734: no outdoor brand is double-matched or stranded", () => {
+  // WHAT THIS IS ABOUT, and it survived its witness. Before 00453 the shared
+  // 00389 "The North Face / Patagonia (outerwear)" chart also claimed columbia +
+  // arcteryx, so those two got the shared row AND their own — two charts with the
+  // same numbers competing for the 3-chart prompt budget. The other half of the
+  // same coin is a brand left with nothing.
+  //
+  // US-3319: the old form named the shared chart, and US-3286 deleted it once
+  // The North Face and Patagonia had charts of their own, so the assertion
+  // "The North Face still reaches the shared outerwear chart" went red while the
+  // thing it protected — nobody stranded, nobody doubled — was more true than
+  // before. The two failure modes are asserted directly now and the whole group
+  // is covered, including the two brands that used to be the exception.
+  const group = [
+    "Columbia",
+    "Arc'teryx",
+    "Marmot",
+    "REI Co-op",
+    "L.L.Bean",
+    "Mountain Hardwear",
+    "The North Face",
+    "Patagonia",
+  ];
+  for (const brand of group) {
+    for (const category of ["jacket", "pant", "top"]) {
+      const charts = findSizingCharts(brand, category);
+      const mine = charts.filter((c) => c.brand === brand);
+      assert(
+        mine.length > 0,
+        `${brand} is STRANDED for "${category}" — it reaches no chart of its own`,
+      );
+      const foreign = charts.filter((c) => c.brand !== brand).map((c) => c.brand);
+      assertEquals(
+        [...new Set(foreign)],
+        [],
+        `${brand} + "${category}" is DOUBLE-MATCHED onto another brand's charts`,
+      );
+    }
   }
 });

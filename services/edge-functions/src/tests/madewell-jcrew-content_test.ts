@@ -102,8 +102,18 @@ Deno.test("US-1730: J.Crew prompt block carries the numbered fit map", () => {
 Deno.test("US-1730: J.Crew size charts (chinos + shirts) are reachable", () => {
   const chinos = findSizingCharts("J.Crew", "chino");
   assert(chinos.some((c) => c.brand === "J.Crew" && c.garment.startsWith("Chinos")), "chinos chart present");
+  // US-3319: this asserted `c.garment === "Shirts (alpha)"`. Batch 8 of the
+  // size-chart backfill widened the same chart's scope to "Shirts & outerwear
+  // (alpha)" — a strictly better chart, reachable from the same lookup — and the
+  // equality turned that into a report that J.Crew had lost its shirts chart.
+  // What has to hold is that a "shirt" lookup lands on a J.Crew shirts chart.
   const shirts = findSizingCharts("jcrew", "shirt");
-  assert(shirts.some((c) => c.brand === "J.Crew" && c.garment === "Shirts (alpha)"), "shirts chart present");
+  assert(
+    shirts.some((c) => c.brand === "J.Crew" && /^Shirts\b/.test(c.garment)),
+    `no J.Crew shirts chart reachable from "shirt"; got ${
+      shirts.map((c) => `${c.brand}/${c.garment}`).join(", ") || "(nothing)"
+    }`,
+  );
   // Madewell women's denim (00389) still resolves for the sister brand.
   const madewell = findSizingCharts("madewell", "jean");
   assert(madewell.some((c) => c.brand === "Madewell"), "Madewell denim chart still present");

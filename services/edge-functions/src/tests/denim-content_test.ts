@@ -266,11 +266,17 @@ Deno.test("US-1735: a bare 'ag' must never hand Patagonia an AG denim chart", ()
     !patagonia.some((c) => c.brand === "AG Jeans"),
     "Patagonia must not resolve an AG Jeans chart",
   );
-  // And Patagonia still reaches its own (shared) outerwear chart — the guard must
-  // not have stranded it.
+  // And Patagonia is not STRANDED — keeping "ag" off the denim charts must not
+  // cost Patagonia the charts it is entitled to.
+  //
+  // US-3319: this used to name "The North Face / Patagonia (outerwear)", the
+  // shared row Patagonia used to fall back to. US-3286 deleted that row once
+  // Patagonia got charts of its own, so the assertion went red while the
+  // property — Patagonia reaches a real chart — had never been better satisfied.
+  // Assert the property, not the row.
   assert(
-    patagonia.some((c) => c.brand === "The North Face / Patagonia (outerwear)"),
-    "Patagonia still reaches the shared outerwear chart",
+    patagonia.some((c) => c.brand === "Patagonia"),
+    "Patagonia must still reach a Patagonia chart",
   );
 
   // AG is reachable via the CANONICAL brand string, which is the whole reason the

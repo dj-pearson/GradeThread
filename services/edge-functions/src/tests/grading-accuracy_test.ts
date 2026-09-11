@@ -33,6 +33,7 @@ const CAT = (
 ) => ({
   garment_category,
   mean_absolute_error,
+  mean_signed_error: 0,
   agreement_rate,
   intentional_misread_rate: 0,
   count,

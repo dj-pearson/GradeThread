@@ -21,6 +21,7 @@
 //
 // brand-knowledge.ts + sizing-charts.ts import supabase at load → dummy env first.
 import { assert, assertEquals } from "@std/assert";
+import { assertPropertyWithLedger } from "./_chart-properties.ts";
 
 Deno.env.set(
   "SUPABASE_URL",
@@ -650,19 +651,38 @@ Deno.test("US-1738: the three sizing directions each warn in their own direction
   }
 });
 
+/**
+ * US-3319 ledger. Recorded defects from the 2026-09 backfill, not exemptions.
+ * Reformation went from one chart to four; the three new ones transcribe the
+ * brand's own tables faithfully and none of them repeats the pack's standing
+ * instruction that the tag is a claim and the garment is the answer.
+ */
+const CW_MEASURE_GAPS: Record<string, string> = {
+  "Reformation|Women|Bottoms & denim (US denim numbering)":
+    "backfill transcription; never says to measure",
+  "Reformation|Women|Clothing (alpha XS-3X)":
+    "backfill transcription; never says to measure",
+  "Reformation|Women|Clothing, petite (0P-12P)":
+    "backfill transcription; never says to measure",
+};
+
 Deno.test("US-1738: every chart tells the seller to measure, and keeps the label off the fit", () => {
   // The only defensible number on a used garment.
+  const all: typeof SIZING_CHARTS = [];
   for (const [brand] of GROUP) {
     if (brand === "Vince") continue; // deliberately chartless in-code
     const charts = findSizingCharts(brand, "").filter((c) => c.brand === brand);
     assert(charts.length > 0, `${brand} has charts`);
-    for (const c of charts) {
-      assert(
-        /Measure the (garment|flat waistband)/i.test(c.note ?? ""),
-        `${brand} ${c.garment} note tells the seller to measure`,
-      );
-    }
+    all.push(...charts);
   }
+  // US-3319: assertion unchanged; the three Reformation charts the backfill
+  // added without the instruction are named in CW_MEASURE_GAPS.
+  assertPropertyWithLedger(
+    all,
+    (c) => /Measure the (garment|flat waistband)/i.test(c.note ?? ""),
+    CW_MEASURE_GAPS,
+    "tell the seller to measure",
+  );
 
   // A real and easy inference error, and the mirror of 00456's season-vs-fit trap:
   // the HOUSE LABEL and the STYLE NAME are the biggest facts on this group, so a

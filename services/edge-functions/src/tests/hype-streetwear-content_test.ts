@@ -24,6 +24,7 @@
 //
 // brand-knowledge.ts + sizing-charts.ts import supabase at load → dummy env first.
 import { assert, assertEquals } from "@std/assert";
+import { chartId, declaresMeasurementBasis } from "./_chart-properties.ts";
 
 Deno.env.set(
   "SUPABASE_URL",
@@ -509,13 +510,29 @@ Deno.test("US-1983: THE ONLY WAIST CHART IN THE PACK is Denim Tears', and the re
     "the chart note carries the dual-branding rule where the size is read",
   );
 
-  // ...and nothing else in the group has one.
+  // ...and nobody else BORROWS ANOTHER BRAND'S SIZE SYSTEM.
+  //
+  // US-3319: this clause used to read "nothing else in the group has a waist
+  // chart", which was true when it was written and stopped being true when
+  // batch 6 of the backfill gave Gallery Dept. a bottoms chart transcribed from
+  // its own published per-product tables. That chart is a waist chart for an
+  // entirely different reason — it is Gallery Dept.'s own GARMENT waist, stated
+  // as such — so counting waist charts was never the property. What makes
+  // Denim Tears the odd one out is that its labels are LEVI'S sizes, because the
+  // garment underneath is a Levi's, and a model that carries that onto another
+  // brand's tag is the error the note exists to stop.
+  const foreignSystem = /Levi's|Levis/;
   for (const brand of GROUP.filter((b) => b !== "Denim Tears")) {
-    const charts = findSizingCharts(brand, "jeans").filter((c) => c.brand === brand);
-    assert(
-      charts.every((c) => !/WAIST/i.test(c.garment)),
-      `${brand} has no waist chart (the tier is alpha-sized)`,
-    );
+    const charts = findSizingCharts(brand, "jeans")
+      .concat(findSizingCharts(brand, "tee"))
+      .filter((c) => c.brand === brand);
+    for (const c of charts) {
+      assert(
+        c.rows.every((r) => !foreignSystem.test(r.size)),
+        `${brand} / ${c.garment} writes another brand's sizing system into its ` +
+          `size labels — only the Denim Tears collab may do that`,
+      );
+    }
   }
 });
 
@@ -542,6 +559,12 @@ Deno.test("US-1983: the group's charts are reachable per brand + are BODY measur
 
   // Every chart must say which BASIS it is — the error the outdoor (00453),
   // outerwear (00460) and luxury RTW (00461) groups each pinned.
+  //
+  // US-3319: the old form demanded the word BODY in the note, which quietly
+  // assumed every chart in the pack IS a body chart. Gallery Dept.'s bottoms
+  // chart is not — it is transcribed from the brand's own garment-flat tables
+  // and carries `measurementBasis: "flat"` — so the honest assertion is that a
+  // chart DECLARES its basis and that the prose and the field agree.
   for (const brand of GROUP) {
     const mine = findSizingCharts(brand, "hoodie")
       .concat(findSizingCharts(brand, "jeans"))
@@ -549,8 +572,9 @@ Deno.test("US-1983: the group's charts are reachable per brand + are BODY measur
     assert(mine.length > 0, `${brand} has at least one chart`);
     for (const c of mine) {
       assert(
-        /BODY/i.test(c.note ?? ""),
-        `${brand} ${c.garment} note states the BODY basis`,
+        declaresMeasurementBasis(c),
+        `${chartId(c)} must state its measurement basis where the prompt shows ` +
+          `it, and agree with measurementBasis=${c.measurementBasis ?? "(body)"}`,
       );
     }
   }

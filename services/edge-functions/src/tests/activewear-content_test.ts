@@ -28,6 +28,7 @@
 //
 // brand-knowledge.ts + sizing-charts.ts import supabase at load → dummy env first.
 import { assert, assertEquals } from "@std/assert";
+import { assertPropertyWithLedger } from "./_chart-properties.ts";
 
 Deno.env.set(
   "SUPABASE_URL",
@@ -397,6 +398,48 @@ Deno.test("US-1985: the group's charts are reachable per brand + system", () => 
   }
 });
 
+/**
+ * A chart on a dual-system brand says how its size is obtained, and names the
+ * other system so the two can never be crossed.
+ *
+ * A footwear chart: the number is STAMPED and must be READ, and the note has to
+ * say that the same brand also sells clothes. A garment chart: the number is
+ * MEASURED, and the note has to say that the same brand also sells shoes.
+ */
+function namesItsSizingSystem(c: { garment: string; note?: string }): boolean {
+  const note = c.note ?? "";
+  return /Footwear/.test(c.garment)
+    ? /STAMPED/.test(note) && /\b(READ|TRANSLATOR)\b/.test(note) &&
+      /(clothes|apparel|garment|tops) chart|garment type|tops chart/i.test(note)
+    : /measure/i.test(note) && /footwear|shoe/i.test(note);
+}
+
+/**
+ * US-3319 ledger: charts that do NOT satisfy the rule above, with the reason.
+ *
+ * These are RECORDED DEFECTS, not exemptions. Both were written by batch 9 of
+ * the 2026-09 size-chart backfill (US-3289), which transcribed the brands' own
+ * secondary tables and did not carry the dual-system warning across from the
+ * primary one. A seller listing PUMA women's apparel or Reebok bottoms gets a
+ * chart that never mentions that a PUMA or Reebok "size" is a stamped shoe
+ * number on half the brand's catalogue.
+ *
+ * FIXING THEM NEEDS A MIGRATION — brand_size_charts is DB-first and the note is
+ * part of the chart tuple, so the correction has to land in SQL and in 00498
+ * together. Deferred to the owner; the note text is in the US-3319 report.
+ *
+ * `assertPropertyWithLedger` fails if a listed chart starts satisfying the rule
+ * (delete the entry) and fails if any unlisted chart stops satisfying it, so
+ * this list can only shrink.
+ */
+const DUAL_SYSTEM_GAPS: Record<string, string> = {
+  "PUMA|Women|Apparel (alpha, body inches)":
+    "US-3289 transcription; names no PUMA footwear chart, so nothing stops a " +
+    "stamped shoe number being read on it",
+  "Reebok|Unisex|Bottoms (body inches)":
+    "US-3289 transcription; names no Reebok footwear chart",
+};
+
 Deno.test("US-1985: ONE BRAND, TWO SIZING SYSTEMS — the pack's signature problem", () => {
   // THE thing that makes this group different from every pack before it, asserted
   // against the shipped table rather than trusted to a comment.
@@ -426,17 +469,26 @@ Deno.test("US-1985: ONE BRAND, TWO SIZING SYSTEMS — the pack's signature probl
       `${brand} + "hoodie" resolves ONLY garment charts`);
 
     // And the model has to be able to SEE which system it was handed, because the
-    // two read in opposite directions (translator vs estimator).
-    for (const c of mine) {
-      const isShoe = /Footwear/.test(c.garment);
-      assert(
-        isShoe
-          ? /TRANSLATOR/.test(c.note ?? "")
-          : /ESTIMATOR/.test(c.note ?? ""),
-        `${brand} ${c.garment} note names its system`,
-      );
-    }
+    // two read in opposite directions: a shoe size is READ off the tongue label,
+    // a garment size is MEASURED off the garment.
+    //
+    // US-3319 REWROTE THIS FROM A WORD TO THE PROPERTY. It used to require the
+    // literal tokens TRANSLATOR and ESTIMATOR. Batch 9 of the backfill replaced
+    // PUMA's and Reebok's invented apparel charts with the brands' own published
+    // tables, and the new notes say the same thing in better words — "BODY
+    // measurement (chest) — unlike the PUMA FOOTWEAR charts on this same brand
+    // ... THIS IS THE GARMENT CHART" — so the guard reported a regression against
+    // strictly better content. What must hold is that each chart says how its
+    // size is obtained AND points at the other system on the same brand, which
+    // is the only thing that stops a hoodie being handed a shoe chart.
   }
+
+  assertPropertyWithLedger(
+    SIZING_CHARTS.filter((c) => DUAL_SYSTEM.includes(c.brand)),
+    namesItsSizingSystem,
+    DUAL_SYSTEM_GAPS,
+    "name its own sizing system and point at the other one on the same brand",
+  );
 
   // categoryMatch is a plain SUBSTRING test (deliberately — "long sleeve
   // tee".includes("tee") is intended), which makes a careless token dangerous:

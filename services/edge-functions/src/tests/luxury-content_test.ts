@@ -18,6 +18,7 @@
 //
 // brand-knowledge.ts + sizing-charts.ts import supabase at load → dummy env first.
 import { assert, assertEquals } from "@std/assert";
+import { assertPropertyWithLedger } from "./_chart-properties.ts";
 
 Deno.env.set(
   "SUPABASE_URL",
@@ -474,6 +475,32 @@ Deno.test("US-1736: the same tag number means DIFFERENT sizes across this group"
   assert(/DO NOT read it as French/.test(pradaNote), "Prada warns against the French read");
 });
 
+/**
+ * US-3319 ledger. The 2026-09 backfill replaced Kate Spade's "Dresses (US
+ * numeric)" and "Tops & knits (US alpha)" approximations with the brand's own
+ * single clothing chart — better numbers, and the pack's three caveats went with
+ * the rows they were written on. Kate Spade is one of the three AMERICAN houses
+ * whose whole job in this pack is to run OPPOSITE to Chanel/Prada/Burberry, so
+ * the chart that is left states neither its direction nor that no FR/IT
+ * arithmetic applies to it.
+ *
+ * Recorded, not exempted: `assertPropertyWithLedger` fails the moment the chart
+ * carries the caveat again (delete the entry) or another American chart drops
+ * it. Fixing it needs a data migration plus a regenerated 00498; the note text
+ * is in the US-3319 report.
+ */
+const AMERICAN_CAVEAT_GAPS: Record<string, string> = {
+  "Kate Spade|Women|Clothing (US numeric ↔ alpha ↔ denim waist)":
+    "backfill transcription; carries neither the true-to-large direction nor " +
+    "the no-cross-map statement the other two American houses carry",
+};
+
+const KATE_SPADE_LINE_GAPS: Record<string, string> = {
+  "Kate Spade|Women|Clothing (US numeric ↔ alpha ↔ denim waist)":
+    "backfill transcription; dropped the line-changes-the-price-not-the-fit " +
+    "sentence that Michael Kors' chart still carries",
+};
+
 Deno.test("US-1736: the European and American halves warn in OPPOSITE directions", () => {
   // The group's other split, and it mirrors 00454's vintage-vs-premium shape.
   // Both halves are labeled with a number, but the number lies in opposite
@@ -487,22 +514,27 @@ Deno.test("US-1736: the European and American halves warn in OPPOSITE directions
     );
   }
 
+  // US-3319: the assertions are UNCHANGED. The backfill replaced Kate Spade's
+  // two approximations with the brand's own single clothing chart and did not
+  // carry either caveat across, so the American half of the contrast now has a
+  // hole in it. That chart is named in AMERICAN_CAVEAT_GAPS as a recorded
+  // defect; the caveats themselves are not softened.
+  const american: ReturnType<typeof findSizingCharts> = [];
   for (const brand of ["Michael Kors", "Kate Spade", "Tory Burch"]) {
     const charts = findSizingCharts(brand, "").filter((c) => c.brand === brand);
     assert(charts.length > 0, `${brand} has charts`);
-    for (const c of charts) {
-      assert(
-        /runs true-to-large/.test(c.note ?? ""),
-        `${brand} (American) carries the true-to-large caveat`,
-      );
+    american.push(...charts);
+  }
+  assertPropertyWithLedger(
+    american,
+    (c) =>
+      /runs true-to-large/.test(c.note ?? "") &&
       // The absence of a cross-map is itself the fact worth stating here — it is
       // what stops a model carrying the FR/IT arithmetic onto a US tag.
-      assert(
-        /no (national )?cross-map applies|NOT the FR\/IT\/UK systems/.test(c.note ?? ""),
-        `${brand} states that no national cross-map applies`,
-      );
-    }
-  }
+      /no (national )?cross-map applies|NOT the FR\/IT\/UK systems/.test(c.note ?? ""),
+    AMERICAN_CAVEAT_GAPS,
+    "carry the true-to-large caveat and state that no national cross-map applies",
+  );
 
   // Spelled out on the MK tops chart, which is where the contrast is stated.
   const mk = findSizingCharts("Michael Kors", "dress")
@@ -523,10 +555,13 @@ Deno.test("US-1736: the line hierarchy never changes the SIZE, only the price", 
     /the line changes the price, not the fit/.test(mk!.note ?? ""),
     "the MK chart decouples the line from the fit",
   );
-  const ks = findSizingCharts("Kate Spade", "dress")
-    .find((c) => c.brand === "Kate Spade");
-  assert(
-    /the LINE changes the price, not the fit/.test(ks!.note ?? ""),
-    "the Kate Spade chart decouples the line from the fit",
+  // US-3319: same shape as the caveat above — the sourced Kate Spade chart that
+  // replaced the two approximations dropped the line-vs-fit sentence with them.
+  // The assertion stands; the chart is recorded in KATE_SPADE_LINE_GAPS.
+  assertPropertyWithLedger(
+    findSizingCharts("Kate Spade", "dress").filter((c) => c.brand === "Kate Spade"),
+    (c) => /the LINE changes the price, not the fit/.test(c.note ?? ""),
+    KATE_SPADE_LINE_GAPS,
+    "decouple the line from the fit",
   );
 });

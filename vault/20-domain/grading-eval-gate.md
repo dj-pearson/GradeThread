@@ -7,7 +7,7 @@ code_refs:
   - services/edge-functions/src/lib/grading-eval.ts
   - services/edge-functions/src/lib/grading-monitor.ts
   - services/edge-functions/src/tests/grading-eval-gate_test.ts
-reviewed: 2026-08-15
+reviewed: 2026-09-10
 tags: [grading, eval, ci, accuracy]
 summary: The golden-set eval gates prompt ACTIVATION, not the build, and cannot gate a PR because every run spends real vision calls on a set that must not be synthetic.
 ---
@@ -82,6 +82,17 @@ to check": with no cases the eval never runs, `eval_passed` stays null rather
 than false, and no other rule in `evaluateAlerts` fires. US-2301 AC4 made an
 empty set a hard failure for that reason. As of the last check the production
 set was unverified — that is AC1, and it is an operator read.
+
+**Prod read, 2026-09-10 (owner, §15 of `scripts/prod-diagnostics-console.sql`):**
+`ai_prompt_versions` holds four rows (`per_image_v2`, `composite_v2`,
+`listing_gen_v1`, `listing_gen_v2`), **none active, none with `eval_passed`**. So
+the code defaults `per_image_v5` and `composite_v4` serve every grade with no row
+and no eval behind them. The golden-set count from the same section was not
+reported; nothing has ever inserted a case, so expect zero.
+
+A corrected grade is only useful here if its AI score survived the correction.
+Until US-3323 the accuracy readers compared the reviewer's score with itself; see
+[[review-accuracy-baseline]] for which number is the AI's.
 
 Related: [[grading-prompt-channels]] for how a prompt reaches live traffic,
 [[grading-scale-and-weights]] for what the number means.

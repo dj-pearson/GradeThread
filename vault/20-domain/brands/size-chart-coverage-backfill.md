@@ -82,6 +82,14 @@ until the previous one lands. For each brand in the batch:
    brand's name is the one thing it must never do.
 5. Do NOT convert a size label from one brand into another's, ever. See
    [[brand-kb-sizing-units]].
+6. CARRY THE PACK'S CAVEATS ONTO THE NEW CHART. A transcription is a chart the
+   seller may be handed ALONE: once a brand has a bottoms chart, a bottoms
+   lookup stops returning the tops chart, and any warning that lived only there
+   stops being delivered. Measured on 2026-09-10 across the basics/mall group:
+   44 of 168 brand-plus-category lookups delivered no "measure the garment"
+   instruction, and 8 of Tommy Hilfiger's 14 delivered no era caveat, all of it
+   introduced by batches that were otherwise correct. See
+   [[size-chart-guard-properties]] for the ledger of what is still missing.
 
 Then, once for the batch:
 
@@ -662,4 +670,4 @@ grade it does not have.
 fallback's, which is what every client compiles in.
 
 Related: [[brand-taxonomy-overview]], [[size-system-conversions]],
-[[measurement-accuracy]].
+[[measurement-accuracy]], [[size-chart-guard-properties]].

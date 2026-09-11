@@ -18,6 +18,7 @@
 //
 // brand-knowledge.ts + sizing-charts.ts import supabase at load → dummy env first.
 import { assert, assertEquals } from "@std/assert";
+import { assertPropertyWithLedger } from "./_chart-properties.ts";
 
 Deno.env.set(
   "SUPABASE_URL",
@@ -445,18 +446,48 @@ Deno.test("US-1737: the same alpha letter means OPPOSITE things across this grou
   );
 });
 
+/**
+ * US-3319 ledgers for the streetwear pack. Recorded defects from the 2026-09
+ * backfill, not exemptions — see `assertPropertyWithLedger`, which fails in both
+ * directions so the lists can only shrink.
+ */
+const BAPE_JP_GAPS: Record<string, string> = {
+  "BAPE|Men|Bottoms (alpha, body waist + hip)":
+    "backfill transcription. Its note ARGUES the warning does not transfer " +
+    "because the table is already stated against a body; the labels are still " +
+    "bare alpha, which is the condition the warning exists for",
+  "BAPE|Women|Clothing (2XS-M, body)":
+    "backfill transcription; bare alpha labels, no JP statement, no direction",
+  "BAPE|Kids|Kids (JAPANESE height-cm sizing 70-160)":
+    "names JAPANESE in the garment scope but not in the note, and a height-cm " +
+    "run arguably has no runs-small direction at all",
+};
+
+const STREETWEAR_MEASURE_GAPS: Record<string, string> = {
+  "BAPE|Men|Bottoms (alpha, body waist + hip)": "backfill transcription; never says to measure",
+  "BAPE|Women|Clothing (2XS-M, body)": "backfill transcription; never says to measure",
+  "BAPE|Kids|Kids (JAPANESE height-cm sizing 70-160)": "backfill transcription; never says to measure",
+  "Palace|Men|Bottoms (FLAT garment specs, numeric waist tag)":
+    "backfill transcription; never says to measure",
+};
+
 Deno.test("US-1737: the Japanese and oversized halves warn in OPPOSITE directions", () => {
   // Mirrors 00454's vintage-vs-premium and 00455's European-vs-American splits:
   // one blanket "streetwear runs X" rule would be wrong for half the pack.
   const bape = findSizingCharts("BAPE", "").filter((c) => c.brand === "BAPE");
   assert(bape.length > 0, "BAPE has charts");
-  for (const c of bape) {
-    assert(
-      /JAPANESE sizing/.test(c.note ?? ""),
-      `BAPE ${c.garment} names its national system`,
-    );
-    assert(/runs SMALL/.test(c.note ?? ""), `BAPE ${c.garment} says it runs small`);
-  }
+  // US-3319: assertions unchanged. BAPE went from one chart to four when its
+  // guide turned out to be fetchable after all, and the three new tables do not
+  // repeat the JP / runs-small warning. One of them argues explicitly that it
+  // should not ("the JP-runs-small warning on BAPE's tops chart does NOT
+  // transfer here"), which may well be right — but that is a decision for the
+  // owner of the content, not something a guard should quietly assume.
+  assertPropertyWithLedger(
+    bape,
+    (c) => /JAPANESE sizing/.test(c.note ?? "") && /runs SMALL/.test(c.note ?? ""),
+    BAPE_JP_GAPS,
+    "name the Japanese system and say it runs small",
+  );
 
   const ess = findSizingCharts("Fear of God Essentials", "")
     .filter((c) => c.brand === "Fear of God Essentials");
@@ -492,16 +523,20 @@ Deno.test("US-1737: the Japanese and oversized halves warn in OPPOSITE direction
 Deno.test("US-1737: every chart tells the seller to measure, and says the season is not the fit", () => {
   // The only defensible number on a used garment.
   const brands = ["Supreme", "Stüssy", "BAPE", "Kith", "Palace", "Fear of God Essentials"];
+  const all: ReturnType<typeof findSizingCharts> = [];
   for (const brand of brands) {
     const charts = findSizingCharts(brand, "").filter((c) => c.brand === brand);
     assert(charts.length > 0, `${brand} has charts`);
-    for (const c of charts) {
-      assert(
-        /Measure the (garment|flat waistband)/i.test(c.note ?? ""),
-        `${brand} ${c.garment} note tells the seller to measure`,
-      );
-    }
+    all.push(...charts);
   }
+  // US-3319: assertion unchanged; the four backfill charts that never say to
+  // measure are named in STREETWEAR_MEASURE_GAPS.
+  assertPropertyWithLedger(
+    all,
+    (c) => /Measure the (garment|flat waistband)/i.test(c.note ?? ""),
+    STREETWEAR_MEASURE_GAPS,
+    "tell the seller to measure",
+  );
 
   // A real and easy inference error, and the mirror of 00455's line-vs-fit trap:
   // the SEASON is the biggest fact on this group, so a model can over-apply it

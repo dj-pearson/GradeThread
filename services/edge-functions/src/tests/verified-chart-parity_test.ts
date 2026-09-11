@@ -135,12 +135,62 @@ function splitValues(row: string): string[] {
   return out;
 }
 
+/**
+ * Every (brand_key, department, garment) tuple a migration DELETES.
+ *
+ * US-3319. This guard used to read INSERTs only, and it was right until
+ * 2026-09-10: the whole corpus was insert-only, so "what the migrations seed"
+ * and "what prod holds" were the same set. 00782 broke that. It deletes the 14
+ * pre-backfill approximations whose garment scope a sourced chart replaced,
+ * including the shared `thenorthfacepatagoniaouterwear` row, and this test then
+ * reported that row as a verified chart with no code counterpart — a chart that
+ * the same migration series had already removed from the database.
+ *
+ * A guard that models the DB from half the statements does not model the DB.
+ * The delete form it reads is the one 00782 uses, `delete … using (values …)`,
+ * which is also the only form anything in this repo uses for this table.
+ */
+const DELETED = new Set<string>();
+const DELETE_FILES: string[] = [];
+
+function readDeletedCharts(sql: string): string[] {
+  const out: string[] = [];
+  const deletes = sql.matchAll(
+    /delete\s+from\s+public\.brand_size_charts\b[\s\S]*?using\s*\(\s*values\s*([\s\S]*?)\)\s*as\s+v\s*\(([^)]*)\)/gi,
+  );
+  for (const del of deletes) {
+    const columns = del[2]!.split(",").map((c) => c.trim().toLowerCase());
+    for (const row of splitValues(del[1]!)) {
+      const trimmed = row.trim();
+      if (!trimmed.startsWith("(") || !trimmed.endsWith(")")) continue;
+      const values = splitValues(trimmed.slice(1, -1));
+      if (values.length !== columns.length) continue;
+      const at = (name: string): string | undefined => {
+        const i = columns.indexOf(name);
+        return i === -1 ? undefined : values[i];
+      };
+      const key = at("brand_key");
+      const department = at("department");
+      const garment = at("garment");
+      if (!key || !department || !garment) continue;
+      out.push(
+        `${unquote(key)}|${unquote(department)}|${unquote(garment)}`.toLowerCase(),
+      );
+    }
+  }
+  return out;
+}
+
 /** Every brand_size_charts row every migration seeds. */
 async function readSeededCharts(): Promise<SeededChart[]> {
   const out: SeededChart[] = [];
   for await (const entry of Deno.readDir(MIGRATIONS_DIR)) {
     if (!entry.isFile || !entry.name.endsWith(".sql")) continue;
     const sql = await Deno.readTextFile(new URL(entry.name, MIGRATIONS_DIR));
+    if (/delete\s+from\s+public\.brand_size_charts\b/i.test(sql)) {
+      DELETE_FILES.push(entry.name);
+      for (const id of readDeletedCharts(sql)) DELETED.add(id);
+    }
     const inserts = sql.matchAll(
       /insert\s+into\s+public\.brand_size_charts\s*\(([^)]*)\)\s*values\s*([\s\S]*?)\n\s*on\s+conflict/gi,
     );
@@ -196,6 +246,16 @@ Deno.test("the parser found the corpus (guards the guard)", () => {
       `and every assertion below is now vacuous`,
   );
   assert(codeCharts.size > 100, `only ${codeCharts.size} in-code charts`);
+  // US-3319: the same failure mode, one statement kind later. A migration that
+  // deletes brand_size_charts rows and yields no parsed tuples means the delete
+  // parser has gone blind, and a blind delete parser makes the orphan check
+  // below silently over-report rather than silently pass. Fail on the file, not
+  // on a remembered count.
+  assert(
+    DELETE_FILES.length === 0 || DELETED.size > 0,
+    `${DELETE_FILES.join(", ")} delete(s) from brand_size_charts but the delete ` +
+      `parser extracted no tuples — it no longer matches the SQL being written`,
+  );
 });
 
 Deno.test("every VERIFIED seeded chart has a code counterpart or is declared DB-only", () => {
@@ -203,7 +263,9 @@ Deno.test("every VERIFIED seeded chart has a code counterpart or is declared DB-
     .filter((c) => c.verified)
     .filter((c) => {
       const id = `${c.brandKey}|${c.department}|${c.garment}`.toLowerCase();
-      return !codeCharts.has(id) && !DB_ONLY[id];
+      // A row a later migration DELETES is not in the database, so it cannot be
+      // served by a fallback read and is not an orphan. See readDeletedCharts.
+      return !codeCharts.has(id) && !DB_ONLY[id] && !DELETED.has(id);
     })
     .map((c) => `${c.brandKey} / ${c.department} / ${c.garment} (${c.migration})`);
 

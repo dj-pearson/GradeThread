@@ -1,4 +1,4 @@
-import { assertEquals } from "@std/assert";
+import { assert, assertEquals } from "@std/assert";
 import {
   resolveShoeSizeScale,
   resolveShoeSizeScaleForItem,
@@ -6,7 +6,7 @@ import {
   SHOE_SIZE_SCALES,
   statedShoeSizeScale,
 } from "../lib/shoe-size-scale.ts";
-import { SIZING_CHARTS } from "../lib/sizing-charts.ts";
+import { findSizingCharts, SIZING_CHARTS } from "../lib/sizing-charts.ts";
 import {
   inferDepartment,
   resolveDepartment,
@@ -73,42 +73,67 @@ Deno.test("US-2796: an apparel chart never answers a shoe's scale", () => {
   // the function refuses one step later whether the footwear filter is there or
   // not. Deleting the filter left every assertion above green.
   //
-  // These six brands are the ones where the filter is actually load-bearing:
-  // each has an apparel chart written in a system detectSizeSystem DOES read,
-  // and none of them has a footwear chart. Without the filter, a Zara shoe
-  // would be told its stamped number is EU because Zara's dress chart is.
-  const wouldAnswer: Array<[string, string]> = [
-    ["Zara", "EU"],
-    ["H&M", "EU"],
-    ["BAPE", "JP"],
-    ["Sweaty Betty", "UK"],
-    ["Tory Burch", "US"],
-    ["Reformation", "US"],
-  ];
+  // US-3319 REPLACED A NAMED WITNESS LIST WITH A DERIVED ONE, and this is the
+  // reason the story was written.
+  //
+  // The old form named six brands and asserted each still read as a specific
+  // system: Zara EU, H&M EU, BAPE JP, Sweaty Betty UK, Tory Burch US,
+  // Reformation US. The 2026-09 backfill gave BAPE four charts where it had one,
+  // and the new bottoms, women's and kids tables do not announce JP the way the
+  // tops table does, so `detectSizeSystem` now returns JP for one and null for
+  // the others. The case went red — and the thing it guards, that no apparel
+  // chart ever answers a shoe's scale, was never in any danger.
+  //
+  // That is the shape worth naming: a witness that drifts does not fail
+  // honestly. Had BAPE drifted the other way, into having a footwear chart, the
+  // case would have gone GREEN while testing nothing, because a brand with a
+  // footwear chart is a real answer rather than a trap.
+  //
+  // So the traps are now COMPUTED from the corpus: every brand whose charts are
+  // all apparel and all read as one non-null system is a brand that would be
+  // answered if the footwear filter were dropped. If BAPE leaves the set, the
+  // set is still populated and the case still tests the filter. If the set
+  // empties, or collapses onto one system, the guard says so instead of passing.
   const FOOT = /shoe|boot|sneaker|footwear|sandal|heel|loafer|clog/i;
+  const isFoot = (c: { garment: string; categoryMatch: string[] }) =>
+    FOOT.test(c.garment) || c.categoryMatch.some((m) => FOOT.test(m));
 
-  for (const [brand, system] of wouldAnswer) {
-    const charts = SIZING_CHARTS.filter((c) =>
-      c.brandMatch.some((m) => brand.toLowerCase().includes(m)),
-    );
-    // Guards the guard, twice over: the brand must still HAVE charts, they must
-    // still be readable as a system, and none may be footwear. If any of those
-    // stops holding, this case is no longer testing the filter and says so
-    // rather than passing quietly.
-    assertEquals(charts.length > 0, true, `${brand} has no charts at all any more`);
-    assertEquals(
-      charts.filter((c) => FOOT.test(c.garment) || c.categoryMatch.some((m) => FOOT.test(m))),
-      [],
-      `${brand} now has a footwear chart, so it is a real answer rather than a trap`,
-    );
+  const byBrand = new Map<string, typeof SIZING_CHARTS>();
+  for (const c of SIZING_CHARTS) {
+    if (c.brandMatch.length === 0) continue; // generic charts answer for nobody
+    const list = byBrand.get(c.brand) ?? [];
+    list.push(c);
+    byBrand.set(c.brand, list);
+  }
+
+  const traps: Array<[string, string]> = [];
+  for (const [brand, charts] of byBrand) {
+    if (charts.some(isFoot)) continue;
     const systems = new Set(charts.map((c) => detectSizeSystem(c)));
-    assertEquals(
-      [...systems],
-      [system],
-      `${brand}'s apparel charts no longer read as ${system}, so dropping the ` +
-        `footwear filter would no longer be caught by this brand`,
-    );
+    if (systems.size !== 1) continue;
+    const system = [...systems][0];
+    if (system === null || system === undefined) continue;
+    // The probe has to go through the same lookup the function uses, or the
+    // brand is in the list without being reachable by it.
+    if (!findSizingCharts(brand, "").some((c) => c.brand === brand)) continue;
+    traps.push([brand, system]);
+  }
 
+  // Guards the guard. An empty or one-system list reads exactly like a clean
+  // pass, so say it out loud rather than iterating over nothing.
+  assert(
+    traps.length >= 5,
+    `only ${traps.length} apparel-only single-system brands in the corpus — ` +
+      `this case can no longer demonstrate the footwear filter`,
+  );
+  assert(
+    new Set(traps.map(([, s]) => s)).size >= 2,
+    `every trap brand reads as the same system (${
+      traps.map(([b, s]) => `${b}=${s}`).join(", ")
+    }) — one system's quirk could carry the whole case`,
+  );
+
+  for (const [brand] of traps) {
     for (const dep of ["Men", "Women", null]) {
       assertEquals(
         resolveShoeSizeScale(brand, dep),

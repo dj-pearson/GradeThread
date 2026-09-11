@@ -292,12 +292,31 @@ Deno.test("US-1989: every brand's charts are reachable, incl. the boot vs appare
     /NEVER A BARE 'duluth'/i.test(duluth.note ?? ""),
     "the Duluth chart's note must state the bare-token refusal",
   );
+  //
+  // ⚠ THIS IS RED ON PURPOSE AND IT IS NOT BACKLOG — US-3319, 2026-09-10.
+  //
+  // Triaged with the other seventeen size-chart guards the 2026-09 backfill
+  // broke. Sixteen of those were guards whose witness had moved. THIS ONE IS A
+  // REAL DEFECT, and the guard is reporting it correctly.
+  //
+  // The backfill's "Tops & outerwear (body inches)" chart was seeded with
+  // brandMatch ARRAY['duluth trading','duluthtrading','duluth'] — the bare token
+  // the pants chart deliberately refuses and says so in its own note. brandMatch
+  // is a word-boundary SUBSTRING test, so a "Duluth Pack" garment (a different
+  // company, est. 1882) now resolves Duluth Trading's body chart. It is in
+  // production: 00781 line 137 and 00498 line 431 both carry the bare token.
+  //
+  // NOT FIXED HERE because the fix is a data change — one UPDATE on
+  // brand_size_charts plus the same edit in sizing-charts.ts and a regenerated
+  // 00498 — and US-3319 was scoped away from migrations. The SQL is in the
+  // US-3319 report. Do NOT silence this by relaxing the assertion.
   assertEquals(
     findSizingCharts("Duluth", "pant").filter((c) =>
       c.brandMatch.includes("duluth trading")
-    ).length,
-    0,
-    "a bare 'Duluth' brand string must not reach the Duluth Trading chart",
+    ).map((c) => `${c.department}|${c.garment}`),
+    [],
+    "a bare 'Duluth' brand string must not reach the Duluth Trading chart — " +
+      "see US-3319; this is a live defect, not a stale guard",
   );
 
   // ⚠ DICKIES: the 874 fit family shares the size grid — the note must say the
