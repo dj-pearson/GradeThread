@@ -16,7 +16,7 @@ import {
   Ungroup,
 } from "lucide-react";
 import { toast } from "sonner";
-import { toastError, toastWarning } from "@/lib/toast-error";
+import { toastError } from "@/lib/toast-error";
 import { edgeFetch } from "@/lib/edge-fetch";
 import { useTagOcrWiring } from "./autolister/tag-ocr";
 import { useGooglePhotosImport } from "@/hooks/use-google-photos-import";
@@ -130,10 +130,10 @@ import {
 } from "@/lib/constants";
 import {
   buildGroupWarnings,
-  groupPhotoType,
   COVER_QA_REVIEW_THRESHOLD,
   type GroupWarning,
 } from "@/pages/flipdesk/autolister/group-warnings";
+import { persistGroupsAsItems } from "./autolister/persist-groups-as-items";
 import {
   GenerateConfirmDialog,
   ProposeConfirmDialog,
@@ -196,12 +196,8 @@ import { FilterEmpty } from "@/components/flipdesk/filter-empty";
 // AI passes, and public surfaces; it sorts last and is never sent to the
 // classify/verify vision calls from here either.
 type PhotoRole = (typeof FLIPDESK_PHOTO_TYPES)[number];
-// Canonical gallery rank — FLIPDESK_PHOTO_TYPES order IS the sort order
-// (front → back → tag → detail → measurements → defect → extras → universal
-// → internal), the same rank photo-order.ts derives everywhere else.
-const ROLE_ORDER: Record<PhotoRole, number> = Object.fromEntries(
-  FLIPDESK_PHOTO_TYPES.map((t, i) => [t, i]),
-) as Record<PhotoRole, number>;
+// The canonical gallery rank moved to autolister/persist-groups-as-items.ts
+// with the write that was its only reader (US-3381).
 // The roles the classify vision call is allowed to (re)assign. Any role
 // OUTSIDE this set was necessarily hand-picked by the seller (measurement,
 // interior, internal, …) — the AI never emits those, so an AI re-tag must not
@@ -2287,102 +2283,10 @@ export function FlipdeskAutolisterPage() {
     }
     setBusy(true);
     try {
-      const itemIds: string[] = [];
-      for (const g of targets) {
-        const photos = g.photoIds
-          .map((pid) => stagedById.get(pid))
-          .filter((p): p is StagedPhoto => !!p);
-        if (photos.length === 0) continue;
-
-        // US-533: cover first (front), then the rest in the canonical
-        // photo-type order (back → tag → detail → measurements → defect →
-        // extras; internal last). photo_type carries the assigned role so the
-        // eBay gallery is well-ordered and labeled, not all "detail".
-        // US-1543: once the seller hand-placed photos (drag-reorder /
-        // positional drop), THEIR order wins — it becomes sort_order verbatim
-        // (cover still first; roles still label each photo).
-        // US-2769: retyping the cover has to reach what ships, not just the UI.
-        const roleOf = (p: StagedPhoto): PhotoRole => groupPhotoType(g, p.id);
-        // US-2461: the qualifier rides alongside the type. The cover is a
-        // `front`, which takes none.
-        // Same for the qualifier: a cover retyped "brand label" keeps it.
-        const qualifierOf = (p: StagedPhoto): string | null =>
-          g.photoRoles?.[p.id] ?? null;
-        const ordered = [...photos].sort((a, b) => {
-          if (a.id === g.coverId) return -1;
-          if (b.id === g.coverId) return 1;
-          return g.manualOrder
-            ? g.photoIds.indexOf(a.id) - g.photoIds.indexOf(b.id)
-            : ROLE_ORDER[roleOf(a)] - ROLE_ORDER[roleOf(b)];
-        });
-
-        // SKU binding: if the seller gave a SKU that already exists in their
-        // inventory, attach the photos to THAT item (the SKU is unique per user,
-        // so a new insert would fail anyway) and keep its sheet-imported fields
-        // for field-by-field reconciliation against the AI draft. Otherwise
-        // create a fresh item, stamping the SKU when provided.
-        const sku = g.sku?.trim() || "";
-        let itemId: string;
-        let existingId: string | null = null;
-        if (sku) {
-          const { data: existing } = await supabase
-            .from("inventory_items")
-            .select("id")
-            .eq("user_id", ownerId)
-            .eq("sku", sku)
-            .maybeSingle();
-          existingId = (existing as { id: string } | null)?.id ?? null;
-        }
-        if (existingId) {
-          itemId = existingId;
-          const { error: statusErr } = await supabase
-            .from("inventory_items")
-            .update({ status: "photographed" } as never)
-            .eq("id", itemId);
-          if (statusErr) toastWarning(statusErr, "Photos attached, but the item didn't move to Photographed.", { action: "advance item status" }); // US-3376: dropped, this stranded the item in its old pipeline tab.
-        } else {
-          const { data: item, error: itemErr } = await supabase
-            .from("inventory_items")
-            .insert({
-              user_id: ownerId,
-              title: g.name.trim() || "AutoLister item",
-              sku: sku || null,
-              status: "photographed",
-            } as never)
-            .select("id")
-            .single();
-          if (itemErr || !item) throw itemErr ?? new Error("Item create failed");
-          itemId = (item as { id: string }).id;
-        }
-
-        const photoRows = ordered.map((p, idx) => ({
-          inventory_item_id: itemId,
-          photo_url: p.url,
-          storage_path: p.storagePath,
-          thumbnail_url: p.thumbnailUrl,
-          thumbnail_storage_path: p.thumbnailStoragePath,
-          photo_type: roleOf(p),
-          photo_role: qualifierOf(p),
-          sort_order: idx,
-          width: p.width,
-          height: p.height,
-          bytes: p.bytes,
-          // US-1539: photo provenance — the client-read EXIF capture time and
-          // the source file's name, persisted as scalars (the stored image
-          // bytes stay metadata-stripped) so grouping is reconstructable and
-          // filename-sequence grouping survives beyond this session.
-          // stagedSortName also recovers the name from sourceSig for photos
-          // staged before sourceName existed.
-          captured_at: p.capturedAtMs != null ? new Date(p.capturedAtMs).toISOString() : null,
-          original_filename: stagedSortName(p),
-        }));
-        const { error: photoErr } = await supabase
-          .from("item_photos")
-          .insert(photoRows as never);
-        if (photoErr) throw photoErr;
-
-        itemIds.push(itemId);
-      }
+      // US-3381: the group -> items + photos write moved to
+      // autolister/persist-groups-as-items.ts so the SKU lookup inside it
+      // could gain its error check; this file is at its ceiling exactly.
+      const itemIds = await persistGroupsAsItems({ ownerId, targets, stagedById });
 
       if (itemIds.length === 0) {
         toast.error("Add photos to at least one group.");

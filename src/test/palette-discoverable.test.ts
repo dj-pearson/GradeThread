@@ -82,6 +82,20 @@ describe("the palette says what it can do before you type (US-2863)", () => {
   it("hides them when search is down", () => {
     // US-2517's rule: an outage never poses as an empty result. Teaching the
     // user how to search, while search is broken, is the same mistake.
-    expect(palette).toMatch(/\{!deepFailed && \([\s\S]{0,400}PALETTE_EXAMPLES\.map/);
+    //
+    // US-3381 added a SECOND outage flag (the submissions read), so this
+    // stopped asserting the literal one-flag expression and started
+    // asserting the property: every flag the palette tracks has to gate the
+    // examples. A hardcoded one-flag regex would have gone red for the right
+    // reason and been "fixed" by widening it.
+    const at = palette.indexOf("PALETTE_EXAMPLES.map");
+    expect(at, "the examples are not rendered at all").toBeGreaterThan(-1);
+    const gate = palette.slice(Math.max(0, at - 200), at);
+    for (const flag of ["deepFailed", "subsFailed"]) {
+      expect(
+        gate.includes(`!${flag}`),
+        `the examples are not gated on ${flag}: an outage still gets a tutorial`,
+      ).toBe(true);
+    }
   });
 });

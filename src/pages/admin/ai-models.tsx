@@ -786,12 +786,20 @@ export function AdminAiModelsPage() {
         reportMap.set(r.id, r);
       }
 
-      // Fetch submissions for garment info
+      // Fetch submissions for garment info.
+      // US-3381: the catch around this handler was DEAD for this read. A
+      // PostgrestFilterBuilder RESOLVES with { data: null, error } on a 400 or
+      // an RLS refusal, so a refused read left submissionMap empty, every line
+      // of the JSONL got garment_type "unknown" / garment_category "unknown",
+      // and the file downloaded under a green "Training data exported" toast.
+      // A fine-tuning set silently stripped of its garment labels is worse than
+      // no export, so this throws into the catch below and says so.
       const submissionIds = [...new Set(allReports.map((r) => r.submission_id))];
-      const { data: submissions } = await supabase
+      const { data: submissions, error: submissionsErr } = await supabase
         .from("submissions")
         .select("id, garment_type, garment_category")
         .in("id", submissionIds);
+      if (submissionsErr) throw submissionsErr;
 
       const submissionMap = new Map<string, { garment_type: string; garment_category: string }>();
       for (const sub of (submissions ?? []) as { id: string; garment_type: string; garment_category: string }[]) {

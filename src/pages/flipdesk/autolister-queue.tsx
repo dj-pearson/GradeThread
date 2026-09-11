@@ -1,10 +1,7 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router";
 import { BatchNav } from "./autolister/batch-nav";
-import {
-  PublishConfirmDialog,
-  type PreflightItem,
-} from "./autolister/queue-cells";
+import { PublishConfirmDialog } from "./autolister/queue-cells";
 // US-3309: the rows are a table now, in their own module.
 import { QueueTable, type QueueTier } from "./autolister/queue-table";
 import {
@@ -15,6 +12,8 @@ import {
 import { useAutolisterItemMeta } from "./autolister/use-item-meta";
 import { useAutolisterListingReview } from "./autolister/use-listing-review";
 import { ITEM_COVERS_KEY, useAutolisterItemCovers } from "./autolister/use-item-covers";
+import { QueueColumnError } from "./autolister/queue-column-error";
+import { usePublishPreflight } from "./autolister/use-publish-preflight";
 import { queueRowTitle } from "./autolister/queue-row-title";
 import { useBatchFinishedToast } from "./autolister/use-batch-finished-toast";
 import { toast } from "sonner";
@@ -32,9 +31,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { supabase } from "@/lib/supabase";
-import { edgeFetch } from "@/lib/edge-fetch";
-import { runWithConcurrency } from "@/lib/concurrency";
 import { useQueryClient } from "@tanstack/react-query";
 import {
   Dialog,
@@ -62,20 +58,6 @@ import { FilterEmpty } from "@/components/flipdesk/filter-empty";
 // shows per-item status, links completed drafts to the editor, and lets the
 // user re-run only the failed items.
 
-// US-1559: minimum spacing between /listings/validate request STARTS. The edge
-// rate-limits /ebay/listings/* at 30/min; ~24 starts/min leaves headroom for
-// the user's own clicks. Shared (via a ref) by the background pre-flight wave
-// and the publish dialog so they can't stack into a 429 storm together.
-const VALIDATE_SPACING_MS = 2500;
-async function acquireValidateSlot(slotRef: { current: number }): Promise<void> {
-  const now = Date.now();
-  const startAt = Math.max(now, slotRef.current);
-  slotRef.current = startAt + VALIDATE_SPACING_MS;
-  if (startAt > now) {
-    await new Promise((resolve) => setTimeout(resolve, startAt - now));
-  }
-}
-
 const RUNNING_SUBTITLE =
   "AI is generating your listings — this page updates automatically.";
 
@@ -89,28 +71,6 @@ export function FlipdeskAutolisterQueuePage() {
   const bulkPublish = useBulkPublish();
   const { data: ebayConnection } = useEbayConnection();
 
-  // US-321 confirmation dialog state.
-  const [publishDialogOpen, setPublishDialogOpen] = useState(false);
-  const [preflight, setPreflight] = useState<PreflightItem[]>([]);
-  const [preflightLoading, setPreflightLoading] = useState(false);
-  // US-954: background pre-flight cache keyed by inventory_item_id. Each
-  // succeeded draft is validated against eBay as it lands, so a per-row
-  // ready / will-block badge shows before the seller opens the publish dialog —
-  // and the dialog reuses these results instead of re-validating from scratch.
-  const [preflightByItem, setPreflightByItem] = useState<
-    Record<string, { blockers: string[]; loaded: boolean }>
-  >({});
-  // itemIds already validated or in-flight, so the polling effect never
-  // re-fires a validate for the same draft.
-  const preflightSeenRef = useRef<Set<string>>(new Set());
-  // US-1559: global pacing for the pre-flight wave. The edge rate-limits
-  // /ebay/listings/* at 30/min; a 44-draft batch validated at concurrency 4
-  // with no spacing blew straight through it (a sustained 429 storm, because
-  // every 429 re-armed the id and the next poll re-fired it). validateSlotRef
-  // spaces request STARTS globally (across overlapping effect runs), and
-  // preflightCooldownRef pauses the whole wave after any 429.
-  const validateSlotRef = useRef(0);
-  const preflightCooldownRef = useRef(0);
   // US-554: queue filter/sort + multi-select.
   const [queueFilter, setQueueFilter] = useState<"all" | "ready" | "review" | "failed">("all");
   const [queueSort, setQueueSort] = useState<"confidence" | "price" | "status">("confidence");
@@ -131,8 +91,13 @@ export function FlipdeskAutolisterQueuePage() {
   // meta map when the batch's id set changes without changing size.
   const itemIdsKey = useMemo(() => [...itemIds].sort().join(","), [itemIds]);
 
-  const { data: itemMeta = {} } = useAutolisterItemMeta(batchId, itemIds, itemIdsKey);
-  const { data: coverByItem = {} } = useAutolisterItemCovers(batchId, itemIds, itemIdsKey);
+  // US-3381: the QUERY, not just its data. These throw on a refused read now
+  // (US-3376), and isError/refetch are what turns that into something the
+  // seller can see and act on instead of a blank column.
+  const metaQuery = useAutolisterItemMeta(batchId, itemIds, itemIdsKey);
+  const coversQuery = useAutolisterItemCovers(batchId, itemIds, itemIdsKey);
+  const itemMeta = useMemo(() => metaQuery.data ?? {}, [metaQuery.data]);
+  const coverByItem = coversQuery.data ?? {};
 
   // US-2919: does each generated draft's size agree with its own measurements?
   // Band tables are fetched once per distinct brand + garment + gender in the
@@ -175,11 +140,8 @@ export function FlipdeskAutolisterQueuePage() {
   );
   // Content key, not count — see itemIdsKey above.
   const listingIdsKey = useMemo(() => [...listingIds].sort().join(","), [listingIds]);
-  const { data: reviewByListing = {} } = useAutolisterListingReview(
-    batchId,
-    listingIds,
-    listingIdsKey,
-  );
+  const reviewQuery = useAutolisterListingReview(batchId, listingIds, listingIdsKey);
+  const reviewByListing = reviewQuery.data ?? {};
 
   // The row label: generated listing title, then item title, then position.
   // The rule and its reasons live in autolister/queue-row-title.ts.
@@ -195,68 +157,31 @@ export function FlipdeskAutolisterQueuePage() {
       ordinal: ordinalOf[id],
     });
 
+  // US-321 / US-954: the whole eBay pre-flight lives in its own hook now
+  // (US-3381). It needs titleOf, so it is called here rather than at the top.
+  const preflight = usePublishPreflight({
+    jobs,
+    ebayConnected: !!ebayConnection,
+    titleOf,
+  });
+
+  // US-3381 AC2: which per-batch columns could not be read. Named in the words
+  // the seller sees on the table, not the hook names.
+  const failedColumns: string[] = [];
+  if (metaQuery.isError) failedColumns.push("item titles and photo scores");
+  if (coversQuery.isError) failedColumns.push("thumbnails");
+  if (reviewQuery.isError) failedColumns.push("review flags and prices");
+  const retryFailedColumns = () => {
+    if (metaQuery.isError) void metaQuery.refetch();
+    if (coversQuery.isError) void coversQuery.refetch();
+    if (reviewQuery.isError) void reviewQuery.refetch();
+  };
+  const columnsRetrying =
+    (metaQuery.isError && metaQuery.isFetching) ||
+    (coversQuery.isError && coversQuery.isFetching) ||
+    (reviewQuery.isError && reviewQuery.isFetching);
+
   useBatchFinishedToast(data, batchId);
-
-  // US-954: background pre-flight. As each draft finishes generating, validate
-  // it against eBay (category, required aspects, price range, policies) with
-  // bounded concurrency so we respect eBay's rate budget. Results warm
-  // `preflightByItem`, driving the per-row badge and seeding the publish dialog.
-  // Skipped until eBay is connected (validate needs a live connection).
-  useEffect(() => {
-    if (!ebayConnection) return;
-    // US-1559: after a 429, pause the whole wave — hammering the limiter just
-    // extends the block. The publish dialog still validates on demand.
-    if (Date.now() < preflightCooldownRef.current) return;
-    const succeeded = jobs
-      .filter((j) => j.status === "success")
-      .map((j) => j.inventory_item_id);
-    const pending = succeeded.filter((id) => !preflightSeenRef.current.has(id));
-    if (pending.length === 0) return;
-    pending.forEach((id) => preflightSeenRef.current.add(id));
-
-    let cancelled = false;
-    void runWithConcurrency(pending, 2, async (itemId) => {
-      if (cancelled) return;
-      await acquireValidateSlot(validateSlotRef);
-      if (cancelled || Date.now() < preflightCooldownRef.current) {
-        preflightSeenRef.current.delete(itemId);
-        return;
-      }
-      try {
-        const res = await edgeFetch("/api/flipdesk/ebay/listings/validate", {
-          method: "POST",
-          json: { inventory_item_id: itemId },
-        });
-        if (res.status === 429) {
-          // Rate-limited: re-arm this id and cool the wave down for a minute.
-          preflightSeenRef.current.delete(itemId);
-          preflightCooldownRef.current = Date.now() + 60_000;
-          return;
-        }
-        if (!res.ok) {
-          // Server/eBay error: never cache a false "ready" — re-arm instead.
-          preflightSeenRef.current.delete(itemId);
-          return;
-        }
-        const json = await res.json().catch(() => ({}));
-        const blockers = Array.isArray(json.blockers)
-          ? (json.blockers as string[])
-          : [];
-        if (cancelled) return;
-        setPreflightByItem((prev) => ({
-          ...prev,
-          [itemId]: { blockers, loaded: true },
-        }));
-      } catch {
-        // Transient failure: don't cache a false "ready". Re-arm so a later
-        // poll re-validates, and let the publish dialog validate it on demand.
-        preflightSeenRef.current.delete(itemId);
-      }
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [jobs, ebayConnection]);
 
   if (!batchId) {
     return (
@@ -390,110 +315,13 @@ export function FlipdeskAutolisterQueuePage() {
     });
   }
 
-  // Open the confirmation dialog (US-321) and run pre-flight /listings/validate
-  // on each succeeded item in parallel. Blockers render per-row and gate the
-  // "Publish N clean" button — items with unresolved blockers are refused.
-  async function openPublishDialog(subset: AutolisterJob[] = succeededJobs) {
-    if (subset.length === 0) return;
-    // US-954: seed from the background pre-flight cache so a draft already
-    // validated in the queue doesn't re-validate from scratch.
-    const initial: PreflightItem[] = subset.map((j) => {
-      const cached = preflightByItem[j.inventory_item_id];
-      return {
-        itemId: j.inventory_item_id,
-        listingId: j.listing_id,
-        title: titleOf(j.inventory_item_id),
-        scheduledFor: null,
-        blockers: cached?.loaded ? cached.blockers : [],
-        blockersLoaded: cached?.loaded ?? false,
-      };
-    });
-    setPreflight(initial);
-    setPublishDialogOpen(true);
-    // Only the items not already cached still need a validate round-trip.
-    const needValidation = initial.filter((i) => !i.blockersLoaded);
-    setPreflightLoading(needValidation.length > 0);
-
-    try {
-      // Pull scheduled_publish_at for these drafts so the dialog flags them.
-      const itemIds = initial.map((i) => i.itemId);
-      const { data: listingRows } = await supabase
-        .from("listings")
-        .select("inventory_item_id, scheduled_publish_at")
-        .in("inventory_item_id", itemIds)
-        .eq("listing_status", "draft");
-      const scheduledByItem = new Map<string, string | null>();
-      for (const row of (listingRows ?? []) as Array<
-        { inventory_item_id: string; scheduled_publish_at: string | null }
-      >) {
-        scheduledByItem.set(row.inventory_item_id, row.scheduled_publish_at);
-      }
-      // Apply schedule info to every row (cached + uncached) immediately.
-      setPreflight((prev) =>
-        prev.map((p) => ({
-          ...p,
-          scheduledFor: scheduledByItem.get(p.itemId) ?? null,
-        })),
-      );
-
-      // Validate only the uncached items, paced under the edge rate limiter
-      // (US-1559), warming the shared cache as each completes. A failed or
-      // rate-limited validate is a BLOCKER, never a silent "clean" — and it
-      // isn't cached, so reopening the dialog re-validates it.
-      await runWithConcurrency(needValidation, 2, async (it) => {
-        await acquireValidateSlot(validateSlotRef);
-        let blockers: string[];
-        let cacheable = true;
-        try {
-          const res = await edgeFetch("/api/flipdesk/ebay/listings/validate", {
-            method: "POST",
-            json: { inventory_item_id: it.itemId },
-          });
-          if (!res.ok) {
-            cacheable = false;
-            blockers = [
-              res.status === 429
-                ? "Rate-limited while validating — wait a minute and reopen this dialog."
-                : "Validation failed — reopen this dialog to retry.",
-            ];
-          } else {
-            const json = await res.json().catch(() => ({}));
-            blockers = Array.isArray(json.blockers)
-              ? (json.blockers as string[])
-              : [];
-          }
-        } catch (err) {
-          cacheable = false;
-          blockers = [
-            err instanceof Error ? err.message : "Validation request failed.",
-          ];
-        }
-        setPreflight((prev) =>
-          prev.map((p) =>
-            p.itemId === it.itemId
-              ? { ...p, blockers, blockersLoaded: true }
-              : p,
-          ),
-        );
-        if (cacheable) {
-          setPreflightByItem((prev) => ({
-            ...prev,
-            [it.itemId]: { blockers, loaded: true },
-          }));
-        }
-      });
-    } finally {
-      setPreflightLoading(false);
-    }
-  }
-
   function confirmPublish() {
-    const publishable = preflight.filter((p) => p.blockersLoaded && p.blockers.length === 0);
+    const publishable = preflight.items.filter((p) => p.blockersLoaded && p.blockers.length === 0);
     if (publishable.length === 0) {
       toast.error("Nothing to publish — resolve the blockers first.");
       return;
     }
-    setPublishDialogOpen(false);
+    preflight.setDialogOpen(false);
     void bulkPublish.run(
       publishable.map((p) => ({ itemId: p.itemId, listingId: p.listingId })),
     );
@@ -642,7 +470,7 @@ export function FlipdeskAutolisterQueuePage() {
           {/* US-554: publish only the multi-selected rows. */}
           {selectedPublishable.length > 0 && !isRunning && (
             <Button
-              onClick={() => void openPublishDialog(selectedPublishable)}
+              onClick={() => void preflight.open(selectedPublishable)}
               disabled={bulkPublish.running || !ebayConnection}
               title="Validate and publish the selected drafts."
             >
@@ -697,7 +525,7 @@ export function FlipdeskAutolisterQueuePage() {
           {/* US-550: one-click accept of the high-confidence (green) drafts. */}
           {greenJobs.length > 0 && !isRunning && (
             <Button
-              onClick={() => void openPublishDialog(greenJobs)}
+              onClick={() => void preflight.open(greenJobs)}
               disabled={bulkPublish.running || !ebayConnection}
               className="bg-emerald-600 hover:bg-emerald-700"
               title={
@@ -717,7 +545,7 @@ export function FlipdeskAutolisterQueuePage() {
           {succeededJobs.length > 0 && !isRunning && (
             <Button
               variant={greenJobs.length > 0 ? "outline" : "default"}
-              onClick={() => void openPublishDialog()}
+              onClick={() => void preflight.open(succeededJobs)}
               disabled={bulkPublish.running || !ebayConnection}
               title={
                 !ebayConnection
@@ -803,6 +631,14 @@ export function FlipdeskAutolisterQueuePage() {
         </div>
       )}
 
+      {/* US-3381 AC2: a refused column read says so, instead of rendering as
+          a row full of blanks while TanStack retries behind it. */}
+      <QueueColumnError
+        columns={failedColumns}
+        onRetry={retryFailedColumns}
+        retrying={columnsRetrying}
+      />
+
       {!isRunning && visibleJobs.length === 0 && jobs.length > 0 && (
         <FilterEmpty noun="draft" total={jobs.length}
           clearLabel="Show all drafts" onClear={() => setQueueFilter("all")} />
@@ -820,7 +656,7 @@ export function FlipdeskAutolisterQueuePage() {
           coverByItem={coverByItem}
           reviewByListing={reviewByListing}
           sizeConflicts={sizeConflicts}
-          preflightByItem={preflightByItem}
+          preflightByItem={preflight.byItem}
           publishResults={bulkPublish.results}
           selectedIds={selectedIds}
           onToggleSelected={toggleSelected}
@@ -841,10 +677,10 @@ export function FlipdeskAutolisterQueuePage() {
       )}
 
       <PublishConfirmDialog
-        open={publishDialogOpen}
-        onOpenChange={setPublishDialogOpen}
-        items={preflight}
-        loading={preflightLoading}
+        open={preflight.dialogOpen}
+        onOpenChange={preflight.setDialogOpen}
+        items={preflight.items}
+        loading={preflight.loading}
         onConfirm={confirmPublish}
       />
 

@@ -140,6 +140,9 @@ export function CommandPalette() {
   // seller owns nothing matching.
   const [deepFailed, setDeepFailed] = useState(false);
   const [submissionHits, setSubmissionHits] = useState<SubmissionLite[]>([]);
+  // US-3381: the submissions read failed. Same rule as deepFailed above: say
+  // the list is short, never imply the seller has no matching submissions.
+  const [subsFailed, setSubsFailed] = useState(false);
   // US-1053: per-user recent searches, offered as suggestions when the field
   // is empty. Sourced from the recent_searches RPC (RLS-scoped to the caller).
   const [recentSearches, setRecentSearches] = useState<string[]>([]);
@@ -197,15 +200,26 @@ export function CommandPalette() {
     let superseded = false;
     const handle = setTimeout(async () => {
       try {
-        const { data } = await supabase
+        // US-3381: this catch was DEAD. A PostgrestFilterBuilder RESOLVES with
+        // { data: null, error } on a 400 or an RLS refusal, it does not reject,
+        // so the catch only ever fired on a network drop. Every other failure
+        // emptied the Submissions section while the FlipDesk and full-text
+        // sections kept showing hits, which reads as "you own no submission
+        // called that" rather than as an outage.
+        const { data, error } = await supabase
           .from("submissions")
           .select("id, title, brand, status")
           .ilike("title", `%${q}%`)
           .order("created_at", { ascending: false })
           .limit(6);
-        if (!superseded) setSubmissionHits((data ?? []) as SubmissionLite[]);
+        if (superseded) return;
+        setSubsFailed(Boolean(error));
+        setSubmissionHits(error ? [] : ((data ?? []) as SubmissionLite[]));
       } catch {
-        if (!superseded) setSubmissionHits([]);
+        // Still reachable: a network drop rejects before the builder resolves.
+        if (superseded) return;
+        setSubsFailed(true);
+        setSubmissionHits([]);
       }
     }, 250);
     return () => {
@@ -620,26 +634,30 @@ export function CommandPalette() {
       leading={<Search className="h-4 w-4 text-muted-foreground" />}
       banner={
         // US-2517: an outage never poses as an empty result.
-        deepFailed && query ? (
+        // US-3381: the submissions read counts as one too.
+        (deepFailed || subsFailed) && query ? (
           <div
             role="alert"
             className="mb-1 rounded-md bg-amber-500/10 px-3 py-2 text-xs"
           >
-            Deep text search is unavailable right now, so these results may be
-            incomplete.
+            {deepFailed && subsFailed
+              ? "Search is having trouble right now, so these results may be incomplete."
+              : deepFailed
+                ? "Deep text search is unavailable right now, so these results may be incomplete."
+                : "Submission search is unavailable right now, so these results may be incomplete."}
           </div>
         ) : null
       }
       empty={
         <>
           {query
-            ? deepFailed
+            ? deepFailed || subsFailed
               ? "Search is unavailable right now. Try again in a moment."
               : "No matches."
             : "Type to search, or pick an action."}
           {/* US-2863: an outage is not a teaching moment — the examples only
               show when search is actually working. */}
-          {!deepFailed && (
+          {!deepFailed && !subsFailed && (
             <ul className="mx-auto mt-4 max-w-xs space-y-1 text-left text-xs">
               {PALETTE_EXAMPLES.map((example) => (
                 <li key={example} className="flex gap-2">

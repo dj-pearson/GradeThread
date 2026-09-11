@@ -33,7 +33,11 @@ const CEILINGS: Record<string, number> = {
   // import sequence moved into src/lib/google-photos-import.ts (effects
   // injected, 27 tests) plus src/hooks/use-google-photos-import.ts, so the
   // Composer's uploader could run the same flow instead of copying it.
-  "src/pages/flipdesk/autolister.tsx": 3408,
+  // Lowered a seventh time from 3408 by US-3381: the file was at its ceiling
+  // exactly, and the SKU lookup inside generate() needed an error check it had
+  // no room for. The group -> inventory_items + item_photos write moved whole
+  // into autolister/persist-groups-as-items.ts, taking ROLE_ORDER with it.
+  "src/pages/flipdesk/autolister.tsx": 3312,
   "src/pages/flipdesk/autolister-bulk-edit.tsx": 2010,
   // Lowered from 1120 when the rows gained the generated title and a cover
   // thumbnail, and the listing review query, the cover query, the title rule
@@ -42,7 +46,12 @@ const CEILINGS: Record<string, number> = {
   // Lowered a second time from 1069 by US-3309: the per-item rows became a
   // table (autolister/queue-table.tsx) after the single flex row with fourteen
   // shrink-0 children squeezed the title to an ellipsis in production.
-  "src/pages/flipdesk/autolister-queue.tsx": 898,
+  // Lowered a third time from 898 by US-3381, which found this file at its
+  // ceiling too. The eBay pre-flight -- the background validate wave, the
+  // shared rate pacing and the publish dialog opener -- moved into
+  // autolister/use-publish-preflight.ts, where the dropped scheduled_publish_at
+  // error could be checked and the failed-column banner had room to land.
+  "src/pages/flipdesk/autolister-queue.tsx": 734,
 };
 
 function lineCount(rel: string): number {

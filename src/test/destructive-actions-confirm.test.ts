@@ -105,7 +105,10 @@ describe("deleting a customer's own content asks first (US-3240)", () => {
     const body = src.slice(start, src.indexOf(String.fromCharCode(10) + "  }", start));
 
     const gateAt = body.indexOf("await confirm(");
-    const storageAt = body.indexOf('.from("item-photos").remove(');
+    // US-3381: matched as a REGEX, not a literal. The call gained an error
+    // check and wrapped onto three lines, which made the one-line literal
+    // miss and this guard report that remove() no longer touches storage.
+    const storageAt = body.search(/\.from\(\s*"item-photos"\s*\)\s*\.remove\(/);
     expect(gateAt, "remove() no longer asks before deleting").toBeGreaterThan(-1);
     expect(storageAt).toBeGreaterThan(-1);
     expect(

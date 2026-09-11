@@ -354,7 +354,17 @@ export function PhotoUploader({
         (p): p is string => !!p,
       );
       if (paths.length > 0) {
-        await supabase.storage.from("item-photos").remove(paths);
+        // US-3381: this catch was DEAD here too. A storage remove RESOLVES with
+        // { data, error }, it does not reject, so a refused delete let the code
+        // fall straight through to the row delete below. The row is the only
+        // thing that points at those objects, so deleting it second turned a
+        // failed blob delete into an orphan nobody can find, reclaim, or purge
+        // the PII out of -- under a success toast. Stop instead: the row stays,
+        // the photo is still on screen, and the seller can try again.
+        const { error: blobErr } = await supabase.storage
+          .from("item-photos")
+          .remove(paths);
+        if (blobErr) throw blobErr;
       }
       const { error } = await supabase
         .from("item_photos")
