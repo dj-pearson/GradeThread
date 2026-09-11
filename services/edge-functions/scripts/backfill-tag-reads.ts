@@ -43,7 +43,7 @@
 // spelling per garment. An item that still decodes to nothing is left alone.
 
 import { supabaseAdmin } from "../src/lib/supabase.ts";
-import { CODE_DEFAULT_MODEL, getDefaultModel } from "../src/lib/ai-config.ts";
+import { resolveOperatorModels } from "../src/lib/ai-config.ts";
 import { checkModelDrift } from "../src/lib/operator-model-guard.ts";
 import {
   extractTagGroundTruth,
@@ -432,10 +432,13 @@ if (import.meta.main) {
   // US-3184: say which model is about to spend, and refuse a drifted one
   // against prod. --redo-undecoded makes no AI call, so it is exempt.
   if (!redoUndecoded) {
+    // extractTagGroundTruth is this script's only AI spend and it resolves
+    // getDefaultModel(). Naming the tier ARMS ai-config: if a later edit adds a
+    // lightweight or size-estimate call, that resolver throws here rather than
+    // spending on a stale LIGHTWEIGHT_AI_MODEL the banner never mentioned.
     const verdict = checkModelDrift({
       supabaseUrl: url,
-      resolvedModel: getDefaultModel(),
-      expectedModel: CODE_DEFAULT_MODEL,
+      models: resolveOperatorModels(["default"]),
       allowDrift: Deno.args.includes("--allow-model-drift"),
     });
     console.log(verdict.banner);

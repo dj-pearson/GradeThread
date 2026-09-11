@@ -2,6 +2,9 @@ import Anthropic from "@anthropic-ai/sdk";
 import { runAiCall } from "./ai-limiter.ts";
 import { getSettingSync } from "./system-settings.ts";
 import { currentAiFeature } from "./ai-feature-context.ts";
+// Type-only: erased at runtime, so lib/operator-model-guard.ts stays a pure
+// module with no imports of its own and no cycle back into this one.
+import type { ModelResolution } from "./operator-model-guard.ts";
 
 // Central reader for AI configuration. Values come from Coolify Team Shared
 // Variables so every Pearson Media project flips together when a model or
@@ -130,11 +133,67 @@ function resolveModelVar(name: string, codeDefault: string): string {
  */
 export const CODE_DEFAULT_MODEL: string = DEFAULTS.model;
 
+// ── Operator arming: a declared tier list that undeclared tiers fall foul of ──
+//
+// US-3184 follow-up, and the part that is a MECHANISM rather than an edit.
+//
+// checkModelDrift() can only vet the tiers a script tells it about. Version one
+// of that contract was a promise: the script named getDefaultModel(), and
+// nothing checked that getDefaultModel() was the only resolver its call path
+// reached. A static scan of the import closure cannot settle it either -
+// scripts/backfill-tag-reads.ts imports ai-listing.ts for ONE pure helper and
+// thereby "reaches" five tiers it never spends on, so a closure rule is all
+// false positives and teaches an operator to paste --allow-model-drift.
+//
+// So it is enforced where the truth is: at resolution. An operator script arms
+// this by calling resolveOperatorModels([...]); from then on, resolving a tier
+// it did not declare THROWS, before the id ever reaches an API call. The edge
+// service never arms it (declaredTiers stays null), so nothing changes in
+// production request handling.
+//
+// Nested resolution is expected and allowed - getSizeEstimateModel() falls back
+// through getLightweightModel(), getGradingCompositeModel() through
+// getDefaultModel() - so only the OUTERMOST resolution is checked.
+let declaredTiers: ReadonlySet<ModelTier> | null = null;
+let resolveDepth = 0;
+
+function assertTierDeclared(tier: ModelTier): void {
+  if (declaredTiers === null || resolveDepth > 0) return;
+  if (declaredTiers.has(tier)) return;
+  throw new Error(
+    `[ai-config] this operator script is resolving the "${tier}" model tier ` +
+      `(${MODEL_TIERS[tier].env}, ${MODEL_TIERS[tier].what}) but declared only ` +
+      `[${[...declaredTiers].join(", ")}] to checkModelDrift.\n` +
+      `  The drift guard therefore never vetted it, and a stale ` +
+      `${MODEL_TIERS[tier].env} would spend against production unannounced - ` +
+      `which is what happened to DEFAULT_AI_MODEL on 2026-09-02 (US-3184).\n` +
+      `  Add "${tier}" to the resolveOperatorModels([...]) call in this script.`,
+  );
+}
+
+/** Run a tier's resolver with nested resolutions exempt from the arming check. */
+function resolvingTier<T>(fn: () => T): T {
+  resolveDepth++;
+  try {
+    return fn();
+  } finally {
+    resolveDepth--;
+  }
+}
+
+/** Test seam: disarm between cases so one test cannot leak into the next. */
+export function resetOperatorModelTiersForTests(): void {
+  declaredTiers = null;
+  resolveDepth = 0;
+}
+
 export function getDefaultModel(): string {
+  assertTierDeclared("default");
   return resolveModelVar("DEFAULT_AI_MODEL", DEFAULTS.model);
 }
 
 export function getLightweightModel(): string {
+  assertTierDeclared("lightweight");
   return resolveModelVar("LIGHTWEIGHT_AI_MODEL", DEFAULTS.lightweightModel);
 }
 
@@ -163,7 +222,9 @@ export function resetModelVarWarningsForTests(): void {
  * prompt-version suffix. src/tests/ai-model-tiering_test.ts guards the pin.
  */
 export function getSizeEstimateModel(): string {
-  return Deno.env.get("SIZE_ESTIMATE_AI_MODEL")?.trim() || getLightweightModel();
+  assertTierDeclared("sizeEstimate");
+  return Deno.env.get("SIZE_ESTIMATE_AI_MODEL")?.trim() ||
+    resolvingTier(getLightweightModel);
 }
 
 /**
@@ -181,7 +242,9 @@ export function getSizeEstimateModel(): string {
  * every other lightweight caller.
  */
 export function getPlatformVariantModel(): string {
-  return Deno.env.get("PLATFORM_VARIANT_AI_MODEL")?.trim() || getLightweightModel();
+  assertTierDeclared("platformVariant");
+  return Deno.env.get("PLATFORM_VARIANT_AI_MODEL")?.trim() ||
+    resolvingTier(getLightweightModel);
 }
 
 /**
@@ -201,13 +264,16 @@ export function getPlatformVariantModel(): string {
  * a one-line rollback rather than a deploy.
  */
 export function getPhotoQaModel(): string {
-  return Deno.env.get("PHOTO_QA_AI_MODEL")?.trim() || getLightweightModel();
+  assertTierDeclared("photoQa");
+  return Deno.env.get("PHOTO_QA_AI_MODEL")?.trim() ||
+    resolvingTier(getLightweightModel);
 }
 
 // US-853: image model for hero/social-card generation. Read from the shared
 // config (DEFAULT_IMAGE_MODEL Coolify var) so it flips centrally; falls back to
 // gpt-image-1. Never hardcode the model at the call site.
 export function getDefaultImageModel(): string {
+  assertTierDeclared("image");
   return Deno.env.get("DEFAULT_IMAGE_MODEL")?.trim() || DEFAULTS.imageModel;
 }
 
@@ -237,6 +303,7 @@ export function isAllowedGradingModel(model: string): boolean {
 // refused (warn + fall back to the default) so an unvetted model can't quietly
 // grade traffic.
 export function getGradingCompositeModel(): string {
+  assertTierDeclared("gradingComposite");
   const override = Deno.env.get("GRADING_COMPOSITE_MODEL")?.trim();
   if (override) {
     if (isAllowedGradingModel(override)) return override;
@@ -246,7 +313,7 @@ export function getGradingCompositeModel(): string {
         `GRADING_MODEL_ALLOWLIST once qualified against the eval gate.`,
     );
   }
-  return getDefaultModel();
+  return resolvingTier(getDefaultModel);
 }
 
 /**
@@ -288,6 +355,131 @@ export function servingModelForStage(stage: string): string {
       return getGradingCompositeModel();
   }
 }
+
+// ── Every model-selecting knob, in one enumerable place (US-3184) ────────────
+//
+// WHY A TABLE AND NOT A LIST OF CALLS. The operator guard compares what a
+// script is ABOUT to spend against what the deployed build would resolve to.
+// Version one of that guard checked getDefaultModel() and nothing else, which
+// was correct for the two scripts that existed on 2026-09-08 and silently wrong
+// for the next one: `backfill-tag-reads.ts` already imports ai-listing.ts and
+// ai-extract.ts, and those resolve getPlatformVariantModel() and
+// getLightweightModel(). The day somebody calls one of them from a script, the
+// banner keeps printing the DEFAULT tier, the stale LIGHTWEIGHT_AI_MODEL beside
+// it in the same .env goes unmentioned, and 2026-09-02 repeats one tier over.
+//
+// So the knobs are enumerated rather than remembered. Two things hang off that:
+//   - a script names the TIERS it spends on and the guard resolves them itself,
+//     so it cannot report a model it is not actually using;
+//   - src/tests/operator-model-guard_test.ts greps THIS FILE for every
+//     Deno.env.get("*_MODEL") read and fails if one is missing from the table,
+//     so a knob added next quarter joins the guard whether or not the person
+//     adding it has read this comment.
+//
+// `codeDefault` is the id this BUILD would use with the environment empty. It
+// is the comparison target because it is the only definition of "what this data
+// would have been written with normally" that does not itself come from the
+// environment being audited.
+export interface ModelTierSpec {
+  /** The environment variable an operator would set to change this tier. */
+  env: string;
+  /** What this build resolves to with that variable (and its fallbacks) unset. */
+  codeDefault: string;
+  /** Live resolution, warnings and all. */
+  resolve: () => string;
+  /** One line for the banner, so an unfamiliar tier name is self-explaining. */
+  what: string;
+}
+
+export const MODEL_TIERS = {
+  default: {
+    env: "DEFAULT_AI_MODEL",
+    codeDefault: DEFAULTS.model,
+    resolve: getDefaultModel,
+    what: "vision + composite work",
+  },
+  lightweight: {
+    env: "LIGHTWEIGHT_AI_MODEL",
+    codeDefault: DEFAULTS.lightweightModel,
+    resolve: getLightweightModel,
+    what: "text-only enrichment",
+  },
+  sizeEstimate: {
+    env: "SIZE_ESTIMATE_AI_MODEL",
+    codeDefault: DEFAULTS.lightweightModel,
+    resolve: getSizeEstimateModel,
+    what: "the size-estimate vision pass",
+  },
+  platformVariant: {
+    env: "PLATFORM_VARIANT_AI_MODEL",
+    codeDefault: DEFAULTS.lightweightModel,
+    resolve: getPlatformVariantModel,
+    what: "cross-list copy variants",
+  },
+  photoQa: {
+    env: "PHOTO_QA_AI_MODEL",
+    codeDefault: DEFAULTS.lightweightModel,
+    resolve: getPhotoQaModel,
+    what: "the AutoLister photo-QA pass",
+  },
+  gradingComposite: {
+    env: "GRADING_COMPOSITE_MODEL",
+    codeDefault: DEFAULTS.model,
+    resolve: getGradingCompositeModel,
+    what: "the grading composite synthesis",
+  },
+  image: {
+    env: "DEFAULT_IMAGE_MODEL",
+    codeDefault: DEFAULTS.imageModel,
+    resolve: getDefaultImageModel,
+    what: "hero / social-card image generation",
+  },
+} as const satisfies Record<string, ModelTierSpec>;
+
+export type ModelTier = keyof typeof MODEL_TIERS;
+
+/**
+ * Resolve the tiers an operator script spends on, for checkModelDrift().
+ *
+ * Deliberately the ONLY way a script gets these strings. A script that built
+ * the pairs by hand could name a tier it does not use, or - the 2026-09-02
+ * shape - report the one tier it remembered while a second went unchecked.
+ */
+export function resolveOperatorModels(
+  tiers: readonly ModelTier[],
+): ModelResolution[] {
+  if (tiers.length === 0) {
+    throw new Error(
+      "resolveOperatorModels: name at least one tier. A script that spends AI " +
+        "and declares no tier is the thing the guard exists to catch (US-3184).",
+    );
+  }
+  const out = tiers.map((tier) => {
+    const spec = MODEL_TIERS[tier];
+    return {
+      tier,
+      env: spec.env,
+      resolved: resolvingTier(spec.resolve),
+      expected: spec.codeDefault,
+    };
+  });
+  // ARM the check only after resolving, so this call cannot trip its own guard.
+  // From here on any OTHER tier this process resolves throws rather than
+  // spending on a model the banner never mentioned.
+  declaredTiers = new Set(tiers);
+  return out;
+}
+
+/** The exported resolver each tier routes through, by name, for guard tests. */
+export const MODEL_TIER_RESOLVERS: Readonly<Record<ModelTier, string>> = {
+  default: "getDefaultModel",
+  lightweight: "getLightweightModel",
+  sizeEstimate: "getSizeEstimateModel",
+  platformVariant: "getPlatformVariantModel",
+  photoQa: "getPhotoQaModel",
+  gradingComposite: "getGradingCompositeModel",
+  image: "getDefaultImageModel",
+};
 
 // Content-generation model, resolved per content KIND so an operator can route
 // low-stakes short-form (social, email) to the cheaper model while keeping

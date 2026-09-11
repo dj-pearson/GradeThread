@@ -17,7 +17,7 @@
 import { Image } from "imagescript";
 import { calibrateMeasurePhoto } from "../src/lib/measure-detect.ts";
 import { extractMeasurements } from "../src/lib/measure-extract.ts";
-import { CODE_DEFAULT_MODEL, getDefaultModel } from "../src/lib/ai-config.ts";
+import { resolveOperatorModels } from "../src/lib/ai-config.ts";
 import { checkModelDrift } from "../src/lib/operator-model-guard.ts";
 import { MEASURE_CARD_VERSIONS } from "../src/lib/measure-card.ts";
 import {
@@ -47,9 +47,10 @@ if (!dir) {
 // GATE verdict. It writes no row, so there is no host to check - and it is
 // guarded anyway, because the verdict is ATTRIBUTED to a model. A gate that
 // passed on a model nobody runs is not a gate.
+// The tier list is not decoration: resolveOperatorModels ARMS ai-config, so
+// resolving any tier not named here throws before it can reach an API call.
 const modelCheck = checkModelDrift({
-  resolvedModel: getDefaultModel(),
-  expectedModel: CODE_DEFAULT_MODEL,
+  models: resolveOperatorModels(["default"]),
   allowDrift: Deno.args.includes("--allow-model-drift"),
 });
 console.log(modelCheck.banner);

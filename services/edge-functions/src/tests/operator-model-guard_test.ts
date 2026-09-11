@@ -4,7 +4,12 @@
 // US-2379: first, before anything that reaches lib/supabase.ts at import time.
 import "./_env.ts";
 
-import { assert, assertEquals, assertStringIncludes } from "@std/assert";
+import {
+  assert,
+  assertEquals,
+  assertStringIncludes,
+  assertThrows,
+} from "@std/assert";
 import {
   checkModelDrift,
   isLocalSupabaseHost,
@@ -14,8 +19,14 @@ import {
   CURRENT_MODEL_IDS,
   getDefaultModel,
   getLightweightModel,
+  getPhotoQaModel,
+  getSizeEstimateModel,
   isUnexpandedTemplate,
+  MODEL_TIER_RESOLVERS,
+  MODEL_TIERS,
   resetModelVarWarningsForTests,
+  resetOperatorModelTiersForTests,
+  resolveOperatorModels,
 } from "../lib/ai-config.ts";
 
 const PROD = "https://api.gradethread.com";
@@ -168,4 +179,110 @@ Deno.test("a script with no datastore is still guarded on drift", () => {
     allowDrift: true,
   });
   assert(forced.ok);
+});
+
+// ── The tier mechanism (US-3184 follow-up) ───────────────────────────────────
+//
+// Everything above proves the guard says the right thing about the model it is
+// SHOWN. These prove it cannot be shown the wrong set.
+
+function armed<T>(tiers: Parameters<typeof resolveOperatorModels>[0], fn: () => T): T {
+  resetOperatorModelTiersForTests();
+  resetModelVarWarningsForTests();
+  try {
+    resolveOperatorModels(tiers);
+    return fn();
+  } finally {
+    resetOperatorModelTiersForTests();
+    resetModelVarWarningsForTests();
+  }
+}
+
+Deno.test("US-3184: resolving an undeclared tier throws before it can spend", () => {
+  // THE MECHANISM. A script declares "default"; the day somebody adds a
+  // lightweight call to it, that call dies here rather than quietly spending on
+  // whatever LIGHTWEIGHT_AI_MODEL the dev .env happens to hold - which is the
+  // 2026-09-02 failure one tier over.
+  const err = armed(["default"], () =>
+    assertThrows(() => getLightweightModel(), Error));
+  assertStringIncludes(err.message, "lightweight");
+  assertStringIncludes(err.message, "LIGHTWEIGHT_AI_MODEL");
+  assertStringIncludes(err.message, "resolveOperatorModels");
+  // The declared tier still resolves normally - the arming is a fence, not a lock.
+  assertEquals(armed(["default"], () => getDefaultModel()), CODE_DEFAULT_MODEL);
+});
+
+Deno.test("US-3184: a nested fallback is not mistaken for an undeclared tier", () => {
+  // getSizeEstimateModel() falls through getLightweightModel() when its own knob
+  // is unset. If the arming check fired on that inner call, declaring the tier
+  // you actually use would throw - and the fix everyone would reach for is to
+  // declare every tier, which is the same as declaring none.
+  const model = armed(["sizeEstimate"], () => getSizeEstimateModel());
+  assert(model.startsWith("claude-haiku"), model);
+  // Still strict about the tier that was NOT declared.
+  armed(["sizeEstimate"], () => assertThrows(() => getPhotoQaModel(), Error));
+});
+
+Deno.test("US-3184: the edge service is untouched until a script arms the check", () => {
+  // declaredTiers starts null and only an operator script sets it. If this ever
+  // regressed, every production request resolving a model would throw.
+  resetOperatorModelTiersForTests();
+  assertEquals(getDefaultModel(), CODE_DEFAULT_MODEL);
+  assert(getLightweightModel().startsWith("claude-haiku"));
+  assert(getPhotoQaModel().startsWith("claude-haiku"));
+});
+
+Deno.test("US-3184: a guard with nothing to check throws instead of passing", () => {
+  // An empty tier list returning ok:true would be this story's own failure
+  // wearing the guard's uniform: a clean banner with no model in it.
+  assertThrows(() => resolveOperatorModels([]), Error);
+  assertThrows(() => checkModelDrift({ supabaseUrl: PROD }), Error);
+  assertThrows(() => checkModelDrift({ supabaseUrl: PROD, models: [] }), Error);
+});
+
+Deno.test("US-3184: drift on ANY declared tier refuses, and the banner names it", () => {
+  const v = checkModelDrift({
+    supabaseUrl: PROD,
+    models: [
+      { tier: "default", env: "DEFAULT_AI_MODEL", resolved: "claude-sonnet-5", expected: "claude-sonnet-5" },
+      { tier: "lightweight", env: "LIGHTWEIGHT_AI_MODEL", resolved: "claude-sonnet-4-6", expected: "claude-haiku-4-5-20251001" },
+    ],
+  });
+  assertEquals(v.ok, false);
+  // Both tiers appear, so "checked and fine" is distinguishable from "not checked".
+  assertStringIncludes(v.banner, "default=claude-sonnet-5");
+  assertStringIncludes(v.banner, "lightweight=claude-sonnet-4-6");
+  assertStringIncludes(v.refusal!, "LIGHTWEIGHT_AI_MODEL");
+});
+
+Deno.test("US-3184: MODEL_TIERS covers every model knob ai-config.ts reads", async () => {
+  // THE ANTI-STALENESS RULE. A tier table that someone must remember to extend
+  // is the same shape as the .env line nobody remembered to update. So the
+  // source is the authority: every model-selecting env var this module reads
+  // must appear in MODEL_TIERS, or the next knob ships outside the guard.
+  const src = await Deno.readTextFile("src/lib/ai-config.ts");
+  const read = new Set<string>();
+  for (const m of src.matchAll(/Deno\.env\.get\("([A-Z0-9_]*MODEL[A-Z0-9_]*)"\)/g)) {
+    read.add(m[1]!);
+  }
+  for (const m of src.matchAll(/resolveModelVar\("([A-Z0-9_]+)"/g)) read.add(m[1]!);
+
+  const covered = new Set<string>(Object.values(MODEL_TIERS).map((t) => t.env));
+  const missing = [...read].filter((v) => !covered.has(v));
+  assertEquals(
+    missing,
+    [],
+    `these model env vars are read by ai-config.ts but are not in MODEL_TIERS, ` +
+      `so an operator script can spend on them with no banner and no drift ` +
+      `check: ${missing.join(", ")}`,
+  );
+  assert(read.size >= 7, `only found ${read.size} model env reads - regex rotted`);
+
+  // And every tier's named resolver is really exported under that name.
+  for (const [tier, fn] of Object.entries(MODEL_TIER_RESOLVERS)) {
+    assert(
+      src.includes(`export function ${fn}(`),
+      `MODEL_TIER_RESOLVERS.${tier} names ${fn}(), which ai-config.ts does not export`,
+    );
+  }
 });

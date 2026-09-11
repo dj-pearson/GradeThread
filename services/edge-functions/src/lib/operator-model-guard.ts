@@ -36,6 +36,31 @@ export function isLocalSupabaseHost(supabaseUrl: string): boolean {
   }
 }
 
+/**
+ * One tier's verdict: what this process WILL send, and what the build expects.
+ *
+ * US-3184 follow-up. The first version of this guard took a single pair, which
+ * hardcoded the assumption "an operator script spends on exactly one tier, and
+ * that tier is the default one". That was true of the two scripts that existed
+ * the day it was written, and it is the kind of true that expires: the same
+ * stale .env that pinned DEFAULT_AI_MODEL also pins LIGHTWEIGHT_AI_MODEL, and
+ * a script that starts making one lightweight call would have been waved
+ * through on a banner that never mentioned the tier it drifted on.
+ *
+ * Build these with resolveOperatorModels() in ai-config.ts rather than by hand,
+ * so the ids come from the same resolvers the service uses.
+ */
+export interface ModelResolution {
+  /** Tier key, e.g. "default" - see MODEL_TIERS in ai-config.ts. */
+  tier: string;
+  /** The env var that changes this tier, named so the banner says where to look. */
+  env: string;
+  /** What this process will actually send as `model`. */
+  resolved: string;
+  /** What this build resolves to with the environment empty. */
+  expected: string;
+}
+
 export interface ModelDriftCheck {
   /**
    * The SUPABASE_URL the script will write through, when it writes at all.
@@ -49,10 +74,16 @@ export interface ModelDriftCheck {
    * otherwise - which is the right default for a number people will quote.
    */
   supabaseUrl?: string;
-  /** The model the script's calls will actually resolve to. */
-  resolvedModel: string;
+  /**
+   * Every tier this script can spend on. Preferred over the single-pair form
+   * below; src/tests/operator-script-model-guard_test.ts checks that the tiers
+   * a script declares cover the resolvers its imports actually reach.
+   */
+  models?: readonly ModelResolution[];
+  /** The model the script's calls will actually resolve to. Single-tier shorthand. */
+  resolvedModel?: string;
   /** The model the deployed service would use - normally getDefaultModel()'s code default. */
-  expectedModel: string;
+  expectedModel?: string;
   /** Set by --allow-model-drift: the operator has said the mismatch is intended. */
   allowDrift?: boolean;
 }
@@ -77,6 +108,7 @@ export interface ModelDriftVerdict {
  * Pure, so the four cases below are unit-testable without a network.
  */
 export function checkModelDrift(input: ModelDriftCheck): ModelDriftVerdict {
+  const models = normalizeModels(input);
   const local = input.supabaseUrl !== undefined &&
     isLocalSupabaseHost(input.supabaseUrl);
   let host = input.supabaseUrl ?? "no datastore";
@@ -87,12 +119,19 @@ export function checkModelDrift(input: ModelDriftCheck): ModelDriftVerdict {
       // keep the raw string; the banner is better with something than nothing
     }
   }
-  const drift = input.resolvedModel !== input.expectedModel;
-  const banner =
-    `[operator] target=${host}${local ? " (local)" : ""} model=${input.resolvedModel}` +
-    (drift ? ` (expected ${input.expectedModel})` : "");
 
-  if (!drift) return { ok: true, banner };
+  const drifted = models.filter((m) => m.resolved !== m.expected);
+  // One line per tier, drift or not. A banner that lists only the problem tier
+  // leaves an operator unable to tell "checked and fine" from "never checked".
+  const lines = models.map((m) =>
+    `${models.length > 1 ? `${m.tier}=` : ""}${m.resolved}` +
+    (m.resolved !== m.expected ? ` (expected ${m.expected}, via ${m.env})` : "")
+  );
+  const banner = `[operator] target=${host}${local ? " (local)" : ""} model=${
+    lines.join(" ")
+  }`;
+
+  if (drifted.length === 0) return { ok: true, banner };
   if (local) return { ok: true, banner };
   if (input.allowDrift) {
     return {
@@ -101,15 +140,44 @@ export function checkModelDrift(input: ModelDriftCheck): ModelDriftVerdict {
     };
   }
 
+  const detail = drifted
+    .map((m) => `    ${m.env}: ${m.resolved}, build expects ${m.expected}`)
+    .join("\n");
   return {
     ok: false,
     banner,
     refusal:
-      `Refusing to run against ${host} on ${input.resolvedModel} when the ` +
-      `deployed default is ${input.expectedModel}.\n` +
+      `Refusing to run against ${host} on ${
+        drifted.map((m) => m.resolved).join(", ")
+      } when the deployed default is ${
+        drifted.map((m) => m.expected).join(", ")
+      }.\n${detail}\n` +
       `  This is what wrote 169 prod tag reads on a previous-generation model ` +
       `on 2026-09-02 (US-3184): a stale DEFAULT_AI_MODEL in a dev .env.\n` +
       `  Fix the env file, or pass --allow-model-drift if running this model ` +
       `against production is genuinely what you want.`,
   };
+}
+
+/**
+ * Accept either shape, and refuse to check nothing.
+ *
+ * A guard handed an empty tier list would return ok:true and print a banner
+ * with no model in it - which is the failure mode this whole story is about,
+ * wearing the guard's own uniform. So that throws.
+ */
+function normalizeModels(input: ModelDriftCheck): readonly ModelResolution[] {
+  if (input.models && input.models.length > 0) return input.models;
+  if (input.resolvedModel !== undefined && input.expectedModel !== undefined) {
+    return [{
+      tier: "default",
+      env: "DEFAULT_AI_MODEL",
+      resolved: input.resolvedModel,
+      expected: input.expectedModel,
+    }];
+  }
+  throw new Error(
+    "checkModelDrift: no models to check. Pass models: resolveOperatorModels([...]) " +
+      "with the tiers this script spends on, or resolvedModel + expectedModel.",
+  );
 }
