@@ -7,11 +7,21 @@
 //
 // TWO BREAKPOINTS, EACH ANSWERING A DIFFERENT QUESTION:
 //
-//   1. THE PREFIX (tools + system). Identical on every step of a run AND on
-//      every run of the same agent. Anthropic renders tools first, then system,
-//      then messages, so one breakpoint on the last system block covers both.
-//      This is the one that also pays off ACROSS runs inside the 5-minute
-//      window.
+//   1. THE PREFIX (tools + system). Identical on every step of a run.
+//      Anthropic renders tools first, then system, then messages, so one
+//      breakpoint on the last system block covers both.
+//
+//      ⚠ CORRECTED 2026-09-10: this used to add "and on every run of the same
+//      agent ... pays off ACROSS runs inside the 5-minute window". It does not,
+//      and cannot. An ephemeral entry lives 5 minutes; the tick cron runs every
+//      10, and the FASTEST seeded agent schedule is 30m (00358 sentinel) with
+//      the rest daily, weekly or hourly. No two runs of one agent ever start
+//      within 5 minutes of each other, so the cross-run read is unreachable at
+//      the real cadence. The breakpoint still earns its place - a run makes up
+//      to DEFAULT_MAX_STEPS (24) calls seconds apart, so steps 2..N read it -
+//      but a ONE-step run pays a 1.25x write and reads it back zero times. One
+//      read repays about 3.6 such runs, so this stays a win unless most runs
+//      end after a single call.
 //
 //   2. THE HISTORY TAIL. Step N re-sends steps 1..N-1 verbatim. A breakpoint on
 //      the final content block of the final message means step N+1 reads all of
@@ -36,6 +46,27 @@
 // charter edit that trims a paragraph could silently drop them under it -
 // src/tests/loop-cache_test.ts keeps a floor on charter size for that reason,
 // and the ledger's cacheHitShare per agent phase is the real detector.
+//
+// ⚠ AND THAT MEASUREMENT COVERS ONE MODEL. FOUR AGENTS DO NOT RUN ON IT.
+// Found 2026-09-10: the per-model minimum is 1,024 on claude-sonnet-5 but
+// 4,096 on claude-haiku-4-5, and these four are seeded onto Haiku -
+//
+//   00358 sentinel (2145)   00360 integrations-watchdog (1631)
+//   00368 release (1074)    00369 experiments-governor (1360)
+//
+// - every one of them less than half of 4,096. Their SYSTEM breakpoint is
+// inert, for exactly the reason the support assistant's is (see
+// routes/support-assistant.ts): below the minimum the API ignores the marker
+// outright and cache_read_tokens stays 0, which reads identically to bad
+// placement. Their TAIL breakpoint still works once the history grows past
+// 4,096, which is several steps in. So a 0% cacheHitShare on
+// agent:sentinel / agent:release / agent:integrations-watchdog /
+// agent:experiments-governor is EXPECTED and is not evidence against the
+// placement - check the agent's model column first. Those are SEED values read
+// from the migrations, not from prod; agents.config.model is editable.
+//
+// Sonnet-5 agents have no such gap, and claude-opus-4-8 (also on the
+// allowlist) has a 1,024 minimum too.
 
 import type Anthropic from "@anthropic-ai/sdk";
 
