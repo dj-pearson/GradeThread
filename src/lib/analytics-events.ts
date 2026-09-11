@@ -237,6 +237,12 @@ export const ANALYTICS_EVENTS = {
   "grade.retake_started": "A retake of a paid grade was started.",
   "grade.pack_upsell_shown": "A credit-pack upsell was rendered after grading.",
   "grade.pack_upsell_converted": "That upsell was taken.",
+  // US-3331: the free pre-payment photo check. warned fires per photo that
+  // drew a blur/dark/resolution nudge; overridden fires when a grade is
+  // submitted with nudges still showing, which is the number that says
+  // whether the nudges are trusted or ignored.
+  "photo_precheck.warned": "A photo drew a blur, darkness or resolution warning before payment.",
+  "photo_precheck.overridden": "A grade was submitted with photo warnings still showing.",
   "credit_pack.opened": "The credit-pack surface was opened.",
   "credit_pack.cta_clicked": "A credit pack was chosen.",
   // US-3138. A SEPARATE funnel from credit_pack.*, which is grade credits.

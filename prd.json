@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-3344",
+  "nextId": "US-3345",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -4891,20 +4891,6 @@
       "notes": "LOOP-DONE-CODE 2026-09-11. Code done; only the OPERATOR AC remains. New GET /api/grade/turnaround (owner-scoped: submissions filtered by workspaceOwnerId ?? userId first, reports keyed on those ids, no request input) returns sla_hours per tier from pricing config (compiled fallback), hold_enabled, and release_times for the caller held grades. Web: useGradeTurnaround hook; submission detail gets a Ready by branch (held grades are invisible to its direct read by design) with WhatHappensNext showing readyByCopy; the submissions list shows Ready by under the status badge on both layouts; the tier picker says Delivered within X from the live hours instead of ~X hours from the constant; turnaroundCopy(tier, live) drops the minutes claim for held tiers when the hold is on and is word-for-word unchanged otherwise. No score or tier is shown before release (the report is not readable until then). iOS and Android filed as US-3341 with the reason (Swift cannot compile here; web first). Verified: grade-turnaround-copy vitest 6/6 + grading-journey-parity 23/23 (its mount count moved from 2 to 3 on purpose: the held branch is a third waiting state), grade-turnaround-route_test 3/3 sabotaged (owner scope removed: red, restored: green), new live tenant-isolation case (B never sees A in release_times), tsc -b, eslint, ui:check, deno check clean. OWNER: choose the SLA hours per tier in admin pricing config (/admin/config-pricing). Today Express 1h, Premium 12h, Standard 48h; you floated about 4h, 24h and 7 days. The hold, the picker copy and Ready by all read the new values without a deploy."
     },
     {
-      "id": "US-3331",
-      "passes": false,
-      "title": "Check photos for blur and darkness before the seller pays, not after",
-      "description": "The vision pass judges blur, lighting and framing only after checkout, and a bad set ends as Better photos needed plus a refund. macro-photo-quality.ts checks resolution only. A free client-side check at upload catches most of this before money moves.",
-      "acceptanceCriteria": [
-        "Client-side blur (for example Laplacian variance on a downscaled copy) and exposure checks in the web photo slots. Warn with a retake prompt; never block. No network call.",
-        "Thresholds tuned against a fixture set of known-sharp and known-blurry, well-lit and dark images, pinned in tests.",
-        "A missing fabric close-up is called out before checkout. The post-pay confidence cap stays as it is.",
-        "Consent-gated analytics event for warnings shown and overridden.",
-        "iOS and Android parity filed as a follow-up story if not done here."
-      ],
-      "priority": 36
-    },
-    {
       "id": "US-3332",
       "passes": false,
       "title": "Ask for a size reference beside every flaw: a coin, a card or the MeasureCard",
@@ -5036,6 +5022,19 @@
         "Parity is pinned the way GradingJourneyCopy.swift is pinned today, so the two platforms cannot drift from the web copy in src/lib/grading-journey.ts"
       ],
       "priority": 34
+    },
+    {
+      "id": "US-3344",
+      "passes": false,
+      "title": "iOS and Android warn about blurry or dark photos before the seller pays",
+      "description": "US-3331 added a free, on-device photo check to the web submit flow: every slot is measured for sharpness (Laplacian variance on a 256px grayscale copy) and darkness (mean luma and near-black share), with a lenient blur floor for full-garment shots and the existing macro gate for close-ups and tags, and a missing fabric close-up is called out on the review step. The thresholds and wording live in src/lib/photo-precheck.ts and are pinned by src/lib/photo-precheck.test.ts. iOS already has TagPhotoQuality.swift for tag photos only; Android has neither. Filed from US-3331 because the Swift half cannot be built on the Windows dev box and the web had to ship first.",
+      "acceptanceCriteria": [
+        "iOS runs the same sharpness and darkness checks on every photo slot, with the same thresholds and wording as src/lib/photo-precheck.ts, warning and never blocking",
+        "Android does the same",
+        "Both apps show the missing fabric close-up note before payment, using FABRIC_CLOSEUP_WARNING",
+        "A parity test pins the thresholds across the three platforms so they cannot drift"
+      ],
+      "priority": 36
     }
   ]
 }

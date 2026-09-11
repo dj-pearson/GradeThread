@@ -66,6 +66,7 @@ import { useBillingSummary, planLabel } from "@/hooks/use-billing-summary";
 import { usePlanUsage } from "@/hooks/use-plan-usage";
 import { CreditPackDialog } from "@/components/billing/credit-pack-dialog";
 import { track } from "@/lib/analytics";
+import { FABRIC_CLOSEUP_WARNING, hasFabricCloseup } from "@/lib/grading-readiness";
 import { dataUriToFile } from "@/lib/image-utils";
 import type { SnapBridgeState } from "@/hooks/use-snap";
 import {
@@ -862,6 +863,10 @@ export function NewSubmissionPage() {
   }
 
   async function handleSubmit() {
+    // US-3331: submitting with photo warnings still showing is allowed (the
+    // check never blocks); counting it says whether the nudges are trusted.
+    const warnedPhotos = photos.filter((p) => (p.precheckWarnings ?? 0) > 0).length;
+    if (warnedPhotos > 0) track("photo_precheck.overridden", { photos: warnedPhotos });
     // US-2789: ONE decision, in lib/submit-action.ts, so the ordering can be
     // tested by calling it rather than by comparing string indexes in this
     // file. The gates it replaces are unchanged in behaviour and in order.
@@ -1454,6 +1459,16 @@ export function NewSubmissionPage() {
                     ask for photos instead — you won&apos;t be charged for that.
                   </p>
                 </div>
+              )}
+
+              {/* US-3331: say it BEFORE payment. Grading without a fabric
+                  close-up still works (US-2397), capped and human-checked, so
+                  this is advice, not a gate. */}
+              {captureMode !== "video" &&
+                !hasFabricCloseup(new Set(photos.map((p) => p.imageType))) && (
+                <p className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-200">
+                  {FABRIC_CLOSEUP_WARNING}
+                </p>
               )}
 
               {/* Photo Thumbnails */}

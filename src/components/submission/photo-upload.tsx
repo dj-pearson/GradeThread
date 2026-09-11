@@ -19,9 +19,11 @@ import {
 import { validateImage, compressImage, extractExif } from "@/lib/image-utils";
 import {
   assessMacroPhoto,
-  measureMacroPhoto,
+  isMacroPhotoType,
   uploadMaxWidthFor,
 } from "@/lib/macro-photo-quality";
+import { assessPhotoPrecheck, measurePhoto } from "@/lib/photo-precheck";
+import { track } from "@/lib/analytics";
 import { normalizeToImageFile } from "@/lib/media-intake";
 import {
   CameraCaptureDialog,
@@ -46,6 +48,11 @@ export interface PhotoUploadItem {
   // it could not be measured. Sent with the upload so authenticity confidence
   // can read a MEASURE instead of "a file exists in the macro slot".
   qualityScore?: number | null;
+  /**
+   * US-3331: how many pre-payment photo warnings (blur, dark, resolution) this
+   * photo drew. The page counts photos submitted with warnings still showing.
+   */
+  precheckWarnings?: number;
   // US-2802: where this photo came from. NOT optional, and never inferred —
   // the live-capture badge is a fraud claim, so an unknown origin has to be
   // spelled `library` by whoever put the file here rather than left absent
@@ -396,6 +403,7 @@ export function PhotoUpload({
             exif: state.exif,
             originalFile: state.originalFile,
             qualityScore: state.qualityScore ?? null,
+            precheckWarnings: state.warnings.length,
             // Fails CLOSED: an origin nobody recorded is a library photo, not
             // a live one. The opposite default would hand out the strongest
             // provenance badge on a bookkeeping slip.
@@ -492,9 +500,21 @@ export function PhotoUpload({
         // it becomes, not on what the camera produced. Best-effort: a decode or
         // canvas failure returns nulls, which assessMacroPhoto reads as
         // "cannot tell" and passes.
-        const macro = assessMacroPhoto(
-          await measureMacroPhoto(compressed.blob, slotImageType),
-        );
+        // US-3331: one measurement for every slot. Macro slots keep the
+        // macro gate's verdict word for word; every slot also gets the
+        // darkness check, and full shots a lenient blur floor. Still a
+        // nudge, never a block, and no network call.
+        const measured = await measurePhoto(compressed.blob, slotImageType);
+        const precheck = assessPhotoPrecheck(measured);
+        const macroScore = isMacroPhotoType(slotImageType)
+          ? assessMacroPhoto(measured).score
+          : null;
+        if (precheck.warnings.length > 0) {
+          track("photo_precheck.warned", {
+            image_type: slotImageType ?? null,
+            reasons: precheck.reasons,
+          });
+        }
 
         setSlots((prev) => {
           const current = getSlot(prev, slotKey);
@@ -506,12 +526,12 @@ export function PhotoUpload({
             file: compressedFile,
             preview,
             errors: [],
-            warnings: macro.message ? [macro.message] : [],
+            warnings: precheck.warnings,
             isProcessing: false,
             phash: compressed.phash,
             exif,
             originalFile: file,
-            qualityScore: macro.score,
+            qualityScore: macroScore,
             captureSource,
           });
           emitChange(next);
