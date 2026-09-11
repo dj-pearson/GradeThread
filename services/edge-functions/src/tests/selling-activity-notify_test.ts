@@ -148,3 +148,29 @@ Deno.test("a missing userId is a no-op (tenant-safe guard)", async () => {
   assertEquals(calls.inApp.length, 0);
   assertEquals(calls.push, 0);
 });
+
+// ── US-3367: the extension-listed notice names the opt-out ───────────────────
+Deno.test("US-3367: buildExtensionListed names Not listed in both the confirmed and unconfirmed forms", async () => {
+  const { buildExtensionListed } = await import("../lib/selling-activity-notify.ts");
+  const confirmed = buildExtensionListed({
+    itemTitle: "Navy chore coat",
+    itemId: "item-1",
+    platformLabel: "Poshmark",
+    confirmed: true,
+  });
+  assertEquals(confirmed.type, "listing_live");
+  assertEquals(confirmed.title, "Listed on Poshmark");
+  assert(confirmed.message.includes("Not listed"), "the confirmed notice must name the opt-out");
+  assertEquals(confirmed.link, "/dashboard/flipdesk/items/item-1");
+
+  const unconfirmed = buildExtensionListed({
+    itemTitle: null,
+    itemId: "item-1",
+    platformLabel: "Mercari",
+    confirmed: false,
+  });
+  assertEquals(unconfirmed.title, "Recorded as listed on Mercari");
+  assert(unconfirmed.message.includes("recorded it as listed"), "an unconfirmed record says it is a record");
+  assert(unconfirmed.message.includes("Not listed"));
+  assert(unconfirmed.message.startsWith("GradeThread filled the Mercari form for Your item"));
+});

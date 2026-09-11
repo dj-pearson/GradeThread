@@ -5,7 +5,10 @@
 import { describe, expect, it } from "vitest";
 
 import { createRunOwner } from "@/lib/latest-run";
-import { acceptValidation } from "@/components/flipdesk/grading-validation-run";
+import {
+  acceptValidation,
+  allowanceReadback,
+} from "@/components/flipdesk/grading-validation-run";
 import type { ValidationItem, ValidationResult, GradingTier } from "@/hooks/use-grading";
 
 function item(tier: GradingTier, cost: number): ValidationItem {
@@ -86,11 +89,68 @@ describe("acceptValidation", () => {
     expect(patch!.creditBalance).toBeNull();
   });
 
+  // The owner account grades free but is still counted, so the card says
+  // "Unlimited" AND shows the count moving (owner's call, 2026-09-11).
+  it("carries the owner's unlimited flag and this month's count", () => {
+    const owner = createRunOwner();
+    const patch = acceptValidation(
+      owner.begin(),
+      result("standard", 2.99, {
+        unlimited: true,
+        grades_used_this_month: 4,
+        plan_limit: 75,
+      }),
+    );
+    expect(patch!.unlimited).toBe(true);
+    expect(patch!.includedUsed).toBe(4);
+    expect(patch!.includedCap).toBe(75);
+  });
+
+  it("reads a missing unlimited flag as a normal seller", () => {
+    const owner = createRunOwner();
+    const patch = acceptValidation(owner.begin(), result("standard", 2.99));
+    expect(patch!.unlimited).toBe(false);
+  });
+
   it("refuses a response whose run was superseded", () => {
     const owner = createRunOwner();
     const stale = owner.begin();
     owner.begin();
     expect(acceptValidation(stale, result("standard", 9.99))).toBeNull();
+  });
+});
+
+describe("allowanceReadback", () => {
+  it("shows the owner's count after a Standard grade", () => {
+    expect(
+      allowanceReadback(
+        "standard",
+        result("standard", 2.99, {
+          unlimited: true,
+          grades_used_this_month: 5,
+          plan_limit: 75,
+        }),
+      ),
+    ).toBe("Counted: 5 of 75 this month.");
+  });
+
+  it("tells the owner a Premium grade is not counted", () => {
+    expect(
+      allowanceReadback("premium", result("premium", 7.99, { unlimited: true })),
+    ).toBe("Only Standard grades are counted.");
+  });
+
+  it("shows a seller what is left of both pools", () => {
+    expect(
+      allowanceReadback(
+        "standard",
+        result("standard", 2.99, { included_remaining: 1, credit_balance: 12 }),
+      ),
+    ).toBe("1 included grade left, 12 credits left.");
+  });
+
+  it("says nothing when an older edge omits the pools", () => {
+    expect(allowanceReadback("standard", result("standard", 2.99))).toBe("");
   });
 });
 

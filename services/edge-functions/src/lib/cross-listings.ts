@@ -139,6 +139,17 @@ const EMPTY_SUMMARY = (): AutoEndSummary => ({
   nothingLive: 0,
 });
 
+/**
+ * US-3367: the group is "rows whose draft_id is X" PLUS the anchor row X
+ * itself. The extension writeback sets draft_id on the Poshmark row but never
+ * on the eBay draft it points at, so without the second clause a Poshmark sale
+ * found no eBay sibling and eBay stayed live. `.or()` on a SELECT is fine;
+ * US-1552 is about mutations.
+ */
+export function siblingSelector(draftId: string): string {
+  return `draft_id.eq.${draftId},id.eq.${draftId}`;
+}
+
 // Best-effort: never throws. Returns the per-outcome breakdown above.
 //
 // The automatic path, run by every sale webhook and the sold-sync. Honours the
@@ -155,6 +166,33 @@ export async function autoEndCrossListings(
       .from("listings")
       .select("draft_id, inventory_item_id, inventory_items!inner(user_id)")
       .eq("id", soldListingId)
+      .maybeSingle();
+    const draftId = (sold as { draft_id: string | null } | null)?.draft_id;
+    if (!draftId) return EMPTY_SUMMARY(); // not part of a cross-listing group
+
+    const { data: settings } = await supabaseAdmin
+      .from("flipdesk_settings")
+      .select("auto_end_cross_listings")
+      .eq("user_id", ownerId)
+      .maybeSingle();
+    const enabled =
+      (settings as { auto_end_cross_listings: boolean } | null)
+        ?.auto_end_cross_listings !== false;
+    if (!enabled) return EMPTY_SUMMARY();
+
+    // Tenant-scoped via inventory_items.user_id (US-268) — listings carry no
+    // user_id of their own. We pull 'sold' siblings too (not just live ones) so
+    // planCrossListingSale can detect a simultaneous-sale oversell (US-1290).
+    const { data, error } = await supabaseAdmin
+      .from("listings")
+      .select(
+        "id, platform, platform_offer_id, platform_listing_id, listing_status, " +
+          // US-3141: listing_url and inventory_item_id are what the queued
+          // delist job needs — the URL the extension opens, and the item the
+          // seller's queue view names it by.
+          "listing_url, inventory_item_id, inventory_items!inner(user_id, sku)",
+      )
+      .or(siblingSelector(draftId))
       .eq("inventory_items.user_id", ownerId)
       .maybeSingle();
     const s = sold as
@@ -518,10 +556,15 @@ export function buildDelistQueuePayload(
  * automation is a slower delist; aborting the pass would leave the REMAINING
  * siblings untouched, which is a double sale.
  */
-async function queueExtensionDelist(
+// MERGED 2026-09-11: ours took three arguments and theirs exported a
+// two-argument version. `aids` is READ in the body (buildDelistQueuePayload)
+// and cross-listing-delist_test.ts pins the three-argument call, so the
+// parameter stays; it is optional so the two-argument caller added in
+// listing-lifecycle.ts compiles, and exported so that caller can reach it.
+export async function queueExtensionDelist(
   ownerId: string,
   row: SiblingRow,
-  aids: SearchAids,
+  aids: SearchAids = { handles: {}, variantTitles: {} },
 ): Promise<void> {
   // The same rule the popup and the SaaS answer with, imported rather than
   // restated — pending-delists.ts documents what a second copy of this list

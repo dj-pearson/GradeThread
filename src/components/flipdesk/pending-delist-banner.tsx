@@ -26,12 +26,15 @@ function platformLabel(p: string): string {
   return MARKETPLACE_LABELS[p as ListingPlatform] ?? p;
 }
 
-export function PendingDelistBanner() {
-  const { data: pending = [] } = usePendingDelists();
+// US-3367: `itemId` narrows the banner to one garment, for the composer and
+// the item page, where the whole queue would be noise about other items.
+export function PendingDelistBanner({ itemId }: { itemId?: string } = {}) {
+  const { data: all = [] } = usePendingDelists();
   const runDelist = useRunDelist();
   const markDone = useMarkDelistDone();
   const enqueue = useEnqueueExtensionWork();
 
+  const pending = itemId ? all.filter((p) => p.item_id === itemId) : all;
   if (pending.length === 0) return null;
 
   const extensionReady = isListerAvailable();

@@ -297,15 +297,18 @@ interface Site {
  * line does -- which is when this is supposed to fire.
  */
 const REGISTRY: Record<string, readonly Site[]> = {
-  "src/components/flipdesk/record-sale-dialog.tsx": [
+  // US-3367: the Record Sale dialog no longer writes sales itself; it posts to
+  // POST /api/flipdesk/sales/record and lib/record-sale.ts is the writer.
+  "services/edge-functions/src/lib/record-sale.ts": [
     {
-      text: "sold_at: form.sale_date || null,",
+      text: "sold_at: saleDate,",
       kind: "sales_write",
       provenance: "utc_anchored_day",
       why:
-        "an <input type=\"date\"> seeded with todayLocalDate(). There is no " +
-        "instant on this screen to supply and stamping Date.now() would " +
-        "record when the seller typed, not when the item sold.",
+        "the dialog's <input type=\"date\"> (seeded with todayLocalDate()), or " +
+        "today's UTC date when the seller left it blank. There is no instant " +
+        "on that screen to supply and stamping Date.now() would record when " +
+        "the seller typed, not when the item sold.",
     },
   ],
   "src/hooks/use-ebay.ts": [{ text: "sold_at: string | null;", kind: "shape" }],
@@ -511,7 +514,7 @@ const REGISTRY: Record<string, readonly Site[]> = {
 
 /** The nine sites that assign the column on a public.sales row. */
 const SALES_WRITE_FILES = [
-  "src/components/flipdesk/record-sale-dialog.tsx",
+  "services/edge-functions/src/lib/record-sale.ts",
   "services/edge-functions/src/lib/depop-orders.ts",
   "services/edge-functions/src/lib/etsy-orders.ts",
   "services/edge-functions/src/lib/orphan-sale-match.ts",
@@ -670,9 +673,9 @@ Deno.test("US-3315: every sales writer declares a provenance, and the nine are t
     dayOnly.map(([f]) => f).sort(),
     [
       "ios/GradeThread/Sales/SaleRecorder.swift",
+      "services/edge-functions/src/lib/record-sale.ts",
       "services/edge-functions/src/routes/flipdesk-import.ts",
       "services/edge-functions/src/routes/flipdesk-sync.ts",
-      "src/components/flipdesk/record-sale-dialog.tsx",
     ],
     "a writer moved between having a marketplace instant and not having one",
   );

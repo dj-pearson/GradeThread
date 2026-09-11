@@ -89,6 +89,26 @@ async function initWorker() {
       open.disabled = false;
     });
   }
+
+  // US-3367: the gap between cross-posts. Same storage rule: the default is
+  // the ABSENT key, so "never chose" and "chose the default" are one state.
+  // The four values mirror GT_LISTER_JOBS.PACING.OPTIONS_MS; anything else
+  // stored reads as the default on both sides.
+  const PACING_OPTIONS = [15000, 30000, 60000, 120000];
+  const PACING_DEFAULT = 30000;
+  const { gtPacingGapMs } = await ext.storage.local.get("gtPacingGapMs");
+  const gap = document.getElementById("pacingGap");
+  if (gap) {
+    gap.value = String(PACING_OPTIONS.includes(gtPacingGapMs) ? gtPacingGapMs : PACING_DEFAULT);
+    gap.addEventListener("change", async () => {
+      const v = Number(gap.value);
+      if (v === PACING_DEFAULT || !PACING_OPTIONS.includes(v)) {
+        await ext.storage.local.remove("gtPacingGapMs");
+      } else {
+        await ext.storage.local.set({ gtPacingGapMs: v });
+      }
+    });
+  }
 }
 
 // ── US-3066: the on-device quick look ───────────────────────────────────────

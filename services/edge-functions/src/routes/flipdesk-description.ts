@@ -14,7 +14,9 @@
 //     -> re-render the DRAFT listings that reference an edited snippet.
 //   GET  /api/flipdesk/description/:listingId/platform-descriptions
 //     -> the extension channels' descriptions rendered from the SAME blocks,
-//        with each platform's own prose in place of the eBay wording. Read-only.
+//        in eBay's words unless the seller typed their own. Read-only.
+//   POST /api/flipdesk/description/:listingId/channel-copy
+//     -> store or clear a seller's own title/description for ONE channel.
 //
 // Tenant safety (CLAUDE.md US-268): every handler resolves
 // `workspaceOwnerId ?? userId` and reaches the listing only through
@@ -44,6 +46,7 @@ import {
 import { regenerateDescriptionBlock } from "../lib/description-regenerate.ts";
 import { renderPlatformDescriptionsForListing } from "../lib/platform-description.ts";
 import { getMarketplaceSpec } from "../lib/marketplace-specs.ts";
+import { CHANNEL_COPY_KEYS, readChannelOverrides } from "../lib/channel-copy.ts";
 import { supabaseAdmin } from "../lib/supabase.ts";
 import type { LengthUnit } from "../lib/measurements.ts";
 
@@ -333,4 +336,95 @@ flipdeskDescriptionRoutes.get("/:listingId/platform-descriptions", async (c) => 
   );
 
   return c.json({ descriptions });
+});
+
+// ─── POST /:listingId/channel-copy ─────────────────────────────────
+
+/** Ceiling for a description override on a channel with no stated limit. */
+const OVERRIDE_DESCRIPTION_CAP = 10_000;
+
+// A seller's own title or description for ONE channel (channel-copy.ts).
+//
+// Every channel copies eBay by default. This stores the exception: the words a
+// seller typed into one channel's tab of the Listing Kit, kept on the eBay
+// draft's `platform_fields[platform]` beside the kit variant, and sent exactly
+// as typed until they are cleared.
+//
+// Body: { platform, title?, description? }. A key that is absent is left
+// alone; a key sent as null or "" clears that override, which is "Use eBay
+// copy". Over-limit text is refused rather than trimmed: the seller is looking
+// at the field and a silent cut would send words they never saw.
+flipdeskDescriptionRoutes.post("/:listingId/channel-copy", async (c) => {
+  const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
+  const listingId = c.req.param("listingId");
+
+  let body: { platform?: unknown; title?: unknown; description?: unknown };
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: "Invalid JSON body" }, 400);
+  }
+
+  const platform = typeof body.platform === "string" ? body.platform : "";
+  const spec = getMarketplaceSpec(platform);
+  // eBay's words ARE the default, so an eBay override would be a second copy of
+  // the eBay title that nothing else edits.
+  if (!spec || platform === "ebay") {
+    return c.json({ error: "platform must be a supported non-eBay marketplace" }, 400);
+  }
+
+  const patch: Record<string, string | null> = {};
+  for (const [key, max] of [
+    ["title", spec.titleMaxLength],
+    ["description", spec.descriptionMaxLength ?? OVERRIDE_DESCRIPTION_CAP],
+  ] as const) {
+    if (!(key in body)) continue;
+    const raw = body[key];
+    if (raw !== null && typeof raw !== "string") {
+      return c.json({ error: `${key} must be a string or null` }, 400);
+    }
+    const text = typeof raw === "string" ? raw.trim() : "";
+    if (key === "title" && spec.titleMaxLength == null && text !== "") {
+      return c.json({ error: `${spec.label} has no title field` }, 400);
+    }
+    if (max != null && text.length > max) {
+      return c.json({ error: `${key} is over ${spec.label}'s ${max}-character limit` }, 400);
+    }
+    patch[CHANNEL_COPY_KEYS[key]] = text === "" ? null : text;
+  }
+  if (Object.keys(patch).length === 0) {
+    return c.json({ error: "send title and/or description" }, 400);
+  }
+
+  // Ownership first: a foreign listing id is a 404 before anything is read.
+  const listing = await loadOwnedListing(listingId, ownerId);
+  if (!listing) return c.json({ error: "Listing not found" }, 404);
+
+  const { data } = await supabaseAdmin
+    .from("listings")
+    .select("platform_fields")
+    .eq("id", listing.id)
+    .maybeSingle();
+  const pf = { ...((data as { platform_fields: Record<string, unknown> | null } | null)
+    ?.platform_fields ?? {}) };
+  const prev = pf[platform];
+  const entry: Record<string, unknown> = prev && typeof prev === "object" && !Array.isArray(prev)
+    ? { ...(prev as Record<string, unknown>) }
+    : {};
+  for (const [k, v] of Object.entries(patch)) {
+    if (v == null) delete entry[k];
+    else entry[k] = v;
+  }
+  pf[platform] = entry;
+
+  const { error } = await supabaseAdmin
+    .from("listings")
+    .update({ platform_fields: pf })
+    .eq("id", listing.id);
+  if (error) {
+    console.error("[description] channel-copy save failed:", error.message);
+    return c.json({ error: "Could not save the channel's wording" }, 500);
+  }
+
+  return c.json({ platform, overrides: readChannelOverrides(entry) });
 });

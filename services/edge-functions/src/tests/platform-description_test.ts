@@ -11,6 +11,7 @@ import "./_env.ts";
 import { assert, assertEquals, assertStringIncludes } from "@std/assert";
 import {
   capDescription,
+  channelDescription,
   platformDescriptionBlocks,
   renderPlatformDescription,
   stripDerivedSections,
@@ -225,4 +226,37 @@ Deno.test("Poshmark's 1500-character limit is respected end to end", () => {
     { prose: "word ".repeat(600), maxLength: 1500 },
   );
   assert(out.length <= 1500, `${out.length} > 1500`);
+});
+
+// ─── Every channel copies eBay (2026-09-11, channel-copy.ts) ───────
+
+Deno.test("a stale AI description in the kit entry is never sent", () => {
+  // The item that found this: drafted "gray", corrected to navy on eBay, and
+  // every marketplace kept the AI's "gray set" sentence.
+  const entry = { description: "Obsessed with this gray set!" };
+  const out = channelDescription(
+    blocksWithProse(),
+    ctx({ item: { brand: "Cozy Earth", size: "3XL", color: "Navy", material: null, measurements: null } }),
+    entry,
+    1500,
+  );
+  assertEquals(out.includes("gray"), false, out);
+  assertStringIncludes(out, "eBay wording");
+  assertStringIncludes(out, "Navy");
+});
+
+Deno.test("a seller's per-channel description is sent exactly as typed", () => {
+  const typed = "My own Poshmark words.\n\nNo measurements appended.";
+  const out = channelDescription(
+    blocksWithProse(),
+    ctx({ credential: CREDENTIAL }),
+    { description: "stale AI words", description_override: typed },
+    1500,
+  );
+  assertEquals(out, typed);
+});
+
+Deno.test("a blank override reads as no override", () => {
+  const out = channelDescription(blocksWithProse(), ctx(), { description_override: "   " }, 1500);
+  assertStringIncludes(out, "eBay wording");
 });

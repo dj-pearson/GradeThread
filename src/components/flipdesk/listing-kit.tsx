@@ -1,17 +1,20 @@
-import { useEffect, useMemo, useState } from "react";
+import { type ReactNode, useEffect, useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { toastError } from "@/lib/toast-error";
 import {
   AlertTriangle,
   Check,
+  Clock,
   Copy,
   Download,
   ExternalLink,
   HelpCircle,
   Loader2,
   Puzzle,
+  Send,
   Wand2,
+  XCircle,
 } from "lucide-react";
 import { Link } from "react-router";
 import {
@@ -25,6 +28,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { supabase } from "@/lib/supabase";
@@ -62,15 +66,37 @@ import {
   type ListerResult,
   onListerListed,
   photoWitnessState,
+  requestDrainNow,
   sendToLister,
 } from "@/lib/lister-extension";
-import { MARKETPLACE_EXTENSION_FLOW } from "@/lib/constants";
+import {
+  type CrossListingPlatform,
+  MARKETPLACE_EXTENSION_FLOW,
+  MARKETPLACE_LABELS,
+} from "@/lib/constants";
+import type { ListingPlatform } from "@/types/database";
+import {
+  type ChannelStatus,
+  deriveChannelState,
+  planListEverywhere,
+} from "@/lib/channel-state";
+import { useItemListings } from "@/hooks/use-item-listings";
+import { useCrossPush } from "@/hooks/use-cross-listing";
+import { useEndListing, useNotListed } from "@/hooks/use-listing-lifecycle";
+import { useMarkDelistDone } from "@/hooks/use-pending-delists";
 import { useCrossPostChannels } from "@/hooks/use-cross-post-channels";
+import {
+  type ChannelOverrides,
+  readChannelOverrides,
+  resolveChannelTitle,
+} from "@/lib/channel-copy";
 import { kitPlatformsFor } from "@/lib/kit-platforms";
 import { edgeFetch } from "@/lib/edge-fetch";
 import {
   QUEUED_NOTICE,
+  useCancelExtensionWork,
   useEnqueueExtensionWork,
+  useExtensionQueue,
 } from "@/hooks/use-extension-queue";
 import { useListerLocales } from "@/hooks/use-lister-locales";
 import { useItemListings } from "@/hooks/use-item-listings";
@@ -161,9 +187,13 @@ interface KitFieldProps {
   value: string;
   editable: boolean;
   onChange: (v: string) => void;
+  /** Fired when an editable field loses focus: where a typed change is saved. */
+  onBlur?: () => void;
+  /** A line under the field, e.g. that this channel no longer copies eBay. */
+  footer?: ReactNode;
 }
 
-function KitField({ field, value, editable, onChange }: KitFieldProps) {
+function KitField({ field, value, editable, onChange, onBlur, footer }: KitFieldProps) {
   const status = charStatus(value, field.maxLength);
   return (
     <div className="space-y-1">
@@ -191,18 +221,39 @@ function KitField({ field, value, editable, onChange }: KitFieldProps) {
           aria-label={field.label}
           value={value}
           onChange={(e) => onChange(e.target.value)}
+          onBlur={onBlur}
           className="min-h-[88px] text-sm"
         />
       ) : editable ? (
-        <Input aria-label={field.label} value={value} onChange={(e) => onChange(e.target.value)} className="text-sm" />
+        <Input
+          aria-label={field.label}
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          onBlur={onBlur}
+          className="text-sm"
+        />
       ) : (
         <div className="whitespace-pre-wrap rounded-md border bg-muted/40 px-3 py-2 text-sm">
           {value || <span className="text-muted-foreground">—</span>}
         </div>
       )}
+      {footer}
     </div>
   );
 }
+
+/** The item's own facts, which beat the kit variant's snapshot of them. */
+export interface KitItemFacts {
+  title: string | null;
+  brand: string | null;
+  color: string | null;
+  size: string | null;
+}
+
+/** The free-text fields a seller can give their own words per channel. */
+type CopyKey = "title" | "description";
+const isCopyKey = (key: string): key is CopyKey =>
+  key === "title" || key === "description";
 
 function PlatformPanel({
   platform,
@@ -214,9 +265,24 @@ function PlatformPanel({
   baseName,
   itemId,
   liveDescription,
+  listingId,
+  sharedTitle,
+  itemFacts,
+  overrides,
+  status,
 }: {
   platform: MarketplacePlatform;
   variant: PlatformKitVariant | undefined;
+  /** US-3367: what this item is doing on this channel right now. */
+  status: ChannelStatus;
+  /** The eBay draft's id: where this channel's own words are saved. */
+  listingId: string | null;
+  /** The eBay title. Every channel copies it unless `overrides.title` is set. */
+  sharedTitle: string | null;
+  /** The item's current facts. Null until the read lands. */
+  itemFacts: KitItemFacts | null;
+  /** The seller's own words for this channel (channel-copy.ts). */
+  overrides: ChannelOverrides;
   /**
    * US-3317: what THIS channel costs, off its own sibling `listings` row.
    * Null when the channel has no row yet, which is the only case the shared
@@ -230,19 +296,21 @@ function PlatformPanel({
   baseName: string;
   itemId: string;
   /**
-   * This platform's description re-rendered by the edge from the listing's
-   * description blocks (platform-description.ts). Undefined until the query
-   * lands, and null when the listing has no blocks to render — both fall back
-   * to the stored variant's words. The caller passes `|| undefined` rather
-   * than `?? undefined`: an empty render means there was nothing to render, and
-   * blanking the field the seller is about to cross-post is worse than showing
-   * the words already stored.
+   * This platform's description rendered by the edge (platform-description.ts):
+   * eBay's words and the item's current facts, or the seller's own words for
+   * this channel when they typed some. Undefined until the query lands, and
+   * null when the listing has no blocks to render. The caller passes
+   * `|| undefined` rather than `?? undefined`: an empty render means there was
+   * nothing to render, and blanking the field the seller is about to cross-post
+   * is worse than showing the words already stored.
    */
   liveDescription?: string | null;
 }) {
   const qc = useQueryClient();
   const spec = getMarketplaceSpec(platform);
-  // Local edits to the free-text fields, keyed by field key.
+  // Local edits to the free-text fields, keyed by field key. A title or
+  // description edit is saved as this channel's own words when the field loses
+  // focus, and the local copy is dropped once the saved one is back.
   const [edits, setEdits] = useState<Record<string, string>>({});
   const [downloading, setDownloading] = useState(false);
   const [sending, setSending] = useState(false);
@@ -280,6 +348,15 @@ function PlatformPanel({
   // The same cached read the item page's other panels share.
   const { data: itemListingRows = [] } = useItemListings(itemId);
   const channelRow = itemListingRows.find((r) => r.platform === platform) ?? null;
+  // US-3367: the verbs the status row offers. Each one is the existing hook
+  // the Listings page or the delist banner already uses; nothing new is wired.
+  const endListing = useEndListing();
+  const cancelJob = useCancelExtensionWork();
+  const markDone = useMarkDelistDone();
+  const enqueueRetry = useEnqueueExtensionWork();
+  // US-3367: the opt-out. A filled form is recorded as listed until the seller
+  // says otherwise; this is the "otherwise".
+  const notListed = useNotListed();
 
   // US-1877 (AC1): the AUTOMATIC path — the extension saw the tab navigate to the
   // live listing, which means the seller submitted. Promote the draft and record
@@ -420,19 +497,95 @@ function PlatformPanel({
     variantPrice: variant.price,
     fallbackPrice,
   }).price;
-  // The description the edge just rendered from this listing's blocks against
-  // the item's CURRENT facts. It replaces the stored variant's string for the
-  // same reason the stepped price replaces the stored price: what the panel
-  // shows and what the extension types must be the one thing. Falls back to the
-  // stored words when the render has not landed (or failed) — yesterday's
-  // wording beats a blank description field.
-  const resolvedDescription = liveDescription ?? variant.description;
-  const priced: PlatformKitVariant =
-    steppedPrice === variant.price && resolvedDescription === variant.description
-      ? variant
-      : { ...variant, price: steppedPrice, description: resolvedDescription };
+  // 2026-09-11 (channel-copy.ts): every channel copies eBay. The variant's
+  // title, description and colour were written once, when the kit ran, so an
+  // item drafted "Gray" and corrected to "Navy Blue" on eBay kept saying Gray
+  // here and the seller retyped the fix into every tab. Now:
+  //   - the title is the eBay title fitted to this channel, unless the seller
+  //     saved their own for it;
+  //   - the description is the edge's render (eBay's words, current facts, or
+  //     the seller's own), and the stored variant is only a fallback while that
+  //     render is in flight;
+  //   - brand, colour and size come from the item.
+  // One resolved variant, for the same reason as the stepped price: what the
+  // panel shows and what the extension types must be the one thing.
+  const ebayTitle = resolveChannelTitle(platform, {
+    sharedTitle,
+    itemTitle: itemFacts?.title,
+  });
+  const resolvedTitle = resolveChannelTitle(platform, {
+    override: overrides.title,
+    sharedTitle,
+    itemTitle: itemFacts?.title,
+  });
+  const resolvedDescription =
+    liveDescription ?? overrides.description ?? variant.description;
+  const priced: PlatformKitVariant = {
+    ...variant,
+    price: steppedPrice,
+    title: resolvedTitle,
+    description: resolvedDescription,
+    brand: itemFacts?.brand || variant.brand,
+    color: itemFacts?.color || variant.color,
+    size: itemFacts?.size || variant.size,
+  };
   const valueOf = (f: FieldSpec) =>
     edits[f.key] ?? fieldValue(f.key, priced);
+
+  // Save (or clear) this channel's own words. `null` means "copy eBay again".
+  const saveChannelCopy = async (key: CopyKey, value: string | null) => {
+    if (!listingId) return;
+    try {
+      const res = await edgeFetch(
+        `/api/flipdesk/description/${listingId}/channel-copy`,
+        { method: "POST", json: { platform, [key]: value } },
+      );
+      if (!res.ok) {
+        const j = (await res.json().catch(() => ({}))) as { error?: string };
+        toast.error(j.error ?? `Couldn't save the ${spec.label} ${key}.`);
+        return;
+      }
+      await qc.invalidateQueries({ queryKey: ["platform-fields", itemId] });
+      await qc.invalidateQueries({ queryKey: ["platform-descriptions"] });
+      setEdits((prev) => {
+        const next = { ...prev };
+        delete next[key];
+        return next;
+      });
+      toast.success(
+        value == null
+          ? `${spec.label} ${key} copies eBay again.`
+          : `${spec.label} ${key} saved. eBay edits won't change it.`,
+      );
+    } catch (err) {
+      toastError(err, `Couldn't save the ${spec.label} ${key}.`);
+    }
+  };
+
+  // A typed title or description becomes this channel's own words when the
+  // field loses focus. Typing it back to eBay's, or clearing it, goes back to
+  // copying eBay.
+  //
+  // A no-op blur still drops the local copy: a leftover edit equal to today's
+  // title would otherwise shadow tomorrow's eBay correction on this tab.
+  const onCopyBlur = (key: CopyKey) => {
+    const typed = edits[key];
+    if (typed === undefined) return;
+    const shown = key === "title" ? resolvedTitle : resolvedDescription;
+    const ebayValue = key === "title"
+      ? ebayTitle
+      : overrides.description == null ? liveDescription : undefined;
+    const next = typed.trim() === "" || typed === ebayValue ? null : typed;
+    if (typed === shown || next === overrides[key]) {
+      setEdits((prev) => {
+        const rest = { ...prev };
+        delete rest[key];
+        return rest;
+      });
+      return;
+    }
+    void saveChannelCopy(key, next);
+  };
 
   // US-725: re-validate the *edited* draft live against the platform's
   // requirements registry (not just the stale generation-time result), so an
@@ -619,8 +772,196 @@ function PlatformPanel({
     }
   };
 
+  const label = spec.label;
+  const when = (iso: string | null) =>
+    iso ? new Date(iso).toLocaleDateString() : "";
+
   return (
     <div className="space-y-3">
+      {/* US-3367: what this channel is doing, and the one verb that applies.
+          Rendered above everything else because it is the answer to "did it
+          go up" and "where is it", which used to have no answer at all. */}
+      {status.state !== "none" && (
+        <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border bg-muted/40 px-3 py-2 text-xs">
+          <span>
+            {status.state === "live" && (
+              <>Live on {label}{status.since ? ` since ${when(status.since)}` : ""}.</>
+            )}
+            {status.state === "unconfirmed" && (
+              <>
+                Recorded as listed on {label}: the form was filled
+                {status.since ? ` ${when(status.since)}` : ""}, but nothing saw it go
+                live. Not listed after all? Say so, or confirm it.
+              </>
+            )}
+            {status.state === "queued" && (
+              <>Queued for your desktop. Nothing is live on {label} yet.</>
+            )}
+            {status.state === "delist_queued" && (
+              <>Ending on {label} from your browser. It is live there until then.</>
+            )}
+            {status.state === "prefilled" && (
+              <>The {label} form was filled but never confirmed live.</>
+            )}
+            {status.state === "failed" && (
+              <>{status.queueItem?.result?.error ?? `The last ${label} run did not finish.`}</>
+            )}
+            {status.state === "ended" && <>Ended on {label}.</>}
+            {status.state === "sold" && <>Sold on {label}.</>}
+          </span>
+          <span className="flex flex-wrap items-center gap-1.5">
+            {status.url && (
+              <Button type="button" variant="outline" size="sm" className="h-7" asChild>
+                <a href={status.url} target="_blank" rel="noopener noreferrer">
+                  <ExternalLink className="mr-1 h-3.5 w-3.5" />
+                  View on {label}
+                </a>
+              </Button>
+            )}
+            {status.state === "live" && status.row && (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="h-7"
+                disabled={endListing.isPending}
+                aria-label={`End the ${label} listing`}
+                onClick={() =>
+                  endListing.mutate(
+                    { listingId: status.row!.id },
+                    {
+                      onSuccess: (r) => {
+                        // Deliberately not "ended" for a queued end: the
+                        // listing is live until the browser runs the job.
+                        if (r.queued) {
+                          toast.info(`Ending on ${label} from your browser. ${QUEUED_NOTICE}`);
+                          void requestDrainNow();
+                        } else {
+                          toast.success(`Ended on ${label}.`);
+                        }
+                      },
+                      onError: (e) => toastError(e, "Could not end the listing."),
+                    },
+                  )}
+              >
+                {endListing.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "End listing"}
+              </Button>
+            )}
+            {(status.state === "unconfirmed" || status.state === "live") &&
+              status.row && isListerPlatform(platform) && (
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="h-7 text-xs"
+                disabled={notListed.isPending}
+                aria-label={`Mark the ${label} listing as not listed`}
+                title={`FlipDesk recorded this as listed on ${label}. Press if it is not.`}
+                onClick={() =>
+                  notListed.mutate(
+                    { listingId: status.row!.id, itemId },
+                    {
+                      onSuccess: () => toast.success(`Recorded as not listed on ${label}.`),
+                      onError: (e) => toastError(e, "Could not update the listing."),
+                    },
+                  )}
+              >
+                Not listed
+              </Button>
+            )}
+            {status.state === "unconfirmed" && showSend && (
+              <Button
+                type="button"
+                variant="secondary"
+                size="sm"
+                className="h-7"
+                disabled={confirming}
+                aria-label={`Confirm the ${label} listing is live`}
+                onClick={confirmPublished}
+              >
+                Yes, it is listed
+              </Button>
+            )}
+            {/* Cancel only while queued (US-3048): a claimed row is mid-fill in a
+                marketplace tab and pulling it leaves that tab half done. */}
+            {status.state === "queued" && status.queueItem?.status === "queued" && (
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="h-7 text-xs"
+                disabled={cancelJob.isPending}
+                aria-label={`Cancel the queued ${label} cross-post`}
+                onClick={() =>
+                  cancelJob.mutate(status.queueItem!.id, {
+                    onError: (e) => toastError(e, "Could not cancel that job."),
+                  })}
+              >
+                Cancel
+              </Button>
+            )}
+            {status.state === "delist_queued" && status.row && (
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="h-7 text-xs"
+                disabled={markDone.isPending}
+                aria-label={`Mark the ${label} listing ended in FlipDesk`}
+                onClick={() =>
+                  markDone.mutate(status.row!.id, {
+                    onError: (e) => toastError(e, "Could not update the queue."),
+                  })}
+              >
+                Mark ended
+              </Button>
+            )}
+            {status.state === "failed" && isListerPlatform(platform) && (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="h-7"
+                disabled={enqueueRetry.isPending}
+                aria-label={`Queue the ${label} cross-post again`}
+                onClick={() =>
+                  enqueueRetry.mutate(
+                    {
+                      kind: "list",
+                      platform,
+                      inventoryItemId: itemId,
+                      listingId: status.row?.id ?? null,
+                      payload: {},
+                    },
+                    {
+                      onSuccess: () => {
+                        toast.success(`Queued again. ${QUEUED_NOTICE}`);
+                        void requestDrainNow();
+                      },
+                      onError: (e) => toastError(e, "Could not queue that."),
+                    },
+                  )}
+              >
+                Retry
+              </Button>
+            )}
+            {status.state === "prefilled" && showSend && (
+              <Button
+                type="button"
+                variant="secondary"
+                size="sm"
+                className="h-7"
+                disabled={confirming}
+                aria-label={`Mark the ${label} listing as live in FlipDesk`}
+                onClick={confirmPublished}
+              >
+                I published it
+              </Button>
+            )}
+          </span>
+        </div>
+      )}
+
       {(errors.length > 0 || warnings.length > 0) && (
         <div className="space-y-1 rounded-md border p-2 text-xs">
           {errors.map((i, idx) => (
@@ -728,7 +1069,7 @@ function PlatformPanel({
             title={
               errors.length > 0
                 ? "Fix the blocking issues first"
-                : `Prefill ${spec.label}'s listing form in a new tab`
+                : `Fill ${spec.label}'s listing form in a new tab, right now`
             }
           >
             {sending ? (
@@ -736,7 +1077,10 @@ function PlatformPanel({
             ) : (
               <Puzzle className="mr-1.5 h-3.5 w-3.5" />
             )}
-            Send to extension
+            {/* US-3367: renamed from "Send to extension" so it reads as a
+                different verb from "List everywhere" above the tabs: this
+                one fills THIS channel's form now, in a tab you watch. */}
+            Fill {spec.label} now
           </Button>
         )}
         {/* US-1877 (AC2): promote the draft once the seller has actually
@@ -855,15 +1199,36 @@ function PlatformPanel({
       )}
 
       <div className="space-y-3">
-        {spec.fields.map((f) => (
-          <KitField
-            key={f.key}
-            field={f}
-            value={valueOf(f)}
-            editable={editableKeys.has(f.key)}
-            onChange={(v) => setEdits((prev) => ({ ...prev, [f.key]: v }))}
-          />
-        ))}
+        {spec.fields.map((f) => {
+          const copyKey = isCopyKey(f.key) ? f.key : null;
+          const own = copyKey != null && overrides[copyKey] != null;
+          return (
+            <KitField
+              key={f.key}
+              field={f}
+              value={valueOf(f)}
+              editable={editableKeys.has(f.key)}
+              onChange={(v) => setEdits((prev) => ({ ...prev, [f.key]: v }))}
+              onBlur={copyKey && listingId ? () => onCopyBlur(copyKey) : undefined}
+              footer={copyKey && listingId ? (
+                <p className="flex flex-wrap items-center gap-x-2 text-[11px] text-muted-foreground">
+                  {own
+                    ? `Your own ${copyKey} for ${spec.label}. eBay edits won't change it.`
+                    : `Copies your eBay ${copyKey}. Type here to use different words on ${spec.label} only.`}
+                  {own && (
+                    <button
+                      type="button"
+                      className="font-medium text-foreground underline underline-offset-2"
+                      onClick={() => void saveChannelCopy(copyKey, null)}
+                    >
+                      Use eBay {copyKey}
+                    </button>
+                  )}
+                </p>
+              ) : null}
+            />
+          );
+        })}
       </div>
     </div>
   );
@@ -1177,7 +1542,8 @@ export function ListingKit({ itemId, baseName }: { itemId: string; baseName?: st
     queryFn: async () => {
       const { data: rows } = await supabase
         .from("listings")
-        .select("id, platform, platform_fields, primary_photo_id, listing_price")
+        // listing_title: the eBay title every channel copies (channel-copy.ts).
+        .select("id, platform, platform_fields, primary_photo_id, listing_price, listing_title")
         .eq("inventory_item_id", itemId)
         .order("created_at", { ascending: false });
       return readKitListings((rows ?? []) as KitListingRow[]);
@@ -1220,13 +1586,104 @@ export function ListingKit({ itemId, baseName }: { itemId: string; baseName?: st
   // Never renders an empty kit - see kitPlatformsFor for the fallback rule.
   const kitPlatforms = useMemo(() => kitPlatformsFor(chosenChannels), [chosenChannels]);
 
+  // US-3367: what each channel is doing, from the item's listing rows and the
+  // seller's queue. One derivation (channel-state.ts) feeds the tab markers,
+  // the per-panel status row and the checklist below.
+  const { data: listingRows = [] } = useItemListings(itemId);
+  const { data: queue } = useExtensionQueue();
+  const queueForItem = useMemo(
+    () =>
+      [...(queue?.pending ?? []), ...(queue?.needsAttention ?? [])]
+        .filter((it) => it.inventory_item_id === itemId),
+    [queue, itemId],
+  );
+  const statuses = useMemo(() => {
+    const out: Record<string, ChannelStatus> = {};
+    for (const p of kitPlatforms) out[p] = deriveChannelState(listingRows, queueForItem, p);
+    return out;
+  }, [kitPlatforms, listingRows, queueForItem]);
+
+  // The channels the one button can queue. Depop has no form-filler (its API
+  // is pending) and a `verifying` flow would only report "list manually", so
+  // neither is offered here; their tabs stay as copy kits.
+  const queueable = useMemo(
+    () =>
+      kitPlatforms.filter(
+        (p) => isListerPlatform(p) && MARKETPLACE_EXTENSION_FLOW[p] !== "verifying",
+      ),
+    [kitPlatforms],
+  );
+  const plan = useMemo(() => planListEverywhere(queueable, statuses), [queueable, statuses]);
+  // The seller's ticks. Follows the plan's defaults until they touch a box,
+  // then holds their choice until a send resets it.
+  const [checked, setChecked] = useState<Set<string>>(new Set());
+  const [touched, setTouched] = useState(false);
+  useEffect(() => {
+    if (!touched) setChecked(new Set(plan.checked));
+  }, [plan.checked, touched]);
+  const crossPush = useCrossPush();
+
+  const listEverywhere = async () => {
+    if (!draft?.id) {
+      toast.error("Save the eBay draft first.");
+      return;
+    }
+    const platforms = queueable.filter((p) => checked.has(p) && !plan.disabled[p]);
+    if (platforms.length === 0) {
+      toast.error("Pick at least one marketplace.");
+      return;
+    }
+    try {
+      // The same fan-out the composer's Publish uses: one sibling row per
+      // channel, pre-flighted, then a queue row for the desktop. The server
+      // skips a channel that is already live or already waiting (US-3367), so
+      // pressing this twice cannot mint a duplicate listing.
+      const res = await crossPush.mutateAsync({
+        listingId: draft.id,
+        platforms: platforms as CrossListingPlatform[],
+      });
+      const queued: string[] = [];
+      const live: string[] = [];
+      const waiting: string[] = [];
+      const blocked: string[] = [];
+      for (const p of platforms) {
+        const r = res.results[p as CrossListingPlatform];
+        if (!r) continue;
+        const name = MARKETPLACE_LABELS[p as ListingPlatform] ?? p;
+        if (r.skipped === "already_live") live.push(name);
+        else if (r.skipped === "already_queued") waiting.push(name);
+        else if (r.ok && r.queued) queued.push(name);
+        else if (!r.ok) blocked.push(`${name}: ${r.blockers?.[0] ?? r.error ?? "blocked"}`);
+      }
+      if (queued.length > 0) {
+        // The shared sentence. A queued job is not a listed job.
+        toast.success(`Queued for your desktop: ${queued.join(", ")}. ${QUEUED_NOTICE}`, {
+          duration: 10_000,
+        });
+        void requestDrainNow();
+      }
+      if (live.length > 0) toast.info(`Already live: ${live.join(", ")}.`);
+      if (waiting.length > 0) toast.info(`Already waiting for your desktop: ${waiting.join(", ")}.`);
+      for (const b of blocked) toast.error(b, { duration: 12_000 });
+      setTouched(false);
+      void qc.invalidateQueries({ queryKey: ["extension_queue"] });
+      void qc.invalidateQueries({ queryKey: ["item_listings", itemId] });
+    } catch (err) {
+      toastError(err, "Could not queue the cross-posts.");
+    }
+  };
+
+  // The item's price candidates AND its current facts. The facts joined this
+  // read on 2026-09-11 (channel-copy.ts): the title is the last-resort source
+  // for a channel's title, and brand, colour and size beat the kit variant's
+  // snapshot of them. The composer's save invalidates this key.
   const { data: itemPrice } = useQuery({
-    queryKey: ["item-target-price", itemId],
+    queryKey: ["kit-item-facts", itemId],
     queryFn: async () => {
       const [{ data: row }, { data: priced }] = await Promise.all([
         supabase
           .from("inventory_items")
-          .select("target_price")
+          .select("target_price, title, brand, color, size")
           .eq("id", itemId)
           .maybeSingle(),
         // The composer's third source is `item.list_price`, which is NOT a
@@ -1244,8 +1701,14 @@ export function ListingKit({ itemId, baseName }: { itemId: string; baseName?: st
           .limit(1)
           .maybeSingle(),
       ]);
+      const item = row as
+        | (KitItemFacts & { target_price: number | null })
+        | null;
       return {
-        target_price: (row as { target_price: number | null } | null)?.target_price ?? null,
+        target_price: item?.target_price ?? null,
+        facts: item
+          ? { title: item.title, brand: item.brand, color: item.color, size: item.size }
+          : null,
         any_listing_price:
           (priced as { listing_price: number | null } | null)?.listing_price ?? null,
       };
@@ -1324,8 +1787,9 @@ export function ListingKit({ itemId, baseName }: { itemId: string; baseName?: st
           <div>
             <CardTitle>Cross-list copy kit</CardTitle>
             <CardDescription>
-              AI-tailored fields for marketplaces without API push — copy each field
-              into Poshmark, Mercari, Depop, Grailed, or Vinted.
+              Every marketplace copies your eBay title and description, so a fix
+              on eBay reaches them all. Type in a field to use different words on
+              one site only.
               {generatedWithDraft
                 ? " Filled automatically when this draft was generated."
                 : null}
@@ -1357,16 +1821,95 @@ export function ListingKit({ itemId, baseName }: { itemId: string; baseName?: st
         </div>
       </CardHeader>
       <CardContent>
+        {/* US-3367: one button for every extension channel, through the paced
+            queue. A live or queued channel is shown and disabled with the
+            reason, so the list reads as the truth about the item rather than
+            as a form. */}
+        {queueable.length > 0 && (
+          <div className="mb-4 space-y-2 rounded-md border p-3">
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+              <span className="text-sm font-medium">List on:</span>
+              {queueable.map((p) => {
+                const reason = plan.disabled[p];
+                const id = `list-on-${p}`;
+                return (
+                  <label
+                    key={p}
+                    htmlFor={id}
+                    className={cn(
+                      "flex items-center gap-1.5 text-sm",
+                      reason && "text-muted-foreground",
+                    )}
+                  >
+                    <Checkbox
+                      id={id}
+                      checked={!reason && checked.has(p)}
+                      disabled={Boolean(reason) || crossPush.isPending}
+                      onCheckedChange={(v) => {
+                        setTouched(true);
+                        setChecked((prev) => {
+                          const next = new Set(prev);
+                          if (v === true) next.add(p);
+                          else next.delete(p);
+                          return next;
+                        });
+                      }}
+                    />
+                    {MARKETPLACE_LABELS[p as ListingPlatform] ?? p}
+                    {reason ? ` (${reason})` : ""}
+                  </label>
+                );
+              })}
+            </div>
+            <div className="flex flex-wrap items-center gap-3">
+              <Button
+                type="button"
+                size="sm"
+                disabled={crossPush.isPending}
+                onClick={() => void listEverywhere()}
+              >
+                {crossPush.isPending ? (
+                  <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
+                ) : (
+                  <Send className="mr-1.5 h-4 w-4" />
+                )}
+                List everywhere
+              </Button>
+              <p className="text-xs text-muted-foreground">
+                Runs one at a time in your own browser, about 30 seconds apart.{" "}
+                {QUEUED_NOTICE}
+              </p>
+            </div>
+          </div>
+        )}
+
         <Tabs defaultValue={kitPlatforms[0]}>
           <TabsList className="flex-wrap">
             {kitPlatforms.map((p) => {
               const spec = getMarketplaceSpec(p);
               const v = variants[p];
               const hasErr = v ? !v.validation?.ok : false;
+              const state = statuses[p]?.state;
+              const name = spec?.label ?? p;
               return (
                 <TabsTrigger key={p} value={p} className="gap-1.5">
-                  {spec?.label ?? p}
+                  {name}
                   {hasErr && <span className="h-1.5 w-1.5 rounded-full bg-brand-red" />}
+                  {/* US-3367: the channel's state, at a glance. The label names
+                      the channel so a screen reader hears which tab is live. */}
+                  {state === "live" && (
+                    <span
+                      className="h-1.5 w-1.5 rounded-full bg-emerald-500"
+                      role="img"
+                      aria-label={`${name}: live`}
+                    />
+                  )}
+                  {(state === "queued" || state === "delist_queued") && (
+                    <Clock className="h-3 w-3 text-muted-foreground" aria-label={`${name}: queued`} />
+                  )}
+                  {state === "failed" && (
+                    <XCircle className="h-3 w-3 text-brand-red-text" aria-label={`${name}: needs you`} />
+                  )}
                 </TabsTrigger>
               );
             })}
@@ -1393,6 +1936,11 @@ export function ListingKit({ itemId, baseName }: { itemId: string; baseName?: st
                 baseName={baseName ?? `item-${itemId.slice(0, 8)}`}
                 itemId={itemId}
                 liveDescription={liveDescriptions?.[p] || undefined}
+                listingId={draft?.id ?? null}
+                sharedTitle={draft?.listing_title ?? null}
+                itemFacts={itemPrice?.facts ?? null}
+                overrides={readChannelOverrides(draft?.platform_fields?.[p])}
+                status={statuses[p] ?? deriveChannelState([], [], p)}
               />
             </TabsContent>
           ))}
@@ -1478,6 +2026,8 @@ export interface KitListingRow {
   platform_fields: Record<string, unknown> | null;
   primary_photo_id: string | null;
   listing_price: number | null;
+  /** The eBay title every channel copies. Optional: older callers omit it. */
+  listing_title?: string | null;
 }
 
 export interface KitListings {

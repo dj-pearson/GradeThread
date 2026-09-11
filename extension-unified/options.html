@@ -95,6 +95,23 @@
         </label>
 
         <button type="button" class="opt-btn" id="workerOpen">Open the worker tab now</button>
+
+        <label class="opt-field" for="pacingGap">
+          <span>
+            Gap between cross-posts
+            <small>
+              How long the worker waits after one listing goes up before it
+              starts the next. A gap makes the run look like a person, which
+              it is. Ending a sold listing never waits.
+            </small>
+          </span>
+          <select id="pacingGap" class="opt-select">
+            <option value="15000">15 seconds</option>
+            <option value="30000">30 seconds</option>
+            <option value="60000">1 minute</option>
+            <option value="120000">2 minutes</option>
+          </select>
+        </label>
       </section>
 
       <section class="opt-section">

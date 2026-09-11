@@ -404,6 +404,58 @@
     return Math.max(0, max - pending);
   }
 
+  // ── US-3367: a gap between cross-posts ─────────────────────────────────────
+  //
+  // A queue of six listings used to run back to back: one settles, the next
+  // opens. Marketplaces read that as a machine. A LIST job therefore schedules
+  // the next drain a little later, with jitter so the gaps are not identical.
+  // A DELIST is never paced: the garment is sold and the listing is live, and
+  // every second of gap is a second a buyer can pay for it twice. Pure, like
+  // everything else in this file; background.js holds the alarm.
+  var PACING = {
+    DEFAULT_GAP_MS: 30000,
+    JITTER_MS: 15000,
+    OPTIONS_MS: [15000, 30000, 60000, 120000],
+  };
+
+  /** The seller's option, or the default when it is not one of the offered values. */
+  function pacingGapFor(optionMs) {
+    return PACING.OPTIONS_MS.indexOf(optionMs) >= 0 ? optionMs : PACING.DEFAULT_GAP_MS;
+  }
+
+  /** Only a list job earns a gap. */
+  function pacesAfter(job) {
+    return Boolean(job && job.kind === "list");
+  }
+
+  function finiteOr(v, fallback) {
+    return (typeof v === "number" && Number.isFinite(v)) ? v : fallback;
+  }
+
+  /**
+   * When the next drain may run after a list job settled at `settledAt`.
+   * `rng` returns [0, 1); 0.5 is no jitter. Never earlier than the settle
+   * time, so a tiny gap with a big jitter cannot schedule into the past.
+   */
+  function nextListDrainAt(settledAt, gapMs, jitterMs, rng) {
+    var t = finiteOr(settledAt, null);
+    if (t === null) return null;
+    var gap = finiteOr(gapMs, PACING.DEFAULT_GAP_MS);
+    var jitter = finiteOr(jitterMs, 0);
+    var r = (typeof rng === "function") ? rng() : Math.random();
+    var offset = gap + (r * 2 - 1) * jitter;
+    return t + Math.max(0, Math.round(offset));
+  }
+
+  /** Is the drain inside a pacing gap right now? */
+  function pacingHold(state, now) {
+    var until = state ? finiteOr(state.nextListDrainAt, null) : null;
+    if (until === null || typeof now !== "number" || now >= until) {
+      return { held: false, until: null };
+    }
+    return { held: true, until: until };
+  }
+
   /**
    * The queue kinds this extension can actually carry out.
    *
@@ -545,6 +597,11 @@
     DRAIN_MAX_CONCURRENT: DRAIN_MAX_CONCURRENT,
     RUNNABLE_QUEUE_KINDS: RUNNABLE_QUEUE_KINDS,
     drainClaimLimit: drainClaimLimit,
+    PACING: PACING,
+    pacingGapFor: pacingGapFor,
+    pacesAfter: pacesAfter,
+    nextListDrainAt: nextListDrainAt,
+    pacingHold: pacingHold,
     planDrain: planDrain,
     jobFromQueueRow: jobFromQueueRow,
     WATCH_TTL_MS: WATCH_TTL_MS,

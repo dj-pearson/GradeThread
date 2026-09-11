@@ -19,7 +19,7 @@
 import "./_env.ts";
 import { assert, assertEquals } from "@std/assert";
 import { claimIncludedGrade, type IncludedClaimDeps } from "../lib/grade-billing.ts";
-import { resolveIncludedCap } from "../lib/grade-pricing.ts";
+import { includedAllowance, resolveIncludedCap } from "../lib/grade-pricing.ts";
 
 /**
  * A fake counter that behaves like the column: the CAS succeeds only while the
@@ -237,4 +237,51 @@ Deno.test("US-885: no snapshot falls back to the live cap, including zero", () =
   // A snapshot of 0 is a REAL snapshot and must not be read as absent — `??`
   // rather than `||` is what makes that true, and it is a one-character bug.
   assertEquals(resolveIncludedCap(0, 3, false), 0);
+});
+
+// ── The allowance the composer DISPLAYS ────────────────────────────────────
+//
+// /validate used to compute "included remaining" from the compiled cap with no
+// snapshot, so a period whose snapshot differed from the plan showed a count
+// the charge disagreed with. includedAllowance takes the charge's inputs.
+
+const NOW = new Date("2026-09-11T12:00:00Z");
+
+Deno.test("allowance: mid-period, the snapshot cap governs the display", () => {
+  assertEquals(
+    includedAllowance({
+      dbUsed: 4,
+      resetAt: "2026-10-01T00:00:00Z",
+      snapshot: 10,
+      liveCap: 75,
+      now: NOW,
+    }),
+    { used: 4, cap: 10, remaining: 6 },
+  );
+});
+
+Deno.test("allowance: past the reset, the counter reads zero against the live cap", () => {
+  assertEquals(
+    includedAllowance({
+      dbUsed: 10,
+      resetAt: "2026-08-28T17:17:12Z",
+      snapshot: 10,
+      liveCap: 75,
+      now: NOW,
+    }),
+    { used: 0, cap: 75, remaining: 75 },
+  );
+});
+
+Deno.test("allowance: remaining never goes negative", () => {
+  assertEquals(
+    includedAllowance({
+      dbUsed: 12,
+      resetAt: "2026-10-01T00:00:00Z",
+      snapshot: 10,
+      liveCap: 10,
+      now: NOW,
+    }).remaining,
+    0,
+  );
 });

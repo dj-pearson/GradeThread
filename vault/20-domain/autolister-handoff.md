@@ -8,12 +8,23 @@ code_refs:
   - supabase/migrations/00507_autolister_handoff_sessions.sql
   - ios/GradeThread/AutoLister/AutoListerReviewModel.swift
   - src/hooks/use-autolister.ts
-reviewed: 2026-09-08
+reviewed: 2026-09-11
 tags: [flipdesk, autolister, mobile, contract]
 summary: What crosses from the phone to the desktop AutoLister before any AI runs, and the rules that keep the crossing safe.
 ---
 
 # AutoLister phone → desktop handoff
+
+> **Re-reviewed 2026-09-11.** Drift flagged `flipdesk-autolister.ts` for
+> `180672109` (channel copy). The whole diff in this file is one import and
+> five lines in `POST /platform-fields`: after `generatePlatformVariants`, the
+> response's per-platform `title` and `description` are overwritten from
+> `channelCopyForDraft(result.listingId, ownerId, platforms)`, so the iOS and
+> Android kits render eBay's words (or the seller's own per-channel override)
+> rather than the generator's snapshot. It touches the kit response after the
+> draft exists, not the handoff this note covers: nothing about what crosses
+> from the phone, the session table, or the pre-AI rules moved. Re-read
+> against the diff: still accurate.
 
 > **Re-reviewed 2026-09-08.** Drift flagged `flipdesk-autolister.ts` for
 > `41a4672f9` (US-3138). The whole diff in this file is four reserve calls

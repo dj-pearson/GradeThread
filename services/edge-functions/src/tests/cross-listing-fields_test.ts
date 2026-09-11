@@ -28,9 +28,17 @@ const VARIANT: StoredPlatformVariant = {
   generated_at: "2026-06-12T00:00:00.000Z",
 };
 
-Deno.test("prefers the AI variant for title/description and carries structured fields", () => {
+Deno.test("the title copies eBay, the description keeps the variant, structured fields carry", () => {
   const out = mapSiblingListingFields("poshmark", SOURCE, 38, VARIANT);
-  assertEquals(out.listing_title, VARIANT.title);
+  // 2026-09-11 (channel-copy.ts): the variant's title is a snapshot of the
+  // eBay title and is no longer read. Poshmark's cap is 80, so the source is
+  // fitted on a word boundary.
+  assertEquals(
+    out.listing_title,
+    "Nike Tech Fleece Hoodie Men's Medium Black Full Zip Pullover Sweatshirt",
+  );
+  // The API-channel description is unchanged on this path (see the comment in
+  // mapSiblingListingFields).
   assertEquals(out.listing_description, VARIANT.description);
   // Composer price overrides the variant's stored price.
   assertEquals(out.listing_price, 38);
@@ -61,16 +69,28 @@ Deno.test("Depop carries no title (description-led platform)", () => {
   assert(out.listing_description);
 });
 
-Deno.test("clamps a variant title that exceeds the platform cap", () => {
-  const longTitle = "x".repeat(120);
+Deno.test("a stale variant title never reaches the sibling", () => {
+  // The bug: drafted as Gray, corrected to Navy on eBay, and every sibling
+  // kept saying Gray because the variant's title won.
+  const out = mapSiblingListingFields(
+    "poshmark",
+    { ...SOURCE, listing_title: "Cozy Earth Lounge Set 3XL Navy Blue" },
+    30,
+    { ...VARIANT, title: "Cozy Earth Lounge Set XXXL Gray" },
+  );
+  assertEquals(out.listing_title, "Cozy Earth Lounge Set 3XL Navy Blue");
+  // The persisted blob reflects the title that was sent.
+  assertEquals(out.platform_fields!.poshmark.title, out.listing_title ?? undefined);
+});
+
+Deno.test("the seller's per-channel overrides beat eBay", () => {
   const out = mapSiblingListingFields("poshmark", SOURCE, 30, {
     ...VARIANT,
-    title: longTitle,
-  });
-  assert(out.listing_title);
-  assertEquals(out.listing_title!.length, 80);
-  // The persisted blob reflects the clamped title, not the 120-char original.
-  assertEquals(out.platform_fields!.poshmark.title, out.listing_title ?? undefined);
+    title_override: "My own Poshmark title",
+    description_override: "My own Poshmark words.",
+  } as StoredPlatformVariant);
+  assertEquals(out.listing_title, "My own Poshmark title");
+  assertEquals(out.listing_description, "My own Poshmark words.");
 });
 
 // US-725: pre-flight validation of a mapped sibling before cross-push publishes.

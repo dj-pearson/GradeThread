@@ -57,7 +57,14 @@ import { EXPECTED_MIGRATIONS, FOOTER_ERA_START } from "./migration-manifest.ts";
 // git history, no branch). Reusing that number would let the boot guard read
 // "match" off prod's pre-existing row even if this migration never applied —
 // exactly the failure the guard exists to catch. See PENDING_MIGRATIONS.md.
-export const EXPECTED_SCHEMA_VERSION = "00790";
+//
+// ⚠ 00793 THROUGH 00795 ARE SKIPPED, and are NOT phantoms. Each is claimed by a
+// held migration parked on another branch that had not merged when 00796 was
+// written (US-3404; 00795 is US-3398's, the story this one came out of).
+// Numbering jumped rather than colliding: two files with the same NNNNN is
+// unrecoverable, a gap is not. The manifest lists what THIS tree ships, so a
+// prod row for 00794 reads as "ahead", which is the safe direction.
+export const EXPECTED_SCHEMA_VERSION = "00796";
 
 export type SchemaVersionComparison = "match" | "behind" | "ahead" | "unknown";
 

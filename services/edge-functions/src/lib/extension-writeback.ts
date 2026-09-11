@@ -27,8 +27,51 @@ import type { Context } from "hono";
 import { supabaseAdmin } from "./supabase.ts";
 import { failSafe } from "./http-errors.ts";
 import { requireFlipdesk } from "./plan-gate.ts";
-import { markItemListed } from "./active-listings.ts";
+import { markItemListed, resyncItemListedStatus } from "./active-listings.ts";
 import { completeRelist } from "./extension-relist.ts";
+import { delistMethodFor } from "./cross-listing-sale.ts";
+import { getMarketplaceSpec } from "./marketplace-specs.ts";
+import { notifyExtensionListed } from "./selling-activity-notify.ts";
+
+// ── US-3367: a filled form is recorded as listed, and the seller opts OUT ────
+//
+// US-1877 recorded a prefill as a DRAFT and promoted it only on a captured URL
+// or the seller's "I published it". The founder reversed the default on
+// 2026-09-11: a seller who fills the Poshmark form and forgets to press "I
+// published it" ends up with a garment that is live on Poshmark and invisible
+// to FlipDesk, and finds out when it sells somewhere else. Recording the row as
+// listed-but-unconfirmed means the sale flow tells them to check Poshmark, and
+// "Not listed" is one click when the record is wrong. Opt-out, not opt-in.
+//
+// The marker lives on platform_fields so no migration is needed and the row
+// reads `active` to everything that counts live listings. A captured URL or
+// the seller's confirmation clears it.
+export const LISTED_UNCONFIRMED_KEY = "listed_unconfirmed";
+
+/** Should a prefill be recorded as listed (unconfirmed) rather than a draft? */
+export const PREFILL_RECORDS_AS_LISTED = true;
+
+export function withUnconfirmedMarker(
+  fields: Record<string, unknown> | null | undefined,
+  now: string,
+): Record<string, unknown> {
+  return { ...(fields ?? {}), [LISTED_UNCONFIRMED_KEY]: { at: now } };
+}
+
+export function withoutUnconfirmedMarker(
+  fields: Record<string, unknown> | null | undefined,
+): Record<string, unknown> | null {
+  if (!fields || !(LISTED_UNCONFIRMED_KEY in fields)) return null;
+  const rest = { ...fields };
+  delete rest[LISTED_UNCONFIRMED_KEY];
+  return rest;
+}
+
+export function hasUnconfirmedMarker(
+  fields: Record<string, unknown> | null | undefined,
+): boolean {
+  return Boolean(fields && fields[LISTED_UNCONFIRMED_KEY]);
+}
 
 /**
  * The Hono context shape both callers satisfy.
@@ -106,6 +149,14 @@ export function buildWritebackPatch(args: {
   listingUrl: string | null;
   groupId: string | null;
   now: string;
+  /**
+   * US-3367: record a prefill as listed-unconfirmed instead of a draft. Off by
+   * default so the pure rules above stay what they were; the route passes
+   * PREFILL_RECORDS_AS_LISTED (minus the cap gate's veto).
+   */
+  prefillAsListed?: boolean;
+  /** The row's platform_fields, so the marker can be added or removed. */
+  existingPlatformFields?: Record<string, unknown> | null;
 }): Record<string, unknown> {
   const patch: Record<string, unknown> = { draft_id: args.groupId ?? undefined };
   if (args.published) {
@@ -117,10 +168,23 @@ export function buildWritebackPatch(args: {
     // Never blank a URL we already have: a manual "I published it" carries no
     // URL, and it must not erase one the capture already found.
     if (args.listingUrl) patch.listing_url = args.listingUrl;
+    // A confirmation settles the question the marker asked.
+    const cleared = withoutUnconfirmedMarker(args.existingPlatformFields);
+    if (cleared) patch.platform_fields = cleared;
   } else if (args.existingStatus !== "active") {
-    // A re-prefill of a row that is still a draft stays a draft.
-    patch.listing_status = "draft";
-    patch.is_active = false;
+    if (args.prefillAsListed) {
+      // US-3367: the form was filled, so the garment is listed until the seller
+      // says otherwise. It is being listed NOW, whatever the draft's default
+      // listed_at happens to hold (see the US-2727 note above).
+      patch.listing_status = "active";
+      patch.is_active = true;
+      patch.listed_at = args.now;
+      patch.platform_fields = withUnconfirmedMarker(args.existingPlatformFields, args.now);
+    } else {
+      // A re-prefill of a row that is still a draft stays a draft.
+      patch.listing_status = "draft";
+      patch.is_active = false;
+    }
   }
   // NOTE the else: a prefill of an ALREADY-ACTIVE listing leaves it active. A
   // seller re-sending a live listing to the extension (to fix a typo) must not
@@ -170,7 +234,7 @@ export async function handleExtensionWriteback<E extends WritebackEnv>(
   // Verify the caller owns the item (US-268).
   const { data: itemRow, error: itemErr } = await supabaseAdmin
     .from("inventory_items")
-    .select("id, user_id, target_price, status")
+    .select("id, user_id, target_price, status, title")
     .eq("id", itemId)
     .maybeSingle();
   if (itemErr) {
@@ -189,6 +253,7 @@ export async function handleExtensionWriteback<E extends WritebackEnv>(
       user_id: string;
       target_price: number | null;
       status: string | null;
+      title: string | null;
     }
     | null;
   if (!item || item.user_id !== ownerId) {
@@ -197,10 +262,14 @@ export async function handleExtensionWriteback<E extends WritebackEnv>(
 
   // US-2179: a CONFIRMED publish on an extension platform (Poshmark/Mercari/
   // Grailed) is a live listing and consumes an activeListings slot, so gate it
-  // like every other publish. Only when `published` — a prefill that stays a
-  // draft costs nothing, which is exactly the US-1877 distinction, so a seller
-  // at their cap can still prep drafts and publish them after upgrading.
-  if (published) {
+  // like every other publish.
+  //
+  // US-3367: a prefill is recorded as listed too (unconfirmed), so it faces the
+  // same gate. The difference is what a refusal means: a refused PUBLISH is an
+  // error the seller must see, while a refused PREFILL falls back to the old
+  // draft record rather than blocking a form that is already filled.
+  let prefillListed = !published && PREFILL_RECORDS_AS_LISTED;
+  if (published || prefillListed) {
     const capGate = await requireFlipdesk(c, {
       capacity: {
         kind: "activeListings",
@@ -208,8 +277,22 @@ export async function handleExtensionWriteback<E extends WritebackEnv>(
       },
       userId: ownerId,
     });
-    if (capGate) return capGate;
+    if (capGate) {
+      if (published) return capGate;
+      prefillListed = false;
+    }
   }
+  /** Whatever the path, does the row read `active` after this call? */
+  const recordListed = published || prefillListed;
+  const platformLabel = getMarketplaceSpec(platform)?.label ?? platform;
+  /** One notice per transition into "listed" and one per confirmation. */
+  const tell = (confirmed: boolean) =>
+    void notifyExtensionListed(ownerId, {
+      itemTitle: item.title,
+      itemId,
+      platformLabel,
+      confirmed,
+    });
 
   // Join to the item's cross-list group (the eBay base draft), if any.
   //
@@ -306,6 +389,8 @@ export async function handleExtensionWriteback<E extends WritebackEnv>(
   }
 
   if (existing) {
+    const wasActive = existing.listing_status === "active";
+    const wasUnconfirmed = hasUnconfirmedMarker(existing.platform_fields);
     const patch = buildWritebackPatch({
       published,
       existingStatus: existing.listing_status,
@@ -313,6 +398,8 @@ export async function handleExtensionWriteback<E extends WritebackEnv>(
       listingUrl,
       groupId,
       now,
+      prefillAsListed: prefillListed,
+      existingPlatformFields: existing.platform_fields,
     });
     const { error: upErr } = await supabaseAdmin
       .from("listings")
@@ -328,14 +415,21 @@ export async function handleExtensionWriteback<E extends WritebackEnv>(
         "WRITEBACK_UPDATE",
       );
     }
-    // US-2179: count a confirmed extension publish against the cap.
-    if (published) await markItemListed(itemId, ownerId);
+    // US-2179: count a confirmed extension publish against the cap. US-3367:
+    // and a prefill recorded as listed, which reads the same to the cap.
+    if (recordListed) await markItemListed(itemId, ownerId);
+    // Tell the seller once when the row becomes listed, and once more when an
+    // unconfirmed record is confirmed. A re-confirmation of a confirmed row
+    // says nothing.
+    if (published && (!wasActive || wasUnconfirmed)) tell(true);
+    else if (prefillListed && !wasActive) tell(false);
     return c.json({
       ok: true,
       listing_id: existing.id,
       platform,
       created: false,
-      published: published || existing.listing_status === "active",
+      published: published || wasActive,
+      recorded: published ? "confirmed" : recordListed ? "unconfirmed" : "draft",
     });
   }
 
@@ -346,17 +440,20 @@ export async function handleExtensionWriteback<E extends WritebackEnv>(
       platform,
       // US-1077: recording a FlipDesk cross-listing → GradeThread-originated.
       listing_origin: "gradethread",
-      // US-1877 (AC2): 'draft' unless the seller has actually published. Reuses the
-      // existing listing_status enum value ('draft','active','ended','sold',
-      // 'relisted' — 00008) rather than minting a 'prefilled' one, so no migration
-      // and no new state for every consumer of listing_status to learn.
-      listing_status: published ? "active" : "draft",
-      is_active: published,
+      // US-1877 (AC2) recorded 'draft' unless the seller had published; US-3367
+      // records a filled form as 'active' with the unconfirmed marker (see the
+      // top of this file). Either way it reuses the existing listing_status
+      // enum ('draft','active','ended','sold','relisted' — 00008) rather than
+      // minting a 'prefilled' one, so no migration.
+      listing_status: recordListed ? "active" : "draft",
+      is_active: recordListed,
       listing_price: price,
       listing_url: listingUrl,
       // A draft was never listed — a listed_at here is what made phantom rows look
-      // like real, dateable cross-listings in the pipeline.
-      listed_at: published ? now : null,
+      // like real, dateable cross-listings in the pipeline. A row recorded as
+      // listed is being listed NOW.
+      listed_at: recordListed ? now : null,
+      platform_fields: prefillListed ? withUnconfirmedMarker(null, now) : undefined,
       draft_id: groupId,
     })
     .select("id")
@@ -376,14 +473,93 @@ export async function handleExtensionWriteback<E extends WritebackEnv>(
       "WRITEBACK_INSERT",
     );
   }
-  // US-2179: count a confirmed extension publish against the cap.
-  if (published) await markItemListed(itemId, ownerId);
+  // US-2179: count a confirmed extension publish against the cap. US-3367:
+  // and a prefill recorded as listed.
+  if (recordListed) {
+    await markItemListed(itemId, ownerId);
+    tell(published);
+  }
   return c.json({
     ok: true,
     listing_id: (created as { id: string }).id,
     platform,
     created: true,
     published,
+    recorded: published ? "confirmed" : recordListed ? "unconfirmed" : "draft",
   });
+}
+
+// ── US-3367: the opt-out ──────────────────────────────────────────────────────
+
+export type NotListedOutcome = {
+  status: number;
+  body: Record<string, unknown>;
+};
+
+/**
+ * The seller says a row recorded as listed on an extension channel is not, in
+ * fact, listed there. The row goes back to a draft, its URL and marker are
+ * dropped, any pending delist stamp is cleared (there is nothing to end), and
+ * the item's status is re-derived from whatever is still live.
+ *
+ * Extension channels only: an eBay or Shopify row's liveness is the API's to
+ * say, and "Not listed" on one of those would be a lie the next sync undoes.
+ *
+ * TENANCY (US-268): the row is owner-checked before anything is written.
+ */
+export async function markNotListed(
+  ownerId: string,
+  listingId: string,
+): Promise<NotListedOutcome> {
+  const { data } = await supabaseAdmin
+    .from("listings")
+    .select("id, platform, listing_status, inventory_item_id, platform_fields")
+    .eq("id", listingId)
+    .eq("user_id", ownerId) // US-268
+    .maybeSingle();
+  const row = data as
+    | {
+      id: string;
+      platform: string;
+      listing_status: string | null;
+      inventory_item_id: string | null;
+      platform_fields: Record<string, unknown> | null;
+    }
+    | null;
+  if (!row) return { status: 404, body: { error: "Listing not found." } };
+  if (delistMethodFor(row.platform) !== "extension") {
+    return {
+      status: 409,
+      body: {
+        error: `${getMarketplaceSpec(row.platform)?.label ?? row.platform} listings are ` +
+          "tracked through its API, so FlipDesk cannot take a seller's word over it.",
+      },
+    };
+  }
+  if (row.listing_status === "sold") {
+    return { status: 409, body: { error: "This listing has a recorded sale; it cannot be un-listed." } };
+  }
+
+  const cleared = withoutUnconfirmedMarker(row.platform_fields);
+  const patch: Record<string, unknown> = {
+    listing_status: "draft",
+    is_active: false,
+    listing_url: null,
+    listed_at: null,
+    delist_requested_at: null,
+  };
+  if (cleared) patch.platform_fields = cleared;
+  const { error } = await supabaseAdmin
+    .from("listings")
+    .update(patch)
+    .eq("id", row.id)
+    .eq("user_id", ownerId); // US-268
+  if (error) {
+    console.error("[extension-writeback] not-listed update failed:", error.message);
+    return { status: 500, body: { error: "Could not update the listing." } };
+  }
+  // Drafted again unless something else is live (US-2179 guard inside).
+  await resyncItemListedStatus(row.inventory_item_id, ownerId);
+  return { status: 200, body: { ok: true, listing_id: row.id, listing_status: "draft" } };
 }
 

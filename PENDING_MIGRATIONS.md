@@ -9,13 +9,57 @@
 > They are still filed as HELD here because nobody in this session watched
 > them apply. Confirm against prod before trusting either heading.
 
-## ⏸ HELD: 00790 — the seller's marketplace usernames (US-3369)
+## ⏸ HELD: 00796 — the deletion log stops saying the Stripe customer survived (US-3404)
+
+**Risk: LOW.** Two columns on `public.account_deletion_log`
+(`stripe_delete_status text NOT NULL DEFAULT 'unverified'`,
+`stripe_delete_error text`), one CHECK, one index, and three column comments.
+Nothing existing is altered or backfilled; the table holds one row per erased
+account, so the constraint validation scan is trivial.
+
+**Numbering:** 00793-00795 are claimed by held migrations on other branches
+(00795 is US-3398's, the story this one came out of), so this jumps to 00796
+rather than risk two files with the same number.
+
+**Apply order: after 00792** and after 00793-00795 if those land first. Nothing
+here depends on any of them. Then `NOTIFY pgrst, 'reload schema';` and redeploy
+the edge (boot guard expects 00796).
+
+**⚠ The edge WRITES the new columns** in the same change: `routes/account.ts`
+and `routes/admin-compliance.ts` spread the result of
+`deleteStripeCustomerForRecord` into the `account_deletion_log` insert. If the
+edge deploys first, every account deletion fails its compliance-log insert with
+`column "stripe_delete_status" does not exist`. Both call sites treat a failed
+log insert as non-fatal and keep erasing, so the user is still erased and the
+PROOF is what goes missing, which is the worse half to lose. The boot guard
+should stop that ordering; do not override it here. No frontend reads these
+columns (nothing in the web app reads this table at all).
+
+**What it means for the record:** `stripe_deleted` now means "a
+`customers.del` call returned without throwing". `stripe_delete_status` carries
+`deleted` / `failed` / `not_attempted` / `no_customer` / `unverified`, and
+**every row that exists today defaults to `unverified` on purpose.** Read the
+column comment before citing an old row: admin-source rows written on or after
+2026-08-16 say `stripe_deleted = false` for deletions that really happened.
+
+**Check it landed:**
+
+```sql
+select count(*) from information_schema.columns
+ where table_name = 'account_deletion_log'
+   and column_name in ('stripe_delete_status','stripe_delete_error');  -- 2
+
+select stripe_delete_status, count(*) from public.account_deletion_log
+ group by 1;  -- all 'unverified' until the next deletion runs
+```
+
+## ⏸ HELD: 00792 — the seller's marketplace usernames (US-3369)
 
 **Risk: LOW.** One nullable column, `flipdesk_settings.marketplace_handles
 jsonb`, plus a comment. Nothing existing is altered, no backfill.
 
-**Apply order: after 00789.** Then `NOTIFY pgrst, 'reload schema';` and
-redeploy the edge (boot guard expects 00790).
+**Apply order: after 00791.** RENUMBERED from 00790 on 2026-09-11: a parallel session shipped a different 00790 and prod applied that one. Then `NOTIFY pgrst, 'reload schema';` and
+redeploy the edge (boot guard expects 00792).
 
 **⚠ The web READS AND WRITES this column from the client** (the Poshmark
 username prompt on the item page, `useMarketplaceHandles`). A frontend that
@@ -23,12 +67,43 @@ deploys before the SQL shows a failed read there: the "Your Poshmark
 listings" link does not appear and saving a username errors. Everything else
 in the delist change works without it. The edge reads it through
 `loadSellerHandles`, which treats a failed read as "no usernames".
+## ⏸ HELD: 00791 — drop the bare 'duluth' brand token (US-3319 follow-up)
+
+**Risk: LOW.** One `UPDATE` on `brand_size_charts`: removes `'duluth'` from
+`brand_match` on the `duluthtradingco` rows that still carry it. No schema
+change, no view, nothing the client reads. Idempotent by construction
+(`array_remove` plus a `WHERE` on the token). The same edit is in
+`sizing-charts.ts` and the regenerated `00498`, so the in-code fallback and the
+DB agree.
+
+**Apply order: after 00790.** No `NOTIFY` needed (data only). Redeploy the
+edge (boot guard expects 00791).
 
 **Check it landed:**
 
 ```sql
 select count(*) from information_schema.columns
 where table_name = 'flipdesk_settings' and column_name = 'marketplace_handles';  -- 1
+select brand_match from public.brand_size_charts
+ where brand_key = 'duluthtradingco';  -- no row contains 'duluth' on its own
+```
+
+## ⏸ HELD: 00790 — the second-opinion switch (US-2279 / US-3359)
+
+**Risk: LOW.** One `INSERT ... ON CONFLICT (key) DO NOTHING` into
+`system_settings` for `grading_second_opinion`, seeded DISABLED and matching
+`DEFAULT_SECOND_OPINION_CONFIG` field for field (`second-opinion_test.ts` pins
+it). Nothing runs until an operator flips `enabled` from the admin settings
+page, which until now 404'd on this key because the row never existed.
+
+**Apply order: after 00789.** No `NOTIFY` needed (a row, not a column).
+Redeploy the edge (boot guard expects 00790 or later).
+
+**Check it landed:**
+
+```sql
+select value->>'enabled', value->>'model' from public.system_settings
+ where key = 'grading_second_opinion';  -- false, claude-opus-4-8
 ```
 
 ## ⏸ HELD: 00789 — the admin reference gallery (US-3334)

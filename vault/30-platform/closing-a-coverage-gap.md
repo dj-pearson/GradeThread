@@ -9,8 +9,11 @@ code_refs:
   - services/edge-functions/src/lib/cross-listing-sale.ts
   - services/edge-functions/src/lib/pending-revises.ts
   - services/edge-functions/src/lib/extension-relist.ts
+  - services/edge-functions/src/lib/cross-push.ts
+  - services/edge-functions/src/lib/listing-lifecycle.ts
+  - extension-unified/lister/job-store.js
   - src/lib/constants.ts
-reviewed: 2026-08-11
+reviewed: 2026-09-11
 tags: [runbook, marketplaces, extension, process]
 summary: The eight steps that take a marketplace from "a label in the UI" to a channel a seller can publish and delist on, in the order that makes a half-finished one impossible to ship.
 ---
@@ -302,6 +305,34 @@ Two rules the queue adds:
   and hand the tab back to me if Poshmark asks for a human check"* — which cannot
   be honoured with nobody at the machine. So before adding a verb, ask what it
   promised the seller, and whether that promise holds while they are elsewhere.
+- **A list job earns a gap; a delist never does** (US-3367). After a `list`
+  job settles, `background.js` schedules the next drain through a one-shot
+  alarm 30 s later, plus or minus 15 s of jitter, and `drainQueue` answers
+  `paced` without touching `/claim` while the gap holds, so no row is stamped
+  claimed by a browser about to sit on it. Delist, revise and relist re-drain
+  immediately. The rule is the pure `pacingHold` / `nextListDrainAt` in
+  `lister/job-store.js`; the seller picks the gap on the options page
+  (`gtPacingGapMs` in `storage.local`). Two things feed the queue from the web
+  in one press: the Listing Kit's "List everywhere" and the composer's
+  Publish, both through `POST /cross-push`, and `planCrossPushSkip` in
+  `lib/cross-push.ts` refuses a channel that is already live (row `active`
+  with a URL) or already waiting, so pressing either twice cannot mint a
+  duplicate listing. A manual End on an extension channel
+  (`endOwnedListing`) now inserts the same `delist` queue row a sale does,
+  instead of only stamping `delist_requested_at` for a banner click.
+- **A filled form is recorded as listed; the seller opts OUT** (US-3367,
+  founder decision 2026-09-11, reversing US-1877's prefill-is-a-draft). The
+  writeback records a prefill as `active` with
+  `platform_fields.listed_unconfirmed` and lists it now; a captured live URL or
+  "Yes, it is listed" clears the marker; "Not listed"
+  (`POST /listings/:id/not-listed`) puts the row back to a draft and re-derives
+  the item's status. A drained `list` job records the same way from
+  `/extension-queue/:id/complete`. One in-app notice goes out when a row becomes
+  listed and one more when an unconfirmed record is confirmed, both naming
+  "Not listed". The reason is the sale flow: a garment recorded as maybe-listed
+  is one the seller is told to check when it sells elsewhere; a draft they
+  forgot is one they are not. The cap gate still applies, and a refused prefill
+  falls back to the old draft record rather than blocking a form already filled.
 
 ## The mirror rule (while it lasts)
 

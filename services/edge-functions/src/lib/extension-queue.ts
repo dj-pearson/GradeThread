@@ -14,14 +14,16 @@
 // only need the cookie so the desktop can resume" is a sentence that ends with
 // the cloud model this whole design refuses.
 //
-// TWO IMPORTS, AND BOTH ARE PURE. This module was written with zero imports so
+// THREE IMPORTS, AND ALL ARE PURE. This module was written with zero imports so
 // its four test files run without a Supabase client, and that property is
 // still true: marketplace-price.ts and marketplace-specs.ts each have no
-// imports of their own and pull in no graph. The alternative was a fourth copy
-// of the whole-dollar rule.
+// imports of their own and pull in no graph, and channel-copy.ts imports only
+// marketplace-specs.ts. The alternative was a fourth copy of the whole-dollar
+// rule and a second copy of the title rule.
 
 import { marketplacePriceString, stepPrice } from "./marketplace-price.ts";
 import { getMarketplaceSpec } from "./marketplace-specs.ts";
+import { readChannelOverrides, resolveChannelTitle } from "./channel-copy.ts";
 
 /**
  * The verbs the desktop extension can actually drain.
@@ -397,17 +399,18 @@ export function orderedListPhotos(
  * `GT.runFlow` reads one shape and a second one would be a second set of bugs.
  * `extension-queue-payload_test.ts` asserts the two key sets are equal.
  *
- * Values come from the kit variant when the Listing Kit has run for this
- * platform, and from the eBay draft plus the item row when it has not — the
- * same precedence `generatePlatformVariants` uses to build a variant in the
- * first place, so a seller who skipped the kit gets their own words rather than
- * a blank form.
+ * The title and description copy eBay (channel-copy.ts) unless the seller
+ * typed their own for this channel; brand, colour and size come from the item.
+ * The kit variant still supplies what only it knows (condition, category,
+ * tags) and is a last-resort fallback for the rest, so a seller who skipped
+ * the kit gets their own words rather than a blank form.
  */
 export function buildListPayload(
   input: BuildListPayloadInput,
 ): Record<string, unknown> {
   const v = input.platformFields ?? {};
   const draft = input.draft;
+  const overrides = readChannelOverrides(v);
 
   // The kit stores condition as { value, label }; the form wants the label.
   const condition = v.condition;
@@ -449,9 +452,21 @@ export function buildListPayload(
     // standing exception for a string nothing fetches. The key stays because
     // GT.runFlow reads ONE payload shape and a missing key is a different bug.
     newListingUrl: "",
-    title: str(v.title) || str(draft?.listing_title) || str(input.item.title),
-    description: str(input.renderedDescription) || str(v.description) ||
-      str(draft?.listing_description),
+    // 2026-09-11 (channel-copy.ts): every channel copies eBay. The kit
+    // variant's `title` was a snapshot of the eBay title from whenever the kit
+    // ran, so a colour corrected on eBay reached no other marketplace. The
+    // seller's per-channel override is the only thing that beats the eBay title.
+    title: resolveChannelTitle(input.platform, {
+      override: overrides.title,
+      sharedTitle: draft?.listing_title,
+      itemTitle: input.item.title,
+    }),
+    // The render already applies the override and eBay's words. The stored
+    // variant is the last resort for a failed render only: it is known-stale,
+    // but it is plain text, and the draft's own description is HTML that these
+    // marketplaces would print tag by tag.
+    description: str(input.renderedDescription) || str(overrides.description) ||
+      str(v.description) || str(draft?.listing_description),
     // US-2739: THE UNIT BOUNDARY. Everything above this line is FlipDesk's
     // dollars; `price` is the keystrokes a marketplace's own input receives,
     // and Poshmark's takes digits only. This was `String(priceNumber)`, so the
@@ -462,9 +477,12 @@ export function buildListPayload(
     // guessing it from a purchase price would put a number the seller never
     // typed onto a live listing.
     originalPrice: "",
-    brand: str(v.brand) || str(input.item.brand),
-    color: str(v.color) || str(input.item.color),
-    size: str(v.size) || str(input.item.size),
+    // The item first, for the same reason as the title: the variant copied
+    // these from the item when the kit ran and never looked again, so its
+    // "Gray" outlived the seller's correction to "Blue".
+    brand: str(input.item.brand) || str(v.brand),
+    color: str(input.item.color) || str(v.color),
+    size: str(input.item.size) || str(v.size),
     category: str(v.category),
     condition: conditionLabel,
     tags: Array.isArray(v.tags) ? v.tags.filter((t) => typeof t === "string") : [],

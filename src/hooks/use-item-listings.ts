@@ -34,6 +34,8 @@ export interface ItemListingRow {
   platform_fields: Record<string, unknown> | null;
   publish_error: string | null;
   publish_failed_at: string | null;
+  /** US-3367: set when an extension-channel delist is waiting on the seller's browser. */
+  delist_requested_at: string | null;
   updated_at: string | null;
 }
 
@@ -53,6 +55,7 @@ const COLUMNS = [
   "platform_fields",
   "publish_error",
   "publish_failed_at",
+  "delist_requested_at",
   "updated_at",
 ].join(", ");
 

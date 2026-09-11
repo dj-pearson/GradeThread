@@ -122,6 +122,33 @@ For Sheets this is settled policy rather than a merge outcome: **the GradeThread
 title is the truth**, and the Title cell is a mirror on both tabs. See
 [[google-sheets-sync]].
 
+### Cross-post channels copy eBay's words (2026-09-11)
+
+Every other marketplace gets the **eBay title**, fitted to its own limit on a
+word boundary, and the **eBay description** rendered as plain text with the
+item's current facts. Brand, colour and size come from the item row. The rule
+lives in `channel-copy.ts`, once on the edge and once in the SPA, pinned
+together by `src/test/channel-copy-mirror.test.ts`.
+
+The per-channel AI rewrite in `listings.platform_fields[platform]` is **no
+longer read** for title or description. It was a snapshot taken when the kit
+ran, and an item drafted "Gray" and corrected to "Navy Blue" on eBay kept
+saying Gray on Poshmark, Mercari, Depop, Grailed and Vinted. The owner chose
+"copy eBay" over re-running the AI on every save.
+
+The one exception is the seller's own words for one channel,
+`title_override` / `description_override` on the eBay draft's
+`platform_fields[platform]`, written by
+`POST /api/flipdesk/description/:listingId/channel-copy`. An override is sent
+exactly as typed, survives a kit regenerate, and is cleared by "Use eBay
+title/description" in the Listing Kit.
+
+Scope, as shipped: the Listing Kit, the phone-queued extension job, and the
+phone kits' `POST /autolister/platform-fields` response all follow it. The API
+cross-push (`mapSiblingListingFields`) takes the eBay title but keeps its old
+description precedence, because the eBay description is HTML and which API
+channels accept HTML was not re-checked.
+
 The enforcement is in `sheet-map.ts`, and its shape is worth knowing because it
 is not a plain refusal: a mapped Title column is **create-only**. Naming a new
 item from the sheet still works, and a blank title still gets filled — but once

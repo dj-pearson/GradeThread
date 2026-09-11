@@ -92,33 +92,67 @@ Deno.test("the server payload has exactly the web payload's keys", async () => {
   );
 });
 
-Deno.test("kit variant values win, and the condition label is unwrapped", () => {
+Deno.test("the title copies eBay; the kit supplies price, condition and tags", () => {
+  // 2026-09-11 (channel-copy.ts): the owner's rule is that every channel
+  // copies eBay. The variant's title and colour are snapshots from when the
+  // kit ran; this is the item that was drafted Gray and corrected to Navy.
   const out = buildListPayload(input({
     platformFields: {
-      title: "Patagonia Better Sweater, women's M, navy",
-      description: "Worn twice. No pilling.",
+      title: "Patagonia Better Sweater, women's M, gray",
+      description: "A gray Patagonia sweater. Worn twice.",
       condition: { value: "EUC", label: "EUC (Excellent Used Condition)" },
       category: "Women > Sweaters",
       brand: "Patagonia",
-      color: "Navy",
+      color: "Gray",
       size: "M",
       price: 68,
       tags: ["patagonia", "fleece"],
     },
     draft: {
-      listing_title: "the eBay title nobody wants on Poshmark",
-      listing_description: "eBay body",
+      listing_title: "Patagonia Better Sweater Womens M Navy Fleece",
+      listing_description: "<p>eBay body</p>",
       listing_price: 75,
       primary_photo_id: null,
     },
+    renderedDescription: "Navy Patagonia sweater, rendered from the eBay blocks.",
   }));
 
-  assertEquals(out.title, "Patagonia Better Sweater, women's M, navy");
-  assertEquals(out.description, "Worn twice. No pilling.");
+  assertEquals(out.title, "Patagonia Better Sweater Womens M Navy Fleece");
+  assertEquals(out.description, "Navy Patagonia sweater, rendered from the eBay blocks.");
+  assertEquals(out.color, "Navy", "the item's colour beats the variant's snapshot");
   assertEquals(out.price, "68", "the kit's price beats the eBay draft's");
   assertEquals(out.condition, "EUC (Excellent Used Condition)");
   assertEquals(out.tags, ["patagonia", "fleece"]);
   assertEquals(out.platformLabel, "Poshmark");
+});
+
+Deno.test("a seller's per-channel title wins over eBay's", () => {
+  const out = buildListPayload(input({
+    platformFields: { title: "stale AI title", title_override: "My Poshmark title" },
+    draft: {
+      listing_title: "The eBay title",
+      listing_description: null,
+      listing_price: 75,
+      primary_photo_id: null,
+    },
+  }));
+  assertEquals(out.title, "My Poshmark title");
+});
+
+Deno.test("the eBay title is fitted to a shorter channel on a word boundary", () => {
+  const out = buildListPayload(input({
+    platform: "grailed",
+    platformLabel: "Grailed",
+    priceStep: 0,
+    draft: {
+      // 74 characters; Grailed allows 60.
+      listing_title: "Cozy Earth Bamboo Jogger Set Sz 3XL Navy Blue Hooded Pullover Lounge Pants",
+      listing_description: null,
+      listing_price: 40,
+      primary_photo_id: null,
+    },
+  }));
+  assertEquals(out.title, "Cozy Earth Bamboo Jogger Set Sz 3XL Navy Blue Hooded");
 });
 
 Deno.test("with no kit variant it falls back to the draft, then the item", () => {

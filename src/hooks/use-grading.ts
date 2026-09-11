@@ -61,6 +61,9 @@ export interface ValidationResult {
     // effective cost (free / credits / charge) rather than the gross price.
     included_remaining?: number;
     credit_balance?: number;
+    // The owner account grades free and uncapped, but each Standard grade is
+    // still counted in grades_used_this_month. Optional: older edges omit it.
+    unlimited?: boolean;
   };
   items: ValidationItem[];
   total_cost: number;

@@ -63,6 +63,15 @@ const NOW = Date.UTC(2026, 8, 9, 12, 0, 0);
   assert.strictEqual(W.countdownSeconds(s, NOW + 20 * 1000), 40, "countdown counts down");
   assert.match(W.statusLine(s, NOW + 20 * 1000), /next in 40s/, "the status line says when");
 
+  // US-3367: inside the gap after a cross-post the line names the gap, not the
+  // drain countdown, because that drain would only answer "paced".
+  const paced = Object.assign({}, s, { pacedUntil: NOW + 30 * 1000 });
+  assert.strictEqual(
+    W.statusLine(paced, NOW + 22 * 1000),
+    "Next cross-post in 8s. Ending a sold listing never waits.",
+  );
+  assert.match(W.statusLine(paced, NOW + 31 * 1000), /next in/, "the gap has passed: back to the cadence");
+
   // Stop is the seller's, and it stops everything.
   assert.strictEqual(W.shouldDrain(W.stop(s), NOW + 5 * 60 * 1000), false, "stopped stays stopped");
   assert.strictEqual(

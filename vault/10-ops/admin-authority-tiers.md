@@ -158,9 +158,17 @@ Read this before granting the role to a second person.
 
 Migration `00110` auto-elevates any row with `role = 'super_admin'` to
 Business/enterprise, and the grade-billing path gives super_admins **uncapped
-free grading**: no counter increment, no credit debit, just a zero-delta ledger
-row for auditability. So the role grant is, in the same action, an unlimited
-Claude Vision spend grant. There is no second decision and no ceiling.
+free grading**: no credit debit, just a zero-delta ledger row for auditability.
+So the role grant is, in the same action, an unlimited Claude Vision spend
+grant. There is no second decision and no ceiling.
+
+Since 2026-09-11 a super_admin's Standard grades ARE counted in
+`grades_used_this_month`, through the same included claim a seller's grade
+takes, up to the plan's cap (owner's call, so the one account that grades daily
+can see the claim working). The count is display and evidence only: it never
+refuses or charges a grade, and past the cap the grade is simply free and
+uncounted. `/validate` returns `unlimited: true` for these accounts and the web
+composer shows "Unlimited grades" beside the count.
 
 **Read that short-circuit in `lib/grade-precedence.ts`, not in
 `lib/grade-billing.ts`** — which is where this note and the header comment in

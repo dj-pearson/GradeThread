@@ -1,3 +1,10 @@
+-- RENUMBERED 2026-09-11 from 00790, at the owner's instruction to keep the
+-- incoming numbers. A parallel session shipped a different 00790
+-- (grading_second_opinion_setting) and PROD APPLIED THAT ONE, so this file
+-- never reached production under its old number and renumbering is safe.
+-- Verified before renaming: /health/ready read applied=00791, and no
+-- marketplace_handles object exists on prod.
+
 -- US-3369: the seller's own username on marketplaces whose "my listings" page
 -- lives under it.
 --
@@ -25,4 +32,4 @@ COMMENT ON COLUMN public.flipdesk_settings.marketplace_handles IS
   'US-3369: platform -> the seller''s username there, e.g. {"poshmark": "jane_closet"}. '
   'A bare username, never a URL. NULL or a missing key means we do not know it.';
 
-insert into public.applied_migrations (version) values ('00790') on conflict do nothing;
+insert into public.applied_migrations (version) values ('00792') on conflict do nothing;

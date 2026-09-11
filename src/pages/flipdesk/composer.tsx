@@ -203,6 +203,7 @@ import { buildTitleSyncPatch, type TitleSyncPatch } from "@/lib/title-sync-patch
 import { BrandFieldNotice } from "@/components/flipdesk/brand-field-notice";
 import { MergeSkuDialog } from "@/components/flipdesk/merge-sku-dialog";
 import { RecordSaleDialog } from "@/components/flipdesk/record-sale-dialog";
+import { PendingDelistBanner } from "@/components/flipdesk/pending-delist-banner";
 import { ItemDetailsCard } from "@/components/flipdesk/composer/item-details-card";
 import { StorageSkuCard } from "@/components/flipdesk/composer/storage-sku-card";
 import { PhotosCard } from "@/components/flipdesk/composer/photos-card";
@@ -2444,6 +2445,12 @@ export function FlipdeskComposerPage({
       // below would keep showing — and sending — the render from before the
       // edit, which is the exact staleness the block model exists to end.
       await qc.invalidateQueries({ queryKey: ["platform-descriptions"] });
+      // And the TITLE and item facts, which every channel now copies too
+      // (channel-copy.ts). The kit reads the eBay title off the draft row and
+      // brand/colour/size off the item; without these it showed the old ones
+      // until a reload.
+      await qc.invalidateQueries({ queryKey: ["platform-fields", item.id] });
+      await qc.invalidateQueries({ queryKey: ["kit-item-facts", item.id] });
       markSaved({
         ...syncCascadedCategory(itemPatch),
         ...adoptSyncedTitle(titlePatch),
@@ -3962,6 +3969,11 @@ export function FlipdeskComposerPage({
               directly under the channel picker because it is a readout OF that
               picker — move the picker and this has to move with it. */}
           <PublishReadinessCard rows={publishReadiness} loading={ebayPreflightLoading} />
+
+          {/* US-3367: a sale elsewhere leaves delists waiting on the seller's
+              browser. Shown here, above the kit, because the composer is where
+              they look after a sale, not the Listings page. */}
+          <PendingDelistBanner itemId={item.id} />
 
           <ListingKit
             itemId={item.id}

@@ -155,25 +155,82 @@ Deno.test("US-207: super_admin grades free, uncapped, and still audited", async 
     s.io,
     { liveCap: 3 },
   );
-  // Uncapped: 900 used against a cap of 3 and it still passes.
+  // Uncapped: 900 used against a cap of 3 and it still passes, and nothing is
+  // claimed because there is no slot left to count it against.
   assertEquals(out, { paid: true, method: "included", newIncludedUsed: 900 });
-  assertEquals(s.calls.claims, [], "the comp consumed a claim slot");
+  assertEquals(s.calls.claims, [], "an over-cap comp still tried to claim");
   assertEquals(s.calls.debits, []);
   // Audited: a free grade is still a grade someone has to be able to account for.
   assertEquals(s.calls.grants.length, 1);
   assert(s.calls.grants[0].includes("super_admin"));
 });
 
-Deno.test("US-207: the comp reports the UNCHANGED counter", async () => {
-  // Reporting an incremented value would make a free grade look like it ate one
-  // of the seller's included allowance.
-  const s = spy();
+// The owner's grades are free, but they are COUNTED through the same included
+// claim a seller's grade uses. The owner asked for this (2026-09-11) so the
+// counter moving on their own account is evidence the claim works; before it,
+// the counter never moved and a broken claim would have looked identical.
+
+Deno.test("owner count: a Standard comp is counted through the real included claim", async () => {
+  const s = spy({
+    claimIncluded: (cap) => {
+      s.calls.claims.push(cap);
+      return Promise.resolve({ claimed: true, newUsed: 3 });
+    },
+  });
   const out = await run(
-    { role: "super_admin", grades_used_this_month: 2 },
+    { role: "super_admin", grades_used_this_month: 2, grade_credit_balance: 50 },
+    s.io,
+    { liveCap: 75 },
+  );
+  assertEquals(out, { paid: true, method: "included", newIncludedUsed: 3 });
+  assertEquals(s.calls.claims, [75], "the owner's grade was not counted");
+  assertEquals(s.calls.debits, [], "the owner was charged credits");
+  assertEquals(s.calls.markPaid, ["included"]);
+  assert(s.calls.grants[0].includes("counted 3/75"), s.calls.grants[0]);
+});
+
+Deno.test("owner count: a lost claim still grades free and reports the old count", async () => {
+  // The claim can miss (retries spent, counter moved). For a seller that falls
+  // through to credits; the owner must never fall through to a charge.
+  const s = spy({
+    claimIncluded: () => Promise.resolve({ claimed: false, newUsed: 2 }),
+  });
+  const out = await run(
+    { role: "super_admin", grades_used_this_month: 2, grade_credit_balance: 50 },
     s.io,
   );
+  assertEquals(out, { paid: true, method: "included", newIncludedUsed: 2 });
+  assertEquals(s.calls.debits, []);
+  assertEquals(s.calls.discountLookups, 0);
+});
+
+Deno.test("owner count: Premium is never counted against the Standard allowance", async () => {
+  // Same rule as a seller: only Standard draws on included grades. The owner's
+  // premium grade is free, and its audit row says what a seller would have paid.
+  const s = spy();
+  const out = await run(
+    { role: "super_admin", grades_used_this_month: 0, grade_credit_balance: 50 },
+    s.io,
+    { tier: "premium" },
+  );
   assert(out.paid && out.method === "included");
-  assertEquals(out.newIncludedUsed, 2);
+  assertEquals(out.newIncludedUsed, 0);
+  assertEquals(s.calls.claims, []);
+  assertEquals(s.calls.debits, []);
+  assert(s.calls.grants[0].includes("1 credit"), s.calls.grants[0]);
+});
+
+Deno.test("owner count: a rolled-over counter reports from zero", async () => {
+  const s = spy({
+    claimIncluded: () => Promise.resolve({ claimed: false, newUsed: 0 }),
+  });
+  const out = await run(
+    { role: "super_admin", grades_used_this_month: 40 },
+    s.io,
+    { rolledOver: true },
+  );
+  assert(out.paid && out.method === "included");
+  assertEquals(out.newIncludedUsed, 0, "a stale counter from last month was reported");
 });
 
 Deno.test("US-207: an ordinary admin pays like anyone else", async () => {

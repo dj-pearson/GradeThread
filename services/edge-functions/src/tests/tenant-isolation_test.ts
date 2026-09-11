@@ -8285,6 +8285,29 @@ Deno.test({
   },
 });
 
+// ── A seller's own words for one channel (2026-09-11) ──────────────
+//
+// A WRITE onto another tenant's eBay draft. A hole here would let B put their
+// own title on A's Poshmark cross-post, which A would then send without
+// reading, because the whole point of the default is that nobody re-reads it.
+Deno.test({
+  name: "B cannot set a channel title on A's listing",
+  ignore: !CONFIGURED || !Deno.env.get("TEST_USER_A_LISTING_ID"),
+  fn: async () => {
+    const listingId = Deno.env.get("TEST_USER_A_LISTING_ID")!;
+    const res = await fetch(
+      `${BASE}/api/flipdesk/description/${listingId}/channel-copy`,
+      {
+        method: "POST",
+        headers: authHeaders(B_JWT!),
+        body: JSON.stringify({ platform: "poshmark", title: "Owned by B" }),
+      },
+    );
+    await res.body?.cancel();
+    assertDenied(res.status, "POST channel-copy");
+  },
+});
+
 // ── The extension's publish confirmation (2026-09-07) ──────────────
 //
 // POST /api/grading/public/listed-confirm takes an ITEM id and flips a listing
@@ -9370,5 +9393,66 @@ Deno.test({
       `reprice/apply reached A's row for B and reported "${skip?.reason}" - ` +
         `a floor or margin reason means the row was loaded, which is itself a read`,
     );
+  },
+});
+
+// ── US-3367: recording a sale ─────────────────────────────────────────────────
+//
+// POST /api/flipdesk/sales/record takes both ids from the body and writes
+// sales, inventory_items and listings with the service-role client, then runs
+// the sibling delist planner. A foreign item or listing must be a 404.
+
+Deno.test({
+  name: "user B cannot record a sale on user A's item",
+  ignore: !CONFIGURED,
+  fn: async () => {
+    const res = await fetch(`${BASE}/api/flipdesk/sales/record`, {
+      method: "POST",
+      headers: authHeaders(B_JWT!),
+      body: JSON.stringify({
+        inventory_item_id: Deno.env.get("TEST_USER_A_ITEM_ID") ??
+          "11111111-1111-1111-1111-111111111111",
+        listing_id: Deno.env.get("TEST_USER_A_LISTING_ID") ?? null,
+        sale_price: 1,
+      }),
+    });
+    await res.body?.cancel();
+    assertDenied(res.status, "POST /api/flipdesk/sales/record");
+  },
+});
+
+Deno.test({
+  name: "an unauthenticated caller cannot record a sale",
+  ignore: !CONFIGURED,
+  fn: async () => {
+    const res = await fetch(`${BASE}/api/flipdesk/sales/record`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        inventory_item_id: "11111111-1111-1111-1111-111111111111",
+        sale_price: 1,
+      }),
+    });
+    await res.body?.cancel();
+    assert(
+      res.status === 401 || res.status === 403,
+      `unauthenticated sale record returned ${res.status}; expected 401/403`,
+    );
+  },
+});
+
+Deno.test({
+  // US-3367: "Not listed" rewrites a listing row and re-derives the item's
+  // status. A foreign id must be a 404, never a draft on someone else's item.
+  name: "user B cannot mark user A's listing as not listed",
+  ignore: !CONFIGURED,
+  fn: async () => {
+    const id = Deno.env.get("TEST_USER_A_LISTING_ID") ?? "11111111-1111-1111-1111-111111111111";
+    const res = await fetch(
+      `${BASE}/api/flipdesk/listings/${encodeURIComponent(id)}/not-listed`,
+      { method: "POST", headers: authHeaders(B_JWT!) },
+    );
+    await res.body?.cancel();
+    assertDenied(res.status, "POST /api/flipdesk/listings/:id/not-listed");
   },
 });

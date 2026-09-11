@@ -144,12 +144,13 @@ Deno.test("AC3: blocksForListing converts a legacy string without persisting", (
 
 Deno.test("AC4: every handler scopes on workspaceOwnerId ?? userId", () => {
   const handlers = routeSrc.split(/flipdeskDescriptionRoutes\.(?:get|post)\(/).slice(1);
-  // Four from US-2958, the snippet apply route US-2961 added, and the
-  // platform-descriptions read US-3196 added. The count is asserted so a
-  // handler added without the owner resolution below cannot slip in unnoticed
-  // — which is the guard working: the sixth handler IS correctly scoped, and
-  // this still had to be read and bumped by hand before it could ship.
-  assertEquals(handlers.length, 6, "expected exactly six handlers");
+  // Four from US-2958, the snippet apply route US-2961 added, the
+  // platform-descriptions read US-3196 added, and the per-channel copy write
+  // (2026-09-11). The count is asserted so a handler added without the owner
+  // resolution below cannot slip in unnoticed — which is the guard working:
+  // the seventh handler IS correctly scoped, and this still had to be read and
+  // bumped by hand before it could ship.
+  assertEquals(handlers.length, 7, "expected exactly seven handlers");
   for (const h of handlers) {
     assertStringIncludes(h, 'c.get("workspaceOwnerId") ?? c.get("userId")');
   }

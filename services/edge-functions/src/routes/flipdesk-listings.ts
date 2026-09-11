@@ -18,6 +18,7 @@ import { generatePlatformVariants } from "../lib/ai-listing.ts";
 import { withAiAction } from "../lib/ai-metering.ts";
 import { checkQuota } from "./flipdesk-ai.ts";
 import {
+  type CrossPushSkip,
   crossPushPlatform,
   ensureCrossListingGroup,
 } from "../lib/cross-push.ts";
@@ -64,6 +65,7 @@ import { deriveListingOrigin } from "../lib/sync-precedence.ts";
 import { requireFlipdesk } from "../lib/plan-gate.ts";
 import { markItemListed } from "../lib/active-listings.ts";
 import {
+  markNotListed,
   type ExtensionWritebackBody,
   handleExtensionWriteback,
 } from "../lib/extension-writeback.ts";
@@ -128,6 +130,8 @@ interface PlatformPushResult {
    * below does, and so does the composer's toast.
    */
   queued?: boolean;
+  /** US-3367: left alone on purpose. See planCrossPushSkip in lib/cross-push.ts. */
+  skipped?: CrossPushSkip;
   status?: number;
   error?: string;
   blockers?: string[];
@@ -196,6 +200,7 @@ function toPushResult(
   listingRowId: string,
   price: number,
   queued = false,
+  skipped?: CrossPushSkip,
 ): PlatformPushResult {
   if (res.ok) {
     return {
@@ -204,6 +209,7 @@ function toPushResult(
       // than to an API. The caller MUST NOT read this as "it is live" — see the
       // markItemListed gate below and the composer's toast.
       queued,
+      skipped,
       listing_row_id: listingRowId,
       platform_listing_id: res.platformListingId,
       listing_url: res.listingUrl,
@@ -342,7 +348,7 @@ flipdeskListingsRoutes.post("/cross-push", async (c) => {
     // crosslist_to automation action publishes through the exact same path a
     // human cross-push does — find-or-create the sibling row, map it onto the
     // platform's limits, pre-flight it, publish.
-    const { result, listingRowId, queued, price } = await crossPushPlatform({
+    const { result, listingRowId, queued, price, skipped } = await crossPushPlatform({
       ownerId,
       draft,
       groupId,
@@ -354,7 +360,7 @@ flipdeskListingsRoutes.post("/cross-push", async (c) => {
     // US-2736: the price REPORTED is the price pushed — the channel's own,
     // rounded to its own units. Reporting the input back meant a Poshmark row
     // that went out at $32 was announced at $32.49.
-    results[platform] = toPushResult(result, listingRowId, price, queued);
+    results[platform] = toPushResult(result, listingRowId, price, queued, skipped);
   }
 
   // US-2179: one successful publish anywhere makes the item live, so advance it
@@ -369,7 +375,8 @@ flipdeskListingsRoutes.post("/cross-push", async (c) => {
   // activeListings cap slot and tell the seller it is listed, on the strength
   // of a job that has not run — and if the queue never drains, that lie is
   // permanent.
-  if (Object.values(results).some((r) => r?.ok && !r.queued)) {
+  // US-3367: a skipped channel changed nothing, so it advances nothing either.
+  if (Object.values(results).some((r) => r?.ok && !r.queued && !r.skipped)) {
     await markItemListed(draft.inventory_item_id, ownerId);
   }
 
@@ -392,6 +399,20 @@ flipdeskListingsRoutes.post("/extension-writeback", async (c) => {
     return c.json({ error: "Invalid JSON body." }, 400);
   }
   return await handleExtensionWriteback(c, ownerId, body);
+});
+
+// ── US-3367: the opt-out on a row recorded as listed ─────────────────────
+//
+// A filled form is recorded as listed (unconfirmed) and a captured URL as
+// listed (confirmed). Either can be wrong, and the seller is the only one who
+// knows. This puts the row back to a draft; the body lives in
+// lib/extension-writeback.ts next to the code that made the record.
+flipdeskListingsRoutes.post("/:id/not-listed", async (c) => {
+  const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
+  const listingId = c.req.param("id");
+  if (!listingId) return c.json({ error: "listing id is required." }, 400);
+  const out = await markNotListed(ownerId, listingId);
+  return c.json(out.body, out.status as 200);
 });
 
 // ── US-717: extension auto-delist queue ───────────────────────────────────
