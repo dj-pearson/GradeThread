@@ -11,12 +11,23 @@ code_refs:
   - src/lib/listing-templates.ts
   - src/test/no-dead-column-writes.test.ts
   - src/components/flipdesk/composer/photos-card.tsx
-reviewed: 2026-09-08
+reviewed: 2026-09-10
 tags: [ebay, listings, grading, policy, contract]
 summary: A grade reaches a marketplace listing as text and a structured specific only — never burned into a photo, never as a QR slab image, never as a link.
 ---
 
 # How a grade appears on a listing — text only
+
+> **Re-reviewed 2026-09-10, no change.** Drift flagged `flipdesk-ebay.ts` for
+> `a54057305` (US-3265): one import and a new `POST /policies/create` that makes
+> the three eBay business policies a first-time seller lacks. It writes no photo,
+> no aspect and no description, so it cannot reach any of the three channels
+> below. Re-verified at HEAD: `applyGradeListingPromotion` at
+> `flipdesk-ebay.ts:13508` (still calling `stripCertLinks` at `:13777` on its
+> first line), `generateUniqueCertNumber` at `cert-number.ts:30`, the publish
+> SELECT still excluding `badge_enabled` / `slab_image_mode` (`:13272` says so
+> explicitly), and `src/lib/listing-templates.ts` carrying `{{grade}}` only
+> inside the comment that records its removal.
 
 > **Re-reviewed 2026-09-08, no change, and the rule got stricter.** Drift
 > flagged `flipdesk-ebay.ts` for US-3196, which mirrors an eBay listing's own

@@ -6,12 +6,28 @@ status: current
 source_of_truth: code
 code_refs:
   - services/edge-functions/src/lib/ebay-client.ts
-reviewed: 2026-09-03
+reviewed: 2026-09-10
 tags: [ebay, publishing, gotcha]
 summary: eBay rejects aspect values over 65 chars at publish, not at upload - which is why the error surfaces as an unrelated "already has active offer".
 ---
 
 # eBay 65-character aspect-value limit
+
+> **Re-reviewed 2026-09-10.** Drift flagged `ebay-client.ts` for `a54057305`
+> (US-3265 creates the three business policies a first-time seller has none of:
+> `FLIPDESK_POLICY_NAME`, `PolicyAnswers`, `createDefaultPolicies`, all added as
+> one block at `:2487`), `7e79a2015` (US-3196 carries `product.imageUrls` through
+> `RemoteOffer`/`RemoteInventoryItem` so the sync can mirror listing photos) and
+> `a97f06164` (`shipByDate` on `RemoteOrderLineItem`). EIGHTH time this file has
+> tripped the guard, and none of the three hunks touches aspect validation. The
+> rule is unchanged. **Every line number below was stale and is now corrected**
+> against HEAD, mostly because `a54057305` inserted 168 lines above them:
+> `EBAY_ASPECT_VALUE_MAX_LEN = 65` is at `:2686`, `capAspectValuesForEbay` at
+> `:2707`, `isOfferAlreadyExistsError` at `:2848`, and
+> `createOrReplaceInventoryItemGroup` at `:3606`. One reference was wrong about
+> the FILE, not just the line: the offers lookup that re-throws lives in
+> `publishItemForOwner`, which is in `routes/flipdesk-ebay.ts`, never in
+> `ebay-client.ts`.
 
 > **Re-reviewed 2026-09-03.** Drift flagged `ebay-client.ts` for `57eff0f03`
 > (the offer-absent 404 in `listOffersForSku` now returns an empty list instead
@@ -75,8 +91,8 @@ summary: eBay rejects aspect values over 65 chars at publish, not at upload - wh
 
 eBay hard-rejects any item-specific (aspect) **value** longer than 65 characters.
 Enforced in `ebay-client.ts` via `EBAY_ASPECT_VALUE_MAX_LEN = 65` and
-`capAspectValuesForEbay()` (verified 2026-08-21: the constant at
-`ebay-client.ts:2307`, the function at `ebay-client.ts:2328`).
+`capAspectValuesForEbay()` (verified 2026-09-10: the constant at
+`ebay-client.ts:2686`, the function at `ebay-client.ts:2707`).
 
 ## Why this is worth a note rather than a comment
 
@@ -111,7 +127,7 @@ user-facing "active offer" message hides the real one.
 > `/already exists/i`, and warned against loosening it to an id-only check. The
 > code has been the opposite since US-528 (2026-06-03): errorId 25002 **alone**
 > returns true, and the message heuristic is only a fallback for non-JSON error
-> bodies (`ebay-client.ts:2455`). So the note prescribed a guard nobody wrote and
+> bodies (`ebay-client.ts:2856`). So the note prescribed a guard nobody wrote and
 > warned against the behaviour that was already shipping. It was mis-recorded at
 > the note's first review, not broken by a later change.
 
@@ -120,7 +136,7 @@ message test (`/already exists/i` **and** `/offer/i`) only runs when the id is
 missing. Because 25002 is overloaded, an over-long-aspect failure IS classified
 as "offer already exists". That false positive is deliberate and safe at the call
 site: `publishItemForOwner` looks up the SKU's offers and re-throws the original
-error when it finds none (`ebay-client.ts:2448-2453`). What you cannot do is use
+error when it finds none (`flipdesk-ebay.ts:10707-10710`). What you cannot do is use
 this predicate to tell the two meanings of 25002 apart — read
 `err.ebayErrorMessages` for that.
 
@@ -143,11 +159,11 @@ boundary so values do not truncate mid-word into garbage, and falling back to a
 hard cut only when the first 65 characters contain no break. Trailing separators
 are stripped.
 
-It is applied inside `createOrReplaceInventoryItem` (`ebay-client.ts:2348`), the
+It is applied inside `createOrReplaceInventoryItem` (`ebay-client.ts:2737`), the
 PUT that every single-item publish and revise path shares, on a shallow copy so
 the caller's own map is untouched.
 
-**One gap:** `createOrReplaceInventoryItemGroup` (`ebay-client.ts:3078`) sends
+**One gap:** `createOrReplaceInventoryItemGroup` (`ebay-client.ts:3606`) sends
 group-level `aspects` **uncapped**, so a multi-variation listing can still be
 blocked by an over-long shared aspect. The variant SKUs themselves are safe —
 they go through `createOrReplaceInventoryItem`. New publish paths should route

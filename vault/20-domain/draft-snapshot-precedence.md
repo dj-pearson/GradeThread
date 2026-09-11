@@ -10,19 +10,25 @@ code_refs:
   - src/pages/flipdesk/grid.tsx
   - src/lib/title-sync-patch.ts
   - services/edge-functions/src/routes/flipdesk-ebay.ts
-reviewed: 2026-09-06
+reviewed: 2026-09-10
 tags: [flipdesk, listings, publishing, contract]
 summary: Publish prefers the listings-row snapshot over the item, so any surface writing the item's title, description or price must reach the draft row too.
 ---
 
 # The draft snapshot shadows the item
 
-> **Re-reviewed 2026-09-06, no change.** Drift flagged `grid.tsx` for US-3123's
-> sourcer sort. Checked against this note's actual claim - that any surface
-> WRITING the item's title, description or price must reach the draft row too -
-> and the diff writes none of them: the only lines touching those words extend a
-> SELECT column list to fetch `sourced_by`. A read is not a write, and a column
-> list growing is not a second editor.
+> **Re-reviewed 2026-09-06, no change to the rule.** Drift flagged `grid.tsx`
+> for US-3123's sourcer sort. Checked against this note's actual claim - that any
+> surface WRITING the item's title, description or price must reach the draft row
+> too - and the diff writes none of those three.
+>
+> ⚠ CORRECTED 2026-09-10: that review said the diff "only extends a SELECT
+> column list", and that is wrong. `dc1f1f65e` added a full editable `sourced_by`
+> column to `COLS`, so the grid gained a ninth writable field on the same day.
+> The conclusion held for the right reason anyway - `sourced_by` is neither
+> title, description nor price, and it is not a title-syncable field - but "a
+> read is not a write" was the wrong evidence for it, and a reader trusting that
+> sentence would have the grid's writer list short by one.
 # The draft snapshot shadows the item
 
 > **Re-reviewed 2026-09-05, no change.** Drift flagged `flipdesk-ebay.ts`
@@ -132,10 +138,12 @@ to the listings row** through `buildListingFields` (`src/lib/composer-save.ts`),
 which both save paths share precisely so a column cannot be wired into one and
 forgotten in the other.
 
-**It is not the only writer.** `src/pages/flipdesk/grid.tsx` edits `title`,
-`target_price`, `brand`, `style`, `size` and `condition_notes` inline, against
-`inventory_items` only. Since US-1995 it syncs **brand/style/size** into
-`listings.listing_title` (`TITLE_SYNC_COLS`, `grid.tsx:378`) — but a grid edit to
+**It is not the only writer.** `src/pages/flipdesk/grid.tsx` edits nine item
+columns inline, against `inventory_items` only: `sku`, `title`, `brand`, `style`,
+`size`, `acquired_price`, `target_price`, `sourced_by` (US-3123) and
+`condition_notes`. The `COLS` table at the top of the file is that list. Since
+US-1995 it syncs **brand/style/size** into `listings.listing_title`
+(`TITLE_SYNC_COLS`, consumed by `syncListingTitle`) — but a grid edit to
 **Title** or **Target price** still never reaches the listings row, and will not
 publish. That is the open case of the rule below, stated here rather than left to
 be rediscovered.

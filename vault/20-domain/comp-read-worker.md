@@ -89,3 +89,9 @@ All three queue tables are deny-all operator tables, registered in
 A stock-photo read is kept as a row and marked, never dropped: how much of a
 cell is catalog imagery is worth knowing, and `comp-curve-fit.ts` is the only
 door into a curve and already refuses them.
+
+## Related
+
+- [[pooled-sold-comps]] — the other condition-aware comp source: realized prices
+  from consenting sellers' own orders, aggregates only, silent below three sellers
+- [[market-condition-index-contract]] — what a fitted cell may expose

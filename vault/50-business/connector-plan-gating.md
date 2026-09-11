@@ -10,12 +10,25 @@ code_refs:
   - services/edge-functions/src/lib/connector-allowance.ts
   - services/edge-functions/src/middleware/mcp-auth.ts
   - services/edge-functions/src/lib/mcp-budget.ts
-reviewed: 2026-09-08
+reviewed: 2026-09-10
 tags: [pricing, connector, plan-gating, contract]
 summary: connectorAccess opens at pro; connector write actions have their own monthly counter derived from the audit log, not a share of aiActionsPerMonth.
 ---
 
 # The connector's gate and its allowance
+
+> **Re-reviewed 2026-09-10.** Drift flagged `pricing-config.ts` for US-3299,
+> which teaches it LIST PRICES: a `prices` field on `LoadedPricing`, a
+> `FALLBACK_PRICES` map, two more selected columns (`price_monthly_cents`,
+> `price_yearly_cents`) and a `getFlipdeskPlanPrices()` export. It adds money to
+> the module; it adds none to `PlanConfig`, and it touches no gate or allowance.
+>
+> Re-read the four numbers this note is about rather than assuming: pro is still
+> `connectorActionsPerMonth: 500`, business still 2000, `connectorAccess` is
+> still `false` on free and starter and `true` on pro and business, `apiAccess`
+> is still business-only, and `connector_actions_per_month` is still NOT a
+> `pricing_plans` column -- `rowToConfig` reads it from `FALLBACK_MATRIX` with
+> the comment explaining why.
 
 > **Re-reviewed 2026-09-08.** `connector-allowance.ts` gained an Action Credit
 > fallback (US-3138), which changes what an exhausted allowance MEANS without

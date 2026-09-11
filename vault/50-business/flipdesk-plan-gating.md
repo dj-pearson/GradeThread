@@ -9,12 +9,25 @@ code_refs:
   - services/edge-functions/src/tests/plan-gate-coverage_test.ts
   - services/edge-functions/src/routes/flipdesk-closet-import.ts
   - src/lib/constants.ts
-reviewed: 2026-09-05
+reviewed: 2026-09-10
 tags: [flipdesk, plans, billing, contract]
 summary: Every FlipDesk endpoint touching a gated capacity or feature calls requireFlipdesk; the 80%-warning and 402 responses are a protocol two frontends depend on.
 ---
 
 # FlipDesk plan gating contract
+
+> **Re-reviewed 2026-09-10.** Two drifts. `constants.ts` gained
+> `ACTION_CREDIT_PACKS` / `ACTION_CREDITS_LOW_BALANCE` (US-3138) and
+> `EXTENSION_INELIGIBLE_PHOTO_TYPES` (US-2625 follow-on) -- a second currency
+> and a photo rule, neither a plan cap. Re-read the numbers this note names
+> rather than assuming: Free is still 25 active listings and 25 AI actions, Pro
+> still 750, Business still `-1`, and `TRIAL_AI_ACTION_CAP` is still 100 in
+> `plan-gate.ts`.
+>
+> `flipdesk-closet-import.ts` is the real change, and it CORRECTED the
+> closet-import paragraph below: US-3263 stopped refusing an unentitled account
+> and now bounds it to 25 rows without calling `requireFlipdesk` at all. Grailed
+> joined Poshmark and Mercari on that route in the same commit.
 
 > **Re-reviewed 2026-09-05, no change.** Drift flagged `src/lib/constants.ts`
 > for US-3071, which added `relist` to `MARKETPLACE_EXTENSION_FLOWS` and a
@@ -118,13 +131,29 @@ much as the publish side: a route that ends a listing without reconciling the
 item leaves the slot consumed forever, which shrinks the seller's usable cap with
 no error anywhere.
 
-**Closet import counts on the way in (US-9201).** A listing pulled from the
-seller's own Poshmark or Mercari closet is live over there, so the intake
-(`routes/flipdesk-closet-import.ts`) gates `activeListings` with a delta equal
-to the number of listings the tenant does NOT already hold, before the run row
-is created. A re-read of the same closet has a delta of zero. Because the
-extension, not the browser, receives that response, the 80% header is also
-copied into the JSON body as `plan_warning` for the web page to toast.
+**Closet import counts on the way in (US-9201), for an ENTITLED account.** A
+listing pulled from the seller's own Poshmark, Mercari or Grailed closet is live
+over there, so the intake (`routes/flipdesk-closet-import.ts`) gates
+`activeListings` with a delta equal to the number of listings the tenant does
+NOT already hold, before the run row is created. A re-read of the same closet
+has a delta of zero. Because the extension, not the browser, receives that
+response, the 80% header is also copied into the JSON body as `plan_warning` for
+the web page to toast.
+
+**An account with NO seller plan is bounded instead of gated (US-3263,
+2026-09-09).** It used to be refused outright with a `FEATURE_LOCKED` 402. Now
+`sellerGate()` only decides WHICH rule applies: an unentitled account keeps the
+first `FREE_CLOSET_IMPORT_ROWS` = **25** rows of the read (`applyFreeTierCap` in
+`lib/closet-import.ts`, pure and tested separately) and `requireFlipdesk` is not
+called at all on that branch, because there is no plan capacity to account
+against. The response reports `free_capped`, `free_cap` and `left_behind` so the
+page can say what was left behind rather than quietly importing a quarter of
+somebody's closet. Entitled accounts are unaffected in every respect.
+
+This is the one place a gated capacity is deliberately NOT enforced by
+`requireFlipdesk`, and the bound is what replaces it. The trim happens on the
+server from the account's own entitlement: the web page and the extension each
+carry their own copy of the number, and neither is the gate.
 
 **Not backfilled, deliberately.** US-2179 fixed the write paths, not history.
 Items already live off-eBay stay in `drafted` until something re-publishes or ends

@@ -8,13 +8,27 @@ code_refs:
   - services/edge-functions/src/routes/content-public.ts
   - src/pages/certificate.tsx
   - src/test/public-grade-report-view-parity.test.ts
-reviewed: 2026-09-05
+reviewed: 2026-09-10
 tags: [certificates, public, schema, gotcha]
 summary: A public certificate is served by two independent projections — an edge column allowlist and a Postgres view — and adding a column to one has twice shipped as "done" while the other stayed silent.
 ---
 
 # Public certificate read paths
 
+> **Re-reviewed 2026-09-10.** Drift flagged both files, neither on a read path.
+> `content-public.ts` changed `GET /certificates.json`, the sitemap listing:
+> it now drops photoless certificates as well as withheld ones, because the SSR
+> page serves those `noindex` (US-1665 AC4) and the sitemap was advertising them
+> anyway. That endpoint emits ids and dates, never a projection, so neither
+> column list moved. `certificate.tsx` gained `w-auto` on the masthead logo and
+> a per-category coverage silhouette (US-3215/3216). Both projections, the
+> allowlist and the view, are byte-for-byte what they were.
+>
+> Corrected while here: the "Editing the view" list stopped at 00534 and was
+> missing **00571**, which is the CURRENT definition of the view. Reading the
+> guard's "newest CREATE OR REPLACE VIEW" against a list that names an older
+> file is exactly the wrong footing to start from.
+>
 > **Re-reviewed 2026-09-05.** Drift flagged `certificate.tsx` for US-3060, which
 > adds ONE line to the SPA render: a "Seen via the GradeThread extension on
 > <marketplace>" note when the visit arrived from an on-marketplace badge
@@ -137,9 +151,11 @@ partly pinned, by per-story tests like `certificate-revision-stamp_test.ts`.
 
 ## Editing the view
 
-The view is recreated **wholesale** by every migration that touches it — 00314,
-00315, 00316, 00318, 00356, 00530, 00532, 00534 — each reproducing the previous SELECT list
-verbatim and appending. That is the mechanism by which a column can be dropped by
+The view is recreated **wholesale** by every migration that touches it,
+seventeen of them so far: 00082, 00118, 00138, 00172, 00194, 00307, 00312,
+00313, 00314, 00315, 00316, 00318, 00356, 00530, 00532, 00534 and **00571**,
+which is the current definition. Each reproduces the previous SELECT list
+verbatim and appends. That is the mechanism by which a column can be dropped by
 accident: copy an older definition and everything added since disappears, with no
 error and no data change. The parity guard is the backstop; run it after any
 migration that recreates this view.

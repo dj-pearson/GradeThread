@@ -8,13 +8,22 @@ code_refs:
   - services/edge-functions/src/lib/size-systems.ts
   - services/edge-functions/src/lib/grading-size.ts
   - services/edge-functions/src/lib/sizing-charts.ts
-reviewed: 2026-09-09
+reviewed: 2026-09-10
 tags: [sizing, brands, conversion, contract]
 summary: Only four size-system conversions are performed, every one derived from paired data already in the corpus; EU, JP, AU and alpha are refused outright, and a refusal is the correct answer rather than a gap.
 ---
 
 # Size-system conversions
 
+> **Re-reviewed 2026-09-10.** The US-3294/3297/3298 batches closed the backfill
+> and took the corpus from 292 charts to 415. The contract is unchanged: still
+> four conversions, still the same four offsets, still zero contradictions, and
+> still no paired EU/JP/AU data anywhere. Three counts in this note WERE stale
+> and are corrected below: the size-label census (now 127 of 415), the evidence
+> points behind two of the four offsets, and the extended-sizing section, which
+> claimed Talbots was the only extended chart. It is not, and has not been for
+> several batches: there are nine now.
+>
 > **Re-reviewed 2026-09-09.** Drift flagged `sizing-charts.ts` for the US-3283
 > backfill loop, which appends brand charts. Two of them are size-system charts
 > and neither changes the contract below: Herno publishes an IT-to-US/UK/FR/DE/JP
@@ -41,12 +50,13 @@ tell.
 
 `SizingChart` had `department` and a free-text `garment` scope and **nowhere to
 say which national system a label is written in**. So the corpus encoded it the
-only way it could: inside the label. **115 of 292 charts** do this —
+only way it could: inside the label. **127 of 415 charts** do this (115 of 292
+when the story shipped; the backfill batches keep adding to the pile) —
 `UK 10 (US 6)`, `IT 48 (US 38)`, `FR 36 (US 4)`, `JP L (≈US M)`. Every one of
 those parentheses was a workaround for a missing field.
 
 `size_system` and `size_class` now exist as columns. **The prose was kept** — the
-size labels and notes are what the model actually reads, and re-authoring 115 of
+size labels and notes are what the model actually reads, and re-authoring 127 of
 them is a separate change that deserves its own eval.
 
 ## The four allowed conversions
@@ -56,10 +66,14 @@ extracted and the offsets checked for contradictions:
 
 | System | Department | Offset | Points | Contradictions |
 |---|---|---|---|---|
-| FR | Women | +32 | 6 | 0 |
-| IT | Men | +10 | 6 | 0 |
+| FR | Women | +32 | 18 | 0 |
+| IT | Men | +10 | 12 | 0 |
 | IT | Women | +36 | 6 | 0 |
 | UK | Women | +4 | 6 | 0 |
+
+Points is a census of the corpus at 415 charts, re-counted 2026-09-10. It only
+ever grows as more luxury charts land; the offsets and the zeros are the part
+that must not move.
 
 A test re-derives all four from `SIZING_CHARTS` and fails if the corpus stops
 agreeing, so the table cannot drift away from its own evidence. A second test
@@ -107,7 +121,7 @@ Three functions carry a label rather than a row:
 | `systemFromLabel` | the system an explicit two-letter prefix names | a bare number, an alpha size, `W30 L32`, a token not on the allowlist |
 | `usEquivalentForLabel` | the US number | any of the above, already-US, a value below the offset, **or a label that already states its own US equivalent** |
 
-That last refusal is specific to this corpus: 115 of 292 charts embed the
+That last refusal is specific to this corpus: 127 of 415 charts embed the
 equivalence inside the label because there was nowhere structured to put it, and
 appending a second copy is noise. **Noise on a certificate is indistinguishable
 from a bug.**
@@ -118,19 +132,27 @@ discipline instead of getting a path of its own. When it refuses, the line is
 **byte-identical** to what it was before this shipped — asserted by string
 equality over eight refused shapes, not by resemblance.
 
-## Extended sizing exists as a dimension, not as data
+## Extended sizing is a dimension that now has data in it
 
-`size_class` (plus / petite / tall / big_and_tall / maternity) is now
-representable. It is **almost entirely unpopulated, and that is accurate**: the
-corpus contains exactly ONE extended chart — Talbots, whose scope reads
-"Misses (US 2-18) / Petite (0P-16P) / Plus (14W-26W)". That one chart is the
-folding this dimension exists to end, so it resolves to `null` rather than being
-collapsed to a single class that would be false for two thirds of its rows.
+`size_class` (plus / petite / tall / big_and_tall / maternity) is representable,
+and as of the US-3294..3298 batches it is populated. Counted at 415 charts on
+2026-09-10: **nine extended charts**. Six plus (Levi's, Madewell, The North
+Face, Spanx, Nike, Marmot, all Women), two big_and_tall (Marmot, Johnnie-O, both
+Men) and one petite (Reformation, Women). Each declares its class in the
+`garment` scope, which is the only place `detectSizeClass` reads; a remark in
+`note` is deliberately not matched.
 
-Seeding real plus/petite/tall charts is a **sourcing** project, like the RN
-coverage gap in [[brand-kb-negative-findings]]. The dimension is the
-prerequisite, not the deliverable — and since 2026-08-17 the reading half above
-exists, so a chart added tomorrow is *read* rather than stored.
+Talbots is still the one chart that resolves to `null`, because its scope reads
+"Misses (US 2-18) / Petite (0P-16P) / Plus (14W-26W)" and names three classes at
+once. That is the folding this dimension exists to end, so refusing beats
+collapsing it to a class that would be false for two thirds of its rows. The
+test pins that SHAPE rather than a count: the unclassed list must be exactly
+`["Talbots|Women"]`, and the extended count is deliberately left unpinned so
+nobody is taught to bump a number.
+
+Seeding more plus/petite/tall charts stays a **sourcing** project, like the RN
+coverage gap in [[brand-kb-negative-findings]]. Since 2026-08-17 the reading half
+above exists, so a chart added tomorrow is *read* rather than stored.
 
 ## Related
 

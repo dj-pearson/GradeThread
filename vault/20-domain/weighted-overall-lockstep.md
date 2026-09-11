@@ -9,7 +9,7 @@ code_refs:
   - services/edge-functions/src/lib/human-review.ts
   - services/edge-functions/src/lib/ai-grading.ts
   - src/test/fixtures/weighted-grade-cases.json
-reviewed: 2026-08-14
+reviewed: 2026-09-10
 tags: [grading, rounding, lockstep, contract]
 summary: One client helper and one edge helper compute the weighted overall; they must agree exactly, and the formula has shipped wrong twice when copies drifted.
 ---
@@ -34,13 +34,21 @@ There are **two** implementations, not a scatter of copies:
 
 | Side | Implementation | Consumers |
 |---|---|---|
-| **Client** | `src/lib/weighted-grade.ts` → `computeWeightedOverall` (US-2034) | `admin/reviews.tsx`, `admin/grading.tsx`, `admin/disputes.tsx` — all three import it |
+| **Client** | `src/lib/weighted-grade.ts` → `computeWeightedOverall` (US-2034) | `admin/grading.tsx` (the Review Queue) and `admin/disputes.tsx`, both importing it |
 | **Edge** | `services/edge-functions/src/lib/human-review.ts` → `computeWeightedOverall` | `grade-adjustment.ts`, `routes/admin-disputes.ts`, `routes/admin-grading.ts` |
 
 Plus `ai-grading.ts`, which does the original composite parse with its own
 `roundToTenth` — the score the AI report ships with before any human touches it.
 
 **Adding a new surface? Import one of the two. Do not write a third.**
+
+> **There used to be a third client consumer.** `admin/reviews.tsx` was deleted
+> on 2026-08-14 (US-2505): `/admin/reviews` and `/admin/grading` were two UIs
+> over the same data, two operators could finalize the same report from them, and
+> the Review Queue in `admin/grading.tsx` is the superset that survived. The
+> lockstep did not change, only the count of pages holding it. Older prose here
+> and the "admin reviews UI's computeWeightedScore" line in `ai-grading.ts`'s
+> `roundToTenth` comment both still name the retired page.
 
 ### The weight table in `ai-grading.ts` (US-2306)
 
@@ -97,7 +105,7 @@ cannot express `NaN` (carried as the sentinel `"__NaN__"`, which each runner
 must translate — and both suites assert that they did, since a runner that
 forgot would still see a throw and pass for the wrong reason).
 
-Related: the three admin pages no longer re-declare `FactorScores` locally and
+Related: the admin pages no longer re-declare `FactorScores` locally and
 no longer cast into `WeightedFactorScores`. The cast was harmless only while the
 shapes happened to match; it would have swallowed a dropped or renamed key
 silently, which is the compile-time half of this same defect.
@@ -110,9 +118,10 @@ silently, which is the compile-time half of this same defect.
   adjusting a dispute saw an overall up to **0.2 away** from what was persisted,
   in both directions — 8.5 shown vs 8.3 stored, and 8.5 shown vs 8.7 stored.
 
-US-2034 then consolidated the three admin UIs behind one helper, which is why the
-client column above has a single entry. That consolidation is the fix; the
-per-file copies are gone.
+US-2034 then consolidated the three admin UIs of the day behind one helper, which
+is why the client column above has a single entry. That consolidation is the fix;
+the per-file copies are gone. One of those three pages has since been retired
+(see the note under the table), leaving two importers of the same helper.
 
 ## Why 0.1 overall and 0.5 factors
 

@@ -9,11 +9,27 @@ code_refs:
   - scripts/setup-stripe-pricing.mjs
   - src/pages/legal/refund.tsx
   - src/pages/legal/terms.tsx
-reviewed: 2026-09-05
+reviewed: 2026-09-10
 tags: [pricing, billing, stripe, contract]
 summary: The single source of truth for every price; src/lib/constants.ts is its machine-readable mirror and must change in the same commit.
 ---
 # GradeThread + FlipDesk Pricing — Canonical Model (US-200)
+
+> **Re-reviewed 2026-09-10, two corrections.** Drift flagged `constants.ts`,
+> `refund.tsx` and `terms.tsx`. Every published figure was re-read against
+> `src/lib/constants.ts` and all of them still match: FlipDesk 0 / 2900 / 5900 /
+> 9900 with yearly 0 / 29000 / 59000 / 99000, buyer 800/8000 and 1900/19000,
+> grades 299 / 799 / 1299, credit packs 2499 / 5999 / 10999 / 19999. The legal
+> pages changed for US-3233 (US spelling: "cancelled" to "canceled") and for
+> US-3038/pooled sales data, which renumbered Terms' last sections -- Changes is
+> now **Section 20**, not 19. `refund.tsx` section 3 is still Refunds and still
+> carries the 60-day billing-error window, which the affiliate hold below is
+> pinned to.
+>
+> What DID stale: **Action Credits are a second prepaid currency this note did
+> not list** (section 3b below), and **section 9a's "use a Stripe coupon" is no
+> longer the whole answer** -- US-3299 shipped operator-scheduled sale campaigns
+> and they are now the first thing to reach for. Both fixed below.
 
 > **Re-reviewed 2026-09-05, no change.** Drift flagged `src/lib/constants.ts`
 > for US-3071, which added `relist` to `MARKETPLACE_EXTENSION_FLOWS` and a
@@ -35,8 +51,8 @@ This is the single source of truth for the pricing model. Every downstream
 billing story (US-201 → US-225) derives from the numbers here.
 
 **Machine-readable mirror:** `src/lib/constants.ts` exports `FLIPDESK_PLANS`
-(re-exported as `PLAN_MATRIX` for convenience), `GRADETHREAD_TIERS` and
-`CREDIT_PACKS`. **Any change to those constants MUST update this doc in the same
+(re-exported as `PLAN_MATRIX` for convenience), `GRADETHREAD_TIERS`,
+`CREDIT_PACKS` and `ACTION_CREDIT_PACKS`. **Any change to those constants MUST update this doc in the same
 PR, and vice-versa.** The Stripe catalog is generated from the same numbers by
 `scripts/setup-stripe-pricing.mjs` (US-203).
 
@@ -201,6 +217,36 @@ allowance. Premium/Express always draw from credits or a one-time charge.
 
 ---
 
+## 3b. Action Credit packs (US-3138)
+
+A **second prepaid currency, not a bigger credit pack.** Grade credits buy
+grades and are anchored at $2.99 a Standard grade. Action Credits pay for
+metered ACTIONS -- AI actions and connector actions -- once a plan's monthly
+allowance is spent, so a seller fifty actions short on the 20th has something to
+buy other than a tier upgrade. Merging the two would mean re-denominating a
+shipped ledger holding real money.
+
+| Pack | Credits | Price | Per action |
+|---|---|---|---|
+| Top-up | 50 | $4.99 | 9.98c |
+| Standard | 150 | $13.99 | 9.33c |
+| Bulk | 400 | $34.99 | 8.75c |
+| Power | 1,000 | $79.99 | 8.00c |
+
+**The floor is Pro's implied per-action rate, 5900/750 = 7.87c.** Price any pack
+below it and topping up beats upgrading, which inverts the plan ladder. The
+enforcing test lives on the edge, beside the table checkout actually charges
+from (`services/edge-functions/src/tests/action-credits_test.ts`), and the
+reasoning is in [[action-credits]].
+
+Two differences from the grade credit packs above, both deliberate:
+`scripts/setup-stripe-pricing.mjs` does **not** generate these -- the ids come
+from `STRIPE_PRICE_ACTION_CREDITS_*` on the edge -- and the App Store and Play
+catalogs carry them as their own product kind (`action_credits`), never as a
+flavour of the consumable that means grade credits.
+
+---
+
 ## 4. Debit precedence on a submission (US-207)
 
 For each grade submission, charge in this order:
@@ -359,11 +405,53 @@ places. Keep them straight or you'll advertise one price and bill another.**
 > Price ID). Never "run a promo" by editing the cents column — you'll create a
 > display-vs-charge mismatch and the public page won't move at all.
 
-### 9a. Run a promotion (temporary discount) — the correct way
+Every row above is the LIST price. Since US-3299 a live sale campaign is layered
+on top of it at render time and at checkout, from `discount_campaigns` rather
+than from any of these sources, which is why the prerendered public page shows
+list price in its HTML and the sale price after hydration. Section 9a.
 
-Use a **Stripe coupon / promotion code**. This is already wired — every FlipDesk
-Checkout Session sets `allow_promotion_codes: true` (`payments.ts`), and the code
-already pre-applies referral / drip coupons (`sessionParams.discounts`).
+### 9a. Run a sale (a discount everyone gets): US-3299
+
+**Schedule a campaign in admin. Do not edit a price.** `/admin/pricing` carries
+the campaigns panel: pick a window, a percent or a fixed amount, and the
+packages it applies to. Five kinds can be targeted, so a sale can cover the
+whole catalog rather than only subscriptions: `flipdesk_plan`, `buyer_plan`,
+`grade_tier`, `credit_pack`, `action_pack`. Writes need super_admin plus a fresh
+MFA step-up, like the plan editor beside it, because this moves money.
+
+Three things about it that are the contract rather than the UI:
+
+- **A campaign is not real until its Stripe coupon exists.** Every write path
+  mints or re-mints the coupon and records the id on the row; a row with a null
+  `stripe_coupon_id` is invisible to the public read policy (00778) AND refused
+  by the resolver on both sides. A discount the card advertises and checkout
+  declines is the failure the whole feature is built to avoid.
+- **The algorithm exists twice and is pinned by vectors on each side** --
+  `src/lib/discounts.ts` for the browser, `lib/discount-campaigns.ts` for the
+  edge. They cannot share a file (one imports nothing Deno-shaped, the other
+  nothing browser-shaped), so a test on each side holds them to the same answers.
+- **It fails to LIST price.** A read error resolves to no campaigns, which
+  charges and shows full price. That is the safe direction.
+
+At checkout the campaign takes the single Stripe coupon slot **last**: referral
+and drip coupons were promised to one person and win, a site-wide sale is
+offered to everybody and only applies when none of them wanted the slot. The
+campaign is part of the Checkout idempotency key, or Stripe's 24h session replay
+would hand a pre-sale session to someone who opened the page before the sale
+began and charge them list price.
+
+The prerendered `/pricing` HTML still shows list price, because it is built at
+deploy time; `<SaleBanner>` and `<SalePrice>` fill in once the SPA hydrates.
+
+To end a sale early: turn it off in the panel, or
+`update public.discount_campaigns set enabled = false where id = '...';`.
+
+### 9a-bis. A code only some customers get
+
+A **Stripe coupon / promotion code** is still the mechanism for a targeted
+offer, and it is wired: every FlipDesk Checkout Session sets
+`allow_promotion_codes: true` (`payments.ts`), and referral / drip coupons are
+pre-applied through `sessionParams.discounts`.
 
 1. **Stripe Dashboard → Products → Coupons → Create** (e.g. `20% off, 3 months`,
    or a fixed amount). Optionally create a **promotion code** (a customer-facing
@@ -373,11 +461,11 @@ already pre-applies referral / drip coupons (`sessionParams.discounts`).
    the way referral coupons are (set `discounts` and drop `allow_promotion_codes`
    for that session — Stripe rejects both together; see `payments.ts` ~L419-447).
 3. Base Price and every displayed price **stay put**; the discount only hits the
-   actual charge. Advertise the promo in marketing copy separately if you want it
-   on the public page.
+   actual charge, and no pricing surface mentions it.
 
-No constant edits, no redeploy, no display/charge drift. This is the default
-mechanism for anything time-boxed.
+Neither mechanism edits a constant or needs a redeploy. The split is simply who
+the offer is for: a campaign is advertised on the pricing page to everyone, a
+promotion code is not advertised at all.
 
 ### 9b. Change a base price permanently
 
@@ -452,6 +540,8 @@ value proposition: standardized condition grading at software margins.
 | FlipDesk tiers | `FLIPDESK_PLANS` (`PLAN_MATRIX`) | Products `flipdesk_*`, monthly+yearly Prices |
 | Per-grade tiers | `GRADETHREAD_TIERS` | Products `grade_*`, one-time Prices |
 | Credit packs | `CREDIT_PACKS` | Products `credits_*`, one-time Prices |
+| Action Credit packs | `ACTION_CREDIT_PACKS` | `STRIPE_PRICE_ACTION_CREDITS_*` on the edge; NOT generated by the setup script |
+| Sale campaigns | none; `public.discount_campaigns` rows (00778) | a Stripe coupon minted per campaign |
 | Upgrade thresholds | `SOFT_WARN_PCT` in `plan-gate.ts` (server, authoritative); bare `0.8` in the two usage meters | — |
 | Price IDs | **never client-side.** `pricing_plans` rows over `Deno.env STRIPE_PRICE_*`, resolved in `pricing-config.ts` / `payments.ts` | output of `scripts/setup-stripe-pricing.mjs` |
 
@@ -464,8 +554,8 @@ Pricing is defined in three places that must move together:
 1. **This note** — the canonical model (US-200).
 2. **`src/lib/constants.ts`** — the machine-readable mirror: `FLIPDESK_PLANS`
    (re-exported as `PLAN_MATRIX`), `BUYER_PLANS`, `GRADETHREAD_TIERS`,
-   `CREDIT_PACKS`. Prices and limits only — **no Stripe price ids**, which the
-   browser never sees.
+   `CREDIT_PACKS`, `ACTION_CREDIT_PACKS`. Prices and limits only — **no Stripe
+   price ids**, which the browser never sees.
 3. **The Stripe catalog** — generated from the same numbers by
    `scripts/setup-stripe-pricing.mjs` (US-203).
 

@@ -11,7 +11,7 @@ code_refs:
   - supabase/migrations/00559_billing_environment_marker.sql
   - supabase/migrations/00608_exclude_sandbox_from_revenue.sql
   - supabase/migrations/00609_appstore_transaction_environment.sql
-reviewed: 2026-08-23
+reviewed: 2026-09-10
 tags: [billing, ios, android, revenue, app-store, google-play]
 summary: Sandbox and test purchases are accepted on purpose and must not be counted as money; this is the three-state marker that separates them and the SQL spelling that keeps historical revenue intact.
 ---
@@ -99,6 +99,23 @@ mechanism:
   > and aborts everything after it, breaking US-1108 rule 1. It was the only
   > migration in 658 that did, and the test asserting the old belief is what
   > held it there.
+
+> **⚠ A FOURTH grant surface has no marker (US-3138, found 2026-09-10).** The
+> Action Credits packs added an `action_credits` mapping kind to
+> `appstore/products.ts` and two new branches in `routes/appstore.ts` (the
+> `/verify` half and the webhook half), both calling the RPC
+> `grant_action_credits`. That function takes six parameters -- user, credits,
+> reason, source, external id, notes (00763) -- and **no environment**, so an
+> Action Credit pack bought in Apple's sandbox lands in
+> `action_credit_transactions` indistinguishable from a paid one. The grade-credit path beside it has stamped
+> the environment since 00609.
+>
+> This does not contaminate MRR: the revenue reads below go through
+> `public.users`, and an Action Credit purchase does not touch the plan columns.
+> What it costs is the audit question -- "which of these grants were free" --
+> which the ledger cannot answer for this wallet, and Apple's receipt is not
+> re-queryable later. Closing it means a seventh parameter and the same
+> `DROP` + `CREATE OR REPLACE` dance 00609 used.
 
 The per-transaction rows matter separately from the user column. The user column
 answers "is this account paying"; the transaction rows answer "which of these

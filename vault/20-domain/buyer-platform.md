@@ -25,7 +25,7 @@ code_refs:
   - supabase/migrations/00535_ingested_listings.sql
   - supabase/migrations/00536_buyer_video_grading.sql
   - supabase/migrations/00537_buyer_growth_metrics.sql
-reviewed: 2026-09-05
+reviewed: 2026-09-10
 tags: [buyer, plans, entitlements, contract]
 summary: A buyer's effective tier is the higher of their buyer subscription and the tier their seller plan already includes; the plan matrix is written twice and only a cross-boundary parity test keeps the halves honest.
 ---
@@ -115,21 +115,36 @@ Deno source, and the edge should not carry marketing copy:
 |---|---|---|
 | Advertised | `BUYER_PLANS`, `src/lib/constants.ts` | prices, `features[]` copy, allowances, `gateFlags` |
 | Enforced | `BUYER_PLAN_ENTITLEMENTS`, `services/edge-functions/src/lib/buyer-plans.ts` | allowances, `gateFlags` |
+| List price | `BUYER_PLAN_PRICE_CENTS`, same edge file | `monthly` / `yearly` cents, nothing else |
+
+The third row is newer than the other two (US-3299) and it is the one that
+surprises people, because it looks like the marketing copy the edge is supposed
+not to carry. It is not copy, it is a number read at checkout: buyer plans have
+no `pricing_plans` DB row the way the FlipDesk plans do, so when discount
+campaigns needed a before-the-sale price the edge had to hold its own copy of
+`800 / 8000 / 1900 / 19000`.
 
 Comments on both files say "keep in lockstep", which is not a mechanism.
 `src/lib/__tests__/buyer-plan-limits-parity.test.ts` is the mechanism: it reads
 the edge file as **text** across the project boundary and compares every numeric
-allowance and every advertised gate flag, per plan. A drift there is the
-advertised-vs-enforced defect class — the pricing page selling a capability the
-server refuses.
+allowance, every advertised gate flag, and since US-3299 both list prices, per
+plan. A drift there is the advertised-vs-enforced defect class: the pricing page
+selling a capability the server refuses, or a sale quoting a saving against a
+price nobody was charged.
 
-Two consequences for anyone editing the matrix:
+Three consequences for anyone editing the matrix:
 
 - Adding a flag or an allowance means adding its name to that test's
   `BUYER_GATE_FLAGS` / `ALLOWANCES` lists too. The test enumerates; a key it does
   not name is a key it does not guard.
 - Renaming a flag on one side silently un-gates the feature rather than failing to
   compile, because the two `BuyerGateFlags` interfaces are separate declarations.
+- `BUYER_PLAN_PRICE_CENTS` has to stay at the **bottom** of the edge file. The
+  parity test locates a plan by its first `<plan>: {` and reads forward to
+  `allowances:`, so a price table sitting above `BUYER_PLAN_ENTITLEMENTS` catches
+  all 48 allowance cases and fails them as "missing free.extensionChecksPerMonth",
+  which reads like the entitlements are gone rather than like a new constant moved
+  a search anchor.
 
 ## `live` is not a gate flag
 

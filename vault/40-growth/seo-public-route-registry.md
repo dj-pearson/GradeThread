@@ -9,12 +9,26 @@ code_refs:
   - src/prerender/entry-server.tsx
   - src/prerender/head-builder.ts
   - src/routes/index.tsx
-reviewed: 2026-09-06
+reviewed: 2026-09-10
 tags: [seo, prerender, routing]
 summary: A new indexable page must be registered in several places in lockstep; CI guards catch some omissions but not all.
 ---
 
 # SEO — the public route registry
+
+> **Re-reviewed 2026-09-10.** Two drifts, neither of them a new indexable page.
+> `public-routes.ts` changed only in values: `/privacy`, `/terms` and
+> `/acceptable-use` moved to `2026-09-07` in `ROUTE_LAST_MODIFIED` to match
+> their rendered `effectiveDate`, and US-3233 respelled "Programme" to "Program"
+> in the `/partners` title and "cancelled" to "canceled" in the `/refund`
+> description. No entry was added or removed, so every wiring point below is
+> untouched.
+>
+> `routes/index.tsx` gained `/capture/:token` (US-3161, phone-as-camera). It is
+> public and signed-out but deliberately absent from `PUBLIC_ROUTES`, so steps
+> 4-8 do not apply. Step 7's hazard was re-checked rather than assumed: there is
+> still no bare top-level `/:slug` in the router, and all fifteen dynamic routes
+> are namespaced, so a new root-level path cannot be swallowed by one.
 
 > **Re-reviewed 2026-09-05.** Drift flagged `public-routes.ts`,
 > `entry-server.tsx` and `routes/index.tsx` for `b159b4b3c` (US-3089,

@@ -15,12 +15,36 @@ code_refs:
   - services/edge-functions/src/lib/ebay-webhook-topics.ts
   - services/edge-functions/src/lib/ebay-notification-subscriptions.ts
   - services/edge-functions/src/routes/flipdesk-webhooks.ts
-reviewed: 2026-09-05
+reviewed: 2026-09-10
 tags: [ebay, listings, sync, gotcha]
 summary: A listing eBay ended or removed used to stay "active" locally with End and Relist as silent no-ops; the fix is to treat "already not live" as success, not as an error - and to keep WHICH of those it was, since ended and removed-by-eBay need opposite actions.
 ---
 
 # Reconciling eBay-ended and policy-removed listings
+
+> **Re-reviewed 2026-09-10, no change.** Five of this note's `code_refs` moved
+> at once. `flipdesk-ebay.ts` took six commits, and two of them land INSIDE
+> `doListingsPull`, which is the function this note spends most of its length on:
+> `7e79a2015` and `b817b83fb` mirror eBay's picture URLs onto `item_photos` as
+> reference rows, accumulating them in a `photoUrlsByItem` map flushed after the
+> listing writes, and widen the legacy `GetItem` call from "specifics are blank"
+> to "this item has never been asked". Additive on both passes. Nothing about
+> matched-versus-orphan, the absent-from-the-feed reconcile, or the status flips
+> changed. The other four: `a54057305` adds `POST /policies/create` (business
+> policies, not condition policies, and not a lifecycle verb), `fed4f2798` adds
+> `resolveShippedAt` to the sales write, `3fe3e7d38` is offer net-proceeds, and
+> `a97f06164` adds `shipByDate` to `RemoteOrderLineItem`. `listing-lifecycle.ts`
+> and `flipdesk-automations.ts` both changed for the same reason, US-3192's
+> per-garment price floor: `loadOwnedListing` selects and returns
+> `item_floor_price`, and the automations loaders carry `floor_price` into
+> `planAction` and `OfferContext`. Neither touches End or Relist, and
+> `classifyWithdrawFailure` is still at `flipdesk-automations.ts:775`.
+> Re-verified at HEAD: `isListingLive` at `listing-lifecycle.ts:133`,
+> `liveBlockReason` at `:150` with `"active_status" | "published_draft" | null`,
+> `livePublishedListingId` at `ebay-client.ts:3104`, `resolveEbayListingState`
+> at `ebay-listing-state.ts:133` with `applyStockFloor` at `:158`, and the
+> `listing_status` enum still exactly `draft | active | ended | sold | relisted`
+> (no `ALTER TYPE` on it exists in any migration).
 
 > **Re-reviewed 2026-09-05, no change.** Drift flagged `flipdesk-ebay.ts`
 > for US-3068's extraction of `planEvidence` into `lib/evidence-plan.ts`,

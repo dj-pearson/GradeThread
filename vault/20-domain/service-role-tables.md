@@ -6,16 +6,20 @@ status: current
 source_of_truth: code
 code_refs:
   - services/edge-functions/src/tests/rls-guard_test.ts
-reviewed: 2026-09-01
+reviewed: 2026-09-10
 tags: [security, rls, tenant-isolation, contract]
-summary: rls-guard discovers tenant tables by regex on the CREATE TABLE block, so an operator table must be registered AND must avoid the literal token user_id; the same file also enforces the (select auth.uid()) initplan form, with a five-entry exemption list whose entries fall into two DIFFERENT cases - a negligible table, and a policy already superseded by a corrective migration.
+summary: rls-guard discovers tenant tables by regex on the CREATE TABLE block - any column ending in user_id or owner_id - so an operator table must be registered in SERVICE_ROLE_ONLY; the same file also enforces the (select auth.uid()) initplan form, with a five-entry exemption list whose entries fall into two DIFFERENT cases - a negligible table, and a policy already superseded by a corrective migration.
 ---
 
 # Operator tables and the rls-guard discovery rule
 
-`rls-guard_test.ts` auto-discovers tenant tables by matching `\buser_id\b`
-against each table's `CREATE TABLE` block, then asserts every discovered table
-either has a restrictive RLS policy **or** is named in `SERVICE_ROLE_ONLY`.
+`rls-guard_test.ts` auto-discovers tenant tables by matching an owner column
+against each table's `CREATE TABLE` block (and against any later
+`ALTER TABLE … ADD COLUMN`), then asserts every discovered table has RLS enabled
+and either carries a restrictive policy **or** is named in `SERVICE_ROLE_ONLY`.
+
+The pattern is `OWNER_COLUMN = /\b\w*user_id\b|\b\w*owner_id\b/i`: **any column
+whose name ENDS in `user_id` or `owner_id`**, not the bare token.
 
 An **operator table** carries no tenant data — config caches and ops bookkeeping
 like `garment_baselines`, `grading_exemplar_sets`, `abuse_signals`,
@@ -27,6 +31,24 @@ delete from anon, authenticated`, and zero policies.
 > see [[admin-rpc-guards]] — `is_admin()` is always false for the service role,
 > so a bare `is_admin()` guard rejects every call the edge makes.
 
+> **Re-reviewed 2026-09-10.** Drift flagged `rls-guard_test.ts` for five new
+> entries across three stories. `marketplace_supply_cells` and
+> `marketplace_supply_samples` (US-3132, migration 00745, in **both** lists
+> because neither has an owner column), `cloud_storage_oauth_states` (US-3159,
+> 00766) and `phone_capture_sessions` / `phone_capture_photos` (US-3161, 00767).
+> All five follow the rules below rather than bending them.
+>
+> ⚠ **Re-reading the file turned up something four earlier re-reviews missed.**
+> This note said discovery matched `\buser_id\b`, and that `owner_user_id` and
+> `subject_user_id` therefore slipped past it. **That stopped being true on
+> 2026-07-18**, when US-2008 widened the pattern to
+> `/\b\w*user_id\b|\b\w*owner_id\b/i` precisely because the underscore hole had
+> left 21 owner-column tables unchecked. The naming advice this note gave (call
+> the column `owner_user_id` to dodge discovery) was advice to do the thing the
+> guard now catches. Rule 2 below is rewritten; nothing else in the note
+> depended on it, because every table it names is registered in
+> `SERVICE_ROLE_ONLY` and so passes whether it is discovered or not.
+>
 > **Re-reviewed 2026-09-01.** Drift flagged `rls-guard_test.ts`. The change is
 > one new entry, `garment_measurement_stats` (US-3033, migration 00709), added
 > by following the "no owner column at all" rule below rather than by changing
@@ -58,28 +80,34 @@ delete from anon, authenticated`, and zero policies.
 > **Re-reviewed 2026-08-21.** Drift flagged `rls-guard_test.ts`. The change is
 > one new entry in `SERVICE_ROLE_ONLY` — `identification_provenance` (US-2774,
 > migration 00641) — added by following the two rules below rather than by
-> changing them: it owns an `owner_user_id` and keeps the literal token out of
-> its `CREATE TABLE` block. The rule this note states did not move.
+> changing them. (Corrected 2026-09-10: this block used to say the table dodged
+> discovery by naming its column `owner_user_id`. It does not. `owner_user_id`
+> has matched since US-2008, so `identification_provenance` IS discovered and
+> passes on its `SERVICE_ROLE_ONLY` registration alone.)
 
 ## Two things to get right when adding one
 
 **1. Register it in `SERVICE_ROLE_ONLY`** with a one-line justification, or the
 guard fails with *"no RLS policy and not in SERVICE_ROLE_ONLY"*.
 
-**2. Keep the literal token `user_id` out of the `CREATE TABLE` block — including
-comments.**
+**2. Expect the table to be discovered anyway, and do not try to dodge it.**
 
-This is subtler than it looks and is the part people get wrong:
+Since US-2008 (2026-07-18) the pattern is `\b\w*user_id\b|\b\w*owner_id\b`, so
+`owner_user_id`, `subject_user_id`, `admin_user_id`, `seller_user_id` and a bare
+`owner_id` **all** match. A synthetic test drives each of those five shapes
+through the parser, so the widening cannot quietly narrow again.
 
-- `owner_user_id` / `subject_user_id` as a **column name** does **not** match.
-  `_` is a word character, so `\buser_id\b` finds no boundary.
-- A **comment** like `-- (NOT user_id) ...` **does** match, and forces discovery.
-  The table is then treated as user-owned data and the guard demands an RLS
-  policy it should not have.
+Discovery is not the thing to avoid. A discovered table passes as long as RLS is
+enabled and it is either policied or registered, and registering it is rule 1.
+Two things still follow from the pattern:
 
-So name the owning column `owner_user_id` or `subject_user_id`, and resist the
-urge to explain in a comment that the table has no `user_id` — saying the words
-is what triggers it.
+- A **comment** like `-- (NOT user_id) ...` matches too. Comments are inside the
+  `CREATE TABLE` block and nothing strips them, so a table with no owner column
+  can be dragged into discovery by prose alone. Do not explain in a comment that
+  the table has no `user_id`; saying the words is what triggers it.
+- A name with no `user_id` / `owner_id` tail (`actor_id`, `target_id`,
+  `article_slug`) is still invisible, which is the case the `SERVICE_ONLY_FORCED`
+  section below exists for.
 
 > [!note] A third case: nothing to scope to at all (US-2592, 2026-08-15)
 > `help_article_views` registered without an owning column of any kind. Its grain
@@ -93,12 +121,16 @@ is what triggers it.
 > identity rather than only that it is operator-facing — otherwise the next
 > reviewer reasonably asks for the policy the guard would have demanded.
 
-> [!tip] Two owner columns? Drop `_user` entirely.
-> `admin_impersonation_sessions` (US-2351) has both an actor and a target. The
-> obvious names — `actor_user_id`, `target_user_id` — read fine and are wrong
-> here, because they contain the literal token and force discovery on a table
-> that must have no policy at all. They are `actor_id` and `target_id`. The rule
-> is about the STRING, not the semantics.
+> [!tip] Two owner columns? `admin_impersonation_sessions` named them plainly.
+> `admin_impersonation_sessions` (US-2351) has both an actor and a target, and
+> its columns are `actor_id` and `target_id` rather than `actor_user_id` /
+> `target_user_id`. The migration's own comment says the choice was made to keep
+> them out of discovery, and under the current pattern it still has that effect:
+> `actor_user_id` would match `\b\w*user_id\b`, `actor_id` matches neither arm.
+>
+> Read it as history, not as a technique. Since US-2008 the honest move is a
+> descriptive name plus a `SERVICE_ROLE_ONLY` entry; a table that dodges the
+> regex is a table nothing checks.
 
 ### The case where the DATA is public and the table still must be deny-all
 

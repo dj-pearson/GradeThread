@@ -8,12 +8,33 @@ code_refs:
   - src/test/listings-select-star.test.ts
   - src/test/listing-row-schema-parity.test.ts
   - src/types/database.ts
-reviewed: 2026-09-04
+reviewed: 2026-09-10
 tags: [schema, listings, flipdesk, perf]
 summary: What the listings table's ninety-odd columns are for, why none of them is provably dead, and the rule for reading them.
 ---
 
 # The listings table — column inventory and read policy
+
+> **Re-reviewed 2026-09-10. `ListingRow` did not move; the six commits that
+> flagged this note all edited other tables in `database.ts`**: scout cost
+> inputs (US-3193), discount campaigns (US-3299), eBay photo mirroring
+> (US-3196), a per-garment price floor, a shipping deadline queue, and the
+> sold-but-still-listed push (US-3144). Diffed the whole interface across the
+> window: 223 lines before, 223 identical lines at HEAD.
+>
+> **Current reading: `listings` is 99 columns across 40 migrations, 0 with no
+> reference in application code** (`node scripts/audit-listings-columns.mjs`,
+> 2026-09-10). `search_vec` still has exactly two references, both the ones
+> named below.
+>
+> **One column reached the table without being recorded here: `created_by`
+> (00707, US-3023).** A `uuid` referencing `public.users`, nullable, stamped by
+> a `BEFORE INSERT` trigger from `auth.uid()` and held immutable by a second
+> trigger. It answers "which workspace member did the work", which `user_id`
+> cannot. `user_id` is the tenant key, and every row in a workspace carries the
+> OWNER's id whoever pressed the button. It is NULL for every service-role and
+> background-job insert and for every row predating 00707, and it is **not
+> backfilled**, because nothing ever recorded the actor. Bucket: *other*.
 
 > **Re-reviewed 2026-09-02, and this time three `listings` columns really did
 > move.** Migration 00716 (US-9205) adds **`price_set_by`**, a
@@ -96,7 +117,8 @@ than one column. It is **94 as of 2026-08-19** — `category_candidates` (00540)
 and `aspect_coverage` (00541) landed on 2026-08-07, and `demand_terms_detail`
 (00621, US-2678's sibling US-2675) on 2026-08-19 — and that direction is the only
 one it moves in, which is why the count belongs in the script's output and not in
-this sentence.
+this sentence. (It was **99 on 2026-09-10**, which is the point: read the script,
+not the paragraph.)
 
 `demand_terms_detail` is worth one line here because it is the second column
 holding the same list: `demand_terms` (text[], 00154) keeps the flat words for

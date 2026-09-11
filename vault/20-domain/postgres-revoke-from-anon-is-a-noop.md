@@ -16,7 +16,7 @@ code_refs:
   - supabase/migrations/00726_pollable_ebay_owner_ids_no_revoke.sql
   - services/edge-functions/src/tests/body-check-denies-anon_test.ts
   - scripts/check-credit-function-guards.mjs
-reviewed: 2026-09-04
+reviewed: 2026-09-10
 tags: [postgres, security, migrations, grants]
 summary: CREATE FUNCTION grants EXECUTE to PUBLIC and every role belongs to PUBLIC, so revoking a role by name removes a grant it never held alone. Thirteen migrations used that pattern; six secured nothing, for up to three years.
 ---

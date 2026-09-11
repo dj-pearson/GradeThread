@@ -60,6 +60,10 @@ comment, which nobody does. The rules were write-once.
   alias cannot express "only when pre-2003"
 - [[brand-kb-negative-findings]] — RN 17257 is not Longchamp; why a missing RN on
   a handbag is *correct*; folklore that survives repetition
+- [[brand-rn-attribution]] — the eight accept/refuse tests an RN must pass, built
+  one pack at a time from `00741` to `00761`
+- [[brand-colorway-harvest]] — the three filters a harvested palette must clear,
+  and why a colour that resolves to nothing stays NULL
 
 ## Scope correction
 

@@ -8,7 +8,7 @@ code_refs:
   - .env.example
   - services/edge-functions/.env.example
   - services/edge-functions/src/lib/env-validation.ts
-reviewed: 2026-09-05
+reviewed: 2026-09-10
 tags: [ops, env, deploy, contract]
 summary: Every env var the codebase reads, which of the eight deployment surfaces it belongs to, and which six are boot-fatal in production.
 ---
@@ -195,6 +195,7 @@ Legend: ✅ required · 🟡 required for that feature · ⬜ optional · 🔒 s
 | `VITE_RELEASE_SHA` | ⬜ CF Pages build | Release tag for Sentry (set from `CF_PAGES_COMMIT_SHA` in `vite.config.ts`). |
 | `VITE_POSTHOG_KEY` | ⬜ CF Pages build | PostHog product-analytics key; disabled if blank. |
 | `VITE_POSTHOG_HOST` | ⬜ CF Pages build | PostHog ingestion host. |
+| `VITE_GOOGLE_ADS_ID` / `VITE_GOOGLE_ADS_SIGNUP_LABEL` | ⬜ CF Pages build | Google Ads signup-conversion tag (`src/lib/ads-conversion.ts`). The account is `AW-` plus 9-11 digits; the label is the part after the slash in the conversion action's `send_to`. BOTH must be set or nothing is reported, which is what makes it safe to ship before the conversion action exists. Fires on a VERIFIED signup only, never on a password recovery or an email change. Public by design: they ship in the page on every advertiser's site. Not the `GOOGLE_ADS_*` edge secrets in §3; those are the API client, these are the browser tag. |
 | `VITE_CF_IMAGE_RESIZING` | ⬜ CF Pages build | Toggle for Cloudflare image resizing (`<Image>` srcset). Default off — Transformations are disabled. |
 | `VITE_GOOGLE_SITE_VERIFICATION` | ⬜ CF Pages build | Google Search Console verification meta tag. |
 | `VITE_BING_SITE_VERIFICATION` | ⬜ CF Pages build | Bing Webmaster verification meta tag. |

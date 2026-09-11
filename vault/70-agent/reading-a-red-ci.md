@@ -5,9 +5,9 @@ type: learning
 status: current
 source_of_truth: vault
 code_refs: []
-reviewed: 2026-08-16
+reviewed: 2026-09-10
 tags: [ci, agent, verification]
-summary: The frontend CI job fails on knowledge guards far more often than on code, so read which STEP failed before assuming a regression.
+summary: The frontend CI job fails on knowledge guards far more often than on code, so read which STEP failed before assuming a regression - and until 2026-09-10 a failing first step skipped npm ci, which made every later check in the job report a falsehood.
 ---
 
 # Reading a red CI lane here
@@ -124,6 +124,55 @@ a *loaded machine* stalls on a **random** module; a *poisoned cache* stalls on t
 the tell — it was first read as contention, and it was not. Check the named import
 chain for a cycle too; on that occasion there was none, and none of the files had
 changed in over a week.
+
+## A failing step used to SKIP `npm ci`, and then every later check lied
+
+The worst version of this page's whole subject, found 2026-09-10 (US-3308) after
+`CI` had failed every run on main for days.
+
+The `build` job runs the held-migration gate first, deliberately, so a leak is
+reported in seconds rather than after twenty minutes. The next step was a bare
+`- run: npm ci` with **no `if:` condition**. GitHub Actions skips an
+unconditional step once an earlier step in the job has failed. So a blocking gate
+meant the install never ran, and every node script after it died on `Cannot find
+package`.
+
+Run `34542908877` therefore reported the Swift-mirror guard, the vault lint and
+the env-reference check as broken. **All three were simply running without
+`node_modules`.** One skipped install produced dozens of confident, specific,
+entirely false failures — and they looked exactly like the knowledge-guard
+failures this page tells you to expect, which is why nobody went further.
+
+The fix is `if: ${{ !cancelled() }}` on the install, and the reasoning is in a
+comment above it in `ci.yml`. **The same shape returns on any step added before
+the install**, so if you add one, give it the same condition or put it after.
+
+### Why the lane went dark rather than being fixed on day one
+
+Name the cause, because it is structural rather than anyone's oversight: **a held
+migration is a NORMAL state in this repo.** `PENDING_MIGRATIONS.md` routinely
+carries SQL waiting on the owner to apply it, the gate blocks whenever such a
+file is on the pushed commit, and so `CI` is red for a reason that is not a
+defect. A lane that is red for a normal reason stops carrying information, and
+then a real failure underneath it is invisible.
+
+That is the same sentence CLAUDE.md already carries in another form — *a red
+suite that is documented as expected stops being read* — and 2026-09-10 found
+**three** lanes in that state at once: `CI`, `Android CI` (hiding a plain
+`:app:compileDebugKotlin` break) and `iOS CI` (red since 2026-08-31, hiding a
+compile break and nine test failures).
+
+Two things now separate the normal red from the real one:
+
+- the install runs regardless, so every other check in the job reports on itself
+  rather than on a missing `node_modules`;
+- when the gate is what blocked, the job writes a **GitHub error annotation and a
+  run summary** saying so in as many words. It appears on the run's summary page,
+  above the logs. The job still fails; only the ambiguity is gone.
+
+**So `CI` failing is never again a reason to skip reading it.** Open the run
+summary first: if the annotation is there, the answer is "apply the SQL or keep
+the migration off the branch", and every other check is still worth reading.
 
 ## Lane health is not uniform
 
