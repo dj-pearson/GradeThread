@@ -216,6 +216,30 @@ Deno.test("scanCardResults: thinPhotos flags only a card that printed a low coun
   assertEquals(out.map((r) => r.thinPhotos), [true, false, false]);
 });
 
-Deno.test("SCAN_DISCLAIMER says plainly that no photos were analysed", () => {
-  assert(/no photos were analysed/i.test(SCAN_DISCLAIMER));
+// REPINNED 2026-09-11 (US-3372). This read `/no photos were analysed/i` and had
+// been red since 2026-09-10, when US-3233's US-spelling sweep (94983093e) turned
+// the disclaimer's "analysed" into "analyzed". The guard was pinned to a
+// SPELLING, so a correction the repo requires everywhere else broke it, and the
+// thing it exists to protect (that the scan tells the seller plainly it read no
+// photos) went unasserted for a day inside a suite whose failures CLAUDE.md
+// said were expected.
+//
+// Spelling is not this guard's job: scripts/check-us-spelling.mjs owns
+// analysed -> analyzed and scans services/edge-functions/src, so pinning it here
+// duplicated an assertion that already had a home and put this one at its mercy.
+// The character class hands spelling back to that guard.
+//
+// Both halves are asserted now, because the disclaimer misleads if either goes.
+// "No photos were analyzed" alone does not say what the number IS based on, and
+// the stated-condition-and-price basis alone reads like a graded result.
+Deno.test("SCAN_DISCLAIMER says plainly that no photos were analyzed", () => {
+  assert(
+    /no photos were analy[sz]ed/i.test(SCAN_DISCLAIMER),
+    `the scan must say it read no photos: ${SCAN_DISCLAIMER}`,
+  );
+  assert(
+    /stated condition/i.test(SCAN_DISCLAIMER) &&
+      /price/i.test(SCAN_DISCLAIMER),
+    `the scan must name what it IS based on: ${SCAN_DISCLAIMER}`,
+  );
 });

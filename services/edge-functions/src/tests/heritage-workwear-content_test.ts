@@ -310,6 +310,28 @@ Deno.test("US-1989: every brand's charts are reachable, incl. the boot vs appare
   // brand_size_charts plus the same edit in sizing-charts.ts and a regenerated
   // 00498 — and US-3319 was scoped away from migrations. The SQL is in the
   // US-3319 report. Do NOT silence this by relaxing the assertion.
+  //
+  // ── RE-CONFIRMED 2026-09-11 (US-3372), and two things changed ──
+  //
+  // 1. NOBODY OWNS THIS ANY MORE. US-3319 is closed (passes:true in
+  //    prd.archive.json) and it is the only story this comment names, so the
+  //    defect's whole remaining existence is the red line above. That is the
+  //    shape US-3372 was filed to break: CLAUDE.md described this suite's
+  //    failures as expected, and an expected-red suite stops being read.
+  //
+  // 2. THE ONE-LINE FIX IS A TRAP, measured rather than reasoned. Deleting the
+  //    bare token from sizing-charts.ts:11582 alone turns this green and turns
+  //    sizing-chart-parity_test.ts (US-2214) RED on two cases, "the committed
+  //    backfill matches what the code generates" and "every in-code chart has a
+  //    row in the backfill", because that guard re-derives 00498 from the
+  //    constant and diffs it against the committed file. Tried here, then
+  //    reverted byte-exact. So the code half cannot land without the migration
+  //    half, and anyone who tries it in isolation trades one true red for two.
+  //
+  // The change has to be one commit: the constant, a regenerated 00498, and an
+  // UPDATE migration for the rows already in prod (00498:431 and 00781:137).
+  // brand-knowledge.ts:371 reads brand_size_charts ahead of this constant, so
+  // fixing only the constant would also leave the live resolver wrong.
   assertEquals(
     findSizingCharts("Duluth", "pant").filter((c) =>
       c.brandMatch.includes("duluth trading")
