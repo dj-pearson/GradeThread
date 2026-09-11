@@ -3,7 +3,14 @@
 // The table has existed since migration 00502 and is nearly empty. Migration
 // 00466 declined to seed registered numbers on the stated ground that the FTC
 // database is auth-gated. It is not — see the header of lib/ftc-rn-search.ts —
-// and that one wrong sentence is why six brands out of ~180 carry a number.
+// and that one wrong sentence is why the corpus started at six numbers.
+//
+// It is 121 numbers across 115 brands now, out of 549 brand_knowledge rows,
+// measured 2026-09-10 by US-3128. Do not trust this comment for the figure -
+// `node scripts/ops/ftc-rn-recheck.mjs --self-test` counts it from the
+// migrations. The six-of-180 line stood here for about a year after it stopped
+// being true, which mattered because this file is one of the two places
+// somebody reads before deciding whether the RN corpus is worth using at all.
 //
 // ── WHAT IT DOES, IN ORDER ─────────────────────────────────────────────────
 //

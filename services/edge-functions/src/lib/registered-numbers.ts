@@ -167,7 +167,8 @@ export type RegisteredNumberOutcome =
   /** The transcription was not a plausible registry number. */
   | "unparsed"
   /**
-   * Parsed, but no KB row claims it. THE NORMAL CASE — six brands carry an RN.
+   * Parsed, but no KB row claims it. STILL THE NORMAL CASE: 115 of 549 brands
+   * carry an RN as of 2026-09-10, so most reads find nothing.
    * Carries NO information either way and must never lower confidence.
    */
   | "no_reference"

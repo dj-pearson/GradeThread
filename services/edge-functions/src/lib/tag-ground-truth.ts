@@ -207,7 +207,8 @@ export interface PersistedTagRead {
   /**
    * US-2211: the RN/CA cross-check against brand_knowledge.registered_numbers.
    * Omitted when no registry number was read. `outcome: "no_reference"` is the
-   * normal case (six brands carry a seeded number) and carries NO information —
+   * normal case (115 of 549 brands carry a seeded number as of 2026-09-10, so
+   * most reads find nothing) and carries NO information —
    * do not render it as a warning.
    */
   registered_number?: RegisteredNumberAssessment;

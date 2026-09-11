@@ -1960,7 +1960,8 @@ export async function processSubmission(submissionId: string) {
     //
     // Best-effort and strictly informational: it can corroborate, it can flag a
     // contradiction for review, and it can NEVER rewrite the brand. Most reads
-    // return `no_reference` (six brands carry a seeded number today) and that
+    // return `no_reference` (115 of 549 brands carry a seeded number as of
+    // 2026-09-10, so most reads still find nothing) and that
     // outcome carries no information in either direction.
     let registeredNumber: RegisteredNumberAssessment | null = null;
     const rnRead = acceptedTag.find((a) => a.field === "rn_number");

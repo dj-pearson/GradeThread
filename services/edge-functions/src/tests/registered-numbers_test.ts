@@ -3,7 +3,8 @@
 // The rules under test are the ones that keep a public identity signal honest:
 //   1. Parsing accepts what a label actually prints, and rejects what isn't one.
 //   2. "no reference" is a distinct outcome from "contradicts" — it is the
-//      NORMAL case (six brands carry a seeded number) and means nothing.
+//      NORMAL case (115 of 549 brands carry one as of 2026-09-10) and means
+//      nothing.
 //   3. A shared registrant (URBN) is consistent, not a match and not a conflict.
 //   4. Nothing here ever mints or rewrites a brand.
 //

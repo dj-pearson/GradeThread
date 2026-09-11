@@ -38,11 +38,18 @@ Low competition with a top-of-page bid of zero.
 ## The FTC search needs no account, and 00466 says it does
 
 Migration `00466` records the FTC RN database as **auth-gated** and declines to
-seed registered numbers on that ground. That is why exactly six brands in a
-~180-brand knowledge base carry one.
+seed registered numbers on that ground. That is why the corpus started with
+exactly six numbers.
 
 It is wrong, and the correction matters more than the original mistake, because
 nobody re-checks a door they have been told is locked.
+
+**It is 121 numbers across 115 brands now, out of 549 `brand_knowledge` rows**
+(measured 2026-09-10, US-3128). Do not quote a figure from this note: run
+`node scripts/ops/ftc-rn-recheck.mjs --self-test`, which reads the seeded
+numbers straight out of the migrations and prints the count. The six-of-180
+line above stood for about a year after it stopped being true, and it read as
+a prototype when the thing it described had become a corpus.
 
 - The Rules of Behavior published at `rn.ftc.gov` govern **accounts** on the
   system a business uses to apply for, update or cancel **its own** RN. That
@@ -97,7 +104,8 @@ own test.
 `registered_number_registry` (migration `00502`) is filled by
 `scripts/seed-registered-numbers.ts`, in this order and no other:
 
-1. The ~180 brands in `brand_knowledge`, searched by `canonical_brand`. There is
+1. The brands in `brand_knowledge` (549 rows as of 2026-09-10), searched by
+   `canonical_brand`. There is
    no `brand_name` column; that mistake cost a run.
 2. Unresolved rows in `registered_number_sightings` (`00501`), searched by
    number, most-seen first. The product has recorded these off real tags since

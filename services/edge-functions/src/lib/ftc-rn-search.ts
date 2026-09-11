@@ -13,7 +13,10 @@
 //
 // CORRECTION: migration 00466 records the FTC RN database as "auth-gated" and
 // declines to seed RNs on that basis. It is not auth-gated, and that mistake is
-// why only six brands in the whole knowledge base carry a registered number.
+// why the corpus started at six numbers. It is 121 across 115 brands now, out
+// of 549 brand_knowledge rows (measured 2026-09-10, US-3128); count it with
+// `node scripts/ops/ftc-rn-recheck.mjs --self-test` rather than trusting a
+// number in a comment, which is how the six-of-180 figure survived a year.
 // The migration is applied and immutable; this comment and
 // vault/40-growth/rn-lookup.md are the correction.
 //
