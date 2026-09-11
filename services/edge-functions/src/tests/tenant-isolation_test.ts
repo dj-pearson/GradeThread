@@ -7540,6 +7540,20 @@ Deno.test({
 // still an import, so it must land in the caller's own tenant and nowhere else,
 // and the bound must not be something the caller can raise by asking.
 
+// A Poshmark listing id is 24 hex characters and listingIdFromUrl requires
+// exactly that shape (closet-import.ts:171). A crypto.randomUUID() carries
+// dashes and a 12-character tail, so it matched nothing: normalizeClosetRows
+// dropped every row, the batch came out empty, and the route answered 400
+// NO_LISTINGS_READ. These two cases asserted 202 and had been red since the id
+// regex was tightened -- a stale fixture in a security suite, which is worse
+// than a stale fixture anywhere else, because a whole lane stays red and a real
+// leak lands in the same colour.
+function poshmarkProbeId(): string {
+  const b = new Uint8Array(12);
+  crypto.getRandomValues(b);
+  return Array.from(b, (x) => x.toString(16).padStart(2, "0")).join("");
+}
+
 Deno.test({
   name: "an over-bound closet import is trimmed by the server, and lands in the caller's tenant",
   ignore: !CONFIGURED || !Deno.env.get("TEST_FREE_PLAN_JWT"),
@@ -7547,7 +7561,7 @@ Deno.test({
     const freeJwt = Deno.env.get("TEST_FREE_PLAN_JWT")!;
     // 60 rows, well over the 25-row bound, each with a listing id of its own.
     const listings = Array.from({ length: 60 }, (_, i) => ({
-      listingUrl: `https://poshmark.com/listing/free-tier-probe-${i}-${crypto.randomUUID()}`,
+      listingUrl: `https://poshmark.com/listing/free-tier-probe-${i}-${poshmarkProbeId()}`,
       title: `Free-tier-probe-${i}`,
       priceCents: 1000 + i,
     }));
@@ -7607,7 +7621,7 @@ Deno.test({
     assert(landed, "the free-plan import run never finished, so the second press proves nothing");
 
     const second = Array.from({ length: 60 }, (_, i) => ({
-      listingUrl: `https://poshmark.com/listing/free-tier-second-${i}-${crypto.randomUUID()}`,
+      listingUrl: `https://poshmark.com/listing/free-tier-second-${i}-${poshmarkProbeId()}`,
       title: `Free-tier-second-${i}`,
       priceCents: 2000 + i,
     }));
@@ -9346,10 +9360,15 @@ Deno.test({
     if (DENIED.has(res.status) || res.status === 402 || res.status === 503) return;
     assertEquals(res.status, 200, "reprice/preview should return 200 with per-row items");
     const row = (body.items ?? []).find((r) => r.listing_id === aId);
+    // JSON.stringify(undefined) is undefined, not a string, and a template
+    // literal is built BEFORE assert() is called. So the message for the PASS
+    // case used to throw TypeError: Cannot read properties of undefined
+    // (reading 'slice'), and this case failed exactly when tenant isolation was
+    // working. Keep the argument non-undefined.
     assert(
       row === undefined,
       `reprice/preview returned a row for A's listing ${aId} to user B: ${
-        JSON.stringify(row).slice(0, 200)
+        JSON.stringify(row ?? null).slice(0, 200)
       }`,
     );
   },
