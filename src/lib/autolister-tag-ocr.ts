@@ -203,7 +203,16 @@ export interface GroupNameParts {
  * the brand off the tag, else a filename the seller typed, else color plus
  * garment. Size goes last so a batch of names sorts by brand. Null when there
  * is nothing worth saying — the caller then leaves "Item 3" in place.
- */
+  *
+ * US-3139, measured 2026-09-11: THE COLOR-PLUS-GARMENT RUNG IS UNREACHABLE
+ * IN PRODUCTION. The only caller, use-autolister-tag-ocr.ts:138, passes
+ * brand, size and sourceName and nothing else, because a staged AutoLister
+ * group has no color or garment field yet. The branch is unit tested and
+ * never runs, which is the shape that makes a test stop meaning anything.
+ * Kept because garment classification may move earlier in the pipeline;
+ * tracked rather than assumed. Do not read its test as coverage of live
+ * behaviour.
+*/
 export function buildGroupName(parts: GroupNameParts): string | null {
   const brand = parts.brand?.trim() || null;
   const size = parts.size?.trim() || null;

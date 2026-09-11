@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-3349",
+  "nextId": "US-3350",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -3511,25 +3511,6 @@
       "notes": "Built 2026-09-08, HELD on migration 00763 and three console setups.\n\nShipped across seven commits on local main (b6198d32a, 0143e1e75, 41a4672f9, 13a802737, dbb948013 plus docs). What landed: the wallet migration with the fallback inside reserve_ai_action's own row lock; the AI and connector meters; the Stripe checkout, webhook grant and refund clawback; billing-summary and ledger; the web dialog and the 429-becomes-an-offer path; the iOS and Android catalogs with their own action_credits product kind; vault/50-business/action-credits.md and vault/10-ops/action-credits-storefront-setup.md.\n\nThree things the test suites caught that review would not have. The SECURITY DEFINER guard (US-3008) was right to fire: without a body role check any authenticated caller could rpc grant_action_credits with their own id and mint a wallet. src/test/security-definer-grants.test.ts then required explicit GRANTs, because silence is not 'closed' on this stack. And the ledger had to order by an identity column rather than created_at, since now() is transaction start and reserve_ai_action_v2 debits inside its caller's transaction.\n\nREMAINING (AC9): four Stripe prices plus STRIPE_PRICE_ACTION_CREDITS_* env vars, four App Store Connect consumables, four Play Console products. Until the Stripe prices exist the checkout returns 503, which is correct. Runbook: vault/10-ops/action-credits-storefront-setup.md.\n\nAlso outstanding: the Android paywall UI does not yet render the new packs (the repository methods and catalog exist); phase 2 is the buyer meters, which closes US-1801."
     },
     {
-      "id": "US-3139",
-      "passes": false,
-      "title": "AutoLister names a photo group off its tag, instead of \"Item 3\"",
-      "description": "A group is minted \"Item 1\", \"Item 2\", \"Item 3\" the moment photos land in it, so a 40-item session is a list of numbers the seller has to open one by one to tell apart. The group already HAS the answer in it: the tag photo. Read that photo in the browser with tesseract.js (no model, no cost, no AI quota), resolve the text against the curated brand table already on the edge, and name the group \"Levi's 32x34\". No brand and no usable filename leaves \"Item 3\" alone -- a wrong name is worse than a numbered one.",
-      "acceptanceCriteria": [
-        "A group whose name is still the minted \"Item N\" (or blank) is renamed from its tag photo automatically, with no button to press. A name the seller typed, or one an earlier pass wrote, is never overwritten.",
-        "OCR runs in the browser against assets served from our own origin. The tesseract.js worker, wasm core and language data are staged into public/tesseract/ from node_modules at install and build; nothing is fetched from a CDN, because script-src/connect-src are 'self'.",
-        "Brand resolution reuses the curated alias table (services/edge-functions/src/lib/brand-normalize.ts) through POST /api/flipdesk/autolister/tag-brand -- one batched round trip per group batch, no model call, no AI metering.",
-        "DETECT_EXCLUDED_FROM_TEXT is applied to the alias-window match, so an ordinary-word brand is never minted out of care-label prose (\"mother of pearl buttons\" does not become MOTHER).",
-        "Size is read off the same text when present and appended after the brand (\"Levi's 32x34\", \"Carhartt XL\"). A bare number is only read as a size behind the word \"size\" -- an RN or a fibre percentage is not one.",
-        "When no brand is found the name falls back to a filename the seller clearly typed, then to color plus garment. A camera-minted filename (IMG_, PXL_, DSC, a timestamp) is rejected and the group keeps \"Item N\".",
-        "Two groups reading the same tag get distinct names (\"Carhartt\", \"Carhartt 2\"), compared case-insensitively.",
-        "Each (group, tag photo) pair is attempted once. Re-tagging a photo makes it eligible again; re-rendering does not.",
-        "The pass is advisory: nothing in the session waits on it, a failed OCR or a failed lookup leaves the group named \"Item N\", and a \"Reading tags\" badge is the only UI it owns.",
-        "The tesseract assets are excluded from the PWA precache (they exceed Workbox's 2 MiB cap) and public/tesseract/ is gitignored."
-      ],
-      "priority": 40
-    },
-    {
       "id": "US-3140",
       "passes": false,
       "title": "Google Photos import works in the Composer, from one shared module",
@@ -4970,6 +4951,19 @@
         "src/pages/flipdesk/__tests__/inventory-page-restore.test.tsx stays green, since it is the only suite that can currently see either failure"
       ],
       "priority": 15
+    },
+    {
+      "id": "US-3349",
+      "passes": false,
+      "title": "buildGroupName's color-plus-garment fallback is tested and cannot run",
+      "description": "Found 2026-09-11 while verifying US-3139. `buildGroupName` in `src/lib/autolister-tag-ocr.ts` accepts `color` and `garment` and has a unit test for the rung that uses them. **The only production caller cannot reach it.** `use-autolister-tag-ocr.ts:138` passes `brand`, `size` and `sourceName` and nothing else, because the AutoLister `Group` type at `autolister.tsx:222` carries no color or garment field at staging time.\n\nSo the live fallback ladder is: brand off the tag, then a filename the seller clearly typed, then \"Item N\". That is honest behaviour and it is what US-3139 asked for. What is not honest is a passing test for a branch nothing runs.\n\nThis is the shape this backlog keeps recording, arrived at from the other direction. A guard that does not guard passes against broken code; this is a TEST that passes against code no user can reach. Both produce the same reading: green, and meaning nothing about production.\n\nA caveat is now written at the function so the next reader is not misled, but a comment is not a decision. Three options and each is defensible:\n\n- **Delete `color` and `garment` from the signature and from the test**, so the code says what it does. Costs a re-add if garment classification ever moves earlier in the pipeline.\n- **Wire it**, which needs the staged group to carry a garment guess it does not have yet, and that is a real piece of work rather than a parameter.\n- **Keep it and mark the test**, so it reads as a contract for a future caller rather than as coverage.\n\nMy recommendation is the first: the ladder without it is already good, and a signature that promises a rung it cannot climb is the thing that made this worth finding.",
+      "acceptanceCriteria": [
+        "The decision is made and written down, rather than the caveat comment standing in for one",
+        "If the parameters stay, the test naming them says in its own title that it covers a contract with no live caller, so a reader cannot mistake it for coverage",
+        "If they go, the test goes with them in the same commit, and a grep confirms no other caller passes either field",
+        "A check exists that would catch the NEXT exported function whose parameter no caller supplies, or the story records plainly that no such check is worth building and why"
+      ],
+      "priority": 30
     }
   ]
 }
