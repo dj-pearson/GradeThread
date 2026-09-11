@@ -428,6 +428,25 @@ export const DASHBOARD_WIDGETS: readonly WidgetDef[] = [
       })),
   },
   {
+    // US-3337: which photo slot most often comes out blurry, dark or cut off
+    // across the seller's last grades, and one tip for it. Data, not promo: it
+    // is the seller's own grades, read back.
+    id: "grading.photo-report",
+    surface: "grading",
+    title: "Photo report card",
+    blurb: "Which of your photos most often come out blurry, dark or cut off, and how to fix it.",
+    category: "data",
+    sizes: ["md", "lg"],
+    defaultSize: "md",
+    rangeAware: false,
+    personas: ["seller", "consignment"],
+    queryKeys: ["photo-report-card"],
+    load: () =>
+      import("@/components/dashboard/widgets/grading-photo-report").then((m) => ({
+        default: m.GradingPhotoReportWidget as ComponentType<WidgetProps>,
+      })),
+  },
+  {
     id: "grading.passports",
     surface: "grading",
     title: "Garment passports",
@@ -1086,6 +1105,8 @@ export const DEFAULT_LAYOUTS: Record<
       { id: "grading.charts", size: "lg" },
       { id: "grading.recent-submissions", size: "lg" },
       { id: "grading.listing-suggestions", size: "lg" },
+      // US-3337: own data, so above the plan card and every promo.
+      { id: "grading.photo-report", size: "md" },
       // US-3075 follow-up: AC1 registers grading.plan and AC4's persona lists
       // omit it, which is an inconsistency in the story rather than a decision.
       // Followed literally it deletes the Current Plan card from every existing
@@ -1114,6 +1135,8 @@ export const DEFAULT_LAYOUTS: Record<
       { id: "grading.charts", size: "lg" },
       { id: "grading.recent-submissions", size: "lg" },
       { id: "grading.listing-suggestions", size: "lg" },
+      // US-3337: own data, so above the plan card and every promo.
+      { id: "grading.photo-report", size: "md" },
       // US-3075 follow-up: AC1 registers grading.plan and AC4's persona lists
       // omit it, which is an inconsistency in the story rather than a decision.
       // Followed literally it deletes the Current Plan card from every existing

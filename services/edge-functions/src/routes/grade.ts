@@ -69,6 +69,7 @@ import {
 } from "../lib/grade-release.ts";
 import { getGradePricing } from "../lib/pricing-config.ts";
 import { parseSellerStatements } from "../lib/cleanliness-visibility.ts";
+import { buildPhotoReportCard, parseReportLimit } from "../lib/photo-report-card.ts";
 
 // US-614: free monthly Snap-to-Value cap per effective FlipDesk plan (-1 = unlimited).
 const SNAP_CAP: Record<string, number> = {
@@ -1543,6 +1544,44 @@ gradeRoutes.get("/turnaround", async (c) => {
   }
 
   return c.json({ sla_hours, hold_enabled, release_times });
+});
+
+// ── GET /photo-report-card (US-3337) ─────────────────────────────
+// How the caller's photos have scored across their last N grades (?limit=,
+// default 20, max 50): a problem rate per photo slot and one tip for the
+// weakest. Owner-scoped: submissions filtered by the owner id first, reports
+// keyed on those ids only; no id is taken from the request. Only counts are
+// returned; per_image_analysis never leaves the server.
+gradeRoutes.get("/photo-report-card", async (c) => {
+  const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
+  const limit = parseReportLimit(c.req.query("limit"));
+
+  const { data: subs, error: subErr } = await supabaseAdmin
+    .from("submissions")
+    .select("id")
+    .eq("user_id", ownerId)
+    .eq("status", "completed")
+    .order("created_at", { ascending: false })
+    .limit(limit * 2);
+  if (subErr) return c.json({ error: "Couldn't load your grades." }, 500);
+  const ids = ((subs ?? []) as Array<{ id: string }>).map((r) => r.id);
+  if (ids.length === 0) return c.json(buildPhotoReportCard([]));
+
+  const now = new Date().toISOString();
+  const { data: reports, error } = await supabaseAdmin
+    .from("grade_reports")
+    .select("per_image_analysis, release_at")
+    .in("submission_id", ids)
+    .is("superseded_at", null)
+    .order("created_at", { ascending: false })
+    .limit(limit * 2);
+  if (error) return c.json({ error: "Couldn't load your grades." }, 500);
+  // A grade still held for its paid turnaround (US-3326) is not the seller's
+  // to see yet, so it does not count here either.
+  const visible = ((reports ?? []) as Array<{ per_image_analysis: unknown; release_at: string | null }>)
+    .filter((r) => !r.release_at || r.release_at <= now)
+    .slice(0, limit);
+  return c.json(buildPhotoReportCard(visible));
 });
 
 // ── GET /status/:id ──────────────────────────────────────────────

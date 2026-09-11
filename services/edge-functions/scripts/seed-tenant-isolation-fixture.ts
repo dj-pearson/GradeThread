@@ -491,6 +491,36 @@ async function main(): Promise<void> {
     model_version: "fixture",
   });
 
+  // US-3337: a COMPLETED grade of A's with a measured blurry front photo, so
+  // the photo report card case can prove both halves: A's card counts it, and
+  // B's card, asked the same question, does not.
+  out.TEST_USER_A_PHOTO_REPORT_SUBMISSION_ID = await insert("submissions", {
+    user_id: aId,
+    garment_type: "tops",
+    garment_category: "t-shirt",
+    title: "Tenant-A fixture photo report card submission",
+    status: "completed",
+  });
+  await insert("grade_reports", {
+    submission_id: out.TEST_USER_A_PHOTO_REPORT_SUBMISSION_ID,
+    overall_score: 7.0,
+    grade_tier: "Very Good",
+    fabric_condition_score: 7.0,
+    structural_integrity_score: 7.0,
+    cosmetic_appearance_score: 7.0,
+    functional_elements_score: 7.0,
+    odor_cleanliness_score: 7.0,
+    ai_summary: "Tenant-A fixture photo report card grade",
+    confidence_score: 0.9,
+    model_version: "fixture",
+    per_image_analysis: [
+      {
+        image_type: "front",
+        quality: { blur: "severe", lighting: "ok", framing: "full", legible: true },
+      },
+    ],
+  });
+
   // US-600: consignment mode.
   out.TEST_USER_A_CONSIGNOR_ID = await insert("consignors", {
     user_id: aId,

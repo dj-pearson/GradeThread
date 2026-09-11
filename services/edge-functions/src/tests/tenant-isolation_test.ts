@@ -5478,6 +5478,37 @@ Deno.test({
 });
 
 Deno.test({
+  // US-3337: GET /api/grade/photo-report-card aggregates the CALLER's grades.
+  // It takes no id, so the only way it could leak is by scoping wrongly. A's
+  // fixture grade has one blurry front photo: A's card must count it (or this
+  // case proves nothing), and B's must not.
+  name: "US-3337: B's photo report card never counts A's photos",
+  ignore: !CONFIGURED || !Deno.env.get("TEST_USER_A_PHOTO_REPORT_SUBMISSION_ID"),
+  fn: async () => {
+    type Card = {
+      photos_measured?: number;
+      slots?: Array<{ slot: string; problems: { blur: { count: number } } }>;
+    };
+    const blurryFronts = (card: Card) =>
+      (card.slots ?? []).find((s) => s.slot === "front")?.problems.blur.count ?? 0;
+
+    const asA = await fetch(`${BASE}/api/grade/photo-report-card`, {
+      headers: authHeaders(A_JWT!),
+    });
+    const a = await asA.json().catch(() => ({})) as Card;
+    assertEquals(asA.status, 200, "GET photo-report-card as A");
+    assert(blurryFronts(a) >= 1, "A's own card does not count A's blurry front photo");
+
+    const asB = await fetch(`${BASE}/api/grade/photo-report-card`, {
+      headers: authHeaders(B_JWT!),
+    });
+    const b = await asB.json().catch(() => ({})) as Card;
+    assertEquals(asB.status, 200, "GET photo-report-card as B");
+    assertEquals(blurryFronts(b), 0, "B's card counts A's blurry front photo");
+  },
+});
+
+Deno.test({
   // The Showcase WRITE half is authenticated end to end. The feed itself is
   // public (GET /api/content/public/finds.json), so it would be easy to assume
   // the writes could be too — they cannot: consent publishes someone's garment

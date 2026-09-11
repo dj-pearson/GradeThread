@@ -63,6 +63,8 @@ describe("the widget board renders the seller default in order", () => {
       "Grade trends",
       "Recent submissions",
       "Listing suggestions",
+      // US-3337: the seller's own photo scores, so above the plan card.
+      "Photo report card",
       // US-3075 follow-up: restored to the defaults. AC1 registers this widget
       // and AC4's lists omit it, and following AC4 literally would have dropped
       // the Current Plan card off every existing seller's dashboard silently.
