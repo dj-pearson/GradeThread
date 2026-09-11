@@ -5,6 +5,8 @@ import type { GradeTierKey } from "@/lib/constants";
 import { useDiscounts } from "@/hooks/use-discounts";
 import { dollarsExact } from "@/lib/discounts";
 import { SalePrice } from "@/components/pricing/sale-price";
+import { slaCeilingFor } from "@/lib/grading-journey";
+import { useGradeTurnaround } from "@/hooks/use-grade-turnaround";
 
 // US-950: the billing method that will apply for a grade, mirroring the server
 // precedence in grade-billing.ts — included monthly grades first (Standard
@@ -84,6 +86,7 @@ export function GradePricingSummary({
   // the included-grade and credit paths cost no money, so a discount is not a
   // fact about them.
   const { priceFor } = useDiscounts();
+  const turnaround = useGradeTurnaround();
   const tierSale = priceFor({ kind: "grade_tier", key: tier }, tierConfig.priceCents);
 
   return (
@@ -126,7 +129,10 @@ export function GradePricingSummary({
                 </span>
               </div>
               <p className="mt-0.5 text-xs text-muted-foreground">
-                {t.slaHours <= 1 ? "~1 hour" : `~${t.slaHours} hours`} ·{" "}
+                {/* US-3328: a delivery promise from the live pricing hours, not
+                    the compiled constant, and not "~48 hours", which read as
+                    an estimate of something that usually takes minutes. */}
+                Delivered within {slaCeilingFor(key, turnaround.live?.slaHours?.[key])} ·{" "}
                 {t.creditCost} credit{t.creditCost === 1 ? "" : "s"}
               </p>
               <div className="mt-2">

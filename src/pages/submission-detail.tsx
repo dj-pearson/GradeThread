@@ -65,6 +65,7 @@ import {
 import { supabase } from "@/lib/supabase";
 import { ScoreExplainer } from "@/components/grading/score-explainer";
 import { WhatHappensNext } from "@/components/submission/what-happens-next";
+import { formatReadyBy, useGradeTurnaround } from "@/hooks/use-grade-turnaround";
 import {
   HUMAN_REVIEW,
   WHERE_IT_APPEARS,
@@ -227,6 +228,11 @@ export function SubmissionDetailPage() {
   // refetchData so the useState-held submission actually refreshes on change —
   // resolving the "we'll let you know the moment it's official" banner live).
   useRealtimeSubmission(id, refetchData);
+
+  // US-3328: a finished grade held for its paid turnaround is invisible to the
+  // direct read above (RLS, 00786); its release time comes from the server.
+  const turnaround = useGradeTurnaround();
+  const readyBy = id && !gradeReport ? turnaround.releaseTimes[id] ?? null : null;
 
   // ── Auto-retry payment after a mid-flow credit-pack purchase (US-207) ──
   //
@@ -1394,6 +1400,7 @@ export function SubmissionDetailPage() {
                 <WhatHappensNext
                   status={submission.status}
                   tier={submission.service_tier ?? null}
+                  live={turnaround.live}
                 />
               </>
             ) : submission.status === "pending" ? (
@@ -1429,6 +1436,7 @@ export function SubmissionDetailPage() {
                 <WhatHappensNext
                   status={submission.status}
                   tier={submission.service_tier ?? null}
+                  live={turnaround.live}
                 />
               </>
             ) : submission.status === "failed" ? (
@@ -1515,6 +1523,21 @@ export function SubmissionDetailPage() {
                     </Link>
                   </Button>
                 </div>
+              </>
+            ) : readyBy ? (
+              // US-3328: finished and held for the turnaround the seller paid
+              // for (US-3326). The report is hidden until then, by design.
+              <>
+                <Clock className="h-12 w-12 text-muted-foreground/50" />
+                <h3 className="mt-4 text-lg font-medium">
+                  Ready by {formatReadyBy(readyBy)}
+                </h3>
+                <WhatHappensNext
+                  status={submission.status}
+                  tier={submission.service_tier ?? null}
+                  readyBy={readyBy}
+                  live={turnaround.live}
+                />
               </>
             ) : (
               <>

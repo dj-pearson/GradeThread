@@ -2,7 +2,7 @@ import { Hono } from "hono";
 import type { Context } from "hono";
 import { supabaseAdmin } from "../lib/supabase.ts";
 import { clientIp } from "../middleware/rate-limit.ts";
-import { getSettingSync } from "../lib/system-settings.ts";
+import { getSetting, getSettingSync } from "../lib/system-settings.ts";
 import { processSubmission } from "../lib/grading-pipeline.ts";
 import {
   IN_APP_CAPTURE_SOURCE,
@@ -39,6 +39,7 @@ import {
   GRADE_TIERS,
   type GradeTier,
   TIER_CREDIT_COST,
+  TIER_SLA_HOURS,
   type PrecedenceResult,
   forensicAddonEnabled,
   runPaymentPrecedence,
@@ -59,7 +60,14 @@ import { valueAtGrade } from "../lib/condition-value.ts";
 import { suggestCategories } from "../lib/ebay-client.ts";
 import { effectivePlanFor } from "../lib/grade-pricing.ts";
 import { refundReservedSnap } from "../lib/grade-refund.ts";
-import { isBeforeRelease } from "../lib/grade-release.ts";
+import {
+  GRADE_RELEASE_HOLD_DEFAULT,
+  GRADE_RELEASE_HOLD_SETTING,
+  type GradeReleaseHoldSetting,
+  holdEnabled,
+  isBeforeRelease,
+} from "../lib/grade-release.ts";
+import { getGradePricing } from "../lib/pricing-config.ts";
 
 // US-614: free monthly Snap-to-Value cap per effective FlipDesk plan (-1 = unlimited).
 const SNAP_CAP: Record<string, number> = {
@@ -1478,6 +1486,59 @@ gradeRoutes.post("/pay/:id", async (c) => {
       suggestedPack: precedence.suggestedPack,
     },
   });
+});
+
+// ── GET /turnaround — US-3328 ────────────────────────────────────
+// The live turnaround a customer is buying, and when each of the caller's held
+// grades will be ready. One call serves the tier picker, the submissions list
+// and the detail page.
+//
+//   sla_hours      per tier, from pricing config (admin-editable), compiled
+//                  fallback on a read failure. The picker used to print the
+//                  compiled constants, so an admin change never reached it.
+//   hold_enabled   whether finished grades wait for that time (US-3326). The
+//                  "most grades come back in minutes" line is only true when
+//                  this is false.
+//   release_times  { submission_id: release_at } for the caller's grades that
+//                  are held right now. Owner-scoped: submissions filtered by
+//                  the owner id first, reports keyed on those ids only. No id is
+//                  taken from the request.
+gradeRoutes.get("/turnaround", async (c) => {
+  const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
+
+  const pricing = await getGradePricing().catch(() => null);
+  const sla_hours: Record<string, number> = {};
+  for (const tier of GRADE_TIERS) {
+    sla_hours[tier] = pricing?.tiers[tier]?.slaHours ?? TIER_SLA_HOURS[tier];
+  }
+  const hold_enabled = holdEnabled(
+    await getSetting<GradeReleaseHoldSetting>(
+      GRADE_RELEASE_HOLD_SETTING,
+      GRADE_RELEASE_HOLD_DEFAULT,
+    ),
+  );
+
+  const release_times: Record<string, string> = {};
+  const { data: subs } = await supabaseAdmin
+    .from("submissions")
+    .select("id")
+    .eq("user_id", ownerId)
+    .eq("status", "pending_review")
+    .limit(500);
+  const ids = ((subs ?? []) as Array<{ id: string }>).map((s) => s.id);
+  if (ids.length > 0) {
+    const { data: reports } = await supabaseAdmin
+      .from("grade_reports")
+      .select("submission_id, release_at")
+      .in("submission_id", ids)
+      .is("superseded_at", null)
+      .gt("release_at", new Date().toISOString());
+    for (const r of (reports ?? []) as Array<{ submission_id: string; release_at: string }>) {
+      release_times[r.submission_id] = r.release_at;
+    }
+  }
+
+  return c.json({ sla_hours, hold_enabled, release_times });
 });
 
 // ── GET /status/:id ──────────────────────────────────────────────

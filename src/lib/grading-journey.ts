@@ -57,15 +57,49 @@ export const TYPICAL_TURNAROUND = "Most grades come back in a few minutes.";
  * Read from GRADETHREAD_TIERS so it cannot drift from pricing. Phrased by the
  * caller as a ceiling ("guaranteed within"), never as an expectation.
  */
-export function slaCeilingFor(tier: GradeTierKey): string {
-  const hours = GRADETHREAD_TIERS[tier].slaHours;
+export function slaCeilingFor(tier: GradeTierKey, liveHours?: number | null): string {
+  const hours = liveHours && liveHours > 0 ? liveHours : GRADETHREAD_TIERS[tier].slaHours;
   return hours === 1 ? "1 hour" : `${hours} hours`;
 }
 
-/** The full turnaround sentence: what usually happens, then the guarantee. */
-export function turnaroundCopy(tier: GradeTierKey | null): string {
+/**
+ * US-3328: the live turnaround, from GET /api/grade/turnaround. Absent means
+ * "not loaded yet", and every function here then says exactly what it said
+ * before this existed.
+ */
+export interface LiveTurnaround {
+  /** US-3326: finished grades wait for their tier's time. */
+  holdEnabled?: boolean;
+  /** Per-tier hours from pricing config (admin-editable). */
+  slaHours?: Partial<Record<GradeTierKey, number>>;
+}
+
+/**
+ * The full turnaround sentence: what usually happens, then the guarantee.
+ *
+ * US-3328: with the release hold on, a Standard or Premium grade is delivered
+ * AT its tier time, so "most grades come back in minutes" stops being true for
+ * it and is not said. Express is never held and keeps the original sentence.
+ */
+export function turnaroundCopy(
+  tier: GradeTierKey | null,
+  live?: LiveTurnaround,
+): string {
   if (!tier) return TYPICAL_TURNAROUND;
-  return `${TYPICAL_TURNAROUND} Your ${GRADETHREAD_TIERS[tier].label} grade is guaranteed within ${slaCeilingFor(tier)}.`;
+  const ceiling = slaCeilingFor(tier, live?.slaHours?.[tier]);
+  const label = GRADETHREAD_TIERS[tier].label;
+  if (live?.holdEnabled && tier !== "express") {
+    return `Your ${label} grade is delivered within ${ceiling} of payment. We email you the moment it is ready.`;
+  }
+  return `${TYPICAL_TURNAROUND} Your ${label} grade is guaranteed within ${ceiling}.`;
+}
+
+/**
+ * US-3328: the one line for a grade that is finished and waiting for its paid
+ * turnaround. The time is formatted by the caller, in the viewer's locale.
+ */
+export function readyByCopy(formattedTime: string): string {
+  return `Your grade will be ready by ${formattedTime}. We will email you when it is.`;
 }
 
 /** The four things a finished grade actually produces. */

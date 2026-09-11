@@ -5,8 +5,11 @@ import {
   HUMAN_REVIEW,
   WHAT_YOU_GET,
   WHERE_IT_APPEARS,
+  type LiveTurnaround,
+  readyByCopy,
   turnaroundCopy,
 } from "@/lib/grading-journey";
+import { formatReadyBy } from "@/hooks/use-grade-turnaround";
 
 // US-2870. The panel under the spinner.
 //
@@ -20,19 +23,27 @@ import {
 export function WhatHappensNext({
   status,
   tier,
+  readyBy,
+  live,
 }: {
   status: SubmissionStatus;
   /** From submissions.service_tier. Null only if the column is somehow unset. */
   tier: GradeTierKey | null;
+  /** US-3328: set when the grade is finished and held for its paid turnaround. */
+  readyBy?: string | null;
+  /** US-3328: live turnaround hours and whether the release hold is on. */
+  live?: LiveTurnaround;
 }) {
-  const inReview = status === "pending_review";
+  // A held grade is not "in review" from the seller's side: it is done and
+  // waiting for its delivery time, so the review explanation would be wrong.
+  const inReview = status === "pending_review" && !readyBy;
 
   return (
     <div className="mt-6 w-full max-w-md space-y-4 border-t pt-6 text-left">
       <div className="flex gap-3">
         <Clock className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
         <p className="text-sm text-muted-foreground">
-          {turnaroundCopy(tier)}
+          {readyBy ? readyByCopy(formatReadyBy(readyBy)) : turnaroundCopy(tier, live)}
           {inReview ? ` ${HUMAN_REVIEW.wait}` : ""}
         </p>
       </div>

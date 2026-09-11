@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router";
 import { useQuery } from "@tanstack/react-query";
+import { formatReadyBy, useGradeTurnaround } from "@/hooks/use-grade-turnaround";
 import { toast } from "sonner";
 import {
   FileText,
@@ -267,6 +268,8 @@ interface DisputeWithSubmission extends DisputeRow {
 export function SubmissionsPage() {
   const navigate = useNavigate();
   const { user } = useAuth();
+  // US-3328: finished grades held for their paid turnaround, and when each lands.
+  const turnaround = useGradeTurnaround();
   const [exporting, setExporting] = useState(false);
   const [page, setPage] = useState(0);
   // US-3075 AC2: the dashboard grading-queue tiles link here with ?status=<s>,
@@ -854,6 +857,11 @@ export function SubmissionsPage() {
                           >
                             {formatLabel(sub.status)}
                           </Badge>
+                          {turnaround.releaseTimes[sub.id] && (
+                            <span className="text-xs text-muted-foreground">
+                              Ready by {formatReadyBy(turnaround.releaseTimes[sub.id] ?? "")}
+                            </span>
+                          )}
                           {sub.grade_report && (
                             <span
                               className={cn(
@@ -948,6 +956,11 @@ export function SubmissionsPage() {
                           >
                             {formatLabel(sub.status)}
                           </Badge>
+                          {turnaround.releaseTimes[sub.id] && (
+                            <p className="mt-1 text-xs text-muted-foreground">
+                              Ready by {formatReadyBy(turnaround.releaseTimes[sub.id] ?? "")}
+                            </p>
+                          )}
                         </TableCell>
                         <TableCell>
                           {sub.grade_report ? (

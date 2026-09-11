@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-3341",
+  "nextId": "US-3342",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -4887,7 +4887,8 @@
       "priority": 33,
       "dependsOn": [
         "US-3326"
-      ]
+      ],
+      "notes": "LOOP-DONE-CODE 2026-09-11. Code done; only the OPERATOR AC remains. New GET /api/grade/turnaround (owner-scoped: submissions filtered by workspaceOwnerId ?? userId first, reports keyed on those ids, no request input) returns sla_hours per tier from pricing config (compiled fallback), hold_enabled, and release_times for the caller held grades. Web: useGradeTurnaround hook; submission detail gets a Ready by branch (held grades are invisible to its direct read by design) with WhatHappensNext showing readyByCopy; the submissions list shows Ready by under the status badge on both layouts; the tier picker says Delivered within X from the live hours instead of ~X hours from the constant; turnaroundCopy(tier, live) drops the minutes claim for held tiers when the hold is on and is word-for-word unchanged otherwise. No score or tier is shown before release (the report is not readable until then). iOS and Android filed as US-3341 with the reason (Swift cannot compile here; web first). Verified: grade-turnaround-copy vitest 6/6 + grading-journey-parity 23/23 (its mount count moved from 2 to 3 on purpose: the held branch is a third waiting state), grade-turnaround-route_test 3/3 sabotaged (owner scope removed: red, restored: green), new live tenant-isolation case (B never sees A in release_times), tsc -b, eslint, ui:check, deno check clean. OWNER: choose the SLA hours per tier in admin pricing config (/admin/config-pricing). Today Express 1h, Premium 12h, Standard 48h; you floated about 4h, 24h and 7 days. The hold, the picker copy and Ready by all read the new values without a deploy."
     },
     {
       "id": "US-3329",
@@ -5051,6 +5052,19 @@
         "OPERATOR: tap an app link on a real Android device with the Play build installed and confirm it opens the app rather than the browser, because domain verification is cached at install and cannot be tested by reloading a page"
       ],
       "priority": 4
+    },
+    {
+      "id": "US-3341",
+      "passes": false,
+      "title": "iOS and Android show Ready by for a grade held for its paid turnaround",
+      "description": "US-3326 holds a finished Standard or Premium grade until paid time plus the tier hours when system_settings.grade_release_hold is on, and hides it from its owner until then (RLS on grade_reports, plus the service-role owner reads). US-3328 gave the web a Ready by state from GET /api/grade/turnaround (sla_hours, hold_enabled, release_times). The apps read grades directly and poll GET /api/grade/status/:id, which now returns grade_release_at while a grade is held, but neither app shows it: a held grade reads as pending review with no report. Filed from US-3328 because the Swift half cannot be compiled on the Windows dev box and the web had to ship first.",
+      "acceptanceCriteria": [
+        "iOS submission detail and list show Ready by <time> when /api/grade/status/:id returns grade_release_at, with no score shown before release",
+        "Android shows the same state from the same field",
+        "Both apps word the tier turnaround as a delivery promise from GET /api/grade/turnaround sla_hours rather than a compiled constant",
+        "Parity is pinned the way GradingJourneyCopy.swift is pinned today, so the two platforms cannot drift from the web copy in src/lib/grading-journey.ts"
+      ],
+      "priority": 34
     }
   ]
 }

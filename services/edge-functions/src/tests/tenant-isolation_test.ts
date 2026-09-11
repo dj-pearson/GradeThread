@@ -5455,6 +5455,29 @@ Deno.test({
 });
 
 Deno.test({
+  // US-3328: GET /api/grade/turnaround returns release times for the CALLER's
+  // held grades. It takes no id, so the only way it could leak is by scoping
+  // wrongly; B's answer must never mention A's submission.
+  name: "US-3328: B's grade turnaround never lists A's submission",
+  ignore: !CONFIGURED || !Deno.env.get("TEST_USER_A_GRADE_SUBMISSION_ID"),
+  fn: async () => {
+    const id = Deno.env.get("TEST_USER_A_GRADE_SUBMISSION_ID")!;
+    const res = await fetch(`${BASE}/api/grade/turnaround`, {
+      headers: authHeaders(B_JWT!),
+    });
+    const body = await res.json().catch(() => ({})) as {
+      release_times?: Record<string, string>;
+    };
+    assertEquals(res.status, 200, "GET grade/turnaround as B");
+    assertEquals(
+      Object.keys(body.release_times ?? {}).includes(id),
+      false,
+      "B's turnaround lists A's submission",
+    );
+  },
+});
+
+Deno.test({
   // The Showcase WRITE half is authenticated end to end. The feed itself is
   // public (GET /api/content/public/finds.json), so it would be easy to assume
   // the writes could be too — they cannot: consent publishes someone's garment

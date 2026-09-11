@@ -156,11 +156,13 @@ describe("the post-submit screen answers all four questions (US-2870 AC1)", () =
   it("the panel is mounted on every in-flight branch", () => {
     // Two branches render a spinner: processing (AI running) and pending
     // (checkout clearing). A seller waiting on either has the same questions.
+    // US-3328 adds a third waiting branch: the grade is finished and held for
+    // the turnaround the seller paid for (US-3326), shown as "Ready by".
     const mounts = (page.match(/<WhatHappensNext/g) ?? []).length;
     expect(
       mounts,
-      "the reassurance panel should render on BOTH in-flight branches",
-    ).toBe(2);
+      "the reassurance panel should render on all three waiting branches",
+    ).toBe(3);
   });
 
   it("it lists what you receive, all four things", () => {
