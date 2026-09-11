@@ -39,6 +39,9 @@ export const DEFAULT_NOTIFICATION_PREFERENCES: NotificationPreferences = {
   // promises news and not a task. Email is on because the whole point of this
   // category is reaching someone whose desktop is shut.
   delist_reminders: { email: true, in_app: true, push: true },
+  // US-3198: the extension-queue notice. One channel, because it is the only one
+  // that does a job the queue tray does not already do better.
+  extension_queue_reminders: { push: true },
 };
 
 type PrefKey = keyof NotificationPreferences;
@@ -127,6 +130,17 @@ export const NOTIFICATION_TYPES: NotificationTypeMeta[] = [
     description:
       "When an item sells and its listings on other marketplaces still need ending.",
     channels: ["email", "in_app", "push"],
+  },
+  {
+    key: "extension_queue_reminders",
+    label: "Queue waiting for your desktop",
+    // The copy IS the agreement (see the returns category above), and this one
+    // has a second job: it must not read as an error report. The notice fires
+    // because a browser has not been open, which is not a fault, so the sentence
+    // describes the situation and never blames the seller or the app.
+    description:
+      "When jobs you queued from your phone are still waiting because your desktop extension has not run.",
+    channels: ["push"],
   },
   {
     key: "buyer_alerts",

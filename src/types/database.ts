@@ -322,6 +322,14 @@ export interface NotificationPreferences {
   // only news. Email included on purpose: it is the channel that still reaches
   // someone whose laptop is shut, which is the exact case this exists for.
   delist_reminders: NotificationChannelPrefs;
+  // US-3198: jobs queued from a phone are still waiting because the desktop
+  // Lister extension has not drained them. PUSH ONLY, and both halves of that
+  // are deliberate. There is no email because the message is a standing
+  // condition rather than an event, and no in-app channel because the queue tray
+  // on /dashboard/flipdesk/marketplaces IS the in-app surface for it, grouped by
+  // channel and stamped with the last drain. The push exists to reach a seller
+  // who is not looking at that tray.
+  extension_queue_reminders: NotificationChannelPrefs;
 }
 
 export type UserUseCase = "seller" | "buyer" | "consignment" | "developer";

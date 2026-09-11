@@ -1987,6 +1987,50 @@ Deno.test({
   },
 });
 
+// US-3198 AC4/AC6: the stale-extension-queue notice sweeps EVERY seller's
+// extension_work_queue and pushes the ones whose desktop has gone quiet. It
+// takes no ids from the request at all: the only user ids in play come off the
+// queue rows themselves, and each follow-up read is `.eq("user_id", <that id>)`.
+// So the boundary worth testing is the door. A signed-in seller must not be able
+// to fire a fleet-wide notification pass over other people's queues, and neither
+// must a wrong secret.
+Deno.test({
+  name: "extension-queue-stale job rejects a user JWT (must use job secret)",
+  ignore: !CONFIGURED,
+  fn: async () => {
+    const res = await fetch(`${BASE}/api/jobs/extension-queue-stale`, {
+      method: "POST",
+      headers: authHeaders(B_JWT!),
+    });
+    const status = res.status;
+    await res.body?.cancel();
+    assert(
+      status === 401,
+      `POST /jobs/extension-queue-stale with a user JWT should 401 (no job secret), got ${status}`,
+    );
+  },
+});
+
+Deno.test({
+  name: "extension-queue-stale job rejects a bogus X-Internal-Job-Secret",
+  ignore: !BASE,
+  fn: async () => {
+    const res = await fetch(`${BASE}/api/jobs/extension-queue-stale`, {
+      method: "POST",
+      headers: {
+        "X-Internal-Job-Secret": "wrong-secret-value",
+        "Content-Type": "application/json",
+      },
+    });
+    const status = res.status;
+    await res.body?.cancel();
+    assert(
+      status === 401,
+      `POST /jobs/extension-queue-stale with a bogus job secret should 401, got ${status}`,
+    );
+  },
+});
+
 // ── Photo Dump Reconciliation (US-290) ──────────────────────────────────
 //
 // New surfaces: /api/flipdesk/ai/classify-photos (item-scoped), the reconcile

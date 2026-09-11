@@ -154,6 +154,17 @@ export const CRON_REGISTRY: CronDef[] = [
   // so the entry is in the seller's books the morning it is due. Re-running is
   // free — a partial unique index makes a duplicate month impossible.
   { name: "expense-recurrence", label: "Recurring expense sweep", schedule: "20 5 * * *", category: "flipdesk", endpoint: "/api/jobs/expense-recurrence", recorded: true },
+  // US-3198 AC4: push a seller whose extension queue has gone a day without a
+  // drain. DAILY, AND THE CADENCE IS LOAD-BEARING, not a cost decision. The job
+  // has no per-seller "last notified" state to write, so its repeat suppression
+  // is arithmetic: it fires only inside a window one period wide, which exactly
+  // one run can ever land in. Change this schedule and NOTICE_WINDOW_HOURS in
+  // lib/extension-queue-stale.ts must change with it, or a seller is either
+  // buzzed every run of a long silence or never buzzed at all.
+  //
+  // 16:50 UTC is late morning in the US, which is where the sellers are. Quiet
+  // hours are still enforced per seller inside deliverPreferencePush.
+  { name: "extension-queue-stale", label: "Extension queue stale notice", schedule: "50 16 * * *", category: "flipdesk", endpoint: "/api/jobs/extension-queue-stale", recorded: true, healthy: "200 with {ok:true, scanned, candidates, notified, suppressed, skipped{...}}; notified is 0 on most days and `capped:true` means the scan hit its row ceiling and under-reported" },
   // US-1295: affiliate auto-payout sweep — accrue affiliate conversions + pay eligible balances over Stripe Connect.
   { name: "affiliate-payouts", label: "Affiliate auto-payouts", schedule: "15 */6 * * *", category: "growth", endpoint: "/api/jobs/affiliate-payouts", recorded: true },
   { name: "agent-tick", label: "Agentic OS agent tick", schedule: "*/10 * * * *", category: "agents", endpoint: "/api/jobs/agent-tick", recorded: true },

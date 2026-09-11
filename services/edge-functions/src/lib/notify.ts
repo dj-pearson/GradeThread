@@ -226,6 +226,62 @@ export interface PushPayload {
 }
 
 /**
+ * US-3198: a user-facing push with NO in-app notification row behind it, gated
+ * on a preference category and on quiet hours exactly as notifyUser gates one.
+ *
+ * WHY THIS EXISTS RATHER THAN A notifyUser CALL. An in-app row needs a value in
+ * the `notification_type` enum, and every category above earned one with a
+ * migration. The extension-queue notice has no business asking for one: the
+ * queue tray it would link to (US-3198 AC1/AC2) is ALREADY the in-app surface
+ * for this, live on the same screen, grouped by channel and verb and stamped
+ * with the last drain. A bell badge repeating it would be a second copy of a
+ * screen the seller is looking at, and the one thing the tray cannot do is
+ * reach someone who is not looking at it. That is the whole job here.
+ *
+ * The gates are the same two, in the same order and for the same reasons:
+ * `push: false` on the category suppresses it, and a quiet window suppresses it.
+ * Note the asymmetry this creates and accept it deliberately: for a notifyUser
+ * type, quiet hours drop the buzz and leave the row in the bell, while here
+ * there is no row, so a quiet window drops the notice. That is correct for this
+ * message: it is a standing condition, not an event, so the next run says it
+ * again if it is still true, and the tray says it whenever the seller looks.
+ *
+ * Returns true when the push was handed to the transport (i.e. both gates
+ * passed), which is what the cron counts. Never throws.
+ */
+export async function deliverPreferencePush(
+  userId: string,
+  prefKey: string,
+  payload: PushPayload,
+): Promise<boolean> {
+  try {
+    const { data: user } = await supabaseAdmin
+      .from("users")
+      .select("notification_preferences, notification_quiet_hours")
+      .eq("id", userId)
+      .maybeSingle();
+    const row = user as
+      | {
+        notification_preferences?: ChannelPrefs;
+        notification_quiet_hours?: unknown;
+      }
+      | null;
+    if (!pushChannelEnabled(row?.notification_preferences, prefKey)) return false;
+    if (quietHoursActive(parseQuietHours(row?.notification_quiet_hours), new Date())) {
+      return false;
+    }
+    await deliverPush(userId, payload);
+    return true;
+  } catch (err) {
+    console.error(
+      `[notify] preference push failed for ${userId} (${prefKey}):`,
+      err instanceof Error ? err.message : String(err),
+    );
+    return false;
+  }
+}
+
+/**
  * US-3142: the wake sent to the extension's own service worker.
  *
  * It says THERE IS WORK and nothing else. No listing, no marketplace, no URL,
