@@ -93,6 +93,36 @@ export interface CrossPushOutcome {
    * activeListings cap and the advance-to-listed write both key off this.
    */
   queued?: boolean;
+  /**
+   * US-3367: the channel was left alone on purpose. `ok` is true and nothing
+   * was enqueued; `queued` mirrors whether a job is (still) waiting.
+   */
+  skipped?: CrossPushSkip;
+}
+
+/** Why an extension channel was NOT queued this push. */
+export type CrossPushSkip = "already_live" | "already_queued";
+
+/**
+ * Should this push leave the channel alone?
+ *
+ * Re-queueing a channel whose listing is already live opens the create form
+ * again in the seller's browser and mints a DUPLICATE listing; re-queueing one
+ * with a job already waiting runs the fill twice. Both were possible before,
+ * because the enqueue below was unconditional. Pure so the rule is tested;
+ * the caller supplies the two facts.
+ *
+ * An `active` row with NO url is not skipped: nothing ever verified it went
+ * live. The writeback only promotes a row on a captured URL or the seller's
+ * own say-so, so a URL-less active row is a claim, not a listing.
+ */
+export function planCrossPushSkip(
+  existing: { listing_status: string | null; listing_url: string | null } | null,
+  pendingListJob: boolean,
+): CrossPushSkip | null {
+  if (existing?.listing_status === "active" && existing.listing_url) return "already_live";
+  if (pendingListJob) return "already_queued";
+  return null;
 }
 
 /**
@@ -173,7 +203,8 @@ export async function crossPushPlatform(
   // channel at whatever it was first pushed at and there would be no way back.
   const { data: existing } = await supabaseAdmin
     .from("listings")
-    .select("id, platform_fields")
+    // US-3367: status and URL feed planCrossPushSkip below.
+    .select("id, platform_fields, listing_status, listing_url")
     .eq("draft_id", groupId)
     .eq("platform", platform)
     // US-1638: defense-in-depth — groupId already derives from the
@@ -182,7 +213,12 @@ export async function crossPushPlatform(
     .eq("user_id", ownerId)
     .maybeSingle();
   const existingRow = existing as
-    | { id: string; platform_fields: Record<string, unknown> | null }
+    | {
+      id: string;
+      platform_fields: Record<string, unknown> | null;
+      listing_status: string | null;
+      listing_url: string | null;
+    }
     | null;
   let rowId = existingRow?.id ?? null;
 
@@ -321,6 +357,33 @@ export async function crossPushPlatform(
   // seller's own browser, which is the entire reason this path exists instead
   // of a server-side login (adr-no-server-side-marketplace-automation).
   if (EXTENSION_DELIST_PLATFORMS.has(platform)) {
+    // US-3367: do not queue what is already live or already waiting. The
+    // sibling row was read above; the queue is asked here, scoped to the
+    // tenant and to THIS row.
+    const { data: pending } = await supabaseAdmin
+      .from("extension_work_queue")
+      .select("id")
+      .eq("user_id", ownerId) // US-268
+      .eq("listing_id", rowId)
+      .eq("kind", "list")
+      .in("status", ["queued", "claimed"])
+      .limit(1)
+      .maybeSingle();
+    const skipped = planCrossPushSkip(
+      existingRow
+        ? { listing_status: existingRow.listing_status, listing_url: existingRow.listing_url }
+        : null,
+      Boolean(pending),
+    );
+    if (skipped) {
+      return {
+        result: { ok: true, listingUrl: existingRow?.listing_url ?? undefined },
+        listingRowId: rowId,
+        price: mapped.listing_price,
+        queued: skipped === "already_queued",
+        skipped,
+      };
+    }
     const enqueued = await enqueueExtensionWork(ownerId, {
       kind: "list",
       platform,

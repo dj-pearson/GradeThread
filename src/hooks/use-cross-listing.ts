@@ -14,6 +14,11 @@ export interface CrossPushPlatformResult {
    * the composer says so instead of claiming a publish.
    */
   queued?: boolean;
+  /**
+   * US-3367: the channel was left alone: it is already live there, or a job
+   * for it is already waiting on the desktop. `ok` is true and nothing changed.
+   */
+  skipped?: "already_live" | "already_queued";
   status?: number;
   error?: string;
   blockers?: string[];

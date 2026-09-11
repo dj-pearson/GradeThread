@@ -1037,7 +1037,7 @@ async function applyMatch(
     const draft = draftRow as unknown as CrossPushDraft & {
       platform_fields: Record<string, StoredPlatformVariant> | null;
     };
-    const { result } = await crossPushPlatform({
+    const { result, skipped } = await crossPushPlatform({
       ownerId,
       draft,
       groupId,
@@ -1053,6 +1053,12 @@ async function applyMatch(
         listing.id,
         result.error,
       );
+      return false;
+    }
+    if (skipped) {
+      // US-3367: already live there, or already waiting on the desktop. Not a
+      // failure and not a publish; the rule converged, which is what an hourly
+      // rule should do. Nothing to log as an action.
       return false;
     }
     // US-2179: keep the item's status and the activeListings accounting
