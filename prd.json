@@ -4875,22 +4875,6 @@
       "notes": "LOOP-DONE-CODE 2026-09-11. Code done; only the OPERATOR AC remains. New GET /api/grade/turnaround (owner-scoped: submissions filtered by workspaceOwnerId ?? userId first, reports keyed on those ids, no request input) returns sla_hours per tier from pricing config (compiled fallback), hold_enabled, and release_times for the caller held grades. Web: useGradeTurnaround hook; submission detail gets a Ready by branch (held grades are invisible to its direct read by design) with WhatHappensNext showing readyByCopy; the submissions list shows Ready by under the status badge on both layouts; the tier picker says Delivered within X from the live hours instead of ~X hours from the constant; turnaroundCopy(tier, live) drops the minutes claim for held tiers when the hold is on and is word-for-word unchanged otherwise. No score or tier is shown before release (the report is not readable until then). iOS and Android filed as US-3341 with the reason (Swift cannot compile here; web first). Verified: grade-turnaround-copy vitest 6/6 + grading-journey-parity 23/23 (its mount count moved from 2 to 3 on purpose: the held branch is a third waiting state), grade-turnaround-route_test 3/3 sabotaged (owner scope removed: red, restored: green), new live tenant-isolation case (B never sees A in release_times), tsc -b, eslint, ui:check, deno check clean. OWNER: choose the SLA hours per tier in admin pricing config (/admin/config-pricing). Today Express 1h, Premium 12h, Standard 48h; you floated about 4h, 24h and 7 days. The hold, the picker copy and Ready by all read the new values without a deploy."
     },
     {
-      "id": "US-3335",
-      "passes": false,
-      "title": "Show the grader awarded reference photos as visual anchors (flagged, eval-gated)",
-      "description": "Uses the reference gallery. Seeing a real 7 and a real 9 of the same category keeps the model's scale steady. Costs image tokens, so it stays off until the eval says it helps.",
-      "acceptanceCriteria": [
-        "Behind a flag default OFF, the composite call includes up to N awarded references for the item's category, labeled with their awarded value, in the trusted channel.",
-        "Distinct prompt_version suffix; flag off = byte-identical request, test-guarded.",
-        "The eval harness can run with the anchors on, so the feature can actually be gated (unlike the baseline block today).",
-        "Extra image tokens are metered per grade."
-      ],
-      "priority": 40,
-      "dependsOn": [
-        "US-3334"
-      ]
-    },
-    {
       "id": "US-3338",
       "passes": false,
       "title": "A light zoom pass on the fabric close-up for every grade (flagged, cost-capped)",

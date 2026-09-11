@@ -47191,6 +47191,23 @@
       ],
       "priority": 37,
       "notes": "PROGRESS 2026-09-11 (loop). DONE: AC1 web slots - the Defects group hint and each defect slot ask for a coin, bank card or MeasureCard beside the flaw, and the Detail slot hint adds it for flaws (src/lib/scale-reference.ts holds the copy and the sizes). The prompt half is written as services/edge-functions/src/lib/scale-reference.ts: GRADING_SCALE_REFERENCE (default OFF), applyScaleReferenceWording swaps the one sizing phrase in DEFECT_TAXONOMY_AND_SIZING for one that gives the three sizes (quarter 24.26 mm, ID-1 card 85.60 x 53.98 mm, MeasureCard 190.5 x 139.7 mm) and says never to record the object as a flaw; byte-identical when off; applied only when the phrase matched. scale-reference_test 6/6 pins the sizes against the standards, the web copy against the edge copy, byte identity, and that the phrase still occurs in the per-image prompt. BLOCKED-ON US-3150: the last step is wiring applyScaleReferenceWording into analyzeImage (system text + a +scale per-image version suffix after +clean2). Another session has about 230 uncommitted lines of US-3150 in exactly that region of ai-grading.ts and in prompt-blocks_test.ts; editing it now would either collide or sweep their unfinished work into this commit. Resume when ai-grading.ts has no foreign uncommitted changes. | Done 2026-09-11. Part 2 in 46022cc2a: analyzeImage runs applyScaleReferenceWording on the cleaned per-image system text; per-image stamp appends +scale after +sysschema; grade-level promptVersionSuffix appends +scale last, set when any per-image stamp matches /\\+scale(\\+|$)/. scale-reference-request_test.ts stubs messages.create: off is byte-identical to unset (system and messages), on carries 24.26 mm and drops the v1 phrase; grade stamp only when a read ran it. Five sabotages bite. cleanliness-wording_test fixed for the US-3345 reflow. Flag GRADING_SCALE_REFERENCE stays OFF until shadow/eval says it helps."
+    },
+    {
+      "id": "US-3335",
+      "passes": true,
+      "title": "Show the grader awarded reference photos as visual anchors (flagged, eval-gated)",
+      "description": "Uses the reference gallery. Seeing a real 7 and a real 9 of the same category keeps the model's scale steady. Costs image tokens, so it stays off until the eval says it helps.",
+      "acceptanceCriteria": [
+        "Behind a flag default OFF, the composite call includes up to N awarded references for the item's category, labeled with their awarded value, in the trusted channel.",
+        "Distinct prompt_version suffix; flag off = byte-identical request, test-guarded.",
+        "The eval harness can run with the anchors on, so the feature can actually be gated (unlike the baseline block today).",
+        "Extra image tokens are metered per grade."
+      ],
+      "priority": 40,
+      "dependsOn": [
+        "US-3334"
+      ],
+      "notes": "Done 2026-09-11 in ccdd0cdd6. lib/reference-anchors.ts (pick: eligible, never own submission folder, spread; labels; addendum; loader re-checks consent; splitAnchorUsage), compositeGrade trailing param referenceAnchors ([] = byte-identical, test compares SDK bodies; verification-only request unchanged), promptVersionSuffix +anchors last, pipeline first pass only behind referenceAnchorsActive() = GRADING_REFERENCE_ANCHORS AND system_settings.reference_anchor_eval.passed, usage phase composite_reference_anchors (+ _firstpass on escalation). lib/reference-anchors-eval.ts runs golden set with vs without anchors (same prompts, same per-image reads, exemplars suppressed), passes only with 5+ comparable cases and no worse MAE/agreement; admin GET/POST /api/admin/grading/reference-anchors/eval (POST step-up + audit) and a section on the reference gallery card. Tests reference-anchors_test.ts 14; six sabotages bite. Owner steps to use it: award photos in the gallery, click Run eval, and only if it passes set GRADING_REFERENCE_ANCHORS=1 on Coolify. Needs migration 00789 applied first."
     }
   ]
 }
