@@ -4886,7 +4886,8 @@
         "No range is ever derived from confidence_score. Test-asserted.",
         "OPERATOR: set GRADING_SELF_CONSISTENCY_SAMPLE and run the job once."
       ],
-      "priority": 44
+      "priority": 44,
+      "notes": "LOOP-DONE-CODE 2026-09-11 in ec8d6f219. Code ACs 1-3 met: the self-consistency job persists per-category spreads to system_settings.grading_consistency_by_category (persistCategorySpreads); lib/grade-range.ts gives half_width = P80 of spreads rounded up to 0.1, only with 10+ measurements in 180 days; GET /api/content/public/grade-ranges.json; GradeRangeNote on certificate.tsx and submission-detail.tsx; no-confidence source scan plus a 3-arg formatter. Tests grade-range_test.ts 6 (edge) and grade-range.test.ts 6 (web); five sabotages bite. OWNER STEP (AC4): set GRADING_SELF_CONSISTENCY_SAMPLE (start at 3, max 25) on Coolify and run POST /api/jobs/grading-self-consistency once, then keep it on the weekly schedule. It costs sample x runs x images vision calls. No range shows anywhere until a category has 10 measurements, so expect several runs."
     },
     {
       "id": "US-3340",
