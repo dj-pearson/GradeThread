@@ -9294,3 +9294,48 @@ Deno.test({
     );
   },
 });
+
+// ── US-3367: recording a sale ─────────────────────────────────────────────────
+//
+// POST /api/flipdesk/sales/record takes both ids from the body and writes
+// sales, inventory_items and listings with the service-role client, then runs
+// the sibling delist planner. A foreign item or listing must be a 404.
+
+Deno.test({
+  name: "user B cannot record a sale on user A's item",
+  ignore: !CONFIGURED,
+  fn: async () => {
+    const res = await fetch(`${BASE}/api/flipdesk/sales/record`, {
+      method: "POST",
+      headers: authHeaders(B_JWT!),
+      body: JSON.stringify({
+        inventory_item_id: Deno.env.get("TEST_USER_A_ITEM_ID") ??
+          "11111111-1111-1111-1111-111111111111",
+        listing_id: Deno.env.get("TEST_USER_A_LISTING_ID") ?? null,
+        sale_price: 1,
+      }),
+    });
+    await res.body?.cancel();
+    assertDenied(res.status, "POST /api/flipdesk/sales/record");
+  },
+});
+
+Deno.test({
+  name: "an unauthenticated caller cannot record a sale",
+  ignore: !CONFIGURED,
+  fn: async () => {
+    const res = await fetch(`${BASE}/api/flipdesk/sales/record`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        inventory_item_id: "11111111-1111-1111-1111-111111111111",
+        sale_price: 1,
+      }),
+    });
+    await res.body?.cancel();
+    assert(
+      res.status === 401 || res.status === 403,
+      `unauthenticated sale record returned ${res.status}; expected 401/403`,
+    );
+  },
+});

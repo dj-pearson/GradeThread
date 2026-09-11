@@ -45,6 +45,7 @@ import { passportIdentityRoutes } from "./routes/passport-identity.ts";
 import { flipdeskPhotoProfilesRoutes } from "./routes/flipdesk-photo-profiles.ts";
 import { flipdeskImageRoutes } from "./routes/flipdesk-images.ts";
 import { flipdeskListingsRoutes } from "./routes/flipdesk-listings.ts";
+import { flipdeskSalesRoutes } from "./routes/flipdesk-sales.ts";
 import { flipdeskReconciliationRoutes } from "./routes/flipdesk-reconciliation.ts";
 import { flipdeskSheetsRoutes } from "./routes/flipdesk-sheets.ts";
 import {
@@ -524,6 +525,8 @@ app.use("/api/flipdesk/grading/validate", authMiddleware);
 app.use("/api/flipdesk/grading/submissions/*", authMiddleware);
 app.use("/api/flipdesk/images/*", authMiddleware);
 app.use("/api/flipdesk/listings/*", authMiddleware);
+// US-3367: recording a sale writes sales, inventory_items and listings.
+app.use("/api/flipdesk/sales/*", authMiddleware);
 // US-2481: the mobile→desktop extension work queue. Both the bare path (POST
 // to enqueue, GET to read) and the sub-paths (/claim, /:id/complete, DELETE
 // /:id) — a wildcard alone would leave the bare mount open.
@@ -749,6 +752,7 @@ app.use("/api/flipdesk/grading/validate", workspaceMiddleware);
 app.use("/api/flipdesk/grading/submissions/*", workspaceMiddleware);
 app.use("/api/flipdesk/images/*", workspaceMiddleware);
 app.use("/api/flipdesk/listings/*", workspaceMiddleware);
+app.use("/api/flipdesk/sales/*", workspaceMiddleware);
 app.use("/api/flipdesk/reconciliation/*", workspaceMiddleware);
 app.use("/api/flipdesk/import/*", workspaceMiddleware);
 app.use("/api/flipdesk/ai/*", workspaceMiddleware);
@@ -1155,6 +1159,7 @@ app.use("/api/flipdesk/ebay/policies", rateLimiter(30, 60_000, "ebay-policies"))
 app.use("/api/flipdesk/ebay/policies/*", rateLimiter(30, 60_000, "ebay-policies"));
 app.use("/api/flipdesk/images/*", rateLimiter(30, 60_000, "flipdesk-images"));
 app.use("/api/flipdesk/listings/*", rateLimiter(30, 60_000, "flipdesk-listings"));
+app.use("/api/flipdesk/sales/*", rateLimiter(30, 60_000, "flipdesk-sales"));
 // US-2481: a phone enqueues one job per tap, and the desktop drains in batches,
 // so this sits above the listings limit without being an open door.
 app.use("/api/flipdesk/extension-queue", rateLimiter(60, 60_000, "flipdesk-ext-queue"));
@@ -1439,6 +1444,7 @@ app.route("/api/flipdesk/demand", flipdeskDemandRoutes);
 app.route("/api/flipdesk/photo-profiles", flipdeskPhotoProfilesRoutes);
 app.route("/api/flipdesk/images", flipdeskImageRoutes);
 app.route("/api/flipdesk/listings", flipdeskListingsRoutes);
+app.route("/api/flipdesk/sales", flipdeskSalesRoutes);
 // US-2958: description blocks. Renders and persists in one place, so the
 // blocks and the published string cannot drift apart.
 app.route("/api/flipdesk/description", flipdeskDescriptionRoutes);
