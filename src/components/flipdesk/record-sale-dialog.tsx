@@ -15,12 +15,22 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { FieldError } from "@/components/ui/form-feedback";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { cn } from "@/lib/utils";
-import { supabase } from "@/lib/supabase";
-import { advanceItemStatus } from "@/lib/status-writer";
+import { edgeFetch } from "@/lib/edge-fetch";
+import { computeNetProfit } from "@/lib/sale-math";
 import { todayLocalDate } from "@/lib/local-date";
-import { useEbayConnection, useEbayEndListing } from "@/hooks/use-ebay";
-import type { ItemFullRow, SaleInsert } from "@/types/database";
+import { MARKETPLACE_LABELS } from "@/lib/constants";
+import { requestDrainNow } from "@/lib/lister-extension";
+import { QUEUED_NOTICE } from "@/hooks/use-extension-queue";
+import { useItemListings } from "@/hooks/use-item-listings";
+import type { ItemFullRow, ListingPlatform } from "@/types/database";
 
 interface SaleForm {
   sale_price: string;
@@ -41,6 +51,11 @@ function n(v: string): number {
 
 // Record a sale through the UI — fills the gap where sales previously only
 // existed via CSV import. On save the item advances to "sold".
+//
+// US-3367: the writes moved to POST /api/flipdesk/sales/record. This dialog
+// used to insert the sale and end the eBay listing from the browser and never
+// told the sibling planner, so a sale on Poshmark left Mercari, Grailed and
+// Vinted live. Now it asks WHERE it sold and the server ends everything else.
 export function RecordSaleDialog({
   item,
   onClose,
@@ -49,8 +64,9 @@ export function RecordSaleDialog({
   onClose: () => void;
 }) {
   const qc = useQueryClient();
-  const { data: ebayConnection } = useEbayConnection();
-  const endListingApi = useEbayEndListing();
+  const { data: listingRows = [] } = useItemListings(item?.id);
+  /** The listings row it sold through; "" means somewhere FlipDesk has no row for. */
+  const [soldOn, setSoldOn] = useState<string>("");
   const [form, setForm] = useState<SaleForm>({
     sale_price: "",
     shipping_collected: "",
@@ -85,19 +101,30 @@ export function RecordSaleDialog({
     }
   }, [item]);
 
-  // Live net-profit preview.
+  // Default "Sold on": the one live listing when there is exactly one, else
+  // eBay when the item has an eBay row, else "somewhere else".
+  useEffect(() => {
+    if (!item) return;
+    const active = listingRows.filter((r) => r.listing_status === "active");
+    const ebay = listingRows.find((r) => r.platform === "ebay");
+    const only = active.length === 1 ? active[0] : undefined;
+    setSoldOn(only?.id ?? ebay?.id ?? "");
+  }, [item, listingRows]);
+
+  // Live net-profit preview: the same formula the server writes.
   const net = useMemo(() => {
     if (!item) return 0;
-    const cost = item.purchase_price ?? 0;
-    return (
-      n(form.sale_price) +
-      n(form.shipping_collected) -
-      n(form.platform_fees) -
-      n(form.payment_processing_fees) -
-      n(form.shipping_cost) -
-      n(form.tax) -
-      n(form.other_costs) -
-      cost
+    return computeNetProfit(
+      {
+        sale_price: n(form.sale_price),
+        shipping_collected: n(form.shipping_collected),
+        platform_fees: n(form.platform_fees),
+        payment_processing_fees: n(form.payment_processing_fees),
+        shipping_cost: n(form.shipping_cost),
+        tax: n(form.tax),
+        other_costs: n(form.other_costs),
+      },
+      item.purchase_price ?? 0,
     );
   }, [form, item]);
 
@@ -133,102 +160,64 @@ export function RecordSaleDialog({
     savingRef.current = true;
     setSaving(true);
     try {
-      const insert: SaleInsert = {
-        inventory_item_id: item.id,
-        listing_id: item.listing_id ?? null,
-        sale_price: n(form.sale_price),
-        shipping_collected: n(form.shipping_collected),
-        platform_fees: n(form.platform_fees),
-        payment_processing_fees: n(form.payment_processing_fees),
-        shipping_cost: n(form.shipping_cost),
-        tax: n(form.tax),
-        other_costs: n(form.other_costs),
-        net_profit: net,
-        buyer_username: form.buyer_username.trim() || null,
-        sale_date: form.sale_date || undefined,
-        sold_at: form.sale_date || null,
+      // US-3367: one request. The server inserts the sale, advances the item,
+      // closes the row it sold through (decrementing a multi-unit listing, per
+      // US-1424 AC3), ends an API-channel row upstream, and hands every OTHER
+      // listing of the garment to the sibling planner. It answers with which
+      // marketplaces the seller's browser will end and which need the seller.
+      const res = await edgeFetch("/api/flipdesk/sales/record", {
+        method: "POST",
+        json: {
+          inventory_item_id: item.id,
+          listing_id: soldOn || null,
+          sale_price: n(form.sale_price),
+          shipping_collected: n(form.shipping_collected),
+          platform_fees: n(form.platform_fees),
+          payment_processing_fees: n(form.payment_processing_fees),
+          shipping_cost: n(form.shipping_cost),
+          tax: n(form.tax),
+          other_costs: n(form.other_costs),
+          buyer_username: form.buyer_username.trim() || null,
+          sale_date: form.sale_date || null,
+        },
+      });
+      const json = (await res.json().catch(() => ({}))) as {
+        error?: string;
+        queued?: string[];
+        unresolved?: string[];
       };
-      const { error } = await supabase
-        .from("sales")
-        .insert(insert as never);
-      if (error) throw error;
-
-      await advanceItemStatus(item.id, item.status, "sold");
-
-      // US-1424: a manual sale must also close out the listing, or the item
-      // stays is_active=true / 'active' on eBay after being marked sold
-      // (overselling risk + a stale 'active' chip). This is best-effort — the
-      // sale is already recorded, so a listing-close hiccup warns rather than
-      // failing the whole action.
-      if (item.listing_id) {
-        try {
-          const { data: lst, error: lErr } = await supabase
-            .from("listings")
-            .select("id, quantity, platform_offer_id, platform_listing_id")
-            .eq("id", item.listing_id)
-            .maybeSingle();
-          if (lErr) throw lErr;
-          const listing = lst as {
-            id: string;
-            quantity: number | null;
-            platform_offer_id: string | null;
-            platform_listing_id: string | null;
-          } | null;
-          if (listing) {
-            // AC3: a multi-quantity listing only ends when the last unit sells —
-            // otherwise decrement the remaining quantity and keep it active.
-            const remaining = Math.max(0, (listing.quantity ?? 1) - 1);
-            if (remaining > 0) {
-              const { error } = await supabase
-                .from("listings")
-                .update({ quantity: remaining } as never)
-                .eq("id", listing.id);
-              if (error) throw error;
-            } else {
-              // AC1: end the listing locally (sold + inactive).
-              const { error } = await supabase
-                .from("listings")
-                .update({
-                  listing_status: "sold",
-                  is_active: false,
-                  quantity: 0,
-                } as never)
-                .eq("id", listing.id);
-              if (error) throw error;
-              // AC2: best-effort end on eBay when connected and the listing
-              // carries an eBay offer/listing id. A failure must NOT fail the
-              // recorded sale — surface it so the user can end it manually.
-              if (
-                ebayConnection &&
-                (listing.platform_offer_id || listing.platform_listing_id)
-              ) {
-                try {
-                  await endListingApi.mutateAsync({ listingId: listing.id });
-                } catch (err) {
-                  const e = err as Error & { status?: number };
-                  // 409 = no platform_offer_id server-side → nothing to end.
-                  if (e.status !== 409) {
-                    toastWarning(e, "Sale recorded, but we could not end the eBay listing.", {
-                      duration: 10_000,
-                      nextStep: "End it on eBay yourself so it cannot sell twice.",
-                    });
-                  }
-                }
-              }
-            }
-          }
-        } catch (err) {
-          toastWarning(
-            err,
-            "Sale recorded, but we could not update the listing.",
-            { duration: 10_000 },
-          );
-        }
-      }
+      if (!res.ok) throw new Error(json.error ?? "Failed.");
 
       await qc.invalidateQueries({ queryKey: ["items_full"] });
       await qc.invalidateQueries({ queryKey: ["sale_for_item", item.id] });
+      void qc.invalidateQueries({ queryKey: ["pending_delists"] });
+      void qc.invalidateQueries({ queryKey: ["extension_queue"] });
+      void qc.invalidateQueries({ queryKey: ["item_listings", item.id] });
+      void qc.invalidateQueries({ queryKey: ["item_listing_platforms"] });
+
+      const label = (p: string) => MARKETPLACE_LABELS[p as ListingPlatform] ?? p;
+      const queued = (json.queued ?? []).map(label);
+      const unresolved = (json.unresolved ?? []).map(label);
       toast.success(`Sale recorded for "${item.item_title}".`);
+      if (queued.length > 0) {
+        // Deliberately not "ended": those listings are live until the seller's
+        // browser runs the job. QUEUED_NOTICE is the shared sentence for that.
+        toast.info(
+          `Ending it on ${queued.join(", ")} from your browser. ${QUEUED_NOTICE}`,
+          { duration: 12_000 },
+        );
+        void requestDrainNow();
+      }
+      if (unresolved.length > 0) {
+        toastWarning(
+          undefined,
+          `${unresolved.join(", ")} still needs you.`,
+          {
+            duration: 12_000,
+            nextStep: "End it there yourself so the same item cannot sell twice.",
+          },
+        );
+      }
       onClose();
     } catch (err) {
       toastError(err, "Failed.");
@@ -244,11 +233,38 @@ export function RecordSaleDialog({
         <DialogHeader>
           <DialogTitle>Record sale</DialogTitle>
           <DialogDescription>
-            Log the sale of "{item.item_title}". The item moves to Sold.
+            Log the sale of "{item.item_title}". The item moves to Sold and its
+            other listings are ended.
           </DialogDescription>
         </DialogHeader>
 
         <div className="grid grid-cols-2 gap-3">
+          {/* US-3367: WHERE it sold decides which row closes and which siblings
+              the server ends. "Somewhere else" ends every live listing. */}
+          <div className="col-span-2 space-y-1">
+            <Label className="text-xs" htmlFor="sold-on">Sold on</Label>
+            <Select
+              value={soldOn || "none"}
+              onValueChange={(v) => setSoldOn(v === "none" ? "" : v)}
+            >
+              <SelectTrigger id="sold-on" className="w-full">
+                <SelectValue placeholder="Where did it sell?" />
+              </SelectTrigger>
+              <SelectContent>
+                {listingRows.map((r) => (
+                  <SelectItem key={r.id} value={r.id}>
+                    {MARKETPLACE_LABELS[r.platform as ListingPlatform] ?? r.platform}
+                    {r.listing_status === "active" ? "" : ` (${r.listing_status ?? "draft"})`}
+                  </SelectItem>
+                ))}
+                <SelectItem value="none">Somewhere else / in person</SelectItem>
+              </SelectContent>
+            </Select>
+            <p className="text-[11px] text-muted-foreground">
+              Every other listing of this item is ended for you. Marketplaces
+              without an API are ended from your own browser.
+            </p>
+          </div>
           <Field
             id="sale-price"
             label="Sale price"
