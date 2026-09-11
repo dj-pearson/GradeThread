@@ -33,6 +33,10 @@
 // enough and never will be: garment_measurements is tenant-scoped and
 // garment_measurement_stats is deny-all, so an anon read returns [] whether the
 // table is empty or full, which is the one answer this script must not give.
+//
+// EXIT CODES. 0 means every row was read and the verdict is about the data; 1
+// means a read failed and NO verdict was printed. There is no path where a
+// failed read prints a number (US-3396).
 
 import { createClient } from "@supabase/supabase-js";
 import { brandKeyForRaw } from "../src/lib/brand-normalize.ts";
@@ -43,10 +47,25 @@ import {
   MIN_MEASUREMENT_SAMPLE,
 } from "../src/lib/measurement-aggregate.ts";
 
-const url = Deno.env.get("SUPABASE_URL");
-const key = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+// Trimmed and shape-checked before the first query, the same way
+// ai-token-profile.ts does it: a key with a stray newline is rejected by Deno
+// as an Authorization header value, which supabase-js reports once PER QUERY -
+// so the failure arrives as a read error rather than as a startup error. Say
+// which thing is wrong here instead.
+const url = Deno.env.get("SUPABASE_URL")?.trim();
+const key = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")?.trim();
 if (!url || !key) {
   console.error("SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are required.");
+  Deno.exit(1);
+}
+const badChar = /[^\x21-\x7e]/.exec(key);
+if (badChar || key.split(".").length !== 3 || key.length < 100) {
+  console.error(
+    `! SUPABASE_SERVICE_ROLE_KEY is not a usable JWT (${key.length} characters, ` +
+      `${key.split(".").length} segments${
+        badChar ? `, bad character at index ${badChar.index}` : ""
+      }). Refusing to run rather than report a confident zero.`,
+  );
   Deno.exit(1);
 }
 const db = createClient(url, key, { auth: { persistSession: false } });
@@ -57,16 +76,36 @@ const TOP = topIdx >= 0 ? Number(Deno.args[topIdx + 1] ?? 20) : 20;
 
 const PAGE = 1000;
 
+// A DROPPED READ AND A REAL NO-GO WERE BYTE-IDENTICAL HERE (US-3396).
+//
+// This used to log the error and `return out`, so a failure on page 0 handed
+// the report an empty array and the VERDICT block below printed "DO NOT BUILD
+// THE PUBLIC PAGES. Only 0 cohorts could EVER clear the floors" - and exited 0.
+// That is the exact sentence a real no-go prints, so nothing distinguished
+// "the floor is out of reach" from "the query did not run". A mid-page failure
+// was worse: a plausible number with nothing to notice.
+//
+// There is no way to LABEL these as unknown, because every headline below is
+// arithmetic over the full set. So the run stops. A verdict this script cannot
+// support is not printed at all.
 async function readAll<T>(table: string, select: string): Promise<T[]> {
   const out: T[] = [];
   for (let from = 0;; from += PAGE) {
     const { data, error } = await db
       .from(table)
       .select(select)
+      // Ordered so paging is stable: without an order the same row can appear
+      // on two pages, or none, and a cohort count quietly double-counts it.
+      .order("id", { ascending: true })
       .range(from, from + PAGE - 1);
     if (error) {
-      console.error(`[coverage] ${table} read failed: ${error.message}`);
-      return out;
+      console.error(
+        `[coverage] ${table} read failed at offset ${from}: ${error.message}\n` +
+          `[coverage] Refusing to print a verdict. ${out.length} row(s) were read ` +
+          `before the failure, which is not the table, so every number below it ` +
+          `would be a floor reported as a total.`,
+      );
+      Deno.exit(1);
     }
     const page = (data ?? []) as unknown as T[];
     out.push(...page);

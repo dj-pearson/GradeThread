@@ -137,7 +137,8 @@ function confidentValue(
  * vision call, no spend. It writes only where the decoders now recover a
  * different, canonical spelling.
  */
-async function redoUndecodedMain() {
+/** Returns the failure count, which the entrypoint turns into the exit code. */
+async function redoUndecodedMain(): Promise<number> {
   console.log(
     `backfill-tag-reads --redo-undecoded: ${apply ? "APPLY" : "dry run"}` +
       `${owner ? ` owner=${owner}` : ""} (no OCR, no spend)`,
@@ -239,9 +240,11 @@ async function redoUndecodedMain() {
   }
 
   console.log(JSON.stringify(redo));
+  return redo.failed;
 }
 
-async function main() {
+/** Returns the failure count, which the entrypoint turns into the exit code. */
+async function main(): Promise<number> {
   console.log(
     `backfill-tag-reads: ${apply ? "APPLY" : "dry run"}${owner ? ` owner=${owner}` : ""}`,
   );
@@ -280,11 +283,22 @@ async function main() {
     }
 
     try {
-      const { data: photoRows } = await supabaseAdmin
+      // The `error` here was the ONE read in this file that dropped it
+      // (US-3396); lines 158, 169, 251 and 265 all check theirs. A failed photo
+      // read left `photoRows` null, `tagPhotos` empty, and the item counted as
+      // `skipped` - indistinguishable from an item whose tag photo is genuinely
+      // unreachable, and at the end `skipped` is the number that says how much
+      // of the backlog is not worth another pass.
+      const { data: photoRows, error: photoErr } = await supabaseAdmin
         .from("item_photos")
         .select("id, photo_type, photo_role, storage_path, sort_order, photo_url")
         .eq("inventory_item_id", item.id)
         .order("sort_order", { ascending: true });
+      if (photoErr) {
+        stats.failed++;
+        console.error(`  ${item.id}: item_photos read failed: ${photoErr.message}`);
+        continue;
+      }
       const listable = filterListablePhotos((photoRows ?? []) as ItemPhotoUrlRow[]);
       const resolved = await itemPhotoAiUrls(listable);
       const photos = resolved.map(({ row, url }) => ({
@@ -410,6 +424,7 @@ async function main() {
   }
 
   console.log(JSON.stringify(stats));
+  return stats.failed;
 }
 
 // Say what WE need before anything touches the service-role client. Without
@@ -448,5 +463,12 @@ if (import.meta.main) {
     }
   }
 
-  await (redoUndecoded ? redoUndecodedMain() : main());
+  // US-3396: this used to end here with no exit, so a run that failed on all
+  // 1001 items exited 0 and an operator reading only the exit status concluded
+  // the backfill was done. Both PII backfills in this directory
+  // (backfill-measure-card-pii.ts, backfill-user-shipping-pii.ts) end
+  // `Deno.exit(failed === 0 ? 0 : 1)`; this now matches them.
+  const failed = await (redoUndecoded ? redoUndecodedMain() : main());
+  if (failed > 0) console.error(`backfill-tag-reads: ${failed} item(s) failed`);
+  Deno.exit(failed === 0 ? 0 : 1);
 }

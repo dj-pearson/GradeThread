@@ -47,12 +47,18 @@ export function normalizeStyleCode(raw) {
 async function readAll(url, headers, path) {
   // PostgREST caps a response; page rather than silently truncate, because a
   // coverage number that stops at 1000 is worse than no coverage number.
+  //
+  // `order=id.asc` is LOAD-BEARING (US-3396). LIMIT/OFFSET with no ORDER BY
+  // lets Postgres return rows in any order, and change it between requests, so
+  // a row can appear on two pages or on none - with no error, which is what
+  // makes it worse than the truncation this function already guards against.
+  // All three style_code_* tables have a uuid `id` primary key.
   const pageSize = 1000;
   const rows = [];
   for (let offset = 0; ; offset += pageSize) {
     const sep = path.includes("?") ? "&" : "?";
     const res = await fetch(
-      `${url}/rest/v1/${path}${sep}limit=${pageSize}&offset=${offset}`,
+      `${url}/rest/v1/${path}${sep}order=id.asc&limit=${pageSize}&offset=${offset}`,
       { headers },
     );
     if (!res.ok) {

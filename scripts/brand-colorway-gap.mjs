@@ -297,10 +297,19 @@ async function pgrest(env, path) {
   return res.json();
 }
 
+// `order=id.asc` is LOAD-BEARING (US-3396). LIMIT/OFFSET without an ORDER BY
+// leaves Postgres free to return rows in any order it likes, and it changes
+// that order under concurrent writes - so page 2 can repeat a row from page 1
+// and skip another entirely. There is no error, no warning and no gap in the
+// output: the count is simply wrong. brand_colorways is ~17,800 rows, which is
+// 18 pages of chances. Every one of these tables has a uuid `id` primary key.
 async function pageAll(env, table, select, pageSize = 1000) {
   const out = [];
   for (let offset = 0; ; offset += pageSize) {
-    const batch = await pgrest(env, `${table}?select=${select}&limit=${pageSize}&offset=${offset}`);
+    const batch = await pgrest(
+      env,
+      `${table}?select=${select}&order=id.asc&limit=${pageSize}&offset=${offset}`,
+    );
     out.push(...batch);
     if (batch.length < pageSize) break;
   }

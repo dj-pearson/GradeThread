@@ -386,13 +386,20 @@ async function pgrest(env, path) {
   return res.json();
 }
 
-/** Page through a table; PostgREST caps a response and we want every row. */
+/**
+ * Page through a table; PostgREST caps a response and we want every row.
+ *
+ * `order=id.asc` is LOAD-BEARING (US-3396). LIMIT/OFFSET with no ORDER BY lets
+ * Postgres return rows in any order, and change it between requests, so a row
+ * can land on two pages or on none. It produces no error at all - just a wrong
+ * count. Both tables paged here have a uuid `id` primary key.
+ */
 async function pageAll(env, table, select, pageSize = 1000) {
   const out = [];
   for (let offset = 0; ; offset += pageSize) {
     const batch = await pgrest(
       env,
-      `${table}?select=${select}&limit=${pageSize}&offset=${offset}`,
+      `${table}?select=${select}&order=id.asc&limit=${pageSize}&offset=${offset}`,
     );
     out.push(...batch);
     if (batch.length < pageSize) break;

@@ -254,7 +254,20 @@ async function seedFromFile() {
         `&style_code_norm=eq.${encodeURIComponent(r.styleCodeNorm)}&source=eq.official`,
       { headers },
     );
-    const prior = existing.ok ? await existing.json() : [];
+    // US-3396: `existing.ok ? await existing.json() : []` turned a failed read
+    // into "no prior row", so every row took the write branch and the run ended
+    // `wrote N, unchanged 0` - which is this script's own idempotence evidence,
+    // fabricated. A read that did not happen is not an absence.
+    if (!existing.ok) {
+      console.error(
+        `[official-names] ${r.styleCodeNorm}: prior-row read failed: ` +
+          `${existing.status} ${await existing.text()}\n` +
+          `[official-names] Stopping. Without it, every row looks new and the ` +
+          `"unchanged" count stops meaning anything.`,
+      );
+      return 1;
+    }
+    const prior = await existing.json();
     if (prior.length > 0 && prior[0].name === r.name) {
       unchanged++;
       continue;

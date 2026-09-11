@@ -6,6 +6,11 @@
 // Usage:
 //   node scripts/backfill-attributes-from-title.mjs <inventory_items_rows.csv> [userId]
 //
+// The userId is OPTIONAL only when the CSV holds exactly one. A file with two
+// sellers in it is refused rather than scoped to whichever one happened to be
+// on row 1 (US-3396). Exit 1 also covers "nothing parsed", because the SQL that
+// case used to write does not parse.
+//
 // Emits next to the input:
 //   backfill-attributes-review.csv  — every item + what was parsed (eyeball it)
 //   backfill-attributes.sql         — one UPDATE … FROM (VALUES …) that fills
@@ -160,13 +165,75 @@ function findSize(title) {
 }
 
 // ── run ─────────────────────────────────────────────────────────────────────
+function die(msg) {
+  console.error(`[backfill-attributes] ${msg}`);
+  process.exit(1);
+}
+
 const inPath = process.argv[2] || "inventory_items_rows.csv";
 const text = readFileSync(inPath, "utf8");
 const rows = parseCSV(text);
 const header = rows[0];
+if (!header || header.length === 0) die(`${inPath} has no header row.`);
 const ix = Object.fromEntries(header.map((h, i) => [h, i]));
-const data = rows.slice(1).filter((r) => r.length > 1);
-const userId = process.argv[3] || (data[0] && data[0][ix.user_id]) || "";
+const allRows = rows.slice(1).filter((r) => r.length > 1);
+
+// US-3396: THE SCOPING USER ID USED TO BE GUESSED FROM CSV ROW 1.
+//
+// The generated SQL ends `AND i.user_id = '<that guess>'`, so a CSV holding two
+// sellers' items produced one UPDATE that silently matched only the first
+// seller's rows and dropped the rest - with a success line, a review CSV
+// listing every item, and nothing anywhere saying which half was written. A
+// guess that is right most of the time is the worst kind.
+//
+// So: the id is either passed explicitly, or the CSV holds exactly one and it
+// is read rather than guessed. A mixed file is a refusal, and the rows are
+// filtered to the chosen id so the review CSV and the SQL describe the same set.
+const explicitUserId = (process.argv[3] || "").trim();
+const hasUserCol = ix.user_id !== undefined;
+const csvUserIds = hasUserCol
+  ? [...new Set(allRows.map((r) => (r[ix.user_id] || "").trim()).filter(Boolean))]
+  : [];
+
+let userId = explicitUserId;
+if (!userId) {
+  if (!hasUserCol) {
+    die(
+      `${inPath} has no user_id column, so the UPDATE cannot be scoped. Pass the ` +
+        `id: node scripts/backfill-attributes-from-title.mjs ${inPath} <userId>`,
+    );
+  }
+  if (csvUserIds.length === 0) {
+    die(`${inPath} has a user_id column but every value is blank. Pass the id explicitly.`);
+  }
+  if (csvUserIds.length > 1) {
+    die(
+      `${inPath} holds ${csvUserIds.length} different user_id values ` +
+        `(${csvUserIds.slice(0, 4).join(", ")}${csvUserIds.length > 4 ? ", ..." : ""}). ` +
+        `One UPDATE can only be scoped to one of them, and the others would be ` +
+        `dropped without a word. Re-run once per user, passing the id as the ` +
+        `second argument.`,
+    );
+  }
+  userId = csvUserIds[0];
+}
+
+const data = hasUserCol
+  ? allRows.filter((r) => (r[ix.user_id] || "").trim() === userId)
+  : allRows;
+const droppedForOtherUsers = allRows.length - data.length;
+if (data.length === 0) {
+  die(
+    `${allRows.length} row(s) in ${inPath}, none of them belonging to ${userId}. ` +
+      `Nothing to do; no files written.`,
+  );
+}
+if (droppedForOtherUsers > 0) {
+  console.log(
+    `[backfill-attributes] ${droppedForOtherUsers} of ${allRows.length} row(s) ` +
+      `belong to another user and are EXCLUDED from both output files.`,
+  );
+}
 
 const reviewRows = [["id", "sku", "title", "brand", "size", "color", "material"]];
 const updates = [];
@@ -199,6 +266,20 @@ for (const r of data) {
 const outDir = dirname(inPath);
 writeFileSync(join(outDir, "backfill-attributes-review.csv"), reviewRows.map((r) => r.map(csvCell).join(",")).join("\n"));
 
+// US-3396: zero parsed attributes used to emit `FROM (VALUES\n) AS v(...)`,
+// which is a syntax error, alongside "Wrote ... backfill-attributes.sql (0 update
+// rows)" and exit 0. Nothing is written now, and the run fails, because a file
+// that cannot be executed is not an output.
+if (updates.length === 0) {
+  console.error(
+    `[backfill-attributes] Parsed ${data.length} item(s) and matched NO brand, ` +
+      `size, color or material in any title. No SQL was written - an empty ` +
+      `VALUES list does not parse. backfill-attributes-review.csv is still ` +
+      `there; check the title format and the vocab lists in this script.`,
+  );
+  process.exit(1);
+}
+
 const sql = `-- Backfill Brand/Size/Color/Material from item titles (generated).
 -- Fills ONLY empty columns via COALESCE — never overwrites your existing data.
 -- Scoped to user ${userId}. Review backfill-attributes-review.csv first.
@@ -216,8 +297,9 @@ WHERE i.id = v.id::uuid
 writeFileSync(join(outDir, "backfill-attributes.sql"), sql);
 
 const n = data.length;
-console.log(`Parsed ${n} items. Coverage:`);
+console.log(`Parsed ${n} items for user ${userId}. Coverage:`);
 for (const k of ["brand", "size", "color", "material", "any"]) {
   console.log(`  ${k.padEnd(9)} ${cov[k]}/${n}  (${Math.round((cov[k] / n) * 100)}%)`);
 }
 console.log(`\nWrote backfill-attributes-review.csv and backfill-attributes.sql (${updates.length} update rows).`);
+console.log(`The UPDATE is scoped to user_id = ${userId}. Nothing else is touched.`);

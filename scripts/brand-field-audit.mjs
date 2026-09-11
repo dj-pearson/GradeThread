@@ -75,12 +75,16 @@ async function pgrest(env, path) {
   return res.json();
 }
 
+// `order=id.asc` is LOAD-BEARING (US-3396). LIMIT/OFFSET with no ORDER BY lets
+// Postgres return rows in any order, and change it between requests, so a row
+// can appear on two pages or on none. Nothing errors; the brand tally is just
+// wrong. inventory_items has a uuid `id` primary key.
 async function pageAll(env, table, select, pageSize = 1000) {
   const out = [];
   for (let offset = 0; ; offset += pageSize) {
     const batch = await pgrest(
       env,
-      `${table}?select=${select}&limit=${pageSize}&offset=${offset}`,
+      `${table}?select=${select}&order=id.asc&limit=${pageSize}&offset=${offset}`,
     );
     out.push(...batch);
     if (batch.length < pageSize) break;

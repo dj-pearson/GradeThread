@@ -24,6 +24,11 @@
 //   deno run --allow-net --allow-env services/edge-functions/scripts/size-chart-coverage.ts [--top 100] [--json]
 //
 // Requires SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY.
+//
+// EXIT CODES. 0 means both tables were read in full and the coverage numbers
+// are about the data; 1 means a read failed and NOTHING was printed. The one
+// genuine "unknown" - measurement_basis before migration 00674 - is labelled
+// as unknown in the output rather than counted as zero (US-3396).
 
 import { createClient } from "@supabase/supabase-js";
 import { brandKey } from "../src/lib/brand-normalize.ts";
@@ -99,10 +104,23 @@ async function readItems(): Promise<ItemRow[]> {
       .from("inventory_items")
       .select("brand, item_category, garment_category, title, size")
       .not("brand", "is", null)
+      // Ordered so paging is stable: without an order the same row can land on
+      // two pages, or on none, and this script's entire output is a RANKING of
+      // row counts (US-3396).
+      .order("id", { ascending: true })
       .range(from, from + page - 1);
     if (error) {
-      console.error(`! inventory_items unreadable at offset ${from}: ${error.message}`);
-      return out;
+      // The header of this file already said a zeroed report "is a wrong answer
+      // that looks like a real one", and then returned the partial read anyway
+      // (US-3396). A partial inventory read does not produce a smaller report,
+      // it produces a DIFFERENT ranking, and the ranking is the whole point.
+      console.error(
+        `! inventory_items unreadable at offset ${from}: ${error.message}\n` +
+          `! ${out.length} row(s) were read first. A ranking built on part of the ` +
+          `inventory is not a smaller answer, it is a different one, so nothing ` +
+          `is printed.`,
+      );
+      Deno.exit(1);
     }
     const rows = (data ?? []) as unknown as ItemRow[];
     out.push(...rows);
@@ -180,6 +198,8 @@ async function readCharts(): Promise<ChartRow[]> {
     const { data, error } = await db
       .from("brand_size_charts")
       .select(columns)
+      // Stable paging, same reason as readItems above (US-3396).
+      .order("id", { ascending: true })
       .range(from, from + page - 1);
     if (error) {
       const missingBasis = basisColumnExists &&
@@ -194,8 +214,16 @@ async function readCharts(): Promise<ChartRow[]> {
         from -= page; // retry this same page with the narrower select
         continue;
       }
-      console.error(`! brand_size_charts unreadable: ${error.message}`);
-      return out;
+      // Not a partial return (US-3396): zero charts reads as "no brand has a
+      // chart", which is a plausible-looking answer to exactly the question
+      // being asked, and every line of the table below would print NONE.
+      console.error(
+        `! brand_size_charts unreadable at offset ${from}: ${error.message}\n` +
+          `! ${out.length} chart(s) were read first. Reporting them as the whole ` +
+          `table would print NONE for brands that DO have a chart, so nothing ` +
+          `is printed.`,
+      );
+      Deno.exit(1);
     }
     const rows = (data ?? []) as unknown as ChartRow[];
     out.push(...rows);

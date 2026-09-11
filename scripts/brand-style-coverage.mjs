@@ -20,7 +20,7 @@
 //   node scripts/brand-style-coverage.mjs --json
 
 import { readdirSync, readFileSync } from "node:fs";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 // fileURLToPath, never url.pathname: on Windows the pathname of a file: URL is
@@ -190,7 +190,19 @@ async function main() {
   }
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+// THIS SCRIPT WAS DEAD ON WINDOWS AND EXITED 0 (US-3396).
+//
+// The old test was `import.meta.url === `file://${process.argv[1]}``. On Windows
+// import.meta.url is `file:///C:/Users/...` (forward slashes, three slashes)
+// while process.argv[1] is `C:\Users\...` (backslashes, no scheme), so the
+// comparison was false on every run: `node scripts/brand-style-coverage.mjs`
+// printed nothing at all and exited 0. Proved by running it, not by reading the
+// comparison - the same file header already warned about `url.pathname` on
+// Windows two dozen lines up, and the warning did not reach this line.
+//
+// Both sides are normalised to an absolute filesystem path instead, which is
+// what scripts/aspect-demand-cut.mjs and scripts/audit-admin-mutations.mjs do.
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   main().catch((err) => {
     console.error(err.message);
     process.exit(1);

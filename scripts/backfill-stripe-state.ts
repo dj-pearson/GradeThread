@@ -33,6 +33,13 @@
  *   SUPABASE_URL                 https://api.gradethread.com
  *   SUPABASE_SERVICE_ROLE_KEY    (or SUPABASE_SERVICE_KEY)
  *
+ * Exit codes (US-3396):
+ *   0  every customer with a stripe_customer_id was read from Stripe, and in
+ *      --apply every reconciliation was written.
+ *   1  at least one Stripe read or one database write failed. Those customers
+ *      are named in the output and EXCLUDED from "Scanned N customers", because
+ *      a customer whose Stripe state could not be read is unknown, not matching.
+ *
  * Run:
  *   STRIPE_SECRET_KEY=sk_test_… SUPABASE_URL=… SUPABASE_SERVICE_ROLE_KEY=… \
  *     npx tsx scripts/backfill-stripe-state.ts            # dry-run
@@ -209,6 +216,14 @@ async function main() {
   const diffs: Diff[] = [];
   let scanned = 0;
   let noSub = 0;
+  // US-3396: `scanned` used to be incremented BEFORE the Stripe call and the
+  // catch below just `continue`d, so a revoked key printed
+  // "Scanned 1200 customers, 0 need reconciliation" and exited 0. That is the
+  // same output a perfectly reconciled database produces, and the operator
+  // concludes the database already matches Stripe. A customer whose Stripe read
+  // threw was not scanned; it is counted here instead, reported by name, and it
+  // makes the exit non-zero.
+  let stripeFailed = 0;
 
   for (;;) {
     const { data, error } = await sb
@@ -226,7 +241,6 @@ async function main() {
     if (rows.length === 0) break;
 
     for (const user of rows) {
-      scanned++;
       let subs: StripeSubscription[];
       try {
         const resp = await stripe<{ data: StripeSubscription[] }>(
@@ -234,11 +248,15 @@ async function main() {
         );
         subs = resp.data;
       } catch (err) {
+        // Counted as a failure, NOT as a scan. This row's Stripe state is
+        // unknown; it is not "matching".
+        stripeFailed++;
         console.error(
           `  ! ${user.email ?? user.id}: Stripe fetch failed — ${(err as Error).message}`,
         );
         continue;
       }
+      scanned++;
 
       const primary = pickPrimary(subs);
       if (!primary) {
@@ -294,6 +312,13 @@ async function main() {
     `Scanned ${scanned} customers · ${noSub} with no live subscription · ` +
       `${diffs.length} need reconciliation\n`,
   );
+  if (stripeFailed > 0) {
+    console.log(
+      `${stripeFailed} customer(s) could NOT be read from Stripe. Their state is ` +
+        `UNKNOWN, not matching, and they are absent from the count above. Do not ` +
+        `read this run as "the database already matches Stripe".\n`,
+    );
+  }
 
   for (const d of diffs) {
     console.log(`• ${d.user.email ?? d.user.id}`);
@@ -308,11 +333,14 @@ async function main() {
       `\nDry-run complete. Re-run with --apply to write ${diffs.length} ` +
         "reconciliation(s). No Stripe subscriptions are modified.\n",
     );
+    // A dry run that could not read Stripe is not a clean dry run (US-3396).
+    if (stripeFailed > 0) process.exitCode = 1;
     return;
   }
 
   // ── Apply ──────────────────────────────────────────────────────
   let updated = 0;
+  let updateFailed = 0;
   for (const d of diffs) {
     const { error } = await sb
       .from("users")
@@ -325,12 +353,22 @@ async function main() {
       })
       .eq("id", d.user.id);
     if (error) {
+      updateFailed++;
       console.error(`  ! ${d.user.email ?? d.user.id}: update failed — ${error.message}`);
       continue;
     }
     updated++;
   }
   console.log(`\nApplied ${updated}/${diffs.length} reconciliation(s).\n`);
+  // US-3396: a run that skipped customers or dropped writes exits 1. An
+  // operator script that exits 0 will be believed.
+  if (stripeFailed > 0 || updateFailed > 0) {
+    console.error(
+      `${stripeFailed} Stripe read failure(s), ${updateFailed} write failure(s). ` +
+        `This run did not reconcile the whole customer set.`,
+    );
+    process.exitCode = 1;
+  }
 }
 
 function collectChanges(

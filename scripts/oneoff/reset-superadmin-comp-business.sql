@@ -32,5 +32,32 @@ SET
   pending_effective_at          = NULL
 WHERE lower(email) = 'dpearson@infomaxoffice.com';
 
--- Verify one row changed before committing.
+-- US-3396: this line used to read "Verify one row changed before committing."
+-- and the next line was a bare COMMIT. An instruction to a human, in a file a
+-- human pastes into psql in one go, is not a check - the transaction committed
+-- whether the UPDATE touched one row, zero rows, or the wrong row.
+--
+-- The verification is now the statement it was asking for. If the account is
+-- not in the expected state the RAISE aborts the transaction, so the COMMIT
+-- below can only commit a change that landed. Re-running still finds exactly
+-- one row, so the file stays idempotent.
+DO $$
+DECLARE
+  n integer;
+BEGIN
+  SELECT count(*) INTO n
+  FROM public.users
+  WHERE lower(email) = 'dpearson@infomaxoffice.com'
+    AND flipdesk_plan = 'business'
+    AND subscription_status = 'active'
+    AND stripe_customer_id IS NULL
+    AND flipdesk_subscription_id IS NULL
+    AND pending_flipdesk_plan IS NULL;
+  IF n <> 1 THEN
+    RAISE EXCEPTION
+      'reset-superadmin-comp-business: expected exactly 1 account in the reset state, found %. Rolling back.', n;
+  END IF;
+END
+$$;
+
 COMMIT;

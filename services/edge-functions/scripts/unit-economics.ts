@@ -33,6 +33,9 @@
 //   deno run --allow-net --allow-env scripts/unit-economics.ts [--days 30] [--json]
 //
 // Requires SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY.
+//
+// EXIT CODES. 0 means both reads - the ledger and the plan lookup - came back
+// in full. 1 means one of them failed and no table was printed (US-3396).
 
 import { createClient } from "@supabase/supabase-js";
 import { FALLBACK_MATRIX } from "../src/lib/pricing-config.ts";
@@ -107,6 +110,9 @@ async function readUsage(): Promise<UsageRow[]> {
       .from("ai_usage_events")
       .select("user_id, submission_id, phase, model, cost_usd")
       .gte("created_at", since)
+      // Ordered so paging is stable: without an order the same event can appear
+      // on two pages and its cost is counted twice (US-3396).
+      .order("id", { ascending: true })
       .range(from, from + page - 1);
     if (error) {
       console.error(`! ai_usage_events unreadable: ${error.message}`);
@@ -194,15 +200,34 @@ for (const r of usage) {
 }
 const userIds = [...byUser.keys()];
 const plans = new Map<string, string>();
+// FATAL on error (US-3396). This read was the one place the file's own opening
+// lesson repeated itself: a dropped error left `plans` empty, every account fell
+// through to the `?? "free"` default below, every free account has $0 revenue,
+// and so EVERY account landed in `underwater`. The headline "N accounts
+// underwater" is the number this script exists to produce, and a failed user
+// lookup produced its worst possible value while looking exactly like a finding.
 for (let i = 0; i < userIds.length; i += 200) {
-  const { data } = await db
+  const { data, error } = await db
     .from("users")
     .select("id, flipdesk_plan")
     .in("id", userIds.slice(i, i + 200));
+  if (error) {
+    console.error(
+      `! users read failed for batch ${i}-${i + 200}: ${error.message}\n` +
+        `! Every account with no plan row defaults to 'free', which has $0 ` +
+        `revenue, which puts it underwater. Refusing to print a margin table ` +
+        `built on a failed plan lookup.`,
+    );
+    Deno.exit(1);
+  }
   for (const u of (data ?? []) as Array<{ id: string; flipdesk_plan: string | null }>) {
     plans.set(u.id, u.flipdesk_plan ?? "free");
   }
 }
+// A user id with spend but no row in `users` is a DELETED account, not a free
+// one. It is counted and labelled rather than folded into `free`, so the
+// underwater list says how much of itself it cannot explain (US-3396).
+const planUnknown = userIds.filter((id) => !plans.has(id));
 const accounts = [...byUser.entries()]
   .map(([userId, costUsd]) => {
     const plan = plans.get(userId) ?? "free";
@@ -226,6 +251,8 @@ const summary = {
   costPerActionWorstFeature: round(worstPerAction),
   payingAccounts: accounts.filter((a) => a.revenueUsd > 0).length,
   accountsUnderwater: underwater.length,
+  /** Spending ids with no `users` row. Counted as free above, but SAY SO. */
+  accountsWithNoPlanRow: planUnknown.length,
 };
 
 if (AS_JSON) {
@@ -285,6 +312,13 @@ if (AS_JSON) {
   }
 
   console.log("\n── accounts underwater this window ──");
+  if (planUnknown.length > 0) {
+    console.log(
+      `  NOTE: ${planUnknown.length} of ${userIds.length} spending account(s) have ` +
+        `no users row (deleted). Their plan is UNKNOWN, not free; they are priced ` +
+        `at $0 below, so they will read as underwater.`,
+    );
+  }
   if (underwater.length === 0) {
     console.log(`  none of ${accounts.length} account(s) with recorded spend.`);
   } else {
