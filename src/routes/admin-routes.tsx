@@ -135,13 +135,13 @@ export function AdminRoutes() {
       <Route path="support/:id" element={<SuspenseWrapper><AdminSupportPage /></SuspenseWrapper>} />
       <Route path="support-tickets" element={<SuspenseWrapper><AdminSupportTicketsPage /></SuspenseWrapper>} />
       <Route path="support-tickets/:id" element={<SuspenseWrapper><AdminSupportTicketsPage /></SuspenseWrapper>} />
-      // US-903 GDPR/CCPA data-subject request queue (admin + super_admin;
-      // processing a deletion is additionally super_admin + step-up gated
-      // server-side).
+      {/* US-903 GDPR/CCPA data-subject request queue (admin + super_admin;
+          processing a deletion is additionally super_admin + step-up gated
+          server-side). */}
       <Route path="compliance" element={<SuspenseWrapper><AdminCompliancePage /></SuspenseWrapper>} />
       <Route path="compliance/:id" element={<SuspenseWrapper><AdminCompliancePage /></SuspenseWrapper>} />
-      // US-904 legal/ToS version manager (publish + force re-acceptance;
-      // publishing is super_admin + step-up gated server-side).
+      {/* US-904 legal/ToS version manager (publish + force re-acceptance;
+          publishing is super_admin + step-up gated server-side). */}
       <Route path="legal" element={<SuspenseWrapper><AdminLegalPage /></SuspenseWrapper>} />
       <Route path="support/monitoring" element={<Navigate to="/admin/ai?view=assistant" replace />} />
       <Route path="support/kb" element={<SuspenseWrapper><AdminKnowledgeBasePage /></SuspenseWrapper>} />
@@ -176,14 +176,14 @@ export function AdminRoutes() {
       <Route path="agents" element={<SuspenseWrapper><AdminAgentsPage /></SuspenseWrapper>} />
       <Route path="ops/dead-letters" element={<SuspenseWrapper><AdminOpsDeadLettersPage /></SuspenseWrapper>} />
       <Route path="ops/settings" element={<SuspenseWrapper><AdminSettingsRegistryPage /></SuspenseWrapper>} />
-      // US-908 granular RBAC scope management (admin read; super_admin + step-up to edit).
+      {/* US-908 granular RBAC scope management (admin read; super_admin + step-up to edit). */}
       <Route path="ops/roles" element={<SuspenseWrapper><AdminRolesPage /></SuspenseWrapper>} />
-      // US-1058 notification event catalog (admin + super_admin; read-only).
+      {/* US-1058 notification event catalog (admin + super_admin; read-only). */}
       <Route path="ops/notifications" element={<SuspenseWrapper><AdminNotificationsPage /></SuspenseWrapper>} />
       <Route path="ops/pricing" element={<SuspenseWrapper><AdminConfigPricingPage /></SuspenseWrapper>} />
       <Route path="ops/feature-flags" element={<SuspenseWrapper><AdminFeatureFlagsPage /></SuspenseWrapper>} />
       <Route path="ops/maintenance" element={<SuspenseWrapper><AdminMaintenancePage /></SuspenseWrapper>} />
-      // US-910 operational runbooks (admin + super_admin; read-only). Index + per-slug detail.
+      {/* US-910 operational runbooks (admin + super_admin; read-only). Index + per-slug detail. */}
       <Route path="ops/runbooks" element={<SuspenseWrapper><AdminOpsRunbooksPage /></SuspenseWrapper>} />
       <Route path="ops/runbooks/:slug" element={<SuspenseWrapper><AdminOpsRunbooksPage /></SuspenseWrapper>} />
       <Route path="audit-log" element={<SuspenseWrapper><AdminAuditLogPage /></SuspenseWrapper>} />
@@ -199,8 +199,8 @@ export function AdminRoutes() {
       <Route path="safety/passport-integrity" element={<SuspenseWrapper><AdminPassportIntegrityPage /></SuspenseWrapper>} />
       <Route path="tasks" element={<SuspenseWrapper><AdminTasksPage /></SuspenseWrapper>} />
       <Route path="tasks/:id" element={<SuspenseWrapper><AdminTaskBoardPage /></SuspenseWrapper>} />
-      // Growth / Promote suite (US-632) — admin + super_admin; the
-      // broadcast/send action is additionally super_admin-gated server-side.
+      {/* Growth / Promote suite (US-632) — admin + super_admin; the
+          broadcast/send action is additionally super_admin-gated server-side. */}
       <Route path="growth" element={<SuspenseWrapper><GrowthDashboardPage /></SuspenseWrapper>} />
       <Route path="growth/segments" element={<SuspenseWrapper><GrowthSegmentsPage /></SuspenseWrapper>} />
       <Route path="growth/campaigns" element={<SuspenseWrapper><GrowthCampaignsPage /></SuspenseWrapper>} />
@@ -215,10 +215,10 @@ export function AdminRoutes() {
       <Route path="growth/reward-milestones" element={<Navigate to="/admin/growth/rewards?view=milestones" replace />} />
       <Route path="growth/reward-economics" element={<Navigate to="/admin/growth/rewards?view=economics" replace />} />
       <Route path="growth/reward-north-star" element={<Navigate to="/admin/growth/rewards?view=north-star" replace />} />
-      // Content module — blog, social, topic bank, knowledge base,
-      // analytics + settings. Lives in the admin dashboard (admin +
-      // super_admin), behind the AdminMfaGate like every other admin
-      // surface. Moved here from /dashboard/content/* (US: content move).
+      {/* Content module — blog, social, topic bank, knowledge base,
+          analytics + settings. Lives in the admin dashboard (admin +
+          super_admin), behind the AdminMfaGate like every other admin
+          surface. Moved here from /dashboard/content/* (US: content move). */}
       <Route path="content/blog" element={<SuspenseWrapper><BlogListPage /></SuspenseWrapper>} />
       <Route path="content/blog/editor/:id" element={<SuspenseWrapper><BlogEditorPage /></SuspenseWrapper>} />
       <Route path="content/authors" element={<SuspenseWrapper><AuthorsPage /></SuspenseWrapper>} />
@@ -232,7 +232,7 @@ export function AdminRoutes() {
       <Route path="content/analytics" element={<SuspenseWrapper><ContentAnalyticsPage /></SuspenseWrapper>} />
       <Route path="content/changelog" element={<SuspenseWrapper><ChangelogPage /></SuspenseWrapper>} />
       <Route path="content/settings" element={<SuspenseWrapper><ContentSettingsPage /></SuspenseWrapper>} />
-      // In-shell 404: an unknown /admin/* path keeps the admin chrome.
+      {/* In-shell 404: an unknown /admin/* path keeps the admin chrome. */}
       <Route path="*" element={<SuspenseWrapper><InShellNotFound homeTo="/admin" homeLabel="Back to admin" /></SuspenseWrapper>} />
     </Routes>
   );
