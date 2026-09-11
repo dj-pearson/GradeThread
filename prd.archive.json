@@ -47208,6 +47208,20 @@
         "US-3334"
       ],
       "notes": "Done 2026-09-11 in ccdd0cdd6. lib/reference-anchors.ts (pick: eligible, never own submission folder, spread; labels; addendum; loader re-checks consent; splitAnchorUsage), compositeGrade trailing param referenceAnchors ([] = byte-identical, test compares SDK bodies; verification-only request unchanged), promptVersionSuffix +anchors last, pipeline first pass only behind referenceAnchorsActive() = GRADING_REFERENCE_ANCHORS AND system_settings.reference_anchor_eval.passed, usage phase composite_reference_anchors (+ _firstpass on escalation). lib/reference-anchors-eval.ts runs golden set with vs without anchors (same prompts, same per-image reads, exemplars suppressed), passes only with 5+ comparable cases and no worse MAE/agreement; admin GET/POST /api/admin/grading/reference-anchors/eval (POST step-up + audit) and a section on the reference gallery card. Tests reference-anchors_test.ts 14; six sabotages bite. Owner steps to use it: award photos in the gallery, click Run eval, and only if it passes set GRADING_REFERENCE_ANCHORS=1 on Coolify. Needs migration 00789 applied first."
+    },
+    {
+      "id": "US-3338",
+      "passes": true,
+      "title": "A light zoom pass on the fabric close-up for every grade (flagged, cost-capped)",
+      "description": "Small-flaw zoom exists only in the paid Forensic add-on. Full photos are downscaled before the model sees them, so pinholes and pilling on the fabric close-up get lost. One extra read of just that photo, at full resolution, for every grade.",
+      "acceptanceCriteria": [
+        "Behind a flag default OFF, the detail fabric image is re-read once at full resolution (tiled) to find small flaws, merged through the existing zoom-merge path.",
+        "Forensic add-on behavior unchanged, test-guarded.",
+        "Daily cost cap setting and per-grade metering.",
+        "Distinct prompt_version suffix."
+      ],
+      "priority": 43,
+      "notes": "Done 2026-09-11 in 3f3a9e3c1. lib/fabric-zoom.ts: fabricZoomDecision (flag, never Forensic, needs a close-up, daily cap), pickFabricCloseup (detail:fabric else first detail), tileRects (<=4 tiles, exact cover), mapTileBbox, mergeFabricZoom (overlap -> mergeZoomIntoIssue; new only pinhole/small, max 5; stamps +fabriczoom), runFabricZoomPass (DI download/analyze, never throws, tiles shrunk to <=1568). Pipeline Step 4d after the unchanged Forensic block; usages recorded on phase per_image_fabric_zoom; cap GRADING_FABRIC_ZOOM_DAILY_CAP_USD default 5 (system_settings grading_fabric_zoom_daily_cap_usd overrides), ledger read fails closed. Grade suffix +fabriczoom last. Tests fabric-zoom_test.ts 12; six sabotages bite. Flag stays OFF until a shadow/eval says the added flaws are real."
     }
   ]
 }
