@@ -308,4 +308,7 @@ extension channels do not transfer through a CSV at all; the closet import
 
 ## Related
 
+- [[import-sources]] for the other ten ways inventory and photos get in, with
+  the auth model and storage bucket of each. The CSV path this note owns is
+  three rows of that table (`csv`, `sheet`, `paste`).
 - [[closing-a-coverage-gap]] for the extension side of a switch.
