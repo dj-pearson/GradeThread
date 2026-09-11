@@ -108,7 +108,9 @@ export const SYSTEM_ACCOUNTS: readonly LedgerAccount[] = [
   },
   {
     code: "cogs_labor",
-    name: "Labor that went into the goods",
+    // Spelled the way migration 00684 seeded it. The seed is applied and
+    // immutable, and chart-of-accounts.test.ts pins this chart to it.
+    name: "Labour that went into the goods",
     flow: "cogs",
     schedule_c_part: "III",
     schedule_c_line: "37",

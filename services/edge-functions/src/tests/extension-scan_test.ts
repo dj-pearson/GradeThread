@@ -216,6 +216,8 @@ Deno.test("scanCardResults: thinPhotos flags only a card that printed a low coun
   assertEquals(out.map((r) => r.thinPhotos), [true, false, false]);
 });
 
-Deno.test("SCAN_DISCLAIMER says plainly that no photos were analysed", () => {
-  assert(/no photos were analysed/i.test(SCAN_DISCLAIMER));
+Deno.test("SCAN_DISCLAIMER says plainly that no photos were analyzed", () => {
+  // US-3233 (2026-09-10) moved customer-facing copy to US spelling; this pin
+  // still asked for the British form and reported a wording fix as a defect.
+  assert(/no photos were analyzed/i.test(SCAN_DISCLAIMER));
 });
