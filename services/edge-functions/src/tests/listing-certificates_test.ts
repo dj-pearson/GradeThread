@@ -26,6 +26,7 @@ function row(over: Partial<BadgeSourceRow> = {}): BadgeSourceRow {
     gradeTier: "Excellent",
     gradedAt: "2026-09-01T10:00:00.000Z",
     optedOut: false,
+    withheld: false,
     ...over,
   };
 }
@@ -140,15 +141,59 @@ Deno.test("US-3060: a row with no score or no tier is dropped", () => {
   }
 });
 
-Deno.test("US-3060: a duplicate listing id resolves deterministically, first wins", () => {
-  // A listing that somehow carries two graded items must not make the response
-  // depend on the order the database happened to return rows in.
+Deno.test("US-3060: two rows disagreeing about one listing id produce NO badge", () => {
+  // THE FORGERY CASE. `listings.platform_listing_id` has no unique index and
+  // routes/flipdesk-closet-import.ts says so out loud: "a listing id belonging
+  // to another seller creates a new row for this tenant rather than touching
+  // theirs". That is the right answer for tenant isolation and the wrong one
+  // for a PUBLIC read keyed on (platform, listing id) with no owner in the
+  // query -- it lets anyone import a stranger's Poshmark URL, grade the item,
+  // and have our extension print a grade of their choosing on that stranger's
+  // listing.
+  //
+  // First-wins used to resolve this, and the row order it depended on came from
+  // a query with no ORDER BY, so it was not deterministic either. When two rows
+  // disagree about what this listing is, we do not know, so we say nothing.
   const out = shapeListingCertificates([
-    row({ listingId: "dup", certificateId: "GT-FIRST" }),
-    row({ listingId: "dup", certificateId: "GT-SECOND" }),
+    row({ listingId: "dup", certificateId: "GT-VICTIM" }),
+    row({ listingId: "dup", certificateId: "GT-FORGED" }),
+  ]);
+  assert.deepEqual(out, [], "a contested listing id still rendered a badge");
+});
+
+Deno.test("US-3060: duplicate rows that AGREE still badge", () => {
+  // The benign duplicate -- two listing rows for one marketplace id resolving
+  // to the same certificate (a relist, a re-synced row). Dropping this would
+  // punish an honest seller for a row-keeping detail, so agreement is enough.
+  const out = shapeListingCertificates([
+    row({ listingId: "dup", certificateId: "GT-SAME" }),
+    row({ listingId: "dup", certificateId: "GT-SAME" }),
   ]);
   assert.equal(out.length, 1);
-  assert.equal(out[0]?.certificateId, "GT-FIRST");
+  assert.equal(out[0]?.certificateId, "GT-SAME");
+});
+
+Deno.test("US-3060: a WITHHELD certificate produces nothing", () => {
+  // certificate_id being non-null is NOT the same as the certificate being
+  // publicly resolvable. lib/certificate-visibility.ts isCertificateWithheld is
+  // the single source of truth every other public cert path applies, and it
+  // withholds two kinds of grade:
+  //   - submission status `pending_review` -- a PRELIMINARY grade awaiting a
+  //     human (00312), and
+  //   - a submission flagged for moderation and not approved -- not-clothing,
+  //     suspected image manipulation, cross-account photo reuse.
+  // Both 404 at /cert/:id. A badge for one is a claim on a live marketplace
+  // page pointing at a page that refuses to back it, and in the flagged case
+  // it is our own fraud signal rendered as a mark of trust.
+  const withheld = { ...row(), withheld: true };
+  assert.deepEqual(shapeListingCertificates([withheld]), []);
+
+  // Per row, so a withheld grade does not silence a good one beside it.
+  const mixed = [
+    { ...row({ listingId: "a" }), withheld: true },
+    { ...row({ listingId: "b" }), withheld: false },
+  ];
+  assert.deepEqual(shapeListingCertificates(mixed).map((b) => b.listingId), ["b"]);
 });
 
 Deno.test("US-3060: the grade is rounded to one decimal, the scale's own step", () => {

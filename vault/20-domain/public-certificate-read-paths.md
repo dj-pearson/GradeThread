@@ -12,6 +12,9 @@ code_refs:
   - services/edge-functions/src/tests/cleanliness-statements_test.ts
   - services/edge-functions/src/tests/limiting-flaw_test.ts
   - supabase/migrations/00788_grade_limiting_flaw.sql
+  - services/edge-functions/src/lib/certificate-visibility.ts
+  - services/edge-functions/src/lib/listing-certificates.ts
+  - services/edge-functions/src/tests/listing-certificates_test.ts
 reviewed: 2026-09-11
 tags: [certificates, public, schema, gotcha]
 summary: A public certificate is served by two independent projections — an edge column allowlist and a Postgres view — and adding a column to one has twice shipped as "done" while the other stayed silent.
@@ -65,6 +68,58 @@ projections**, each with its own column list. Neither knows about the other.
 |---|---|---|
 | Edge endpoint | `CERT_REPORT_COLUMNS` / `CERT_REPORT_EXTRA_COLUMNS` (`routes/content-public.ts`) — an explicit allowlist string on the service-role client | the SSR certificate (`functions/cert/[id].ts`), the integrity-verify endpoint |
 | Postgres view | `public.public_grade_reports` — `GRANT SELECT` to `anon` | the SPA: `src/pages/certificate.tsx` and `src/pages/embed-grade.tsx`, both `.select("*")` |
+
+## There is a THIRD anonymous path, and it is not a projection
+
+`GET /api/grading/public/listing-certificates` (US-3060,
+`routes/public-grading.ts`) answers "do any of these marketplace listing ids
+have a GradeThread certificate?" for the browser extension's on-marketplace
+badge. It is not in the table above because it projects no certificate: it
+returns `certificate_id`, the grade, the tier, the graded date and the
+`/cert/:id` path, which is a link plus its label.
+
+**It still has to pass the same gate, and until 2026-09-11 it did not.** The
+route treated `certificate_id IS NOT NULL` as "this certificate is public".
+That is a different question, and
+`services/edge-functions/src/lib/certificate-visibility.ts`
+`isCertificateWithheld` is the answer to the real one — the predicate the edge endpoint, the
+integrity-verify endpoint, the `public_grade_reports` view (00356) and the
+certificates sitemap all apply. Two kinds of grade carry a `certificate_id` and
+still 404 at `/cert/:id`:
+
+- a **preliminary** grade whose submission is `pending_review`, awaiting the
+  human finalization 00312 made mandatory;
+- a grade whose submission is **flagged** for moderation and not yet approved —
+  not-clothing, suspected image manipulation, cross-account photo reuse.
+
+Both would have been printed on a live eBay, Poshmark or Mercari page as
+"Graded by GradeThread", linking to a page that refuses to back the claim. The
+flagged case is the sharper one: those signals are set by the grading pipeline
+because the submission looks fraudulent, so the badge would have rendered our
+own fraud signal as a mark of trust, to strangers, on someone else's shopping
+page. Fixed by `loadWithheldSubmissions` in `routes/public-grading.ts`, which
+fails closed; `listing-certificates_test.ts` pins it.
+
+**The lesson generalises, and it is the one this note already teaches pointed
+at a different axis.** The two-projections rule above is about a *column*
+reaching one reader and not the other. This was a *gate* applied by every
+reader but one. Both are the same shape: a public certificate surface built by
+reading `grade_reports` directly rather than going through a path that already
+knows the rules. **Before adding a fourth anonymous reader of `grade_reports`,
+the question is not only "which columns" but "which gate" — and the gate has a
+single source of truth, so there is no excuse for a second copy of it.**
+
+Two gates this path deliberately does **not** apply, so nobody re-adds them as
+a guess:
+
+- **the photoless rule** (`indexableCertificates`) is about *indexing*. A
+  photoless certificate resolves fine and is served `noindex`; the badge is not
+  a crawler and links to a page that works.
+- **`listings.is_active` / `listing_status`.** The extension only asks about a
+  page it is already on, so the page is the liveness evidence, and our own
+  status column is known to drift (see
+  [[ebay-listing-lifecycle-reconciliation]]). Gating on a field that lies would
+  remove honest badges without removing a dishonest one.
 
 ## The rule
 

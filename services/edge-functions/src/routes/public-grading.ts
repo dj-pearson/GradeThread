@@ -124,6 +124,7 @@ import {
   parseBadgeQuery,
   shapeListingCertificates,
 } from "../lib/listing-certificates.ts";
+import { isCertificateWithheld } from "../lib/certificate-visibility.ts";
 import {
   FREE_DRAFT_AI_FEATURE,
   FREE_DRAFT_PROMPT_SELECT_KEY,
@@ -2667,19 +2668,30 @@ async function loadBadgeRows(
 
   const { data: reports, error: repErr } = await supabaseAdmin
     .from("grade_reports")
-    .select("id, certificate_id, overall_score, grade_tier, created_at")
+    .select("id, submission_id, certificate_id, overall_score, grade_tier, created_at")
     .in("id", reportIds)
     .not("certificate_id", "is", null);
   if (repErr) return null;
   const reportById = new Map(
     ((reports ?? []) as Array<{
       id: string;
+      submission_id: string | null;
       certificate_id: string | null;
       overall_score: number | null;
       grade_tier: string | null;
       created_at: string | null;
     }>).map((r) => [r.id, r]),
   );
+
+  const submissionIds = [
+    ...new Set(
+      [...reportById.values()]
+        .map((r) => r.submission_id)
+        .filter((v): v is string => !!v),
+    ),
+  ];
+  const withheld = await loadWithheldSubmissions(submissionIds);
+  if (withheld === null) return null;
 
   const optedOut = await loadOptOuts([...new Set(itemRows.map((r) => r.user_id))]);
   if (optedOut === null) return null;
@@ -2699,7 +2711,53 @@ async function loadBadgeRows(
       gradeTier: report.grade_tier,
       gradedAt: report.created_at,
       optedOut: optedOut.has(item.user_id),
+      withheld: !!report.submission_id && withheld.has(report.submission_id),
     });
+  }
+  return out;
+}
+
+/**
+ * The submissions whose certificate must not be publicly resolvable.
+ *
+ * ⚠ THIS READ IS THE ONE THAT WAS MISSING, and its absence was the worst thing
+ * this endpoint could get wrong. `certificate_id IS NOT NULL` says a number was
+ * minted; it does NOT say the certificate resolves. `isCertificateWithheld`
+ * (lib/certificate-visibility.ts) is the single source of truth that the public
+ * cert endpoint, the integrity-verify endpoint, the SPA's `public_grade_reports`
+ * view and the certificates sitemap all apply, and this route applied none of
+ * it. So a grade that 404s at /cert/:id — a preliminary one still queued for a
+ * human (00312), or one whose submission we flagged for not-clothing, image
+ * manipulation or CROSS-ACCOUNT PHOTO REUSE — would have been printed on the
+ * live marketplace page as "Graded by GradeThread", linking to a page that
+ * refuses to back it. In the flagged case that is our own fraud signal rendered
+ * as a mark of trust.
+ *
+ * TENANCY (US-268). `submissions` is multi-tenant and this route is anonymous
+ * and takes no user id, so there is no owner to scope to. What makes it safe is
+ * that the read is SUPPRESSION-ONLY: the ids come from grade reports already
+ * reached through listings -> inventory_items, nothing read here reaches the
+ * response, and the only effect a row can have is to REMOVE a badge. Adding a
+ * field from this read to the response would change that and needs its own
+ * decision.
+ *
+ * Fails CLOSED, like every other read here except the 42703 opt-out branch: if
+ * we cannot tell whether a certificate is withheld, we do not publish it.
+ */
+async function loadWithheldSubmissions(submissionIds: string[]): Promise<Set<string> | null> {
+  if (submissionIds.length === 0) return new Set();
+  const { data, error } = await supabaseAdmin
+    .from("submissions")
+    .select("id, status, flagged, moderation_status")
+    .in("id", submissionIds);
+  if (error) return null;
+  const out = new Set<string>();
+  for (
+    const sub of (data ?? []) as Array<
+      { id: string; status: string | null; flagged: boolean | null; moderation_status: string | null }
+    >
+  ) {
+    if (isCertificateWithheld(sub)) out.add(sub.id);
   }
   return out;
 }

@@ -8529,6 +8529,40 @@ Deno.test({
     });
     assertEquals(asB.status, 200);
     assertEquals(JSON.stringify(await asB.json()), JSON.stringify(body));
+
+    // The route now also reads `submissions` (the withheld gate), which is a
+    // multi-tenant table on an anonymous route with no owner to scope to. What
+    // keeps that safe is that the read is SUPPRESSION-ONLY: its ids are derived
+    // server-side from grade reports already reached through the listing chain,
+    // and nothing it returns may reach the response. So no submission field,
+    // and no moderation vocabulary, may appear in a body — a caller must not be
+    // able to learn that some listing's grade is flagged or under review.
+    for (
+      const leaked of [
+        "submission_id",
+        "submissionId",
+        "moderation_status",
+        "moderationStatus",
+        "flagged",
+        "pending_review",
+        "withheld",
+      ]
+    ) {
+      assert(
+        !JSON.stringify(body).includes(leaked),
+        `${leaked} reached the anonymous badge response`,
+      );
+    }
+    // And a submission id in the query is not read, exactly as user_id is not.
+    const withSub = await fetch(
+      `${BASE}${path}?platform=ebay&ids=${unknown}&submission_id=${crypto.randomUUID()}`,
+    );
+    assertEquals(withSub.status, 200);
+    assertEquals(
+      JSON.stringify(await withSub.json()),
+      JSON.stringify(body),
+      "a submission_id in the query changed the answer, so the route is reading it",
+    );
   },
 });
 

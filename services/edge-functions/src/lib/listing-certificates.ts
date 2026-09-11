@@ -121,40 +121,82 @@ export interface BadgeSourceRow {
   gradeTier: string | null;
   gradedAt: string | null;
   optedOut: boolean;
+  /**
+   * True when the certificate is NOT publicly resolvable, per
+   * `lib/certificate-visibility.ts isCertificateWithheld` — the single source
+   * of truth every other public certificate path applies.
+   *
+   * REQUIRED, not optional, and that is the point. A caller that forgets it
+   * should fail the type check rather than default to "publishable", because
+   * the two grades this flag covers are exactly the two a badge must never
+   * carry: a preliminary grade still awaiting a human reviewer (submission
+   * `pending_review`, 00312) and a grade whose submission is flagged for
+   * moderation and not yet approved.
+   */
+  withheld: boolean;
 }
 
 /**
  * Narrow the joined rows to the public shape.
  *
- * Four things drop a row, and each is a rule rather than a tidy-up:
+ * Five things drop a row, and each is a rule rather than a tidy-up:
  *   - no certificate_id: the grade is not public, so neither is its existence;
  *   - the seller opted out;
+ *   - the certificate is WITHHELD — see `withheld` above. `certificate_id IS
+ *     NOT NULL` is not the same question, and treating it as the same is how a
+ *     grade that 404s on our own site could be printed on a live marketplace
+ *     page as a mark of trust;
  *   - no score or tier: a badge with a blank grade is worse than no badge;
- *   - a duplicate listing id: the first wins, deterministically, so a listing
- *     that somehow carries two graded items cannot make the response depend on
- *     row order.
+ *   - two surviving rows that DISAGREE about which certificate this listing id
+ *     belongs to: neither is served.
+ *
+ * THE DISAGREEMENT RULE IS A FORGERY DEFENSE, not tidiness.
+ * `listings.platform_listing_id` has no unique index, and closet import writes
+ * it from a URL the caller supplied with nothing proving they own that
+ * listing. So a second tenant CAN claim a marketplace id the real seller
+ * already holds. That is harmless while every read is tenant-scoped, and this
+ * read is not: it is keyed on (platform, listing id) with no owner in the
+ * query, by design. First-wins used to decide it, off a query with no ORDER
+ * BY, so the winner was whatever Postgres returned first. When two rows
+ * disagree about what this listing is, we do not know, and absence is not a
+ * claim. Rows that AGREE still badge — that is the benign duplicate (a relist,
+ * a re-synced row) and dropping it would punish an honest seller.
  *
  * Returned as an ARRAY rather than a map keyed by id: a map would tempt a
  * caller into `ids.map(id => byId[id])` and render `undefined` as a badge.
  */
 export function shapeListingCertificates(rows: BadgeSourceRow[]): ListingCertificate[] {
-  const out: ListingCertificate[] = [];
-  const seen = new Set<string>();
+  // `null` marks a listing id whose rows disagree — recorded rather than
+  // deleted, so a third agreeing row cannot revive a contested id.
+  const byId = new Map<string, ListingCertificate | null>();
+  const order: string[] = [];
   for (const row of rows) {
     if (!row.certificateId) continue;
     if (row.optedOut) continue;
+    if (row.withheld) continue;
     if (typeof row.overallScore !== "number" || !Number.isFinite(row.overallScore)) continue;
     if (!row.gradeTier) continue;
-    if (seen.has(row.listingId)) continue;
-    seen.add(row.listingId);
-    out.push({
+    const candidate: ListingCertificate = {
       listingId: row.listingId,
       certificateId: row.certificateId,
       grade: Math.round(row.overallScore * 10) / 10,
       tier: row.gradeTier,
       gradedAt: row.gradedAt,
       path: certificatePath(row.certificateId),
-    });
+    };
+    if (!byId.has(row.listingId)) {
+      order.push(row.listingId);
+      byId.set(row.listingId, candidate);
+      continue;
+    }
+    const held = byId.get(row.listingId);
+    if (!held) continue; // already contested
+    if (held.certificateId !== candidate.certificateId) byId.set(row.listingId, null);
+  }
+  const out: ListingCertificate[] = [];
+  for (const id of order) {
+    const held = byId.get(id);
+    if (held) out.push(held);
   }
   return out;
 }
