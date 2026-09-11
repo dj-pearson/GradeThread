@@ -27,6 +27,7 @@ import { Badge } from "@/components/ui/badge";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { supabase } from "@/lib/supabase";
+import { stepPrice } from "@/lib/marketplace-price";
 import { cn } from "@/lib/utils";
 import {
   charStatus,
@@ -1264,33 +1265,18 @@ export function ListingKit({ itemId, baseName }: { itemId: string; baseName?: st
 /**
  * A price in the units the marketplace actually accepts (US-2739).
  *
- * Poshmark's listing-price input is inputmode="numeric" pattern="[0-9]*" -
- * digits only, no decimal point - so "32.49" is not a value that field can
- * hold. Sending one is not a rounding nicety; it is handing the marketplace
- * something it rejects.
+ * RE-EXPORTED, not defined here any more. The body moved to
+ * src/lib/marketplace-price.ts, which is the one place that knows a
+ * marketplace's price units and is mirrored into the edge — because this file
+ * was NOT the only thing building a price for the extension. The server builds
+ * the same payload for anything queued from a phone, and it had no idea
+ * Poshmark prices in whole dollars.
  *
- * NEAREST, not floored. Flooring quietly costs the seller money on every
- * cross-post, and the adjusted number is shown in the row before they send it,
- * so it is a visible change rather than a silent one.
- *
- * EXPORTED FOR TEST. This lived inline, and the suite covering it re-implemented
- * the same expression locally and asserted against the copy - so changing the
- * real code to floor would have left every assertion green. Same shape as
- * numericOr below.
- *
- * @param step 0 (or absent) means the platform keeps its cents.
+ * The name stays exported from here because that is what src/test/step-price.ts
+ * and the placement scans in cross-post-setup.test.ts call, and where the
+ * stepping is APPLIED is still a property worth holding.
  */
-export function stepPrice(resolved: number, step: number): number {
-  // Non-finite guards, found by writing the test rather than by reading the
-  // code: an Infinity step makes Math.round(price / step) zero, and 0 * Infinity
-  // is NaN — so a nonsense step turned a real price into NaN and put that on the
-  // row. Leaving the price untouched is the only safe answer for a step we
-  // cannot use.
-  if (!Number.isFinite(step) || !Number.isFinite(resolved)) return resolved;
-  if (!(step > 0) || !(resolved > 0)) return resolved;
-  // Never below one step: a 40c item becomes $1, never $0.
-  return Math.max(step, Math.round(resolved / step) * step);
-}
+export { stepPrice };
 
 /**
  * A number, from a number or a numeric string, or the fallback.

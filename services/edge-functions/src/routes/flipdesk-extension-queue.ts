@@ -396,6 +396,8 @@ async function hydrateListRows(
         }
         : null,
       maxPhotos: spec?.maxPhotos ?? 12,
+      // US-2739: the marketplace's own price units. 1 on Poshmark and Vinted.
+      priceStep: spec?.priceStep ?? 0,
       platformLabel: spec?.label ?? row.platform,
       renderedDescription:
         freshDescriptions.get(row.inventory_item_id)?.[row.platform] ?? null,

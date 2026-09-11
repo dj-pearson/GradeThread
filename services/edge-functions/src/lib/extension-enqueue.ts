@@ -9,9 +9,11 @@
 //
 // ⚠ IT IS A SIBLING OF extension-queue.ts, NOT PART OF IT, and US-3065 AC3 says
 // "extract it into lib/extension-queue.ts". Deliberate departure:
-// extension-queue.ts has ZERO imports and four test files depend on that —
+// extension-queue.ts has no IMPURE imports and four test files depend on that —
 // putting the service-role client into it drags the whole supabase graph into
-// every one of them. Same split this repo already uses for
+// every one of them. (US-2739 gave it one import, marketplace-price.ts, which
+// has no imports of its own and pulls in no graph; the property that matters is
+// unchanged.) Same split this repo already uses for
 // description-blocks.ts (pure) and description-render.ts (impure), and the
 // filename is the only part of the AC not met.
 //
@@ -43,6 +45,7 @@ import {
   type ExtensionQueueKind,
   MAX_QUEUE_DEPTH,
   normalizeQueuePayload,
+  revisePriceFor,
   planExpiry,
   QUEUE_TTL_MS,
   QUEUED_NOTICE,
@@ -305,7 +308,9 @@ export async function enqueueExtensionWork(
       listingUrl: listingSnapshot.listing_url,
       title: listingSnapshot.listing_title ?? null,
       description: listingSnapshot.listing_description ?? null,
-      price: listingSnapshot.listing_price ?? null,
+      // US-2739: the same unit boundary the `list` payload crosses, in the one
+      // place a revise crosses it. See revisePriceFor in extension-queue.ts.
+      price: revisePriceFor(platform, listingSnapshot.listing_price as number | null),
     };
     await queueReviseForListing({ id: listingId, platform }, fields, "mobile");
   }

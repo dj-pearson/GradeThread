@@ -11,6 +11,7 @@
 
 import type { MarketplacePlatform } from "@/lib/marketplace-specs";
 import { getMarketplaceSpec } from "@/lib/marketplace-specs";
+import { marketplacePriceString, stepPrice } from "@/lib/marketplace-price";
 import { orderedCappedPhotos, type ExportablePhoto } from "@/lib/photo-export";
 import type { PlatformKitVariant } from "@/hooks/use-autolister";
 import { chromeWebStoreUrl, firefoxAddonUrl, isFirefoxUa } from "@/lib/app-links";
@@ -330,7 +331,13 @@ export function buildListerPayload(opts: {
     newListingUrl: NEW_LISTING_URL[opts.platform],
     title: v.title ?? "",
     description: v.description ?? "",
-    price: v.price ? String(v.price) : "",
+    // US-2739: THE UNIT BOUNDARY on the browser path. Everything above is
+    // FlipDesk's dollars; this is the keystrokes the marketplace's own input
+    // receives. The Listing Kit has already stepped `v.price` for the row it
+    // showed the seller, so this is a no-op there BY DESIGN — it exists because
+    // buildListerPayload is exported and any caller that skips the kit must not
+    // be the one path that sends cents to a whole-dollar marketplace.
+    price: marketplacePriceString(v.price, spec?.priceStep),
     originalPrice: "",
     brand: v.brand ?? "",
     color: v.color ?? "",
@@ -373,7 +380,35 @@ export interface ListerReviseResult extends ListerResult {
 export function sendReviseToLister(
   payload: ListerRevisePayload,
 ): Promise<ListerReviseResult> {
-  return sendListerJob<ListerReviseResult>({ type: "GT_LISTER_REVISE", payload });
+  // US-2739: the same unit boundary the list payload crosses, on the one path
+  // that carries a NUMBER rather than a string. `runReviseFlow` types
+  // String(payload.price) straight into the marketplace's editor, and the price
+  // here comes off listings.listing_price — which repricing automation writes
+  // in cents-bearing dollars. Unstepped, a marked-down Poshmark listing revised
+  // to $32.49 hands a pattern="[0-9]*" field a decimal point.
+  //
+  // Applied here rather than in the caller because the caller is a hook and
+  // this is the transport: nothing reaches the extension except through it.
+  return sendListerJob<ListerReviseResult>({
+    type: "GT_LISTER_REVISE",
+    payload: { ...payload, price: revisePriceFor(payload.platform, payload.price) },
+  });
+}
+
+/**
+ * A revise price in the marketplace's units, or null when there is none.
+ *
+ * EXPORTED FOR TEST, and mirrored by `revisePriceFor` in the edge's
+ * extension-queue.ts for the queued half of the same job. A private helper here
+ * could only be pinned by a source scan, and a source scan cannot tell rounding
+ * from flooring.
+ */
+export function revisePriceFor(
+  platform: ListerPlatform,
+  price: number | null | undefined,
+): number | null {
+  if (typeof price !== "number" || !Number.isFinite(price)) return null;
+  return stepPrice(price, getMarketplaceSpec(platform)?.priceStep ?? 0);
 }
 
 // ── US-9203: relist by copying ───────────────────────────────────────────

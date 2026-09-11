@@ -13,6 +13,15 @@
 // cookie for a no-API channel. A queue is exactly where that would erode — "we
 // only need the cookie so the desktop can resume" is a sentence that ends with
 // the cloud model this whole design refuses.
+//
+// TWO IMPORTS, AND BOTH ARE PURE. This module was written with zero imports so
+// its four test files run without a Supabase client, and that property is
+// still true: marketplace-price.ts and marketplace-specs.ts each have no
+// imports of their own and pull in no graph. The alternative was a fourth copy
+// of the whole-dollar rule.
+
+import { marketplacePriceString, stepPrice } from "./marketplace-price.ts";
+import { getMarketplaceSpec } from "./marketplace-specs.ts";
 
 /**
  * The verbs the desktop extension can actually drain.
@@ -286,6 +295,16 @@ export interface BuildListPayloadInput {
   draft: ListPayloadDraft | null;
   /** Photo cap for this platform (`MarketplaceSpec.maxPhotos`). */
   maxPhotos: number;
+  /**
+   * US-2739: this platform's price step in dollars (`MarketplaceSpec.priceStep`).
+   * 1 on Poshmark and Vinted, which price in WHOLE DOLLARS; 0 everywhere else.
+   *
+   * REQUIRED, not optional-with-a-default. A caller that forgets it would send
+   * "32.49" into an input that is inputmode="numeric" pattern="[0-9]*" and
+   * cannot hold a decimal point, which is exactly the bug this closes. A
+   * compile error is the only version of that mistake anyone finds.
+   */
+  priceStep: number;
   /** The platform's display name (`MarketplaceSpec.label`). */
   platformLabel: string;
   /**
@@ -411,7 +430,12 @@ export function buildListPayload(
     title: str(v.title) || str(draft?.listing_title) || str(input.item.title),
     description: str(input.renderedDescription) || str(v.description) ||
       str(draft?.listing_description),
-    price: priceNumber != null && priceNumber > 0 ? String(priceNumber) : "",
+    // US-2739: THE UNIT BOUNDARY. Everything above this line is FlipDesk's
+    // dollars; `price` is the keystrokes a marketplace's own input receives,
+    // and Poshmark's takes digits only. This was `String(priceNumber)`, so the
+    // queued path sent cents to a field that refuses a decimal point while the
+    // desk path (listing-kit.tsx) sent whole dollars for the same item.
+    price: marketplacePriceString(priceNumber, input.priceStep),
     // Never inferred. Poshmark's "original price" is a claim about retail, and
     // guessing it from a purchase price would put a number the seller never
     // typed onto a live listing.
@@ -425,6 +449,31 @@ export function buildListPayload(
     photoUrls: photos.map((p) => p.photo_url),
     maxPhotos: input.maxPhotos,
   };
+}
+
+/**
+ * US-2739: a revise price in the units the marketplace's editor accepts.
+ *
+ * The OTHER way a cents price reaches a whole-dollar marketplace. A `list` job
+ * crosses the boundary in `buildListPayload` above; a `revise` carries the
+ * price as a NUMBER off `listings.listing_price`, and `GT.runReviseFlow` types
+ * `String(payload.price)` straight into the editor. Repricing automation writes
+ * 32.49 to that column (computeMarkdownCents, then back to dollars), so an
+ * unstepped revise hands Poshmark's pattern="[0-9]*" field a decimal point.
+ *
+ * A FUNCTION rather than two lines inside the enqueue path, because that path
+ * cannot be driven from a test: supabaseAdmin is a Proxy that always resolves
+ * to the real client, so extension-enqueue_test.ts can only read its source.
+ * The decision belongs where a test can call it.
+ *
+ * @returns null when there is no price to send. Never a zero, never a guess.
+ */
+export function revisePriceFor(
+  platform: string,
+  price: number | null | undefined,
+): number | null {
+  if (typeof price !== "number" || !Number.isFinite(price)) return null;
+  return stepPrice(price, getMarketplaceSpec(platform)?.priceStep ?? 0);
 }
 
 /** Why a claimed `list` row cannot be run, in the seller's words. */

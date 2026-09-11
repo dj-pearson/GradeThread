@@ -20,6 +20,7 @@ import {
   LIST_REFUSAL_REASON,
   mergeHydratedPayload,
   orderedListPhotos,
+  revisePriceFor,
   type BuildListPayloadInput,
 } from "../lib/extension-queue.ts";
 
@@ -44,6 +45,8 @@ function input(over: Partial<BuildListPayloadInput> = {}): BuildListPayloadInput
     platformFields: null,
     draft: null,
     maxPhotos: 16,
+    // US-2739: the fixture platform is Poshmark, which prices in whole dollars.
+    priceStep: 1,
     platformLabel: "Poshmark",
     ...over,
   };
@@ -280,4 +283,117 @@ Deno.test("a freshly rendered description wins over the stored variant", () => {
     renderedDescription: null,
   }));
   assertEquals(fallback.description, "yesterday's words");
+});
+
+// ── US-2739: the units the marketplace's own price input accepts ───────────
+//
+// MEASURED FAILURE, not a theory. Before this, `buildListPayload` wrote
+// `String(priceNumber)` and nothing on the server knew Poshmark prices in whole
+// dollars — the stepping lived in the browser's Listing Kit and only there. So
+// a cross-post queued from the phone reached the desktop carrying "32.49" and
+// the extension typed it into an input that is inputmode="numeric"
+// pattern="[0-9]*", which cannot hold a decimal point. The desk path sent "32"
+// for the same item. Two builders of one payload shape, one of them right.
+Deno.test("a queued Poshmark price is sent in whole dollars", () => {
+  const out = buildListPayload(input({
+    platform: "poshmark",
+    priceStep: 1,
+    platformFields: { title: "x", price: 32.49 },
+  }));
+  assertEquals(out.price, "32", "Poshmark's price input cannot hold a decimal point");
+
+  // NEAREST, not floored. Flooring takes 51c off the seller on every cross-post.
+  assertEquals(
+    buildListPayload(input({
+      platform: "poshmark",
+      priceStep: 1,
+      platformFields: { title: "x", price: 32.51 },
+    })).price,
+    "33",
+  );
+
+  // The eBay draft fallback goes through the same boundary — it was the other
+  // way a cents price reached a whole-dollar marketplace.
+  assertEquals(
+    buildListPayload(input({
+      platform: "poshmark",
+      priceStep: 1,
+      platformFields: null,
+      draft: {
+        listing_title: "t",
+        listing_description: "d",
+        listing_price: 74.5,
+        primary_photo_id: null,
+      },
+    })).price,
+    "75",
+    "a repriced draft is stepped too, not just a kit variant",
+  );
+
+  // Never below one step, and never invented.
+  assertEquals(
+    buildListPayload(input({
+      platform: "poshmark",
+      priceStep: 1,
+      platformFields: { title: "x", price: 0.4 },
+    })).price,
+    "1",
+    "a 40c item becomes $1, never $0",
+  );
+  assertEquals(
+    buildListPayload(input({ platform: "poshmark", priceStep: 1 })).price,
+    "",
+    "no price is still no price",
+  );
+});
+
+Deno.test("a marketplace with no step keeps its cents", () => {
+  // eBay and Mercari price in cents and must not be rounded. Exact cents, not
+  // a two-decimal figure that happens to look right.
+  assertEquals(
+    buildListPayload(input({
+      platform: "ebay",
+      priceStep: 0,
+      platformLabel: "eBay",
+      platformFields: { title: "x", price: 32.49 },
+    })).price,
+    "32.49",
+  );
+  // And the string is built from cents rather than String(number), so a float
+  // tail can never reach a price field: String(0.1 + 0.2) is
+  // "0.30000000000000004".
+  assertEquals(
+    buildListPayload(input({
+      platform: "ebay",
+      priceStep: 0,
+      platformLabel: "eBay",
+      platformFields: { title: "x", price: 0.1 + 0.2 },
+    })).price,
+    "0.30",
+  );
+});
+
+// ── US-2739: the revise half of the same boundary ──────────────────────────
+//
+// A `list` job crosses the units boundary in buildListPayload. A `revise`
+// carries the price as a NUMBER off listings.listing_price and GT.runReviseFlow
+// types String(payload.price) into the marketplace's editor. Repricing
+// automation writes 32.49 to that column, so the unstepped version handed
+// Poshmark's pattern="[0-9]*" field a decimal point.
+Deno.test("a queued revise sends the price in the marketplace's units", () => {
+  assertEquals(revisePriceFor("poshmark", 32.49), 32);
+  assertEquals(revisePriceFor("poshmark", 32.51), 33, "nearest, not floored");
+  assertEquals(revisePriceFor("vinted", 32.49), 32, "Vinted prices in whole units too");
+  assertEquals(revisePriceFor("poshmark", 0.4), 1, "never below one step");
+
+  // Everyone else keeps their cents, exactly.
+  assertEquals(revisePriceFor("ebay", 32.49), 32.49);
+  assertEquals(revisePriceFor("mercari", 32.49), 32.49);
+  assertEquals(revisePriceFor("nonsense-platform", 32.49), 32.49);
+
+  // No price is null, never a zero the editor would accept.
+  assertEquals(revisePriceFor("poshmark", null), null);
+  assertEquals(revisePriceFor("poshmark", undefined), null);
+  assertEquals(revisePriceFor("poshmark", Number.NaN), null);
+  assertEquals(revisePriceFor("poshmark", 0), 0, "a zero is a zero, not a step");
 });

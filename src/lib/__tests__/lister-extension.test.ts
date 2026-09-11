@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   buildListerPayload,
   isListerPlatform,
+  revisePriceFor,
   LISTER_EXTENSION_PLATFORMS,
 } from "../lister-extension";
 import type { PlatformKitVariant } from "@/hooks/use-autolister";
@@ -118,3 +119,65 @@ describe("buildListerPayload", () => {
     expect(p.photoUrls).toEqual([]);
   });
 });
+
+// ── US-2739: the browser payload crosses the same units boundary ───────────
+//
+// The Listing Kit steps the price for the row it shows the seller, so this is a
+// no-op on that path BY DESIGN. It is here because buildListerPayload is
+// exported and the server builds the same payload shape for anything queued
+// from a phone; before US-2739 only the kit knew Poshmark prices in whole
+// dollars, and the two paths disagreed about what an item costs.
+describe("buildListerPayload sends the units the marketplace accepts (US-2739)", () => {
+  function priceFor(platform: "poshmark" | "vinted" | "mercari" | "grailed", price: number) {
+    return buildListerPayload({
+      platform,
+      itemId: "i",
+      variant: { ...variant, platform, price },
+      photos,
+      primaryId: "a",
+    }).price;
+  }
+
+  it("a whole-dollar marketplace gets digits, with no decimal point", () => {
+    // Poshmark's listing-price input is inputmode="numeric" pattern="[0-9]*".
+    expect(priceFor("poshmark", 32.49)).toBe("32");
+    expect(priceFor("vinted", 32.49)).toBe("32");
+  });
+
+  it("rounds to NEAREST, because flooring takes money off the seller", () => {
+    expect(priceFor("poshmark", 32.51)).toBe("33");
+    expect(priceFor("poshmark", 74.5)).toBe("75");
+  });
+
+  it("never below one step, and a price nobody set stays unset", () => {
+    expect(priceFor("poshmark", 0.4)).toBe("1");
+    expect(priceFor("poshmark", 0)).toBe("");
+  });
+
+  it("a marketplace with no step keeps its exact cents", () => {
+    expect(priceFor("mercari", 32.49)).toBe("32.49");
+    expect(priceFor("grailed", 32.49)).toBe("32.49");
+    // Built from cents, so a float tail can never reach a price field.
+    expect(priceFor("mercari", 0.1 + 0.2)).toBe("0.30");
+  });
+});
+
+// A revise carries the price as a NUMBER (the extension types String(price) into
+// the marketplace's editor), and it comes off listings.listing_price, which
+// repricing automation writes as 32.49. Same boundary, different shape.
+describe("a revise sends the price in the marketplace's units (US-2739)", () => {
+  it("steps a whole-dollar marketplace and leaves the rest exact", () => {
+    expect(revisePriceFor("poshmark", 32.49)).toBe(32);
+    expect(revisePriceFor("poshmark", 32.51)).toBe(33);
+    expect(revisePriceFor("vinted", 0.4)).toBe(1);
+    expect(revisePriceFor("mercari", 32.49)).toBe(32.49);
+    expect(revisePriceFor("grailed", 32.49)).toBe(32.49);
+  });
+
+  it("no price is null, not a zero the editor would accept", () => {
+    expect(revisePriceFor("poshmark", null)).toBeNull();
+    expect(revisePriceFor("poshmark", undefined)).toBeNull();
+    expect(revisePriceFor("poshmark", Number.NaN)).toBeNull();
+  });
+});
+
