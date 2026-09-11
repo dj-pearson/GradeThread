@@ -23,12 +23,33 @@ export interface PendingDelist {
   listing_url: string | null;
   /** US-1877 (AC3): 'draft' = we never confirmed this prefill went live. */
   listing_status?: string | null;
-  /** US-1877 (AC3): confirmed-active AND has a live URL — the only rows the
-   *  extension can actually end. Everything else degrades to the manual path. */
+  /** US-3369: the extension has a way to reach it: a saved link, or a platform
+   *  whose active-listings page it can search. Everything else is by hand. */
   auto_delistable?: boolean;
   item_id: string;
   item_title: string | null;
   requested_at: string;
+  /** US-3369: what the extension searches the active-listings page for. */
+  match_titles?: string[];
+  /** US-3369: the seller's username on this platform, when saved. */
+  seller_handle?: string | null;
+}
+
+/** US-3369: one item's pending delists, for its Delist panel. */
+export function useItemPendingDelists(itemId: string | undefined) {
+  return useQuery({
+    queryKey: ["pending_delists", "item", itemId],
+    enabled: Boolean(itemId),
+    staleTime: 30 * 1000,
+    queryFn: async (): Promise<PendingDelist[]> => {
+      const res = await edgeFetch(
+        `/api/flipdesk/listings/pending-delists?item=${encodeURIComponent(itemId!)}`,
+      );
+      if (!res.ok) throw new Error("Could not load this item's delists.");
+      const json = (await res.json()) as { pending?: PendingDelist[] };
+      return json.pending ?? [];
+    },
+  });
 }
 
 export function usePendingDelists(enabled = true) {
@@ -108,70 +129,115 @@ export interface RunDelistResult {
 // flag when the extension degraded so the caller can tell the seller to end it
 // by hand — in which case we still clear the local stamp (the sibling is already
 // marked ended; the queue only tracks the marketplace-side action).
+/**
+ * Run ONE queued extension delist in this browser and, only on a verified end,
+ * clear its stamp. Shared by the per-row "End listing" button and the item's
+ * "Delist from other platforms" button, so both answer the same way.
+ */
+export async function runOneDelist(item: PendingDelist): Promise<RunDelistResult> {
+  if (!isListerPlatform(item.platform)) {
+    return { ok: false, error: `${item.platform} isn't an extension platform.` };
+  }
+  // US-3369: the old gates here refused every row without a URL and every
+  // draft. With the extension able to search the seller's active listings,
+  // the only row it cannot reach is one with no link on a platform it cannot
+  // search (Vinted today). `auto_delistable` is the server's answer to exactly
+  // that, computed once in pending-delists.ts for every surface.
+  if (!item.listing_url && item.auto_delistable === false) {
+    return {
+      ok: false,
+      manual: true,
+      error:
+        "GradeThread has no link to this listing and can't search this marketplace " +
+        "for it. End it there yourself.",
+    };
+  }
+  if (!isListerAvailable()) {
+    return {
+      ok: false,
+      manual: true,
+      error: "Install the GradeThread Lister extension to auto-end, or end it manually.",
+    };
+  }
+
+  const res = await sendDelistToLister({
+    platform: item.platform,
+    platformLabel: item.platform,
+    listingId: item.listing_id,
+    listingUrl: item.listing_url,
+    matchTitles: item.match_titles ?? (item.item_title ? [item.item_title] : []),
+    sellerHandle: item.seller_handle ?? null,
+  });
+
+  // US-1629: clear the queue stamp ONLY on a real success. Previously this
+  // fired unconditionally — so a hard failure (res.ok === false: the extension
+  // couldn't end the listing) still dropped the row off the queue while the
+  // cross-listing was STILL LIVE, risking a double sale. On a hard failure we
+  // leave the stamp so it's retryable; a manual degrade (res.manual) also keeps
+  // the stamp — the seller clears it via useMarkDelistDone once they've ended
+  // it by hand.
+  if (res.ok) {
+    const confirm = await edgeFetch("/api/flipdesk/listings/delist-confirm", {
+      method: "POST",
+      json: { listing_id: item.listing_id },
+    });
+    if (!confirm.ok) {
+      const j = await confirm.json().catch(() => ({}));
+      throw new Error((j as { error?: string }).error ?? "Could not clear the delist.");
+    }
+  }
+  return { ok: res.ok, manual: res.manual, error: res.error };
+}
+
 export function useRunDelist() {
   const qc = useQueryClient();
   return useMutation<RunDelistResult, Error, PendingDelist>({
-    mutationFn: async (item) => {
-      if (!isListerPlatform(item.platform)) {
-        return { ok: false, error: `${item.platform} isn't an extension platform.` };
-      }
-      // US-1877 (AC3): auto-delist requires a CONFIRMED-live listing with a URL.
-      // Two distinct reasons to degrade, and they need different copy — telling a
-      // seller "no saved URL" for a listing that was never published sends them
-      // hunting for something that may not exist.
-      if (item.listing_status === "draft") {
-        return {
-          ok: false,
-          manual: true,
-          error:
-            "GradeThread only prefilled this listing and never confirmed it went live. " +
-            "Check the marketplace — if you did publish it, end it there.",
-        };
-      }
-      if (!item.listing_url) {
-        return {
-          ok: false,
-          manual: true,
-          error: "No saved listing URL — end this listing manually on the marketplace.",
-        };
-      }
-      if (!isListerAvailable()) {
-        return {
-          ok: false,
-          manual: true,
-          error: "Install the GradeThread Lister extension to auto-end, or end it manually.",
-        };
-      }
+    mutationFn: runOneDelist,
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["pending_delists"] });
+      void qc.invalidateQueries({ queryKey: ["item_listing_platforms"] });
+      void qc.invalidateQueries({ queryKey: ["item_listings"] });
+    },
+  });
+}
 
-      const res = await sendDelistToLister({
-        platform: item.platform,
-        platformLabel: item.platform,
-        listingId: item.listing_id,
-        listingUrl: item.listing_url,
+export interface EndOtherListingsResult {
+  summary: { ended: number; queued: number; unresolved: number; nothingLive: number };
+  pending: PendingDelist[];
+}
+
+/**
+ * US-3369: the item sold; end its other listings. eBay, Shopify, Depop and
+ * Etsy end on the server. The extension listings come back in `pending` for
+ * this browser to run. `mode: "auto"` honours the seller's auto-end switch
+ * (Record sale); `"explicit"` is the Delist button and does not.
+ */
+export function useEndOtherListings() {
+  const qc = useQueryClient();
+  return useMutation<
+    EndOtherListingsResult,
+    Error,
+    { itemId: string; soldListingId?: string | null; mode: "auto" | "explicit" }
+  >({
+    mutationFn: async ({ itemId, soldListingId, mode }) => {
+      const res = await edgeFetch("/api/flipdesk/listings/end-other-listings", {
+        method: "POST",
+        json: { item_id: itemId, sold_listing_id: soldListingId ?? null, mode },
       });
-
-      // US-1629: clear the queue stamp ONLY on a real success. Previously this
-      // fired unconditionally — so a hard failure (res.ok === false: the
-      // extension couldn't end the listing) still dropped the row off the queue
-      // while the cross-listing was STILL LIVE, risking a double sale. On a hard
-      // failure we leave the stamp so it's retryable; a manual degrade
-      // (res.manual) also keeps the stamp — the seller clears it via
-      // useMarkDelistDone once they've ended it by hand.
-      if (res.ok) {
-        const confirm = await edgeFetch("/api/flipdesk/listings/delist-confirm", {
-          method: "POST",
-          json: { listing_id: item.listing_id },
-        });
-        if (!confirm.ok) {
-          const j = await confirm.json().catch(() => ({}));
-          throw new Error((j as { error?: string }).error ?? "Could not clear the delist.");
-        }
-      }
-      return { ok: res.ok, manual: res.manual, error: res.error };
+      const j = (await res.json().catch(() => ({}))) as Partial<EndOtherListingsResult> & {
+        error?: string;
+      };
+      if (!res.ok) throw new Error(j.error ?? "Could not end the other listings.");
+      return {
+        summary: j.summary ?? { ended: 0, queued: 0, unresolved: 0, nothingLive: 0 },
+        pending: j.pending ?? [],
+      };
     },
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ["pending_delists"] });
       void qc.invalidateQueries({ queryKey: ["item_listing_platforms"] });
+      void qc.invalidateQueries({ queryKey: ["item_listings"] });
+      void qc.invalidateQueries({ queryKey: ["items_full"] });
     },
   });
 }

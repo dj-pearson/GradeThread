@@ -9,6 +9,28 @@
 > They are still filed as HELD here because nobody in this session watched
 > them apply. Confirm against prod before trusting either heading.
 
+## ⏸ HELD: 00790 — the seller's marketplace usernames (US-3369)
+
+**Risk: LOW.** One nullable column, `flipdesk_settings.marketplace_handles
+jsonb`, plus a comment. Nothing existing is altered, no backfill.
+
+**Apply order: after 00789.** Then `NOTIFY pgrst, 'reload schema';` and
+redeploy the edge (boot guard expects 00790).
+
+**⚠ The web READS AND WRITES this column from the client** (the Poshmark
+username prompt on the item page, `useMarketplaceHandles`). A frontend that
+deploys before the SQL shows a failed read there: the "Your Poshmark
+listings" link does not appear and saving a username errors. Everything else
+in the delist change works without it. The edge reads it through
+`loadSellerHandles`, which treats a failed read as "no usernames".
+
+**Check it landed:**
+
+```sql
+select count(*) from information_schema.columns
+where table_name = 'flipdesk_settings' and column_name = 'marketplace_handles';  -- 1
+```
+
 ## ⏸ HELD: 00789 — the admin reference gallery (US-3334)
 
 **Risk: LOW.** One new deny-all table, `grading_reference_photos` (RLS on,

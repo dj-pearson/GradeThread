@@ -7,6 +7,7 @@ import {
   completeRelist,
 } from "../lib/extension-relist.ts";
 import { failSafe } from "../lib/http-errors.ts";
+import { resyncItemListedStatus } from "../lib/active-listings.ts";
 import {
   CREDENTIAL_KEYS,
   normalizeQueuePayload,
@@ -664,6 +665,38 @@ flipdeskExtensionQueueRoutes.post("/:id/complete", async (c) => {
     const r = result.value as { listingUrl?: unknown };
     if (typeof newId === "string" && typeof r.listingUrl === "string" && /^https:\/\//.test(r.listingUrl)) {
       await completeRelist(ownerId, newId, r.listingUrl);
+    }
+  }
+  // US-3369: a drained delist that ENDED the listing clears its stamp.
+  //
+  // Nothing did before. The background tab ended the Poshmark listing, the row
+  // went `done`, and delist_requested_at stayed set — so FlipDesk and the popup
+  // went on telling the seller to end a listing that was already gone, which is
+  // how a working robot gets mistaken for a broken one and the seller starts
+  // doing it all by hand.
+  //
+  // Only on ok, and only for the row's OWN listing_id (server-set when the job
+  // was queued, never read from the result). Owner-checked through the parent
+  // item before the write (US-268). A failed or unverified run leaves the stamp
+  // exactly where it was, because a false "ended" is a double sale.
+  if (done.kind === "delist" && ok && done.listing_id) {
+    const { data: owned } = await supabaseAdmin
+      .from("listings")
+      .select("id, inventory_item_id, inventory_items!inner(user_id)")
+      .eq("id", done.listing_id)
+      .eq("inventory_items.user_id", ownerId)
+      .maybeSingle();
+    const row = owned as { id: string; inventory_item_id: string | null } | null;
+    if (row) {
+      const { error: clearErr } = await supabaseAdmin
+        .from("listings")
+        .update({ delist_requested_at: null, listing_status: "ended", is_active: false })
+        .eq("id", row.id);
+      if (clearErr) {
+        console.warn("[queue.complete] could not clear the delist stamp:", clearErr.message);
+      } else {
+        await resyncItemListedStatus(row.inventory_item_id, ownerId);
+      }
     }
   }
   if (done.kind === "revise" && done.listing_id) {

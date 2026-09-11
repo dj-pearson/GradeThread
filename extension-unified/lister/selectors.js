@@ -235,6 +235,31 @@ const GT_LISTER_SELECTORS = {
     delist: {
       enabled: true,
       version: "2026.08.0",
+      // US-3369: FINDING the listing when GradeThread holds no link to it.
+      //
+      // The flow below starts on the listing page, so it needs the listing's
+      // URL, and a listing the seller posted by hand (or whose capture missed)
+      // has none. `locate` is the step in front of it: open the seller's own
+      // closet, available items only, and pick the tile whose link matches
+      // liveListingUrlPattern and whose words match the title we sent. Then go
+      // to that listing and carry on exactly as if we had had the link.
+      //
+      // Poshmark's closet is /closet/{username}; there is no handle-free
+      // address (checked 2026-09-11, /closet and /closet/me both 404). The
+      // handle comes from the seller's saved settings, is checked against a
+      // plain-username character set, and is only ever substituted into THIS
+      // template, so it cannot choose a host (US-1876).
+      //
+      // UNVERIFIED against a live closet as of 2026-09-11. It relies on two
+      // things only: tiles link to /listing/..., and the tile text holds the
+      // title. When either stops being true the search finds nothing and says
+      // so, and the seller ends it from the link on the item page.
+      locate: {
+        enabled: true,
+        activeListingsUrl: "https://poshmark.com/closet/{handle}?availability=available",
+        pagePattern: "^https://[^/]*poshmark\\.com/closet/",
+        maxScrolls: 10,
+      },
       // 2026-08-10: a probe of a live listing found no menu and no delete
       // anywhere outside the site header. What it DID find is
       // `[data-et-name="edit_listing"]` — Poshmark's delete lives behind that,
@@ -573,6 +598,14 @@ const GT_LISTER_SELECTORS = {
     // selector that can never match reads as a broken channel.
     submit: 'button[data-testid="ListButton"], button[type="submit"]',
     delist: {
+      // US-3369: see Poshmark's `locate`. Mercari's own listings page is
+      // owner-only by URL, so no handle is needed. Unverified, same fail-safe.
+      locate: {
+        enabled: true,
+        activeListingsUrl: "https://www.mercari.com/mypage/listings/active/",
+        pagePattern: "^https://[^/]*mercari\\.com/mypage/listings",
+        maxScrolls: 6,
+      },
       // ON as of 2026-08-11. `menu` — the one selector this flow probes before
       // touching anything — was confirmed on a live listing.
       //
@@ -759,6 +792,14 @@ const GT_LISTER_SELECTORS = {
       enabled: false,
       version: "2026.07.0-draft",
       lastVerified: null,
+      // US-3369: see Poshmark's `locate`. Declared so the page is known the day
+      // delist is switched on; with `enabled: false` above it never runs.
+      locate: {
+        enabled: true,
+        activeListingsUrl: "https://www.grailed.com/users/myitems",
+        pagePattern: "^https://[^/]*grailed\\.com/users/myitems",
+        maxScrolls: 6,
+      },
       // US-1875 AC1: pre-interaction selectors only (see the Poshmark note).
       required: ["menu"],
       menu: 'button[aria-label*="actions"], button.listing-actions',
@@ -1014,6 +1055,13 @@ const GT_LISTER_SELECTORS = {
       enabled: false,
       version: "2026.08.0-draft",
       lastVerified: null,
+      // US-3369: see Poshmark's `locate`. Inert while delist is off.
+      locate: {
+        enabled: true,
+        activeListingsUrl: "https://www.facebook.com/marketplace/you/selling",
+        pagePattern: "^https://[^/]*facebook\\.com/marketplace/you/selling",
+        maxScrolls: 6,
+      },
       required: ["menu"],
       menu:
         'div[aria-label="More options"][role="button"], div[aria-label*="More"][role="button"], [aria-label="Actions for this listing"]',

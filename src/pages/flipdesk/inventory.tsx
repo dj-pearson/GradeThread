@@ -1,6 +1,7 @@
 import { lazy, Suspense } from "react";
-import { useSearchParams } from "react-router";
+import { Navigate, useSearchParams } from "react-router";
 import type { InventoryView } from "@/components/flipdesk/inventory-view-switcher";
+import { delistRedirectTarget } from "@/lib/delist-links";
 import { LoadingRegion, TableLoadingSkeleton } from "@/components/ui/skeletons";
 
 // US-958: one route — /dashboard/flipdesk/inventory — hosts every Inventory
@@ -43,6 +44,9 @@ function resolveMode(raw: string | null): InventoryView {
 
 export function FlipdeskInventoryPage() {
   const [searchParams] = useSearchParams();
+  // US-3369: the "listing still live" notification lands here; on the web its
+  // Delist panel is on the item page, so send the seller there.
+  const delistTarget = delistRedirectTarget(searchParams);
   const mode = resolveMode(searchParams.get("mode"));
   const View =
     mode === "grid"
@@ -52,6 +56,8 @@ export function FlipdeskInventoryPage() {
         : mode === "prep"
           ? PrepView
           : TableView;
+
+  if (delistTarget) return <Navigate to={delistTarget} replace />;
 
   return (
     <Suspense

@@ -14,7 +14,9 @@ import "./_env.ts";
 import { assert, assertEquals } from "@std/assert";
 import {
   attemptUpstreamDelist,
+  buildDelistQueuePayload,
   type DelistDeps,
+  selectSiblingRows,
   type SiblingRow,
 } from "../lib/cross-listings.ts";
 
@@ -290,19 +292,68 @@ Deno.test("US-3141: a queued sibling is enqueued for the extension, not just sta
   // The connection itself. Without it the seller must open the app and click,
   // and the sibling stays live and purchasable until they do.
   assert(
-    /await queueExtensionDelist\(ownerId, row\)/.test(CROSS_SRC),
+    /await queueExtensionDelist\(ownerId, row, searchAids\)/.test(CROSS_SRC),
     "the queued branch no longer hands the delist to the extension queue",
   );
   assert(
     /kind: "delist"/.test(CROSS_SRC) && /source: "cross-listing-sale"/.test(CROSS_SRC),
     "the queued job lost its kind or its source",
   );
-  // The extension opens payload.listingUrl. Without it the drain has no target
-  // and completes the row with an error.
+  // US-3369: the payload is built by one pure function, tested below.
   assert(
-    /payload: \{ listingUrl: row\.listing_url \}/.test(CROSS_SRC),
-    "the queued delist no longer carries the listing URL the extension opens",
+    /payload: buildDelistQueuePayload\(row, aids\)/.test(CROSS_SRC),
+    "the queued delist no longer uses buildDelistQueuePayload",
   );
+});
+
+Deno.test("US-3369: the queued payload carries the link, the titles and the handle", () => {
+  const row = {
+    id: "l1",
+    platform: "poshmark",
+    platform_offer_id: null,
+    platform_listing_id: null,
+    listing_status: "active",
+    listing_url: "https://poshmark.com/listing/abc",
+    listing_title: null,
+    inventory_item_id: "i1",
+    inventory_items: { user_id: "o", sku: null, title: "Vintage Levi's 501" },
+  };
+  assertEquals(
+    buildDelistQueuePayload(row, {
+      handles: { poshmark: "jane", mercari: "other" },
+      variantTitles: { poshmark: "Levis 501 Posh" },
+    }),
+    {
+      listingUrl: "https://poshmark.com/listing/abc",
+      matchTitles: ["Levis 501 Posh", "Vintage Levi's 501"],
+      sellerHandle: "jane",
+    },
+  );
+  // No link: the extension searches. Nothing is invented to fill the gap.
+  assertEquals(
+    buildDelistQueuePayload({ ...row, platform: "mercari", listing_url: null }, {
+      handles: {},
+      variantTitles: {},
+    }),
+    { matchTitles: ["Vintage Levi's 501"] },
+  );
+});
+
+Deno.test("US-3369: siblings are the whole item; sold rows count only inside the draft group", () => {
+  const rows = [
+    { id: "sold", listing_status: "sold", draft_id: "g" },
+    { id: "posh", listing_status: "active", draft_id: null },
+    { id: "merc", listing_status: "draft", draft_id: null },
+    { id: "ebay", listing_status: "active", draft_id: "g" },
+    { id: "old-sale", listing_status: "sold", draft_id: null },
+    { id: "twin", listing_status: "sold", draft_id: "g" },
+    { id: "gone", listing_status: "ended", draft_id: "g" },
+  ];
+  const kept = selectSiblingRows(rows, { itemId: "i", draftId: "g", soldListingId: "sold" });
+  assertEquals(kept.map((r) => r.id), ["posh", "merc", "ebay", "twin"]);
+  // With no draft group, no sold row can be read as a double sale.
+  const noGroup = selectSiblingRows(rows, { itemId: "i", draftId: null, soldListingId: null });
+  assertEquals(noGroup.map((r) => r.id), ["posh", "merc", "ebay"]);
 });
 
 Deno.test("US-3141: the stamp survives alongside the queue row", () => {
@@ -322,7 +373,7 @@ Deno.test("US-3141: the enqueue runs after the row is marked ended", () => {
   // Anchored on the call alone, not on the chain around it: the file is CRLF,
   // so a multi-line literal here would fail for the wrong reason.
   const update = indexOfOrThrow(CROSS_SRC, ".update(update)", "the sibling update");
-  const enqueue = indexOfOrThrow(CROSS_SRC, "await queueExtensionDelist(ownerId, row)", "the enqueue");
+  const enqueue = indexOfOrThrow(CROSS_SRC, "await queueExtensionDelist(ownerId, row, searchAids)", "the enqueue");
   assert(update < enqueue, "the enqueue moved ahead of the update that ends the row");
 });
 
@@ -330,13 +381,20 @@ Deno.test("US-3141: the queue gate is the shared isAutoDelistable rule", () => {
   // A second copy of this rule has already cost a real oversell once
   // (pending-delists.ts documents it). Import it; never restate it.
   assert(
-    /import \{ isAutoDelistable \} from "\.\/pending-delists\.ts"/.test(CROSS_SRC),
+    /import \{\s*isAutoDelistable,[^}]*\} from "\.\/pending-delists\.ts"/.test(CROSS_SRC),
     "cross-listings.ts no longer imports the shared auto-delistable rule",
   );
   assert(
-    /if \(!isAutoDelistable\(row\.listing_status, row\.listing_url\)\) return;/.test(CROSS_SRC),
-    "the queue gate stopped using the shared rule, so a draft or a URL-less " +
-      "listing can be queued for a page that does not exist",
+    /if \(!isAutoDelistable\(row\.platform, row\.listing_url\)\) return;/.test(CROSS_SRC),
+    "the queue gate stopped using the shared rule, so a listing the extension " +
+      "has no way to reach can be queued",
+  );
+  // US-3369: the background path still only takes CONFIRMED-live rows. A draft
+  // is searched only when the seller presses Delist.
+  assert(
+    /if \(row\.listing_status !== "active"\) return;/.test(CROSS_SRC),
+    "the queue gate now takes drafts, so a background search runs for listings " +
+      "that were never posted and reports failures the seller did not cause",
   );
 });
 

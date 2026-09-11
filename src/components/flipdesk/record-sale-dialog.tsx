@@ -14,13 +14,29 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { FieldError } from "@/components/ui/form-feedback";
 import { cn } from "@/lib/utils";
 import { supabase } from "@/lib/supabase";
 import { advanceItemStatus } from "@/lib/status-writer";
 import { todayLocalDate } from "@/lib/local-date";
-import { useEbayConnection, useEbayEndListing } from "@/hooks/use-ebay";
-import type { ItemFullRow, SaleInsert } from "@/types/database";
+import { MARKETPLACE_LABELS } from "@/lib/constants";
+import { useItemListings, type ItemListingRow } from "@/hooks/use-item-listings";
+import { useEndOtherListings } from "@/hooks/use-pending-delists";
+import { ItemDelistPanel } from "@/components/flipdesk/delist-panel";
+import { defaultSoldListing, SOLD_ELSEWHERE as ELSEWHERE } from "@/lib/delist-links";
+import type { ItemFullRow, ListingPlatform, SaleInsert } from "@/types/database";
+
+function soldChoiceLabel(row: ItemListingRow): string {
+  const name = MARKETPLACE_LABELS[row.platform as ListingPlatform] ?? row.platform;
+  return row.listing_status === "active" ? name : `${name} (${row.listing_status ?? "draft"})`;
+}
 
 interface SaleForm {
   sale_price: string;
@@ -49,8 +65,19 @@ export function RecordSaleDialog({
   onClose: () => void;
 }) {
   const qc = useQueryClient();
-  const { data: ebayConnection } = useEbayConnection();
-  const endListingApi = useEbayEndListing();
+  // US-3369: every listing of this item, so the seller can say WHERE it sold.
+  // The dialog used to close out `item.listing_id`, which is the item's primary
+  // (usually eBay) listing, whatever marketplace the sale was actually on.
+  const { data: listingRows = [] } = useItemListings(item?.id);
+  const endOthers = useEndOtherListings();
+  const choices = listingRows.filter(
+    (r) => r.listing_status === "active" || r.listing_status === "draft",
+  );
+  const [soldChoice, setSoldChoice] = useState<string>(ELSEWHERE);
+  const choiceTouched = useRef(false);
+  // After the save: the item's other listings still to end, shown in place of
+  // the form so the seller can run the delist without going anywhere.
+  const [delistStepFor, setDelistStepFor] = useState<string | null>(null);
   const [form, setForm] = useState<SaleForm>({
     sale_price: "",
     shipping_collected: "",
@@ -82,8 +109,15 @@ export function RecordSaleDialog({
         buyer_username: "",
         sale_date: todayLocalDate(),
       });
+      choiceTouched.current = false;
+      setDelistStepFor(null);
     }
   }, [item]);
+
+  // Preselect once the listings arrive, unless the seller already chose.
+  useEffect(() => {
+    if (!choiceTouched.current) setSoldChoice(defaultSoldListing(listingRows));
+  }, [listingRows]);
 
   // Live net-profit preview.
   const net = useMemo(() => {
@@ -133,9 +167,12 @@ export function RecordSaleDialog({
     savingRef.current = true;
     setSaving(true);
     try {
+      // US-3369: the listing that actually sold, or none when it sold somewhere
+      // FlipDesk has no listing for.
+      const soldListingId = soldChoice === ELSEWHERE ? null : soldChoice;
       const insert: SaleInsert = {
         inventory_item_id: item.id,
-        listing_id: item.listing_id ?? null,
+        listing_id: soldListingId,
         sale_price: n(form.sale_price),
         shipping_collected: n(form.shipping_collected),
         platform_fees: n(form.platform_fees),
@@ -156,29 +193,34 @@ export function RecordSaleDialog({
       await advanceItemStatus(item.id, item.status, "sold");
 
       // US-1424: a manual sale must also close out the listing, or the item
-      // stays is_active=true / 'active' on eBay after being marked sold
-      // (overselling risk + a stale 'active' chip). This is best-effort — the
-      // sale is already recorded, so a listing-close hiccup warns rather than
-      // failing the whole action.
-      if (item.listing_id) {
+      // stays is_active=true / 'active' after being marked sold (overselling
+      // risk + a stale 'active' chip). This is best-effort — the sale is
+      // already recorded, so a listing-close hiccup warns rather than failing
+      // the whole action.
+      //
+      // US-3369: THE listing that sold, which the seller just picked. This
+      // closed `item.listing_id` before, which is the item's primary listing:
+      // a Poshmark sale marked the eBay listing sold and left Poshmark live. It
+      // also no longer ends anything on eBay itself: a listing that sold on
+      // eBay has already ended there, and an eBay listing that did NOT sell is
+      // one of the "other listings" below, ended by the same server engine a
+      // webhook sale uses.
+      let lastUnitSold = true;
+      if (soldListingId) {
         try {
           const { data: lst, error: lErr } = await supabase
             .from("listings")
-            .select("id, quantity, platform_offer_id, platform_listing_id")
-            .eq("id", item.listing_id)
+            .select("id, quantity")
+            .eq("id", soldListingId)
             .maybeSingle();
           if (lErr) throw lErr;
-          const listing = lst as {
-            id: string;
-            quantity: number | null;
-            platform_offer_id: string | null;
-            platform_listing_id: string | null;
-          } | null;
+          const listing = lst as { id: string; quantity: number | null } | null;
           if (listing) {
             // AC3: a multi-quantity listing only ends when the last unit sells —
             // otherwise decrement the remaining quantity and keep it active.
             const remaining = Math.max(0, (listing.quantity ?? 1) - 1);
             if (remaining > 0) {
+              lastUnitSold = false;
               const { error } = await supabase
                 .from("listings")
                 .update({ quantity: remaining } as never)
@@ -195,26 +237,6 @@ export function RecordSaleDialog({
                 } as never)
                 .eq("id", listing.id);
               if (error) throw error;
-              // AC2: best-effort end on eBay when connected and the listing
-              // carries an eBay offer/listing id. A failure must NOT fail the
-              // recorded sale — surface it so the user can end it manually.
-              if (
-                ebayConnection &&
-                (listing.platform_offer_id || listing.platform_listing_id)
-              ) {
-                try {
-                  await endListingApi.mutateAsync({ listingId: listing.id });
-                } catch (err) {
-                  const e = err as Error & { status?: number };
-                  // 409 = no platform_offer_id server-side → nothing to end.
-                  if (e.status !== 409) {
-                    toastWarning(e, "Sale recorded, but we could not end the eBay listing.", {
-                      duration: 10_000,
-                      nextStep: "End it on eBay yourself so it cannot sell twice.",
-                    });
-                  }
-                }
-              }
             }
           }
         } catch (err) {
@@ -226,10 +248,49 @@ export function RecordSaleDialog({
         }
       }
 
+      // US-3369: the garment is gone, so end it everywhere else. Same engine,
+      // same auto-end switch, as a sale that arrives by webhook. Units left on
+      // a multi-quantity listing mean it is still for sale, so nothing ends.
+      let showDelistStep = false;
+      if (lastUnitSold) {
+        try {
+          const res = await endOthers.mutateAsync({
+            itemId: item.id,
+            soldListingId,
+            mode: "auto",
+          });
+          const { data: fresh } = await supabase
+            .from("listings")
+            .select("id, listing_status")
+            .eq("inventory_item_id", item.id);
+          const liveLeft = ((fresh ?? []) as { id: string; listing_status: string }[]).filter(
+            (r) =>
+              r.id !== soldListingId &&
+              (r.listing_status === "active" || r.listing_status === "draft"),
+          ).length;
+          showDelistStep = res.pending.length > 0 || res.summary.unresolved > 0 || liveLeft > 0;
+          const ended = res.summary.ended;
+          if (ended > 0) {
+            toast.success(`Ended ${ended} other listing${ended === 1 ? "" : "s"} automatically.`);
+          }
+        } catch (err) {
+          // The sale is recorded; the panel on the item page can still run it.
+          toastWarning(err, "Sale recorded, but we could not end the other listings.", {
+            duration: 10_000,
+            nextStep: "Open the item and press Delist from other platforms.",
+          });
+        }
+      }
+
       await qc.invalidateQueries({ queryKey: ["items_full"] });
       await qc.invalidateQueries({ queryKey: ["sale_for_item", item.id] });
+      await qc.invalidateQueries({ queryKey: ["item_listings", item.id] });
       toast.success(`Sale recorded for "${item.item_title}".`);
-      onClose();
+      if (showDelistStep) {
+        setDelistStepFor(item.id);
+      } else {
+        onClose();
+      }
     } catch (err) {
       toastError(err, "Failed.");
     } finally {
@@ -244,11 +305,47 @@ export function RecordSaleDialog({
         <DialogHeader>
           <DialogTitle>Record sale</DialogTitle>
           <DialogDescription>
-            Log the sale of "{item.item_title}". The item moves to Sold.
+            {delistStepFor
+              ? `Sale recorded. "${item.item_title}" is still listed below. End it there so it can't sell twice.`
+              : `Log the sale of "${item.item_title}". The item moves to Sold.`}
           </DialogDescription>
         </DialogHeader>
 
+        {delistStepFor ? (
+          <>
+            {/* US-3369: the delist, right where the sale was recorded. */}
+            <ItemDelistPanel itemId={delistStepFor} itemStatus="sold" />
+            <DialogFooter>
+              <Button onClick={onClose}>Done</Button>
+            </DialogFooter>
+          </>
+        ) : (
+          <>
         <div className="grid grid-cols-2 gap-3">
+          {/* US-3369: WHERE it sold. That listing is marked sold; every other
+              listing of the item is ended. */}
+          <div className="col-span-2 space-y-1">
+            <Label className="text-xs" htmlFor="sold-on">Where did it sell?</Label>
+            <Select
+              value={soldChoice}
+              onValueChange={(v) => {
+                choiceTouched.current = true;
+                setSoldChoice(v);
+              }}
+            >
+              <SelectTrigger id="sold-on">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {choices.map((row) => (
+                  <SelectItem key={row.id} value={row.id}>
+                    {soldChoiceLabel(row)}
+                  </SelectItem>
+                ))}
+                <SelectItem value={ELSEWHERE}>Somewhere else</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
           <Field
             id="sale-price"
             label="Sale price"
@@ -339,6 +436,8 @@ export function RecordSaleDialog({
             Record sale
           </Button>
         </DialogFooter>
+          </>
+        )}
       </DialogContent>
     </Dialog>
   );

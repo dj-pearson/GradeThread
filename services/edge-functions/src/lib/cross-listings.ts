@@ -17,7 +17,12 @@ import {
 } from "./cross-listing-sale.ts";
 import { enqueueExtensionWork } from "./extension-enqueue.ts";
 import { pushDelistNeeded } from "./transactional-push.ts";
-import { isAutoDelistable } from "./pending-delists.ts";
+import {
+  isAutoDelistable,
+  loadSellerHandles,
+  loadVariantTitles,
+  matchTitlesFor,
+} from "./pending-delists.ts";
 
 // Auto-end of cross-listed siblings (US-149 + US-599 + US-1290). When one listing
 // in a cross-listing group (rows sharing listings.draft_id) sells, end the others
@@ -56,7 +61,60 @@ export interface SiblingRow {
   listing_url: string | null;
   /** US-3141: carried onto the queue row so the seller's queue view names the item. */
   inventory_item_id: string | null;
-  inventory_items: { user_id: string; sku: string | null };
+  /** US-3369: the cross-listing group, which is now only the OVERSELL scope. */
+  draft_id?: string | null;
+  /** US-3369: what the extension searches for when it has no listing_url. */
+  listing_title?: string | null;
+  inventory_items: { user_id: string; sku: string | null; title?: string | null };
+}
+
+/**
+ * US-3369: which listings a pass ends.
+ *
+ * `itemId` is the garment. `draftId` is the cross-listing group the sold row
+ * belongs to, when it has one. `soldListingId` is the row that sold, or null
+ * when the seller recorded a sale somewhere FlipDesk has no listing for.
+ */
+export interface EndOtherListingsTarget {
+  itemId: string | null;
+  draftId: string | null;
+  soldListingId: string | null;
+}
+
+const SIBLING_COLUMNS =
+  "id, platform, platform_offer_id, platform_listing_id, listing_status, draft_id, " +
+  // US-3141: listing_url and inventory_item_id are what the queued delist job
+  // needs — the URL the extension opens, and the item the seller's queue view
+  // names it by. US-3369: listing_title and the item title are what it
+  // searches for when there is no URL.
+  "listing_url, listing_title, inventory_item_id, " +
+  "inventory_items!inner(user_id, sku, title)";
+
+/**
+ * US-3369: keep only the rows a pass may act on. Pure.
+ *
+ * Live rows (draft/active) of the same ITEM are all siblings: one garment, so a
+ * sale anywhere ends it everywhere. That is wider than it used to be, and on
+ * purpose — the draft_id group was the only key, and extension-only items never
+ * get one (the writeback joins an eBay row's group, and there is no eBay row)
+ * while an eBay base that was never cross-pushed does not point at itself. Both
+ * left a Poshmark sale ending nothing.
+ *
+ * A SOLD row still counts only inside the draft_id group. Item-wide, a sold row
+ * is as likely to be last spring's sale of a garment that came back and was
+ * relisted as it is a double sale, and a false oversell alarm on every returned
+ * item is how that warning stops being read.
+ */
+export function selectSiblingRows<
+  T extends { id: string; listing_status: string; draft_id?: string | null },
+>(rows: readonly T[], target: EndOtherListingsTarget): T[] {
+  return rows.filter((r) => {
+    if (target.soldListingId && r.id === target.soldListingId) return false;
+    if (r.listing_status === "sold") {
+      return !!target.draftId && r.draft_id === target.draftId;
+    }
+    return r.listing_status === "draft" || r.listing_status === "active";
+  });
 }
 
 /**
@@ -82,45 +140,96 @@ const EMPTY_SUMMARY = (): AutoEndSummary => ({
 });
 
 // Best-effort: never throws. Returns the per-outcome breakdown above.
+//
+// The automatic path, run by every sale webhook and the sold-sync. Honours the
+// seller's auto_end_cross_listings switch; the explicit Delist button does not
+// (see endOtherListings).
 export async function autoEndCrossListings(
   ownerId: string,
   soldListingId: string,
 ): Promise<AutoEndSummary> {
   try {
+    // US-268: the sold row is read through its owner-scoped parent like every
+    // other read in this module.
     const { data: sold } = await supabaseAdmin
       .from("listings")
-      .select("draft_id")
+      .select("draft_id, inventory_item_id, inventory_items!inner(user_id)")
       .eq("id", soldListingId)
-      .maybeSingle();
-    const draftId = (sold as { draft_id: string | null } | null)?.draft_id;
-    if (!draftId) return EMPTY_SUMMARY(); // not part of a cross-listing group
-
-    const { data: settings } = await supabaseAdmin
-      .from("flipdesk_settings")
-      .select("auto_end_cross_listings")
-      .eq("user_id", ownerId)
-      .maybeSingle();
-    const enabled =
-      (settings as { auto_end_cross_listings: boolean } | null)
-        ?.auto_end_cross_listings !== false;
-    if (!enabled) return EMPTY_SUMMARY();
-
-    // Tenant-scoped via inventory_items.user_id (US-268) — listings carry no
-    // user_id of their own. We pull 'sold' siblings too (not just live ones) so
-    // planCrossListingSale can detect a simultaneous-sale oversell (US-1290).
-    const { data, error } = await supabaseAdmin
-      .from("listings")
-      .select(
-        "id, platform, platform_offer_id, platform_listing_id, listing_status, " +
-          // US-3141: listing_url and inventory_item_id are what the queued
-          // delist job needs — the URL the extension opens, and the item the
-          // seller's queue view names it by.
-          "listing_url, inventory_item_id, inventory_items!inner(user_id, sku)",
-      )
-      .eq("draft_id", draftId)
       .eq("inventory_items.user_id", ownerId)
-      .neq("id", soldListingId)
+      .maybeSingle();
+    const s = sold as
+      | { draft_id: string | null; inventory_item_id: string | null }
+      | null;
+    // US-3369: an item id is enough. Returning here whenever draft_id was null
+    // is what made a Poshmark sale of an extension-only item end nothing.
+    if (!s || (!s.draft_id && !s.inventory_item_id)) return EMPTY_SUMMARY();
+
+    return await endOtherListings(
+      ownerId,
+      { itemId: s.inventory_item_id, draftId: s.draft_id, soldListingId },
+      { honorSetting: true },
+    );
+  } catch (err) {
+    console.error(
+      "[cross-listings] autoEndCrossListings failed:",
+      err instanceof Error ? err.message : String(err),
+    );
+    return EMPTY_SUMMARY();
+  }
+}
+
+/**
+ * End every other live listing of one garment. The engine behind both the
+ * automatic path above and the seller's own Delist button (US-3369).
+ *
+ * `honorSetting: false` is for the button. A seller who switched automatic
+ * ending off and then pressed "Delist from other platforms" has asked, in the
+ * plainest way available, for exactly this.
+ *
+ * Best-effort: never throws.
+ */
+export async function endOtherListings(
+  ownerId: string,
+  target: EndOtherListingsTarget,
+  opts: { honorSetting: boolean },
+): Promise<AutoEndSummary> {
+  try {
+    if (!target.itemId && !target.draftId) return EMPTY_SUMMARY();
+
+    if (opts.honorSetting) {
+      const { data: settings } = await supabaseAdmin
+        .from("flipdesk_settings")
+        .select("auto_end_cross_listings")
+        .eq("user_id", ownerId)
+        .maybeSingle();
+      const enabled =
+        (settings as { auto_end_cross_listings: boolean } | null)
+          ?.auto_end_cross_listings !== false;
+      if (!enabled) return EMPTY_SUMMARY();
+    }
+
+    // Tenant-scoped via inventory_items.user_id (US-268). We pull 'sold'
+    // siblings too (not just live ones) so planCrossListingSale can detect a
+    // simultaneous-sale oversell (US-1290); selectSiblingRows decides which of
+    // those count.
+    let q = supabaseAdmin
+      .from("listings")
+      .select(SIBLING_COLUMNS)
+      .eq("inventory_items.user_id", ownerId)
       .in("listing_status", ["draft", "active", "sold"]);
+    // Both keys are ids read from our own rows, never from a request, so they
+    // are safe inside the filter string. .or() on a SELECT is fine; it is
+    // mutations the self-hosted PostgREST refuses it on (US-1552).
+    if (target.itemId && target.draftId) {
+      q = q.or(`inventory_item_id.eq.${target.itemId},draft_id.eq.${target.draftId}`);
+    } else if (target.itemId) {
+      q = q.eq("inventory_item_id", target.itemId);
+    } else {
+      q = q.eq("draft_id", target.draftId as string);
+    }
+    if (target.soldListingId) q = q.neq("id", target.soldListingId);
+
+    const { data, error } = await q;
     if (error) {
       console.error(
         "[cross-listings] sibling lookup failed:",
@@ -130,20 +239,23 @@ export async function autoEndCrossListings(
     }
 
     const { toDelist, oversold } = planCrossListingSale(
-      soldListingId,
-      (data ?? []) as unknown as SiblingRow[],
+      target.soldListingId ?? "",
+      selectSiblingRows((data ?? []) as unknown as SiblingRow[], target),
     );
 
     // A sibling already sold on another channel is a double sale — surface it,
     // never auto-resolve (US-1290 AC3). Best-effort; never blocks the delist.
-    if (oversold.length > 0) {
-      await surfaceOversellConflict(ownerId, soldListingId, oversold);
+    // Needs the sold row to name the pair, so a sale with no listing skips it.
+    if (oversold.length > 0 && target.soldListingId) {
+      await surfaceOversellConflict(ownerId, target.soldListingId, oversold);
     }
 
     const summary: AutoEndSummary = EMPTY_SUMMARY();
     const unresolvedPlatforms = new Set<string>();
     /** US-3144: the siblings handed to the browser, for ONE notice at the end. */
     const queuedRows: SiblingRow[] = [];
+    /** US-3369: read once per pass, and only if something is queued. */
+    let searchAids: SearchAids | null = null;
 
     for (const row of toDelist) {
       const outcome = await attemptUpstreamDelist(ownerId, row);
@@ -201,7 +313,8 @@ export async function autoEndCrossListings(
         // US-3141: hand it to the extension's background drain as well as to the
         // seller. AFTER the update, so a row we failed to mark ended is never
         // queued for a browser to end.
-        await queueExtensionDelist(ownerId, row);
+        searchAids ??= await loadSearchAids(ownerId, row.inventory_item_id);
+        await queueExtensionDelist(ownerId, row, searchAids);
         // US-3144: collected, not notified per row. See the send below.
         queuedRows.push(row);
         summary.queued++;
@@ -252,11 +365,32 @@ export async function autoEndCrossListings(
     return summary;
   } catch (err) {
     console.error(
-      "[cross-listings] autoEndCrossListings failed:",
+      "[cross-listings] endOtherListings failed:",
       err instanceof Error ? err.message : String(err),
     );
     return EMPTY_SUMMARY();
   }
+}
+
+/**
+ * US-3369: what a queued delist carries so the extension can FIND a listing it
+ * has no link to: the seller's saved usernames, and the per-platform titles the
+ * listing kit stored for this item.
+ */
+interface SearchAids {
+  handles: Record<string, string>;
+  variantTitles: Record<string, string>;
+}
+
+async function loadSearchAids(ownerId: string, itemId: string | null): Promise<SearchAids> {
+  const [handles, variants] = await Promise.all([
+    loadSellerHandles(ownerId),
+    itemId ? loadVariantTitles(ownerId, [itemId]) : Promise.resolve(new Map()),
+  ]);
+  return {
+    handles,
+    variantTitles: (itemId ? variants.get(itemId) : undefined) ?? {},
+  };
 }
 
 /**
@@ -336,6 +470,32 @@ async function notifyDelistNeeded(
 }
 
 /**
+ * US-3369: what a queued delist tells the extension. Pure, exported for tests.
+ *
+ * `listingUrl` when we have one, which is the precise path. `matchTitles` and
+ * `sellerHandle` are for when we do not: the extension opens the platform's
+ * active-listings page from its OWN config and looks for these words there.
+ * None of it is a URL the extension will navigate to, and none of it is a
+ * credential (enqueueExtensionWork refuses those by key).
+ */
+export function buildDelistQueuePayload(
+  row: SiblingRow,
+  aids: { handles: Record<string, string>; variantTitles: Record<string, string> },
+): Record<string, unknown> {
+  const payload: Record<string, unknown> = {};
+  if (row.listing_url) payload.listingUrl = row.listing_url;
+  const titles = matchTitlesFor([
+    row.listing_title,
+    aids.variantTitles[row.platform],
+    row.inventory_items.title,
+  ]);
+  if (titles.length > 0) payload.matchTitles = titles;
+  const handle = aids.handles[row.platform];
+  if (handle) payload.sellerHandle = handle;
+  return payload;
+}
+
+/**
  * US-3141: queue the sibling's delist for the extension's background drain.
  *
  * WHAT THIS CLOSES. The extension has claimed extension_work_queue rows every
@@ -358,13 +518,22 @@ async function notifyDelistNeeded(
  * automation is a slower delist; aborting the pass would leave the REMAINING
  * siblings untouched, which is a double sale.
  */
-async function queueExtensionDelist(ownerId: string, row: SiblingRow): Promise<void> {
+async function queueExtensionDelist(
+  ownerId: string,
+  row: SiblingRow,
+  aids: SearchAids,
+): Promise<void> {
   // The same rule the popup and the SaaS answer with, imported rather than
   // restated — pending-delists.ts documents what a second copy of this list
-  // already cost once. A draft was only ever prefilled and a URL-less row was
-  // published by hand: there is no page for the extension to open, so queueing
-  // one would produce a failure the seller did not cause.
-  if (!isAutoDelistable(row.listing_status, row.listing_url)) return;
+  // already cost once.
+  //
+  // Plus one condition only THIS path needs: the row must have been confirmed
+  // live. A draft was only ever prefilled, and a background search for a
+  // listing that was never posted reports a failure the seller did not cause.
+  // A draft is still searched when the seller presses Delist themselves; that
+  // is a person asking, not a robot guessing.
+  if (row.listing_status !== "active") return;
+  if (!isAutoDelistable(row.platform, row.listing_url)) return;
 
   try {
     // Two order webhooks for the same sale can both read this sibling as live
@@ -387,7 +556,7 @@ async function queueExtensionDelist(ownerId: string, row: SiblingRow): Promise<v
       platform: row.platform,
       listing_id: row.id,
       inventory_item_id: row.inventory_item_id,
-      payload: { listingUrl: row.listing_url },
+      payload: buildDelistQueuePayload(row, aids),
       source: "cross-listing-sale",
     });
     if (!result.ok) {

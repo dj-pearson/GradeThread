@@ -523,7 +523,17 @@ export interface ListerDelistPayload {
   platform: ListerPlatform;
   platformLabel: string;
   listingId: string;
-  listingUrl: string;
+  /**
+   * The listing's own page. US-3369: optional. Without it the extension opens
+   * the seller's active-listings page (from its own config) and looks for
+   * `matchTitles` there; an older extension refuses a URL-less delist, which
+   * the caller reports as "end it yourself".
+   */
+  listingUrl?: string | null;
+  /** US-3369: the words to find the listing by, most specific first. */
+  matchTitles?: string[];
+  /** US-3369: the seller's username, for platforms whose listings page needs one. */
+  sellerHandle?: string | null;
 }
 
 export function sendDelistToLister(

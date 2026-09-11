@@ -4762,6 +4762,49 @@ Deno.test({
   },
 });
 
+// US-3369: the Delist button's server step ends EVERY other listing of an item
+// — eBay through its API, the extension ones stamped and queued. Of all the
+// doors in this file this is one of the most destructive to leave open: B naming
+// A's item would pull A's live listings off every marketplace at once. Both ids
+// it takes are client-supplied, so both are asserted.
+Deno.test({
+  name: "B cannot end the other listings of A's item",
+  ignore: !CONFIGURED || !Deno.env.get("TEST_USER_A_ITEM_ID"),
+  fn: async () => {
+    const aItemId = Deno.env.get("TEST_USER_A_ITEM_ID")!;
+    const res = await fetch(`${BASE}/api/flipdesk/listings/end-other-listings`, {
+      method: "POST",
+      headers: authHeaders(B_JWT!),
+      body: JSON.stringify({ item_id: aItemId, mode: "explicit" }),
+    });
+    await res.body?.cancel();
+    assertDenied(res.status, "POST end-other-listings on a foreign item");
+  },
+});
+
+Deno.test({
+  // Both of A's ids together: the item is checked first and is foreign, so the
+  // listing id never gets as far as choosing a draft group. (The seed emits no
+  // B item, so "A's listing on B's item" cannot be expressed here; the route
+  // reads the sold listing only through the owner-checked item id.)
+  name: "B cannot end A's item's listings by naming A's sold listing too",
+  ignore: !CONFIGURED || !Deno.env.get("TEST_USER_A_ITEM_ID") ||
+    !Deno.env.get("TEST_USER_A_LISTING_ID"),
+  fn: async () => {
+    const res = await fetch(`${BASE}/api/flipdesk/listings/end-other-listings`, {
+      method: "POST",
+      headers: authHeaders(B_JWT!),
+      body: JSON.stringify({
+        item_id: Deno.env.get("TEST_USER_A_ITEM_ID")!,
+        sold_listing_id: Deno.env.get("TEST_USER_A_LISTING_ID")!,
+        mode: "explicit",
+      }),
+    });
+    await res.body?.cancel();
+    assertDenied(res.status, "POST end-other-listings naming A's item and listing");
+  },
+});
+
 // The read side takes NO id from the request — the queue is derived from the
 // caller's identity — so "denied" is the wrong assertion shape. The property
 // that matters is that A's listing never APPEARS in B's queue.

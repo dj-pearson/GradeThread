@@ -64,6 +64,7 @@ import { gradeRoiHintWouldRender } from "@/lib/flipdesk-analytics";
 import { ITEM_STATUS_LABELS } from "@/lib/constants";
 import { safeHref } from "@/lib/safe-url";
 import { PendingReviseBanner } from "@/components/flipdesk/pending-revise-banner";
+import { ItemDelistPanel, ListedOnCard } from "@/components/flipdesk/delist-panel";
 
 // US-1075: dollar floor for the "grade this to boost trust" cross-surface nudge.
 // Below this, the extra grading cost is rarely worth it, so we stay quiet.
@@ -244,6 +245,12 @@ export function FlipdeskItemPage() {
           to hide behind a tab the seller may never open. */}
       <ListingAlertsSection itemId={item.id} />
 
+      {/* US-3369: the item sold and is still listed somewhere else. One button
+          ends it everywhere; each row keeps a link to that marketplace's own
+          active listings for when the extension can't. Above the tabs for the
+          same reason as the alerts: it is live and buyable right now. */}
+      <ItemDelistPanel itemId={item.id} itemStatus={item.status} />
+
       {/* US-2519: twelve stacked panels became four groups. The editor is the
           default because it is what the page is for; everything else is a thing
           you go and look at. */}
@@ -269,6 +276,10 @@ export function FlipdeskItemPage() {
         </TabsContent>
 
         <TabsContent value="listing" className="mt-6 space-y-6">
+          {/* US-3369: every marketplace it is live on, with a link to that
+              marketplace's own list of your active listings. */}
+          <ListedOnCard itemId={item.id} />
+
           {/* US-2170: the quality score WITH its breakdown — which lever is weak
               and what fixing it is worth. */}
           <ListingQualityCard itemId={item.id} />

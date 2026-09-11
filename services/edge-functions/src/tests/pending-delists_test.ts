@@ -12,23 +12,77 @@ import { assert, assertEquals } from "@std/assert";
 Deno.env.set("SUPABASE_URL", Deno.env.get("SUPABASE_URL") ?? "http://localhost:54321");
 Deno.env.set("SUPABASE_SERVICE_ROLE_KEY", Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "test-service-key");
 
-const { isAutoDelistable, toPendingDelist, EXTENSION_DELIST_PLATFORMS } = await import(
-  "../lib/pending-delists.ts"
-);
+const {
+  isAutoDelistable,
+  toPendingDelist,
+  EXTENSION_DELIST_PLATFORMS,
+  LOCATE_DELIST_PLATFORMS,
+  matchTitlesFor,
+  normalizeSellerHandles,
+  isValidSellerHandle,
+} = await import("../lib/pending-delists.ts");
 
-Deno.test("auto-delistable requires BOTH a confirmed-active status and a URL", () => {
-  assert(isAutoDelistable("active", "https://poshmark.com/listing/x"));
+Deno.test("US-3369: a saved link makes any extension listing auto-delistable", () => {
+  for (const p of EXTENSION_DELIST_PLATFORMS) {
+    assert(isAutoDelistable(p, "https://example.test/listing/x"), `${p} with a link`);
+  }
+});
 
-  // A draft was never confirmed live — there is nothing on the marketplace to
-  // end, and offering to end it would report success for a no-op.
-  assertEquals(isAutoDelistable("draft", "https://poshmark.com/listing/x"), false);
-  // Confirmed active but we hold no link: the extension navigates to the listing
-  // URL to end it, so with no URL there is no automated path.
-  assertEquals(isAutoDelistable("active", null), false);
-  assertEquals(isAutoDelistable("active", ""), false);
-  // Already ended/sold rows are not actionable either.
-  assertEquals(isAutoDelistable("ended", "https://poshmark.com/listing/x"), false);
-  assertEquals(isAutoDelistable("sold", "https://poshmark.com/listing/x"), false);
+Deno.test("US-3369: with no link, only a platform the extension can SEARCH is auto-delistable", () => {
+  // Poshmark, Mercari, Grailed and Facebook have an active-listings page the
+  // extension can open from its own config and search by title.
+  for (const p of LOCATE_DELIST_PLATFORMS) {
+    assert(isAutoDelistable(p, null), `${p} should be searchable without a link`);
+  }
+  // Vinted's wardrobe needs a numeric member id we do not hold. Without a link
+  // there is nothing for the extension to open, so it must say "by hand".
+  assertEquals(isAutoDelistable("vinted", null), false);
+  assertEquals(isAutoDelistable("vinted", ""), false);
+  // An API platform is never the extension's job, link or not.
+  assertEquals(isAutoDelistable("ebay", "https://www.ebay.com/itm/1"), false);
+});
+
+Deno.test("US-3369: a STAMPED row reads as auto-delistable even though it is 'ended' locally", () => {
+  // THE BUG. autoEndCrossListings sets every sibling to 'ended' in the same
+  // write that stamps it, and the old rule demanded 'active', so every
+  // sale-triggered delist came back auto_delistable:false and the popup said
+  // "By hand" for all of them.
+  const out = toPendingDelist({
+    id: "l", platform: "poshmark", listing_url: "https://poshmark.com/listing/abc",
+    listing_status: "ended", inventory_item_id: "i",
+    delist_requested_at: "2026-09-11T10:00:00.000Z",
+    inventory_items: { user_id: "o", item_title: "Levi's 501" },
+  });
+  assertEquals(out.auto_delistable, true);
+});
+
+Deno.test("US-3369: every locate platform is an extension delist platform", () => {
+  for (const p of LOCATE_DELIST_PLATFORMS) {
+    assert(EXTENSION_DELIST_PLATFORMS.includes(p), `${p} is searchable but not routed to the extension`);
+  }
+});
+
+Deno.test("US-3369: match titles are most-specific first, deduplicated, capped and clipped", () => {
+  assertEquals(
+    matchTitlesFor(["Nike Hoodie M", null, "  ", "nike hoodie m", "Nike Hoodie", "a", "b", "c"]),
+    ["Nike Hoodie M", "Nike Hoodie", "a", "b"],
+  );
+  assertEquals(matchTitlesFor(["x".repeat(500)])[0].length, 200);
+  assertEquals(matchTitlesFor([]), []);
+});
+
+Deno.test("US-3369: only a plain username survives as a seller handle", () => {
+  assert(isValidSellerHandle("jane_closet.22"));
+  // Anything that could change a URL's shape is refused, not escaped.
+  for (const bad of ["jane/../x", "a b", "https://evil.test", "", "x".repeat(41), "jane?x=1", 5]) {
+    assertEquals(isValidSellerHandle(bad), false, String(bad));
+  }
+  assertEquals(
+    normalizeSellerHandles({ poshmark: "jane", mercari: "bad/one", grailed: 7 }),
+    { poshmark: "jane" },
+  );
+  assertEquals(normalizeSellerHandles(null), {});
+  assertEquals(normalizeSellerHandles(["jane"]), {});
 });
 
 Deno.test("projection maps the row shape the UI consumes", () => {
@@ -37,10 +91,11 @@ Deno.test("projection maps the row shape the UI consumes", () => {
     platform: "poshmark",
     listing_url: "https://poshmark.com/listing/abc",
     listing_status: "active",
+    listing_title: "Levi's 501 Vintage Jeans",
     inventory_item_id: "item-1",
     delist_requested_at: "2026-07-18T10:00:00.000Z",
     inventory_items: { user_id: "owner-1", item_title: "Vintage Levi's 501" },
-  });
+  }, { variantTitle: "Levis 501 Posh", sellerHandle: "jane" });
   assertEquals(out, {
     listing_id: "listing-1",
     platform: "poshmark",
@@ -50,6 +105,8 @@ Deno.test("projection maps the row shape the UI consumes", () => {
     item_id: "item-1",
     item_title: "Vintage Levi's 501",
     requested_at: "2026-07-18T10:00:00.000Z",
+    match_titles: ["Levi's 501 Vintage Jeans", "Levis 501 Posh", "Vintage Levi's 501"],
+    seller_handle: "jane",
   });
 });
 

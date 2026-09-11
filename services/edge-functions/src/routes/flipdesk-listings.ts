@@ -23,6 +23,7 @@ import {
 } from "../lib/cross-push.ts";
 import { delistMethodFor } from "../lib/cross-listing-sale.ts";
 import { loadPendingDelists } from "../lib/pending-delists.ts";
+import { endOtherListings } from "../lib/cross-listings.ts";
 import { optionalUuid } from "../lib/extension-enqueue.ts";
 import {
   createRelistDraft,
@@ -524,12 +525,101 @@ flipdeskListingsRoutes.post("/delist-confirm", async (c) => {
     })
     .eq("id", listingId);
   if (upErr) return c.json({ error: "Could not confirm the delist." }, 500);
+  // US-3369: the listing is ended, so a background delist still waiting in the
+  // queue for it has nothing left to do. Left there it opens a tab on a listing
+  // that is gone and reports a failure against work that succeeded. Only
+  // `queued` rows: a `claimed` one is already running in a browser and reports
+  // for itself. Best-effort; the stamp is what matters and it is cleared.
+  const { error: qErr } = await supabaseAdmin
+    .from("extension_work_queue")
+    .delete()
+    .eq("user_id", ownerId) // US-268
+    .eq("listing_id", listingId)
+    .eq("kind", "delist")
+    .eq("status", "queued");
+  if (qErr) console.warn("[delist-confirm] could not drop the queued delist:", qErr.message);
   // US-2179: release the item's activeListings slot once nothing is live. This
   // route never touched the item status, so an item whose only listing was an
   // extension sibling would have stayed 'listed' forever — holding a cap slot
   // the seller had already given up.
   await resyncItemListedStatus(row.inventory_item_id, ownerId);
   return c.json({ ok: true, listing_id: listingId });
+});
+
+// POST /end-other-listings — US-3369. The item sold; end its other listings.
+//
+// Two callers. Record sale sends `mode: "auto"` right after a sale is saved by
+// hand, which honours the seller's auto-end switch exactly like a webhook sale.
+// The Delist button sends `mode: "explicit"`, which does not: pressing it IS
+// the seller saying yes.
+//
+// Body: { item_id, sold_listing_id?: string | null, mode?: "auto" | "explicit" }
+//
+// TENANCY (US-268): the item is loaded filtered on the resolved owner before
+// anything else, and a sold_listing_id must belong to THAT item. Both ids are
+// client-supplied, so a foreign one is a 404 and touches nothing.
+flipdeskListingsRoutes.post("/end-other-listings", async (c) => {
+  const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
+
+  let body: { item_id?: unknown; sold_listing_id?: unknown; mode?: unknown };
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: "Invalid JSON body." }, 400);
+  }
+  const itemId = optionalUuid(typeof body.item_id === "string" ? body.item_id : undefined);
+  if (!itemId) return c.json({ error: "item_id is required." }, 400);
+  const soldListingRaw = typeof body.sold_listing_id === "string" ? body.sold_listing_id : null;
+  const soldListingId = soldListingRaw ? optionalUuid(soldListingRaw) : null;
+  if (soldListingRaw && !soldListingId) {
+    return c.json({ error: "sold_listing_id is not a valid id." }, 400);
+  }
+  const explicit = body.mode === "explicit";
+
+  const { data: item, error: itemErr } = await supabaseAdmin
+    .from("inventory_items")
+    .select("id, status")
+    .eq("id", itemId)
+    .eq("user_id", ownerId) // US-268
+    .maybeSingle();
+  if (itemErr) {
+    return failSafe(c, 500, "Could not load the item.", itemErr, "flipdesk.end-other-listings.item");
+  }
+  if (!item) return c.json({ error: "Item not found." }, 404);
+  // Ending every listing of an item that has not sold is a different action
+  // (the bulk end, with its own confirmation). Refusing here keeps a stray call
+  // from pulling a garment that is still for sale.
+  if ((item as { status: string }).status !== "sold") {
+    return c.json({ error: "Mark the item sold first." }, 409);
+  }
+
+  let draftId: string | null = null;
+  if (soldListingId) {
+    const { data: sold, error: soldErr } = await supabaseAdmin
+      .from("listings")
+      .select("id, draft_id, inventory_item_id")
+      .eq("id", soldListingId)
+      .eq("inventory_item_id", itemId) // the item was owner-checked above
+      .maybeSingle();
+    if (soldErr) {
+      return failSafe(c, 500, "Could not load the sold listing.", soldErr, "flipdesk.end-other-listings.sold");
+    }
+    if (!sold) return c.json({ error: "Listing not found." }, 404);
+    draftId = (sold as { draft_id: string | null }).draft_id;
+  }
+
+  const summary = await endOtherListings(
+    ownerId,
+    { itemId, draftId, soldListingId },
+    { honorSetting: !explicit },
+  );
+  // What is still waiting on the seller's browser for THIS item, including
+  // anything stamped by an earlier sale, so the caller can run it straight away.
+  const { pending, error: pendErr } = await loadPendingDelists(ownerId, { itemId });
+  if (pendErr) {
+    return failSafe(c, 500, "Could not load pending delists.", pendErr, "flipdesk.end-other-listings.pending");
+  }
+  return c.json({ ok: true, summary, pending });
 });
 
 // ── US-9202: the pending-revise queue ──────────────────────────────────────

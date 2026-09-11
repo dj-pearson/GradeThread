@@ -73,6 +73,89 @@
     });
   }
 
+  // US-3369: a seller's username on a marketplace, as it may appear inside a
+  // URL template. A strict character set, so a stored or messaged value can
+  // never add a path segment, a query or a host.
+  function isValidSellerHandle(v) {
+    return typeof v === "string" && /^[A-Za-z0-9._-]{1,40}$/.test(v);
+  }
+
+  // US-3369: the titles a locate search may match. Strings only, trimmed,
+  // clipped, at most four. Anything else in the array is dropped, not coerced.
+  function sanitizeMatchTitles(v) {
+    if (!Array.isArray(v)) return [];
+    const out = [];
+    for (const t of v) {
+      if (typeof t !== "string") continue;
+      const s = t.trim().slice(0, 200);
+      if (s) out.push(s);
+      if (out.length === 4) break;
+    }
+    return out;
+  }
+
+  // US-3369: the seller's own active-listings page on `platform`.
+  //
+  // The URL is ALWAYS the bundled config's template (delist.locate), never a
+  // value from a message — the same AC1 rule as newListingUrlFor. The only
+  // input is a handle, which must pass isValidSellerHandle and is only ever
+  // substituted into that template. The result is host-checked again anyway.
+  // Null when the platform has no locate page, or needs a handle it was not
+  // given.
+  function activeListingsUrlFor(selectors, platform, handle) {
+    const cfg = selectors && selectors[platform];
+    const locate = cfg && cfg.delist && cfg.delist.locate;
+    const tpl = locate && locate.enabled === true && locate.activeListingsUrl;
+    if (typeof tpl !== "string" || !/^https:\/\//.test(tpl)) return null;
+    let url = tpl;
+    if (tpl.indexOf("{handle}") >= 0) {
+      if (!isValidSellerHandle(handle)) return null;
+      url = tpl.split("{handle}").join(encodeURIComponent(handle));
+    }
+    return isAllowedDelistUrl(selectors, platform, url) ? url : null;
+  }
+
+  // US-3369: does this platform's locate page need a handle?
+  function activeListingsNeedsHandle(selectors, platform) {
+    const cfg = selectors && selectors[platform];
+    const tpl = cfg && cfg.delist && cfg.delist.locate && cfg.delist.locate.activeListingsUrl;
+    return typeof tpl === "string" && tpl.indexOf("{handle}") >= 0;
+  }
+
+  // US-3369: where a delist job opens its tab.
+  //
+  //   { url, locate:false }  the saved listing link, host-pinned as before;
+  //   { url, locate:true }   no link, so the seller's active-listings page, to
+  //                          be searched for the title;
+  //   { url:null, reason }   neither. `reason` is a short word the caller turns
+  //                          into a sentence: "bad-url", "no-titles",
+  //                          "needs-handle" or "no-page".
+  //
+  // A link that is PRESENT but fails the host check is refused outright rather
+  // than falling back to a search: a bad link is a sign of a tampered payload,
+  // and quietly doing something else with it would hide that.
+  function delistTargetFor(selectors, platform, payload) {
+    const p = payload || {};
+    if (typeof p.listingUrl === "string" && p.listingUrl !== "") {
+      return isAllowedDelistUrl(selectors, platform, p.listingUrl)
+        ? { url: p.listingUrl, locate: false, reason: null }
+        : { url: null, locate: false, reason: "bad-url" };
+    }
+    if (sanitizeMatchTitles(p.matchTitles).length === 0) {
+      return { url: null, locate: false, reason: "no-titles" };
+    }
+    const url = activeListingsUrlFor(selectors, platform, p.sellerHandle);
+    if (url) return { url: url, locate: true, reason: null };
+    return {
+      url: null,
+      locate: true,
+      reason: activeListingsNeedsHandle(selectors, platform) &&
+          !isValidSellerHandle(p.sellerHandle)
+        ? "needs-handle"
+        : "no-page",
+    };
+  }
+
   // US-2479: the LOCALE-aware form of newListingUrlFor.
   //
   // Vinted runs the same app on ~20 country domains, so "the new-listing URL"
@@ -182,5 +265,9 @@
     localesFor: localesFor,
     isAllowedDelistUrl: isAllowedDelistUrl,
     isLiveListingUrl: isLiveListingUrl,
+    isValidSellerHandle: isValidSellerHandle,
+    sanitizeMatchTitles: sanitizeMatchTitles,
+    activeListingsUrlFor: activeListingsUrlFor,
+    delistTargetFor: delistTargetFor,
   };
 })(typeof self !== "undefined" ? self : globalThis);

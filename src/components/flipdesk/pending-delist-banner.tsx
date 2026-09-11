@@ -13,6 +13,7 @@ import {
   useRunDelist,
 } from "@/hooks/use-pending-delists";
 import { QUEUED_NOTICE, useEnqueueExtensionWork } from "@/hooks/use-extension-queue";
+import { ActiveListingsLinks } from "@/components/flipdesk/delist-panel";
 
 // US-717: surfaces the extension auto-delist queue. When a cross-listed item
 // sells, its API siblings (eBay/Shopify/Depop) are ended server-side, but the
@@ -67,7 +68,14 @@ export function PendingDelistBanner() {
         platform: item.platform,
         listingId: item.listing_id,
         inventoryItemId: item.item_id,
-        ...(item.listing_url ? { payload: { listingUrl: item.listing_url } } : {}),
+        // US-3369: no link is no longer the end of it. The titles and the
+        // username let the extension find the listing on the seller's own
+        // active-listings page.
+        payload: {
+          ...(item.listing_url ? { listingUrl: item.listing_url } : {}),
+          ...(item.match_titles?.length ? { matchTitles: item.match_titles } : {}),
+          ...(item.seller_handle ? { sellerHandle: item.seller_handle } : {}),
+        },
       });
       // Deliberately NOT "Ended." The listing is still live until a desktop
       // browser opens, and saying otherwise is the one thing this whole feature
@@ -110,7 +118,7 @@ export function PendingDelistBanner() {
           {pending.map((item) => (
             <li
               key={item.listing_id}
-              className="flex items-center justify-between gap-3 rounded-md border bg-background px-2.5 py-1.5 text-sm"
+              className="flex flex-wrap items-center justify-between gap-3 rounded-md border bg-background px-2.5 py-1.5 text-sm"
             >
               <span className="min-w-0 truncate">
                 <span className="font-medium">{platformLabel(item.platform)}</span>
@@ -119,17 +127,11 @@ export function PendingDelistBanner() {
                   {item.item_title ?? "Untitled item"}
                 </span>
               </span>
-              <div className="flex shrink-0 items-center gap-1.5">
-                {item.listing_url && (
-                  <a
-                    href={item.listing_url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-xs text-brand-navy underline-offset-2 hover:underline dark:text-foreground"
-                  >
-                    Open
-                  </a>
-                )}
+              <div className="flex flex-wrap items-center justify-end gap-1.5">
+                {/* US-3369: the listing itself when we have its link, and always
+                    the marketplace's own active-listings page, for when the
+                    extension can't finish it. */}
+                <ActiveListingsLinks platform={item.platform} listingUrl={item.listing_url} />
                 {extensionReady ? (
                   <>
                     <Button

@@ -73,6 +73,8 @@ import {
   useEnqueueExtensionWork,
 } from "@/hooks/use-extension-queue";
 import { useListerLocales } from "@/hooks/use-lister-locales";
+import { useItemListings } from "@/hooks/use-item-listings";
+import { ActiveListingsLinks } from "@/components/flipdesk/delist-panel";
 import { localeForPlatform } from "@/lib/lister-locales";
 
 // The kit's channel list lives in src/lib/kit-platforms.ts (US-3046), shared
@@ -274,6 +276,10 @@ function PlatformPanel({
   // a click handler and a send that had to wait for it would be a send that
   // sometimes went to the wrong country.
   const { data: listerLocales } = useListerLocales();
+  // US-3369: this channel's own row, newest first, for the "Live on X" line.
+  // The same cached read the item page's other panels share.
+  const { data: itemListingRows = [] } = useItemListings(itemId);
+  const channelRow = itemListingRows.find((r) => r.platform === platform) ?? null;
 
   // US-1877 (AC1): the AUTOMATIC path — the extension saw the tab navigate to the
   // live listing, which means the seller submitted. Promote the draft and record
@@ -302,6 +308,7 @@ function PlatformPanel({
           toast.success(`${spec?.label ?? platform} listing is live — recorded in FlipDesk.`);
           void qc.invalidateQueries({ queryKey: ["platform-fields", itemId] });
           void qc.invalidateQueries({ queryKey: ["item_listing_platforms"] });
+          void qc.invalidateQueries({ queryKey: ["item_listings", itemId] });
           // The composer's own views of the item. A confirmed cross-post flips
           // the item to `listed`, and leaving these stale is why the status
           // chip beside the editor kept saying "drafted" after the toast said
@@ -365,6 +372,7 @@ function PlatformPanel({
       setLastFill(null);
       void qc.invalidateQueries({ queryKey: ["platform-fields", itemId] });
       void qc.invalidateQueries({ queryKey: ["item_listing_platforms"] });
+      void qc.invalidateQueries({ queryKey: ["item_listings", itemId] });
       void qc.invalidateQueries({ queryKey: ["items_full"] });
       void qc.invalidateQueries({ queryKey: ["inventory_item_ebay", itemId] });
     } catch (err) {
@@ -603,6 +611,7 @@ function PlatformPanel({
       setPrefilled(true);
       void qc.invalidateQueries({ queryKey: ["platform-fields", itemId] });
       void qc.invalidateQueries({ queryKey: ["item_listing_platforms"] });
+      void qc.invalidateQueries({ queryKey: ["item_listings", itemId] });
     } catch (err) {
       toastError(err, "Send to extension failed.");
     } finally {
@@ -753,6 +762,20 @@ function PlatformPanel({
           </Button>
         )}
       </div>
+
+      {/* US-3369: once it is live here, the way back to it. The listing itself
+          when the capture found its link, and always this marketplace's own
+          list of your active listings, so a seller can check it or end it by
+          hand whatever the extension does. */}
+      {channelRow?.listing_status === "active" && (
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs">
+          <span className="inline-flex items-center gap-1 text-muted-foreground">
+            <Check className="h-3.5 w-3.5" aria-hidden="true" />
+            Live on {spec.label}.
+          </span>
+          <ActiveListingsLinks platform={platform} listingUrl={channelRow.listing_url} />
+        </div>
+      )}
 
       {/* US-2738: what happened to the photos, kept on screen next to the
           button that records the listing as live. The toast is gone by then and

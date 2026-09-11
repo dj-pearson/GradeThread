@@ -898,6 +898,172 @@
     };
   };
 
+  // ── US-3369: find a listing on the seller's own active-listings page ──────
+  //
+  // A delist with no saved link opens that page instead of the listing. These
+  // pure helpers decide which tile, if any, is the one to end. They are
+  // deliberately CONSERVATIVE: ending the wrong listing is far worse than asking
+  // the seller to end the right one, so anything short of one clear winner is
+  // reported, never guessed.
+
+  /** Lower-case words, accents folded, punctuation dropped. */
+  GT.titleWords = function (s) {
+    return String(s == null ? "" : s)
+      .toLowerCase()
+      .normalize("NFKD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .replace(/[^a-z0-9]+/g, " ")
+      .trim()
+      .split(" ")
+      .filter(Boolean);
+  };
+
+  /**
+   * How much of `title` appears in `text`, 0..1. Recall over the title's words,
+   * because a tile carries more than the title (price, size, brand) and may
+   * clip it, and neither of those should count against a real match.
+   */
+  GT.titleMatchScore = function (title, text) {
+    const want = GT.titleWords(title);
+    if (want.length === 0) return 0;
+    const have = new Set(GT.titleWords(text));
+    let hits = 0;
+    for (const w of want) if (have.has(w)) hits++;
+    return hits / want.length;
+  };
+
+  /** Minimum score for the winner, and the score at which a runner-up blocks it. */
+  GT.LOCATE_MIN_SCORE = 0.9;
+  GT.LOCATE_RIVAL_SCORE = 0.75;
+
+  /**
+   * Pick the listing to end from `candidates` ([{ href, text }], one per
+   * listing) for any of `titles`. Returns
+   *   { status: "found", href, score }
+   *   { status: "ambiguous", count }   two or more tiles look like it
+   *   { status: "none" }               nothing close enough
+   *
+   * A runner-up at LOCATE_RIVAL_SCORE or above makes it ambiguous even when
+   * the winner is perfect: "Nike Hoodie Size M" and "Nike Hoodie Size L" are
+   * two garments, and the difference is one letter that a tile may not show.
+   */
+  GT.pickListingMatch = function (candidates, titles) {
+    const scored = [];
+    for (const c of candidates || []) {
+      let best = 0;
+      for (const t of titles || []) best = Math.max(best, GT.titleMatchScore(t, c.text));
+      scored.push({ href: c.href, score: best });
+    }
+    scored.sort(function (a, b) { return b.score - a.score; });
+    const top = scored[0];
+    if (!top || top.score < GT.LOCATE_MIN_SCORE) return { status: "none" };
+    const rivals = scored.filter(function (s) { return s.score >= GT.LOCATE_RIVAL_SCORE; });
+    if (rivals.length > 1) return { status: "ambiguous", count: rivals.length };
+    return { status: "found", href: top.href, score: top.score };
+  };
+
+  /**
+   * Every listing link on the page that matches the platform's live-listing
+   * URL shape, one entry per listing, with the words around it. Site chrome
+   * (header, nav, footer) is skipped: a listing tile is never in it.
+   */
+  GT.collectListingLinks = function (pattern) {
+    let re;
+    try { re = new RegExp(pattern, "i"); } catch (_e) { return []; }
+    const byHref = new Map();
+    const anchors = document.querySelectorAll("a[href]");
+    for (const a of Array.prototype.slice.call(anchors)) {
+      if (typeof a.closest === "function" && a.closest("header, nav, footer")) continue;
+      const href = String(a.href || "").split(/[?#]/)[0];
+      if (!re.test(href)) continue;
+      const parts = [a.textContent, a.getAttribute && a.getAttribute("title"),
+        a.getAttribute && a.getAttribute("aria-label")];
+      const imgs = a.querySelectorAll ? a.querySelectorAll("img[alt]") : [];
+      for (const img of Array.prototype.slice.call(imgs)) parts.push(img.getAttribute("alt"));
+      const prev = byHref.get(href) || "";
+      byHref.set(href, prev + " " + parts.filter(Boolean).join(" "));
+    }
+    const out = [];
+    byHref.forEach(function (text, href) { out.push({ href: href, text: text }); });
+    return out;
+  };
+
+  function locateManual(label, version, error) {
+    return { ok: false, manual: true, notFound: true, error: error, version: version };
+  }
+
+  /**
+   * Stage 0 of a delist with no link: on the active-listings page, find the
+   * listing and go to it. Records the stage BEFORE navigating, exactly as the
+   * two-page menu click does, so the listing page knows it has arrived and the
+   * search can never run twice.
+   */
+  GT.locateListing = async function (delistFlow, payload) {
+    const label = payload.platformLabel || payload.platform;
+    const version = delistFlow.version;
+    const loc = delistFlow.locate || {};
+    const cfg = ((typeof self !== "undefined" && self.GT_LISTER_SELECTORS) || {})[payload.platform] || {};
+    const pattern = cfg.liveListingUrlPattern;
+    const titles = Array.isArray(payload.matchTitles) ? payload.matchTitles : [];
+
+    if (!pattern || titles.length === 0) {
+      return locateManual(label, version, "GradeThread has nothing to search " + label +
+        " for. End the listing on " + label + " yourself.");
+    }
+    if (loc.pagePattern && !new RegExp(loc.pagePattern, "i").test(location.origin + location.pathname)) {
+      return locateManual(label, version, label + " didn't open your active listings, so " +
+        "GradeThread stopped rather than searching the wrong page. End the listing on " +
+        label + " yourself.");
+    }
+
+    // Tiles render after the page does. Give them a moment to appear at all.
+    let candidates = [];
+    for (let waited = 0; waited < 8000; waited += 400) {
+      candidates = GT.collectListingLinks(pattern);
+      if (candidates.length > 0) break;
+      await new Promise(function (r) { setTimeout(r, 400); });
+    }
+
+    // Long closets load as you scroll. Keep going until it is found, the page
+    // stops growing, or the scroll budget runs out.
+    let match = GT.pickListingMatch(candidates, titles);
+    const maxScrolls = typeof loc.maxScrolls === "number" ? loc.maxScrolls : 6;
+    for (let i = 0; i < maxScrolls && match.status === "none"; i++) {
+      const before = candidates.length;
+      try { window.scrollTo(0, document.body.scrollHeight); } catch (_e) { /* no-op */ }
+      await new Promise(function (r) { setTimeout(r, 1500); });
+      candidates = GT.collectListingLinks(pattern);
+      match = GT.pickListingMatch(candidates, titles);
+      if (candidates.length === before) break;
+    }
+
+    if (match.status === "ambiguous") {
+      return locateManual(label, version, "GradeThread found " + match.count + " " + label +
+        " listings that look like this item and won't guess which one sold. End the right " +
+        "one on " + label + " yourself.");
+    }
+    if (match.status !== "found") {
+      return locateManual(label, version, "GradeThread couldn't find this item among your " +
+        "active " + label + " listings" + (candidates.length ? " (it checked " +
+        candidates.length + ")" : "") + ". It may already be gone, or its title differs. " +
+        "Check " + label + " and end it there if it's still live.");
+    }
+
+    try {
+      await Promise.resolve(chrome.runtime.sendMessage({
+        type: "GT_LISTER_STAGE",
+        jobId: payload.jobId,
+        stage: "located",
+      }));
+    } catch (_e) {
+      return locateManual(label, version, label + " delist couldn't be tracked from your " +
+        "listings page to the listing. End the listing on " + label + " yourself.");
+    }
+    GT.log(payload.platform + ": found the listing on the active page; opening it");
+    location.assign(match.href);
+    return { deferred: true };
+  };
+
   // US-717: end a live listing on the marketplace (cross-listing auto-delist
   // after the item sold elsewhere). Same fail-loud contract as runFlow — probe
   // the required controls first, never guess. Returns:
@@ -914,6 +1080,27 @@
           label + ".",
         version: delistFlow && delistFlow.version,
       };
+    }
+
+    // US-3369: no link, so this tab opened on the seller's active listings.
+    // Find the tile and go to it; the listing page picks the job back up with
+    // stage "located" and runs the ordinary flow below from the top.
+    if (payload.locate === true && !payload.stage) {
+      return GT.locateListing(delistFlow, payload);
+    }
+    // US-3369: the second guard on a located listing. The tile matched; now
+    // the page we landed on must ALSO read like the item before anything is
+    // clicked, because a wrong tile ends somebody's other garment.
+    if (payload.locate === true && payload.stage === "located") {
+      const h1 = document.querySelector("h1");
+      const pageText = String(document.title || "") + " " + (h1 ? h1.textContent : "");
+      let best = 0;
+      for (const t of payload.matchTitles || []) best = Math.max(best, GT.titleMatchScore(t, pageText));
+      if (best < GT.LOCATE_RIVAL_SCORE) {
+        return locateManual(label, delistFlow.version, "The " + label + " listing GradeThread " +
+          "opened didn't look like this item, so it stopped before deleting anything. End " +
+          "the listing on " + label + " yourself.");
+      }
     }
 
     // US-1875 AC1: probe in INTERACTION ORDER.

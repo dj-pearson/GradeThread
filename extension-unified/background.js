@@ -2111,18 +2111,51 @@ function isValidPayload(p) {
   );
 }
 
+// US-3369: a delist is well-formed when it names a supported platform. Whether
+// it can RUN (a host-pinned link, or titles to search the active-listings page
+// for) is delistTargetFor's question, answered in handleDelistRequest with a
+// sentence the seller can act on rather than "Invalid payload".
 function isValidDelistPayload(p) {
   return (
     p &&
     typeof p === "object" &&
     typeof p.platform === "string" &&
-    SUPPORTED_LISTER[p.platform] &&
-    self.GT_LISTER_GUARD.isAllowedDelistUrl(
-      self.GT_LISTER_SELECTORS,
-      p.platform,
-      p.listingUrl,
-    )
+    SUPPORTED_LISTER[p.platform]
   );
+}
+
+// US-3369: the words for each reason delistTargetFor can refuse.
+function delistRefusalFor(platform, reason) {
+  const label = SUPPORTED_LISTER[platform] || platform;
+  if (reason === "needs-handle") {
+    return "GradeThread needs your " + label + " username to find this listing. " +
+      "Add it on the item page in GradeThread, or end the listing on " + label + " yourself.";
+  }
+  if (reason === "no-titles") {
+    return "GradeThread has no link or title for this " + label + " listing, so it " +
+      "can't find it. End it on " + label + " yourself.";
+  }
+  if (reason === "bad-url") {
+    return "That " + label + " link doesn't point at " + label + ", so GradeThread " +
+      "won't open it. End the listing on " + label + " yourself.";
+  }
+  return "GradeThread has no link to this " + label + " listing and can't search " +
+    label + " for it yet. End it on " + label + " yourself.";
+}
+
+// US-3369: the payload a delist job actually runs with. The fields the
+// content script acts on are rebuilt here from the guard's answer, so a page
+// can never set `locate` itself or slip an unsanitised title list through.
+function delistJobPayload(payload, target) {
+  const out = Object.assign({}, payload);
+  delete out.locate;
+  delete out.matchTitles;
+  delete out.sellerHandle;
+  if (target.locate) {
+    out.locate = true;
+    out.matchTitles = self.GT_LISTER_GUARD.sanitizeMatchTitles(payload.matchTitles);
+  }
+  return out;
 }
 
 // US-9202: a revise names a live listing (host-pinned like a delist) and at
@@ -2290,7 +2323,17 @@ async function beginJob(kind, payload, sender, sendResponse, clientRef) {
   // navigation. The delist target is the payload URL, already host-pinned to the
   // platform by isValidDelistPayload before we got here.
   let url;
-  if (isDelist || kind === "revise" || kind === "relist") {
+  if (isDelist) {
+    // US-3369: resolved by handleDelistRequest through delistTargetFor — the
+    // listing link, or the seller's active-listings page from our own config.
+    // Host-checked once more here, so nothing that reaches this line unvetted
+    // can open a tab.
+    url = payload.targetUrl;
+    if (!self.GT_LISTER_GUARD.isAllowedDelistUrl(self.GT_LISTER_SELECTORS, payload.platform, url)) {
+      sendResponse({ ok: false, error: "Invalid or unsupported delist payload." });
+      return;
+    }
+  } else if (kind === "revise" || kind === "relist") {
     // US-9202 / US-9203: a revise or relist opens the listing itself,
     // host-pinned by its validator exactly as a delist URL is.
     url = payload.listingUrl;
@@ -2620,13 +2663,35 @@ async function drainQueue() {
       });
     }
 
-    for (const row of plan.toRun) {
+    for (let row of plan.toRun) {
       const url = self.GT_LISTER_GUARD.newListingUrlForLocale(
         self.GT_LISTER_SELECTORS,
         row.platform,
         row.payload && row.payload.locale,
       );
-      const target = row.kind === "delist" || row.kind === "revise" || row.kind === "relist"
+      // US-3369: a delist row goes through the same delistTargetFor an
+      // interactive delist does — its link, or the seller's active-listings
+      // page to search — and a refusal says why in words.
+      const delistTarget = row.kind === "delist"
+        ? self.GT_LISTER_GUARD.delistTargetFor(self.GT_LISTER_SELECTORS, row.platform, row.payload)
+        : null;
+      if (delistTarget && !delistTarget.url) {
+        await completeQueueRow(row.id, {
+          ok: false,
+          result: { manual: true, error: delistRefusalFor(row.platform, delistTarget.reason) },
+        });
+        continue;
+      }
+      if (delistTarget) {
+        row = Object.assign({}, row, {
+          payload: Object.assign(delistJobPayload(row.payload || {}, delistTarget), {
+            targetUrl: delistTarget.url,
+          }),
+        });
+      }
+      const target = row.kind === "delist"
+        ? delistTarget.url
+        : row.kind === "revise" || row.kind === "relist"
         ? (row.payload && row.payload.listingUrl)
         : url;
       // The same guard as an interactive job: a delist or revise URL must be
@@ -3139,7 +3204,23 @@ function handleListRequest(payload, sender, sendResponse, clientRef) {
 }
 
 function handleDelistRequest(payload, sender, sendResponse, clientRef) {
-  return startJob("delist", payload, sender, sendResponse, clientRef);
+  // US-3369: a link when we have one, the active-listings page when we do not.
+  const target = self.GT_LISTER_GUARD.delistTargetFor(
+    self.GT_LISTER_SELECTORS,
+    payload.platform,
+    payload,
+  );
+  if (!target.url) {
+    sendResponse({ ok: false, manual: true, error: delistRefusalFor(payload.platform, target.reason) });
+    return;
+  }
+  return startJob(
+    "delist",
+    Object.assign(delistJobPayload(payload, target), { targetUrl: target.url }),
+    sender,
+    sendResponse,
+    clientRef,
+  );
 }
 
 // US-9202: the web's "Apply now" on a stale listing.
