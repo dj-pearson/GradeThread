@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-3319",
+  "nextId": "US-3320",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -4887,6 +4887,20 @@
         "OPERATOR: the owner approves before it is pushed, and the after-count is read back from prod rather than assumed"
       ],
       "priority": 6
+    },
+    {
+      "id": "US-3319",
+      "passes": false,
+      "title": "Eighteen size-chart guards are red on main, and the backfill that broke them is the work that closed",
+      "description": "Measured 2026-09-10. `deno test src/tests/` in the edge service reports 18 failures, all in the size-chart content guards: activewear-content, basics-mall-content, denim-content, luxury-content, outdoor-content, streetwear-content, shoe-size-scale and verified-chart-parity among them.\n\nTHEY ARE NOT A MERGE ARTEFACT, and that was checked rather than assumed. Two sessions ran the same size-chart backfill in parallel and were merged on 2026-09-10; the obvious suspicion is that the merge picked the wrong side. It did not. The same tests were run in a detached worktree at origin's own pre-merge tip 6529d7555 (\"batch 13 closes the backfill\") and fail there identically, 25 passed / 3 failed on the two sampled files. The failures predate the merge and belong to the backfill itself.\n\nWHAT THEY ACTUALLY SAY, which is the interesting part: these are guards asserting PROPERTIES of the corpus, not chart values. \"The North Face still reaches the shared outerwear chart.\" \"Columbia + Arc'teryx no longer double-match the shared outerwear chart.\" \"BAPE's apparel charts no longer read as JP, so dropping the footwear filter would no longer be caught by this brand.\" Every one of them is a guard saying its own subject has moved out from under it. Seeding a brand its own chart is exactly what makes it stop reaching a shared one, so the backfill did the right thing and left thirteen guards describing a corpus that no longer exists.\n\nThat third one is the dangerous shape and it is worth reading twice: shoe-size-scale relies on BAPE to prove that an apparel chart never answers a shoe's scale. BAPE's charts no longer read as JP, so that assertion now passes for the wrong reason, or fails while the property it guards is still true. A guard whose witness has changed is not a red test, it is a test that has stopped testing.\n\nThis has been invisible because the whole edge suite is not in `npm run verify` and main CI has been red for days for unrelated reasons (US-3308).",
+      "acceptanceCriteria": [
+        "Each of the 18 is triaged into one of three buckets and the bucket is named per test: the guard's property still holds and its witness must be re-chosen; the property is genuinely no longer true and the guard should be retired with a reason; or a real regression is hiding behind a stale assertion",
+        "No guard is fixed by loosening what it asserts. A guard that now passes because it checks less is worse than the red it replaced, and this repo has that failure recorded in at least four other places",
+        "shoe-size-scale gets a witness that cannot drift the way BAPE did, or the guard is rewritten to assert the property directly rather than through one brand's happenstance",
+        "For every guard whose witness is re-chosen, a sabotage proves it still fires: break the property it guards and watch it go red, then restore",
+        "The edge suite's real baseline is recorded in the notes as a number with a date, so the next person can tell a regression from the backlog"
+      ],
+      "priority": 3
     }
   ]
 }
