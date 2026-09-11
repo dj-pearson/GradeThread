@@ -9,6 +9,43 @@
 > They are still filed as HELD here because nobody in this session watched
 > them apply. Confirm against prod before trusting either heading.
 
+## ⏸ HELD: 00791 — drop the bare 'duluth' brand token (US-3319 follow-up)
+
+**Risk: LOW.** One `UPDATE` on `brand_size_charts`: removes `'duluth'` from
+`brand_match` on the `duluthtradingco` rows that still carry it. No schema
+change, no view, nothing the client reads. Idempotent by construction
+(`array_remove` plus a `WHERE` on the token). The same edit is in
+`sizing-charts.ts` and the regenerated `00498`, so the in-code fallback and the
+DB agree.
+
+**Apply order: after 00790.** No `NOTIFY` needed (data only). Redeploy the
+edge (boot guard expects 00791).
+
+**Check it landed:**
+
+```sql
+select brand_match from public.brand_size_charts
+ where brand_key = 'duluthtradingco';  -- no row contains 'duluth' on its own
+```
+
+## ⏸ HELD: 00790 — the second-opinion switch (US-2279 / US-3359)
+
+**Risk: LOW.** One `INSERT ... ON CONFLICT (key) DO NOTHING` into
+`system_settings` for `grading_second_opinion`, seeded DISABLED and matching
+`DEFAULT_SECOND_OPINION_CONFIG` field for field (`second-opinion_test.ts` pins
+it). Nothing runs until an operator flips `enabled` from the admin settings
+page, which until now 404'd on this key because the row never existed.
+
+**Apply order: after 00789.** No `NOTIFY` needed (a row, not a column).
+Redeploy the edge (boot guard expects 00790 or later).
+
+**Check it landed:**
+
+```sql
+select value->>'enabled', value->>'model' from public.system_settings
+ where key = 'grading_second_opinion';  -- false, claude-opus-4-8
+```
+
 ## ⏸ HELD: 00789 — the admin reference gallery (US-3334)
 
 **Risk: LOW.** One new deny-all table, `grading_reference_photos` (RLS on,

@@ -11579,7 +11579,10 @@ export const SIZING_CHARTS: SizingChart[] = [
   // nothing; the working chart is on its own prd.cc. host.
   {
     brand: "Duluth Trading Co.",
-    brandMatch: ["duluth trading", "duluthtrading", "duluth"],
+    // US-3319 named this the one live defect among eighteen red guards: a bare
+    // "duluth" resolved Duluth PACK garments (a different company, est. 1882)
+    // to this chart. Same rule as the pants chart above: two-word form only.
+    brandMatch: ["duluth trading", "duluthtrading"],
     department: "Men",
     garment: "Tops & outerwear (body inches)",
     categoryMatch: [
