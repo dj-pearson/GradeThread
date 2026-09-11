@@ -11,8 +11,21 @@
 // and a row lands in that ledger only when a sale is CONFIRMED. An unmatched
 // sale is never confirmed, so it is never suppressed, so it arrives again on
 // every single poll carrying the same key. The second half pins the two things
-// that stop it turning into rows: the route upserts, and an index exists for it
-// to upsert onto.
+// that stop it turning into rows: the route deduplicates, and an index exists as
+// the backstop.
+//
+// ⚠ REWRITTEN 2026-09-11 (US-3364), and the rewrite is the point of the file.
+//
+// The second half used to assert that the route called `.upsert()` with
+// `onConflict: "user_id,platform,dedupe_key"`. That assertion was green from the
+// day it was written, and the write it guarded failed EVERY TIME: both indexes
+// here are partial, Postgres refuses a partial index as an ON CONFLICT target
+// unless the statement repeats the predicate, PostgREST cannot send one, and the
+// answer was HTTP 400 / 42P10 on every call. A source scan can tell you the
+// string is the one you meant to write. Whether the database accepts it is a
+// different question, and it was the question that mattered.
+// sync-review-lands_test.ts answers that one against a real Postgres; this file
+// keeps the parts a source scan genuinely owns.
 
 import "./_env.ts";
 import { assert, assertEquals } from "@std/assert";
@@ -21,6 +34,7 @@ import {
   type ObservationBatch,
   planObservations,
 } from "../lib/marketplace-observations.ts";
+import { openReviewKey } from "../routes/flipdesk-sync.ts";
 
 const ROUTE = new URL("../routes/flipdesk-sync.ts", import.meta.url);
 const MIGRATIONS = new URL("../../../../supabase/migrations/", import.meta.url);
@@ -79,31 +93,39 @@ Deno.test("US-2717: an unmatched sale returns on every poll with the SAME key", 
   assertEquals(keys[0], "poshmark:ref:ORDER-1");
 });
 
-Deno.test("US-2717: the route UPSERTS unmatched rows rather than inserting them", async () => {
+Deno.test("US-2717: an unmatched sale is deduped on its dedupe_key", async () => {
   const src = await Deno.readTextFile(ROUTE);
 
-  // The unmatched block, located by the reason it writes rather than by a line
-  // number: `probable_match` with a null listing id is the shape at issue.
-  const at = src.indexOf("plan.unmatched.length > 0");
-  assert(at !== -1, "the unmatched-sales block is gone from flipdesk-sync.ts");
-  const block = src.slice(at, at + 1200);
-
+  // The unmatched rows must go through the same writer as everything else, so
+  // there is one dedupe rule rather than two call sites each assuming the other
+  // half was handled.
+  const at = src.indexOf("plan.unmatched.map(");
+  assert(at !== -1, "the unmatched-sales rows are gone from flipdesk-sync.ts");
   assert(
-    block.includes(".upsert("),
-    "the unmatched block writes with .insert(). Every poll re-emits the same " +
-      "sold row (see the planner test above), and the partial unique index from " +
-      "00632 does not cover listing_id IS NULL — so each poll adds a row. At the " +
-      "poll's 45-minute default that is ~32 copies a day, forever, and " +
-      "GET /reviews returns only the newest 200.",
+    src.includes("writeSyncReviews(ownerId, batch.platform, reviewRows)"),
+    "the review write no longer goes through writeSyncReviews, which is the " +
+      "only thing that deduplicates these rows now that neither partial index " +
+      "can be an ON CONFLICT target (US-3364)",
+  );
+
+  // And the rule itself, exercised rather than read: two polls of one unmatched
+  // sale are one identity.
+  const poll = { reason: "probable_match", listing_id: null, dedupe_key: "poshmark:ref:ORDER-1" };
+  assert(openReviewKey(poll) !== null, "an unmatched sale must be deduped");
+  assertEquals(
+    openReviewKey(poll),
+    openReviewKey({ ...poll }),
+    "the same sold row observed twice must produce one key, or the seller gets " +
+      "~32 copies a day at the poll's 45-minute default, forever, while " +
+      "GET /reviews returns only the newest 200",
   );
   assert(
-    block.includes('onConflict: "user_id,platform,dedupe_key"'),
-    "the unmatched upsert must name the 00633 index's columns; a conflict target " +
-      "with no matching unique index fails the write outright",
+    openReviewKey(poll) !== openReviewKey({ ...poll, dedupe_key: "poshmark:ref:ORDER-2" }),
+    "two different sales must not collapse into one review row",
   );
 });
 
-Deno.test("US-2717: a unique index exists for that conflict target", async () => {
+Deno.test("US-2717: a unique index exists as the backstop", async () => {
   let sql = "";
   for await (const e of Deno.readDir(MIGRATIONS)) {
     if (!e.isFile || !e.name.endsWith(".sql")) continue;
@@ -113,13 +135,15 @@ Deno.test("US-2717: a unique index exists for that conflict target", async () =>
   const idx = sql.indexOf("marketplace_sync_reviews_unmatched_uniq");
   assert(
     idx !== -1,
-    "no migration declares marketplace_sync_reviews_unmatched_uniq, so the " +
-      "route's onConflict target does not exist and every unmatched write fails",
+    "no migration declares marketplace_sync_reviews_unmatched_uniq, so two " +
+      "polls racing on the same unmatched sale both insert and the seller gets " +
+      "two rows for one problem",
   );
   const decl = sql.slice(idx, idx + 400);
   assert(
     /\(user_id,\s*platform,\s*dedupe_key\)/.test(decl),
-    "the index columns must match the route's onConflict list exactly",
+    "the index columns must match openReviewKey's dedupe branch exactly, or the " +
+      "route and the backstop disagree about what one problem is",
   );
   assert(
     /listing_id IS NULL/.test(decl),
@@ -152,13 +176,14 @@ Deno.test("US-2717: the ledger read is bounded by the batch, not by the tenant",
 Deno.test("US-2717: the source guards can actually fail (self-check)", () => {
   // Every source-scan rule here proves it can fire before it is trusted: the
   // extension's passivity guard shipped unmatchable for an hour.
-  const insertShape = `if (plan.unmatched.length > 0) {
-      await supabaseAdmin.from("marketplace_sync_reviews").insert(rows);
+  const bypassed = `if (plan.unmatched.length > 0) {
+      await supabaseAdmin.from("marketplace_sync_reviews").insert(
+        plan.unmatched.map((u) => ({ user_id: ownerId })),
+      );
     }`;
-  const at = insertShape.indexOf("plan.unmatched.length > 0");
   assert(
-    !insertShape.slice(at, at + 1200).includes(".upsert("),
-    "the upsert detection no longer spots a plain insert",
+    !bypassed.includes("writeSyncReviews(ownerId, batch.platform, reviewRows)"),
+    "the writer detection no longer spots a write that skips writeSyncReviews",
   );
 
   const unboundedLedger = `from("marketplace_sync_observations")

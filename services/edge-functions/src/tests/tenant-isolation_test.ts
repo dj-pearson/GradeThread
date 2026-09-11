@@ -7275,6 +7275,88 @@ Deno.test({
   },
 });
 
+// US-3364: and the review row that produces is B's, in B's queue, with no
+// listing on it.
+//
+// The case above asserts `body.unmatched`, which is a PLANNER count. It was 1
+// for the whole period in which the write behind it answered 42P10 and no row
+// existed at all, so on its own it proves nothing about what the database now
+// holds. writeSyncReviews reads this tenant's open rows before it writes, and
+// that read is the new scoped query on this route - if it were unscoped, B's
+// poll would find A's open review row and MERGE ONTO IT, overwriting A's queue
+// entry by primary key.
+
+Deno.test({
+  name: "B's sync review rows are B's, and A's queue is untouched",
+  ignore: !CONFIGURED || !Deno.env.get("TEST_USER_A_SYNC_LISTING_URL"),
+  fn: async () => {
+    const url = Deno.env.get("TEST_USER_A_SYNC_LISTING_URL")!;
+    const post = (jwt: string) =>
+      fetch(`${BASE}/api/flipdesk/sync/observations`, {
+        method: "POST",
+        headers: authHeaders(jwt),
+        body: JSON.stringify({
+          platform: "poshmark",
+          signedIn: true,
+          sold: [{
+            listingUrl: url,
+            title: "Tenant-A-sync-fixture",
+            soldPriceCents: 5500,
+            soldAt: "2026-08-18T12:00:00.000Z",
+            orderRef: "isolation-probe-2",
+          }],
+        }),
+      });
+
+    const res = await post(B_JWT!);
+    if (res.status === 402) {
+      await res.body?.cancel();
+      return;
+    }
+    assertEquals(res.status, 200);
+    const body = await res.json();
+    // The row LANDS. `unmatched: 1` with `reviewsInserted: 0` is the exact
+    // shape US-3364 found in production, so it is asserted here too.
+    assertEquals(
+      body.reviewsFailed,
+      0,
+      "B's review write failed. A 200 whose queue stays empty is the bug this " +
+        "assertion exists for.",
+    );
+    assertEquals(
+      (body.reviewsInserted ?? 0) + (body.reviewsRefreshed ?? 0),
+      1,
+      "B's unmatched sale produced no review row",
+    );
+
+    const mine = await fetch(`${BASE}/api/flipdesk/sync/reviews`, { headers: authHeaders(B_JWT!) });
+    assertEquals(mine.status, 200);
+    const mineBody = await mine.json();
+    const probe = (mineBody.reviews ?? []).filter((r: { dedupe_key: string | null }) =>
+      (r.dedupe_key ?? "").includes("isolation-probe-2")
+    );
+    assertEquals(probe.length, 1, "B cannot see the review row B's own poll created");
+    assertEquals(
+      probe[0].listing_id,
+      null,
+      "B's review row carries a listing id. The only listing that URL matches " +
+        "is A's, so this row would put A's listing in B's queue and would make " +
+        "B's next poll merge onto A's open review row.",
+    );
+
+    const theirs = await fetch(`${BASE}/api/flipdesk/sync/reviews`, { headers: authHeaders(A_JWT!) });
+    assertEquals(theirs.status, 200);
+    const theirsBody = await theirs.json();
+    assertEquals(
+      (theirsBody.reviews ?? []).filter((r: { dedupe_key: string | null }) =>
+        (r.dedupe_key ?? "").includes("isolation-probe-2")
+      ).length,
+      0,
+      "B's poll wrote a row into A's review queue",
+    );
+  },
+});
+
 // US-9201: the closet import matches rows on (platform, platform_listing_id).
 // That key is chosen by whoever posts the batch, so the match MUST be owner-
 // scoped: B naming A's Poshmark id has to get a fresh row of B's own, never an

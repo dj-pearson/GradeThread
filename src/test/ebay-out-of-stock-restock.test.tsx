@@ -101,9 +101,20 @@ describe("the sync agrees with itself about a cancelled order (US-2684)", () => 
   const src = code(read(SYNC));
 
   it("reads the offer quantity, not just the status word", () => {
-    expect(src).toMatch(
-      /resolveEbayListingState\(o\.listingStatus, o\.availableQuantity\)/,
-    );
+    // Pinned to the PROPERTY, not to a variable name. This case read
+    // /resolveEbayListingState\(o\.listingStatus, o\.availableQuantity\)/ and went
+    // red at US-3362, which moved the call into routeRemoteOffer and renamed
+    // `o` to `offer`. The rename changed nothing about the behaviour being
+    // guarded, and a guard that fires at a rename is one people learn to
+    // silence.
+    const calls = [...src.matchAll(/resolveEbayListingState\(([^)]*)\)/g)]
+      .map((m) => m[1] ?? "");
+    expect(calls.length, "no call to resolveEbayListingState was found at all")
+      .toBeGreaterThan(0);
+    for (const args of calls) {
+      expect(args, `resolveEbayListingState(${args}) drops the quantity`)
+        .toMatch(/\.listingStatus\s*,\s*[A-Za-z_$][\w$]*\.availableQuantity/);
+    }
   });
 
   it("a reversal does not overwrite a listing the pull just confirmed live", () => {

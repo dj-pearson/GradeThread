@@ -138,6 +138,211 @@ function writeFailed(what: string, error: { message: string } | null): boolean {
   return true;
 }
 
+/**
+ * The only columns the writer below has to UNDERSTAND: the three the two partial
+ * unique indexes are built on. Everything else on the row is payload it hands
+ * to PostgREST unread, which is why this is a constraint rather than a full
+ * row type -- the column list already exists, once, at the call site.
+ */
+export interface SyncReviewIdentity {
+  reason: string;
+  listing_id: string | null;
+  dedupe_key: string | null;
+}
+
+/** What the review write actually did, so the caller can report it. */
+export interface SyncReviewWriteResult {
+  inserted: number;
+  /** Already open, refreshed in place. This is the re-poll case. */
+  refreshed: number;
+  /** Another poll inserted the same identity between our read and our write. */
+  raced: number;
+  failed: number;
+}
+
+/**
+ * The identity of an OPEN review row, as the two partial unique indexes define
+ * it, or null for a row that neither index covers.
+ *
+ * This is the whole dedupe rule in one function so it can be read against the
+ * migrations:
+ *   marketplace_sync_reviews_open_uniq (00632)
+ *     (user_id, platform, reason, listing_id)
+ *     WHERE status = 'open' AND listing_id IS NOT NULL
+ *   marketplace_sync_reviews_unmatched_uniq (00633)
+ *     (user_id, platform, dedupe_key)
+ *     WHERE status = 'open' AND listing_id IS NULL AND dedupe_key IS NOT NULL
+ *
+ * user_id and platform are constant for one call, so they are not in the key.
+ * count_gap and circuit_breaker carry neither a listing nor a dedupe key: they
+ * describe a whole READ rather than one sale, each read is a new fact, and both
+ * indexes deliberately exclude them.
+ */
+export function openReviewKey(
+  row: { reason: string; listing_id: string | null; dedupe_key: string | null },
+): string | null {
+  if (row.listing_id !== null) return `listing:${row.reason}:${row.listing_id}`;
+  if (row.dedupe_key !== null) return `dedupe:${row.dedupe_key}`;
+  return null;
+}
+
+/**
+ * Write open review rows WITHOUT asking Postgres to infer a partial index.
+ *
+ * US-3364, measured on the local stack rather than reasoned about. Both unique
+ * indexes above are PARTIAL, and Postgres refuses a partial index as an
+ * ON CONFLICT target unless the statement repeats the index predicate. PostgREST
+ * has no way to send a predicate, so both of this route's upserts answered
+ *
+ *   HTTP 400  42P10  "there is no unique or exclusion constraint matching the
+ *                     ON CONFLICT specification"
+ *
+ * on every single call, while a control upsert on marketplace_sync_state, whose
+ * index is not partial, returned 201 in the same session. Every review row that
+ * carries a listing was therefore dropped, and the seller read an empty
+ * Reconciliation queue as nothing being wrong.
+ *
+ * The predicates are not incidental and are NOT dropped. `status = 'open'` is
+ * what lets a seller resolve a review and still be told when the same problem
+ * comes back; a total index would silently swallow the second report forever.
+ * So the dedupe moves here instead: one scoped read of this tenant's open rows,
+ * bounded by the batch, then a merge by PRIMARY KEY for the ones that exist and
+ * a plain insert for the rest. The indexes stay exactly as they are and are
+ * still the race guard, which is why a 23505 from the insert leg is a lost race
+ * rather than a failure.
+ */
+export async function writeSyncReviews<T extends SyncReviewIdentity>(
+  ownerId: string,
+  platform: string,
+  rows: T[],
+): Promise<SyncReviewWriteResult> {
+  const out: SyncReviewWriteResult = { inserted: 0, refreshed: 0, raced: 0, failed: 0 };
+  if (rows.length === 0) return out;
+
+  // ── 1. what is already open, bounded by THIS batch ────────────────────────
+  // Not the whole tenant-platform slice: the queue is small by design but its
+  // size is the seller's problem count, and the read runs on every poll. Two
+  // `.in()` filters, one per index, both capped by the batch.
+  const listingIds = [
+    ...new Set(rows.map((r) => r.listing_id).filter((v): v is string => v !== null)),
+  ];
+  const dedupeKeys = [
+    ...new Set(
+      rows.filter((r) => r.listing_id === null)
+        .map((r) => r.dedupe_key)
+        .filter((v): v is string => v !== null),
+    ),
+  ];
+
+  interface OpenRow {
+    id: string;
+    reason: string;
+    listing_id: string | null;
+    dedupe_key: string | null;
+  }
+  const existing = new Map<string, string>();
+  const absorb = (data: unknown) => {
+    for (const r of (data ?? []) as OpenRow[]) {
+      const key = openReviewKey(r);
+      if (key !== null && !existing.has(key)) existing.set(key, r.id);
+    }
+  };
+
+  // Tenant-scoped directly (US-268). The ids this read returns are the only ids
+  // the merge below is allowed to touch, so ownership is established here once.
+  if (listingIds.length > 0) {
+    const { data, error } = await supabaseAdmin
+      .from("marketplace_sync_reviews")
+      .select("id, reason, listing_id, dedupe_key")
+      .eq("user_id", ownerId)
+      .eq("platform", platform)
+      .eq("status", "open")
+      .in("listing_id", listingIds);
+    writeFailed("reading open review rows by listing", error);
+    absorb(data);
+  }
+  if (dedupeKeys.length > 0) {
+    const { data, error } = await supabaseAdmin
+      .from("marketplace_sync_reviews")
+      .select("id, reason, listing_id, dedupe_key")
+      .eq("user_id", ownerId)
+      .eq("platform", platform)
+      .eq("status", "open")
+      .is("listing_id", null)
+      .in("dedupe_key", dedupeKeys);
+    writeFailed("reading open review rows by dedupe key", error);
+    absorb(data);
+  }
+
+  // ── 2. split into a merge and an insert ───────────────────────────────────
+  const merge: (T & { id: string })[] = [];
+  const insert: T[] = [];
+  const seen = new Set<string>();
+  for (const row of rows) {
+    const key = openReviewKey(row);
+    if (key === null) {
+      insert.push(row);
+      continue;
+    }
+    // Two rows in one batch sharing one identity would violate the index
+    // against each other, and a batch insert is all-or-nothing.
+    if (seen.has(key)) continue;
+    seen.add(key);
+    const id = existing.get(key);
+    if (id !== undefined) merge.push({ ...row, id });
+    else insert.push(row);
+  }
+
+  // ── 3. merge by primary key ───────────────────────────────────────────────
+  // marketplace_sync_reviews_pkey is the only NON-partial unique index on this
+  // table, so `id` is the one conflict target PostgREST can name here. Every id
+  // came from the scoped read above.
+  if (merge.length > 0) {
+    const { error } = await supabaseAdmin
+      .from("marketplace_sync_reviews")
+      .upsert(merge, { onConflict: "id", ignoreDuplicates: false });
+    if (writeFailed(`refreshing ${merge.length} open review row(s)`, error)) {
+      out.failed += merge.length;
+    } else {
+      out.refreshed += merge.length;
+    }
+  }
+
+  // ── 4. insert the rest ────────────────────────────────────────────────────
+  if (insert.length > 0) {
+    const { error } = await supabaseAdmin.from("marketplace_sync_reviews").insert(insert);
+    if (!error) {
+      out.inserted += insert.length;
+    } else if (error.code === "23505") {
+      // A concurrent poll for the same tenant and platform won. The index did
+      // its job; the problem is that a batch insert takes the innocent rows
+      // down with the duplicate, so they are retried one at a time.
+      for (const row of insert) {
+        const { error: one } = await supabaseAdmin
+          .from("marketplace_sync_reviews")
+          .insert(row);
+        if (!one) out.inserted++;
+        else if (one.code === "23505") out.raced++;
+        else if (writeFailed(`a ${row.reason} review row`, one)) out.failed++;
+      }
+      // Said out loud, because `raced` is also what a BROKEN dedupe looks like:
+      // if the read above failed, or openReviewKey stopped matching the index,
+      // every re-poll lands here and the queue stays correct only because the
+      // index catches it. A quiet counter would make that indistinguishable
+      // from two polls overlapping once.
+      console.warn(
+        `[flipdesk-sync] ${out.raced} review row(s) lost a race on the open-review ` +
+          `indexes for ${platform}; if this is every poll, the dedupe read is broken`,
+      );
+    } else {
+      writeFailed(`${insert.length} review row(s)`, error);
+      out.failed += insert.length;
+    }
+  }
+
+  return out;
+}
+
 /** Is this account allowed to sync at all? Same resolution as the Lister gate. */
 async function sellerGate(ownerId: string): Promise<boolean> {
   const { data } = await supabaseAdmin
@@ -277,12 +482,20 @@ flipdeskSyncRoutes.post("/observations", async (c) => {
       });
     }
 
-    // ── review rows ────────────────────────────────────────────────────────
-    // Upserted on the partial unique index so a poll every 30 minutes reporting
-    // the same unexplained absence does not hand the seller forty copies of one
-    // problem.
-    if (plan.review.length > 0) {
-      const rows = plan.review.map((r) => ({
+    // ── review rows and unmatched sales ────────────────────────────────────
+    // One write for both. They are two branches of ONE queue and each is
+    // covered by its own partial index, so writeSyncReviews owns the whole
+    // dedupe rule rather than splitting it across two call sites that each half
+    // believed the database was doing it (US-3364).
+    //
+    // A poll every 30 minutes re-observes the same unexplained absence, and an
+    // unmatched sale is never written to the dedupe ledger at all -- only
+    // confirmed sales are -- so `seenKeys` above can never suppress it and every
+    // poll re-emits the same sold row with the same key. Without the dedupe the
+    // seller opens the queue to forty copies of one problem.
+    const now = new Date().toISOString();
+    const reviewRows = [
+      ...plan.review.map((r) => ({
         user_id: ownerId,
         platform: batch.platform,
         reason: r.reason,
@@ -297,56 +510,27 @@ flipdeskSyncRoutes.post("/observations", async (c) => {
         unexplained: r.unexplained ?? null,
         claimed: r.claimed ?? null,
         cap: r.limit ?? null,
-        updated_at: new Date().toISOString(),
-      }));
-      const withListing = rows.filter((r) => r.listing_id !== null);
-      const withoutListing = rows.filter((r) => r.listing_id === null);
-      if (withListing.length > 0) {
-        const { error } = await supabaseAdmin
-          .from("marketplace_sync_reviews")
-          .upsert(withListing, {
-            onConflict: "user_id,platform,reason,listing_id",
-            ignoreDuplicates: false,
-          });
-        writeFailed(`${withListing.length} review row(s) with a listing`, error);
-      }
-      // count_gap and circuit_breaker carry no listing id, so the partial index
-      // does not cover them; they are plain inserts and are expected to recur.
-      if (withoutListing.length > 0) {
-        const { error } = await supabaseAdmin
-          .from("marketplace_sync_reviews")
-          .insert(withoutListing);
-        writeFailed(`${withoutListing.length} review row(s) with no listing`, error);
-      }
-    }
-
-    // ── unmatched sales ────────────────────────────────────────────────────
-    // Upserted on marketplace_sync_reviews_unmatched_uniq (00633), NOT inserted.
-    // An unmatched sale is never written to the dedupe ledger -- only confirmed
-    // sales are -- so `seenKeys` above can never suppress it, and every poll
-    // re-emits the same sold row with the same key. A plain insert therefore
-    // grows one row per poll forever, which is the exact failure the review
-    // queue's other unique index exists to prevent.
-    if (plan.unmatched.length > 0) {
-      const { error } = await supabaseAdmin.from("marketplace_sync_reviews").upsert(
-        plan.unmatched.map((u) => ({
-          user_id: ownerId,
-          platform: batch.platform,
-          reason: "probable_match",
-          status: "open",
-          listing_id: null,
-          inventory_item_id: null,
-          listing_url: u.listingUrl,
-          title: u.title,
-          sold_price_cents: u.soldPriceCents,
-          sold_at: u.soldAt,
-          dedupe_key: u.dedupeKey,
-          updated_at: new Date().toISOString(),
-        })),
-        { onConflict: "user_id,platform,dedupe_key", ignoreDuplicates: false },
-      );
-      writeFailed(`${plan.unmatched.length} unmatched sale row(s)`, error);
-    }
+        updated_at: now,
+      })),
+      ...plan.unmatched.map((u) => ({
+        user_id: ownerId,
+        platform: batch.platform,
+        reason: "probable_match",
+        status: "open",
+        listing_id: null,
+        inventory_item_id: null,
+        listing_url: u.listingUrl,
+        title: u.title,
+        sold_price_cents: u.soldPriceCents,
+        sold_at: u.soldAt,
+        dedupe_key: u.dedupeKey,
+        unexplained: null,
+        claimed: null,
+        cap: null,
+        updated_at: now,
+      })),
+    ];
+    const reviewWrite = await writeSyncReviews(ownerId, batch.platform, reviewRows);
 
     // ── confirmed sales ────────────────────────────────────────────────────
     let delisted = 0;
@@ -476,6 +660,14 @@ flipdeskSyncRoutes.post("/observations", async (c) => {
       // says what the planner decided; these say what the database did.
       markedSold,
       markSoldFailed,
+      // US-3364: the same distinction for the review queue. `review` and
+      // `unmatched` say what the planner decided; these four say what the
+      // database did with it. `reviewsFailed` above zero is the shape this
+      // story found -- a 200 whose queue stayed empty.
+      reviewsInserted: reviewWrite.inserted,
+      reviewsRefreshed: reviewWrite.refreshed,
+      reviewsRaced: reviewWrite.raced,
+      reviewsFailed: reviewWrite.failed,
     });
   } catch (err) {
     return failSafe(c, 502, "Couldn't record the sync observations.", err, "flipdesk.sync.observations");
