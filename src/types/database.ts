@@ -1217,6 +1217,19 @@ export interface PhotoQaIssue {
 export interface AiFieldSource {
   source: string; // e.g. "text", "photo:tag", "photo:front"
   confidence: number; // 0..1
+  // US-3352: the stored value is a TRI-state, and this declaration is
+  // deliberately narrower than it. In the jsonb: `true` = a person was shown
+  // this value and kept it (only a review surface may write that), `false` = a
+  // person was shown it and rejected it, `null` = the server applied it
+  // headlessly and nobody was asked. An entry with no key at all predates the
+  // rule. The edge writes the null on every auto-apply path; see the block
+  // comment above MAX_PHOTOS in
+  // services/edge-functions/src/routes/flipdesk-ai.ts.
+  //
+  // Widening this to `boolean | null` also needs AiSourceMeta in
+  // src/components/flipdesk/measurement-form.tsx:54 widened, which was outside
+  // US-3352's scope fence. Nothing in src/ reads the key today, so the narrow
+  // type costs nothing yet -- but do NOT write `if (src.accepted)` against it.
   accepted: boolean;
 }
 

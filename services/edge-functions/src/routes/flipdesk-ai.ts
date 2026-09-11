@@ -77,6 +77,81 @@ import { buildTitleSyncPatch } from "../lib/title-sync-patch.ts";
 
 const MAX_PHOTOS = 8;
 
+// --- US-3352: what `ai_field_sources[field].accepted` means ---
+//
+// The key exists to record that a PERSON agreed with an AI-extracted value.
+// Every server-side auto-apply site in this file used to stamp the literal
+// `true` on it, so it recorded an agreement nobody had been asked for, on every
+// field, including the confident ones no review surface ever displays. A key
+// with one possible value cannot be read: `accepted / suggested` is 1.00 for
+// every item, every field and every model, forever.
+//
+// It is a tri-state now, and the states are mutually exclusive:
+//
+//   true   A person was shown this value and kept it. ONLY a review surface
+//          (the iOS AI-fill sheet, the web composer's AI fill) may write this.
+//   false  A person was shown it and rejected, cleared or replaced it.
+//   null   The server applied it headlessly. Nobody was asked, so there is no
+//          acceptance to record -- and, just as importantly, no rejection.
+//
+// A missing key is a FOURTH reading and means "written before this rule", which
+// `readAcceptance` reports as `unknown` rather than folding into one of the
+// three. Rows written before 2026-09-11 carry the constant and are therefore
+// unknowable either way; see the story's AC3 census query.
+//
+// This changes no schema. `inventory_items.ai_field_sources` is
+// `jsonb NOT NULL DEFAULT '{}'` (migration 00024) with no CHECK on its interior,
+// so a nested JSON null is already legal. Verified against the live schema.
+export type AcceptanceState = boolean | null;
+
+/** One `ai_field_sources` entry. Mirrors `AiFieldSource` in src/types/database.ts. */
+export interface AiFieldSourceEntry {
+  source: string;
+  confidence: number;
+  accepted: AcceptanceState;
+}
+
+/**
+ * The acceptance a headless server-side apply is allowed to record: none.
+ *
+ * Named rather than inlined so that a future site that wants to claim a human
+ * agreed has to say so in words, and so the three write sites below cannot
+ * drift apart from each other again.
+ */
+export const AUTO_APPLIED_ACCEPTANCE: AcceptanceState = null;
+
+/** Provenance entry for a value the server applied without asking anyone. */
+export function autoAppliedFieldSource(
+  source: string,
+  confidence: number,
+): AiFieldSourceEntry {
+  return { source, confidence, accepted: AUTO_APPLIED_ACCEPTANCE };
+}
+
+/** How one stored entry should be read. See the block comment above. */
+export type AcceptanceReading =
+  | "accepted"
+  | "rejected"
+  | "not_shown"
+  | "unknown";
+
+/**
+ * Read an entry off the stored jsonb. Total: anything that is not an object
+ * carrying the key, or that carries a non-boolean non-null value under it,
+ * reads as `unknown` rather than being coerced into an answer.
+ */
+export function readAcceptance(entry: unknown): AcceptanceReading {
+  if (entry === null || typeof entry !== "object" || Array.isArray(entry)) {
+    return "unknown";
+  }
+  if (!Object.prototype.hasOwnProperty.call(entry, "accepted")) return "unknown";
+  const value = (entry as { accepted?: unknown }).accepted;
+  if (value === true) return "accepted";
+  if (value === false) return "rejected";
+  if (value === null) return "not_shown";
+  return "unknown";
+}
+
 // AI item-enrichment endpoints. Mounted at /api/flipdesk/ai (authed).
 // workspaceOwnerId is set by workspaceMiddleware — billing, item ownership,
 // and ai-actions counter all live on the workspace owner. userId stays
@@ -1142,11 +1217,12 @@ async function persistCanonicalAttributes(args: {
     if (!isEmpty) continue;
     merged[key] = value;
     const sug: AttributeSuggestion | undefined = allSuggestions[key];
-    aiSources[key] = {
-      source: sug?.source ?? "ai",
-      confidence: sug?.confidence ?? 0,
-      accepted: true,
-    };
+    // US-3352: headless. `/extract` gap-fills canonical attributes server-side
+    // and no client surfaces them, so there is no human agreement to record.
+    aiSources[key] = autoAppliedFieldSource(
+      sug?.source ?? "ai",
+      sug?.confidence ?? 0,
+    );
     attributesChanged = true;
   }
 
@@ -1794,11 +1870,9 @@ flipdeskAiRoutes.post("/bulk-extract", async (c) => {
           continue;
         }
         update[field] = sug.value;
-        aiSources[field] = {
-          source: sug.source,
-          confidence: sug.confidence,
-          accepted: true,
-        };
+        // US-3352: bulk-extract runs over a whole shelf of items with nobody
+        // watching any single field, so this is an apply, not an acceptance.
+        aiSources[field] = autoAppliedFieldSource(sug.source, sug.confidence);
         applied.push(field);
         if (decision === "replace") replaced.push(field);
       }
@@ -1837,11 +1911,11 @@ flipdeskAiRoutes.post("/bulk-extract", async (c) => {
         if (decision === "replace") replaced.push(key);
         mergedAttrs[key] = value;
         const sug = allAttrSuggestions[key];
-        aiSources[key] = {
-          source: sug?.source ?? "ai",
-          confidence: sug?.confidence ?? 0,
-          accepted: true,
-        };
+        // US-3352: same pass, same reason as the columns above.
+        aiSources[key] = autoAppliedFieldSource(
+          sug?.source ?? "ai",
+          sug?.confidence ?? 0,
+        );
         applied.push(key);
         attributesChanged = true;
       }
