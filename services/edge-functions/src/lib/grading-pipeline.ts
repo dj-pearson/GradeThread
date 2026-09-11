@@ -21,6 +21,12 @@ import {
   type VerificationImage,
 } from "./ai-grading.ts";
 import { DEFECT_WEIGHTS_VERSION } from "./defect-weighting.ts";
+import {
+  applyCardSizing,
+  cardSizingEnabled,
+  fitCardInImage,
+  wantsCardSizing,
+} from "./card-defect-sizing.ts";
 import { Image } from "imagescript";
 import {
   resolveTrustedStyle,
@@ -1956,6 +1962,20 @@ export async function processSubmission(submissionId: string) {
           );
         }
       });
+
+      // US-3333: when a MeasureCard is in a flaw photo, size each localized
+      // flaw from the card instead of the model's estimate. Flag-gated (a
+      // bucket change moves the grade), runs while the bytes are resident,
+      // makes no vision call, and leaves an analysis untouched when there is
+      // no trustworthy card in frame.
+      if (cardSizingEnabled()) {
+        for (let i = 0; i < results.length; i++) {
+          const analysis = results[i].result;
+          if (!analysis || !wantsCardSizing(analysis)) continue;
+          const fit = await fitCardInImage(imageData[i].dataUri);
+          if (fit) results[i] = { ...results[i], result: applyCardSizing(analysis, fit) };
+        }
+      }
 
       // US-1537: capture the ≤4 verification photos WHILE the base64 data is
       // still resident (imageData is scoped to this closure). Deterministic
