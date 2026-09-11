@@ -289,6 +289,15 @@ jobs:
       - name: Migrations parse
         if: ${{ !cancelled() }}
         run: node scripts/migrations-parse.mjs
+      # US-3410: the differ that compares prod's column set to the one the
+      # migrations build. Only the OFFLINE half runs here — the live read needs
+      # a real anon key and this workflow carries the placeholder above, so a
+      # live run would silently compare against nothing. This proves the differ
+      # still reports a planted difference in both directions and still fails
+      # closed on an empty read; `npm run verify` runs the live half locally.
+      - name: Prod schema drift (offline self-test)
+        if: ${{ !cancelled() }}
+        run: node scripts/prod-schema-drift.mjs --self-test
       # US-2402: same gap again. The UI anti-pattern gate (US-2336) was a verify
       # lane only, so the hook was stricter than CI and a --no-verify push shed
       # it entirely — for a gate whose ENFORCED rules block on the tells the

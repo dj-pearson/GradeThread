@@ -389,6 +389,20 @@ if (on("web")) {
   // 2026-09-11 in 30de51229 wired into NOTHING, which is the same defect one
   // level up: a guard that passes and never runs (US-3308 AC6).
   run("web: loose repair SQL", "node scripts/check-loose-repair-sql.mjs");
+  // US-3410: prod's column set against the one the migrations build, both
+  // directions. `listings.ebay_drift` has been in prod since July and is built
+  // by no file in this tree; it was found by accident while reading about a
+  // different column, and one accident means the comparison had never been run.
+  //
+  // TWO invocations on purpose. The --self-test is offline and deterministic,
+  // so it can gate CI, which holds only a placeholder anon key; the live diff
+  // needs a real one and SKIPS loudly without it, the same bargain the Docker
+  // lanes make. Every call it makes is a GET.
+  run(
+    "web: prod schema drift (self-test + live when credentialed)",
+    "node scripts/prod-schema-drift.mjs --self-test && " +
+      "node scripts/prod-schema-drift.mjs --if-credentialed",
+  );
   // US-3343: the label used to read "(prd-lint/digest)", naming two of the 43
   // suites vitest.scripts.config.mjs collects. That is how a working guard got
   // reported as dead — scripts/operator-scripts-start.test.mjs is in this lane
