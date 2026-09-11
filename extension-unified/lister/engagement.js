@@ -355,6 +355,45 @@
     };
   }
 
+  /**
+   * The offer price a run sends, in the units Poshmark's own field accepts.
+   * Null when there is no usable price, so the caller can refuse the run.
+   * (US-2739)
+   *
+   * THE FIFTH PLACE a FlipDesk price becomes keystrokes in a marketplace input,
+   * and the one nothing was counting. The other four - the desk and queued
+   * `list` payloads and the two `revise` payloads - all cross the boundary in
+   * marketplace-price.ts. This number never touches a listing payload: the
+   * seller types it in the popup, the background builds a run from it, and
+   * `offerOne` in poshmark-engage.js types it into Poshmark's offer field. So
+   * the rule has to exist here too, and here is the pure module rather than the
+   * message handler, because a message handler cannot be called by a test.
+   *
+   * WHY NULL RATHER THAN A NUMBER FOR A BAD VALUE. This was
+   * `Math.max(1, Math.floor(Number(raw) || 0))` inline in background.js, one
+   * line above `if (action === "offer" && !run.offerPrice) refuse`. The clamp
+   * ran first, so an empty price box (the popup sends 0), a non-numeric value
+   * and a negative one all reached that check as 1 - truthy - and it refused
+   * none of them. Pressing Start with a blank price box sent a ONE DOLLAR offer
+   * to every liker in the closet, which is the outcome the clamp was written to
+   * prevent. A missing price is not a cheap price; it is no price.
+   *
+   * FLOORS, and that is the behaviour this replaces rather than a choice made
+   * here. Every other Poshmark price path rounds to NEAREST. Flooring is
+   * defensible on this one - an offer to likers must stay at least 10% below
+   * the listing price, and rounding up can cross that line and be refused - but
+   * the two directions do disagree and settling it is not a refactor's job.
+   */
+  function offerPrice(raw) {
+    var n = Number(raw);
+    // Non-finite is its own case: Math.max(1, Infinity) is Infinity, and
+    // String(Infinity) is what would have been typed into the price field.
+    if (!isFinite(n) || !(n > 0)) return null;
+    // Never below a dollar, for the same reason the listing price is never
+    // below one step: a 40c price the seller really typed is a price.
+    return Math.max(1, Math.floor(n));
+  }
+
   root.GT_ENGAGE = {
     CLICKWRAP_VERSION: CLICKWRAP_VERSION,
     CLICKWRAP_TERMS: CLICKWRAP_TERMS,
@@ -377,5 +416,6 @@
     acceptClickwrap: acceptClickwrap,
     nextDelayMs: nextDelayMs,
     planRun: planRun,
+    offerPrice: offerPrice,
   };
 })(typeof self !== "undefined" ? self : globalThis);

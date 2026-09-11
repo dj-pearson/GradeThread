@@ -3523,9 +3523,13 @@ ext.runtime.onMessage.addListener(function (msg, sender, sendResponse) {
         const run = {
           runId: runId,
           action: action,
-          // Only read for offers, and clamped so a bad field cannot send a
-          // one-cent offer to every liker in the closet.
-          offerPrice: action === "offer" ? Math.max(1, Math.floor(Number(msg.offerPrice) || 0)) : null,
+          // Only read for offers. The rule lives in GT_ENGAGE.offerPrice
+          // (US-2739): whole dollars, never below one, and NULL when there is
+          // no usable price so the refusal below can fire. The clamp used to be
+          // written out here as Math.max(1, Math.floor(...)), which turned an
+          // empty price box into the number 1 - truthy - so the refusal never
+          // fired and a $1 offer went to every liker in the closet.
+          offerPrice: action === "offer" ? self.GT_ENGAGE.offerPrice(msg.offerPrice) : null,
           tabId: tab.id,
           startedAt: new Date().toISOString(),
         };
