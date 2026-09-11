@@ -87,6 +87,30 @@ export const KNOWN_GAPS = new Map([
     "00637",
     "the second half of the withdrawn lulufanatics crawler — see 00636.",
   ],
+  // ── Held on a branch, 2026-09-11 ──────────────────────────────────────────
+  // These three are NOT holes. Each is a finished migration parked on a local
+  // branch waiting for the owner to merge it, and each entry names the branch.
+  //
+  // The entry is SELF-CLEARING BY DESIGN: the `filled` check below fails on a
+  // KNOWN_GAPS entry that has a file, so the branch that lands the migration
+  // MUST delete its own entry in the same commit. The rebuilt branches already
+  // do. So "gap explained" and "gap filled" are both green and there is no
+  // third state where this list can quietly go stale.
+  [
+    "00793",
+    "held on held-v2/us-3387-00793 (retire 23 size charts a rename orphaned). "
+      + "That branch deletes this entry when it lands.",
+  ],
+  [
+    "00794",
+    "held on held-v2/us-3397-00794 (stop anon enumerating the storage "
+      + "buckets). That branch deletes this entry when it lands.",
+  ],
+  [
+    "00795",
+    "held on held-v2/us-3398-00795 (the deletion log stops claiming a purge it "
+      + "never checked). That branch deletes this entry when it lands.",
+  ],
   [
     "00527",
     "held on purpose: 00527_revoke_public_function_execute.sql.BLOCKED. The " +
