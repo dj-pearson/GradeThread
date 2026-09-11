@@ -109,6 +109,98 @@
     return null;
   }
 
+  // ── US-3367: what the PAGE said about the photos ─────────────────────────
+  //
+  // `reasonFor` above reads exactly ONE field off `row.result`, and that is the
+  // whole defect this section exists to close. A cross-post whose uploader
+  // accepted the file selection and then rendered nothing out of the bytes sets
+  // no `error` at all: the run completed, the row carries no reason, and the
+  // seller is given no cause to go and look at a listing that has no images on
+  // it. The queue is the surface where that costs the most, because a seller who
+  // queued six from a thrift store and walked away is the seller least likely to
+  // open any of them afterwards.
+  //
+  // THE WORDS ARE NOT OURS TO CHOOSE. US-2738 settled this taxonomy for the
+  // direct send, in photoWitnessState (src/lib/lister-extension.ts). This is the
+  // same four states, in the same order, deciding the same way, because a second
+  // vocabulary for one fact is a pair of surfaces that will disagree about
+  // whether a listing has photos. test/queue-photo-witness.test.cjs EXECUTES the
+  // TypeScript one against this one over the same inputs, so the copy cannot
+  // drift quietly.
+  //
+  //   "confirmed"          the page rendered a preview out of our bytes.
+  //   "refused"            the page was asked and rendered nothing.
+  //   "unknown"            nobody checked, or this build does not know the word.
+  //   "nothing-to-attach"  there were no photos in play; no claim to qualify.
+  var PHOTO_WITNESS_STATES = ["confirmed", "refused", "unknown", "nothing-to-attach"];
+
+  /**
+   * The stored run's own answer about its photos, in one word.
+   *
+   * THE DEFAULT ARM IS "unknown" AND THAT IS THE POINT. An absent witness, a
+   * witness word a future extension invents, and a channel that declares no
+   * preview selector all mean the same thing here: nothing outside the extension
+   * has said the photos landed. Mapping any of them into the confirmed sentence
+   * is how a seller reads "done" and never opens the listing. Absence is not
+   * confirmation.
+   */
+  function photoWitnessState(result) {
+    var res = result && typeof result === "object" ? result : {};
+    switch (res.photosWitness) {
+      case "page":
+        return "confirmed";
+      case "none":
+        return "refused";
+      default:
+        break;
+    }
+    // No witness we know. Either nothing was attempted or nothing recorded an
+    // answer, and those are different sentences to a seller.
+    if (res.photosTotal === undefined) {
+      // An install old enough to send no counts at all. `photosAttached: true`
+      // from that build is the pre-US-1877 boolean, a claim with nothing behind
+      // it, so it reads as unknown rather than as the success it calls itself.
+      return res.photosAttached === undefined ? "nothing-to-attach" : "unknown";
+    }
+    if (res.photosTotal <= 0) return "nothing-to-attach";
+    return "unknown";
+  }
+
+  /**
+   * The sentence, or null when there is nothing to say.
+   *
+   * QUIET EXCEPT FOR THE REFUSAL. Mercari, Grailed, Vinted and Facebook declare
+   * no photoConfirm, so every ordinary run on four of the five channels lands in
+   * "unknown". That state is RECORDED here and carried on the row; what it must
+   * never be is an alarm, because a warning that fires on every ordinary run is
+   * how a seller learns to dismiss the one that matters. Only "refused" sets
+   * `photoAlert`.
+   *
+   * "confirmed" says what was actually checked and no more. The witness is a
+   * BOOLEAN (some uploaders draw one carousel node for eight files) so it
+   * proves the uploader read the list, never that every file is on the listing,
+   * and it must not put a number in front of the seller.
+   */
+  function photoNoteFor(state, platformLabel) {
+    var who = platformLabel || "the marketplace";
+    if (state === "refused") {
+      return who + " never showed the photos it was handed, so they are not on " +
+        "the listing. Add them there yourself: running this again hands the same " +
+        "uploader the same list and gets the same nothing.";
+    }
+    if (state === "confirmed") {
+      return who + " previewed the photos we sent, so its uploader took them. " +
+        "That check is one preview and not a count, so look at the listing " +
+        "before you post.";
+    }
+    if (state === "unknown") {
+      return "Nothing confirmed the photos reached " + who + ". We handed them " +
+        "over and this run recorded no answer either way, so check the listing " +
+        "before you post.";
+    }
+    return null;
+  }
+
   /**
    * A title, when the row has one to give.
    *
@@ -161,14 +253,24 @@
     var stages = o.stages && typeof o.stages === "object" ? o.stages : null;
     var jobInfo = status === "claimed" && stages && stages[row.id] ? stages[row.id] : null;
     var stageText = jobInfo ? stageLabel(jobInfo.stage) : null;
+    var platformLabel = label(
+      (o.platformLabels || PLATFORM_LABELS), row.platform, "the marketplace",
+    );
+    // US-3367: the run's own answer about its photos, on every row, whatever
+    // the row's status. It is deliberately NOT folded into `needsAttention`:
+    // that flag means "this never reached the marketplace", which is the one
+    // thing a refused-photo run did do, and it carries Retry with it, which is the
+    // single action that cannot help here.
+    var photoState = photoWitnessState(row.result);
     return {
       id: row.id,
       kind: typeof row.kind === "string" ? row.kind : "list",
       kindLabel: label(KIND_LABELS, row.kind, "Job"),
       platform: typeof row.platform === "string" ? row.platform : "",
-      platformLabel: label(
-        (o.platformLabels || PLATFORM_LABELS), row.platform, "the marketplace",
-      ),
+      platformLabel: platformLabel,
+      photoState: photoState,
+      photoAlert: photoState === "refused",
+      photoNote: photoNoteFor(photoState, platformLabel),
       title: titleFor(row),
       state: status,
       stateLabel: label(STATE_LABELS, status, status),
@@ -332,6 +434,9 @@
     PLATFORM_LABELS: PLATFORM_LABELS,
     STATE_LABELS: STATE_LABELS,
     STATE_CLASS: STATE_CLASS,
+    PHOTO_WITNESS_STATES: PHOTO_WITNESS_STATES,
+    photoWitnessState: photoWitnessState,
+    photoNoteFor: photoNoteFor,
     viewRow: viewRow,
     sortRows: sortRows,
     buildList: buildList,

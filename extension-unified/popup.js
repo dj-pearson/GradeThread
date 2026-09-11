@@ -1716,6 +1716,20 @@ function renderQueueRow(list, row, caps) {
     why.textContent = row.reason;
     list.appendChild(why);
   }
+
+  // US-3367: the photo refusal, which is not a failure and not a success.
+  //
+  // `photoAlert` is set for ONE of the four witness states (queue-view.js).
+  // The other three are recorded on the row and render nothing here on
+  // purpose: "unknown" is every ordinary Mercari, Grailed, Vinted and Facebook
+  // run, and a line that appears on all of them trains the seller to skip the
+  // line that means their listing has no images on it.
+  if (row.photoAlert && row.photoNote) {
+    const photos = document.createElement("li");
+    photos.className = "pop-delist-why";
+    photos.textContent = row.photoNote;
+    list.appendChild(photos);
+  }
 }
 
 function wireQueue() {
