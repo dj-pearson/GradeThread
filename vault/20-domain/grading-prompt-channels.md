@@ -160,11 +160,13 @@ the flag-gated rollout meaningful: with `GRADING_BASELINES` or `GRADING_TAG_OCR`
 off, the prompt is the previously-evaluated one, not a near-copy.
 
 Each block also appends its own `prompt_version` suffix — `+baseline`, `+fabric`,
-`+visual`, `+tag`, `+cat2`, `+roles`, `+clean2`, `+sysschema`, in that fixed order — so
+`+visual`, `+tag`, `+cat2`, `+roles`, `+clean2`, `+sysschema`, `+scale`, in that fixed order — so
 accuracy-tracking can attribute an era per block. Suffixes APPEND; reordering them would
 silently reinterpret every version string already recorded against past grades. `+roles`
 (US-2471) went on the end for exactly that reason, not because it belongs last, and
-`+clean2` (US-3329) and `+sysschema` (US-3150) went after it for the same one.
+`+clean2` (US-3329), `+sysschema` (US-3150) and `+scale` (US-3332) went after it for the same one.
+`+scale` changes only the PER-IMAGE system prompt, so the grade string carries it the way it
+carries `+roles`: marked when any per-image read's own stamp ends in `+scale`, never from the flag.
 
 ## The photo role is a SELLER-CHOSEN selector over server-written sentences
 

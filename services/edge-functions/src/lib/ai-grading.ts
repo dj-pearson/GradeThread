@@ -17,6 +17,7 @@ import {
   reviewConfidenceThreshold,
 } from "./ai-config.ts";
 import { supabaseAdmin } from "./supabase.ts";
+import { applyScaleReferenceWording } from "./scale-reference.ts";
 import { captureServer } from "./posthog.ts";
 import { createVersionedCache } from "./coherent-cache.ts";
 import {
@@ -1527,8 +1528,12 @@ export async function analyzeImage(
   // per-image fan-out makes this particular write unreadable. See the doc
   // comment on gradingCachingEnabled in ai-config.ts.
   const perImageClean = applyCleanlinessWording(prompt.text);
+  // US-3332: size a flaw from a quarter, bank card or MeasureCard beside it.
+  // Flag-gated (GRADING_SCALE_REFERENCE); identical text when off, and the
+  // "+scale" stamp only when the sizing phrase was actually found and replaced.
+  const perImageScale = applyScaleReferenceWording(perImageClean.text);
   const systemBlock: AiSystemBlock = {
-    text: perImageClean.text,
+    text: perImageScale.text,
     cache: gradingCachingEnabled(),
   };
 
@@ -1740,14 +1745,16 @@ export async function analyzeImage(
       // reinterprets every version string ever recorded if it moves.
       // Byte-identical when nothing overrode: the suffix is "".
       //
-      // US-3150 appends "+sysschema" LAST, after +clean2. The schema and the
+      // US-3150 appended "+sysschema" after +clean2, and US-3332 appends
+      // "+scale" after that. Appends only, so every recorded string keeps its
+      // meaning. The schema and the
       // rules are byte-identical either way, so nothing in blockVersionSuffix
       // can tell the two eras apart — only their ROLE moved, and a per-image
       // analysis that does not record which role it ran under is one that cannot
       // be excluded from an accuracy comparison across the flip.
       prompt_version: `${prompt.versionName}${blockVersionSuffix(blocks)}${
         perImageClean.applied ? "+clean2" : ""
-      }${tailInSystem ? "+sysschema" : ""}`,
+      }${tailInSystem ? "+sysschema" : ""}${perImageScale.applied ? "+scale" : ""}`,
     };
   } catch (error) {
     const latencyMs = Date.now() - startTime;
@@ -2709,6 +2716,10 @@ export function promptVersionSuffix(
     // moved from the user turn into a cached system block with every byte
     // intact. No other suffix, and no block version, can distinguish that.
     schemaSystem?: boolean;
+    // US-3332. Optional and appended last. The scale wording is in the
+    // PER-IMAGE system prompt, so, as with roles, the grade record is the only
+    // place accuracy-tracking can see the era.
+    scale?: boolean;
   },
 ): string {
   return (blocks.baseline ? "+baseline" : "") +
@@ -2718,7 +2729,8 @@ export function promptVersionSuffix(
     (blocks.categoryV2 ? "+cat2" : "") +
     (blocks.roles ? "+roles" : "") +
     (blocks.cleanliness ? "+clean2" : "") +
-    (blocks.schemaSystem ? "+sysschema" : "");
+    (blocks.schemaSystem ? "+sysschema" : "") +
+    (blocks.scale ? "+scale" : "");
 }
 
 /**
@@ -3098,6 +3110,13 @@ export async function compositeGrade(
     !!imageRoleContextFor(r.image_type, r.image_role)
   );
 
+  // US-3332: marked when any per-image read actually ran the scale wording, read
+  // off the stamp that call recorded rather than off the flag, so a grade whose
+  // reads all predate a flip is not reported as the new era.
+  const scale = perImageResults.some((r) =>
+    /\+scale(?:\+|$)/.test(r.prompt_version ?? "")
+  );
+
   // US-3329: visible-cleanliness wording on the system prompt and on the
   // factor-weights sentence, flag-gated. Off = both untouched, no suffix.
   const compositeClean = applyCleanlinessWording(prompt.text);
@@ -3129,6 +3148,7 @@ export async function compositeGrade(
     roles,
     cleanliness: compositeClean.applied || weightsClean.applied,
     schemaSystem: tailInSystem,
+    scale,
   });
 
   // US-2432: the other half of the attribution. promptVersion names the SYSTEM

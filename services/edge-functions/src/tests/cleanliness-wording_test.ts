@@ -69,7 +69,12 @@ Deno.test("+clean2 is appended last in the suffix chain", () => {
 
 Deno.test("both stages actually send the cleaned text", () => {
   const code = SRC.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
-  assert(code.includes("const systemBlock: AiSystemBlock = { text: perImageClean.text,"));
+  // US-3332 layered the scale wording on top: the per-image system text is the
+  // cleaned text with the scale swap applied, never the raw prompt. Matched on
+  // whitespace-collapsed code, since a reformat is not a regression.
+  const flat = code.replace(/\s+/g, " ");
+  assert(flat.includes("const perImageScale = applyScaleReferenceWording(perImageClean.text);"));
+  assert(flat.includes("const systemBlock: AiSystemBlock = { text: perImageScale.text,"));
   assert(code.includes('perImageClean.applied ? "+clean2" : ""'));
   assert(code.includes("let systemText = compositeClean.text;"));
   const composite = code.slice(code.indexOf("export async function compositeGrade("));
