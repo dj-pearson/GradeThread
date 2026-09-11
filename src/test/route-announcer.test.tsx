@@ -95,21 +95,37 @@ describe("an in-app navigation is announced (US-3244)", () => {
     }
   });
 
-  it("does NOT mount the title hook where nothing can resolve a name", () => {
-    // The trap: mounting useSurfaceTitle in a tree the resolver knows nothing
-    // about returns the marketing default on every route, so the mount reads
-    // like a fix and does nothing.
+  it("mounts the title hook only where a name can actually resolve", () => {
+    // The trap this case was written for: mounting useSurfaceTitle in a tree
+    // the resolver knows nothing about returns the marketing default on every
+    // route, so the mount READS LIKE A FIX AND DOES NOTHING.
     //
-    // Buyer came OFF this list once BUYER_NAV became its source. Admin stays
-    // until its nav is extracted from the eight unexported arrays inside
-    // admin-layout.tsx. Remove it here only when there is something to read.
-    const layout = readFileSync(
-      resolve(process.cwd(), "src/layouts/admin-layout.tsx"),
+    // Buyer came off the excluded list when BUYER_NAV became its source, and
+    // admin followed on 2026-09-11 (US-3252) when its nav moved out of nine
+    // unexported arrays into src/lib/admin-nav.ts. So the assertion inverted:
+    // all three layouts must now mount it, and the thing worth holding is the
+    // PAIRING, a mount plus a source, not the mount on its own.
+    const sources: Record<string, string> = {
+      "src/layouts/dashboard-layout.tsx": "@/lib/surfaces",
+      "src/layouts/buyer-layout.tsx": "@/lib/buyer-nav",
+      "src/layouts/admin-layout.tsx": "@/lib/admin-nav",
+    };
+    const hook = readFileSync(
+      resolve(process.cwd(), "src/hooks/use-surface-title.ts"),
       "utf8",
     );
-    expect(
-      layout,
-      "admin mounts useSurfaceTitle with no source to resolve against",
-    ).not.toContain("useSurfaceTitle()");
+    for (const [file, source] of Object.entries(sources)) {
+      const layout = readFileSync(resolve(process.cwd(), file), "utf8");
+      expect(
+        layout,
+        file + ' does not mount useSurfaceTitle, so every route in that tree' +
+          ' keeps the marketing title',
+      ).toContain("useSurfaceTitle()");
+      expect(
+        hook,
+        file + ' mounts useSurfaceTitle but the hook reads nothing from ' +
+          source + ', so it would answer the marketing default on every route',
+      ).toContain(source);
+    }
   });
 });

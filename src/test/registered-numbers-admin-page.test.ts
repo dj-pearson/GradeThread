@@ -74,7 +74,8 @@ const calls = (src: string) => {
 const PAGE = "src/pages/admin/registered-numbers.tsx";
 const HOOK = "src/hooks/use-registered-numbers.ts";
 const ROUTES = "src/routes/admin-routes.tsx";
-const NAV = "src/layouts/admin-layout.tsx";
+// US-3252: the nav moved out of the layout into its own module.
+const NAV = "src/lib/admin-nav.ts";
 const PIPELINE = "services/edge-functions/src/lib/grading-pipeline.ts";
 const EDGE_ROUTE = "services/edge-functions/src/routes/admin-registered-numbers.ts";
 
@@ -88,7 +89,7 @@ describe("US-2808: the registered-numbers queue has a client", () => {
     // which is indistinguishable from the state this story was filed about.
     expect(
       code(read(NAV)),
-      "the page is routed but absent from adminNavItems, so nothing links to it",
+      "the page is routed but absent from ADMIN_NAV, so nothing links to it",
     ).toContain('to: "/admin/registered-numbers"');
   });
 

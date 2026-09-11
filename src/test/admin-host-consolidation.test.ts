@@ -18,7 +18,8 @@ import {
 // sixteen pages become sixteen tabs across four hosts.
 
 const ROUTES = "src/routes/admin-routes.tsx";
-const NAV = "src/layouts/admin-layout.tsx";
+// US-3252: the nav moved out of the layout into its own module.
+const NAV = "src/lib/admin-nav.ts";
 
 function read(rel: string): string {
   return readFileSync(resolve(process.cwd(), rel), "utf8");

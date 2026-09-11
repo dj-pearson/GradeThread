@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-3353",
+  "nextId": "US-3355",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -4303,18 +4303,6 @@
       ]
     },
     {
-      "id": "US-3252",
-      "passes": false,
-      "title": "Tab titles and route announcements stop at the dashboard",
-      "description": "US-3229 and US-3244 gave every dashboard route its own browser tab title and a screen-reader announcement, both derived from src/lib/surfaces.ts. Neither reaches the admin or buyer layouts, and the reason is not that nobody mounted the hook: buyer routes are NOT in the surfaces registry at all (zero entries whose web path starts with /buyer), and admin is operator tooling that was never meant to be. Mounting useSurfaceTitle in either layout today would resolve to null for every route and leave the title at the marketing default, which is a no-op that reads like a fix. The honest work is to give the two layouts a real source: buyer routes earn registry entries, which src/test/surface-registry.test.ts then holds against the router and the sidebar; admin derives from the nav list it already maintains in admin-layout.tsx rather than being forced into a registry it does not belong in. The RouteAnnouncer needs none of this to be worth mounting, because it degrades to Page changed, and that is shipped separately.",
-      "acceptanceCriteria": [
-        "Buyer surfaces are added to src/lib/surfaces.ts with their labels, and surface-registry.test.ts passes with them held against the router and the buyer sidebar. Expect that test to have opinions; satisfying it is the point.",
-        "Admin titles derive from the nav list already in admin-layout.tsx, not from the surfaces registry. Admin is operator tooling and forcing it into a product-surface registry would make that registry answer a question it does not answer.",
-        "Do not mount useSurfaceTitle anywhere until its source resolves for that tree. A hook that returns the default for every route is worse than no hook, because the next person reads the mount and assumes it works."
-      ],
-      "notes": "Partial 2026-09-09 in the buyer half: resolved via BUYER_NAV rather than by adding surfaces.ts entries, which AC1 asked for. Deliberate deviation — duplicating eight labels into a second registry is the problem surfaces.ts exists to prevent. AC1 should be read as 'give buyer a real source', which BUYER_NAV already was. Remaining: admin, which needs its eight nav arrays extracted out of admin-layout.tsx before anything can read them."
-    },
-    {
       "id": "US-3256",
       "passes": false,
       "title": "cogs_labor is spelled 'Labour' in the seeded ledger_accounts row and 'Labor' in the TypeScript chart",
@@ -4809,6 +4797,31 @@
         "Whatever is chosen is tested by driving the real sheet and asserting what a seller is shown, not by asserting a filter function exists; the chips existing and not being presented is exactly how this class of bug hid before"
       ],
       "priority": 13
+    },
+    {
+      "id": "US-3353",
+      "passes": false,
+      "title": "Five 'comments' in admin-routes.tsx are string children React Router silently drops",
+      "description": "Found 2026-09-11 while extracting the admin nav. `src/routes/admin-routes.tsx` has at least five `// ...` lines sitting as direct siblings of `<Route>` elements, around lines 179, 181, 186, 202 and 218. **In JSX those are not comments. They are text children.**\n\nMeasured rather than assumed: React Router's `createRoutesFromChildren` skips anything that is not a valid element, so these are dropped and **nothing renders on screen**. So this is not a live visual defect, and it should not be filed as one.\n\nWhat it is: five sentences that look like documentation, are not attached to anything, and would start rendering the moment that subtree is used somewhere React does not filter children. The file already uses the correct form a few lines later (`{/* US-2559 AC5: ... */}` at ~line 211), so the two styles sit side by side and one of them is wrong.\n\nThe cheap fix is converting them. The thing worth having is a guard, because this is invisible to eslint's default config and to `tsc`: both accept a string child. Whatever catches it has to look for a JSX child that starts with `//`.",
+      "acceptanceCriteria": [
+        "Every `//` line that is a JSX child in src/ is found by a check rather than by eye, since five were found by accident in one file and nobody has looked at the rest",
+        "They are converted to `{/* */}` rather than deleted; they are real explanations and the next reader wants them",
+        "The guard is sabotage-verified by planting one, because a scan for a two-character token is exactly the kind that matches nothing and reports clean",
+        "The guard runs in a lane, not only locally; three guards shipped unwired in this repo on 2026-09-11 alone"
+      ],
+      "priority": 26
+    },
+    {
+      "id": "US-3354",
+      "passes": false,
+      "title": "/admin/listing-coverage is a working page nothing links to",
+      "description": "Found 2026-09-11 by the guard written during US-3252. `/admin/listing-coverage` is routed in `src/routes/admin-routes.tsx` and reachable only by typing the URL: no entry in `ADMIN_NAV`, no link anywhere in `src/`.\n\nIt is recorded in the shrink-only `UNLINKED` list in `src/lib/__tests__/admin-nav.test.ts` with that reason, so it cannot quietly grow a companion. But an allowlist entry is a record, not a decision.\n\nThree possibilities and they need different answers. The page is useful and someone forgot the nav entry, in which case add it. The page was superseded by another admin surface, in which case delete it and its route. Or it is deliberately unlisted because it is expensive or dangerous to open, in which case say so in the allowlist reason, since 'nothing links to it' currently reads as an oversight either way.",
+      "acceptanceCriteria": [
+        "Somebody opens the page and says which of the three it is, because that cannot be answered from the code",
+        "If it stays, it gets a nav entry and the UNLINKED entry is removed; if it goes, the route goes with it",
+        "If it stays deliberately unlisted, the UNLINKED reason says WHY rather than restating that it is unlinked"
+      ],
+      "priority": 32
     }
   ]
 }

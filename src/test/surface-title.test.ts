@@ -89,18 +89,28 @@ describe("each signed-in surface gets its own tab title (US-3229)", () => {
     expect(surfaceTitleFor("/buyer/rewards", "")).toBe("Rewards - GradeThread");
   });
 
-  it("still says just the product name for admin, which has no source yet", () => {
-    // Admin's nav is eight unexported arrays inside admin-layout.tsx. Until
-    // that is extracted there is nothing to resolve against, and pretending
-    // otherwise is what US-3252 exists to stop.
-    expect(surfaceLabelFor("/admin/users", "")).toBeNull();
+  it("titles admin surfaces from the extracted nav (US-3252)", () => {
+    // This case used to assert the OPPOSITE, that admin resolved to null,
+    // because its nav was nine unexported arrays inside admin-layout.tsx and
+    // there was nothing to read. US-3252 moved it to src/lib/admin-nav.ts on
+    // 2026-09-11, so the assertion inverts rather than being deleted: an
+    // expectation that stops being true is a finding, and dropping it would
+    // leave the tab title untested on 72 admin pages.
+    expect(surfaceLabelFor("/admin/users", "")).toBe("Users");
+    expect(surfaceTitleFor("/admin/users", "")).toBe("Users - GradeThread");
+    // The prefix rule reaches a detail route under a listed path, which is
+    // most of what an admin actually has open.
+    expect(surfaceLabelFor("/admin/users/some-uuid", "")).toBe("Users");
   });
 
-  it("is mounted in the dashboard and buyer layouts, not merely exported", () => {
-    // A hook nothing calls titles nothing.
+  it("is mounted in all three signed-in layouts, not merely exported", () => {
+    // A hook nothing calls titles nothing. Admin joined this list on
+    // 2026-09-11 with US-3252; route-announcer.test.tsx holds the other half,
+    // that each layout's mount has a source the hook actually reads.
     for (const rel of [
       "src/layouts/dashboard-layout.tsx",
       "src/layouts/buyer-layout.tsx",
+      "src/layouts/admin-layout.tsx",
     ]) {
       const layout = readFileSync(resolve(process.cwd(), rel), "utf8");
       expect(layout, `${rel} does not mount useSurfaceTitle`).toContain(

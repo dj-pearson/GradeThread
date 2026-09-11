@@ -2,6 +2,7 @@ import { useEffect } from "react";
 import { useLocation } from "react-router";
 import { ALL_SURFACES } from "@/lib/surfaces";
 import { BUYER_NAV } from "@/lib/buyer-nav";
+import { ADMIN_NAV_ITEMS } from "@/lib/admin-nav";
 
 // US-3229. Give each signed-in page its own browser tab.
 //
@@ -50,11 +51,26 @@ const DUPLICATE_LABELS: ReadonlySet<string> = (() => {
  * second list, which is precisely the two-lists-that-disagree problem the
  * surfaces registry exists to solve. One source per tree.
  *
- * Admin is still uncovered and stays that way for now: its nav lives in eight
- * unexported arrays inside admin-layout.tsx, so it needs extracting before
- * anything else can read it.
+ * Admin came off that list on 2026-09-11 (US-3252): its nav is now
+ * src/lib/admin-nav.ts rather than nine unexported arrays inside
+ * admin-layout.tsx, so there is finally something to read. It stays a
+ * SEPARATE registry from surfaces.ts on purpose, because surfaces.ts asks
+ * product questions (iOS parity, plan gate, workspace capability) and admin
+ * answers none of them.
  */
 const BUYER_ENTRIES: Entry[] = BUYER_NAV.map((item) => ({
+  path: item.to,
+  param: null,
+  label: item.label,
+}));
+
+/**
+ * US-3252. Same shape as the buyer entries and for the same reason: one
+ * source per tree. No param handling, because an admin nav entry is a plain
+ * path; if one ever gains a ?view= the tabbed-host branch above is where it
+ * belongs rather than here.
+ */
+const ADMIN_ENTRIES: Entry[] = ADMIN_NAV_ITEMS.map((item) => ({
   path: item.to,
   param: null,
   label: item.label,
@@ -73,7 +89,7 @@ const ENTRIES: Entry[] = ALL_SURFACES.flatMap((s) => {
     label:
       DUPLICATE_LABELS.has(s.label) && group ? `${group} ${s.label}` : s.label,
   }];
-}).concat(BUYER_ENTRIES);
+}).concat(BUYER_ENTRIES, ADMIN_ENTRIES);
 
 /**
  * The label for a location, or null when nothing in the registry covers it.

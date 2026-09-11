@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync, readdirSync } from "node:fs";
 import { resolve, join, sep } from "node:path";
+import { ADMIN_NAV_ITEMS } from "@/lib/admin-nav";
 
 // US-2512. The admin sidebar carries 81 destinations. Two of them rendered the
 // SAME page title — /admin/system and /admin/ops/health both said "System
@@ -15,7 +16,6 @@ import { resolve, join, sep } from "node:path";
 // label. A duplicate name is how a 81-entry nav becomes unnavigable.
 
 const ADMIN_PAGES = "src/pages/admin";
-const LAYOUT = "src/layouts/admin-layout.tsx";
 
 function adminPageFiles(): string[] {
   const out: string[] = [];
@@ -43,9 +43,12 @@ function pageHeaderTitle(rel: string): string | null {
   return m ? m[1]! : null;
 }
 
+// US-3252: the sidebar used to be nine arrays inside admin-layout.tsx and this
+// read them with a regex over the file. It reads the list itself now. A regex
+// that stops matching returns an empty array, and every assertion below passes
+// against nothing; an import that stops resolving is a failure.
 function navLabels(): string[] {
-  const src = readFileSync(resolve(process.cwd(), LAYOUT), "utf8");
-  return [...src.matchAll(/label: "([^"]+)"/g)].map((m) => m[1]!);
+  return ADMIN_NAV_ITEMS.map((item) => item.label);
 }
 
 function duplicates(values: string[]): string[] {

@@ -25,11 +25,11 @@
 import { describe, expect, it } from "vitest";
 import { readFileSync, readdirSync } from "node:fs";
 import { join, resolve } from "node:path";
+import { ADMIN_NAV_ITEMS } from "@/lib/admin-nav";
 
 const ROOT = process.cwd();
 const read = (p: string) => readFileSync(resolve(ROOT, p), "utf8");
 
-const NAV = "src/layouts/admin-layout.tsx";
 const ADMIN_PAGES = "src/pages/admin";
 
 /** `/admin/foo` → `src/pages/admin/foo.tsx`, when that file exists. */
@@ -46,16 +46,18 @@ function pageFileFor(route: string): string | null {
 }
 
 describe("US-2357: superAdminOnly means the page is gated, not just hidden", () => {
-  const nav = read(NAV);
-  const flagged = [
-    ...nav.matchAll(/to:\s*"(\/admin[^"]*)"[^}]*superAdminOnly:\s*true/g),
-  ].map((m) => m[1]!);
+  // US-3252: this used to regex `superAdminOnly: true` out of
+  // admin-layout.tsx. The list is a module now, so the flag is read rather
+  // than matched -- which also means a restructure cannot empty it silently.
+  const flagged = ADMIN_NAV_ITEMS.filter((item) => item.superAdminOnly).map(
+    (item) => item.to,
+  );
 
   it("found the nav entries, so an empty list cannot pass as agreement", () => {
-    // Guards the guard: if the nav is restructured and this regex stops
-    // matching, every assertion below becomes trivially true.
+    // Guards the guard: with no flagged entries every assertion below becomes
+    // trivially true, and the same is true if the whole list goes empty.
+    expect(ADMIN_NAV_ITEMS.length).toBeGreaterThan(50);
     expect(flagged.length).toBeGreaterThan(0);
-    expect(nav).toContain("superAdminOnly");
   });
 
   it("every superAdminOnly route renders behind SuperAdminOnly", () => {
