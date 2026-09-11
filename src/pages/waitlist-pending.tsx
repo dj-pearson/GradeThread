@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { signOut } from "@/lib/auth";
 import { useAuthStore } from "@/stores/auth-store";
-import { edgeFetch } from "@/lib/edge-fetch";
+import { joinWaitlistOnce } from "@/lib/waitlist-join";
 import { SEO } from "@/components/seo";
 
 // US-585: shown to an authenticated account that is NOT yet approved while the
@@ -21,21 +21,27 @@ export function WaitlistPendingPage() {
   // while /admin/waitlist showed nothing to approve. The page said something
   // that was not true and the operator had no way to find out.
   //
-  // POST is idempotent (upsert on lower(email), ignoreDuplicates), so an
+  // POST is idempotent (unique email column + ON CONFLICT DO NOTHING), so an
   // already-approved entry is never downgraded and a repeat visit is a no-op.
-  // Failure is deliberately silent: the person is stuck either way and a toast
-  // about a background write they did not ask for helps nobody.
+  //
+  // Failure is still silent FOR THE VISITOR, and that part of the original
+  // reasoning is right: they are stuck either way and a toast about a
+  // background write they did not ask for helps nobody.
+  //
+  // US-3379: it was also silent for the OPERATOR, which was the bug. The call
+  // was `void edgeFetch(...).catch(() => {})`, and edgeFetch resolves on a
+  // non-2xx rather than throwing, so a 500 wrote no row, raised nothing, and
+  // left this page saying something untrue with nobody able to find out.
+  // joinWaitlistOnce keeps the visitor's experience byte-identical and retries,
+  // then reports a genuinely lost join to Sentry. See src/lib/waitlist-join.ts
+  // for the channel, the payload and the recovery query.
   const email = useAuthStore((s) => s.user?.email);
+  const userId = useAuthStore((s) => s.user?.id);
   const fullName = useAuthStore((s) => s.profile?.full_name);
   useEffect(() => {
     if (!email) return;
-    void edgeFetch("/api/waitlist", {
-      method: "POST",
-      unauthenticated: true,
-      silentGate: true,
-      json: { email, full_name: fullName || undefined, source: "signup-gated" },
-    }).catch(() => {});
-  }, [email, fullName]);
+    joinWaitlistOnce({ email, fullName, userId, source: "signup-gated" });
+  }, [email, fullName, userId]);
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-brand-gray px-4 dark:bg-brand-night">

@@ -130,13 +130,31 @@ describe("US-2449: the waitlist gate cannot be closed with no way in", () => {
     // handle_new_user does not. Without this the pending page tells someone
     // they are in a queue that has no record of them, and the operator has
     // nobody to approve.
+    //
+    // US-3379 moved the call one hop, out of the page and into
+    // src/lib/waitlist-join.ts, so it could retry and report a lost join to
+    // Sentry without the visitor seeing anything. Follow the hop rather than
+    // loosening the assertion: the page must still reach the enrolment, and the
+    // enrolment must still be a POST to /api/waitlist.
     const pending = read(resolve(SRC, "pages/waitlist-pending.tsx"));
     expect(
       pending,
       "waitlist-pending.tsx must enrol the signed-in account via POST " +
         "/api/waitlist, or a gated user is invisible in /admin/waitlist.",
-    ).toMatch(/edgeFetch\(\s*"\/api\/waitlist"/);
-    expect(pending).toMatch(/method:\s*"POST"/);
+    ).toMatch(/joinWaitlistOnce\(/);
+    expect(pending).toMatch(/from "@\/lib\/waitlist-join"/);
+
+    const join = read(resolve(SRC, "lib/waitlist-join.ts"));
+    expect(join).toMatch(/edgeFetch\(\s*"\/api\/waitlist"/);
+    expect(join).toMatch(/method:\s*"POST"/);
+    // The half US-3379 added: a lost join has to reach a human. Without this
+    // the page is back to writing nothing and telling the visitor otherwise,
+    // with every other assertion in this file still green.
+    expect(
+      join,
+      "waitlist-join.ts must report a lost enrolment to Sentry — a silent " +
+        "non-2xx is US-3379's bug, not its fix.",
+    ).toMatch(/captureMessage\(\s*"waitlist join lost"/);
   });
 
   it("every part of the feature is present, or the story's retire path was taken as a whole", () => {
