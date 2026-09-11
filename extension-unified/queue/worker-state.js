@@ -205,6 +205,15 @@
       return who + " " + what + ". Finish it in that tab, then choose Resume.";
     }
     if (state.running !== true) return "Stopped. Nothing is running.";
+    // US-3367: inside the gap after a cross-post. Said in the seller's terms,
+    // and with the one exception named, because "next in 12s" over a drain
+    // that will answer "paced" is the unchecked claim this line exists to stop.
+    var pacedUntil = num(state.pacedUntil);
+    var t = num(now);
+    if (pacedUntil !== null && t !== null && t < pacedUntil) {
+      return "Next cross-post in " + Math.ceil((pacedUntil - t) / 1000) +
+        "s. Ending a sold listing never waits.";
+    }
     var last = hhmm(state.lastDrainAt);
     var secs = countdownSeconds(state, now, intervalMs);
     if (last === null) return "Starting the first check.";

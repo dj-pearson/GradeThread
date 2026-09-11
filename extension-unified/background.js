@@ -1918,6 +1918,35 @@ const JOBS_KEY = "listerJobs";
 const JOB_ALARM_PREFIX = "gt-lister-job:";
 const SWEEP_ALARM = "gt-lister-sweep";
 
+// US-3367: the gap between cross-posts. The seller's chosen gap and the
+// scheduled time both live in storage.local because this worker is evicted
+// between alarms and would otherwise wake up believing there is no hold.
+const PACED_DRAIN_ALARM = "gt-lister-paced-drain";
+const PACING_GAP_KEY = "gtPacingGapMs";
+const NEXT_LIST_DRAIN_KEY = "gtNextListDrainAt";
+
+async function readPacingGapMs() {
+  const out = await ext.storage.local.get(PACING_GAP_KEY);
+  return self.GT_LISTER_JOBS.pacingGapFor(out && out[PACING_GAP_KEY]);
+}
+
+async function readNextListDrainAt() {
+  const out = await ext.storage.local.get(NEXT_LIST_DRAIN_KEY);
+  const v = out && out[NEXT_LIST_DRAIN_KEY];
+  return typeof v === "number" ? v : null;
+}
+
+/** Schedule the drain that follows a list job, and remember when. */
+async function scheduleListDrain(settledAt) {
+  const J = self.GT_LISTER_JOBS;
+  const at = J.nextListDrainAt(settledAt, await readPacingGapMs(), J.PACING.JITTER_MS);
+  if (at === null) return;
+  await ext.storage.local.set({ [NEXT_LIST_DRAIN_KEY]: at });
+  try {
+    await ext.alarms.create(PACED_DRAIN_ALARM, { when: at });
+  } catch (_e) { /* the 5-minute sweep still picks the queue up */ }
+}
+
 // pendingExternal is now only a best-effort FAST PATH: when the worker happens to
 // still be alive, replying on the original port resolves the SaaS promise with no
 // round trip. It is NOT the delivery guarantee — pushToSaasTab is (AC3). Anything
@@ -2027,10 +2056,18 @@ async function reportJob(job, result) {
           : null,
       },
     });
-    // Immediately look for the next one. The drain runs a single job at a time,
-    // so without this a queue of six would take six sweep ticks — half an hour —
-    // to clear a browser that was open the whole time.
-    void drainQueue();
+    // Look for the next one. The drain runs a single job at a time, so without
+    // this a queue of six would take six sweep ticks — half an hour — to clear
+    // a browser that was open the whole time.
+    //
+    // US-3367: a LIST job earns a gap first, through a one-shot alarm, so six
+    // cross-posts do not go up back to back. Everything else re-drains at once:
+    // a delist is the urgent verb, and pacing it is how a double sale happens.
+    if (self.GT_LISTER_JOBS.pacesAfter(job)) {
+      await scheduleListDrain(Date.now());
+    } else {
+      void drainQueue();
+    }
   }
   // US-1885 AC1: remember the outcome for the popup. storage.LOCAL, not session:
   // the seller's most likely move after a cross-post that went wrong is to open the
@@ -2561,6 +2598,15 @@ async function drainQueue() {
     // retrying a check it was told a human would clear. The ADR (§3.2) refuses
     // to answer one; retrying past one is the same refusal with worse manners.
     if (await workerPaused()) return "paused";
+
+    // US-3367: inside a pacing gap after a cross-post. Checked BEFORE /claim,
+    // so a row is never stamped claimed by a browser that is about to sit on
+    // it — that is the US-3061 stranding bug wearing a gap.
+    const hold = self.GT_LISTER_JOBS.pacingHold(
+      { nextListDrainAt: await readNextListDrainAt() },
+      Date.now(),
+    );
+    if (hold.held) return "paced";
 
     // US-3061: CLAIM ONLY WHAT THIS BROWSER CAN START.
     //
@@ -3196,6 +3242,12 @@ if (ext.alarms && ext.alarms.onAlarm) {
       // against a 10-minute window means the badge can be up to five minutes
       // late, which is the honest cost of not adding a second scheduler.
       void refreshWatchBadge();
+      return;
+    }
+
+    // US-3367: the gap after a cross-post has passed.
+    if (name === PACED_DRAIN_ALARM) {
+      void drainQueue();
       return;
     }
 
@@ -4197,6 +4249,10 @@ ext.runtime.onMessage.addListener(function (msg, sender, sendResponse) {
           unsentResults: await withUnsentResults(async (store) => ({
             value: self.GT_WORKER_STATE.unsentResultCount(store),
           })),
+          // US-3367: when the gap after the last cross-post ends, so the page
+          // can say "next cross-post in Ns" instead of a countdown to a drain
+          // that will return "paced".
+          pacedUntil: await readNextListDrainAt(),
         });
         break;
       // The seller says they answered the check. The ONLY thing that clears a

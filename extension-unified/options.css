@@ -27,6 +27,38 @@
 }
 .opt-toggle:last-child { margin-bottom: 0; }
 .opt-toggle:hover { border-color: var(--cmp-rule-strong); }
+
+/* US-3367: a labelled select drawn in the same box as a toggle, so the
+   cross-post gap reads as one more setting rather than a stray control. */
+.opt-field {
+  display: flex;
+  gap: 14px;
+  align-items: flex-start;
+  justify-content: space-between;
+  margin: 14px 0 0;
+  padding: 12px 14px;
+  border: 1px solid var(--cmp-rule);
+  border-radius: var(--cmp-r);
+  background: var(--cmp-surface);
+}
+.opt-field > span { font-weight: 600; }
+.opt-field small {
+  display: block;
+  margin-top: 3px;
+  font-size: 12.5px;
+  font-weight: 400;
+  color: var(--cmp-muted);
+  max-width: 60ch;
+}
+.opt-select {
+  flex: 0 0 auto;
+  font: inherit;
+  padding: 6px 10px;
+  border: 1px solid var(--cmp-rule-strong);
+  border-radius: 8px;
+  background: var(--cmp-surface);
+  color: inherit;
+}
 .opt-toggle > input {
   appearance: none;
   flex: 0 0 auto;

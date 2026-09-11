@@ -215,6 +215,8 @@
     // login-wall and human-check notices. `running` stays this page's, because
     // Stop means "this tab, now" and must not outlive the tab.
     state.pause = out.pause || null;
+    // US-3367: the gap after a cross-post, for the status line.
+    state.pacedUntil = typeof out.pacedUntil === "number" ? out.pacedUntil : null;
     renderStale(out.staleTabs);
     renderUnsent(out.unsentResults);
   }

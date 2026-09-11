@@ -561,11 +561,19 @@ const FLIP = (function () {
   }
 
   // And the count rides the existing 5-minute sweep rather than adding an alarm.
+  //
+  // Four creates, each named: the job deadline (per job), the 5-minute sweep,
+  // the sold-sync poll, and (US-3367) the one-shot paced drain after a
+  // cross-post. None of them is the ending-soon count, which is the point.
   const alarmNames = bg.match(/alarms\.create\(/g) || [];
   assert.strictEqual(
     alarmNames.length,
-    3,
+    4,
     "an alarm was added or removed — the ending-soon count must ride SWEEP_ALARM",
+  );
+  assert.ok(
+    /alarms\.create\(PACED_DRAIN_ALARM, \{ when: at \}\)/.test(bg),
+    "the fourth alarm is the US-3367 one-shot paced drain, not a periodic one",
   );
   // Specifically FROM THE SWEEP. Matching the name anywhere would still pass
   // with the periodic refresh deleted, because the message handlers call it too
