@@ -2,7 +2,12 @@
 // where it was supposed to run.
 //
 // Five suites gate on integration fixtures — credit-refund, ledger-consistency,
-// ai-quota-concurrency, public-certificate, passport-claim. Each one prints
+// ai-quota-concurrency, public-certificate, passport-claim. (COUNT CORRECTED
+// 2026-09-11, US-3368: eight files call this function now, the three added
+// since being ledger-append-only, sync-review-lands and grade-outcome-lands,
+// and thirteen edge test files are fixture-gated by any mechanism. Count them
+// with scripts/integration-lane-coverage.test.mjs rather than trusting this
+// sentence.) Each one prints
 // "[name] SKIPPED — set ..." and passes when the fixture is absent, and in a CI
 // summary a skip and a pass are indistinguishable. That is how all 11 of their
 // assertions — including ledger-consistency_test.ts, the credit-ledger balance
@@ -77,6 +82,34 @@ export function requireIntegrationFixtures(
         `${detail}. This lane declared it would run the money/cert integration ` +
         `suites, so a skip here would be a silent loss of the assertion — ` +
         `see US-2038.`,
+    );
+  }
+
+  // US-3368 AC3: a console.warn is a log line nobody scrolls back to, and the
+  // summary deno prints for a fully-gated file is
+  //
+  //   ok | 0 passed | 0 failed | 3 ignored
+  //
+  // which is exactly what a suite that did nothing wrong looks like. There is
+  // no red, no annotation and no line in the job summary, so "this assertion
+  // did not execute" and "this assertion held" render identically on the
+  // dashboard. That is the same defect one layer up from the one this file was
+  // written for.
+  //
+  // `::warning::` is the one thing a step can print that the runner lifts OUT
+  // of the log and onto the job's Annotations panel and the run summary. So a
+  // lane that skips an integration suite now says so where the result is read,
+  // not only where the log is.
+  //
+  // Deliberately stdout via console.log, not the console.warn below: the runner
+  // parses workflow commands out of the step's output, and keeping the machine
+  // line and the human line on separate streams means a future change to either
+  // cannot swallow the other. Gated on GITHUB_ACTIONS so a developer machine
+  // still sees plain prose and not runner syntax.
+  if ((get("GITHUB_ACTIONS") ?? "").trim() === "true") {
+    console.log(
+      `::warning title=Integration suite skipped::${suite} did not run in this ` +
+        `job: ${detail} not set. Its database assertions did not execute.`,
     );
   }
 

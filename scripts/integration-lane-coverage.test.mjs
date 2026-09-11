@@ -33,22 +33,41 @@ const WORKFLOWS = join(ROOT, ".github/workflows");
  * `ignore: !RUN` is the money-lane idiom and `!CONFIGURED` / `!BASE` the
  * tenant-isolation one. Both mean the same thing: without seeded env this case
  * does not execute.
+ *
+ * US-3368: this used to match a NAMED LIST of gate variables (RUN, CONFIGURED,
+ * BASE, REQUIRED, VIEWER_READY), and `body-check-denies-anon_test.ts` gates on
+ * `!READY`, which is in none of them. That file happens to be wired into
+ * tenant-isolation.yml, so nothing was orphaned by it, but a detector that
+ * matches an allowlist of identifiers fails in the direction that looks clean:
+ * a new suite picking any other variable name is simply absent from the
+ * findings. The gate is the SHAPE `ignore: !SOMETHING`, so match the shape.
  */
 function fixtureGatedFiles() {
   return readdirSync(TESTS)
     .filter((f) => f.endsWith("_test.ts"))
     .filter((f) => {
       const src = readFileSync(join(TESTS, f), "utf8");
-      return /ignore:\s*!(RUN|CONFIGURED|BASE|REQUIRED|VIEWER_READY)\b/.test(src);
+      return /ignore:\s*!\s*[A-Z][A-Z0-9_]*\b/.test(src);
     })
     .sort();
 }
 
-/** Every workflow file's text, so "is this file named anywhere" is one search. */
+/**
+ * Every workflow file's text, so "is this file named anywhere" is one search.
+ *
+ * US-3368: COMMENT LINES ARE DROPPED. Every workflow in this repo explains
+ * itself at length and several name test files in prose, so `yaml.includes(f)`
+ * could be satisfied by a note ABOUT a file rather than a step that runs it,
+ * and a comment saying a suite ought to be wired up is the exact artefact a
+ * half-finished wiring leaves behind.
+ */
 function workflowText() {
   return readdirSync(WORKFLOWS)
     .filter((f) => f.endsWith(".yml") || f.endsWith(".yaml"))
     .map((f) => readFileSync(join(WORKFLOWS, f), "utf8"))
+    .join("\n")
+    .split(/\r?\n/)
+    .filter((line) => !line.trim().startsWith("#"))
     .join("\n");
 }
 
@@ -73,10 +92,71 @@ describe("no fixture-gated edge test is orphaned", () => {
   it("finds the gated files at all", () => {
     // Both assertions pass if the detector matches nothing. Pin the count and
     // two known members so a regex that stops working is visible.
+    //
+    // US-3368: floor raised 7 -> 13, measured on 2026-09-11. Thirteen edge test
+    // files carry at least one `ignore: !VAR` case; eight of them go through
+    // requireIntegrationFixtures and the rest gate by hand.
     const gated = fixtureGatedFiles();
-    expect(gated.length).toBeGreaterThanOrEqual(7);
+    expect(gated.length).toBeGreaterThanOrEqual(13);
     expect(gated).toContain("tenant-isolation_test.ts");
     expect(gated).toContain("ledger-append-only_test.ts");
+    // The two the allowlist regex used to miss, and the one it did miss.
+    expect(gated).toContain("sync-review-lands_test.ts");
+    expect(gated).toContain("grade-outcome-lands_test.ts");
+    expect(gated).toContain("body-check-denies-anon_test.ts");
+  });
+
+  it("a comment naming a file does not count as running it", () => {
+    // The self-check for the comment-stripping above. Without it, a change that
+    // reverted workflowText() to raw text would leave every assertion in this
+    // file passing, which is the failure mode the file exists to describe.
+    const named = "grade-outcome-lands_test.ts";
+    const raw = readdirSync(WORKFLOWS)
+      .filter((f) => f.endsWith(".yml") || f.endsWith(".yaml"))
+      .map((f) => readFileSync(join(WORKFLOWS, f), "utf8"))
+      .join("\n");
+    const commentOnly = raw.replace(
+      new RegExp(`^(?![ \\t]*#).*${named.replace(/\./g, "\\.")}.*$`, "gm"),
+      "          # $&",
+    );
+    expect(commentOnly).toContain(named);
+    const stripped = commentOnly
+      .split(/\r?\n/)
+      .filter((line) => !line.trim().startsWith("#"))
+      .join("\n");
+    expect(stripped).not.toContain(named);
+  });
+
+  it("the two write-lands suites are run by the money/cert lane", () => {
+    // US-3368. Named explicitly for the same reason the ledger case below is:
+    // the general check above goes green the moment a filename appears
+    // anywhere, and that is not the claim. These two are the ONLY proof that
+    // their writes reach a real Postgres, and both were orphaned from the day
+    // they were written until this check was read.
+    const wf = readFileSync(join(WORKFLOWS, "money-cert-integration.yml"), "utf8");
+    expect(wf).toContain("src/tests/sync-review-lands_test.ts");
+    expect(wf).toContain("src/tests/grade-outcome-lands_test.ts");
+    // sync-review-lands asserts against a user who owns a listing. The sweep
+    // seed is the only fixture in this lane that creates one, so the step must
+    // hand its id over; without this the suite loads, throws on the missing
+    // var and reads as a broken lane rather than a missing fixture.
+    expect(wf).toContain("TEST_SYNC_REVIEW_USER_ID: ${{ env.TEST_SWEEP_USER_ID }}");
+    expect(wf).toContain('INTEGRATION_TESTS_REQUIRED: "1"');
+  });
+
+  it("a skipped suite announces itself where CI shows results", () => {
+    // US-3368 AC3. `ok | 0 passed | 0 failed | 3 ignored` is what a suite that
+    // did nothing wrong looks like, so a skip has to reach the Annotations
+    // panel and not only the log body. A console.warn does not.
+    const src = readFileSync(
+      join(ROOT, "services/edge-functions/src/tests/integration-required.ts"),
+      "utf8",
+    );
+    expect(src).toContain("::warning title=Integration suite skipped::");
+    expect(src).toContain("GITHUB_ACTIONS");
+    // The annotation must name the suite, or it says only that SOMETHING was
+    // skipped, which is not actionable and reads as noise until it is ignored.
+    expect(src).toMatch(/::warning title=Integration suite skipped::\$\{suite\}/);
   });
 
   it("the ledger append-only case is the one this was written for", () => {

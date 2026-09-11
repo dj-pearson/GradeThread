@@ -27,7 +27,7 @@ code_refs:
   - services/edge-functions/src/lib/buyer-grade-confirmation.ts
   - src/lib/buyer-rewards-summary.ts
   - src/lib/reward-celebrations.ts
-reviewed: 2026-08-28
+reviewed: 2026-09-11
 tags: [rewards, gamification, buyer, seller, contract]
 summary: There is ONE reward log for both the seller XP track and the buyer Trust Score; every award carries a dedupe key, and an event that consumes AI grading spend earns nothing unless the action was paid. grantReward is the primitive for a single act; the pipeline sweep is the one bulk writer and reproduces its sequence deliberately.
 ---
@@ -607,6 +607,17 @@ tier, not a score, nothing. This is the anti-gaming floor doing double duty — 
 stops one lucky outcome minting a rank, and it stops a new seller being
 publicly branded before they have a record. Rendering the pre-floor state as a
 rank would produce exactly the early-bad-score the floor exists to prevent.
+
+**Where a confirmed outcome actually comes from, measured 2026-09-11 (US-3365).**
+Only the `sync_grade_outcome_from_sale` trigger (`00036`) has ever inserted a
+`grade_outcomes` row. The buyer-confirm path in `buyer-grade-confirmation.ts`
+wrote through PostgREST naming a PARTIAL unique index as its ON CONFLICT
+target, which Postgres refuses, so every call answered 400 `42P10` and the
+route turned that into a 500. A buyer pressing "it matched" got an error, no
+outcome row, no trust event and no reward credit. Fixed in `5e1614a9e`, and
+PostHog shows zero pageviews under `/buyer` in 180 days, so nobody hit it.
+Read the tier floor with that in mind: a seller's confirmed count is a count of
+SALE-derived outcomes, and no buyer confirmation has contributed to it yet.
 
 The floor is enforced at the **read** (`loadPublicSellerIntegrity`), not at each
 renderer. A renderer that re-checks it is a second copy of an anti-gaming rule,

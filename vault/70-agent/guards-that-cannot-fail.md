@@ -6,7 +6,8 @@ source_of_truth: vault
 code_refs:
   - src/test/step-price.test.ts
   - src/test/numeric-or.test.ts
-reviewed: 2026-08-23
+  - scripts/integration-lane-coverage.test.mjs
+reviewed: 2026-09-11
 tags: [testing, ci, agent, verification]
 summary: This repo's most common defect is not a broken check but a check that passes for the wrong reason; here are the sixteen shapes it took, the habits that catch them, what a systematic sweep of eight guards found (four had holes), and the day five new guards each had a hole and four were the same idea.
 ---
@@ -249,6 +250,28 @@ So the full habit is two questions, and the second is cheaper to skip:
 > Guard: `scripts/integration-lane-coverage.test.mjs` fails when any
 > fixture-gated edge test is named in no workflow.
 >
+> **2026-09-11 (US-3368): that guard worked, and it had been red on `main`
+> naming two files by name, and nobody acted on it.** `sync-review-lands_test.ts`
+> and `grade-outcome-lands_test.ts` were written a day apart, each as the only
+> proof that its writes reach a real Postgres, and each was wired into no
+> workflow. The guard said so, in the run summary, with both filenames and an
+> instruction telling the reader which workflow to add them to. Wiring them took
+> one step and no new fixture. **So there is a question 3, and it is the one
+> that keeps failing here: does anyone READ what the guard says?** A guard whose
+> output nobody acts on has the same value as one that cannot fail, and this
+> repo now has four documented instances of it (the held-migration gate, the iOS
+> wipe guard, the `/capture` route, and this).
+>
+> The same story found a hole in the guard itself. Its detector matched an
+> ALLOWLIST of gate-variable names (`RUN|CONFIGURED|BASE|REQUIRED|VIEWER_READY`)
+> and `body-check-denies-anon_test.ts` gates on `!READY`, which is none of
+> them. Nothing was orphaned by it, because that file is wired anyway, but an
+> allowlist of identifiers fails in the direction that looks clean: a suite
+> choosing any other variable name is simply absent from the findings. The gate
+> is the SHAPE `ignore: !SOMETHING`; match the shape, not the vocabulary. That is
+> shape #3 (the hand-maintained list that stopped growing) wearing a regex.
+>
+
 > Three more from the same pass, all invisible for the same reason — **CI starts
 > every lane from a fresh `supabase start`, so anything that works exactly once
 > works forever in CI**. The money fixture reset by DELETING ledger rows, which

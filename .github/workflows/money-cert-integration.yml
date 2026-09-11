@@ -213,6 +213,40 @@ jobs:
           deno test --allow-net --allow-env --allow-read \
             src/tests/rewards-pipeline-idempotency_test.ts
 
+      # US-3368: the two "write actually LANDS" suites. Each one is the only
+      # proof its writes reach a real Postgres at all, and NEITHER was named in
+      # any workflow, so all four of their gated cases had never executed
+      # anywhere but on the machine of the person who wrote them.
+      #
+      # scripts/integration-lane-coverage.test.mjs is the check for exactly this
+      # and it was RED on main naming both files. That is the second time that
+      # guard has caught a file nobody wired up, and the second time it was the
+      # guard rather than a person who noticed.
+      #
+      # NO NEW FIXTURE, which is why this is one step and not a new job:
+      #   grade-outcome-lands needs one users row and one grade_reports row, and
+      #     the money seed above creates both.
+      #   sync-review-lands needs a user who owns a LISTING, and the sweep seed
+      #     above already creates one; TEST_SWEEP_USER_ID is reused here rather
+      #     than adding a fourth seed script for one row.
+      #
+      # AFTER the sweep step on purpose. sync-review-lands writes and then
+      # deletes marketplace_sync_reviews rows for the sweep user, and the sweep
+      # suite counts reputation_events across two sweeps. The two tables do not
+      # touch, but running the write-heavy suite last costs nothing and keeps
+      # that independence a fact rather than an argument.
+      - name: Run write-lands integration suites (required)
+        working-directory: services/edge-functions
+        env:
+          TEST_SUPABASE_URL: ${{ env.SUPABASE_URL }}
+          TEST_SUPABASE_SERVICE_ROLE_KEY: ${{ env.SUPABASE_SERVICE_ROLE_KEY }}
+          TEST_SYNC_REVIEW_USER_ID: ${{ env.TEST_SWEEP_USER_ID }}
+          INTEGRATION_TESTS_REQUIRED: "1"
+        run: |
+          deno test --allow-net --allow-env --allow-read \
+            src/tests/sync-review-lands_test.ts \
+            src/tests/grade-outcome-lands_test.ts
+
       - name: Stop edge service
         if: always()
         run: kill "$EDGE_PID" 2>/dev/null || true
