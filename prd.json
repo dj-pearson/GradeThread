@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-3391",
+  "nextId": "US-3392",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -4939,17 +4939,18 @@
       "priority": 8
     },
     {
-      "id": "US-3389",
+      "id": "US-3391",
       "passes": false,
-      "title": "Four more fire-and-forget orphan-blob cleanups, and the same delete ordering US-3381 just fixed",
-      "description": "Found 2026-09-11 by US-3381, in fence for some and out for others, and left because they were not on that story's list.\n\n**`src/pages/flipdesk/autolister.tsx:1038, :1109, :1208, :1278`** each do `void supabase.storage.from(\"item-photos\").remove(orphans)` with no result inspected at all. A storage `remove` resolves with `{ error }` like any other builder, so a refusal is silent.\n\n**`src/lib/photo-mutations.ts:292` (`persistDelete`) has the identical ordering US-3381 just fixed** at `photo-uploader.tsx:357`: remove the blob, then delete the row. The row is the only pointer to those objects, so deleting it second turns a failed blob delete into **an orphan nobody can find, reclaim, or purge the PII out of**, under a success toast. That file is the shared mutation helper, so it is the wider of the two.\n\nThe fix at the uploader was to throw on the blob error, keeping the row and the photo on screen so the seller can retry. Whether that is right for a bulk cleanup path is a different question and needs answering rather than copying.",
+      "title": "A stranded staged photo is public forever and survives account deletion",
+      "description": "Found 2026-09-11 by US-3389 while deciding how each orphan-blob cleanup should fail. It is a privacy finding rather than a cleanup one, and it is why fire-and-forget was the wrong default even at the sites where throwing is also wrong.\n\nStaged photos live at `{ownerId}/_staging/{session}/...` in **`item-photos`, the one PUBLIC bucket**, and the only pointer to them is the page's React `staged` array. Close the tab and the pointer is gone.\n\nThree things then fail to catch it:\n- **There is no staging-sweep cron.** Checked against `services/edge-functions/src/lib/cron-runs.ts`.\n- **The erasure sweep cannot see it.** `account-storage-purge.ts` discovers `item-photos` objects through `item_photos.storage_path` ROWS rather than by listing the folder; it lists the folder only for `avatars`.\n- The object has no row, so nothing else references it either.\n\n**So an orphaned staged photo is readable by URL forever and survives account deletion.** A seller who deletes their account still has those images served.\n\nUS-3389 fixed the cleanups so a refusal is reported rather than silent. That reduces how often an orphan is created. **It does not remove the ones already there, and it does not close the account-deletion hole**, which exists regardless of whether any cleanup ever fails: any abandoned staging session leaves the same objects.\n\nHow many exist today is unknown and is the first thing to find out.",
       "acceptanceCriteria": [
-        "persistDelete is fixed first, since it is the shared helper and it has the exact ordering that was just proved to strand a blob",
-        "The four autolister cleanups either check their result or say in a comment why a stranded orphan is acceptable there; the right answer may differ from the uploader's because a bulk cleanup is not a seller pressing Remove",
-        "A test drives the failure path for persistDelete and asserts the row survives, with a mock that RESOLVES with an error rather than rejecting",
-        "Every other storage remove in src/ is enumerated, because these five were found by reading and that is a sample, not a census"
+        "The number of orphaned objects under _staging/ in item-photos is measured before anything is designed, because the fix is shaped by whether it is five or fifty thousand",
+        "Account deletion removes a user's staged objects, by listing the folder rather than by following rows, since there are no rows to follow",
+        "A sweep retires staging sessions older than some age, with the age chosen and the reason written down; an abandoned tab is the common case, not the failure case",
+        "A test proves the erasure path removes an object that has NO item_photos row, because following rows is exactly what makes this invisible today",
+        "Whether staged photos belong in the public bucket at all is re-argued; item-photos is documented as seller listing imagery only, and a staging area for unreviewed uploads is not obviously that"
       ],
-      "priority": 7
+      "priority": 4
     }
   ]
 }

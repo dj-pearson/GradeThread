@@ -37,7 +37,12 @@ const CEILINGS: Record<string, number> = {
   // exactly, and the SKU lookup inside generate() needed an error check it had
   // no room for. The group -> inventory_items + item_photos write moved whole
   // into autolister/persist-groups-as-items.ts, taking ROLE_ORDER with it.
-  "src/pages/flipdesk/autolister.tsx": 3312,
+  // Lowered an eighth time from 3312 by US-3389: the four fire-and-forget
+  // orphan-blob cleanups moved into autolister/discard-staged-objects.ts,
+  // where the refusal each one ignored could be read and reported once
+  // instead of four times. That also took the last supabase call out of
+  // this file, so the client import went with it.
+  "src/pages/flipdesk/autolister.tsx": 3309,
   "src/pages/flipdesk/autolister-bulk-edit.tsx": 2010,
   // Lowered from 1120 when the rows gained the generated title and a cover
   // thumbnail, and the listing review query, the cover query, the title rule

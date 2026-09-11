@@ -3,8 +3,11 @@
 // and kept OUT of the component module on purpose: importing photo-manager.tsx
 // from a test drags its whole UI import graph (use-ebay + the editor dialog,
 // ~650 lines of untestable-in-jsdom UI) into the v8 coverage denominator and
-// sinks the global thresholds. This module imports nothing but types.
+// sinks the global thresholds. This module imports no UI: types, three pure
+// helpers, and the lazy Sentry facade (which pulls @sentry/react only at
+// runtime, and only when a DSN is set).
 import type { ItemPhotoRow, FlipdeskPhotoType } from "@/types/database";
+import { captureException } from "@/lib/sentry";
 import {
   originalPathFor,
   parseEditRecipe,
@@ -31,7 +34,12 @@ export interface PhotoMutationClient {
     delete(): { eq(col: string, v: string): PromiseLike<{ error: unknown }> };
   };
   storage: {
-    from(bucket: string): { remove(paths: string[]): PromiseLike<unknown> };
+    // US-3389: `{ error }`, not `unknown`. A storage remove RESOLVES with an
+    // error like every other builder, and typing it as `unknown` is what let
+    // three call sites below ignore a refusal without a type error.
+    from(bucket: string): {
+      remove(paths: string[]): PromiseLike<{ error?: unknown }>;
+    };
   };
 }
 
@@ -39,7 +47,7 @@ export interface PhotoMutationClient {
 export interface PhotoEditClient extends PhotoMutationClient {
   storage: {
     from(bucket: string): {
-      remove(paths: string[]): PromiseLike<unknown>;
+      remove(paths: string[]): PromiseLike<{ error?: unknown }>;
       copy(from: string, to: string): PromiseLike<{ error: unknown }>;
       upload(
         path: string,
@@ -74,6 +82,37 @@ export type EditablePhoto =
   // the uploader's in-flight rows have none of them and want the no-op path.
   & Partial<Pick<ItemPhotoRow, "width" | "height" | "edit_recipe">>
   & { measure_calibration?: RotatableCalibration | null };
+
+/**
+ * Drop a thumbnail the caller is about to stop pointing at, and REPORT a
+ * refusal rather than swallowing it.
+ *
+ * US-3389: both call sites were `void store.remove([...])`, so a refused delete
+ * was silent, and the row update that follows nulls `thumbnail_storage_path`,
+ * which is the only pointer to that object. Nothing sweeps `item-photos` by
+ * listing (account-storage-purge.ts discovers item photos through their rows),
+ * so the object would sit there forever.
+ *
+ * Throwing is deliberately NOT the answer here, and that is the difference from
+ * persistDelete below. By this point the new pixels are already written over
+ * `storage_path`: aborting would leave the row pointing at a thumbnail holding
+ * the OLD image, under a failure toast, which is the stale-thumbnail bug the
+ * caller exists to prevent. The edit has to land. What was missing is that
+ * anyone knows an object was stranded.
+ */
+async function dropSupersededThumbnail(
+  store: { remove(paths: string[]): PromiseLike<{ error?: unknown }> },
+  path: string,
+  userAction: string,
+): Promise<void> {
+  const { error } = await store.remove([path]);
+  if (error) {
+    captureException(error, {
+      tags: { surface: "flipdesk.photo" },
+      extra: { user_action: userAction, stranded_object: path },
+    });
+  }
+}
 
 /** Options for {@link persistPhotoEdit}. */
 export interface PersistPhotoEditOptions {
@@ -147,7 +186,11 @@ export async function persistPhotoEdit(
   if (upErr) throw upErr;
 
   if (photo.thumbnail_storage_path) {
-    void store.remove([photo.thumbnail_storage_path]);
+    await dropSupersededThumbnail(
+      store,
+      photo.thumbnail_storage_path,
+      "save photo edit",
+    );
   }
 
   // US-2888. A rotate replaces the pixels the MeasureCard calibration was
@@ -233,7 +276,11 @@ export async function revertPhotoEdit(
   if (upErr) throw upErr;
 
   if (photo.thumbnail_storage_path) {
-    void store.remove([photo.thumbnail_storage_path]);
+    await dropSupersededThumbnail(
+      store,
+      photo.thumbnail_storage_path,
+      "revert photo edit",
+    );
   }
 
   // Same private-bucket split as the save path: no public URL is minted for a
@@ -289,7 +336,24 @@ export async function persistDelete(
     // one deleted the ROW and left every phone-captured tag's object orphaned in
     // the private bucket — invisible, unreclaimable, and still holding the PII
     // the delete was meant to remove.
-    await client.storage.from(bucketForItemPhotoRow(photo)).remove(paths);
+    //
+    // US-3389: and the result is CHECKED, which it was not. A storage remove
+    // resolves with { data, error }, so a refusal fell straight through to the
+    // row delete below, and the row is the only thing that points at these
+    // objects. Deleting it second turned a failed blob delete into exactly the
+    // orphan the paragraph above is about, under a success toast. Stop instead:
+    // the row stays, the photo stays on screen, and the seller can try again.
+    // Same call the uploader makes (photo-uploader.tsx, US-3381).
+    const { error: blobErr } = await client.storage
+      .from(bucketForItemPhotoRow(photo))
+      .remove(paths);
+    if (blobErr) {
+      throw new Error(
+        `Couldn't delete the photo file, so the photo was kept: ${
+          blobErr instanceof Error ? blobErr.message : String(blobErr)
+        }`,
+      );
+    }
   }
   const { error } = await client.from("item_photos").delete().eq("id", photo.id);
   if (error) throw error;

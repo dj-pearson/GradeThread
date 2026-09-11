@@ -26,7 +26,6 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { supabase } from "@/lib/supabase";
 import { readStored, writeStored } from "@/lib/safe-storage";
 import { useAuthStore } from "@/stores/auth-store";
 import { useWorkspace } from "@/hooks/use-workspace";
@@ -134,6 +133,7 @@ import {
   type GroupWarning,
 } from "@/pages/flipdesk/autolister/group-warnings";
 import { persistGroupsAsItems } from "./autolister/persist-groups-as-items";
+import { discardStagedObjects } from "./autolister/discard-staged-objects";
 import {
   GenerateConfirmDialog,
   ProposeConfirmDialog,
@@ -1030,9 +1030,9 @@ export function FlipdeskAutolisterPage() {
       for (const id of ids) next.delete(id);
       return next;
     });
-    if (orphans.length > 0) {
-      void supabase.storage.from("item-photos").remove(orphans);
-    }
+    // US-3389: notified, because this is the one of the four where the seller
+    // pressed Delete and is about to read a success toast.
+    void discardStagedObjects(orphans, "delete staged photos", { notify: true });
     toast.success(`Deleted ${ids.length} photo${ids.length === 1 ? "" : "s"}.`);
   }
 
@@ -1101,9 +1101,8 @@ export function FlipdeskAutolisterPage() {
           : p,
       ),
     );
-    if (orphans.length > 0) {
-      void supabase.storage.from("item-photos").remove(orphans);
-    }
+    // US-3389: reported, not surfaced. The re-stage already succeeded.
+    void discardStagedObjects(orphans, "re-stage processed photo");
     return true;
   }
 
@@ -1200,9 +1199,8 @@ export function FlipdeskAutolisterPage() {
           : p,
       ),
     );
-    if (orphans.length > 0) {
-      void supabase.storage.from("item-photos").remove(orphans);
-    }
+    // US-3389: reported, not surfaced. The undo itself succeeded.
+    void discardStagedObjects(orphans, "undo background removal");
   }
 
   // US-534: persist an edited photo (crop/rotate/straighten) by re-running the
@@ -1269,10 +1267,9 @@ export function FlipdeskAutolisterPage() {
       ),
     );
 
-    // Best-effort: drop the replaced objects so staging doesn't accumulate them.
-    if (orphans.length > 0) {
-      void supabase.storage.from("item-photos").remove(orphans);
-    }
+    // Drop the replaced objects so staging doesn't accumulate them. US-3389:
+    // reported, not surfaced. The edit is already saved and on screen.
+    void discardStagedObjects(orphans, "replace staged photo with an edit");
     toast.success("Photo updated.");
   }
 

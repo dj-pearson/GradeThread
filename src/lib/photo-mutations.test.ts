@@ -1,4 +1,10 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
+
+// US-3389: the module reports a stranded thumbnail rather than swallowing it,
+// so the report has to be observable.
+const captured = vi.hoisted(() => vi.fn());
+vi.mock("@/lib/sentry", () => ({ captureException: captured }));
+
 import {
   persistDelete,
   persistPhotoEdit,
@@ -32,6 +38,10 @@ function makeClient(
     downloadError?: unknown;
     downloadData?: Blob | null;
     updateError?: unknown;
+    // US-3389: RESOLVES with { error }, it does NOT reject. That is the whole
+    // property this class of bug lives on: a mock that rejects would prove the
+    // opposite of what these tests claim.
+    removeError?: unknown;
   } = {},
 ) {
   const calls = {
@@ -55,7 +65,7 @@ function makeClient(
     }),
     remove: vi.fn((paths: string[]) => {
       calls.remove.push(paths);
-      return Promise.resolve({});
+      return Promise.resolve({ error: overrides.removeError ?? null });
     }),
     download: vi.fn((path: string) => {
       calls.download.push(path);
@@ -345,6 +355,75 @@ describe("persistDelete", () => {
     });
     expect(calls.remove).toEqual([]);
     expect(calls.deleted).toEqual(["photo-3"]);
+  });
+
+  // US-3389. The ordering here is remove-blob-then-delete-row, which is the
+  // only safe order, but ONLY if the blob error stops the row delete. The row
+  // is the single pointer to those objects: dropping it after a refused remove
+  // strands them somewhere nobody can find, reclaim or purge the PII out of,
+  // and photo-manager.tsx would have shown "Photo deleted." over it.
+  it("keeps the row when the blob delete is REFUSED (not rejected)", async () => {
+    const { client, calls } = makeClient({
+      removeError: { message: "new row violates row-level security policy" },
+    });
+    await expect(
+      persistDelete(client, {
+        id: "photo-1",
+        storage_path: "user-1/item-1/front_1.jpg",
+        original_storage_path: "user-1/item-1/originals/front_1.jpg",
+        photo_url: "https://cdn.test/user-1/item-1/front_1.jpg",
+      }),
+    ).rejects.toThrow(/couldn't delete the photo file/i);
+
+    // It tried, and then it stopped. The row is still there to try again from.
+    expect(calls.remove[0]).toEqual([
+      "user-1/item-1/front_1.jpg",
+      "user-1/item-1/originals/front_1.jpg",
+    ]);
+    expect(calls.deleted).toEqual([]);
+  });
+
+  it("keeps a PRIVATE photo's row on a refused blob delete too", async () => {
+    // The private bucket is where the care labels and receipts are, so this is
+    // the row it matters most to keep.
+    const { client, calls } = makeClient({ removeError: { message: "403" } });
+    await expect(
+      persistDelete(client, {
+        id: "photo-9",
+        storage_path: "user-1/item-1/tag_1.jpg",
+        photo_url: "",
+      }),
+    ).rejects.toThrow();
+    expect(calls.buckets).toEqual(["submission-images"]);
+    expect(calls.deleted).toEqual([]);
+  });
+});
+
+// US-3389: the superseded-thumbnail drops took the OTHER answer, deliberately.
+describe("a refused thumbnail drop is reported, not swallowed and not thrown", () => {
+  beforeEach(() => captured.mockClear());
+
+  it("still lands the edit, and reports the stranded object", async () => {
+    const { client, calls } = makeClient({ removeError: { message: "403" } });
+    await persistPhotoEdit(client, PHOTO, new Blob(["edited"]), RECIPE, {
+      now: 42,
+    });
+    // The row update is what makes the edit visible. Aborting here would leave
+    // the row pointing at a thumbnail holding the OLD pixels.
+    expect(calls.update.length).toBe(1);
+    expect(calls.update[0]).toMatchObject({ thumbnail_storage_path: null });
+    expect(captured).toHaveBeenCalledTimes(1);
+    expect(captured.mock.calls[0]?.[1]).toMatchObject({
+      extra: { stranded_object: "user-1/item-1/thumbs/front_1.jpg" },
+    });
+  });
+
+  it("reports nothing when the drop succeeds", async () => {
+    const { client } = makeClient();
+    await persistPhotoEdit(client, PHOTO, new Blob(["edited"]), RECIPE, {
+      now: 42,
+    });
+    expect(captured).not.toHaveBeenCalled();
   });
 });
 
