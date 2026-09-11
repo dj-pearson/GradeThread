@@ -1830,8 +1830,53 @@ export async function processSubmission(submissionId: string) {
       // --- Step 4: Run analyzeImage() on each image in parallel ---
       console.log(`[Pipeline] Running per-image analysis for ${imageData.length} images`);
 
-      const perImagePromises = imageData.map((img) =>
-        analyzeImage(
+      // US-3345: THIS FAN-OUT IS WHY GRADING'S PROMPT CACHE NEVER READS.
+      //
+      // An Anthropic cache entry becomes readable only once the request that
+      // WRITES it has begun streaming. Every per-image call below is issued at
+      // once, so photos 1..N of one submission are in flight together and none
+      // of them can read what the others are writing: each pays the 1.25x write
+      // premium on the 5,565-character system prompt (cached since US-1067) and
+      // reads nothing back. The same is true of the escalation re-grade's
+      // fan-out in reanalyzeWithModel above.
+      //
+      // THIS WAS DELIBERATELY LEFT CONCURRENT, and the reason is the trade, not
+      // an oversight. Staggering would mean awaiting the first call before
+      // firing the rest. The grading call is NON-streaming
+      // (ai-provider-anthropic.ts uses client.messages.create, not .stream), so
+      // there is no first token to await: a stagger costs a WHOLE vision call
+      // of extra wall clock on a path where a seller has paid and is waiting,
+      // not one round trip. Trading seconds of a paid grade for roughly a cent
+      // is the owner's call, and it needs the per-call latency logged below
+      // plus the write/read ratio from ai_usage_events. Neither number could be
+      // taken from the dev box this was written on.
+      //
+      // If you do stagger this, the cheaper shape is a max_tokens:0 pre-warm of
+      // the system blocks before the fan-out (one short round trip, no image,
+      // no generation) rather than serialising a real photo call. Note that
+      // max_tokens:0 is rejected alongside output_config.format, so the warm
+      // request must carry the system blocks WITHOUT the JSON schema.
+      //
+      // The other half of the decision, and the switch that acts on it, is
+      // gradingCachingEnabled() in ai-config.ts.
+      //
+      // per_image_ms below is the measurement AC2 of US-3345 asked for, which
+      // the dev box could not take: element 0 is the call a stagger would
+      // serialise, so its value IS the added wall clock.
+      //
+      // analyzeImage has ALWAYS logged its own `latency_ms` per call, so the
+      // raw number was already in the container logs and always has been. What
+      // this line adds is the part that was missing: the submission id to
+      // correlate N concurrent per-image lines against, the fan-out wall clock
+      // to compare the stagger to, and the name of the quantity being decided.
+      // It is a log rather than an ai_usage_events column because grading
+      // records usage through recordAiUsage (the pre-US-894 path), whose rows
+      // leave latency_ms null.
+      const perImageMs: number[] = new Array(imageData.length).fill(-1);
+      const fanOutStartedAt = Date.now();
+      const perImagePromises = imageData.map((img, perImageIndex) => {
+        const callStartedAt = Date.now();
+        return analyzeImage(
           img.dataUri,
           img.imageType,
           submission.garment_type,
@@ -1847,8 +1892,10 @@ export async function processSubmission(submissionId: string) {
           // US-2438: no per-block eval override on the live path.
           undefined,
           img.imageRole,
-        )
-      );
+        ).finally(() => {
+          perImageMs[perImageIndex] = Date.now() - callStartedAt;
+        });
+      });
 
       // US-601: run the premium authenticity add-on (when purchased) in parallel
       // with per-image analysis, INSIDE this buffer slot so it reuses the same
@@ -1954,6 +2001,15 @@ export async function processSubmission(submissionId: string) {
         imageType: imageData[i].imageType,
         result: s.status === "fulfilled" ? s.value : null,
       }));
+      // US-3345 AC2, measured on every real grade from here on. stagger_ms is
+      // what serialising the FIRST call would add to the seller's wait; compare
+      // it against the ~1 cent per grade the cache read would save before
+      // changing the fan-out above.
+      console.log(
+        `[Pipeline] per-image fan-out for submission ${submissionId} | ` +
+          `calls=${perImageMs.length} | per_call_ms=[${perImageMs.join(",")}] | ` +
+          `fan_out_ms=${Date.now() - fanOutStartedAt} | stagger_ms=${perImageMs[0] ?? -1}`,
+      );
       settled.forEach((s, i) => {
         if (s.status === "rejected") {
           console.error(

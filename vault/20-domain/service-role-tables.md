@@ -6,10 +6,20 @@ status: current
 source_of_truth: code
 code_refs:
   - services/edge-functions/src/tests/rls-guard_test.ts
-reviewed: 2026-09-10
+reviewed: 2026-09-11
 tags: [security, rls, tenant-isolation, contract]
 summary: rls-guard discovers tenant tables by regex on the CREATE TABLE block - any column ending in user_id or owner_id - so an operator table must be registered in SERVICE_ROLE_ONLY; the same file also enforces the (select auth.uid()) initplan form, with a five-entry exemption list whose entries fall into two DIFFERENT cases - a negligible table, and a policy already superseded by a corrective migration.
 ---
+
+> **Re-reviewed 2026-09-11.** Drift flagged `rls-guard_test.ts` for US-3334,
+> which registered one new operator table, `grading_reference_photos`, in
+> `SERVICE_ROLE_ONLY` twice over: once as deny-all (which customer photos may
+> be shown to a grader is an operator decision behind step-up and audit) and
+> once as having no owner column, being keyed through `submission_images` and
+> `grade_reports`. That is this note's rule being FOLLOWED, not changed. No
+> discovery regex, no exemption entry and no initplan rule moved, and the note
+> states no count that a new entry could falsify. Re-read against the diff:
+> still accurate.
 
 # Operator tables and the rls-guard discovery rule
 

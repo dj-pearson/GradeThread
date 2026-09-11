@@ -949,6 +949,82 @@ export function isCachingEnabled(): boolean {
   return readBool("AI_ENABLE_CACHING", DEFAULTS.enableCaching);
 }
 
+/**
+ * US-3345: prompt caching for the GRADING path only, overridable independently
+ * of AI_ENABLE_CACHING. Unset or empty inherits isCachingEnabled(), so the
+ * shipped default sends a byte-identical request body.
+ *
+ * -- WHY A SECOND SWITCH EXISTS ---------------------------------------------
+ *
+ * An Anthropic cache entry is readable only once the request that WRITES it has
+ * begun streaming. grading-pipeline.ts fans out every per-image call for a
+ * submission at once (.map() awaited under Promise.allSettled, bounded by
+ * AI_MAX_CONCURRENCY=8), so photos 1..N of one submission are in flight
+ * together and none of them can read what the others are writing. Each pays the
+ * 1.25x write premium and reads nothing back. The composite call is a single
+ * call, so it has nothing to read either. The only read grading can ever get is
+ * cross-submission, inside the 5-minute TTL, from a submission with the SAME
+ * garment_type AND garment_category (both are resolved into system block 0, so
+ * they are part of the cached prefix) AND the same prompt version.
+ *
+ * If that cross-submission read effectively never happens, `cache: true` on the
+ * grading blocks is a pure surcharge: 25 percent on 5,565 characters per photo
+ * for the per-image prompt, which has carried cache: true since US-1067, plus
+ * 7,310 characters once for the composite. AI_ENABLE_CACHING cannot express
+ * that, because ten other features share it (ai-extract, ai-authenticity,
+ * agent-kernel, ai-listing and friends) and several of those are SEQUENTIAL
+ * loops whose caches really do read. Hence a grading-scoped switch.
+ *
+ * -- WHAT IS MEASURED AND WHAT IS NOT ----------------------------------------
+ *
+ * The fan-out and the single-composite-call shape are read from the code and
+ * are certain. Whether the cross-submission read happens in practice is NOT
+ * measured: it needs prod, and this dev box has a placeholder service-role key
+ * (a read of api.gradethread.com/rest/v1/ai_usage_events returns HTTP 401).
+ * Run this against prod before flipping the switch:
+ *
+ *   select phase,
+ *          count(*)                   as calls,
+ *          sum(cache_creation_tokens) as writes,
+ *          sum(cache_read_tokens)     as reads,
+ *          round(sum(cache_read_tokens)::numeric
+ *                / nullif(sum(cache_creation_tokens), 0), 3) as read_write_ratio
+ *     from public.ai_usage_events
+ *    where phase in ('per_image', 'per_image_firstpass',
+ *                    'composite', 'composite_firstpass')
+ *      and created_at > now() - interval '30 days'
+ *    group by 1
+ *    order by 1;
+ *
+ * Filter on `phase`, not on `feature`: a grade produced from a clip is metered
+ * under 'video_grading' rather than 'grading' (video-grading-cost.ts), and the
+ * phases above are the only ones this switch controls.
+ *
+ * reads at or near zero against a non-zero writes column is the case this
+ * switch exists for: set GRADING_ENABLE_CACHING=0 and stop paying the premium.
+ * A read_write_ratio meaningfully above 0 means the cross-submission window is
+ * being hit and caching should stay on.
+ *
+ * -- WHY THIS IS NOT A PROMPT-VERSION CHANGE ---------------------------------
+ *
+ * cache_control is a billing and infrastructure directive. Toggling it changes
+ * not one byte of what the model reads, so it does NOT ride the
+ * shadow -> eval-gate -> canary lane that .claude/skills/grading-engine
+ * requires of prompt text, and it gets no prompt_version suffix. That property
+ * is asserted on the real request body in grading-cache-premium_test.ts.
+ *
+ * -- WHY THE FAN-OUT WAS NOT STAGGERED ---------------------------------------
+ *
+ * See the note at the perImagePromises site in grading-pipeline.ts. Short
+ * version: the grading call is NON-streaming, so "await the first token" is not
+ * available and a stagger costs a whole vision call, not one round trip.
+ */
+export function gradingCachingEnabled(): boolean {
+  const raw = (Deno.env.get("GRADING_ENABLE_CACHING") ?? "").trim();
+  if (raw === "") return isCachingEnabled();
+  return /^(1|true|yes|on)$/i.test(raw);
+}
+
 // The env-var fallback for the review threshold (US-331), used when the
 // settings registry has no row (fresh DB) or is unreadable. Clamped to (0, 1].
 function reviewConfidenceEnvFallback(): number {

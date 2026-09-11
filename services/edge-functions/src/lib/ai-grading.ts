@@ -11,9 +11,9 @@ import {
   getDefaultModel,
   getGradingCompositeModel,
   type GradingEffort,
+  gradingCachingEnabled,
   gradingSamplingParams,
   isAllowedGradingModel,
-  isCachingEnabled,
   reviewConfidenceThreshold,
 } from "./ai-config.ts";
 import { supabaseAdmin } from "./supabase.ts";
@@ -1522,8 +1522,15 @@ export async function analyzeImage(
   // submission — and across submissions inside the 5-min cache window —
   // don't re-bill the prompt tokens. Mirrors the FlipDesk extractor.
   // US-3329: visible-cleanliness wording, flag-gated; identical text when off.
+  // US-3345: gradingCachingEnabled(), not isCachingEnabled(). Same answer
+  // unless GRADING_ENABLE_CACHING is set; that switch exists because the
+  // per-image fan-out makes this particular write unreadable. See the doc
+  // comment on gradingCachingEnabled in ai-config.ts.
   const perImageClean = applyCleanlinessWording(prompt.text);
-  const systemBlock: AiSystemBlock = { text: perImageClean.text, cache: isCachingEnabled() };
+  const systemBlock: AiSystemBlock = {
+    text: perImageClean.text,
+    cache: gradingCachingEnabled(),
+  };
 
   // US-3150: the second cached system block. Order is PROMPT FIRST, tail second,
   // and that is the whole reason there are two blocks rather than one joined
@@ -1544,7 +1551,7 @@ export async function analyzeImage(
   if (tailInSystem) {
     systemBlocks.push({
       text: perImageTailText(blocks),
-      cache: isCachingEnabled(),
+      cache: gradingCachingEnabled(),
     });
   }
 
@@ -3153,7 +3160,12 @@ export async function compositeGrade(
   // Cache the static composite system prompt (tier definitions + weights + the
   // active exemplar block). Prompt-caching amortizes the block's token cost
   // across grades inside the 5-min window (US-1067 token savings).
-  const systemBlock: AiSystemBlock = { text: systemText, cache: isCachingEnabled() };
+  // US-3345: the composite is ONE call per submission, so it has nothing to
+  // read within a grade either; same switch as the per-image blocks.
+  const systemBlock: AiSystemBlock = {
+    text: systemText,
+    cache: gradingCachingEnabled(),
+  };
 
   // US-3150's second breakpoint. Prompt first, tail second, for the reason
   // spelled out at the per-image call site: a breakpoint caches what precedes
@@ -3168,7 +3180,7 @@ export async function compositeGrade(
   if (tailInSystem) {
     compositeSystemBlocks.push({
       text: compositeTailText(promptBlocksForUser),
-      cache: isCachingEnabled(),
+      cache: gradingCachingEnabled(),
     });
   }
 
