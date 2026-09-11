@@ -6,12 +6,24 @@ source_of_truth: code
 code_refs:
   - services/edge-functions/src/main.ts
   - scripts/ops/edge-watchdog.sh
-reviewed: 2026-09-10
+reviewed: 2026-09-11
 tags: [ops, dns, edge, routing]
 summary: Two hostnames serve two different systems; calling an app route on the Supabase host 404s silently.
 ---
 
 # DNS and routing
+
+> **Re-reviewed 2026-09-11.** Drift flagged `main.ts` for `f889dd66a`
+> (US-3198). The whole diff is THREE lines: an import, a comment, and
+> `app.post("/api/jobs/extension-queue-stale", ...)`. It is the same shape as
+> the rewards-sweep route this note already uses as its example at `:35`, and
+> it changes nothing about which host serves what: it is a Hono route, so it
+> lives on `functions.gradethread.com` and would 404 on `api.gradethread.com`
+> like every other `/api/*`. Re-verified the claim this note actually rests
+> on rather than the line numbers: `main.ts` now mounts 87 top-level routes
+> and every one is under a path this note's split assigns to the edge service.
+> The `/api/jobs/watchdog-heartbeat` exception at `:74` is still the only one
+> not called over the public host.
 
 > **Re-reviewed 2026-09-05.** Drift flagged `main.ts` again, for US-3068's
 > return shield. It mounts `/api/flipdesk/return-shield` behind

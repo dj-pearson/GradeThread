@@ -6,7 +6,7 @@ status: current
 source_of_truth: vault
 code_refs:
   - services/edge-functions/src/lib/crypto-aes.ts
-reviewed: 2026-08-01
+reviewed: 2026-09-11
 tags: [ops, security, secrets, rotation]
 summary: How to rotate every secret the platform holds, including the keyed dual-key path for marketplace token encryption.
 ---
@@ -45,7 +45,7 @@ in-flight scheduler.
 | `SENTRY_DSN`, `POSTHOG_KEY` | both | As needed | Public-ish; low urgency. |
 | `UNSUBSCRIBE_SECRET` | edge | On leak | Rotating invalidates outstanding unsubscribe links (acceptable). |
 | `BACKUP_AGE_RECIPIENT` / `BACKUP_AGE_IDENTITY` | DB host (public half) / Infisical `prod` (private half) | **Special** — 1y / on leak | Backup encryption (US-2416). Rotating is safe; **losing the identity destroys every backup encrypted under it.** See below. |
-| rclone `crypt` remote password + salt | DB host rclone config | On leak | Storage mirror encryption. Rotating means the existing mirror cannot be read — see below. |
+| rclone `crypt` remote password + salt | ⚠ **DB host rclone config, and nowhere else** — must become: Infisical `prod` + one offline copy | On leak | Storage mirror encryption. **Losing the host loses every photo**, same asymmetry as `BACKUP_AGE_IDENTITY` above. Unresolved: see [Storage mirror](#storage-mirror-rclone-crypt) below. |
 
 ### EDGE_ENCRYPTION_KEY rotation (token re-encryption)
 
@@ -319,11 +319,57 @@ half of the recovery range.
 
 ### Storage mirror (rclone crypt)
 
-Rotating the crypt password or salt makes the **existing** mirror unreadable —
-rclone will also treat every object as new and re-upload the whole volume. Treat
-it as a re-seed, not a rotation: stand up a second crypt remote, sync fresh,
-verify a sample decrypts, then retire the old prefix once its lifecycle window
-has passed.
+The password and salt for the `r2crypt` remote are the only way to read the
+offsite photo mirror: every listing photo, every grading label shot, every
+certificate asset. They currently exist in **one place, the rclone config on the
+DB host** — the machine an offsite mirror exists to survive losing.
+
+The asymmetry is the same one spelled out for `BACKUP_AGE_IDENTITY` above, and
+so is the answer. Nothing breaks when this secret is lost. The nightly sync
+keeps running, the bucket keeps filling, `/health` stays green, and you find out
+at the only moment it matters. `scripts/ops/restore-storage.sh` cannot work
+around it: rclone's crypt is authenticated, so without the password it stops
+with `failed to authenticate decrypted block - bad password?` and there is no
+recovery from there.
+
+> [!todo] **MANUAL (one-time, nothing in the repo can do this) — US-2659 AC3/AC6**
+> Read the values out of the host's rclone config and give them two homes that
+> are not the host:
+>
+> ```bash
+> # On the DB host. These print the OBSCURED forms, which are what
+> # `rclone config create` expects back — they are still secrets.
+> rclone config show r2crypt | grep -E '^(password|password2) ='
+> ```
+>
+> 1. Store both under **one** Infisical `prod` entry (suggested name
+>    `BACKUP_RCLONE_CRYPT`, holding `password` and `password2`). Like
+>    `BACKUP_AGE_IDENTITY`, it is an operator recovery secret and **not** an
+>    application env var, so it does not belong in [[env-reference]] and no
+>    deployment surface reads it.
+> 2. Put a **second copy** somewhere offline and durable that depends on neither
+>    Infisical nor the Contabo host.
+> 3. Prove the copy before trusting it: on a different machine, recreate the
+>    crypt remote from what you stored and run
+>    `RCLONE_REMOTE=r2crypt:gradethread-backups RESTORE_SAMPLE=5 bash scripts/ops/restore-storage.sh /tmp/keycheck`.
+>    A transcription error in the salt fails exactly like a lost key, which is
+>    why this step is not optional.
+> 4. Then edit the `rclone crypt` row in the table above so the **Where** column
+>    names the two locations, and tick this box with the date. **Record where,
+>    never the value** — no password, salt or obscured string goes in this note,
+>    in a commit, or in a story note.
+>
+> Until step 4 is done, `scripts/ops/restore-storage-drill.sh` passing means the
+> *procedure* works under a password you hold. It is not evidence you will hold
+> the real one, and the drill says so on every PASS for that reason.
+
+**Rotation**, once the above is done: rotating the password or salt makes the
+**existing** mirror unreadable, and rclone will treat every object as new and
+re-upload the whole volume. Treat it as a re-seed, not a rotation: stand up a
+second crypt remote, sync fresh, verify with `restore-storage.sh` against the
+new remote rather than eyeballing a listing, then retire the old prefix once its
+lifecycle window has passed. Keep the old password in both homes until that
+prefix is gone, for the same reason the age identity is kept for 30 days.
 
 ## After any rotation
 

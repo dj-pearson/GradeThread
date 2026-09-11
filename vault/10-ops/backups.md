@@ -4,10 +4,13 @@ aliases: [BACKUPS, restore drill]
 type: runbook
 status: current
 source_of_truth: vault
-code_refs: []
-reviewed: 2026-08-02
+code_refs:
+  - scripts/ops/backup-storage.sh
+  - scripts/ops/restore-storage.sh
+  - scripts/ops/restore-storage-drill.sh
+reviewed: 2026-09-11
 tags: [ops, backup, disaster-recovery]
-summary: What is backed up, how often, and the restore drills that prove it works — Postgres AND the storage mirror. The storage half gained a restore script and drill in US-2659; its crypt password still lives on the host it protects against losing.
+summary: What is backed up, how often, and the restore drills that prove it works — Postgres AND the storage mirror. The storage half has a restore script, a drill and a procedure; its crypt password still lives on the host it protects against losing, which is the open half.
 ---
 # Backups & Restore (US-494)
 
@@ -244,25 +247,60 @@ RCLONE_REMOTE=r2crypt:gradethread-backups \
   bash scripts/ops/restore-storage.sh /var/lib/supabase/storage
 ```
 
-`restore-storage.sh` does three things `rclone copy` alone does not, each
-because of a way this can look like it worked when it did not:
+`restore-storage.sh` does four things `rclone copy` alone does not, each because
+of a way this can look like it worked when it did not. Every one was made to
+fire on 2026-09-11 against a local crypt remote; the observed output is quoted
+so the list stays falsifiable.
 
-- **refuses a zero-file restore.** rclone exits 0 on a copy that produced
-  nothing, so a wrong prefix or an empty bucket reads as success.
-- **re-checks a sample byte-for-byte** with `rclone check --download`. A crypt
-  remote with the wrong password does not error on *listing* — it yields names
-  that decrypt to garbage. Only comparing content catches that.
-- **refuses a non-empty target** unless you set `RESTORE_ALLOW_NONEMPTY=1`, so
-  you cannot mix two generations of the mirror by accident.
+- **refuses a zero-file restore** (exit 1): `restore produced ZERO files from
+  cryptr:/storage-empty`. rclone exits 0 on a copy that produced nothing, so an
+  existing-but-empty prefix reads as success. A prefix that does not exist at
+  all errors inside rclone first, exit 3.
+- **refuses a source remote that is not type `crypt`** (exit 1): `remote
+  'plainalias' is type 'alias', not 'crypt'`. Checked against
+  `rclone config show`, not the remote's name.
+- **refuses a non-empty target** unless you set `RESTORE_ALLOW_NONEMPTY=1`
+  (exit 1), so you cannot mix two generations of the mirror by accident.
+- **re-checks a sample byte-for-byte** with `rclone check --download`, and
+  refuses an empty verification list, because zero files compared is zero
+  differences found and prints like a pass.
+
+> [!note] **What the sample check is really for, corrected 2026-09-11**
+> This section used to say a wrong crypt password "does not error on listing, it
+> yields names that decrypt to garbage", and that content comparison is what
+> proves the password. Both are wrong. rclone crypt is authenticated, so a wrong
+> password fails the transfer outright in either configuration, measured:
+> `error reading source root directory: directory not found` with filename
+> encryption on, `failed to authenticate decrypted block - bad password?` with
+> it off. rclone catches the lost-key case by itself.
+>
+> The case that gets *through* rclone is a file already sitting in the target
+> under the same name, size and modtime: `rclone copy` **skips** it, the script
+> reports `restored N file(s)`, and the bytes are someone else's. Reproduced
+> with a 10-byte impostor. With `RESTORE_SAMPLE=0` the restore exited **0** and
+> left the wrong bytes in place; with the check on it reported `a.jpg: contents
+> differ` and exited **1**. That is the case `RESTORE_ALLOW_NONEMPTY=1` opens
+> up, so the two settings are a pair. Never turn the sample off, least of all
+> when you have turned the non-empty refusal off.
 
 ### Partial vs full — different operations (US-2659 AC5)
 
 |  | Full rebuild | Single-object recovery |
 |---|---|---|
 | When | Volume lost; disaster recovery | Someone deleted or overwrote one photo and the nightly sync propagated it |
-| Prefix | `storage` (default) | `storage-deleted/<ts>` |
+| Prefix | `storage` (**the default**) | `storage-deleted/<ts>` |
 | Target | the real `STORAGE_DIR`, empty | a **scratch** directory |
 | Then | point services at it | copy the one path across by hand |
+| How often | once, in a disaster | the routine case |
+| What it risks | pulls the entire prefix; against a live volume it reverts every object to its backed-up state | nothing, as long as the target is a scratch directory |
+
+**The default is the full rebuild, and that is deliberate.** It is the more
+destructive of the two, so the argument for it is not "it is safer" but that the
+non-empty-target refusal stands in front of it: the full form only proceeds into
+an empty or absent directory, which is exactly the disaster shape. Making
+single-object recovery the default would have been worse, because it silently
+recovers *the wrong generation* of a file if you forget to set the prefix, and
+nothing refuses that. Recovering one object is a two-flag operation on purpose.
 
 ```bash
 # SINGLE OBJECT — find the dated prefix, restore it somewhere harmless.
@@ -301,29 +339,31 @@ bash scripts/ops/restore-storage-drill.sh   # PASS/FAIL
 | 2026-08-08 | **Encrypted** artifact: local stack at migration 00559 (5 auth users → 5 `public.users`, 20 submissions, 375 RLS policies) → `age` encrypt → sha256 → verify → decrypt → fresh `public.ecr.aws/supabase/postgres:17.6.1.106` scratch container. Also run separately through the real `backup-postgres.sh` + `restore-postgres.sh` pair, restoring from a **different directory** than the backup wrote, which is what an offsite fetch actually does. | PASS — migration, all row counts and all 375 policies matched source | dump 1s, restore 5s | US-2416 |
 | 2026-08-16 | **Encrypted** artifact: local stack at migration **00609** → `rage` encrypt → sha256 → verify → decrypt → fresh `public.ecr.aws/supabase/postgres:17.6.1.106` scratch container. **388 RLS policies**, up from 375 in August. ⚠ All row counts were **0** — the stack was the throwaway one `supabase db reset` builds, so this run proves the schema, policy and encryption path and says nothing about restoring DATA. The 2026-08-08 row above is the one that covers that. | PASS — migration 00609 and all 388 policies matched source | dump 1s, restore 8s | US-2618 loop |
 | 2026-08-16 | **STORAGE**, first time ever: 8-file volume (submission-images incl. label shots + item-photos) → `backup-storage.sh` → ephemeral rclone **crypt** remote → `restore-storage.sh` → fresh dir. Verified no plaintext on the remote, file count, and every file SHA-256. Then deleted one object, re-synced, and recovered the original bytes from `storage-deleted/<ts>/`. | PASS — 8/8 byte-identical, deleted object recovered intact | <10s | US-2659 |
+| 2026-09-11 | **STORAGE**, re-run of the above plus a 7th step: an impostor of the same name and size planted in the target, which `rclone copy` skips. Each of the four refusals was also fired by hand against a local crypt remote (missing remote, missing target arg, `alias` remote, non-empty target, empty prefix), and both new guards were sabotage-verified: emptying the hash loop reports `compared 0 file(s) but the source has 8`, and `RESTORE_SAMPLE=0` lets the impostor through with exit 0. | PASS — 7/7 checks, 8/8 byte-identical; impostor caught with `contents differ`, exit 1 | ~13s | US-2659 |
 | _before launch_ | A real **prod** offsite dump → scratch host (LAUNCH_CHECKLIST §5) | | | |
 
 > [!danger] **LAUNCH GATE:** the local drill proves the *procedure*; §5 of
 > `vault/10-ops/launch-checklist.md` still requires one drill against a real prod offsite
 > dump before launch. A backup that has never been restored is not a backup.
 
-> [!danger] **THIS TABLE IS POSTGRES ONLY, and so is everything above it (US-2659)**
-> `scripts/ops/` holds `backup-postgres.sh`, `restore-postgres.sh` and
-> `restore-drill.sh`. For storage it holds `backup-storage.sh` and nothing else:
-> no restore script, no drill, no procedure in this note. **Nothing has ever read
-> the photo mirror back** — every listing photo, every grading label shot, every
-> certificate asset.
+> [!warning] **The table is no longer Postgres-only, but the key problem is still open (US-2659)**
+> This callout used to say `scripts/ops/` had no storage restore script, no
+> drill and no procedure here, and that nothing had ever read the photo mirror
+> back. All three stopped being true on 2026-08-16 and the callout sat here
+> saying otherwise until 2026-09-11. A warning that contradicts the section
+> above it gets skipped, and then so does the half of it that is still true.
+> Here is that half:
 >
-> And the key problem is the sharp half. [[key-rotation]] records the rclone
-> crypt password + salt as living in the *DB host rclone config*. If that host is
-> lost — the disaster an offsite mirror exists for — the config goes with it and
-> every object in R2 is unreadable ciphertext. That is the exact mistake the age
-> procedure above was written to avoid: the Postgres identity is required to be
-> off-host with a second offline copy, and the storage secret has no such
-> instruction anywhere.
+> [[key-rotation]] still records the rclone crypt password and salt as living in
+> the *DB host rclone config*, and nowhere else. If that host is lost, which is
+> the disaster an offsite mirror exists for, the config goes with it and every
+> object in R2 is unreadable ciphertext. `restore-storage.sh` cannot help; it
+> will stop with `failed to authenticate decrypted block - bad password?`. That
+> is the exact mistake the age procedure above was written to avoid, since the
+> Postgres identity is required to be off-host with a second offline copy.
 >
-> Read the Postgres rows below as evidence about Postgres. They say nothing about
-> whether a photo can be recovered.
+> So the storage row below is evidence that the *procedure* works under a
+> password you hold. It is not evidence that you will hold the real one.
 
 > [!tip] Running it on Windows no longer needs a flag
 > `restore-drill.sh` used to default to `age`, which is not packaged for Windows,
