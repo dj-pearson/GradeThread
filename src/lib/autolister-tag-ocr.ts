@@ -190,56 +190,52 @@ export interface GroupNameParts {
   brand?: string | null;
   /** Normalized size ("M", "32x34"). */
   size?: string | null;
-  /** Garment type, when the group has already been classified. */
-  garment?: string | null;
-  /** Base color, when known. */
-  color?: string | null;
   /** Filename of the group's cover photo, for the no-brand fallback. */
   sourceName?: string | null;
 }
 
 /**
  * Compose the group's name from everything known about it, best signal first:
- * the brand off the tag, else a filename the seller typed, else color plus
- * garment. Size goes last so a batch of names sorts by brand. Null when there
- * is nothing worth saying — the caller then leaves "Item 3" in place.
-  *
- * US-3139, measured 2026-09-11: THE COLOR-PLUS-GARMENT RUNG IS UNREACHABLE
- * IN PRODUCTION. The only caller, use-autolister-tag-ocr.ts:138, passes
- * brand, size and sourceName and nothing else, because a staged AutoLister
- * group has no color or garment field yet. The branch is unit tested and
- * never runs, which is the shape that makes a test stop meaning anything.
- * Kept because garment classification may move earlier in the pipeline;
- * tracked rather than assumed. Do not read its test as coverage of live
- * behaviour.
-*/
+ * the brand off the tag, else a filename the seller typed. Size goes last so a
+ * batch of names sorts by brand. Null when there is nothing worth saying — the
+ * caller then leaves "Item 3" in place.
+ *
+ * DECIDED US-3349, 2026-09-11: this used to take `color` and `garment` too, and
+ * fall back to "Navy Hoodie" when neither the tag nor the filename said
+ * anything. Deleted, because no caller could ever reach that rung: a staged
+ * AutoLister group (the Group type in pages/flipdesk/autolister.tsx) carries no
+ * color and no garment at OCR time, so the only caller
+ * (use-autolister-tag-ocr.ts) passed brand, size and sourceName and nothing
+ * else. The rung had a green unit test, and a green test for a branch no user
+ * can reach reads as coverage while meaning nothing about production. The
+ * signature now promises exactly the two rungs it can climb.
+ *
+ * If garment classification ever moves ahead of naming in the pipeline, add the
+ * parameter back TOGETHER with the caller that supplies it, in one commit. A
+ * parameter is not a feature; the caller is.
+ *
+ * NO AUTOMATED GUARD WAS BUILT FOR THIS SHAPE, and the measurement is the
+ * reason. A scan for "optional parameter no production caller supplies" was
+ * written and run over src, services and functions: 360 options-bag functions,
+ * 91 where every production call site is a readable object literal, and 13
+ * never-supplied optional props. All 13 were read, and all 13 are deliberate
+ * overrides with an in-function default: the injected clock in
+ * ship-deadline.ts, the zeroed cost lines in listing-profit.ts, photoCount in
+ * performance-signals.ts, whose own comment says callers may omit it. `garment`
+ * was syntactically identical to every one of them. The shape is detectable and
+ * the defect is not, so the check would fail the build on correct code roughly
+ * thirteen times for each real finding, and its routine resolution would be
+ * appending to its own allowlist. What found this was a human reading the doc
+ * comment against the one call site; the durable fix is the rule above.
+ */
 export function buildGroupName(parts: GroupNameParts): string | null {
   const brand = parts.brand?.trim() || null;
   const size = parts.size?.trim() || null;
-  const garment = parts.garment?.trim() || null;
-  const color = parts.color?.trim() || null;
 
-  let base: string | null = null;
-  let garmentUsed = false;
-  if (brand) {
-    base = brand;
-  } else {
-    const fromFile = nameFromSourceName(parts.sourceName);
-    if (fromFile) {
-      base = fromFile;
-    } else if (color || garment) {
-      base = [color, garment].filter(Boolean).join(" ");
-      garmentUsed = !!garment;
-    }
-  }
+  const base = brand ?? nameFromSourceName(parts.sourceName);
   if (!base) return null;
 
-  const out = [base];
-  if (garment && !garmentUsed && !base.toLowerCase().includes(garment.toLowerCase())) {
-    out.push(garment);
-  }
-  if (size) out.push(size);
-  return out.join(" ");
+  return size ? `${base} ${size}` : base;
 }
 
 /**

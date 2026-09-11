@@ -177,15 +177,15 @@ describe("buildGroupName", () => {
     );
   });
 
-  it("uses color and garment when there is no brand and no usable filename", () => {
-    expect(
-      buildGroupName({ color: "Navy", garment: "Hoodie", sourceName: "IMG_1.jpg" }),
-    ).toBe("Navy Hoodie");
-  });
-
+  // US-3349: the color-plus-garment rung that used to sit here is gone, and so
+  // is its test. It could not be reached from the one caller, so its green was
+  // about the function and not about anything a seller sees. A camera filename
+  // with no brand now means the group keeps "Item N", which is what happens in
+  // production today.
   it("returns null when it knows nothing worth saying", () => {
     expect(buildGroupName({})).toBeNull();
     expect(buildGroupName({ sourceName: "IMG_1.jpg" })).toBeNull();
+    expect(buildGroupName({ size: "M", sourceName: "IMG_1.jpg" })).toBeNull();
   });
 
   it("does not repeat the brand when the filename already carries it", () => {
@@ -194,8 +194,9 @@ describe("buildGroupName", () => {
   });
 
   it("puts the size last so names sort by brand", () => {
-    expect(buildGroupName({ brand: "Nike", garment: "Tee", size: "L" })).toBe(
-      "Nike Tee L",
+    expect(buildGroupName({ brand: "Nike", size: "L" })).toBe("Nike L");
+    expect(buildGroupName({ size: "L", sourceName: "blue tee.jpg" })).toBe(
+      "Blue Tee L",
     );
   });
 });
