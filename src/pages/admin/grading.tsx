@@ -4,6 +4,7 @@ import { useAuth } from "@/hooks/use-auth";
 import { useDocumentVisible } from "@/hooks/use-document-visible";
 import { edgeFetch } from "@/lib/edge-fetch";
 import { HeldGradesCard } from "@/components/admin/held-grades-card";
+import { ReferenceGalleryCard } from "@/components/admin/reference-gallery-card";
 import { GRADE_FACTORS } from "@/lib/constants";
 import {
   computeWeightedOverall as sharedWeightedOverall,
@@ -979,6 +980,9 @@ export function AdminGradingQueuePage() {
 
       {/* US-3327: grades held for their paid turnaround, and early release. */}
       <HeldGradesCard isSuperAdmin={profile?.role === "super_admin"} />
+
+      {/* US-3334: photos awarded as the example of a grade level. */}
+      <ReferenceGalleryCard />
 
       {/* US-1533: garment expectation baselines — view/correct the trusted
           reference briefs the grader is given. An edit is live on the next

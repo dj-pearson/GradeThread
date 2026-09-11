@@ -713,6 +713,9 @@ const SERVICE_ROLE_ONLY = new Set([
   // both directions: beside the published factor routing, a per-factor
   // ceiling reveals the unpublished per-defect penalty (BASE_WEIGHT).
   "grade_flaws_only",
+  // US-3334: the reference gallery. Deny-all: which customer photos may be
+  // shown to the grader is an operator decision behind step-up and audit.
+  "grading_reference_photos",
 ]);
 
 // Service-role-only tables with NO user_id and NO parent FK (pure operator /
@@ -756,6 +759,8 @@ const SERVICE_ONLY_FORCED = [
   // US-3325. Keyed by grade_reports.id with no owner column, so hasUserId
   // never discovers it.
   "grade_flaws_only",
+  // US-3334. Keyed by submission_images / grade_reports, no owner column.
+  "grading_reference_photos",
 ];
 
 // Tokens that signal a policy is tenant/role scoped rather than wide open.

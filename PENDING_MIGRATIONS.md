@@ -9,6 +9,28 @@
 > They are still filed as HELD here because nobody in this session watched
 > them apply. Confirm against prod before trusting either heading.
 
+## ⏸ HELD: 00789 — the admin reference gallery (US-3334)
+
+**Risk: LOW.** One new deny-all table, `grading_reference_photos` (RLS on,
+no policies), a partial unique index, a category index and the
+`set_updated_at` trigger. Nothing existing is altered. Applied cleanly inside
+a rolled-back transaction on the local stack, 2026-09-11.
+
+**Apply order: after 00788.** Then `NOTIFY pgrst, 'reload schema';` and
+redeploy the edge (boot guard expects 00789).
+
+**⚠ The new admin routes read and write the table**, so the new edge must not
+run before the SQL; the boot guard enforces that. The web card only calls
+those routes, so an early frontend deploy shows a card that fails to load
+until the edge lands. Nothing a customer sees changes.
+
+**Check it landed:**
+
+```sql
+select relrowsecurity from pg_class where relname = 'grading_reference_photos';  -- t
+select count(*) from pg_policies where tablename = 'grading_reference_photos';   -- 0
+```
+
 ## ⏸ HELD: 00788 — the flaw that keeps a grade from the next level (US-3330)
 
 **Risk: MEDIUM, because it recreates `public_grade_reports` again.** Adds

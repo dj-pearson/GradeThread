@@ -135,6 +135,15 @@ import { requireScope } from "../lib/scope-guard.ts";
 import { REVIEW_CLAIM_TTL_SEC, reviewClaimVerdict } from "../lib/review-claim.ts";
 import { failUngradedSubmission } from "../lib/stuck-submissions.ts";
 import { REPORT_FACTOR_COLUMNS, reviewSnapshot } from "../lib/review-baseline.ts";
+import {
+  listReferencePhotos,
+  loadAwardCandidates,
+  loadAwardContext,
+  parseAwardBody,
+  REFERENCE_FACTORS,
+  type ReferenceFactor,
+  referenceAwardRefusal,
+} from "../lib/reference-photos.ts";
 
 // Admin grading-quality + self-improvement surface (US-070/US-073/US-132).
 // Mounted at /api/admin/grading — inherits authMiddleware + adminAuthMiddleware
@@ -3559,9 +3568,6 @@ adminGradingRoutes.post("/review/:id/adjust", async (c) => {
   return c.json({ ok: true, overall_score: overall, grade_tier: tier, resealed });
 });
 
-// POST /review/:id/send-back — the photos can't support a reliable grade. Set
-// the submission to needs_photos (the seller adds clearer photos + resubmits),
-// withhold the certificate, and record the review.
 // ── US-3327: held grades (US-3326) — list, and release early ─────────
 //
 // A held grade is decided but waiting for the turnaround its customer paid
@@ -3643,6 +3649,109 @@ adminGradingRoutes.post("/held-grades/release-batch", async (c) => {
   return c.json({ ok: true, released, results });
 });
 
+// ── US-3334: the reference gallery ─────────────────────────────────
+//
+// Award a graded photo as the example of a grade level, per category and
+// optionally per factor. Who may be awarded is decided server-side from the
+// database in lib/reference-photos.ts (finalized grade, and a staff owner or
+// one who opted into model refinement). Award and revoke require step-up and
+// are audited. Images leave only as signed URLs of 900 seconds or less.
+
+// GET /reference-photos?category=&factor= — live awards, with a fresh consent check.
+adminGradingRoutes.get("/reference-photos", async (c) => {
+  const category = c.req.query("category") || null;
+  const factorRaw = c.req.query("factor") || null;
+  if (factorRaw && !REFERENCE_FACTORS.includes(factorRaw as ReferenceFactor)) {
+    return c.json({ error: "Unknown factor" }, 400);
+  }
+  try {
+    const awards = await listReferencePhotos({
+      category,
+      factor: factorRaw as ReferenceFactor | null,
+    });
+    return c.json({ awards });
+  } catch (err) {
+    return failSafe(c, 500, "Couldn't load the reference gallery.", err, "admin.grading.reference.list");
+  }
+});
+
+// GET /reference-photos/candidates/:reportId — a finalized grade's photos, and
+// whether they may be awarded. Refused grades return no image URLs.
+adminGradingRoutes.get("/reference-photos/candidates/:reportId", async (c) => {
+  const result = await loadAwardCandidates(c.req.param("reportId"));
+  if (!result.found) return c.json({ error: result.refusal }, 404);
+  return c.json(result);
+});
+
+// POST /reference-photos — body { submission_image_id, awarded_score, factor?, note? }.
+adminGradingRoutes.post("/reference-photos", async (c) => {
+  const stepUp = requireStepUp(c);
+  if (stepUp) return stepUp;
+  let body: unknown;
+  try { body = await c.req.json(); } catch { return c.json({ error: "Invalid JSON body" }, 400); }
+  const input = parseAwardBody(body);
+  if ("error" in input) return c.json({ error: input.error }, 400);
+
+  const ctx = await loadAwardContext(input.submissionImageId);
+  const refusal = referenceAwardRefusal(ctx.eligibility);
+  if (refusal) {
+    await auditLog(c, "grading.reference_award_refused", "submission_image", input.submissionImageId, {
+      reason: refusal,
+    });
+    return c.json({ error: refusal, code: "NOT_AWARDABLE" }, ctx.eligibility.imageFound ? 403 : 404);
+  }
+
+  const { data, error } = await supabaseAdmin
+    .from("grading_reference_photos")
+    .insert({
+      submission_image_id: input.submissionImageId,
+      grade_report_id: ctx.gradeReportId,
+      garment_category: ctx.garmentCategory,
+      factor: input.factor,
+      awarded_score: input.awardedScore,
+      awarded_by: c.get("userId"),
+      note: input.note,
+    })
+    .select("id")
+    .single();
+  if (error) {
+    if ((error as { code?: string }).code === "23505") {
+      return c.json({ error: "This photo already holds a live award for that factor." }, 409);
+    }
+    return failSafe(c, 500, "Couldn't save the award.", error, "admin.grading.reference.award");
+  }
+  const id = (data as { id: string }).id;
+  await auditLog(c, "grading.reference_awarded", "grading_reference_photo", id, {
+    submission_image_id: input.submissionImageId,
+    grade_report_id: ctx.gradeReportId,
+    garment_category: ctx.garmentCategory,
+    factor: input.factor,
+    awarded_score: input.awardedScore,
+  });
+  return c.json({ ok: true, id, awarded_score: input.awardedScore }, 201);
+});
+
+// POST /reference-photos/:id/revoke — stop using an award. Kept, not deleted,
+// so the record of what the grader was shown survives.
+adminGradingRoutes.post("/reference-photos/:id/revoke", async (c) => {
+  const stepUp = requireStepUp(c);
+  if (stepUp) return stepUp;
+  const id = c.req.param("id");
+  const { data, error } = await supabaseAdmin
+    .from("grading_reference_photos")
+    .update({ revoked_at: new Date().toISOString(), revoked_by: c.get("userId") })
+    .eq("id", id)
+    .is("revoked_at", null)
+    .select("id");
+  if (error) return failSafe(c, 500, "Couldn't revoke the award.", error, "admin.grading.reference.revoke");
+  if (!data || data.length === 0) return c.json({ error: "No live award with that id." }, 404);
+  await auditLog(c, "grading.reference_revoked", "grading_reference_photo", id, {});
+  return c.json({ ok: true });
+});
+
+// POST /review/:id/send-back — the photos can't support a reliable grade. Set
+// the submission to needs_photos (the seller adds clearer photos + resubmits),
+// withhold the certificate, and record the review.
 adminGradingRoutes.post("/review/:id/send-back", async (c) => {
   const stepUp = requireStepUp(c);
   if (stepUp) return stepUp;
