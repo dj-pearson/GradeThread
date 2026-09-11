@@ -15,6 +15,7 @@ import {
   ingestKeywordResearch,
   isKeywordResearchConfigured,
 } from "../lib/keyword-research.ts";
+import { validateRequestedModel } from "../lib/ai-config.ts";
 import { requireScope } from "../lib/scope-guard.ts";
 import { requireFreshStepUp } from "../lib/step-up.ts";
 import { writeAuditLog } from "../lib/audit-log.ts";
@@ -272,6 +273,14 @@ adminAdsRoutes.post("/generate", async (c) => {
   if (!isPlatform(body.platform)) {
     return c.json({ error: "platform must be google_ads | apple_search_ads" }, 400);
   }
+  // US-3305: body.model used to go straight into generateAdCopy. An admin could
+  // name any string as a model, which at best 400s at Anthropic and at worst
+  // bills a model nobody chose. Checked BEFORE the theme lookup so a bad name
+  // never costs a query, and refused rather than quietly swapped for the
+  // default. This is the same allowlist the CONTENT_MODEL_<KIND> vars use.
+  const requestedModel = validateRequestedModel(body.model);
+  if (!requestedModel.ok) return c.json({ error: requestedModel.error }, 400);
+
   const themeIds = Array.isArray(body.theme_ids)
     ? body.theme_ids.map((v) => String(v)).filter(Boolean)
     : [];
@@ -289,7 +298,7 @@ adminAdsRoutes.post("/generate", async (c) => {
       themes,
       userId,
       instruction: typeof body.instruction === "string" ? body.instruction : undefined,
-      model: typeof body.model === "string" && body.model ? body.model : undefined,
+      model: requestedModel.model,
     });
     return c.json(result);
   } catch (e) {

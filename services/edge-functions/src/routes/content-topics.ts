@@ -8,6 +8,7 @@ import {
   type ContentSurface,
 } from "../lib/content-history.ts";
 import { researchTopics } from "../lib/content-ai-research.ts";
+import { validateRequestedModel } from "../lib/ai-config.ts";
 
 // Topic bank: queued titles partitioned by (surface, product_focus).
 // The bank is filled by /research (AI-driven — LIVE, calls researchTopics) or
@@ -260,6 +261,10 @@ contentTopicsRoutes.post("/research", async (c) => {
   if (!body.surface || !body.product_focus) {
     return c.json({ error: "surface and product_focus are required" }, 400);
   }
+  // US-3305: an unknown model name is refused before any bank counting, rather
+  // than passed through to messages.create as the caller typed it.
+  const requestedModel = validateRequestedModel(body.model);
+  if (!requestedModel.ok) return c.json({ error: requestedModel.error }, 400);
 
   try {
     let count = body.count;
@@ -302,7 +307,7 @@ contentTopicsRoutes.post("/research", async (c) => {
       surface: body.surface,
       productFocus: body.product_focus,
       count,
-      model: body.model,
+      model: requestedModel.model,
     });
 
     if (result.candidates.length === 0) {

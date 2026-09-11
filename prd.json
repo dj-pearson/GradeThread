@@ -4851,20 +4851,6 @@
       "notes": "Renumbered from US-3298 to US-3300 on 2026-09-10 while merging origin/main. Two sessions ran the backlog in parallel and both minted US-3298: this story on the local side, and 'Size charts, batch 13: the last nine gaps' on the remote, which is already archived. The remote won the id because it was pushed first; nothing about this story's scope changed. Its migration is 00777_ledger_rebuild_safeupdate.sql."
     },
     {
-      "id": "US-3305",
-      "passes": false,
-      "title": "Two model-selection defects in the AI config: Opus 5 silently loses its effort setting, and one ads route takes any model the caller names",
-      "description": "Found 2026-09-10 while converting the content engine to structured outputs (US-3151). Two separate defects in the same area. (1) modelUsesEffort() in services/edge-functions/src/lib/ai-config.ts:418 does not match claude-opus-5, although Opus 5 supports effort low through max. If any model environment variable is ever set to Opus 5, the effort parameter is silently dropped from every call that goes through outputConfigParams, and nothing reports it: the call succeeds, it just runs at whatever the default effort is. The failure is invisible because a dropped parameter looks exactly like a parameter nobody set. (2) services/edge-functions/src/routes/admin-ads.ts:292 passes body.model straight into generateAdCopy with no allowlist check, unlike every other model path in that same file. An admin can therefore name any string as a model, which at best 400s the call and at worst bills an unintended model.",
-      "acceptanceCriteria": [
-        "modelUsesEffort matches claude-opus-5, and the match is by a rule rather than a hand-maintained list if the naming allows it, so the next model does not repeat this",
-        "A test asserts the effort parameter SURVIVES for every model in the allowlist that supports it, and is absent for those that do not; the test must fail if a model is dropped from the match",
-        "admin-ads.ts:292 validates body.model against the same allowlist the rest of the file uses, and rejects an unknown model with a message naming what is allowed rather than passing it through",
-        "A test covers the rejection path, since an allowlist that is never exercised is the shape of guard this repo has been bitten by before",
-        "Every other place a model name can enter from a request body is grepped for and either validated or named in the story notes with why it is safe"
-      ],
-      "priority": 5
-    },
-    {
       "id": "US-3306",
       "passes": false,
       "title": "InventoryFilterCriteria.DateBand needs opposite time-zone rules for its two bands, and has one",

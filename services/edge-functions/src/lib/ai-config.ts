@@ -315,6 +315,7 @@ export type ContentKind = "blog" | "refresh" | "email" | "social";
 // (content isn't reproducibility-sensitive) but still gated so a typo can't
 // silently break generation. Mirrors the current + prior default/lightweight ids.
 const CONTENT_MODEL_ALLOWLIST: ReadonlySet<string> = new Set([
+  "claude-opus-5",
   "claude-opus-4-8",
   "claude-sonnet-5",
   "claude-sonnet-4-6",
@@ -323,6 +324,65 @@ const CONTENT_MODEL_ALLOWLIST: ReadonlySet<string> = new Set([
   DEFAULTS.model,
   DEFAULTS.lightweightModel,
 ]);
+
+/**
+ * Is this a model an operator may route non-grading generation to?
+ *
+ * US-3305: this set was only ever consulted for CONTENT_MODEL_<KIND> env vars,
+ * so the routes that take a model NAME OUT OF A REQUEST BODY (admin-ads
+ * /generate, content blog/social/topics generate) passed whatever string
+ * arrived straight into messages.create. Same question, same answer, one set.
+ *
+ * Deliberately NOT the grading allowlist: that one gates reproducibility and a
+ * model joins it by passing the eval gate. This one only has to keep a typo or
+ * a hand-rolled request from choosing what gets billed.
+ */
+export function isAllowedContentModel(model: string): boolean {
+  return CONTENT_MODEL_ALLOWLIST.has(model.trim());
+}
+
+/** The set as a stable sorted array, for error messages that must name it. */
+export function allowedContentModels(): string[] {
+  return [...CONTENT_MODEL_ALLOWLIST].sort();
+}
+
+/**
+ * Validate a model name that arrived in a request body (US-3305).
+ *
+ * Returns the model to use (undefined = "caller named none, use the default")
+ * or the 400 message. The message NAMES the allowed set, because "invalid
+ * model" sends an operator to the source to find out what the set is.
+ *
+ * Refusing rather than falling back to the default on purpose: a caller who
+ * asked for a specific model and silently got a different one is the same class
+ * of invisible substitution this story exists to remove.
+ */
+export function validateRequestedModel(
+  raw: unknown,
+):
+  | { ok: true; model: string | undefined }
+  | { ok: false; error: string } {
+  if (raw === undefined || raw === null) return { ok: true, model: undefined };
+  if (typeof raw !== "string") {
+    return {
+      ok: false,
+      error: `model must be a string naming one of: ${
+        allowedContentModels().join(", ")
+      }`,
+    };
+  }
+  const model = raw.trim();
+  if (!model) return { ok: true, model: undefined };
+  if (!isAllowedContentModel(model)) {
+    return {
+      ok: false,
+      error: `model "${model}" is not allowed; choose one of: ${
+        allowedContentModels().join(", ")
+      }`,
+    };
+  }
+  return { ok: true, model };
+}
 
 /**
  * The same set, as an array, for the US-3151 guard that every model an operator
@@ -424,16 +484,128 @@ export function getGradingTemperature(): number {
 // Without this, routing to Sonnet 5 (the current default) 400s every call —
 // this is what surfaced as `[flipdesk-ai] extraction failed: 400 ... temperature
 // is deprecated for this model`.
+//
+// ── US-3305: A RULE, NOT A PREFIX LIST ───────────────────────────────────────
+//
+// This used to be six startsWith() calls, and claude-opus-5 was not one of
+// them. Opus 5 takes effort low..max, so any model variable pointed at it fed
+// effortParams / outputConfigParams a model they classified as effort-free and
+// every call went out with NO effort, running at the model's own default. The
+// call succeeds. Nothing logs. A dropped parameter looks exactly like a
+// parameter nobody set, which is the whole reason it survived a release.
+//
+// A list has to be edited for every new id, and the edit is invisible when it
+// is forgotten. The naming already carries the answer, so the rule below reads
+// it: within a family, effort arrived at a known generation and every later
+// generation keeps it. It answers "yes" for claude-opus-5-1, claude-opus-6 and
+// claude-sonnet-6 with nobody touching this file.
+//
+// Where it CANNOT know - a family this build has never seen, or a Haiku newer
+// than any that has been checked - it says "unknown" and modelUsesEffort logs
+// it once, loudly, rather than quietly answering "no". It still returns false
+// there, because the two errors are not priced the same: a wrong "yes" 400s
+// every call for that feature, a wrong "no" only costs the setting. The log is
+// what makes the second one findable.
+//
+// Thresholds, from the Anthropic model documentation (read 2026-09-10):
+//   opus    effort from 4.5 (4.5 is low/medium/high only; 4.6+ add xhigh/max)
+//   sonnet  effort from 4.6; Sonnet 4.5 and older reject it
+//   haiku   no released Haiku accepts it - 4.5 returns an error
+//   fable   every released generation (5.0+), thinking is always on
+//   mythos  same surface as fable
+//
+// ⚠ SONNET 4.6 CHANGED ANSWER HERE, from false to true. It does accept effort;
+// the old list said otherwise. The visible consequence is gradingSamplingParams
+// ("claude-sonnet-4-6"), which now returns { output_config: { effort } } rather
+// than { temperature: 0 }. Sonnet 4.6 is not the default and is retained only
+// so grades produced on the prior default stay re-gradable - but a re-grade of
+// one of those now runs at the model's own decoding rather than greedy. That is
+// the same non-determinism the US-2035 block above documents for every other
+// effort model; if it ever needs to NOT be true for grading, the place to say
+// so is gradingSamplingParams, not a knowingly-wrong answer about the API.
+export type EffortSupport = "yes" | "no" | "unknown";
+
+interface EffortFamilyRule {
+  /** First [major, minor] in this family that accepts effort, or null if none does yet. */
+  takesEffortFrom: readonly [number, number] | null;
+  /** Newest [major, minor] this build has actually checked. Only consulted when the above is null. */
+  classifiedThrough: readonly [number, number];
+}
+
+const EFFORT_BY_FAMILY: Readonly<Record<string, EffortFamilyRule>> = {
+  opus: { takesEffortFrom: [4, 5], classifiedThrough: [5, 0] },
+  sonnet: { takesEffortFrom: [4, 6], classifiedThrough: [5, 0] },
+  haiku: { takesEffortFrom: null, classifiedThrough: [4, 5] },
+  fable: { takesEffortFrom: [5, 0], classifiedThrough: [5, 1] },
+  mythos: { takesEffortFrom: [5, 0], classifiedThrough: [5, 1] },
+};
+
+/** claude-<family>-<major>[-<minor>][-<datestamp>]: the naming since Claude 4.5. */
+const MODEL_ID_PATTERN = /^claude-([a-z]+)-(\d+)(?:-(\d+))?/;
+
+function atLeast(
+  v: readonly [number, number],
+  min: readonly [number, number],
+): boolean {
+  return v[0] > min[0] || (v[0] === min[0] && v[1] >= min[1]);
+}
+
+/**
+ * Does this model accept output_config.effort: yes, no, or not knowable here?
+ *
+ * Exported so a test can assert the third answer exists at all: "unknown"
+ * collapsing into "no" is precisely the failure this story is about.
+ */
+export function classifyEffortSupport(model: string): EffortSupport {
+  const id = model.trim().toLowerCase();
+
+  // Pre-4.5 ids put the generation BEFORE the family (claude-3-5-sonnet-...,
+  // claude-2-1). None of them accept effort and none ever will: the naming
+  // itself dates them, so this is a rule and not a list of legacy ids.
+  if (/^claude-\d/.test(id)) return "no";
+
+  const m = MODEL_ID_PATTERN.exec(id);
+  if (!m) return "unknown";
+  const rule = EFFORT_BY_FAMILY[m[1] ?? ""];
+  if (!rule) return "unknown";
+
+  const version: [number, number] = [Number(m[2]), Number(m[3] ?? 0)];
+  if (rule.takesEffortFrom) {
+    return atLeast(version, rule.takesEffortFrom) ? "yes" : "no";
+  }
+  // No generation of this family takes effort yet. Anything at or below what
+  // was actually checked is a confident no; anything newer is a guess.
+  return atLeast(version, [
+    rule.classifiedThrough[0],
+    rule.classifiedThrough[1] + 1,
+  ])
+    ? "unknown"
+    : "no";
+}
+
+const warnedUnclassifiedModels = new Set<string>();
+
 export function modelUsesEffort(model: string): boolean {
-  const m = model.trim().toLowerCase();
-  return (
-    m.startsWith("claude-sonnet-5") ||
-    m.startsWith("claude-opus-4-6") ||
-    m.startsWith("claude-opus-4-7") ||
-    m.startsWith("claude-opus-4-8") ||
-    m.startsWith("claude-fable") ||
-    m.startsWith("claude-mythos")
-  );
+  const verdict = classifyEffortSupport(model);
+  if (verdict !== "unknown") return verdict === "yes";
+
+  const id = model.trim().toLowerCase();
+  if (!warnedUnclassifiedModels.has(id)) {
+    warnedUnclassifiedModels.add(id);
+    console.error(
+      `[ai-config] "${model}" is not a model this build has classified for ` +
+        `output_config.effort. Treating it as NOT taking effort, which is the ` +
+        `safe direction (a wrong yes returns a 400 on every call) but may be ` +
+        `silently dropping the parameter - the exact shape of US-3305. ` +
+        `Classify its family in EFFORT_BY_FAMILY, lib/ai-config.ts.`,
+    );
+  }
+  return false;
+}
+
+/** Test seam: let a test observe the warn-once behaviour more than once. */
+export function resetEffortWarningsForTests(): void {
+  warnedUnclassifiedModels.clear();
 }
 
 // Effort level for grading on effort-based models. Low keeps the bounded

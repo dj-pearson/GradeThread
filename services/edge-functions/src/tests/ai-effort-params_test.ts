@@ -43,10 +43,18 @@ Deno.test("effortParams is a no-op on models that reject effort", () => {
   // today and becomes live only if they are ever routed back.
   assertEquals(modelUsesEffort("claude-haiku-4-5-20251001"), false);
   assertEquals(effortParams("claude-haiku-4-5-20251001", "photo_qa", "low"), {});
-  assertEquals(effortParams("claude-sonnet-4-6", "tag_ocr", "low"), {});
+  // ⚠ CORRECTED 2026-09-10 (US-3305). This line used to assert Sonnet 4.6 was a
+  // no-op too. Sonnet 4.6 DOES accept output_config.effort - effort arrived on
+  // Sonnet at 4.6 - so the old assertion recorded the prefix list's belief
+  // rather than the API's behaviour, and froze it. The legacy no-effort case is
+  // a genuinely pre-effort model:
+  assertEquals(effortParams("claude-3-5-haiku-20241022", "tag_ocr", "low"), {});
 
   // And it DOES emit on the models that take it.
   assertEquals(effortParams("claude-sonnet-5", "tag_ocr", "low"), {
+    output_config: { effort: "low" },
+  });
+  assertEquals(effortParams("claude-opus-5", "tag_ocr", "low"), {
     output_config: { effort: "low" },
   });
   assertEquals(effortParams("claude-opus-4-8", "tag_ocr", "medium"), {

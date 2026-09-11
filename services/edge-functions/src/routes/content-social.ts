@@ -15,6 +15,7 @@ import {
   getAiTemperature,
   getAnthropicClient,
   getLightweightModel,
+  validateRequestedModel,
 } from "../lib/ai-config.ts";
 
 // Social posts CRUD + lifecycle. One row carries BOTH long and short
@@ -313,6 +314,11 @@ contentSocialRoutes.post("/:id/generate", async (c) => {
     utm_campaign?: string;
   };
 
+  // US-3305: an unknown model name is refused here, before the post is even
+  // loaded. It used to be passed through to messages.create unchecked.
+  const requestedModel = validateRequestedModel(overrideBody.model);
+  if (!requestedModel.ok) return c.json({ error: requestedModel.error }, 400);
+
   const { data: post, error: loadErr } = await supabaseAdmin
     .from("social_posts")
     .select("*")
@@ -359,7 +365,7 @@ contentSocialRoutes.post("/:id/generate", async (c) => {
         primary_keyword: primaryKw,
         product_focus: productFocus,
       },
-      model: overrideBody.model,
+      model: requestedModel.model,
       utmCampaign: overrideBody.utm_campaign,
     });
 

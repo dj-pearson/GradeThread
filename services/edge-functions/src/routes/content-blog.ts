@@ -8,7 +8,7 @@ import { applyInterlinks } from "../lib/content-interlink.ts";
 import { generateBlogArticle, loadKnowledge } from "../lib/content-ai-blog.ts";
 import { ensureHeroImage } from "../lib/openai-images.ts";
 import { streamAnthropicText } from "../lib/content-ai-stream.ts";
-import { isCachingEnabled } from "../lib/ai-config.ts";
+import { isCachingEnabled, validateRequestedModel } from "../lib/ai-config.ts";
 import {
   buildBlogComposeStreamUserPrompt,
   buildSectionRegenStreamUserPrompt,
@@ -504,6 +504,11 @@ contentBlogRoutes.post("/:id/generate", async (c) => {
     model?: string;
   };
 
+  // US-3305: an unknown model name is refused here, before the post is even
+  // loaded. It used to be passed through to messages.create unchecked.
+  const requestedModel = validateRequestedModel(overrideBody.model);
+  if (!requestedModel.ok) return c.json({ error: requestedModel.error }, 400);
+
   const { data: post, error: loadErr } = await supabaseAdmin
     .from("blog_posts")
     .select("*")
@@ -556,7 +561,7 @@ contentBlogRoutes.post("/:id/generate", async (c) => {
         search_intent: intent,
         product_focus: productFocus,
       },
-      model: overrideBody.model,
+      model: requestedModel.model,
     });
 
     // Persist the generated draft. Status stays 'draft' — the user
