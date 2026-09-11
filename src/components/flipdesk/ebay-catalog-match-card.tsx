@@ -4,6 +4,7 @@ import { toast } from "sonner";
 import { toastError } from "@/lib/toast-error";
 import { Button } from "@/components/ui/button";
 import { useCatalogMatch, useAdoptCatalogProduct } from "@/hooks/use-ebay";
+import { EbayAttribution } from "@/components/marketplace/ebay-attribution";
 
 // The reason worth showing the seller, or "" for the ones that are not. A dead
 // connection surfaces as the browser's own "Failed to fetch", which reads as
@@ -121,6 +122,11 @@ export function EbayCatalogMatchCard({
             )}
             Use this match &amp; fill specifics
           </Button>
+          {/* US-3042: the title, brand and specifics above are eBay's own
+              catalog record for this product, not the seller's. Rendered only
+              on the branch that actually shows a match, so an empty or failed
+              lookup does not print a notice about data it is not showing. */}
+          <EbayAttribution what="Catalog product data" />
         </div>
       ) : (
         <p className="mt-2 text-xs text-muted-foreground">

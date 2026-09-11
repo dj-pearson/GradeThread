@@ -31,6 +31,7 @@ import {
 import { ValueBasisNote } from "@/components/value/value-basis-note";
 import { SourcingCeilingNote } from "@/components/value/sourcing-ceiling-note";
 import { SourcingTargetSetting } from "@/components/flipdesk/sourcing-target-setting";
+import { EbayAttribution } from "@/components/marketplace/ebay-attribution";
 
 function dollars(cents: number | null | undefined): string {
   if (cents == null) return "—";
@@ -194,6 +195,13 @@ function DecisionCard({
           <span>{result.disclaimer}</span>
         </div>
       )}
+
+      {/* US-3042: the resale range, the sell-through and the matched title on
+          this screen are all read out of other sellers' live eBay listings
+          through the Browse API. It is a smaller surface than Scout because it
+          shows an aggregate rather than the rows, but the source is the same and
+          so is eBay's requirement. */}
+      <EbayAttribution what="Resale value and sell-through" />
     </div>
   );
 }

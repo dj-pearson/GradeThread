@@ -36,6 +36,7 @@ import { useQuery } from "@tanstack/react-query";
 import { ForecastCard } from "@/components/flipdesk/forecast-card";
 import { PageHeader } from "@/components/ui/page-header";
 import { ValueBasisNote } from "@/components/value/value-basis-note";
+import { EbayAttribution } from "@/components/marketplace/ebay-attribution";
 
 function dollars(cents: number | null): string {
   if (cents == null) return "—";
@@ -518,6 +519,13 @@ export function FlipdeskScoutPage() {
             {candidates.map((c) => (
               <CandidateRow key={c.itemId} c={c} />
             ))}
+            {/* US-3042: the strongest attribution case in the app and the one
+                that was missing. Every row above is ANOTHER seller's live eBay
+                listing - their photo, their title, their asking price, deep
+                linked to their item page. The comps panel carried this notice
+                and Scout did not, which is the difference between "this surface
+                needs no notice" and "this surface was forgotten". */}
+            <EbayAttribution what="Listing data" />
           </div>
         )
       ) : (

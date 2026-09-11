@@ -21,8 +21,7 @@
 // Verifying with the wrong scheme (HMAC) rejected every real notification with
 // a 401, which made eBay retry endlessly and flag the endpoint as unhealthy.
 
-import { apiHost, getAppAccessToken } from "./ebay-client.ts";
-import { fetchWithTimeout } from "./circuit-breaker.ts";
+import { apiHost, countedEbayFetch, getAppAccessToken } from "./ebay-client.ts";
 
 interface XEbaySignature {
   kid: string;
@@ -165,7 +164,14 @@ const fetchPublicKeyMaterial: PublicKeyFetcher = async (kid) => {
     // US-2326 AC4: bounded. This was a bare fetch with no deadline, reached
     // from an unauthenticated webhook, so a slow or hanging eBay pinned a
     // request handler for as long as it liked.
-    res = await fetchWithTimeout(
+    //
+    // US-3042: and COUNTED. It was the one eBay API call in the service that
+    // reached the network without going through countedEbayFetch, so it never
+    // appeared in ebay_api_call_daily. That is a call against eBay's quota, on
+    // the inbound-notification path, undercounting precisely the number the
+    // Application Growth Check asks us to state. countedEbayFetch takes the
+    // same (input, init, timeoutMs) arguments, so the deadline is unchanged.
+    res = await countedEbayFetch(
       `${apiHost()}/commerce/notification/v1/public_key/${encodeURIComponent(kid)}`,
       { headers: { Authorization: `Bearer ${token}` } },
       KEY_FETCH_TIMEOUT_MS,
