@@ -24,6 +24,30 @@
 // 80 values on the AutoLister path versus 30 / 200 on the one-item path — so
 // the same garment could fill a specific from the item page and not from a bulk
 // run, with nothing in the UI to explain the difference.
+//
+// MEASURED 2026-09-11 (US-3044). Two of the paragraphs above are true of the
+// API contract and false of the data eBay actually sends us:
+//
+//  1. `relevanceIndicator` is absent from EVERY aspect of EVERY leaf under
+//     Clothing, Shoes & Accessories on EBAY_US: 0 of 8,748 aspect rows across
+//     all 457 leaves carry a searchCount. So `count` is 0 for everything and
+//     the sort below degenerates to required first, then RECOMMENDED before
+//     OPTIONAL, then ALPHABETICAL. That is the old usage-tier sort with an
+//     alphabetical tail, not a demand rank. Do not describe it as one without
+//     re-measuring. On a marketplace or tree that does return the field, this
+//     module works exactly as written.
+//  2. The cap almost never bites on apparel. Leaves carry a median of 17
+//     aspects and a maximum of 46; exactly ONE leaf of 457 (57974, Girls'
+//     Shoes) exceeds 45, and Theme survives the cut even there. Cutting
+//     MAX_AI_ASPECTS to 24 would still drop no RECOMMENDED aspect from any
+//     apparel leaf, which makes the cap a cheap token lever and a useless
+//     fill-rate lever.
+//
+// The census, the arithmetic and a --self-test are in
+// scripts/aspect-demand-cut.mjs; src/test/aspect-demand-cut-parity.test.ts
+// pins its mirror of prioritizeByDemand to this one. Re-run
+// `node scripts/aspect-demand-cut.mjs --refresh` before trusting the numbers
+// in a later quarter.
 
 /**
  * Maximum aspects included in the extraction tool schema.
@@ -33,6 +57,10 @@
  * coverage. 45 covers the full spec of most apparel/footwear leaves; the tail
  * beyond it is near-zero-search-volume aspects once the demand sort below has
  * run.
+ *
+ * "Most" measured 2026-09-11: 456 of the 457 EBAY_US apparel leaves carry 45
+ * aspects or fewer, so on this tree the cap is binding on one leaf. See the
+ * MEASURED block at the top of this file before spending a story on it.
  */
 export const MAX_AI_ASPECTS = 45;
 

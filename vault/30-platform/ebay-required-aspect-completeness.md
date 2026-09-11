@@ -9,8 +9,10 @@ code_refs:
   - services/edge-functions/src/lib/ai-listing.ts
   - services/edge-functions/src/lib/aspect-registry.ts
   - services/edge-functions/src/lib/aspect-provenance.ts
+  - services/edge-functions/src/lib/aspect-priority.ts
   - src/lib/aspect-provenance.ts
   - src/test/fixtures/required-aspects-cases.json
+  - scripts/aspect-demand-cut.mjs
 reviewed: 2026-09-11
 tags: [ebay, publishing, aspects, gotcha]
 summary: Publish fills required item specifics the stored override lacks; revise did not, so listings published fine and then failed every later revise.
@@ -480,3 +482,83 @@ Neither changes completeness. Whether the cache actually starts hitting
 is US-3047 AC3 and needs a 30+ item batch on prod to answer; the
 measurement is not in yet, so no fill-rate claim here should be read as
 having moved.
+
+## 2026-09-11: the demand cut is not why Theme is empty (US-3044)
+
+US-3044's AFTER run left one question open and named it as the reason the
+gate could not close on fill quality: does Theme even reach the refine
+schema? `recommendedAspectCoverage` counts every RECOMMENDED aspect on
+the raw leaf payload, while `buildAspectSpecsForCategory` caps the tool
+schema at `MAX_AI_ASPECTS` (45). Any aspect that is recommended but past
+the cap sits in the fill report's denominator with a numerator no prompt
+change can move, and the note said settling it "needs the leaf's cached
+payload, not a draft".
+
+It does, and the payload is free. eBay's Taxonomy
+`get_item_aspects_for_category` answers on an APPLICATION token
+(client_credentials from `EBAY_APP_ID` / `EBAY_CERT_ID`), so a full
+census needs no seller consent, no Supabase service-role key and no
+Anthropic key. `scripts/aspect-demand-cut.mjs` takes it: 457 leaf
+categories under 11450 (Clothing, Shoes & Accessories) on EBAY_US, tree
+0, captured 2026-09-11, 8,748 aspect rows. The capture is checked in at
+`scripts/fixtures/aspect-demand-cut-ebay-us-2026-09-11.json` so the
+report reruns with no credentials; `--refresh` re-captures, `--self-test`
+proves the arithmetic against a hand-computed fixture, and
+`src/test/aspect-demand-cut-parity.test.ts` pins its mirror of
+`prioritizeByDemand` to the edge original.
+
+**The answer is no.** Every aspect US-3044 names reaches the schema on
+100% of the leaves where eBay recommends it.
+
+| Aspect | Offered on | RECOMMENDED on | Reaches the schema | Reachable | Mode |
+|---|---|---|---|---|---|
+| Theme | 238 | 112 | 112 | 100% | FREE_TEXT |
+| Fabric Type | 275 | 114 | 114 | 100% | FREE_TEXT |
+| Garment Care | 121 | 1 | 1 | 100% | FREE_TEXT |
+| Country of Origin | 457 | 31 | 31 | 100% | SELECTION_ONLY |
+| MPN | 422 | 12 | 12 | 100% | FREE_TEXT |
+| Style Code | 2 | 2 | 2 | 100% | FREE_TEXT |
+| Product Line | 52 | 20 | 20 | 100% | FREE_TEXT |
+| Model | 75 | 21 | 21 | 100% | FREE_TEXT |
+| Character | 179 | 123 | 123 | 100% | FREE_TEXT |
+| Department | 216 | 211 | 211 | 100% | SELECTION_ONLY x213, FREE_TEXT x3 |
+| Features | 206 | 71 | 71 | 100% | FREE_TEXT |
+| Occasion | 207 | 79 | 79 | 100% | SELECTION_ONLY x115, FREE_TEXT x92 |
+
+Across the whole tree, zero RECOMMENDED aspects on zero leaves are cut by
+the cap. Leaves carry a median of 17 aspects (min 4, p95 34, max 46) and
+exactly one of 457 exceeds 45: 57974, Girls' Shoes, at 46, where Theme
+survives anyway. So Theme's 1/92 BEFORE and 0/3 AFTER are a prompt and
+evidence result, not a schema result. The model was asked about Theme on
+every draft where the coverage metric counted it, and answered nothing.
+
+**The bigger finding, which was not the question.**
+`relevanceIndicator` is absent from all 8,748 aspect rows: 0.0% carry a
+`searchCount`. eBay's US apparel tree does not return the field at all
+(verified on the raw bytes for 3001, 57990 and 15687: zero occurrences of
+the string `relevanceIndicator`). Two things follow.
+
+- `prioritizeByDemand` is not ranking by demand here. With every count
+  tied at 0 it falls through to RECOMMENDED-before-OPTIONAL, then
+  alphabetical. That is US-2420's old usage-tier sort with an
+  alphabetical tail. It is the right code for a marketplace that supplies
+  the field, and a no-op on this one.
+- The seller-facing "missing specifics" list in `AspectCoverage.missing`
+  is sorted by the same absent rank, so it is alphabetical too. Any UI
+  copy calling it what buyers filter on most is claiming something the
+  data cannot support.
+
+**What this hands US-3045.** The cap is a token lever, not a fill lever.
+`MAX_AI_ASPECTS` could drop from 45 to 24 and still cut no RECOMMENDED
+aspect from any apparel leaf (at 23 it cuts one, at 17 it cuts 135
+across 208 leaves, Vintage and Theme worst). But that is not free: at 24
+the schema loses MPN on 67 leaves and Product Line on 29, both
+OPTIONAL-tier there, and both are exactly the fields the tag OCR was
+added to fill. Cutting the cap protects the coverage metric while
+hurting the fields the gate is chasing. Measure the token saving before
+trading it.
+
+Re-run before trusting any of this in a later quarter: `node
+scripts/aspect-demand-cut.mjs --refresh` then `node
+scripts/aspect-demand-cut.mjs`. Related: [[ebay-aspect-value-limit]],
+[[ebay-condition-and-policies]].

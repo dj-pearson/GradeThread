@@ -72,6 +72,21 @@ export interface AspectCoverage {
   total: number;
   /// Unfilled recommended aspect names, ranked by search volume (desc) — eBay's
   /// own ordering of what buyers filter on most.
+  ///
+  /// MEASURED 2026-09-11 (US-3044): on EBAY_US apparel that ordering does not
+  /// exist. `relevanceIndicator` is absent from all 8,748 aspect rows of all
+  /// 457 leaves under 11450, so every rank ties at 0 and the sort below falls
+  /// through to ALPHABETICAL. Anything telling a seller this list is "what
+  /// buyers filter on most" is telling them something we cannot currently
+  /// know. Re-check with `node scripts/aspect-demand-cut.mjs --refresh`
+  /// before relying on it, here or in the UI copy.
+  ///
+  /// Also note `missing` is NOT the set the AI was asked about. It is computed
+  /// from the RAW leaf payload, while the tool schema is capped at
+  /// MAX_AI_ASPECTS. On EBAY_US apparel the two sets happen to be identical
+  /// today (the cap binds on 1 leaf of 457), which is why a zero fill rate on
+  /// a name in this list is a prompt problem rather than a schema problem.
+  /// That equivalence is a measurement, not a guarantee: see aspect-priority.ts.
   missing: string[];
 }
 
