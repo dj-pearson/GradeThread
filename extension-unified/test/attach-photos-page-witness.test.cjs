@@ -234,6 +234,11 @@ function loadLister() {
     assert.strictEqual(res.total, 8, "total is what was offered");
     assert.strictEqual(res.confirmed, false, "nothing confirmed it");
     assert.strictEqual(
+      res.asked, true,
+      "the page WAS asked and the answer was no. That is a different fact from " +
+        "never asking, and runFlow reports them differently (US-2738).",
+    );
+    assert.strictEqual(
       res.unverified, 0,
       "'we could not confirm' is a softer lie than the one this replaced - the " +
         "page answered, and the answer was no",
@@ -256,6 +261,7 @@ function loadLister() {
     assert.strictEqual(res.attached, 8, "the page took them");
     assert.strictEqual(res.failed, 0);
     assert.strictEqual(res.confirmed, true, "the page's own preview is the witness");
+    assert.strictEqual(res.asked, true, "it was asked, and it answered");
     assert.strictEqual(
       res.unverified, 0,
       "a run the page confirmed carries no doubt; warning anyway trains the " +
@@ -331,6 +337,11 @@ function loadLister() {
     );
     assert.strictEqual(res.failed, 0);
     assert.strictEqual(res.confirmed, false);
+    assert.strictEqual(
+      res.asked, false,
+      "US-2738: nobody put the question on this channel, and the record has to " +
+        "say so rather than look like a confirmed attach",
+    );
     assert.strictEqual(
       g.queriedAll.length, 0,
       "a flow that declares no confirmation must not even look for one",

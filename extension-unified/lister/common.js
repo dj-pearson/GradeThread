@@ -241,8 +241,14 @@
     // US-2738 AC7: `confirmed` is true only when the PAGE said so — see
     // PHOTO_PREVIEW_WITNESS. It is not part of the attached/failed arithmetic;
     // it is what decides which of the two an accepted assignment becomes.
+    // US-2738: `asked` says whether the page was ever in a position to answer.
+    // confirmed:false means two completely different things without it - the
+    // page said no, or no flow on this channel can put the question. Both used
+    // to leave the same trace, which is how a claim with nothing behind it
+    // reads exactly like a claim with a witness behind it.
     const result = {
-      attached: 0, failed: 0, total: urls.length, unverified: 0, confirmed: false,
+      attached: 0, failed: 0, total: urls.length, unverified: 0,
+      confirmed: false, asked: false,
     };
     try {
       const input = document.querySelector(fileInputSelector);
@@ -379,6 +385,7 @@
       // there, the uploader read the list however it was set, so `unverified`
       // has nothing left to hedge about.
       if (confirmSelector) {
+        result.asked = true;
         const sawPreview = await waitForWitness(
           confirmSelector, witnessBefore, PHOTO_CONFIRM_TIMEOUT_MS,
         );
@@ -398,9 +405,59 @@
       // The marketplace rejected the programmatic drop outright — nothing landed.
       return {
         attached: 0, failed: urls.length, total: urls.length,
-        unverified: 0, confirmed: false,
+        unverified: 0, confirmed: false, asked: false,
       };
     }
+  };
+
+  // US-2738: which witness answered for the photos, in one word, kept.
+  //
+  //   "page"      the page rendered a preview out of the bytes we handed it.
+  //   "none"      the page was asked and rendered nothing. Every photo failed.
+  //   "not-asked" this channel declares no preview selector, so nothing outside
+  //               the extension has confirmed anything. The browser taking a
+  //               file selection is not the page taking the photos.
+  //   undefined   there were no photos to attach. No question, no answer.
+  //
+  // This is a RECORD, not a message: "not-asked" warns nobody and renders
+  // nothing. It exists because `confirmed:false` was being written for both of
+  // the middle two, so a stored job could not say whether anyone had checked -
+  // and an unchecked claim that looks exactly like a checked one is the shape
+  // this whole story is about. It is also how AC8 gets answered without a
+  // console: the operator reads the run's own row.
+  GT.photoWitness = function (photos) {
+    const p = photos || {};
+    if (!(p.total > 0)) return undefined;
+    if (!p.asked) return "not-asked";
+    return p.confirmed ? "page" : "none";
+  };
+
+  // US-2738: the photo miss, said on the page, while the seller can still fix it.
+  //
+  // The price miss has had a banner since US-2477 because the seller is looking
+  // at the form right now. The photos only ever went home in the counts, and on
+  // a channel with a price dialog the dialog runs FIRST and rewrites the bar to
+  // "including the price - review it and post" - so a run where nothing
+  // attached ended with a success message sitting over a listing with no
+  // images. Photos are the one thing a buyer sees.
+  //
+  // Empty string where there is nothing to report. A channel that could not be
+  // asked says NOTHING here on purpose: "we did not check" belongs in the
+  // record, not on a banner, or four channels that have always worked start
+  // warning on every run and the seller learns to close the bar.
+  GT.photoBannerText = function (photos, label) {
+    const p = photos || {};
+    const total = p.total || 0;
+    const failed = p.failed || 0;
+    if (total === 0 || failed === 0) return "";
+    const attached = total - failed;
+    const where = " to this " + (label || "listing") + " listing";
+    if (attached <= 0) {
+      return "GradeThread could NOT attach any photos" + where +
+        ". Drag your downloaded photos in before you post.";
+    }
+    return "GradeThread attached only " + attached + " of " + total + " photos" +
+      where + ". Drag the rest in before you post.";
   };
 
   // US-2737: commit a chip/token field, one entry at a time.
@@ -702,10 +759,16 @@
     // So when a flow declares a priceDialog, that is the price, and the form
     // field is skipped entirely rather than filled and then contradicted.
     const usesPriceDialog = Boolean(flow.priceDialog && flow.priceDialog.price);
+    // US-2738: showBanner REPLACES the bar rather than stacking onto it, and the
+    // photo warning below is written after this one. Remembering that the price
+    // was missed is what stops a photo message from silently deleting the money
+    // warning on the run where the seller needs both.
+    let priceWarned = false;
     const priceFilled = !usesPriceDialog && f.price
       ? GT.fill(f.price, payload.price)
       : false;
     if (!usesPriceDialog && f.price && !priceFilled) {
+      priceWarned = true;
       GT.showBanner(
         "GradeThread prefilled this " + (payload.platformLabel || payload.platform) +
           " listing, but it could NOT set the price — enter it yourself before you post.",
@@ -748,6 +811,7 @@
       // Same loud treatment the form-field miss has had since US-2477. A price
       // we could not set is the one thing the seller must not discover after
       // publishing.
+      priceWarned = true;
       GT.showBanner(
         "GradeThread prefilled this " + (payload.platformLabel || payload.platform) +
           " listing, but it could NOT set the price — enter it yourself before you post.",
@@ -768,10 +832,28 @@
       )
       : { attached: 0, failed: 0, total: 0 };
     const photosAttached = photos.total > 0 && photos.failed === 0;
+    const photosWitness = GT.photoWitness(photos);
 
     GT.log("filled " + payload.platform + " form (photos " +
       photos.attached + "/" + photos.total + " attached" +
-      (photos.confirmed ? ", confirmed by the page" : "") + ")");
+      (photosWitness ? ", witness: " + photosWitness : "") + ")");
+
+    // US-2738: tell the seller on the form, not only in the SaaS.
+    //
+    // The counts have gone home since US-1877, but home is another tab, and on
+    // a queue drain nobody is reading it at all. The seller is HERE, and the
+    // banner they were left with said the listing was prefilled and ready to
+    // post. A listing that publishes with no images is the failure this story
+    // opened on.
+    const photoWarning = GT.photoBannerText(
+      photos, payload.platformLabel || payload.platform,
+    );
+    if (photoWarning) {
+      GT.showBanner(
+        photoWarning +
+          (priceWarned ? " The price was NOT set either - enter it yourself." : ""),
+      );
+    }
 
     // We NEVER auto-submit, and there is no option to: category/size/condition
     // pickers vary too much to set safely, and the seller is responsible for a
@@ -802,6 +884,11 @@
       // Sent only when it is non-zero, so an ordinary run carries no new field
       // and an older SaaS build reads exactly what it read before.
       photosUnverified: photos.unverified > 0 ? photos.unverified : undefined,
+      // US-2738: which witness answered - "page", "none", or "not-asked".
+      // Absent where there were no photos to attach, and absent from any build
+      // that predates this, so an older SaaS reads exactly what it read before.
+      // See GT.photoWitness for why the middle two had to stop looking alike.
+      photosWitness: photosWitness,
       // The listing URL only exists after the seller submits; the SaaS records
       // the cross-listing from the "filled" signal and the seller can paste the
       // final URL later. If the platform navigates to the live listing in this
