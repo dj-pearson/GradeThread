@@ -110,7 +110,7 @@ struct SaleRecorder {
             let sale_date: String
             let sold_at: String
         }
-        let day = Self.dayFormatter.string(from: values.saleDate)
+        let day = Self.dayString(values.saleDate)
         try await SupabaseShared.client
             .from("sales")
             .insert(Insert(
@@ -191,13 +191,15 @@ struct SaleRecorder {
 
     /// Sales are dated by DAY, in the seller's own calendar. A UTC ISO stamp
     /// would file an evening sale under tomorrow for anyone east of UTC.
-    private static let dayFormatter: DateFormatter = {
-        let f = DateFormatter()
-        f.calendar = Calendar(identifier: .gregorian)
-        f.locale = Locale(identifier: "en_US_POSIX")
-        f.dateFormat = "yyyy-MM-dd"
-        return f
-    }()
+    ///
+    /// US-3310: the day is NAMED on the local calendar and only then written
+    /// in UTC, through `MoneyDate` rather than a private `yyyy-MM-dd`
+    /// formatter. `RecordSaleForm.saleDate` is a raw picker moment, so the
+    /// naming happens here; the output is what the device-local formatter this
+    /// replaced already produced, with one owner for the rule instead of two.
+    static func dayString(_ saleDate: Date, localCalendar: Calendar = .current) -> String {
+        MoneyDate.iso(MoneyDate.anchor(localDayOf: saleDate, localCalendar: localCalendar))
+    }
 }
 
 /// The parsed, validated numbers a sale is recorded with. Built from
