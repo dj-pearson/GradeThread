@@ -7,10 +7,23 @@ code_refs:
   - services/edge-functions/src/lib/coherent-cache.ts
   - services/edge-functions/src/lib/schema-version.ts
   - services/edge-functions/src/lib/circuit-breaker.ts
-reviewed: 2026-09-10
+reviewed: 2026-09-11
 tags: [edge, caching, deploy, contract]
 summary: The edge runs N replicas, migrations apply separately from the code roll, and a deadline must cover the response body — three facts that constrain what any edge module may assume.
 ---
+
+> **Re-reviewed 2026-09-11.** Drift on `schema-version.ts` again, and again the
+> whole diff is the one line this note already documents four times over:
+> `EXPECTED_SCHEMA_VERSION` moved with its migrations, which is the US-1108
+> triple behaving correctly rather than an invariant changing. Nothing about the
+> boot guard, the grace window or the refuse-to-start behaviour moved. Still
+> accurate.
+>
+> Worth noting for the next reader rather than re-bumping in silence: this note
+> now carries five dated re-reads that all say the same thing. A `code_refs`
+> entry that only ever drifts on a version constant is a signal with no
+> information in it, and the honest fix is to narrow what this note watches
+> rather than keep dating a clean read.
 
 # Edge runtime invariants
 

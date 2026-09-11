@@ -46,6 +46,25 @@
 // the deployed one. This guard's value is unchanged either way — it keeps every
 // candidate file in a shape that survives the round-trip — but do not read a
 // green run as a statement about the running container.
+//
+// ⚠ RE-MEASURED 2026-09-11 (US-2665), and the picture got worse rather than
+// clearer. docker-compose.coolify.yml is now disproved THREE ways, not one:
+// /health/metrics still answers limit_mb null against its 2048, it answers
+// buffer_pipeline_cap 10 against its 6, and an OPTIONS preflight comes back
+// with the Hono app's allow-headers list rather than the shorter one its
+// Traefik edge-cors middleware declares — so its LABELS are not applied
+// either. Environment, labels and resources all read as absent. Which file
+// Coolify DOES read is still not settled; one docker inspect label settles it
+// and vault/10-ops/edge-container-settings.md carries the command.
+//
+// ⚠ A NOTE ON WHERE THIS FILE LIVES, because it was nearly moved on that same
+// day on the belief that nothing ran it. It runs. There is a SECOND vitest
+// project, vitest.scripts.config.mjs, whose include is scripts/**/*.test.mjs,
+// invoked by `npm run test:scripts` from scripts/verify.mjs and ci.yml. A bare
+// `npx vitest run` on this path reports "No test files found" because the web
+// project scans src/** only, and that is not the same thing as unwired.
+// src/test/test-runner-coverage.test.ts (US-3343) is what answers the question
+// mechanically now.
 
 import { describe, expect, it } from "vitest";
 import { readFileSync, existsSync } from "node:fs";

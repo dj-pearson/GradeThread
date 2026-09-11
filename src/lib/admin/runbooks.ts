@@ -138,7 +138,17 @@ export const RUNBOOKS: Runbook[] = [
     // Redeploy" check before debugging, and the reason Watch Paths is not the
     // fix (Coolify renders it only for a private GitHub-App source; this app is
     // Public GitHub).
-    reviewed: "2026-09-10",
+    // Re-read 2026-09-11 against deploy.md, which changed twice that day. Two
+    // things to carry, both of them corrections rather than additions. (1) The
+    // note's own Trigger bullet still said "auto-deploys on push to main" while
+    // a bullet further down said auto deploy was turned off - THIS copy had the
+    // right version and the source did not, which is the wrong way round; the
+    // note is fixed. (2) US-2665 re-measured the compose file and found a second
+    // live disagreement (buffer_pipeline_cap 10 vs 6) and a second operational
+    // consequence (no memory limit means /health/metrics cannot report headroom
+    // at all). Carried, because an operator reading rss_mb mid-incident will
+    // otherwise look for a headroom number that is structurally absent.
+    reviewed: "2026-09-11",
     title: "Production deploy order",
     category: "Deploy",
     summary:
@@ -172,7 +182,9 @@ export const RUNBOOKS: Runbook[] = [
       "",
       "> **A deploy makes the API answer `no available server` for a few seconds, and that is the same string a real edge HANG produces.** During or just after a Redeploy, two 503s followed by a 200 is the rollover, not an incident. Re-check `/health/ready` a few seconds later before escalating; if it stays down past a minute, it is not the rollover.",
       "",
-      "> **`docker-compose.coolify.yml` is not the deployed configuration.** Measured 2026-08-17: `/health/metrics` reports no memory limit while that file declares 2048 MB. If you are chasing a setting that \"should\" be set, check the Coolify UI rather than the repo file — and expect the two to disagree.",
+      "> **`docker-compose.coolify.yml` is not the deployed configuration, and nothing in this repo is.** The edge's settings are the Coolify UI's Environment Variables list. Re-measured 2026-09-11: `/health/metrics` reports `limit_mb: null` while that file declares 2048 MB, and `buffer_pipeline_cap: 10` while it declares 6. If you are chasing a setting that \"should\" be set, check the UI, not the repo file — and expect the two to disagree rather than merely differ.",
+      "",
+      "> **Two consequences worth knowing before you use a number mid-incident.** `/health/metrics` cannot report memory headroom at all (no limit is configured, so `headroom_pct` and `pressure` are null/unknown) — judge pressure from `rss_mb` against what you know the host has. And on-host log rotation is unverified, so `docker logs` may be holding far more than the 50 MiB the docs claim.",
       "",
       "- **Frontend** — Cloudflare Pages auto-deploys on push to `main`. Build command runs the TypeScript check → Vite build → prerender. Pages env-var changes only take effect on the next build.",
       "",

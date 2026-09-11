@@ -5,7 +5,7 @@ type: runbook
 status: current
 source_of_truth: vault
 code_refs: []
-reviewed: 2026-07-19
+reviewed: 2026-09-11
 tags: [ops, capacity, performance]
 summary: Where memory and throughput limits bite, and the scale-out rule.
 ---
@@ -56,7 +56,14 @@ mixed ~100 MiB/submission worst case). Plus the Deno runtime baseline
 
 ## Right-sized container limits
 
-`docker-compose.coolify.yml` `deploy.resources`:
+**The numbers below are the SIZING, not a reading of production.** They are
+declared in `docker-compose.coolify.yml` `deploy.resources`, and Coolify does
+not read that file (US-2665). Measured 2026-09-11, production has **no memory
+limit reported at all** (`/health/metrics` answers `limit_mb: null`) and a
+pipeline cap of **10**, not the 6 argued for below. Before using this note to
+judge headroom, read [[edge-container-settings]] for what is actually set and
+which Coolify field sets it.
+
 
 | | Before | After (US-573) |
 |---|---|---|
@@ -69,6 +76,13 @@ At 2G, the ~600 MiB worst-case base64 + baseline lands peak RSS well under the
 70% scale-out line (≥ 30% headroom). The same number is exported to the app as
 `EDGE_MEMORY_LIMIT_MB=2048` so `/health/metrics` can report headroom. **Keep the
 env var and the `deploy.resources.limits.memory` value in sync.**
+
+⚠ **Neither is set in production today.** The env var is unset, so
+`/health/metrics` reports `limit_mb: null` and cannot compute headroom at all,
+which means the load-test gate and the 70% scale-out rule below are comparing
+against nothing. Both have to be typed into the Coolify UI: the variable under
+Environment Variables, the 2G under Resource Limits. [[edge-container-settings]]
+owns that list.
 
 ## Measuring the profile
 
@@ -129,6 +143,7 @@ lever; the replica count is the throughput lever.
 
 ## Related
 
+- [[edge-container-settings]] — which of these numbers are actually set in production
 - [[scaling]] — what to turn up when this says you are out of headroom
 - [[edge-runtime-invariants]] — why replica count constrains caching
 - [[connection-pooling]] — the other resource that runs out first

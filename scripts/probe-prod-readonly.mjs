@@ -350,6 +350,40 @@ async function main() {
     }
   }
 
+  // ── US-2665: the compose file's Traefik LABELS, not just its environment ──
+  //
+  // Added 2026-09-11. The two checks above prove the environment block is not in
+  // effect. They say nothing about the other two thirds of that file, and a
+  // reader who saw "the environment is not applied" reasonably assumed the
+  // labels were, because Traefik routing plainly works.
+  //
+  // This settles it without credentials. docker-compose.coolify.yml declares a
+  // Traefik `edge-cors` headers middleware listing FOUR allowed headers. A
+  // Traefik headers middleware answers the preflight ITSELF, so if it were
+  // attached the response could not carry the app's longer list. The app
+  // (main.ts) also allows X-Workspace-Owner and X-GT-Extension-Id. Whichever
+  // list comes back names which layer answered.
+  const pre = await fetch(`${EDGE}/health`, {
+    method: "OPTIONS",
+    headers: {
+      Origin: SITE,
+      "Access-Control-Request-Method": "POST",
+      "Access-Control-Request-Headers": "content-type",
+    },
+  }).catch(() => null);
+  if (pre) {
+    const allow = pre.headers.get("access-control-allow-headers") ?? "";
+    const appOnly = /X-Workspace-Owner/i.test(allow) || /X-GT-Extension-Id/i.test(allow);
+    record(
+      "US-2665",
+      "are docker-compose.coolify.yml's Traefik labels applied",
+      `preflight allow-headers: ${allow || "(none)"}`,
+      appOnly
+        ? "ANSWERED — no; the Hono app answered the preflight, so the edge-cors middleware is not attached"
+        : "LOOK — the app's own headers are missing, so something in front IS rewriting CORS",
+    );
+  }
+
   // ── US-2619 AC5: the two OG routes whose render path is still unexercised ──
   //
   // Both answered exactly the branded fallback's byte count when last checked,

@@ -3,6 +3,28 @@
 This service hosts both GradeThread and FlipDesk edge endpoints behind one
 container. Deploy it as a single Coolify resource.
 
+> [!warning] The edge's configuration lives in the Coolify UI, not in this repo
+>
+> `docker-compose.coolify.yml` is **not read by Coolify** (US-2665, measured
+> 2026-08-17 and again 2026-09-11). Nine container settings are declared only in
+> that file and are therefore not in effect, including the memory limit the
+> health endpoint reports headroom against and the log rotation that bounds
+> on-host disk. `vault/10-ops/edge-container-settings.md` is the list: what each
+> one should be, what production actually has, and which Coolify field sets it.
+>
+> **Which build pack this resource uses is still unconfirmed.** The steps below
+> describe how it was set up, not a reading of the live resource, and the
+> evidence points both ways (argued in `vault/10-ops/deploy.md` § 2). One label
+> settles it, on the Coolify host:
+>
+> ```bash
+> docker inspect <edge-container> --format >   '{{index .Config.Labels "com.docker.compose.project.config_files"}}'
+> ```
+>
+> A path ending `services/edge-functions/docker-compose.yml` means a Docker
+> Compose build pack on that file. A path under `/data/coolify/applications/`
+> means Coolify generated the compose itself, which is the Dockerfile build pack.
+
 ## One-time setup
 
 1. In Coolify: **New Resource → Docker Compose → from Git**.
@@ -20,9 +42,29 @@ container. Deploy it as a single Coolify resource.
 Coolify reads the `coolify.*` labels on the service to provision a Traefik
 route with Let's Encrypt automatically.
 
-If you prefer to keep extra Traefik-specific labels (e.g. for self-managed
-Traefik without Coolify), use `docker-compose.coolify.yml` instead — it has
-both the `coolify.*` labels and explicit `traefik.*` fallbacks.
+⚠️ **Do not switch the resource to `docker-compose.coolify.yml` to pick up the
+settings it declares.** That file also carries hand-written `traefik.*` router,
+CORS and body-limit labels which have never run in production, and pointing the
+live API at them replaces routing that currently works with routing nobody has
+tested. Set the nine settings one at a time in the UI instead; the checklist is
+below.
+
+## The settings that are declared but not set (US-2665)
+
+Full argument, evidence and per-setting status:
+`vault/10-ops/edge-container-settings.md`. The operator half:
+
+| Where | What to set |
+|---|---|
+| Environment Variables | `EDGE_MEMORY_LIMIT_MB=2048` — unset today, so `/health/metrics` returns `limit_mb: null` and cannot compute headroom |
+| Environment Variables | `EDGE_TRACE_SAMPLE_RATE=0.1` — the code default is **1.0**, so unset means 100% of successful requests are logged |
+| Environment Variables | `GRADING_MAX_CONCURRENT_PIPELINES` — production reports **10**; `vault/10-ops/capacity.md` sized it at **6**. Decide which, then set it |
+| Advanced → Resource Limits | Memory **2G**, CPU **1.5** — keep Memory in step with `EDGE_MEMORY_LIMIT_MB` |
+| Host, `/etc/docker/daemon.json` | `log-driver: json-file` with `max-size: 10m`, `max-file: 5`. On the daemon rather than this service, because the edge shares the volume with Postgres and a per-service block would bound only the smaller writer |
+
+`EDGE_ENV=production` is already set (by hand, 2026-08-16). The container
+healthcheck is already in effect, from the `HEALTHCHECK` line in the Dockerfile
+rather than from any compose file.
 
 ## Build args: the release SHA (US-2001)
 

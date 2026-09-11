@@ -5,7 +5,7 @@ type: runbook
 status: current
 source_of_truth: vault
 code_refs: []
-reviewed: 2026-07-19
+reviewed: 2026-09-11
 tags: [ops, deploy, rollback]
 summary: Undo a bad release on each surface, and what cannot be rolled back.
 ---
@@ -58,18 +58,20 @@ redeployed deterministically.
 > [!todo] **MANUAL:** in Coolify, enable image retention (keep ≥ 5 prior tags) so a
 > prior image can be redeployed without a rebuild.
 >
-> The `GIT_SHA` build arg is **no longer a manual step** (US-2001):
-> `services/edge-functions/docker-compose.coolify.yml` declares
-> `build.args.GIT_SHA: ${SOURCE_COMMIT:-dev}`, so the platform stamps each image
-> rather than an operator remembering to. That change exists precisely because
-> the Dockerfile had carried a comment asking for it since it was written and
-> prod still served `release:"dev"`.
+> **The release stamp works today, and where it comes from is not established.**
+> Measured 2026-09-11: `/health` answers a real 40-char SHA that is the tip of
+> `origin/main`, and the same image reports the `EXPECTED_SCHEMA_VERSION` that
+> commit sets, so the two agree. It reported `"unknown"` as recently as
+> 2026-08-22.
 >
-> ⚠️ If you deploy from `docker-compose.yml` rather than the `.coolify.yml`
-> variant, the arg is NOT declared there — set it in Coolify's Build Args field.
-> `/health/ready` reports `features.observability` as degraded whenever the
-> release is a placeholder, so a miss is visible without anyone remembering to
-> check.
+> ⚠️ **Do not credit a compose file for it.** `docker-compose.coolify.yml`
+> declares `build.args.GIT_SHA: ${SOURCE_COMMIT:-dev}` and Coolify does not read
+> that file (US-2665, [[edge-container-settings]]). The two live candidates are
+> the Dockerfile's own `ARG SOURCE_COMMIT` chain and a hand-set `COMMIT_SHA`
+> variable in the Coolify UI — and if it is the hand-set one, it has to be
+> updated on every deploy or the next rollback identifies the wrong build.
+> `/health/ready` reports `features.release` as degraded whenever the release is
+> a placeholder, so a miss is visible without anyone remembering to check.
 
 ## Database
 
@@ -94,6 +96,7 @@ prefer PITR to a timestamp just before the bad change.
 ## Related
 
 - [[deploy]] — the forward path; rollback undoes it surface by surface
+- [[edge-container-settings]] — why the release stamp is not the compose file’s doing
 - [[backups]] — migrations are forward-only, so DB rollback means restore
 - [[incident-response]] — "bad deploy" is scenario 7 there
 - [[moc-ops]]

@@ -1,44 +1,58 @@
-# ⚠ THIS FILE IS NOT WHAT DEPLOYS PRODUCTION. US-2665, measured 2026-08-17.
+# ⚠ THIS FILE IS NOT WHAT DEPLOYS PRODUCTION. US-2665.
+# ⚠ A SETTING ADDED HERE IS NOT SHIPPED. IT IS A REFERENCE, NOT A DEPLOYMENT.
+# ⚠ THE SETTINGS BELOW ARE OWNED BY vault/10-ops/edge-container-settings.md,
+#   WHICH RECORDS WHAT EACH ONE IS AND WHICH COOLIFY FIELD MAKES IT TRUE.
+#   CHANGE THAT NOTE AND THE COOLIFY UI. CHANGING THIS FILE CHANGES NOTHING.
 #
-# It describes the intended shape of the edge container. The live container does
-# not have it. Proof, from the public /health/metrics on
-# functions.gradethread.com, which needs no credentials to repeat:
+# Measured 2026-08-17, re-measured 2026-09-11. All THREE parts of this file read
+# as absent in production, not just one, and every check below is a public
+# endpoint on functions.gradethread.com that needs no credentials:
 #
-#   "memory": { "limit_mb": null, "headroom_pct": null, "pressure": "unknown" }
+#   environment: GET /health/metrics answers
+#                  "memory": { "limit_mb": null, "headroom_pct": null }
+#                while this file sets EDGE_MEMORY_LIMIT_MB: 2048. limit_mb is
+#                read straight from that variable, so null means this block did
+#                not boot the container. The same response answers
+#                buffer_pipeline_cap 10 while this file declares 6 — production
+#                DISAGREES with this file rather than merely omitting it, and 10
+#                exceeds the sizing in vault/10-ops/capacity.md.
 #
-# limit_mb is read straight from EDGE_MEMORY_LIMIT_MB, which the environment
-# block below sets to 2048. A null there means this file's environment block is
-# not the one the container booted with. The same probe reported
-# buffer_pipeline_cap 10 while this file declares
-# GRADING_MAX_CONCURRENT_PIPELINES 6 — so production is configured somewhere
-# else, and that somewhere DISAGREES with this file rather than merely omitting
-# it. (10 also exceeds the sizing in vault/10-ops/capacity.md, which chose 6 to
-# hold peak base64 residency near 600 MB under a 2 GiB limit.)
+#   labels:      an OPTIONS preflight comes back with the Hono app's
+#                access-control-allow-headers list, which includes
+#                X-Workspace-Owner and X-GT-Extension-Id. The edge-cors Traefik
+#                middleware declared below lists FOUR headers and would answer
+#                the preflight itself. So these labels are not applied.
 #
-# WHAT THAT MEANS FOR ANYTHING DECLARED BELOW: treat it as intent. The log
-# rotation, the memory limit, the trace sample rate, the pipeline cap and the
-# healthcheck are the settings this file is the ONLY declaration of, so absent
-# other evidence none of them is in effect. Several stories were closed on the
-# strength of a value being present here; a test that pins this file pins the
-# repo's intent, never production's state.
+#   deploy:      not readable from outside. Assume absent. Settle it with
+#                `docker inspect <edge-container> --format '{{.HostConfig.Memory}}'`
+#                on the Coolify host; 0 means no limit.
 #
-# The open half is which mechanism DOES deploy it — the Coolify resource may be
-# a Dockerfile build pack, or a compose build pack pointed at the sibling
-# docker-compose.yml (whose own first line calls itself "Production compose used
-# by Coolify"). Settling that is US-2665 AC1/AC2 and needs the Coolify UI. Until
-# it is settled and recorded in vault/10-ops/deploy.md, do not add a setting
-# here and consider it shipped.
+# WHY THE FILE STILL EXISTS rather than being deleted. Deleting it was the
+# preferred answer to AC2 and it is blocked from inside the repo:
+# src/tests/compose-release-arg_test.ts asserts at least THREE building compose
+# files exist, and removing this one leaves two, so the delete fails a guard in
+# a directory this change was not allowed to touch. The second-best answer is
+# the one taken here — keep it, and make it impossible to read as deployed:
+# the banner above, a per-setting "LIVE?" note at each declaration, and
+# src/test/edge-compose-not-deployed.test.ts, which fails if this banner is
+# removed or if a setting declared here is not recorded in the vault note.
+#
+# WHICH MECHANISM DOES DEPLOY IT is still open. Two candidates, both with real
+# evidence, both argued in vault/10-ops/deploy.md § 2: a Dockerfile build pack,
+# or a compose build pack pointed at the sibling docker-compose.yml. One label
+# settles it, on the Coolify host:
+#
+#   docker inspect <edge-container> --format \
+#     '{{index .Config.Labels "com.docker.compose.project.config_files"}}'
 #
 # Hosts GradeThread + FlipDesk endpoints behind one container.
 #
-# To make this file the deployed one:
-#   1. New Resource → Docker Compose → point at this repo + this file.
-#   2. Set environment variables (see .env.example).
-#   3. Coolify reads the `coolify.fqdn` label and provisions a Traefik route
-#      with Let's Encrypt for that hostname.
-#
-# Override the FQDN by exporting COOLIFY_FQDN before deploy (Coolify supports
-# build-time arg interpolation).
+# ⚠ DO NOT "make this file the deployed one" as a fix. The steps used to be
+# printed here and have been removed on purpose: re-pointing the live production
+# API at this file would also apply the hand-written traefik.* router, CORS and
+# body-limit labels below, which have never run and would replace the routing
+# that currently works. The supported route to making these settings true is the
+# Coolify UI, setting by setting, per vault/10-ops/edge-container-settings.md.
 
 services:
   edge-functions:
@@ -72,6 +86,10 @@ services:
     # cost ceiling for on-box logs; longer-lived retention + the full log/trace
     # cost budget are documented in OBSERVABILITY.md. Trim verbosity at the
     # source with EDGE_TRACE_SAMPLE_RATE rather than growing these files.
+    # LIVE? UNKNOWN - assume NO. Not readable from outside; needs
+    # `docker inspect <c> --format '{{json .HostConfig.LogConfig}}'` on the host.
+    # An empty Config means no rotation. Better home for this: log-driver /
+    # log-opts in /etc/docker/daemon.json, which bounds Postgres too.
     logging:
       driver: json-file
       options:
@@ -92,29 +110,52 @@ services:
       # actually has it, so an unset SOURCE_COMMIT still cannot clobber the
       # build-arg stamp with an empty string. Verified with `docker compose
       # config` — the rendered output is byte-identical to the list form.
+      # LIVE? MOOT. main.ts defaults to 8787 when PORT is unset, so the service
+      # listens on 8787 either way. Nothing turns on this one.
       PORT: "8787"
       # Marks this as the production runtime. Security debug flags (e.g.
       # WEBHOOK_PAYOUT_DEBUG) are ignored when EDGE_ENV=production. (US-266)
+      # LIVE? YES, but set BY HAND in the Coolify UI on 2026-08-16 (US-2660),
+      # not by this file. /health reports env "production".
       EDGE_ENV: production
       # US-2001 runtime half: null = pass through only when the host has it, so
       # an unset var cannot clobber the build-arg stamp above.
+      # LIVE? WORKING. /health answers a real 40-char SHA that is the tip of
+      # origin/main, and the same image reports the EXPECTED_SCHEMA_VERSION that
+      # commit sets - two facts baked into one image agreeing. Whether the value
+      # arrives as a build arg or as a hand-set COMMIT_SHA (COOLIFY.md documents
+      # that stopgap) is not readable from outside; if hand-set it has to be
+      # updated on EVERY deploy.
       SOURCE_COMMIT:
       COMMIT_SHA:
       # US-573: the container memory limit (MiB) the app reports against on
       # /health/metrics so the load-test gate + ops can compute headroom. Keep in
       # sync with deploy.resources.limits.memory below.
+      # LIVE? NO. /health/metrics reports limit_mb: null (measured 2026-09-11),
+      # so headroom is unknowable and the load-test gate compares against nothing.
+      # Set it in Coolify -> Environment Variables.
       EDGE_MEMORY_LIMIT_MB: "2048"
       # US-578: edge trace/log sampling rate, the analogue of the frontend's
       # Sentry tracesSampleRate: 0.1 (src/main.tsx). Samples ONLY successful
       # (2xx/3xx) access lines + ok-outcome latency spans; every 4xx/5xx and all
       # business counters are always logged at 100%. Tune in OBSERVABILITY.md.
+      # LIVE? ASSUME NO. Not readable from outside. The code default is 1.0
+      # (observability.ts traceSampleRate), so unset means production logs 100%
+      # of successful requests, ten times the volume this line intends.
       EDGE_TRACE_SAMPLE_RATE: "0.1"
       # US-573: max grading pipelines allowed to hold base64 image data resident
       # at once (the OOM bound — see grading-capacity.ts + vault/10-ops/capacity.md). Tuned so
       # worst-case residency stays under the 2G limit's 30% headroom target.
+      # LIVE? NO, AND IT DISAGREES. /health/metrics reports
+      # buffer_pipeline_cap: 10 (measured 2026-09-11). 10 is ~1 GB of peak base64
+      # residency against the unset limit above. Decide 6 or 10 and set it in the
+      # Coolify UI; capacity.md owns the sizing argument.
       GRADING_MAX_CONCURRENT_PIPELINES: "6"
     env_file:
       - .env
+    # LIVE? YES, but from the Dockerfile's own HEALTHCHECK instruction, which
+    # carries the same deno eval probe. The image has a healthcheck whether or
+    # not any compose file is read. This one was filed as missing and is not.
     healthcheck:
       test:
         - CMD
@@ -179,6 +220,9 @@ services:
       # buffers, 2G keeps peak RSS under the 70% scale-out line (≥30% headroom).
       # Memory-based scale-out rule + the headroom target live in vault/10-ops/capacity.md.
       # Keep `memory` in sync with EDGE_MEMORY_LIMIT_MB above.
+      # LIVE? UNKNOWN - assume NO. `docker inspect <c> --format
+      # '{{.HostConfig.Memory}}'` settles it; 0 means no limit. The supported
+      # place to set it is Coolify -> the edge app -> Resource Limits.
       resources:
         limits:
           cpus: "1.5"

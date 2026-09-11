@@ -376,7 +376,12 @@ if (on("web")) {
   // lane SKIPS, and on 2026-08-23 a migration reached origin having never been
   // near a Postgres in any form. This is the half that always runs.
   run("web: migrations parse", "node scripts/migrations-parse.mjs");
-  run("web: script tests (prd-lint/digest)", "npm run test:scripts");
+  // US-3343: the label used to read "(prd-lint/digest)", naming two of the 43
+  // suites vitest.scripts.config.mjs collects. That is how a working guard got
+  // reported as dead — scripts/operator-scripts-start.test.mjs is in this lane
+  // and passes 23/23, and the only visible evidence of it was a parenthetical
+  // about two other files. Name the config, since that is what decides what runs.
+  run("web: script tests (vitest.scripts.config.mjs, scripts/**)", "npm run test:scripts");
   run("web: eslint", "npm run lint");
   // US-1879: the browser extensions' zero-dep node tests (pure adapter helpers +
   // the bundled⇄hosted config sync guard) — cheap, so run before the heavy lanes.

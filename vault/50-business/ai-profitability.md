@@ -3,8 +3,10 @@ title: AI profitability by surface
 type: reference
 status: current
 source_of_truth: vault
-code_refs: []
-reviewed: 2026-07-19
+code_refs:
+  - services/edge-functions/src/lib/ai-usage.ts
+  - services/edge-functions/src/tests/ai-price-provenance_test.ts
+reviewed: 2026-09-11
 tags: [ai, cost, margin]
 summary: Per-surface model choice, unit cost and margin, with the keep/downgrade call for each.
 ---
@@ -33,22 +35,55 @@ Every AI use case in the product is evaluated on four axes:
 4. **Profitability projection** — modeled monthly AI spend vs revenue under
    realistic internal and eBay-seller usage.
 
-**Pricing basis.** USD per **million** tokens, from `ai_model_prices`
-(deploy-free, editable):
+**Pricing basis.** USD per **million** tokens. Published rates read
+**2026-09-11** from
+<https://platform.claude.com/docs/en/about-claude/pricing>:
 
 | Model | input | output | cache write | cache read |
 |---|--:|--:|--:|--:|
+| `claude-opus-5` | 5 | 25 | 6.25 | 0.5 |
 | `claude-opus-4-8` | 5 | 25 | 6.25 | 0.5 |
-| `claude-sonnet-5` | 3 | 15 | 3.75 | 0.3 |
+| `claude-sonnet-5` | 2 | 10 | 2.50 | 0.20 |
 | `claude-sonnet-4-6` | 3 | 15 | 3.75 | 0.3 |
 | `claude-haiku-4-5` | 1 | 5 | 1.25 | 0.1 |
 
+> [!warning] Sonnet 5 was priced 50% high here and in the code, and the two
+> halves still disagree (US-3342, 2026-09-11)
 > `claude-sonnet-5` is the current `DEFAULT_AI_MODEL` (grading, composite, and
-> photo-bearing AI actions). Priced at **list** ($3/$15) — same sticker as Sonnet
-> 4.6; the intro rate ($2/$10 through 2026-08-31) can be set deploy-free in
-> `ai_model_prices`. The `~Cost/action` figures below are unchanged: Sonnet 5's
-> per-token price matches Sonnet 4.6, and its ~30% larger token count is roughly
-> offset by the intro discount through Aug 2026 (a modest cost rise thereafter).
+> photo-bearing AI actions), so it is the rate nearly every ledger row uses. This
+> note and `MODEL_PRICES` both carried **$3/$15**, on the reading that $2/$10 was
+> an introductory rate expiring 31 Aug 2026 and reverting to a $3/$15 list price.
+> The revert was cancelled: the published table now says $2/$10 is the standard
+> price. The code table is corrected. **`system_settings.ai_model_prices` still
+> holds 3 / 15 / 3.75 / 0.3 for this model** until an operator applies the update
+> in §6 — and because both dashboards re-price from that row and ignore the
+> stored `cost_usd`, the AI Spend and AI Profitability pages read **50% high on
+> Sonnet 5 spend for every period, past and present**, until it is applied.
+> Applying it restates history; that is the point of the row and also why it is
+> an owner decision rather than a cleanup.
+>
+> Direction of the error in `~Cost/action` below: those figures are Sonnet 4.6
+> baselines, and Sonnet 5 was assumed to cost the same per token with ~30% more
+> tokens. At $2/$10 the per-token rate is a third lower, so Sonnet 5 traffic
+> costs **roughly 10-15% less** per action than the table shows, not more.
+
+### Which of the three price mechanisms touches which rows
+
+Three exist, they are not interchangeable, and only one of them moves a number
+any dashboard displays:
+
+| Mechanism | Read when | Rows it changes |
+|---|---|---|
+| `MODEL_PRICES` in `lib/ai-usage.ts` | write time, via `computeCostUsd` | the stored `ai_usage_events.cost_usd` on rows written **after the edge deploy**; history untouched |
+| `AI_PRICE_INPUT_/OUTPUT_<MODEL>` env | write time, same function | identical set to the constant — it is an override *of* the constant, not a second lever. No deploy, but also no retro effect |
+| `system_settings.ai_model_prices` | **query time**, in `ai_spend` / `ai_profitability` / `ai_budget_status` | **every row in the window, history included.** These RPCs re-price raw token columns and never read `cost_usd` |
+
+So the constant governs the direct readers of the stored column — agent + fleet
+daily caps (`agent-budget.ts`), comped super-admin spend (`comped-spend.ts`),
+per-user unit economics (`rewards-economics.ts`), `ai-token-profile.ts` — and the
+`system_settings` row governs everything an operator actually looks at. Changing
+one without the other leaves the two halves of the system quoting different
+money for the same call.
 
 **Cost-per-action** is `sum(re-priced token cost) / actions`, where an *action*
 is a graded submission (`grading`, `authenticity`) or a single Anthropic call
@@ -156,6 +191,37 @@ AI cost is structurally a rounding error against subscription revenue.
   Settings Registry — projections update with no deploy.
 - **Re-price:** edit `ai_model_prices`; both AI Spend and AI Profitability
   re-price historical tokens from the current table.
+- **Re-check the rates:** the published table is the source, and every entry in
+  `MODEL_PRICES` records the date it was read from it.
+  `src/tests/ai-price-provenance_test.ts` fails once the newest of those dates is
+  more than 180 days old, so the sweep is scheduled rather than remembered.
+
+### Pending: the Sonnet 5 correction in `ai_model_prices` (US-3342)
+
+Not applied — it restates reported historical AI spend and margin, which is the
+owner's call, not an implementation detail. Exactly one model moves; the `||`
+merge leaves every other key alone and is safe to re-run.
+
+```sql
+update public.system_settings
+set value = value || jsonb_build_object(
+      'claude-sonnet-5',
+      jsonb_build_object('input', 2, 'output', 10, 'cache_write', 2.5, 'cache_read', 0.2)
+    ),
+    default_value = default_value || jsonb_build_object(
+      'claude-sonnet-5',
+      jsonb_build_object('input', 2, 'output', 10, 'cache_write', 2.5, 'cache_read', 0.2)
+    )
+where key = 'ai_model_prices';
+```
+
+What it changes the moment it lands: every Sonnet 5 figure on AI Spend and AI
+Profitability, for **every** period including closed months, drops by a third —
+because the RPCs re-price raw tokens and hold no snapshot of what was charged at
+the time. Nothing bills off these numbers, so the exposure is reporting only.
+Leaving it unapplied is also a choice with a cost: the dashboards keep
+overstating AI spend on the default model, and the stored `cost_usd` column now
+disagrees with them by design rather than by accident.
 
 ## Related
 

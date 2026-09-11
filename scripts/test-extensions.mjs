@@ -42,8 +42,31 @@ for (const f of files) {
   if (r.status !== 0) failed++;
 }
 
+// US-3343: the lister-selector invariants belong to this lane and said so for
+// months without being in it. scripts/verify-lister-selectors.mjs opens with
+// "It is wired into scripts/test-extensions.mjs, so a flow cannot be switched
+// on with a missing verification date, an empty host allowlist, or a probe that
+// can never be satisfied." It was not wired into anything — not this file, not
+// package.json, not verify.mjs, not a workflow — so every one of those three
+// claims was unenforced while the comment asserted otherwise.
+//
+// It lives here rather than in its own lane because it is the same subject as
+// the *.test.cjs files above (the MV3 lister flows) and because a sibling pair,
+// adapter-verify.mjs and transport-verify.mjs, are each already exercised by a
+// scripts/*-verification.test.mjs in the vitest scripts lane. This one had no
+// such sibling. Running it here puts it in verify:web and in ci.yml at once,
+// which is what src/test/guard-lane-parity.test.ts requires of a gate.
+const lister = spawnSync(
+  process.execPath,
+  [resolve(root, "scripts", "verify-lister-selectors.mjs")],
+  { stdio: "inherit" },
+);
+if (lister.status !== 0) failed++;
+
 if (failed) {
-  console.error(`\ntest-extensions: ${failed} of ${files.length} test file(s) FAILED.`);
+  console.error(`\ntest-extensions: ${failed} of ${files.length + 1} check(s) FAILED.`);
   process.exit(1);
 }
-console.log(`\ntest-extensions: all ${files.length} test file(s) passed.`);
+console.log(
+  `\ntest-extensions: all ${files.length} test file(s) + verify-lister-selectors passed.`,
+);

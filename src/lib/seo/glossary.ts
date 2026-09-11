@@ -346,13 +346,13 @@ const FACTOR_CONTENT: Record<GradeFactorKey, FactorContent> = {
     definition:
       "Cleanliness is weighted at 10% of the overall grade. It judges what a photo can show: stains, soiling, yellowing, sweat and deodorant marks, pet hair, lint and residue. Smell cannot be seen, so it is not scored; a seller can state a smoke-free or pet-free home, and the certificate shows that as the seller's statement.",
     lookFor: [
-      "Yellowing, grey film or spotting left by smoke or mildew",
+      "Yellowing, gray film or spotting left by smoke or mildew",
       "Residual stains, dirt, or laundry residue",
       "Pet hair or environmental contaminants",
       "Overall freshness and ready-to-wear cleanliness",
     ],
     examples: [
-      "A white shirt marked down for yellowed underarms and a grey collar band.",
+      "A white shirt marked down for yellowed underarms and a gray collar band.",
       "A coat whose certificate notes the seller's smoke-free statement, shown as the seller's claim.",
     ],
     faqs: [

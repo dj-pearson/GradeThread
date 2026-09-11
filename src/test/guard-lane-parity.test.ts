@@ -159,3 +159,64 @@ describe("every check-*.mjs gate runs in both places", () => {
     }
   });
 });
+
+// ── US-3343: the same question, asked of the OTHER naming convention ─────────
+//
+// Everything above keys on the `check-` prefix. scripts/verify-lister-selectors.mjs
+// is a gate by every other measure — it asserts invariants and exits non-zero
+// when one breaks — and it sat outside this file's glob, invoked by nothing at
+// all, for months. Its own header said "It is wired into
+// scripts/test-extensions.mjs, so a flow cannot be switched on with a missing
+// verification date, an empty host allowlist, or a probe that can never be
+// satisfied", and that sentence was the only thing enforcing any of it.
+//
+// So the prefix was never the property. What matters is that a gate is REACHED.
+//
+// REACHABILITY HERE IS TRANSITIVE, deliberately, and that is the difference from
+// the assertions above. Three scripts in this family are wired correctly through
+// one hop rather than directly: verify-lister-selectors.mjs is spawned by
+// scripts/test-extensions.mjs (which verify.mjs and ci.yml both run), while
+// adapter-verify.mjs and transport-verify.mjs are exercised by their
+// scripts/*-verification.test.mjs siblings in the vitest scripts lane. Demanding
+// a direct mention in verify.mjs would fail all three and buy an exemption list
+// for code that is already gated — which is how an exemption nobody can retire
+// gets written.
+describe("US-3343: every verification script is reached by something that runs", () => {
+  const family = readdirSync(SCRIPTS)
+    .filter((f) => /^verify-.*\.mjs$|-verify\.mjs$/.test(f))
+    .filter((f) => !f.endsWith(".test.mjs"));
+
+  // Places a run genuinely starts from, plus the test files a runner collects.
+  const roots = [
+    readFileSync(resolve(ROOT, "package.json"), "utf8"),
+    readFileSync(VERIFY, "utf8"),
+    workflowText,
+    ...readdirSync(SCRIPTS)
+      .filter((f) => f.endsWith(".test.mjs") || f.endsWith(".mjs"))
+      .map((f) => readFileSync(join(SCRIPTS, f), "utf8")),
+  ].join("\n");
+
+  it("finds a real set of them", () => {
+    expect(family.length).toBeGreaterThanOrEqual(3);
+    expect(family).toContain("verify-lister-selectors.mjs");
+  });
+
+  it("each one is invoked somewhere, not merely described", () => {
+    const unreached = family.filter((f) => {
+      // A file mentioning ITSELF proves nothing — its own usage line and its
+      // own console output both contain its name. Failure mode 7 in the
+      // guards-that-do-not-guard notes: writing about a guard is writing input
+      // to it. Drop self-references before asking whether anything calls it.
+      const self = readFileSync(join(SCRIPTS, f), "utf8");
+      const others = roots.split(self).join("");
+      return !others.includes(f);
+    });
+    expect(
+      unreached,
+      `these assert invariants and exit non-zero, and nothing anywhere runs ` +
+        `them: ${unreached.join(", ")}. A gate that is only described is not a ` +
+        `gate. Spawn it from a lane script, give it a scripts/*.test.mjs that ` +
+        `exercises it, or delete it.`,
+    ).toEqual([]);
+  });
+});

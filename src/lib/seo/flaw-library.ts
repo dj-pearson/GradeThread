@@ -1199,7 +1199,7 @@ export const FLAW_ENTRIES: FlawEntry[] = [
       "Check structured or lined pieces most carefully — they hold smoke longest",
     ],
     gradeImpact:
-      "A photo cannot carry smell, so a GradeThread grade does not score smoke odor directly. What it does grade is the visible trace smoke leaves, such as yellowing or grey film, under Cleanliness (10%). Sellers can state a smoke-free home on the listing; the grade never treats that statement as checked.",
+      "A photo cannot carry smell, so a GradeThread grade does not score smoke odor directly. What it does grade is the visible trace smoke leaves, such as yellowing or gray film, under Cleanliness (10%). Sellers can state a smoke-free home on the listing; the grade never treats that statement as checked.",
     fixability:
       "Often treatable, sometimes stubborn. Airing out, vinegar or baking-soda washes, and ozone treatment reduce or remove it; heavily saturated padding and linings can hold smoke through multiple attempts.",
     disclosure:

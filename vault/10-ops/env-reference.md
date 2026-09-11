@@ -255,6 +255,14 @@ Set these in the same Pages env; the SSR functions in `functions/` read them per
 
 ### 3a. Core / Supabase / runtime
 
+> ⚠ **⬜ does not mean "safe to leave unset" for four of these.**
+> `EDGE_TRACE_SAMPLE_RATE`, `EDGE_MEMORY_LIMIT_MB`, `GRADING_MAX_CONCURRENT_PIPELINES`
+> (§ 3b) and `EDGE_ENV` are declared in `docker-compose.coolify.yml`, which
+> Coolify does not read, so they have been silently unset in production while
+> looking configured. This table says which variables exist;
+> [[edge-container-settings]] says which are actually set, what the measured
+> values are, and which Coolify field sets them.
+
 | Variable | Where it goes | What it is |
 |---|---|---|
 | `SUPABASE_URL` | ✅ Coolify edge | Supabase API base URL (server side). |

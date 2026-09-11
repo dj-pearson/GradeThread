@@ -5,7 +5,7 @@ type: runbook
 status: current
 source_of_truth: vault
 code_refs: []
-reviewed: 2026-08-19
+reviewed: 2026-09-11
 tags: [ops, deploy, release]
 summary: "Ship to prod in the load-bearing order: migrations, then edge, then frontend."
 ---
@@ -22,7 +22,7 @@ GradeThread has three independently-deployed layers:
 | Layer | Where | Trigger |
 |---|---|---|
 | Database | Self-hosted Supabase Postgres (`api.gradethread.com`) | Manual apply (CLI/psql) |
-| Edge service | Deno/Hono on Coolify (`functions.gradethread.com`) | Git push → Coolify webhook |
+| Edge service | Deno/Hono on Coolify (`functions.gradethread.com`) | **Manual Redeploy** in Coolify (auto deploy off since 2026-08-31) |
 | Frontend SPA | Cloudflare Pages (apex `gradethread.com`) | Git push → Pages auto-deploy |
 
 ---
@@ -81,36 +81,59 @@ done
 
 ## 2. Edge service (Coolify)
 
-- **Trigger:** Coolify is wired to the GitHub repo and **auto-deploys on push to
-  `main`** via its deploy webhook. (Confirm under Coolify → service → Source.) A
-  manual **Redeploy** in the Coolify UI does the same build from the latest commit.
+- **Trigger: MANUAL. A push to `main` does not deploy the edge.** Auto deploy was
+  turned off on this resource on 2026-08-31 (see the US-2609 bullet below for
+  why); press **Redeploy** in the Coolify UI, which builds from the latest commit.
+  This bullet said "auto-deploys on push to `main`" until 2026-09-11 while the
+  bullet four down said the opposite — the shipped distillation in
+  `src/lib/admin/runbooks.ts` had the correct version, which is the wrong way
+  round for a runbook an operator reads first.
 - **Build:** Docker image from `services/edge-functions/Dockerfile`. Coolify
-  injects the service Environment Variables at run.
+  injects the service Environment Variables at run — **that UI list, not any file
+  in this repo, is where the edge's configuration lives.** See
+  [[edge-container-settings]].
 - **⚠ `docker-compose.coolify.yml` is NOT the deployed configuration** (US-2665,
-  measured 2026-08-17). This line used to name it as *the* compose file, and
-  several stories were closed on the strength of a setting being declared there.
-  It is not in effect. `GET /health/metrics` — public, no credentials — answers
-  `memory.limit_mb: null` while that file sets `EDGE_MEMORY_LIMIT_MB: 2048`, and
-  `grading.buffer_pipeline_cap: 10` while it declares `6`. So production is
-  configured somewhere that file is not, and where the two differ, production
-  wins and disagrees. Everything the file alone declares — json-file log
-  rotation, the memory limit, `EDGE_TRACE_SAMPLE_RATE`, the pipeline cap, the
-  healthcheck block — should be assumed absent until measured.
-- **What deploys it is still open.** Either a Dockerfile build pack, or a compose
-  build pack pointed at the sibling `docker-compose.yml` (whose own first line
-  claims to be the production compose). Evidence for compose-of-some-kind: the
-  2026-08-10 outage where every deploy died at the build step on
-  `non-string key in services.edge-functions.environment: 0`, which only happens
-  if Coolify parsed and re-serialised a compose file of ours. Evidence against
-  either compose file driving the *build*: both declare the `GIT_SHA` build arg
-  and `/health` still answers `release: "unknown"`. Settle it in the Coolify UI
-  (US-2665 AC1/AC2) and replace this bullet with the answer.
-- **Two live values disagree with the repo right now.** `EDGE_MEMORY_LIMIT_MB` is
-  unset, so `/health/metrics` cannot compute headroom and the load-test gate is
-  measuring against nothing. And the grading pipeline cap is **10**, while
-  [[capacity]] sized it at 6 to hold peak base64 residency near 600 MB under a
-  2 GiB limit. Ten pipelines is ~1 GB of peak residency against a limit nothing
-  is checking.
+  measured 2026-08-17, re-measured 2026-09-11). This line used to name it as
+  *the* compose file, and several stories were closed on the strength of a
+  setting being declared there. It is not in effect, and all three of its parts
+  read as absent, not just one: `GET /health/metrics` — public, no credentials —
+  answers `memory.limit_mb: null` while the file's **environment** block sets
+  `EDGE_MEMORY_LIMIT_MB: 2048`; the same response answers
+  `grading.buffer_pipeline_cap: 10` while that block declares `6`; and an OPTIONS
+  preflight comes back with the Hono app's allow-headers list (which includes
+  `X-Workspace-Owner` and `X-GT-Extension-Id`) rather than the shorter list the
+  file's Traefik **labels** declare, so the `edge-cors` middleware is not applied
+  either. [[edge-container-settings]] holds the per-setting table: what each of
+  the nine is supposed to be, what production has, and which Coolify field makes
+  it true. **Do not add a setting to that file and consider it shipped.**
+- **What deploys it is still open, and the evidence moved on 2026-09-11.** Two
+  candidates: a Dockerfile build pack, or a compose build pack pointed at the
+  sibling `docker-compose.yml` (whose own first line claims to be the production
+  compose, and which is what `COOLIFY.md`'s one-time setup steps describe).
+  <br>**For a compose build pack:** the 2026-08-10 outage where every deploy died
+  at the build step on `non-string key in services.edge-functions.environment: 0`.
+  `edge-functions` is *our* service key, so Coolify parsed and re-serialised a
+  compose file of ours. Everything absent is also exactly what
+  `docker-compose.yml` omits and `.coolify.yml` declares.
+  <br>**For a Dockerfile build pack:** release identity started working after
+  `015d99d28` added `ARG SOURCE_COMMIT` to the Dockerfile, and that change can
+  only matter when the builder passes `--build-arg SOURCE_COMMIT` straight to the
+  Dockerfile. Under compose, `args: GIT_SHA: ${SOURCE_COMMIT:-dev}` sets `GIT_SHA`
+  explicitly and the Dockerfile's default chain never runs.
+  <br>**That second argument is weaker than it looks**, because `COOLIFY.md`
+  also documents a hand-set `COMMIT_SHA` runtime variable as the stopgap, and
+  nobody recorded whether it was used. **Settle it with one label rather than more
+  inference:** `docker inspect <edge-container> --format '{{index .Config.Labels
+  "com.docker.compose.project.config_files"}}'` names the file Coolify actually
+  ran. Replace this bullet with the answer.
+- **Two live values disagree with the repo right now** (still true 2026-09-11).
+  `EDGE_MEMORY_LIMIT_MB` is unset, so `/health/metrics` cannot compute headroom
+  and the load-test gate is measuring against nothing. And the grading pipeline
+  cap is **10**, while [[capacity]] sized it at 6 to hold peak base64 residency
+  near 600 MB under a 2 GiB limit. Ten pipelines is ~1 GB of peak residency
+  against a limit nothing is checking. A third is probable and unmeasurable from
+  outside: `EDGE_TRACE_SAMPLE_RATE` defaults to **1.0** in code, so unset means
+  production logs every successful request at 100% rather than the intended 10%.
 - **⚠ EVERY push to `main` redeploys this, including doc-only ones** (US-2609).
   There is no path filter, so a commit touching only `prd.json`, a markdown file
   or `src/` rebuilds the image and rolls the container. Each roll is a short
@@ -290,6 +313,7 @@ each trade automation for reboot behaviour), and where that key lives — which 
 
 ## Related
 
+- [[edge-container-settings]] — the nine settings the compose file declares, measured against production
 - [[rollback]] — the reverse of this, per surface; read it *before* you need it
 - [[encryption-at-rest]] — what is and is not encrypted, including both volumes
 - [[launch-checklist]] — the pre-launch gate this assumes has passed

@@ -10,6 +10,15 @@
 // published pricing for the models on the grading allowlist (see ai-config.ts).
 // An operator can override a rate via AI_PRICE_<dimension>_<MODEL> env vars if
 // negotiated/changed pricing differs, so a price change never requires a deploy.
+//
+// US-3342: every rate below carries the DATE it was read off the published
+// table, as a field rather than as prose. The rate that went wrong went wrong as
+// a sentence — an introductory price said to run through the end of last August,
+// written in a comment that nothing checked and nobody re-read, and still
+// sitting here eleven days after the date it named. Anything time-bound now goes
+// in `provisionalUntil`, and tests/ai-price-provenance_test.ts fails the day that
+// date passes. A corollary the same test enforces: prose in this file may not
+// name a calendar date the table does not also hold as a value.
 
 import { supabaseAdmin } from "./supabase.ts";
 import { type AiUsage, normalizeUsage } from "./ai-provider.ts";
@@ -17,10 +26,39 @@ import { type AiUsage, normalizeUsage } from "./ai-provider.ts";
 // Per-million-token USD list prices. Input/output plus the standard cache
 // multipliers Anthropic applies: 5-minute cache WRITE = 1.25× input, cache
 // READ = 0.1× input. Keyed by model id (ai-config.ts GRADING_MODEL_ALLOWLIST).
-interface ModelPrice {
+export interface ModelPrice {
   inputPerMTok: number;
   outputPerMTok: number;
+  /**
+   * YYYY-MM-DD this pair was last read off the provider's published pricing
+   * table. Not decoration: the provenance test fails once the NEWEST date here
+   * is more than PRICE_SWEEP_MAX_AGE_DAYS old, which is the forcing function
+   * for re-reading the whole list rather than the one model someone noticed.
+   */
+  checkedOn: string;
+  /**
+   * Set ONLY when the published rate is explicitly temporary and reverts on a
+   * date the provider has named. The provenance test FAILS once that date is in
+   * the past, so a promo cannot quietly become a wrong list price. Absent means
+   * "this is the standing rate", which is the normal case.
+   */
+  provisionalUntil?: string;
+  /** Where the pair was read. One URL, so re-checking is a click, not a hunt. */
+  source: string;
 }
+
+const PRICE_SOURCE = "https://platform.claude.com/docs/en/about-claude/pricing";
+
+/**
+ * Longest a rate may go un-re-read before the provenance test fails.
+ *
+ * This is a deliberate tripwire, not a guess at how often prices move. The
+ * whole table drifted for months because nothing ever asked; half a year is
+ * short enough to catch a live rate change and long enough that the alarm is
+ * never routine. Clearing it means re-reading PRICE_SOURCE and bumping every
+ * `checkedOn` — the sweep, not one row.
+ */
+export const PRICE_SWEEP_MAX_AGE_DAYS = 180;
 
 // US-2568: keyed "<provider>:<model>". A second provider's rates land here
 // beside these instead of colliding on a bare model id — two vendors can and do
@@ -29,20 +67,57 @@ interface ModelPrice {
 //
 // Lookup falls back to the bare model id so every row written before this change
 // still prices correctly; see priceFor().
-const MODEL_PRICES: Record<string, ModelPrice> = {
-  "claude-opus-4-8": { inputPerMTok: 5, outputPerMTok: 25 },
-  // Sonnet 5 = the current DEFAULT_AI_MODEL. LIST price ($3/$15), same sticker as
-  // Sonnet 4.6. Anthropic's intro rate ($2/$10 through 2026-08-31) can be applied
-  // deploy-free via AI_PRICE_INPUT/OUTPUT_CLAUDE_SONNET_5, or in the
-  // system_settings.ai_model_prices row the admin dashboards re-price from.
-  "claude-sonnet-5": { inputPerMTok: 3, outputPerMTok: 15 },
-  "claude-sonnet-4-6": { inputPerMTok: 3, outputPerMTok: 15 },
-  "claude-haiku-4-5-20251001": { inputPerMTok: 1, outputPerMTok: 5 },
+export const MODEL_PRICES: Record<string, ModelPrice> = {
+  "claude-opus-5": {
+    inputPerMTok: 5,
+    outputPerMTok: 25,
+    checkedOn: "2026-09-11",
+    source: PRICE_SOURCE,
+  },
+  "claude-opus-4-8": {
+    inputPerMTok: 5,
+    outputPerMTok: 25,
+    checkedOn: "2026-09-11",
+    source: PRICE_SOURCE,
+  },
+  // Sonnet 5 = the current DEFAULT_AI_MODEL, so this is the rate almost every
+  // row in the ledger is priced at. It is CHEAPER than Sonnet 4.6, not equal to
+  // it: the $2/$10 launch rate became the standard price, and the increase to
+  // $3/$15 that this table had compiled in as "the list price" was cancelled.
+  "claude-sonnet-5": {
+    inputPerMTok: 2,
+    outputPerMTok: 10,
+    checkedOn: "2026-09-11",
+    source: PRICE_SOURCE,
+  },
+  "claude-sonnet-4-6": {
+    inputPerMTok: 3,
+    outputPerMTok: 15,
+    checkedOn: "2026-09-11",
+    source: PRICE_SOURCE,
+  },
+  "claude-haiku-4-5-20251001": {
+    inputPerMTok: 1,
+    outputPerMTok: 5,
+    checkedOn: "2026-09-11",
+    source: PRICE_SOURCE,
+  },
   // Alias without the date suffix, in case DEFAULT_AI_MODEL is set to the bare id.
-  "claude-haiku-4-5": { inputPerMTok: 1, outputPerMTok: 5 },
+  "claude-haiku-4-5": {
+    inputPerMTok: 1,
+    outputPerMTok: 5,
+    checkedOn: "2026-09-11",
+    source: PRICE_SOURCE,
+  },
 };
 
 // Anthropic's standard cache multipliers (relative to the input rate).
+//
+// These are per-provider constants, not per-model ones, and that holds for
+// every model in the table above. It stops holding the moment a Fable or Mythos
+// id is added: those price cache reads at 0.025× input, not 0.1×, so adding one
+// here without moving the read multiplier onto ModelPrice would over-bill its
+// cache reads fourfold. The provenance test names them for that reason.
 const CACHE_WRITE_MULTIPLIER = 1.25; // 5-minute ephemeral cache write
 const CACHE_READ_MULTIPLIER = 0.1; // cache read
 
