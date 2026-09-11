@@ -9,7 +9,9 @@ on:
   pull_request:
     branches: [main]
   push:
-    branches: [main]
+    # 'ci/**' is present on THIS throwaway branch only (US-3308), so that a
+    # branch can prove the lane green without opening a PR. Do not merge it.
+    branches: [main, 'ci/**']
 
 concurrency:
   group: ci-${{ github.ref }}
