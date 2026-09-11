@@ -1,34 +1,148 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "react-router";
 
+type ParamsWriter = ReturnType<typeof useSearchParams>[1];
+
+// ── US-3348: one params object per tick ─────────────────────────────────────
+//
+// react-router's own docs carry this warning and it is easy to read past:
+// "the function callback version of setSearchParams does not support the
+// queueing logic that React's setState implements. Multiple calls to
+// setSearchParams in the same tick will not build on the prior value."
+//
+// The implementation is the reason. `setSearchParams` calls `nextInit(...)`
+// with the `searchParams` captured by the render it was created in, so two
+// calls in one tick are handed the SAME starting params and the second
+// navigation simply overwrites the first. Nothing throws and nothing logs; one
+// of the two writes just is not there afterwards. US-3207 lost a tab that way
+// (a tab effect and a page reset fought, and the tab the seller had just left
+// won), and it took mounting the real page to see it.
+//
+// So hook writes do not go through `setSearchParams` directly. They go through
+// here, which keeps the params object built by the first write of a tick and
+// hands it to the next write instead of a fresh copy of the render's params.
+// Two different keys written in the same tick therefore both survive.
+//
+// The buffer lives for exactly one synchronous tick: it is cleared on a
+// microtask, and it is only reused when the incoming params match the ones it
+// was built from. Both guards matter. Without the base check a back-navigation
+// to a URL the buffer already described would resurrect params the seller had
+// just left behind.
+let pendingWrite: { base: string; params: URLSearchParams } | null = null;
+let pendingKeys: Map<string, string | null> | null = null;
+let pendingScheduled = false;
+
+function describeWrite(value: string | null): string {
+  return value === null ? "(removed)" : JSON.stringify(value);
+}
+
+/**
+ * Write one param through a buffer shared by every hook in this file.
+ *
+ * `mutate` edits the params in place and returns the value it left on `key`,
+ * or null if it removed it. That return value is only used for the development
+ * warning below.
+ */
+function writeParam(
+  write: ParamsWriter,
+  key: string,
+  mutate: (params: URLSearchParams) => string | null,
+): void {
+  write(
+    (prev) => {
+      const base = prev.toString();
+      const composing = pendingWrite !== null && pendingWrite.base === base;
+      const params = composing ? pendingWrite!.params : new URLSearchParams(prev);
+      const keys = composing && pendingKeys ? pendingKeys : new Map<string, string | null>();
+
+      // Composing cannot rescue two writes to the SAME key: there is one slot
+      // and the second value is the answer. That is the one case worth saying
+      // out loud, because it is the shape that hides a real ordering bug.
+      const clash = keys.has(key);
+      const previous = clash ? keys.get(key) ?? null : null;
+
+      const written = mutate(params);
+      keys.set(key, written);
+
+      if (clash && import.meta.env.DEV) {
+        console.warn(
+          `[useUrlParamState] "${key}" was written twice in the same tick: ` +
+            `${describeWrite(previous)} then ${describeWrite(written)}. ` +
+            "setSearchParams does not queue, so only the second one survives. " +
+            "Compose both decisions into a single write instead.",
+        );
+      }
+
+      pendingWrite = { base, params };
+      pendingKeys = keys;
+      if (!pendingScheduled) {
+        pendingScheduled = true;
+        queueMicrotask(() => {
+          pendingWrite = null;
+          pendingKeys = null;
+          pendingScheduled = false;
+        });
+      }
+      return params;
+    },
+    // Replace, not push: changing a sort five times must not put five entries
+    // in browser history for the seller to walk back through.
+    { replace: true },
+  );
+}
+
 // URL-backed scalar state (US-958). Reads a single query param and writes it
 // back with { replace: true } so updates don't pollute browser history. The
 // value lives in the URL so it survives switching between the unified Inventory
 // view modes (table/grid/kanban/prep) — each mode reads the same params.
 //
-// Writes use the functional updater form of setSearchParams so concurrent
-// updates to *other* params (tab, filter, mode) in the same tick don't clobber
-// each other. A value equal to `fallback` is dropped from the URL to keep it
-// clean (the reader falls back to the same default).
+// A value equal to `fallback` is dropped from the URL to keep it clean (the
+// reader falls back to the same default).
+//
+// The returned setter is STABLE for the life of the component. That reads like
+// a micro-optimisation and it is not; it is the whole point of the hook's
+// shape. react-router builds `setSearchParams` as a `useCallback` over
+// `[navigate, searchParams]`, and `searchParams` is a `useMemo` over
+// `[location.search]`, so it is a NEW FUNCTION after every navigation. A setter
+// built directly on it inherits that churn, and any effect listing the setter
+// in its deps then fires on EVERY navigation, including the navigation the
+// setter itself just caused. US-3207 is what that costs: the Inventory pager's
+// criteria-reset effect listed the sibling `useUrlPageState` setter, so
+// clicking Next navigated to `?page=2`, the new URL handed the effect a
+// "changed" dependency, and it sent the seller back to page 1 in the same
+// breath. The button was enabled, the click landed, nothing moved, and nothing
+// in the code looked wrong.
+//
+// Holding the writer in a ref is what keeps the identity still. `fallback` is
+// held the same way rather than listed in the deps, so a fallback that depends
+// on props or on a flag stays live without costing the stability.
 export function useUrlParamState(
   key: string,
   fallback = "",
 ): [string, (value: string) => void] {
   const [searchParams, setSearchParams] = useSearchParams();
   const value = searchParams.get(key) ?? fallback;
+
+  // Assigned during render, not in an effect: an effect would run AFTER the
+  // effects of child components, so a write fired on the same commit would go
+  // through last render's params.
+  const writeRef = useRef(setSearchParams);
+  writeRef.current = setSearchParams;
+  const fallbackRef = useRef(fallback);
+  fallbackRef.current = fallback;
+
   const setValue = useCallback(
     (next: string) => {
-      setSearchParams(
-        (prev) => {
-          const params = new URLSearchParams(prev);
-          if (next === "" || next === fallback) params.delete(key);
-          else params.set(key, next);
-          return params;
-        },
-        { replace: true },
-      );
+      writeParam(writeRef.current, key, (params) => {
+        if (next === "" || next === fallbackRef.current) {
+          params.delete(key);
+          return null;
+        }
+        params.set(key, next);
+        return next;
+      });
     },
-    [key, fallback, setSearchParams],
+    [key],
   );
   return [value, setValue];
 }
@@ -168,22 +282,22 @@ export function useUrlPageState(
 
   const setPage = useCallback(
     (next: number | ((prev: number) => number)) => {
-      writeRef.current(
-        (prev) => {
-          const params = new URLSearchParams(prev);
-          // Read the CURRENT param inside the updater rather than closing over
-          // `page`, so the setter can stay stable without going stale.
-          const current = parsePageParam(params.get(key));
-          const resolved = typeof next === "function" ? next(current) : next;
-          const value = parsePageParam(String(Math.floor(resolved)));
-          if (value === 1) params.delete(key);
-          else params.set(key, String(value));
-          return params;
-        },
-        // Replace, not push: paging five times must not put five entries in
-        // browser history for the seller to walk back through.
-        { replace: true },
-      );
+      // US-3348: through the shared buffer, like every other write in this
+      // file, so a page reset and a sort change landing in the same tick do not
+      // eat each other. The updater also reads the CURRENT param out of the
+      // params it was handed rather than closing over `page`, which is what
+      // lets the setter stay stable without going stale.
+      writeParam(writeRef.current, key, (params) => {
+        const current = parsePageParam(params.get(key));
+        const resolved = typeof next === "function" ? next(current) : next;
+        const value = parsePageParam(String(Math.floor(resolved)));
+        if (value === 1) {
+          params.delete(key);
+          return null;
+        }
+        params.set(key, String(value));
+        return String(value);
+      });
     },
     [key],
   );
