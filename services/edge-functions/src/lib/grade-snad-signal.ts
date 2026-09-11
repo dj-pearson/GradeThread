@@ -152,36 +152,138 @@ async function loadReportIdsFromDb(itemIds: string[]): Promise<Map<string, strin
   return out;
 }
 
-async function recordToDb(
+/**
+ * The identity of an outcome row as `idx_grade_outcomes_report_sale` (00036)
+ * defines it, spelled once so it can be read against the migration:
+ *
+ *   CREATE UNIQUE INDEX idx_grade_outcomes_report_sale
+ *     ON public.grade_outcomes (grade_report_id, sale_id)
+ *     WHERE sale_id IS NOT NULL
+ *
+ * A NULL sale_id is deliberately keyed here even though the index excludes it.
+ * In Postgres two NULLs never conflict, so an unlinked case would have inserted
+ * a fresh row on every sweep -- which is exactly the "manufacture a dispute rate
+ * out of one return" that the dedupe exists to prevent.
+ */
+export function snadOutcomeKey(gradeReportId: string, saleId: string | null): string {
+  return `${gradeReportId}|${saleId ?? ""}`;
+}
+
+/**
+ * Write SNAD observations. Exported so a test can drive the REAL write against a
+ * real PostgREST -- the defect this replaces was invisible to every test that
+ * drove `recordSnadObservations` with an injected `record` dep, because the
+ * injected one always succeeded.
+ */
+export async function recordSnadOutcomesToDb(
   rows: Array<{ gradeReportId: string; inventoryItemId: string; saleId: string | null }>,
 ): Promise<number> {
   if (rows.length === 0) return 0;
-  const { error } = await supabaseAdmin
+
+  // US-3365: a read-then-insert, deliberately not an upsert.
+  //
+  // This used to be `.upsert(..., { onConflict: "grade_report_id,sale_id",
+  // ignoreDuplicates: true })` and it recorded nothing, ever.
+  // idx_grade_outcomes_report_sale is PARTIAL (`WHERE sale_id IS NOT NULL`), and
+  // Postgres refuses a partial index as an ON CONFLICT target unless the
+  // statement repeats the predicate, which PostgREST has no way to send.
+  // Measured against a real PostgREST on the local stack:
+  //
+  //   POST /rest/v1/grade_outcomes?on_conflict=grade_report_id,sale_id
+  //   Prefer: resolution=ignore-duplicates
+  //   HTTP 400
+  //   {"code":"42P10","message":"there is no unique or exclusion constraint
+  //     matching the ON CONFLICT specification"}
+  //
+  // A control upsert on the same table naming the NON-partial grade_outcomes_pkey
+  // got past the planner in the same session, so it is the predicate and not the
+  // table. Note that the 00036 TRIGGER writes the identical conflict clause and
+  // works, because SQL *can* repeat the predicate -- `ON CONFLICT
+  // (grade_report_id, sale_id) WHERE sale_id IS NOT NULL`. Only the PostgREST
+  // path is broken, and this file and buyer-grade-confirmation.ts were the only
+  // two writers on it.
+  //
+  // The 42P10 was caught and logged, so the sweep reported a clean run while the
+  // dispute rate it feeds saw zero SNAD observations.
+  //
+  // The dedupe therefore moves here: one read of the outcome rows for exactly
+  // the reports in this batch, keyed the way the index is keyed, and the rows
+  // that are already recorded are skipped. The index stays as the race guard,
+  // which is why a 23505 below is a lost race and not a failure.
+  //
+  // Tenant scoping (US-268): grade_outcomes has no user_id. Every report id in
+  // `rows` was derived from marketplace_post_sale_cases rows read under
+  // `.eq("user_id", ownerId)`, so the read is bounded by this owner's reports,
+  // and its result is only ever used to SKIP a write -- no id it returns is
+  // written to or updated.
+  const reportIds = [...new Set(rows.map((r) => r.gradeReportId))];
+  const { data: existing, error: readErr } = await supabaseAdmin
     .from("grade_outcomes")
-    .upsert(
-      rows.map((r) => ({
-        grade_report_id: r.gradeReportId,
-        inventory_item_id: r.inventoryItemId,
-        sale_id: r.saleId,
-        dispute_reported: true,
-        source: SNAD_OUTCOME_SOURCE,
-      })),
-      // The 00036 index. Re-recording the same case is a no-op rather than a
-      // second observation, so a sweep every 15 minutes does not manufacture a
-      // dispute rate out of one return.
-      { onConflict: "grade_report_id,sale_id", ignoreDuplicates: true },
+    .select("grade_report_id, sale_id")
+    .in("grade_report_id", reportIds);
+  if (readErr) {
+    console.error("[grade-snad-signal] record read:", readErr.message);
+    return 0;
+  }
+  // NOT filtered by source, because the index is not. A `flipdesk` sale-outcome
+  // row already occupies (report, sale) for an opted-in seller, and the upsert
+  // this replaces would have skipped that case too. Keeping the read faithful to
+  // the index means the fix changes the transport and nothing else.
+  const taken = new Set<string>();
+  for (
+    const e of (existing ?? []) as unknown as Array<{
+      grade_report_id: string;
+      sale_id: string | null;
+    }>
+  ) {
+    taken.add(snadOutcomeKey(e.grade_report_id, e.sale_id));
+  }
+
+  const fresh = rows.filter((r) => !taken.has(snadOutcomeKey(r.gradeReportId, r.saleId)));
+  if (fresh.length === 0) return 0;
+
+  const payload = fresh.map((r) => ({
+    grade_report_id: r.gradeReportId,
+    inventory_item_id: r.inventoryItemId,
+    sale_id: r.saleId,
+    dispute_reported: true,
+    source: SNAD_OUTCOME_SOURCE,
+  }));
+
+  let inserted = 0;
+  let raced = 0;
+  const { error } = await supabaseAdmin.from("grade_outcomes").insert(payload);
+  if (!error) {
+    inserted = payload.length;
+  } else if (error.code === "23505") {
+    // A concurrent sweep won. A batch insert is all-or-nothing, so the innocent
+    // observations are retried one at a time rather than dropped with the
+    // duplicate.
+    for (const one of payload) {
+      const { error: single } = await supabaseAdmin.from("grade_outcomes").insert(one);
+      if (!single) inserted++;
+      else if (single.code === "23505") raced++;
+      else console.error("[grade-snad-signal] record:", single.message);
+    }
+    // Said out loud: a race on every sweep is also what a broken dedupe read
+    // looks like, and the row count stays correct either way because the index
+    // catches it.
+    console.warn(
+      `[grade-snad-signal] ${raced} observation(s) lost a race on ` +
+        `idx_grade_outcomes_report_sale; if this is every sweep, the dedupe read ` +
+        `above is broken`,
     );
-  if (error) {
+  } else {
     console.error("[grade-snad-signal] record:", error.message);
     return 0;
   }
-  return rows.length;
+  return inserted;
 }
 
 const defaultDeps: SnadSignalDeps = {
   loadCandidates: loadCandidatesFromDb,
   loadReportIds: loadReportIdsFromDb,
-  record: recordToDb,
+  record: recordSnadOutcomesToDb,
 };
 
 /**

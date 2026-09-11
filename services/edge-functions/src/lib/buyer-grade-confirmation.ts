@@ -1076,29 +1076,111 @@ export async function recordBuyerGradeOutcome(input: {
   const promptVersion =
     (report as { prompt_version?: string | null } | null)?.prompt_version ?? null;
 
-  // 1. Upsert the buyer outcome (idempotent on buyer_purchase_id).
-  const { error: outErr } = await supabaseAdmin
-    .from("grade_outcomes")
-    .upsert(
-      {
-        grade_report_id: purchase.grade_report_id,
-        buyer_user_id: userId,
-        buyer_purchase_id: purchase.id,
-        seller_user_id: sellerUserId,
-        match_status: verdict.matchStatus,
-        factor_deltas: deltas,
-        overall_delta,
-        dispute_reason: disputed ? (verdict.disputeReason?.trim() || null) : null,
-        dispute_severity: severity,
-        prompt_version: promptVersion,
-        dispute_reported: disputed,
-        guarantee_eligible: guaranteeEligible,
-        human_review_flagged: humanReviewFlagged,
-        source: "buyer_arrival",
-      } as never,
-      { onConflict: "buyer_purchase_id" },
-    );
-  if (outErr) throw new Error(`recordBuyerGradeOutcome outcome upsert failed: ${outErr.message}`);
+  // 1. Write the buyer outcome, idempotent on buyer_purchase_id.
+  //
+  // US-3365: this was `.upsert(row, { onConflict: "buyer_purchase_id" })` and it
+  // could not have worked on any database this schema has ever described.
+  // idx_grade_outcomes_buyer_purchase (00421) is PARTIAL --
+  // `(buyer_purchase_id) WHERE buyer_purchase_id IS NOT NULL` -- and Postgres
+  // refuses a partial index as an ON CONFLICT target unless the statement
+  // repeats the predicate, which PostgREST has no way to send. Measured against
+  // a real PostgREST on the local stack:
+  //
+  //   POST /rest/v1/grade_outcomes?on_conflict=buyer_purchase_id
+  //   Prefer: resolution=merge-duplicates
+  //   HTTP 400
+  //   {"code":"42P10","message":"there is no unique or exclusion constraint
+  //     matching the ON CONFLICT specification"}
+  //
+  // A control upsert on the same table naming the NON-partial grade_outcomes_pkey
+  // got past the planner in the same session (it reached the FK check), so it is
+  // the predicate and not the table. 42P10 is raised at PLAN time, before any FK
+  // or NOT NULL check, so this failed for every buyer on every verdict.
+  //
+  // Unlike the other two US-3365 sites this one THREW, and the route turns the
+  // throw into a 500: a buyer pressing "it matched" got an error and no row, no
+  // Trust Score event and no reward credit. No /buyer/* pageview has been
+  // recorded in 180 days, so it appears never to have run in production -- but
+  // the surface is live and the next buyer to use it would have hit it.
+  //
+  // The dedupe moves here: read this buyer's existing outcome for this purchase,
+  // then merge by PRIMARY KEY (the only non-partial unique index PostgREST can
+  // name on this table) or insert. The index stays as the race guard, so a 23505
+  // means a concurrent submit won and the row it wrote is the one to update.
+  //
+  // Tenant scoping (US-268): the read is `.eq("buyer_purchase_id", purchase.id)`
+  // AND `.eq("buyer_user_id", userId)`. The caller has already proved this buyer
+  // owns `purchase`, and the id used in the merge below comes only from that
+  // scoped read -- never from the request.
+  const outcomeRow = {
+    grade_report_id: purchase.grade_report_id,
+    buyer_user_id: userId,
+    buyer_purchase_id: purchase.id,
+    seller_user_id: sellerUserId,
+    match_status: verdict.matchStatus,
+    factor_deltas: deltas,
+    overall_delta,
+    dispute_reason: disputed ? (verdict.disputeReason?.trim() || null) : null,
+    dispute_severity: severity,
+    prompt_version: promptVersion,
+    dispute_reported: disputed,
+    guarantee_eligible: guaranteeEligible,
+    human_review_flagged: humanReviewFlagged,
+    source: "buyer_arrival",
+  };
+
+  const findExistingOutcomeId = async (): Promise<string | null> => {
+    const { data, error } = await supabaseAdmin
+      .from("grade_outcomes")
+      .select("id")
+      .eq("buyer_purchase_id", purchase.id)
+      .eq("buyer_user_id", userId)
+      .maybeSingle();
+    if (error) {
+      throw new Error(`recordBuyerGradeOutcome outcome read failed: ${error.message}`);
+    }
+    return (data as { id?: string } | null)?.id ?? null;
+  };
+
+  const existingOutcomeId = await findExistingOutcomeId();
+  if (existingOutcomeId !== null) {
+    const { error: updErr } = await supabaseAdmin
+      .from("grade_outcomes")
+      .update(outcomeRow as never)
+      .eq("id", existingOutcomeId);
+    if (updErr) {
+      throw new Error(`recordBuyerGradeOutcome outcome update failed: ${updErr.message}`);
+    }
+  } else {
+    const { error: insErr } = await supabaseAdmin
+      .from("grade_outcomes")
+      .insert(outcomeRow as never);
+    if (insErr?.code === "23505") {
+      // A concurrent submit for the same purchase landed between the read and
+      // the insert. The index did its job; re-read the winner and apply this
+      // verdict to it, so a double-click still leaves ONE row carrying the LAST
+      // verdict, which is what the upsert was for.
+      console.warn(
+        "[BuyerGradeConfirm] outcome insert lost a race on " +
+          "idx_grade_outcomes_buyer_purchase; merging into the winning row",
+      );
+      const winnerId = await findExistingOutcomeId();
+      if (winnerId === null) {
+        throw new Error(
+          "recordBuyerGradeOutcome outcome upsert failed: 23505 with no row to merge into",
+        );
+      }
+      const { error: mergeErr } = await supabaseAdmin
+        .from("grade_outcomes")
+        .update(outcomeRow as never)
+        .eq("id", winnerId);
+      if (mergeErr) {
+        throw new Error(`recordBuyerGradeOutcome outcome merge failed: ${mergeErr.message}`);
+      }
+    } else if (insErr) {
+      throw new Error(`recordBuyerGradeOutcome outcome upsert failed: ${insErr.message}`);
+    }
+  }
 
   // 2. Material dispute → flip the grade_report into the human-review queue so an
   //    expert re-grades it. Refresh the prompt-version accuracy aggregate (a

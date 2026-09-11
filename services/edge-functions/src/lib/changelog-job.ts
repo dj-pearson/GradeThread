@@ -71,8 +71,10 @@ export async function markChangelogFeatured(
 /**
  * AC2 auto-capture: draft changelog entries (status='draft', source='auto') from
  * recently published blog posts for human-light curation. Idempotent per source
- * signal via the unique source_ref index — a re-run never duplicates an entry,
- * and an operator's edit/publish/delete is never clobbered. Best-effort.
+ * signal via the source_ref READ below: a re-run never duplicates an entry, and
+ * an operator's edit/publish/delete is never clobbered. The partial unique index
+ * is the race guard only; see the write site for why it cannot be an ON CONFLICT
+ * target through PostgREST (US-3365). Best-effort.
  *
  * Drafts are NOT auto-published: an operator reviews and publishes them, after
  * which the assembler features them. Returns the number of new drafts created.
@@ -131,13 +133,58 @@ export async function autoCaptureChangelogDrafts(nowMs: number): Promise<number>
     }));
   if (toInsert.length === 0) return 0;
 
-  // Ignore-duplicates on the source_ref unique index in case of a concurrent run.
-  const { error: insErr } = await supabaseAdmin
-    .from("changelog_entries")
-    .upsert(toInsert, { onConflict: "source_ref", ignoreDuplicates: true });
-  if (insErr) {
+  // US-3365: a plain INSERT, deliberately not an upsert.
+  //
+  // This used to be `.upsert(toInsert, { onConflict: "source_ref",
+  // ignoreDuplicates: true })`, and it never once wrote a row.
+  // `changelog_entries_source_ref_key` (00291) is a PARTIAL index --
+  // `ON public.changelog_entries (source_ref) WHERE source_ref IS NOT NULL` --
+  // and Postgres refuses a partial index as an ON CONFLICT target unless the
+  // statement repeats the predicate, which PostgREST has no way to send.
+  // Measured against a real PostgREST on the local stack:
+  //
+  //   POST /rest/v1/changelog_entries?on_conflict=source_ref
+  //   Prefer: resolution=ignore-duplicates
+  //   HTTP 400
+  //   {"code":"42P10","message":"there is no unique or exclusion constraint
+  //     matching the ON CONFLICT specification"}
+  //
+  // A control upsert on the same table naming the NON-partial
+  // changelog_entries_pkey returned 201 in the same session, so it is the
+  // predicate and not the table. Dropping the `resolution=ignore-duplicates`
+  // header's conflict target is not an escape hatch either: with no
+  // on_conflict param PostgREST falls back to the primary key, and the partial
+  // index then answers 23505 / 409 (also measured).
+  //
+  // The dedupe the upsert was asking for is already done: the source_ref read
+  // above removes every signal that has an entry. So the index stays purely as
+  // the race guard between two concurrent runs, and a 23505 here means the
+  // other run won -- not a failure. Retried one row at a time because a batch
+  // insert is all-or-nothing and one duplicate would otherwise drop the
+  // innocent drafts with it.
+  let inserted = 0;
+  let raced = 0;
+  const { error: insErr } = await supabaseAdmin.from("changelog_entries").insert(toInsert);
+  if (!insErr) {
+    inserted = toInsert.length;
+  } else if (insErr.code === "23505") {
+    for (const row of toInsert) {
+      const { error: one } = await supabaseAdmin.from("changelog_entries").insert(row);
+      if (!one) inserted++;
+      else if (one.code === "23505") raced++;
+      else console.error(`[changelog] autoCaptureChangelogDrafts failed: ${one.message}`);
+    }
+    // Said out loud: `raced` on every run is also what a BROKEN dedupe read
+    // looks like, and the entry count stays correct either way because the
+    // index catches it. A quiet counter would make the two indistinguishable.
+    console.warn(
+      `[changelog] ${raced} auto-capture draft(s) lost a race on ` +
+        `changelog_entries_source_ref_key; if this is every run, the source_ref ` +
+        `read above is broken`,
+    );
+  } else {
     console.error(`[changelog] autoCaptureChangelogDrafts failed: ${insErr.message}`);
     return 0;
   }
-  return toInsert.length;
+  return inserted;
 }
