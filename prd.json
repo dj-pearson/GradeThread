@@ -4887,19 +4887,6 @@
       "notes": "PROGRESS 2026-09-11 (loop). DONE: AC1 web slots - the Defects group hint and each defect slot ask for a coin, bank card or MeasureCard beside the flaw, and the Detail slot hint adds it for flaws (src/lib/scale-reference.ts holds the copy and the sizes). The prompt half is written as services/edge-functions/src/lib/scale-reference.ts: GRADING_SCALE_REFERENCE (default OFF), applyScaleReferenceWording swaps the one sizing phrase in DEFECT_TAXONOMY_AND_SIZING for one that gives the three sizes (quarter 24.26 mm, ID-1 card 85.60 x 53.98 mm, MeasureCard 190.5 x 139.7 mm) and says never to record the object as a flaw; byte-identical when off; applied only when the phrase matched. scale-reference_test 6/6 pins the sizes against the standards, the web copy against the edge copy, byte identity, and that the phrase still occurs in the per-image prompt. BLOCKED-ON US-3150: the last step is wiring applyScaleReferenceWording into analyzeImage (system text + a +scale per-image version suffix after +clean2). Another session has about 230 uncommitted lines of US-3150 in exactly that region of ai-grading.ts and in prompt-blocks_test.ts; editing it now would either collide or sweep their unfinished work into this commit. Resume when ai-grading.ts has no foreign uncommitted changes."
     },
     {
-      "id": "US-3334",
-      "passes": false,
-      "title": "Admin reference gallery: award a graded photo as the example of a grade level",
-      "description": "Owner 2026-09-10: an admin task to award photos with values, building a set of this-is-what-a-7-looks-like references per category. Exemplar privacy forbids customer photos in prompts, so only photos the business may use can be awarded.",
-      "acceptanceCriteria": [
-        "Operator table for awarded photos (image, garment_category, optional factor, awarded score, awarded_by, note). Deny-all RLS, registered SERVICE_ROLE_ONLY. Held migration.",
-        "Admin can award a photo from a finalized grade with a value, and browse or revoke awards per category and level. Step-up and audit log on award and revoke.",
-        "Server-enforced: only photos from staff-owned submissions or owners who opted into model refinement (users.share_sale_outcomes) can be awarded. Test-guarded.",
-        "Images are read only through signed URLs with TTL of 900 seconds or less."
-      ],
-      "priority": 39
-    },
-    {
       "id": "US-3335",
       "passes": false,
       "title": "Show the grader awarded reference photos as visual anchors (flagged, eval-gated)",
