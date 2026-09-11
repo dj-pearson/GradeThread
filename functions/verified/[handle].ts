@@ -94,18 +94,30 @@ interface SellerResponse {
   listings?: StorefrontListing[];
 }
 
-// Marketplace display names. Inlined — Pages Functions can't import from src/.
-// Keep in sync with MARKETPLACE_LABELS in src/lib/constants.ts.
+// Marketplace display names. Inlined because a Pages Function can't import
+// from src/, so this is a hand-kept copy of MARKETPLACE_LABELS in
+// src/lib/constants.ts.
+//
+// US-3388: the line above used to say "Keep in sync with MARKETPLACE_LABELS"
+// and nothing else, and the map under it was out of sync anyway. It had no
+// `etsy`, no `vinted`, and `facebook` still on the short name US-3380 retired.
+// The fallback on a missing key is the raw lowercase key, so a public storefront
+// was printing "View on etsy" to anyone with the link. A comment asking people
+// to remember is not a mechanism; the mechanism is
+// src/lib/__tests__/platform-label-copies.test.ts, which parses this literal
+// out of this file and fails on a missing key as well as a wrong value.
 const PLATFORM_LABELS: Record<string, string> = {
   ebay: "eBay",
   poshmark: "Poshmark",
   mercari: "Mercari",
   depop: "Depop",
   grailed: "Grailed",
-  facebook: "Facebook",
+  facebook: "Facebook Marketplace",
   offerup: "OfferUp",
   shopify: "Shopify",
+  etsy: "Etsy",
   whatnot: "Whatnot",
+  vinted: "Vinted",
   other: "Other",
 };
 

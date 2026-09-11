@@ -329,21 +329,39 @@ export interface SyncSaleEvent {
   manualOn: readonly string[];
 }
 
+// MARKETPLACE_LABELS, copied. The edge cannot import from src/, so this is a
+// hand-kept duplicate of src/lib/constants.ts's map and every key below has to
+// read exactly the way that one does.
+//
+// US-3388: this map had no `offerup` key, so the capitalize fallback under it
+// wrote "Offerup" into the sentence a seller reads about a listing that is
+// still live, and `facebook` said "Facebook" against the "Facebook Marketplace"
+// that US-3380 settled on. Both are fixed here. The guard that keeps them
+// fixed is src/lib/__tests__/platform-label-copies.test.ts, which parses this
+// literal out of this file and fails on a missing key, not only a wrong one.
+//
+// Do NOT trim the map back to the channels the notifier "usually" sees. A key
+// that is absent does not fall back to nothing, it falls back to the
+// capitalizer, which is how "Offerup" reached a seller in the first place.
+const PLATFORM_LABELS: Record<string, string> = {
+  ebay: "eBay",
+  poshmark: "Poshmark",
+  mercari: "Mercari",
+  depop: "Depop",
+  grailed: "Grailed",
+  facebook: "Facebook Marketplace",
+  offerup: "OfferUp",
+  shopify: "Shopify",
+  etsy: "Etsy",
+  whatnot: "Whatnot",
+  vinted: "Vinted",
+  other: "Other",
+};
+
 function labelPlatform(p: string): string {
   const key = String(p || "").toLowerCase();
-  const LABELS: Record<string, string> = {
-    ebay: "eBay",
-    poshmark: "Poshmark",
-    mercari: "Mercari",
-    grailed: "Grailed",
-    vinted: "Vinted",
-    facebook: "Facebook",
-    depop: "Depop",
-    etsy: "Etsy",
-    shopify: "Shopify",
-    whatnot: "Whatnot",
-  };
-  return LABELS[key] || (key ? key.charAt(0).toUpperCase() + key.slice(1) : "another channel");
+  if (PLATFORM_LABELS[key]) return PLATFORM_LABELS[key];
+  return key ? key.charAt(0).toUpperCase() + key.slice(1) : "another channel";
 }
 
 /** Join a list the way a person writes one: "eBay and Mercari", "a, b and c". */

@@ -54,19 +54,40 @@ adminMarketplaceConnectionsRoutes.use("*", requireScope("marketplace:write"));
 const CONNECTION_SELECT =
   "id, user_id, marketplace, account_handle, token_expires_at, last_synced_at, last_refresh_attempt_at, refresh_error, is_active, created_at, updated_at";
 
-// Human label per marketplace enum value (the edge has no frontend constants).
+// MARKETPLACE_LABELS, copied, because the edge cannot import from src/.
+//
+// US-3388: this copy was missing `etsy` and `vinted` entirely, and said
+// "Facebook" against the "Facebook Marketplace" US-3380 settled on. It also
+// said `other: "marketplace"`, which fitted the two sentences below and
+// disagreed with every other copy in the repo. The map is canonical now and
+// the sentence fit moved into sentenceLabel() underneath it, because a guard
+// that lets one copy disagree for a good reason lets all of them disagree.
+//
+// Guarded by src/lib/__tests__/platform-label-copies.test.ts, which parses
+// this literal out of this file and fails on a missing key as well as a wrong
+// value.
 const MARKETPLACE_LABELS: Record<string, string> = {
   ebay: "eBay",
   poshmark: "Poshmark",
   mercari: "Mercari",
   depop: "Depop",
   grailed: "Grailed",
-  facebook: "Facebook",
+  facebook: "Facebook Marketplace",
   offerup: "OfferUp",
   shopify: "Shopify",
+  etsy: "Etsy",
   whatnot: "Whatnot",
-  other: "marketplace",
+  vinted: "Vinted",
+  other: "Other",
 };
+
+// The label as it reads INSIDE a sentence. "Other" is a real display name in a
+// table cell and nonsense in "Reconnect your ... account", so that one key
+// becomes "marketplace" here and nowhere else.
+function sentenceLabel(marketplace: string): string {
+  if (marketplace === "other") return "marketplace";
+  return MARKETPLACE_LABELS[marketplace] ?? marketplace;
+}
 
 const RECONNECT_REQUESTED_MESSAGE =
   "Reconnection requested by support — please re-authorize this connection.";
@@ -207,7 +228,7 @@ adminMarketplaceConnectionsRoutes.post("/:id/refresh", async (c) => {
       return jsonError(
         c,
         400,
-        `Token refresh isn't supported for ${MARKETPLACE_LABELS[conn.marketplace] ?? conn.marketplace}. Use flag-for-reconnect to ask the seller to re-authorize.`,
+        `Token refresh isn't supported for ${sentenceLabel(conn.marketplace)}. Use flag-for-reconnect to ask the seller to re-authorize.`,
       );
     }
   } catch (err) {
@@ -246,7 +267,7 @@ adminMarketplaceConnectionsRoutes.post("/:id/flag-reconnect", async (c) => {
   const conn = await loadConnection(id);
   if (!conn) return jsonError(c, 404, "Connection not found");
 
-  const label = MARKETPLACE_LABELS[conn.marketplace] ?? conn.marketplace;
+  const label = sentenceLabel(conn.marketplace);
 
   // Soft-flag: surface a reconnect prompt (so the connection reads as "error"
   // in this console) WITHOUT revoking the token — listings keep syncing until it

@@ -8,6 +8,7 @@ import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { edgeFetch } from "@/lib/edge-fetch";
+import { MARKETPLACE_LABELS } from "@/lib/constants";
 import { useAuth } from "@/hooks/use-auth";
 import { MfaStepUpDialog } from "@/components/admin/admin-mfa-gate";
 import {
@@ -102,18 +103,18 @@ const HEALTH_META: Record<
   },
 };
 
-const MARKETPLACE_LABELS: Record<string, string> = {
-  ebay: "eBay",
-  poshmark: "Poshmark",
-  mercari: "Mercari",
-  depop: "Depop",
-  grailed: "Grailed",
-  facebook: "Facebook",
-  offerup: "OfferUp",
-  shopify: "Shopify",
-  whatnot: "Whatnot",
-  other: "Other",
-};
+// US-3388: this page used to carry its own copy of MARKETPLACE_LABELS, which
+// had drifted: no `etsy`, no `vinted`, and `facebook` on the short name
+// US-3380 retired. It is a page under src/, so it can just import the real map,
+// and the copy is gone rather than guarded. The three copies that remain
+// (the edge x2, functions/) exist because those roots cannot reach src/.
+//
+// The cast is the only thing the import costs: MARKETPLACE_LABELS is keyed by
+// the LISTING_PLATFORMS union, and ConnectionRow.marketplace is a raw string
+// off the API, so a value the enum gains before this build does falls through
+// to the key itself rather than failing to compile.
+const marketplaceLabel = (marketplace: string): string =>
+  (MARKETPLACE_LABELS as Record<string, string>)[marketplace] ?? marketplace;
 
 const REFRESHABLE = new Set(["ebay", "depop"]);
 
@@ -213,7 +214,7 @@ export function AdminMarketplaceConnectionsPage() {
     );
 
   const flagReconnect = async (conn: ConnectionRow) => {
-    const label = MARKETPLACE_LABELS[conn.marketplace] ?? conn.marketplace;
+    const label = marketplaceLabel(conn.marketplace);
     const ok = await confirm({
       title: `Flag this ${label} connection?`,
       description:
@@ -338,7 +339,7 @@ export function AdminMarketplaceConnectionsPage() {
                   return (
                     <TableRow key={conn.id}>
                       <TableCell className="font-medium">
-                        {MARKETPLACE_LABELS[conn.marketplace] ?? conn.marketplace}
+                        {marketplaceLabel(conn.marketplace)}
                       </TableCell>
                       <TableCell>
                         <div>{conn.account_handle ?? "—"}</div>
