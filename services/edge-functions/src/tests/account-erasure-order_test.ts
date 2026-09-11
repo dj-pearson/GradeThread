@@ -57,7 +57,9 @@ Deno.test("retention runs BEFORE any destructive step, not just before the delet
   // stale" if it could not find its anchor, and that is exactly what it did
   // when the refactor landed — the right behaviour, and the reason the anchor
   // moved rather than the assertion being dropped.
-  const storagePurge = src.indexOf("await removeAll(bucket, objectPaths)");
+  // US-3398: the call gained the purge recorder, so all three anchors in this
+  // file moved with it instead of being loosened to `removeAll(`.
+  const storagePurge = src.indexOf("await removeAll(bucket, objectPaths, purge)");
   const stripeDelete = src.indexOf("stripe.customers.del(");
 
   assert(storagePurge !== -1, "storage purge call not found — this guard is stale");
@@ -171,7 +173,7 @@ Deno.test("US-2651: the admin branch redacts financial PII before anything destr
     "the admin erasure branch does not call retainFinancialRecords, so the " +
       "Stripe payload it retains still carries customer email and billing address",
   );
-  const storagePurge = src.indexOf("await removeAll(bucket, objectPaths)");
+  const storagePurge = src.indexOf("await removeAll(bucket, objectPaths, purge)");
   const anonymize = src.indexOf("anonEmail");
   assert(storagePurge > -1 && anonymize > -1, "this guard is stale — anchors moved");
   assert(
@@ -192,7 +194,7 @@ Deno.test("US-2651: a refusal aborts the admin erasure rather than continuing", 
     "the admin branch ignores a retention refusal",
   );
   const refuse = src.indexOf("if (!retention.ok)");
-  const storagePurge = src.indexOf("await removeAll(bucket, objectPaths)");
+  const storagePurge = src.indexOf("await removeAll(bucket, objectPaths, purge)");
   assert(
     refuse < storagePurge,
     "the refusal must be handled before anything is destroyed",

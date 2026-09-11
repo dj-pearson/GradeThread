@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-3404",
+  "nextId": "US-3405",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -4953,34 +4953,6 @@
       "priority": 9
     },
     {
-      "id": "US-3396",
-      "passes": false,
-      "title": "Nine operator scripts print a real-looking answer built from a failed read, and nine exit 0 after failing",
-      "description": "Found 2026-09-11 by an audit of the operator scripts. **Census: 338 files, 260 non-test scripts scanned mechanically, 67 touch a database or a production host, 34 of those write. 50 were read closely and 25 carry at least one confirmed defect.**\n\nBy shape: 8 drop an `error` or an unchecked non-2xx, **9 render a failed read as a real answer**, 5 have a dry path that diverges from the write path and 1 has no dry path at all, **9 exit 0 after a failure**, and 0 have a WHERE-less mutation.\n\nThe ones where a wrong number gets acted on:\n\n- **`services/edge-functions/scripts/measurement-coverage-report.ts:60-75`** prints **\"DO NOT BUILD THE PUBLIC PAGES. Only 0 cohorts could EVER clear the floors\"** when a read failed on page 0. A dropped read and a real no-go are byte-identical, and it exits 0. A mid-page failure is worse: a plausible number with nothing to notice.\n- **`scripts/backfill-stripe-state.ts:229-241`** counts `scanned++` before the Stripe call and continues on throw, so a revoked key prints `Scanned 1200 customers, 0 need reconciliation` and exits 0. The operator concludes the database already matches Stripe.\n- `services/edge-functions/scripts/size-chart-coverage.ts` prints `0 charts in the DB` and every brand as NONE. **Its own header says a zeroed report \"is a wrong answer that looks like a real one\"** and then leaves the read ungated.\n- `services/edge-functions/scripts/email-residue-census.ts:86, :92` — `:92` feeds the single most actionable line in the output, \"the html bodies are not expiring at all\", and `:86` prints \"account_deletion_log holds 0 deletion(s)\" **on a GDPR ticket**. The `users` read in the same file is correctly fatal, so the pattern was known and applied once.\n- `services/edge-functions/scripts/unit-economics.ts:198` — every account defaults to `free` and lands in `underwater`. The file header describes that exact wrong headline as the lesson of its first version.\n- `services/edge-functions/scripts/backfill-tag-reads.ts:283` — the one read in the file that drops `error`; lines 158, 169, 251 and 265 all check it. A failed photo read counts as `skipped`. `main()` also ends without an exit, so a run with 1001 failures exits 0, while both PII backfills in the same directory end `Deno.exit(failed === 0 ? 0 : 1)`.\n- `scripts/seed-official-style-names.mjs:257` — a failed read becomes \"no prior row\", every row takes the write branch, and the run ends `wrote N, unchanged 0`, **which is the script's own idempotence evidence, now fabricated**.\n- `scripts/backfill-attributes-from-title.mjs:169` — the scoping user id is guessed from CSV row 1, so a mixed-user file silently updates one user and drops the rest. Zero parsed attributes emits syntactically broken SQL alongside a success line.\n- **`scripts/brand-style-coverage.mjs:193` is dead on Windows** and was proved so by running it: no output, exit 0. `import.meta.url` is forward-slashed and `process.argv[1]` is backslashed. Both sibling scripts fixed this and left a comment saying why.\n\nTwo more: `scripts/oneoff/reset-superadmin-comp-business.sql:35` says `-- Verify one row changed before committing.` and line 36 is an unconditional `COMMIT`. And four brand scripts page with LIMIT/OFFSET and **no `order=`**, so pages can duplicate or skip rows with no error; `brand_colorways` is ~17,800 rows.\n\nThe model to copy is in the tree: `services/edge-functions/scripts/ai-token-profile.ts` shape-checks the key, pages with an explicit order, exits 1 on a read failure, and prints \"check before reading this as $0 spend\" instead of a bare zero.",
-      "acceptanceCriteria": [
-        "Every script that renders a failed read as a real answer either fails or labels the number as unknown; a zero and an unknown are different answers and this is the whole story",
-        "A script that failed exits non-zero, because an operator script exiting 0 will be believed",
-        "The four unordered pagers get an explicit order, since a duplicated or skipped page produces no error at all",
-        "brand-style-coverage.mjs runs on Windows, and how it was proved is by executing it rather than by reading the comparison",
-        "A guard derives its subject set from the two script directories and asserts both mechanical rules: a supabase destructure carrying data or count must carry error, and an awaited fetch bound to a name must have that name tested for ok or status in scope",
-        "That guard carries a named allowlist with a reason per entry that fails when an entry stops matching, and a self-check fixture that trips every rule, because a rule that cannot fire reads exactly like a clean codebase"
-      ],
-      "priority": 4
-    },
-    {
-      "id": "US-3398",
-      "passes": false,
-      "title": "account_deletion_log records storage_purged true even when the purge failed",
-      "description": "Found 2026-09-11 by US-3391, which added a failure sink to the storage purge and then found that nothing reads it.\n\n`services/edge-functions/src/routes/account.ts:709` and `admin-compliance.ts:704` both hardcode `storage_purged: true` into `account_deletion_log`, **regardless of whether any list or remove failed**.\n\nUS-3391 made every error, refusal, truncation and depth-skip in the purge report to a sink whose default writes the words `INCOMPLETE ERASURE`. That is visible in the container log and invisible in the record.\n\n**The record is the thing a regulator or a customer asks for.** A deletion log that always says the storage was purged carries no information at all, and it is worse than no column: someone will read it as evidence.",
-      "acceptanceCriteria": [
-        "storage_purged reflects what actually happened, and a partial purge is representable as something other than true or false if that is what the data needs",
-        "A test drives a failing purge and asserts the log row does NOT claim success, rather than asserting the flag is written",
-        "Existing rows are considered: every row to date says true and none of them was checked, so the column cannot be read historically and the story says so somewhere a reader will find it",
-        "Whoever reads that log is named, because a column nobody reads and a column that is always true fail the same way"
-      ],
-      "priority": 3
-    },
-    {
       "id": "US-3399",
       "passes": false,
       "title": "Which size chart reaches the model is decided by Postgres heap order",
@@ -5042,6 +5014,20 @@
         "US-3397's ratchet is extended to whatever rule comes out of this, so a new bucket cannot arrive with the old shape"
       ],
       "priority": 6
+    },
+    {
+      "id": "US-3404",
+      "passes": false,
+      "title": "The admin deletion record says the Stripe customer was not deleted even when it was",
+      "description": "Found 2026-09-11 by US-3398, which fixed the same defect shape one column over.\n\n`services/edge-functions/src/routes/admin-compliance.ts` writes `stripe_deleted: false` into `account_deletion_log` around line 711, while the handler above it **computes `stripeDeleted` and then discards it** with `void stripeDeleted;` at `:652`.\n\nSo the admin erasure record reports that the Stripe customer survived, whether it survived or not. Verified by the head: the `void` is at `admin-compliance.ts:652`.\n\nThis is exactly what US-3398 just fixed for `storage_purged`, and it has the same consequence: the column cannot be read historically, because it has always said the same thing. **The difference is the direction.** `storage_purged` lied optimistically, which is the dangerous way. This one lies pessimistically, so nobody is falsely reassured, but a customer or a regulator asking \"was my payment record removed\" gets a no that means nothing.\n\nA second, smaller one in the same file: the audit-log detail key `storage_objects_purged` is the count of objects **found**, not removed. It is a count of intentions.\n\nUS-3398's shape is the one to copy: a ratchet asserting no route file writes that column as a literal at all, so the value can only come from what the code did.",
+      "acceptanceCriteria": [
+        "stripe_deleted records what the Stripe call actually did, and the void that discards the result goes with it",
+        "storage_objects_purged counts what was removed, or is renamed to say it counts what was found",
+        "A test drives a Stripe deletion that fails and one that succeeds and asserts the row differs, rather than asserting the field is written",
+        "The historical rows are addressed the way US-3398 addressed them, in a column comment where a reader of the table lands, since they have always said false",
+        "Every other hardcoded boolean written into an audit or compliance row is enumerated, because two were found in one file by accident"
+      ],
+      "priority": 4
     }
   ]
 }

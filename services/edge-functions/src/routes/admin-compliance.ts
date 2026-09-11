@@ -3,7 +3,10 @@ import type { Context } from "hono";
 import { supabaseAdmin } from "../lib/supabase.ts";
 import {
   collectOwnedStorageObjects,
+  createPurgeRecorder,
   type PurgeDb,
+  type PurgeRecorder,
+  removeInChunks,
 } from "../lib/account-storage-purge.ts";
 import { retainFinancialRecords } from "../lib/financial-retention.ts";
 import { purgeEmailKeyedPii } from "../lib/account-email-purge.ts";
@@ -107,18 +110,18 @@ async function loadUserDirectory(
 }
 
 // Supabase storage .remove() takes an array; chunk to stay under request limits.
-async function removeAll(bucket: string, objectPaths: string[]) {
-  const CHUNK = 100;
-  for (let i = 0; i < objectPaths.length; i += CHUNK) {
-    const slice = objectPaths.slice(i, i + CHUNK);
-    const { error } = await supabaseAdmin.storage.from(bucket).remove(slice);
-    if (error) {
-      console.error(
-        `[admin-compliance] storage remove failed (${bucket}):`,
-        error.message,
-      );
-    }
-  }
+//
+// US-3398: the chunking moved to lib/account-storage-purge.ts, which is where
+// the self-serve path's byte-identical copy went too. Behaviour is unchanged --
+// same chunk size, a failed chunk still does not stop the sweep -- except that
+// the failure is now recorded on the deletion row instead of only logged.
+async function removeAll(bucket: string, objectPaths: string[], recorder: PurgeRecorder) {
+  await removeInChunks(
+    bucket,
+    objectPaths,
+    (slice) => supabaseAdmin.storage.from(bucket).remove(slice),
+    recorder,
+  );
 }
 
 // ── GET / and /data-requests — the queue (paginated, ?status= ?type=) ─────────
@@ -570,12 +573,18 @@ async function processDelete(
   // Ordering matters here more than in the self-serve path: step 3 below nulls
   // users.avatar_url, which is the only pointer to the avatar object, so a
   // sweep placed after it could never find one.
+  //
+  // US-3398: this is THE FORMAL PATH -- the one a written erasure request goes
+  // through, and the one whose record gets shown to whoever asked. It recorded
+  // `storage_purged: true` as a literal. It now records what the sweep did.
+  const purge = createPurgeRecorder(userId);
   const owned = await collectOwnedStorageObjects(
     supabaseAdmin as unknown as PurgeDb,
     userId,
+    { onListFailure: purge.onListFailure },
   );
   for (const [bucket, objectPaths] of Object.entries(owned)) {
-    await removeAll(bucket, objectPaths);
+    await removeAll(bucket, objectPaths, purge);
   }
 
   // 2. Destroy stored credentials: marketplace OAuth tokens + API keys.
@@ -701,7 +710,10 @@ async function processDelete(
     source: "admin",
     had_stripe_customer: !!u.stripe_customer_id,
     stripe_deleted: false,
-    storage_purged: true,
+    // US-3398: what the purge actually did, not a literal true. The status
+    // column carries "incomplete", which is the answer this row could not give
+    // before and the one a partly-swept erasure needs.
+    ...purge.logFields(),
   });
 
   try {

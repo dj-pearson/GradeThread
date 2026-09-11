@@ -3,7 +3,10 @@ import Stripe from "stripe";
 import { supabaseAdmin } from "../lib/supabase.ts";
 import {
   collectOwnedStorageObjects,
+  createPurgeRecorder,
   type PurgeDb,
+  type PurgeRecorder,
+  removeInChunks,
 } from "../lib/account-storage-purge.ts";
 import { purgeEmailKeyedPii } from "../lib/account-email-purge.ts";
 import { retainFinancialRecords } from "../lib/financial-retention.ts";
@@ -185,15 +188,18 @@ function getStripe(): Stripe | null {
 
 // Supabase storage .remove() takes an array; chunk to stay well under any
 // request-size limits when a user has many photos.
-async function removeAll(bucket: string, paths: string[]) {
-  const CHUNK = 100;
-  for (let i = 0; i < paths.length; i += CHUNK) {
-    const slice = paths.slice(i, i + CHUNK);
-    const { error } = await supabaseAdmin.storage.from(bucket).remove(slice);
-    if (error) {
-      console.error(`[account/delete] storage remove failed (${bucket}):`, error.message);
-    }
-  }
+//
+// US-3398: the chunking moved to lib/account-storage-purge.ts, which had the
+// identical copy the admin path used. A failed chunk still does not stop the
+// sweep -- it is now recorded instead of only logged, so the deletion row can
+// stop claiming a purge that did not finish.
+async function removeAll(bucket: string, paths: string[], recorder: PurgeRecorder) {
+  await removeInChunks(
+    bucket,
+    paths,
+    (slice) => supabaseAdmin.storage.from(bucket).remove(slice),
+    recorder,
+  );
 }
 
 // Minimal structural shape of the query builder we chain onto. Avoids importing
@@ -699,14 +705,19 @@ accountRoutes.post("/delete", async (c) => {
   //    duplication was the defect, so the list moved rather than being copied
   //    a third time. lib/account-storage-purge.ts carries the reasoning for
   //    each source.
+  //
+  //    US-3398: the sweep reports to a recorder, and the recorder is what step
+  //    3 writes. This used to be `const storagePurged = true`, three lines
+  //    below a loop that ignored every list refusal and every failed remove.
+  const purge = createPurgeRecorder(userId);
   const owned = await collectOwnedStorageObjects(
     supabaseAdmin as unknown as PurgeDb,
     userId,
+    { onListFailure: purge.onListFailure },
   );
   for (const [bucket, objectPaths] of Object.entries(owned)) {
-    await removeAll(bucket, objectPaths);
+    await removeAll(bucket, objectPaths, purge);
   }
-  const storagePurged = true;
 
   // 2. Delete the Stripe customer (this also cancels any active subscriptions).
   let stripeDeleted = false;
@@ -738,7 +749,11 @@ accountRoutes.post("/delete", async (c) => {
         source: "self_serve",
         had_stripe_customer: !!user?.stripe_customer_id,
         stripe_deleted: stripeDeleted,
-        storage_purged: storagePurged,
+        // US-3398: what the purge actually did. `storage_purged` is true only
+        // when every list and every remove succeeded; `storage_purge_status`
+        // carries the third answer a boolean cannot ("incomplete"), and the
+        // notes say which bucket and why. See lib/account-storage-purge.ts.
+        ...purge.logFields(),
         // US-2562: the retention, recorded as numbers rather than asserted in a
         // comment. `stripe_customer_id` is the join key a representment starts
         // from — an opaque Stripe handle, not PII, and the reason

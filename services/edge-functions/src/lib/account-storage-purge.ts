@@ -90,11 +90,20 @@ export interface PurgeDb {
 /** Objects to remove, grouped by the bucket they live in. */
 export type OwnedStorage = Record<string, string[]>;
 
+/** Which half of the purge a failure came from (US-3398). */
+export type PurgePhase = "list" | "remove";
+
 /** Why a listing did not produce a complete answer. */
 export interface PurgeListFailure {
   bucket: string;
   prefix: string;
   reason: string;
+  /**
+   * US-3398: "list" when it defaults, because that is all this sink carried
+   * before removals started reporting through it too. Only the wording of the
+   * console line depends on it.
+   */
+  phase?: PurgePhase;
 }
 export type PurgeFailureSink = (failure: PurgeListFailure) => void;
 
@@ -104,14 +113,20 @@ export interface CollectOptions {
 }
 
 /**
- * The default sink. Loud and greppable on purpose: the caller currently records
- * `storage_purged: true` unconditionally, so this line is the only place a
- * partially-completed erasure is visible at all.
+ * The default sink. Loud and greppable on purpose.
+ *
+ * US-3398 CORRECTION: this docblock used to say the line was "the only place a
+ * partially-completed erasure is visible at all", because the callers recorded
+ * `storage_purged: true` unconditionally. They no longer do -- every failure
+ * that reaches a sink also reaches `account_deletion_log` through
+ * `createPurgeRecorder` below. The console line is still the fuller account
+ * (it carries the full prefix; the record carries a user-relative one).
  */
 export const reportToConsole: PurgeFailureSink = (f) => {
+  const where = f.prefix ? `${f.bucket}/${f.prefix}` : f.bucket;
+  const verb = f.phase === "remove" ? "could not remove from" : "could not enumerate";
   console.error(
-    `[account-storage-purge] INCOMPLETE ERASURE: could not enumerate ` +
-      `${f.bucket}/${f.prefix}: ${f.reason}`,
+    `[account-storage-purge] INCOMPLETE ERASURE: ${verb} ${where}: ${f.reason}`,
   );
 };
 
@@ -391,4 +406,162 @@ export async function collectOwnedStorageObjects(
     // erase the latest while leaving every superseded one behind.
     avatars: await listUserFolder(db, "avatars", userId),
   };
+}
+
+// ── US-3398: the RECORD, not just the log line ───────────────────────────────
+//
+// Both erasure routes wrote `storage_purged: true` into account_deletion_log as
+// a literal, whatever happened above it. So the column carried no information:
+// a row that says true is consistent with a purge that enumerated nothing and
+// removed nothing. That is worse than having no column, because the one person
+// who ever reads this table reads it as evidence.
+//
+// WHO READS IT. Nothing in the product does. There is no admin screen over
+// account_deletion_log -- grep the web app and you get no hits. Two operator
+// tools read it and BOTH only count rows: scripts/prod-diagnostics.sql, and
+// lib/email-residue-census.ts, which reports "N deletion(s) logged" while saying
+// in the same breath that the table holds no address. So the only reader of
+// storage_purged is a human at a psql prompt, answering a customer or a
+// regulator who asked whether an account was really erased. One person,
+// occasionally, under pressure, with nothing to cross-check against. That is
+// exactly the reader for whom a column that is always true is a trap.
+//
+// THREE ANSWERS, NOT TWO. A purge can partly succeed: four buckets swept, one
+// listing refused. So the record carries a status -- complete / incomplete /
+// unverified -- and keeps the boolean as the narrow question "did everything
+// succeed", which is now only true when it is true. `unverified` is not
+// reachable from this module: it is the column default, and it means either a
+// row written before migration 00795 (all of which say purged=true and none of
+// which was checked) or a writer that did not set the column.
+//
+// NO PII IN THE RECORD. 00064 is explicit that this table holds no email, name
+// or address, and the failure notes keep that: the path is stored RELATIVE to
+// the user folder, so `{uid}/_staging/gphotos` is recorded as
+// `_staging/gphotos`. The uid is already in deleted_user_id on the same row.
+
+/** One failure, in the shape the compliance record stores. */
+export interface PurgeFailureNote {
+  bucket: string;
+  phase: PurgePhase;
+  /** Path relative to `{userId}/`. Empty when the failure is not path-specific. */
+  path: string;
+  reason: string;
+}
+
+/** What `account_deletion_log.storage_purge_status` may hold. */
+export type StoragePurgeStatus = "complete" | "incomplete" | "unverified";
+
+/** The account_deletion_log columns this module owns. Spread into the insert. */
+export interface StoragePurgeLogFields {
+  storage_purged: boolean;
+  storage_purge_status: StoragePurgeStatus;
+  storage_objects_removed: number;
+  storage_purge_failures: { count: number; notes: PurgeFailureNote[] } | null;
+}
+
+/**
+ * Failure notes kept in the row. The COUNT is always exact; the notes are
+ * capped so one broken bucket cannot write a megabyte into a compliance table.
+ */
+export const MAX_RECORDED_FAILURES = 25;
+
+/** Objects handed to one `remove()` call. */
+export const REMOVE_CHUNK_SIZE = 100;
+
+export interface PurgeRecorder {
+  /** Pass as `CollectOptions.onListFailure`. */
+  readonly onListFailure: PurgeFailureSink;
+  /** A `remove()` call that resolved with an error. */
+  noteRemoveFailure(bucket: string, objectCount: number, reason: string): void;
+  /** A `remove()` call that resolved cleanly, with how many paths it took. */
+  noteRemoved(objectCount: number): void;
+  /** The columns to write. Safe to call more than once. */
+  logFields(): StoragePurgeLogFields;
+}
+
+/**
+ * Collects every purge failure for one user, and answers what the log row
+ * should say.
+ *
+ * It records; it never decides whether to keep going. Every caller stays
+ * best-effort exactly as before, because refusing halfway through an erasure
+ * leaves a person half-erased. The change is what we then CLAIM about it.
+ */
+export function createPurgeRecorder(
+  userId: string,
+  sink: PurgeFailureSink = reportToConsole,
+): PurgeRecorder {
+  const notes: PurgeFailureNote[] = [];
+  let failures = 0;
+  let removed = 0;
+
+  // `{uid}/_staging/gphotos` -> `_staging/gphotos`. Every prefix this module
+  // builds starts with `${userId}/`; the two SAFE_PATH_SEGMENT refusals report
+  // the bare userId, which relativizes to "". The third branch is unreachable
+  // today and is kept so a future caller cannot lose the evidence silently.
+  const relative = (prefix: string): string => {
+    if (prefix === userId) return "";
+    return prefix.startsWith(`${userId}/`) ? prefix.slice(userId.length + 1) : prefix;
+  };
+
+  const add = (note: PurgeFailureNote) => {
+    failures++;
+    if (notes.length < MAX_RECORDED_FAILURES) notes.push(note);
+  };
+
+  return {
+    onListFailure: (f) => {
+      sink(f);
+      add({ bucket: f.bucket, phase: "list", path: relative(f.prefix), reason: f.reason });
+    },
+    noteRemoveFailure: (bucket, objectCount, reason) => {
+      const full = `remove failed for ${objectCount} object(s): ${reason}`;
+      sink({ bucket, prefix: "", reason: full, phase: "remove" });
+      add({ bucket, phase: "remove", path: "", reason: full });
+    },
+    noteRemoved: (objectCount) => {
+      removed += objectCount;
+    },
+    logFields: () => ({
+      storage_purged: failures === 0,
+      storage_purge_status: failures === 0 ? "complete" : "incomplete",
+      storage_objects_removed: removed,
+      storage_purge_failures: failures === 0
+        ? null
+        : { count: failures, notes: [...notes] },
+    }),
+  };
+}
+
+/** One `storage.remove()` call, narrow enough for a test to fake. */
+export type PurgeRemover = (
+  paths: string[],
+) => PromiseLike<{ error: { message: string } | null }>;
+
+/**
+ * Remove `paths` from `bucket` in chunks, recording what happened.
+ *
+ * US-3398: this was two identical private copies, one per route, and both
+ * swallowed the error into a console line. Same chunk size, same
+ * continue-past-a-failed-chunk policy -- the only change is that the failure
+ * now reaches the recorder, so it can reach the deletion record.
+ *
+ * `remove()` RESOLVES with `{ error }`. A path that does not exist is not an
+ * error and is not a failure: an object that is already gone is erased.
+ */
+export async function removeInChunks(
+  bucket: string,
+  paths: string[],
+  remove: PurgeRemover,
+  recorder: PurgeRecorder,
+): Promise<void> {
+  for (let i = 0; i < paths.length; i += REMOVE_CHUNK_SIZE) {
+    const slice = paths.slice(i, i + REMOVE_CHUNK_SIZE);
+    const { error } = await remove(slice);
+    if (error) {
+      recorder.noteRemoveFailure(bucket, slice.length, error.message);
+      continue;
+    }
+    recorder.noteRemoved(slice.length);
+  }
 }
