@@ -23,7 +23,9 @@ code_refs:
   - supabase/migrations/00757_registered_numbers_for_held_brands.sql
   - supabase/migrations/00761_brands_whose_feeds_refused_us.sql
   - scripts/ops/ftc-rn-lookup.mjs
+  - scripts/ops/ftc-rn-recheck.mjs
   - services/edge-functions/src/lib/registered-numbers.ts
+  - src/test/ftc-register-not-auth-gated.test.ts
 reviewed: 2026-09-10
 tags: [brands, provenance, authentication, rn, contract]
 summary: The FTC register matches on substring, so a hit that looks perfect is not evidence — eight accept/refuse tests were built across fifteen brand packs, and the newest one (an RN cannot predate its holder) is the only one that can choose between two equally good names.
@@ -222,6 +224,78 @@ counterfeit prints it too.** `registered-numbers.ts` encodes that by having no
 Searching by number also works where searching by name does not: `search=Peter
 Millar` returns nothing while `search=100308` answers.
 
+## The column reconciles: 121 numbers re-checked, 2026-09-10
+
+The eight tests above are about writing a number. This is about the numbers
+already written, which nobody had ever re-read. `00467` seeded Peter Millar's
+RN 100308 from the brand's own FAQ and said the FTC registrant could not be
+confirmed; `00466` seeded Zara's RN 77302 and said the same. Both sentences sat
+in the KB as permanent caveats because the register was believed to be shut.
+
+`scripts/ops/ftc-rn-recheck.mjs` re-asks the question for every number at once.
+It parses `registered_numbers` out of `supabase/migrations` (so it runs with no
+production key) and searches the register **by number**, never by name — a name
+search cannot confirm anything in a substring register, which is the whole reason
+this note exists. The measured result:
+
+| | |
+|---|---:|
+| numbers seeded across the corpus | **121** |
+| brands carrying at least one | **115** of 549 brand rows |
+| CONFIRMED against the live register | **120** |
+| CROSS-KIND (`CA 32054`, expected) | **1** |
+| ABSENT, unparseable, or failed | **0** |
+
+So every RN in this knowledge base is a registration the FTC currently holds, and
+the two "could not be confirmed" caveats are now resolvable:
+`search=77302` returns **ZARA USA, INC. [APPAREL]** and `search=100308` returns
+**CHESTER GREGG, L.L.C. [KNIT SHIRTS]**. Neither changes an attribution — a
+registrant is still not a brand — but neither is an unchecked claim any more.
+
+`00730` already wrote Peter Millar's registrant into its row. **Zara's has not
+been written yet**, so `brand_knowledge.notes` for `zara` still reads "is NOT
+FTC-confirmed (the FTC RN database is auth-gated)" in production — the false
+premise surviving as data after being corrected everywhere else. It waits behind
+the migration hold; the replacement text is in US-3128's notes.
+
+The one non-CONFIRMED row is a finding rather than a defect, and it is recorded as
+a fourth trap in [[brand-kb-negative-findings]]: `RN 32054` is JOSEPH KRAFT, so
+dropping the `CA` prefix from Urban Outfitters' Canadian number lands on a
+stranger. A CA number cannot be confirmed here at all, because it is issued by the
+Competition Bureau of Canada.
+
+### Three numbers sourced with nowhere to put them
+
+`scripts/brand-kb-gap.mjs` reports three brands sellers hold that the KB does not
+carry at all. Their registers were read in the same session, so the next pack that
+seeds the brand rows does not have to re-derive them:
+
+| brand | items | the register |
+|---|---:|---|
+| Giorgio Armani | 5 | `RN 103723` **GIORGIO ARMANI CORPORATION** [SUITS/TIES] — one hit, tier A |
+| John Varvatos | 3 | `RN 102515` **JOHN VARVATOS ENTERPRISES, INC.** [APPAREL AND ACCESSORIES] — one hit, tier A |
+| Desigual | 4 | **no results**, and correct: a Spanish house with no US registration, the same shape as `00754`'s British and Australian brands |
+
+`registered_numbers` hangs off a `brand_knowledge` row, so none of these can be
+written until the brand itself is seeded. Sourcing ahead of the row is cheap;
+inventing a row to hold a number is not, and a brand pack is a different piece of
+work from a number.
+
+### A perfect name-test pass can still be ambiguous
+
+`RN 66170`'s registrant prints as **URBAN OUTFITTERS, INC.** — an exact match for
+one sibling, with no generic word added, which is as clean as test 1 gets. And
+`search=URBN` returns nothing at all, so the trade name this corpus calls the
+parent is not in the register under that spelling.
+
+Read on the string alone that is a single-brand match. It is not: the same number
+covers Anthropologie and Free People, because *Urban Outfitters, Inc.* is the
+parent's legal name as well as a sibling's brand name. Test 6 says the registrant
+string is the evidence, and that stands — what this adds is that the string can be
+evidence of something wider than it looks. **Where a parent's legal name is also a
+child's brand name, a clean-looking name match does not establish scope.** URBN is
+the case; expect it wherever a group is named after its first store.
+
 ## Record the register's own oddities as seen
 
 Do not tidy them, and do not treat them as a reason to refuse:
@@ -232,6 +306,26 @@ Do not tidy them, and do not treat them as a reason to refuse:
 - `Stateside Merchancts, LLC` — the register's own typo (`00748`).
 - `Towels / Washcloths / Dishcloths` for Picture Organic, a ski and snowboard
   brand whose registrant is plainly the company (`00753`).
+- `KATIN USA, INC. 714-548-8288` — a **phone number inside the legal-name cell**,
+  seen in the 2026-09-10 sweep. The row is right and its name field is not clean
+  text, so anything comparing registrant strings exactly will miss it.
+
+### The search reads fields the results table does not show
+
+Also 2026-09-10, and it changes how a result set should be read. `search=Katin`
+returns four rows and **three of them contain no "katin" anywhere in any printed
+column**: `ATTAIN INC`, `KAREN KIMLOAN NGO`, `JACK ADAMS`. The register is
+matching something it does not display — a trade name or an address field.
+
+Two consequences, and they pull in opposite directions:
+
+- **Noise is worse than the substring rule alone predicts.** A hit that looks
+  unrelated usually *is*, and it cannot be argued away as "the register knows
+  something".
+- **A row whose visible name does not contain the brand is not automatically
+  out.** It might be matching a trade name that is exactly the label. That is a
+  reason to look, never a reason to accept: the eight tests run on evidence you
+  can read, and a field the register will not show you is not evidence.
 
 ## Writing an RN trips a constraint about something else
 

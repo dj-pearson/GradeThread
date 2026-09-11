@@ -23,10 +23,16 @@
 //
 // ── "NO REFERENCE" IS NOT A NEGATIVE SIGNAL, AND USUALLY THAT IS ALL WE GET ──
 //
-// Exactly SIX brands in the entire KB carry a seeded RN (alo yoga, zara, urban
-// outfitters, lucky brand, brooks brothers' pack-mate, and one handbag brand
-// with two). Every other pack omitted them DELIBERATELY as unsourced — 00466
-// records why, and half of its reason turns out to be wrong.
+// This used to read "exactly SIX brands in the entire KB carry a seeded RN", and
+// it was true when written (alo yoga, zara, urban outfitters, lucky brand and one
+// handbag brand with two). 00729 through 00761 sourced the column properly, and
+// the count measured on 2026-09-10 is 121 numbers across 115 brands. Do not
+// inherit a figure from this comment; scripts/ops/ftc-rn-recheck.mjs prints the
+// current one, and vault/20-domain/brands/brand-rn-attribution.md owns it.
+//
+// `no_reference` is STILL the overwhelmingly normal outcome and always will be:
+// the register holds hundreds of thousands of registrants and this KB holds a
+// hundred-odd numbers, so a transcribed RN off a random tag almost never lands.
 //
 // ⚠ CORRECTED 2026-09-06 (US-3128): "THE FTC RN DATABASE IS AUTH-GATED" IS
 // FALSE, and it has suppressed this column for months. https://www.ftc.gov/

@@ -200,7 +200,7 @@ export function splitTuples(body) {
 }
 
 /** Unquote a SQL literal field; returns null for NULL / a non-literal. */
-function literal(raw) {
+export function literal(raw) {
   const s = String(raw ?? "").trim();
   const m = /^'((?:[^']|'')*)'/.exec(s);
   if (!m) return null;
@@ -208,7 +208,7 @@ function literal(raw) {
 }
 
 /** Parse `ARRAY['a','b']::text[]` (or `'{}'`) into a list of strings. */
-function arrayLiteral(raw) {
+export function arrayLiteral(raw) {
   const s = String(raw ?? "").trim();
   if (/^array\s*\[\s*\]/i.test(s)) return [];
   const inner = /^array\s*\[([\s\S]*?)\]/i.exec(s);

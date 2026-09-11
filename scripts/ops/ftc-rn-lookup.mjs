@@ -204,4 +204,7 @@ async function main() {
   return out.some((o) => o.error) ? 1 : 0;
 }
 
-main().then((c) => process.exit(c));
+// Guarded so ftc-rn-recheck.mjs can import parseResults without triggering a run.
+if (process.argv[1]?.endsWith("ftc-rn-lookup.mjs")) {
+  main().then((c) => process.exit(c));
+}

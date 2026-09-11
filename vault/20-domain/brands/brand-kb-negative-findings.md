@@ -9,7 +9,7 @@ code_refs:
   - services/edge-functions/src/lib/tag-era.ts
   - supabase/migrations/00572_tag_eras_provenance.sql
   - supabase/migrations/00579_vintage_tee_blanks_brand_knowledge.sql
-reviewed: 2026-08-09
+reviewed: 2026-09-10
 tags: [brands, sourcing, authentication, contract]
 summary: Facts that look right and are wrong, plus the statutory reason a missing RN on a handbag is correct rather than suspicious.
 ---
@@ -47,18 +47,38 @@ same RN under a completely different tag, which defunkd documents separately. A
 pattern over it would spell "Screen Stars" onto an unbranded Fruit of the Loom
 tee.
 
-Hold this beside the two RN entries around it, because the three fail
-differently:
+Hold this beside the other RN entries, because they fail differently:
 
 | | why it fails |
 |---|---|
 | RN 17257 (Longchamp) | right string, **wrong company** |
 | a missing RN on a handbag | **statutorily correct** absence, not a gap |
 | RN 13765 (Screen Stars) | right company, **wrong granularity** — it names the parent |
+| RN 32054 (Urban Outfitters) | right digits, **wrong registry** — see below |
 
 The third is [[brand-kb-decoder-bar]]'s fourth question in RN form: *which entity
 does the identifier name?* A parent-wide identifier can never attribute a
 sibling, whether it is URBN's `OB######` style number or Fruit of the Loom's RN.
+
+## RN 32054 is not Urban Outfitters. CA 32054 is
+
+Recorded 2026-09-10 (US-3128 AC3), found by re-checking every number the KB
+already claims rather than by seeding a new one.
+
+Urban Outfitters carries two entries, `RN 66170` and `CA 32054`, both from URBN's
+own vendor manual. Searching the FTC register for the bare digits `32054` returns
+one row: **RN 32054 — JOSEPH KRAFT**, an unrelated registrant. So the fourth
+failure mode is the **prefix**, and it is the cheapest one to cause: strip `CA`,
+search, and a stranger's registration reads as corroboration.
+
+`registered-numbers.ts` keys on registry AND digits (`CA:32054` is not
+`RN:32054`), so nothing in the code can make this mistake — a test pins it. A
+human with a search box can. And a CA number will never be confirmed on the FTC
+register at all, because CA identification numbers are issued by the **Competition
+Bureau of Canada**: `search=CANADA` returns 46 rows and every one is type RN.
+Absence there is not doubt about the number.
+
+See [[brand-rn-attribution]] for the sweep this came out of.
 
 > The category's other refusals are absences with reasons, not gaps: **no size
 > chart**, because four decades of washing destroyed the precision an alpha size
@@ -140,17 +160,19 @@ Added 2026-07-28 (US-2211), because the mechanism and the data will be discovere
 at different times and the gap between them reads like a bug.
 
 `registered-numbers.ts` now compares a transcribed RN/CA against
-`brand_knowledge.registered_numbers` and classifies the result. **Exactly six
-brands in the corpus carry a seeded number** — Alo Yoga, Zara, Urban Outfitters
-(shared), Lucky Brand, and the handbag pack's Marc Jacobs pair. Every other pack
-omitted them deliberately as unsourced.
+`brand_knowledge.registered_numbers` and classifies the result. When this was
+written **six** brands carried a seeded number. That figure is out of date and the
+sentence stayed for a year, so read the measured count from
+[[brand-rn-attribution]], which owns it, rather than from here: a minority of
+brands carry one, and the packs from `00729` onwards moved the number a long way.
 
-So the overwhelmingly normal outcome is `no_reference`, and the code models it as
-a **distinct outcome from `contradicts`** for that reason. Collapsing the two —
-treating "we have no reference" as "this RN is wrong" — would turn the emptiest
-column in the KB into a fake fraud signal on almost every graded garment.
+`no_reference` is still the overwhelmingly normal outcome and always will be —
+there are hundreds of thousands of registrants and the KB holds a hundred-odd
+numbers — so the code models it as a **distinct outcome from `contradicts`**.
+Collapsing the two, treating "we have no reference" as "this RN is wrong", would
+turn a thin column into a fake fraud signal on almost every graded garment.
 
-The three sections above are why the column is nearly empty. Seeding more is a
+The sections above are why the column started out nearly empty. Seeding more is a
 sourcing problem, not a scraping one — for handbags there is **statutorily no RN
 to find**, and most circulating RNs trace only to eBay listing text (00467
 refuses Vineyard Vines' and Brooks Brothers' on exactly that ground).

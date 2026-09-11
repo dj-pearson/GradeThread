@@ -197,6 +197,29 @@ Deno.test("brand comparison is alias- and formatting-tolerant", () => {
   }
 });
 
+// US-3128 AC3: the SAME DIGITS under the other registry are a different company.
+//
+// Measured against the live FTC register on 2026-09-10: the KB carries
+// `CA 32054` for Urban Outfitters (sourced from URBN's own vendor manual), and
+// `search=32054` returns RN 32054 — JOSEPH KRAFT, an unrelated registrant. The
+// index keys on kind AND digits, so the two cannot meet; this pins that, because
+// a "helpful" normalization that dropped the prefix would resolve a stranger's
+// registration onto Urban Outfitters and report it as corroboration.
+Deno.test("RN 32054 and CA 32054 are different registrations and never collide", () => {
+  assertEquals(registeredNumberKey(parseRegisteredNumber("CA 32054")!), "CA:32054");
+  assertEquals(registeredNumberKey(parseRegisteredNumber("RN 32054")!), "RN:32054");
+
+  // The seeded CA number resolves; the RN with the same digits does not.
+  assertEquals(assessRegisteredNumber("CA 32054", "Urban Outfitters", INDEX).outcome, "corroborates");
+  const stranger = assessRegisteredNumber("RN 32054", "Urban Outfitters", INDEX);
+  assertEquals(stranger.outcome, "no_reference");
+  assertEquals(stranger.owners, []);
+
+  // And a bare digit run is read as an RN, which is what a tag prints — so the
+  // bare form must not reach the CA row either.
+  assertEquals(assessRegisteredNumber("32054", "Urban Outfitters", INDEX).outcome, "no_reference");
+});
+
 // ── 4. Never rewrites a brand ───────────────────────────────────────────────
 
 Deno.test("the assessment exposes evidence, never a brand to write", () => {
