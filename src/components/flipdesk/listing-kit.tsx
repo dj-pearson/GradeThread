@@ -5,12 +5,15 @@ import { toastError } from "@/lib/toast-error";
 import {
   AlertTriangle,
   Check,
+  Clock,
   Copy,
   Download,
   ExternalLink,
   Loader2,
   Puzzle,
+  Send,
   Wand2,
+  XCircle,
 } from "lucide-react";
 import { Link } from "react-router";
 import {
@@ -24,6 +27,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { supabase } from "@/lib/supabase";
@@ -59,9 +63,24 @@ import {
   listerBlockCause,
   type ListerBlockCause,
   onListerListed,
+  requestDrainNow,
   sendToLister,
 } from "@/lib/lister-extension";
-import { MARKETPLACE_EXTENSION_FLOW } from "@/lib/constants";
+import {
+  type CrossListingPlatform,
+  MARKETPLACE_EXTENSION_FLOW,
+  MARKETPLACE_LABELS,
+} from "@/lib/constants";
+import type { ListingPlatform } from "@/types/database";
+import {
+  type ChannelStatus,
+  deriveChannelState,
+  planListEverywhere,
+} from "@/lib/channel-state";
+import { useItemListings } from "@/hooks/use-item-listings";
+import { useCrossPush } from "@/hooks/use-cross-listing";
+import { useEndListing } from "@/hooks/use-listing-lifecycle";
+import { useMarkDelistDone } from "@/hooks/use-pending-delists";
 import { useCrossPostChannels } from "@/hooks/use-cross-post-channels";
 import {
   type ChannelOverrides,
@@ -72,7 +91,9 @@ import { kitPlatformsFor } from "@/lib/kit-platforms";
 import { edgeFetch } from "@/lib/edge-fetch";
 import {
   QUEUED_NOTICE,
+  useCancelExtensionWork,
   useEnqueueExtensionWork,
+  useExtensionQueue,
 } from "@/hooks/use-extension-queue";
 import { useListerLocales } from "@/hooks/use-lister-locales";
 import { localeForPlatform } from "@/lib/lister-locales";
@@ -243,9 +264,12 @@ function PlatformPanel({
   sharedTitle,
   itemFacts,
   overrides,
+  status,
 }: {
   platform: MarketplacePlatform;
   variant: PlatformKitVariant | undefined;
+  /** US-3367: what this item is doing on this channel right now. */
+  status: ChannelStatus;
   /** The eBay draft's id: where this channel's own words are saved. */
   listingId: string | null;
   /** The eBay title. Every channel copies it unless `overrides.title` is set. */
@@ -311,6 +335,12 @@ function PlatformPanel({
   // a click handler and a send that had to wait for it would be a send that
   // sometimes went to the wrong country.
   const { data: listerLocales } = useListerLocales();
+  // US-3367: the verbs the status row offers. Each one is the existing hook
+  // the Listings page or the delist banner already uses; nothing new is wired.
+  const endListing = useEndListing();
+  const cancelJob = useCancelExtensionWork();
+  const markDone = useMarkDelistDone();
+  const enqueueRetry = useEnqueueExtensionWork();
 
   // US-1877 (AC1): the AUTOMATIC path — the extension saw the tab navigate to the
   // live listing, which means the seller submitted. Promote the draft and record
@@ -712,8 +742,149 @@ function PlatformPanel({
     }
   };
 
+  const label = spec.label;
+  const when = (iso: string | null) =>
+    iso ? new Date(iso).toLocaleDateString() : "";
+
   return (
     <div className="space-y-3">
+      {/* US-3367: what this channel is doing, and the one verb that applies.
+          Rendered above everything else because it is the answer to "did it
+          go up" and "where is it", which used to have no answer at all. */}
+      {status.state !== "none" && (
+        <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border bg-muted/40 px-3 py-2 text-xs">
+          <span>
+            {status.state === "live" && (
+              <>Live on {label}{status.since ? ` since ${when(status.since)}` : ""}.</>
+            )}
+            {status.state === "queued" && (
+              <>Queued for your desktop. Nothing is live on {label} yet.</>
+            )}
+            {status.state === "delist_queued" && (
+              <>Ending on {label} from your browser. It is live there until then.</>
+            )}
+            {status.state === "prefilled" && (
+              <>The {label} form was filled but never confirmed live.</>
+            )}
+            {status.state === "failed" && (
+              <>{status.queueItem?.result?.error ?? `The last ${label} run did not finish.`}</>
+            )}
+            {status.state === "ended" && <>Ended on {label}.</>}
+            {status.state === "sold" && <>Sold on {label}.</>}
+          </span>
+          <span className="flex flex-wrap items-center gap-1.5">
+            {status.url && (
+              <Button type="button" variant="outline" size="sm" className="h-7" asChild>
+                <a href={status.url} target="_blank" rel="noopener noreferrer">
+                  <ExternalLink className="mr-1 h-3.5 w-3.5" />
+                  View on {label}
+                </a>
+              </Button>
+            )}
+            {status.state === "live" && status.row && (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="h-7"
+                disabled={endListing.isPending}
+                onClick={() =>
+                  endListing.mutate(
+                    { listingId: status.row!.id },
+                    {
+                      onSuccess: (r) => {
+                        // Deliberately not "ended" for a queued end: the
+                        // listing is live until the browser runs the job.
+                        if (r.queued) {
+                          toast.info(`Ending on ${label} from your browser. ${QUEUED_NOTICE}`);
+                          void requestDrainNow();
+                        } else {
+                          toast.success(`Ended on ${label}.`);
+                        }
+                      },
+                      onError: (e) => toastError(e, "Could not end the listing."),
+                    },
+                  )}
+              >
+                {endListing.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "End listing"}
+              </Button>
+            )}
+            {/* Cancel only while queued (US-3048): a claimed row is mid-fill in a
+                marketplace tab and pulling it leaves that tab half done. */}
+            {status.state === "queued" && status.queueItem?.status === "queued" && (
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="h-7 text-xs"
+                disabled={cancelJob.isPending}
+                onClick={() =>
+                  cancelJob.mutate(status.queueItem!.id, {
+                    onError: (e) => toastError(e, "Could not cancel that job."),
+                  })}
+              >
+                Cancel
+              </Button>
+            )}
+            {status.state === "delist_queued" && status.row && (
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="h-7 text-xs"
+                disabled={markDone.isPending}
+                onClick={() =>
+                  markDone.mutate(status.row!.id, {
+                    onError: (e) => toastError(e, "Could not update the queue."),
+                  })}
+              >
+                Mark ended
+              </Button>
+            )}
+            {status.state === "failed" && isListerPlatform(platform) && (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="h-7"
+                disabled={enqueueRetry.isPending}
+                onClick={() =>
+                  enqueueRetry.mutate(
+                    {
+                      kind: "list",
+                      platform,
+                      inventoryItemId: itemId,
+                      listingId: status.row?.id ?? null,
+                      payload: {},
+                    },
+                    {
+                      onSuccess: () => {
+                        toast.success(`Queued again. ${QUEUED_NOTICE}`);
+                        void requestDrainNow();
+                      },
+                      onError: (e) => toastError(e, "Could not queue that."),
+                    },
+                  )}
+              >
+                Retry
+              </Button>
+            )}
+            {status.state === "prefilled" && showSend && (
+              <Button
+                type="button"
+                variant="secondary"
+                size="sm"
+                className="h-7"
+                disabled={confirming}
+                onClick={confirmPublished}
+              >
+                I published it
+              </Button>
+            )}
+          </span>
+        </div>
+      )}
+
       {(errors.length > 0 || warnings.length > 0) && (
         <div className="space-y-1 rounded-md border p-2 text-xs">
           {errors.map((i, idx) => (
@@ -821,7 +992,7 @@ function PlatformPanel({
             title={
               errors.length > 0
                 ? "Fix the blocking issues first"
-                : `Prefill ${spec.label}'s listing form in a new tab`
+                : `Fill ${spec.label}'s listing form in a new tab, right now`
             }
           >
             {sending ? (
@@ -829,7 +1000,10 @@ function PlatformPanel({
             ) : (
               <Puzzle className="mr-1.5 h-3.5 w-3.5" />
             )}
-            Send to extension
+            {/* US-3367: renamed from "Send to extension" so it reads as a
+                different verb from "List everywhere" above the tabs: this
+                one fills THIS channel's form now, in a tab you watch. */}
+            Fill {spec.label} now
           </Button>
         )}
         {/* US-1877 (AC2): promote the draft once the seller has actually
@@ -1228,6 +1402,93 @@ export function ListingKit({ itemId, baseName }: { itemId: string; baseName?: st
   // Never renders an empty kit - see kitPlatformsFor for the fallback rule.
   const kitPlatforms = useMemo(() => kitPlatformsFor(chosenChannels), [chosenChannels]);
 
+  // US-3367: what each channel is doing, from the item's listing rows and the
+  // seller's queue. One derivation (channel-state.ts) feeds the tab markers,
+  // the per-panel status row and the checklist below.
+  const { data: listingRows = [] } = useItemListings(itemId);
+  const { data: queue } = useExtensionQueue();
+  const queueForItem = useMemo(
+    () =>
+      [...(queue?.pending ?? []), ...(queue?.needsAttention ?? [])]
+        .filter((it) => it.inventory_item_id === itemId),
+    [queue, itemId],
+  );
+  const statuses = useMemo(() => {
+    const out: Record<string, ChannelStatus> = {};
+    for (const p of kitPlatforms) out[p] = deriveChannelState(listingRows, queueForItem, p);
+    return out;
+  }, [kitPlatforms, listingRows, queueForItem]);
+
+  // The channels the one button can queue. Depop has no form-filler (its API
+  // is pending) and a `verifying` flow would only report "list manually", so
+  // neither is offered here; their tabs stay as copy kits.
+  const queueable = useMemo(
+    () =>
+      kitPlatforms.filter(
+        (p) => isListerPlatform(p) && MARKETPLACE_EXTENSION_FLOW[p] !== "verifying",
+      ),
+    [kitPlatforms],
+  );
+  const plan = useMemo(() => planListEverywhere(queueable, statuses), [queueable, statuses]);
+  // The seller's ticks. Follows the plan's defaults until they touch a box,
+  // then holds their choice until a send resets it.
+  const [checked, setChecked] = useState<Set<string>>(new Set());
+  const [touched, setTouched] = useState(false);
+  useEffect(() => {
+    if (!touched) setChecked(new Set(plan.checked));
+  }, [plan.checked, touched]);
+  const crossPush = useCrossPush();
+
+  const listEverywhere = async () => {
+    if (!draft?.id) {
+      toast.error("Save the eBay draft first.");
+      return;
+    }
+    const platforms = queueable.filter((p) => checked.has(p) && !plan.disabled[p]);
+    if (platforms.length === 0) {
+      toast.error("Pick at least one marketplace.");
+      return;
+    }
+    try {
+      // The same fan-out the composer's Publish uses: one sibling row per
+      // channel, pre-flighted, then a queue row for the desktop. The server
+      // skips a channel that is already live or already waiting (US-3367), so
+      // pressing this twice cannot mint a duplicate listing.
+      const res = await crossPush.mutateAsync({
+        listingId: draft.id,
+        platforms: platforms as CrossListingPlatform[],
+      });
+      const queued: string[] = [];
+      const live: string[] = [];
+      const waiting: string[] = [];
+      const blocked: string[] = [];
+      for (const p of platforms) {
+        const r = res.results[p as CrossListingPlatform];
+        if (!r) continue;
+        const name = MARKETPLACE_LABELS[p as ListingPlatform] ?? p;
+        if (r.skipped === "already_live") live.push(name);
+        else if (r.skipped === "already_queued") waiting.push(name);
+        else if (r.ok && r.queued) queued.push(name);
+        else if (!r.ok) blocked.push(`${name}: ${r.blockers?.[0] ?? r.error ?? "blocked"}`);
+      }
+      if (queued.length > 0) {
+        // The shared sentence. A queued job is not a listed job.
+        toast.success(`Queued for your desktop: ${queued.join(", ")}. ${QUEUED_NOTICE}`, {
+          duration: 10_000,
+        });
+        void requestDrainNow();
+      }
+      if (live.length > 0) toast.info(`Already live: ${live.join(", ")}.`);
+      if (waiting.length > 0) toast.info(`Already waiting for your desktop: ${waiting.join(", ")}.`);
+      for (const b of blocked) toast.error(b, { duration: 12_000 });
+      setTouched(false);
+      void qc.invalidateQueries({ queryKey: ["extension_queue"] });
+      void qc.invalidateQueries({ queryKey: ["item_listings", itemId] });
+    } catch (err) {
+      toastError(err, "Could not queue the cross-posts.");
+    }
+  };
+
   // The item's price candidates AND its current facts. The facts joined this
   // read on 2026-09-11 (channel-copy.ts): the title is the last-resort source
   // for a channel's title, and brand, colour and size beat the kit variant's
@@ -1376,16 +1637,89 @@ export function ListingKit({ itemId, baseName }: { itemId: string; baseName?: st
         </div>
       </CardHeader>
       <CardContent>
+        {/* US-3367: one button for every extension channel, through the paced
+            queue. A live or queued channel is shown and disabled with the
+            reason, so the list reads as the truth about the item rather than
+            as a form. */}
+        {queueable.length > 0 && (
+          <div className="mb-4 space-y-2 rounded-md border p-3">
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+              <span className="text-sm font-medium">List on:</span>
+              {queueable.map((p) => {
+                const reason = plan.disabled[p];
+                const id = `list-on-${p}`;
+                return (
+                  <label
+                    key={p}
+                    htmlFor={id}
+                    className={cn(
+                      "flex items-center gap-1.5 text-sm",
+                      reason && "text-muted-foreground",
+                    )}
+                  >
+                    <Checkbox
+                      id={id}
+                      checked={!reason && checked.has(p)}
+                      disabled={Boolean(reason) || crossPush.isPending}
+                      onCheckedChange={(v) => {
+                        setTouched(true);
+                        setChecked((prev) => {
+                          const next = new Set(prev);
+                          if (v === true) next.add(p);
+                          else next.delete(p);
+                          return next;
+                        });
+                      }}
+                    />
+                    {MARKETPLACE_LABELS[p as ListingPlatform] ?? p}
+                    {reason ? ` (${reason})` : ""}
+                  </label>
+                );
+              })}
+            </div>
+            <div className="flex flex-wrap items-center gap-3">
+              <Button
+                type="button"
+                size="sm"
+                disabled={crossPush.isPending}
+                onClick={() => void listEverywhere()}
+              >
+                {crossPush.isPending ? (
+                  <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
+                ) : (
+                  <Send className="mr-1.5 h-4 w-4" />
+                )}
+                List everywhere
+              </Button>
+              <p className="text-xs text-muted-foreground">
+                Runs one at a time in your own browser, about 30 seconds apart.{" "}
+                {QUEUED_NOTICE}
+              </p>
+            </div>
+          </div>
+        )}
+
         <Tabs defaultValue={kitPlatforms[0]}>
           <TabsList className="flex-wrap">
             {kitPlatforms.map((p) => {
               const spec = getMarketplaceSpec(p);
               const v = variants[p];
               const hasErr = v ? !v.validation?.ok : false;
+              const state = statuses[p]?.state;
               return (
                 <TabsTrigger key={p} value={p} className="gap-1.5">
                   {spec?.label ?? p}
                   {hasErr && <span className="h-1.5 w-1.5 rounded-full bg-brand-red" />}
+                  {/* US-3367: the channel's state, at a glance. */}
+                  {state === "live" && (
+                    <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" aria-label="live" />
+                  )}
+                  {(state === "queued" || state === "delist_queued") && (
+                    <Clock className="h-3 w-3 text-muted-foreground" aria-label="queued" />
+                  )}
+                  {state === "failed" && (
+                    <XCircle className="h-3 w-3 text-brand-red" aria-label="needs you" />
+                  )}
                 </TabsTrigger>
               );
             })}
@@ -1416,6 +1750,7 @@ export function ListingKit({ itemId, baseName }: { itemId: string; baseName?: st
                 sharedTitle={draft?.listing_title ?? null}
                 itemFacts={itemPrice?.facts ?? null}
                 overrides={readChannelOverrides(draft?.platform_fields?.[p])}
+                status={statuses[p] ?? deriveChannelState([], [], p)}
               />
             </TabsContent>
           ))}

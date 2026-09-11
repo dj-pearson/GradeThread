@@ -213,8 +213,8 @@ export function buildSteps(s: ExtensionSetupState): Step[] {
       title: "Pick a channel and send a draft",
       body: readyChannels.length
         ? `Ready now: ${readyChannels.map((c) => c.label).join(", ")}. ` +
-          "Open any item, scroll to the Listing Kit, choose the channel's tab and press Send to extension."
-        : "Once the steps above are done, the Listing Kit on any item gains a Send to extension button " +
+          "Open any item, scroll to the Listing Kit, tick the marketplaces and press List everywhere, or open a channel's tab and press Fill now."
+        : "Once the steps above are done, the Listing Kit on any item gains a List everywhere button " +
           "for each channel your build can fill.",
       state: readyChannels.length > 0 && s.tosAccepted && s.sellerEnabled ? "done" : "todo",
     },
