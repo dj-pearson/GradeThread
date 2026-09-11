@@ -118,14 +118,36 @@
         const li = document.createElement("div");
         li.className = "gt-panel-row";
 
+        // US-3371: EVERYTHING HERE IS READ OFF THE VIEW, which is the only
+        // shape `group.rows` holds. This used to ask queue-view.js for the two
+        // strings instead: its titleFor takes an API row and its statusLine
+        // takes a counts object, so both were handed something they could not
+        // read and both returned a falsy value rather than throwing.
+        // Every row painted two empty spans, and the panel looked fine doing
+        // it: right count, right groups, right buttons, no words. The wording
+        // rules below are popup.js's renderQueueRow and worker.js's row(),
+        // deliberately: one queue described three ways is the next bug.
         const title = document.createElement("span");
         title.className = "gt-panel-row-title";
-        title.textContent = QUEUE_VIEW.titleFor(row);
+        // A `list` job queued from a phone carries no title at all. The verb is
+        // the honest headline for it, never a blank line.
+        title.textContent = row.title || (row.kindLabel + " on " + row.platformLabel);
+        // The CSS clamps this to two lines, so the full string lives in the
+        // tooltip rather than being lost.
+        title.title = title.textContent;
         li.appendChild(title);
 
         const status = document.createElement("span");
         status.className = "gt-panel-row-status";
-        status.textContent = QUEUE_VIEW.statusLine(row);
+        // US-3050: a running row THIS browser is driving says what it is doing.
+        // A claimed row another machine owns has no stage and stays "Running
+        // now", because we cannot see that machine's tab.
+        const bits = [row.stageLabel || row.stateLabel, row.kindLabel, row.platformLabel];
+        // The reason a row will not run, on the same line. "Failed" with no
+        // reason is the message that makes someone uninstall rather than retry.
+        if (row.reason) bits.push(row.reason);
+        status.textContent = bits.join(" · ");
+        status.title = status.textContent;
         li.appendChild(status);
 
         // Cancel is offered on a QUEUED row only. A claimed row is mid-fill in

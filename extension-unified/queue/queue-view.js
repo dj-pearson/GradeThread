@@ -209,9 +209,23 @@
    * snapshots the server took at enqueue time for a revise/relist. A `list` job
    * queued from a phone genuinely has none of them, and the kind label carries
    * the row on its own rather than showing an invented placeholder.
+   *
+   * IT TAKES AN API ROW, NOT A VIEW (US-3371). The side panel called it with a
+   * view object: none of the three sources exist on a view, so it returned null
+   * on every row and the panel painted an empty title span. It looked fine doing
+   * that, which is why nobody found it: a falsy return is indistinguishable
+   * from "this row honestly has no title", and that is a real case here. So the
+   * one shape that can ONLY be a mistake is refused out loud instead. A view
+   * already carries the answer as `.title`; ask it for that.
    */
   function titleFor(row) {
     if (!row) return null;
+    if (row.stateLabel !== undefined || row.kindLabel !== undefined) {
+      throw new TypeError(
+        "titleFor takes a queue API row, not a view object. A view already " +
+          "carries the answer as .title (see viewRow).",
+      );
+    }
     var p = row.payload && typeof row.payload === "object" ? row.payload : {};
     var candidates = [row.item_title, p.title, p.listingTitle];
     for (var i = 0; i < candidates.length; i++) {
@@ -414,6 +428,26 @@
    * they have to stay at the machine.
    */
   function statusLine(counts) {
+    // IT TAKES THE OUTPUT OF summarize(), NOT A ROW AND NOT A VIEW (US-3371).
+    // The side panel called it with a view object, which carries none of these
+    // three keys, so it returned "" on every row and the panel painted an empty
+    // status span. Null stays tolerated because "we have not read the queue" is
+    // a real state with a real answer here (say nothing), but an OBJECT that
+    // holds none of the three counts can only be the wrong shape, and returning
+    // "" for it is how a caller is told nothing at all.
+    if (counts !== null && counts !== undefined) {
+      if (
+        typeof counts !== "object" ||
+        (typeof counts.running !== "number" &&
+          typeof counts.waiting !== "number" &&
+          typeof counts.attention !== "number")
+      ) {
+        throw new TypeError(
+          "statusLine takes a counts object from summarize(), not a row or a " +
+            "view. A single view's line is `view.stageLabel || view.stateLabel`.",
+        );
+      }
+    }
     var c = counts || { waiting: 0, running: 0, attention: 0 };
     var parts = [];
     if (c.running) parts.push(c.running === 1 ? "1 running now" : c.running + " running now");
