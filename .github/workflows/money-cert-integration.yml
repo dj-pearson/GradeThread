@@ -245,7 +245,7 @@ jobs:
         run: |
           deno test --allow-net --allow-env --allow-read \
             src/tests/sync-review-lands_test.ts \
-            src/tests/grade-outcome-lands_test.ts
+            src/tests/grade-outcome-lands_test.ts \
             src/tests/storage-anon-list_test.ts
         # US-3397's suite is named here so it is not orphaned. Its ALWAYS-ON
         # ratchet (no new storage.objects policy may omit a TO clause) runs
