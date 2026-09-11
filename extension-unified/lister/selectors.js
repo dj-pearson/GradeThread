@@ -172,6 +172,28 @@ const GT_LISTER_SELECTORS = {
         'input#img-file-input, input[name="img-file-input"], ' +
         'input[type="file"][accept*="image"], input[type="file"][accept*="jpg"]',
     },
+    // ── US-2738 AC7: make Poshmark answer for itself ─────────────────────
+    //
+    // This is the channel the whole story is about: photos were reported as
+    // attached and Poshmark had none. Everything the fix added before now asks
+    // the BROWSER whether the input took a file selection, which on Chrome it
+    // always does — so if Poshmark's uploader ignores a programmatic selection,
+    // the seller is still told 8 of 8. `photoConfirm` makes the page answer:
+    // no preview, no claim.
+    //
+    // TRUE rather than a selector, so the generic object/data-URL witness is
+    // used. Poshmark previews in a CROP modal before anything is uploaded, and
+    // a crop of a not-yet-uploaded file has to come from a local URL — there is
+    // no server copy to point at yet. That is the reasoning; it is not a live
+    // reading, which is exactly what AC7's operator run is for.
+    //
+    // IF THE REASONING IS WRONG the seller is told the photos did not attach
+    // when they did, sees them sitting on the form, and drags nothing. That is
+    // the direction this story says to fail in: a visible false alarm the
+    // seller can check in a second, not an invisible false success they find
+    // out about from a buyer days later. Only Poshmark opts in — the other six
+    // channels are untouched, so a bad reading here costs one channel.
+    photoConfirm: true,
     // ── The price dialog (2026-08-20) ────────────────────────────────────
     //
     // Poshmark's price is not on the create form. Clicking the price control

@@ -232,6 +232,12 @@ export function FlipdeskImportPage() {
 
   async function handleFetchSheet() {
     if (!sheetUrl.trim()) return;
+    // US-3262: the Fetch button is disabled while a read is in flight; the
+    // Enter key on the input was not, so a second press started a second read
+    // of the same sheet. Both land in setText/detectFromText, so the slower
+    // reply overwrites the faster one's headers and mapping. Guarded here
+    // rather than on the keydown, so the next caller inherits it.
+    if (fetchSheet.isPending) return;
     try {
       const { csv } = await fetchSheet.mutateAsync({ url: sheetUrl.trim() });
       setText(csv);

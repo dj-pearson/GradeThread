@@ -156,6 +156,65 @@
       .finally(function () { clearTimeout(timer); });
   }
 
+  // US-2738 AC7: the PAGE's own witness that it took the photos.
+  //
+  // `input.value !== ""` is the BROWSER confirming the input took a selection.
+  // It is not the page confirming it took the photos, and that gap is the whole
+  // of AC7. An uploader that ignores a programmatic selection leaves `value`
+  // set, `files` set, and nothing on the listing — so "the browser accepted the
+  // assignment" reported as "8 of 8 attached" is the original sentence of this
+  // bug moved one level up: a local fact standing in for a remote one.
+  //
+  // What the page cannot fake for us is a preview. An uploader that has read the
+  // selection renders the image before it is uploaded, and a client-side preview
+  // of a file the page was just handed is an object or data URL — the page built
+  // it out of OUR bytes. Nothing in this function wrote it, so unlike
+  // `input.files` it cannot be read back from something we set ourselves.
+  //
+  // BOOLEAN, deliberately not a count. Some uploaders render one carousel node
+  // for eight photos, so counting previews would report "1 of 8 attached" on a
+  // perfectly good attach. The only question this answers is the one AC7 asks:
+  // did the page take them at all.
+  //
+  // OPT-IN PER FLOW (`photoConfirm`), and that is the cry-wolf guard. A flow
+  // that says nothing behaves exactly as it did before, so the six channels
+  // nobody has watched a preview on gain no new warning.
+  var PHOTO_PREVIEW_WITNESS =
+    'img[src^="blob:"], img[src^="data:image"], video[src^="blob:"], ' +
+    '[style*="blob:"], [style*="data:image"]';
+  var PHOTO_CONFIRM_TIMEOUT_MS = 6000;
+
+  function countWitness(selector) {
+    try {
+      if (!selector || !document.querySelectorAll) return 0;
+      return document.querySelectorAll(selector).length;
+    } catch (_e) {
+      return 0;
+    }
+  }
+
+  // `true` means "this uploader previews, use the generic witness"; a string is
+  // a host-specific selector for a page that previews some other way.
+  GT.photoConfirmSelector = function (confirm) {
+    if (confirm === true) return PHOTO_PREVIEW_WITNESS;
+    return typeof confirm === "string" && confirm ? confirm : "";
+  };
+
+  // Resolves as soon as the count EXCEEDS the pre-attach baseline. A delta, not
+  // an absolute: a create form can already carry an avatar or an icon matching
+  // the witness, and an absolute count would read that as our photo landing.
+  function waitForWitness(selector, baseline, timeoutMs) {
+    const deadline = Date.now() + (timeoutMs || PHOTO_CONFIRM_TIMEOUT_MS);
+    return new Promise(function (resolve) {
+      const tick = function () {
+        if (countWitness(selector) > baseline) return resolve(true);
+        if (Date.now() > deadline) return resolve(false);
+        setTimeout(tick, 150);
+      };
+      tick();
+    });
+  }
+
   // US-3050: where a running job has got to, for the popup's queue row. Fire
   // and forget — a stage the worker never hears about costs a label, not a
   // job, and the fill must never wait on the popup.
@@ -171,7 +230,7 @@
     }
   };
 
-  GT.attachPhotos = async function (fileInputSelector, photoUrls, max) {
+  GT.attachPhotos = async function (fileInputSelector, photoUrls, max, confirm) {
     const urls = Array.isArray(photoUrls)
       ? photoUrls.slice(0, max || photoUrls.length)
       : [];
@@ -179,7 +238,12 @@
     // attached + failed still equals total. It counts photos the page took only
     // through the shadow fallback, where nothing outside this extension has
     // confirmed they landed.
-    const result = { attached: 0, failed: 0, total: urls.length, unverified: 0 };
+    // US-2738 AC7: `confirmed` is true only when the PAGE said so — see
+    // PHOTO_PREVIEW_WITNESS. It is not part of the attached/failed arithmetic;
+    // it is what decides which of the two an accepted assignment becomes.
+    const result = {
+      attached: 0, failed: 0, total: urls.length, unverified: 0, confirmed: false,
+    };
     try {
       const input = document.querySelector(fileInputSelector);
       if (!input || urls.length === 0) {
@@ -225,6 +289,12 @@
         result.attached += 1;
       }
       if (dt.files.length === 0) return result;
+
+      // Baseline BEFORE the handover. Some uploaders preview the instant the
+      // selection changes, so a count taken afterwards could not tell a new
+      // preview from one that was on the page all along.
+      const confirmSelector = GT.photoConfirmSelector(confirm);
+      const witnessBefore = confirmSelector ? countWitness(confirmSelector) : 0;
 
       // 2026-08-20: ASSIGN the FileList, do not shadow it — and then check that
       // the BROWSER accepted it.
@@ -292,11 +362,44 @@
         GT.log("photo input refused the file list on " + (input.id || "the uploader"));
         result.failed += result.attached;
         result.attached = 0;
+        return result;
+      }
+
+      // US-2738 AC7: now ask the PAGE, not the input.
+      //
+      // Everything above this line is the browser's answer to "did the element
+      // take a file selection". This is the answer to the question the seller
+      // actually asked: are the photos on the listing. A page that rendered no
+      // preview from bytes we handed it half a dozen seconds ago did not read
+      // them, and saying "8 of 8" there is the same silent false success this
+      // story opened on — it would just be sourced from `value` instead of from
+      // `files`.
+      //
+      // It also settles the shadow path US-2775 left open. If the preview is
+      // there, the uploader read the list however it was set, so `unverified`
+      // has nothing left to hedge about.
+      if (confirmSelector) {
+        const sawPreview = await waitForWitness(
+          confirmSelector, witnessBefore, PHOTO_CONFIRM_TIMEOUT_MS,
+        );
+        if (sawPreview) {
+          result.confirmed = true;
+          result.unverified = 0;
+        } else {
+          GT.log((input.id || "the uploader") + " took the file list but the page " +
+            "rendered no photo preview — treating every photo as not attached");
+          result.failed += result.attached;
+          result.attached = 0;
+          result.unverified = 0;
+        }
       }
       return result;
     } catch (_e) {
       // The marketplace rejected the programmatic drop outright — nothing landed.
-      return { attached: 0, failed: urls.length, total: urls.length, unverified: 0 };
+      return {
+        attached: 0, failed: urls.length, total: urls.length,
+        unverified: 0, confirmed: false,
+      };
     }
   };
 
@@ -657,12 +760,18 @@
     // "some of them" must never read as "attached".
     if (f.photoInput) void GT.reportStage(payload.jobId, "photos"); // US-3050
     const photos = f.photoInput
-      ? await GT.attachPhotos(f.photoInput, payload.photoUrls, payload.maxPhotos)
+      // US-2738 AC7: `flow.photoConfirm` is the flow saying its uploader renders
+      // a preview, which turns "the input took the list" into "the page took the
+      // photos". A flow that says nothing behaves exactly as it did before.
+      ? await GT.attachPhotos(
+        f.photoInput, payload.photoUrls, payload.maxPhotos, flow.photoConfirm,
+      )
       : { attached: 0, failed: 0, total: 0 };
     const photosAttached = photos.total > 0 && photos.failed === 0;
 
     GT.log("filled " + payload.platform + " form (photos " +
-      photos.attached + "/" + photos.total + " attached)");
+      photos.attached + "/" + photos.total + " attached" +
+      (photos.confirmed ? ", confirmed by the page" : "") + ")");
 
     // We NEVER auto-submit, and there is no option to: category/size/condition
     // pickers vary too much to set safely, and the seller is responsible for a
