@@ -36,7 +36,6 @@ import com.gradethread.app.ui.UiMessage
 import com.gradethread.app.ui.theme.Spacing
 import com.gradethread.app.ui.theme.statusAmber
 import java.time.Instant
-import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.time.format.FormatStyle
 import java.util.Locale
@@ -303,6 +302,12 @@ private fun StatusChip(status: String, label: UiMessage) {
 
 private fun formatDate(epochMs: Long, locale: Locale = Locale.getDefault()): String = runCatching {
     Instant.ofEpochMilli(epochMs)
-        .atZone(ZoneId.systemDefault())
+        // ⚠ EXPENSE_ZONE, NOT THE DEVICE ZONE (US-2339, missed here until
+        // US-3311). MoneyScreen.formatDate is the same four lines and was
+        // corrected; this copy was not, so the SAME sale read "Aug 23" on the
+        // Sales tab and "Aug 24" on the Money tab for anyone west of UTC. The
+        // server holds a date, not an instant, and this is the off-by-one the
+        // sync used to write back.
+        .atZone(ExpenseDraft.EXPENSE_ZONE)
         .format(DateTimeFormatter.ofLocalizedDate(FormatStyle.MEDIUM).withLocale(locale))
 }.getOrElse { "—" }

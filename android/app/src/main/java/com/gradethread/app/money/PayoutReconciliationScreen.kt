@@ -31,8 +31,10 @@ import com.gradethread.app.ui.components.InfoTone
 import com.gradethread.app.ui.theme.BrandSecondaryButton
 import com.gradethread.app.ui.theme.Spacing
 import com.gradethread.app.ui.theme.cardStyle
-import java.text.DateFormat
-import java.util.Date
+import java.time.Instant
+import java.time.format.DateTimeFormatter
+import java.time.format.FormatStyle
+import java.util.Locale
 
 /**
  * US-1365: what eBay actually deposited, against what the books say.
@@ -379,7 +381,12 @@ private fun PayoutCard(entry: PayoutReconciliation.Reconciled, onOpenItem: (Stri
             )
             entry.payout.payoutDate?.let {
                 Text(
-                    DateFormat.getDateInstance(DateFormat.MEDIUM).format(Date(it)),
+                    // ⚠ EXPENSE_ZONE, NOT THE DEVICE ZONE (US-3311).
+                    // java.text.DateFormat formats in the device's zone, so a
+                    // payout dated the 24th server-side read as the 23rd for
+                    // anyone west of UTC - the same off-by-one US-2339 fixed on
+                    // the Money tab. A payout date is a DATE, not an instant.
+                    payoutDateLabel(it),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -455,3 +462,10 @@ private fun Hint(text: String) {
         color = MaterialTheme.colorScheme.onSurfaceVariant,
     )
 }
+
+/** A payout's date, in the zone the server means (US-3311). */
+private fun payoutDateLabel(epochMs: Long, locale: Locale = Locale.getDefault()): String = runCatching {
+    Instant.ofEpochMilli(epochMs)
+        .atZone(ExpenseDraft.EXPENSE_ZONE)
+        .format(DateTimeFormatter.ofLocalizedDate(FormatStyle.MEDIUM).withLocale(locale))
+}.getOrElse { "-" }

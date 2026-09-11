@@ -123,7 +123,13 @@ Compose:
     # LocalHighContrast carries a setting with no other way down the tree.
     # Passing either as a parameter would mean threading it through every
     # composable between the theme and a grade badge.
-    allowedCompositionLocals: LocalIsDarkTheme,LocalHighContrast
+    # US-3311. LocalProgressAnimation is the switch that stops an indeterminate
+    # Material 3 indicator from asking the frame clock for another frame
+    # forever - the screenshot harness provides false and BusySpinner/BusyBar
+    # draw a determinate stand-in. It has to be a local because the indicators
+    # sit dozens of composables below the capture, and a parameter would have
+    # to be threaded through every one of them.
+    allowedCompositionLocals: LocalIsDarkTheme,LocalHighContrast,LocalProgressAnimation
   ContentEmitterReturningValues:
     active: true
   ModifierComposable:

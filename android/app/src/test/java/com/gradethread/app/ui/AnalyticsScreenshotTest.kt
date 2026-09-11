@@ -16,7 +16,6 @@ import com.gradethread.app.analytics.PeriodPnL
 import com.gradethread.app.analytics.RoiBucket
 import com.gradethread.app.analytics.SellThroughRow
 import com.gradethread.app.analytics.StatusValue
-import com.gradethread.app.ui.theme.GradeThreadTheme
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
@@ -162,7 +161,7 @@ class AnalyticsScreenshotTest {
 
     private fun capture(name: String, dark: Boolean = false, content: @Composable () -> Unit) {
         captureRoboImage("src/test/screenshots/$name.png") {
-            GradeThreadTheme(darkTheme = dark) {
+            ScreenshotTheme(darkTheme = dark) {
                 Surface { content() }
             }
         }

@@ -10,7 +10,6 @@ import com.gradethread.app.marketplaces.pricing.BulkPricingActions
 import com.gradethread.app.marketplaces.pricing.BulkPricingContent
 import com.gradethread.app.marketplaces.pricing.BulkPricingViewModel
 import com.gradethread.app.R
-import com.gradethread.app.ui.theme.GradeThreadTheme
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
@@ -105,7 +104,7 @@ class BulkPricingScreenshotTest {
 
     private fun capture(name: String, dark: Boolean = false, content: @Composable () -> Unit) {
         captureRoboImage("src/test/screenshots/$name.png") {
-            GradeThreadTheme(darkTheme = dark) {
+            ScreenshotTheme(darkTheme = dark) {
                 Surface { content() }
             }
         }

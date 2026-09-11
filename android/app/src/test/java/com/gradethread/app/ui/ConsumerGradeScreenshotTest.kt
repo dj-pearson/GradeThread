@@ -8,7 +8,6 @@ import com.gradethread.app.grading.ConsumerGradeFlow
 import com.gradethread.app.grading.ConsumerGradeViewModel
 import com.gradethread.app.grading.DraftStep
 import com.gradethread.app.grading.ProgressStep
-import com.gradethread.app.ui.theme.GradeThreadTheme
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
@@ -119,7 +118,7 @@ class ConsumerGradeScreenshotTest {
 
     private fun capture(name: String, dark: Boolean = false, content: @Composable () -> Unit) {
         captureRoboImage("src/test/screenshots/$name.png") {
-            GradeThreadTheme(darkTheme = dark) {
+            ScreenshotTheme(darkTheme = dark) {
                 Surface { content() }
             }
         }

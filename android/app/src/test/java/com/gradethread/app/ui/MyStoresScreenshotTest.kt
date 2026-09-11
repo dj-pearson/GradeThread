@@ -10,7 +10,6 @@ import com.gradethread.app.radar.MyStoresActions
 import com.gradethread.app.radar.MyStoresContent
 import com.gradethread.app.radar.MyStoresViewModel
 import com.gradethread.app.radar.StoreSort
-import com.gradethread.app.ui.theme.GradeThreadTheme
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
@@ -105,7 +104,7 @@ class MyStoresScreenshotTest {
 
     private fun capture(name: String, dark: Boolean = false, content: @Composable () -> Unit) {
         captureRoboImage("src/test/screenshots/$name.png") {
-            GradeThreadTheme(darkTheme = dark) {
+            ScreenshotTheme(darkTheme = dark) {
                 Surface { content() }
             }
         }

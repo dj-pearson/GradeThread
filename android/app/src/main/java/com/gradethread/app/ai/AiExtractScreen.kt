@@ -5,7 +5,6 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -21,6 +20,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.gradethread.app.R
+import com.gradethread.app.ui.components.BusySpinner
 import com.gradethread.app.ui.text
 import com.gradethread.app.ui.components.ErrorStateView
 import com.gradethread.app.ui.theme.Spacing
@@ -166,7 +166,7 @@ private fun Progress(phase: AiExtractPhase?, onBackground: () -> Unit) {
             }
 
             else -> {
-                CircularProgressIndicator()
+                BusySpinner()
                 Text(
                     stringResource(R.string.aiextract_reading),
                     style = MaterialTheme.typography.titleMedium,

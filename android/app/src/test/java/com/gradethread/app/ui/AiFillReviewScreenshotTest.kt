@@ -8,7 +8,6 @@ import com.gradethread.app.ai.AiExtractReview
 import com.gradethread.app.ai.AiFillReviewSheet
 import com.gradethread.app.ai.FieldSuggestion
 import com.gradethread.app.ai.FieldSuggestionEntry
-import com.gradethread.app.ui.theme.GradeThreadTheme
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
@@ -135,7 +134,7 @@ class AiFillReviewScreenshotTest {
      */
     private fun capture(name: String, dark: Boolean = false, content: @Composable () -> Unit) {
         captureRoboImage("src/test/screenshots/$name.png") {
-            GradeThreadTheme(darkTheme = dark) {
+            ScreenshotTheme(darkTheme = dark) {
                 Surface { content() }
             }
         }

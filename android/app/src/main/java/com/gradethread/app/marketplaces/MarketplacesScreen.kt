@@ -4,6 +4,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -393,6 +395,7 @@ fun MarketplacesContent(
  * together: all three are about work that has left this phone and not yet
  * landed anywhere.
  */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun ColumnScope.DelistAndQueueSections(state: MarketplacesViewModel.State, actions: MarketplacesActions) {
     // US-2481 AC1: sold elsewhere, still live here.
@@ -445,7 +448,12 @@ private fun ColumnScope.DelistAndQueueSections(state: MarketplacesViewModel.Stat
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-                Row(verticalAlignment = Alignment.CenterVertically) {
+                // ⚠ FlowRow, NOT Row (US-3311). US-3144 added a THIRD button
+                // to this line without widening it, and a fixed Row does not
+                // wrap: on a Pixel 5 the last one came out as "I / ended / it /
+                // myself", one word per line, jammed against the right edge.
+                // DraftCard hit the identical thing and the identical fix.
+                FlowRow {
                     // US-3144: the fastest way to end it is to open it, and
                     // until now the phone did not offer that at all — the row
                     // named a listing and gave no way to reach it. Queueing it

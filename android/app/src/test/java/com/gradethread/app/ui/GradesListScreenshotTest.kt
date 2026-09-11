@@ -8,7 +8,6 @@ import com.gradethread.app.grading.GradesListActions
 import com.gradethread.app.grading.GradesListContent
 import com.gradethread.app.grading.GradesListUiState
 import com.gradethread.app.sync.db.InventoryItemEntity
-import com.gradethread.app.ui.theme.GradeThreadTheme
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
@@ -99,7 +98,7 @@ class GradesListScreenshotTest {
 
     private fun capture(name: String, dark: Boolean = false, content: @Composable () -> Unit) {
         captureRoboImage("src/test/screenshots/$name.png") {
-            GradeThreadTheme(darkTheme = dark) {
+            ScreenshotTheme(darkTheme = dark) {
                 Surface { content() }
             }
         }

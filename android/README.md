@@ -182,12 +182,35 @@ Raise it in the same commit as the tests that earned it.
 
 `app/src/test/screenshots/*.png` are recorded on whoever ran
 `npm run android:screenshots:record`. Robolectric's native graphics ship their
-own font stack, so the output is much more portable than a device screenshot,
-but antialiasing can still differ between a Windows checkout and the Linux CI
-runner — so the CI step is `continue-on-error` for now. To make it a real gate:
-run **Android CI** from the Actions tab with `record_screenshots: true`, download
-the `roborazzi-goldens` artifact, commit it, and delete the `continue-on-error`
-line. Nothing else has to change.
+own font stack, so the output is portable enough that a Windows checkout and the
+Linux CI runner fail the same goldens at the same assertion, which is why the
+CI step has been **blocking** since 2026-08-29 rather than `continue-on-error`.
+It runs as four sharded jobs; `scripts/plan-screenshot-shards.mjs` decides which
+class goes to which shard from measured per-class seconds in
+`scripts/screenshot-shard-weights.json`. Re-record with **Android CI** from the
+Actions tab and `record_screenshots: true`: each shard uploads only the PNGs it
+rewrote, as `roborazzi-goldens-<shard>`, and the four zips unpack into the same
+flat directory.
+
+**Capture under `ScreenshotTheme`, never `GradeThreadTheme` (US-3311).** An
+indeterminate Material 3 `CircularProgressIndicator` / `LinearProgressIndicator`
+holds a `rememberInfiniteTransition` that requests another frame forever, and
+`captureRoboImage` drains the Robolectric looper until the composition goes
+idle — so a golden containing one hangs its Gradle fork until the job is killed,
+then photographs the spinner at whatever angle it stopped on. Thirteen goldens
+did exactly that for weeks, at 820 to 1202 seconds each, and were 93 percent of
+the suite's runtime. `ScreenshotTheme` provides `LocalProgressAnimation = false`,
+which makes `BusySpinner` and `BusyBar` draw a determinate stand-in that settles
+instantly. `BusyIndicatorUsageTest` enforces both halves: app code may not call
+the indeterminate Material 3 overloads directly, and a screenshot test may not
+wrap its own `GradeThreadTheme`.
+
+⚠ **A capture is of the VIEWPORT, not of the composable.** On a screen taller
+than a Pixel 5 everything below the fold is simply absent from the PNG and
+nothing says so, which is how a golden ends up green over a button it claims to
+pin. For a `verticalScroll` or a long `LazyColumn`, call
+`RuntimeEnvironment.setQualifiers("+h3100dp")` before capturing and then look at
+the bottom of the image.
 
 CI: `.github/workflows/android-ci.yml` runs all of the above on every push/PR
 touching `android/**` (the ubuntu image ships the SDK).

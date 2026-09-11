@@ -5,7 +5,6 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
@@ -24,6 +23,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.gradethread.app.R
+import com.gradethread.app.ui.components.BusySpinner
 
 /**
  * US-2685: turn on two-factor, and get this session elevated.
@@ -51,7 +51,7 @@ fun TwoFactorDialog(onDismiss: () -> Unit, store: TwoFactorStore = hiltViewModel
             Column(Modifier.fillMaxWidth()) {
                 when (val phase = state.phase) {
                     TwoFactorStore.Phase.Loading ->
-                        CircularProgressIndicator(Modifier.padding(Spacing8))
+                        BusySpinner(Modifier.padding(Spacing8))
 
                     TwoFactorStore.Phase.Disabled -> Text(
                         stringResource(R.string.twofactor_body_disabled),

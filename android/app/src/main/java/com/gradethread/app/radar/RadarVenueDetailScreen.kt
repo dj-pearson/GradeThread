@@ -9,7 +9,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -24,6 +23,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.gradethread.app.R
+import com.gradethread.app.ui.components.BusySpinner
 import com.gradethread.app.ui.theme.BrandSecondaryButton
 import com.gradethread.app.ui.theme.Spacing
 import com.gradethread.app.ui.theme.cardStyle
@@ -90,7 +90,7 @@ fun RadarVenueDetailContent(
                     Row(
                         Modifier.fillMaxWidth().padding(Spacing.md),
                         horizontalArrangement = Arrangement.Center,
-                    ) { CircularProgressIndicator() }
+                    ) { BusySpinner() }
 
                 is RadarVenueDetailViewModel.Phase.Withheld ->
                     WithheldCard(current, actions.retry)

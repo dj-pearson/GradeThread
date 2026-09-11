@@ -12,7 +12,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Button
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
@@ -32,6 +31,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import com.gradethread.app.R
 import com.gradethread.app.ai.AiItemFields
 import com.gradethread.app.billing.ConsumerCreditPackSheet
+import com.gradethread.app.ui.components.BusySpinner
 import com.gradethread.app.ui.theme.BrandSecondaryButton
 import com.gradethread.app.ui.theme.Spacing
 
@@ -390,7 +390,7 @@ private fun Busy(label: String, modifier: Modifier = Modifier) {
         verticalArrangement = Arrangement.spacedBy(Spacing.sm),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        CircularProgressIndicator()
+        BusySpinner()
         Text(label, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }

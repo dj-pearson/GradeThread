@@ -13,7 +13,6 @@ import com.gradethread.app.autolister.GroupSuggestion
 import com.gradethread.app.autolister.HandoffSummary
 import com.gradethread.app.autolister.SessionGroup
 import com.gradethread.app.autolister.SessionPhoto
-import com.gradethread.app.ui.theme.GradeThreadTheme
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
@@ -171,7 +170,7 @@ class AutolisterSessionScreenshotTest {
 
     private fun capture(name: String, dark: Boolean = false, content: @Composable () -> Unit) {
         captureRoboImage("src/test/screenshots/$name.png") {
-            GradeThreadTheme(darkTheme = dark) {
+            ScreenshotTheme(darkTheme = dark) {
                 Surface { content() }
             }
         }

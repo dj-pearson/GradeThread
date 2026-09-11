@@ -16,7 +16,6 @@ import com.gradethread.app.inventory.ItemComp
 import com.gradethread.app.inventory.ItemDraft
 import com.gradethread.app.inventory.ListingCopy
 import com.gradethread.app.inventory.SizeEstimate
-import com.gradethread.app.ui.theme.GradeThreadTheme
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
@@ -249,7 +248,7 @@ class ItemCanvasScreenshotTest {
         // capture would show seven text fields and claim to cover them.
         RuntimeEnvironment.setQualifiers("+h3100dp")
         captureRoboImage("src/test/screenshots/$name.png") {
-            GradeThreadTheme(darkTheme = dark) {
+            ScreenshotTheme(darkTheme = dark) {
                 Surface { content() }
             }
         }

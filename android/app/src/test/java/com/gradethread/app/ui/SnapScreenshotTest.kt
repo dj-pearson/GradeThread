@@ -11,7 +11,6 @@ import com.gradethread.app.snap.SnapGrade
 import com.gradethread.app.snap.SnapResponse
 import com.gradethread.app.snap.SnapValue
 import com.gradethread.app.snap.SnapViewModel
-import com.gradethread.app.ui.theme.GradeThreadTheme
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
@@ -147,7 +146,7 @@ class SnapScreenshotTest {
 
     private fun capture(name: String, dark: Boolean = false, content: @Composable () -> Unit) {
         captureRoboImage("src/test/screenshots/$name.png") {
-            GradeThreadTheme(darkTheme = dark) {
+            ScreenshotTheme(darkTheme = dark) {
                 Surface { content() }
             }
         }

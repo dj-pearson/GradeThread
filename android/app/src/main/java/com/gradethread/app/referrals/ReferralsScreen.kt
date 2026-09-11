@@ -13,7 +13,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
@@ -35,6 +34,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.gradethread.app.ui.a11y.A11yAnnouncer
 import com.gradethread.app.ui.a11y.rememberA11yAnnouncer
+import com.gradethread.app.ui.components.BusySpinner
 import com.gradethread.app.ui.text
 import com.gradethread.app.ui.theme.BrandPrimaryButton
 import com.gradethread.app.ui.theme.BrandSecondaryButton
@@ -109,7 +109,7 @@ fun ReferralsContent(state: ReferralsViewModel.State, actions: ReferralsActions,
             state.loading && state.me == null -> Row(
                 Modifier.fillMaxWidth().padding(Spacing.xl),
                 horizontalArrangement = Arrangement.Center,
-            ) { CircularProgressIndicator() }
+            ) { BusySpinner() }
 
             state.loadError != null -> ErrorCard(state.loadError!!, onRetry = actions.retry)
 

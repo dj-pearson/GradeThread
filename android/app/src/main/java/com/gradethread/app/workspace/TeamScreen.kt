@@ -8,7 +8,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -34,6 +33,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.gradethread.app.R
+import com.gradethread.app.ui.components.BusySpinner
 import com.gradethread.app.ui.theme.BrandPrimaryButton
 import com.gradethread.app.ui.theme.BrandSecondaryButton
 import com.gradethread.app.ui.theme.Spacing
@@ -152,7 +152,7 @@ fun TeamContent(state: TeamViewModel.State, actions: TeamActions, modifier: Modi
             Row(
                 Modifier.fillMaxWidth().padding(Spacing.xl),
                 horizontalArrangement = Arrangement.Center,
-            ) { CircularProgressIndicator() }
+            ) { BusySpinner() }
         }
 
         for (member in state.members) {

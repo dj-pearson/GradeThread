@@ -16,7 +16,6 @@ import com.gradethread.app.analytics.ConfidenceLevel
 import com.gradethread.app.analytics.PeerComparison
 import com.gradethread.app.analytics.RecommendationKind
 import com.gradethread.app.analytics.SellerSummary
-import com.gradethread.app.ui.theme.GradeThreadTheme
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
@@ -196,7 +195,7 @@ class CommunityInsightsScreenshotTest {
 
     private fun capture(name: String, dark: Boolean = false, content: @Composable () -> Unit) {
         captureRoboImage("src/test/screenshots/$name.png") {
-            GradeThreadTheme(darkTheme = dark) {
+            ScreenshotTheme(darkTheme = dark) {
                 Surface { content() }
             }
         }

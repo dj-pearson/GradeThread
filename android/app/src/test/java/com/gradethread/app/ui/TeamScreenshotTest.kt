@@ -4,7 +4,6 @@ import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
 import com.github.takahirom.roborazzi.RobolectricDeviceQualifiers
 import com.github.takahirom.roborazzi.captureRoboImage
-import com.gradethread.app.ui.theme.GradeThreadTheme
 import com.gradethread.app.workspace.TeamActions
 import com.gradethread.app.workspace.TeamContent
 import com.gradethread.app.workspace.TeamMember
@@ -16,6 +15,10 @@ import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
+import java.time.Duration
+import java.time.Instant
+import java.time.format.DateTimeFormatter
+import java.time.temporal.ChronoUnit
 
 /**
  * US-2902 AC3: goldens over who can do what in a workspace.
@@ -65,14 +68,31 @@ class TeamScreenshotTest {
 
     private val roster = listOf(owner, manager, viewer)
 
+    /**
+     * ⚠ RELATIVE TO NOW, NOT A FIXED DATE, AND THAT IS THE WHOLE POINT
+     * (US-3311). `InvitationRow` renders
+     * `WorkspaceDate.daysUntil(expiresAt, System.currentTimeMillis())`, and
+     * Robolectric does not simulate that clock for app code - it is the real
+     * one. The original fixture expired on 2026-09-04, so these seven goldens
+     * read "expires in 4 days" on the day they were recorded, counted down
+     * afterwards, and were failing on "expires in 0 days" by 2026-09-10.
+     * Re-recording would have bought one more day.
+     *
+     * The half-day is deliberate: `daysUntil` floors, so 4 days plus 12 hours
+     * reads 4 whether the run starts a minute or ten hours from now.
+     */
+    private fun daysFromNow(days: Long, hours: Long = 0): String = DateTimeFormatter.ISO_INSTANT.format(
+        Instant.now().plus(Duration.ofDays(days).plusHours(hours)).truncatedTo(ChronoUnit.SECONDS),
+    )
+
     private val invitations = listOf(
         WorkspaceInvitationRow(
             id = "inv1",
             email = "newhire@example.invalid",
             role = "member",
             token = "not-a-real-token",
-            createdAt = "2026-08-28T10:00:00Z",
-            expiresAt = "2026-09-04T10:00:00Z",
+            createdAt = daysFromNow(-3),
+            expiresAt = daysFromNow(4, hours = 12),
         ),
     )
 
@@ -159,7 +179,7 @@ class TeamScreenshotTest {
 
     private fun capture(name: String, dark: Boolean = false, content: @Composable () -> Unit) {
         captureRoboImage("src/test/screenshots/$name.png") {
-            GradeThreadTheme(darkTheme = dark) {
+            ScreenshotTheme(darkTheme = dark) {
                 Surface { content() }
             }
         }

@@ -9,7 +9,6 @@ import com.gradethread.app.inventory.GlobalSearchActions
 import com.gradethread.app.inventory.GlobalSearchContent
 import com.gradethread.app.inventory.GlobalSearchViewModel
 import com.gradethread.app.sync.db.InventoryItemEntity
-import com.gradethread.app.ui.theme.GradeThreadTheme
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
@@ -106,7 +105,7 @@ class GlobalSearchScreenshotTest {
 
     private fun capture(name: String, dark: Boolean = false, content: @Composable () -> Unit) {
         captureRoboImage("src/test/screenshots/$name.png") {
-            GradeThreadTheme(darkTheme = dark) {
+            ScreenshotTheme(darkTheme = dark) {
                 Surface { content() }
             }
         }

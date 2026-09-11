@@ -14,7 +14,6 @@ import com.gradethread.app.inventory.IntakeSubmission
 import com.gradethread.app.inventory.ItemMergePlan
 import com.gradethread.app.sync.db.SourceEntity
 import com.gradethread.app.sync.db.SourcerEntity
-import com.gradethread.app.ui.theme.GradeThreadTheme
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
@@ -201,7 +200,7 @@ class DetailsIntakeScreenshotTest {
 
     private fun capture(name: String, dark: Boolean = false, content: @Composable () -> Unit) {
         captureRoboImage("src/test/screenshots/$name.png") {
-            GradeThreadTheme(darkTheme = dark) {
+            ScreenshotTheme(darkTheme = dark) {
                 Surface { content() }
             }
         }

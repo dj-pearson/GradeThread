@@ -13,7 +13,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -33,6 +32,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.gradethread.app.R
+import com.gradethread.app.ui.components.BusySpinner
 import com.gradethread.app.ui.components.ErrorStateView
 import com.gradethread.app.ui.theme.BrandPrimaryButton
 import com.gradethread.app.ui.theme.BrandSecondaryButton
@@ -112,7 +112,7 @@ internal fun GradeReportContent(
             state.loading -> Box(
                 Modifier.fillMaxWidth().padding(Spacing.xl),
                 contentAlignment = Alignment.Center,
-            ) { CircularProgressIndicator() }
+            ) { BusySpinner() }
 
             state.errorMessage != null -> ErrorStateView(
                 title = stringResource(R.string.gradereport_couldn_t_load_this_report),

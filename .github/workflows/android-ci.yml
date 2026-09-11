@@ -379,71 +379,44 @@ jobs:
   # about 8 minutes, and the release build, the bundle and the ABI budget never
   # ran at all.
   #
-  # WHY IT IS THAT SLOW - AND THE ANSWER IS NOT "there are 55 of them"
-  # (US-3121, measured 2026-09-10). The shards below pass `--tests`, so each one
-  # runs only its own classes and NOT the 2,550-test unit suite; that part of
-  # the sentence this replaces stopped being true when the job was split.
+  # WHY IT USED TO BE THAT SLOW, AND WHAT FIXED IT (US-3121 measured it,
+  # US-3311 fixed it).
   #
-  # THIRTEEN GOLDENS OUT OF 395 ARE 93% OF THE TIME, AND ALL THIRTEEN FAIL.
-  # Measured by running the whole set locally with `--continue` and reading the
-  # per-testcase times out of app/build/test-results/testDebugUnitTest:
-  # 246.1 test-minutes across 395 goldens, MEDIAN 0.6 SECONDS, 373 of them under
-  # ten seconds - and then these:
+  # THIRTEEN GOLDENS OUT OF 395 WERE 93% OF THE TIME, AND ALL THIRTEEN FAILED.
+  # Every one was a waiting state, and the two facts were the same fact:
+  # `captureRoboImage` renders and then drains the Robolectric looper until the
+  # composition goes idle, and Material3's indeterminate
+  # `CircularProgressIndicator` / `LinearProgressIndicator` hold a
+  # `rememberInfiniteTransition` that asks for another frame forever. So the
+  # capture spun the Choreographer at 100% of a core for a quarter of an hour and
+  # then photographed the spinner at whatever angle it stopped on, which can
+  # never match a committed PNG. A thread dump had all four forks inside
+  # `captureRoboImage`, one in `InfiniteTransition.onFrame`.
   #
-  #     1201.9s  FAIL  BulkGradeScreenshotTest > loading_light
-  #     1200.5s  FAIL  RadarNearbyScreenshotTest > loading_light
-  #     1200.2s  FAIL  GradeRequestScreenshotTest > processing_light
-  #     1198.1s  FAIL  SupportScreenshotTest > loading_light
-  #     1197.9s  FAIL  BulkGradeScreenshotTest > submitting_light
-  #     1189.9s  FAIL  AutolisterSessionScreenshotTest > loading_light
-  #     1189.2s  FAIL  ItemCanvasScreenshotTest > loading_light
-  #     1149.3s  FAIL  AiExtractScreenshotTest > running_light
-  #     1028.8s  FAIL  ReferralsScreenshotTest > loading_light
-  #      984.7s  FAIL  RadarVenueDetailScreenshotTest > loading_light
-  #      842.0s  FAIL  TeamScreenshotTest > loading_light
-  #      822.9s  FAIL  SnapScreenshotTest > evaluating_light
-  #      820.1s  FAIL  SupportThreadScreenshotTest > loading_light
+  # THE FIX IS A DETERMINATE STAND-IN, NOT A LONGER TIMEOUT. `BusySpinner` and
+  # `BusyBar` (ui/components/BusyIndicator.kt) read `LocalProgressAnimation`;
+  # `ScreenshotTheme` provides false, and they then draw the SAME Material 3
+  # component in its determinate form at a fixed fraction, which runs no
+  # animation at all. `BusyIndicatorUsageTest` keeps both halves honest: app code
+  # may not call the indeterminate overloads directly, and a screenshot test may
+  # not wrap its own `GradeThreadTheme`.
   #
-  # Every one is a waiting state, and every one is a failing assertion. They are
-  # the same fact twice. `captureRoboImage` renders and then waits for the
-  # composition to go idle; Material3's indeterminate `CircularProgressIndicator`
-  # and `LinearProgressIndicator` hold a `rememberInfiniteTransition` that asks
-  # for another frame forever, so the capture spins the Robolectric Choreographer
-  # at 100% of a core for a quarter of an hour and then photographs the spinner
-  # at whatever angle it stopped on. A JVM thread dump during the run has all
-  # four test forks inside `captureRoboImage`, one of them in
-  # `InfiniteTransition.onFrame` <- `BroadcastFrameClock.sendFrame` <-
-  # `Recomposer.runRecomposeAndApplyChanges` <- `Choreographer`. An angle nobody
-  # chose cannot match a committed PNG. Eight of the thirteen are confirmed red
-  # on CI run 34223941706 by name as well as here on Windows; the other five sat
-  # on the shard that was killed before it reported.
+  # MEASURED ON THE SAME MACHINE, SAME COMMAND, BEFORE AND AFTER:
   #
-  # ⚠ AND NO AMOUNT OF SHARDING FIXES IT. Gradle hands whole CLASSES to forks, so
-  # two 20-minute goldens in ONE class run back to back: BulkGradeScreenshotTest
-  # is 2404.8s - forty minutes - on its own, on any machine, alone on a runner.
-  # That is the ceiling this job kept hitting, and the timeout below is set from
-  # it rather than from a guess.
+  #     before   1h 56m 26s wall   320.3 test-minutes   57 of 395 red
+  #     after          2m 26s wall     7.0 test-minutes    0 of 395 red
   #
-  # ⚠ AND FINISHING IS NOT THE SAME AS PASSING. The same local run put 57 of the
-  # 395 goldens red: the thirteen above plus 44 more, concentrated in
-  # ProspectScreenshotTest (12), DraftsLibraryScreenshotTest (8),
-  # TeamScreenshotTest (7), GradeRequestScreenshotTest (6) and
-  # InventoryListScreenshotTest (5). CI run 34223941706 failed the SAME names on
-  # its shard 2, so these are not a Windows-versus-Linux rendering difference -
-  # they are goldens that were not re-recorded when their screens changed.
-  # Re-recording is an owner's call, not a side effect of a CI story, so this
-  # job will complete and still report red until someone makes it.
+  #     worst single golden   SupportScreenshotTest > loading_light
+  #                           1801.7s  ->  1.0s
+  #     worst class           BulkGradeScreenshotTest
+  #                           2753.3s  ->  1.4s
   #
-  # ⚠ THE ACTUAL FIX IS A SEPARATE STORY, deliberately. It is either capturing
-  # through `createComposeRule()` (whose `MainTestClock` installs the
-  # `InfiniteAnimationPolicy` that stops exactly this) or making the
-  # indeterminate indicators respect reduced motion the way
-  # ui/components/Skeleton.kt already does. Both rewrite how every screenshot is
-  # taken and both require re-recording those thirteen goldens, which is not a
-  # rider on a story about CI duration. Checked and ruled out on the way past:
-  # Roborazzi's `RoborazziComposeOptions { inspectionMode(true) }` only provides
-  # `LocalInspectionMode`, and neither androidx.compose.animation.core's
-  # `InfiniteTransition` nor Material3's `ProgressIndicatorKt` reads it.
+  # The 44 goldens that were stale rather than slow were reviewed one at a time
+  # in the same story. Ten of them came back green by fixing the code instead:
+  # two `@StringRes` ids formatted into `%s` (the grade tiers and the spend
+  # dialog rendered "2131821421 grading costs 3 credits"), a three-button Row on
+  # the delist card that did not wrap, and two fixtures that decayed against the
+  # wall clock and the host timezone. The other 47 were re-recorded.
   #
   # STILL BLOCKING, deliberately. It was made blocking on 2026-08-29 after
   # `continue-on-error` rewrote its conclusion to "success" for four straight
@@ -472,24 +445,29 @@ jobs:
   screenshots:
     name: Screenshots ${{ matrix.shard }}/${{ strategy['job-total'] }}
     runs-on: ubuntu-latest
-    # US-3121: 60, up from 45, and the number comes from a measurement rather
-    # than from rounding up. `plan-screenshot-shards.mjs --of 4 --plan` on the
-    # 2026-09-10 weights predicts, as wall clock over four forks:
+    # US-3311: 20, down from 60, and it is no longer sized by the rendering.
+    # `plan-screenshot-shards.mjs --of 4 --plan` on the 2026-09-11 weights
+    # predicts, as wall clock over four forks:
     #
-    #   shard 0   15 classes   40.1 min     <- carries BulkGradeScreenshotTest
-    #   shard 1    4 classes   20.7 min
-    #   shard 2   19 classes   20.4 min
-    #   shard 3   17 classes   20.2 min
+    #   shard 0   14 classes   0.7 min
+    #   shard 1   14 classes   0.6 min
+    #   shard 2   14 classes   0.6 min
+    #   shard 3   13 classes   0.5 min
     #
-    # Three shards land near 20 minutes because each carries a few 20-minute
-    # spinner goldens that render on separate forks. Shard 0 is 40 because
-    # BulkGradeScreenshotTest alone is 40.1: it holds TWO of those goldens, and
-    # one class runs in one fork, back to back. 40 plus about 4 of checkout,
-    # JDK, Gradle and compile is 44, which is why 45 killed this job twice.
+    # The thirteen spinner goldens that set the old ceiling are frozen now (see
+    # the note above the job), so what is left is checkout, JDK, Node, Gradle
+    # and the Kotlin/KSP compile - minutes, and the same minutes for every
+    # shard. 20 is headroom over that, not a guess about growth: a shard that
+    # takes 20 minutes again has a real regression in it, and should say so in
+    # 20 minutes rather than in 60.
     #
-    # This ceiling comes back DOWN to 45 the moment the spinner story lands. It
-    # is sized for one known class, not for growth.
-    timeout-minutes: 60
+    # ⚠ FOUR SHARDS IS NOW THE PART WORTH REVISITING, not the ceiling. At 0.5-0.7
+    # minutes of rendering each, three of these runners exist to split forty
+    # seconds of work. Collapsing the matrix is a separate decision with its own
+    # trade-off (one runner means one point of failure for the whole gate), and
+    # it is deliberately NOT taken here - but the reason the number was four has
+    # gone.
+    timeout-minutes: 20
     strategy:
       # Every shard reports. fail-fast would cancel the others the moment one
       # golden moved, which is exactly when you want to see the rest.

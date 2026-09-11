@@ -14,7 +14,6 @@ import com.gradethread.app.marketplaces.MarketplacesContent
 import com.gradethread.app.marketplaces.MarketplacesUiState
 import com.gradethread.app.marketplaces.MarketplacesViewModel
 import com.gradethread.app.marketplaces.PendingDelist
-import com.gradethread.app.ui.theme.GradeThreadTheme
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
@@ -244,7 +243,7 @@ class MarketplacesScreenshotTest {
 
     private fun capture(name: String, dark: Boolean = false, content: @Composable () -> Unit) {
         captureRoboImage("src/test/screenshots/$name.png") {
-            GradeThreadTheme(darkTheme = dark) {
+            ScreenshotTheme(darkTheme = dark) {
                 Surface { content() }
             }
         }
