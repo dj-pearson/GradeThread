@@ -23,6 +23,7 @@ import {
   uploadMaxWidthFor,
 } from "@/lib/macro-photo-quality";
 import { assessPhotoPrecheck, measurePhoto } from "@/lib/photo-precheck";
+import { SCALE_REFERENCE_HINT } from "@/lib/scale-reference";
 import { track } from "@/lib/analytics";
 import { normalizeToImageFile } from "@/lib/media-intake";
 import {
@@ -89,7 +90,8 @@ const SLOT_GROUPS: { group: SlotGroup; title: string; hint?: string }[] = [
     title: "Measurements",
     hint: "No size tag? Lay the garment flat and shoot a tape measure across each point — helps us identify the size (great for Lululemon and other untagged items).",
   },
-  { group: "defects", title: "Defects" },
+  // US-3332: a standard object beside the flaw lets the grader measure it.
+  { group: "defects", title: "Defects", hint: SCALE_REFERENCE_HINT },
 ];
 
 const UPLOAD_SLOTS: UploadSlot[] = [
@@ -129,7 +131,7 @@ const UPLOAD_SLOTS: UploadSlot[] = [
     required: true,
     icon: Search,
     description: "Close-up of key feature",
-    hint: "Sharp close-up of a key feature, seam, or flaw.",
+    hint: "Sharp close-up of a key feature, seam, or flaw. For a flaw, lay a coin or card beside it.",
     slotKey: "detail-1",
     group: "required",
   },
@@ -220,6 +222,7 @@ const UPLOAD_SLOTS: UploadSlot[] = [
     required: false,
     icon: AlertTriangle,
     description: "Damage or flaw (optional)",
+    hint: "Coin or card beside the flaw, for scale.",
     slotKey: "defect-1",
     group: "defects",
   },
@@ -229,6 +232,7 @@ const UPLOAD_SLOTS: UploadSlot[] = [
     required: false,
     icon: AlertTriangle,
     description: "Additional defect (optional)",
+    hint: "Coin or card beside the flaw, for scale.",
     slotKey: "defect-2",
     group: "defects",
   },
@@ -238,6 +242,7 @@ const UPLOAD_SLOTS: UploadSlot[] = [
     required: false,
     icon: AlertTriangle,
     description: "Additional defect (optional)",
+    hint: "Coin or card beside the flaw, for scale.",
     slotKey: "defect-3",
     group: "defects",
   },
