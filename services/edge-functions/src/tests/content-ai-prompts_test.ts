@@ -15,6 +15,7 @@ import {
   buildStreamSystemPrompt,
   EMAIL_ISSUE_PROMPT_VERSION,
   isGroundedEmailLink,
+  joinContentSystem,
   normalizeEmailIssue,
   normalizeTitleSuggestions,
   parseEmailIssue,
@@ -163,7 +164,11 @@ const emailTopic = {
 
 Deno.test("US-918: email system prompt assembles knowledge + inputs + history", () => {
   assertEquals(EMAIL_ISSUE_PROMPT_VERSION, "email_issue_v1");
-  const sys = buildEmailIssueSystemPrompt({
+  // US-3149 split this builder into { stable, volatile }. These assertions are
+  // about what the model READS, which is both halves, so they run against the
+  // join. Which half each piece lands in is pinned in
+  // content-system-cache_test.ts, where it is the actual subject.
+  const sys = joinContentSystem(buildEmailIssueSystemPrompt({
     emailVoice: "VOICE_DOC",
     emailStructure: "STRUCTURE_DOC",
     valueProps: "VALUE_PROPS_DOC",
@@ -172,7 +177,7 @@ Deno.test("US-918: email system prompt assembles knowledge + inputs + history", 
     changelogLines: ['2026-06-10 "New AI comp engine"'],
     kbTip: "Always shoot tags in natural light.",
     productFocus: "flipdesk",
-  });
+  }));
   assert(sys.includes("VOICE_DOC"));
   assert(sys.includes("STRUCTURE_DOC"));
   assert(sys.includes("VALUE_PROPS_DOC"));
@@ -185,7 +190,7 @@ Deno.test("US-918: email system prompt assembles knowledge + inputs + history", 
 });
 
 Deno.test("US-918: email system prompt leans evergreen with no changelog", () => {
-  const sys = buildEmailIssueSystemPrompt({
+  const sys = joinContentSystem(buildEmailIssueSystemPrompt({
     emailVoice: "",
     emailStructure: "",
     valueProps: "",
@@ -193,7 +198,7 @@ Deno.test("US-918: email system prompt leans evergreen with no changelog", () =>
     topic: emailTopic,
     changelogLines: [],
     productFocus: "gradethread",
-  });
+  }));
   assert(sys.includes("no fresh product updates"));
   assert(sys.includes("grading")); // gradethread audience
 });

@@ -28,11 +28,46 @@ import { buildHistoryContext, type ContentProduct } from "./content-history.ts";
 import {
   buildEmailIssueSystemPrompt,
   buildEmailIssueUserPrompt,
+  contentSystemBlocks,
   EMAIL_ISSUE_PROMPT_VERSION,
   type EmailIssueOutput,
   type EmailIssueTopic,
   parseEmailIssue,
 } from "./content-ai-prompts.ts";
+
+// ── US-3149 AC2/AC5: the email prompt is SPLIT but NOT cached, on purpose ─────
+//
+// AC5 is explicit that a prefix under the per-model minimum must have its size
+// recorded rather than ship a breakpoint that is silently ignored. Two
+// measurements decide this one, and both say no:
+//
+// 1. CADENCE. An ephemeral entry lives 5 minutes and a read refreshes it.
+//    Newsletter issues are WEEKLY. Two calls seven days apart can never share
+//    an entry, so a breakpoint here would pay the 1.25x write premium on every
+//    call and be read by none of them - the one case the story calls worse than
+//    no breakpoint at all. Blog/social/research get the opposite answer because
+//    the scheduler generates several in a burst.
+// 2. SIZE, measured 2026-09-10 by building the prompt from the knowledge pack
+//    seeded in migration 00289 (email.voice + email.structure +
+//    email.value_props): stable 3,210 chars, volatile 504. Converted three ways
+//    against the Sonnet 5 minimum of 1,024 tokens:
+//      2.68 chars/tok (the ratio the blog prefix actually measured on
+//                      2026-09-08: 6,788 chars -> 2,532 tok)  ~1,198 tok
+//      3.2  chars/tok                                          ~1,003 tok
+//      4.0  chars/tok                                            ~803 tok
+//    It STRADDLES the bar, which is the same trap social hit against Haiku's
+//    2,048 - a character estimate cannot settle it either way. The real count
+//    was not taken because this host has no ANTHROPIC_API_KEY and the live
+//    content_knowledge rows are admin-editable (the seed is a floor, not the
+//    value). It would not change the decision: cadence already rules the
+//    breakpoint out.
+//
+// Splitting the prompt anyway is not wasted. It fixes the layout (the grounding
+// and output rules were being billed after the volatile block), it puts this
+// file on the one idiom the other five content callers use, and flipping the
+// flag below is the whole change if the newsletter ever generates in a burst.
+// Before flipping it, COUNT the prefix - do not estimate it.
+const EMAIL_PREFIX_CACHEABLE = false;
 
 const DEFAULT_MAX_SECTIONS = 4;
 
@@ -136,7 +171,7 @@ export async function generateEmailIssue(
     // caused. Size it for the worst-case output PLUS reasoning headroom.
     max_tokens: 8192,
     ...(temperature !== undefined ? { temperature } : {}),
-    system: systemPrompt,
+    system: contentSystemBlocks(systemPrompt, EMAIL_PREFIX_CACHEABLE),
     messages: [{ role: "user", content: userPrompt }],
   });
   const latencyMs = Date.now() - startTime;

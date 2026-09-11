@@ -9,6 +9,7 @@
 
 import { assert, assertEquals } from "@std/assert";
 import {
+  buildEmailIssueSystemPrompt,
   buildStreamSystemPrompt,
   buildSystemPrompt,
   contentSystemBlocks,
@@ -177,4 +178,128 @@ Deno.test("the stable half stays big enough to be cacheable at all", () => {
     prompt.volatile.length < prompt.stable.length / 10,
     "the volatile half should be a fraction of the cached one",
   );
+});
+
+// ──────────────────────────────────────────────────────────
+// THE EMAIL ISSUE PROMPT (US-3149 AC2, finished late)
+// ──────────────────────────────────────────────────────────
+// AC2 names content-ai-email.ts alongside the blog/social/research/refresh
+// callers, and it was the one left on the old shape: buildEmailIssueSystemPrompt
+// returned a single joined string with the history index AND the whole per-issue
+// grounding block (topic, changelog, KB tip) sitting in the middle of it, and
+// the grounding + output rules — which never change — after them. That is the
+// same layout the story was filed about, in the file the story listed.
+
+const EMAIL_KNOWLEDGE = {
+  emailVoice: "Plain English, short sentences. Teach first, sell second.",
+  emailStructure: "Subject → intro → what's new → teach → tip → CTA → sign-off.",
+  valueProps: "Standardized 1.0-10.0 condition grades; shareable certificates.",
+  productFocus: "both" as const,
+};
+
+const EMAIL_TOPIC = {
+  label: "How to grade fading on dark denim",
+  pillar: "grading",
+  angle: "fabric-condition",
+};
+
+Deno.test("the email prompt's stable half does not move when the issue does", () => {
+  const a = buildEmailIssueSystemPrompt({
+    ...EMAIL_KNOWLEDGE,
+    historyContext: "- prior issue about zippers",
+    topic: EMAIL_TOPIC,
+    changelogLines: ['2026-06-10 "New AI comp engine"'],
+    kbTip: "Always shoot tags in natural light.",
+  });
+  const b = buildEmailIssueSystemPrompt({
+    ...EMAIL_KNOWLEDGE,
+    historyContext: "- prior issue about zippers\n- last week on pilling",
+    topic: { label: "Reading a care label", pillar: "grading", angle: "tags" },
+    changelogLines: ['2026-06-17 "Bulk relist"'],
+    kbTip: "Shoot the defect close, then wide.",
+  });
+
+  assertEquals(
+    typeof a.stable,
+    "string",
+    "buildEmailIssueSystemPrompt must return a split prompt, not one joined string",
+  );
+  assertEquals(a.stable, b.stable);
+  assert(a.volatile !== b.volatile, "the per-issue inputs must land in the volatile half");
+  assert(
+    !a.stable.includes("prior issue about zippers"),
+    "no history text may appear in the stable half",
+  );
+  assert(
+    !a.stable.includes("New AI comp engine"),
+    "no changelog line may appear in the stable half",
+  );
+  assert(
+    !a.stable.includes(EMAIL_TOPIC.label),
+    "the issue topic may not appear in the stable half",
+  );
+});
+
+Deno.test("the email grounding and output rules ride above the breakpoint", () => {
+  // They used to sit after the per-issue inputs. They never change, so keeping
+  // them below the split would bill them in full on every call — and a
+  // reordering is exactly the edit that silently drops text.
+  const prompt = buildEmailIssueSystemPrompt({
+    ...EMAIL_KNOWLEDGE,
+    historyContext: "- prior issue",
+    topic: EMAIL_TOPIC,
+    changelogLines: [],
+  });
+  assert(prompt.stable.includes("# Grounding rules"));
+  assert(prompt.stable.includes("# Output rules"));
+  assert(prompt.stable.includes("Do NOT invent"));
+  assert(prompt.stable.includes("never omit the key"));
+  assert(!prompt.volatile.includes("# Output rules"));
+  // The grounding rules point AT the issue inputs, and the inputs now come
+  // after them. The wording has to say so, or the model is told to ground in
+  // something it has not read yet.
+  assert(
+    !prompt.stable.includes("inputs above"),
+    "the grounding rules must not point backwards at inputs that now follow them",
+  );
+});
+
+Deno.test("joinContentSystem keeps the whole email prompt", () => {
+  const prompt = buildEmailIssueSystemPrompt({
+    ...EMAIL_KNOWLEDGE,
+    historyContext: "- prior issue about zippers",
+    topic: EMAIL_TOPIC,
+    changelogLines: ['2026-06-10 "New AI comp engine"'],
+    kbTip: "Always shoot tags in natural light.",
+  });
+  const joined = joinContentSystem(prompt);
+  assert(joined.includes("Plain English, short sentences"));
+  assert(joined.includes("prior issue about zippers"));
+  assert(joined.includes("New AI comp engine"));
+  assert(joined.includes("Always shoot tags in natural light"));
+  assert(joined.includes(EMAIL_TOPIC.label));
+});
+
+Deno.test("the email generator sends the split prompt, and no breakpoint", () => {
+  // Two halves of one decision, and asserting either alone would rot. The call
+  // site must send the BLOCK LIST (so the layout reaches the API at all), and
+  // the flag must stay false with its reasoning attached: newsletter issues are
+  // weekly, an ephemeral entry lives five minutes, so a breakpoint here could
+  // only ever pay the 1.25x write premium and never be read. That is the one
+  // case worse than no breakpoint at all.
+  const src = Deno.readTextFileSync(
+    new URL("../lib/content-ai-email.ts", import.meta.url),
+  );
+  assert(
+    src.includes("system: contentSystemBlocks(systemPrompt, EMAIL_PREFIX_CACHEABLE)"),
+    "content-ai-email.ts must send the split prompt as a block list",
+  );
+  assert(
+    /const EMAIL_PREFIX_CACHEABLE = false;/.test(src),
+    "EMAIL_PREFIX_CACHEABLE flipped to true - COUNT the prefix with " +
+      "count_tokens and check the generation cadence before that is right",
+  );
+  // The measurement that backs the decision has to survive with it. A number
+  // deleted from the comment is a decision nobody can re-check.
+  assert(src.includes("3,210 chars"), "the measured prefix size must stay recorded");
 });

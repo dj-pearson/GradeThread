@@ -769,6 +769,26 @@ const PRODUCT_AUDIENCE_EMAIL: Record<string, string> = {
 // Assembles the system message from the curated email knowledge docs + the
 // distilled history context + the issue's grounding inputs (changelog, topic,
 // KB tip). Mirrors buildSystemPrompt for the blog. Pure.
+//
+// ── WHY THIS SPLITS TOO (US-3149 AC2) ────────────────────────────────────────
+//
+// AC2 listed content-ai-email.ts next to the blog/social/research/refresh
+// callers and it was the one left on the old shape: one joined string with the
+// history index AND the whole per-issue grounding block in the middle of it,
+// and the grounding + output rules — which never change — sitting after them.
+// Same layout, same file list, so it gets the same treatment: the knowledge
+// pack and every rule go in `stable`, the history index and this week's inputs
+// go in `volatile`.
+//
+// THE GROUNDING RULES MOVED ABOVE THE INPUTS THEY GOVERN, so "the inputs above"
+// became "this issue's inputs below". That is not cosmetic — a rule pointing
+// backwards at text the model has not reached yet is a rule about nothing.
+//
+// ⚠ THE BREAKPOINT IS DELIBERATELY NOT TURNED ON HERE — see the EMAIL_PREFIX_
+// CACHEABLE block in content-ai-email.ts for the two measurements that decide
+// it. Splitting the prompt is still worth doing on its own: it is what makes a
+// breakpoint POSSIBLE the day the cadence or the knowledge pack changes, and it
+// stops the next person re-deriving the layout from scratch.
 export function buildEmailIssueSystemPrompt(input: {
   emailVoice: string;
   emailStructure: string;
@@ -778,12 +798,13 @@ export function buildEmailIssueSystemPrompt(input: {
   changelogLines: string[];
   kbTip?: string;
   productFocus: ContentProduct;
-}): string {
+}): ContentSystemPrompt {
   const audience = PRODUCT_AUDIENCE_EMAIL[input.productFocus] ?? PRODUCT_AUDIENCE_EMAIL.both;
   const whatsNew = input.changelogLines.length > 0
     ? input.changelogLines.map((l) => `- ${l.replace(/^[-•]\s*/, "")}`).join("\n")
     : "(no fresh product updates this week — lean fully on evergreen educational value)";
-  return [
+
+  const stable = [
     "# Role",
     `You are the email copywriter for GradeThread (AI-powered clothing condition grading) and its FlipDesk reseller surface. You write a weekly educational newsletter for ${audience}. Your task is to write ONE complete issue.`,
     "",
@@ -796,6 +817,18 @@ export function buildEmailIssueSystemPrompt(input: {
     "# Value props (what we may credibly claim)",
     input.valueProps || "(standardized 1.0–10.0 condition grades, shareable certificates, fewer not-as-described disputes)",
     "",
+    "# Grounding rules (strict)",
+    "- Ground every claim in this issue's inputs below. Do NOT invent product features, prices, statistics, customer counts, or results that are not stated in those inputs.",
+    "- If there are no fresh product updates, skip the 'what's new' angle entirely and lean on evergreen education — do NOT fabricate news.",
+    "- Only include a cta_url you are certain is a real gradethread.com page (homepage or a stable surface), or a URL that appears verbatim in those inputs. Never invent a landing page or feature URL.",
+    "",
+    "# Output rules",
+    // US-3151: shape enforced by output_config.format, not asked for in prose.
+    "- body_html is a short run of <p>/<ul>/<li>/<strong>/<em>/<a> only. No <script>, no inline style, no on* handlers.",
+    "- If an optional field has nothing to say, return an empty string or empty array — never omit the key.",
+  ].filter(Boolean).join("\n");
+
+  const volatile = [
     "# What we have already covered (do not repeat these topics)",
     input.historyContext || "(no prior issues)",
     "",
@@ -804,17 +837,9 @@ export function buildEmailIssueSystemPrompt(input: {
     "Recent product updates ('what's new') — the ONLY product changes you may mention:",
     whatsNew,
     input.kbTip?.trim() ? `Knowledge-base tip to weave in: ${input.kbTip.trim()}` : "",
-    "",
-    "# Grounding rules (strict)",
-    "- Ground every claim in the inputs above. Do NOT invent product features, prices, statistics, customer counts, or results that are not stated in the inputs.",
-    "- If there are no fresh product updates, skip the 'what's new' angle entirely and lean on evergreen education — do NOT fabricate news.",
-    "- Only include a cta_url you are certain is a real gradethread.com page (homepage or a stable surface), or a URL that appears verbatim in the inputs. Never invent a landing page or feature URL.",
-    "",
-    "# Output rules",
-    // US-3151: shape enforced by output_config.format, not asked for in prose.
-    "- body_html is a short run of <p>/<ul>/<li>/<strong>/<em>/<a> only. No <script>, no inline style, no on* handlers.",
-    "- If an optional field has nothing to say, return an empty string or empty array — never omit the key.",
   ].filter(Boolean).join("\n");
+
+  return { stable, volatile };
 }
 
 export function buildEmailIssueUserPrompt(input: EmailIssueInput): string {
