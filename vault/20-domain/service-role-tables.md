@@ -6,9 +6,10 @@ status: current
 source_of_truth: code
 code_refs:
   - services/edge-functions/src/tests/rls-guard_test.ts
+  - services/edge-functions/src/tests/service-role-grant-posture_test.ts
 reviewed: 2026-09-11
 tags: [security, rls, tenant-isolation, contract]
-summary: rls-guard discovers tenant tables by regex on the CREATE TABLE block - any column ending in user_id or owner_id - so an operator table must be registered in SERVICE_ROLE_ONLY; the same file also enforces the (select auth.uid()) initplan form, with a five-entry exemption list whose entries fall into two DIFFERENT cases - a negligible table, and a policy already superseded by a corrective migration.
+summary: rls-guard discovers tenant tables by regex on the CREATE TABLE block - any column ending in user_id or owner_id - so an operator table must be registered in SERVICE_ROLE_ONLY; the same file also enforces the (select auth.uid()) initplan form, with a five-entry exemption list whose entries fall into two DIFFERENT cases - a negligible table, and a policy already superseded by a corrective migration. Of the two layers an operator table is supposed to have, only RLS-with-zero-policies is load-bearing: 88 of the 142 registered tables carry no REVOKE at all, so service-role-grant-posture_test.ts fails any of them that gains a policy while its grant is open.
 ---
 
 > **Re-reviewed 2026-09-11.** Drift flagged `rls-guard_test.ts` for US-3334,
@@ -31,10 +32,91 @@ and either carries a restrictive policy **or** is named in `SERVICE_ROLE_ONLY`.
 The pattern is `OWNER_COLUMN = /\b\w*user_id\b|\b\w*owner_id\b/i`: **any column
 whose name ENDS in `user_id` or `owner_id`**, not the bare token.
 
-An **operator table** carries no tenant data — config caches and ops bookkeeping
+An **operator table** carries no tenant data: config caches and ops bookkeeping
 like `garment_baselines`, `grading_exemplar_sets`, `abuse_signals`,
-`content_moderation_flags`. It is deny-all: RLS on, `revoke insert, update,
-delete from anon, authenticated`, and zero policies.
+`content_moderation_flags`. It is deny-all: RLS on, zero policies, and ideally
+`revoke ... from anon, authenticated` as well.
+
+**That last clause is aspiration, not description, and the section below is
+the measurement.** This note used to state the revoke as part of the definition.
+Most operator tables do not have one.
+
+## Which of the two layers is load-bearing (US-3350, measured 2026-09-11)
+
+**RLS with zero policies is the layer that is holding. The grant is not a second
+layer on most of these tables, because most of them never revoked anything.**
+
+Counted over all 785 migrations:
+
+| | tables |
+|---|---|
+| registered in `SERVICE_ROLE_ONLY` | 142 |
+| ... of which carry NO table `REVOKE` anywhere in their history | **88** |
+| tables carrying a table `REVOKE` against anon/authenticated | 83 |
+| ... `revoke all` (SELECT gone too) | 64 |
+| ... `revoke insert, update, delete` (public read on purpose) | 19 |
+
+Those 88 hold all seven privileges for both `anon` and `authenticated`, granted
+at `CREATE TABLE` by the `ALTER DEFAULT PRIVILEGES` entries the Supabase image
+installs for `postgres` and `supabase_admin` in schema `public`. Nothing revoked
+them. They are unreachable today only because RLS is on and there is no policy,
+and **that is one layer, not two**. One `create policy` in a future migration is
+the whole distance between "deny-all" and "world-readable", which is what
+`service-role-grant-posture_test.ts` now fails on.
+
+### The 83 revokes DID hold on prod. The local stack is where they look broken.
+
+A finding on 2026-09-11 reported `anon` and `authenticated` holding all seven
+privileges on `marketplace_supply_cells`, `marketplace_supply_samples`,
+`comp_condition_reads` and `job_locks` despite their migrations revoking them.
+That is true of the local stack, true of all 83 tables there, and **an artifact
+of the local stack rather than a property of the migrations.**
+
+The two integration workflows (`tenant-isolation.yml`, `money-cert-integration.yml`)
+run `GRANT ALL ON ALL TABLES IN SCHEMA public TO anon, authenticated, service_role`
+before seeding, and CLAUDE.md tells operators to run that same block locally. It
+re-grants every revoke in the schema.
+
+The ACL ordering is the proof, and it is free to re-take:
+
+- 64 of 64 `revoke all` tables have `anon` positioned **after** `service_role`
+  in `pg_class.relacl`, the signature of an entry removed and later re-added.
+- 19 of 19 write-only-revoke tables keep the default order, because a partial
+  revoke leaves the entry in place and a later `GRANT ALL` refills it.
+- 277 of 277 tables with no revoke keep the default order. There are no
+  exceptions in either direction.
+
+On **production**, read credential-free through PostgREST's OpenAPI document
+with the anon key, exactly 65 of the 367 public relations are absent, and 64 of
+those 65 are the `revoke all` tables. The 65th is `grading_reference_photos`
+(00789), which prod has not applied. Every one of the 19 write-revoke tables is
+present, which is correct: they kept `SELECT` on purpose.
+
+> [!warning] What that prod read does NOT cover
+> PostgREST emits `get/post/patch/delete` for every table it lists regardless of
+> privilege, so the document says nothing about whether the 19 write-only
+> revokes held, or whether `anon` holds INSERT/UPDATE/DELETE on the 64. Only the
+> `SELECT` half is readable this way. The rest needs an operator query, in
+> [[migrations-process]] terms a pure read:
+> `select grantee, table_name, privilege_type from information_schema.role_table_grants where table_schema='public' and grantee in ('anon','authenticated') order by 2,1,3;`
+
+### Table revokes are safe on this image. FUNCTION revokes are not.
+
+`memory/no-revoke-in-new-migrations.md` and 00609's "DELIBERATELY NO REVOKE"
+block forbid a revoke because a denied call segfaults the backend. **That is a
+statement about functions, and it does not extend to tables.** Both halves
+measured back to back on `supabase_db_gradethread` on 2026-09-11:
+
+- denied `select` and `update` as `anon`/`authenticated` on a revoked table:
+  clean `ERROR: permission denied for table`, the supautils `HINT: Grant the
+  required privileges ...` appended, server untouched, crash markers in the
+  container log 3 before and 3 after.
+- `node scripts/db-denied-rpc-crash-check.mjs` on the same container minutes
+  later: connection dropped mid-statement, a backend-crash line in the log, and
+  every other session terminated.
+
+So the 83 table revokes are not a latent crash surface and should stay. The
+no-revoke rule keeps its full force over `REVOKE ... ON FUNCTION`.
 
 > [!tip] The function-side counterpart
 > This note is about TABLES. For `SECURITY DEFINER` functions the edge calls,

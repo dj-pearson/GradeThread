@@ -10,12 +10,21 @@ code_refs:
   - services/edge-functions/src/lib/ebay-client.ts
   - services/edge-functions/scripts/refresh-ebay-aspect-cache.ts
   - src/lib/aspect-normalize.ts
-reviewed: 2026-09-10
+reviewed: 2026-09-11
 tags: [ebay, publishing, aspects, gotcha]
 summary: eBay now rejects a custom Size or Size Type value at publish; the size aspects are treated as closed lists whatever the cached Taxonomy mode says, a rejection refetches the spec and repairs the draft on the spot, and the aspect cache lives seven days instead of thirty.
 ---
 
 # eBay standardized size values at publish
+
+> **Re-reviewed 2026-09-11.** Drift flagged `ebay-client.ts` for `7a28175a6`
+> (US-2790), which adds the predicted-parcel payload behind a flag that is
+> off. It touches no size or aspect code. Both refs this note carries sit
+> below the insertion point and moved only by the six new import lines:
+> `ASPECT_TTL_MS = 7 * 24 * 60 * 60_000` is at `:1686` (was `:1680`), and the
+> stale comment saying aspects are cached for 30 days is at `:1358` (was
+> `:1352`). THAT COMMENT IS STILL WRONG and still worth its warning: the
+> constant is seven days, not thirty.
 
 > **Re-reviewed 2026-09-10, no change.** Two refs moved.
 > `src/lib/aspect-normalize.ts` took `99067ca44` (208 new `COLOR_FAMILY`
