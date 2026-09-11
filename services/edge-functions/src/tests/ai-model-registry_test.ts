@@ -17,13 +17,29 @@ import "./_env.ts";
 //           surface that names something else is naming a model the registry
 //           was not asked about, which is the twelve-places problem back.
 //
-//   SOURCE  no raw model-id literal reappears in code in the four derived
-//           modules. This is the only half that can catch a NEW pin, because a
-//           new pin with a plausible id would pass every value check.
+//   SOURCE  no raw model-id literal reappears in code anywhere in the service.
+//           This is the only half that can catch a NEW pin, because a new pin
+//           with a plausible id would pass every value check.
 //
 // The source scan carries a positive control (it must find ids in the registry
 // itself) so it cannot pass by matching nothing, and it excludes this file, so
 // the ids quoted in the assertions below are not its own input.
+//
+// US-3347 WIDENED THE SOURCE HALF, and that is the part worth reading. It used
+// to scan FOUR modules named in a const above: ai-config.ts, ai-usage.ts,
+// ai-token-profile.ts and agent-kernel.ts. second-opinion.ts was the fifth
+// module that defaults a model and it was not on the list, so it carried a raw
+// "claude-opus-4-8" through the whole of US-3186 with the guard green. A list
+// of files to scan is a second thing that can be wrong, it goes wrong silently,
+// and its silence is indistinguishable from a clean codebase.
+//
+// So the scanned set is now the TREE: every .ts file under services/edge-
+// functions except src/tests (test bodies name ids on purpose) and except the
+// registry itself. Nothing has to be remembered when a file is added. The two
+// exclusions fail in opposite directions and are handled accordingly -- a
+// broken tests exclusion makes the scan RED and loud, while an exclusion that
+// accidentally swallowed src/lib would make it quiet, so the set is asserted to
+// still contain the five modules that actually default a model.
 
 import { assert, assertEquals } from "@std/assert";
 import {
@@ -51,21 +67,63 @@ import {
 } from "../lib/ai-config.ts";
 import { MODEL_PRICES } from "../lib/ai-usage.ts";
 import { AGENT_MODEL_ALLOWLIST } from "../lib/agent-kernel.ts";
-
-// The four modules that derive from the registry. Paths are relative to this
-// file, and each is read as text for the source half.
-const DERIVED_MODULES = [
-  "../lib/ai-config.ts",
-  "../lib/ai-usage.ts",
-  "../lib/ai-token-profile.ts",
-  "../lib/agent-kernel.ts",
-] as const;
+import { DEFAULT_SECOND_OPINION_CONFIG } from "../lib/second-opinion.ts";
 
 const REGISTRY_MODULE = "../lib/ai-model-registry.ts";
 
 function readModule(rel: string): string {
   return Deno.readTextFileSync(new URL(rel, import.meta.url));
 }
+
+// -- The scanned set, derived from the tree (US-3347) --------------------------
+
+/** services/edge-functions/: src, scripts, tools and anything added later. */
+const SERVICE_ROOT = new URL("../../", import.meta.url);
+/** Test bodies name model ids as fixtures and assertions; that is their job. */
+const TESTS_DIR = new URL("../tests/", import.meta.url);
+const REGISTRY_URL = new URL(REGISTRY_MODULE, import.meta.url);
+
+/** Never walked: vendored or generated code nobody in this repo wrote. */
+const SKIP_DIRS = new Set(["node_modules", ".git", "dist", "coverage", "vendor"]);
+
+function walkTypeScript(dir: URL, out: URL[] = []): URL[] {
+  for (const entry of Deno.readDirSync(dir)) {
+    if (entry.isDirectory) {
+      if (SKIP_DIRS.has(entry.name)) continue;
+      const child = new URL(`${entry.name}/`, dir);
+      if (child.href === TESTS_DIR.href) continue;
+      walkTypeScript(child, out);
+    } else if (entry.isFile && entry.name.endsWith(".ts")) {
+      out.push(new URL(entry.name, dir));
+    }
+  }
+  return out;
+}
+
+/** Walked once; three cases below read it. */
+const SCANNED: readonly URL[] = walkTypeScript(SERVICE_ROOT)
+  .filter((u) => u.href !== REGISTRY_URL.href);
+
+/** Path relative to the service root, so a failure is something you can open. */
+function shortPath(u: URL): string {
+  return decodeURIComponent(u.href.slice(SERVICE_ROOT.href.length));
+}
+
+/**
+ * The files that DEFAULT or RESOLVE a model, as of US-3347.
+ *
+ * Not the scan's input. The scan's input is the whole tree. This is the
+ * over-exclusion control: if an exclusion, a skipped directory or a walk bug
+ * ever quietly removes src/lib from the corpus, the scan would still report
+ * nothing, and the way you find out is that these five stopped being in it.
+ */
+const MUST_BE_SCANNED = [
+  "src/lib/ai-config.ts",
+  "src/lib/ai-usage.ts",
+  "src/lib/ai-token-profile.ts",
+  "src/lib/agent-kernel.ts",
+  "src/lib/second-opinion.ts",
+] as const;
 
 /**
  * Strip comments so a sentence ABOUT a model id is not read as a pin.
@@ -164,6 +222,53 @@ Deno.test("US-3186: the tier defaults ARE the registry's current ids", () => {
       `${spec.env} defaults to ${spec.codeDefault}, which is not a CURRENT id`,
     );
   }
+});
+
+Deno.test("US-3347: the second opinion is a DIFFERENT allowlisted model", () => {
+  // Three things, and the first is the only one a value check can catch that a
+  // source scan cannot.
+  //
+  // 1. The two are not the same model. A second opinion from the model that
+  //    gave the first is not a weaker check, it is manufactured evidence: the
+  //    composite runs twice, agrees with itself, and the note records that a
+  //    second model confirmed the grade. second-opinion.ts refuses to FALL BACK
+  //    to the primary for that reason; nothing stopped the two tiers being
+  //    edited into each other until this line.
+  //
+  //    Widened to `string` deliberately: CURRENT_MODELS is `as const`, so while
+  //    the two differ TypeScript calls the comparison unintentional (TS2367)
+  //    and refuses to compile it. The day they are edited into each other the
+  //    types DO overlap, the error goes away, and this assertion is the only
+  //    thing left that notices.
+  const secondModel: string = CURRENT_MODELS.secondOpinion;
+  const primaryModel: string = CURRENT_MODELS.default;
+  assert(
+    secondModel !== primaryModel,
+    `the second-opinion tier and the grading default are both ` +
+      `${primaryModel}, so the pass would grade twice with one model and ` +
+      `report agreement. Point one of them somewhere else.`,
+  );
+
+  // 2. It is on the grading allowlist, which is where a model earns the right
+  //    to touch a grade. resolveSecondOpinionConfig would otherwise DISABLE the
+  //    feature at runtime with a warning nobody reads until they wonder why the
+  //    setting they turned on did nothing.
+  assert(
+    GRADING_MODEL_ALLOWLIST.has(CURRENT_MODELS.secondOpinion),
+    `${CURRENT_MODELS.secondOpinion} is the second-opinion tier but is not on ` +
+      `GRADING_MODEL_ALLOWLIST, so the pass refuses itself the moment it is ` +
+      `enabled. A model joins that list at the eval gate.`,
+  );
+
+  // 3. second-opinion.ts still takes its default FROM the tier. The source scan
+  //    catches a raw id going back in; this catches the subtler version, where
+  //    the config stops reading the registry and starts reading something else
+  //    that happens to be a string.
+  assertEquals(
+    DEFAULT_SECOND_OPINION_CONFIG.model,
+    CURRENT_MODELS.secondOpinion,
+    "DEFAULT_SECOND_OPINION_CONFIG.model no longer derives from the registry",
+  );
 });
 
 Deno.test("US-3186: a retained id is still present everywhere it says it is", () => {
@@ -307,18 +412,72 @@ Deno.test("US-3186: the scan's own pattern finds ids where ids live", () => {
   );
 });
 
-Deno.test("US-3186: no derived module pins a model id in code", () => {
-  for (const rel of DERIVED_MODULES) {
-    const literals = modelIdLiterals(codeOnly(readModule(rel)));
-    assertEquals(
-      literals,
-      [],
-      `${rel} names ${literals.join(", ")} directly in code. Model ids live in ` +
-        `lib/ai-model-registry.ts and every other module references MODEL_IDS ` +
-        `or CURRENT_MODELS. A raw id here is a place "change the model" has to ` +
-        `be hunted for, and the copy left behind keeps working (US-3186).`,
+Deno.test("US-3347: the scanned set is the tree, and the tree is not empty", () => {
+  // The control for the widening itself. A derived corpus can derive to nothing:
+  // a renamed directory, a walk that never recurses, a skip list that matches
+  // too much. An empty corpus reports zero findings, which is exactly what
+  // a clean service reports. So: it is large, it contains the files that
+  // actually default a model, and it contains neither the tests nor the
+  // registry.
+  assert(
+    SCANNED.length >= 500,
+    `the scan walked ${SCANNED.length} files. The service has over a thousand ` +
+      `outside src/tests; a number this small means the walk stopped early and ` +
+      `its "no raw ids found" answer is about a corpus that is not the service.`,
+  );
+
+  const paths = new Set(SCANNED.map(shortPath));
+  for (const required of MUST_BE_SCANNED) {
+    assert(
+      paths.has(required),
+      `${required} is not in the scanned set. It defaults or resolves a model, ` +
+        `so a raw id planted in it would go unseen, which is precisely what ` +
+        `happened to second-opinion.ts under the four-file list (US-3347).`,
     );
   }
+
+  // The registry is the one file allowed to write ids, and it is excluded by
+  // identity rather than by spelling, so a rename cannot silently re-include it
+  // (which would turn the scan permanently red) or exclude a second file.
+  assert(!paths.has("src/lib/ai-model-registry.ts"), "the registry is in its own corpus");
+  assert(
+    walkTypeScript(SERVICE_ROOT).length - SCANNED.length === 1,
+    "the registry exclusion removed something other than exactly one file",
+  );
+
+  // Tests are excluded as a DIRECTORY, and the exclusion has to be excluding
+  // something real: if TESTS_DIR ever stops matching, this file's own fixtures
+  // land in the corpus and the suite goes loudly red rather than quietly wrong.
+  assert(
+    [...paths].every((p) => !p.startsWith("src/tests/")),
+    "a file under src/tests is in the scanned corpus",
+  );
+  assert(
+    [...Deno.readDirSync(TESTS_DIR)].some((e) => e.name.endsWith("_test.ts")),
+    "TESTS_DIR resolves to a directory with no test files in it, so the " +
+      "exclusion is pointed at the wrong place",
+  );
+});
+
+Deno.test("US-3347: no file in the service pins a model id in code", () => {
+  // The whole service, not a list of four. Every finding is reported, not the
+  // first, because a sweep that stops at one file gets run five times.
+  const offenders: string[] = [];
+  for (const file of SCANNED) {
+    const literals = modelIdLiterals(codeOnly(Deno.readTextFileSync(file)));
+    if (literals.length > 0) {
+      offenders.push(`${shortPath(file)}: ${[...new Set(literals)].join(", ")}`);
+    }
+  }
+  assertEquals(
+    offenders,
+    [],
+    `these files name a model id directly in code:\n  ${offenders.join("\n  ")}\n` +
+      `Model ids live in src/lib/ai-model-registry.ts and every other file ` +
+      `references MODEL_IDS or CURRENT_MODELS. A raw id is a place "change the ` +
+      `model" has to be hunted for, and the copy left behind keeps working ` +
+      `(US-3186, US-3347).`,
+  );
 });
 
 Deno.test("US-3186: the registry is the only module that writes an id", () => {
@@ -326,12 +485,8 @@ Deno.test("US-3186: the registry is the only module that writes an id", () => {
   // of these files does not read as a regression: what must hold is that the
   // ids are in ONE file, not that they are on a particular line of it.
   const registryIds = new Set(modelIdLiterals(codeOnly(readModule(REGISTRY_MODULE))));
-  const derivedIds = new Set(
-    DERIVED_MODULES.flatMap((rel) => modelIdLiterals(codeOnly(readModule(rel)))),
-  );
-  assertEquals(derivedIds.size, 0);
-  assertEquals(
+  assert(
     registryIds.size >= new Set(Object.values(MODEL_IDS)).size,
-    true,
+    "the registry writes fewer ids than MODEL_IDS holds",
   );
 });

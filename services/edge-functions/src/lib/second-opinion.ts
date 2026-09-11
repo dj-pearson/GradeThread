@@ -56,6 +56,7 @@
 //           stays pure.
 
 import { isAllowedGradingModel } from "./ai-config.ts";
+import { CURRENT_MODELS } from "./ai-model-registry.ts";
 
 /** Grade points. One tier is 1.0; the default epsilon is half a tier. */
 export const DEFAULT_DISAGREEMENT_EPSILON = 0.5;
@@ -77,7 +78,10 @@ export interface SecondOpinionConfig {
   highValueMin: number | null;
   /** Grade-point difference above which the two models are held to disagree. */
   epsilon: number;
-  /** Second model. Must be on GRADING_MODEL_ALLOWLIST. */
+  /**
+   * Second model. Must be on GRADING_MODEL_ALLOWLIST, and must not be the model
+   * the first opinion ran on -- see CURRENT_MODELS.secondOpinion.
+   */
   model: string;
   /** Optional ceiling on triggers per hour; null = unbounded. */
   maxPerHour: number | null;
@@ -91,7 +95,12 @@ export const DEFAULT_SECOND_OPINION_CONFIG: SecondOpinionConfig = {
   bandMax: 0.85,
   highValueMin: null,
   epsilon: DEFAULT_DISAGREEMENT_EPSILON,
-  model: "claude-opus-4-8",
+  // US-3347. This line used to be the id itself, written down nowhere else and
+  // derived from nothing, which is the state the model registry exists to end:
+  // the day somebody flips `enabled` the second opinion runs on whatever it
+  // says, and nothing warns that the value is a generation old. It is a tier
+  // now, and the registry says why that tier is not `default`.
+  model: CURRENT_MODELS.secondOpinion,
   maxPerHour: null,
 };
 
@@ -101,6 +110,15 @@ export const DEFAULT_SECOND_OPINION_CONFIG: SecondOpinionConfig = {
  * Pure. Returns a config whose `enabled` is only ever true when every field it
  * depends on is usable — so a caller can trust `enabled` alone and does not have
  * to re-validate. A refusal is reported rather than swallowed.
+ *
+ * ONE CASE THIS DOES NOT CATCH, recorded by US-3347 so the next sweep does not
+ * have to work it out again. The default model is now a tier and a test holds it
+ * apart from the grading default, but an operator who WRITES the primary model
+ * into the settings row gets it accepted: it is on the allowlist, and this
+ * function is pure, so it cannot see which model the primary composite actually
+ * resolved to (an env override can move that at runtime). Closing it means the
+ * caller passing its resolved primary model in, which is a change to
+ * grading-pipeline.ts and belongs to whoever next opens that file.
  */
 export function resolveSecondOpinionConfig(
   raw: Partial<SecondOpinionConfig> | null | undefined,

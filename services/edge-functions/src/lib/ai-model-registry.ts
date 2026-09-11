@@ -23,6 +23,14 @@
 //    11. LIGHTWEIGHT_MODEL_PREFIXES   (ai-token-profile.ts)
 //    12. system_settings.ai_feature_economics.*.current_model
 //
+// AND A THIRTEENTH, found the day US-3186 closed (US-3347). It ROUTES:
+//    13. CURRENT_MODELS.secondOpinion below, read by second-opinion.ts
+// US-3186's guard scanned four named modules, second-opinion.ts was not one of
+// them, and a guard that covers four of five modules reads exactly like a clean
+// codebase. The scan no longer takes a list of files: it walks the service and
+// scans everything outside src/tests, so a fourteenth place is caught by
+// existing, and not by somebody remembering to add it.
+//
 // Items 5, 6, 9 and 12 live in the database and cannot be derived from here.
 // vault/10-ops/ai-model-change.md says what a code change does and does not
 // reach, and carries the SQL for the four DB rows.
@@ -30,11 +38,12 @@
 // THE RULE FOR ADDING ANYTHING HERE. Ids go in this file; everything else names
 // a constant from it. src/tests/ai-model-registry_test.ts fails if one of the
 // derived surfaces names an id this file does not know, and fails if a raw
-// model-id literal reappears in code in any of the four derived modules.
+// model-id literal reappears in code ANYWHERE in the service outside src/tests
+// and this file (US-3347; it used to be four named modules).
 //
 // PURE ON PURPOSE. No Deno, no imports. ai-config.ts, ai-usage.ts,
-// ai-token-profile.ts and agent-kernel.ts all import this, so anything it
-// imported back would be a cycle.
+// ai-token-profile.ts, agent-kernel.ts and second-opinion.ts all import this,
+// so anything it imported back would be a cycle.
 
 // -- The ids ------------------------------------------------------------------
 //
@@ -67,9 +76,10 @@ export const NON_ANTHROPIC_MODEL_IDS: ReadonlySet<string> = new Set([
 // -- What each tier runs on TODAY ---------------------------------------------
 //
 // THE ONE EDIT. Changing a tier's model is changing a line here; ai-config.ts
-// DEFAULTS is these three values and nothing else. It does not reach the
-// allowlists, the price table or the four system_settings rows, and it is not
-// meant to: see the "what it does not reach" section of the ops doc.
+// DEFAULTS is the first three values and nothing else, and second-opinion.ts is
+// the fourth. It does not reach the allowlists, the price table or the four
+// system_settings rows, and it is not meant to: see the "what it does not
+// reach" section of the ops doc.
 export const CURRENT_MODELS = {
   /** Vision, grading, composite synthesis, and anything unclassified. */
   default: MODEL_IDS.sonnet5,
@@ -77,6 +87,24 @@ export const CURRENT_MODELS = {
   lightweight: MODEL_IDS.haiku45Dated,
   /** Hero and social-card image generation. */
   image: MODEL_IDS.imageGpt1,
+  /**
+   * The grading SECOND opinion (US-2279, pinned here by US-3347).
+   *
+   * A TIER, NOT A SPARE COPY OF `default`, and the difference is the whole
+   * feature. The second opinion re-runs the composite stage under another model
+   * on borderline grades and routes real disagreement to a human. Point it at
+   * the same model the first opinion ran on and it grades twice with one model
+   * and reports agreement, which is not a weaker check -- it is manufactured
+   * evidence, and second-opinion.ts refuses to fall back to the primary for
+   * exactly that reason. So this value must stay DIFFERENT from `default`, and
+   * tests/ai-model-registry_test.ts fails if the two ever meet.
+   *
+   * Opus 4.8 and not claude-opus-5, which is newer: the second model has to be
+   * on GRADING_MODEL_ALLOWLIST, and membership there is earned at the eval
+   * gate, not by being recent. Of the allowlisted ids this is the only one that
+   * is neither the current default nor a previous default nor the cheap tier.
+   */
+  secondOpinion: MODEL_IDS.opus48,
 } as const;
 
 export type ModelTierName = keyof typeof CURRENT_MODELS;
@@ -91,7 +119,9 @@ export type ModelTierName = keyof typeof CURRENT_MODELS;
  */
 export const CURRENT_MODEL_IDS: ReadonlySet<string> = new Set([
   MODEL_IDS.opus5,
-  MODEL_IDS.opus48,
+  // Written as the tier rather than the id so the second opinion cannot be
+  // pointed at something this build considers previous-generation.
+  CURRENT_MODELS.secondOpinion,
   CURRENT_MODELS.default,
   MODEL_IDS.haiku45,
   CURRENT_MODELS.lightweight,

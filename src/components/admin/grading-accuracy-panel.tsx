@@ -663,6 +663,19 @@ function ToolsTab() {
               </SelectContent>
             </Select>
           </div>
+          {/*
+            US-3347, so the next model sweep does not have to re-decide these.
+            The two ids below are PLACEHOLDER TEXT, not pins. Nothing reads
+            them: the inputs start empty, the operator types a model, and the
+            edge route checks whatever is typed against GRADING_MODEL_ALLOWLIST
+            and answers 400 "model_a and model_b must be on the grading
+            allowlist" for anything else. So a stale example costs one refused
+            click with the reason printed, never a run against the wrong model.
+
+            They are NOT derived. The allowlist lives in the edge service and
+            nothing serves it to the browser, so deriving them means a new
+            endpoint for two hint strings. If one is ever built, read it here.
+          */}
           <div className="space-y-1.5">
             <Label className="text-xs" htmlFor="model-a">Model A</Label>
             <Input id="model-a" className="h-9" placeholder="e.g. claude-sonnet-5" value={modelA} onChange={(e) => setModelA(e.target.value)} />
