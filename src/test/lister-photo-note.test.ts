@@ -84,6 +84,88 @@ describe("US-1877: photo attach reporting", () => {
     ).toBe("");
   });
 
+  it("US-2738: a refusal by the PAGE names the refusal, not just the count", () => {
+    // `none` is the uploader taking the file selection and rendering nothing out
+    // of it. attachPhotos converts that to every photo failed, so without the
+    // witness this lands on "Photos didn't attach" and the seller sends again
+    // into the same wall.
+    const note = photoNote({
+      photosAttached: false,
+      photosTotal: 8,
+      photosFailed: 8,
+      photosWitness: "none",
+    });
+    expect(note).toMatch(/never showed them/i);
+    expect(note).toMatch(/not on the listing/i);
+    // The instruction has to be the DIFFERENT mechanism, and it has to say why.
+    expect(note).toMatch(/add them to the form yourself/i);
+    expect(note).toMatch(/sending again will not help/i);
+  });
+
+  it("US-2738: 'page' settles the shadow hedge instead of doubting it", () => {
+    // The page rendered a preview out of our bytes, so the uploader read the
+    // list however it was set. Hedging anyway would fire a false alarm on the
+    // only channel that can answer at all.
+    expect(
+      photoNote({
+        photosAttached: true,
+        photosTotal: 8,
+        photosFailed: 0,
+        photosUnverified: 8,
+        photosWitness: "page",
+      }),
+    ).toBe("");
+  });
+
+  it("US-2738: 'page' does NOT silence a real partial failure", () => {
+    // The witness is boolean and the counts are not. A confirmed preview says
+    // the uploader read the list; it says nothing about the two photos we never
+    // managed to fetch, and swallowing those would be this story's own bug.
+    const note = photoNote({
+      photosAttached: false,
+      photosTotal: 8,
+      photosFailed: 2,
+      photosWitness: "page",
+    });
+    expect(note).toMatch(/6 of 8/);
+  });
+
+  it("US-2738: 'not-asked' adds no warning of its own", () => {
+    // Four channels declare no preview selector and run this way every time.
+    // "We could not check" belongs in the record, not in a toast, or the seller
+    // learns to close the toast.
+    expect(
+      photoNote({
+        photosAttached: true,
+        photosTotal: 8,
+        photosFailed: 0,
+        photosWitness: "not-asked",
+      }),
+    ).toBe("");
+    // But it must not swallow the shadow hedge either: unconfirmed by the
+    // browser AND unasked of the page is still something to say.
+    expect(
+      photoNote({
+        photosAttached: true,
+        photosTotal: 8,
+        photosFailed: 0,
+        photosUnverified: 8,
+        photosWitness: "not-asked",
+      }),
+    ).toMatch(/couldn't confirm/i);
+  });
+
+  it("US-2738: an absent witness leaves every older message exactly as it was", () => {
+    // A build that sends no witness must read as it did yesterday. Only an
+    // explicit `none` gets the new sentence.
+    expect(
+      photoNote({ photosAttached: false, photosTotal: 8, photosFailed: 8 }),
+    ).toMatch(/didn't attach/i);
+    expect(
+      photoNote({ photosAttached: true, photosTotal: 8, photosFailed: 0 }),
+    ).toBe("");
+  });
+
   it("falls back to the old boolean for an extension that predates the counts", () => {
     // A seller on the previous build sends no counts. Undefined totals must not be
     // read as "0 of 0 attached" — fall back to the boolean rather than inventing a

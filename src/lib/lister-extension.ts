@@ -87,6 +87,14 @@ export interface ListerPayload {
   locale?: string;
 }
 
+/**
+ * US-2738: the three answers the extension can give about the photos. Derived
+ * from `GT.photoWitness` (extension-unified/lister/common.js). Do not add a
+ * fourth here without adding it there first, and see `photoWitnessState` for
+ * what happens to a word this build does not know.
+ */
+export type PhotoWitness = "page" | "none" | "not-asked";
+
 export interface ListerResult {
   ok: boolean;
   filled?: boolean;
@@ -131,6 +139,28 @@ export interface ListerResult {
    * photo was confirmed; older extensions never send it.
    */
   photosUnverified?: number;
+  /**
+   * US-2738 AC7/AC8: WHO said the photos are on the form, in one word.
+   *
+   * Written by `GT.photoWitness` in extension-unified/lister/common.js and the
+   * words are its words, not ours:
+   *
+   *   "page"      the page rendered a preview out of the bytes we handed it.
+   *               The uploader read the selection however it was set.
+   *   "none"      the page was asked and rendered nothing in six seconds. The
+   *               extension converts that to every photo FAILED, so the counts
+   *               agree with the witness rather than contradicting it.
+   *   "not-asked" the channel declares no `photoConfirm` selector, so nobody
+   *               outside the extension checked. Only four of the seven
+   *               channels can be asked at all today.
+   *
+   * ABSENT means one of two things and neither is success: there were no photos
+   * to attach (the extension sends no witness when total is 0), or the install
+   * predates this field. `photoWitnessState` is where that is decided, because
+   * "we did not check" reading as "it worked" is the entire bug this story is
+   * named after.
+   */
+  photosWitness?: PhotoWitness;
   listingUrl?: string | null;
   manual?: boolean;
   needsConsent?: boolean;
@@ -179,6 +209,53 @@ export interface ListerResult {
   late?: boolean;
   error?: string;
   version?: string;
+}
+
+/**
+ * US-2738: what a stored run actually knows about its photos.
+ *
+ *   "confirmed"          the PAGE rendered a preview from our bytes.
+ *   "refused"            the page was asked and rendered nothing.
+ *   "unknown"            nobody checked, or the run predates the witness.
+ *   "nothing-to-attach"  there were no photos in play, so there is no claim to
+ *                        qualify and nothing to render.
+ *
+ * The default arm is "unknown" ON PURPOSE and it is the point of this function.
+ * An absent witness, a witness word a future extension invents, and a channel
+ * that declares no selector all mean the same thing here: nothing outside the
+ * extension has said the photos landed. Mapping any of those to "confirmed" is
+ * how a seller publishes a listing with no images believing otherwise, which is
+ * the failure US-2738 opened on. Absence is not confirmation.
+ */
+export type PhotoWitnessState =
+  | "confirmed"
+  | "refused"
+  | "unknown"
+  | "nothing-to-attach";
+
+export function photoWitnessState(res: {
+  photosWitness?: string | null;
+  photosTotal?: number;
+  photosAttached?: boolean;
+}): PhotoWitnessState {
+  switch (res.photosWitness) {
+    case "page":
+      return "confirmed";
+    case "none":
+      return "refused";
+    default:
+      break;
+  }
+  // No witness. Either nothing was attempted or nothing recorded an answer, and
+  // those are different sentences to a seller.
+  if (res.photosTotal === undefined) {
+    // An install old enough to send no counts at all. `photosAttached: true`
+    // from that build is the pre-US-1877 boolean, a claim with nothing behind
+    // it, so it reads as unknown rather than as the success it calls itself.
+    return res.photosAttached === undefined ? "nothing-to-attach" : "unknown";
+  }
+  if (res.photosTotal <= 0) return "nothing-to-attach";
+  return "unknown";
 }
 
 // Minimal ambient shape for the bits of the chrome.runtime messaging API we

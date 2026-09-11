@@ -8,6 +8,7 @@ import {
   Copy,
   Download,
   ExternalLink,
+  HelpCircle,
   Loader2,
   Puzzle,
   Wand2,
@@ -58,7 +59,9 @@ import {
   listerUnavailableReason,
   listerBlockCause,
   type ListerBlockCause,
+  type ListerResult,
   onListerListed,
+  photoWitnessState,
   sendToLister,
 } from "@/lib/lister-extension";
 import { MARKETPLACE_EXTENSION_FLOW } from "@/lib/constants";
@@ -244,6 +247,10 @@ function PlatformPanel({
   // US-1877 (AC2): a prefill records a DRAFT. This surfaces the control that
   // promotes it once the seller has actually hit Submit on the marketplace.
   const [prefilled, setPrefilled] = useState(false);
+  // US-2738: the fill result the witness line reads. Kept as the whole result
+  // rather than a derived word, so the line answers from the same fields the
+  // toast did and the two can never disagree.
+  const [lastFill, setLastFill] = useState<ListerResult | null>(null);
   const [confirming, setConfirming] = useState(false);
   // US-2720: set only by an explicit refusal FROM the extension — never
   // inferred from the plan we think the account is on, because the extension is
@@ -291,6 +298,7 @@ function PlatformPanel({
           });
           if (!wb.ok) return; // "I published it" is still there as the fallback
           setPrefilled(false);
+          setLastFill(null);
           toast.success(`${spec?.label ?? platform} listing is live — recorded in FlipDesk.`);
           void qc.invalidateQueries({ queryKey: ["platform-fields", itemId] });
           void qc.invalidateQueries({ queryKey: ["item_listing_platforms"] });
@@ -354,6 +362,7 @@ function PlatformPanel({
       }
       toast.success(`${spec.label} listing recorded as live.`);
       setPrefilled(false);
+      setLastFill(null);
       void qc.invalidateQueries({ queryKey: ["platform-fields", itemId] });
       void qc.invalidateQueries({ queryKey: ["item_listing_platforms"] });
       void qc.invalidateQueries({ queryKey: ["items_full"] });
@@ -480,6 +489,9 @@ function PlatformPanel({
       return;
     }
     setSending(true);
+    // US-2738: a new send's photos have not been witnessed yet, so the previous
+    // run's line must not sit there implying they have.
+    setLastFill(null);
     try {
       const payload = buildListerPayload({
         platform,
@@ -524,6 +536,12 @@ function PlatformPanel({
         toast.error(res.error ?? `Couldn't send to ${spec.label}.`);
         return;
       }
+      // US-2738: keep the photo witness BEFORE the writeback, because whether
+      // the photos reached the marketplace has nothing to do with whether we
+      // managed to record the cross-listing here. The writeback has its own
+      // failure path below that returns early, and losing the witness down it
+      // would drop the message on exactly the run that already went wrong once.
+      setLastFill(res);
       // US-1877 (AC2): the tab was PREFILLED, not published — the seller still has
       // to review and hit Submit, and may never do it. Recording this as `active`
       // (which is what happened before) minted a phantom live cross-listing in
@@ -735,6 +753,11 @@ function PlatformPanel({
           </Button>
         )}
       </div>
+
+      {/* US-2738: what happened to the photos, kept on screen next to the
+          button that records the listing as live. The toast is gone by then and
+          on a queue drain nobody read it. */}
+      {lastFill && <PhotoWitnessLine res={lastFill} platformLabel={spec.label} />}
 
       {/* US-2720: the honest half of `showSend`. One of these renders whenever
           this is an extension channel and the send is not on offer — the manual
@@ -959,6 +982,8 @@ export function photoNote(res: {
   photosTotal?: number;
   photosFailed?: number;
   photosUnverified?: number;
+  /** US-2738: "page" | "none" | "not-asked", absent on an older run. */
+  photosWitness?: string | null;
 }): string {
   const total = res.photosTotal ?? 0;
   const failed = res.photosFailed ?? 0;
@@ -966,6 +991,21 @@ export function photoNote(res: {
   // report. Falls back to the old boolean for an extension that predates the counts.
   if (total === 0) return res.photosAttached ? "" : " Drag your downloaded photos in.";
   const attached = total - failed;
+  // US-2738: where the PAGE answered, its answer outranks our own counting.
+  //
+  // "none" is the uploader refusing: it accepted the file selection and then
+  // rendered nothing out of the bytes, for six seconds. attachPhotos already
+  // converts that to every photo failed, so the branches below would reach
+  // "Photos didn't attach" and tell the seller to drag them in. Close, but it
+  // buries the one fact that changes what they should do: a re-send hands the
+  // same uploader the same list and gets the same nothing, so the way out is a
+  // different mechanism and not another try.
+  if (res.photosWitness === "none") {
+    return (
+      " The page took the photos and never showed them, so they are not on the" +
+      " listing. Add them to the form yourself; sending again will not help."
+    );
+  }
   // US-2775: a third state, between attached and failed.
   //
   // The page took the list only through the shadow fallback, where the only
@@ -975,12 +1015,83 @@ export function photoNote(res: {
   // So: say what is actually known. Checked before the clean-run return, since
   // an unverified run has no failures either.
   const unverified = res.photosUnverified ?? 0;
-  if (unverified > 0 && failed === 0) {
+  // US-2738: "page" settles what the shadow hedge is unsure about. The page
+  // rendered a preview out of our bytes, so the uploader read the list however
+  // it was set, and doubting it here would be a false alarm on the only channel
+  // that can answer at all. The extension zeroes `unverified` in that case; this
+  // is the belt to that pair of braces.
+  if (unverified > 0 && failed === 0 && res.photosWitness !== "page") {
     return " We couldn't confirm the photos attached — check the form before you post.";
   }
   if (failed === 0) return "";
   if (attached === 0) return " Photos didn't attach — drag your downloaded photos in.";
   return ` Attached ${attached} of ${total} photos — drag the rest in.`;
+}
+
+// US-2738: the photo witness, on screen, after the tab is gone.
+//
+// The toast above is a few seconds long and a queue drain produces one per
+// channel. This is the same fact kept where the seller is standing when they
+// decide whether the cross-post worked: beside "I published it", the button
+// that turns a prefilled form into a recorded live listing.
+//
+// THREE SENTENCES, and the third is the reason the component exists. "Refused"
+// is a problem and reads as one. "Confirmed" says what was actually checked and
+// no more. The witness is a boolean (some uploaders draw one carousel node for
+// eight photos), so it proves the uploader read the list, not that every file is
+// there. And "unknown" is the case that used to render as nothing at all, which
+// a seller reads as fine: four of the seven channels declare no preview selector
+// and an older install sends no witness at all, and neither of those is the page
+// saying yes. Absence is not confirmation, so it gets words.
+//
+// Quiet on purpose except for the refusal. `not-asked` fires on every ordinary
+// Mercari, Grailed, Vinted and Facebook run, so an amber alert there would train
+// the seller to dismiss the bar that means something.
+export function PhotoWitnessLine({
+  res,
+  platformLabel,
+}: {
+  res: ListerResult;
+  platformLabel: string;
+}) {
+  const state = photoWitnessState(res);
+  if (state === "nothing-to-attach") return null;
+
+  if (state === "refused") {
+    return (
+      <p className="flex items-start gap-1.5 text-xs text-brand-red-text">
+        <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+        <span>
+          {platformLabel} never showed the photos it was handed, so they are not on
+          the listing. Add them to the form yourself before you post.
+        </span>
+      </p>
+    );
+  }
+
+  if (state === "confirmed") {
+    const shown = Math.max(0, (res.photosTotal ?? 0) - (res.photosFailed ?? 0));
+    return (
+      <p className="flex items-start gap-1.5 text-xs text-muted-foreground">
+        <Check className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+        <span>
+          {platformLabel} previewed the photos we sent, so its uploader took them.
+          That check is not a count, so glance at all {shown} before you post.
+        </span>
+      </p>
+    );
+  }
+
+  return (
+    <p className="flex items-start gap-1.5 text-xs text-muted-foreground">
+      <HelpCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+      <span>
+        Nothing confirmed the photos reached {platformLabel}. We handed them over
+        and this run recorded no answer either way, so check the form before you
+        post.
+      </span>
+    </p>
+  );
 }
 
 // 2026-08-11: what to tell the seller about the PRICE.
