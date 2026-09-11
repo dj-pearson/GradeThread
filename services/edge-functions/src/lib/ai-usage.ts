@@ -22,6 +22,7 @@
 
 import { supabaseAdmin } from "./supabase.ts";
 import { type AiUsage, normalizeUsage } from "./ai-provider.ts";
+import { MODEL_IDS } from "./ai-model-registry.ts";
 
 // Per-million-token USD list prices. Input/output plus the standard cache
 // multipliers Anthropic applies: 5-minute cache WRITE = 1.25× input, cache
@@ -67,14 +68,22 @@ export const PRICE_SWEEP_MAX_AGE_DAYS = 180;
 //
 // Lookup falls back to the bare model id so every row written before this change
 // still prices correctly; see priceFor().
+//
+// US-3186: the KEYS come from MODEL_IDS (lib/ai-model-registry.ts); the rates
+// stay here, because a price is a fact about a model and not a property of it.
+// A row may be added freely. Deleting one is the trap: priceFor() answers 0 for
+// an unknown id, so removing a previous-generation row reprices every
+// historical call on that model to $0.00 with no error anywhere, and the bill
+// appears to have fallen. RETAINED_MODEL_IDS names the rows that must stay and
+// tests/ai-model-registry_test.ts fails if one goes missing.
 export const MODEL_PRICES: Record<string, ModelPrice> = {
-  "claude-opus-5": {
+  [MODEL_IDS.opus5]: {
     inputPerMTok: 5,
     outputPerMTok: 25,
     checkedOn: "2026-09-11",
     source: PRICE_SOURCE,
   },
-  "claude-opus-4-8": {
+  [MODEL_IDS.opus48]: {
     inputPerMTok: 5,
     outputPerMTok: 25,
     checkedOn: "2026-09-11",
@@ -84,26 +93,27 @@ export const MODEL_PRICES: Record<string, ModelPrice> = {
   // row in the ledger is priced at. It is CHEAPER than Sonnet 4.6, not equal to
   // it: the $2/$10 launch rate became the standard price, and the increase to
   // $3/$15 that this table had compiled in as "the list price" was cancelled.
-  "claude-sonnet-5": {
+  [MODEL_IDS.sonnet5]: {
     inputPerMTok: 2,
     outputPerMTok: 10,
     checkedOn: "2026-09-11",
     source: PRICE_SOURCE,
   },
-  "claude-sonnet-4-6": {
+  // RETAINED, do not delete. See the paragraph above the table.
+  [MODEL_IDS.sonnet46]: {
     inputPerMTok: 3,
     outputPerMTok: 15,
     checkedOn: "2026-09-11",
     source: PRICE_SOURCE,
   },
-  "claude-haiku-4-5-20251001": {
+  [MODEL_IDS.haiku45Dated]: {
     inputPerMTok: 1,
     outputPerMTok: 5,
     checkedOn: "2026-09-11",
     source: PRICE_SOURCE,
   },
   // Alias without the date suffix, in case DEFAULT_AI_MODEL is set to the bare id.
-  "claude-haiku-4-5": {
+  [MODEL_IDS.haiku45]: {
     inputPerMTok: 1,
     outputPerMTok: 5,
     checkedOn: "2026-09-11",

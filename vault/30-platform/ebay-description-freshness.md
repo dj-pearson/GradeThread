@@ -8,12 +8,32 @@ code_refs:
   - services/edge-functions/src/lib/seller-credentials.ts
   - services/edge-functions/src/routes/jobs-credentials-refresh.ts
   - services/edge-functions/src/lib/ai-listing.ts
-reviewed: 2026-09-08
+reviewed: 2026-09-11
 tags: [ebay, publishing, listings, gotcha]
 summary: An eBay description is frozen text — eBay bans active content and off-eBay links — so anything time-varying in it goes stale until a scheduled revise re-renders it.
 ---
 
 # eBay descriptions cannot self-update — refresh by revise
+
+> **Re-reviewed 2026-09-11.** Drift flagged `ai-listing.ts` for `416258523`
+> (US-3346). The diff is three comment blocks about ASPECT ordering, at
+> `:1526-1531` and `:1767-1770`: eBay publishes no aspect demand on the US
+> apparel tree, so the unfilled-recommended list arrives alphabetical rather
+> than demand-ranked. Item specifics, not descriptions. No executable line
+> changed and the description path is untouched.
+>
+> Re-verified the render path at HEAD instead of trusting that: the
+> description is still built as one block array and rendered once, by
+> `renderDescription(withTemplate, descriptionCtx)`, and it is still frozen
+> HTML once eBay has it.
+>
+> ⚠ Corrected while here, both line refs below had drifted again. The
+> `RenderContext` the 2026-09-05 pass placed at `:3153` is at `:3234` now, and
+> the `lib/description-blocks.ts` comment the 2026-08-31 pass placed at `:596`
+> is at `:661` (`:596` is now prompt text about the Department aspect). The
+> shape both describe is unchanged; only the numbers were stale. This is the
+> third consecutive pass to move the same two refs, so treat them as
+> approximate and grep for the symbol.
 
 > **Re-reviewed 2026-09-08.** Drift flagged `ai-listing.ts` for `8531b994b`.
 > The whole diff there is `PriceCompSource` gaining a `"pooled_sales"` member so

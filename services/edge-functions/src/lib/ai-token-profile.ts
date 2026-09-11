@@ -22,6 +22,13 @@
 // the rows and the window, which is what makes the arithmetic unit-testable
 // against fixtures instead of against production.
 
+// The registry is pure too (no Deno, no imports of its own), so importing it
+// does not cost this module the property the header just claimed.
+import {
+  isLightweightModel,
+  LIGHTWEIGHT_MODEL_PREFIXES,
+} from "./ai-model-registry.ts";
+
 /** Which side of the business a phase's spend belongs to. */
 export type SpendBucket = "operator" | "grading" | "action";
 
@@ -119,13 +126,14 @@ export const LIGHTWEIGHT_TIER_PHASES: ReadonlySet<string> = new Set([
   "photo_qa",
 ]);
 
-/** Model ids that ARE the lightweight tier. Matched by prefix. */
-export const LIGHTWEIGHT_MODEL_PREFIXES: readonly string[] = ["claude-haiku"];
-
-export function isLightweightModel(model: string): boolean {
-  const m = model.trim().toLowerCase();
-  return LIGHTWEIGHT_MODEL_PREFIXES.some((p) => m.startsWith(p));
-}
+// Model ids that ARE the lightweight tier, matched by prefix.
+//
+// US-3186: derived from MODEL_FAMILIES in lib/ai-model-registry.ts rather than
+// written here. This used to be a one-element array, which is the shape that
+// goes stale silently: the day a second cheap family ships, a report keeps
+// classifying its rows as full-tier spend and the only symptom is a number that
+// looks slightly wrong. Re-exported so existing importers are unchanged.
+export { isLightweightModel, LIGHTWEIGHT_MODEL_PREFIXES };
 
 export function classifyPhase(phase: string): SpendBucket {
   if (phase.startsWith("agent:")) return "operator";

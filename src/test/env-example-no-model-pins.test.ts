@@ -25,7 +25,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
 const EXAMPLE = "services/edge-functions/.env.example";
-const CONFIG = "services/edge-functions/src/lib/ai-config.ts";
+const REGISTRY = "services/edge-functions/src/lib/ai-model-registry.ts";
 
 /**
  * Variables that SELECT A MODEL. Pinning any of these in the template overrides
@@ -85,16 +85,22 @@ describe("US-2633: the example env file does not pick the grading model", () => 
     // behavioural fact, which is the shape this repo keeps re-learning. It now
     // reads the rule table itself, so it fails when the DEFAULT stops taking
     // effort rather than when the implementation is rewritten.
-    const config = read(CONFIG);
-    const model = /model:\s*"([^"]+)"/.exec(config)?.[1];
-    expect(model, "could not find DEFAULTS.model in ai-config.ts").toBeTruthy();
+    // US-3186 moved both halves again: the default id and the family table now
+    // live in ai-model-registry.ts, and ai-config.ts derives from it. Same
+    // lesson as the US-3305 move recorded above, so this reads the registry
+    // rather than being re-pointed a third time at whatever imports it.
+    const registry = read(REGISTRY);
+    const key = /default:\s*MODEL_IDS\.(\w+)/.exec(registry)?.[1];
+    expect(key, "could not find CURRENT_MODELS.default in the model registry").toBeTruthy();
+    const model = new RegExp(`\\b${key}:\\s*"([^"]+)"`).exec(registry)?.[1];
+    expect(model, `could not resolve MODEL_IDS.${key} in the model registry`).toBeTruthy();
 
-    const table = /const EFFORT_BY_FAMILY[^{]*\{([\s\S]*?)\};/.exec(config)?.[1];
+    const table = /const MODEL_FAMILIES[^{]*\{([\s\S]*?)\n\};/.exec(registry)?.[1];
     expect(
       table,
-      "could not find EFFORT_BY_FAMILY in ai-config.ts - if the effort rule " +
-        "was rewritten again, point this guard at whatever replaced it rather " +
-        "than deleting the case",
+      "could not find MODEL_FAMILIES in the model registry - if the effort " +
+        "rule was rewritten again, point this guard at whatever replaced it " +
+        "rather than deleting the case",
     ).toBeTruthy();
 
     const families = new Map<string, [number, number] | null>();

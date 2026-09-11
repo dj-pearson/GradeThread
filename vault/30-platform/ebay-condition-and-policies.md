@@ -8,12 +8,28 @@ code_refs:
   - services/edge-functions/src/lib/ebay-client.ts
   - services/edge-functions/src/lib/ai-listing.ts
   - services/edge-functions/src/lib/publish-preflight.ts
-reviewed: 2026-09-10
+reviewed: 2026-09-11
 tags: [ebay, publishing, conditions, gotcha]
 summary: Condition validation lives on the Sell Metadata API, not Taxonomy, and apparel rejects LIKE_NEW — both failures are silent until publish.
 ---
 
 # eBay condition mapping and the policy endpoint
+
+> **Re-reviewed 2026-09-11.** Drift flagged `ai-listing.ts` for `416258523`
+> (US-3346). The diff is two comments and one doc comment about ASPECT
+> ordering: `buildAspectSpecsForCategory` at `:1526-1531` now says eBay
+> publishes no aspect demand on the US apparel tree, so `prioritizeByDemand`
+> falls through to required, recommended, optional, then alphabetical; and
+> `AspectCoverageTier.missing` at `:1767-1770` says the same about the
+> recommended tier. No executable line changed and nothing about condition
+> moved. Re-verified every countable claim in this note at HEAD rather than
+> taking the diff's word for it: `EBAY_CONDITION_VALUES` is still exactly at
+> `ai-listing.ts:234` with eleven members, `CONDITION_ENUM_TO_ID` still at
+> `publish-preflight.ts:235`, `getItemConditionPolicies` still at
+> `ebay-client.ts:1805` with the "Sell *Metadata* API" comment at `:1830`.
+> The iOS mirror is STILL behind, unchanged since 2026-09-10:
+> `EbayCondition.swift` carries nine cases, goes `.likeNew` then
+> `.usedExcellent`, and has no 2990/3010 case.
 
 > **Re-reviewed 2026-09-10.** Drift flagged `ebay-client.ts` for `a54057305`
 > (US-3265), which adds `FLIPDESK_POLICY_NAME`, `PolicyAnswers` and

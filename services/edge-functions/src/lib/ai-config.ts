@@ -5,19 +5,24 @@ import { currentAiFeature } from "./ai-feature-context.ts";
 // Type-only: erased at runtime, so lib/operator-model-guard.ts stays a pure
 // module with no imports of its own and no cycle back into this one.
 import type { ModelResolution } from "./operator-model-guard.ts";
+import {
+  classifyEffortSupport,
+  CURRENT_MODEL_IDS,
+  CURRENT_MODELS,
+  MODEL_IDS,
+} from "./ai-model-registry.ts";
 
 // Central reader for AI configuration. Values come from Coolify Team Shared
 // Variables so every Pearson Media project flips together when a model or
 // timeout changes. Each function falls back to a safe default so a missing
 // var never breaks a deploy — only a missing API key does.
 
+// US-3186: every model id below comes from lib/ai-model-registry.ts. Nothing in
+// this file writes one as a string any more, and a test fails if that changes.
 const DEFAULTS = {
-  model: "claude-sonnet-5",
-  lightweightModel: "claude-haiku-4-5-20251001",
-  // Image generation runs through OpenAI's images API (gpt-image-1) — the
-  // Anthropic models don't render images. Kept here so the model is a single
-  // shared-config value, never hardcoded at the call site (US-853).
-  imageModel: "gpt-image-1",
+  model: CURRENT_MODELS.default,
+  lightweightModel: CURRENT_MODELS.lightweight,
+  imageModel: CURRENT_MODELS.image,
   timeoutMs: 120_000,
   maxRetries: 2,
   enableCaching: true,
@@ -71,14 +76,10 @@ export function getAnthropicApiKey(): string {
 // the value it is handed. It never throws: a loud log plus the code default
 // beats taking AI down over a config typo.
 
-/** Model ids this generation of the code expects to be routed to. */
-export const CURRENT_MODEL_IDS: ReadonlySet<string> = new Set([
-  "claude-opus-5",
-  "claude-opus-4-8",
-  "claude-sonnet-5",
-  "claude-haiku-4-5",
-  "claude-haiku-4-5-20251001",
-]);
+// Model ids this generation of the code expects to be routed to. Owned by
+// lib/ai-model-registry.ts and re-exported here so the ~dozen existing importers
+// (and the operator guard) keep one import path (US-3186).
+export { classifyEffortSupport, CURRENT_MODEL_IDS };
 
 /** An unexpanded Coolify / template reference, e.g. "{{team.DEFAULT_AI_MODEL}}". */
 export function isUnexpandedTemplate(value: string): boolean {
@@ -282,12 +283,20 @@ export function getDefaultImageModel(): string {
 // grading behavior + reproducibility, so it's rejected (with a loud warning) in
 // favor of the built-in default rather than trusted blindly. Extend deliberately
 // when a new model is qualified against the eval gate.
+//
+// US-3186: the ids come from the registry, the MEMBERSHIP decision stays here.
+// This set is deliberately NOT "every current id" -- claude-opus-5 is current
+// and is absent, because nothing has put it through the eval gate. A model
+// joins this list by being qualified, not by being new.
 export const GRADING_MODEL_ALLOWLIST: ReadonlySet<string> = new Set([
-  "claude-opus-4-8",
-  "claude-sonnet-5",
-  // Retained so grades produced on the prior default stay reproducible / re-gradable.
-  "claude-sonnet-4-6",
-  "claude-haiku-4-5-20251001",
+  MODEL_IDS.opus48,
+  MODEL_IDS.sonnet5,
+  // RETAINED, do not delete. Grades produced on the prior default must stay
+  // reproducible and re-gradable on the model that produced them; the full
+  // reason is RETAINED_MODEL_IDS in ai-model-registry.ts, and
+  // tests/ai-model-registry_test.ts fails if this entry disappears.
+  MODEL_IDS.sonnet46,
+  MODEL_IDS.haiku45Dated,
   DEFAULTS.model,
   DEFAULTS.lightweightModel,
 ]);
@@ -507,12 +516,15 @@ export type ContentKind = "blog" | "refresh" | "email" | "social";
 // (content isn't reproducibility-sensitive) but still gated so a typo can't
 // silently break generation. Mirrors the current + prior default/lightweight ids.
 const CONTENT_MODEL_ALLOWLIST: ReadonlySet<string> = new Set([
-  "claude-opus-5",
-  "claude-opus-4-8",
-  "claude-sonnet-5",
-  "claude-sonnet-4-6",
-  "claude-haiku-4-5-20251001",
-  "claude-haiku-4-5",
+  MODEL_IDS.opus5,
+  MODEL_IDS.opus48,
+  MODEL_IDS.sonnet5,
+  // RETAINED, do not delete: an operator may still have CONTENT_MODEL_<KIND>
+  // pinned to the prior default, and refusing it would take that kind's
+  // generation down rather than move it. See RETAINED_MODEL_IDS.
+  MODEL_IDS.sonnet46,
+  MODEL_IDS.haiku45Dated,
+  MODEL_IDS.haiku45,
   DEFAULTS.model,
   DEFAULTS.lightweightModel,
 ]);
@@ -677,103 +689,15 @@ export function getGradingTemperature(): number {
 // this is what surfaced as `[flipdesk-ai] extraction failed: 400 ... temperature
 // is deprecated for this model`.
 //
-// ── US-3305: A RULE, NOT A PREFIX LIST ───────────────────────────────────────
+// -- The effort rule lives in the registry (US-3186) ------------------------
 //
-// This used to be six startsWith() calls, and claude-opus-5 was not one of
-// them. Opus 5 takes effort low..max, so any model variable pointed at it fed
-// effortParams / outputConfigParams a model they classified as effort-free and
-// every call went out with NO effort, running at the model's own default. The
-// call succeeds. Nothing logs. A dropped parameter looks exactly like a
-// parameter nobody set, which is the whole reason it survived a release.
+// classifyEffortSupport() and the family table it reads moved to
+// lib/ai-model-registry.ts, beside the ids they classify. The rule and its
+// documented thresholds are unchanged; read them there. It is re-exported at
+// the top of this file, so every existing import path still works.
 //
-// A list has to be edited for every new id, and the edit is invisible when it
-// is forgotten. The naming already carries the answer, so the rule below reads
-// it: within a family, effort arrived at a known generation and every later
-// generation keeps it. It answers "yes" for claude-opus-5-1, claude-opus-6 and
-// claude-sonnet-6 with nobody touching this file.
-//
-// Where it CANNOT know - a family this build has never seen, or a Haiku newer
-// than any that has been checked - it says "unknown" and modelUsesEffort logs
-// it once, loudly, rather than quietly answering "no". It still returns false
-// there, because the two errors are not priced the same: a wrong "yes" 400s
-// every call for that feature, a wrong "no" only costs the setting. The log is
-// what makes the second one findable.
-//
-// Thresholds, from the Anthropic model documentation (read 2026-09-10):
-//   opus    effort from 4.5 (4.5 is low/medium/high only; 4.6+ add xhigh/max)
-//   sonnet  effort from 4.6; Sonnet 4.5 and older reject it
-//   haiku   no released Haiku accepts it - 4.5 returns an error
-//   fable   every released generation (5.0+), thinking is always on
-//   mythos  same surface as fable
-//
-// ⚠ SONNET 4.6 CHANGED ANSWER HERE, from false to true. It does accept effort;
-// the old list said otherwise. The visible consequence is gradingSamplingParams
-// ("claude-sonnet-4-6"), which now returns { output_config: { effort } } rather
-// than { temperature: 0 }. Sonnet 4.6 is not the default and is retained only
-// so grades produced on the prior default stay re-gradable - but a re-grade of
-// one of those now runs at the model's own decoding rather than greedy. That is
-// the same non-determinism the US-2035 block above documents for every other
-// effort model; if it ever needs to NOT be true for grading, the place to say
-// so is gradingSamplingParams, not a knowingly-wrong answer about the API.
-export type EffortSupport = "yes" | "no" | "unknown";
-
-interface EffortFamilyRule {
-  /** First [major, minor] in this family that accepts effort, or null if none does yet. */
-  takesEffortFrom: readonly [number, number] | null;
-  /** Newest [major, minor] this build has actually checked. Only consulted when the above is null. */
-  classifiedThrough: readonly [number, number];
-}
-
-const EFFORT_BY_FAMILY: Readonly<Record<string, EffortFamilyRule>> = {
-  opus: { takesEffortFrom: [4, 5], classifiedThrough: [5, 0] },
-  sonnet: { takesEffortFrom: [4, 6], classifiedThrough: [5, 0] },
-  haiku: { takesEffortFrom: null, classifiedThrough: [4, 5] },
-  fable: { takesEffortFrom: [5, 0], classifiedThrough: [5, 1] },
-  mythos: { takesEffortFrom: [5, 0], classifiedThrough: [5, 1] },
-};
-
-/** claude-<family>-<major>[-<minor>][-<datestamp>]: the naming since Claude 4.5. */
-const MODEL_ID_PATTERN = /^claude-([a-z]+)-(\d+)(?:-(\d+))?/;
-
-function atLeast(
-  v: readonly [number, number],
-  min: readonly [number, number],
-): boolean {
-  return v[0] > min[0] || (v[0] === min[0] && v[1] >= min[1]);
-}
-
-/**
- * Does this model accept output_config.effort: yes, no, or not knowable here?
- *
- * Exported so a test can assert the third answer exists at all: "unknown"
- * collapsing into "no" is precisely the failure this story is about.
- */
-export function classifyEffortSupport(model: string): EffortSupport {
-  const id = model.trim().toLowerCase();
-
-  // Pre-4.5 ids put the generation BEFORE the family (claude-3-5-sonnet-...,
-  // claude-2-1). None of them accept effort and none ever will: the naming
-  // itself dates them, so this is a rule and not a list of legacy ids.
-  if (/^claude-\d/.test(id)) return "no";
-
-  const m = MODEL_ID_PATTERN.exec(id);
-  if (!m) return "unknown";
-  const rule = EFFORT_BY_FAMILY[m[1] ?? ""];
-  if (!rule) return "unknown";
-
-  const version: [number, number] = [Number(m[2]), Number(m[3] ?? 0)];
-  if (rule.takesEffortFrom) {
-    return atLeast(version, rule.takesEffortFrom) ? "yes" : "no";
-  }
-  // No generation of this family takes effort yet. Anything at or below what
-  // was actually checked is a confident no; anything newer is a guess.
-  return atLeast(version, [
-    rule.classifiedThrough[0],
-    rule.classifiedThrough[1] + 1,
-  ])
-    ? "unknown"
-    : "no";
-}
+// What stays here is the WARNING, because it is the part that needs a process:
+// an "unknown" verdict means this build is guessing on live traffic.
 
 const warnedUnclassifiedModels = new Set<string>();
 

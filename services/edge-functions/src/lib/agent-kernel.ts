@@ -28,6 +28,7 @@ import {
   getDefaultModel,
   isCachingEnabled,
 } from "./ai-config.ts";
+import { MODEL_IDS } from "./ai-model-registry.ts";
 import { cachedSystem, withCachedTail } from "./loop-cache.ts";
 import { computeCostUsd } from "./ai-usage.ts";
 import { agentBudgetFeature, checkAgentBudget } from "./agent-budget.ts";
@@ -70,11 +71,21 @@ export type AgentEventSeverity = "info" | "warning" | "critical";
 
 // Models an agent may run on. An unknown/unset config.model falls back to the
 // platform default rather than trusting an arbitrary string into messages.create.
-export const AGENT_MODEL_ALLOWLIST = [
-  "claude-opus-4-8",
-  "claude-sonnet-5",
-  "claude-sonnet-4-6",
-  "claude-haiku-4-5-20251001",
+//
+// US-3186: ids from MODEL_IDS (lib/ai-model-registry.ts); the membership
+// decision stays here. An agent's model is a row in `agents`, so an id dropped
+// from this list does not fail the agent, it silently demotes it to the
+// platform default on the next run.
+// Annotated string[] rather than the literal union MODEL_IDS would infer: this
+// list is checked against a model name that arrives from an `agents` row, which
+// is a string and cannot be narrowed.
+export const AGENT_MODEL_ALLOWLIST: string[] = [
+  MODEL_IDS.opus48,
+  MODEL_IDS.sonnet5,
+  // RETAINED, do not delete: an agent row may still name the prior default, and
+  // dropping it here reads as "the agent is on Sonnet 5 now" with nothing said.
+  MODEL_IDS.sonnet46,
+  MODEL_IDS.haiku45Dated,
 ];
 
 export const DEFAULT_MAX_STEPS = 24;
