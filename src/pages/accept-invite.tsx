@@ -117,10 +117,26 @@ export function AcceptInvitePage() {
     toast.success("You've joined the workspace");
     if (ownerId && user) {
       setActiveWorkspaceOwnerId(ownerId);
-      await supabase
+      // US-3376: checked. Joining succeeded either way, but this write is what
+      // makes the switch STICK. Dropped, local state moved to the new workspace
+      // and a reload (or the same account on a phone) landed back in the old
+      // one, after a success toast had already said otherwise.
+      //
+      // ALSO: `active_workspace_owner_id` has to stay in the public.users
+      // self-update allowlist (00526 made these deny-by-default). A column that
+      // falls out of it makes this a silent no-op with no error at all, which is
+      // why the failure has to be said out loud rather than counted on.
+      const { error: switchErr } = await supabase
         .from("users")
         .update({ active_workspace_owner_id: ownerId } as never)
         .eq("id", user.id);
+      if (switchErr) {
+        toastError(switchErr, "You're in, but we couldn't make this your default workspace.", {
+          action: "set active workspace",
+          duration: 10_000,
+          nextStep: "Pick it from the workspace switcher after you reload.",
+        });
+      }
     }
     await refreshProfile();
     navigate("/dashboard");

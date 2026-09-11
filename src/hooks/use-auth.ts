@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 import { supabase } from "@/lib/supabase";
 import { queryClient } from "@/lib/query-client";
+import { captureException } from "@/lib/sentry";
 import { useAuthStore } from "@/stores/auth-store";
 import { redeemStoredAffiliateRef } from "@/lib/affiliate";
 import { sendWelcomeEmailOnce } from "@/lib/welcome-email";
@@ -91,10 +92,25 @@ export async function loadProfileAndWorkspaces(
       let memberSummaries: WorkspaceSummary[] = [];
       if (memberships.length > 0) {
         const ownerIds = memberships.map((m) => m.owner_id);
-        const { data: ownersData } = await supabase
+        // US-3376: best-effort DELIBERATELY, and the one read in this bootstrap
+        // that must not throw. It reads OTHER users' rows, which makes it the
+        // most RLS-fragile line here, and the catch below hard-resets profile,
+        // workspaces and the active workspace on a first load: promoting a
+        // refusal here would sign the seller into an app with no profile and no
+        // personal workspace, to spare them a missing display name. The
+        // workspace is still listed, still switchable and still carries its
+        // role; only the owner's name and email come through blank. Reported so
+        // the failure is counted instead of invisible.
+        const { data: ownersData, error: ownersErr } = await supabase
           .from("users")
           .select("id, email, full_name")
           .in("id", ownerIds);
+        if (ownersErr) {
+          captureException(ownersErr, {
+            tags: { surface: "auth-bootstrap" },
+            extra: { user_action: "load workspace owner names" },
+          });
+        }
         const owners = (ownersData ?? []) as unknown as Array<{
           id: string;
           email: string;

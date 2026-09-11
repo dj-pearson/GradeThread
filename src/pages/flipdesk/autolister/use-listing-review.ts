@@ -40,10 +40,14 @@ export function useAutolisterListingReview(
       const CHUNK = 200;
       const map: Record<string, ListingReview> = {};
       for (let i = 0; i < listingIds.length; i += CHUNK) {
-        const { data: rows } = await supabase
+        // US-3376: throw, never resolve empty. An empty map here reads as
+        // "no draft needs review" beside a Publish button, which is the exact
+        // answer a refused read must not be allowed to give.
+        const { data: rows, error } = await supabase
           .from("listings")
           .select("id, needs_review, ai_field_confidence, listing_price, listing_title")
           .in("id", listingIds.slice(i, i + CHUNK));
+        if (error) throw error;
         for (
           const r of (rows ?? []) as Array<{
             id: string;

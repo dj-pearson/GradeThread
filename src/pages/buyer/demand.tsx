@@ -98,6 +98,33 @@ export function BuyerDemandPage() {
     }
   }
 
+  // US-3376: Expire and Delete used to call mutateAsync with nothing around it.
+  // Neither mutation carries an onError, query-client.ts sets QUERY defaults
+  // only (there is no MutationCache handler), and src/ registers no
+  // `unhandledrejection` listener, so a refused expire or delete went nowhere a
+  // buyer could see: the row stayed exactly as it was and nothing said why.
+  async function expireWant(id: string) {
+    try {
+      await setStatus(id, "expired");
+    } catch (e) {
+      toastError(e, "Couldn't expire that want.", {
+        action: "expire want",
+        nextStep: "It is still active. Try again.",
+      });
+    }
+  }
+
+  async function deleteWant(id: string) {
+    try {
+      await removeWant(id);
+    } catch (e) {
+      toastError(e, "Couldn't delete that want.", {
+        action: "delete want",
+        nextStep: "It is still on your list. Try again.",
+      });
+    }
+  }
+
   return (
     <div className="mx-auto max-w-2xl space-y-6">
       <PageHeader
@@ -209,12 +236,12 @@ export function BuyerDemandPage() {
                       variant="ghost"
                       size="sm"
                       aria-label={`Expire want: ${[...w.brands, ...w.categories, ...w.keywords].join(", ") || "Any item"}`}
-                      onClick={() => setStatus(w.id, "expired")}
+                      onClick={() => void expireWant(w.id)}
                     >
                       Expire
                     </Button>
                   )}
-                  <Button variant="ghost" size="icon" aria-label={`Delete want: ${[...w.brands, ...w.categories, ...w.keywords].join(", ") || "Any item"}`} onClick={() => removeWant(w.id)}>
+                  <Button variant="ghost" size="icon" aria-label={`Delete want: ${[...w.brands, ...w.categories, ...w.keywords].join(", ") || "Any item"}`} onClick={() => void deleteWant(w.id)}>
                     <Trash2 className="h-4 w-4 text-destructive" />
                   </Button>
                 </div>

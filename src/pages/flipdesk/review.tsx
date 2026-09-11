@@ -27,6 +27,7 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ErrorState } from "@/components/ui/error-state";
 import { toastError } from "@/lib/toast-error";
+import { captureException } from "@/lib/sentry";
 import { track } from "@/lib/analytics";
 import {
   ITEM_CATEGORY_LABELS,
@@ -382,7 +383,22 @@ export function FlipdeskReviewPage() {
           })
         : null;
       if (audit) {
-        await supabase.from("repricing_actions").insert(audit as never);
+        // US-3376: best-effort, deliberately, and reported. This is the AUDIT
+        // row for a price override, not the override itself, which is already
+        // written above. Failing the publish because its audit trail could not
+        // be recorded would cost the seller the listing; a missing audit row is
+        // nothing they can act on. It IS something we need counted, though, so
+        // "US-9205 says every override has an audit row" stays a claim someone
+        // can check rather than one nothing would ever disprove.
+        const { error: auditErr } = await supabase
+          .from("repricing_actions")
+          .insert(audit as never);
+        if (auditErr) {
+          captureException(auditErr, {
+            tags: { surface: "autolister-review" },
+            extra: { user_action: "record price-override audit", itemId: item.id },
+          });
+        }
       }
 
       // 3. API channels run now. eBay through its own push (it validates the

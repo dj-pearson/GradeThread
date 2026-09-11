@@ -152,7 +152,24 @@ export function BodyProfilesPage() {
 
   async function makeDefault(id: string) {
     // Clear the current default, then set the new one (two owner-scoped updates).
-    await supabase.from("body_profiles").update({ is_default: false } as never).eq("is_default", true);
+    //
+    // US-3376 AC4, the direction, made deliberate: if the CLEAR fails, stop.
+    // This result used to be dropped, so a refused clear still ran the set and
+    // left two rows flagged is_default, with whichever the list read first
+    // winning and nothing on screen to explain it. One stale default is
+    // recoverable by pressing the button again; two are indistinguishable from
+    // a feature that works.
+    const { error: clearErr } = await supabase
+      .from("body_profiles")
+      .update({ is_default: false } as never)
+      .eq("is_default", true);
+    if (clearErr) {
+      toastError(clearErr, "Couldn't set default.", {
+        action: "set default measurement profile",
+        nextStep: "Your current default is unchanged. Try again.",
+      });
+      return;
+    }
     const { error } = await supabase.from("body_profiles").update({ is_default: true } as never).eq("id", id);
     if (error) {
       toast.error("Couldn't set default.");

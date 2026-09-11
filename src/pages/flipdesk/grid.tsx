@@ -462,19 +462,27 @@ export function FlipdeskGridPage() {
     ai_generated_snapshot: { title?: string | null } | null;
   }
 
-  // Best effort, deliberately. The item write is what the seller asked for and it
-  // has already succeeded; failing the row because its title could not follow
-  // would report a save that DID happen as an error, and the recovery — re-saving
-  // — would then re-apply nothing. The substitution is idempotent (US-1995), so a
-  // later edit on any surface picks it up.
+  // Best effort for the ROW, deliberately: the item write is what the seller
+  // asked for and it has already succeeded, so failing the row because its title
+  // could not follow would report a save that DID happen as an error, and the
+  // recovery (re-saving) would then re-apply nothing. The substitution is
+  // idempotent (US-1995), so a later edit on any surface picks it up.
+  //
+  // US-3376: best-effort is not the same as silent. This used to drop its
+  // result, so a refused title write left the item showing the new brand and the
+  // live listing still naming the old one, in the field buyers search hardest,
+  // with nothing on screen. It now RETURNS the failure and saveAll says so in a
+  // second warning, separately from the row count.
+  //
+  // Returns null on success or when there is nothing to write.
   async function syncListingTitle(
     itemId: string,
     patch: Record<string, unknown>,
     lst: TitleSyncListing | undefined,
-  ) {
-    if (!lst) return;
+  ): Promise<unknown | null> {
+    if (!lst) return null;
     const before = pageRows.find((r) => r.id === itemId);
-    if (!before) return;
+    if (!before) return null;
     const changes = changesFromItemDiff(
       { brand: before.brand, style: before.style, size: before.size },
       {
@@ -490,8 +498,12 @@ export function FlipdeskGridPage() {
       snapshotTitle: lst.ai_generated_snapshot?.title ?? null,
       listingOrigin: lst.listing_origin,
     });
-    if (Object.keys(titlePatch).length === 0) return;
-    await supabase.from("listings").update(titlePatch as never).eq("id", lst.id);
+    if (Object.keys(titlePatch).length === 0) return null;
+    const { error } = await supabase
+      .from("listings")
+      .update(titlePatch as never)
+      .eq("id", lst.id);
+    return error ?? null;
   }
 
   async function discardAll() {
@@ -531,13 +543,25 @@ export function FlipdeskGridPage() {
       .filter(([, rec]) => TITLE_SYNC_COLS.some((f) => f in rec))
       .map(([id]) => id);
     const listingByItem = new Map<string, TitleSyncListing>();
+    // US-3376: how many listing titles could NOT be made to follow, and the
+    // first reason. Counted separately from `errors` because the row itself
+    // saved: these are two different things to tell the seller.
+    let titleSyncFailed = 0;
+    let titleSyncError: unknown = null;
     if (syncCandidates.length > 0) {
-      const { data: lst } = await supabase
+      const { data: lst, error: lstErr } = await supabase
         .from("listings")
         .select(
           "id, inventory_item_id, listing_title, title_variants, listing_origin, ai_generated_snapshot",
         )
         .in("inventory_item_id", syncCandidates);
+      // A dropped read here is the worst version of this bug: the map comes back
+      // empty, every syncListingTitle call returns early on `!lst`, and NO title
+      // follows anywhere while the save reports a clean success.
+      if (lstErr) {
+        titleSyncError = lstErr;
+        titleSyncFailed = syncCandidates.length;
+      }
       for (const row of (lst ?? []) as TitleSyncListing[]) {
         if (row.inventory_item_id) listingByItem.set(row.inventory_item_id, row);
       }
@@ -560,7 +584,15 @@ export function FlipdeskGridPage() {
             .update(patch as never)
             .eq("id", itemId);
           if (error) throw error;
-          await syncListingTitle(itemId, patch, listingByItem.get(itemId));
+          const titleErr = await syncListingTitle(
+            itemId,
+            patch,
+            listingByItem.get(itemId),
+          );
+          if (titleErr) {
+            titleSyncFailed += 1;
+            titleSyncError = titleSyncError ?? titleErr;
+          }
           savedCount++;
         } catch (err) {
           errors.push({
@@ -580,6 +612,20 @@ export function FlipdeskGridPage() {
         errors[0],
         `Saved ${savedCount}, ${errors.length} failed.`,
         { duration: 12_000 },
+      );
+    }
+    // Its own toast, after the row result. The row saved; the live listing did
+    // not follow, and that is what a buyer searching the old brand still sees.
+    if (titleSyncFailed > 0) {
+      toastWarning(
+        titleSyncError,
+        `${titleSyncFailed} live listing title${titleSyncFailed === 1 ? "" : "s"} may still name the old value.`,
+        {
+          action: "sync listing title",
+          duration: 12_000,
+          nextStep:
+            "Open those items and save again to update the live listing.",
+        },
       );
     }
   }

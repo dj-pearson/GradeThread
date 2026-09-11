@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { toastError } from "@/lib/toast-error";
+import { toastError, toastWarning } from "@/lib/toast-error";
 import { Loader2, Printer, Tag, Truck } from "lucide-react";
 import {
   Dialog,
@@ -259,11 +259,34 @@ export function ShipOrderDialog({
       }
 
       // Move the item to the Shipped tab (web's item-status model).
-      await supabase
+      //
+      // US-3376: this result used to be dropped, and it is the one write here
+      // that nothing else covers. The sale row above IS checked and throws, so
+      // a failure on THIS line was invisible: eBay had the tracking, the sale
+      // recorded shipped_at, the toast said "Marked shipped" and the garment
+      // stayed in the ship queue forever with nothing to say why.
+      const { error: statusErr } = await supabase
         .from("inventory_items")
         .update({ status: "shipped" } as never)
         .eq("id", item.id);
       await qc.invalidateQueries({ queryKey: ["items_full"] });
+      if (statusErr) {
+        // NOT a plain failure, and not the catch below: the shipment really did
+        // happen. Name the half that landed, name the half that did not, and
+        // leave the dialog open so pressing the button again is the fix.
+        toastWarning(
+          statusErr,
+          pushed
+            ? "Tracking sent to eBay, but the item is still in the ship queue."
+            : "Shipment recorded, but the item is still in the ship queue.",
+          {
+            action: "mark item shipped",
+            duration: 10_000,
+            nextStep: "Press Mark shipped again to move it out of the queue.",
+          },
+        );
+        return;
+      }
       toast.success(
         pushed ? "Marked shipped — tracking sent to eBay." : "Marked shipped.",
       );

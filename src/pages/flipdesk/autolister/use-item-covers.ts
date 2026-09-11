@@ -27,13 +27,16 @@ export function useAutolisterItemCovers(
       const CHUNK = 200;
       const map: Record<string, PhotoLike> = {};
       for (let i = 0; i < itemIds.length; i += CHUNK) {
-        const { data: rows } = await supabase
+        // US-3376: throw, never resolve empty. A cached empty cover map is a
+        // queue of identical blank thumbnails that never refetches.
+        const { data: rows, error } = await supabase
           .from("item_photos")
           .select(
             "inventory_item_id, photo_type, thumbnail_url, photo_url, storage_path, sort_order",
           )
           .in("inventory_item_id", itemIds.slice(i, i + CHUNK))
           .order("sort_order", { ascending: true });
+        if (error) throw error;
         for (
           const r of (rows ?? []) as Array<{
             inventory_item_id: string | null;

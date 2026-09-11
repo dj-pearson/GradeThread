@@ -39,7 +39,10 @@ const CEILINGS: Record<string, number> = {
   // thumbnail, and the listing review query, the cover query, the title rule
   // and the finish toast moved into autolister/ (use-listing-review.ts,
   // use-item-covers.ts, queue-row-title.ts, use-batch-finished-toast.ts).
-  "src/pages/flipdesk/autolister-queue.tsx": 1069,
+  // Lowered a second time from 1069 by US-3309: the per-item rows became a
+  // table (autolister/queue-table.tsx) after the single flex row with fourteen
+  // shrink-0 children squeezed the title to an ellipsis in production.
+  "src/pages/flipdesk/autolister-queue.tsx": 898,
 };
 
 function lineCount(rel: string): number {

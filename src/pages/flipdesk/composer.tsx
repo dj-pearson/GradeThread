@@ -1,8 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useNavigate, useSearchParams } from "react-router";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  useQuery,
+  useQueryClient,
+  type QueryClient,
+} from "@tanstack/react-query";
 import { toast } from "sonner";
 import { toastError } from "@/lib/toast-error";
+import { captureException } from "@/lib/sentry";
 import {
   ArrowLeft,
   Save,
@@ -186,6 +191,8 @@ import { useConfirm } from "@/components/ui/confirm-dialog";
 import { useSellThroughForecast } from "@/hooks/use-forecast";
 import { useNavigationGuard } from "@/hooks/use-navigation-guard";
 import type {
+  GarmentCategory,
+  GarmentType,
   ItemCategory,
   ItemPhotoRow,
   ItemStatus,
@@ -261,6 +268,42 @@ const DEFAULT_LISTING_FORMAT_VALUE: ListingFormatValue = {
   auctionDuration: "DAYS_7",
   variations: null,
 };
+
+/**
+ * Persist the garment type/category that GradeThisItemCard's inline picker
+ * chose, and refresh the reads the composer shows it through.
+ *
+ * US-3376. The composer doesn't own garment fields, so this writes straight to
+ * the item. It used to be an inline `void (async () => { await supabase })()`
+ * that dropped its result twice over, and the card clears its own garment
+ * blocker the moment the callback fires. So a refusal read exactly like a save:
+ * the preview cleared, the card said Ready, and the very next "Submit for
+ * grading" paid to grade the OLD garment type.
+ *
+ * Extracted from the JSX so that failure path has a test. The invalidates run
+ * either way. On failure they are what puts the stale value back on screen
+ * instead of leaving the cleared preview standing.
+ */
+export async function persistGarmentPatch(
+  itemId: string,
+  gt: GarmentType,
+  gc: GarmentCategory,
+  qc: QueryClient,
+): Promise<void> {
+  const { error } = await supabase
+    .from("inventory_items")
+    .update({ garment_type: gt, garment_category: gc } as never)
+    .eq("id", itemId);
+  await qc.invalidateQueries({ queryKey: ["inventory_item_ebay", itemId] });
+  await qc.invalidateQueries({ queryKey: ["items_full"] });
+  if (error) {
+    toastError(error, "Couldn't save the garment type.", {
+      action: "save garment type",
+      duration: 10_000,
+      nextStep: "Pick it again before you submit this for grading.",
+    });
+  }
+}
 
 // One editor, every status. This page is the single item/listing editor behind
 // /dashboard/flipdesk/items/:id — the old split (composer for drafts, ItemCanvas
@@ -1808,10 +1851,25 @@ export function FlipdeskComposerPage({
         // The endpoint owns listing_price; this only clears the AI-estimate flag,
         // which is not part of the lifecycle contract. Typing a price IS the
         // human review that stops it being an unverified estimate.
-        await supabase
+        //
+        // US-3376 AC4, the direction, made deliberate. The price itself is
+        // already saved by the line above, so this failure must NOT be raised
+        // as a price-autosave error: that would tell the seller to retype a
+        // price that landed. It is reported and the "est." badge STAYS.
+        // Under-claiming (a real price still labelled an estimate, cleared by
+        // the next save of this listing) is the recoverable direction;
+        // over-claiming (badge gone, flag still true in the row) would hide a
+        // price nobody has reviewed on every other surface that reads the flag.
+        const { error: estFlagErr } = await supabase
           .from("listings")
           .update({ price_is_estimated: false } as never)
           .eq("id", listingId);
+        if (estFlagErr) {
+          captureException(estFlagErr, {
+            tags: { surface: "composer" },
+            extra: { user_action: "clear price_is_estimated", listingId },
+          });
+        }
       } else if (listingId) {
         const { error } = await supabase
           .from("listings")
@@ -2299,7 +2357,7 @@ export function FlipdeskComposerPage({
       // was written. Resolve it from the table instead.
       let targetListingId = item.listing_id;
       if (!targetListingId) {
-        const { data: adopted } = await supabase
+        const { data: adopted, error: adoptedErr } = await supabase
           .from("listings")
           .select("id")
           .eq("inventory_item_id", item.id)
@@ -2307,6 +2365,13 @@ export function FlipdeskComposerPage({
           .order("created_at", { ascending: false })
           .limit(1)
           .maybeSingle();
+        // US-3376: throw, do not carry on with null. This read used to drop its
+        // error, and a refusal reads as "no listing yet" - which sends the save
+        // straight down the INSERT branch and creates the second listings row
+        // that the whole comment above exists to prevent, orphaning the live
+        // one. Failing the save is recoverable; silently orphaning a live
+        // listing is not.
+        if (adoptedErr) throw adoptedErr;
         targetListingId = (adopted as { id: string } | null)?.id ?? null;
       }
 
@@ -3641,16 +3706,9 @@ export function FlipdeskComposerPage({
             onPatchGarment={(gt, gc) => {
               // The composer doesn't own garment fields; write them straight to
               // the item and refresh the ebayMapping read so the preview clears.
-              void (async () => {
-                await supabase
-                  .from("inventory_items")
-                  .update({ garment_type: gt, garment_category: gc } as never)
-                  .eq("id", item.id);
-                await qc.invalidateQueries({
-                  queryKey: ["inventory_item_ebay", item.id],
-                });
-                await qc.invalidateQueries({ queryKey: ["items_full"] });
-              })();
+              // The card's callback is fire-and-forget, so the CHECK lives in
+              // persistGarmentPatch above (US-3376).
+              void persistGarmentPatch(item.id, gt, gc, qc);
             }}
           />
           </div>

@@ -46,12 +46,16 @@ return useQuery<Record<string, ItemMeta>>({
     const CHUNK = 200;
     const map: Record<string, ItemMeta> = {};
     for (let i = 0; i < itemIds.length; i += CHUNK) {
-      const { data: rows } = await supabase
+      // US-3376: throw, never resolve empty. A dropped error here cached a
+      // batch with no titles, no photo-QA and no size check as a SUCCESS, so
+      // the queue rows read as clean drafts and never refetched.
+      const { data: rows, error } = await supabase
         .from("inventory_items")
         .select(
           "id, title, photo_qa_score, photo_qa_issues, measurements, item_category, status, brand, size, garment_category",
         )
         .in("id", itemIds.slice(i, i + CHUNK));
+      if (error) throw error;
       for (
         const r of (rows ?? []) as Array<{
           id: string;

@@ -30,6 +30,7 @@ import {
   ScanSearch,
 } from "lucide-react";
 import { toast } from "sonner";
+import { captureException } from "@/lib/sentry";
 import {
   Card,
   CardContent,
@@ -324,10 +325,26 @@ export function FlipdeskReconcilePage() {
       photoRole: p.photoRole,
     }));
     const t = setTimeout(() => {
-      void supabase
-        .from("flipdesk_reconcile_sessions")
-        .update({ assignments: snapshot, gap_seconds: gapSeconds, photo_count: photos.length } as never)
-        .eq("id", sessionId);
+      // US-3376: best-effort, deliberately, and reported. This fires on every
+      // debounced change to the grouping, so a toast per failure would nag
+      // through a whole sorting session for something the seller cannot fix in
+      // the moment. What it costs is real though: the snapshot is what restores
+      // the session after a reload, so a persistently refused write means the
+      // grouping work is gone on the next visit with nothing having said so.
+      // Reported, so that shows up as an incident rather than as a support
+      // ticket about photos that "un-sorted themselves".
+      void (async () => {
+        const { error } = await supabase
+          .from("flipdesk_reconcile_sessions")
+          .update({ assignments: snapshot, gap_seconds: gapSeconds, photo_count: photos.length } as never)
+          .eq("id", sessionId);
+        if (error) {
+          captureException(error, {
+            tags: { surface: "reconcile" },
+            extra: { user_action: "persist reconcile session snapshot", sessionId },
+          });
+        }
+      })();
     }, 600);
     return () => clearTimeout(t);
   }, [sessionId, photos, assignments, gapSeconds]);

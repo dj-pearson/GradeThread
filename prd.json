@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-3381",
+  "nextId": "US-3382",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -4870,20 +4870,6 @@
       ]
     },
     {
-      "id": "US-3376",
-      "passes": false,
-      "title": "Seventeen writes in the web app drop their result, and the UI reports success anyway",
-      "description": "Found 2026-09-11 by an audit of `src/` for the shape that produced US-3363, US-3364, US-3365 and US-3061. **Census: 185 mutation chains examined, 17 drop the result. Of the 168 that destructure `error`, ZERO capture and then ignore it**, so the discipline exists in this codebase and these 17 are the gap rather than the norm.\n\nRanked by what a seller loses:\n\n1. `src/components/flipdesk/ship-order-dialog.tsx:261` — `.update({ status: \"shipped\" })` with nothing on the left. The `sales` write eight lines above IS checked and throws, so a failure here is invisible: eBay has the tracking, the sale records `shipped_at`, the toast says \"Marked shipped\", and the garment stays in the ship queue forever.\n2. `src/pages/flipdesk/composer.tsx:3647` — `void (async () => { await supabase.from(\"inventory_items\").update({ garment_type, garment_category }) ... })()`. Dropped twice over. The card invalidates and the preview clears, so it reads as saved, and **the seller then submits for grading with the old garment type**.\n3. `src/pages/flipdesk/grid.tsx:494` — the US-1891 listing-title sync. On failure the item shows the new brand and the live listing keeps the old one, in the field buyers search hardest.\n4. `src/hooks/use-reconcile-commit.ts:216` — the US-1633 orphan-draft delete, whose own comment says it exists so an empty draft does not litter the pipeline. If it fails, it does.\n5. `src/components/flipdesk/record-sale-dialog.tsx:262` — a dropped READ makes `liveLeft` zero, so the delist prompt can be skipped and a sold garment stays for sale elsewhere. Narrower than it looks (the prompt also ORs two other signals), but it bites exactly when the auto-end lied.\n6. `src/components/flipdesk/photo-manager.tsx:263` — `Promise.all` over supabase builders inside a `try/catch`. **The catch is dead**: a builder resolves with `{error}` on a 400 or an RLS refusal, it does not reject. The reorder reverts on the next invalidate with no toast.\n7. Four AutoLister grid hooks with the US-3371 shape: `use-item-attrs.ts:51`, `use-item-meta.ts:49`, `use-listing-review.ts:43`, `use-item-covers.ts:30`. A failed read resolves the query as SUCCESS with an empty map, so TanStack caches it and never retries, and the grid paints blank columns.\n8. `src/hooks/use-seller-listing-defaults.ts:47` — a failed read hands the composer PLATFORM defaults (listing format, auction duration, best-offer thresholds) as though the seller had chosen them. The sibling `use-seller-promo-defaults.ts:29` falls back to OFF, which is the safe direction.\n9. `src/pages/buyer/demand.tsx:212` and `:217` — Expire and Delete go through `mutateAsync` with no `onError`, no global `MutationCache` handler (`src/lib/query-client.ts` sets query defaults only) and no `unhandledrejection` listener anywhere in `src/`. The rejection goes nowhere a user can see.\n10. `src/pages/accept-invite.tsx:121` — the workspace switch write, dropped, AFTER the success toast has fired. Local state switches; a reload or another device does not.\n\nSmaller, same shape, each confirmed by reading: `composer.tsx:1812` (`price_is_estimated: false`, so the estimate badge survives a real typed price), `use-auth.ts:93`, `notification-center.tsx:215`, `use-sourcers.ts:119`, `autolister.tsx:2338`, `body-profiles.tsx:155` (two defaults become possible), `review.tsx:385`, `reconcile.tsx:327`.\n\n**Deliberate and not defects**, so do not touch them: `use-review-flow.ts:110` and `use-activation.ts:288/323` carry explicit best-effort comments, and `admin/grading.tsx:363` releases a claim the TTL frees anyway.",
-      "acceptanceCriteria": [
-        "Each of the ten ranked sites is fixed or explicitly marked best-effort with the reason; a site whose failure the user must know about gets a visible failure, not a log line",
-        "The dead-catch shape is fixed rather than papered over: a try/catch around a supabase builder or an edgeFetch is NOT protection, because both resolve on failure, and every such site in src/ is found",
-        "A failed READ never resolves a TanStack query as success with an empty default; the four AutoLister hooks and the seller-defaults hook are the known cases",
-        "The three sites where the safe fallback direction was chosen by accident (seller listing defaults, body profiles, price_is_estimated) are made deliberate, with the direction stated",
-        "Tests drive the failure path for the five highest-ranked sites and assert what the user sees, not that error is destructured"
-      ],
-      "priority": 4
-    },
-    {
       "id": "US-3377",
       "passes": false,
       "title": "The web app has no guard for the two defect classes the edge now guards, and one of them would land clean today",
@@ -4925,6 +4911,20 @@
         "The web app's seven extra keys are checked against how the rest of the product names those platforms, because facebook was found by eye and that is a sample of one"
       ],
       "priority": 12
+    },
+    {
+      "id": "US-3381",
+      "passes": false,
+      "title": "Five more dead catches around supabase builders, and an AutoLister grid that paints blank columns on a refused read",
+      "description": "Left over from US-3376, which fixed eight dead catches and was fenced out of these.\n\n**A try/catch around a supabase builder is not protection.** A `PostgrestFilterBuilder` resolves with `{ error }` on a 400 or an RLS refusal; it does not reject. So the catch only ever fires on a network error, and every other failure is silent. Five genuine instances were found and left alone because they sat outside that story's fence:\n\n- `src/components/command-palette.tsx:200`\n- `src/pages/flipdesk/autolister-queue.tsx:420`\n- `src/pages/admin/ai-models.tsx:791`\n- `src/lib/recent-searches.ts:17`\n- `src/components/flipdesk/photo-uploader.tsx:357` (a storage `remove` for orphan-blob cleanup)\n\nOne more was in fence and deliberately left: `src/pages/flipdesk/autolister.tsx:2328`, the SKU lookup. It currently **fails loudly by accident** — a null `existingId` takes the INSERT branch, which then throws on the `(user_id, sku)` unique index. That is the right outcome by the wrong route, and the file has zero line budget (see below).\n\n**The second half is a consumer gap US-3376 created deliberately.** Its fix made four AutoLister read hooks throw instead of resolving as success with an empty map. `src/pages/flipdesk/autolister-queue.tsx` still renders `= {}` defaults for all four, so a refused read now paints blank columns **once** before retrying, rather than showing an error state. That is strictly better than a cached empty map that never retries, and it is still not what a seller should see.\n\n**A line-budget note that matters more than it sounds.** `autolister.tsx` is now at **3,408 of a 3,408 ceiling, zero headroom**. The next person to touch that file must extract, not edit. US-3376 compressed a 22-line fix to 1 line to land at all.",
+      "acceptanceCriteria": [
+        "Each of the five dead catches is fixed or marked deliberate with the reason, and the fix inspects the resolved result rather than relying on the catch",
+        "The four AutoLister grid consumers show an error state instead of a blank column, since the hooks now throw and nothing renders that",
+        "autolister.tsx is extracted rather than edited, because it is at its ceiling exactly and any fix inside it has to buy its own space first",
+        "A test drives the failure path for each dead catch and asserts what the user sees; a builder mock must RESOLVE with an error rather than reject, because resolving is the property the whole class lives on",
+        "The SKU lookup at autolister.tsx:2328 either checks its result or the story records why failing loudly by accident through a unique-index violation is acceptable"
+      ],
+      "priority": 6
     }
   ]
 }

@@ -260,8 +260,14 @@ export function PhotoManager({
 
   async function persistOrder(next: ItemPhotoRow[]) {
     photosDirtyRef.current = true;
+    // US-3376: the try/catch this used to rely on was DEAD. A
+    // PostgrestFilterBuilder RESOLVES with `{ error }` on a 400 or an RLS
+    // refusal, it does not reject, so the catch only ever fired on a network
+    // drop. Every other failure let the optimistic order stand until the next
+    // invalidate silently reverted it, with no toast, and the seller's cover
+    // photo (index 0 = the eBay search thumbnail) quietly went back.
     try {
-      await Promise.all(
+      const results = await Promise.all(
         next.map((p, i) =>
           supabase
             .from("item_photos")
@@ -269,9 +275,20 @@ export function PhotoManager({
             .eq("id", p.id)
         )
       );
+      const failed = results.find((r) => r.error);
       await invalidatePhotos();
-    } catch {
-      toast.error("Failed to save the new photo order.");
+      if (failed?.error) {
+        toastError(failed.error, "Couldn't save the new photo order.", {
+          action: "reorder photos",
+          nextStep: "The old order is back. Try dragging it again.",
+        });
+      }
+    } catch (err) {
+      // Still reachable: a network drop rejects before any builder resolves.
+      toastError(err, "Couldn't save the new photo order.", {
+        action: "reorder photos",
+        nextStep: "The old order is back. Try dragging it again.",
+      });
       await invalidatePhotos();
     }
   }

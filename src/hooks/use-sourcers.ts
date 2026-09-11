@@ -1,6 +1,7 @@
 import { useCallback, useMemo } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/lib/supabase";
+import { captureException } from "@/lib/sentry";
 import { useAuthStore } from "@/stores/auth-store";
 import { useWorkspace } from "@/hooks/use-workspace";
 import type { SourcerRow } from "@/types/database";
@@ -115,10 +116,22 @@ export function useAddSourcer() {
             | null;
           if (row) {
             if (row.archived_at) {
-              await supabase
+              // US-3376: best-effort, deliberately, and reported. The name this
+              // call returns is already correct and the item saves with it
+              // either way; only the PICKER is affected, because an archived
+              // roster row stays hidden until the next un-archive. Throwing
+              // would fail a save that has nothing wrong with it. Reported so
+              // "the name I just added is not in the list" is countable.
+              const { error: unarchiveErr } = await supabase
                 .from("sourcers")
                 .update({ archived_at: null } as never)
                 .eq("id", row.id);
+              if (unarchiveErr) {
+                captureException(unarchiveErr, {
+                  tags: { surface: "sourcers" },
+                  extra: { user_action: "un-archive sourcer", sourcerId: row.id },
+                });
+              }
             }
             await qc.invalidateQueries({ queryKey: ["sourcers"] });
             return row.name;

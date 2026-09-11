@@ -26,7 +26,17 @@ export const SELLER_LISTING_DEFAULTS_KEY = "seller_listing_defaults";
 const COLUMNS =
   "default_listing_format, default_auction_duration, default_best_offer_enabled, default_best_offer_on_auction, default_best_offer_accept_pct, default_best_offer_decline_pct, default_listing_quantity";
 
-/** What a seller who has never touched Settings gets — today's hard-coded composer state. */
+/**
+ * What a seller who has never touched Settings gets: today's hard-coded
+ * composer state.
+ *
+ * US-3376 AC4, the direction, stated: every field here is the NO-OPINION
+ * position. No format, no duration, Best Offer off, no auto-accept or
+ * auto-decline threshold, no quantity. The same safe direction as
+ * use-seller-promo-defaults.ts falling back to OFF. It is the right answer to
+ * "this seller has no saved preference" and the WRONG answer to "we could not
+ * find out", which is why the read below now throws instead of returning this.
+ */
 export const PLATFORM_LISTING_DEFAULTS: SellerListingDefaults = {
   default_listing_format: null,
   default_auction_duration: null,
@@ -44,12 +54,19 @@ export function useSellerListingDefaults() {
     enabled: !!userId,
     staleTime: 5 * 60_000,
     queryFn: async (): Promise<SellerListingDefaults> => {
-      const { data } = await supabase
+      const { data, error } = await supabase
         .from("users")
         .select(COLUMNS)
         .eq("id", userId!)
         .maybeSingle();
+      // US-3376 AC3: a refused read must not resolve as SUCCESS. It used to,
+      // and the composer then presented the platform starting position as the
+      // seller's own saved choices while TanStack cached that answer and never
+      // retried it.
+      if (error) throw error;
       const row = data as SellerListingDefaults | null;
+      // No row is a real answer (a seller who has never opened Settings), and it
+      // gets the no-opinion defaults above. A failure does not reach this line.
       return row ?? PLATFORM_LISTING_DEFAULTS;
     },
   });

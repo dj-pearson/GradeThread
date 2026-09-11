@@ -32,6 +32,7 @@ import {
 import { Separator } from "@/components/ui/separator";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
+import { toastError } from "@/lib/toast-error";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/hooks/use-auth";
 import type { NotificationRow, NotificationType } from "@/types/database";
@@ -211,12 +212,20 @@ export function NotificationCenter() {
 
   const markAsRead = useCallback(
     async (notificationId: string) => {
-      await supabase
+      // US-3376: checked. The invalidate below repaints the row from the server,
+      // so a refused write used to show as the notification silently snapping
+      // back to unread with no explanation and the badge count unchanged.
+      const { error } = await supabase
         .from("notifications")
         .update({ is_read: true } as never)
         .eq("id", notificationId);
       queryClient.invalidateQueries({ queryKey: ["notifications", user?.id] });
       queryClient.invalidateQueries({ queryKey: ["notifications-unread", user?.id] });
+      if (error) {
+        toastError(error, "Couldn't mark that as read.", {
+          action: "mark notification read",
+        });
+      }
     },
     [user?.id, queryClient]
   );

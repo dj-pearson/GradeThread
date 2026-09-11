@@ -259,16 +259,38 @@ export function RecordSaleDialog({
             soldListingId,
             mode: "auto",
           });
-          const { data: fresh } = await supabase
+          const { data: fresh, error: freshErr } = await supabase
             .from("listings")
             .select("id, listing_status")
             .eq("inventory_item_id", item.id);
-          const liveLeft = ((fresh ?? []) as { id: string; listing_status: string }[]).filter(
-            (r) =>
-              r.id !== soldListingId &&
-              (r.listing_status === "active" || r.listing_status === "draft"),
-          ).length;
-          showDelistStep = res.pending.length > 0 || res.summary.unresolved > 0 || liveLeft > 0;
+          // US-3376: this READ used to drop its error, which made `liveLeft`
+          // zero and could SKIP the delist step entirely. That step is the one
+          // thing that catches an auto-end which reported success and did not
+          // end anything, so "we don't know" has to mean "show it", not "hide
+          // it". null = unknown, and unknown counts as "something is still up".
+          const liveLeft = freshErr
+            ? null
+            : ((fresh ?? []) as { id: string; listing_status: string }[]).filter(
+                (r) =>
+                  r.id !== soldListingId &&
+                  (r.listing_status === "active" ||
+                    r.listing_status === "draft"),
+              ).length;
+          if (freshErr) {
+            toastWarning(
+              freshErr,
+              "We couldn't check what's still listed elsewhere.",
+              {
+                action: "check remaining listings",
+                duration: 10_000,
+                nextStep: "Use the delist step before you close this.",
+              },
+            );
+          }
+          showDelistStep =
+            res.pending.length > 0 ||
+            res.summary.unresolved > 0 ||
+            (liveLeft ?? 1) > 0;
           const ended = res.summary.ended;
           if (ended > 0) {
             toast.success(`Ended ${ended} other listing${ended === 1 ? "" : "s"} automatically.`);

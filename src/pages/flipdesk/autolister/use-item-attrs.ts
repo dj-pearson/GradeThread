@@ -48,12 +48,17 @@ export function useItemAttrs(batchId: string | null, itemIds: string[]) {
     queryKey: ["autolister_bulk_item_attrs", batchId, itemIds.length],
     enabled: itemIds.length > 0,
     queryFn: async () => {
-      const { data: rows } = await supabase
+      // US-3376: a failed READ must never resolve as success with an empty
+      // map. It used to: the grid painted blank Brand/Size/Color placeholders,
+      // TanStack cached that empty answer as good data, and the query never
+      // retried. Throwing makes it isError, which retries and can be shown.
+      const { data: rows, error } = await supabase
         .from("inventory_items")
         .select(
           "id, title, brand, size, color, material, style, item_category, attributes, acquired_price, garment_category, measurements",
         )
         .in("id", itemIds);
+      if (error) throw error;
       const map: Record<string, ItemAttrs> = {};
       for (const r of (rows ?? []) as Row[]) {
         map[r.id] = {

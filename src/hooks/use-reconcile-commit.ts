@@ -1,4 +1,5 @@
 import { supabase } from "@/lib/supabase";
+import { toastWarning } from "@/lib/toast-error";
 import { compressImage } from "@/lib/image-utils";
 import { advanceItemStatus } from "@/lib/status-writer";
 import { REQUIRED_PHOTO_TYPES } from "@/lib/constants";
@@ -211,7 +212,11 @@ async function commitCluster(
     // (e.g. every photo was a restored placeholder) is an orphan — delete it and
     // report failure instead of leaving an empty draft littering the pipeline.
     if (createdNew && uploaded === 0) {
-      await supabase
+      // US-3376: checked. The whole point of this delete is that an empty draft
+      // does not litter the pipeline, and dropping its result meant that on a
+      // refusal one did anyway, while the results dialog said only "re-add the
+      // photos" and never mentioned the draft now sitting in Inventory.
+      const { error: deleteErr } = await supabase
         .from("inventory_items")
         .delete()
         .eq("id", itemId)
@@ -221,7 +226,9 @@ async function commitCluster(
         title: cluster.label,
         ok: false,
         skipped,
-        detail: "No photos could be uploaded — re-add them and try again.",
+        detail: deleteErr
+          ? "No photos could be uploaded, and the empty draft this created could not be removed. Delete it from Inventory, then re-add the photos."
+          : "No photos could be uploaded, so re-add them and try again.",
       };
     }
 
@@ -270,10 +277,20 @@ export async function commitClusters(
   const fullyCommitted =
     results.length > 0 && results.every((r) => r.ok && (r.skipped ?? 0) === 0);
   if (sessionId && fullyCommitted) {
-    await supabase
+    // US-3376, same shape as the orphan delete above. A dropped failure here
+    // leaves a fully-committed session looking un-committed, so the board offers
+    // Commit again and a second press duplicates every item it just created.
+    const { error } = await supabase
       .from("flipdesk_reconcile_sessions")
       .update({ status: "committed" } as never)
       .eq("id", sessionId);
+    if (error) {
+      toastWarning(error, "Your items were committed, but this session still looks open.", {
+        action: "close reconcile session",
+        duration: 12_000,
+        nextStep: "Don't press Commit again, or you will create the items twice.",
+      });
+    }
   }
   return results;
 }

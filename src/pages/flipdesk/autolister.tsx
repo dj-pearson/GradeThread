@@ -16,7 +16,7 @@ import {
   Ungroup,
 } from "lucide-react";
 import { toast } from "sonner";
-import { toastError } from "@/lib/toast-error";
+import { toastError, toastWarning } from "@/lib/toast-error";
 import { edgeFetch } from "@/lib/edge-fetch";
 import { useTagOcrWiring } from "./autolister/tag-ocr";
 import { useGooglePhotosImport } from "@/hooks/use-google-photos-import";
@@ -2335,10 +2335,11 @@ export function FlipdeskAutolisterPage() {
         }
         if (existingId) {
           itemId = existingId;
-          await supabase
+          const { error: statusErr } = await supabase
             .from("inventory_items")
             .update({ status: "photographed" } as never)
             .eq("id", itemId);
+          if (statusErr) toastWarning(statusErr, "Photos attached, but the item didn't move to Photographed.", { action: "advance item status" }); // US-3376: dropped, this stranded the item in its old pipeline tab.
         } else {
           const { data: item, error: itemErr } = await supabase
             .from("inventory_items")
