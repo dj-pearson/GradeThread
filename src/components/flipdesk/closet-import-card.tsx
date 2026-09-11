@@ -18,6 +18,7 @@ import {
 } from "@/lib/marketplace-disclosure";
 import { MARKETPLACE_LABELS } from "@/lib/constants";
 import {
+  closetImportCapNotice,
   closetImportFailureText,
   extensionStoreUrl,
   sendClosetImport,
@@ -48,6 +49,16 @@ import { track } from "@/lib/analytics";
 // So: no plan renders the card with the free bound stated, and no extension
 // renders an install step instead of nothing. The server still decides how many
 // rows an account may import; this card only ever tells the truth about it.
+//
+// WHY THE BOUND IS STATED CONDITIONALLY RATHER THAN GATED ON A PLAN. The first
+// cut showed that sentence only when `setup.sellerEnabled` was false, and
+// `setup.sellerEnabled` is the EXTENSION's answer to GT_PING. An install that
+// holds no account token gets the anonymous entitlements, which carry
+// sellerEnabled:false whatever the account pays (US-3295) -- so a Business
+// seller who had simply never connected the extension was told they were on the
+// free plan. Telling someone who already pays that they do not is the exact
+// mistake US-3295 was filed to fix. The sentence now names its own condition
+// and is true for every reader.
 
 export interface ClosetImportStart {
   runId: string;
@@ -135,15 +146,12 @@ export function ClosetImportCard({ disabled, onStarted }: Props) {
             (known > 0 ? ` (${known} already here, they will be updated)` : "") +
             ". You can leave this page; the import keeps going.",
         );
-        // US-3263: never let a bounded import look like a whole one.
-        if (result.free_capped && (result.left_behind ?? 0) > 0) {
-          toast.warning(
-            `${result.left_behind} more listings were left behind: the free plan ` +
-              `imports ${result.free_cap ?? FREE_CLOSET_IMPORT_ROWS} at a time. ` +
-              "A FlipDesk plan brings in the whole closet.",
-            { duration: 12_000 },
-          );
-        }
+        // US-3263: never let a bounded import look like a whole one. The
+        // sentence depends on WHICH bound bit -- the flat per-read one, or what
+        // is left of this account's own live-listing cap -- so it is built in
+        // one place and tested there.
+        const capNotice = closetImportCapNotice(result);
+        if (capNotice) toast.warning(capNotice, { duration: 12_000 });
         const warn = result.plan_warning ? describePlanWarning(result.plan_warning) : null;
         if (warn) toast.warning(warn, { duration: 12_000 });
         return;
@@ -177,14 +185,10 @@ export function ClosetImportCard({ disabled, onStarted }: Props) {
         <CardDescription>
           Bring the listings you already have on {platformNames} into FlipDesk
           without retyping them. Open your own closet in another tab, scroll so
-          your listings are on screen, then press Import here.
-          {!setup.sellerEnabled && (
-            <>
-              {" "}
-              On the free plan the first {FREE_CLOSET_IMPORT_ROWS} listings of a
-              read come in; a FlipDesk plan takes the rest.
-            </>
-          )}
+          your listings are on screen, then press Import here. Without a
+          FlipDesk plan the first {FREE_CLOSET_IMPORT_ROWS} listings of a read
+          come in, up to what your plan has room for; a FlipDesk plan takes the
+          rest.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">

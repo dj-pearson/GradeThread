@@ -7283,12 +7283,16 @@ Deno.test({
       total_rows: number;
       free_capped: boolean;
       free_cap: number | null;
+      free_cap_reason: string | null;
       left_behind: number;
     };
     assertEquals(started.free_capped, true, "a 60-row free import was not reported as capped");
     assertEquals(started.free_cap, 25, "the bound came from the request rather than the server");
     assertEquals(started.total_rows, 25, `the server kept ${started.total_rows} rows, not 25`);
     assertEquals(started.left_behind, 35);
+    // F holds no listings yet, so the 25-row read bound is the one that bit,
+    // not the plan's listing cap. The two compose and the response says which.
+    assertEquals(started.free_cap_reason, "rows");
 
     // The run belongs to the caller: B cannot read it.
     const foreign = await fetch(`${BASE}/api/flipdesk/import/runs/${started.run_id}`, {
@@ -7299,6 +7303,63 @@ Deno.test({
       assertEquals(view.run, null, "B read another tenant's free-plan import run");
     } else {
       await foreign.body?.cancel();
+    }
+
+    // ── The bound is not per-press (US-3263, second cut) ──────────────────
+    //
+    // Import is a button. A bound that applies to one READ and to nothing else
+    // is no bound at all: press it twenty times and a free account sits on five
+    // hundred live listings against a plan that allows twenty-five. The first
+    // cut skipped the active-listing accounting for unentitled accounts
+    // entirely, so that is exactly what it did. Wait for this run to land its
+    // 25 and press again with 60 DIFFERENT listings.
+    let landed = false;
+    for (let i = 0; i < 120 && !landed; i++) {
+      await new Promise((r) => setTimeout(r, 500));
+      const poll = await fetch(`${BASE}/api/flipdesk/import/runs/${started.run_id}`, {
+        headers: authHeaders(freeJwt),
+      });
+      const view = await poll.json() as { run?: { status?: string } | null };
+      const status = view.run?.status ?? null;
+      if (status === "completed" || status === "failed") landed = true;
+    }
+    assert(landed, "the free-plan import run never finished, so the second press proves nothing");
+
+    const second = Array.from({ length: 60 }, (_, i) => ({
+      listingUrl: `https://poshmark.com/listing/free-tier-second-${i}-${crypto.randomUUID()}`,
+      title: `Free-tier-second-${i}`,
+      priceCents: 2000 + i,
+    }));
+    const res2 = await fetch(`${BASE}/api/flipdesk/closet-import/runs`, {
+      method: "POST",
+      headers: authHeaders(freeJwt),
+      body: JSON.stringify({ platform: "poshmark", listings: second }),
+    });
+    const body2 = await res2.json() as {
+      error?: string;
+      cap?: string;
+      limit?: number;
+      total_rows?: number;
+      run_id?: string;
+    };
+    if (res2.status === 402) {
+      // The plan's listing cap is full and nothing in the read is already here.
+      assertEquals(body2.error, "CAP_REACHED");
+      assertEquals(body2.cap, "activeListings");
+    } else {
+      // A partially-landed run leaves some headroom; whatever is left, the
+      // second press must never be allowed a fresh 25.
+      assertEquals(res2.status, 202, `second free press returned ${res2.status}`);
+      assert(
+        (body2.total_rows ?? 0) < 25,
+        `a second free press imported ${body2.total_rows} more rows; the plan cap was not counted`,
+      );
+      if (body2.run_id) {
+        await fetch(`${BASE}/api/flipdesk/import/runs/${body2.run_id}/undo`, {
+          method: "POST",
+          headers: authHeaders(freeJwt),
+        }).then((r) => r.body?.cancel());
+      }
     }
 
     // Undo, so a re-run starts from the same place.

@@ -25,11 +25,12 @@ import { Hono } from "hono";
 import { supabaseAdmin } from "../lib/supabase.ts";
 import { resolveSellerEntitlement } from "../lib/buyer-entitlements.ts";
 import { findForbiddenKey } from "../lib/sync-payload-guard.ts";
-import { requireFlipdesk } from "../lib/plan-gate.ts";
+import { type CapacityHeadroom, capacityHeadroom, requireFlipdesk } from "../lib/plan-gate.ts";
 import {
   applyFreeTierCap,
   type ClosetImportRow,
   FREE_CLOSET_IMPORT_ROWS,
+  freeRowAllowance,
   isClosetImportPlatform,
   MAX_CLOSET_IMPORT_ROWS,
   normalizeClosetRows,
@@ -146,12 +147,7 @@ flipdeskClosetImportRoutes.post("/runs", async (c) => {
   }
 
   const allRows: ClosetImportRow[] = normalizeClosetRows(platform, body.listings);
-  // The cap is enforced HERE, on the server, from the account's own
-  // entitlement. The browser and the extension both say what they think the
-  // limit is; neither is the gate.
-  const capped = applyFreeTierCap(allRows, sellerEnabled);
-  const rows = capped.rows;
-  if (rows.length === 0) {
+  if (allRows.length === 0) {
     return c.json(
       {
         error: "NO_LISTINGS_READ",
@@ -168,18 +164,64 @@ flipdeskClosetImportRoutes.post("/runs", async (c) => {
   // marketplace, so they count exactly as pulled eBay listings do; the 80%
   // warning header is copied into the body because the extension, not the
   // browser, receives this response (vault/50-business/flipdesk-plan-gating.md).
+  //
+  // This lookup runs BEFORE the free bound is applied (it used to run after),
+  // because the bound now has to know which rows are already here: a row this
+  // tenant already holds takes no new slot and must survive the trim.
   let known: Set<string>;
   try {
-    known = await knownListingIds(ownerId, platform, rows.map((r) => r.platform_listing_id));
+    known = await knownListingIds(ownerId, platform, allRows.map((r) => r.platform_listing_id));
   } catch (err) {
     console.error("[closet-import] lookup failed:", err instanceof Error ? err.message : err);
     return c.json({ error: "Could not check your existing listings." }, 500);
   }
+
+  // The cap is enforced HERE, on the server, from the account's own
+  // entitlement. The browser and the extension both say what they think the
+  // limit is; neither is the gate.
+  //
+  // An unentitled account is bounded by the SMALLER of two numbers: the 25-row
+  // read bound, and what is left of its own plan's active-listing cap. The
+  // first cut of US-3263 skipped the capacity accounting entirely on the
+  // grounds that "an unentitled account has no plan to account against". Free
+  // is a plan and it does have one (activeListingCap), so that reading turned a
+  // per-read bound into no bound at all: twenty presses, five hundred live
+  // listings, on a plan that allows twenty-five. Composing the two keeps the
+  // first read of an empty catalog at the full 25 and stops the twenty-first.
+  let headroom: CapacityHeadroom | null = null;
+  if (!sellerEnabled) {
+    headroom = await capacityHeadroom(ownerId, "activeListings");
+  }
+  const capped = applyFreeTierCap(allRows, sellerEnabled, {
+    allowance: freeRowAllowance(headroom ? headroom.headroom : null),
+    isKnown: (r) => known.has(r.platform_listing_id),
+  });
+  const rows = capped.rows;
   const newRows = rows.filter((r) => !known.has(r.platform_listing_id)).length;
-  // The plan's active-listing capacity is a PAID-PLAN accounting rule, and an
-  // unentitled account has no plan to account against — running the gate there
-  // would refuse the 25 rows this branch exists to allow. Their bound is
-  // FREE_CLOSET_IMPORT_ROWS, already applied.
+
+  if (rows.length === 0) {
+    // Only reachable on the unentitled path, with the plan's listing cap full
+    // and nothing in the read already here. That is a real refusal rather than
+    // a wall this story should remove (the seller is holding as many live
+    // listings as the free plan allows), so it answers in the SAME shape the
+    // plan gate refuses in, which the web card and the extension both already
+    // turn into "you are at N of M live listings".
+    return c.json(
+      {
+        error: "CAP_REACHED",
+        cap: "activeListings",
+        used: headroom?.used ?? 0,
+        delta: allRows.length,
+        limit: headroom?.limit ?? FREE_CLOSET_IMPORT_ROWS,
+        plan: headroom?.plan ?? "free",
+        requiredPlan: "starter",
+      },
+      402,
+    );
+  }
+
+  // Unchanged for entitled accounts: the plan's own gate, counting only rows
+  // this tenant does not already hold.
   if (sellerEnabled) {
     const capGate = await requireFlipdesk(c, {
       capacity: { kind: "activeListings", delta: newRows },
@@ -239,8 +281,19 @@ flipdeskClosetImportRoutes.post("/runs", async (c) => {
       plan_warning: planWarning,
       // US-3263: what the free bound cost this read, so the page can say it
       // rather than quietly importing a quarter of somebody's closet.
+      //
+      // free_cap is the allowance ACTUALLY applied, which is the flat row bound
+      // until the account's own listing cap is the smaller of the two. Saying
+      // "the free plan imports 25 at a time" to somebody who was trimmed to 4
+      // because they already hold 21 live listings would be a true sentence
+      // about the wrong rule, so free_cap_reason names which one bit.
       free_capped: capped.capped,
-      free_cap: sellerEnabled ? null : FREE_CLOSET_IMPORT_ROWS,
+      free_cap: capped.allowance,
+      free_cap_reason: sellerEnabled
+        ? null
+        : (capped.allowance ?? 0) < FREE_CLOSET_IMPORT_ROWS
+        ? "activeListings"
+        : "rows",
       left_behind: capped.leftBehind,
     },
     202,

@@ -10,6 +10,7 @@ import { assert, assertEquals } from "@std/assert";
 import type { Context } from "hono";
 import {
   aiCapFor,
+  capacityHeadroom,
   featureAllowedForUser,
   type PlanGateDeps,
   type PlanGateUser,
@@ -696,4 +697,81 @@ Deno.test("US-2288: plan shopping is NOT trial-capped", () => {
   // caused — the same reason the self-cap is excluded from this path.
   const pro = __testing.PLAN_MATRIX.pro;
   assertEquals(__testing.getLimit(pro, "aiActions"), 750);
+});
+
+// ── capacityHeadroom (US-3263) ────────────────────────────────────
+//
+// The third answer, next to requireFlipdesk's 402 and capacityAllowedForUser's
+// yes/no: how many MORE fit. A call that carries sixty listings needs a number,
+// because the honest answer to "may I import these" is "the first four of
+// them", and neither of the other two shapes can say that.
+
+Deno.test("capacityHeadroom reports what is left of a free plan's listing cap", async () => {
+  const out = await capacityHeadroom(
+    "u1",
+    "activeListings",
+    deps(user({ flipdesk_plan: "free" }), 21),
+  );
+  assertEquals(out?.plan, "free");
+  assertEquals(out?.used, 21);
+  assertEquals(out?.limit, 25);
+  assertEquals(out?.headroom, 4);
+});
+
+Deno.test("capacityHeadroom never reports a negative headroom", async () => {
+  // A downgrade leaves an account holding more than the new plan allows.
+  const out = await capacityHeadroom(
+    "u1",
+    "activeListings",
+    deps(user({ flipdesk_plan: "free" }), 400),
+  );
+  assertEquals(out?.headroom, 0);
+});
+
+Deno.test("capacityHeadroom reports an expired trial against Free, not Pro", async () => {
+  // US-383: the same resolution requireFlipdesk uses. A lapsed Pro trial is a
+  // free account and its closet import must be bounded like one.
+  const out = await capacityHeadroom(
+    "u1",
+    "activeListings",
+    deps(
+      user({
+        flipdesk_plan: "pro",
+        subscription_status: "trialing",
+        trial_ends_at: new Date(Date.now() - 86_400_000).toISOString(),
+      }),
+      0,
+    ),
+  );
+  assertEquals(out?.plan, "free");
+  assertEquals(out?.limit, 25);
+});
+
+Deno.test("capacityHeadroom calls an unlimited cap null rather than a number", async () => {
+  const out = await capacityHeadroom(
+    "u1",
+    "marketplaces",
+    deps(user({ flipdesk_plan: "pro" }), 3),
+  );
+  assertEquals(out?.limit, -1);
+  assertEquals(out?.headroom, null);
+});
+
+Deno.test("capacityHeadroom gives the platform owner no cap", async () => {
+  const out = await capacityHeadroom(
+    "u1",
+    "activeListings",
+    deps(user({ flipdesk_plan: "free", role: "super_admin" }), 9999),
+  );
+  assertEquals(out?.headroom, null);
+});
+
+Deno.test("capacityHeadroom returns null when the user row will not load", async () => {
+  // Deliberately NOT a zero headroom: zero is a decision, null is the absence
+  // of one, and the caller must be the one that chooses what to do about it.
+  const out = await capacityHeadroom("u1", "activeListings", {
+    loadUser: () => Promise.resolve(null),
+    readUsage: () => Promise.resolve(0),
+  });
+  assertEquals(out, null);
 });

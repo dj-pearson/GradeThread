@@ -317,6 +317,64 @@ export async function capacityAllowedForUser(
   return { allowed: true };
 }
 
+/** What [capacityHeadroom] answers. `headroom: null` means unlimited. */
+export interface CapacityHeadroom {
+  plan: FlipdeskPlan;
+  used: number;
+  /** -1 when the plan's allowance is unlimited. */
+  limit: number;
+  /** How many more of `kind` this account may add. `null` means unlimited. */
+  headroom: number | null;
+}
+
+/**
+ * How much of a capacity cap is LEFT, as a number.
+ *
+ * US-3263. requireFlipdesk and capacityAllowedForUser both answer a yes/no and
+ * that is the right shape when a call carries one action. It is the wrong shape
+ * when a call carries N things and the honest answer is "the first k of them".
+ * The closet import is that call: refusing a 60-listing read because the
+ * account may hold 25 more is the wall the story exists to remove, and skipping
+ * the accounting altogether (which is what the first cut did) lets a free
+ * account press Import twenty times and sit on five hundred live listings
+ * against a cap of twenty-five.
+ *
+ * So: the same plan resolution and the same usage read, reported as a remaining
+ * count, so the caller can trim instead of refuse.
+ *
+ * Returns `null` when the users row will not load. That is NOT "unlimited" and
+ * must never be read as one; the caller decides what an unknown allowance
+ * means for its own operation.
+ */
+export async function capacityHeadroom(
+  userId: string,
+  kind: CapacityKind,
+  deps: Pick<PlanGateDeps, "loadUser" | "readUsage"> = defaultDeps,
+): Promise<CapacityHeadroom | null> {
+  const user = await deps.loadUser(userId);
+  if (!user) return null;
+
+  const effectivePlan = effectivePlanFor(
+    user.flipdesk_plan,
+    user.subscription_status,
+    user.trial_ends_at,
+    new Date(),
+    user.past_due_since,
+  ) as FlipdeskPlan;
+  // Same bypass as requireFlipdesk, for the same reason: the platform owner is
+  // not accounted against a plan they do not hold.
+  if (user.role === "super_admin") {
+    return { plan: effectivePlan, used: 0, limit: -1, headroom: null };
+  }
+
+  const matrix = await getPlanMatrix();
+  const limit = getLimit(matrix[effectivePlan], kind, user);
+  if (limit === -1) return { plan: effectivePlan, used: 0, limit: -1, headroom: null };
+
+  const used = await deps.readUsage(userId, kind, user);
+  return { plan: effectivePlan, used, limit, headroom: Math.max(0, limit - used) };
+}
+
 /**
  * Non-HTTP feature check: does `userId`'s EFFECTIVE plan grant `feature`?
  *

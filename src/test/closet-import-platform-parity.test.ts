@@ -63,10 +63,25 @@ describe("the free-plan import bound (US-3263)", () => {
     const route = read(
       "services/edge-functions/src/routes/flipdesk-closet-import.ts",
     );
-    expect(route).toContain("applyFreeTierCap(allRows, sellerEnabled)");
+    expect(route).toContain("applyFreeTierCap(allRows, sellerEnabled, {");
     expect(route).toMatch(/const sellerEnabled = await sellerGate\(ownerId\)/);
     // And the old outright refusal is gone: a 402 here is what hid the feature
     // from the person deciding whether to buy it.
     expect(route).not.toContain('feature: "closet_import"');
+  });
+
+  it("the row bound composes with the plan's own live-listing cap", () => {
+    // A bound that applies to one READ and to nothing else is not a bound:
+    // Import is a button, and twenty presses would put five hundred live
+    // listings on a plan that allows twenty-five. The route reads how much of
+    // the account's OWN cap is left and takes the smaller of the two.
+    const route = read(
+      "services/edge-functions/src/routes/flipdesk-closet-import.ts",
+    );
+    // Scoped to the owner, never to a request field (US-268).
+    expect(route).toMatch(/capacityHeadroom\(ownerId, "activeListings"\)/);
+    expect(route).toContain("freeRowAllowance(");
+    // The entitled path still runs the real gate, unchanged.
+    expect(route).toMatch(/capacity: \{ kind: "activeListings", delta: newRows \}/);
   });
 });

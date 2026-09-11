@@ -10,6 +10,7 @@ import {
   isClosetImportPlatform,
   listingIdFromUrl,
   FREE_CLOSET_IMPORT_ROWS,
+  freeRowAllowance,
   MAX_CLOSET_IMPORT_PHOTOS,
   MAX_CLOSET_IMPORT_ROWS,
   normalizeClosetRows,
@@ -253,4 +254,73 @@ Deno.test("an unentitled batch exactly at the bound is not capped", () => {
   const out = applyFreeTierCap(rows, false);
   assertEquals(out.capped, false);
   assertEquals(out.rows.length, FREE_CLOSET_IMPORT_ROWS);
+});
+
+// ── US-3263 (second cut): the bound composes with the plan's listing cap ───
+//
+// The first cut bounded a READ at 25 rows and skipped the active-listing
+// accounting entirely, on the reading that a free account "has no plan to
+// account against". Free is a plan and it carries activeListingCap: 25, so a
+// per-read bound was no bound at all: Import is a button, and pressing it
+// twenty times put five hundred live listings on a plan that allows
+// twenty-five. These cases pin the composition.
+
+Deno.test("freeRowAllowance takes the smaller of the row bound and the plan headroom", () => {
+  // Plenty of room: the flat row bound is what bites.
+  assertEquals(freeRowAllowance(1000), FREE_CLOSET_IMPORT_ROWS);
+  assertEquals(freeRowAllowance(FREE_CLOSET_IMPORT_ROWS), FREE_CLOSET_IMPORT_ROWS);
+  // Nearly full: the plan's own cap is what bites.
+  assertEquals(freeRowAllowance(4), 4);
+  assertEquals(freeRowAllowance(0), 0);
+  // Over the cap already (a downgrade leaves this state). Never negative.
+  assertEquals(freeRowAllowance(-6), 0);
+  // Unknown or unlimited falls back to the row bound, never to zero: a users
+  // row that will not read must not become the locked door this story removed.
+  assertEquals(freeRowAllowance(null), FREE_CLOSET_IMPORT_ROWS);
+});
+
+Deno.test("an unentitled read is trimmed to the plan's remaining listing headroom", () => {
+  const rows = Array.from({ length: 60 }, (_, i) => i);
+  // 21 of 25 live listings already held, so four new ones fit.
+  const out = applyFreeTierCap(rows, false, { allowance: freeRowAllowance(4) });
+  assertEquals(out.rows.length, 4);
+  assertEquals(out.allowance, 4);
+  assertEquals(out.leftBehind, 56);
+  assertEquals(out.capped, true);
+});
+
+Deno.test("a full free plan still lets a re-read refresh the listings already here", () => {
+  // The seller imported their 25 and is at the cap. Re-reading the same closet
+  // must still work: a row this tenant already holds consumes no new slot, so
+  // it survives a zero allowance. Without this the second press is a dead end.
+  const rows = ["a", "b", "c", "new-1", "new-2"];
+  const held = new Set(["a", "b", "c"]);
+  const out = applyFreeTierCap(rows, false, {
+    allowance: freeRowAllowance(0),
+    isKnown: (r) => held.has(r),
+  });
+  assertEquals(out.rows, ["a", "b", "c"]);
+  assertEquals(out.leftBehind, 2);
+  assertEquals(out.capped, true);
+});
+
+Deno.test("an entitled account is untouched by either bound", () => {
+  const rows = Array.from({ length: 900 }, (_, i) => i);
+  const out = applyFreeTierCap(rows, true, { allowance: 0, isKnown: () => false });
+  assertEquals(out.rows.length, 900);
+  assertEquals(out.leftBehind, 0);
+  assertEquals(out.capped, false);
+  // null, not a number: no free bound was applied, and the response says so.
+  assertEquals(out.allowance, null);
+});
+
+Deno.test("known rows do not eat the allowance a new row needs", () => {
+  // 3 already here + 5 new, allowance 2. All three known survive, and the
+  // allowance is spent only on new rows -- the same rule the paid capacity
+  // gate applies when it counts `newRows` against the plan.
+  const rows = ["k1", "n1", "k2", "n2", "n3", "k3", "n4", "n5"];
+  const held = new Set(["k1", "k2", "k3"]);
+  const out = applyFreeTierCap(rows, false, { allowance: 2, isKnown: (r) => held.has(r) });
+  assertEquals(out.rows, ["k1", "n1", "k2", "n2", "k3"]);
+  assertEquals(out.leftBehind, 3);
 });

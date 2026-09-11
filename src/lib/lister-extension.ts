@@ -946,6 +946,12 @@ export interface ClosetImportResponse extends ExtensionResponse {
     free_capped?: boolean;
     /** How many rows a free account may bring in, or null when entitled. */
     free_cap?: number | null;
+    /**
+     * WHICH bound produced free_cap: the flat per-read row bound ("rows"), or
+     * what is left of the account's own active-listing cap ("activeListings").
+     * Null when the account is entitled and neither applied.
+     */
+    free_cap_reason?: "rows" | "activeListings" | null;
     /** Listings the bound left behind on this read. */
     left_behind?: number;
     error?: string;
@@ -965,6 +971,49 @@ export function sendClosetImport(
   platform: "poshmark" | "mercari" | "grailed",
 ): Promise<ClosetImportResponse> {
   return sendExtensionMessage<ClosetImportResponse>({ type: "GT_CLOSET_IMPORT", platform });
+}
+
+/**
+ * US-3263: the sentence for a closet import the free bound TRIMMED.
+ *
+ * Not a failure -- the import ran and rows landed -- but a partial import that
+ * reads as a whole one is worse than a refusal, because the seller walks away
+ * believing FlipDesk saw a closet it never saw.
+ *
+ * Two bounds can produce this and they need different sentences. The flat
+ * per-read bound is a property of the free plan and "we take 25 at a time" is
+ * the whole truth about it. The active-listing cap is a property of THIS
+ * account right now, and saying "the free plan imports 4 at a time" to somebody
+ * trimmed to 4 because they already hold 21 live listings would be a true
+ * sentence about the wrong rule -- and the next read, after they end a listing,
+ * would quote a different number with no explanation.
+ *
+ * Returns null when nothing was left behind, so the caller can skip the toast.
+ */
+export function closetImportCapNotice(
+  result: {
+    free_capped?: boolean;
+    free_cap?: number | null;
+    free_cap_reason?: "rows" | "activeListings" | null;
+    left_behind?: number;
+  } | null | undefined,
+): string | null {
+  if (!result?.free_capped) return null;
+  const left = result.left_behind ?? 0;
+  if (left <= 0) return null;
+  const cap = result.free_cap ?? 0;
+  const tail = "A FlipDesk plan brings in the whole closet.";
+
+  if (result.free_cap_reason === "activeListings") {
+    if (cap <= 0) {
+      return `Your free plan is holding as many live listings as it allows, so ` +
+        `nothing new came in from this read and ${left} listings were left behind. ` + tail;
+    }
+    return `${left} listings were left behind. Your free plan had room for ${cap} more ` +
+      `live ${cap === 1 ? "listing" : "listings"}, so that is what came in. ` + tail;
+  }
+  return `${left} more listings were left behind: the free plan imports ${cap} ` +
+    `at a time. ` + tail;
 }
 
 /**

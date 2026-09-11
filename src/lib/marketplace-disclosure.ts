@@ -117,8 +117,14 @@ export const CLOSET_IMPORT_PLATFORMS = ["poshmark", "mercari", "grailed"] as con
 export type ClosetImportPlatform = (typeof CLOSET_IMPORT_PLATFORMS)[number];
 
 /**
- * US-3263: how many listings an account with no FlipDesk plan may bring in per
+ * US-3263: the MOST listings an account with no FlipDesk plan may bring in per
  * read.
+ *
+ * An upper bound, not a promise. The server takes the smaller of this and what
+ * is left of that account's own live-listing cap, so a seller already holding
+ * 21 of their 25 gets 4. The response says which bound bit (`free_cap_reason`)
+ * and closetImportCapNotice turns that into the sentence; this number is only
+ * ever the ceiling the card states up front.
  *
  * MUST equal FREE_CLOSET_IMPORT_ROWS in
  * services/edge-functions/src/lib/closet-import.ts, which is the one that

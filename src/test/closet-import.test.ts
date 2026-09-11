@@ -62,9 +62,17 @@ describe("closet import card", () => {
     // No extension: an install step, not silence.
     expect(src).toMatch(/if \(!setup\.installed\)/);
     expect(src).toMatch(/extensionStoreUrl\(\)/);
-    // No plan: the card renders and states the bound.
-    expect(src).toMatch(/!setup\.sellerEnabled && \(/);
+    // The bound is stated, and NOT gated on setup.sellerEnabled.
+    //
+    // That field is the EXTENSION's answer to GT_PING, and an install holding
+    // no account token gets the anonymous entitlements, which carry
+    // sellerEnabled:false whatever the account pays (US-3295). Showing the
+    // free-plan sentence only when it was false therefore told a paying
+    // Business seller who had never connected the extension that they were on
+    // the free plan -- the same mistake US-3295 was filed to fix. The sentence
+    // now names its own condition and is true for every reader.
     expect(src).toContain("FREE_CLOSET_IMPORT_ROWS");
+    expect(src).not.toMatch(/\{!setup\.sellerEnabled && \(/);
   });
 
   it("shows the disclosure before the button, from the shared copy", () => {

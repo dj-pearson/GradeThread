@@ -4614,22 +4614,6 @@
       "priority": 1615
     },
     {
-      "id": "US-3263",
-      "passes": false,
-      "title": "The one-press closet import is invisible on a trial, which is exactly who needs to see it work",
-      "description": "As a reseller evaluating FlipDesk, I want to import part of my Poshmark or Mercari closet before I pay, so that I can see my own listings in the product instead of taking the import on trust.",
-      "acceptanceCriteria": [
-        "src/components/flipdesk/closet-import-card.tsx renders for an account WITHOUT an active paid FlipDesk plan once the extension is installed, instead of hiding entirely; the card states the trial row cap in its own copy.",
-        "services/edge-functions/src/routes/flipdesk-closet-import.ts enforces the cap SERVER-SIDE for an unentitled workspace — the run is created with at most TRIAL_CLOSET_IMPORT_ROWS rows (25) and the response says how many of the seller's listings were left behind and what lifts the cap. The browser cap is not the gate.",
-        "The cap is a constant in services/edge-functions/src/lib/closet-import.ts next to MAX_CLOSET_IMPORT_ROWS, and a pure test asserts an unentitled batch of 200 rows is trimmed to 25 while an entitled one is not.",
-        "The existing requireFlipdesk capacity gate still applies to entitled accounts unchanged; the trial path does not bypass activeListings accounting, it replaces the hard refusal with a bounded allowance.",
-        "The route stays tenant-scoped on workspaceOwnerId ?? userId and gains a case in services/edge-functions/src/tests/tenant-isolation_test.ts covering the trial path (US-268).",
-        "Undo still works on a trial run: the effect rows are written the same way, so the seller can reverse a trial import."
-      ],
-      "priority": 9,
-      "notes": "SCOPE CORRECTED 2026-09-09 BEFORE BUILDING, and the correction matters. The story said the card was invisible on a TRIAL. It is not: handle_new_user grants 14 days of Pro with subscription_status 'trialing' (00586), effectivePlanFor keeps a trial plan inside its window, and resolveSellerEntitlement therefore reports sellerEnabled TRUE for a new signup. Who the card was actually invisible to: any account on the FREE plan (trial lapsed, cancelled, or a buyer-only signup who later sells) and - much larger - anyone who has not installed the extension yet, because the component returned null on !setup.installed with no sentence and no install link. The second case was the real hole and the story did not name it. | Done 2026-09-09. FREE_CLOSET_IMPORT_ROWS=25 and applyFreeTierCap live in the pure edge module with four unit cases; the route resolves entitlement from the users row and trims there, so neither the browser nor the extension is the gate (a request carrying its own free_cap is ignored, asserted in the tenant-isolation case). requireFlipdesk's activeListings accounting still runs for entitled accounts and is skipped for free ones - it would have refused the 25 rows the branch exists to allow. The extension's own 402 seller_locked refusal for GT_CLOSET_IMPORT is removed (background.js), which needs a store build to reach installed users; the server is authoritative either way, so a stale extension keeps refusing until it updates. The card now renders an install step when the extension is missing and states the bound when the account has no plan. Tenant isolation gained a case plus a THIRD seeded tenant on free with trial_ends_at NULL - the seeding guard caught the missing fixture id, and seeding a default account would have tested the paid path under a name saying free. Also fixed while here: grailed was missing from the WEB closet lists (marketplace-disclosure, lister-extension, seo/crosslist-pairs), so the card never offered it."
-    },
-    {
       "id": "US-3264",
       "passes": false,
       "title": "Signup never asks whether the seller already has listings, so everyone is routed as if they were starting empty",

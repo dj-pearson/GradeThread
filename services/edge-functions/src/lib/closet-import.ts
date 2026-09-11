@@ -49,6 +49,33 @@ export const MAX_CLOSET_IMPORT_PHOTOS = 8;
 export const FREE_CLOSET_IMPORT_ROWS = 25;
 
 /**
+ * How many NEW listings an unentitled read may bring in, given how much of the
+ * account's own active-listing cap is still free.
+ *
+ * MIN-OF-CAPS, the shape plan-gate's aiCapFor already uses for the trial: each
+ * input can only lower the answer, so a third one added later cannot
+ * accidentally raise it.
+ *
+ * The 25-row read bound on its own is not the whole rule, and treating it as
+ * the whole rule was a hole. Free carries an activeListingCap of its own, and
+ * a bound that applies PER READ is no bound at all against a seller who
+ * presses Import again: twenty presses is five hundred live listings on a plan
+ * that allows twenty-five. Composing the two means the first read of an empty
+ * catalog still brings the full 25 (the switcher this story exists for), and
+ * the twenty-first read brings nothing, because by then the plan itself is
+ * full and that is the honest answer.
+ *
+ * `null` headroom means unlimited or unknown: an uncapped plan, a super_admin,
+ * or a users row that would not read. Unknown falls back to the flat row bound
+ * rather than to zero: a database hiccup must not turn into the locked door
+ * this story removed.
+ */
+export function freeRowAllowance(activeListingHeadroom: number | null): number {
+  if (activeListingHeadroom === null) return FREE_CLOSET_IMPORT_ROWS;
+  return Math.max(0, Math.min(FREE_CLOSET_IMPORT_ROWS, activeListingHeadroom));
+}
+
+/**
  * Trim a batch to what this account is allowed to import, and say what was
  * left behind.
  *
@@ -56,18 +83,40 @@ export const FREE_CLOSET_IMPORT_ROWS = 25;
  * kind of rule that is easy to get subtly wrong in an if-statement: an
  * entitled account must be affected in NO way, and an unentitled one must be
  * bounded by the server rather than by the browser that asked.
+ *
+ * `allowance` defaults to the flat row bound. `isKnown` marks rows this tenant
+ * ALREADY holds a listing for; those are kept whatever the allowance, because
+ * they consume no new slot, which is the rule the paid capacity gate applies when
+ * it counts only new rows against the plan. Without it a seller who imported
+ * 25 free listings could never re-read their own closet to refresh them.
  */
 export function applyFreeTierCap<T>(
   rows: readonly T[],
   sellerEnabled: boolean,
-): { rows: T[]; leftBehind: number; capped: boolean } {
-  if (sellerEnabled || rows.length <= FREE_CLOSET_IMPORT_ROWS) {
-    return { rows: [...rows], leftBehind: 0, capped: false };
+  opts?: { allowance?: number; isKnown?: (row: T) => boolean },
+): { rows: T[]; leftBehind: number; capped: boolean; allowance: number | null } {
+  if (sellerEnabled) {
+    return { rows: [...rows], leftBehind: 0, capped: false, allowance: null };
+  }
+  const allowance = Math.max(0, opts?.allowance ?? FREE_CLOSET_IMPORT_ROWS);
+  const isKnown = opts?.isKnown;
+  const kept: T[] = [];
+  let taken = 0;
+  for (const row of rows) {
+    if (isKnown?.(row)) {
+      kept.push(row);
+      continue;
+    }
+    if (taken < allowance) {
+      kept.push(row);
+      taken++;
+    }
   }
   return {
-    rows: rows.slice(0, FREE_CLOSET_IMPORT_ROWS),
-    leftBehind: rows.length - FREE_CLOSET_IMPORT_ROWS,
-    capped: true,
+    rows: kept,
+    leftBehind: rows.length - kept.length,
+    capped: kept.length < rows.length,
+    allowance,
   };
 }
 
