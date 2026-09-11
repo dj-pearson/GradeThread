@@ -99,7 +99,6 @@ import {
   useExtensionQueue,
 } from "@/hooks/use-extension-queue";
 import { useListerLocales } from "@/hooks/use-lister-locales";
-import { useItemListings } from "@/hooks/use-item-listings";
 import { ActiveListingsLinks } from "@/components/flipdesk/delist-panel";
 import { localeForPlatform } from "@/lib/lister-locales";
 
