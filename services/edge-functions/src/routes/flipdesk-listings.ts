@@ -64,6 +64,7 @@ import { deriveListingOrigin } from "../lib/sync-precedence.ts";
 import { requireFlipdesk } from "../lib/plan-gate.ts";
 import { markItemListed } from "../lib/active-listings.ts";
 import {
+  markNotListed,
   type ExtensionWritebackBody,
   handleExtensionWriteback,
 } from "../lib/extension-writeback.ts";
@@ -397,6 +398,20 @@ flipdeskListingsRoutes.post("/extension-writeback", async (c) => {
     return c.json({ error: "Invalid JSON body." }, 400);
   }
   return await handleExtensionWriteback(c, ownerId, body);
+});
+
+// ── US-3367: the opt-out on a row recorded as listed ─────────────────────
+//
+// A filled form is recorded as listed (unconfirmed) and a captured URL as
+// listed (confirmed). Either can be wrong, and the seller is the only one who
+// knows. This puts the row back to a draft; the body lives in
+// lib/extension-writeback.ts next to the code that made the record.
+flipdeskListingsRoutes.post("/:id/not-listed", async (c) => {
+  const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
+  const listingId = c.req.param("id");
+  if (!listingId) return c.json({ error: "listing id is required." }, 400);
+  const out = await markNotListed(ownerId, listingId);
+  return c.json(out.body, out.status as 200);
 });
 
 // ── US-717: extension auto-delist queue ───────────────────────────────────

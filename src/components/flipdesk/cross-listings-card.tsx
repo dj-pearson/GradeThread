@@ -13,7 +13,7 @@ import { MARKETPLACE_LABELS } from "@/lib/constants";
 import type { ListingPlatform } from "@/types/database";
 import { useItemListings } from "@/hooks/use-item-listings";
 import { QUEUED_NOTICE, useExtensionQueue } from "@/hooks/use-extension-queue";
-import { useEndListing } from "@/hooks/use-listing-lifecycle";
+import { useEndListing, useNotListed } from "@/hooks/use-listing-lifecycle";
 import { useMarkDelistDone } from "@/hooks/use-pending-delists";
 import { requestDrainNow } from "@/lib/lister-extension";
 import { deriveChannelState } from "@/lib/channel-state";
@@ -29,6 +29,7 @@ import { deriveChannelState } from "@/lib/channel-state";
 
 const WORDS: Record<string, string> = {
   live: "Live",
+  unconfirmed: "Recorded as listed, not confirmed",
   queued: "Queued for your desktop",
   delist_queued: "Ending from your browser",
   prefilled: "Form filled, not confirmed live",
@@ -42,6 +43,7 @@ export function CrossListingsCard({ itemId }: { itemId: string }) {
   const { data: queue } = useExtensionQueue();
   const endListing = useEndListing();
   const markDone = useMarkDelistDone();
+  const notListed = useNotListed();
 
   const platforms = [...new Set(rows.filter((r) => r.platform !== "ebay").map((r) => r.platform))];
   if (platforms.length === 0) return null;
@@ -115,6 +117,27 @@ export function CrossListingsCard({ itemId }: { itemId: string }) {
                       ) : (
                         "End listing"
                       )}
+                    </Button>
+                  )}
+                  {/* US-3367: the opt-out on a row recorded as listed. */}
+                  {(s.state === "unconfirmed" || s.state === "live") && s.row && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-7 text-xs"
+                      disabled={notListed.isPending}
+                      aria-label={`Mark the ${label} listing as not listed`}
+                      title={`FlipDesk recorded this as listed on ${label}. Press if it is not.`}
+                      onClick={() =>
+                        notListed.mutate(
+                          { listingId: s.row!.id, itemId },
+                          {
+                            onSuccess: () => toast.success(`Recorded as not listed on ${label}.`),
+                            onError: (e) => toastError(e, "Could not update the listing."),
+                          },
+                        )}
+                    >
+                      Not listed
                     </Button>
                   )}
                   {s.state === "delist_queued" && s.row && (

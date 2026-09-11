@@ -79,7 +79,7 @@ import {
 } from "@/lib/channel-state";
 import { useItemListings } from "@/hooks/use-item-listings";
 import { useCrossPush } from "@/hooks/use-cross-listing";
-import { useEndListing } from "@/hooks/use-listing-lifecycle";
+import { useEndListing, useNotListed } from "@/hooks/use-listing-lifecycle";
 import { useMarkDelistDone } from "@/hooks/use-pending-delists";
 import { useCrossPostChannels } from "@/hooks/use-cross-post-channels";
 import {
@@ -341,6 +341,9 @@ function PlatformPanel({
   const cancelJob = useCancelExtensionWork();
   const markDone = useMarkDelistDone();
   const enqueueRetry = useEnqueueExtensionWork();
+  // US-3367: the opt-out. A filled form is recorded as listed until the seller
+  // says otherwise; this is the "otherwise".
+  const notListed = useNotListed();
 
   // US-1877 (AC1): the AUTOMATIC path — the extension saw the tab navigate to the
   // live listing, which means the seller submitted. Promote the draft and record
@@ -757,6 +760,13 @@ function PlatformPanel({
             {status.state === "live" && (
               <>Live on {label}{status.since ? ` since ${when(status.since)}` : ""}.</>
             )}
+            {status.state === "unconfirmed" && (
+              <>
+                Recorded as listed on {label}: the form was filled
+                {status.since ? ` ${when(status.since)}` : ""}, but nothing saw it go
+                live. Not listed after all? Say so, or confirm it.
+              </>
+            )}
             {status.state === "queued" && (
               <>Queued for your desktop. Nothing is live on {label} yet.</>
             )}
@@ -808,6 +818,41 @@ function PlatformPanel({
                   )}
               >
                 {endListing.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "End listing"}
+              </Button>
+            )}
+            {(status.state === "unconfirmed" || status.state === "live") &&
+              status.row && isListerPlatform(platform) && (
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="h-7 text-xs"
+                disabled={notListed.isPending}
+                aria-label={`Mark the ${label} listing as not listed`}
+                title={`FlipDesk recorded this as listed on ${label}. Press if it is not.`}
+                onClick={() =>
+                  notListed.mutate(
+                    { listingId: status.row!.id, itemId },
+                    {
+                      onSuccess: () => toast.success(`Recorded as not listed on ${label}.`),
+                      onError: (e) => toastError(e, "Could not update the listing."),
+                    },
+                  )}
+              >
+                Not listed
+              </Button>
+            )}
+            {status.state === "unconfirmed" && showSend && (
+              <Button
+                type="button"
+                variant="secondary"
+                size="sm"
+                className="h-7"
+                disabled={confirming}
+                aria-label={`Confirm the ${label} listing is live`}
+                onClick={confirmPublished}
+              >
+                Yes, it is listed
               </Button>
             )}
             {/* Cancel only while queued (US-3048): a claimed row is mid-fill in a

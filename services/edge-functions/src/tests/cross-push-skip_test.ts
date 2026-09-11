@@ -49,3 +49,23 @@ Deno.test("already_live wins over already_queued", () => {
     "already_live",
   );
 });
+
+Deno.test("a row recorded as listed but unconfirmed is skipped as already_live (opt-out posture)", () => {
+  assertEquals(
+    planCrossPushSkip(
+      { listing_status: "active", listing_url: null, listed_unconfirmed: true },
+      false,
+    ),
+    "already_live",
+  );
+});
+
+Deno.test("the unconfirmed marker on a non-active row changes nothing", () => {
+  assertEquals(
+    planCrossPushSkip(
+      { listing_status: "draft", listing_url: null, listed_unconfirmed: true },
+      false,
+    ),
+    null,
+  );
+});

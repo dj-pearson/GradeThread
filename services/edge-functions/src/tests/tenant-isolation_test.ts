@@ -9339,3 +9339,19 @@ Deno.test({
     );
   },
 });
+
+Deno.test({
+  // US-3367: "Not listed" rewrites a listing row and re-derives the item's
+  // status. A foreign id must be a 404, never a draft on someone else's item.
+  name: "user B cannot mark user A's listing as not listed",
+  ignore: !CONFIGURED,
+  fn: async () => {
+    const id = Deno.env.get("TEST_USER_A_LISTING_ID") ?? "11111111-1111-1111-1111-111111111111";
+    const res = await fetch(
+      `${BASE}/api/flipdesk/listings/${encodeURIComponent(id)}/not-listed`,
+      { method: "POST", headers: authHeaders(B_JWT!) },
+    );
+    await res.body?.cancel();
+    assertDenied(res.status, "POST /api/flipdesk/listings/:id/not-listed");
+  },
+});

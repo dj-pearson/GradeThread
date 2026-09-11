@@ -72,6 +72,33 @@ export function buildListingLive(opts: {
   };
 }
 
+/**
+ * US-3367: an extension channel's row became listed. `confirmed` means the
+ * extension saw the live listing page (or the seller said so); otherwise the
+ * form was filled and the row is recorded as listed until the seller opts out.
+ * Both name "Not listed", because the whole point of the record is that the
+ * seller can undo it in one press.
+ */
+export function buildExtensionListed(opts: {
+  itemTitle: string | null;
+  itemId: string;
+  platformLabel: string;
+  confirmed: boolean;
+}): NotifyInput {
+  const what = opts.itemTitle?.trim() || "Your item";
+  return {
+    type: "listing_live",
+    title: opts.confirmed
+      ? `Listed on ${opts.platformLabel}`
+      : `Recorded as listed on ${opts.platformLabel}`,
+    message: opts.confirmed
+      ? `${what} is live on ${opts.platformLabel}. Not right? Open the item and press Not listed.`
+      : `GradeThread filled the ${opts.platformLabel} form for ${what} and recorded it as listed. ` +
+        `If you did not submit it, open the item and press Not listed.`,
+    link: ITEM_LINK(opts.itemId),
+  };
+}
+
 export function buildListingEnded(opts: {
   itemTitle: string | null;
   itemId: string;
@@ -194,6 +221,15 @@ export function notifySaleRecorded(
     inApp: buildSaleRecorded(opts),
     push: (uid) => pushSaleCreated(uid, opts.itemTitle),
   }, deps);
+}
+
+/** US-3367: an extension channel's row became listed (confirmed or not). In-app only. */
+export function notifyExtensionListed(
+  userId: string,
+  opts: { itemTitle: string | null; itemId: string; platformLabel: string; confirmed: boolean },
+  deps: SellingActivityDeps = defaultDeps,
+): Promise<void> {
+  return deliver(userId, { inApp: buildExtensionListed(opts) }, deps);
 }
 
 /** A listing transitioned to live on a marketplace. In-app only. */

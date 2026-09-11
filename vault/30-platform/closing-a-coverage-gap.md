@@ -320,6 +320,19 @@ Two rules the queue adds:
   duplicate listing. A manual End on an extension channel
   (`endOwnedListing`) now inserts the same `delist` queue row a sale does,
   instead of only stamping `delist_requested_at` for a banner click.
+- **A filled form is recorded as listed; the seller opts OUT** (US-3367,
+  founder decision 2026-09-11, reversing US-1877's prefill-is-a-draft). The
+  writeback records a prefill as `active` with
+  `platform_fields.listed_unconfirmed` and lists it now; a captured live URL or
+  "Yes, it is listed" clears the marker; "Not listed"
+  (`POST /listings/:id/not-listed`) puts the row back to a draft and re-derives
+  the item's status. A drained `list` job records the same way from
+  `/extension-queue/:id/complete`. One in-app notice goes out when a row becomes
+  listed and one more when an unconfirmed record is confirmed, both naming
+  "Not listed". The reason is the sale flow: a garment recorded as maybe-listed
+  is one the seller is told to check when it sells elsewhere; a draft they
+  forgot is one they are not. The cap gate still applies, and a refused prefill
+  falls back to the old draft record rather than blocking a form already filled.
 
 ## The mirror rule (while it lasts)
 

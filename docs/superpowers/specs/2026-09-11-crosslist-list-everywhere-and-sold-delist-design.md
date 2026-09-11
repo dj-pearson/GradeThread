@@ -236,6 +236,29 @@ rendered above the Listing Kit in the composer and above the new
 `CrossListingsCard` on the item page, so the delist controls are where the
 seller looks after a sale, not only on the Listings page.
 
+## Part C: a filled form is recorded as listed, and the seller opts out
+
+Added by the founder mid-build (2026-09-11), reversing US-1877's
+prefill-is-a-draft: "I would rather record that it may be listed and opt out
+than opt in, forget about it, and later when something sells be unsure where
+it is posted."
+
+- The writeback records a prefill as `listing_status: active` with
+  `platform_fields.listed_unconfirmed = { at }` and `listed_at: now`, under the
+  same activeListings cap gate as a publish. A refused prefill falls back to
+  the old draft record instead of blocking a form that is already filled.
+- A captured live URL (the extension's tab watch) or the seller's "Yes, it is
+  listed" clears the marker. Either sends one in-app notice
+  (`notifyExtensionListed`, type `listing_live`) naming "Not listed"; a bare
+  prefill sends the "recorded as listed" form of it.
+- `POST /api/flipdesk/listings/:id/not-listed` puts the row back to a draft
+  (URL, marker, listed_at and any delist stamp cleared) and re-derives the item
+  status. Extension channels only; a sold row is refused.
+- A drained `list` job records the same way from `/extension-queue/:id/complete`.
+- The channel state gains `unconfirmed`; the kit row offers "Not listed" and
+  "Yes, it is listed"; the item card offers "Not listed" on unconfirmed and live
+  extension rows; cross-push skips an unconfirmed row as already live.
+
 ## Out of scope for this build (operator work, filed separately)
 
 - Flipping on the Poshmark and Mercari sold-page observers (US-2698, US-2700).

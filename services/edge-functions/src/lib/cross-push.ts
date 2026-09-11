@@ -112,15 +112,24 @@ export type CrossPushSkip = "already_live" | "already_queued";
  * because the enqueue below was unconditional. Pure so the rule is tested;
  * the caller supplies the two facts.
  *
- * An `active` row with NO url is not skipped: nothing ever verified it went
- * live. The writeback only promotes a row on a captured URL or the seller's
- * own say-so, so a URL-less active row is a claim, not a listing.
+ * An `active` row with NO url is skipped only when it is RECORDED as listed but
+ * unconfirmed (`listed_unconfirmed`, the founder's 2026-09-11 opt-out posture:
+ * a filled form counts as listed until the seller says otherwise). An active
+ * row with neither a URL nor that marker is a claim nothing made, so it is not
+ * skipped.
  */
 export function planCrossPushSkip(
-  existing: { listing_status: string | null; listing_url: string | null } | null,
+  existing:
+    | { listing_status: string | null; listing_url: string | null; listed_unconfirmed?: boolean }
+    | null,
   pendingListJob: boolean,
 ): CrossPushSkip | null {
-  if (existing?.listing_status === "active" && existing.listing_url) return "already_live";
+  if (
+    existing?.listing_status === "active" &&
+    (existing.listing_url || existing.listed_unconfirmed === true)
+  ) {
+    return "already_live";
+  }
   if (pendingListJob) return "already_queued";
   return null;
 }
@@ -371,7 +380,11 @@ export async function crossPushPlatform(
       .maybeSingle();
     const skipped = planCrossPushSkip(
       existingRow
-        ? { listing_status: existingRow.listing_status, listing_url: existingRow.listing_url }
+        ? {
+          listing_status: existingRow.listing_status,
+          listing_url: existingRow.listing_url,
+          listed_unconfirmed: Boolean(existingRow.platform_fields?.listed_unconfirmed),
+        }
         : null,
       Boolean(pending),
     );

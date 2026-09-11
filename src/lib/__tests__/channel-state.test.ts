@@ -141,6 +141,20 @@ describe("deriveChannelState", () => {
     ).toBe("none");
   });
 
+  it("is unconfirmed for an active row with the marker and no url; a url makes it live", () => {
+    const marked = { listed_unconfirmed: { at: "2026-09-11T00:00:00Z" } };
+    expect(
+      deriveChannelState([row({ listing_status: "active", platform_fields: marked })], [], "poshmark").state,
+    ).toBe("unconfirmed");
+    expect(
+      deriveChannelState(
+        [row({ listing_status: "active", platform_fields: marked, listing_url: LIVE_URL })],
+        [],
+        "poshmark",
+      ).state,
+    ).toBe("live");
+  });
+
   it("drops a url that is not https", () => {
     const s = deriveChannelState(
       [row({ listing_status: "active", listing_url: "javascript:alert(1)" })],
@@ -163,6 +177,12 @@ describe("planListEverywhere", () => {
     });
     expect(plan.checked).toEqual(["grailed", "vinted"]);
     expect(plan.disabled).toEqual({ poshmark: "live", mercari: "queued" });
+  });
+
+  it("an unconfirmed channel is disabled with a question mark", () => {
+    const plan = planListEverywhere(["poshmark"], { poshmark: st("unconfirmed") });
+    expect(plan.checked).toEqual([]);
+    expect(plan.disabled.poshmark).toBe("listed?");
   });
 
   it("a delist in flight is disabled too", () => {

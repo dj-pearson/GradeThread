@@ -397,3 +397,38 @@ export function useBulkReviseListings() {
     onSuccess: invalidate,
   });
 }
+
+export interface NotListedResponse {
+  ok: true;
+  listing_id: string;
+  listing_status: "draft";
+}
+
+/**
+ * US-3367: the seller says a row recorded as listed on an extension channel is
+ * not listed there. The row goes back to a draft and the item's status is
+ * re-derived. Extension channels only; the server refuses an API channel.
+ */
+export function useNotListed() {
+  const invalidate = useLifecycleInvalidation();
+  const qc = useQueryClient();
+  return useMutation<
+    NotListedResponse,
+    Error & { status?: number; code?: string },
+    { listingId: string; itemId?: string | null }
+  >({
+    mutationFn: async ({ listingId }) => {
+      const res = await edgeFetch(
+        `/api/flipdesk/listings/${encodeURIComponent(listingId)}/not-listed`,
+        { method: "POST" },
+      );
+      return readOrThrow<NotListedResponse>(res, "Could not update the listing.");
+    },
+    onSuccess: (_r, vars) => {
+      invalidate();
+      if (vars.itemId) void qc.invalidateQueries({ queryKey: ["item_listings", vars.itemId] });
+      void qc.invalidateQueries({ queryKey: ["pending_delists"] });
+      void qc.invalidateQueries({ queryKey: ["platform-fields"] });
+    },
+  });
+}

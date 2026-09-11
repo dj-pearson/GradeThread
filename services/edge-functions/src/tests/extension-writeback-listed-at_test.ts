@@ -149,9 +149,59 @@ Deno.test("the update branch goes through buildWritebackPatch", () => {
 
 Deno.test("the INSERT still writes an explicit null for a draft", () => {
   assert(
-    CODE.includes("listed_at: published ? now : null"),
-    "the INSERT must NAME listed_at. Omitting it hands the row to " +
+    CODE.includes("listed_at: recordListed ? now : null"),
+    "the INSERT must NAME listed_at (US-3367: on recordListed, which is a " +
+      "publish OR a prefill recorded as listed). Omitting it hands the row to " +
       "`DEFAULT now()` (00634 kept the default on purpose), which is the " +
       "phantom dateable draft US-1877 exists to prevent.",
   );
+});
+
+// ---- US-3367: a filled form is recorded as listed, and the seller opts out ---
+
+Deno.test("US-3367: a prefill recorded as listed is active NOW with the unconfirmed marker", () => {
+  const p = patch({
+    published: false,
+    existingStatus: "draft",
+    existingListedAt: DRAFT_CREATED,
+    prefillAsListed: true,
+    existingPlatformFields: { poshmark: { title: "kept" } },
+  });
+  assertEquals(p.listing_status, "active");
+  assertEquals(p.is_active, true);
+  assertEquals(p.listed_at, NOW, "recorded as listed now, not at the draft's default stamp");
+  const pf = p.platform_fields as Record<string, unknown>;
+  assert(pf.listed_unconfirmed, "the marker is what tells the row apart from a confirmed listing");
+  assertEquals((pf.poshmark as { title: string }).title, "kept", "the kit's words survive the merge");
+});
+
+Deno.test("US-3367: a prefill of a LIVE row records nothing new even with the posture on", () => {
+  const p = patch({
+    published: false,
+    existingStatus: "active",
+    existingListedAt: REAL_LISTED,
+    prefillAsListed: true,
+    existingPlatformFields: null,
+  });
+  assert(!("listing_status" in p));
+  assert(!("platform_fields" in p));
+});
+
+Deno.test("US-3367: a publish clears the unconfirmed marker and keeps the rest", () => {
+  const p = patch({
+    published: true,
+    existingStatus: "active",
+    existingListedAt: REAL_LISTED,
+    listingUrl: "https://poshmark.com/listing/abc",
+    existingPlatformFields: { listed_unconfirmed: { at: NOW }, poshmark: { title: "kept" } },
+  });
+  const pf = p.platform_fields as Record<string, unknown>;
+  assert(!("listed_unconfirmed" in pf), "a captured URL settles the question");
+  assertEquals((pf.poshmark as { title: string }).title, "kept");
+  assertEquals(p.listed_at, REAL_LISTED, "confirming an unconfirmed row keeps its listed date");
+});
+
+Deno.test("US-3367: a publish of a row with no marker leaves platform_fields alone", () => {
+  const p = patch({ published: true, existingStatus: "draft", existingPlatformFields: { poshmark: {} } });
+  assert(!("platform_fields" in p), "no marker to clear, so nothing to write");
 });

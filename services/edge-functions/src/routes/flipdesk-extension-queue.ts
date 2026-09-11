@@ -7,6 +7,7 @@ import {
   completeRelist,
 } from "../lib/extension-relist.ts";
 import { failSafe } from "../lib/http-errors.ts";
+import { handleExtensionWriteback } from "../lib/extension-writeback.ts";
 import {
   CREDENTIAL_KEYS,
   normalizeQueuePayload,
@@ -639,7 +640,7 @@ flipdeskExtensionQueueRoutes.post("/:id/complete", async (c) => {
     })
     .eq("id", id)
     .eq("user_id", ownerId) // US-268
-    .select("id, status, kind, listing_id")
+    .select("id, status, kind, listing_id, inventory_item_id, platform")
     .maybeSingle();
 
   if (error) {
@@ -650,7 +651,38 @@ flipdeskExtensionQueueRoutes.post("/:id/complete", async (c) => {
   // US-9202: a drained revise reports into the same marker the web reads. The
   // row's own listing_id is used, owner-scoped through confirmRevise; nothing
   // in the result envelope chooses which listing is confirmed.
-  const done = data as { id: string; status: string; kind: string; listing_id: string | null };
+  const done = data as {
+    id: string;
+    status: string;
+    kind: string;
+    listing_id: string | null;
+    inventory_item_id: string | null;
+    platform: string;
+  };
+  // US-3367: a drained LIST job filled the form in a tab nobody was watching.
+  // Record it the way the interactive path does: listed-unconfirmed, with a
+  // notice, so the seller opts out if they never submitted rather than
+  // forgetting a live listing. The item and platform are the queue row's own
+  // (owner-scoped above), never the result envelope's. A URL in the result
+  // means the watch saw it go live before the fill reported, so confirm it.
+  if (done.kind === "list" && ok && done.inventory_item_id) {
+    const r = result.value as { listingUrl?: unknown };
+    const url = typeof r.listingUrl === "string" && /^https:\/\//.test(r.listingUrl)
+      ? r.listingUrl.slice(0, 500)
+      : null;
+    const wb = await handleExtensionWriteback(c, ownerId, {
+      item_id: done.inventory_item_id,
+      platform: done.platform,
+      listing_url: url,
+      published: url !== null,
+    });
+    if (!wb.ok) {
+      console.warn(
+        "[extension-queue] could not record the drained list job as listed:",
+        wb.status,
+      );
+    }
+  }
   // US-9203: a drained relist whose copy went live. The new row's id is on the
   // queue row's own payload (server-built), never on the result envelope.
   if (done.kind === "relist" && ok) {

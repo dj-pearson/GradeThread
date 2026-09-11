@@ -10,6 +10,13 @@ import { safeHref } from "@/lib/safe-url";
 
 export type ChannelState =
   | "live"
+  /**
+   * Recorded as listed because the form was filled, not because anything saw
+   * it go live. The seller opts OUT with "Not listed" (founder, 2026-09-11):
+   * a garment recorded as maybe-listed is one they will be told to check when
+   * it sells elsewhere; a draft they forgot is one they will not.
+   */
+  | "unconfirmed"
   | "queued"
   | "delist_queued"
   | "prefilled"
@@ -62,7 +69,12 @@ export function deriveChannelState(
   if (list && PENDING.has(list.status)) {
     return { ...base, state: "queued", queueItem: list, since: list.created_at };
   }
-  if (row?.listing_status === "active") return { ...base, state: "live" };
+  if (row?.listing_status === "active") {
+    const unconfirmed = Boolean(
+      (row.platform_fields as { listed_unconfirmed?: unknown } | null)?.listed_unconfirmed,
+    );
+    return { ...base, state: unconfirmed && !url ? "unconfirmed" : "live" };
+  }
   if (list && FAILED.has(list.status)) {
     return { ...base, state: "failed", queueItem: list, since: list.completed_at ?? list.created_at };
   }
@@ -89,6 +101,7 @@ export function planListEverywhere(
   for (const p of platforms) {
     const s = statuses[p]?.state ?? "none";
     if (s === "live") disabled[p] = "live";
+    else if (s === "unconfirmed") disabled[p] = "listed?";
     else if (s === "queued") disabled[p] = "queued";
     else if (s === "delist_queued") disabled[p] = "ending";
     else if (s === "none" || s === "failed") checked.push(p);
