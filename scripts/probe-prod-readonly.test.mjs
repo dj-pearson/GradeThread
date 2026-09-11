@@ -78,12 +78,26 @@ describe("the probe stays read-only", () => {
 
   it("makes exactly one non-GET request, and it is the documented no-arg RPC probe", () => {
     const methods = [...stripped.matchAll(/method:\s*"([A-Z]+)"/g)].map((m) => m[1]);
+    // The list stays CLOSED and named. It is not "any method that looks safe".
+    //
+    // POST: the no-arg RPC probe. Safe because a function taking no arguments
+    // cannot be handed anything to act on, so PostgREST answers 401 or 404
+    // without executing it.
+    //
+    // OPTIONS: added 2026-09-11 by US-2665, which needed to know whether the
+    // Traefik CORS labels in docker-compose.coolify.yml are applied in
+    // production. A preflight is defined to have no side effects - it asks the
+    // server to describe what a later request WOULD be allowed to do - and the
+    // answer settled that those labels have never run. Safe for a different
+    // reason than POST, which is why both are spelled out rather than the
+    // assertion being relaxed to a set membership test.
     expect(
       methods,
       "a new non-GET request appeared. The tool's safety argument is that every " +
         "RPC it POSTs to takes NO arguments, so PostgREST answers 401 or 404 " +
-        "without executing anything. Anything else needs a session, not this tool.",
-    ).toEqual(["POST"]);
+        "without executing anything, and that an OPTIONS preflight is defined to " +
+        "have no side effects. Anything else needs a session, not this tool.",
+    ).toEqual(["POST", "OPTIONS"]);
   });
 
   it("only POSTs to the no-arg guarded list", () => {

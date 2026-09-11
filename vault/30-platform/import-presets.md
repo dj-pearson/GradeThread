@@ -8,10 +8,22 @@ code_refs:
   - src/lib/import-presets.ts
   - src/lib/__tests__/import-presets.test.ts
   - src/pages/flipdesk/import.tsx
-reviewed: 2026-09-10
+reviewed: 2026-09-11
 tags: [flipdesk, import, crosslisting, contract]
 summary: The header-to-field mapping FlipDesk applies to a Vendoo, List Perfectly, Shopify, eBay or Etsy CSV export, which real export each was verified against (none yet), why three other tools have no preset, and the rule that a format change is one line here and one in import-presets.ts in the same commit.
 ---
+
+> **Re-reviewed 2026-09-11.** Drift flagged `import.tsx` for US-3154, which
+> changed the CLOSET-IMPORT analytics gate from a hard-coded poshmark-or-mercari
+> check to the shared platform list. That is the closet path, not the CSV preset
+> path this note owns: no preset, no column mapping and no detection rule moved.
+> Re-read against the diff: still accurate.
+>
+> Worth one line for the next reader. This note's `code_refs` carries
+> `import.tsx`, a 900-line page that hosts BOTH the CSV preset flow and the
+> closet-import flow, so it will keep drifting on changes that have nothing to
+> do with presets. Pointing at `src/lib/import-presets.ts` and its test, which
+> are already listed above it, would make this signal mean something.
 
 # CSV import presets for competitor and marketplace exports
 

@@ -4479,6 +4479,29 @@ migration actually adds the column.
 **Nothing in the same commit reads anything new from the client.** The column
 has been readable for days; this only records how it got there.
 
+**RE-CONFIRMED 2026-09-11, and this time the question is answerable by command
+rather than by reading this paragraph.** `/health/ready` reported
+`{"expected":"00784","applied":"00785","status":"ahead","unexpected":["00785"]}`.
+No `missing` key and no `complete:false`, so the applied SET was read and the set
+difference against the deployed build's manifest is empty — which means
+`applied_migrations` holds a row for every footer-era version up to 00784,
+including 00660. The maximum alone would have proved nothing; the empty
+`missing` set is what proves it.
+
+```
+deno run --allow-net --allow-env --allow-read \
+  services/edge-functions/scripts/check-prod-migration.ts 00660
+```
+
+That command now answers without any credential at all (US-2832): with a
+service-role key it reads the table, and without one it falls back to
+`/health/ready` and prints `APPLIED  00660` with the reasoning attached. Asking
+it about **00134** prints `UNKNOWN` and says why — pre-footer-era migrations
+carry no footer, so no manifest has ever covered them and the completeness set
+cannot see them. That range still needs `scripts/prod-schema-audit.sql` and a
+session, which is AC7 of US-2832 and the larger open question: nothing has yet
+checked whether anything else below 00254 is missing from production.
+
 ## ✅ APPLIED 2026-08-23: 00659 — seller digest ledger + opt-out (US-2828)
 
 Owner applied it (with the rest of the outstanding set) on 2026-08-23, and it

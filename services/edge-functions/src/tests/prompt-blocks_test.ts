@@ -928,11 +928,21 @@ Deno.test("US-2438: analyzeImage resolves blocks and passes them to the builder"
     /buildUserPrompt\([^)]*\bblocks,/s.test(body),
     "the resolved blocks are no longer passed to buildUserPrompt — the seam is dead code",
   );
-  // US-3329 appends the flag-gated "+clean2" AFTER the block suffix (appended,
-  // never inserted), so the pin allows exactly that one trailing expression.
+  // US-3329 appended a flag-gated "+clean2" after the block suffix, and US-3150
+  // appended "+sysschema" after that. Both are APPENDS, never insertions, which
+  // is the property worth pinning: the stamp must still OPEN with the resolved
+  // version name followed immediately by blockVersionSuffix(blocks), so every
+  // per-image version string recorded to date keeps its exact meaning. What
+  // trails it is a chain of `${... ? "+x" : ""}` interpolations and nothing else
+  // — an assertion that named each one by hand reddened on every new gate, which
+  // teaches people to edit the guard rather than to think about the order.
+  const stamp =
+    /prompt_version:\s*`\$\{prompt\.versionName\}\$\{blockVersionSuffix\(blocks\)\}((?:\$\{[^`]*?\})*)`/
+      .exec(body);
+  assert(stamp, "the per-image entry no longer records which blocks served");
   assert(
-    /prompt_version:\s*`\$\{prompt\.versionName\}\$\{blockVersionSuffix\(blocks\)\}(\$\{\s*perImageClean\.applied \? "\+clean2" : ""\s*\})?`/
-      .test(body),
-    "the per-image entry no longer records which blocks served",
+    !/\$\{[^}]*\}/.test(stamp![1]!.replace(/\$\{[^`]*?\? "\+[a-z0-9]+" : ""\s*\}/g, "")),
+    "a trailing expression on the per-image prompt_version is not a flag-gated " +
+      `"+suffix". Anything else there is an insertion in disguise: ${stamp![1]}`,
   );
 });

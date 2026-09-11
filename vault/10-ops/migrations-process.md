@@ -4,8 +4,9 @@ aliases: [MIGRATIONS, migration process]
 type: runbook
 status: current
 source_of_truth: vault
-code_refs: []
-reviewed: 2026-09-03
+code_refs:
+  - scripts/check-loose-repair-sql.mjs
+reviewed: 2026-09-11
 tags: [ops, database, migrations]
 summary: How migrations are authored, verified and applied to self-hosted prod.
 ---
@@ -176,6 +177,30 @@ collide with `supabase db reset` in the local `verify:db` lane.
 > And prefer a check that reads the **effect** over one that reads the version:
 > for a permission change, an unauthenticated request to the endpoint answers the
 > question from outside with no console at all.
+
+### A repair pasted from a markdown file has no footer at all (US-2832)
+
+The footer above only records what it is part of. **SQL run by hand out of a
+fenced block in `PENDING_MIGRATIONS.md` records nothing**, and that is not
+hypothetical: `listings.draft_id` was repaired that way on 2026-08-20, so for
+three days production had the column and nothing in the database said why. A
+restored backup, a staging stack or a new region would have silently lacked it,
+and the only symptom is that every cross-listing writeback fails with
+`PGRST204`. No audit anywhere could have told a repaired prod from a broken one.
+
+The rule is therefore: **a schema change gets a number, always, even when
+production already has it.** An `ensure` migration carrying nothing but
+`ADD COLUMN IF NOT EXISTS` costs zero on a repaired database — the statements are
+no-ops — and the `applied_migrations` row it leaves behind is the entire
+deliverable. `00660_ensure_listings_draft_id.sql` is the worked example.
+
+`scripts/check-loose-repair-sql.mjs` enforces it. Every schema-mutating statement
+in a fenced block in an ops document must sit under a heading naming a migration
+version that resolves to a real file in `supabase/migrations/`. It runs in
+`npm run verify` and in CI through `vitest.scripts.config.mjs`, and the baseline
+is zero. Plain DML and the loose `scripts/prod-catchup-*.sql` files are
+deliberately out of its scope — both are named in the script header so the gap is
+visible rather than assumed away.
 
 ## CI validation (drift + clean-apply)
 

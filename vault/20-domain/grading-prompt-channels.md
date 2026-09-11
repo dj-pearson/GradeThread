@@ -160,10 +160,11 @@ the flag-gated rollout meaningful: with `GRADING_BASELINES` or `GRADING_TAG_OCR`
 off, the prompt is the previously-evaluated one, not a near-copy.
 
 Each block also appends its own `prompt_version` suffix — `+baseline`, `+fabric`,
-`+visual`, `+tag`, `+cat2`, `+roles`, in that fixed order — so accuracy-tracking can
-attribute an era per block. Suffixes APPEND; reordering them would silently reinterpret
-every version string already recorded against past grades. `+roles` (US-2471) went on
-the end for exactly that reason, not because it belongs last.
+`+visual`, `+tag`, `+cat2`, `+roles`, `+clean2`, `+sysschema`, in that fixed order — so
+accuracy-tracking can attribute an era per block. Suffixes APPEND; reordering them would
+silently reinterpret every version string already recorded against past grades. `+roles`
+(US-2471) went on the end for exactly that reason, not because it belongs last, and
+`+clean2` (US-3329) and `+sysschema` (US-3150) went after it for the same one.
 
 ## The photo role is a SELLER-CHOSEN selector over server-written sentences
 
@@ -212,6 +213,14 @@ baselines, fabric criteria, category criteria, the label transcription, the
 response schema, even the factor-weights sentence — is assembled into the **user
 message** by `buildUserPrompt` / `buildCompositeUserPrompt`, which no
 `ai_prompt_versions` row can reach.
+
+> [!note] "In the user message" is now a statement about a DEFAULT, not about the
+> code (US-3150, 2026-09-11). Behind `GRADING_SCHEMA_IN_SYSTEM` (default **off**)
+> the response schema and the Rules block of both stages are sent as a SECOND
+> cached system block instead. Versioning is unaffected — they are still block
+> registry entries, still resolved by `resolvePromptBlocks`, and still outside
+> `ai_prompt_versions`. See "Where a block is SENT is itself a prompt change"
+> below.
 
 The consequences, verified 2026-08-08:
 
@@ -501,6 +510,62 @@ appends `+blocks(key=version,…)` to `per_image_analysis[].prompt_version`, not
 chain (`+baseline`/`+fabric`/`+visual`/`+tag`/`+cat2`) whose order reinterprets
 every version string ever recorded if it moves, so a new suffix went onto the
 carrier that has no ordering contract yet.
+
+### Where a block is SENT is itself a prompt change
+
+Added 2026-09-11 (US-3150), and it is the rule most likely to be skipped, because
+nothing about it looks like a prompt edit.
+
+`PER_IMAGE_RESPONSE_SCHEMA` + `PER_IMAGE_RULES` (6,169 chars, measured) were
+re-sent in the USER turn on every photo of every submission, below any cache
+breakpoint — a four-photo grade paid for them four times at full rate. Moving
+them into a second cached system block leaves **every byte identical** and
+changes the ROLE the model reads them under, from part of the user's request to
+operator instruction. That is a change to what the model sees, so it rides the
+full shadow → eval-gate → canary lane in `.claude/skills/grading-engine`, exactly
+as a reworded sentence would. "No word changed" is not an exemption.
+
+Three things were decided rather than defaulted:
+
+- **The RESOLVED text goes into the system block, not the code default.** An
+  `ai_prompt_versions` block override still wins and still lands in the block it
+  named. The consequence is deliberate: while a block canary is live, two
+  submissions under different overrides stop sharing a cache entry, so the hit
+  rate halves for its duration. The alternative — registry stays pointed at the
+  user turn, only the code default moves — would mean every overridden grade
+  silently forfeits the caching the move exists for.
+- **Prompt block first, schema+rules second.** A breakpoint caches what precedes
+  it, so with the prompt in block 0 an edit to the tail leaves the prompt half of
+  the prefix shared. Reversed, every tail edit re-bills the prompt too.
+- **`COMPOSITE_FACTOR_WEIGHTS` stays in the user turn.** It is one sentence, it
+  is the block an operator overrides per garment scope, and it restates the
+  contract in [[grading-scale-and-weights]]. Putting it inside the cached prefix
+  would mean every scoped override of it invalidates the prefix it was moved
+  there to share.
+
+`unversionedPromptSurfaceHash()` still digests the moved text in both states, and
+the join differs between them, so the hash MOVES when the gate flips. That is the
+fingerprint's own contract applied honestly: two runs on opposite sides of the
+flip did not compile the same surface, whatever the bytes say.
+
+**The saving is a property of the FAN-OUT, not of the breakpoint.** An entry is
+readable only once the writing request has begun streaming, and
+`grading-pipeline.ts` fires every per-image call for a submission at once
+(`Promise.all` under `AI_MAX_CONCURRENCY`=8). Photos 1..N are therefore in flight
+together and none can read what the others are writing — they each pay the 1.25×
+write. The read comes from the NEXT submission inside the 5-minute window, not
+from photo 2 of this one. At GradeThread's submission volume that can be a small
+net loss, so turning the gate on is a decision about the fan-out too. The same
+arithmetic already applies to the system prompt, which has been cached on this
+path since US-1067.
+
+Model minimums decide whether either breakpoint exists at all. Grading runs on
+`claude-sonnet-5` (minimum 1,024 tokens) and block 0 alone is 5,565 chars, so
+both are live. The US-1066 cascade routes the first per-image pass to
+`claude-haiku-4-5` (minimum **4,096**), where the whole ~11,700-char prefix may
+not clear the bar — silently, with `cache_read_tokens` simply staying 0. The
+cascade is off by default; measure with `count_tokens` before claiming a saving
+if it is ever turned on.
 
 ## Related
 

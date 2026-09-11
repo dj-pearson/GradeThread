@@ -609,6 +609,62 @@ export function cleanlinessV2Enabled(): boolean {
   return v === "1" || v === "true";
 }
 
+/**
+ * US-3150 rollout gate (default OFF): the response schema and the Rules block
+ * are sent as a SECOND cached system block instead of being re-sent in the user
+ * turn once per photo.
+ *
+ * ── WHY THIS IS A GATE AND NOT JUST AN EDIT ───────────────────────────────────
+ *
+ * Not one byte of the schema or the rules changes. Their ROLE does: the model
+ * reads them as operator instruction rather than as part of the user's request.
+ * Under .claude/skills/grading-engine that is a change to what the model sees,
+ * so it rides the shadow → eval-gate → canary lane, and the lane needs live
+ * traffic and a golden-set eval run that cannot happen from a dev box. Landing
+ * it ON would silently redefine what per_image_v* and composite_v* measured.
+ *
+ * So: OFF is byte-identical to the request that shipped (one system block, the
+ * tail in the user turn, test-guarded on the REQUEST BODY in
+ * grading-schema-system-block_test.ts), and ON appends "+sysschema" to the
+ * reported version so accuracy tracking can split the eras.
+ *
+ * ── WHAT THE SAVING ACTUALLY DEPENDS ON, WHICH IS NOT THE BREAKPOINT ──────────
+ *
+ * A cache entry is readable only once the writing request has begun streaming.
+ * grading-pipeline.ts fires every per-image call for a submission at once
+ * (Promise.all under the AI_MAX_CONCURRENCY=8 semaphore), so photos 1..N of ONE
+ * submission are in flight together and NONE of them can read what the others
+ * are writing — they each pay the 1.25x write instead. The read comes from the
+ * NEXT submission inside the 5-minute window, not from photo 2 of this one.
+ * Turning this gate on without staggering that fan-out buys the cross-submission
+ * read only, and at low submission volume that can be a small net LOSS.
+ * Measured expectation and the fan-out options are in the story note; the fan-out
+ * itself is deliberately not changed here (it is a latency change on the paid
+ * grading path, with no acceptance criterion behind it).
+ *
+ * ── AND CHECK THE MODEL BEFORE TRUSTING EITHER BREAKPOINT ────────────────────
+ *
+ * MEASURED 2026-09-11 on the request body, gate on:
+ *   per_image   block 0 = 5,565 chars   block 1 = 6,169 chars   user = 657
+ *   composite   block 0 = 7,310 chars   block 1 = 3,871 chars   user = 583 (+analyses)
+ *
+ * On claude-sonnet-5 (DEFAULT_AI_MODEL's code default, and what grading runs on)
+ * the minimum cacheable prefix is 1,024 tokens, and block 0 alone clears it at
+ * any plausible chars-per-token, so both breakpoints are live.
+ *
+ * ⚠ The US-1066 cascade routes the FIRST per-image pass to getLightweightModel()
+ * — claude-haiku-4-5, whose minimum is 4,096 tokens. The whole two-block prefix
+ * is ~11,700 chars, which does NOT clearly clear 4,096, so with the cascade on
+ * both breakpoints may be silently inert (no error, cache_read_tokens just stays
+ * 0). The cascade is off by default. If it is ever turned on, measure with
+ * count_tokens before claiming this saves anything on the first pass.
+ */
+export function schemaInSystemEnabled(): boolean {
+  const v = (Deno.env.get("GRADING_SCHEMA_IN_SYSTEM") ?? "").trim()
+    .toLowerCase();
+  return v === "1" || v === "true";
+}
+
 const CLEANLINESS_V2_DEFINITION =
   "Visible cleanliness only: stains, soiling, yellowing, sweat and deodorant marks, pet hair, lint and residue. Smell cannot be seen in a photo, so never infer, mention or score it";
 
@@ -902,6 +958,24 @@ const PER_IMAGE_RESPONSE_SCHEMA =
 const PER_IMAGE_RULES =
   'Rules:\n- detected_issues: List every visible issue. Set is_intentional=true when the "issue" is a manufactured design feature (distressing, raw hem, etc.), false for genuine wear/damage. Empty array if none found.\n- defect_type: classify each issue into exactly one of the listed types (use "other" only if none fit). repairability: reversible | repairable | permanent. These apply to genuine and intentional issues alike (an intentional raw hem is still classified, just is_intentional=true).\n- size_bucket / area_pct / size_confidence: estimate the defect\'s physical size per the size rubric above (pinhole<3mm … extensive). Set area_pct when it covers a visible fraction of a panel, else null. size_confidence is your 0–1 confidence in the size call (lower it when scale is ambiguous). Use "unknown" only when you truly cannot judge scale.\n- bbox (within each detected_issue): a tight normalized bounding box [x, y, w, h] around the issue, where x,y is the top-left corner and w,h are the width/height, each a fraction 0.0–1.0 of the image dimensions. Be as precise as you can. Omit the field entirely (or use null) only if you genuinely cannot localize the issue in this image.\n- style_attributes: List intentional design features you observe (the design language of the garment). Empty array if none.\n- estimated_scores: Score each factor 1.0-10.0 based on what is visible in THIS image only, GRADING AGAINST THE AS-MANUFACTURED STATE. Intentional design features (is_intentional=true) must NOT lower any score — only genuine wear/damage and any degradation BEYOND the original design intent counts.\n- condition_signals: List all positive AND negative indicators you observe.\n- For a factor you genuinely CANNOT assess from THIS image (e.g. odor_cleanliness from a plain front shot, or functional_elements when no zipper/buttons are in frame), put a neutral 7.0 in estimated_scores AND add that factor\'s key to unassessable_factors so the composite ignores the placeholder rather than averaging it in. Only list a factor there when this image truly gives no signal for it — never to avoid penalizing visible damage.\n- authenticity: Inspect for signs the photo was DIGITALLY EDITED TO CONCEAL A DEFECT — content-aware fill / clone / heal over a hole, stain, or worn area; localized smoothing or blur inconsistent with the surrounding fabric or weave; repeated (cloned) texture patches; warped or "melted" patterns; or halos/soft edges around an edited region (pay special attention near seams, hems, and high-wear points). Set manipulation_suspected=true with manipulation_confidence reflecting how sure you are, and list concrete tells. CRITICAL — do NOT flag benign, non-deceptive edits: cropping, rotation, exposure/brightness/contrast/white-balance or color adjustment, background removal, and ordinary compression are NOT manipulation. Separately, set screenshot_or_watermark=true if the image is clearly a screenshot of another listing (UI chrome, status bar, other-platform branding) or carries a visible watermark/overlay — but distinguish that from a garment\'s own printed graphic/logo, which is NOT a watermark. When nothing is suspicious, set both booleans false, manipulation_confidence 0, and tells [].\n- quality: Assess whether THIS photo is good enough to grade from. blur: "none" if sharp, "mild" if slightly soft, "severe" if too out-of-focus to judge condition. lighting: "ok" if well-lit, "dim" if noticeably underexposed, "dark" if too dark to see detail. framing: "full" if the intended subject is fully in frame (the whole garment for front/back shots), "partial" if it\'s cut off. legible: for a label/tag photo, true if the brand/size/care text is readable, false if not; for non-label photos set legible=true. Judge quality independently of condition — a pristine garment shot badly is still low quality, and a worn garment shot well is high quality.\n- Be precise and objective. Do not guess about things not visible in the image.';
 
+/**
+ * The per-image tail: the response schema, then the Rules block that qualifies
+ * it, resolved through the US-2438 block registry.
+ *
+ * US-3150 pulled this out of {@link buildUserPrompt} so the same string can be
+ * rendered into EITHER the user turn (gate off) or the second cached system
+ * block (gate on) without a second copy of the join. The separator is the exact
+ * "\n\n" the template literal used, so head + "\n\n" + tail is byte-identical to
+ * the prompt that shipped — pinned in grading-schema-system-block_test.ts,
+ * because a relocation that quietly rewrites a byte is a prompt edit the shadow
+ * compare was never told about.
+ */
+export function perImageTailText(blocks: PromptBlockOverrides = {}): string {
+  return `${blocks.per_image_response_schema?.text ?? PER_IMAGE_RESPONSE_SCHEMA}
+
+${blocks.per_image_rules?.text ?? PER_IMAGE_RULES}`;
+}
+
 export function buildUserPrompt(
   imageType: string,
   garmentType: string,
@@ -919,6 +993,11 @@ export function buildUserPrompt(
   // LAST — every call site passes positionally. Undefined (and the gate off)
   // means the prompt is byte-identical to the pre-role one.
   imageRole?: string | null,
+  // US-3150: the schema + Rules tail rides in the second cached system block
+  // instead of here. Goes LAST for the same reason imageRole did — every call
+  // site passes positionally. Default false → byte-identical to the prompt that
+  // shipped, which is what keeps this inert until the eval lane has run.
+  tailInSystem = false,
 ): string {
   const imageContext = imageRoleContextFor(imageType, imageRole) ??
     (IMAGE_TYPE_CONTEXT[imageType] ||
@@ -948,17 +1027,15 @@ export function buildUserPrompt(
     }`
     : "";
 
-  return `Analyze this garment image and provide a detailed condition assessment.
+  const head = `Analyze this garment image and provide a detailed condition assessment.
 
 IMAGE CONTEXT: ${imageContext}
 
 GARMENT-TYPE CRITERIA: ${garmentCriteria}${
     categoryCriteria ? `\n\nCATEGORY CRITERIA: ${categoryCriteria}` : ""
-  }${baselineBlock ? `\n\n${baselineBlock}` : ""}${styleHintLine}
+  }${baselineBlock ? `\n\n${baselineBlock}` : ""}${styleHintLine}`;
 
-${blocks.per_image_response_schema?.text ?? PER_IMAGE_RESPONSE_SCHEMA}
-
-${blocks.per_image_rules?.text ?? PER_IMAGE_RULES}`;
+  return tailInSystem ? head : `${head}\n\n${perImageTailText(blocks)}`;
 }
 
 // --- Helpers ---
@@ -1448,6 +1525,29 @@ export async function analyzeImage(
   const perImageClean = applyCleanlinessWording(prompt.text);
   const systemBlock: AiSystemBlock = { text: perImageClean.text, cache: isCachingEnabled() };
 
+  // US-3150: the second cached system block. Order is PROMPT FIRST, tail second,
+  // and that is the whole reason there are two blocks rather than one joined
+  // string: a breakpoint caches the prefix BEFORE it, so with the prompt in
+  // block 0 an edit to the schema or the rules leaves the prompt half of the
+  // prefix still shared. Reversed, every tail edit would re-bill the prompt too.
+  //
+  // The RESOLVED text goes in, not the code default — an ai_prompt_versions
+  // block override still wins and still lands in the block it named (US-2438).
+  // The consequence is deliberate and worth stating: while a block canary is
+  // live, two submissions under different overrides stop sharing a cache entry,
+  // so the hit rate halves for the duration of the canary. That is correct
+  // behaviour (they really are different prompts); the alternative — keeping the
+  // registry pointed at the user turn and moving only the code default — would
+  // mean every overridden grade silently forfeits the caching this exists for.
+  const systemBlocks: AiSystemBlock[] = [systemBlock];
+  const tailInSystem = schemaInSystemEnabled();
+  if (tailInSystem) {
+    systemBlocks.push({
+      text: perImageTailText(blocks),
+      cache: isCachingEnabled(),
+    });
+  }
+
   try {
     // US-414 + US-2568: the provider wraps getAnthropicClient(), so this call
     // still goes through the global concurrency + daily-ceiling + retry limiter
@@ -1464,7 +1564,7 @@ export async function analyzeImage(
       // problem now. gradingTuning still decides the VALUES.
       jsonSchema: { name: "image_analysis", schema: outputConfig.format.schema },
       ...(outputConfig.effort ? { effort: outputConfig.effort } : {}),
-      system: [systemBlock],
+      system: systemBlocks,
       messages: [
         {
           role: "user",
@@ -1480,6 +1580,7 @@ export async function analyzeImage(
                 baselineBlock,
                 blocks,
                 imageRole,
+                tailInSystem,
               ),
             },
           ],
@@ -1631,9 +1732,15 @@ export async function analyzeImage(
       // ordered suffix chain (+baseline/+fabric/+visual/+tag/+cat2) whose order
       // reinterprets every version string ever recorded if it moves.
       // Byte-identical when nothing overrode: the suffix is "".
+      //
+      // US-3150 appends "+sysschema" LAST, after +clean2. The schema and the
+      // rules are byte-identical either way, so nothing in blockVersionSuffix
+      // can tell the two eras apart — only their ROLE moved, and a per-image
+      // analysis that does not record which role it ran under is one that cannot
+      // be excluded from an accuracy comparison across the flip.
       prompt_version: `${prompt.versionName}${blockVersionSuffix(blocks)}${
         perImageClean.applied ? "+clean2" : ""
-      }`,
+      }${tailInSystem ? "+sysschema" : ""}`,
     };
   } catch (error) {
     const latencyMs = Date.now() - startTime;
@@ -2184,6 +2291,22 @@ const COMPOSITE_RESPONSE_SCHEMA =
 const COMPOSITE_RULES =
   "Rules:\n- overall_score must be the weighted average of factor scores, rounded to nearest 0.1 (factor scores themselves stay in 0.5 steps)\n- grade_tier must match the overall_score according to the tier definitions\n- factor_scores: synthesize across all images, weighting image types appropriately, grading against as-manufactured state. For each factor, IGNORE any per-image estimated score whose factor key appears in that image's unassessable_factors (it is a neutral placeholder, not evidence) — synthesize the factor only from images that could actually judge it. If NO image could assess a factor, set it to a neutral 7.0 and lower confidence_score, noting it in ai_summary.\n- ai_summary: professional, objective summary suitable for a grade certificate\n- buyer_writeup: a longer, honest, buyer-facing condition report for the certificate. Composed ONLY from supported evidence — never invent attributes or upgrade condition. If you lack enough signal for a full report, keep it brief rather than fabricating\n- defects_found: consolidate all unique GENUINE defects (empty array if none). Do NOT list intentional design features here. For each, carry defect_type, severity, repairability, and size (size_bucket + area_pct) from the per-image analyses, picking the most severe/largest observation when images disagree.\n- style_attributes: consolidate all intentional design features observed (empty array if none). These do not lower the grade.\n- confidence_score: lower if images are blurry, incomplete coverage, conflicting signals, ambiguous design-vs-damage calls, or unusual garment\n- image_validity: set is_clothing to false if the images do not depict an actual item of clothing (e.g. blank, unrelated objects, inappropriate content)";
 
+/**
+ * The composite tail: response schema, then the Rules block. US-3150's twin of
+ * {@link perImageTailText}, and split off for the same reason.
+ *
+ * COMPOSITE_FACTOR_WEIGHTS deliberately stays in the user turn. It is one
+ * sentence, it is the block an operator overrides per garment scope, and it is
+ * the grading contract restated — putting it inside the cached prefix would mean
+ * every scoped override of it invalidates the prefix it was moved there to
+ * share. The schema and the rules have neither property.
+ */
+export function compositeTailText(blocks: PromptBlockOverrides = {}): string {
+  return `${blocks.composite_response_schema?.text ?? COMPOSITE_RESPONSE_SCHEMA}
+
+${blocks.composite_rules?.text ?? COMPOSITE_RULES}`;
+}
+
 export function buildCompositeUserPrompt(
   perImageResults: PerImageAnalysis[],
   garmentInfo: GarmentInfo,
@@ -2201,6 +2324,9 @@ export function buildCompositeUserPrompt(
   // US-2438 AC1: per-block overrides for the composite tail. `{}` → the three
   // constants above and a byte-identical prompt.
   blocks: PromptBlockOverrides = {},
+  // US-3150: schema + Rules ride in the second cached system block instead.
+  // LAST parameter, default false → byte-identical to the prompt that shipped.
+  tailInSystem = false,
 ): string {
   // US-1921: defang any grade-directive text the vision pass transcribed off the
   // garment before it enters the composite prompt (copy only; stored analysis
@@ -2237,21 +2363,20 @@ export function buildCompositeUserPrompt(
     }${descriptionLine}${styleHintLine}`,
   );
 
-  return `Synthesize the following per-image analyses into a single composite grade for this garment.
+  const head =
+    `Synthesize the following per-image analyses into a single composite grade for this garment.
 ${baselineBlock ? `\n${baselineBlock}\n` : ""}${
-    fabricBlock ? `\n${fabricBlock}\n` : ""
-  }${tagBlock ? `\n${tagBlock}\n` : ""}
+      fabricBlock ? `\n${fabricBlock}\n` : ""
+    }${tagBlock ? `\n${tagBlock}\n` : ""}
 GARMENT INFO (seller-supplied reference only — must NOT affect scoring):
 ${garmentInfoBlock}
 
 PER-IMAGE ANALYSES:
 ${analysesJson}
 
-${blocks.composite_factor_weights?.text ?? COMPOSITE_FACTOR_WEIGHTS}
+${blocks.composite_factor_weights?.text ?? COMPOSITE_FACTOR_WEIGHTS}`;
 
-${blocks.composite_response_schema?.text ?? COMPOSITE_RESPONSE_SCHEMA}
-
-${blocks.composite_rules?.text ?? COMPOSITE_RULES}`;
+  return tailInSystem ? head : `${head}\n\n${compositeTailText(blocks)}`;
 }
 
 // A per-image manipulation flag below this confidence is treated as noise and
@@ -2572,6 +2697,11 @@ export function promptVersionSuffix(
     roles?: boolean;
     // US-3329. Optional and appended last, for the same reason as roles.
     cleanliness?: boolean;
+    // US-3150. Optional and appended last, same reason again. This one marks a
+    // LAYOUT era rather than a text era: the response schema and the Rules block
+    // moved from the user turn into a cached system block with every byte
+    // intact. No other suffix, and no block version, can distinguish that.
+    schemaSystem?: boolean;
   },
 ): string {
   return (blocks.baseline ? "+baseline" : "") +
@@ -2580,7 +2710,8 @@ export function promptVersionSuffix(
     (blocks.tag ? "+tag" : "") +
     (blocks.categoryV2 ? "+cat2" : "") +
     (blocks.roles ? "+roles" : "") +
-    (blocks.cleanliness ? "+clean2" : "");
+    (blocks.cleanliness ? "+clean2" : "") +
+    (blocks.schemaSystem ? "+sysschema" : "");
 }
 
 /**
@@ -2620,26 +2751,62 @@ export function unversionedPromptSurface(): string {
     ...Object.keys(GARMENT_CATEGORY_CRITERIA_V2),
   ].sort();
 
+  // US-3150: the schema and the Rules block are still digested when they ride in
+  // the cached SYSTEM block, because they are still unversioned text no
+  // ai_prompt_versions row reaches and still decide the output shape. What
+  // changes is the JOIN: gate off reproduces the exact string this function has
+  // always returned (so a hash recorded before the move stays comparable with
+  // one recorded after it while the gate is off), and gate on inserts the marker
+  // below, so the hash MOVES the moment the role changes.
+  //
+  // That is the hash's own contract applied honestly. It answers one question —
+  // "did these two runs compile the same surface?" — and a run with the tail in
+  // the system block did not compile the same surface as one with it in the user
+  // turn, however identical the bytes. Keeping the hash still across the flip
+  // would convert "we do not know" into "we checked", which is the failure
+  // US-2432 built it to prevent.
+  const tailInSystem = schemaInSystemEnabled();
+  const probe = (head: string, tail: string) =>
+    tailInSystem ? `${head}\n${SYSTEM_TAIL_MARKER}\n${tail}` : `${head}\n\n${tail}`;
+
   const perImage = [
-    ...types.map((t) => buildUserPrompt("front", t, "", [], "")),
-    ...categories.map((c) => buildUserPrompt("front", "tops", c, [], "")),
+    ...types.map((t) =>
+      probe(
+        buildUserPrompt("front", t, "", [], "", {}, undefined, true),
+        perImageTailText(),
+      )
+    ),
+    ...categories.map((c) =>
+      probe(
+        buildUserPrompt("front", "tops", c, [], "", {}, undefined, true),
+        perImageTailText(),
+      )
+    ),
   ];
 
   // The composite half: the response schema, the Rules block and the
   // factor-weights sentence all live in this string and are equally unversioned.
-  const composite = buildCompositeUserPrompt(
-    [],
-    {
-      garment_type: "tops",
-      garment_category: "t-shirt",
-      brand: null,
-      title: "",
-      description: null,
-    },
+  const compositeInfo: GarmentInfo = {
+    garment_type: "tops",
+    garment_category: "t-shirt",
+    brand: null,
+    title: "",
+    description: null,
+  };
+  const composite = probe(
+    buildCompositeUserPrompt([], compositeInfo, "", "", "", {}, true),
+    compositeTailText(),
   );
 
   return [...perImage, composite].join("\n--\n");
 }
+
+/**
+ * The separator that marks a tail sent in the cached SYSTEM block rather than in
+ * the user turn. Never sent to the model — it exists only so the two layouts
+ * digest differently (US-3150).
+ */
+const SYSTEM_TAIL_MARKER = "--cached-system-block--";
 
 /** Stable 8-hex digest of {@link unversionedPromptSurface}. */
 export function unversionedPromptSurfaceHash(): string {
@@ -2940,6 +3107,12 @@ export async function compositeGrade(
     }
     : compositeBlocks;
 
+  // US-3150: the composite schema + Rules move into the second cached system
+  // block behind the same gate as the per-image pair. One gate, one suffix -
+  // they are the same layout decision and splitting them would let a grade run
+  // half of each era with nothing recording which half.
+  const tailInSystem = schemaInSystemEnabled();
+
   const promptVersion = prompt.versionName + promptVersionSuffix({
     baseline: !!baselineBlock,
     fabric: !!fabricBlock,
@@ -2948,6 +3121,7 @@ export async function compositeGrade(
     categoryV2,
     roles,
     cleanliness: compositeClean.applied || weightsClean.applied,
+    schemaSystem: tailInSystem,
   });
 
   // US-2432: the other half of the attribution. promptVersion names the SYSTEM
@@ -2981,6 +3155,23 @@ export async function compositeGrade(
   // across grades inside the 5-min window (US-1067 token savings).
   const systemBlock: AiSystemBlock = { text: systemText, cache: isCachingEnabled() };
 
+  // US-3150's second breakpoint. Prompt first, tail second, for the reason
+  // spelled out at the per-image call site: a breakpoint caches what precedes
+  // it, so the prompt half of the prefix survives an edit to the tail.
+  //
+  // NOTE the interaction with the few-shot exemplar block above: it is appended
+  // to systemText, i.e. INSIDE block 0. Activating an exemplar set therefore
+  // invalidates block 0 and, with it, block 1 - which is the correct and
+  // unavoidable behaviour of a prefix cache, and the reason exemplar sets are
+  // activated deliberately rather than assembled per grade.
+  const compositeSystemBlocks: AiSystemBlock[] = [systemBlock];
+  if (tailInSystem) {
+    compositeSystemBlocks.push({
+      text: compositeTailText(promptBlocksForUser),
+      cache: isCachingEnabled(),
+    });
+  }
+
   try {
     // US-414 + US-2568: bounded by the global limiter, which the provider
     // inherits by wrapping getAnthropicClient() rather than building its own.
@@ -2992,7 +3183,7 @@ export async function compositeGrade(
       ...(temperature !== undefined ? { temperature } : {}),
       jsonSchema: { name: "composite_grade", schema: outputConfig.format.schema },
       ...(outputConfig.effort ? { effort: outputConfig.effort } : {}),
-      system: [systemBlock],
+      system: compositeSystemBlocks,
       messages: [
         {
           role: "user",
@@ -3011,6 +3202,7 @@ export async function compositeGrade(
                 fabricBlock,
                 tagBlock,
                 promptBlocksForUser,
+                tailInSystem,
               ),
             }]
             : [
@@ -3029,6 +3221,7 @@ export async function compositeGrade(
                   fabricBlock,
                   tagBlock,
                   promptBlocksForUser,
+                  tailInSystem,
                 ) + `\n\n${VISUAL_VERIFICATION_ADDENDUM}`,
               },
             ],
