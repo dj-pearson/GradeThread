@@ -1285,7 +1285,7 @@ export function ListingKit({ itemId, baseName }: { itemId: string; baseName?: st
  * the same payload for anything queued from a phone, and it had no idea
  * Poshmark prices in whole dollars.
  *
- * The name stays exported from here because that is what src/test/step-price.ts
+ * The name stays exported from here because that is what src/test/step-price.test.ts
  * and the placement scans in cross-post-setup.test.ts call, and where the
  * stepping is APPLIED is still a property worth holding.
  */
