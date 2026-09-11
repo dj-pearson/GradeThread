@@ -74,6 +74,10 @@ const realFetch = globalThis.fetch;
 function stubDb(t: Tables) {
   tables = t;
   calls.length = 0;
+  // The real fetch returns a Promise, so this stub must too; it resolves from
+  // an in-memory table with nothing to await. Dropping `async` would change
+  // the return type the callers rely on.
+  // deno-lint-ignore require-await
   globalThis.fetch = (async (input: Request | URL | string, init?: RequestInit) => {
     const url = new URL(typeof input === "string" ? input : input instanceof URL ? input.href : input.url);
     const method = (init?.method ?? (input instanceof Request ? input.method : "GET")).toUpperCase();
@@ -140,7 +144,7 @@ function app(opts: { stepUp: boolean }) {
   a.route("/", adminGradingRoutes);
   return a;
 }
-const post = (path: string, body?: unknown) => ({
+const post = (_path: string, body?: unknown) => ({
   method: "POST",
   headers: { "Content-Type": "application/json" },
   body: body === undefined ? undefined : JSON.stringify(body),

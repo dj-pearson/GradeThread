@@ -74,6 +74,62 @@ function isExtensionPlatform(p: string): p is ExtensionPlatform {
 }
 
 /**
+ * The UPDATE payload for a writeback against a listings row that already exists.
+ *
+ * Pure and exported so the listed_at rule can be CALLED by a test rather than
+ * spell-checked by a source scan. The rule below is logic, and a scan on logic
+ * only ever pins the spelling of a gate, never its answer.
+ *
+ * US-2727, the half that migration 00634 did not close. 00634 dropped NOT NULL
+ * so the INSERT further down can write an explicit null for a draft, and it
+ * deliberately KEPT `DEFAULT now()` because changing the default would change
+ * behaviour for every writer that omits the column. Several of those writers
+ * create DRAFT rows: lib/cross-push.ts, lib/extension-relist.ts and
+ * lib/ai-listing.ts all insert `listing_status:'draft'` without naming
+ * listed_at, so the default stamps the row with the moment the DRAFT was made.
+ *
+ * That is why `existing.listed_at ?? now` was wrong. Promoting such a row kept
+ * a timestamp that was never a listing date, backdating the publish to whenever
+ * the draft happened to be created. The stale-listing filters in 00560
+ * (`views_total = 0 AND listed_at <= now() - 14 days`) and every days-listed
+ * readout take that value at face value.
+ *
+ * So: keep the stored date only when the row was NOT a draft, where it is a
+ * real marketplace date that must not move when a seller re-confirms a live
+ * listing. A draft being published is being listed NOW, whatever the column
+ * happens to hold.
+ */
+export function buildWritebackPatch(args: {
+  published: boolean;
+  existingStatus: string | null;
+  existingListedAt: string | null;
+  listingUrl: string | null;
+  groupId: string | null;
+  now: string;
+}): Record<string, unknown> {
+  const patch: Record<string, unknown> = { draft_id: args.groupId ?? undefined };
+  if (args.published) {
+    patch.listing_status = "active";
+    patch.is_active = true;
+    patch.listed_at = args.existingStatus === "draft"
+      ? args.now
+      : (args.existingListedAt ?? args.now);
+    // Never blank a URL we already have: a manual "I published it" carries no
+    // URL, and it must not erase one the capture already found.
+    if (args.listingUrl) patch.listing_url = args.listingUrl;
+  } else if (args.existingStatus !== "active") {
+    // A re-prefill of a row that is still a draft stays a draft.
+    patch.listing_status = "draft";
+    patch.is_active = false;
+  }
+  // NOTE the else: a prefill of an ALREADY-ACTIVE listing leaves it active. A
+  // seller re-sending a live listing to the extension (to fix a typo) must not
+  // have it demoted to draft, which would make a real live listing invisible to
+  // the delist queue, the same oversell hazard from the other side.
+  return patch;
+}
+
+/**
  * Record (or promote) one extension cross-listing. Returns the Response to send.
  */
 export async function handleExtensionWriteback<E extends WritebackEnv>(
@@ -250,23 +306,14 @@ export async function handleExtensionWriteback<E extends WritebackEnv>(
   }
 
   if (existing) {
-    const patch: Record<string, unknown> = { draft_id: groupId ?? undefined };
-    if (published) {
-      patch.listing_status = "active";
-      patch.is_active = true;
-      patch.listed_at = existing.listed_at ?? now;
-      // Never blank a URL we already have: a manual "I published it" carries no
-      // URL, and it must not erase one the capture already found.
-      if (listingUrl) patch.listing_url = listingUrl;
-    } else if (existing.listing_status !== "active") {
-      // A re-prefill of a row that is still a draft stays a draft.
-      patch.listing_status = "draft";
-      patch.is_active = false;
-    }
-    // NOTE the else: a prefill of an ALREADY-ACTIVE listing leaves it active. A
-    // seller re-sending a live listing to the extension (to fix a typo) must not
-    // have it demoted to draft — that would make a real live listing invisible to
-    // the delist queue, which is the same oversell hazard from the other side.
+    const patch = buildWritebackPatch({
+      published,
+      existingStatus: existing.listing_status,
+      existingListedAt: existing.listed_at,
+      listingUrl,
+      groupId,
+      now,
+    });
     const { error: upErr } = await supabaseAdmin
       .from("listings")
       .update(patch)

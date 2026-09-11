@@ -2729,6 +2729,63 @@ export function selectSkusToSkip(
 }
 
 /**
+ * How many unstamped SKUs a pass may name in its log line. Bounded for the same
+ * reason the marketplace-event sweep bounds its error list: a catalog that
+ * stamps nothing at all would otherwise print a thousand SKUs every six hours,
+ * and the first ten say what the last thousand say.
+ */
+export const MAX_LOGGED_UNSTAMPED_SKUS = 10;
+
+export interface OfferStampCoverage {
+  read: number;
+  stamped: number;
+  unstamped: number;
+  sample: string[];
+}
+
+/**
+ * US-3110: did the offer-read stamp actually land?
+ *
+ * The stamp is `update(inventory_items).eq(user_id).in(sku, chunk)`, and an
+ * UPDATE that matches NO ROW is not an error: PostgREST returns 200 and an
+ * empty body. So a SKU that eBay's inventory list names but that has no local
+ * `inventory_items` row (an orphan listing, a locally-deleted item, a SKU eBay
+ * minted when it migrated a Seller-Hub listing) costs a call on EVERY pass,
+ * stamps nothing, is never in the skip set, and is re-read forever. That is the
+ * same shape as the item-specifics bug US-3110 fixed and the per-SKU offer bug
+ * US-3111 fixed, one level down: the negative answer has nowhere to go.
+ *
+ * US-3111 AC4 promised a FAILED stamp write is logged rather than swallowed.
+ * A stamp that succeeds while matching zero rows is not a failed write, so that
+ * promise never covered the case that actually happens. This makes the gap a
+ * number instead of an inference from the daily call total.
+ *
+ * Pure, so the arithmetic is provable without a database. `stamped` may name a
+ * SKU absent from `read` (a concurrent pass stamped it); those are ignored
+ * rather than subtracted, so the count can never go negative.
+ */
+export function unstampedOfferCoverage(
+  read: readonly string[],
+  stamped: readonly string[],
+  sampleLimit: number = MAX_LOGGED_UNSTAMPED_SKUS,
+): OfferStampCoverage {
+  const landed = new Set(stamped);
+  const seen = new Set<string>();
+  const missing: string[] = [];
+  for (const sku of read) {
+    if (!sku || seen.has(sku)) continue;
+    seen.add(sku);
+    if (!landed.has(sku)) missing.push(sku);
+  }
+  return {
+    read: seen.size,
+    stamped: seen.size - missing.length,
+    unstamped: missing.length,
+    sample: sampleLimit > 0 ? missing.slice(0, sampleLimit) : [],
+  };
+}
+
+/**
  * The SKUs read inside the recheck window. FAILS OPEN to an empty set, which is
  * exactly the pre-US-3111 behaviour of reading every SKU — a wasted call beats
  * a catalog that silently stops reconciling.
@@ -3719,15 +3776,24 @@ async function doListingsPull(
   // US-3111: remember which SKUs we spent an offer read on, including the ones
   // eBay had no offer for. Chunked because a large seller's pass can name a few
   // thousand SKUs and PostgREST sends `.in()` in the URL.
+  let offerStampCoverage: OfferStampCoverage | null = null;
   if (offerSkusRead.length > 0) {
     const CHUNK = 400;
+    // US-3110: the SKUs the stamp actually landed on, as PostgREST reports them
+    // back. Collected rather than counted so the gap can be NAMED.
+    const stampedSkus: string[] = [];
+    let stampWriteFailed = false;
     for (let i = 0; i < offerSkusRead.length; i += CHUNK) {
       const chunk = offerSkusRead.slice(i, i + CHUNK);
-      const { error } = await supabaseAdmin
+      const { data: stampedRows, error } = await supabaseAdmin
         .from("inventory_items")
         .update({ ebay_offer_checked_at: new Date().toISOString() })
         .eq("user_id", userId)
-        .in("sku", chunk);
+        .in("sku", chunk)
+        // US-3110: make the update say which rows it hit. Without this a stamp
+        // that matched ZERO rows is indistinguishable from one that matched
+        // every SKU, because neither returns an error.
+        .select("sku");
       if (error) {
         // Not fatal: an unstamped SKU is simply read again next pass, which is
         // the old behaviour. Say so, because a persistent failure here restores
@@ -3737,7 +3803,29 @@ async function doListingsPull(
           error.message,
         );
         errors.push(`offer stamp: ${error.message.slice(0, 200)}`);
+        stampWriteFailed = true;
         break;
+      }
+      for (const r of (stampedRows ?? []) as Array<{ sku: string | null }>) {
+        if (r.sku) stampedSkus.push(r.sku);
+      }
+    }
+    // Only meaningful when every chunk was attempted: a bail-out leaves the
+    // remaining SKUs unwritten for a reason we already recorded, and counting
+    // those as unstampable would blame the schema for a PostgREST failure.
+    if (!stampWriteFailed) {
+      offerStampCoverage = unstampedOfferCoverage(offerSkusRead, stampedSkus);
+      if (offerStampCoverage.unstamped > 0) {
+        // NOT pushed onto `errors`: that would flip every single run to
+        // "partial" on the Reconciliation page for a condition the seller can
+        // do nothing about. The container log is where the operator reads the
+        // call-volume question, so the answer goes there.
+        console.warn(
+          `[flipdesk-ebay] ${offerStampCoverage.unstamped} of ` +
+            `${offerStampCoverage.read} offer reads could not be stamped ` +
+            `(no inventory_items row for the SKU); they will be re-read every ` +
+            `pass. sample: ${offerStampCoverage.sample.join(", ")}`,
+        );
       }
     }
   }
@@ -4655,6 +4743,15 @@ async function doListingsPull(
       `${specificsCapped ? ` (capped at ${MAX_SPECIFICS_FETCH_PER_SYNC}; remaining items backfill next sync)` : ""} ` +
       `ended_to_draft=${endedToDraft} photos_mirrored=${photosMirrored} ` +
       `conflicts_recorded=${conflictsRecorded} conflicts_resolved=${conflictsResolved} ` +
+      // US-3110: the per-SKU offer fan-out is the largest remaining block of
+      // eBay call volume, and "how many of those reads can never be cached"
+      // was previously answerable only by dividing the daily call total by the
+      // SKU count and guessing.
+      (offerStampCoverage
+        ? `offers_read=${offerStampCoverage.read} ` +
+          `offers_stamped=${offerStampCoverage.stamped} ` +
+          `offers_unstamped=${offerStampCoverage.unstamped} `
+        : "") +
       `errors=${errors.length}`,
   );
 
