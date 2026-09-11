@@ -1,6 +1,9 @@
+import { spawn, spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
+import { createServer, type Server } from "node:http";
+import type { AddressInfo } from "node:net";
 import { resolve } from "node:path";
-import { describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 // US-3108: Universal Links break silently, and they break across four files
 // that no compiler reads together.
@@ -140,5 +143,204 @@ describe("US-3108: the AASA, the entitlements and the app agree", () => {
     // bundle id did not until US-2620, and served "<TEAMID>." with HTTP 200.
     expect(AASA_FN).toContain("(env.IOS_BUNDLE_ID ?? \"\").trim() || DEFAULT_BUNDLE_ID");
     expect(AASA_FN).toMatch(/status:\s*503/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// US-3108, 2026-09-10: the probe itself, RUN rather than read.
+//
+// The block above reads five files as text, which is the right instrument for
+// "do these describe the same app". It is the wrong instrument for "does the
+// checker reject what Apple rejects" - asserting that check-aasa.sh contains
+// the string `%{http_code}` pins a spelling and proves nothing about the
+// answer. That distinction is the whole of guards-that-do-not-guard mode 0.
+//
+// And the checker DID have a hole a scan would not have found. It fetched with
+// `curl -fsSL`; -L follows redirects, which Apple does not. Pointed at
+// http://gradethread.com/.well-known/... - a real 301 - it printed OK and
+// exited 0. "Served as application/json with no redirect" is the literal
+// wording of this story's AC2, and those were exactly the two conditions the
+// probe could not see.
+//
+// So this block starts a local http server that serves each way the file can be
+// wrong, and runs the real script against it. It is offline (127.0.0.1), so it
+// belongs in the normal suite; the live domain stays the uptime job's business,
+// because only a network fetch can see a redirect rule added in the Cloudflare
+// dashboard, which exists nowhere in this repo.
+
+const SCRIPT = root("ios/Scripts/check-aasa.sh").replace(/\\/g, "/");
+
+// A deliberately fake team id. The real one belongs in $APPLE_TEAM_ID and in
+// no source file - see the "hard-codes no team id" case above. A fixture that
+// carried the production value would reintroduce exactly the stale third copy
+// that caused this story to be filed against a working production file.
+const FAKE_APP_ID = "ABCDE12345.com.gradethread.app";
+
+const OK_BODY = JSON.stringify({
+  applinks: {
+    details: [
+      {
+        appIDs: [FAKE_APP_ID],
+        components: [{ "/": "/app/oauth/*" }, { "/": "/app/auth-callback*" }],
+      },
+    ],
+  },
+  webcredentials: { apps: [FAKE_APP_ID] },
+});
+
+/** `sh` is not on PATH for a child process on Windows; Git ships `bash`. */
+function resolveShell(): string {
+  for (const candidate of ["sh", "bash"]) {
+    if (spawnSync(candidate, ["-c", "exit 0"]).status === 0) return candidate;
+  }
+  // Throw rather than skip. A guard that quietly does not run is worse than
+  // one that is absent, because the green reads as evidence.
+  throw new Error("neither sh nor bash is runnable; cannot exercise check-aasa.sh");
+}
+
+describe("US-3108: check-aasa.sh rejects what Apple rejects", () => {
+  let server: Server;
+  let base = "";
+  let shell = "";
+
+  beforeAll(async () => {
+    shell = resolveShell();
+    server = createServer((req, res) => {
+      switch (req.url) {
+        case "/ok":
+          res.writeHead(200, { "Content-Type": "application/json; charset=utf-8" });
+          return res.end(OK_BODY);
+        case "/redirect":
+          // The failure -L hid: a correct file one hop away is still dead.
+          res.writeHead(301, { Location: "/ok" });
+          return res.end();
+        case "/redirect-json":
+          // A 302 that ALSO carries the right Content-Type and the right body.
+          // Without this the redirect case is caught by the Content-Type gate
+          // instead - deleting the status gate outright left the whole suite
+          // green until this fixture existed, which is the sabotage run earning
+          // its keep. Each gate needs a case that only IT can catch.
+          res.writeHead(302, {
+            Location: "/ok",
+            "Content-Type": "application/json; charset=utf-8",
+          });
+          return res.end(OK_BODY);
+        case "/notfound-json":
+          // Correct type, correct body, wrong status. Isolates the status gate.
+          res.writeHead(404, { "Content-Type": "application/json; charset=utf-8" });
+          return res.end(OK_BODY);
+        case "/html":
+          // An SPA or 404 catch-all standing in for a removed Pages Function.
+          // The body is valid JSON, so only the Content-Type gives it away.
+          res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
+          return res.end(OK_BODY);
+        case "/no-type":
+          res.writeHead(200);
+          return res.end(OK_BODY);
+        case "/unconfigured":
+          // What the Pages Function serves with APPLE_TEAM_ID unset.
+          res.writeHead(503, { "Content-Type": "application/json; charset=utf-8" });
+          return res.end(JSON.stringify({ error: "Universal Links not configured" }));
+        case "/blank-bundle":
+          // The pre-US-2620 regression: a blank IOS_BUNDLE_ID served as 200.
+          res.writeHead(200, { "Content-Type": "application/json; charset=utf-8" });
+          return res.end(JSON.stringify({ applinks: { details: [{ appIDs: ["ABCDE12345."] }] } }));
+        case "/truncated":
+          res.writeHead(200, { "Content-Type": "application/json; charset=utf-8" });
+          return res.end('{"applinks":');
+        default:
+          res.writeHead(404, { "Content-Type": "text/plain" });
+          return res.end("nope");
+      }
+    });
+    await new Promise<void>((done) => server.listen(0, "127.0.0.1", done));
+    base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+  });
+
+  afterAll(async () => {
+    await new Promise<void>((done) => server.close(() => done()));
+  });
+
+  // MUST be async. spawnSync blocks this process's event loop, so the fixture
+  // server above can never answer the curl the child just made: the script
+  // waits on a server that is waiting on the script. That deadlock does not
+  // even hit a vitest timeout, because the timer cannot fire either.
+  function run(
+    path: string,
+    args: string[] = [],
+  ): Promise<{ status: number | null; out: string }> {
+    return new Promise((done) => {
+      const child = spawn(shell, [SCRIPT, ...args], {
+        env: {
+          ...process.env,
+          AASA_URL: `${base}${path}`,
+          // Must be cleared, or a team id in the ambient environment silently
+          // changes which branch of the script is under test.
+          APPLE_TEAM_ID: "",
+          IOS_BUNDLE_ID: "com.gradethread.app",
+        },
+        timeout: 15_000,
+      });
+      let out = "";
+      child.stdout.on("data", (d) => (out += d));
+      child.stderr.on("data", (d) => (out += d));
+      child.on("error", (e) => done({ status: -1, out: `${out}${e}` }));
+      child.on("close", (status) => done({ status, out }));
+    });
+  }
+
+  it("accepts a correctly served file", async () => {
+    const { status, out } = await run("/ok");
+    expect(out).toContain("OK: AASA served");
+    expect(status).toBe(0);
+  });
+
+  it("accepts an exact appID match and rejects a wrong one", async () => {
+    expect((await run("/ok", [FAKE_APP_ID])).status).toBe(0);
+    const wrong = await run("/ok", ["ZZZZZ99999.com.gradethread.app"]);
+    expect(wrong.status).not.toBe(0);
+    expect(wrong.out).toContain("does not list appID");
+  });
+
+  it("rejects a redirect, even when the destination is correct", async () => {
+    // This is the case that passed before US-3108's second pass.
+    for (const path of ["/redirect", "/redirect-json"]) {
+      const { status, out } = await run(path);
+      expect(out, `${path} must name the redirect`).toContain("redirect");
+      expect(status, `${path} must exit non-zero`).not.toBe(0);
+    }
+  });
+
+  it("rejects a non-200 that is otherwise perfectly formed", async () => {
+    // Right Content-Type, right body, wrong status. Nothing else in this suite
+    // can catch that, which is the point: one case per gate.
+    const { status, out } = await run("/notfound-json");
+    expect(out).toContain("HTTP 404");
+    expect(status).not.toBe(0);
+  });
+
+  it("rejects a 200 that is not application/json", async () => {
+    for (const path of ["/html", "/no-type"]) {
+      const { status, out } = await run(path);
+      expect(out, `${path} must fail on Content-Type`).toContain("Content-Type");
+      expect(status, `${path} must exit non-zero`).not.toBe(0);
+    }
+  });
+
+  it("rejects an unconfigured deploy and a blank bundle id", async () => {
+    expect((await run("/unconfigured")).status).not.toBe(0);
+    // "ABCDE12345." is a 200 with valid JSON and the right Content-Type. Only
+    // the appID shape check catches it.
+    const blank = await run("/blank-bundle");
+    expect(blank.out).toContain("no well-formed appID");
+    expect(blank.status).not.toBe(0);
+  });
+
+  it("rejects a body that does not parse despite a JSON Content-Type", async () => {
+    const { status, out } = await run("/truncated");
+    // Skipping silently when python is absent is itself a failure mode, so the
+    // script says which path it took and this asserts one of the two happened.
+    expect(out).toMatch(/not valid JSON|no python on PATH/);
+    if (!out.includes("no python on PATH")) expect(status).not.toBe(0);
   });
 });
