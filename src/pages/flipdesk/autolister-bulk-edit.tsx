@@ -51,6 +51,7 @@ import { cn, isoToLocalInput, localInputToIso } from "@/lib/utils";
 import { AiDiffChip } from "@/components/flipdesk/ai-diff-chip";
 import { marginFloorWithPostage } from "@/lib/margin-floor";
 import { useItemAttrs } from "./autolister/use-item-attrs";
+import { QueueColumnError } from "./autolister/queue-column-error";
 import {
   applyValidation,
   emptyTally,
@@ -221,7 +222,12 @@ export function FlipdeskAutolisterBulkEditPage() {
     () => (data ?? []).map((r) => r.inventory_item_id),
     [data],
   );
-  const { data: itemAttrs = {} } = useItemAttrs(batchId, itemIds);
+  // US-3390: the QUERY, not just its data. US-3376 made this throw on a refused
+  // read instead of caching an empty map as success; isError/refetch are what
+  // turn that into something the seller can see, instead of Brand, Size and
+  // Color placeholders that read as "this item has none".
+  const attrsQuery = useItemAttrs(batchId, itemIds);
+  const itemAttrs = useMemo(() => attrsQuery.data ?? {}, [attrsQuery.data]);
 
   const [rows, setRows] = useState<EditRow[]>([]);
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -1115,6 +1121,16 @@ export function FlipdeskAutolisterBulkEditPage() {
           </>
         }
       />
+
+      {/* US-3390: a refused attrs read says so, instead of a grid of blank
+          placeholders that reads as items with no brand, size or color. */}
+      {attrsQuery.isError && (
+        <QueueColumnError
+          columns={["item details (Brand, Size, Color and cost)"]}
+          onRetry={() => void attrsQuery.refetch()}
+          retrying={attrsQuery.isFetching}
+        />
+      )}
 
       {/* Bulk-apply toolbar */}
       <Card className="flex flex-wrap items-end gap-4 p-3">

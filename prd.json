@@ -4950,18 +4950,6 @@
         "Every other storage remove in src/ is enumerated, because these five were found by reading and that is a sample, not a census"
       ],
       "priority": 7
-    },
-    {
-      "id": "US-3390",
-      "passes": false,
-      "title": "The bulk-edit grid still paints blank Brand, Size and Color on a refused read",
-      "description": "The one consumer US-3381 could not reach. `src/pages/flipdesk/autolister-bulk-edit.tsx:224` calls `useItemAttrs` and still renders `= {}`, so a refused read paints blank Brand, Size and Color columns rather than saying the read failed.\n\nUS-3376 made that hook **throw** instead of resolving as success with an empty map, so the query no longer caches a lie and does retry. What is missing is the consumer saying so.\n\nThe other three consumers were fixed in US-3381 and **`src/pages/flipdesk/autolister/queue-column-error.tsx` is reusable as-is** — it is prop-only. That story reports this needs the same three lines.\n\nNote the file's budget: `autolister-bulk-edit.tsx` is capped in `src/test/autolister-split.test.ts`, and two sibling files were at their ceiling exactly this week. Check the headroom before writing.",
-      "acceptanceCriteria": [
-        "A refused attrs read shows the named error state with a retry, using the existing QueueColumnError rather than a second copy of it",
-        "A test mounts the page with a failing read and asserts the seller is told, rather than asserting the hook throws",
-        "The line ceiling is respected, and if there is no headroom the fix extracts rather than edits"
-      ],
-      "priority": 8
     }
   ]
 }
