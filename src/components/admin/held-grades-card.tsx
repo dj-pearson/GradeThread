@@ -192,6 +192,7 @@ export function HeldGradesCard({ isSuperAdmin }: { isSuperAdmin: boolean }) {
                           size="sm"
                           variant="outline"
                           disabled={busy}
+                          aria-label={`Release ${h.submissions?.title ?? "this grade"} now`}
                           onClick={() => release([h.id])}
                         >
                           Release now

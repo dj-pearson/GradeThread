@@ -336,7 +336,16 @@ export function ReferenceGalleryCard() {
                     <span className="text-sm font-semibold tabular-nums">
                       {a.awarded_score.toFixed(1)}
                     </span>
-                    <Button variant="ghost" size="sm" onClick={() => revoke(a)}>Revoke</Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      aria-label={`Revoke ${a.garment_category}, ${factorLabel(a.factor)}, ${
+                        a.awarded_score.toFixed(1)
+                      }`}
+                      onClick={() => revoke(a)}
+                    >
+                      Revoke
+                    </Button>
                   </div>
                   <p className="text-xs text-muted-foreground">
                     {a.garment_category}, {factorLabel(a.factor)}
