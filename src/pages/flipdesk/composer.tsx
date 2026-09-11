@@ -193,6 +193,7 @@ import type {
 } from "@/types/database";
 import { changesFromItemDiff } from "@/lib/title-sync";
 import { buildTitleSyncPatch, type TitleSyncPatch } from "@/lib/title-sync-patch";
+import { BrandFieldNotice } from "@/components/flipdesk/brand-field-notice";
 import { MergeSkuDialog } from "@/components/flipdesk/merge-sku-dialog";
 import { RecordSaleDialog } from "@/components/flipdesk/record-sale-dialog";
 import { ItemDetailsCard } from "@/components/flipdesk/composer/item-details-card";
@@ -3570,6 +3571,18 @@ export function FlipdeskComposerPage({
             isEbayOrigin={isEbayOrigin}
             ebayOwnedHint={ebayOwnedHint}
             saveState={titleSaveState}
+          />
+          {/* US-3307: the brand column is free text and some of what lands in it
+              is a licensor, a fibre or a shop rather than a maker. Sits directly
+              above the specifics editor because that editor is where Brand is
+              typed, and writes through commitDerivedField so the column and the
+              eBay Brand specific move together (US-557 single-entry). */}
+          <BrandFieldNotice
+            brand={item.brand}
+            disabled={isEbayOrigin}
+            onRecordMaker={(value) =>
+              commitDerivedField("attributes", "brand", value)
+            }
           />
           <SpecificsSection
             // US-2264: "Complete with AI" persists a resolved category + aspects

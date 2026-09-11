@@ -9,6 +9,8 @@ code_refs:
   - services/edge-functions/src/lib/tag-era.ts
   - supabase/migrations/00572_tag_eras_provenance.sql
   - supabase/migrations/00579_vintage_tee_blanks_brand_knowledge.sql
+  - src/lib/brand-field-classification.json
+  - scripts/brand-field-audit.mjs
 reviewed: 2026-09-10
 tags: [brands, sourcing, authentication, contract]
 summary: Facts that look right and are wrong, plus the statutory reason a missing RN on a handbag is correct rather than suspicious.
@@ -116,11 +118,29 @@ them. Two entries in the top twenty-five by item count, measured on prod
 | `norman rockwell` | 5 | a **licensor**. An illustrator who died in 1978; his estate licenses images, and the FTC register returns nothing for the name. What is printed on the front, not what is sewn at the collar. |
 | `cashmere` | 3 | a **fibre**. Recorded in `00731`. |
 
-So roughly 8% of what that field ranks as a brand is something else, and the
-error is in the same family as the RN traps above: **which entity does the
-identifier name?** A Rockwell tee has a real label — Gildan, Hanes, a band-tee
-blank — and that label is the brand. Seeding "Norman Rockwell" into
+The error is in the same family as the RN traps above: **which entity does the
+identifier name?** A Rockwell tee has a real label, Gildan or Hanes or a band-tee
+blank, and that label is the brand. Seeding "Norman Rockwell" into
 `brand_knowledge` would assert that a licensor is a garment maker.
+
+> [!warning] "Roughly 8%" was an extrapolation and is now measurable. Do not quote it.
+> This section used to read "roughly 8% of what that field ranks as a brand is
+> something else". That was 2 out of the top 25 DISTINCT values, and two things
+> were wrong with it. It is the **head** of a long-tail distribution, and a brand
+> reaches the head by being held a lot, so the head is where the noise rate is
+> LOWEST. And it counts distinct values while sounding like items, which is the
+> number a seller feels.
+>
+> `scripts/brand-field-audit.mjs` (US-3307) asks the question properly and prints
+> both denominators with the population it reached. Measured against the only
+> prod capture this repo holds, `scripts/fixtures/brand-kb-gap-prod-2026-09-06.txt`:
+> **2 of 18 distinct values (11.1%) and 8 of 91 items (8.8%)**.
+>
+> ⚠ That fixture is **18 values out of the top 25**, so the figure covers a
+> fragment of the head and says nothing about the tail or about the rows whose
+> brand is NULL. The whole-table number needs `--db` with a real service-role
+> key; the repo `.env` carries a placeholder. Anyone quoting a percentage for
+> this field owes the reader its denominator and its population.
 
 **The triage, spelled out, because "licensed merchandise" is the answer people
 reach for and it does not change the verdict.** It genuinely is licensed
@@ -136,6 +156,66 @@ are both worse for it. That is a separate story, not a pack.
 reports MISSING, NOT-A-BRAND (a short, named list with a reason on each) and
 COVERED. A gap report that lists a licensor as missing keeps proposing a pack for
 it, one re-run at a time.
+
+### The classification is one file now, and "Unbranded" is not a gap
+
+Added 2026-09-10 (US-3307). The named list had three copies and they had already
+drifted: `brand-kb-gap.mjs` held twelve values and was the only one that knew
+about Norman Rockwell; `src/lib/placeholder-brand.ts` held eighteen and was the
+only one that got Unbranded right; a third three-value check sat inline in
+`style-code-prospect.ts`. The single copy is now
+**`src/lib/brand-field-classification.json`**, with a typed reader beside it and
+a Node reader at `scripts/lib/brand-field-classification.mjs`.
+
+It stays a short, NAMED list with a reason on every entry, never a heuristic. An
+unrecognised value is always classified as a maker, which is the safe direction:
+MOTHER, FRAME, Quince and Vince are all ordinary words and all real houses, and a
+silently swallowed brand is invisible while a wrongly-proposed pack is not.
+
+**The distinction that earns the file is `Unbranded` vs `Unknown` vs empty.**
+eBay ships `Unbranded` (and `Handmade`) as real Brand aspect values, so a seller
+who typed one ANSWERED the question, and the item is done. `Unknown` means
+somebody looked and could not tell. An empty field means nobody has looked. Those
+are three different pieces of work and they were one bucket everywhere:
+`ai-extract.ts` dropped a model-returned "Unbranded" as a placeholder exactly like
+`<UNKNOWN>`, and then `flipdesk-ebay.ts` defaulted the resulting EMPTY brand to
+the literal string `"Unbranded"` to satisfy eBay's Brand+MPN requirement. So "we
+do not know" was thrown away and re-manufactured as a public claim that the
+garment has no maker.
+
+The edge cannot import the shared file (its Docker build context is
+`services/edge-functions/` alone), so `isPlaceholderValue` is field-scoped there
+and `src/test/brand-field-classification-parity.test.ts` fails if its
+`BRAND_FIELD_ANSWERS` stops matching the file's `unbranded` class.
+
+### Which intake path writes a licensor into the brand column
+
+Also US-3307. **Twelve edge paths and eleven client paths write
+`inventory_items.brand`, and exactly ONE of them canonicalizes the value**:
+AutoLister generation (`ai-listing.ts:2452`) runs `canonicalizeBrand()`. Manual
+intake, the bulk-haul grid, the inventory spreadsheet paste, CSV import, closet
+import, Google Sheets pull, Scout buy, the eBay specifics write-back, reconcile
+apply, and every mobile client write free text with a `.trim()` and nothing else.
+So any of them CAN produce a licensor; the field defends itself nowhere.
+
+**The AI vision extract is the path with the mechanism, and the evidence is in
+the prompt rather than in the data.** `ai-extract.ts`'s brand rule warns about
+exactly one way to get the brand wrong: promoting a COLLECTION or style or
+product-line name off the care label. It said nothing about a name printed across
+the FRONT. It also opened with "usually the logo or wordmark on the brand tag",
+and "usually" is permission. The model has correct homes for this content
+(`theme` for a franchise, `character` for a depicted figure) and the brand rule
+never pointed at them. A vision pass reading NORMAN ROCKWELL across a shirt front
+and answering the question "what brand is this" is the shape of the value we
+found. The rule is now written down in the prompt, with the Unbranded-vs-omit
+instruction beside it.
+
+⚠ **What this does NOT establish is which path wrote those five rows.** That is a
+provenance question and it is answerable from prod: `item_specifics_sources`
+stamps `manual` / `ai_extracted` per aspect, so the query is a join on
+`listings.item_specifics_sources ->> 'Brand'` for the items carrying the value.
+It was not run, because the repo `.env` holds a placeholder service-role key.
+Claiming the AI did it without that join would be the same mistake as the 8%.
 
 ## A missing RN on a handbag is correct, not a red flag
 

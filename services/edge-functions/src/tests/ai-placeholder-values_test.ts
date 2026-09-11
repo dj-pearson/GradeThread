@@ -134,3 +134,61 @@ Deno.test("decodeExtraction drops a research block whose style is a placeholder"
   assertEquals(res.research, null);
   assertEquals(res.suggestions.style, undefined);
 });
+
+// ── US-3307 AC4: "Unbranded" is an ANSWER, "Unknown" is not ─────────────────
+//
+// eBay ships Unbranded and Handmade as real Brand aspect values for a garment
+// that carries no maker's label. Before this, both were in PLACEHOLDER_VALUES
+// and were dropped exactly like "<UNKNOWN>", so an item the model had correctly
+// read as label-less came back indistinguishable from one whose tag it could not
+// find — and the publish path then defaulted the empty column to the literal
+// string "Unbranded" anyway (flipdesk-ebay.ts), turning "we do not know" into a
+// public claim that the garment has no maker.
+//
+// The check is FIELD-SCOPED: unchanged for every other field, and "no brand"
+// stays a placeholder because it is what the sell-through RPC coalesces an empty
+// brand to rather than something a seller types.
+
+Deno.test("US-3307: Unbranded and Handmade survive on the brand field", () => {
+  for (const v of ["Unbranded", "unbranded", "UNBRANDED", " Handmade "]) {
+    assertEquals(
+      isPlaceholderValue(v, "brand"),
+      false,
+      `expected a real brand answer: ${JSON.stringify(v)}`,
+    );
+    // Same value on the eBay aspect, which is where the refine pass sees it.
+    assertEquals(isPlaceholderValue(v, "Brand"), false);
+  }
+});
+
+Deno.test("US-3307: they stay placeholders everywhere else", () => {
+  for (const field of [undefined, "color", "material", "style", "Pattern"]) {
+    assert(
+      isPlaceholderValue("unbranded", field),
+      `expected placeholder on field ${String(field)}`,
+    );
+  }
+});
+
+Deno.test("US-3307: 'we do not know' is still dropped on the brand field", () => {
+  for (const v of ["<UNKNOWN>", "unknown", "n/a", "no brand", "not visible", "illegible"]) {
+    assert(
+      isPlaceholderValue(v, "brand"),
+      `expected placeholder on brand: ${JSON.stringify(v)}`,
+    );
+  }
+});
+
+Deno.test("US-3307: decodeExtraction keeps a deliberate Unbranded brand", () => {
+  const res = decodeExtraction(
+    {
+      brand: { value: "Unbranded", confidence: 0.85, source: "photo:tag" },
+      color: { value: "unbranded", confidence: 0.4 },
+    },
+    true,
+  );
+  assertEquals(res.suggestions.brand?.value, "Unbranded");
+  assertEquals(res.suggestions.brand?.confidence, 0.85);
+  // The same string on a field where it means nothing is still dropped.
+  assertEquals(res.suggestions.color, undefined);
+});

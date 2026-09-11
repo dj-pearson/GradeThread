@@ -29,6 +29,11 @@
 // packs would assert that a licensor or a material is a garment maker. They are
 // evidence about the FIELD. See vault/20-domain/brands/brand-kb-negative-findings.md.
 //
+// US-3307 moved that classification OUT of this file and into
+// src/lib/brand-field-classification.json, which is now the only copy. To ask
+// how big the field problem is rather than which packs to write, run
+// scripts/brand-field-audit.mjs.
+//
 // ── Two sources for each side, because the useful data lives in prod ────────
 //
 //   the KB     --db reads brand_knowledge over PostgREST; the default parses
@@ -48,6 +53,10 @@
 import { readdirSync, readFileSync, existsSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
+import {
+  BRAND_FIELD_VALUES,
+  classifyBrandField,
+} from "./lib/brand-field-classification.mjs";
 
 // fileURLToPath, never url.pathname: on Windows the pathname of a file: URL is
 // "/C:/Users/..." and readdirSync rejects the leading slash, so a guard that
@@ -72,26 +81,29 @@ export function brandKey(raw) {
 /**
  * Brand-field values that are NOT brands, with the reason each was refused.
  *
- * Deliberately a short, NAMED list rather than a heuristic. A classifier that
- * guessed "this looks like a material" would eventually swallow a real brand
- * (MOTHER, FRAME and Quince are all ordinary words and all real houses), and a
- * silently swallowed brand is invisible. Every entry here is a decision someone
- * recorded, and an unrecognised value is always reported as MISSING.
+ * ⚠ US-3307: THIS IS NO LONGER A LIST. It is a view onto the single shared
+ * classification in src/lib/brand-field-classification.json, read through
+ * scripts/lib/brand-field-classification.mjs.
+ *
+ * It used to be twelve values hardcoded here, which was the SECOND copy of this
+ * knowledge: src/lib/placeholder-brand.ts held eighteen and a third check lived
+ * inline in services/edge-functions/src/lib/style-code-prospect.ts. They had
+ * already drifted. Only this one knew Norman Rockwell was a licensor, and only
+ * placeholder-brand.ts got the Unbranded distinction right. A gap report is the
+ * surface where a stale copy is most expensive, because its output is a list of
+ * packs somebody is about to write.
+ *
+ * The shared file keeps the rule that made the list worth having: a short, NAMED
+ * set with a recorded reason on each, never a heuristic. A classifier that
+ * guessed "this looks like a material" would eventually swallow MOTHER, FRAME,
+ * Quince or Vince, all ordinary words and all real houses, and a silently
+ * swallowed brand is invisible. An unrecognised value is still always MISSING.
+ *
+ * Kept as a Map of key -> reason so callers that predate US-3307 see no change.
  */
-export const NOT_A_BRAND = new Map([
-  ["normanrockwell", "licensor: an illustrator (d. 1978) whose estate licenses images; the garment label is a blank maker (00783)"],
-  ["cashmere", "material: a fibre, not a maker (00731)"],
-  ["merino", "material: a fibre, not a maker"],
-  ["merinowool", "material: a fibre, not a maker"],
-  ["wool", "material: a fibre, not a maker"],
-  ["silk", "material: a fibre, not a maker"],
-  ["leather", "material: a fibre, not a maker"],
-  ["denim", "material: a fabric, not a maker"],
-  ["vintage", "descriptor: an era, not a maker"],
-  ["unbranded", "descriptor: the absence of a brand"],
-  ["none", "descriptor: the absence of a brand"],
-  ["handmade", "descriptor: a construction, not a maker"],
-]);
+export const NOT_A_BRAND = new Map(
+  BRAND_FIELD_VALUES.map((v) => [v.key, `${v.class}: ${v.reason}`]),
+);
 
 // ── Parsing the KB out of the migrations ───────────────────────────────────
 
@@ -317,8 +329,14 @@ export function scoreGap(demand, index) {
       if (hit.via !== "brand_key") aliasOnly.push(row);
       continue;
     }
-    const reason = NOT_A_BRAND.get(k);
-    if (reason) { notBrand.push({ ...d, reason }); continue; }
+    // US-3307: one shared classification, not a second list. `maker` is the
+    // default for anything unnamed, so an unrecognised value still lands in
+    // MISSING and a human sees it.
+    const verdict = classifyBrandField(d.brand);
+    if (verdict.class !== "maker") {
+      notBrand.push({ ...d, class: verdict.class, reason: verdict.reason });
+      continue;
+    }
     missing.push({ ...d, key: k });
   }
 
@@ -466,7 +484,9 @@ function report(result, meta, asJson) {
 
   console.log(`\nNOT A BRAND -- brand-field noise, do NOT seed (${result.notBrand.length}):`);
   if (!result.notBrand.length) console.log("   (none)");
-  for (const n of result.notBrand) console.log(`   ${String(n.count).padStart(5)}  ${n.brand}   ${n.reason}`);
+  for (const n of result.notBrand) {
+    console.log(`   ${String(n.count).padStart(5)}  ${n.brand}   [${n.class}] ${n.reason}`);
+  }
 
   console.log(`\nCOVERED (${result.covered.length}), of which ${result.aliasOnly.length} only via canonical_brand/aliases:`);
   for (const a of result.aliasOnly) console.log(`   ${String(a.count).padStart(5)}  ${a.brand}  ->  ${a.key} (${a.via})`);

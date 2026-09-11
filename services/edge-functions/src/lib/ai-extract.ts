@@ -152,14 +152,45 @@ const PLACEHOLDER_VALUES = new Set([
 ]);
 
 /**
+ * US-3307 AC4: on the BRAND field, these two are answers, not placeholders.
+ *
+ * eBay ships "Unbranded" and "Handmade" as real Brand aspect values for a
+ * garment that genuinely carries no maker's label. "We could not read the tag"
+ * is different information, and conflating the two loses the only signal that
+ * says which items are worth going back to: an item recorded Unbranded is DONE,
+ * an item with an empty brand is a question nobody has answered.
+ *
+ * They stay placeholders for every OTHER field, which is why the check is
+ * field-scoped rather than a deletion from PLACEHOLDER_VALUES. "no brand" is
+ * deliberately NOT here: it is what the sell-through RPC coalesces an EMPTY
+ * brand to, so it is generated rather than typed. See
+ * src/lib/brand-field-classification.json, which owns this classification for
+ * the frontend and the scripts; the edge cannot import it (separate Docker build
+ * context), so src/test/brand-field-classification-parity.test.ts scans this
+ * file and fails if the two disagree.
+ */
+export const BRAND_FIELD_ANSWERS = new Set(["unbranded", "handmade"]);
+
+/** Field names (core field key or eBay aspect name) that carry a brand. */
+function isBrandField(field: string | undefined): boolean {
+  if (!field) return false;
+  const f = field.trim().toLowerCase();
+  return f === "brand" || f === "manufacturer";
+}
+
+/**
  * True when a model-emitted value is a stand-in for "I couldn't tell" rather
  * than an answer. Handles the bracketed/parenthesised forms the model favours
  * (`<UNKNOWN>`, `[unknown]`, `(n/a)`) on top of the bare words.
  *
+ * `field` is the field or eBay aspect the value was returned for. Pass it
+ * wherever you have it: on the brand field it is what keeps a deliberate
+ * "Unbranded" from being thrown away as noise.
+ *
  * Exported for tests — this guard is the only thing standing between a
  * hallucinated placeholder and the seller's listing.
  */
-export function isPlaceholderValue(value: unknown): boolean {
+export function isPlaceholderValue(value: unknown, field?: string): boolean {
   if (value === undefined || value === null) return true;
   let s = String(value).trim().toLowerCase();
   if (s === "") return true;
@@ -167,6 +198,7 @@ export function isPlaceholderValue(value: unknown): boolean {
   const wrapped = /^[<\[({]+(.*?)[>\])}]+$/.exec(s);
   if (wrapped?.[1] !== undefined) s = wrapped[1].trim();
   if (s === "") return true;
+  if (isBrandField(field) && BRAND_FIELD_ANSWERS.has(s)) return false;
   return PLACEHOLDER_VALUES.has(s);
 }
 
@@ -468,7 +500,9 @@ Hard rules:
 - item_category MUST be one of: ${ITEM_CATEGORIES.join(", ")}. Never invent a category. Classify from the FRONT photo first (what KIND of product is this?) — the client uses this to pick which photo slots to ask the seller for, so prefer the most specific fit: a handbag/purse is 'bags', a hat/cap/beanie sold on its own is 'headwear' (NOT 'accessories' - a cap is graded on the crown, brim and sweatband), a belt/scarf/sunglasses is 'accessories', a ring/necklace is 'jewelry', a graded or raw trading card is 'sports_cards'. Use 'other' only when nothing else fits.
 - garment_type and garment_category: fill these ONLY when item_category is 'clothing' (apparel that is graded on the clothing rubric). Omit both entirely for any other item_category. garment_type MUST be one of: ${GARMENT_TYPES.join(", ")}. garment_category MUST be one of: ${GARMENT_CATEGORIES.join(", ")} and must be consistent with garment_type (e.g. tops→t-shirt/shirt/blouse/sweater/hoodie; bottoms→jeans/pants/shorts/skirt; outerwear→jacket/coat; dresses→dress; footwear→sneakers/boots/sandals; accessories→hat/bag/belt/scarf/other). Classify from the front/flatlay photo. These power grading readiness, so prefer a confident best-fit over omission when the item is clearly clothing.
 - size: normalize to a common token (XS, S, M, L, XL, XXL, a numeric size, or a shoe size) only when unambiguous; otherwise omit it.
-- brand: the MANUFACTURER / maker of the item (e.g. Patagonia, Nike, Levi's, Lululemon) — usually the logo or wordmark on the brand tag (neck, waistband, or inside collar). A COLLECTION name, product line, style name, or model name is NOT the brand: "Better Sweater", "Dri-FIT", "511", "Heattech", "Sport" are styles/lines, not brands — put those in 'style', never in 'brand'. Care labels frequently print a collection/line name large with the actual maker small or as a tiny wordmark; pick the MAKER. If you can read a style/collection name but cannot confidently identify the actual manufacturer, set 'style' and OMIT 'brand' — do NOT promote a style name into the brand field. Never copy generic tag text ("MADE IN", "100% COTTON", "MACHINE WASH") into brand.
+- brand: the MANUFACTURER / maker of the item (e.g. Patagonia, Nike, Levi's, Lululemon) — usually the logo or wordmark on the brand tag (neck, waistband, or inside collar). A COLLECTION name, product line, style name, or model name is NOT the brand: "Better Sweater", "Dri-FIT", "511", "Heattech", "Sport" are styles/lines, not brands — put those in 'style', never in 'brand'. Care labels frequently print a collection/line name large with the actual maker small or as a tiny wordmark; pick the MAKER. If you can read a style/collection name but cannot confidently identify the actual manufacturer, set 'style' and OMIT 'brand' — do NOT promote a style name into the brand field. Never copy generic tag text ("MADE IN", "100% COTTON", "MACHINE WASH") into brand. A FIBER or FABRIC ("Cashmere", "Merino Wool", "Genuine Leather") is what the item is made of, never its brand; it belongs in 'material'.
+- brand vs LICENSED ARTWORK (US-3307): a name printed LARGE ACROSS THE FRONT of a garment (an artist, an illustrator, a band, a sports team, a film, a character, a slogan) is licensed artwork, and the company that MADE the shirt is a different company whose wordmark is at the collar. "Norman Rockwell" on a tee names the illustrator whose estate licensed the image; the maker is a blank like Gildan, Hanes or Delta. Put the printed name in the 'theme' attribute (or 'character' when it is a depicted figure) and read 'brand' off the neck or care tag. If the collar tag is missing or unreadable, OMIT brand; never fall back to what is printed on the front.
+- brand when there IS no maker (US-3307): if the garment genuinely carries NO maker's label (a blank with a cut tag, or something handmade), answer 'Unbranded' (or 'Handmade'). Those are real eBay Brand values and real answers. Use them ONLY when you can see that no label is present. If a label exists and you simply cannot read or identify it, OMIT brand instead. "There is no maker" and "I could not tell who the maker is" are different facts and are acted on differently.
 - title: produce a clean, listing-ready title (brand + key descriptors), not a copy of the raw text.
 - color: a single primary color word. material: the primary fabric/material.
 - condition_notes: only condition hints explicitly present in the input.
@@ -1238,7 +1272,9 @@ export function decodeExtraction(
     // Empty AND placeholder both mean "the model had nothing" — see
     // isPlaceholderValue. This is where a literal "<UNKNOWN>" brand used to get
     // through and end up in the seller's listing.
-    if (isPlaceholderValue(f.value)) continue;
+    // US-3307: field-scoped, so a deliberate brand of "Unbranded" survives while
+    // "<UNKNOWN>" still does not.
+    if (isPlaceholderValue(f.value, key)) continue;
     let confidence = Number(f.confidence);
     if (Number.isNaN(confidence)) confidence = 0.5;
     confidence = Math.max(0, Math.min(1, confidence));
@@ -2004,7 +2040,8 @@ export async function extractEbayAspects(
 
     let values = f.values
       .map((v) => (typeof v === "string" ? v.trim() : String(v).trim()))
-      .filter((v) => !isPlaceholderValue(v));
+      // US-3307: `a.name` is the eBay aspect, so "Brand" -> "Unbranded" is kept.
+      .filter((v) => !isPlaceholderValue(v, a.name));
     // Final-pass safety net: drop any model-emitted value that isn't in the
     // allowed set when one was provided. The enum constraint should already
     // handle this, but better to silently drop than to surface garbage.

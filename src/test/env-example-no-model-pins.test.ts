@@ -77,13 +77,42 @@ describe("US-2633: the example env file does not pick the grading model", () => 
     // The whole argument above rests on the default model being one that takes
     // output_config.effort. If that ever stops being true the reasoning here
     // needs re-reading, not silently inheriting.
+    //
+    // This used to grep for `m.startsWith("...")`, which was how the effort
+    // check was written until US-3305 replaced the prefix list with a
+    // family-and-generation rule. The grep then matched nothing and the guard
+    // went red against correct code - a source scan standing in for a
+    // behavioural fact, which is the shape this repo keeps re-learning. It now
+    // reads the rule table itself, so it fails when the DEFAULT stops taking
+    // effort rather than when the implementation is rewritten.
     const config = read(CONFIG);
     const model = /model:\s*"([^"]+)"/.exec(config)?.[1];
     expect(model, "could not find DEFAULTS.model in ai-config.ts").toBeTruthy();
-    const effortFamilies = [...config.matchAll(/m\.startsWith\("([^"]+)"\)/g)].map((m) => m[1]!);
+
+    const table = /const EFFORT_BY_FAMILY[^{]*\{([\s\S]*?)\};/.exec(config)?.[1];
     expect(
-      effortFamilies.some((f) => model!.startsWith(f)),
-      `the default model ${model} is no longer in modelUsesEffort()`,
+      table,
+      "could not find EFFORT_BY_FAMILY in ai-config.ts - if the effort rule " +
+        "was rewritten again, point this guard at whatever replaced it rather " +
+        "than deleting the case",
+    ).toBeTruthy();
+
+    const families = new Map<string, [number, number] | null>();
+    for (const m of table!.matchAll(/(\w+):\s*\{\s*takesEffortFrom:\s*(\[(\d+),\s*(\d+)\]|null)/g)) {
+      families.set(m[1]!, m[2] === "null" ? null : [Number(m[3]), Number(m[4])]);
+    }
+    expect(families.size, "parsed no families out of EFFORT_BY_FAMILY").toBeGreaterThan(0);
+
+    // claude-<family>-<major>[-<minor>]
+    const parts = /^claude-([a-z]+)-(\d+)(?:-(\d+))?/.exec(model!);
+    expect(parts, `DEFAULTS.model ${model} does not parse as claude-<family>-<version>`)
+      .toBeTruthy();
+    const from = families.get(parts![1]!);
+    expect(
+      from !== undefined && from !== null &&
+        (Number(parts![2]) > from[0] ||
+          (Number(parts![2]) === from[0] && Number(parts![3] ?? 0) >= from[1])),
+      `the default model ${model} no longer takes output_config.effort`,
     ).toBe(true);
   });
 

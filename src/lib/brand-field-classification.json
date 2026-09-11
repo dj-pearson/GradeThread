@@ -1,0 +1,198 @@
+{
+  "_comment": [
+    "US-3307: the ONE classification of what an inventory_items.brand value actually is.",
+    "",
+    "This file is DATA, not code, because three runtimes have to agree on it and they",
+    "cannot import each other: the Vite frontend (src/lib/brand-field-classification.ts),",
+    "Node scripts (scripts/lib/brand-field-classification.mjs) and the vitest guards.",
+    "Same trick src/lib/ebay-aspect-registry.json already uses. Before this file there",
+    "were three separate hardcoded lists that had already drifted apart:",
+    "  scripts/brand-kb-gap.mjs NOT_A_BRAND        12 values",
+    "  src/lib/placeholder-brand.ts                18 values",
+    "  services/.../style-code-prospect.ts          3 values",
+    "and only the first one knew that Norman Rockwell is a licensor.",
+    "",
+    "THE LIST IS NAMED, NEVER HEURISTIC. A classifier that guessed 'this looks like a",
+    "material' would eventually swallow MOTHER, FRAME, Quince or Vince, all ordinary",
+    "words and all real houses, and a silently swallowed brand is invisible. Every key",
+    "below is a decision someone recorded with a reason. An unrecognised value is",
+    "ALWAYS classified 'maker', which is the safe direction: it gets proposed for the",
+    "brand KB and a human sees it.",
+    "",
+    "Keys are brandKey()-normalized: lowercased, then everything outside [a-z0-9]",
+    "dropped. So 'N/A' -> 'na', 'No Brand' -> 'nobrand', and a punctuation-only value",
+    "-> '' which is the 'blank' class. That normalizer is shared too; it must stay",
+    "identical to brandKey() in services/edge-functions/src/lib/brand-normalize.ts."
+  ],
+  "version": "2026-09-10",
+  "classes": {
+    "maker": {
+      "label": "A maker",
+      "meaning": "Resolves to a company that actually made the garment. The default for anything not named below.",
+      "recordsMaker": true,
+      "guidance": null
+    },
+    "licensor": {
+      "label": "A licensor",
+      "meaning": "An artist, estate, property or franchise whose image is licensed onto a blank somebody else made. Printed on the front, not sewn at the collar.",
+      "recordsMaker": false,
+      "guidance": "That name is licensed onto the shirt, not the company that made it. Check the neck or side tag for the maker."
+    },
+    "material": {
+      "label": "A material",
+      "meaning": "A fibre or a fabric. What the garment is made of, not who made it.",
+      "recordsMaker": false,
+      "guidance": "That is what the garment is made of. The maker is on the neck or care tag."
+    },
+    "retailer": {
+      "label": "A retailer",
+      "meaning": "A shop or a marketplace that sells other companies' goods. Usually typed because it is where the item was sourced.",
+      "recordsMaker": false,
+      "guidance": "That is where the item came from, not who made it. The maker is on the neck or care tag."
+    },
+    "descriptor": {
+      "label": "A descriptor",
+      "meaning": "An era, a style word or a condition word. Describes the garment, not its maker.",
+      "recordsMaker": false,
+      "guidance": "That describes the garment rather than naming its maker. Check the neck or care tag."
+    },
+    "unbranded": {
+      "label": "Unbranded",
+      "meaning": "A REAL ANSWER: this garment carries no maker's label. eBay ships Unbranded and Handmade as valid Brand aspect values, so a seller who typed one meant it. Never treat this as a missing value.",
+      "recordsMaker": true,
+      "guidance": null
+    },
+    "unknown": {
+      "label": "Not known",
+      "meaning": "An explicit stand-in for 'nobody could tell'. Someone looked at the field and had no answer.",
+      "recordsMaker": false,
+      "guidance": "No maker is recorded yet. Read the neck tag, or mark the item Unbranded if it genuinely carries no label."
+    },
+    "blank": {
+      "label": "Empty",
+      "meaning": "The field was never filled in at all. Distinct from 'unknown', where somebody answered and the answer was no answer.",
+      "recordsMaker": false,
+      "guidance": "No maker is recorded yet. Read the neck tag, or mark the item Unbranded if it genuinely carries no label."
+    }
+  },
+  "values": [
+    {
+      "key": "normanrockwell",
+      "label": "Norman Rockwell",
+      "class": "licensor",
+      "reason": "An illustrator who died in 1978. His estate licenses images onto blanks; the FTC register returns nothing for the name. Refused from brand_knowledge by 00783. The maker is whatever is at the collar, usually Gildan, Hanes or a band-tee blank."
+    },
+
+    {
+      "key": "cashmere",
+      "label": "Cashmere",
+      "class": "material",
+      "reason": "A fibre, not a maker. Recorded in 00731."
+    },
+    { "key": "merino", "label": "Merino", "class": "material", "reason": "A fibre." },
+    { "key": "merinowool", "label": "Merino wool", "class": "material", "reason": "A fibre." },
+    { "key": "wool", "label": "Wool", "class": "material", "reason": "A fibre." },
+    { "key": "lambswool", "label": "Lambswool", "class": "material", "reason": "A fibre." },
+    { "key": "alpaca", "label": "Alpaca", "class": "material", "reason": "A fibre." },
+    { "key": "mohair", "label": "Mohair", "class": "material", "reason": "A fibre." },
+    { "key": "silk", "label": "Silk", "class": "material", "reason": "A fibre." },
+    { "key": "cotton", "label": "Cotton", "class": "material", "reason": "A fibre." },
+    { "key": "linen", "label": "Linen", "class": "material", "reason": "A fibre." },
+    { "key": "polyester", "label": "Polyester", "class": "material", "reason": "A fibre." },
+    { "key": "nylon", "label": "Nylon", "class": "material", "reason": "A fibre." },
+    { "key": "rayon", "label": "Rayon", "class": "material", "reason": "A fibre." },
+    { "key": "viscose", "label": "Viscose", "class": "material", "reason": "A fibre." },
+    { "key": "acrylic", "label": "Acrylic", "class": "material", "reason": "A fibre." },
+    { "key": "spandex", "label": "Spandex", "class": "material", "reason": "A fibre." },
+    { "key": "leather", "label": "Leather", "class": "material", "reason": "A material." },
+    { "key": "genuineleather", "label": "Genuine leather", "class": "material", "reason": "A material claim printed on a tag, not a maker." },
+    { "key": "fauxleather", "label": "Faux leather", "class": "material", "reason": "A material." },
+    { "key": "suede", "label": "Suede", "class": "material", "reason": "A material." },
+    { "key": "denim", "label": "Denim", "class": "material", "reason": "A fabric." },
+    { "key": "corduroy", "label": "Corduroy", "class": "material", "reason": "A fabric." },
+    { "key": "flannel", "label": "Flannel", "class": "material", "reason": "A fabric." },
+    { "key": "fleece", "label": "Fleece", "class": "material", "reason": "A fabric." },
+    { "key": "tweed", "label": "Tweed", "class": "material", "reason": "A fabric." },
+    { "key": "fauxfur", "label": "Faux fur", "class": "material", "reason": "A material." },
+    { "key": "sterlingsilver", "label": "Sterling silver", "class": "material", "reason": "A metal purity claim off a hallmark, not a maker." },
+    { "key": "925silver", "label": "925 silver", "class": "material", "reason": "A metal purity claim off a hallmark, not a maker." },
+    { "key": "stainlesssteel", "label": "Stainless steel", "class": "material", "reason": "A metal, not a maker." },
+    { "key": "goldplated", "label": "Gold plated", "class": "material", "reason": "A finish, not a maker." },
+
+    { "key": "goodwill", "label": "Goodwill", "class": "retailer", "reason": "A thrift chain. Typed because it is where the item was sourced." },
+    { "key": "salvationarmy", "label": "Salvation Army", "class": "retailer", "reason": "A thrift chain." },
+    { "key": "thriftstore", "label": "Thrift store", "class": "retailer", "reason": "Where the item was sourced." },
+    { "key": "estatesale", "label": "Estate sale", "class": "retailer", "reason": "Where the item was sourced." },
+    { "key": "garagesale", "label": "Garage sale", "class": "retailer", "reason": "Where the item was sourced." },
+    { "key": "tjmaxx", "label": "TJ Maxx", "class": "retailer", "reason": "An off-price retailer; it sells other makers' goods and puts no name at the collar." },
+    { "key": "marshalls", "label": "Marshalls", "class": "retailer", "reason": "An off-price retailer." },
+    { "key": "ross", "label": "Ross", "class": "retailer", "reason": "An off-price retailer." },
+    { "key": "poshmark", "label": "Poshmark", "class": "retailer", "reason": "A resale marketplace." },
+    { "key": "mercari", "label": "Mercari", "class": "retailer", "reason": "A resale marketplace." },
+    { "key": "depop", "label": "Depop", "class": "retailer", "reason": "A resale marketplace." },
+    { "key": "thredup", "label": "ThredUp", "class": "retailer", "reason": "A resale marketplace." },
+
+    { "key": "vintage", "label": "Vintage", "class": "descriptor", "reason": "An era word. Note the real houses that survive this list because the match is exact: Vintage Havana keys as vintagehavana." },
+    { "key": "retro", "label": "Retro", "class": "descriptor", "reason": "An era word. The Original Retro Brand keys as originalretrobrand and is unaffected." },
+    { "key": "y2k", "label": "Y2K", "class": "descriptor", "reason": "An era word." },
+    { "key": "deadstock", "label": "Deadstock", "class": "descriptor", "reason": "A stock state." },
+    { "key": "streetwear", "label": "Streetwear", "class": "descriptor", "reason": "A category." },
+    { "key": "designer", "label": "Designer", "class": "descriptor", "reason": "A category." },
+    { "key": "boutique", "label": "Boutique", "class": "descriptor", "reason": "A category." },
+    { "key": "singlestitch", "label": "Single stitch", "class": "descriptor", "reason": "A construction detail used for dating." },
+    { "key": "madeinusa", "label": "Made in USA", "class": "descriptor", "reason": "Origin text off the care label. The ai-extract prompt already forbids copying generic tag text into brand." },
+    { "key": "madeinitaly", "label": "Made in Italy", "class": "descriptor", "reason": "Origin text off the care label." },
+    { "key": "unionmade", "label": "Union made", "class": "descriptor", "reason": "Union label text, which dates a piece and never names it." },
+    { "key": "notag", "label": "No tag", "class": "descriptor", "reason": "States that the tag is gone, which is a reason we do not know rather than a claim that the garment had no maker." },
+    { "key": "tagless", "label": "Tagless", "class": "descriptor", "reason": "States that the tag is gone or printed rather than sewn." },
+    { "key": "onesize", "label": "One size", "class": "descriptor", "reason": "A size, landed in the wrong column." },
+
+    {
+      "key": "unbranded",
+      "label": "Unbranded",
+      "class": "unbranded",
+      "reason": "eBay ships Unbranded as a real Brand aspect value for a garment that carries no maker's label. A seller who typed it answered the question."
+    },
+    {
+      "key": "handmade",
+      "label": "Handmade",
+      "class": "unbranded",
+      "reason": "eBay ships Handmade as a Brand aspect value too. It means an individual made it and there is no commercial label, which is an answer, not a gap."
+    },
+
+    { "key": "unknown", "label": "Unknown", "class": "unknown", "reason": "An explicit non-answer." },
+    { "key": "unknownbrand", "label": "Unknown brand", "class": "unknown", "reason": "An explicit non-answer." },
+    { "key": "brandunknown", "label": "Brand unknown", "class": "unknown", "reason": "An explicit non-answer." },
+    {
+      "key": "nobrand",
+      "label": "No brand",
+      "class": "unknown",
+      "reason": "What the sell-through RPC and capitalVelocity() coalesce an EMPTY brand to before the row reaches the client. It is generated, not typed, so it means 'nobody filled this in' rather than 'this garment has no label'."
+    },
+    {
+      "key": "none",
+      "label": "None",
+      "class": "unknown",
+      "reason": "Genuinely ambiguous between 'no label' and 'not filled in', which is exactly why the composer offers an explicit Unbranded button instead of leaving the seller to type this. Classed as not-known because the safe reading never publishes a claim about the garment."
+    },
+    { "key": "noname", "label": "No name", "class": "unknown", "reason": "An explicit non-answer." },
+    { "key": "na", "label": "N/A", "class": "unknown", "reason": "An explicit non-answer. Covers 'n/a', 'N.A.' and 'na'; NA-KD keys as nakd and survives." },
+    { "key": "nil", "label": "Nil", "class": "unknown", "reason": "An explicit non-answer." },
+    { "key": "null", "label": "null", "class": "unknown", "reason": "A serialization artifact that reached the column as text." },
+    { "key": "undefined", "label": "undefined", "class": "unknown", "reason": "A serialization artifact that reached the column as text." },
+    { "key": "tbd", "label": "TBD", "class": "unknown", "reason": "An explicit non-answer." },
+    { "key": "unspecified", "label": "Unspecified", "class": "unknown", "reason": "An explicit non-answer." },
+    { "key": "notspecified", "label": "Not specified", "class": "unknown", "reason": "An explicit non-answer." },
+    { "key": "notvisible", "label": "Not visible", "class": "unknown", "reason": "A model placeholder: the tag was in no photo." },
+    { "key": "notapplicable", "label": "Not applicable", "class": "unknown", "reason": "A model placeholder." },
+    { "key": "notavailable", "label": "Not available", "class": "unknown", "reason": "A model placeholder." },
+    { "key": "notdetermined", "label": "Not determined", "class": "unknown", "reason": "A model placeholder." },
+    { "key": "illegible", "label": "Illegible", "class": "unknown", "reason": "A model placeholder: the tag was there and could not be read." },
+    { "key": "unreadable", "label": "Unreadable", "class": "unknown", "reason": "A model placeholder." },
+    { "key": "unclear", "label": "Unclear", "class": "unknown", "reason": "A model placeholder." },
+    { "key": "cannotdetermine", "label": "Cannot determine", "class": "unknown", "reason": "A model placeholder." },
+    { "key": "cantdetermine", "label": "Can't determine", "class": "unknown", "reason": "A model placeholder." },
+    { "key": "placeholder", "label": "Placeholder", "class": "unknown", "reason": "A staging value from a spreadsheet import." },
+    { "key": "blank", "label": "Blank", "class": "unknown", "reason": "A staging value from a spreadsheet import." }
+  ]
+}

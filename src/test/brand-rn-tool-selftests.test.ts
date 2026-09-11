@@ -19,6 +19,12 @@ import { resolve } from "node:path";
 //   brand-kb-gap.mjs     a statement scanner that truncates on an embedded quote
 //                        under-counts the KB, and every seller brand then looks
 //                        missing. It has done exactly that before.
+//   brand-field-audit.mjs  (US-3307) reports how much of inventory_items.brand is
+//                        not a maker. Its failure mode is a QUIET one: a
+//                        classification that stops matching reports a clean
+//                        field, which is the answer everybody wants to hear. The
+//                        self-test scores the captured prod fixture and asserts
+//                        it still finds the licensor and the fibre.
 //
 // All three are offline: fixtures and supabase/migrations, no network. The
 // network paths of the two FTC scripts are deliberately NOT exercised here -- CI
@@ -31,6 +37,7 @@ const SELF_TESTS = [
   ["scripts/ops/ftc-rn-lookup.mjs", /3 fixtures OK/],
   ["scripts/ops/ftc-rn-recheck.mjs", /self-test OK/],
   ["scripts/brand-kb-gap.mjs", /self-test OK/],
+  ["scripts/brand-field-audit.mjs", /self-test OK/],
 ] as const;
 
 describe("the brand-KB operator scripts pass their own self-tests", () => {

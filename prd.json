@@ -4823,20 +4823,6 @@
       "notes": "Renumbered from US-3298 to US-3300 on 2026-09-10 while merging origin/main. Two sessions ran the backlog in parallel and both minted US-3298: this story on the local side, and 'Size charts, batch 13: the last nine gaps' on the remote, which is already archived. The remote won the id because it was pushed first; nothing about this story's scope changed. Its migration is 00777_ledger_rebuild_safeupdate.sql."
     },
     {
-      "id": "US-3307",
-      "passes": false,
-      "title": "Roughly 8 percent of the brand field is not a brand, so those items have no recorded maker",
-      "description": "Found 2026-09-10 while closing US-3125. Two of the top twenty-five values in inventory_items.brand, ranked by item count on prod, are not brands at all: 'norman rockwell' (5 items), an illustrator who died in 1978 and whose estate licenses images onto blanks, and 'cashmere' (3 items), a fibre. Both were refused from brand_knowledge for the right reason, and refusing them leaves the underlying problem untouched: the garment has a real maker (Gildan, Hanes, an unbranded blank) and we have not recorded it. Every downstream user of the brand field is worse for it. The grader gets no brand context. The comp search queries a licensor or a material instead of a label. The size chart resolver finds nothing and falls through to the generic path. And the brand-KB gap report ranks these rows as demand, so they pull attention toward brands that will never exist. This is a story about the FIELD and the intake paths that fill it, not about the knowledge base.",
-      "acceptanceCriteria": [
-        "The scale is measured rather than estimated: a script counts inventory_items.brand values that resolve to no brand and classifies them (licensor, material, retailer, style word, blank, genuine unknown), and the counts go in the story notes",
-        "A seller-visible path exists to record the real maker when the brand field holds something else, rather than the value being silently ignored or silently trusted",
-        "The AI extract and the manual intake paths are checked for which one produces these values, since a licensor printed large on a shirt front is exactly what a vision pass would read as the brand",
-        "'Unbranded' stays a valid answer and is distinguished from 'we do not know', because eBay ships Unbranded as a real aspect value and conflating the two loses information",
-        "scripts/brand-kb-gap.mjs stops ranking known non-brand values as demand, reading from one shared classification rather than a second hardcoded list"
-      ],
-      "priority": 6
-    },
-    {
       "id": "US-3308",
       "passes": false,
       "title": "Main CI has failed every run for days, and one skipped npm ci made every other check lie",
