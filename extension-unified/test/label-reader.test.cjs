@@ -414,9 +414,303 @@ const OK_OPTS = {
   assert.ok(/right-click|right click/i.test(para), "it does not say what triggers it");
 })();
 
-console.log(
-  "label-reader.test.cjs: srcUrl is the only input, no token and no page url travel, " +
-    "the 8MB check precedes the upload, refusals render as answers and are never " +
-    "retried, nothing is stored, and the card is INJECTED on a right-click rather " +
-    "than matched on every page",
+// -- the worker half, EXECUTED against a fake fetch (US-3070 AC6) -----------
+//
+// !! EVERYTHING ABOVE ABOUT readLabelFromImage IS A SOURCE SCAN, AND A SCAN PINS
+// THE SPELLING OF A RULE RATHER THAN ITS ANSWER. `sizeCheck < post` is equally
+// true of code that measures the blob and then posts it anyway; a grep for
+// "storage.local.set" is equally true of code that persists through a helper;
+// "no Authorization in this slice" is equally true of a header added two
+// functions away. AC6 asks for a fake fetch by name, so the worker's own slice
+// is lifted out and RUN, and every property below is measured from what the
+// fakes were actually asked for.
+//
+// The slice is bounded by two markers that occur once each in background.js,
+// and it is asserted to contain all three functions before anything runs - an
+// extraction that silently comes back empty is a test that passes against
+// deleted code.
+
+const TAG_READ_URL =
+  "https://functions.gradethread.com/api/grading/public/tag-read";
+
+const WORKER_SRC = (function () {
+  const start = BG.indexOf("const TAG_READ_ENDPOINT =");
+  const end = BG.indexOf("if (ext.commands && ext.commands.onCommand) {");
+  assert.ok(start > -1, "TAG_READ_ENDPOINT was renamed or removed");
+  assert.ok(end > start, "the label reader's worker half is no longer one block");
+  const slice = BG.slice(start, end);
+  for (const need of [
+    "async function readLabelFromImage",
+    "async function showLabelCard",
+    "function blobToDataUri",
+  ]) {
+    assert.ok(slice.includes(need), "the extracted slice lost " + need);
+  }
+  assert.ok(slice.includes(TAG_READ_URL), "the tag-read endpoint host changed");
+  return slice;
+})();
+
+const ATTR = load("attribution.js", "GT_ATTRIBUTION");
+
+const FAKE_DATA_URI = "data:image/jpeg;base64,QUJD";
+const IMAGE_URL = "https://cdn.example/tag.jpg";
+
+/**
+ * Run the whole right-click path against fakes and report what it asked for.
+ *
+ * Returns every observable: the fetches in order, any persistence call, and the
+ * executeScript specs. Nothing here reaches a network, a disk or a DOM.
+ */
+function driveRead(opts) {
+  const o = opts || {};
+  const fetches = [];
+  const persisted = [];
+  const injections = [];
+
+  const blob = {
+    size: typeof o.bytes === "number" ? o.bytes : 2048,
+    type: o.blobType === undefined ? "image/jpeg" : o.blobType,
+  };
+
+  function fakeFetch(url, init) {
+    fetches.push({ url: String(url), init: init || null });
+    if (String(url) === TAG_READ_URL) {
+      if (o.endpointThrows) return Promise.reject(new Error("offline"));
+      return Promise.resolve({
+        ok: true,
+        json: function () { return Promise.resolve(o.body); },
+      });
+    }
+    if (o.imageFetchFails) return Promise.resolve({ ok: false });
+    return Promise.resolve({
+      ok: true,
+      blob: function () { return Promise.resolve(blob); },
+    });
+  }
+
+  function FakeFileReader() {
+    const reader = this;
+    this.result = null;
+    this.onload = null;
+    this.onerror = null;
+    this.readAsDataURL = function () {
+      setImmediate(function () {
+        reader.result = FAKE_DATA_URI;
+        if (reader.onload) reader.onload();
+      });
+    };
+  }
+
+  // Every way this worker could keep the read is handed over as a RECORDER, so
+  // a write is observable rather than merely unspelled. AC5 is the rule: a care
+  // label carries a size, which is a fact about a body, and the result lives in
+  // the card and dies with it.
+  function recorder(name) {
+    return function () { persisted.push(name); return Promise.resolve(); };
+  }
+  const store = {
+    local: { set: recorder("storage.local.set"), get: recorder("storage.local.get"), remove: recorder("storage.local.remove") },
+    sync: { set: recorder("storage.sync.set"), get: recorder("storage.sync.get") },
+    session: { set: recorder("storage.session.set"), get: recorder("storage.session.get") },
+  };
+  const ext = {
+    storage: store,
+    scripting: {
+      executeScript: function (spec) {
+        injections.push(spec);
+        return Promise.resolve([]);
+      },
+    },
+  };
+
+  const selfObj = {
+    GT_LABEL_READER: LR,
+    GT_LABEL_CARD: CARD,
+    GT_ATTRIBUTION: ATTR,
+    chrome: ext,
+    browser: ext,
+  };
+
+  const worker = new Function(
+    "self", "ext", "fetch", "FileReader", "chrome", "browser",
+    "localStorage", "indexedDB", "caches",
+    WORKER_SRC +
+      "\nreturn { readLabelFromImage: readLabelFromImage, showLabelCard: showLabelCard };",
+  )(
+    selfObj, ext, fakeFetch, FakeFileReader, ext, ext,
+    { setItem: recorder("localStorage.setItem") },
+    { open: recorder("indexedDB.open") },
+    { open: recorder("caches.open") },
+  );
+
+  return worker
+    .readLabelFromImage(o.srcUrl === undefined ? IMAGE_URL : o.srcUrl)
+    .then(function (res) {
+      return worker.showLabelCard(7, res).then(function () {
+        return { res: res, fetches: fetches, persisted: persisted, injections: injections };
+      });
+    });
+}
+
+const A_GOOD_READ = {
+  brand: "Patagonia",
+  size: "M",
+  fiberContent: "100% cotton",
+  styleCode: "25528",
+  rn: "RN 51884",
+  disclaimer: "Read from one photo by AI.",
+};
+
+async function theWorkerHalfBehaves() {
+  // -- AC6: the 8MB refusal is CLIENT-SIDE AND BEFORE THE UPLOAD ------------
+  //
+  // Measured as "the endpoint was never asked", which is the thing that costs
+  // the person their upload. An ordering assertion on two string indexes
+  // cannot tell this apart from code that checks and posts anyway.
+  {
+    const r = await driveRead({ bytes: 9 * 1024 * 1024, body: A_GOOD_READ });
+    assert.strictEqual(
+      r.fetches.length, 1,
+      "a 9MB image reached the network twice - the cap was checked after the upload",
+    );
+    assert.strictEqual(r.fetches[0].url, IMAGE_URL);
+    assert.ok(
+      !r.fetches.some(function (f) { return f.url === TAG_READ_URL; }),
+      "a 9MB image was posted to the tag reader",
+    );
+    assert.ok(/8MB/.test(r.res.data.error), r.res.data.error);
+    // And it still SAYS so. Silence on a menu item somebody just clicked reads
+    // as a broken feature, which is the one thing worse than the refusal.
+    assert.strictEqual(r.injections.length, 1, "the size refusal drew nothing");
+    assert.strictEqual(r.injections[0].args[0].state, "error");
+  }
+
+  // Just under the cap still goes.
+  {
+    const r = await driveRead({ bytes: 8 * 1024 * 1024, body: A_GOOD_READ });
+    assert.strictEqual(r.fetches.length, 2, "an 8MB image was refused at the cap");
+  }
+
+  // -- AC1: only the image travels -----------------------------------------
+  {
+    const r = await driveRead({ body: A_GOOD_READ });
+    assert.strictEqual(r.fetches.length, 2, "unexpected request count");
+    const post = r.fetches[1];
+    assert.strictEqual(post.url, TAG_READ_URL);
+    assert.strictEqual(post.init.method, "POST");
+    assert.deepStrictEqual(
+      JSON.parse(post.init.body), { image: FAKE_DATA_URI },
+      "the request body carries something other than the image",
+    );
+    // !! THE HEADER LIST IS EXACT. An Authorization header would tie a care
+    // label to an account for nothing in return; the endpoint is anonymous by
+    // design and rate-limited per IP.
+    assert.deepStrictEqual(
+      Object.keys(post.init.headers), ["Content-Type"],
+      "the anonymous tag read sends a header it does not need",
+    );
+    assert.notStrictEqual(post.init.credentials, "include", "a cookie rides along");
+    assert.strictEqual(post.init.cache, "no-store");
+
+    // -- AC2: the card is injected into the clicked tab, with DATA only -----
+    assert.strictEqual(r.injections.length, 1);
+    assert.deepStrictEqual(r.injections[0].target, { tabId: 7 }, "the injection is unscoped");
+    const handedOver = JSON.stringify(r.injections[0].args);
+    assert.ok(!handedOver.includes("data:image"), "the image bytes were handed to the page");
+    assert.ok(!handedOver.includes("cdn.example"), "the image URL was handed to the page");
+
+    // The RN link, built through attribution.js rather than concatenated here.
+    const siteUrl = r.injections[0].args[1].siteUrl;
+    assert.ok(siteUrl, "no RN lookup link on a read that found one");
+    assert.strictEqual(siteUrl.split("?")[0], "https://gradethread.com/tools/rn-lookup");
+    assert.ok(siteUrl.includes("rn=51884"), siteUrl);
+    assert.ok(
+      siteUrl.includes("utm_medium=label-reader"),
+      "the link is not built through attribution.js - it carries no medium",
+    );
+    assert.deepStrictEqual(
+      r.injections[0].args[1].rows.map(function (row) { return row.key; }),
+      ["brand", "size", "fiberContent", "styleCode", "rn"],
+    );
+  }
+
+  // -- AC3: a refusal is an answer, and NOTHING is retried -----------------
+  {
+    for (const body of [
+      { code: "rate_limited", error: "Try again in an hour." },
+      { code: "at_capacity", error: "Busy right now." },
+    ]) {
+      const r = await driveRead({ body: body });
+      assert.strictEqual(
+        r.fetches.length, 2,
+        body.code + " was retried - a limit the person cannot see is one they cannot wait out",
+      );
+      assert.strictEqual(r.injections.length, 1, body.code + " drew nothing");
+      assert.strictEqual(r.injections[0].args[0].state, body.code);
+      assert.strictEqual(r.injections[0].args[0].message, body.error);
+      assert.strictEqual(r.injections[0].args[1].siteUrl, null, "a refusal offered an RN link");
+      assert.deepStrictEqual(r.injections[0].args[1].rows, [], "a refusal offered rows to copy");
+    }
+  }
+
+  // -- a URL the worker cannot read never reaches the network at all -------
+  {
+    for (const src of ["blob:https://poshmark.com/abc", "javascript:alert(1)", "file:///etc/passwd", ""]) {
+      const r = await driveRead({ srcUrl: src, body: A_GOOD_READ });
+      assert.strictEqual(r.fetches.length, 0, src + " reached the network");
+      assert.strictEqual(r.injections.length, 0, src + " drew a card");
+    }
+  }
+
+  // -- a body that is not an image is never posted -------------------------
+  {
+    const r = await driveRead({ blobType: "text/html", body: A_GOOD_READ });
+    assert.strictEqual(r.fetches.length, 1, "a non-image body was posted to the tag reader");
+  }
+
+  // -- a transport failure draws nothing at all ----------------------------
+  //
+  // A card reading "something went wrong" on a page the person did not ask
+  // anything of is worse than no card.
+  {
+    for (const scenario of [{ endpointThrows: true }, { imageFetchFails: true }]) {
+      const r = await driveRead(Object.assign({ body: A_GOOD_READ }, scenario));
+      assert.strictEqual(r.injections.length, 0, "a failed read still drew a card");
+    }
+  }
+
+  // -- AC5/AC6: nothing is kept, across every path above -------------------
+  {
+    const scenarios = [
+      { body: A_GOOD_READ },
+      { body: { code: "rate_limited", error: "Try again in an hour." } },
+      { body: { rn: null, brand: null, size: null, fiberContent: null, styleCode: null } },
+      { bytes: 9 * 1024 * 1024, body: A_GOOD_READ },
+      { endpointThrows: true, body: A_GOOD_READ },
+      { srcUrl: "blob:https://x/abc", body: A_GOOD_READ },
+    ];
+    for (const scenario of scenarios) {
+      const r = await driveRead(scenario);
+      assert.deepStrictEqual(
+        r.persisted, [],
+        "the label reader persisted the read through " + r.persisted.join(", ") +
+          " - the result lives in the card and dies with it",
+      );
+    }
+  }
+}
+
+theWorkerHalfBehaves().then(
+  function () {
+    console.log(
+      "label-reader.test.cjs: srcUrl is the only input, no token and no page url travel, " +
+        "the 8MB check precedes the upload, refusals render as answers and are never " +
+        "retried, nothing is stored, and the card is INJECTED on a right-click rather " +
+        "than matched on every page - the worker half DRIVEN against a fake fetch, not scanned",
+    );
+  },
+  function (err) {
+    console.error(err && err.stack ? err.stack : String(err));
+    process.exit(1);
+  },
 );
