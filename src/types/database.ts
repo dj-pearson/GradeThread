@@ -1214,6 +1214,24 @@ export interface PhotoQaIssue {
   photo_index?: number | null;
 }
 
+// US-3358: `Record<string, AiFieldSource>` is NARROWER THAN THE COLUMN, and
+// the gap is a real corpus, not a hypothetical. Android writes a bare JSON
+// string -- the source name on its own, no confidence and no acceptance
+// (`AiFieldWriter.kt:73`, `.mapValues { JsonPrimitive(it.value) }`) -- and its
+// read-modify-write flattens whatever objects were already on the item into
+// JSON-text strings. So a value typed here as AiFieldSource may at runtime be a
+// string, and `entry.source` on one of those is `undefined`.
+//
+// Do NOT read a field off an entry without checking `typeof entry === "object"`
+// first. The edge reader that only has to answer "did an AI pass write this"
+// accepts both shapes: `isAiOwned` in
+// services/edge-functions/src/lib/reextract-policy.ts.
+//
+// Widening this declaration to `AiFieldSource | string` is the honest fix and
+// needs every src/ reader narrowed with it (AiSourceMeta in
+// src/components/flipdesk/measurement-form.tsx:51, the composer's merge at
+// src/pages/flipdesk/composer.tsx:2501), which was outside US-3358's scope
+// fence.
 export interface AiFieldSource {
   source: string; // e.g. "text", "photo:tag", "photo:front"
   confidence: number; // 0..1

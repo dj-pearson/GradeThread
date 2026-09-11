@@ -56,6 +56,35 @@ export type UntrackedPolicy = "respect" | "treat_as_ai";
 export type AiFieldSources = Record<string, unknown>;
 
 /**
+ * True when the stored jsonb value is a provenance RECORD rather than nothing.
+ *
+ * TWO SHAPES ARE IN THE COLUMN AND BOTH ARE REAL (US-3358).
+ *
+ *  - `{ source, confidence, accepted }`: the edge, the web composer and iOS.
+ *  - `"photo:tag"`, a bare JSON string: Android. `AiFieldWriter.kt:73` builds
+ *    the map with `.mapValues { JsonPrimitive(it.value) }`, so the value is the
+ *    source string on its own. That entry says exactly as much about OWNERSHIP
+ *    as the object does: an AI pass put the value there. It carries no
+ *    confidence and no acceptance, which is why only this reader can use it;
+ *    see the enumeration in the US-3358 note.
+ *
+ * The reader is widened rather than Android's writer, and that is the whole
+ * point of the fix: every row already written this way becomes visible with no
+ * data migration, and rows written before any writer change do not rewrite
+ * themselves. If Android is later changed to write the object, this must still
+ * accept the string.
+ *
+ * Anything else (a number, a boolean, an empty string) is not a record.
+ * Non-object entries other than a non-empty string have never been written by
+ * any client, and reading one as "AI's" would license overwriting a value the
+ * seller may have typed.
+ */
+function hasProvenanceEntry(entry: unknown): boolean {
+  if (typeof entry === "string") return entry.trim() !== "";
+  return entry !== null && typeof entry === "object";
+}
+
+/**
  * True when this column/attribute key was last written by an AI pass rather
  * than by the seller.
  *
@@ -64,14 +93,18 @@ export type AiFieldSources = Record<string, unknown>;
  * provenance tracking. Treating an untracked value as seller-owned is the safe
  * direction: the cost is that an old un-provenanced AI value needs a human
  * click, versus silently overwriting something a seller typed by hand.
+ *
+ * An Android-written entry is PRESENT, not absent, so that reasoning never
+ * applied to it. Reading it as untracked meant a re-identify pass fed the old
+ * Android answer back to the model as ground truth and could then only ever
+ * mark the field `pending`, never correct it (US-3358).
  */
 export function isAiOwned(
   sources: AiFieldSources | null | undefined,
   field: string,
   untracked: UntrackedPolicy = "respect",
 ): boolean {
-  const entry = sources?.[field];
-  if (entry && typeof entry === "object") return true;
+  if (hasProvenanceEntry(sources?.[field])) return true;
   // No entry. Under `respect` that ends it; under the seller's opt-in it counts
   // as AI-written so pre-provenance stock can actually be corrected.
   return untracked === "treat_as_ai";

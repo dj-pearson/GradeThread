@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-3360",
+  "nextId": "US-3362",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -4839,20 +4839,6 @@
       "priority": 8
     },
     {
-      "id": "US-3358",
-      "passes": false,
-      "title": "Android writes a bare string into ai_field_sources, so the provenance check cannot see its entries",
-      "description": "Found 2026-09-11 during US-3352, and verified in both files.\n\n`ai_field_sources` is a jsonb map from field name to a provenance entry. The edge, the web composer and iOS all write an OBJECT: `{source, confidence, accepted}`. **Android writes a bare JSON string.** `AiFieldWriter.kt:73` builds the map with `.mapValues { JsonPrimitive(it.value) }`, so the value is the source string alone.\n\n`isAiOwned` in `services/edge-functions/src/lib/reextract-policy.ts:74` is `if (entry && typeof entry === \"object\") return true;`. A string fails that, falls through, and returns `untracked === \"treat_as_ai\"`, which is `false` under the default `respect` policy.\n\nSo on an item whose fields were last written by Android, the provenance check answers as though nothing AI-written is there. The same item touched by web or iOS answers differently. That is a cross-platform inconsistency in a check whose whole job is deciding whether a re-identify may overwrite a value.\n\n**Establish the behavioural consequence before picking a fix**, because the direction is not obvious from the code alone: `reextract-policy.ts:110` skips the field when `isAiOwned` is true, so a false answer means the field is processed rather than protected. Say what a seller actually gets on an Android-touched item that is re-identified.\n\nTwo plausible fixes and they are not equivalent. Widen the reader to accept a string as a valid entry, which fixes every existing row with no data migration. Or change Android to write the object, which fixes new rows only and leaves every existing Android-written row still invisible. The first is almost certainly right, and doing only the second would look like a fix and leave the corpus untouched.",
-      "acceptanceCriteria": [
-        "What a seller gets today on an Android-touched item that is re-identified is established by running the path, not inferred from the branch",
-        "The reader accepts both shapes, so existing Android-written rows stop being invisible without any data migration",
-        "If Android is also changed to write the object, the reader still accepts the string form, because rows written before that change do not rewrite themselves",
-        "A test drives isAiOwned with both shapes and with the untracked policy both ways, since the bug is a typeof check and a scan for the function name would pass against it",
-        "Every other reader of ai_field_sources is enumerated and checked for the same assumption; the 00629 trigger reads value->>'source', which a bare string does not have either"
-      ],
-      "priority": 11
-    },
-    {
       "id": "US-3359",
       "passes": false,
       "title": "The second-opinion grading check is complete, tested, and cannot be switched on",
@@ -4865,6 +4851,34 @@
         "Turning it on is costed before anyone does: it is a second full grading pass on an Opus tier, so the note says what one graded submission costs with it enabled"
       ],
       "priority": 12
+    },
+    {
+      "id": "US-3360",
+      "passes": false,
+      "title": "An Android apply destroys every other client's provenance on that item",
+      "description": "Found 2026-09-11 while fixing US-3358, and it is worse than the write bug that story was filed for.\n\n`AiFieldWriter.loadCurrent` (`android/.../AiFieldWriter.kt:134-147`) decodes `ai_field_sources` as `Map<String, JsonElement>`, then does `it.value.toString().trim('\"')` and re-writes **every** entry as `JsonPrimitive(thatString)`.\n\nSo an Android apply does not only stamp bare strings for the fields it touched. It flattens every pre-existing OBJECT entry on that item, written by the edge, the web composer or iOS, into a JSON-text string like `{\"source\":\"photo:tag\",\"confidence\":0.9,\"accepted\":null}`.\n\n**The confidence and the acceptance are destroyed permanently.** US-3358's reader fix means those flattened entries still read as AI-owned, which is the right answer, so nothing is broken in the re-identify path. But `readAcceptance` reports `unknown` for them forever, and the confidence is gone. No reader fix can recover a value that was overwritten.\n\nTwo changes, and the second is the one that matters: write the object at `:73` (matching iOS's `SourceEntry`), and make `loadCurrent` preserve existing entries as `JsonElement` instead of stringifying them. Doing only the first leaves the destruction in place.\n\nThe user has a standing instruction to stay off Android stories, so this is filed rather than done. It is not urgent: US-3358's reader fix made both safe to defer.",
+      "acceptanceCriteria": [
+        "loadCurrent preserves an existing entry it did not touch, byte for byte, and a test proves it against an object entry written by another client",
+        "AiFieldWriter writes the object form for fields it does own, matching iOS's SourceEntry shape",
+        "The order is stated: preserving reads is the fix, writing objects is the tidy-up, and shipping only the second leaves every future Android apply destroying data",
+        "Rows already flattened are counted, or the story records that they cannot be repaired and that the loss is confidence and acceptance only",
+        "OPERATOR: needs a Mac or a Windows Android toolchain and a Gradle run; npm run verify:android mirrors the CI job"
+      ],
+      "priority": 10
+    },
+    {
+      "id": "US-3361",
+      "passes": false,
+      "title": "The style-name learning trigger is blind to anything Android wrote",
+      "description": "Found 2026-09-11 during US-3358, and measured against local Postgres 17.6 rather than reasoned about.\n\nMigration 00629's `capture_style_code_name_correction` reads `OLD.ai_field_sources -> 'style' ->> 'source'`. Android stores that entry as a bare JSON string rather than an object, and the arrow operator on a non-object returns NULL with no error. So `v_prior_src IS NULL` and the trigger returns early.\n\n**A seller who corrects a style name we wrote from Android teaches the style-code index nothing.** It fails closed, so nothing wrong is learned; the observation is simply lost.\n\nThe fix is a type-aware read, roughly:\n\n```sql\nCASE WHEN jsonb_typeof(OLD.ai_field_sources -> 'style') = 'string'\n     THEN OLD.ai_field_sources -> 'style' #>> '{}'\n     ELSE OLD.ai_field_sources -> 'style' ->> 'source' END\n```\n\nThat is a migration, so it was not written. Four are already held waiting on the owner.\n\nWorth pairing with the count: how many style-name corrections have been lost is a question the trigger cannot answer about itself, since it wrote nothing.",
+      "acceptanceCriteria": [
+        "The trigger reads both shapes, so an Android-written style entry can teach the index",
+        "The migration follows the US-1108 triple and is HELD until the owner applies it",
+        "The no-op case is proven on the local stack before and after, the way this was found: an UPDATE that should teach and does not, then does",
+        "Any other trigger or view reading a value out of ai_field_sources is checked for the same assumption, since this one was found by accident",
+        "The lost corrections are counted if that is possible at all, or the story says plainly that they are unrecoverable and why"
+      ],
+      "priority": 14
     }
   ]
 }

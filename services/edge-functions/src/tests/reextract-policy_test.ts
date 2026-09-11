@@ -22,9 +22,14 @@ Deno.test("isAiOwned: only a recorded provenance entry counts", () => {
   assertEquals(isAiOwned({ brand: AI_SOURCE }, "size"), false);
   assertEquals(isAiOwned(null, "brand"), false);
   assertEquals(isAiOwned({}, "brand"), false);
-  // A non-object entry is not a provenance record — treat it as seller-owned
-  // rather than guessing, since guessing wrong overwrites the seller.
-  assertEquals(isAiOwned({ brand: "photo" }, "brand"), false);
+  // US-3358: this used to assert `false` for a bare string, on the reasoning
+  // that a non-object is not a provenance record. It IS one -- Android writes
+  // the source string alone (AiFieldWriter.kt:73), so that assertion pinned the
+  // bug and passed against it for as long as it existed.
+  assertEquals(isAiOwned({ brand: "photo" }, "brand"), true);
+  // A value carrying no information still falls through to the policy.
+  assertEquals(isAiOwned({ brand: "" }, "brand"), false);
+  assertEquals(isAiOwned({ brand: 0 }, "brand"), false);
 });
 
 Deno.test("isAiOwned: the untracked opt-in flips fields with NO entry, not ones with one", () => {
