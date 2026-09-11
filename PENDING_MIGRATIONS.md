@@ -9,6 +9,37 @@
 > They are still filed as HELD here because nobody in this session watched
 > them apply. Confirm against prod before trusting either heading.
 
+## ✅ APPLIED 2026-09-10 (owner): 00785 — the flaws-only grade gets its own deny-all table (US-3325)
+
+**Owner reported "785 applied" on 2026-09-10.** ⚠ The file was rewritten a few
+minutes after it was first written: the first draft added `flaws_only_overall`
+and `flaws_only_factors` COLUMNS to `grade_reports`; the final file creates
+the TABLE `grade_flaws_only` instead. Confirm prod got the final one:
+
+```sql
+select to_regclass('public.grade_flaws_only') as new_table,
+       exists (select 1 from information_schema.columns
+               where table_name = 'grade_reports'
+                 and column_name = 'flaws_only_overall') as old_columns;
+-- expect: new_table = grade_flaws_only, old_columns = false
+```
+
+If `new_table` is NULL, the draft was applied and `apply-prod-migrations.sh`
+will now skip the real file (it skips by maximum). Run
+`supabase/migrations/00785_grade_flaws_only.sql` by hand; it is idempotent.
+
+**Risk: LOW.** One new table, RLS on with no policies (service role only).
+Nothing on existing tables changes.
+
+**Why a table and not columns:** the owner of a grade can read their own
+`grade_reports` row. Beside the published factor routing, a per-factor
+flaws-only ceiling reveals the unpublished per-defect penalty.
+
+**Edge code in the same change** inserts into `grade_flaws_only` after every
+grade, best-effort (a failed insert is logged, the grade is unaffected), and
+the admin accuracy report reads it. `NOTIFY pgrst, 'reload schema';` after
+applying.
+
 ## ✅ APPLIED 2026-09-10: 00784 — keep the AI's own scores on every human review (US-3323)
 
 **APPLIED, and again NOT the way the rule says it should have happened.** This

@@ -20,6 +20,7 @@ import {
   type CompositeGradeResult,
   type VerificationImage,
 } from "./ai-grading.ts";
+import { DEFECT_WEIGHTS_VERSION } from "./defect-weighting.ts";
 import { Image } from "imagescript";
 import {
   resolveTrustedStyle,
@@ -3149,6 +3150,27 @@ export async function processSubmission(submissionId: string) {
       // unchanged: reverseChargeForUngradedSubmission returns the money exactly
       // as it did before this retry existed.
       throw new Error("Failed to create grade report record");
+    }
+
+    // US-3325: the flaws-only grade, for accuracy comparison. Its own deny-all
+    // table (00785), because beside the published routing a per-factor
+    // ceiling reveals the unpublished per-defect penalty. Best-effort: a
+    // missing comparison row costs one data point, never the paid grade.
+    if (compositeResult.flaws_only) {
+      const { error: flawsErr } = await supabaseAdmin
+        .from("grade_flaws_only")
+        .insert({
+          grade_report_id: gradeReport.id,
+          overall: compositeResult.flaws_only.overall,
+          factors: compositeResult.flaws_only.factors,
+          weights_version: DEFECT_WEIGHTS_VERSION,
+        });
+      if (flawsErr) {
+        console.error(
+          `[Pipeline] flaws-only grade not stored for report ${gradeReport.id}:`,
+          flawsErr.message,
+        );
+      }
     }
 
     // US-2569: RESOLVE any open revision for this submission.

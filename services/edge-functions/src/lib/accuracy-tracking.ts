@@ -13,6 +13,9 @@ import {
 import { scoreToGradeTier } from "./human-review.ts";
 import {
   buildReviewedGrades,
+  compareFlawsOnly,
+  type FlawsOnlyComparison,
+  type FlawsOnlyRow,
   isSendBack,
   REPORT_FACTOR_COLUMNS,
   REVIEW_BASELINE_COLUMNS,
@@ -75,6 +78,9 @@ export interface AccuracySummary {
   // Accuracy sliced by garment_category across all versions — this is where
   // "jeans MAE is 3x average" surfaces.
   category_accuracies: CategoryAccuracy[];
+  // US-3325: the flaws-only grade (grade_flaws_only) against the same human
+  // answer, beside the AI's error over the same grades.
+  flaws_only: FlawsOnlyComparison;
   // Reviewed GRADES counted (one per grade report, send-backs excluded).
   total_reviews: number;
   generated_at: string;
@@ -382,6 +388,7 @@ export async function computeAccuracySummary(
     global_intentional_misread_rate: 0,
     factor_accuracies: buildFactorAccuracies([]),
     category_accuracies: [],
+    flaws_only: compareFlawsOnly([], new Map()),
     total_reviews: 0,
     generated_at: new Date().toISOString(),
   };
@@ -495,6 +502,17 @@ export async function computeAccuracySummary(
   const globalSigned = allPairs.map((p) => signedOverallError(p.grade));
   const globalAbs = globalSigned.map((e) => Math.abs(e));
 
+  // US-3325: the flaws-only grades for the same reviewed set (service-role
+  // read; the table is deny-all to clients).
+  const { data: flawsRows, error: flawsError } = await supabaseAdmin
+    .from("grade_flaws_only")
+    .select("grade_report_id, overall, factors")
+    .in("grade_report_id", allPairs.map((p) => p.grade.gradeReportId));
+  if (flawsError) throw new Error(`Failed to fetch flaws-only grades: ${flawsError.message}`);
+  const flawsByReport = new Map(
+    ((flawsRows ?? []) as unknown as FlawsOnlyRow[]).map((r) => [r.grade_report_id, r]),
+  );
+
   return {
     versions: versionAccuracies,
     global_mean_absolute_error: mean(globalAbs),
@@ -503,6 +521,7 @@ export async function computeAccuracySummary(
     global_intentional_misread_rate: allPairs.filter((p) => p.misread).length / allPairs.length,
     factor_accuracies: buildFactorAccuracies(allPairs),
     category_accuracies: categoryBreakdown(allPairs),
+    flaws_only: compareFlawsOnly(allPairs, flawsByReport),
     total_reviews: allPairs.length,
     generated_at: new Date().toISOString(),
   };

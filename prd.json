@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-3325",
+  "nextId": "US-3340",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -4916,6 +4916,202 @@
         "OPERATOR: the owner approves the migration before it is pushed, and the table is read back afterwards rather than assumed"
       ],
       "priority": 4
+    },
+    {
+      "id": "US-3326",
+      "passes": false,
+      "title": "A finished grade waits for the turnaround the customer paid for, then releases on time",
+      "description": "TIER_SLA_HOURS (grade-pricing.ts, editable in admin via pricing_config, US-885) is Express 1h, Premium 12h, Standard 48h. But a grade that auto-approves goes live in minutes whatever tier was bought, so paying for speed buys nothing a customer can see. Owner decision 2026-09-10: a finalized grade is released at its tier's promised time; Express releases the moment it is final. The hold also gives the review queue real time on the slower tiers.",
+      "acceptanceCriteria": [
+        "Held migration adds release_at and released_at. release_at = the submission's paid time plus its tier SLA, read from the same source review_due_at already uses in grading-pipeline.ts.",
+        "finalizeGradeReview (auto-approve and human paths) records the grade as final but does NOT publish the certificate, notify the seller or run the go-live wiring until release_at. A grade whose release_at has passed, and every Express grade, releases immediately, byte-identical to today.",
+        "A job-secret cron (every 5 minutes) releases due grades using the durable-jobs claim pattern. Idempotent: each grade is released and notified exactly once. Registered in the cron registry and its generated docs.",
+        "Public certificate, embed, API and seller report all treat an unreleased grade as not ready. Any new or changed edge route gets a tenant-isolation test case.",
+        "Gated by a system setting, default OFF, so deploying changes nothing until the owner turns it on.",
+        "Tests: release_at per tier, finalize-before-release holds, cron idempotency, Express immediate, setting off = today's behavior. Sabotage-verified."
+      ],
+      "priority": 31
+    },
+    {
+      "id": "US-3327",
+      "passes": false,
+      "title": "Super admins can release a held grade early, one at a time or in bulk",
+      "description": "Companion to the hold story. The owner wants a button to release grades before their scheduled time, for example to clear a batch of Standard grades early.",
+      "acceptanceCriteria": [
+        "Admin routes to release one held grade and a selected batch. super_admin only, MFA step-up, audit-logged.",
+        "Both go through the same release function the cron uses, so a manual release and a scheduled one cannot behave differently. Test-guarded.",
+        "The admin review queue lists held grades with their release time and a Release now control, single and bulk.",
+        "Tests include a non-super-admin refusal and a double release that notifies once."
+      ],
+      "priority": 32,
+      "dependsOn": [
+        "US-3326"
+      ]
+    },
+    {
+      "id": "US-3328",
+      "passes": false,
+      "title": "Sellers see when their grade will be ready, and tier copy promises a delivery time",
+      "description": "Once grades hold until their paid turnaround, a seller needs to see when it lands, and the tier picker should promise a delivery time rather than imply instant results. Values come from the live SLA config, never hardcoded.",
+      "acceptanceCriteria": [
+        "Submission detail and the submissions list show Ready by <time> for a held grade, with no score or tier leaked before release.",
+        "Checkout and tier picker copy states delivered within X hours from the live SLA values.",
+        "iOS and Android show the same state, or the gap is filed as a parity story with a reason.",
+        "OPERATOR: choose the SLA hours per tier in admin pricing config. Today Express 1h, Premium 12h, Standard 48h; the owner floated roughly 4h, 24h and 7 days."
+      ],
+      "priority": 33,
+      "dependsOn": [
+        "US-3326"
+      ]
+    },
+    {
+      "id": "US-3329",
+      "passes": false,
+      "title": "Odor becomes Cleanliness (from photos): stop certifying a smell nobody checked",
+      "description": "Photos cannot carry smell. odor_cleanliness (10 percent of the grade) is scored from visible proxies, yet every certificate prints Odor & Cleanliness 8.0 as if someone checked. Owner 2026-09-10: odor never made sense, up for revision. Decision in this story: keep the factor and its 10 percent weight so no grade moves and the lockstep rounding is untouched; rename it everywhere a person reads it to Cleanliness; define it as visible evidence only (stains, soiling, yellowing, sweat and deodorant marks, pet hair, lint, residue); and let sellers add an optional smoke-free or pet-free statement shown as the seller's claim, never scored or certified. The DB column name odor_cleanliness_score stays.",
+      "acceptanceCriteria": [
+        "Display label renamed on web (GRADE_FACTORS, grading-standard.ts, the public /condition-grading page, certificate, seller report, admin) with the published-standard parity test updated in step.",
+        "The per-image and composite text describing the factor moves to visible-evidence wording behind a flag, default OFF, with a distinct prompt_version suffix. Flag off = byte-identical prompts, test-guarded.",
+        "Optional seller statement (smoke-free, pet-free) captured at submit, stored, and shown on the certificate as Seller states. It stays in the untrusted channel, never enters the prompt as trusted text and never moves a score. Test-guarded.",
+        "When every analyzed photo marked the factor unassessable, the report and certificate say not visible in these photos instead of implying a check.",
+        "iOS and Android labels follow; their string guards stay green.",
+        "vault/20-domain/grading-scale-and-weights.md updated in the same commit."
+      ],
+      "priority": 34
+    },
+    {
+      "id": "US-3330",
+      "passes": false,
+      "title": "Name the one flaw that keeps a grade from the next level",
+      "description": "A seller sees 7.6 Very Good and the factor math, but not what stands between the item and Excellent. The defect weighting already knows which flaw costs the most points. One sentence, for example: the 1 cm stain on the left cuff is what keeps this from Excellent.",
+      "acceptanceCriteria": [
+        "Server-side: find the genuine defect whose removal raises the overall most, and whether that crosses into the next tier.",
+        "Only the flaw's description, location and the next tier's name leave the server. Penalty numbers never do (BASE_WEIGHT stays unpublished; test-asserted).",
+        "Shown on the seller report and the certificate; absent when no single flaw is limiting or the grade is already top tier.",
+        "After a human adjustment the line is recomputed against the final grade or hidden, never stale.",
+        "Tests for the selection logic and the no-numbers rule."
+      ],
+      "priority": 35
+    },
+    {
+      "id": "US-3331",
+      "passes": false,
+      "title": "Check photos for blur and darkness before the seller pays, not after",
+      "description": "The vision pass judges blur, lighting and framing only after checkout, and a bad set ends as Better photos needed plus a refund. macro-photo-quality.ts checks resolution only. A free client-side check at upload catches most of this before money moves.",
+      "acceptanceCriteria": [
+        "Client-side blur (for example Laplacian variance on a downscaled copy) and exposure checks in the web photo slots. Warn with a retake prompt; never block. No network call.",
+        "Thresholds tuned against a fixture set of known-sharp and known-blurry, well-lit and dark images, pinned in tests.",
+        "A missing fabric close-up is called out before checkout. The post-pay confidence cap stays as it is.",
+        "Consent-gated analytics event for warnings shown and overridden.",
+        "iOS and Android parity filed as a follow-up story if not done here."
+      ],
+      "priority": 36
+    },
+    {
+      "id": "US-3332",
+      "passes": false,
+      "title": "Ask for a size reference beside every flaw: a coin, a card or the MeasureCard",
+      "description": "Flaw size decides severity (size_bucket drives the defect weighting), and the model guesses size from the photo. Objects with standard sizes fix the scale: a US quarter is 24.26 mm, a bank card 85.60 x 53.98 mm, and the MeasureCard is spec'd in vault/20-domain/measurement-card-spec.md.",
+      "acceptanceCriteria": [
+        "Defect and detail photo slots on web tell the seller to place a quarter, a bank card or the MeasureCard beside the flaw.",
+        "The per-image prompt gains an instruction, behind a flag default OFF, to size flaws from a visible coin or card using those dimensions. Distinct prompt_version suffix; byte-identical when off.",
+        "Tests pin the dimensions and the byte identity."
+      ],
+      "priority": 37
+    },
+    {
+      "id": "US-3333",
+      "passes": false,
+      "title": "When a MeasureCard is in a flaw photo, size the flaw from the card instead of a guess",
+      "description": "The edge already detects the MeasureCard's ArUco markers and computes a homography for measurements (measure-card.ts, measure-calibrate.ts). The same detection on a defect or detail photo gives millimetres per pixel, and a defect's bbox then gives its real size. Deterministic, no extra vision call.",
+      "acceptanceCriteria": [
+        "Run card detection on defect and detail images; when found, convert each defect bbox's largest side to millimetres and map it through SIZE_BUCKETS.",
+        "When the card-derived bucket disagrees with the model's, the card wins if detection confidence clears a named threshold; the defect records size_source card.",
+        "No change when no card is found. No additional vision calls.",
+        "Tests with fixture geometry, including a tilted card and a no-card photo."
+      ],
+      "priority": 38
+    },
+    {
+      "id": "US-3334",
+      "passes": false,
+      "title": "Admin reference gallery: award a graded photo as the example of a grade level",
+      "description": "Owner 2026-09-10: an admin task to award photos with values, building a set of this-is-what-a-7-looks-like references per category. Exemplar privacy forbids customer photos in prompts, so only photos the business may use can be awarded.",
+      "acceptanceCriteria": [
+        "Operator table for awarded photos (image, garment_category, optional factor, awarded score, awarded_by, note). Deny-all RLS, registered SERVICE_ROLE_ONLY. Held migration.",
+        "Admin can award a photo from a finalized grade with a value, and browse or revoke awards per category and level. Step-up and audit log on award and revoke.",
+        "Server-enforced: only photos from staff-owned submissions or owners who opted into model refinement (users.share_sale_outcomes) can be awarded. Test-guarded.",
+        "Images are read only through signed URLs with TTL of 900 seconds or less."
+      ],
+      "priority": 39
+    },
+    {
+      "id": "US-3335",
+      "passes": false,
+      "title": "Show the grader awarded reference photos as visual anchors (flagged, eval-gated)",
+      "description": "Uses the reference gallery. Seeing a real 7 and a real 9 of the same category keeps the model's scale steady. Costs image tokens, so it stays off until the eval says it helps.",
+      "acceptanceCriteria": [
+        "Behind a flag default OFF, the composite call includes up to N awarded references for the item's category, labeled with their awarded value, in the trusted channel.",
+        "Distinct prompt_version suffix; flag off = byte-identical request, test-guarded.",
+        "The eval harness can run with the anchors on, so the feature can actually be gated (unlike the baseline block today).",
+        "Extra image tokens are metered per grade."
+      ],
+      "priority": 40,
+      "dependsOn": [
+        "US-3334"
+      ]
+    },
+    {
+      "id": "US-3336",
+      "passes": false,
+      "title": "Pin each flaw on the garment outline on the certificate",
+      "description": "The certificate already draws a garment outline for photo coverage (coverage-heatmap.tsx) and numbered defect callouts on photos. Putting the same numbers on the outline gives buyers the damage map at a glance.",
+      "acceptanceCriteria": [
+        "Map each genuine defect to an inspection zone from the coverage catalog using its location text and source photo.",
+        "Render numbered pins on the outline matching the callout numbers; flaws that cannot be mapped are listed as location not mapped.",
+        "A text list carries the same information for screen readers.",
+        "Tests for the mapping."
+      ],
+      "priority": 41
+    },
+    {
+      "id": "US-3337",
+      "passes": false,
+      "title": "Photo report card: show sellers how their photos score over time",
+      "description": "Every grade stores per-photo quality (blur, lighting, framing, legibility) in per_image_analysis, and sellers never see it. A small card turns it into one tip per weak photo slot.",
+      "acceptanceCriteria": [
+        "Rates of blur, lighting, framing and legibility problems by photo slot over the seller's last N grades, tenant-scoped.",
+        "One concrete tip for the weakest slot.",
+        "Dashboard card with an empty state.",
+        "Tenant-isolation test case for any new route."
+      ],
+      "priority": 42
+    },
+    {
+      "id": "US-3338",
+      "passes": false,
+      "title": "A light zoom pass on the fabric close-up for every grade (flagged, cost-capped)",
+      "description": "Small-flaw zoom exists only in the paid Forensic add-on. Full photos are downscaled before the model sees them, so pinholes and pilling on the fabric close-up get lost. One extra read of just that photo, at full resolution, for every grade.",
+      "acceptanceCriteria": [
+        "Behind a flag default OFF, the detail fabric image is re-read once at full resolution (tiled) to find small flaws, merged through the existing zoom-merge path.",
+        "Forensic add-on behavior unchanged, test-guarded.",
+        "Daily cost cap setting and per-grade metering.",
+        "Distinct prompt_version suffix."
+      ],
+      "priority": 43
+    },
+    {
+      "id": "US-3339",
+      "passes": false,
+      "title": "Show a measured grade range, for example 7.6 (likely 7.3 to 7.9)",
+      "description": "The same garment graded twice can land on different numbers (US-2035), and nobody has measured by how much. The self-consistency job exists and is off. Once it has run, a range shown to buyers is honest; a range invented from the model's own confidence is not.",
+      "acceptanceCriteria": [
+        "Persist the self-consistency job's measured spread by category.",
+        "Certificate and seller report show a range only when a measured spread exists for that category above a minimum sample size.",
+        "No range is ever derived from confidence_score. Test-asserted.",
+        "OPERATOR: set GRADING_SELF_CONSISTENCY_SAMPLE and run the job once."
+      ],
+      "priority": 44
     }
   ]
 }

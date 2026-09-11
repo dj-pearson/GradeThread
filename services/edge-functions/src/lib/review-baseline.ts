@@ -222,3 +222,112 @@ export function reviewSnapshot(
   }
   return out;
 }
+
+// ── US-3325: the flaws-only grade against the same human answer ─────────────
+
+/** One grade_flaws_only row, as read. Factors keyed like the report columns. */
+export interface FlawsOnlyRow {
+  grade_report_id: string;
+  overall: number | string;
+  factors: Record<string, number | string | null> | null;
+}
+
+export interface FlawsOnlyFactorStat {
+  factor: ReviewFactorKey;
+  count: number;
+  ai_mean_absolute_error: number;
+  flaws_only_mean_absolute_error: number;
+  /** mean(human − flaws-only). + = the flaw math alone grades too harsh. */
+  flaws_only_mean_signed_error: number;
+}
+
+export interface FlawsOnlyCategoryStat {
+  garment_category: string;
+  count: number;
+  ai_mean_absolute_error: number;
+  flaws_only_mean_absolute_error: number;
+}
+
+export interface FlawsOnlyComparison {
+  /** Reviewed grades that carry a flaws-only row. */
+  compared: number;
+  /** Reviewed grades with none (graded before 00785, or its write failed). */
+  excluded: number;
+  /** AI error over the SAME compared set, so the two numbers are comparable. */
+  ai_mean_absolute_error: number;
+  ai_mean_signed_error: number;
+  flaws_only_mean_absolute_error: number;
+  flaws_only_mean_signed_error: number;
+  factors: FlawsOnlyFactorStat[];
+  categories: FlawsOnlyCategoryStat[];
+}
+
+function avg(xs: number[]): number {
+  return xs.length > 0 ? xs.reduce((s, v) => s + v, 0) / xs.length : 0;
+}
+
+/**
+ * Compare the AI's grade and the flaws-only grade against the same human-final
+ * answer, over exactly the grades that have both. Pure.
+ */
+export function compareFlawsOnly(
+  graded: ReadonlyArray<{ grade: ReviewedGrade; category: string }>,
+  flawsByReport: ReadonlyMap<string, FlawsOnlyRow>,
+): FlawsOnlyComparison {
+  const both = graded
+    .map((g) => ({ ...g, flaws: flawsByReport.get(g.grade.gradeReportId) }))
+    .filter((g): g is typeof g & { flaws: FlawsOnlyRow } =>
+      g.flaws !== undefined && num(g.flaws.overall) !== null
+    );
+
+  const aiSigned = both.map((g) => signedOverallError(g.grade));
+  const foSigned = both.map((g) => g.grade.humanOverall - num(g.flaws.overall)!);
+
+  const factors: FlawsOnlyFactorStat[] = REVIEW_FACTOR_KEYS.map((k) => {
+    const ai: number[] = [];
+    const fo: number[] = [];
+    for (const g of both) {
+      const human = g.grade.humanFactors?.[k];
+      const aiF = g.grade.aiFactors?.[k];
+      const foF = num(g.flaws.factors?.[`${k}_score`]);
+      // Only grades where all three sides of this factor are known.
+      if (human === undefined || aiF === undefined || foF === null) continue;
+      ai.push(human - aiF);
+      fo.push(human - foF);
+    }
+    return {
+      factor: k,
+      count: fo.length,
+      ai_mean_absolute_error: avg(ai.map(Math.abs)),
+      flaws_only_mean_absolute_error: avg(fo.map(Math.abs)),
+      flaws_only_mean_signed_error: avg(fo),
+    };
+  });
+
+  const byCat = new Map<string, { ai: number[]; fo: number[] }>();
+  both.forEach((g, i) => {
+    const e = byCat.get(g.category) ?? { ai: [], fo: [] };
+    e.ai.push(Math.abs(aiSigned[i]));
+    e.fo.push(Math.abs(foSigned[i]));
+    byCat.set(g.category, e);
+  });
+  const categories = [...byCat.entries()]
+    .map(([garment_category, e]) => ({
+      garment_category,
+      count: e.fo.length,
+      ai_mean_absolute_error: avg(e.ai),
+      flaws_only_mean_absolute_error: avg(e.fo),
+    }))
+    .sort((a, b) => b.count - a.count);
+
+  return {
+    compared: both.length,
+    excluded: graded.length - both.length,
+    ai_mean_absolute_error: avg(aiSigned.map(Math.abs)),
+    ai_mean_signed_error: avg(aiSigned),
+    flaws_only_mean_absolute_error: avg(foSigned.map(Math.abs)),
+    flaws_only_mean_signed_error: avg(foSigned),
+    factors,
+    categories,
+  };
+}

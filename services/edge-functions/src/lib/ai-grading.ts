@@ -60,6 +60,11 @@ import {
   sizeBucketConflict,
   type WeightedDefect,
 } from "./defect-weighting.ts";
+import {
+  clampScore,
+  computeWeightedOverall,
+  type FactorScores as ReportFactorScores,
+} from "./human-review.ts";
 
 // Version names for the in-code default prompts. These MUST match the seeded
 // rows in ai_prompt_versions (migration 00050) so the accuracy loop can
@@ -313,6 +318,15 @@ export interface CompositeGradeResult {
   // surface that actually produced them. Without it the only honest answer to
   // "which prompt graded this?" was "the system half of it".
   prompt_surface_hash: string;
+  /**
+   * US-3325: the grade the structured flaws ALONE would give, from the
+   * defect-weighting ceilings (10 minus each factor's routed penalties) with
+   * the model's own factor read taken out. Recorded next to the real grade so
+   * accuracy tracking can say which of the two lands closer to a human. It
+   * moves nothing: overall_score, factor_scores, confidence and routing are
+   * computed exactly as before.
+   */
+  flaws_only?: FlawsOnlyGrade;
   // Actual model that produced the composite grade. Recorded so the
   // accuracy tracker can attribute error rates per model, not just per
   // prompt version.
@@ -1922,6 +1936,35 @@ export const FACTOR_WEIGHTS: Record<keyof FactorScores, number> = {
   odor_cleanliness: 0.10,
 };
 
+/** US-3325: what the structured flaws alone would grade this item. */
+export interface FlawsOnlyGrade {
+  overall: number;
+  factors: ReportFactorScores;
+}
+
+/**
+ * US-3325: the flaws-only grade, from defect-weighting's per-factor ceilings.
+ *
+ * Deliberately NOT a third copy of the weighted-overall arithmetic: each
+ * ceiling goes through human-review's clampScore (the 0.5 factor step) and the
+ * overall through computeWeightedOverall, the lockstep helper the review queue
+ * already uses (vault/20-domain/weighted-overall-lockstep.md). A factor with no
+ * flaws routed to it has a ceiling of 10, so a flawless item grades 10 here,
+ * which is exactly the question: how far can the flaw list alone get?
+ */
+export function flawsOnlyGrade(
+  ceilingByFactor: FactorScores,
+): FlawsOnlyGrade {
+  const factors: ReportFactorScores = {
+    fabric_condition_score: clampScore(ceilingByFactor.fabric_condition),
+    structural_integrity_score: clampScore(ceilingByFactor.structural_integrity),
+    cosmetic_appearance_score: clampScore(ceilingByFactor.cosmetic_appearance),
+    functional_elements_score: clampScore(ceilingByFactor.functional_elements),
+    odor_cleanliness_score: clampScore(ceilingByFactor.odor_cleanliness),
+  };
+  return { overall: computeWeightedOverall(factors), factors };
+}
+
 const GRADE_TIER_DEFINITIONS = `Grade Tiers (score ranges):
 - 10.0: NWT (New with Tags) — Unworn item with original retail tags still attached. No signs of wear, washing, or handling beyond store display. Perfect condition.
 - 9.0-9.5: NWOT (New without Tags) — Unworn item, tags removed. No signs of wear, washing, or use. Indistinguishable from new except missing tags.
@@ -3272,6 +3315,8 @@ export async function compositeGrade(
       prompt_version: promptVersion,
       prompt_surface_hash: promptSurfaceHash,
       model: compositeModel,
+      // US-3325: recorded beside the grade, never blended into it.
+      flaws_only: flawsOnlyGrade(weighting.ceilingByFactor),
       // US-1537: cross-photo contradictions from the verification pass —
       // recorded on the report; the pipeline lowers confidence when non-empty.
       verification_discrepancies: normalizeVerificationDiscrepancies(

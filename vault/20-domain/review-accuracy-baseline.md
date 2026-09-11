@@ -13,6 +13,7 @@ code_refs:
   - services/edge-functions/src/routes/jobs-confidence-calibration.ts
   - services/edge-functions/src/tests/review-baseline_test.ts
   - supabase/migrations/00784_human_review_ai_baseline.sql
+  - supabase/migrations/00785_grade_flaws_only.sql
 reviewed: 2026-09-10
 tags: [grading, accuracy, calibration, human-review, contract]
 summary: Once a reviewer adjusts a grade, grade_reports holds the human's scores, so the AI's side of every accuracy comparison must come from the earliest human_reviews snapshot, never from the report.
@@ -62,6 +63,19 @@ touched:
 A new `human_reviews` insert must spread `reviewSnapshot(report)` taken **before**
 the report changes, and set `review_action`. The source guard counts the inserts
 and fails on a fifth one until it is added on purpose.
+
+## A second contender: the flaws-only grade (US-3325)
+
+Every grade since 00785 also stores what the flaw list ALONE would grade it
+(the defect-weighting ceilings, stepped and weighted through the lockstep
+helper) in `grade_flaws_only`. `compareFlawsOnly` scores it against the same
+human answer as the AI, **over the same grades**, so the two numbers compare;
+grades without a row are excluded and counted, never zeroed.
+
+The table is deny-all on purpose. A grade's owner can read their own report,
+and beside the published factor routing a per-factor ceiling reveals the
+per-defect penalty that `defect-weighting.ts` keeps unpublished. Nothing reads
+the flaws-only grade to grade.
 
 Related: [[grading-eval-gate]] for how corrected grades become golden cases,
 [[weighted-overall-lockstep]] for how the human's overall is computed.

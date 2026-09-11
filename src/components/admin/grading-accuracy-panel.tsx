@@ -77,7 +77,38 @@ interface AccuracySummary {
   global_intentional_misread_rate: number;
   factor_accuracies?: FactorAccuracy[];
   category_accuracies: CategoryAccuracy[];
+  flaws_only?: FlawsOnlyComparison;
   total_reviews: number;
+}
+
+// US-3325: the grade the flaw list alone would give, against the same human
+// answer. AI numbers here are over the SAME grades, so the two compare.
+interface FlawsOnlyComparison {
+  compared: number;
+  excluded: number;
+  ai_mean_absolute_error: number;
+  ai_mean_signed_error: number;
+  flaws_only_mean_absolute_error: number;
+  flaws_only_mean_signed_error: number;
+  factors: Array<{
+    factor: string;
+    count: number;
+    ai_mean_absolute_error: number;
+    flaws_only_mean_absolute_error: number;
+    flaws_only_mean_signed_error: number;
+  }>;
+  categories: Array<{
+    garment_category: string;
+    count: number;
+    ai_mean_absolute_error: number;
+    flaws_only_mean_absolute_error: number;
+  }>;
+}
+
+// Which of two errors is smaller, in words. Within 0.05 is a tie.
+function closer(ai: number, flawsOnly: number): string {
+  if (Math.abs(ai - flawsOnly) < 0.05) return "tie";
+  return ai < flawsOnly ? "AI" : "Flaws only";
 }
 
 // Which way the AI leans, in words a reviewer can act on. Under 0.05 points
@@ -271,6 +302,42 @@ function AccuracyTab({ period }: { period: string }) {
             f.count > 0 ? lean(f.mean_signed_error) : "—",
             f.count > 0 ? pct(f.agreement_rate) : "—",
           ])}
+        />
+      )}
+      {data.flaws_only && data.flaws_only.compared > 0 && (
+        <MiniTable
+          title={`AI grade vs flaws-only grade (${data.flaws_only.compared} graded items${
+            data.flaws_only.excluded > 0 ? `, ${data.flaws_only.excluded} older ones not comparable` : ""
+          })`}
+          head={["Scope", "Graded", "AI MAE", "Flaws-only MAE", "Flaws-only leans", "Closer"]}
+          rows={[
+            [
+              "Overall",
+              String(data.flaws_only.compared),
+              data.flaws_only.ai_mean_absolute_error.toFixed(2),
+              data.flaws_only.flaws_only_mean_absolute_error.toFixed(2),
+              lean(data.flaws_only.flaws_only_mean_signed_error),
+              closer(data.flaws_only.ai_mean_absolute_error, data.flaws_only.flaws_only_mean_absolute_error),
+            ],
+            ...data.flaws_only.factors
+              .filter((f) => f.count > 0)
+              .map((f) => [
+                factorLabel(f.factor),
+                String(f.count),
+                f.ai_mean_absolute_error.toFixed(2),
+                f.flaws_only_mean_absolute_error.toFixed(2),
+                lean(f.flaws_only_mean_signed_error),
+                closer(f.ai_mean_absolute_error, f.flaws_only_mean_absolute_error),
+              ]),
+            ...data.flaws_only.categories.map((c) => [
+              c.garment_category,
+              String(c.count),
+              c.ai_mean_absolute_error.toFixed(2),
+              c.flaws_only_mean_absolute_error.toFixed(2),
+              "—",
+              closer(c.ai_mean_absolute_error, c.flaws_only_mean_absolute_error),
+            ]),
+          ]}
         />
       )}
       {data.versions.length > 0 && (

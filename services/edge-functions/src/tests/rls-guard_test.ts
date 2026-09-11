@@ -709,6 +709,10 @@ const SERVICE_ROLE_ONLY = new Set([
   // price against.
   "marketplace_supply_cells",
   "marketplace_supply_samples",
+  // US-3325: flaws-only grades. Parent-keyed on grade_reports, deny-all in
+  // both directions: beside the published factor routing, a per-factor
+  // ceiling reveals the unpublished per-defect penalty (BASE_WEIGHT).
+  "grade_flaws_only",
 ]);
 
 // Service-role-only tables with NO user_id and NO parent FK (pure operator /
@@ -749,6 +753,9 @@ const SERVICE_ONLY_FORCED = [
   // appearing to pass.
   "marketplace_supply_cells",
   "marketplace_supply_samples",
+  // US-3325. Keyed by grade_reports.id with no owner column, so hasUserId
+  // never discovers it.
+  "grade_flaws_only",
 ];
 
 // Tokens that signal a policy is tenant/role scoped rather than wide open.
