@@ -33,6 +33,7 @@ import {
   landingForAnswer,
   LISTING_VOLUME_LABELS,
   LISTING_VOLUMES,
+  readExistingListings,
   saveExistingListings,
   type ListingVolume,
 } from "@/lib/existing-listings";
@@ -198,6 +199,25 @@ export function OnboardingFlow() {
       setUseCase(profile?.use_case ?? null);
     }
   }, [reopened, profile?.use_case]);
+
+  // US-3264: show the listings answer this account already gave, so replaying
+  // the tour from Settings EDITS it instead of asking again from blank.
+  //
+  // Without this the question is a one-time trap: a seller who answered "200+"
+  // and later moved everything into FlipDesk reopens the tour, sees four empty
+  // buttons, presses Skip -- and Skip writes nothing, so the stale "200+" is
+  // still what routes them tomorrow. Seeding makes Skip mean "leave it as it
+  // is" and makes every button a real change.
+  //
+  // Keyed on the user id as well as `reopened` because the id is often still
+  // null on the first render, which is when a useState initializer would have
+  // read the wrong ("anon") key and found nothing.
+  useEffect(() => {
+    const stored = readExistingListings(user?.id);
+    if (!stored) return;
+    setVolume(stored.volume);
+    setChannels(stored.channels);
+  }, [user?.id, reopened]);
 
   // `routeNext` is true only when the user finishes the tour (not Skip), so we
   // drop them on the first action that fits their use case.

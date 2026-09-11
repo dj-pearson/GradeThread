@@ -162,3 +162,32 @@ describe("the onboarding step itself (US-3264)", () => {
     expect(src).toMatch(/channel_count: listingsAnswer\.channels\.length/);
   });
 });
+
+describe("the answer is editable, not a one-time trap (US-3264)", () => {
+  const src = read("src/components/onboarding/onboarding-flow.tsx");
+
+  // Settings can replay the welcome tour, and that replay is the ONLY way to
+  // change this answer. It is only a real editor if it shows the answer the
+  // account already gave.
+  //
+  // The failure it prevents is silent, which is why it is worth a test: skip
+  // writes nothing, so a replay that starts blank plus one press of "Skip this"
+  // leaves the OLD answer in place while looking exactly like a fresh one. A
+  // seller who has since moved their whole closet into FlipDesk would keep
+  // being routed to the importer with no way to say otherwise.
+  it("seeds the stored answer back when the tour is replayed", () => {
+    expect(src).toContain("readExistingListings");
+    expect(src).toMatch(/setVolume\(stored\.volume\)/);
+    expect(src).toMatch(/setChannels\(stored\.channels\)/);
+  });
+
+  it("seeds on the user id, not only on the first render", () => {
+    // user?.id is routinely still null on the first render, so a useState
+    // initializer would read the "anon" key, find nothing, and seed blank.
+    expect(src).toMatch(/\}, \[user\?\.id, reopened\]\);/);
+  });
+
+  it("skipping still writes nothing, so it means 'leave it as it is'", () => {
+    expect(src).toMatch(/asksExistingListings\(useCase\) && volume/);
+  });
+});

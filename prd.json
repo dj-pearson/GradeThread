@@ -4585,21 +4585,6 @@
       "priority": 1615
     },
     {
-      "id": "US-3264",
-      "passes": false,
-      "title": "Signup never asks whether the seller already has listings, so everyone is routed as if they were starting empty",
-      "description": "As a reseller with a live closet, I want signup to ask where my listings already are, so that FlipDesk sends me to import instead of to an empty intake form.",
-      "acceptanceCriteria": [
-        "The seller branch of src/components/onboarding/onboarding-flow.tsx asks one additional question after the persona question: roughly how many listings are live today (none / 1-25 / 26-200 / 200+) and on which channels, using the MARKETPLACE_LABELS ids from src/lib/constants.ts.",
-        "The answer is stored on the profile, and if that needs a new column the migration carries the US-1108 triple plus the public.users self-update allowlist restatement that migration 00526 requires — otherwise it reuses an existing column and the story says which.",
-        "A seller who answers anything other than 'none' lands on /dashboard/flipdesk/import after the tour, not /dashboard/flipdesk; a seller who answers 'none' keeps the current destination. A test asserts both routes.",
-        "The named channels pre-select the matching preset or closet-import platform on the import page where one exists, so the seller does not re-state what they just told us.",
-        "The question is skippable in one click and skipping routes exactly as 'none' does; nothing blocks account creation on answering it."
-      ],
-      "priority": 10,
-      "notes": "Done 2026-09-09. AC2 DELIBERATELY NOT MET AS WRITTEN, and this is the record of why. The answer is NOT stored on public.users. A column there costs a migration plus the 00526 self-update allowlist restatement plus a held push, to persist a fact whose only consumers are one navigation away: the landing route after the tour and the pre-selected import preset. So the answer is written per-user to localStorage (src/lib/existing-listings.ts) for the routing and emitted as onboarding.existing_listings_answered for the population question, which is the one worth answering later - how many new sellers arrive with a closet, on which channels. The cost, stated: answering on a laptop does not pre-select the source on a phone. Everything else in the story is built. The question is step 2 for seller and consignment personas only, four volume buckets plus marketplace chips, and the tour shifts to 3..n behind it. Skip is one press and routes exactly as 'None yet'. A seller who names any listings lands on /dashboard/flipdesk/import instead of /dashboard/flipdesk. presetIdForAnswer pre-selects a CSV preset when the answer names exactly ONE preset-able channel and deliberately returns null for two, because guessing between them mis-maps a file half the time; a preset detected from the file's own headers always wins over the answer. The import page names the channels back so the pre-selection is not the page appearing to guess. 18 cases in src/test/existing-listings.test.ts; full web suite 4300 passing."
-    },
-    {
       "id": "US-3265",
       "passes": false,
       "title": "eBay connect creates the seller's warehouse location but not their business policies, so a first-time seller is sent back to eBay mid-setup",
