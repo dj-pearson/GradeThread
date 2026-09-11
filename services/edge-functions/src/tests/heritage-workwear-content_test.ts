@@ -293,52 +293,46 @@ Deno.test("US-1989: every brand's charts are reachable, incl. the boot vs appare
     "the Duluth chart's note must state the bare-token refusal",
   );
   //
-  // ⚠ THIS IS RED ON PURPOSE AND IT IS NOT BACKLOG — US-3319, 2026-09-10.
+  // HISTORY, because this guard was red for a day and the reason is worth
+  // keeping. US-3319 found on 2026-09-10 that the US-3284 backfill had seeded
+  // the "Tops & outerwear (body inches)" chart with brandMatch
+  // ARRAY['duluth trading','duluthtrading','duluth'], the bare token the pants
+  // chart deliberately refuses and says so in its own note. brandTextMatches is
+  // a LEADING-word substring test with no right boundary, so a "Duluth Pack"
+  // garment (a different company, est. 1882) resolved Duluth Trading's body
+  // chart. It reached production: 00498 line 431 and 00781 line 137 both
+  // carried it.
   //
-  // Triaged with the other seventeen size-chart guards the 2026-09 backfill
-  // broke. Sixteen of those were guards whose witness had moved. THIS ONE IS A
-  // REAL DEFECT, and the guard is reporting it correctly.
+  // FIXED IN US-3324, and it took three parts in one commit, not one line:
+  //   1. sizing-charts.ts, the constant;
+  //   2. a REGENERATED 00498 (deno run --allow-read --allow-write
+  //      scripts/gen-sizing-chart-seed.mjs). sizing-chart-parity_test.ts
+  //      re-derives 00498 from the constant and byte-compares it, so editing
+  //      only the constant turns this assertion green and turns two of that
+  //      guard's cases red;
+  //   3. migration 00792, an array_remove UPDATE for the rows already in prod.
+  //      brand-knowledge.ts:371 reads brand_size_charts IN PREFERENCE TO this
+  //      constant, so a code-only fix would leave the live resolver wrong.
+  // Anyone editing a brandMatch token has to do all three.
   //
-  // The backfill's "Tops & outerwear (body inches)" chart was seeded with
-  // brandMatch ARRAY['duluth trading','duluthtrading','duluth'] — the bare token
-  // the pants chart deliberately refuses and says so in its own note. brandMatch
-  // is a word-boundary SUBSTRING test, so a "Duluth Pack" garment (a different
-  // company, est. 1882) now resolves Duluth Trading's body chart. It is in
-  // production: 00781 line 137 and 00498 line 431 both carry the bare token.
-  //
-  // NOT FIXED HERE because the fix is a data change — one UPDATE on
-  // brand_size_charts plus the same edit in sizing-charts.ts and a regenerated
-  // 00498 — and US-3319 was scoped away from migrations. The SQL is in the
-  // US-3319 report. Do NOT silence this by relaxing the assertion.
-  //
-  // ── RE-CONFIRMED 2026-09-11 (US-3372), and two things changed ──
-  //
-  // 1. NOBODY OWNS THIS ANY MORE. US-3319 is closed (passes:true in
-  //    prd.archive.json) and it is the only story this comment names, so the
-  //    defect's whole remaining existence is the red line above. That is the
-  //    shape US-3372 was filed to break: CLAUDE.md described this suite's
-  //    failures as expected, and an expected-red suite stops being read.
-  //
-  // 2. THE ONE-LINE FIX IS A TRAP, measured rather than reasoned. Deleting the
-  //    bare token from sizing-charts.ts:11582 alone turns this green and turns
-  //    sizing-chart-parity_test.ts (US-2214) RED on two cases, "the committed
-  //    backfill matches what the code generates" and "every in-code chart has a
-  //    row in the backfill", because that guard re-derives 00498 from the
-  //    constant and diffs it against the committed file. Tried here, then
-  //    reverted byte-exact. So the code half cannot land without the migration
-  //    half, and anyone who tries it in isolation trades one true red for two.
-  //
-  // The change has to be one commit: the constant, a regenerated 00498, and an
-  // UPDATE migration for the rows already in prod (00498:431 and 00781:137).
-  // brand-knowledge.ts:371 reads brand_size_charts ahead of this constant, so
-  // fixing only the constant would also leave the live resolver wrong.
+  // The class this belongs to is swept in sizing-chart-brand-token_test.ts:
+  // a token that is a truncation of its own brand key is by construction also a
+  // prefix of whatever other company starts that way.
   assertEquals(
     findSizingCharts("Duluth", "pant").filter((c) =>
       c.brandMatch.includes("duluth trading")
     ).map((c) => `${c.department}|${c.garment}`),
     [],
-    "a bare 'Duluth' brand string must not reach the Duluth Trading chart — " +
-      "see US-3319; this is a live defect, not a stale guard",
+    "a bare 'Duluth' brand string must not reach the Duluth Trading chart",
+  );
+  // The same statement in the form a seller actually hits: the tops chart is
+  // what the bare token used to leak, so name it.
+  assertEquals(
+    findSizingCharts("Duluth Pack", "top").filter((c) =>
+      c.brand === "Duluth Trading Co."
+    ).map((c) => `${c.department}|${c.garment}`),
+    [],
+    "a Duluth Pack garment must not reach any Duluth Trading chart",
   );
 
   // ⚠ DICKIES: the 874 fit family shares the size grid — the note must say the

@@ -8234,11 +8234,24 @@ export const SIZING_CHARTS: SizingChart[] = [
   {
     brand: "Brooks",
     // ⚠ brandMatch "brooks" is a LEADING-word match, so a "Brooks Brothers" garment
-    // (00467, a DIFFERENT company) also pulls these into the pool — but Brooks
-    // Brothers charts match the longer "brooks brothers", and category narrowing
-    // separates the two (a shirt category never reaches a footwear chart). Never
-    // add a bare "brooks" to a Brooks BROTHERS chart's brandMatch (the note at that
-    // chart). This is Brooks RUNNING, a Berkshire Hathaway company.
+    // (00467, a DIFFERENT company) also pulls these into the pool. Brooks Brothers
+    // charts match the longer "brooks brothers", and category narrowing separates
+    // the two for the common categories. Never add a bare "brooks" to a Brooks
+    // BROTHERS chart's brandMatch (the note at that chart). This is Brooks
+    // RUNNING, a Berkshire Hathaway company.
+    //
+    // ⚠ CORRECTED 2026-09-11 (US-3324's sweep): this comment used to say category
+    // narrowing "separates the two (a shirt category never reaches a footwear
+    // chart)", flat. Measured, it separates them only when the category MATCHES
+    // SOMETHING. findSizingCharts returns the whole brand pool when byCategory is
+    // empty, so "Brooks Brothers" + "bag" or "accessory" or an empty category
+    // returns BOTH companies' charts, and "Brooks Brothers" + "shoe" returns
+    // Brooks RUNNING's footwear chart alone, for a dress shoe. shirt / jacket /
+    // pant do resolve to Brooks Brothers alone, which is the part that was right.
+    // Unlike the 'duluth' case there is no token to remove: "brooks" is the
+    // running brand's entire name. It is contained by the notes below, which is
+    // why both of them open by naming the other company. Registered in
+    // src/tests/sizing-chart-brand-token_test.ts.
     brandMatch: ["brooks"],
     department: "Men",
     garment: "Footwear (US/UK/EU — running, the size is STAMPED)",
@@ -11579,7 +11592,15 @@ export const SIZING_CHARTS: SizingChart[] = [
   // nothing; the working chart is on its own prd.cc. host.
   {
     brand: "Duluth Trading Co.",
-    brandMatch: ["duluth trading", "duluthtrading", "duluth"],
+    // ⚠ brandMatch is "duluth trading", NEVER a bare "duluth" — Duluth Pack (est.
+    // 1882) is a different company and a bare "duluth" must not reach this chart.
+    // This is the SAME refusal the pants chart above already carried; the US-3284
+    // backfill seeded the bare token here anyway and it reached production
+    // (00498:431, 00781:137). Removed in US-3324, which also carries the UPDATE
+    // for the rows already in the table. brandTextMatches is a LEADING-word test
+    // with no right boundary, so a token that is a truncation of its own brand is
+    // by construction also a prefix of whatever else starts that way.
+    brandMatch: ["duluth trading", "duluthtrading"],
     department: "Men",
     garment: "Tops & outerwear (body inches)",
     categoryMatch: [
