@@ -21,6 +21,7 @@ import {
   type VerificationImage,
 } from "./ai-grading.ts";
 import { DEFECT_WEIGHTS_VERSION } from "./defect-weighting.ts";
+import { loadReferenceAnchors, referenceAnchorsActive } from "./reference-anchors.ts";
 import {
   applyCardSizing,
   cardSizingEnabled,
@@ -2495,6 +2496,16 @@ export async function processSubmission(submissionId: string) {
 
     console.log(`[Pipeline] Running composite grading for submission ${submissionId}`);
 
+    // US-3335: awarded reference photos as visual anchors. Two locks: the
+    // GRADING_REFERENCE_ANCHORS flag AND a passing anchor eval. Never this
+    // submission's own photos. First pass only, like the verification photos.
+    const referenceAnchors = await referenceAnchorsActive()
+      ? await loadReferenceAnchors(
+        submission.garment_category,
+        images.map((i) => i.storage_path),
+      )
+      : [];
+
     let compositeResult: CompositeGradeResult = await compositeGrade(
       perImageResults,
       garmentInfo,
@@ -2522,6 +2533,8 @@ export async function processSubmission(submissionId: string) {
       // which for a tagless garment (a Lululemon size dot, a heat-transfer
       // waistband) asked the seller for a photo that does not exist.
       qualityGate.labelIllegible,
+      // US-3335: [] unless both locks are open -> byte-identical request.
+      referenceAnchors,
     );
 
     // US-1066: escalate a low-confidence / high-value first-pass grade to the
@@ -2557,6 +2570,9 @@ export async function processSubmission(submissionId: string) {
             .map((r) => ({ phase: "per_image_firstpass", usage: r.usage! })),
           ...(compositeResult.usage
             ? [{ phase: "composite_firstpass", usage: compositeResult.usage }]
+            : []),
+          ...(compositeResult.anchor_usage
+            ? [{ phase: "composite_reference_anchors_firstpass", usage: compositeResult.anchor_usage }]
             : []),
         ];
         try {
@@ -3724,6 +3740,11 @@ export async function processSubmission(submissionId: string) {
           .map((r) => ({ phase: "per_image", usage: r.usage! })),
         ...(compositeResult.usage
           ? [{ phase: "composite", usage: compositeResult.usage }]
+          : []),
+        // US-3335: the reference anchors' share of the composite call, on its
+        // own phase so their cost per grade is visible. Absent when off.
+        ...(compositeResult.anchor_usage
+          ? [{ phase: "composite_reference_anchors", usage: compositeResult.anchor_usage }]
           : []),
       ],
     });

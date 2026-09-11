@@ -144,6 +144,12 @@ import {
   type ReferenceFactor,
   referenceAwardRefusal,
 } from "../lib/reference-photos.ts";
+import {
+  type AnchorEvalRecord,
+  REFERENCE_ANCHOR_EVAL_SETTING,
+  referenceAnchorsFlagOn,
+} from "../lib/reference-anchors.ts";
+import { runReferenceAnchorEval } from "../lib/reference-anchors-eval.ts";
 
 // Admin grading-quality + self-improvement surface (US-070/US-073/US-132).
 // Mounted at /api/admin/grading — inherits authMiddleware + adminAuthMiddleware
@@ -3747,6 +3753,40 @@ adminGradingRoutes.post("/reference-photos/:id/revoke", async (c) => {
   if (!data || data.length === 0) return c.json({ error: "No live award with that id." }, 404);
   await auditLog(c, "grading.reference_revoked", "grading_reference_photo", id, {});
   return c.json({ ok: true });
+});
+
+// ── US-3335: the reference-anchor eval ─────────────────────────────
+//
+// Anchors serve live grades only with GRADING_REFERENCE_ANCHORS on AND a
+// passing verdict from this eval (lib/reference-anchors-eval.ts). GET reads the
+// last verdict and whether the flag is on; POST runs the golden set both ways
+// (real vision calls), so it needs step-up and is audited.
+
+adminGradingRoutes.get("/reference-anchors/eval", async (c) => {
+  const record = await getSetting<AnchorEvalRecord | null>(REFERENCE_ANCHOR_EVAL_SETTING, null);
+  return c.json({ flag_on: referenceAnchorsFlagOn(), last: record });
+});
+
+adminGradingRoutes.post("/reference-anchors/eval", async (c) => {
+  const stepUp = requireStepUp(c);
+  if (stepUp) return stepUp;
+  try {
+    const result = await runReferenceAnchorEval(c.get("userId"));
+    await auditLog(c, "grading.reference_anchor_eval", "system_setting", REFERENCE_ANCHOR_EVAL_SETTING, {
+      passed: result.passed,
+      cases_with_anchors: result.cases_with_anchors,
+      mae_off: result.mae_off,
+      mae_on: result.mae_on,
+      agreement_off: result.agreement_off,
+      agreement_on: result.agreement_on,
+    });
+    return c.json(result);
+  } catch (err) {
+    return c.json(
+      { error: "Anchor eval failed", detail: err instanceof Error ? err.message : String(err) },
+      400,
+    );
+  }
 });
 
 // POST /review/:id/send-back — the photos can't support a reliable grade. Set

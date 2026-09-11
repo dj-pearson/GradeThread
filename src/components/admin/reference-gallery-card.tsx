@@ -359,7 +359,102 @@ export function ReferenceGalleryCard() {
             </ul>
           )}
         </section>
+
+        <AnchorEvalSection />
       </CardContent>
     </Card>
+  );
+}
+
+// US-3335: the awarded photos reach the grader only when the
+// GRADING_REFERENCE_ANCHORS flag is on AND this eval has passed. Running it
+// grades the golden set twice (real vision calls), so it asks first.
+interface AnchorEval {
+  passed: boolean;
+  reason?: string;
+  ran_at?: string;
+  cases_with_anchors?: number;
+  mae_off?: number | null;
+  mae_on?: number | null;
+  agreement_off?: number | null;
+  agreement_on?: number | null;
+}
+
+const EVAL_KEY = ["admin-grading-reference-anchor-eval"];
+
+function AnchorEvalSection() {
+  const queryClient = useQueryClient();
+  const confirm = useConfirm();
+  const [running, setRunning] = useState(false);
+  const { data } = useQuery({
+    queryKey: EVAL_KEY,
+    queryFn: async () =>
+      readJson<{ flag_on: boolean; last: AnchorEval | null }>(
+        await edgeFetch("/api/admin/grading/reference-anchors/eval"),
+      ),
+    staleTime: 60 * 1000,
+  });
+
+  async function run() {
+    const ok = await confirm({
+      title: "Run the reference photo eval?",
+      description:
+        "Grades every golden case twice, with and without reference photos. This makes real model calls and can take several minutes.",
+      confirmLabel: "Run eval",
+    });
+    if (!ok) return;
+    setRunning(true);
+    try {
+      const result = await readJson<AnchorEval>(
+        await edgeFetch("/api/admin/grading/reference-anchors/eval", { method: "POST" }),
+      );
+      if (result.passed) toast.success("Eval passed", { description: result.reason });
+      else toast.error("Eval did not pass", { description: result.reason });
+    } catch (err) {
+      toast.error("Couldn't run the eval", {
+        description: err instanceof Error ? err.message : "Unknown error",
+      });
+    } finally {
+      setRunning(false);
+      void queryClient.invalidateQueries({ queryKey: EVAL_KEY });
+    }
+  }
+
+  const last = data?.last ?? null;
+  const live = !!data?.flag_on && !!last?.passed;
+
+  return (
+    <section className="space-y-2" aria-labelledby="reference-eval-heading">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h3 id="reference-eval-heading" className="text-sm font-medium">
+          Show these photos to the grader
+        </h3>
+        <Button variant="outline" size="sm" onClick={run} disabled={running}>
+          {running ? "Running..." : "Run eval"}
+        </Button>
+      </div>
+      <p className="text-sm text-muted-foreground">
+        {live
+          ? "On. The grader sees up to three of these photos for the item's category."
+          : `Off. It turns on only when the GRADING_REFERENCE_ANCHORS flag is set ${
+            data?.flag_on ? "(it is)" : "(it is not)"
+          } and the eval below has passed.`}
+      </p>
+      {last
+        ? (
+          <p className="text-sm">
+            <Badge variant={last.passed ? "secondary" : "destructive"} className="mr-2">
+              {last.passed ? "Passed" : "Not passed"}
+            </Badge>
+            {last.reason ?? ""}
+            {last.ran_at && (
+              <span className="block text-xs text-muted-foreground">
+                Last run {new Date(last.ran_at).toLocaleString()}
+              </span>
+            )}
+          </p>
+        )
+        : <p className="text-sm text-muted-foreground">The eval has not been run yet.</p>}
+    </section>
   );
 }

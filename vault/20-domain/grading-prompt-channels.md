@@ -160,13 +160,18 @@ the flag-gated rollout meaningful: with `GRADING_BASELINES` or `GRADING_TAG_OCR`
 off, the prompt is the previously-evaluated one, not a near-copy.
 
 Each block also appends its own `prompt_version` suffix — `+baseline`, `+fabric`,
-`+visual`, `+tag`, `+cat2`, `+roles`, `+clean2`, `+sysschema`, `+scale`, in that fixed order — so
+`+visual`, `+tag`, `+cat2`, `+roles`, `+clean2`, `+sysschema`, `+scale`, `+anchors`, in that fixed order — so
 accuracy-tracking can attribute an era per block. Suffixes APPEND; reordering them would
 silently reinterpret every version string already recorded against past grades. `+roles`
 (US-2471) went on the end for exactly that reason, not because it belongs last, and
 `+clean2` (US-3329), `+sysschema` (US-3150) and `+scale` (US-3332) went after it for the same one.
 `+scale` changes only the PER-IMAGE system prompt, so the grade string carries it the way it
 carries `+roles`: marked when any per-image read's own stamp ends in `+scale`, never from the flag.
+`+anchors` (US-3335) marks a composite call that carried awarded reference photos. Those are
+server-chosen and server-labeled, so like the verification photos they sit OUTSIDE the untrusted
+fence; the seller has no say in which photos or labels appear. They are gated twice (flag and a
+passing with-versus-without eval), because a trusted block that cannot be measured is how the
+baseline block came to ship without an eval.
 
 ## The photo role is a SELLER-CHOSEN selector over server-written sentences
 

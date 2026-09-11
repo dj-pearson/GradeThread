@@ -18,6 +18,12 @@ import {
 } from "./ai-config.ts";
 import { supabaseAdmin } from "./supabase.ts";
 import { applyScaleReferenceWording } from "./scale-reference.ts";
+import {
+  anchorLabel,
+  REFERENCE_ANCHORS_ADDENDUM,
+  type ReferenceAnchor,
+  splitAnchorUsage,
+} from "./reference-anchors.ts";
 import { captureServer } from "./posthog.ts";
 import { createVersionedCache } from "./coherent-cache.ts";
 import {
@@ -340,7 +346,12 @@ export interface CompositeGradeResult {
   // prompt version.
   model: string;
   // US-583: Anthropic token usage for the composite call (per-grade AI cost).
+  // US-3335: with reference anchors attached this is the composite's share and
+  // anchor_usage carries the anchor images' share; the two sum to the call.
   usage?: AiTokenUsage;
+  anchor_usage?: AiTokenUsage;
+  /** US-3335: how many awarded reference photos rode along (0 when off). */
+  reference_anchor_count?: number;
 }
 
 // --- Constants ---
@@ -2720,6 +2731,9 @@ export function promptVersionSuffix(
     // PER-IMAGE system prompt, so, as with roles, the grade record is the only
     // place accuracy-tracking can see the era.
     scale?: boolean;
+    // US-3335. Optional and appended last: awarded reference photos rode along
+    // in the composite call.
+    anchors?: boolean;
   },
 ): string {
   return (blocks.baseline ? "+baseline" : "") +
@@ -2730,7 +2744,8 @@ export function promptVersionSuffix(
     (blocks.roles ? "+roles" : "") +
     (blocks.cleanliness ? "+clean2" : "") +
     (blocks.schemaSystem ? "+sysschema" : "") +
-    (blocks.scale ? "+scale" : "");
+    (blocks.scale ? "+scale" : "") +
+    (blocks.anchors ? "+anchors" : "");
 }
 
 /**
@@ -2881,6 +2896,17 @@ export interface VerificationImage {
   dataUri: string;
 }
 
+/** US-3335: the composite's usage fields, split when anchors rode along. */
+function anchorAwareUsage(
+  usage: AiTokenUsage,
+  anchorCount: number,
+): Pick<CompositeGradeResult, "usage" | "anchor_usage" | "reference_anchor_count"> {
+  const split = splitAnchorUsage(usage, anchorCount);
+  return split.anchors
+    ? { usage: split.composite, anchor_usage: split.anchors, reference_anchor_count: anchorCount }
+    : { usage: split.composite };
+}
+
 /** Appended to the composite user prompt ONLY when photos are attached. */
 export const VISUAL_VERIFICATION_ADDENDUM =
   `VISUAL VERIFICATION — photos of the garment are attached (front/back and the worst-defect angles).
@@ -3015,6 +3041,10 @@ export async function compositeGrade(
   // to the fabric criteria below. Caps confidence and forces review.
   // Default false → byte-identical for every submission whose label was read.
   labelIllegible = false,
+  // US-3335: awarded reference photos for this category ([] -> byte-identical
+  // request). Server-chosen and server-labeled, so they sit outside the
+  // untrusted fence like the verification photos. "+anchors" when used.
+  referenceAnchors: ReferenceAnchor[] = [],
 ): Promise<CompositeGradeResult> {
   const startTime = Date.now();
   const compositeModel = modelOverride && isAllowedGradingModel(modelOverride)
@@ -3149,6 +3179,7 @@ export async function compositeGrade(
     cleanliness: compositeClean.applied || weightsClean.applied,
     schemaSystem: tailInSystem,
     scale,
+    anchors: referenceAnchors.length > 0,
   });
 
   // US-2432: the other half of the attribution. promptVersion names the SYSTEM
@@ -3222,7 +3253,10 @@ export async function compositeGrade(
           // US-1537: with verification images the content becomes photo
           // blocks + the prompt (with the verification addendum); without
           // them it stays the plain text prompt — byte-identical to before.
-          content: verificationImages.length === 0
+          // US-3335: reference anchors, when attached, lead the content (each
+          // after its server-written label) and add their addendum last. With
+          // none, both branches below are exactly what they were.
+          content: verificationImages.length === 0 && referenceAnchors.length === 0
             // A bare string was legal on the SDK; the neutral shape is always a
             // block list, so the single text block says the same thing.
             ? [{
@@ -3238,6 +3272,12 @@ export async function compositeGrade(
               ),
             }]
             : [
+              ...referenceAnchors.flatMap(
+                (a): AiContentBlock[] => [
+                  { type: "text", text: anchorLabel(a) },
+                  toProviderImage(parseImageInput(a.dataUri)),
+                ],
+              ),
               ...verificationImages.flatMap(
                 (img): AiContentBlock[] => [
                   { type: "text", text: `Photo (${img.imageType}):` },
@@ -3254,7 +3294,9 @@ export async function compositeGrade(
                   tagBlock,
                   promptBlocksForUser,
                   tailInSystem,
-                ) + `\n\n${VISUAL_VERIFICATION_ADDENDUM}`,
+                ) +
+                  (verificationImages.length > 0 ? `\n\n${VISUAL_VERIFICATION_ADDENDUM}` : "") +
+                  (referenceAnchors.length > 0 ? `\n\n${REFERENCE_ANCHORS_ADDENDUM}` : ""),
               },
             ],
         },
@@ -3644,8 +3686,11 @@ export async function compositeGrade(
         (parsed as { verification_discrepancies?: unknown })
           .verification_discrepancies,
       ),
-      // US-583: token usage for per-grade AI-cost tracking.
-      usage: toAiTokenUsage(compositeModel, response.usage),
+      // US-583: token usage for per-grade AI-cost tracking. US-3335: split so
+      // the anchor images are metered on their own phase.
+      // With no anchors the split returns the usage untouched and no anchor
+      // fields are added, so the result is exactly what it was.
+      ...anchorAwareUsage(toAiTokenUsage(compositeModel, response.usage), referenceAnchors.length),
     };
   } catch (error) {
     const latencyMs = Date.now() - startTime;
