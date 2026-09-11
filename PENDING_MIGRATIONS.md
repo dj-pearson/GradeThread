@@ -1,5 +1,54 @@
 # PENDING MIGRATIONS — applied to prod separately from the push
 
+## WHAT IS STILL WAITING FOR YOU, 2026-09-11
+
+Four migrations are finished and parked on branches. Merge them in this order.
+Each branch is one merge and carries its own SQL, manifest and version bump.
+
+| Order | Branch | Migration | What it does |
+|---|---|---|---|
+| 1 | `held-v2/us-3387-00793` | 00793 | retire 23 size charts a rename orphaned |
+| 2 | `held-v2/us-3397-00794` | 00794 | stop anon enumerating the storage buckets |
+| 3 | `held-v2/us-3398-00795` | 00795 | the deletion log stops claiming a purge it never checked |
+| 4 | `held-v2/us-3256-00797` | 00797 | the seeded cogs_labor row says Labour, the chart says Labor |
+
+Why 00796 is missing from that list: it is ALREADY ON MAIN AND ALREADY APPLIED
+TO PROD. It went out with the 2026-09-11 merge push and prod's /health/ready
+now reports expected 00796, applied 00796, status match. The entry lower down
+still headed HELD is stale in that one respect and is left in place for its
+detail.
+
+Why 00793 through 00795 sit BELOW 00796: a parallel session shipped its own
+00790 and 00791 and prod applied those, so the numbers on this side had to
+move. These three kept their numbers and fill a gap under the watermark; only
+US-3256's moved, from 00790 to 00797, because 00790 was taken. The edge boot
+guard on the three gap-filling branches expects 00796, not their own number,
+because the watermark is already past them. A gap under the watermark is
+invisible to the watermark and is exactly what the migration manifest catches.
+
+`scripts/migrations-lint.mjs` carries a KNOWN_GAPS entry for each of the three,
+and each branch DELETES ITS OWN ENTRY when it lands, so the list cannot go
+stale in either direction.
+
+Two branches were deleted rather than merged, because a parallel session had
+already shipped the same change and prod had applied it:
+
+- `held/us-3324-00792` (was 2cc340797) — its UPDATE is origin's
+  `00791_duluth_bare_brand_token.sql`, applied. The only thing it added on top
+  was a DO block re-asserting the result afterwards.
+- `held/us-3359-00791` (was e4614bb99) — carried no migration, only the seed
+  guards. Origin's `00790_grading_second_opinion_setting.sql` is the same seed,
+  applied, and the guards are on main now and pass against it.
+
+The pre-rebuild branches were `held/us-3387-00793` (1b0551380),
+`held/us-3397-00794` (08284f65e), `held/us-3398-00795` (6016ff8a8) and
+`held/us-3256-00790` (afa56ccb6). They are superseded; the SHAs are here so
+nothing is unrecoverable.
+
+`held/us-3399-chart-order` (d3ec2de55) carries NO migration and is a separate
+question: it changes what the grading model is shown, so it waits on a runEval
+against the golden set rather than on a merge order.
+
 > **Merged 2026-09-10.** 00777 and 00778 were authored by the session that
 > ran the money-tab and discount-campaign work and were not on origin/main
 > when the size-chart batches were numbered — which is why those batches
