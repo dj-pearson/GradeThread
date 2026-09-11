@@ -1,4 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { toast } from "sonner";
 import { edgeFetch } from "@/lib/edge-fetch";
 import { X, Info, CheckCircle2, AlertTriangle, Sparkles } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -43,14 +44,26 @@ export function AnnouncementBanner() {
   });
 
   const dismiss = useMutation({
+    // US-3378: this used to discard the response. edgeFetch does not throw on a
+    // non-2xx, so a failed dismiss resolved as a success, onSuccess invalidated,
+    // and the banner simply came straight back with no explanation. That is the one
+    // shape a person reads as "the X button is broken" rather than "that did not
+    // save". Reading res.ok turns it into a mutation error, which is both
+    // retryable and sayable.
     mutationFn: async (id: string) => {
-      await edgeFetch(`/api/announcements/${id}/dismiss`, {
+      const res = await edgeFetch(`/api/announcements/${id}/dismiss`, {
         method: "POST",
         json: {},
         silentGate: true,
       });
+      if (!res.ok) {
+        const body = (await res.json().catch(() => ({}))) as { error?: string };
+        throw new Error(body.error || `Could not dismiss that (HTTP ${res.status}).`);
+      }
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ["announcements-active"] }),
+    onError: (err: Error) =>
+      toast.error("Couldn't dismiss that", { description: err.message }),
   });
 
   const top = data?.announcements?.[0];

@@ -625,11 +625,20 @@ export function MeasurementPhotoEditor({
         }
       }
       // 3) Refresh the buyer-facing overlay photo (best-effort).
+      //
+      // US-3378: the fulfilled arm used to run on a non-2xx as well, because
+      // edgeFetch resolves rather than throwing. That invalidated both caches on
+      // a rebuild that never happened, so the refetch pulled the OLD overlay
+      // back and the seller, who had just been told "Measurements saved.", was
+      // left with a buyer-facing image showing the previous numbers. The
+      // rebuild staying best-effort is fine; announcing one that did not happen
+      // is not.
       void edgeFetch("/api/flipdesk/measure/overlay", {
         method: "POST",
         json: { item_id: itemId },
       }).then(
-        () => {
+        (res) => {
+          if (!res.ok) return;
           void qc.invalidateQueries({ queryKey: ["item_photos", itemId] });
           // US-2625: the download button points at the row this render replaces.
           void qc.invalidateQueries({ queryKey: ["measure_overlay", itemId] });

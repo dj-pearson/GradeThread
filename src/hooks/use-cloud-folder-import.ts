@@ -108,8 +108,19 @@ export function useCloudFolderImport({
 
   const disconnect = useCallback(async (providerId: string) => {
     try {
-      await edgeFetch(`/api/flipdesk/cloud/${providerId}/disconnect`, { method: "POST" });
-      toast.success("Disconnected.");
+      // US-3378: the response used to be discarded. edgeFetch does not throw on
+      // a non-2xx, so a 500 here printed "Disconnected." and then re-rendered
+      // the row STILL CONNECTED, so the user was told the opposite of what
+      // happened, about a credential they were trying to revoke.
+      const res = await edgeFetch(`/api/flipdesk/cloud/${providerId}/disconnect`, {
+        method: "POST",
+      });
+      if (!res.ok) {
+        const body = (await res.json().catch(() => ({}))) as { error?: string };
+        toast.error(body.error ?? "Could not disconnect.");
+      } else {
+        toast.success("Disconnected.");
+      }
     } catch {
       toast.error("Could not disconnect.");
     }

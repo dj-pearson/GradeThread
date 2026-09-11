@@ -113,6 +113,13 @@ export async function unsubscribeFromPush(): Promise<boolean> {
     if (!sub) return true; // already gone — idempotent success
     const endpoint = sub.endpoint;
     // Tell the edge first, then drop the local subscription.
+    //
+    // US-3378: the status is deliberately not read. The user asked this BROWSER
+    // to stop receiving pushes, and `sub.unsubscribe()` below is what delivers
+    // that, and it happens whether or not the server row was deleted. A failed
+    // delete leaves a row pointing at an endpoint the push service now rejects,
+    // which the 410 sweep removes on the next send. Failing the whole call on it
+    // would leave the browser subscribed, which is the wrong direction.
     await edgeFetch("/api/push/unsubscribe", {
       method: "POST",
       json: { endpoint },

@@ -116,6 +116,13 @@ export function ReferralsPage() {
   const [connecting, setConnecting] = useState(false);
 
   // Returning from Stripe onboarding (?connect=done) — refresh status once.
+  //
+  // US-3378: the response is discarded on purpose. The call exists to make the
+  // server re-pull the Connect account from Stripe; the ANSWER the page shows
+  // comes from refetchPayouts() in the finally, which runs either way. A failed
+  // re-pull therefore shows the seller a stale "not connected yet" rather than a
+  // wrong "connected", and the Stripe onboarding banner stays put and stays
+  // clickable, so the failure is both safe and visible without a toast.
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     if (params.get("connect") === "done") {

@@ -10,7 +10,8 @@ code_refs:
   - supabase/migrations/00612_admin_revoke_user_sessions.sql
   - scripts/check-session-revocation.mjs
   - src/lib/impersonation.ts
-reviewed: 2026-09-10
+  - src/lib/__tests__/impersonation-revoke-warning.test.ts
+reviewed: 2026-09-11
 tags: [security, auth, impersonation, contract]
 summary: Stopping an impersonation falls back to deleting the target's auth.sessions rows through an RPC we own, because GoTrue's admin logout route does not exist on the version this project runs — and even a working revocation cannot kill an access token already issued.
 ---
@@ -118,6 +119,26 @@ Two things guard it now, and they answer different questions:
 raised at the moment of failure would be destroyed before it rendered; the notice
 is parked in `sessionStorage` (`REVOKE_WARNING_KEY`) and read once by the admin
 page it reloads into. Before this, a failed revocation reached only Sentry.
+
+**There are THREE answers, not two (US-3378, 2026-09-11).** The client used to
+act only on an explicit `revoked === false`. `edgeFetch` resolves on a non-2xx
+rather than throwing, so a 500, a 403 or a proxy's HTML error page produced a
+body with no `revoked` key, took the branch a clean success takes, and the
+warning vanished with nothing written anywhere. That is the unsafe direction:
+nobody checked, so the sessions may well still be live.
+
+| What came back | What the admin reads |
+|---|---|
+| `200 {revoked: true}` | nothing, because there is nothing to say |
+| `200 {revoked: false}` | "Their sessions were not signed out" |
+| non-2xx, unparseable body, missing `revoked`, or a request that never completed | "We could not confirm they were signed out", with the reason |
+
+The stashed value is now JSON (`{email, status, detail}`) rather than a bare
+email, and `takeRevokeWarning()` returns `RevokeWarning | null`. A bare string
+still parses, as `not-revoked`, so a tab that exits mid-deploy keeps its warning.
+`revokeWarningToast()` owns the two wordings, beside the state machine that picks
+between them, so `src/lib/__tests__/impersonation-revoke-warning.test.ts` can
+drive a 500 all the way to the sentence rather than asserting a status is read.
 
 ## Related
 

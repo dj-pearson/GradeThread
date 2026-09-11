@@ -69,7 +69,7 @@ import {
   MessageSquare,
   Send,
 } from "lucide-react";
-import { startImpersonation, takeRevokeWarning } from "@/lib/impersonation";
+import { revokeWarningToast, startImpersonation, takeRevokeWarning } from "@/lib/impersonation";
 import { toast } from "sonner";
 import { BillingActionsCard } from "@/components/admin/billing-actions-card";
 import { CreditLedgerCard } from "@/components/admin/credit-ledger-card";
@@ -137,17 +137,16 @@ export function AdminUserDetailPage() {
   // false means their tokens are still live for the rest of their lifetime,
   // which only the admin who just exited can act on. It was reported in the
   // response and in Sentry and nowhere a person would see it.
+  //
+  // US-3378: and there is a THIRD answer. The check itself can fail (a 500, a
+  // 403, a proxy error page), and that used to look exactly like a clean revoke.
+  // It gets its own wording, because "we did not sign them out" and "we could
+  // not tell whether we signed them out" call for different next steps.
   useEffect(() => {
-    const email = takeRevokeWarning();
-    if (!email) return;
-    toast.warning("Their sessions were not signed out", {
-      description:
-        `${email} is still signed in on any device that was already logged in, ` +
-        `and any copy of their session stays valid until it expires on its own. ` +
-        `Ask them to sign out everywhere, or suspend the account if this was a ` +
-        `security exit.`,
-      duration: 15000,
-    });
+    const warning = takeRevokeWarning();
+    if (!warning) return;
+    const { title, description } = revokeWarningToast(warning);
+    toast.warning(title, { description, duration: 15000 });
   }, []);
 
   const [planDialogOpen, setPlanDialogOpen] = useState(false);

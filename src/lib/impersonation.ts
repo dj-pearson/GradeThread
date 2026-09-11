@@ -2,7 +2,7 @@ import { supabase } from "@/lib/supabase";
 import { queryClient } from "@/lib/query-client";
 import { edgeFetch } from "@/lib/edge-fetch";
 import { useImpersonationStore } from "@/stores/impersonation-store";
-import { readStored, removeStored } from "@/lib/safe-storage";
+import { readStored, removeStored, writeStored } from "@/lib/safe-storage";
 
 // Client orchestration for admin "view as" / impersonation (US-581).
 //
@@ -147,33 +147,127 @@ export async function stopImpersonation(): Promise<void> {
   // copy of their refresh token outlives the stop — which the person who just
   // clicked Exit is the only one placed to act on. Stashed rather than toasted
   // because the caller hard-reloads immediately; the admin page picks it up.
+  //
+  // US-3378: THERE ARE THREE ANSWERS HERE, NOT TWO. This block used to act only
+  // on an explicit `revoked === false`. edgeFetch does not throw on a non-2xx
+  // (see its header comment: callers still inspect res.ok), so a 500, a 403 or
+  // an HTML error page from a proxy yields a body with no `revoked` key, takes
+  // the same branch a clean success takes, and the warning disappears without a
+  // trace. The failure direction is the unsafe one: nobody checked, and the
+  // sessions may well still be live. "We could not tell" now says so.
+  let warning: { status: RevokeWarningStatus; detail: string } | null = null;
   try {
     const res = await edgeFetch("/api/admin/impersonation/stop", {
       method: "POST",
       silentGate: true,
       json: { target_id: record.target.id },
     });
-    const body = await res.json().catch(() => null);
-    if (body && body.revoked === false) {
-      sessionStorage.setItem(REVOKE_WARNING_KEY, record.target.email);
+    if (!res.ok) {
+      warning = { status: "unknown", detail: `the server answered HTTP ${res.status}` };
+    } else {
+      const body = (await res.json().catch(() => null)) as { revoked?: unknown } | null;
+      if (!body || typeof body !== "object") {
+        warning = { status: "unknown", detail: "the response could not be read" };
+      } else if (body.revoked === false) {
+        warning = { status: "not-revoked", detail: "" };
+      } else if (body.revoked !== true) {
+        // A 200 that forgot to say. Same unknown: an older or proxied build
+        // answering `{ ok: true }` must not read as a confirmed revoke.
+        warning = { status: "unknown", detail: "the response did not say" };
+      }
     }
   } catch {
-    // ignore — the start was already audited; stop is a convenience record.
+    // The start was already audited, so the exit still proceeds, but a request
+    // that never completed is exactly the case the old `catch {}` hid.
+    warning = { status: "unknown", detail: "the request did not complete" };
+  }
+  if (warning) {
+    writeStored(
+      REVOKE_WARNING_KEY,
+      JSON.stringify({ email: record.target.email, ...warning }),
+      "session",
+    );
   }
 
   useImpersonationStore.getState().clear();
 }
 
 /**
- * One-shot handoff for "the stop did not revoke", set by [stopImpersonation] and
- * read once by the admin page it reloads into. sessionStorage rather than state
- * because the exit is a full page load, which is also why it must be cleared on
- * read: a warning that reappears on every later visit stops being read.
+ * `not-revoked`: the server checked and said the target's sessions are STILL LIVE.
+ * `unknown`: the check could not run, so nobody knows either way. Treated as
+ *                 a warning rather than as silence, because the only safe reading
+ *                 of an unanswered revoke is that it did not happen.
+ */
+export type RevokeWarningStatus = "not-revoked" | "unknown";
+
+export interface RevokeWarning {
+  email: string;
+  status: RevokeWarningStatus;
+  /** One clause, admin-facing, saying why `unknown`. Empty for `not-revoked`. */
+  detail: string;
+}
+
+/**
+ * One-shot handoff for "the stop did not revoke, or we could not tell", set by
+ * [stopImpersonation] and read once by the admin page it reloads into.
+ * sessionStorage rather than state because the exit is a full page load, which
+ * is also why it must be cleared on read: a warning that reappears on every
+ * later visit stops being read.
  */
 export const REVOKE_WARNING_KEY = "gt.impersonation.revokeFailed";
 
-export function takeRevokeWarning(): string | null {
-  const email = readStored(REVOKE_WARNING_KEY, "session");
-  if (email) removeStored(REVOKE_WARNING_KEY, "session");
-  return email;
+export function takeRevokeWarning(): RevokeWarning | null {
+  const raw = readStored(REVOKE_WARNING_KEY, "session");
+  if (!raw) return null;
+  removeStored(REVOKE_WARNING_KEY, "session");
+
+  let parsed: unknown = null;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    // Pre-US-3378 writers stashed the bare email. A tab that exits during a
+    // deploy can still be holding one, and the old value only ever meant the
+    // server said not-revoked.
+    return { email: raw, status: "not-revoked", detail: "" };
+  }
+
+  const value = parsed as Partial<RevokeWarning> | null;
+  if (!value || typeof value.email !== "string" || !value.email) return null;
+  return {
+    email: value.email,
+    status: value.status === "unknown" ? "unknown" : "not-revoked",
+    detail: typeof value.detail === "string" ? value.detail : "",
+  };
+}
+
+/**
+ * The words the admin actually reads, kept beside the state machine that decides
+ * between them rather than in the page, so a test can drive the non-2xx path all
+ * the way to the sentence instead of asserting that a status code is inspected.
+ *
+ * The two titles must stay different: "we did not sign them out" and "we could
+ * not tell whether we signed them out" call for the same urgency but not the
+ * same next step, and collapsing them is the bug US-3378 fixed.
+ */
+export function revokeWarningToast(warning: RevokeWarning): {
+  title: string;
+  description: string;
+} {
+  if (warning.status === "unknown") {
+    return {
+      title: "We could not confirm they were signed out",
+      description:
+        `The sign-out check for ${warning.email} did not run (${warning.detail}), ` +
+        `so treat their sessions as still live. Ask them to sign out everywhere, ` +
+        `or suspend the account if this was a security exit.`,
+    };
+  }
+  return {
+    title: "Their sessions were not signed out",
+    description:
+      `${warning.email} is still signed in on any device that was already logged in, ` +
+      `and any copy of their session stays valid until it expires on its own. ` +
+      `Ask them to sign out everywhere, or suspend the account if this was a ` +
+      `security exit.`,
+  };
 }

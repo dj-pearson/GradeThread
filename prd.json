@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-3379",
+  "nextId": "US-3380",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -4911,17 +4911,18 @@
       "priority": 5
     },
     {
-      "id": "US-3378",
+      "id": "US-3379",
       "passes": false,
-      "title": "A failed session-revoke check silently drops the warning that an impersonated seller is still signed in",
-      "description": "Found 2026-09-11 by US-3375's sweep of every `edgeFetch` in `src/` that parses a body without reading status. It is the nearest relative of that bug and the only one of the three with teeth.\n\n`src/lib/impersonation.ts:151` acts only on an explicit `revoked === false`. A non-2xx answer has no `revoked` key at all, so the code takes the same branch it would take on a clean success, and **the warning that the target's own sessions are still live never appears**.\n\nSame shape as US-3375: a missing field reads as fine. Lower stakes, because it is a warning rather than a verdict, and the path is already documented as best-effort.\n\nIt is still an admin acting as a seller while that seller may be signed in at the same time, and the one signal that says so can vanish without a trace.\n\nTwo other sites from the same sweep, both fine but worth recording so nobody re-opens them: `src/hooks/use-forecast.ts:41` fails ABSENT (no number rather than a wrong one) and `src/hooks/use-verified.ts:113` fails CLOSED (a handle reads as taken, never as available). Both degrade in the safe direction; only this one drops a warning.\n\nThe sweep also found **21** `edgeFetch` calls sitting in statement position with the response bound to nothing. Three were spot-checked and all three are deliberate and commented (`signup-consent.ts:54`, `admin/grading.tsx:368`, `use-pending-revises.ts:157`). The other 18 are unexamined and are the second half of this story.",
+      "title": "A visitor is told they are in the waitlist queue when no waitlist row was written",
+      "description": "Found 2026-09-11 by US-3378's sweep of every statement-position `edgeFetch` in `src/`. It is the one site in that sweep whose own comment describes the defect it still has.\n\n`src/pages/waitlist-pending.tsx:32` fires an `edgeFetch` and binds the response to nothing. **On a non-2xx no waitlist row is created, and the page still says the visitor is in the queue.**\n\nThe comment there says the failure is deliberately silent, and it is RIGHT about the visitor: there is nothing they can do about it, and an error page at that moment is worse than useless. That reasoning is sound and should survive.\n\nIt is wrong about the operator. Nobody finds out. A visitor who believes they are on the list and is not will conclude the product ignored them, and the only person who could fix it has no signal at all.\n\nSo this is not a one-line fix and that is why it was not done inside US-3378. The answer is a retry, or an operator signal, or both, and which one is a design call.\n\nTwo nearby sites were classified in the same sweep and left alone deliberately, so do not re-open them: `src/lib/affiliate.ts:194` clears the ref in `finally` regardless, so a 5xx loses a real referral permanently, and that is a documented single-shot idempotent trade where retrying risks double-credit. `src/lib/web-push-client.ts:116` leaves a dead endpoint row that `notify.ts:362` prunes on the push service's own 404 or 410.",
       "acceptanceCriteria": [
-        "The non-2xx case is reproduced before anything changes, because the whole defect is that it looks identical to success",
-        "A check that could not run is distinguishable from a check that passed, in whatever the admin sees; 'we could not tell' is a third answer here too",
-        "The remaining 18 unexamined edgeFetch calls in statement position are each classified as deliberate or not, since three were checked and all three were fine, which is exactly the sample size that proves nothing",
-        "A test drives the non-2xx path and asserts the admin is told, rather than asserting the status is read"
+        "The non-2xx case is reproduced before anything changes, since the page currently looks identical either way",
+        "The visitor still sees no error at that moment, because that part of the current reasoning is right and is the reason this is not a one-liner",
+        "The operator gets a signal when a waitlist join is lost, and the story says where that signal goes and who reads it; a log line nobody reads is the failure this repo has four documented instances of",
+        "If a retry is chosen, it is proved not to double-write, since a waitlist is exactly the table where a duplicate is visible to a human",
+        "A test drives the non-2xx path and asserts both halves: the visitor sees the same page, and the operator signal fires"
       ],
-      "priority": 8
+      "priority": 9
     }
   ]
 }
