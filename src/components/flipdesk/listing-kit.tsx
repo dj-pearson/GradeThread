@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { type ReactNode, useEffect, useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { toastError } from "@/lib/toast-error";
@@ -63,6 +63,11 @@ import {
 } from "@/lib/lister-extension";
 import { MARKETPLACE_EXTENSION_FLOW } from "@/lib/constants";
 import { useCrossPostChannels } from "@/hooks/use-cross-post-channels";
+import {
+  type ChannelOverrides,
+  readChannelOverrides,
+  resolveChannelTitle,
+} from "@/lib/channel-copy";
 import { kitPlatformsFor } from "@/lib/kit-platforms";
 import { edgeFetch } from "@/lib/edge-fetch";
 import {
@@ -156,9 +161,13 @@ interface KitFieldProps {
   value: string;
   editable: boolean;
   onChange: (v: string) => void;
+  /** Fired when an editable field loses focus: where a typed change is saved. */
+  onBlur?: () => void;
+  /** A line under the field, e.g. that this channel no longer copies eBay. */
+  footer?: ReactNode;
 }
 
-function KitField({ field, value, editable, onChange }: KitFieldProps) {
+function KitField({ field, value, editable, onChange, onBlur, footer }: KitFieldProps) {
   const status = charStatus(value, field.maxLength);
   return (
     <div className="space-y-1">
@@ -186,18 +195,39 @@ function KitField({ field, value, editable, onChange }: KitFieldProps) {
           aria-label={field.label}
           value={value}
           onChange={(e) => onChange(e.target.value)}
+          onBlur={onBlur}
           className="min-h-[88px] text-sm"
         />
       ) : editable ? (
-        <Input aria-label={field.label} value={value} onChange={(e) => onChange(e.target.value)} className="text-sm" />
+        <Input
+          aria-label={field.label}
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          onBlur={onBlur}
+          className="text-sm"
+        />
       ) : (
         <div className="whitespace-pre-wrap rounded-md border bg-muted/40 px-3 py-2 text-sm">
           {value || <span className="text-muted-foreground">—</span>}
         </div>
       )}
+      {footer}
     </div>
   );
 }
+
+/** The item's own facts, which beat the kit variant's snapshot of them. */
+export interface KitItemFacts {
+  title: string | null;
+  brand: string | null;
+  color: string | null;
+  size: string | null;
+}
+
+/** The free-text fields a seller can give their own words per channel. */
+type CopyKey = "title" | "description";
+const isCopyKey = (key: string): key is CopyKey =>
+  key === "title" || key === "description";
 
 function PlatformPanel({
   platform,
@@ -209,9 +239,21 @@ function PlatformPanel({
   baseName,
   itemId,
   liveDescription,
+  listingId,
+  sharedTitle,
+  itemFacts,
+  overrides,
 }: {
   platform: MarketplacePlatform;
   variant: PlatformKitVariant | undefined;
+  /** The eBay draft's id: where this channel's own words are saved. */
+  listingId: string | null;
+  /** The eBay title. Every channel copies it unless `overrides.title` is set. */
+  sharedTitle: string | null;
+  /** The item's current facts. Null until the read lands. */
+  itemFacts: KitItemFacts | null;
+  /** The seller's own words for this channel (channel-copy.ts). */
+  overrides: ChannelOverrides;
   /**
    * US-3317: what THIS channel costs, off its own sibling `listings` row.
    * Null when the channel has no row yet, which is the only case the shared
@@ -225,19 +267,21 @@ function PlatformPanel({
   baseName: string;
   itemId: string;
   /**
-   * This platform's description re-rendered by the edge from the listing's
-   * description blocks (platform-description.ts). Undefined until the query
-   * lands, and null when the listing has no blocks to render — both fall back
-   * to the stored variant's words. The caller passes `|| undefined` rather
-   * than `?? undefined`: an empty render means there was nothing to render, and
-   * blanking the field the seller is about to cross-post is worse than showing
-   * the words already stored.
+   * This platform's description rendered by the edge (platform-description.ts):
+   * eBay's words and the item's current facts, or the seller's own words for
+   * this channel when they typed some. Undefined until the query lands, and
+   * null when the listing has no blocks to render. The caller passes
+   * `|| undefined` rather than `?? undefined`: an empty render means there was
+   * nothing to render, and blanking the field the seller is about to cross-post
+   * is worse than showing the words already stored.
    */
   liveDescription?: string | null;
 }) {
   const qc = useQueryClient();
   const spec = getMarketplaceSpec(platform);
-  // Local edits to the free-text fields, keyed by field key.
+  // Local edits to the free-text fields, keyed by field key. A title or
+  // description edit is saved as this channel's own words when the field loses
+  // focus, and the local copy is dropped once the saved one is back.
   const [edits, setEdits] = useState<Record<string, string>>({});
   const [downloading, setDownloading] = useState(false);
   const [sending, setSending] = useState(false);
@@ -403,19 +447,95 @@ function PlatformPanel({
     variantPrice: variant.price,
     fallbackPrice,
   }).price;
-  // The description the edge just rendered from this listing's blocks against
-  // the item's CURRENT facts. It replaces the stored variant's string for the
-  // same reason the stepped price replaces the stored price: what the panel
-  // shows and what the extension types must be the one thing. Falls back to the
-  // stored words when the render has not landed (or failed) — yesterday's
-  // wording beats a blank description field.
-  const resolvedDescription = liveDescription ?? variant.description;
-  const priced: PlatformKitVariant =
-    steppedPrice === variant.price && resolvedDescription === variant.description
-      ? variant
-      : { ...variant, price: steppedPrice, description: resolvedDescription };
+  // 2026-09-11 (channel-copy.ts): every channel copies eBay. The variant's
+  // title, description and colour were written once, when the kit ran, so an
+  // item drafted "Gray" and corrected to "Navy Blue" on eBay kept saying Gray
+  // here and the seller retyped the fix into every tab. Now:
+  //   - the title is the eBay title fitted to this channel, unless the seller
+  //     saved their own for it;
+  //   - the description is the edge's render (eBay's words, current facts, or
+  //     the seller's own), and the stored variant is only a fallback while that
+  //     render is in flight;
+  //   - brand, colour and size come from the item.
+  // One resolved variant, for the same reason as the stepped price: what the
+  // panel shows and what the extension types must be the one thing.
+  const ebayTitle = resolveChannelTitle(platform, {
+    sharedTitle,
+    itemTitle: itemFacts?.title,
+  });
+  const resolvedTitle = resolveChannelTitle(platform, {
+    override: overrides.title,
+    sharedTitle,
+    itemTitle: itemFacts?.title,
+  });
+  const resolvedDescription =
+    liveDescription ?? overrides.description ?? variant.description;
+  const priced: PlatformKitVariant = {
+    ...variant,
+    price: steppedPrice,
+    title: resolvedTitle,
+    description: resolvedDescription,
+    brand: itemFacts?.brand || variant.brand,
+    color: itemFacts?.color || variant.color,
+    size: itemFacts?.size || variant.size,
+  };
   const valueOf = (f: FieldSpec) =>
     edits[f.key] ?? fieldValue(f.key, priced);
+
+  // Save (or clear) this channel's own words. `null` means "copy eBay again".
+  const saveChannelCopy = async (key: CopyKey, value: string | null) => {
+    if (!listingId) return;
+    try {
+      const res = await edgeFetch(
+        `/api/flipdesk/description/${listingId}/channel-copy`,
+        { method: "POST", json: { platform, [key]: value } },
+      );
+      if (!res.ok) {
+        const j = (await res.json().catch(() => ({}))) as { error?: string };
+        toast.error(j.error ?? `Couldn't save the ${spec.label} ${key}.`);
+        return;
+      }
+      await qc.invalidateQueries({ queryKey: ["platform-fields", itemId] });
+      await qc.invalidateQueries({ queryKey: ["platform-descriptions"] });
+      setEdits((prev) => {
+        const next = { ...prev };
+        delete next[key];
+        return next;
+      });
+      toast.success(
+        value == null
+          ? `${spec.label} ${key} copies eBay again.`
+          : `${spec.label} ${key} saved. eBay edits won't change it.`,
+      );
+    } catch (err) {
+      toastError(err, `Couldn't save the ${spec.label} ${key}.`);
+    }
+  };
+
+  // A typed title or description becomes this channel's own words when the
+  // field loses focus. Typing it back to eBay's, or clearing it, goes back to
+  // copying eBay.
+  //
+  // A no-op blur still drops the local copy: a leftover edit equal to today's
+  // title would otherwise shadow tomorrow's eBay correction on this tab.
+  const onCopyBlur = (key: CopyKey) => {
+    const typed = edits[key];
+    if (typed === undefined) return;
+    const shown = key === "title" ? resolvedTitle : resolvedDescription;
+    const ebayValue = key === "title"
+      ? ebayTitle
+      : overrides.description == null ? liveDescription : undefined;
+    const next = typed.trim() === "" || typed === ebayValue ? null : typed;
+    if (typed === shown || next === overrides[key]) {
+      setEdits((prev) => {
+        const rest = { ...prev };
+        delete rest[key];
+        return rest;
+      });
+      return;
+    }
+    void saveChannelCopy(key, next);
+  };
 
   // US-725: re-validate the *edited* draft live against the platform's
   // requirements registry (not just the stale generation-time result), so an
@@ -809,15 +929,36 @@ function PlatformPanel({
       )}
 
       <div className="space-y-3">
-        {spec.fields.map((f) => (
-          <KitField
-            key={f.key}
-            field={f}
-            value={valueOf(f)}
-            editable={editableKeys.has(f.key)}
-            onChange={(v) => setEdits((prev) => ({ ...prev, [f.key]: v }))}
-          />
-        ))}
+        {spec.fields.map((f) => {
+          const copyKey = isCopyKey(f.key) ? f.key : null;
+          const own = copyKey != null && overrides[copyKey] != null;
+          return (
+            <KitField
+              key={f.key}
+              field={f}
+              value={valueOf(f)}
+              editable={editableKeys.has(f.key)}
+              onChange={(v) => setEdits((prev) => ({ ...prev, [f.key]: v }))}
+              onBlur={copyKey && listingId ? () => onCopyBlur(copyKey) : undefined}
+              footer={copyKey && listingId ? (
+                <p className="flex flex-wrap items-center gap-x-2 text-[11px] text-muted-foreground">
+                  {own
+                    ? `Your own ${copyKey} for ${spec.label}. eBay edits won't change it.`
+                    : `Copies your eBay ${copyKey}. Type here to use different words on ${spec.label} only.`}
+                  {own && (
+                    <button
+                      type="button"
+                      className="font-medium text-foreground underline underline-offset-2"
+                      onClick={() => void saveChannelCopy(copyKey, null)}
+                    >
+                      Use eBay {copyKey}
+                    </button>
+                  )}
+                </p>
+              ) : null}
+            />
+          );
+        })}
       </div>
     </div>
   );
@@ -1043,7 +1184,8 @@ export function ListingKit({ itemId, baseName }: { itemId: string; baseName?: st
     queryFn: async () => {
       const { data: rows } = await supabase
         .from("listings")
-        .select("id, platform, platform_fields, primary_photo_id, listing_price")
+        // listing_title: the eBay title every channel copies (channel-copy.ts).
+        .select("id, platform, platform_fields, primary_photo_id, listing_price, listing_title")
         .eq("inventory_item_id", itemId)
         .order("created_at", { ascending: false });
       return readKitListings((rows ?? []) as KitListingRow[]);
@@ -1086,13 +1228,17 @@ export function ListingKit({ itemId, baseName }: { itemId: string; baseName?: st
   // Never renders an empty kit - see kitPlatformsFor for the fallback rule.
   const kitPlatforms = useMemo(() => kitPlatformsFor(chosenChannels), [chosenChannels]);
 
+  // The item's price candidates AND its current facts. The facts joined this
+  // read on 2026-09-11 (channel-copy.ts): the title is the last-resort source
+  // for a channel's title, and brand, colour and size beat the kit variant's
+  // snapshot of them. The composer's save invalidates this key.
   const { data: itemPrice } = useQuery({
-    queryKey: ["item-target-price", itemId],
+    queryKey: ["kit-item-facts", itemId],
     queryFn: async () => {
       const [{ data: row }, { data: priced }] = await Promise.all([
         supabase
           .from("inventory_items")
-          .select("target_price")
+          .select("target_price, title, brand, color, size")
           .eq("id", itemId)
           .maybeSingle(),
         // The composer's third source is `item.list_price`, which is NOT a
@@ -1110,8 +1256,14 @@ export function ListingKit({ itemId, baseName }: { itemId: string; baseName?: st
           .limit(1)
           .maybeSingle(),
       ]);
+      const item = row as
+        | (KitItemFacts & { target_price: number | null })
+        | null;
       return {
-        target_price: (row as { target_price: number | null } | null)?.target_price ?? null,
+        target_price: item?.target_price ?? null,
+        facts: item
+          ? { title: item.title, brand: item.brand, color: item.color, size: item.size }
+          : null,
         any_listing_price:
           (priced as { listing_price: number | null } | null)?.listing_price ?? null,
       };
@@ -1190,8 +1342,9 @@ export function ListingKit({ itemId, baseName }: { itemId: string; baseName?: st
           <div>
             <CardTitle>Cross-list copy kit</CardTitle>
             <CardDescription>
-              AI-tailored fields for marketplaces without API push — copy each field
-              into Poshmark, Mercari, Depop, Grailed, or Vinted.
+              Every marketplace copies your eBay title and description, so a fix
+              on eBay reaches them all. Type in a field to use different words on
+              one site only.
               {generatedWithDraft
                 ? " Filled automatically when this draft was generated."
                 : null}
@@ -1259,6 +1412,10 @@ export function ListingKit({ itemId, baseName }: { itemId: string; baseName?: st
                 baseName={baseName ?? `item-${itemId.slice(0, 8)}`}
                 itemId={itemId}
                 liveDescription={liveDescriptions?.[p] || undefined}
+                listingId={draft?.id ?? null}
+                sharedTitle={draft?.listing_title ?? null}
+                itemFacts={itemPrice?.facts ?? null}
+                overrides={readChannelOverrides(draft?.platform_fields?.[p])}
               />
             </TabsContent>
           ))}
@@ -1344,6 +1501,8 @@ export interface KitListingRow {
   platform_fields: Record<string, unknown> | null;
   primary_photo_id: string | null;
   listing_price: number | null;
+  /** The eBay title every channel copies. Optional: older callers omit it. */
+  listing_title?: string | null;
 }
 
 export interface KitListings {

@@ -8184,6 +8184,29 @@ Deno.test({
   },
 });
 
+// ── A seller's own words for one channel (2026-09-11) ──────────────
+//
+// A WRITE onto another tenant's eBay draft. A hole here would let B put their
+// own title on A's Poshmark cross-post, which A would then send without
+// reading, because the whole point of the default is that nobody re-reads it.
+Deno.test({
+  name: "B cannot set a channel title on A's listing",
+  ignore: !CONFIGURED || !Deno.env.get("TEST_USER_A_LISTING_ID"),
+  fn: async () => {
+    const listingId = Deno.env.get("TEST_USER_A_LISTING_ID")!;
+    const res = await fetch(
+      `${BASE}/api/flipdesk/description/${listingId}/channel-copy`,
+      {
+        method: "POST",
+        headers: authHeaders(B_JWT!),
+        body: JSON.stringify({ platform: "poshmark", title: "Owned by B" }),
+      },
+    );
+    await res.body?.cancel();
+    assertDenied(res.status, "POST channel-copy");
+  },
+});
+
 // ── The extension's publish confirmation (2026-09-07) ──────────────
 //
 // POST /api/grading/public/listed-confirm takes an ITEM id and flips a listing

@@ -2379,6 +2379,12 @@ export function FlipdeskComposerPage({
       // below would keep showing — and sending — the render from before the
       // edit, which is the exact staleness the block model exists to end.
       await qc.invalidateQueries({ queryKey: ["platform-descriptions"] });
+      // And the TITLE and item facts, which every channel now copies too
+      // (channel-copy.ts). The kit reads the eBay title off the draft row and
+      // brand/colour/size off the item; without these it showed the old ones
+      // until a reload.
+      await qc.invalidateQueries({ queryKey: ["platform-fields", item.id] });
+      await qc.invalidateQueries({ queryKey: ["kit-item-facts", item.id] });
       markSaved({
         ...syncCascadedCategory(itemPatch),
         ...adoptSyncedTitle(titlePatch),

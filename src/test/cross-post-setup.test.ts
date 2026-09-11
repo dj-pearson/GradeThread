@@ -238,7 +238,9 @@ describe("a draft with no stored price still cross-posts one (US-2736)", () => {
     // was meant to end exactly that.
     // NOT list_price on inventory_items — that column is on the items_full
     // VIEW, and asking this table for it fails the whole query.
-    expect(src).toContain('.select("target_price")');
+    // 2026-09-11: the same read now carries the item's facts too
+    // (channel-copy.ts), and still no list_price.
+    expect(src).toContain('.select("target_price, title, brand, color, size")');
     expect(src).not.toContain('"target_price, list_price"');
     // US-3317: the query now returns every platform's row, so the eBay draft
     // is named `draft` rather than being the whole result.
@@ -271,10 +273,11 @@ describe("a draft with no stored price still cross-posts one (US-2736)", () => {
   });
 
   it("it never invents a price", () => {
-    // No price anywhere means the variant is left exactly as stored rather than
-    // being given a number nobody chose. Two guards carry that now: the step
-    // maths only runs on a price above zero, and an unchanged value returns the
-    // original object rather than a copy.
+    // No price anywhere means no number nobody chose. The step maths only runs
+    // on a price above zero. (The second guard, "an unchanged value returns the
+    // original object", went on 2026-09-11: the resolved variant now always
+    // carries the eBay title and the item's facts as well, so it is always a
+    // copy. The copy's price is still steppedPrice and nothing else.)
     const src = code(KIT);
     // US-3317: the precedence moved into resolveKitPrice, which orders the three
     // candidates and hands them to the shared resolveSiblingPrice. "First
@@ -288,7 +291,7 @@ describe("a draft with no stored price still cross-posts one (US-2736)", () => {
     // src/test/desk-queue-price-parity.test.ts, which asserts 0 cents on BOTH
     // the desk and the queued path.
     expect(src).toContain("const steppedPrice = resolveKitPrice(");
-    expect(src).toContain("steppedPrice === variant.price");
+    expect(src).toContain("price: steppedPrice,");
   });
 });
 
@@ -312,7 +315,7 @@ describe("a price is sent in the units the marketplace accepts (US-2739)", () =>
     // and the queue share instead of by a third expression living here.
     expect(src).toContain("const steppedPrice = resolveKitPrice(");
     expect(src).toContain("resolveSiblingPrice(platform, {");
-    expect(src).toContain("steppedPrice === variant.price");
+    expect(src).toContain("price: steppedPrice,");
   });
 
   // THE ROUNDING RULE ITSELF IS TESTED IN src/test/step-price.test.ts, against

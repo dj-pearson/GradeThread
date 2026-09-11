@@ -115,6 +115,7 @@ import {
 import { withTemplateBlock } from "./listing-template.ts";
 import { withRetry } from "./retry.ts";
 import { supabaseAdmin } from "./supabase.ts";
+import { CHANNEL_COPY_KEYS, readChannelOverrides } from "./channel-copy.ts";
 import { ensurePassportForGradeReport } from "./passport-write.ts";
 import {
   type AspectSourceMap,
@@ -4053,7 +4054,16 @@ export async function generatePlatformVariants(
   const now = new Date().toISOString();
   const merged: Record<string, unknown> = { ...(d.platform_fields ?? {}) };
   for (const v of variants) {
+    // The seller's own words for this channel (channel-copy.ts) survive a
+    // regenerate. The entry below replaces the platform's blob wholesale, and a
+    // "Regenerate" that silently threw away a title the seller typed would put
+    // the eBay one back on that marketplace without a word.
+    const kept = readChannelOverrides(merged[v.platform]);
     merged[v.platform] = {
+      ...(kept.title != null ? { [CHANNEL_COPY_KEYS.title]: kept.title } : {}),
+      ...(kept.description != null
+        ? { [CHANNEL_COPY_KEYS.description]: kept.description }
+        : {}),
       title: v.title,
       description: v.description,
       condition: v.condition,

@@ -19,6 +19,7 @@ import {
   type ValidationResult,
 } from "./marketplace-specs.ts";
 import { trimToLimit } from "./platform-variants.ts";
+import { readChannelOverrides, resolveChannelTitle } from "./channel-copy.ts";
 // US-2739 owns the unit boundary. Every dollars<->cents crossing in this file
 // goes through it; there is no fifth one.
 import {
@@ -150,17 +151,28 @@ export function mapSiblingListingFields(
   priceOverride?: number | null,
 ): SiblingListingFields {
   const spec = getMarketplaceSpec(platform);
-  const titleMax = spec?.titleMaxLength ?? null;
   const descMax = spec?.descriptionMaxLength ?? null;
 
-  const rawTitle = variant?.title ?? source.listing_title ?? "";
-  const rawDesc = variant?.description ?? source.listing_description ?? "";
+  // 2026-09-11 (channel-copy.ts): the title copies eBay. The variant's title
+  // was a snapshot from whenever the kit ran, so a correction made on eBay
+  // never reached the sibling. Only the seller's per-channel override beats it.
+  //
+  // The DESCRIPTION keeps its old precedence on this path, deliberately. These
+  // are the API channels (Shopify, Etsy, Depop's API, Whatnot), and the source
+  // draft's description is eBay HTML; which of them accept HTML differs per
+  // adapter and was not re-checked in this change.
+  const overrides = readChannelOverrides(variant);
+  const rawDesc = overrides.description ?? variant?.description ??
+    source.listing_description ?? "";
 
   // A platform with no title field (Depop: titleMaxLength === null) carries no
   // title; every other platform's title is clamped to its cap.
   const listing_title = spec && spec.titleMaxLength == null
     ? null
-    : (trimToLimit(rawTitle, titleMax) || null);
+    : (resolveChannelTitle(platform, {
+      override: overrides.title,
+      sharedTitle: source.listing_title,
+    }) || null);
   const listing_description = trimToLimit(rawDesc, descMax) || null;
 
   // US-2736: the marketplace's own units, once, here. `resolveSiblingPrice` is

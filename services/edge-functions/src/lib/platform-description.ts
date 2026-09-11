@@ -10,10 +10,17 @@
 // marketplaces". A seller who fixed a chest measurement was left with four
 // live listings advertising the old number.
 //
-// THE SPLIT. The variant keeps the platform's own WORDS. Everything derived —
-// attributes, measurements, grade, disclosure, credentials — comes from the
-// same RenderContext eBay renders from, at the moment the payload is built.
-// One item edit therefore moves every channel at once.
+// THE SPLIT. Everything derived — attributes, measurements, grade, disclosure,
+// credentials — comes from the same RenderContext eBay renders from, at the
+// moment the payload is built. One item edit therefore moves every channel at
+// once.
+//
+// THE WORDS, since 2026-09-11, are eBay's too (channel-copy.ts). The variant
+// used to supply its own AI prose here, and that prose froze the item's facts
+// in sentence form: a set corrected from gray to navy stayed "gray" on every
+// channel. renderPlatformDescription still accepts prose, for the tests and for
+// any caller that wants it; the listing-level wrapper at the bottom passes none,
+// and a seller's per-channel override bypasses the blocks entirely.
 //
 // PLAIN TEXT, ALWAYS. None of these marketplaces render HTML in a description;
 // they print the tags. So the block render is flattened with htmlToPlainText
@@ -21,8 +28,9 @@
 // and the grade) is dropped rather than flattened into a wall of duplicated
 // lines.
 //
-// NOTHING HERE DOES I/O except renderPlatformDescriptionsForListing, the impure
-// wrapper at the bottom. The rest is pure and unit-tested.
+// NOTHING HERE DOES I/O except renderPlatformDescriptionsForListing and
+// channelCopyForDraft, the impure wrappers at the bottom. The rest is pure and
+// unit-tested.
 
 import {
   type DescriptionBlock,
@@ -38,6 +46,8 @@ import {
 } from "./description-render.ts";
 import { supabaseAdmin } from "./supabase.ts";
 import type { LengthUnit } from "./measurements.ts";
+import { readChannelOverrides, resolveChannelTitle } from "./channel-copy.ts";
+import { getMarketplaceSpec } from "./marketplace-specs.ts";
 
 /**
  * Blocks that never cross to an extension marketplace.
@@ -237,14 +247,87 @@ export async function renderPlatformDescriptionsForListing(
 
   const out: Record<string, string> = {};
   for (const req of requests) {
-    const v = stored[req.platform];
-    const prose = v && typeof v === "object" && !Array.isArray(v)
-      ? (v as Record<string, unknown>).description
-      : null;
-    out[req.platform] = renderPlatformDescription(blocks, ctx, {
-      prose: typeof prose === "string" ? prose : null,
-      maxLength: req.maxLength,
-    });
+    out[req.platform] = channelDescription(blocks, ctx, stored[req.platform], req.maxLength);
   }
   return out;
+}
+
+/**
+ * One channel's description, given its `platform_fields[platform]` entry.
+ *
+ * 2026-09-11 (channel-copy.ts): every channel copies eBay. The entry's AI
+ * `description` is NOT passed as prose, because it is a snapshot of the eBay
+ * wording from whenever the kit last ran, and it went stale the first time a
+ * seller corrected a colour. With no prose, platformDescriptionBlocks keeps
+ * eBay's own intro, features and condition.
+ *
+ * A seller's override for this channel is sent EXACTLY as typed, not run
+ * through the blocks. It is the text they saw in the field when they typed it,
+ * and appending derived sections underneath would print measurements they may
+ * already have written into it.
+ */
+export function channelDescription(
+  blocks: DescriptionBlock[],
+  ctx: RenderContext,
+  entry: unknown,
+  maxLength: number | null | undefined,
+): string {
+  const override = readChannelOverrides(entry).description;
+  if (override != null) return capDescription(override.trim(), maxLength);
+  return renderPlatformDescription(blocks, ctx, { prose: null, maxLength });
+}
+
+/** The words each channel gets, as a client that cannot run the rule sees them. */
+export interface ChannelCopy {
+  titles: Record<string, string>;
+  descriptions: Record<string, string>;
+}
+
+/**
+ * Title and description for every requested channel of one eBay draft.
+ *
+ * For a client that renders the kit from a server response (the iOS and
+ * Android Listing Kits read POST /autolister/platform-fields) and so cannot
+ * apply channel-copy.ts itself. Tenant scope is the same as the render above:
+ * the listing is reached through `loadOwnedListing`, and a listing this owner
+ * does not hold yields two empty maps, which the caller reads as "keep what
+ * you had".
+ */
+export async function channelCopyForDraft(
+  listingId: string,
+  ownerId: string,
+  platforms: readonly string[],
+): Promise<ChannelCopy> {
+  const empty: ChannelCopy = { titles: {}, descriptions: {} };
+  if (platforms.length === 0) return empty;
+  const listing = await loadOwnedListing(listingId, ownerId);
+  if (!listing) return empty;
+
+  const { data } = await supabaseAdmin
+    .from("listings")
+    .select("listing_title, platform_fields")
+    .eq("id", listing.id)
+    .maybeSingle();
+  const row = (data ?? null) as {
+    listing_title: string | null;
+    platform_fields: Record<string, unknown> | null;
+  } | null;
+  const stored = row?.platform_fields ?? {};
+
+  const titles: Record<string, string> = {};
+  for (const platform of platforms) {
+    titles[platform] = resolveChannelTitle(platform, {
+      override: readChannelOverrides(stored[platform]).title,
+      sharedTitle: row?.listing_title ?? null,
+    });
+  }
+  const descriptions = await renderPlatformDescriptionsForListing(
+    listing.id,
+    ownerId,
+    platforms.map((platform) => ({
+      platform,
+      maxLength: getMarketplaceSpec(platform)?.descriptionMaxLength ?? null,
+    })),
+  );
+  return { titles, descriptions };
 }

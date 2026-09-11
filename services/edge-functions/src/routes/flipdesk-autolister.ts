@@ -6,6 +6,7 @@ import { failSafe } from "../lib/http-errors.ts";
 // when the whole batch is looked at at once.
 import { findDuplicatesWithinBatch } from "../lib/title-similarity.ts";
 import { generateListing, generatePlatformVariants } from "../lib/ai-listing.ts";
+import { channelCopyForDraft } from "../lib/platform-description.ts";
 import { generateKitForDraft } from "../lib/cross-list-kit.ts";
 import { assemblePublishContext, publishItemForOwner } from "./flipdesk-ebay.ts";
 import { notifyUser } from "../lib/notify.ts";
@@ -2952,6 +2953,11 @@ flipdeskAutolisterRoutes.post("/platform-fields", async (c) => {
     // pass) — reserved atomically before the call, refunded on failure.
     const result = await withAiAction(ownerId, quota, () =>
       generatePlatformVariants(itemId, ownerId, platforms));
+    // 2026-09-11 (channel-copy.ts): every channel copies eBay, and this is the
+    // endpoint the iOS and Android kits render from, so the rule is applied to
+    // the response rather than left to three clients. Reads the draft the
+    // generator just wrote, by the id it returned and scoped to the owner.
+    const copy = await channelCopyForDraft(result.listingId, ownerId, platforms);
     // US-745: attach each platform's field spec (display label + per-field
     // char limits + required flags + photo cap + the "verify these" source
     // note) so a thin native client (the iOS Listing Kit) can render a
@@ -2962,6 +2968,8 @@ flipdeskAutolisterRoutes.post("/platform-fields", async (c) => {
       const spec = getMarketplaceSpec(v.platform);
       return {
         ...v,
+        title: copy.titles[v.platform] ?? v.title,
+        description: copy.descriptions[v.platform] || v.description,
         spec: spec
           ? {
             label: spec.label,

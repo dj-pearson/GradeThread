@@ -83,7 +83,13 @@ describe("apply-to-drafts cannot reach a published listing (AC3)", () => {
     // parameter, the safety property would move into the browser.
     expect(body).not.toMatch(/status\s*[:=]\s*(body|params|c\.req)/);
     const route = read("services/edge-functions/src/routes/flipdesk-description.ts");
-    const handler = route.slice(route.indexOf('.post("/snippets/:snippetId/apply"'));
+    // Bounded to THIS handler: it used to run to the end of the file, so the
+    // next route added below it (channel-copy, which does read a body) failed
+    // a check that was never about it.
+    const start = route.indexOf('.post("/snippets/:snippetId/apply"');
+    const next = route.indexOf("flipdeskDescriptionRoutes.", start + 1);
+    const handler = route.slice(start, next === -1 ? undefined : next);
+    expect(handler).toContain("applySnippetToDrafts");
     expect(handler).not.toContain("c.req.json()");
   });
 
