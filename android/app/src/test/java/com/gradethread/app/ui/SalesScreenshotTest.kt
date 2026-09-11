@@ -10,7 +10,6 @@ import com.gradethread.app.money.SaleRow
 import com.gradethread.app.money.SalesActions
 import com.gradethread.app.money.SalesContent
 import com.gradethread.app.money.SalesSummary
-import com.gradethread.app.ui.theme.GradeThreadTheme
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
@@ -118,7 +117,7 @@ class SalesScreenshotTest {
 
     private fun capture(name: String, dark: Boolean = false, content: @Composable () -> Unit) {
         captureRoboImage("src/test/screenshots/$name.png") {
-            GradeThreadTheme(darkTheme = dark) {
+            ScreenshotTheme(darkTheme = dark) {
                 Surface { content() }
             }
         }

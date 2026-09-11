@@ -11,7 +11,6 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -28,6 +27,7 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.gradethread.app.R
 import com.gradethread.app.grading.GradeTier
+import com.gradethread.app.ui.components.BusySpinner
 import com.gradethread.app.ui.theme.BrandSecondaryButton
 import com.gradethread.app.ui.theme.Spacing
 
@@ -90,7 +90,7 @@ fun CreditPackSheet(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(Spacing.xs),
             ) {
-                CircularProgressIndicator(Modifier.padding(Spacing.xxs))
+                BusySpinner(Modifier.padding(Spacing.xxs))
                 Text(
                     if (phase == CreditTopUpFlow.State.Purchasing) {
                         stringResource(R.string.credits_opening_play)

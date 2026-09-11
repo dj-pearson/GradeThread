@@ -7,7 +7,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Warning
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -79,7 +78,7 @@ fun ErrorStateView(
             textAlign = TextAlign.Center,
         )
         if (isRetrying) {
-            CircularProgressIndicator(modifier = Modifier.size(24.dp))
+            BusySpinner(modifier = Modifier.size(24.dp))
         } else {
             BrandSecondaryButton(text = retryTitle) {
                 scope.launch {

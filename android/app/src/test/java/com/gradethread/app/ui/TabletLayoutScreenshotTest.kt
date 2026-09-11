@@ -19,7 +19,6 @@ import com.gradethread.app.money.MoneyMetrics
 import com.gradethread.app.money.MoneyUiState
 import com.gradethread.app.money.MoneyViewModel
 import com.gradethread.app.sync.db.InventoryItemEntity
-import com.gradethread.app.ui.theme.GradeThreadTheme
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
@@ -155,7 +154,7 @@ class TabletLayoutScreenshotTest {
 
     private fun capture(name: String, content: @Composable () -> Unit) {
         captureRoboImage("src/test/screenshots/$name.png") {
-            GradeThreadTheme { Surface { content() } }
+            ScreenshotTheme { Surface { content() } }
         }
     }
 }

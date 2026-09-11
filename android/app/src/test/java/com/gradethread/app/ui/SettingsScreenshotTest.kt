@@ -9,7 +9,6 @@ import com.gradethread.app.settings.AccountProfile
 import com.gradethread.app.settings.SettingsActions
 import com.gradethread.app.settings.SettingsContent
 import com.gradethread.app.settings.SettingsViewModel
-import com.gradethread.app.ui.theme.GradeThreadTheme
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
@@ -155,7 +154,7 @@ class SettingsScreenshotTest {
 
     private fun capture(name: String, dark: Boolean = false, content: @Composable () -> Unit) {
         captureRoboImage("src/test/screenshots/$name.png") {
-            GradeThreadTheme(darkTheme = dark) {
+            ScreenshotTheme(darkTheme = dark) {
                 Surface { content() }
             }
         }

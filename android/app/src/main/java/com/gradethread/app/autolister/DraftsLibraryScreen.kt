@@ -115,6 +115,8 @@ fun DraftsLibraryContent(
     state: AutolisterViewModel.State,
     actions: DraftsLibraryActions,
     modifier: Modifier = Modifier,
+    now: Instant = Instant.now(),
+    zone: ZoneId = ZoneId.systemDefault(),
     draftEditor: @Composable (DraftListing, () -> Unit, (String, String) -> Unit) -> Unit =
         { draft, onDismiss, onSave ->
             DraftEditorDialog(draft, state.busy, onDismiss, onSave)
@@ -182,6 +184,8 @@ fun DraftsLibraryContent(
                         draft = draft,
                         selected = draft.id in state.selected,
                         busy = state.busy,
+                        now = now,
+                        zone = zone,
                         onToggle = { actions.toggle(draft.id) },
                         onEdit = { editing = draft },
                         onDelete = { actions.deleteDraft(draft) },
@@ -311,6 +315,8 @@ private fun DraftCard(
     draft: DraftListing,
     selected: Boolean,
     busy: Boolean,
+    now: Instant,
+    zone: ZoneId,
     onToggle: () -> Unit,
     onEdit: () -> Unit,
     onDelete: () -> Unit,
@@ -358,7 +364,7 @@ private fun DraftCard(
         // drop — the cron simply hasn't reached it yet.
         draft.scheduledPublishAt?.let {
             Text(
-                ScheduledDrops.statusLine(it, ZoneId.systemDefault(), Instant.now()).text(),
+                ScheduledDrops.statusLine(it, zone, now).text(),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )

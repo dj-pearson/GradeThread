@@ -7,7 +7,6 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -21,6 +20,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.gradethread.app.R
+import com.gradethread.app.ui.components.BusySpinner
 import com.gradethread.app.ui.theme.Spacing
 
 /**
@@ -69,7 +69,7 @@ fun ConsumerCreditPackSheet(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(Spacing.xs),
             ) {
-                CircularProgressIndicator(Modifier.padding(Spacing.xxs))
+                BusySpinner(Modifier.padding(Spacing.xxs))
                 Text(
                     stringResource(R.string.credits_opening_play),
                     style = MaterialTheme.typography.bodySmall,

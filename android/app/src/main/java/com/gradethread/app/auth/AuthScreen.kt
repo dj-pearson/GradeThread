@@ -8,7 +8,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
@@ -31,6 +30,7 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.compose.foundation.text.KeyboardOptions
 import com.gradethread.app.R
+import com.gradethread.app.ui.components.BusyBar
 import com.gradethread.app.ui.text
 import com.gradethread.app.ui.TestTags
 import com.gradethread.app.ui.theme.BrandPrimaryButton
@@ -141,7 +141,7 @@ fun AuthContent(state: AuthViewModel.State, actions: AuthActions, modifier: Modi
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
 
-        if (state.busy) LinearProgressIndicator(Modifier.fillMaxWidth())
+        if (state.busy) BusyBar(Modifier.fillMaxWidth())
 
         if (state.isSignUp) {
             OutlinedTextField(

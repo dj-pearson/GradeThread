@@ -13,12 +13,13 @@ import com.gradethread.app.autolister.DraftListing
 import com.gradethread.app.autolister.DraftsLibraryActions
 import com.gradethread.app.autolister.DraftsLibraryContent
 import com.gradethread.app.autolister.JobStatus
-import com.gradethread.app.ui.theme.GradeThreadTheme
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
+import java.time.Instant
+import java.time.ZoneId
 
 /**
  * US-2902 AC3: goldens over the draft listings waiting to go live.
@@ -77,6 +78,29 @@ class DraftsLibraryScreenshotTest {
         ),
     )
 
+    /**
+     * ⚠ THE CLOCK AND THE ZONE ARE FIXTURE VALUES, NOT THE MACHINE'S
+     * (US-3311). `DraftCard` renders
+     * `ScheduledDrops.statusLine(scheduledAt, zone, now)`, which chooses
+     * between "Publishes <when>" and "Was due <when> - publishing on the next
+     * run", and it formats that timestamp in the reader's zone. Both used to
+     * come from the host: `Instant.now()` and `ZoneId.systemDefault()`.
+     *
+     * That made these eight goldens undrawable twice over. The Carhartt draft
+     * is scheduled for 2026-09-02, so the line flipped to "Was due" on
+     * 2026-09-03 and the extra wrapped line pushed every card below it down -
+     * 10 percent of the image, on every one of them. And the same PNG rendered
+     * "9:00 AM" on a UTC-5 developer machine and "2:00 PM" on a UTC runner, so
+     * no single recording could ever have been green in both places.
+     *
+     * Pinning both makes the golden a statement about the layout of a
+     * scheduled row rather than about the day it was recorded. The real
+     * branching logic is covered by ScheduledDropsTest, which is where a
+     * boundary case belongs anyway.
+     */
+    private val fixedNow: Instant = Instant.parse("2026-09-01T12:00:00Z")
+    private val fixedZone: ZoneId = ZoneId.of("UTC")
+
     private val loaded = AutolisterViewModel.State(drafts = drafts)
 
     private val running = AutolisterBatch(
@@ -89,18 +113,23 @@ class DraftsLibraryScreenshotTest {
 
     @Test
     fun drafts_light() = capture("screen-drafts-light") {
-        DraftsLibraryContent(loaded, DraftsLibraryActions())
+        DraftsLibraryContent(loaded, DraftsLibraryActions(), now = fixedNow, zone = fixedZone)
     }
 
     @Test
     fun drafts_dark() = capture("screen-drafts-dark", dark = true) {
-        DraftsLibraryContent(loaded, DraftsLibraryActions())
+        DraftsLibraryContent(loaded, DraftsLibraryActions(), now = fixedNow, zone = fixedZone)
     }
 
     /** Nothing drafted yet. */
     @Test
     fun empty_light() = capture("screen-drafts-empty-light") {
-        DraftsLibraryContent(AutolisterViewModel.State(), DraftsLibraryActions())
+        DraftsLibraryContent(
+            AutolisterViewModel.State(),
+            DraftsLibraryActions(),
+            now = fixedNow,
+            zone = fixedZone,
+        )
     }
 
     /** Still loading. */
@@ -109,6 +138,8 @@ class DraftsLibraryScreenshotTest {
         DraftsLibraryContent(
             AutolisterViewModel.State(loading = true),
             DraftsLibraryActions(),
+            now = fixedNow,
+            zone = fixedZone,
         )
     }
 
@@ -118,13 +149,20 @@ class DraftsLibraryScreenshotTest {
         DraftsLibraryContent(
             loaded.copy(selected = setOf("d1", "d2")),
             DraftsLibraryActions(),
+            now = fixedNow,
+            zone = fixedZone,
         )
     }
 
     /** A batch moving along. Compare with the stalled capture below. */
     @Test
     fun batchRunning_light() = capture("screen-drafts-batch-light") {
-        DraftsLibraryContent(loaded.copy(batch = running), DraftsLibraryActions())
+        DraftsLibraryContent(
+            loaded.copy(batch = running),
+            DraftsLibraryActions(),
+            now = fixedNow,
+            zone = fixedZone,
+        )
     }
 
     /**
@@ -136,6 +174,8 @@ class DraftsLibraryScreenshotTest {
         DraftsLibraryContent(
             loaded.copy(batch = running, stalled = true),
             DraftsLibraryActions(),
+            now = fixedNow,
+            zone = fixedZone,
         )
     }
 
@@ -167,6 +207,8 @@ class DraftsLibraryScreenshotTest {
                 ),
             ),
             DraftsLibraryActions(),
+            now = fixedNow,
+            zone = fixedZone,
         )
     }
 
@@ -188,6 +230,8 @@ class DraftsLibraryScreenshotTest {
                 ),
             ),
             DraftsLibraryActions(),
+            now = fixedNow,
+            zone = fixedZone,
         )
     }
 
@@ -197,12 +241,14 @@ class DraftsLibraryScreenshotTest {
         DraftsLibraryContent(
             loaded.copy(errorMessage = UiMessage(R.string.autolister_unreachable)),
             DraftsLibraryActions(),
+            now = fixedNow,
+            zone = fixedZone,
         )
     }
 
     private fun capture(name: String, dark: Boolean = false, content: @Composable () -> Unit) {
         captureRoboImage("src/test/screenshots/$name.png") {
-            GradeThreadTheme(darkTheme = dark) {
+            ScreenshotTheme(darkTheme = dark) {
                 Surface { content() }
             }
         }

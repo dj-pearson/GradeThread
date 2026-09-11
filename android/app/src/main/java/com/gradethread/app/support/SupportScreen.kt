@@ -11,7 +11,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
@@ -31,6 +30,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.gradethread.app.ui.components.BusySpinner
 import com.gradethread.app.ui.text
 import com.gradethread.app.ui.theme.BrandPrimaryButton
 import com.gradethread.app.ui.theme.BrandSecondaryButton
@@ -124,7 +124,7 @@ fun SupportContent(state: SupportViewModel.State, actions: SupportActions, modif
             state.loading && state.tickets.isEmpty() -> Row(
                 Modifier.fillMaxWidth().padding(Spacing.xl),
                 horizontalArrangement = Arrangement.Center,
-            ) { CircularProgressIndicator() }
+            ) { BusySpinner() }
 
             state.loadError != null -> Column(Modifier.fillMaxWidth().cardStyle()) {
                 Text(state.loadError!!.text(), style = MaterialTheme.typography.bodyMedium)

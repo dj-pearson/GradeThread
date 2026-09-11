@@ -11,7 +11,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
@@ -44,6 +43,7 @@ import com.gradethread.app.marketplaces.CustomTabsLauncher
 import com.gradethread.app.marketplaces.publish.PublishSheet
 import com.gradethread.app.measure.MeasurementPhotoEditorSheet
 import com.gradethread.app.marketplaces.QUEUED_NOTICE
+import com.gradethread.app.ui.components.BusySpinner
 import com.gradethread.app.ui.theme.BrandPrimaryButton
 import com.gradethread.app.ui.theme.BrandSecondaryButton
 import com.gradethread.app.ui.theme.Spacing
@@ -255,7 +255,7 @@ fun ItemCanvasContent(
 ) {
     when {
         state.loading -> Box(modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            CircularProgressIndicator()
+            BusySpinner()
         }
         // A deleted item, or one that was never this seller's. Named rather
         // than shown as an empty form, because an empty form invites a save

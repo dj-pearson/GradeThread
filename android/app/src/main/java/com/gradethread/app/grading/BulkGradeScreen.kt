@@ -14,7 +14,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -34,6 +33,7 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.gradethread.app.billing.CreditPackSheet
 import com.gradethread.app.billing.TopUpSurface
+import com.gradethread.app.ui.components.BusySpinner
 import com.gradethread.app.ui.theme.BrandPrimaryButton
 import com.gradethread.app.ui.theme.BrandSecondaryButton
 import com.gradethread.app.ui.theme.Spacing
@@ -128,14 +128,14 @@ fun BulkGradeContent(
             BulkGradeMachine.Phase.Loading -> Box(
                 Modifier.fillMaxWidth().padding(Spacing.xl),
                 contentAlignment = Alignment.Center,
-            ) { CircularProgressIndicator() }
+            ) { BusySpinner() }
 
             BulkGradeMachine.Phase.Ready -> ReadyBody(state, actions, creditPackSheet)
 
             BulkGradeMachine.Phase.Submitting -> Box(
                 Modifier.fillMaxWidth().padding(Spacing.xl),
                 contentAlignment = Alignment.Center,
-            ) { CircularProgressIndicator() }
+            ) { BusySpinner() }
 
             is BulkGradeMachine.Phase.Done -> Column(
                 verticalArrangement = Arrangement.spacedBy(Spacing.xs),

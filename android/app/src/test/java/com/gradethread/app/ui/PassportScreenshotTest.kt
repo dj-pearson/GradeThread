@@ -12,7 +12,6 @@ import com.gradethread.app.passport.PassportHandoff
 import com.gradethread.app.passport.PassportTimeline
 import com.gradethread.app.passport.PassportVerifiedSeller
 import com.gradethread.app.passport.PassportViewModel
-import com.gradethread.app.ui.theme.GradeThreadTheme
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import org.junit.Test
@@ -167,7 +166,7 @@ class PassportScreenshotTest {
 
     private fun capture(name: String, dark: Boolean = false, content: @Composable () -> Unit) {
         captureRoboImage("src/test/screenshots/$name.png") {
-            GradeThreadTheme(darkTheme = dark) {
+            ScreenshotTheme(darkTheme = dark) {
                 Surface { content() }
             }
         }

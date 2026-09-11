@@ -5,7 +5,6 @@ import androidx.compose.runtime.Composable
 import com.github.takahirom.roborazzi.RobolectricDeviceQualifiers
 import com.github.takahirom.roborazzi.captureRoboImage
 import com.gradethread.app.R
-import com.gradethread.app.ui.theme.GradeThreadTheme
 import com.gradethread.app.verified.VerifiedActions
 import com.gradethread.app.verified.VerifiedContent
 import com.gradethread.app.verified.VerifiedProfile
@@ -208,7 +207,7 @@ class VerifiedScreenshotTest {
 
     private fun capture(name: String, dark: Boolean = false, content: @Composable () -> Unit) {
         captureRoboImage("src/test/screenshots/$name.png") {
-            GradeThreadTheme(darkTheme = dark) {
+            ScreenshotTheme(darkTheme = dark) {
                 Surface { content() }
             }
         }

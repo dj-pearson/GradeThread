@@ -8,7 +8,6 @@ import com.gradethread.app.analytics.ListingPerformanceActions
 import com.gradethread.app.analytics.ListingPerformanceContent
 import com.gradethread.app.analytics.ListingPerformanceRow
 import com.gradethread.app.analytics.ListingPerformanceViewModel
-import com.gradethread.app.ui.theme.GradeThreadTheme
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
@@ -117,7 +116,7 @@ class ListingPerformanceScreenshotTest {
 
     private fun capture(name: String, dark: Boolean = false, content: @Composable () -> Unit) {
         captureRoboImage("src/test/screenshots/$name.png") {
-            GradeThreadTheme(darkTheme = dark) {
+            ScreenshotTheme(darkTheme = dark) {
                 Surface { content() }
             }
         }

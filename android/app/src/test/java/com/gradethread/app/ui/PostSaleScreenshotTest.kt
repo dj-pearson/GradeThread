@@ -9,7 +9,6 @@ import com.gradethread.app.marketplaces.postsale.PostSaleContent
 import com.gradethread.app.marketplaces.postsale.PostSaleUiState
 import com.gradethread.app.marketplaces.postsale.PostSaleViewModel
 import com.gradethread.app.sync.db.SaleEntity
-import com.gradethread.app.ui.theme.GradeThreadTheme
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
@@ -105,7 +104,7 @@ class PostSaleScreenshotTest {
 
     private fun capture(name: String, dark: Boolean = false, content: @Composable () -> Unit) {
         captureRoboImage("src/test/screenshots/$name.png") {
-            GradeThreadTheme(darkTheme = dark) {
+            ScreenshotTheme(darkTheme = dark) {
                 Surface { content() }
             }
         }

@@ -9,7 +9,6 @@ import com.gradethread.app.consignment.ConsignorDraft
 import com.gradethread.app.consignment.ConsignorsActions
 import com.gradethread.app.consignment.ConsignorsContent
 import com.gradethread.app.consignment.ConsignorsViewModel
-import com.gradethread.app.ui.theme.GradeThreadTheme
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
@@ -137,7 +136,7 @@ class ConsignorsScreenshotTest {
 
     private fun capture(name: String, dark: Boolean = false, content: @Composable () -> Unit) {
         captureRoboImage("src/test/screenshots/$name.png") {
-            GradeThreadTheme(darkTheme = dark) {
+            ScreenshotTheme(darkTheme = dark) {
                 Surface { content() }
             }
         }

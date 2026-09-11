@@ -12,7 +12,6 @@ import com.gradethread.app.disclosure.DisclosurePhoto
 import com.gradethread.app.disclosure.DisclosureText
 import com.gradethread.app.disclosure.DisclosureViewModel
 import com.gradethread.app.disclosure.PhotoAnnotation
-import com.gradethread.app.ui.theme.GradeThreadTheme
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
@@ -132,7 +131,7 @@ class DisclosureScreenshotTest {
 
     private fun capture(name: String, dark: Boolean = false, content: @Composable () -> Unit) {
         captureRoboImage("src/test/screenshots/$name.png") {
-            GradeThreadTheme(darkTheme = dark) {
+            ScreenshotTheme(darkTheme = dark) {
                 Surface { content() }
             }
         }

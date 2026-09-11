@@ -9,7 +9,6 @@ import com.gradethread.app.marketplaces.reconciliation.OrphanEbayListing
 import com.gradethread.app.marketplaces.reconciliation.ReconciliationActions
 import com.gradethread.app.marketplaces.reconciliation.ReconciliationContent
 import com.gradethread.app.marketplaces.reconciliation.ReconciliationViewModel
-import com.gradethread.app.ui.theme.GradeThreadTheme
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
@@ -151,7 +150,7 @@ class ReconciliationScreenshotTest {
 
     private fun capture(name: String, dark: Boolean = false, content: @Composable () -> Unit) {
         captureRoboImage("src/test/screenshots/$name.png") {
-            GradeThreadTheme(darkTheme = dark) {
+            ScreenshotTheme(darkTheme = dark) {
                 Surface { content() }
             }
         }

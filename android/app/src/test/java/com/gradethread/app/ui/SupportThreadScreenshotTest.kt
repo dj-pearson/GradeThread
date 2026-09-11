@@ -11,7 +11,6 @@ import com.gradethread.app.support.SupportThreadActions
 import com.gradethread.app.support.SupportThreadContent
 import com.gradethread.app.support.SupportThreadViewModel
 import com.gradethread.app.support.SupportTicket
-import com.gradethread.app.ui.theme.GradeThreadTheme
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
@@ -149,7 +148,7 @@ class SupportThreadScreenshotTest {
 
     private fun capture(name: String, dark: Boolean = false, content: @Composable () -> Unit) {
         captureRoboImage("src/test/screenshots/$name.png") {
-            GradeThreadTheme(darkTheme = dark) {
+            ScreenshotTheme(darkTheme = dark) {
                 Surface { content() }
             }
         }

@@ -15,7 +15,6 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
@@ -35,6 +34,7 @@ import com.gradethread.app.money.Money
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.gradethread.app.ui.components.BusyBar
 import com.gradethread.app.ui.text
 import com.gradethread.app.ui.theme.BrandPrimaryButton
 import com.gradethread.app.ui.theme.BrandSecondaryButton
@@ -112,7 +112,7 @@ fun ImportContent(state: ImportViewModel.State, actions: ImportActions, modifier
         )
 
         if (state.busy) {
-            LinearProgressIndicator(Modifier.fillMaxWidth().padding(vertical = Spacing.xs))
+            BusyBar(Modifier.fillMaxWidth().padding(vertical = Spacing.xs))
         }
         state.error?.let {
             Text(

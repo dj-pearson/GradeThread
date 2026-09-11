@@ -16,7 +16,6 @@ import com.gradethread.app.marketplaces.publish.PublishSummary
 import com.gradethread.app.marketplaces.publish.PublishViewModel
 import com.gradethread.app.marketplaces.publish.PushResponse
 import com.gradethread.app.templates.ListingTemplate
-import com.gradethread.app.ui.theme.GradeThreadTheme
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
@@ -191,7 +190,7 @@ class PublishSheetScreenshotTest {
 
     private fun capture(name: String, dark: Boolean = false, content: @Composable () -> Unit) {
         captureRoboImage("src/test/screenshots/$name.png") {
-            GradeThreadTheme(darkTheme = dark) {
+            ScreenshotTheme(darkTheme = dark) {
                 Surface { content() }
             }
         }

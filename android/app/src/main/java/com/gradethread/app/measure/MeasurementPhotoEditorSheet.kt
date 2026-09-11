@@ -14,7 +14,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AssistChip
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.InputChip
 import androidx.compose.material3.MaterialTheme
@@ -52,6 +51,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
 import com.gradethread.app.R
 import com.gradethread.app.inventory.MeasurementCatalog
+import com.gradethread.app.ui.components.BusySpinner
 import com.gradethread.app.ui.text
 import com.gradethread.app.ui.theme.BrandPalette
 import com.gradethread.app.ui.theme.BrandPrimaryButton
@@ -101,7 +101,7 @@ fun MeasurementPhotoEditorSheet(
             )
 
             when {
-                state.loading -> CircularProgressIndicator(Modifier.size(24.dp))
+                state.loading -> BusySpinner(Modifier.size(24.dp))
                 !state.hasPhoto -> Text(
                     stringResource(R.string.measure_editor_no_photo),
                     style = MaterialTheme.typography.bodyMedium,
@@ -150,7 +150,7 @@ private fun EditorBody(
     }
 
     if (!state.isCalibrated) {
-        CircularProgressIndicator(Modifier.size(24.dp))
+        BusySpinner(Modifier.size(24.dp))
         return
     }
 

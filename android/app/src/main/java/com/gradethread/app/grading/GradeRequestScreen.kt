@@ -14,7 +14,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -33,6 +32,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.gradethread.app.R
+import com.gradethread.app.ui.components.BusySpinner
 import com.gradethread.app.ui.theme.BrandPrimaryButton
 import com.gradethread.app.ui.theme.BrandSecondaryButton
 import com.gradethread.app.ui.theme.Spacing
@@ -137,14 +137,14 @@ fun GradeRequestContent(
         Text(stringResource(R.string.graderequest_get_certified_grade), style = MaterialTheme.typography.titleLarge)
 
         when (val phase = state.phase) {
-            GradeRequestMachine.Phase.Loading -> Centered { CircularProgressIndicator() }
+            GradeRequestMachine.Phase.Loading -> Centered { BusySpinner() }
 
             GradeRequestMachine.Phase.Ready -> ReadyBody(state, actions, creditPackSheet)
 
             GradeRequestMachine.Phase.Submitting,
             GradeRequestMachine.Phase.Processing,
             -> Centered {
-                CircularProgressIndicator()
+                BusySpinner()
                 Text(
                     if (phase == GradeRequestMachine.Phase.Submitting) {
                         stringResource(R.string.graderequest_sending)
@@ -309,8 +309,17 @@ private fun TierRow(tier: GradeTier, selected: Boolean, spendsCredits: Boolean, 
                 style = MaterialTheme.typography.labelLarge,
             )
         }
+        // ⚠ RESOLVE BOTH IDS FIRST (US-3311). `turnaround` and `blurb` are
+        // @StringRes Ints, and `%1$s · %2$s` will happily format an Int - so
+        // passing them straight in put "2131821426 · 2131821425" under every
+        // tier on this screen from US-2976 until 2026-09-10. BulkGradeScreen's
+        // copy of the same row always called stringResource on each one.
         Text(
-            stringResource(R.string.graderequest_tier_detail, tier.turnaround, tier.blurb),
+            stringResource(
+                R.string.graderequest_tier_detail,
+                stringResource(tier.turnaround),
+                stringResource(tier.blurb),
+            ),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -332,10 +341,15 @@ private fun SpendConfirmDialog(tier: GradeTier, balance: Int, onConfirm: () -> U
         },
         text = {
             Text(
+                // ⚠ THE SAME @StringRes-AS-A-FORMAT-ARG BUG AS THE TIER ROW
+                // (US-3311). This one read "2131821421 grading costs 3 credits"
+                // in the dialog that commits the spend. Two call sites, one
+                // mistake, and the golden for this dialog was about to be
+                // re-recorded over it.
                 pluralStringResource(
                     R.plurals.graderequest_spend_body,
                     tier.creditCost,
-                    tier.label,
+                    stringResource(tier.label),
                     tier.creditCost,
                     balance,
                 ),

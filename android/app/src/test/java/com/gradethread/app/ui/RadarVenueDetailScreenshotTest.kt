@@ -11,7 +11,6 @@ import com.gradethread.app.radar.RadarVenueDetailActions
 import com.gradethread.app.radar.RadarVenueDetailContent
 import com.gradethread.app.radar.RadarVenueDetailViewModel
 import com.gradethread.app.radar.RadarVenueSummary
-import com.gradethread.app.ui.theme.GradeThreadTheme
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
@@ -145,7 +144,7 @@ class RadarVenueDetailScreenshotTest {
 
     private fun capture(name: String, dark: Boolean = false, content: @Composable () -> Unit) {
         captureRoboImage("src/test/screenshots/$name.png") {
-            GradeThreadTheme(darkTheme = dark) {
+            ScreenshotTheme(darkTheme = dark) {
                 Surface { content() }
             }
         }
