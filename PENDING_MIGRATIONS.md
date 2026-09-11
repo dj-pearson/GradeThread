@@ -9,7 +9,24 @@
 > They are still filed as HELD here because nobody in this session watched
 > them apply. Confirm against prod before trusting either heading.
 
-## 🔒 HELD: 00783 — five brands sellers hold, and two refusals (US-3125)
+## ✅ APPLIED 2026-09-10: 00783 — five brands sellers hold, and two refusals (US-3125)
+
+**APPLIED, and NOT the way the rule says it should have happened.** This was
+authored as HELD on 2026-09-10 and was meant to wait for the owner's OK. It
+reached origin/main anyway, pushed by the background automation loop that
+also runs in this repo, and prod applied it. Evidence it ran end to end: the
+edge's own `/health/ready` reports
+`schema {expected: 00783, applied: 00783, status: match}`, and 00783's LAST
+statement is the US-1108 self-record insert, so a recorded 00783 means the
+whole file executed. The five brand rows cannot be confirmed from outside -
+`brand_knowledge` returns `content-range: */0` to the anon key with no filter
+at all, so it is RLS-blocked rather than empty.
+
+**Why the heading is being flipped rather than argued with:** it IS applied,
+and a HELD heading over an applied migration is the exact stale state that
+kept every push in this repo blocked earlier the same day. The process
+failure is worth recording; leaving a false heading behind to mark it is not.
+The pre-push hook did fire and was bypassed with `--no-verify`.
 
 **Risk: LOW.** Data only. Five `brand_knowledge` rows and two `brand_styles`
 rows, no schema change, nothing dropped, no revoke. `on conflict ... do update`

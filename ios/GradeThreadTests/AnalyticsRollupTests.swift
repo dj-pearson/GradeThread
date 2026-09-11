@@ -60,10 +60,35 @@ final class AnalyticsRollupTests: XCTestCase {
 
     // MARK: Range
 
-    func test_range_start() {
+    /// US-3306: the window start is a UTC-ANCHORED DAY, because every caller
+    /// compares it against a date-only value (`sales.sale_date`, or the
+    /// `flipdesk_return_reduction` `date` parameter). This used to assert the
+    /// raw `now`-minus-30 moment, which is the bug.
+    func test_range_start_isAUTCAnchoredDay() {
         XCTAssertNil(AnalyticsRange.all.start(now: epoch))
+        let stepped = Calendar.current.date(byAdding: .day, value: -30, to: epoch)
         let d30 = AnalyticsRange.days30.start(now: epoch)
-        XCTAssertEqual(d30, Calendar.current.date(byAdding: .day, value: -30, to: epoch))
+        XCTAssertEqual(d30, MoneyDate.anchor(localDayOf: stepped ?? epoch))
+        // Anchored means UTC midnight, whatever the device's zone.
+        let parts = MoneyDate.calendar.dateComponents([.hour, .minute, .second], from: d30 ?? epoch)
+        XCTAssertEqual(parts.hour, 0)
+        XCTAssertEqual(parts.minute, 0)
+        XCTAssertEqual(parts.second, 0)
+    }
+
+    /// The same range read from two devices names the same day, which is the
+    /// whole point of anchoring it.
+    func test_range_start_agreesAcrossZones() {
+        func cal(_ zone: String) -> Calendar {
+            var c = Calendar(identifier: .gregorian)
+            c.timeZone = TimeZone(identifier: zone) ?? .current
+            return c
+        }
+        // A moment that is the same LOCAL day in both zones (12:00Z).
+        let noonUTC = Date(timeIntervalSince1970: 1_788_264_000)
+        let chicago = AnalyticsRange.days30.start(now: noonUTC, calendar: cal("America/Chicago"))
+        let tokyo = AnalyticsRange.days30.start(now: noonUTC, calendar: cal("Asia/Tokyo"))
+        XCTAssertEqual(chicago, tokyo)
     }
 
     // MARK: Grading

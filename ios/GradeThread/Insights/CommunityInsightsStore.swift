@@ -40,13 +40,16 @@ final class CommunityInsightsStore {
     /// Trailing-12-month window — the most decision-relevant horizon for
     /// "what should I be sourcing now". Trending categories always use the RPC's
     /// fixed last-30d-vs-prior-30d window regardless.
-    private static func last12moStart(now: Date = .now) -> String {
-        let start = Calendar.current.date(byAdding: .day, value: -365, to: now) ?? now
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.timeZone = TimeZone(identifier: "UTC")
-        formatter.dateFormat = "yyyy-MM-dd"
-        return formatter.string(from: start)
+    ///
+    /// US-3306: the day is NAMED on the local calendar and only then written in
+    /// UTC. Handing a raw `now`-minus-365 to a UTC formatter names the wrong
+    /// day for half of every day: a seller in Chicago after 7pm, or one in
+    /// Tokyo before 9am, got a window start one day off, silently. Formatting
+    /// goes through `MoneyDate` so this is not a fourth private copy of the
+    /// same `yyyy-MM-dd` formatter.
+    private static func last12moStart(now: Date = .now, calendar: Calendar = .current) -> String {
+        let start = calendar.date(byAdding: .day, value: -365, to: now) ?? now
+        return MoneyDate.iso(MoneyDate.anchor(localDayOf: start, localCalendar: calendar))
     }
 
     /// US-1407: re-entrancy guard so an overlapping `.task` + `.refreshable`

@@ -54,11 +54,15 @@ public enum InventoryFilter {
         now: Date = .now,
         soldDates: [String: Date] = [:],
         serverSearchIds: Set<String>? = nil,
-        photoItemIds: Set<String>? = nil
+        photoItemIds: Set<String>? = nil,
+        localCalendar: Calendar = .current
     ) -> [LocalInventoryItem] {
         let staged = items.filter { stage.matchingStatuses.contains($0.status) }
         let faceted = staged.filter {
-            matches($0, criteria, now: now, soldDates: soldDates, photoItemIds: photoItemIds)
+            matches(
+                $0, criteria, now: now, soldDates: soldDates,
+                photoItemIds: photoItemIds, localCalendar: localCalendar
+            )
         }
         let searched = filter(faceted, search: search, serverSearchIds: serverSearchIds)
         return searched.sorted(by: sort.isOrdered)
@@ -75,12 +79,19 @@ public enum InventoryFilter {
     /// empty criteria matches everything. Multi-select facets are OR within
     /// a facet (any selected brand) and AND across facets (brand AND size).
     /// The advanced ``InventoryRuleQuery`` (its own AND/OR) is the final gate.
+    ///
+    /// - Parameter localCalendar: the seller's calendar, used only by the two
+    ///   date bands to read the day they picked. Defaults to `.current`, which
+    ///   is what every production call site wants; it is a parameter so a test
+    ///   can run the same fixture as a device in Chicago and one in Tokyo
+    ///   (US-3306) without mutating process-wide state.
     static func matches(
         _ item: LocalInventoryItem,
         _ criteria: InventoryFilterCriteria,
         now: Date = .now,
         soldDates: [String: Date] = [:],
-        photoItemIds: Set<String>? = nil
+        photoItemIds: Set<String>? = nil,
+        localCalendar: Calendar = .current
     ) -> Bool {
         if !criteria.brands.isEmpty {
             guard let b = item.brand?.facetTrimmed, criteria.brands.contains(b) else { return false }
@@ -143,13 +154,29 @@ public enum InventoryFilter {
         }
 
         // US-1052: absolute purchase-date window over the acquisition proxy.
-        if criteria.purchaseDates.isActive, !criteria.purchaseDates.contains(item.createdAt) {
+        // US-3306: `createdAt` is a real server timestamp, so the picked local
+        // days bound a real instant and nothing is re-anchored.
+        if criteria.purchaseDates.isActive,
+           !criteria.purchaseDates.contains(
+               item.createdAt, storedAs: .serverTimestamp, localCalendar: localCalendar
+           ) {
             return false
         }
         // US-1052: sale-date window — only items with a known linked sale date
         // can clear an active filter (an unsold item can't be "sold last week").
+        //
+        // US-3306: this band reads a DIFFERENT KIND of stored value from the one
+        // above, and therefore needs the opposite zone rule. `LocalSale.saleDate`
+        // comes off `sales.sale_date`, which every writer fills with a bare
+        // `YYYY-MM-DD`, so it arrives pinned to UTC midnight: a day, not a
+        // moment. Comparing it against a raw picked moment made the boundary day
+        // fall in or out by the seller's offset from UTC, with no wrong number
+        // on screen to give it away. One struct, two bands, two rules.
         if criteria.saleDates.isActive {
-            guard let sold = soldDates[item.id], criteria.saleDates.contains(sold) else { return false }
+            guard let sold = soldDates[item.id],
+                  criteria.saleDates.contains(
+                      sold, storedAs: .utcAnchoredDay, localCalendar: localCalendar
+                  ) else { return false }
         }
 
         // US-1052: advanced AND/OR rule builder is the final gate.

@@ -74,12 +74,74 @@ public struct InventoryFilterCriteria: Codable, Equatable, Hashable {
 
         public var isActive: Bool { from != nil || to != nil }
 
-        /// True when `date` falls inside the band. The `to` bound is treated
-        /// as inclusive of the whole day so "to June 18" includes June 18.
-        public func contains(_ date: Date) -> Bool {
-            if let from, date < from { return false }
-            if let to, date > to.addingTimeInterval(86_400 - 1) { return false }
-            return true
+        /// What the value on the OTHER side of the comparison actually is
+        /// (US-3306).
+        ///
+        /// `from`/`to` are always the same thing: two `DatePicker` moments,
+        /// picked on the seller's own wall clock, where only the year/month/day
+        /// mean anything. The STORED value they get compared against is not
+        /// always the same thing, and the two kinds need opposite zone rules.
+        /// One struct serves both bands, so the band has to say which it is
+        /// rather than the struct guessing.
+        public enum StoredDateKind {
+            /// A real server timestamp: `inventory_items.created_at`, and
+            /// friends. It is a MOMENT, so the seller's local calendar picks
+            /// the window and the comparison is a plain instant comparison.
+            case serverTimestamp
+
+            /// A date-only day widened to UTC midnight: `sales.sale_date`.
+            /// The column is declared `timestamptz`, but every writer sends a
+            /// bare `YYYY-MM-DD`, so Postgres pins it to 00:00Z. It is a DAY
+            /// anchored to UTC, not a moment, and the boundary has to be
+            /// compared on the UTC calendar or the same filter includes or
+            /// excludes the edge day depending on where the seller is standing.
+            case utcAnchoredDay
+        }
+
+        /// True when a stored `date` falls inside the band.
+        ///
+        /// Both bounds are read as whole LOCAL calendar days in both modes:
+        /// the pickers are `displayedComponents: .date`, so "after Jun 1" means
+        /// the whole of Jun 1 and "before Jun 18" includes Jun 18. Only the way
+        /// those days are turned into a comparison differs, per `kind`.
+        public func contains(
+            _ date: Date,
+            storedAs kind: StoredDateKind,
+            localCalendar: Calendar = .current
+        ) -> Bool {
+            switch kind {
+            case .utcAnchoredDay:
+                // Both sides reduced to a UTC-anchored day, then compared as
+                // days. `MoneyDate.anchor(localDayOf:)` reads the picked
+                // moment's LOCAL y/m/d and re-pins it at UTC midnight, which is
+                // exactly how the stored day got written; `startOfDay` reads
+                // the stored side on the UTC calendar it is already anchored
+                // in. Comparing the picked moment raw is the bug US-3306 fixed:
+                // a Chicago seller asking for sales "after Sep 1" picked
+                // Sep 1 05:00Z and missed a Sep 1 sale stored at 00:00Z, while
+                // a Tokyo seller picked Aug 31 15:00Z and caught it.
+                let day = MoneyDate.startOfDay(date)
+                if let from, day < MoneyDate.anchor(localDayOf: from, localCalendar: localCalendar) {
+                    return false
+                }
+                if let to, day > MoneyDate.anchor(localDayOf: to, localCalendar: localCalendar) {
+                    return false
+                }
+                return true
+
+            case .serverTimestamp:
+                // A real instant compared against local-day bounds. Nothing is
+                // re-anchored: `created_at` happened at a moment, and the
+                // moment a Chicago seller means by "Sep 1" is Sep 1 in Chicago.
+                if let from, date < localCalendar.startOfDay(for: from) { return false }
+                if let to {
+                    let start = localCalendar.startOfDay(for: to)
+                    let end = localCalendar.date(byAdding: .day, value: 1, to: start)
+                        ?? start.addingTimeInterval(86_400)
+                    if date >= end { return false }
+                }
+                return true
+            }
         }
     }
 
