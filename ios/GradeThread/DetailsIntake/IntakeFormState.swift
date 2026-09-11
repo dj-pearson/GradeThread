@@ -24,7 +24,10 @@ public final class IntakeFormState {
     public var sourceId: String? = nil
     public var container: String = ""
     public var sourcedBy: String = ""
-    public var purchaseDate: Date = .now
+    /// US-3310: the seller's local day, anchored at UTC midnight, because it
+    /// is written to the date-only `acquired_date` column. A bare `.now`
+    /// carries a wall-clock time that a UTC formatter reads as another day.
+    public var purchaseDate: Date = MoneyDate.today()
     public var purchasePriceText: String = ""
 
     // Notes
@@ -104,6 +107,6 @@ public final class IntakeFormState {
         sourceId = nil
         container = ""
         sourcedBy = ""
-        purchaseDate = .now
+        purchaseDate = MoneyDate.today()
     }
 }

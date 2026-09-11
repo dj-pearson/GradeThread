@@ -70,12 +70,12 @@ final class ReturnReductionStore {
     /// shift the window by a day either side of midnight for half the world, and
     /// the seller would see a different number on their phone than on their
     /// laptop for the same range.
+    ///
+    /// US-3310: rendered by `MoneyDate`, not a private copy of the same
+    /// formatter. The caller passes an already-anchored day (`AnalyticsRange`
+    /// names it on the device's calendar), so this only renders it.
     static func isoDay(_ date: Date) -> String {
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.timeZone = TimeZone(identifier: "UTC")
-        formatter.dateFormat = "yyyy-MM-dd"
-        return formatter.string(from: date)
+        MoneyDate.iso(date)
     }
 }
 

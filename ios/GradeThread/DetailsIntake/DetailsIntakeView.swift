@@ -385,9 +385,12 @@ struct DetailsIntakeView: View {
             // skips it because a Picker is not a text field.
             SourcedByField(value: $form.sourcedBy, userId: currentUserId())
 
+            // US-3310: a date-only column, so the picker binds through
+            // `MoneyDate.dayPicker` - it renders the stored day as local
+            // midnight and writes back the seller's local day, anchored.
             DatePicker(
                 "Purchase date",
-                selection: $form.purchaseDate,
+                selection: MoneyDate.dayPicker($form.purchaseDate),
                 displayedComponents: .date
             )
 
@@ -856,9 +859,13 @@ struct DetailsIntakeView: View {
             source_id: form.sourceId,
             container: form.container.nonEmpty,
             sourced_by: form.sourcedBy.nonEmpty,
-            acquired_date: ISO8601DateFormatter()
-                .string(from: form.purchaseDate)
-                .components(separatedBy: "T").first,
+            // US-3310: `inventory_items.acquired_date` is a date-only column.
+            // This used to be a GMT `ISO8601DateFormatter` with the time
+            // sliced off at the "T", fed a raw picker moment, so a seller in
+            // Chicago cataloging after 7pm filed every item under tomorrow.
+            // `form.purchaseDate` is now an anchored day and `MoneyDate` owns
+            // the rendering.
+            acquired_date: MoneyDate.iso(form.purchaseDate),
             // US-1184: clamp a pasted negative acquisition price to >= 0.
             acquired_price: currencyFormatter.parse(form.purchasePriceText).map { max(0, $0) },
             description: form.notes.nonEmpty

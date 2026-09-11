@@ -1801,19 +1801,30 @@ struct ItemCanvasView: View {
             profitEstimateRow(state: state)
             // Acquisition date (web parity). Optional — the toggle controls
             // whether a date is set so an unset item doesn't default to today.
+            //
+            // US-3310: `acquired_date` is a date-only column, so the value
+            // held here is the seller's LOCAL calendar day anchored at UTC
+            // midnight, and the picker binds through `MoneyDate.dayPicker` so
+            // the day on screen is the day on the wire. A raw `Date()` seed
+            // carried the current wall-clock time and a raw picker handed that
+            // moment straight to a UTC formatter, which named tomorrow for a
+            // seller west of UTC in the evening and yesterday for one east of
+            // it at dawn.
             Toggle("Set acquired date", isOn: Binding(
                 get: { state.draft.acquiredDate != nil },
                 set: { on in
-                    state.draft.acquiredDate = on ? (state.draft.acquiredDate ?? Date()) : nil
+                    state.draft.acquiredDate = on
+                        ? (state.draft.acquiredDate ?? MoneyDate.today())
+                        : nil
                 }
             ))
             if let acquired = state.draft.acquiredDate {
                 DatePicker(
                     "Acquired date",
-                    selection: Binding(
+                    selection: MoneyDate.dayPicker(Binding(
                         get: { acquired },
                         set: { state.draft.acquiredDate = $0 }
-                    ),
+                    )),
                     displayedComponents: .date
                 )
             }
@@ -3409,18 +3420,17 @@ struct ItemCanvasView: View {
         return trimmed.isEmpty ? nil : trimmed
     }
 
-    /// `acquired_date` is a calendar date — serialize to "yyyy-MM-dd" at UTC so
-    /// it round-trips the timestamptz/date column without timezone drift.
-    private static let acquiredDateFormatter: DateFormatter = {
-        let f = DateFormatter()
-        f.locale = Locale(identifier: "en_US_POSIX")
-        f.timeZone = TimeZone(identifier: "UTC")
-        f.dateFormat = "yyyy-MM-dd"
-        return f
-    }()
-
-    private static func acquiredDateString(_ date: Date?) -> String? {
-        date.map { acquiredDateFormatter.string(from: $0) }
+    /// `acquired_date` is a date-only column, so what gets written is a
+    /// calendar DAY. The draft already holds that day anchored at UTC midnight
+    /// - it comes either from the server (parsed at UTC midnight by
+    /// `SyncMergeActor`) or from the picker above, which binds through
+    /// `MoneyDate.dayPicker` - so this only renders it.
+    ///
+    /// US-3310: a private `yyyy-MM-dd` formatter used to live here and was
+    /// handed a raw picker moment. `MoneyDate` owns this rule for every
+    /// date-only column; a fourth private copy of it was the whole bug.
+    static func acquiredDateString(_ date: Date?) -> String? {
+        date.map { MoneyDate.iso($0) }
     }
 
     /// Parses the per-item split override. Only meaningful when a consignor is
