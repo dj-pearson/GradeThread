@@ -131,6 +131,14 @@ export const ADMIN_NAV: AdminNavSection[] = [
       { to: "/admin/bulk", icon: Layers, label: "Bulk Ops" },
       { to: "/admin/category-map", icon: Map, label: "Category Map" },
       { to: "/admin/identification-provenance", icon: ScanSearch, label: "Visual Identification" },
+      // US-3354 RESTORED. US-2425 shipped this entry beside Category Map on
+      // 2026-08-07 and merge 89f6664e5, the same day, resolved admin-layout.tsx
+      // to the other branch's copy and took the one line with it. The page and
+      // its route were new files, so they merged cleanly and kept working; only
+      // the way in was lost, and it stayed lost for 35 days until the US-3252
+      // guard named it. Sits beside Visual Identification because both are
+      // cross-tenant consoles over the same AutoLister pipeline.
+      { to: "/admin/listing-coverage", icon: Gauge, label: "Draft Coverage" },
       { to: "/admin/brand-knowledge", icon: BookMarked, label: "Brand Knowledge" },
       { to: "/admin/registered-numbers", icon: Tag, label: "Registered Numbers" },
       { to: "/admin/submissions", icon: FileText, label: "Submissions" },

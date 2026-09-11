@@ -58,13 +58,11 @@ const UNLINKED: Record<string, string> = {
   // top-level destination.
   "/admin/content/help/report":
     "drill-down from the Help Center page, not a destination of its own",
-  // MEASURED 2026-09-11, and this one is a finding rather than a decision:
-  // nothing anywhere in src/ links to it. The page works and an operator can
-  // only reach it by typing the URL. Recorded here so the guard is honest
-  // about what it is letting through; closing it is a separate change, and
-  // the day someone links it this entry fails and gets deleted.
-  "/admin/listing-coverage":
-    "routed but linked from nowhere in src/ as of 2026-09-11; reachable only by URL",
+  // /admin/listing-coverage WAS here, recorded 2026-09-11 as routed and linked
+  // from nowhere. US-3354 settled it: not a decision, a merge casualty. The
+  // entry went back into ADMIN_NAV as "Draft Coverage" and this line went with
+  // it, which is the shrink-only rule doing its job rather than an exception to
+  // it.
 };
 
 describe("US-3252: the admin nav and the admin router agree", () => {
