@@ -60,6 +60,17 @@ export const RUNBOOKS: Runbook[] = [
   {
     slug: "deploy-order",
     sourceNote: "vault/10-ops/deploy.md",
+    // Re-read 2026-09-10. NOTHING to carry, a NINTH consecutive time and for the
+    // identical reason: US-3132's supply-sample job moved the count 88 -> 89 and
+    // added one generated table row. This copy names no count.
+    //
+    // NINE consecutive re-reads finding nothing is itself the finding. The drift
+    // signal here fires on any change to the source note, and the only thing that
+    // has ever changed is a number this distillation deliberately does not quote.
+    // The honest fix is to narrow what runbook-sync watches, not to keep bumping
+    // a date - and until that happens, a red runbook-sync lane means very little,
+    // which is exactly how a lane goes dark (US-3308).
+    //
     // Re-read 2026-09-02. NOTHING to carry, an EIGHTH consecutive time and for
     // the identical reason: the eBay API-accounting and measurement jobs moved
     // the count 84 -> 88 and added generated table rows. This copy names no
@@ -127,7 +138,7 @@ export const RUNBOOKS: Runbook[] = [
     // Redeploy" check before debugging, and the reason Watch Paths is not the
     // fix (Coolify renders it only for a private GitHub-App source; this app is
     // Public GitHub).
-    reviewed: "2026-09-02",
+    reviewed: "2026-09-10",
     title: "Production deploy order",
     category: "Deploy",
     summary:
@@ -491,7 +502,7 @@ export const RUNBOOKS: Runbook[] = [
     // `VITE_*` set in Cloudflare Pages" — so the retired row was never here to
     // remove. The generic line is why, and it is the same instinct that keeps
     // the cron count out of §2: name the class, let the source hold the list.
-    reviewed: "2026-09-02",
+    reviewed: "2026-09-10",
     title: "Launch readiness gate",
     category: "Deploy",
     summary:
