@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-3393",
+  "nextId": "US-3397",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -4964,6 +4964,62 @@
         "Whether any of the eight existing entries deliberately differ is checked before they are replaced, because this copy was correct about facebook before the canonical map was"
       ],
       "priority": 9
+    },
+    {
+      "id": "US-3393",
+      "passes": false,
+      "title": "A seeding script writes a live production password into a git-tracked file",
+      "description": "Found 2026-09-11 by an audit of the operator scripts, and confirmed by the head with `git ls-files` and `git check-ignore`.\n\n`scripts/seed-review-demo-account.mjs:86` does `writeFileSync(join(dir, \"demo_password.txt\"), password, \"utf8\")`, where `password` is the real password of the App Store review demo account it just created in production.\n\n**`ios/fastlane/metadata/review_information/demo_password.txt` is tracked by git and is not gitignored.** Verified: `git ls-files` lists it, `git check-ignore` returns nothing.\n\nSo the next `git add -A` commits a live credential, and the operator has no reason to suspect it: the script prints `Wrote demo_user.txt + demo_password.txt.` and says nothing about git.\n\n**Nothing is leaked today.** The file currently holds `REVIEW_DEMO_PASSWORD_PLACEHOLDER`, so this is a loaded gun rather than a fired one, and the fix is design work rather than an incident.\n\n**Do not assume the pre-commit hook saves it.** The path is not in `.gitleaks.toml`'s allowlist, but a bare one-line password file gives gitleaks' generic rule no keyword context to match on. Whether it fires is a testable claim and nobody has tested it. Test it before relying on it, and test it before deciding the fix.\n\nThe constraint that makes this awkward: fastlane's `deliver` reads these files from that path, so simply untracking them breaks the submission flow. The answer is probably to keep a tracked placeholder and have the script write somewhere untracked that `deliver` is pointed at, but that is a decision.",
+      "acceptanceCriteria": [
+        "Whether gitleaks actually catches a bare one-line password at that path is MEASURED, not assumed, because the answer changes how urgent the rest is",
+        "The script cannot write a live credential to a tracked path, and the check is mechanical rather than a comment asking the operator to remember",
+        "fastlane deliver still finds what it needs, since untracking the file naively breaks the submission it exists for",
+        "The script's output says where the password went and whether that location is tracked, because the operator currently has no reason to suspect anything",
+        "Every other operator script that writes a secret to disk is enumerated, since this one was found by an audit rather than by a person noticing"
+      ],
+      "priority": 1
+    },
+    {
+      "id": "US-3394",
+      "passes": false,
+      "title": "The production guard on the database restore is a substring that probably cannot match, and the restore swallows its own failure",
+      "description": "Found 2026-09-11 by an audit of the operator scripts. Confirmed by the head against the source.\n\n`scripts/ops/restore-postgres.sh:33` is the only thing between a `pg_restore --clean --if-exists` and production:\n\n```\n  case \"$TARGET\" in\n    *gradethread.com*)\n      if [ \"${ALLOW_PROD_RESTORE:-}\" != \"1\" ]; then ... exit 1\n```\n\n**The documented production DSN shape does not contain `gradethread.com`.** `services/edge-functions/.env.example:31-32` gives `postgres://postgres:...@db-host:5432/postgres`, and `migrate-prod.mjs` reaches prod by ssh plus `docker exec` with no URL at all.\n\n**The guard has never run.** No test anywhere references `restore-postgres.sh` or `ALLOW_PROD_RESTORE`, and `restore-drill.sh` reimplements the restore rather than calling this script. `vault/10-ops/backups.md:27` describes it as \"prod-guarded\".\n\nSecond defect in the same file, `:87`: `pg_restore ... || true` swallows every failure. The sanity counts then print and the script exits 0 with \"compare the counts above against the source\". **It never compares them itself**, so a restore that half-applied looks like a restore that worked, during the one procedure where being wrong costs the most.\n\n**The owner can settle the first half in one command**: echo the real target DSN and see whether the case arm matches it.",
+      "acceptanceCriteria": [
+        "Whether the guard matches the real production DSN is MEASURED before anything is redesigned; the whole story turns on it",
+        "The guard stops being a substring of a hostname. A restore should refuse by default and require an explicit opt-in for ANY target, because 'this looks like prod' is a judgement a string match cannot make",
+        "pg_restore's failure is not swallowed, and a partial restore cannot exit 0",
+        "The script compares the sanity counts itself rather than printing them and asking the operator to, since the operator is mid-incident",
+        "The guard is exercised by a test, because it has never once run and vault/10-ops/backups.md calls it prod-guarded"
+      ],
+      "priority": 2
+    },
+    {
+      "id": "US-3395",
+      "passes": false,
+      "title": "The migrations runbook names the applier that skips gaps, and that is how a column stayed missing in prod for months",
+      "description": "Found 2026-09-11 by an audit of the operator scripts.\n\n`scripts/apply-prod-migrations.sh:30` is `[[ \"$prefix\" > \"$current\" ]] || continue`. It **skips by maximum rather than by membership**, so a hole below the highest recorded version is never applied. That is exactly how `listings.draft_id` from 00134 stayed missing in production for months (US-2726, US-2832).\n\nThe script's own header says \"Safe to re-run\" and carries no warning about the gap behaviour.\n\n**`.claude/skills/migrations/SKILL.md:92` names it as step 1.** That is the skill CLAUDE.md tells every agent to load before touching migrations, so the authoritative surface points at the broken tool.\n\n`scripts/migrate-prod.mjs` already fixes this: it computes pending by membership, backs up first, needs two flags, and is wired as `npm run migrate:prod`. `.claude/commands/migrate-prod.md:15` gets it right. **Two surfaces disagree and the wrong one is the authoritative one.**\n\nThird defect in the same file, `:19-20`: `2>/dev/null || echo \"00000\"` turns a failed `latest_schema_migration()` call into \"apply all 645 files\", discarding the reason. A connection error and a fresh database are indistinguishable.\n\nThis matters more than usual right now: **three migrations are held on branches awaiting approval**, so the next prod apply is not hypothetical.",
+      "acceptanceCriteria": [
+        "The skill and the script agree on which tool applies migrations, and the one that skips gaps either stops being named or stops skipping",
+        "A failed version lookup is not indistinguishable from a fresh database; it fails rather than defaulting to 00000",
+        "A test proves the chosen applier applies a migration in a gap below the maximum, because that is the exact failure that shipped and nothing currently covers it",
+        "vault/10-ops/migrations-process.md and the skill are re-read against whichever tool wins, since the runbook is what an operator follows under pressure"
+      ],
+      "priority": 2
+    },
+    {
+      "id": "US-3396",
+      "passes": false,
+      "title": "Nine operator scripts print a real-looking answer built from a failed read, and nine exit 0 after failing",
+      "description": "Found 2026-09-11 by an audit of the operator scripts. **Census: 338 files, 260 non-test scripts scanned mechanically, 67 touch a database or a production host, 34 of those write. 50 were read closely and 25 carry at least one confirmed defect.**\n\nBy shape: 8 drop an `error` or an unchecked non-2xx, **9 render a failed read as a real answer**, 5 have a dry path that diverges from the write path and 1 has no dry path at all, **9 exit 0 after a failure**, and 0 have a WHERE-less mutation.\n\nThe ones where a wrong number gets acted on:\n\n- **`services/edge-functions/scripts/measurement-coverage-report.ts:60-75`** prints **\"DO NOT BUILD THE PUBLIC PAGES. Only 0 cohorts could EVER clear the floors\"** when a read failed on page 0. A dropped read and a real no-go are byte-identical, and it exits 0. A mid-page failure is worse: a plausible number with nothing to notice.\n- **`scripts/backfill-stripe-state.ts:229-241`** counts `scanned++` before the Stripe call and continues on throw, so a revoked key prints `Scanned 1200 customers, 0 need reconciliation` and exits 0. The operator concludes the database already matches Stripe.\n- `services/edge-functions/scripts/size-chart-coverage.ts` prints `0 charts in the DB` and every brand as NONE. **Its own header says a zeroed report \"is a wrong answer that looks like a real one\"** and then leaves the read ungated.\n- `services/edge-functions/scripts/email-residue-census.ts:86, :92` — `:92` feeds the single most actionable line in the output, \"the html bodies are not expiring at all\", and `:86` prints \"account_deletion_log holds 0 deletion(s)\" **on a GDPR ticket**. The `users` read in the same file is correctly fatal, so the pattern was known and applied once.\n- `services/edge-functions/scripts/unit-economics.ts:198` — every account defaults to `free` and lands in `underwater`. The file header describes that exact wrong headline as the lesson of its first version.\n- `services/edge-functions/scripts/backfill-tag-reads.ts:283` — the one read in the file that drops `error`; lines 158, 169, 251 and 265 all check it. A failed photo read counts as `skipped`. `main()` also ends without an exit, so a run with 1001 failures exits 0, while both PII backfills in the same directory end `Deno.exit(failed === 0 ? 0 : 1)`.\n- `scripts/seed-official-style-names.mjs:257` — a failed read becomes \"no prior row\", every row takes the write branch, and the run ends `wrote N, unchanged 0`, **which is the script's own idempotence evidence, now fabricated**.\n- `scripts/backfill-attributes-from-title.mjs:169` — the scoping user id is guessed from CSV row 1, so a mixed-user file silently updates one user and drops the rest. Zero parsed attributes emits syntactically broken SQL alongside a success line.\n- **`scripts/brand-style-coverage.mjs:193` is dead on Windows** and was proved so by running it: no output, exit 0. `import.meta.url` is forward-slashed and `process.argv[1]` is backslashed. Both sibling scripts fixed this and left a comment saying why.\n\nTwo more: `scripts/oneoff/reset-superadmin-comp-business.sql:35` says `-- Verify one row changed before committing.` and line 36 is an unconditional `COMMIT`. And four brand scripts page with LIMIT/OFFSET and **no `order=`**, so pages can duplicate or skip rows with no error; `brand_colorways` is ~17,800 rows.\n\nThe model to copy is in the tree: `services/edge-functions/scripts/ai-token-profile.ts` shape-checks the key, pages with an explicit order, exits 1 on a read failure, and prints \"check before reading this as $0 spend\" instead of a bare zero.",
+      "acceptanceCriteria": [
+        "Every script that renders a failed read as a real answer either fails or labels the number as unknown; a zero and an unknown are different answers and this is the whole story",
+        "A script that failed exits non-zero, because an operator script exiting 0 will be believed",
+        "The four unordered pagers get an explicit order, since a duplicated or skipped page produces no error at all",
+        "brand-style-coverage.mjs runs on Windows, and how it was proved is by executing it rather than by reading the comparison",
+        "A guard derives its subject set from the two script directories and asserts both mechanical rules: a supabase destructure carrying data or count must carry error, and an awaited fetch bound to a name must have that name tested for ok or status in scope",
+        "That guard carries a named allowlist with a reason per entry that fails when an entry stops matching, and a self-check fixture that trips every rule, because a rule that cannot fire reads exactly like a clean codebase"
+      ],
+      "priority": 4
     }
   ]
 }
