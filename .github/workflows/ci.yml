@@ -267,6 +267,12 @@ jobs:
       - name: Migrations lint
         if: ${{ !cancelled() }}
         run: node scripts/migrations-lint.mjs
+      # US-2832: schema DDL in an ops document must sit under a heading naming
+      # a real migration. Added 2026-09-11; the script had existed since that
+      # morning and nothing invoked it.
+      - name: Loose repair SQL
+        if: ${{ !cancelled() }}
+        run: node scripts/check-loose-repair-sql.mjs
       # The SQL itself, parsed with libpg_query — Postgres's own grammar as WASM,
       # so a pass means real Postgres rather than a regex someone wrote. The DB
       # Migrations workflow APPLIES these for real and is the stronger proof; it

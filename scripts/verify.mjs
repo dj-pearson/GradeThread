@@ -382,6 +382,12 @@ if (on("web")) {
   // lane SKIPS, and on 2026-08-23 a migration reached origin having never been
   // near a Postgres in any form. This is the half that always runs.
   run("web: migrations parse", "node scripts/migrations-parse.mjs");
+  // US-2832: schema DDL written into an ops document must sit under a heading
+  // naming a real migration, so the next unrecorded hand-run repair fails the
+  // build instead of drifting prod away from the manifest. It shipped
+  // 2026-09-11 in 30de51229 wired into NOTHING, which is the same defect one
+  // level up: a guard that passes and never runs (US-3308 AC6).
+  run("web: loose repair SQL", "node scripts/check-loose-repair-sql.mjs");
   // US-3343: the label used to read "(prd-lint/digest)", naming two of the 43
   // suites vitest.scripts.config.mjs collects. That is how a working guard got
   // reported as dead — scripts/operator-scripts-start.test.mjs is in this lane
