@@ -53,6 +53,7 @@ import { confidenceInfo } from "@/lib/passport-confidence";
 import { VerifiedBadge } from "@/components/verified/verified-badge";
 import { ReportCertificateDialog } from "@/components/certificate/report-certificate-dialog";
 import { CoverageHeatmap } from "@/components/certificate/coverage-heatmap";
+import { FlawMap } from "@/components/certificate/flaw-map";
 import { GradedPhotoPanel } from "@/components/verified/graded-photo-panel";
 import { ImageLightbox } from "@/components/certificate/image-lightbox";
 import {
@@ -953,6 +954,11 @@ export function CertificatePage() {
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
+              {/* US-3336: the same numbers, pinned on the garment outline. */}
+              <FlawMap
+                groups={renderableAnnotations}
+                garmentCategory={submission?.garment_category ?? gradeReport.coverage?.garment_category}
+              />
               {renderableAnnotations.map((group) => (
                 <AnnotatedDefectPhoto
                   key={group.image_type}
