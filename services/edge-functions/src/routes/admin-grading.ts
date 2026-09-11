@@ -124,6 +124,7 @@ import {
   defaultRegradeStore,
   finalizeGradeReview,
   regradeSubmission,
+  releaseHeldGrade,
 } from "../lib/grading-pipeline.ts";
 import {
   minimizeReliabilityPhoto,
@@ -3561,6 +3562,87 @@ adminGradingRoutes.post("/review/:id/adjust", async (c) => {
 // POST /review/:id/send-back — the photos can't support a reliable grade. Set
 // the submission to needs_photos (the seller adds clearer photos + resubmits),
 // withhold the certificate, and record the review.
+// ── US-3327: held grades (US-3326) — list, and release early ─────────
+//
+// A held grade is decided but waiting for the turnaround its customer paid
+// for. Any admin may SEE the list; only a super_admin may release one early,
+// with step-up, and every release is audited. Release goes through
+// releaseHeldGrade, the one function the /api/jobs/grade-release cron also
+// uses, so a manual release and a scheduled one cannot behave differently.
+
+export const HELD_RELEASE_BATCH_MAX = 100;
+
+/** Pure: why a caller may not release held grades, or null when they may. */
+export function heldReleaseRefusal(role: string | undefined): string | null {
+  return role === "super_admin"
+    ? null
+    : "Releasing a held grade early requires super_admin.";
+}
+
+// GET /held-grades — held grades, soonest release first.
+adminGradingRoutes.get("/held-grades", async (c) => {
+  const { data, error } = await supabaseAdmin
+    .from("grade_reports")
+    .select(
+      "id, submission_id, overall_score, grade_tier, release_at, held_modified, " +
+        "reviewed_by, reviewed_at, submissions(title, service_tier, paid_at)",
+    )
+    .eq("review_status", "held")
+    .is("finalized_at", null)
+    .order("release_at", { ascending: true })
+    .limit(200);
+  if (error) return failSafe(c, 500, "Couldn't load held grades.", error, "admin.grading.held.list");
+  return c.json({ held: data ?? [] });
+});
+
+// POST /held-grades/:id/release — release one held grade now.
+adminGradingRoutes.post("/held-grades/:id/release", async (c) => {
+  const refusal = heldReleaseRefusal(c.get("adminRole"));
+  if (refusal) return c.json({ error: refusal, code: "SUPER_ADMIN_REQUIRED" }, 403);
+  const stepUp = requireStepUp(c);
+  if (stepUp) return stepUp;
+  const reportId = c.req.param("id");
+  const result = await releaseHeldGrade(reportId, { early: true });
+  await auditLog(c, "grading.held_released_early", "grade_report", reportId, {
+    released: result.released,
+    reason: result.reason ?? null,
+  });
+  if (!result.released) {
+    const status = result.reason === "not_found" ? 404 : 409;
+    return c.json({ error: `Not released: ${result.reason}`, reason: result.reason }, status);
+  }
+  return c.json({ ok: true, released: true });
+});
+
+// POST /held-grades/release-batch — body { ids: string[] } (max 100).
+adminGradingRoutes.post("/held-grades/release-batch", async (c) => {
+  const refusal = heldReleaseRefusal(c.get("adminRole"));
+  if (refusal) return c.json({ error: refusal, code: "SUPER_ADMIN_REQUIRED" }, 403);
+  const stepUp = requireStepUp(c);
+  if (stepUp) return stepUp;
+  let body: { ids?: unknown };
+  try { body = await c.req.json(); } catch { return c.json({ error: "Invalid JSON body" }, 400); }
+  const ids = Array.isArray(body.ids)
+    ? [...new Set(body.ids.filter((x): x is string => typeof x === "string" && x.length > 0))]
+    : [];
+  if (ids.length === 0) return c.json({ error: "ids must be a non-empty array" }, 400);
+  if (ids.length > HELD_RELEASE_BATCH_MAX) {
+    return c.json({ error: `At most ${HELD_RELEASE_BATCH_MAX} grades per batch` }, 400);
+  }
+  const results: Array<{ id: string; released: boolean; reason?: string }> = [];
+  for (const id of ids) {
+    const r = await releaseHeldGrade(id, { early: true });
+    results.push({ id, released: r.released, reason: r.reason });
+  }
+  const released = results.filter((r) => r.released).length;
+  await auditLog(c, "grading.held_released_early_batch", "grade_report", null, {
+    requested: ids.length,
+    released,
+    results,
+  });
+  return c.json({ ok: true, released, results });
+});
+
 adminGradingRoutes.post("/review/:id/send-back", async (c) => {
   const stepUp = requireStepUp(c);
   if (stepUp) return stepUp;

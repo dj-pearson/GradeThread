@@ -4891,22 +4891,6 @@
       "priority": 4
     },
     {
-      "id": "US-3327",
-      "passes": false,
-      "title": "Super admins can release a held grade early, one at a time or in bulk",
-      "description": "Companion to the hold story. The owner wants a button to release grades before their scheduled time, for example to clear a batch of Standard grades early.",
-      "acceptanceCriteria": [
-        "Admin routes to release one held grade and a selected batch. super_admin only, MFA step-up, audit-logged.",
-        "Both go through the same release function the cron uses, so a manual release and a scheduled one cannot behave differently. Test-guarded.",
-        "The admin review queue lists held grades with their release time and a Release now control, single and bulk.",
-        "Tests include a non-super-admin refusal and a double release that notifies once."
-      ],
-      "priority": 32,
-      "dependsOn": [
-        "US-3326"
-      ]
-    },
-    {
       "id": "US-3328",
       "passes": false,
       "title": "Sellers see when their grade will be ready, and tier copy promises a delivery time",

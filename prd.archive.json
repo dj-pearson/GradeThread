@@ -46996,6 +46996,23 @@
       ],
       "priority": 31,
       "notes": "Done 2026-09-10 (grading-improvement loop). One timestamp, grade_reports.release_at, written at grade time ONLY when system_settings.grade_release_hold.enabled is true and the tier is not Express (paid_at, else created_at, plus the tier SLA from getGradePricing, compiled TIER_SLA_HOURS as fallback). NULL means not held everywhere, so with the setting off (seeded off) every path is byte-identical: the report insert spreads release_at only when set. Held grades: finalizeGradeReview parks a decided grade as review_status held (new CHECK value, 00786) BEFORE finalized_at is written or any go-live runs; held is neither approved/modified (public view, condition index, leaderboards) nor pending (review queue), so it is in none of them. Owner visibility: the owner and workspace RLS policies gain (release_at IS NULL OR release_at <= now()), which covers the SPA and both apps reading grade_reports directly; the two service-role owner reads (routes/grade.ts, lib/api-grades.ts single and list) hide it the same way and grade.ts returns grade_release_at instead. The early preliminary email and in-app notice are held back while held. Release: releaseHeldGrade is the single path for the new /api/jobs/grade-release cron (every 5 min, job-secret, job-locked, CRON_REGISTRY + regenerated COOLIFY.md, CRON_SETUP.md, launch-checklist, deploy.md count 90) and for a super-admin early release (US-3327), finalizing with force through finalizeGradeReview whose finalized_at flip keeps go-live exactly-once. The cron also sends the preliminary notice once (release_notified_at claim) for still-in-review grades that became visible. Turning the setting off releases all held grades on the next run. Verified: grade-release-hold_test 14/14, sabotaged three ways (hold ignoring force, preliminary notice not held, API list leaking a held grade) each red then green; 118 related test files 1397 passed after allow-listing the cron in ai-metering-coverage with a rationale; deno check, deno lint, tsc -b, migrations-lint, vault:lint, cron-registry-drift clean. OPERATOR (in PENDING_MIGRATIONS.md): apply 00786, add the Coolify task for /api/jobs/grade-release, then flip grade_release_hold on when ready."
+    },
+    {
+      "id": "US-3327",
+      "passes": true,
+      "title": "Super admins can release a held grade early, one at a time or in bulk",
+      "description": "Companion to the hold story. The owner wants a button to release grades before their scheduled time, for example to clear a batch of Standard grades early.",
+      "acceptanceCriteria": [
+        "Admin routes to release one held grade and a selected batch. super_admin only, MFA step-up, audit-logged.",
+        "Both go through the same release function the cron uses, so a manual release and a scheduled one cannot behave differently. Test-guarded.",
+        "The admin review queue lists held grades with their release time and a Release now control, single and bulk.",
+        "Tests include a non-super-admin refusal and a double release that notifies once."
+      ],
+      "priority": 32,
+      "dependsOn": [
+        "US-3326"
+      ],
+      "notes": "Done 2026-09-10 (grading-improvement loop). GET /api/admin/grading/held-grades lists held grades soonest-release first (any admin may see). POST /held-grades/:id/release and POST /held-grades/release-batch (ids, deduped, max 100) are super_admin only (heldReleaseRefusal, checked first), then MFA step-up, then releaseHeldGrade(id, {early: true}) - the same function the grade-release cron uses - and audit-logged (grading.held_released_early / _batch). New HeldGradesCard on /admin/grading lists item, tier, grade, decision (approved / adjusted / auto-approved) and release time, with Release now per row and Release selected for super admins behind a confirm dialog; plain admins see the list and a note. Double release: releaseHeldGrade returns before finalize when the grade is already final or no longer held, and finalize flips finalized_at atomically, so a second release sends no second email. Verified: held-grade-release_test 5/5 including a real Hono request as a plain admin getting 403 on both routes; sabotaged twice (role check removed from the single route; batch dedupe removed), both red then green; grade-release-hold, tenant-isolation, ai-metering 51 passed; deno check, tsc -b, eslint, ui:check clean."
     }
   ]
 }
