@@ -3,6 +3,7 @@
 // ever ran ensureCrossListingGroup. A filter on draft_id alone therefore
 // misses the anchor, and a Poshmark sale left eBay live.
 
+import "./_env.ts";
 import { assertEquals, assertMatch } from "@std/assert";
 import { siblingSelector } from "../lib/cross-listings.ts";
 

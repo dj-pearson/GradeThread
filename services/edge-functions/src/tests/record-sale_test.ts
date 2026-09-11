@@ -1,6 +1,7 @@
 // US-3367: the pure halves of recording a sale. The DB-touching recordSale is
 // exercised by the tenant-isolation lane; here the money and the body parser.
 
+import "./_env.ts";
 import { assertEquals } from "@std/assert";
 import {
   computeNetProfit,

@@ -177,8 +177,10 @@ Deno.test("US-2736: cross-push reads the sibling's own price back before decidin
     src.includes("resolveSiblingPrice("),
     "cross-push must resolve the per-platform price through the one rule",
   );
+  // US-3367 widened the same select with listing_status and listing_url for
+  // the re-list guard; what this pins is that platform_fields is still read.
   assert(
-    /\.select\(\s*"id, platform_fields"/.test(src),
+    /\.select\(\s*"id, platform_fields(, [a-z_, ]+)?"/.test(src),
     "the sibling lookup must read the stored per-channel override back",
   );
 });

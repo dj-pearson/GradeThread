@@ -62,8 +62,9 @@ Deno.test("US-3213: a queued channel does not advance the item to listed", () =>
   );
   // And the flag has to survive the trip, or the gate above is reading
   // undefined on every row and is therefore always true.
+  // US-3367 added `skipped` as the fifth argument; `queued` still rides fourth.
   assertEquals(
-    src.includes("toPushResult(result, listingRowId, price, queued)"),
+    src.includes("toPushResult(result, listingRowId, price, queued, skipped)"),
     true,
     "the route must pass `queued` through to the response",
   );

@@ -4,6 +4,7 @@
 // with a job waiting fills the same form twice. The rule is pure so it is
 // asserted here rather than reasoned about at the call site.
 
+import "./_env.ts";
 import { assertEquals } from "@std/assert";
 import { planCrossPushSkip } from "../lib/cross-push.ts";
 
