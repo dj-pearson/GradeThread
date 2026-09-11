@@ -8,12 +8,27 @@ code_refs:
   - services/edge-functions/src/lib/ebay-client.ts
   - services/edge-functions/src/lib/ai-listing.ts
   - services/edge-functions/src/lib/publish-preflight.ts
-reviewed: 2026-09-08
+reviewed: 2026-09-10
 tags: [ebay, publishing, conditions, gotcha]
 summary: Condition validation lives on the Sell Metadata API, not Taxonomy, and apparel rejects LIKE_NEW — both failures are silent until publish.
 ---
 
 # eBay condition mapping and the policy endpoint
+
+> **Re-reviewed 2026-09-10.** Drift flagged `ebay-client.ts` for `a54057305`
+> (US-3265), which adds `FLIPDESK_POLICY_NAME`, `PolicyAnswers` and
+> `createDefaultPolicies` as one 168-line block at `:2487`. Read it in full
+> because the word "policy" in that commit and the word "policy" in this note's
+> title are DIFFERENT THINGS: US-3265 creates the three eBay *business* policies
+> (fulfillment, payment, return) a first-time seller has none of, while this note
+> is about `getItemConditionPolicies`, the Sell Metadata call that says which
+> CONDITIONS a category accepts. Nothing overlaps. Re-verified at HEAD:
+> `getItemConditionPolicies` is at `ebay-client.ts:1805`, the
+> "Sell *Metadata* API, NOT Taxonomy" comment at `:1830`, the URL at `:1838`.
+> `EBAY_CONDITION_VALUES` is at `ai-listing.ts:234` with eleven members,
+> `CONDITION_ENUM_TO_ID` at `publish-preflight.ts:235` with the same eleven, and
+> the iOS mirror below is STILL behind (`EbayCondition.swift` still goes
+> `.likeNew` then `.usedExcellent`, with no 2990/3010 cases).
 
 > **Re-reviewed 2026-09-08.** Drift flagged `ai-listing.ts` for `8531b994b`.
 > The whole diff there is `PriceCompSource` gaining a `"pooled_sales"` member so

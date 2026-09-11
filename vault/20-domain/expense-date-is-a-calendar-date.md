@@ -12,9 +12,9 @@ code_refs:
   - ios/GradeThread/Money/TripDraft.swift
   - services/edge-functions/src/lib/expense-recurrence.ts
   - scripts/audit-expense-date-drift.mjs
-reviewed: 2026-09-07
+reviewed: 2026-09-10
 tags: [money, flipdesk, timezone, contract]
-summary: flipdesk_expenses.spent_on is a date-only column, so every client reads and writes it in UTC — a device-zone read of any one surface walks the date backwards one day per save, and it has shipped that way on both mobile platforms.
+summary: flipdesk_expenses.spent_on is a date-only column, so every client anchors it at UTC midnight while the device calendar names which day or month a moment falls in — anchoring any one surface in the device zone walks the date backwards one day per save, and it has shipped that way on both mobile platforms.
 ---
 # An expense date is a calendar date
 
@@ -25,21 +25,33 @@ miniature.
 
 ## The rule
 
-**Every read and write of an expense date happens in UTC.** Both mobile clients
-name the zone once and route everything through it:
+**A stored expense date is anchored at UTC midnight.** Both mobile clients name
+the storage zone once and route every parse, format and bucket boundary through
+it:
 
 | Platform | The one place the zone is decided |
 |---|---|
 | Android | `CalendarDateField.ZONE = ZoneOffset.UTC` (`ExpenseDraft.EXPENSE_ZONE` is an alias) |
-| iOS | `MoneyDate` — the calendar, the wire formatter, `parse`, `iso`, `today` |
+| iOS | `MoneyDate`: the calendar, the wire formatter, `parse`, `iso`, `startOfDay`, `anchor` |
 
-`ExpenseStore.bucketingCalendar` is still the name the month-bucketing code uses
-and still pinned to UTC; `MoneyDate.calendar` is the same definition, moved so
-that trips and expenses share one instance rather than two that agree today.
+⚠ **UTC anchors the value; it does not name the day** (US-3230, US-3302). Which
+calendar day or month a *moment* falls in is a question about the seller's wall
+clock, so the device calendar picks the day and the UTC calendar anchors it.
+On iOS: `MoneyDate.anchor(localDayOf:localCalendar:)` on the write side,
+`MoneyDate.localMidnight(of:)` and `MoneyDate.dayPicker` on the read side,
+`MoneyDate.monthAnchor(localMonthOf:localCalendar:)` for a month boundary.
+`MoneyDate.startOfDay` reads the day in UTC and is right only for a value that is
+already anchored.
 
-Every surface uses it: entry, display, the wire format, and month bucketing. A
-device-zone read of **any one** of them re-opens the drift, which is why it is a
-named constant rather than a default parameter someone can quietly not pass.
+`ExpenseStore.bucketingCalendar` is still declared and is still
+`MoneyDate.calendar`, but nothing calls it any more: `thisMonthTotal` takes the
+device calendar and gets its boundary from `MoneyDate.monthAnchor`. Treat the
+constant as the historical name, not the live one.
+
+Every surface uses the rule: entry, display, the wire format, and month
+bucketing. A device-zone *anchor* on **any one** of them re-opens the drift,
+which is why the zone is a named constant rather than a default parameter someone
+can quietly not pass.
 
 ## What goes wrong, and it has gone wrong twice
 
@@ -104,10 +116,14 @@ to today. A silent fallback here would put a trip in the wrong tax year and look
 like it worked, which is the same class of failure as the drift below: correct
 on screen, wrong in the record.
 
-`MoneyDate.today()` is UTC midnight of the current day, **not** `Date()`. A
-seller in Sydney tapping "log a trip" at 9am on the 8th has a `Date()` whose UTC
-day is still the 7th; anchoring it through the same calendar keeps the date shown
-in the picker and the date sent to the server the same day.
+`MoneyDate.today()` is **not** `Date()`, and since US-3230 it is not
+`startOfDay(now)` either. It is `anchor(localDayOf: now)`: UTC midnight of the
+seller's **local** day. `startOfDay(now)` was wrong in both directions. A seller
+in Sydney tapping "log a trip" at 9am on the 8th has a `Date()` whose UTC day is
+still the 7th, so the form opened on the 7th. A seller in Chicago tapping it at
+9pm on the 9th has a UTC day of the 10th, so the picker showed the 9th while the
+wire carried the 10th. On 31 December that second one files the expense in the
+wrong tax year.
 
 ## The rule moved, and is now shared (US-3000, 2026-08-30)
 
@@ -126,6 +142,29 @@ not extend the detection. That is now true on both mobile platforms.
 edit-sync cycle. The shared implementation is the answer, and the story is where
 the remaining work is tracked — do not read "the rule moved" as "the bug is
 fixed".
+
+## The same split, twice more on iOS (US-3230, US-3302)
+
+**US-3230, 2026-09-09: the picker and the wire disagreed.** `today()` and every
+`DatePicker` bound straight at a stored value read the day in UTC, so west of
+Greenwich the screen showed one day and the server got the next. `dayPicker` is
+the binding adapter that keeps both on the same day, and `ExpenseStore.create`
+now formats through `MoneyDate.iso` instead of the `DateFormatter` it used to
+build inline.
+
+**US-3302, 2026-09-10: the month totals.** `sales.sale_date` is declared
+`timestamptz` but every writer sends a bare `YYYY-MM-DD`, so Postgres widens it
+to midnight UTC and the row is a UTC-anchored day. Bucketing it with
+`Calendar.current` counted a 1 September sale in August for every seller west of
+UTC, under a heading read off the same wrong calendar. `MoneyDate` grew the month
+half of the rule (`monthAnchor`, `startOfMonth`, `addingMonths`, `monthKey`,
+`monthLabel`) plus `dayDisplay` for row views, and the sweep fixed ten more
+sites, including a widget tile that read zero every day of the year west of UTC.
+
+⚠ **US-3306 is the gap left open**, and it does not look like this bug:
+`InventoryFilterCriteria.DateBand` compares two picker moments against a stored
+value, needs opposite zone rules for its sale band and its purchase band, and
+mentions no `Calendar` at all, so a grep never finds it.
 
 ## Related
 

@@ -5,7 +5,6 @@ status: current
 source_of_truth: vault
 code_refs:
   - supabase/migrations/00389_brand_knowledge_base.sql
-  - supabase/migrations/00783_brand_knowledge_five_brands_sellers_hold.sql
   - services/edge-functions/src/lib/brand-normalize.ts
 reviewed: 2026-09-10
 tags: [brands, aliases, false-positives, contract]

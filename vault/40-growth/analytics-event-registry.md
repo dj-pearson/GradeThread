@@ -8,12 +8,26 @@ code_refs:
   - src/lib/analytics.ts
   - src/lib/buyer-analytics.ts
   - src/lib/__tests__/analytics-events.test.ts
-reviewed: 2026-09-05
+reviewed: 2026-09-10
 tags: [analytics, posthog, measurement, naming]
 summary: Every product event name is declared in src/lib/analytics-events.ts and enforced by tsc; two naming conventions are live and neither may be renamed.
 ---
 
 # Analytics event registry
+
+> **Re-reviewed 2026-09-10.** Drift flagged `analytics-events.ts` for five added
+> entries across four commits, all additions and no renames:
+> `action_credits.opened` / `action_credits.cta_clicked` (US-3138, dotted, and
+> deliberately NOT folded into the `credit_pack.*` family because Action Credits
+> and grade credits are different wallets), `onboarding.activation_step_skipped`
+> (US-3262), `closet_import_install_prompted` (US-3263) and
+> `onboarding.existing_listings_answered` (US-3264). Both naming conventions are
+> still live, `track()` still takes `AnalyticsEvent` rather than `string`, and
+> the eight guard cases in `analytics-events.test.ts` are intact.
+>
+> One correction while here, and it was wrong from the day it was written rather
+> than drifted: `TOOL_SOURCE_PARAM` is declared in `src/lib/calculator-funnel.ts`
+> and always has been. The component of the same name only imports it.
 
 > **Re-reviewed 2026-09-05.** Drift flagged `analytics-events.ts` for one added
 > entry, `badge_certificate_click` (US-3060), carrying `platform` and nothing
@@ -197,7 +211,8 @@ intended to use the tool.
 **Attribution survives the hop.** The handoff does not go to `/signup`, it goes
 to the matching `/flipdesk/*` page, which is where the product is explained. The
 calculator slug rides across in a `from` query parameter
-(`TOOL_SOURCE_PARAM` in `src/components/marketing/calculator-funnel.tsx`), the
+(`TOOL_SOURCE_PARAM` in `src/lib/calculator-funnel.ts`, read by
+`src/components/marketing/calculator-funnel.tsx`), the
 landing page reads it back, and `signup_started_from_tool` fires only when it is
 present. Without that, every tool-driven signup would be credited to the landing
 page and the calculator that caused it would vanish.

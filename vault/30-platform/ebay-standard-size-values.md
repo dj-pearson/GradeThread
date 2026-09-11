@@ -10,12 +10,32 @@ code_refs:
   - services/edge-functions/src/lib/ebay-client.ts
   - services/edge-functions/scripts/refresh-ebay-aspect-cache.ts
   - src/lib/aspect-normalize.ts
-reviewed: 2026-09-03
+reviewed: 2026-09-10
 tags: [ebay, publishing, aspects, gotcha]
 summary: eBay now rejects a custom Size or Size Type value at publish; the size aspects are treated as closed lists whatever the cached Taxonomy mode says, a rejection refetches the spec and repairs the draft on the spot, and the aspect cache lives seven days instead of thirty.
 ---
 
 # eBay standardized size values at publish
+
+> **Re-reviewed 2026-09-10, no change.** Two refs moved.
+> `src/lib/aspect-normalize.ts` took `99067ca44` (208 new `COLOR_FAMILY`
+> entries, the US-3125 house colour vocabulary) and `4a430c4a4` (a header
+> rewrite plus one missing newline): both are the COLOUR table, and rule 4's
+> `isClosedAspect` is untouched at `:1164`, still `SELECTION_ONLY || isSizeAspect`.
+> Worth carrying over from that header rewrite: the two `aspect-normalize.ts`
+> copies are NOT byte-identical, because the web one exports `isSizeAspect` and
+> `isClosedAspect` and the edge one does not, so copying either over the other
+> breaks `tsc -b`. `ebay-client.ts` took `a54057305`, `7e79a2015` and
+> `a97f06164` (business-policy creation, photo-URL mirroring, `shipByDate`),
+> none of them near the aspect cache. Re-verified the other three rules at HEAD:
+> `isSizeAspect` at `aspect-reconcile.ts:107` feeding `isClosedList` at `:122`,
+> `ASPECT_TTL_MS = 7 * 24 * 60 * 60_000` at `ebay-client.ts:1680`, and
+> `healCustomValueRejection` still wired at exactly three call sites in
+> `flipdesk-ebay.ts` (`:9472`, `:9533`, `:10931`) with `reviseVariationGroup`
+> (`:12814`) still not among them.
+>
+> ⚠ A comment at `ebay-client.ts:1352` still says aspects are "cached for 30
+> days (ASPECT_TTL_MS)". The constant it names is seven days. Code, not note.
 
 > **Re-reviewed 2026-09-03.** Drift flagged `ebay-client.ts` for `57eff0f03`
 > (the offer-absent 404 in `listOffersForSku`) and `f9144c69a` (the US-3098

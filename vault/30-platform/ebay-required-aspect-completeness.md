@@ -11,12 +11,25 @@ code_refs:
   - services/edge-functions/src/lib/aspect-provenance.ts
   - src/lib/aspect-provenance.ts
   - src/test/fixtures/required-aspects-cases.json
-reviewed: 2026-09-08
+reviewed: 2026-09-10
 tags: [ebay, publishing, aspects, gotcha]
 summary: Publish fills required item specifics the stored override lacks; revise did not, so listings published fine and then failed every later revise.
 ---
 
 # eBay required-aspect completeness on publish and revise
+
+> **Re-reviewed 2026-09-10, no change.** Drift flagged `flipdesk-ebay.ts` for
+> `a54057305` (US-3265). Two hunks: one import line, and a new
+> `POST /policies/create` route that builds the three eBay BUSINESS policies
+> (fulfillment, payment, return) a first-time seller has none of. It sends no
+> item specifics and never runs the resolver. Re-verified at HEAD that the
+> pipeline this note describes is intact: `forceColumnAspects` at
+> `flipdesk-ebay.ts:9038`, `deriveAspectsFromItem` at `:9052` on the revise path
+> and defined at `:13452` as a thin wrapper over `resolveItemAspects`, the revise
+> pre-flight `requiredMissingAspects` at `:9274`, the web copy
+> `requiredMissingAspectNames` at `src/lib/aspect-provenance.ts:56`,
+> `inferDepartment` / `resolveDepartment` at `aspect-registry.ts:510` / `:545`,
+> and `MAX_AI_ASPECTS = 45` at `aspect-priority.ts:37`.
 
 > **Re-reviewed 2026-09-08.** Drift flagged `ai-listing.ts` for `8531b994b`.
 > The whole diff there is `PriceCompSource` gaining a `"pooled_sales"` member so

@@ -10,7 +10,7 @@ code_refs:
   - services/edge-functions/src/tests/step-up-tiers_test.ts
   - services/edge-functions/src/lib/comped-spend.ts
   - services/edge-functions/src/lib/grade-billing.ts
-reviewed: 2026-08-17
+reviewed: 2026-09-10
 tags: [admin, security, mfa, scopes, policy]
 summary: Three tiers of admin authority — scope only, scope plus a day-window step-up, scope plus a five-minute step-up — and the rule for deciding which an action belongs to.
 ---
@@ -157,10 +157,19 @@ Two things this decision does NOT cover, so read them separately:
 Read this before granting the role to a second person.
 
 Migration `00110` auto-elevates any row with `role = 'super_admin'` to
-Business/enterprise, and `lib/grade-billing.ts` gives super_admins **uncapped
-free grading** — no counter increment, no credit debit, just a zero-delta ledger
+Business/enterprise, and the grade-billing path gives super_admins **uncapped
+free grading**: no counter increment, no credit debit, just a zero-delta ledger
 row for auditability. So the role grant is, in the same action, an unlimited
 Claude Vision spend grant. There is no second decision and no ceiling.
+
+**Read that short-circuit in `lib/grade-precedence.ts`, not in
+`lib/grade-billing.ts`** — which is where this note and the header comment in
+`lib/comped-spend.ts` both still point. `grade-billing.ts` assembles the
+arguments and the IO seams; `performPaymentPrecedence` holds the
+`user.role === "super_admin"` branch, and it sits at that chokepoint on purpose,
+so it covers the web flow, the bulk bridge and the public API at once. Grepping
+`grade-billing.ts` for `super_admin` returns nothing, which is the kind of miss
+that makes a reader conclude the comp was removed.
 
 **This is intended and stays automatic** (US-2358). The platform owner grading
 their own inventory for free is the point, and the bootstrap is genuinely clean:

@@ -8,7 +8,7 @@ code_refs:
   - src/lib/import-presets.ts
   - src/lib/__tests__/import-presets.test.ts
   - src/pages/flipdesk/import.tsx
-reviewed: 2026-09-08
+reviewed: 2026-09-10
 tags: [flipdesk, import, crosslisting, contract]
 summary: The header-to-field mapping FlipDesk applies to a Vendoo, List Perfectly, Shopify, eBay or Etsy CSV export, which real export each was verified against (none yet), why three other tools have no preset, and the rule that a format change is one line here and one in import-presets.ts in the same commit.
 ---
@@ -26,6 +26,31 @@ Headers are matched after normalising to lowercase letters and digits, so
 not name falls back to the generic guess in `import-mapping.ts`. Detection
 needs two of a preset's signature headers (the ones only that tool uses), so a
 plain spreadsheet with a Title column never reads as a Vendoo file.
+
+## Detection is no longer the only way a preset gets applied (US-3264)
+
+Corrected 2026-09-10. The paragraph above describes `detectImportPreset`, which
+is unchanged: two signature hits, null on a tie, null on a plain sheet. But
+`src/pages/flipdesk/import.tsx` now falls back when detection returns null. It
+reads what the seller said at signup about where their listings already are
+(`readExistingListings`) and asks `presetIdForAnswer` for a preset id, so a
+plain sheet CAN arrive pre-mapped after all.
+
+Three properties keep that from becoming the wrong-mapping failure the presets
+exist to avoid:
+
+- **Detection always wins.** The signup answer is consulted only for
+  `detected ?? fallback`.
+- **Only three channels map at all.** `presetIdForChannel` answers for `ebay`
+  (`ebay-file-exchange`), `shopify` and `etsy`, and null for everything else.
+  Vendoo and List Perfectly are tools rather than channels, so no signup answer
+  can ever pre-select either of them.
+- **Two matching channels select nothing.** `presetIdForAnswer` returns null
+  unless exactly one distinct preset id comes out of the seller's channels,
+  for the same reason detection returns null on a tie.
+
+The page also renders a card naming the channels the seller gave, so a
+pre-filled mapping reads as "you told us this" rather than as the page guessing.
 
 ## vendoo
 

@@ -14,12 +14,13 @@ code_refs:
   - src/lib/images.ts
   - src/lib/item-photo-url.ts
   - services/edge-functions/src/lib/item-photo-storage.ts
+  - services/edge-functions/src/lib/ebay-photo-mirror.ts
   - services/edge-functions/src/lib/thumbnail.ts
   - services/edge-functions/src/routes/jobs-thumbnail-backfill.ts
   - supabase/migrations/00587_item_photo_role_qualifier.sql
   - supabase/migrations/00589_submission_image_role.sql
   - services/edge-functions/src/routes/flipdesk-grading.ts
-reviewed: 2026-09-05
+reviewed: 2026-09-10
 tags: [flipdesk, photos, listings, ebay, contract]
 summary: Two independent levers (canonical order and required set) duplicated across ~7 surfaces, plus the separate path photo edits take to reach eBay.
 ---
@@ -80,19 +81,35 @@ legal enum values and always will be. 00587 rewrites existing rows onto
 migration and the UI so the two cannot disagree about what `measurement_chest`
 meant.
 
-> [!note] "Not listable" and "not listable ON EBAY" are two different sets (US-2625)
-> `NON_LISTABLE_PHOTO_TYPES` means *never publish anywhere* — the MeasureCard
-> frame, a branded foreign object. `EBAY_INELIGIBLE_PHOTO_TYPES`
-> (`src/lib/photo-roles.ts`, added 2026-08-16) is narrower and per-marketplace:
-> eBay's picture policy bans added text, graphics and borders, and
-> `measurement_overlay` is nothing but added graphics — measurement lines and
-> inch labels burned into the pixels. Sellers were finding out as a publish
-> rejection, which is the worst place to find out.
+> [!note] "Not listable", "not listable ON EBAY" and "not listable THROUGH THE EXTENSION" are three different sets
+> `NON_LISTABLE_PHOTO_TYPES` (`src/lib/constants.ts`, holding `internal` and
+> `measurement`) means *never publish anywhere* — the MeasureCard frame, a
+> branded foreign object. The other two are per-destination, both live in
+> `services/edge-functions/src/lib/item-photo-storage.ts`, and both currently
+> hold exactly `measurement_overlay`:
 >
-> It is deliberately NOT folded into the broader set: a measurements graphic is
-> welcome on Poshmark, Depop and Mercari, where it is close to expected. So the
-> render stays listable everywhere else, and the exclusion is a property of the
-> destination rather than of the photo.
+> - `EBAY_INELIGIBLE_PHOTO_TYPES` (US-2625, added 2026-08-16), applied by
+>   `filterEbayPhotos`. eBay's picture policy bans added text, graphics and
+>   borders, and `measurement_overlay` is nothing but added graphics: measurement
+>   lines and inch labels burned into the pixels. Sellers were finding out as a
+>   publish rejection, which is the worst place to find out.
+> - `EXTENSION_INELIGIBLE_PHOTO_TYPES` (owner decision, 2026-09-07), applied by
+>   `filterExtensionPhotos` and mirrored into `src/lib/constants.ts` as
+>   `isExtensionIneligiblePhotoType`. Nothing derived from the MeasureCard
+>   travels to a browser-extension marketplace: the numbers ride in the
+>   description, the picture does not.
+>
+> Every photo selection for a destination goes through that destination's filter
+> rather than `filterListablePhotos`, and both filters compose the never-publish
+> set in.
+>
+> Neither is folded into the broader set, and the two are independent. A
+> measurements graphic is welcome on Poshmark, Depop and Mercari when the seller
+> publishes there directly, which is the reading US-2625 took; the 2026-09-07
+> owner call reverses that for the EXTENSION channels only and leaves eBay's
+> exclusion untouched. The exclusion is a property of the destination, not of the
+> photo, which is why one photo type sits in two lists that do not know about
+> each other.
 
 > [!warning] `measurement` + NULL role is not the same photo as `measurement` + a role
 > `measurement` is on `NON_LISTABLE_PHOTO_TYPES` because it means the MeasureCard
@@ -298,7 +315,7 @@ pixels, every thumbnail surface (the manager grid, the uploader tile, the
 listings cover, the eBay preview strip) served the **pre-rotation** image, while
 zoom and the actual eBay export, both `photo_url`, were correct. **A photo that
 looks right where you check it and wrong everywhere else is the signature**, and
-it has now shown up twice for two different reasons.
+it has now shown up three times for three different reasons.
 
 **US-2093 (the first one).** `thumbnail_url` was written once at upload and never
 regenerated, so an edit left it pointing at the old object. `persistPhotoEdit`
@@ -334,6 +351,20 @@ pre-edit thumbnail from cache while the row and the object were both correct.
 Between the save and the next cron tick an edited photo loads full-res in
 galleries. That is the deliberate trade, and it is bounded by the cron interval
 rather than permanent.
+
+**US-3187 (the third, and it broke the fallback itself).** That trade assumes the
+full-res fallback renders, and it stopped. `itemPhotoThumb` falls through to
+`cfImage(photo_url)`; `photo_url` is on `api.gradethread.com`; and Cloudflare's
+allowed-origins list for Transformations on this zone holds the **apex and
+nothing else**, so every subdomain answers `403 ERROR 9401`. A composer photo
+therefore vanished the moment its edit was saved, on both tiles (the grid at
+width 320 and the eBay preview at width 96), and came back on the next visit only
+because the backfill cron had re-made a `thumbnail_url` by then, which is why it
+read as a rendering glitch. `resizerServes()` in `src/lib/images.ts` now
+transforms the apex and root-relative paths only and passes every other origin
+through untouched, which is also what lets an eBay mirror's `i.ebayimg.com` URL
+render at all. **To transform `api.gradethread.com` again, add it in Cloudflare
+first, then widen that list. Not the other way round.**
 
 ### A rotation now carries the MeasureCard calibration with it (US-2888)
 
@@ -374,6 +405,30 @@ public URL on the row in the same insert — web uploader, iOS `PhotoUploadServi
 remove-bg, defect annotations, disclosure, measure overlays, reconcile. Only the
 private uploads store `""`. The reverse (a public object with no stored URL) is
 not a shape this codebase produces.
+
+> [!warning] Since US-3196 there is a third shape: a URL with no bytes of ours behind it
+> An eBay sync mirror (`services/edge-functions/src/lib/ebay-photo-mirror.ts`)
+> hot-links instead of copying: `photo_url` is a live `i.ebayimg.com` URL,
+> `storage_path` is NULL, and `remote_source` records that the NULL is
+> deliberate. So "a populated `photo_url` means the bytes are public" now means
+> public *somewhere*, not public in our bucket. The closet import
+> (`lib/closet-import-run.ts`) is the deliberate opposite and downloads the
+> bytes, because a one-shot scrape has no live link keeping the URL alive.
+>
+> **The publish refusal is phrased on `storage_path`, not on `remote_source`**,
+> in both implementations: `publicItemPhotoUrl` on the edge and
+> `itemPhotoPublishUrl` in `src/lib/item-photo-url.ts` both return nothing for an
+> empty `storage_path`. A check reading `remote_source` would go quiet the moment
+> a caller forgot to select that column, because a missing column reads as NULL,
+> which reads as "this photo is ours". `storage_path` is already in every
+> caller's select. Without the refusal a publish would offer eBay its own render
+> back as the picture for a new listing, and a cross-post would put a
+> competitor's CDN behind a Poshmark listing that dies the day the eBay one ends.
+>
+> A reference row also cannot be cropped or tone-matched (there is no file to
+> write back) and does not survive the seller ending the listing. **Copy to
+> GradeThread** on the photo grid adopts it, which sets `storage_path` and lifts
+> all three limits.
 
 Three implementations mirror the rule and must stay in step:
 `needsSignedDisplayUrl` / `bucketForItemPhotoRow` (web),

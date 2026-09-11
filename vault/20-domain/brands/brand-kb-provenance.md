@@ -7,10 +7,11 @@ source_of_truth: vault
 code_refs:
   - supabase/migrations/00572_tag_eras_provenance.sql
   - supabase/migrations/00578_brand_kb_provenance_required.sql
+  - supabase/migrations/00760_validate_brand_provenance_constraints.sql
   - services/edge-functions/src/routes/admin-brand-knowledge.ts
-reviewed: 2026-08-09
+reviewed: 2026-09-10
 tags: [brands, provenance, contract]
-summary: Every brand-KB row carries a non-blank source_url and a non-null confidence, and every datable tag_eras entry carries its own — both enforced by NOT VALID constraints so the documented legacy exceptions stay readable.
+summary: Every brand-KB row carries a non-blank source_url and a non-null confidence, and every datable tag_eras entry carries its own — enforced NOT VALID until 00760 cleared the last 45 rows and VALIDATED all three, which also ended the trap where a migration about registered numbers failed on a constraint about eras.
 ---
 
 # A brand fact must say where it came from
@@ -81,10 +82,59 @@ seed:
 | `brand_colorways` | 159 | 0 |
 | `brand_size_charts` | 316 | **11** |
 
-> **The definition of done for the backfill** is
+> **The definition of done for the backfill** was
 > `ALTER TABLE public.<t> VALIDATE CONSTRAINT <t>_sourced;` per table, once prod
-> has been counted and the residue sourced or retired. Until then the constraint
-> is a floor on new writes, not a claim about old ones.
+> had been counted and the residue sourced or retired. `00760` did that. See the
+> section below.
+
+## All three are VALIDATED now (`00760`, US-3126, 2026-09-09)
+
+Three constraints had sat NOT VALID since they were created:
+
+    brand_knowledge_sourced            brand_fact_is_sourced(source_url, confidence)
+    brand_colorways_sourced            brand_fact_is_sourced(source_url, confidence)
+    brand_knowledge_tag_eras_sourced   tag_eras_all_sourced(tag_eras)
+
+**The two `brand_fact_is_sourced` constraints failed on ZERO rows the whole
+time.** Nothing was ever blocking them; they were left NOT VALID and never
+revisited. Only the `tag_eras` one had a real residue, and that number moved
+under its own work rather than staying put:
+
+| measured at | rows failing `tag_eras_all_sourced` |
+|---|---:|
+| `00748` | 90 |
+| after `00748` | 88 |
+| after `00757` | 45 (it fixed 43 as a side effect of writing registered numbers) |
+| after `00760` | **0** |
+
+US-3126 estimated 11. The estimate was wrong in both directions over time, which
+is the argument for measuring rather than inheriting a figure.
+
+The fix for the last 45 is the narrow one `00748` and `00757` used: every one of
+those rows already carries a row-level `source_url` and `confidence` — checked,
+not assumed — so each datable era inherits what the row itself asserts. That
+**restates an existing claim rather than inventing a citation**, and it raises no
+confidence: an era inherits the row's own number, whatever that number is.
+
+`VALIDATE CONSTRAINT` takes a SHARE UPDATE EXCLUSIVE lock. It does not block
+reads or writes, only concurrent schema changes on the same table.
+
+### The trap this ended, and why it cost real time
+
+**NOT VALID means Postgres never checked the rows that already existed. It does
+not mean the constraint is inert.** Postgres checks any row an UPDATE *touches*,
+so a migration adding a registered number to a brand row seeded in 2026-07 fails
+on a constraint about tag eras — an error about something the migration was not
+doing.
+
+`00730` could not touch Peter Millar at all until its one datable era was sourced.
+`00748` hit it with two rows and `00757` with eighty. Each had to carry a
+provenance fix it was not otherwise about. See [[brand-rn-attribution]] for the
+work those migrations were actually doing.
+
+Validated, the constraints stop being a trap that fires on unrelated work and
+become what they were meant to be: a rule that new rows must carry provenance,
+reported immediately rather than discovered while trying to write something else.
 
 ## The write path is where a rule like this actually leaks
 
@@ -102,3 +152,5 @@ arrives as a constraint violation surfacing as a 500 instead of a clean 400.
 - [[brand-taxonomy-overview]] — why per-brand values live in the DB and rules live here
 - [[brand-kb-decoder-bar]] — the same discipline applied to what may be inferred from a code
 - [[brand-kb-negative-findings]] — recorded absences, which are themselves facts worth sourcing
+- [[brand-rn-attribution]] — the tests a registered number must pass before it is written
+- [[brand-colorway-harvest]] — what a harvested colorway row carries and why some stay NULL

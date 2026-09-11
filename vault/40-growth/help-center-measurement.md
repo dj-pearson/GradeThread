@@ -8,12 +8,19 @@ code_refs:
   - services/edge-functions/src/lib/help-analytics.ts
   - functions/_shared/help-analytics.ts
   - src/lib/analytics-events.ts
-reviewed: 2026-09-05
+reviewed: 2026-09-10
 tags: [help-center, analytics, seo, contract]
 summary: PostHog cannot see the public help pages because they are server-rendered, so views are counted in Postgres for the public surface and in PostHog for the app, and adding the two together produces a wrong number rather than a bigger one.
 ---
 
 # Help Center measurement
+
+> **Re-reviewed 2026-09-10.** Drift flagged `analytics-events.ts` for five added
+> entries: the two `action_credits.*` names (US-3138) and three onboarding ones
+> (US-3262, US-3263, US-3264). None is a help event. The seven `help_*` entries
+> and the split they sit on -- PostHog for in-app reading, `help_article_views`
+> in Postgres for the server-rendered public pages, never summed -- are
+> unchanged.
 
 > **Re-reviewed 2026-09-05.** Drift flagged `analytics-events.ts` for
 > `badge_certificate_click` (US-3060), which is the on-marketplace badge's

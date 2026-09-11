@@ -61,7 +61,27 @@ jobs:
       # be skipped. It needs only the checkout, so it runs before the long lanes:
       # a leak should be reported in seconds, not after twenty minutes of tests.
       - name: Held-migration gate
+        id: held_migration_gate
         run: node scripts/held-migration-gate.mjs --ci
+      # US-3308 AC6. The gate blocking is the one failure in this job that is NOT
+      # a defect: a held migration is a normal state here, so "CI is red" stops
+      # carrying information and the lane stops being read. Three lanes were
+      # found dark on 2026-09-10 that way. This puts the distinction on the run
+      # summary page as an annotation, so a reader can tell "waiting on the owner
+      # to apply SQL" from "something is broken" without opening a step log.
+      # It does NOT swallow the failure - the job still fails on the gate.
+      - name: Say out loud that this is the gate, not a broken check
+        if: ${{ failure() && steps.held_migration_gate.outcome == 'failure' }}
+        run: |
+          echo "::error title=CI is red on the held-migration gate, not on a code defect::A migration marked HELD in PENDING_MIGRATIONS.md is present on this commit. Every other check in this job still ran - read their results. The fix is to apply the SQL to prod and flip the heading to '## APPLIED:' with a date, or to keep the migration off the pushed branch. Do not bypass the gate."
+          {
+            echo "## Held-migration gate blocked this run"
+            echo
+            echo "This is a **normal** state, not a broken check. The rest of the \`build\` job still ran"
+            echo "and its results are real - a failing gate no longer skips \`npm ci\`."
+            echo
+            echo "See PENDING_MIGRATIONS.md and the \`migrate-prod\` runbook."
+          } >> "$GITHUB_STEP_SUMMARY"
       # `if: !cancelled()` is load-bearing and was missing until 2026-09-10.
       # Without it, a failing gate above SKIPS this install, and then every node
       # script in the rest of the job dies on "Cannot find package" - vault lint,

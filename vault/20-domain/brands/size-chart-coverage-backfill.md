@@ -10,6 +10,7 @@ code_refs:
   - services/edge-functions/src/lib/sizing-charts.ts
   - services/edge-functions/src/routes/flipdesk-size-bands.ts
   - scripts/gen-sizing-chart-seed.mjs
+  - supabase/migrations/00498_sizing_charts_backfill.sql
   - supabase/migrations/00776_sizing_chart_sources.sql
   - supabase/migrations/00779_sizing_chart_sources.sql
   - supabase/migrations/00780_sizing_chart_sources.sql
@@ -150,6 +151,45 @@ three rather than nine. That is the loop working: a batch that ships three
 sourced charts and seven checkable reasons is worth more than one that ships ten
 charts where seven are guesses. When a batch closes almost nothing, the useful
 move is to say so rather than to lower the sourcing bar.
+
+## 00498 is a generated migration that has already been applied, and it must never run again
+
+`supabase/migrations/00498_sizing_charts_backfill.sql` is the one file in this
+loop that is **both a generated artifact and an applied migration**, and the two
+facts fight each other. Read this before regenerating it.
+
+It backfilled `brand_size_charts` from the in-code `SIZING_CHARTS` seed (US-2214),
+because `sizing-charts.ts` carried 415 charts across 171 brands and only a couple
+of dozen had ever reached the table — so the DB-first resolver fell through to the
+frozen in-code copy for almost every brand, **silently**, since the fallback always
+returns something. The admin curation surface had nothing to edit for those brands.
+
+It is **not a verification pass**. Every row lands with `verified = false`,
+`confidence = NULL` and `source_url = NULL`, because the in-code seed carries no
+per-chart provenance to copy. Read `verified = false` as "not yet reviewed by a
+human", which was already true, not as "suspect". Its conflict target is
+`brand_size_charts_key_idx` and it is `ON CONFLICT DO NOTHING` deliberately: the
+hand-written packs from `00447` onward carry real `source_url` and `confidence`
+values and must not be overwritten by an unsourced backfill. **Where a pack
+already seeded a chart, the pack wins.**
+
+The hazard is the regeneration. `scripts/gen-sizing-chart-seed.mjs` rebuilds this
+file whenever `sizing-charts.ts` changes, because `sizing-chart-parity_test.ts`
+re-derives it and fails on drift. A rebuilt copy must never **execute** against a
+database that already has it:
+
+- `apply-prod-migrations.sh` skips every file at or below the highest recorded
+  version, so a re-run only happens when a human runs the file by hand. That is
+  exactly what happened on 2026-09-09.
+- A hand re-run **fails**. `00578` added `brand_size_charts_sourced` NOT VALID, so
+  legacy unsourced rows stay readable, but any INSERT or UPDATE must satisfy it
+  and every row in this file is deliberately unsourced. See
+  [[brand-kb-provenance]].
+
+So the statement sits behind an `applied_migrations` check: on a fresh database it
+runs, on prod it raises a notice and does nothing. New charts reach prod through
+the batch migrations `gen-sizing-chart-batch.mjs` emits, which carry a real
+`source_url` and `confidence`.
 
 ## Where it stands
 
