@@ -133,6 +133,7 @@ import {
 import { requireScope } from "../lib/scope-guard.ts";
 import { REVIEW_CLAIM_TTL_SEC, reviewClaimVerdict } from "../lib/review-claim.ts";
 import { failUngradedSubmission } from "../lib/stuck-submissions.ts";
+import { reviewSnapshot } from "../lib/review-baseline.ts";
 
 // Admin grading-quality + self-improvement surface (US-070/US-073/US-132).
 // Mounted at /api/admin/grading — inherits authMiddleware + adminAuthMiddleware
@@ -3393,6 +3394,9 @@ adminGradingRoutes.post("/review/:id/approve", async (c) => {
     grade_report_id: report.id,
     reviewer_id: adminId,
     original_score: report.overall_score,
+    // US-3323: the factors this review found, so accuracy keeps the AI side.
+    ...reviewSnapshot(report),
+    review_action: "approve",
     adjusted_score: null,
     review_notes: notes || "Approved AI grade as-is.",
   });
@@ -3480,6 +3484,10 @@ adminGradingRoutes.post("/review/:id/adjust", async (c) => {
     grade_report_id: report.id,
     reviewer_id: adminId,
     original_score: report.overall_score, // the ORIGINAL AI grade (training signal)
+    // US-3323: the factors as found. applyGradeAdjustment overwrites the
+    // report below, so this row is the only place the AI's factors survive.
+    ...reviewSnapshot(report),
+    review_action: "adjust",
     adjusted_score: overall,
     adjusted_fabric_condition: factors.fabric_condition_score,
     adjusted_structural_integrity: factors.structural_integrity_score,
@@ -3568,6 +3576,9 @@ adminGradingRoutes.post("/review/:id/send-back", async (c) => {
     grade_report_id: report.id,
     reviewer_id: adminId,
     original_score: report.overall_score,
+    ...reviewSnapshot(report),
+    // US-3323: a send-back is not a verdict on the grade; accuracy skips it.
+    review_action: "send_back",
     adjusted_score: null,
     review_notes: notes || "Sent back for better photos.",
   });

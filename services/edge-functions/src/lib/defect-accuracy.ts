@@ -13,6 +13,12 @@
 
 import { supabaseAdmin } from "./supabase.ts";
 import {
+  buildReviewedGrades,
+  REVIEW_BASELINE_COLUMNS,
+  type ReviewBaselineRow,
+  signedOverallError,
+} from "./review-baseline.ts";
+import {
   coerceDefectType,
   coerceSizeBucket,
   DEFECT_WEIGHTS_VERSION,
@@ -186,7 +192,7 @@ export async function computeDefectAccuracyReport(
 ): Promise<DefectAccuracyReport> {
   let q = supabaseAdmin
     .from("human_reviews")
-    .select("grade_report_id, original_score, adjusted_score");
+    .select(REVIEW_BASELINE_COLUMNS);
   if (periodStart) q = q.gte("reviewed_at", periodStart);
   if (periodEnd) q = q.lte("reviewed_at", periodEnd);
   const { data: reviews, error: reviewsError } = await q;
@@ -201,8 +207,9 @@ export async function computeDefectAccuracyReport(
     generated_at: new Date().toISOString(),
   };
   if (!reviews || reviews.length === 0) return empty;
+  const reviewRows = reviews as unknown as ReviewBaselineRow[];
 
-  const reportIds = [...new Set(reviews.map((r) => r.grade_report_id))];
+  const reportIds = [...new Set(reviewRows.map((r) => r.grade_report_id))];
   const { data: reports, error: reportsError } = await supabaseAdmin
     .from("grade_reports")
     .select("id, overall_score, defects_found")
@@ -213,15 +220,18 @@ export async function computeDefectAccuracyReport(
     (reports ?? []).map((r) => [r.id as string, r as { overall_score: number; defects_found: unknown }]),
   );
 
+  // US-3323: one entry per reviewed grade, AI side from the review snapshot.
+  // The report's overall_score is the HUMAN's after an adjustment, so this
+  // delta used to be zero on every grade a reviewer corrected.
   const grades: ReviewedGradeDefects[] = [];
-  for (const review of reviews) {
-    const report = reportById.get(review.grade_report_id);
-    if (!report) continue;
+  for (
+    const g of buildReviewedGrades(reviewRows, reportById)
+  ) {
+    const report = reportById.get(g.gradeReportId)!;
     const { defectTypes, sizeBuckets } = extractGradeDefects(report.defects_found);
     if (defectTypes.length === 0) continue; // only defect-bearing grades inform this
-    const humanFinal = review.adjusted_score ?? review.original_score;
     grades.push({
-      signedDelta: humanFinal - report.overall_score,
+      signedDelta: signedOverallError(g),
       defectTypes,
       sizeBuckets,
     });

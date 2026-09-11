@@ -10,12 +10,30 @@ import {
   mapClaimIssuesToFactorDeltas,
   normalizeClaimIssues,
 } from "./claim-accuracy.ts";
+import { scoreToGradeTier } from "./human-review.ts";
+import {
+  buildReviewedGrades,
+  isSendBack,
+  REPORT_FACTOR_COLUMNS,
+  REVIEW_BASELINE_COLUMNS,
+  type ReportForBaseline,
+  type ReviewBaselineRow,
+  type ReviewedGrade,
+  signedFactorErrors,
+  signedOverallError,
+} from "./review-baseline.ts";
 
 // ─── Types ──────────────────────────────────────────────────────────
+
+// US-3323: every `mean_signed_error` below is mean(human − AI). POSITIVE means
+// the AI graded too HARSH, NEGATIVE too LENIENT. MAE says how far off the AI
+// is; the sign says which way to correct it, and it is the half a prompt
+// change can act on.
 
 export interface FactorAccuracy {
   factor: string;
   mean_absolute_error: number;
+  mean_signed_error: number;
   agreement_rate: number; // % within 0.5 points
   count: number;
 }
@@ -23,6 +41,7 @@ export interface FactorAccuracy {
 export interface CategoryAccuracy {
   garment_category: string;
   mean_absolute_error: number;
+  mean_signed_error: number;
   agreement_rate: number;
   intentional_misread_rate: number; // share of reviews flagged as design-misread
   count: number;
@@ -32,6 +51,7 @@ export interface PromptVersionAccuracy {
   prompt_version_id: string;
   version_name: string;
   overall_mean_absolute_error: number;
+  overall_mean_signed_error: number;
   overall_agreement_rate: number; // % within 0.5 points
   correlation_coefficient: number;
   intentional_misread_rate: number;
@@ -45,11 +65,17 @@ export interface PromptVersionAccuracy {
 export interface AccuracySummary {
   versions: PromptVersionAccuracy[];
   global_mean_absolute_error: number;
+  global_mean_signed_error: number;
   global_agreement_rate: number;
   global_intentional_misread_rate: number;
+  // US-3323: per-factor error across all versions, over grades whose AI
+  // factors are known. This is where "fabric is graded half a point harsh"
+  // surfaces.
+  factor_accuracies: FactorAccuracy[];
   // Accuracy sliced by garment_category across all versions — this is where
   // "jeans MAE is 3x average" surfaces.
   category_accuracies: CategoryAccuracy[];
+  // Reviewed GRADES counted (one per grade report, send-backs excluded).
   total_reviews: number;
   generated_at: string;
 }
@@ -60,13 +86,15 @@ export interface TrainingDataEntry {
   submission_id: string;
   garment_type: string;
   garment_category: string;
+  // US-3323: the AI's OWN scores, from the review snapshot. A factor is null
+  // when it is unrecoverable (a pre-00784 grade that a human adjusted).
   ai_overall_score: number;
   ai_grade_tier: string;
-  ai_fabric_condition: number;
-  ai_structural_integrity: number;
-  ai_cosmetic_appearance: number;
-  ai_functional_elements: number;
-  ai_odor_cleanliness: number;
+  ai_fabric_condition: number | null;
+  ai_structural_integrity: number | null;
+  ai_cosmetic_appearance: number | null;
+  ai_functional_elements: number | null;
+  ai_odor_cleanliness: number | null;
   ai_confidence: number;
   ai_summary: string;
   ai_detected_style_attributes: unknown;
@@ -247,61 +275,93 @@ function promptVersionKey(report: {
   return mv || "unknown";
 }
 
-// Mean over the non-null entries (null = "reviewer didn't touch this factor").
-function meanNonNull(values: (number | null)[]): { mean: number; count: number } {
-  const present = values.filter((v): v is number => v !== null);
-  if (present.length === 0) return { mean: 0, count: 0 };
-  return { mean: present.reduce((s, v) => s + v, 0) / present.length, count: present.length };
+// US-3323: one reviewed grade, with the AI side and the human side kept apart
+// (see lib/review-baseline.ts for why they have to be).
+interface SummaryReviewRow extends ReviewBaselineRow {
+  intentional_misread?: boolean | null;
 }
 
-interface ReviewReportPair {
-  review: ReviewCorrection & { intentional_misread?: boolean };
-  report: {
-    overall_score: number;
-    fabric_condition_score: number;
-    structural_integrity_score: number;
-    cosmetic_appearance_score: number;
-    functional_elements_score: number;
-    odor_cleanliness_score: number;
-  };
+interface GradedPair {
+  grade: ReviewedGrade<SummaryReviewRow>;
   category: string;
+  versionKey: string;
+  misread: boolean;
 }
 
-// Build a CategoryAccuracy from a set of review/report pairs sharing a category.
-function buildCategoryAccuracy(category: string, pairs: ReviewReportPair[]): CategoryAccuracy {
-  let errSum = 0;
-  let agreed = 0;
-  let misread = 0;
-  for (const { review, report } of pairs) {
-    const humanFinal = review.adjusted_score ?? review.original_score;
-    const err = Math.abs(report.overall_score - humanFinal);
-    errSum += err;
-    if (err <= 0.5) agreed++;
-    if (review.intentional_misread) misread++;
-  }
+function mean(values: number[]): number {
+  return values.length > 0 ? values.reduce((s, v) => s + v, 0) / values.length : 0;
+}
+
+// Build a CategoryAccuracy from a set of reviewed grades sharing a category.
+function buildCategoryAccuracy(category: string, pairs: GradedPair[]): CategoryAccuracy {
+  const signed = pairs.map((p) => signedOverallError(p.grade));
+  const abs = signed.map((e) => Math.abs(e));
   return {
     garment_category: category,
-    mean_absolute_error: errSum / pairs.length,
-    agreement_rate: agreed / pairs.length,
-    intentional_misread_rate: misread / pairs.length,
+    mean_absolute_error: mean(abs),
+    mean_signed_error: mean(signed),
+    agreement_rate: pairs.length > 0 ? abs.filter((e) => e <= 0.5).length / pairs.length : 0,
+    intentional_misread_rate:
+      pairs.length > 0 ? pairs.filter((p) => p.misread).length / pairs.length : 0,
     count: pairs.length,
   };
 }
 
+// Per-factor error over the grades whose AI factors are known. A pre-00784
+// grade that was ADJUSTED has no AI factors left anywhere, so it counts toward
+// the overall numbers and not toward any factor.
+function buildFactorAccuracies(pairs: GradedPair[]): FactorAccuracy[] {
+  return FACTOR_NAMES.map((f) => {
+    const signed = pairs
+      .map((p) => signedFactorErrors(p.grade)[f])
+      .filter((v): v is number => v !== null);
+    const abs = signed.map((e) => Math.abs(e));
+    return {
+      factor: f,
+      mean_absolute_error: mean(abs),
+      mean_signed_error: mean(signed),
+      agreement_rate: abs.length > 0 ? abs.filter((e) => e <= 0.5).length / abs.length : 0,
+      count: abs.length,
+    };
+  });
+}
+
+function categoryBreakdown(pairs: GradedPair[]): CategoryAccuracy[] {
+  const byCategory = new Map<string, GradedPair[]>();
+  for (const p of pairs) {
+    const arr = byCategory.get(p.category) ?? [];
+    arr.push(p);
+    byCategory.set(p.category, arr);
+  }
+  return [...byCategory.entries()]
+    .map(([cat, ps]) => buildCategoryAccuracy(cat, ps))
+    .sort((a, b) => b.mean_absolute_error - a.mean_absolute_error);
+}
+
 /**
  * Compute aggregate accuracy metrics per prompt version.
- * Uses human reviews + grade reports to calculate MAE, agreement rate,
- * correlation, per-factor MAE (from real reviewer corrections), per-category
- * accuracy, and the intentional-misread rate (the denim-regression signal).
+ *
+ * One entry per REVIEWED GRADE (not per review row), comparing the AI's own
+ * score with the human-final score: MAE, signed bias, agreement, correlation,
+ * per-factor error, per-category accuracy, and the intentional-misread rate
+ * (the denim-regression signal).
+ *
+ * US-3323: this used to compare grade_reports' CURRENT score with the
+ * reviewer's, which after an adjustment are the same number, so every
+ * corrected grade read as zero error. The AI side now comes from the review
+ * rows' snapshot (lib/review-baseline.ts).
+ *
+ * Known edge: a period window that starts between a grade's first and a later
+ * review reads the later review's snapshot as the AI side. That takes an
+ * adjustment followed by a second review of the same grade, split by the window.
  */
 export async function computeAccuracySummary(
   periodStart?: string,
   periodEnd?: string
 ): Promise<AccuracySummary> {
-  // Fetch human reviews with their associated grade reports
   let reviewsQuery = supabaseAdmin
     .from("human_reviews")
-    .select("*");
+    .select(`${REVIEW_BASELINE_COLUMNS}, intentional_misread`);
 
   if (periodStart) {
     reviewsQuery = reviewsQuery.gte("reviewed_at", periodStart);
@@ -311,13 +371,16 @@ export async function computeAccuracySummary(
   }
 
   const { data: reviews, error: reviewsError } = await reviewsQuery;
+
   if (reviewsError) throw new Error(`Failed to fetch reviews: ${reviewsError.message}`);
 
   const emptySummary: AccuracySummary = {
     versions: [],
     global_mean_absolute_error: 0,
+    global_mean_signed_error: 0,
     global_agreement_rate: 0,
     global_intentional_misread_rate: 0,
+    factor_accuracies: buildFactorAccuracies([]),
     category_accuracies: [],
     total_reviews: 0,
     generated_at: new Date().toISOString(),
@@ -327,22 +390,35 @@ export async function computeAccuracySummary(
     return emptySummary;
   }
 
-  // Fetch all grade reports that have been reviewed
-  const gradeReportIds = [...new Set(reviews.map((r) => r.grade_report_id))];
+  const reviewRows = reviews as unknown as SummaryReviewRow[];
+  const gradeReportIds = [...new Set(reviewRows.map((r) => r.grade_report_id))];
   const { data: gradeReports, error: reportsError } = await supabaseAdmin
     .from("grade_reports")
-    .select("*")
+    .select(`id, submission_id, overall_score, prompt_version, model_version, ${REPORT_FACTOR_COLUMNS}`)
     .in("id", gradeReportIds);
 
   if (reportsError) throw new Error(`Failed to fetch grade reports: ${reportsError.message}`);
 
+  type Report = ReportForBaseline & {
+    id: string;
+    submission_id: string;
+    prompt_version: string | null;
+    model_version: string | null;
+  };
+  const reportMap = new Map<string, Report>();
+  for (const report of (gradeReports ?? []) as unknown as Report[]) {
+    reportMap.set(report.id, report);
+  }
+
   // Fetch the submissions behind those reports to slice accuracy by category.
-  const submissionIds = [...new Set((gradeReports ?? []).map((r) => r.submission_id))];
+  const submissionIds = [...new Set([...reportMap.values()].map((r) => r.submission_id))];
   const { data: submissions, error: subsError } = await supabaseAdmin
     .from("submissions")
     .select("id, garment_category")
     .in("id", submissionIds);
+
   if (subsError) throw new Error(`Failed to fetch submissions: ${subsError.message}`);
+
   const categoryBySubmission = new Map<string, string>();
   for (const s of submissions ?? []) {
     categoryBySubmission.set(s.id, s.garment_category ?? "unknown");
@@ -355,152 +431,79 @@ export async function computeAccuracySummary(
 
   if (versionsError) throw new Error(`Failed to fetch prompt versions: ${versionsError.message}`);
 
-  // Build grade report lookup
-  type Report = NonNullable<typeof gradeReports>[number];
-  const reportMap = new Map<string, Report>();
-  for (const report of gradeReports ?? []) {
-    reportMap.set(report.id, report);
-  }
-
   // version_name → id (used to attribute accuracy back to a prompt version row)
   const versionIdByName = new Map<string, string>();
   for (const v of promptVersions ?? []) {
     versionIdByName.set(v.version_name, v.id);
   }
 
-  type VersionGroup = { pairs: ReviewReportPair[]; dates: string[] };
-  const versionGroups = new Map<string, VersionGroup>();
-  const allPairs: ReviewReportPair[] = [];
+  const misreadReports = new Set(
+    reviewRows.filter((r) => r.intentional_misread === true).map((r) => r.grade_report_id),
+  );
+  const allPairs: GradedPair[] = [];
+  for (const grade of buildReviewedGrades(reviewRows, reportMap)) {
+    const report = reportMap.get(grade.gradeReportId)!;
+    allPairs.push({
+      grade,
+      category: categoryBySubmission.get(report.submission_id) ?? "unknown",
+      versionKey: promptVersionKey(report),
+      misread: misreadReports.has(grade.gradeReportId),
+    });
+  }
 
-  for (const review of reviews) {
-    const report = reportMap.get(review.grade_report_id);
-    if (!report) continue;
+  if (allPairs.length === 0) {
+    return emptySummary;
+  }
 
-    const category = categoryBySubmission.get(report.submission_id) ?? "unknown";
-    const pair: ReviewReportPair = { review, report, category };
-    allPairs.push(pair);
-
-    const versionKey = promptVersionKey(report);
-    if (!versionGroups.has(versionKey)) {
-      versionGroups.set(versionKey, { pairs: [], dates: [] });
-    }
-    const g = versionGroups.get(versionKey)!;
-    g.pairs.push(pair);
-    g.dates.push(review.reviewed_at);
+  const versionGroups = new Map<string, GradedPair[]>();
+  for (const p of allPairs) {
+    const arr = versionGroups.get(p.versionKey) ?? [];
+    arr.push(p);
+    versionGroups.set(p.versionKey, arr);
   }
 
   // Per-version metrics
   const versionAccuracies: PromptVersionAccuracy[] = [];
-
-  for (const [versionKey, group] of versionGroups) {
-    const aiScores: number[] = [];
-    const humanScores: number[] = [];
-    const errors: number[] = [];
-    let agreed = 0;
-    let misread = 0;
-
-    const factorErrors: Record<string, (number | null)[]> = {};
-    for (const f of FACTOR_NAMES) factorErrors[f] = [];
-
-    for (const { review, report } of group.pairs) {
-      const humanFinal = review.adjusted_score ?? review.original_score;
-      const error = Math.abs(report.overall_score - humanFinal);
-      errors.push(error);
-      if (error <= 0.5) agreed++;
-      if (review.intentional_misread) misread++;
-      aiScores.push(report.overall_score);
-      humanScores.push(humanFinal);
-
-      const reviewAccuracy = calculateReviewAccuracy(
-        {
-          overall_score: report.overall_score,
-          fabric_condition_score: report.fabric_condition_score,
-          structural_integrity_score: report.structural_integrity_score,
-          cosmetic_appearance_score: report.cosmetic_appearance_score,
-          functional_elements_score: report.functional_elements_score,
-          odor_cleanliness_score: report.odor_cleanliness_score,
-        },
-        review
-      );
-      for (const f of FACTOR_NAMES) factorErrors[f].push(reviewAccuracy.factor_errors[f]);
-    }
-
-    const mae = errors.reduce((s, e) => s + e, 0) / errors.length;
-    const agreementRate = agreed / errors.length;
-    const correlation = pearsonCorrelation(aiScores, humanScores);
-
-    const factorAccuracies: FactorAccuracy[] = FACTOR_NAMES.map((f) => {
-      const present = factorErrors[f].filter((v): v is number => v !== null);
-      const { mean } = meanNonNull(factorErrors[f]);
-      return {
-        factor: f,
-        mean_absolute_error: mean,
-        agreement_rate:
-          present.length > 0 ? present.filter((e) => e <= 0.5).length / present.length : 0,
-        count: present.length,
-      };
-    });
-
-    // Per-category breakdown within this version
-    const byCategory = new Map<string, ReviewReportPair[]>();
-    for (const p of group.pairs) {
-      const arr = byCategory.get(p.category) ?? [];
-      arr.push(p);
-      byCategory.set(p.category, arr);
-    }
-    const categoryAccuracies = [...byCategory.entries()]
-      .map(([cat, pairs]) => buildCategoryAccuracy(cat, pairs))
-      .sort((a, b) => b.mean_absolute_error - a.mean_absolute_error);
-
-    const dates = [...group.dates].sort();
+  for (const [versionKey, pairs] of versionGroups) {
+    const signed = pairs.map((p) => signedOverallError(p.grade));
+    const abs = signed.map((e) => Math.abs(e));
+    const dates = pairs
+      .map((p) => p.grade.latest.reviewed_at)
+      .filter((d): d is string => typeof d === "string")
+      .sort();
 
     versionAccuracies.push({
       prompt_version_id: versionIdByName.get(versionKey) ?? versionKey,
       version_name: versionKey,
-      overall_mean_absolute_error: mae,
-      overall_agreement_rate: agreementRate,
-      correlation_coefficient: correlation,
-      intentional_misread_rate: misread / group.pairs.length,
-      factor_accuracies: factorAccuracies,
-      category_accuracies: categoryAccuracies,
-      total_reviews: group.pairs.length,
+      overall_mean_absolute_error: mean(abs),
+      overall_mean_signed_error: mean(signed),
+      overall_agreement_rate: abs.filter((e) => e <= 0.5).length / abs.length,
+      correlation_coefficient: pearsonCorrelation(
+        pairs.map((p) => p.grade.aiOverall),
+        pairs.map((p) => p.grade.humanOverall),
+      ),
+      intentional_misread_rate: pairs.filter((p) => p.misread).length / pairs.length,
+      factor_accuracies: buildFactorAccuracies(pairs),
+      category_accuracies: categoryBreakdown(pairs),
+      total_reviews: pairs.length,
       period_start: dates[0] ?? null,
       period_end: dates[dates.length - 1] ?? null,
     });
   }
 
   // Global metrics + global per-category breakdown
-  const globalErrors = allPairs.map(({ review, report }) =>
-    Math.abs(report.overall_score - (review.adjusted_score ?? review.original_score))
-  );
-  const globalMae =
-    globalErrors.length > 0 ? globalErrors.reduce((s, e) => s + e, 0) / globalErrors.length : 0;
-  const globalAgreementRate =
-    globalErrors.length > 0
-      ? globalErrors.filter((e) => e <= 0.5).length / globalErrors.length
-      : 0;
-  const globalMisread =
-    allPairs.length > 0
-      ? allPairs.filter((p) => p.review.intentional_misread).length / allPairs.length
-      : 0;
-
-  const globalByCategory = new Map<string, ReviewReportPair[]>();
-  for (const p of allPairs) {
-    const arr = globalByCategory.get(p.category) ?? [];
-    arr.push(p);
-    globalByCategory.set(p.category, arr);
-  }
-  const categoryAccuracies = [...globalByCategory.entries()]
-    .map(([cat, pairs]) => buildCategoryAccuracy(cat, pairs))
-    .sort((a, b) => b.mean_absolute_error - a.mean_absolute_error);
+  const globalSigned = allPairs.map((p) => signedOverallError(p.grade));
+  const globalAbs = globalSigned.map((e) => Math.abs(e));
 
   return {
     versions: versionAccuracies,
-    global_mean_absolute_error: globalMae,
-    global_agreement_rate: globalAgreementRate,
-    global_intentional_misread_rate: globalMisread,
-    category_accuracies: categoryAccuracies,
-    total_reviews: reviews.length,
+    global_mean_absolute_error: mean(globalAbs),
+    global_mean_signed_error: mean(globalSigned),
+    global_agreement_rate: globalAbs.filter((e) => e <= 0.5).length / globalAbs.length,
+    global_intentional_misread_rate: allPairs.filter((p) => p.misread).length / allPairs.length,
+    factor_accuracies: buildFactorAccuracies(allPairs),
+    category_accuracies: categoryBreakdown(allPairs),
+    total_reviews: allPairs.length,
     generated_at: new Date().toISOString(),
   };
 }
@@ -665,9 +668,19 @@ export async function exportTrainingDataset(
   // Build JSONL output
   const lines: string[] = [];
 
+  // US-3323: the AI side of each pair comes from the review snapshot, not the
+  // report. An adjusted report holds the human's scores, so exporting it as
+  // `ai_*` paired every correction with itself. Send-backs are not grading
+  // verdicts and are left out.
+  const baselineByReport = new Map(
+    buildReviewedGrades(reviews as unknown as ReviewBaselineRow[], reportMap)
+      .map((g) => [g.gradeReportId, g]),
+  );
+
   for (const review of reviews) {
     const report = reportMap.get(review.grade_report_id);
-    if (!report) continue;
+    const baseline = baselineByReport.get(review.grade_report_id);
+    if (!report || !baseline || isSendBack(review)) continue;
 
     const submission = submissionMap.get(report.submission_id);
     const ownerConsent = submission ? consentByUser.get(submission.user_id) === true : false;
@@ -680,13 +693,13 @@ export async function exportTrainingDataset(
       submission_id: report.submission_id,
       garment_type: submission?.garment_type ?? "unknown",
       garment_category: submission?.garment_category ?? "unknown",
-      ai_overall_score: report.overall_score,
-      ai_grade_tier: report.grade_tier,
-      ai_fabric_condition: report.fabric_condition_score,
-      ai_structural_integrity: report.structural_integrity_score,
-      ai_cosmetic_appearance: report.cosmetic_appearance_score,
-      ai_functional_elements: report.functional_elements_score,
-      ai_odor_cleanliness: report.odor_cleanliness_score,
+      ai_overall_score: baseline.aiOverall,
+      ai_grade_tier: scoreToGradeTier(baseline.aiOverall),
+      ai_fabric_condition: baseline.aiFactors?.fabric_condition ?? null,
+      ai_structural_integrity: baseline.aiFactors?.structural_integrity ?? null,
+      ai_cosmetic_appearance: baseline.aiFactors?.cosmetic_appearance ?? null,
+      ai_functional_elements: baseline.aiFactors?.functional_elements ?? null,
+      ai_odor_cleanliness: baseline.aiFactors?.odor_cleanliness ?? null,
       ai_confidence: report.confidence_score,
       ai_summary: report.ai_summary,
       ai_detected_style_attributes: report.detected_style_attributes ?? [],
@@ -1173,13 +1186,14 @@ export async function computeConfidenceCalibration(): Promise<CalibrationReport>
 
   const { data: reviews, error: reviewsError } = await supabaseAdmin
     .from("human_reviews")
-    .select("grade_report_id, original_score, adjusted_score");
+    .select(REVIEW_BASELINE_COLUMNS);
   if (reviewsError) throw new Error(`Failed to fetch reviews: ${reviewsError.message}`);
   if (!reviews || reviews.length === 0) {
     return { ...buildCalibration([], threshold), generated_at };
   }
 
-  const reportIds = [...new Set(reviews.map((r) => r.grade_report_id))];
+  const reviewRows = reviews as unknown as ReviewBaselineRow[];
+  const reportIds = [...new Set(reviewRows.map((r) => r.grade_report_id))];
   const { data: reports, error: reportsError } = await supabaseAdmin
     .from("grade_reports")
     .select("id, overall_score, confidence_score")
@@ -1194,15 +1208,14 @@ export async function computeConfidenceCalibration(): Promise<CalibrationReport>
     });
   }
 
+  // US-3323: the error is the AI's own score against the human-final one. The
+  // report's current score is the human's after an adjustment, so reading it as
+  // the AI side made every corrected grade a zero-error point.
   const pairs: Array<{ confidence: number; error: number }> = [];
-  for (const review of reviews) {
-    const report = reportById.get(review.grade_report_id);
-    if (!report || !Number.isFinite(report.confidence_score)) continue;
-    const humanFinal = review.adjusted_score ?? review.original_score;
-    pairs.push({
-      confidence: report.confidence_score,
-      error: Math.abs(report.overall_score - humanFinal),
-    });
+  for (const grade of buildReviewedGrades(reviewRows, reportById)) {
+    const confidence = reportById.get(grade.gradeReportId)?.confidence_score;
+    if (confidence === undefined || !Number.isFinite(confidence)) continue;
+    pairs.push({ confidence, error: Math.abs(signedOverallError(grade)) });
   }
 
   return { ...buildCalibration(pairs, threshold), generated_at };

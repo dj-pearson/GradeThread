@@ -9,6 +9,44 @@
 > They are still filed as HELD here because nobody in this session watched
 > them apply. Confirm against prod before trusting either heading.
 
+## ⏸ HELD: 00784 — keep the AI's own scores on every human review (US-3323)
+
+**Risk: LOW.** Six nullable columns on `human_reviews` and one CHECK
+constraint. Nothing dropped, nothing backfilled, no RLS change (the table is
+admin/reviewer-only already). `ADD COLUMN IF NOT EXISTS` and a guarded
+constraint, so a second run is a no-op.
+
+**Apply order: after 00783. Depends on nothing else.**
+
+**Why it exists.** `applyGradeAdjustment` overwrites a grade's scores with the
+reviewer's correction, and every accuracy reader then compared the reviewer's
+score with itself: zero error on every corrected grade. The five
+`original_*` columns keep the factor scores each review found before acting;
+`review_action` (`approve | adjust | send_back | dispute`) stops send-backs
+counting as approvals. Contract: `vault/20-domain/review-accuracy-baseline.md`.
+
+**⚠ The edge code in the same change WRITES these columns on every review.**
+Apply the SQL before the edge deploys, or approve/adjust/send-back/dispute
+inserts fail with a missing-column error. The boot guard (EXPECTED_SCHEMA_VERSION
+00784) holds the new edge back until it is applied. The frontend reads the new
+accuracy fields as optional, so an early frontend deploy is safe.
+
+**Run:**
+
+```sql
+-- supabase/migrations/00784_human_review_ai_baseline.sql, then:
+NOTIFY pgrst, 'reload schema';
+```
+
+**Check it landed:**
+
+```sql
+select column_name from information_schema.columns
+where table_schema = 'public' and table_name = 'human_reviews'
+  and (column_name like 'original\_%' or column_name = 'review_action')
+order by 1;  -- expect 7 rows: the six new ones plus the older original_score
+```
+
 ## ✅ APPLIED 2026-09-10: 00783 — five brands sellers hold, and two refusals (US-3125)
 
 **APPLIED, and NOT the way the rule says it should have happened.** This was

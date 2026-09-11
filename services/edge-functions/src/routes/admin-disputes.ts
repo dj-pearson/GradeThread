@@ -17,6 +17,7 @@ import {
   ZeroRowsAffectedError,
 } from "../lib/db-write.ts";
 import { requireScope } from "../lib/scope-guard.ts";
+import { reviewSnapshot } from "../lib/review-baseline.ts";
 
 // Admin dispute resolution (US-474). Mounted at /api/admin/disputes — inherits
 // authMiddleware + adminAuthMiddleware from main.ts (/api/admin/*).
@@ -235,6 +236,9 @@ adminDisputesRoutes.post("/:id/resolve", async (c) => {
       grade_report_id: report.id,
       reviewer_id: adminId,
       original_score: report.overall_score,
+      // US-3323: the factors as found, before applyGradeAdjustment overwrites them.
+      ...reviewSnapshot(report),
+      review_action: "dispute",
       adjusted_score: projectedOverall,
       adjusted_fabric_condition: factors.fabric_condition_score,
       adjusted_structural_integrity: factors.structural_integrity_score,

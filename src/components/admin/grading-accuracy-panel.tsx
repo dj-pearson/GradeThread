@@ -31,6 +31,7 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { Target, Download, FlaskConical, Loader2 } from "lucide-react";
 import { toast } from "sonner";
+import { GRADE_FACTORS } from "@/lib/constants";
 
 // US-1564: surfaces the finished-but-unreachable grading analytics endpoints:
 //   GET /accuracy, /accuracy/defects, /accuracy/outcomes  → three data tabs
@@ -39,9 +40,13 @@ import { toast } from "sonner";
 // Lives on /admin/ai-models next to the monitor/eval/calibration panels — the
 // AI-operations hub — so accuracy context sits beside the levers it informs.
 
+// US-3323: every *_signed_error is mean(human - AI). Positive = the AI graded
+// too harsh, negative = too lenient. Optional because an edge deploy that
+// predates the field must still render (the frontend ships first).
 interface CategoryAccuracy {
   garment_category: string;
   mean_absolute_error: number;
+  mean_signed_error?: number;
   agreement_rate: number;
   intentional_misread_rate: number;
   count: number;
@@ -50,18 +55,41 @@ interface CategoryAccuracy {
 interface VersionAccuracy {
   version_name: string;
   overall_mean_absolute_error: number;
+  overall_mean_signed_error?: number;
   overall_agreement_rate: number;
   intentional_misread_rate: number;
   total_reviews: number;
 }
 
+interface FactorAccuracy {
+  factor: string;
+  mean_absolute_error: number;
+  mean_signed_error?: number;
+  agreement_rate: number;
+  count: number;
+}
+
 interface AccuracySummary {
   versions: VersionAccuracy[];
   global_mean_absolute_error: number;
+  global_mean_signed_error?: number;
   global_agreement_rate: number;
   global_intentional_misread_rate: number;
+  factor_accuracies?: FactorAccuracy[];
   category_accuracies: CategoryAccuracy[];
   total_reviews: number;
+}
+
+// Which way the AI leans, in words a reviewer can act on. Under 0.05 points
+// either way is noise at a 0.5-step scale, so it reads as "even".
+function lean(v: number | null | undefined): string {
+  if (v == null || !Number.isFinite(v)) return "—";
+  if (Math.abs(v) < 0.05) return "even";
+  return v > 0 ? `+${v.toFixed(2)} too harsh` : `${v.toFixed(2)} too lenient`;
+}
+
+function factorLabel(key: string): string {
+  return (GRADE_FACTORS as Record<string, { label: string }>)[key]?.label ?? key;
 }
 
 interface DefectTypeAccuracy {
@@ -222,20 +250,38 @@ function AccuracyTab({ period }: { period: string }) {
   }
   return (
     <div className="space-y-4">
-      <div className="grid gap-3 sm:grid-cols-4">
-        <Stat label="Reviews" value={String(data.total_reviews)} />
+      <div className="grid gap-3 sm:grid-cols-5">
+        <Stat label="Graded items reviewed" value={String(data.total_reviews)} />
         <Stat label="Global MAE" value={data.global_mean_absolute_error.toFixed(2)} hint="mean |AI − human| overall points" />
+        <Stat label="AI leans" value={lean(data.global_mean_signed_error)} hint="mean (human − AI); + means the AI grades low" />
         <Stat label="Agreement" value={pct(data.global_agreement_rate)} hint="within 0.5 points" />
         <Stat label="Design-misread rate" value={pct(data.global_intentional_misread_rate)} />
       </div>
+      {/* US-3323: the per-factor half is where a prompt change can act. A
+          factor counts only grades whose AI factors are known, so its
+          "Graded" can be lower than the total above. */}
+      {(data.factor_accuracies ?? []).some((f) => f.count > 0) && (
+        <MiniTable
+          title="By factor"
+          head={["Factor", "Graded", "MAE", "AI leans", "Agreement"]}
+          rows={(data.factor_accuracies ?? []).map((f) => [
+            factorLabel(f.factor),
+            String(f.count),
+            f.count > 0 ? f.mean_absolute_error.toFixed(2) : "—",
+            f.count > 0 ? lean(f.mean_signed_error) : "—",
+            f.count > 0 ? pct(f.agreement_rate) : "—",
+          ])}
+        />
+      )}
       {data.versions.length > 0 && (
         <MiniTable
           title="By prompt version"
-          head={["Version", "Reviews", "MAE", "Agreement", "Misread"]}
+          head={["Version", "Graded", "MAE", "AI leans", "Agreement", "Misread"]}
           rows={data.versions.map((v) => [
             v.version_name,
             String(v.total_reviews),
             v.overall_mean_absolute_error.toFixed(2),
+            lean(v.overall_mean_signed_error),
             pct(v.overall_agreement_rate),
             pct(v.intentional_misread_rate),
           ])}
@@ -244,11 +290,12 @@ function AccuracyTab({ period }: { period: string }) {
       {data.category_accuracies.length > 0 && (
         <MiniTable
           title="By garment category"
-          head={["Category", "Reviews", "MAE", "Agreement", "Misread"]}
+          head={["Category", "Graded", "MAE", "AI leans", "Agreement", "Misread"]}
           rows={data.category_accuracies.map((cat) => [
             cat.garment_category,
             String(cat.count),
             cat.mean_absolute_error.toFixed(2),
+            lean(cat.mean_signed_error),
             pct(cat.agreement_rate),
             pct(cat.intentional_misread_rate),
           ])}

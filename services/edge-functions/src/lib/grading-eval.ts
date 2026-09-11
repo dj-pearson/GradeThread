@@ -925,6 +925,20 @@ export async function promoteGradeReportToEvalCase(
     rv && typeof rv.adjusted_score === "number" ? rv.adjusted_score : r.overall_score;
   const intentionalMisread = rv?.intentional_misread === true;
 
+  // US-3323: the AI's own score for the note. The report's overall_score is
+  // the corrected one once a reviewer adjusted it, so the note used to read
+  // "AI 7.5 → corrected 7.5". The earliest review recorded what it found.
+  const { data: firstReview } = await supabaseAdmin
+    .from("human_reviews")
+    .select("original_score")
+    .eq("grade_report_id", gradeReportId)
+    .order("reviewed_at", { ascending: true })
+    .limit(1)
+    .maybeSingle();
+  const aiScore = typeof (firstReview as { original_score?: unknown } | null)?.original_score === "number"
+    ? (firstReview as { original_score: number }).original_score
+    : r.overall_score;
+
   const { data: submission } = await supabaseAdmin
     .from("submissions")
     .select("garment_type, garment_category, brand, title, description, style_attributes")
@@ -961,7 +975,7 @@ export async function promoteGradeReportToEvalCase(
   ];
   const notes =
     `Auto-promoted from ${source} (${new Date().toISOString().slice(0, 10)}). ` +
-    `AI ${r.overall_score} → corrected ${expectedScore}.` +
+    `AI ${aiScore} → corrected ${expectedScore}.` +
     (intentionalMisread ? " Flagged intentional-design misread." : "") +
     " Pending approval before it counts toward the eval gate.";
 

@@ -1,5 +1,11 @@
 import { supabaseAdmin } from "./supabase.ts";
 import { createVersionedCache } from "./coherent-cache.ts";
+import {
+  buildReviewedGrades,
+  isSendBack,
+  REVIEW_BASELINE_COLUMNS,
+  type ReviewBaselineRow,
+} from "./review-baseline.ts";
 
 // ─── US-1067: few-shot exemplar cache from human-corrected grades ────────────
 //
@@ -326,28 +332,29 @@ export async function assembleExemplarSet(
       : 180;
   const since = new Date(Date.now() - sinceDays * 86_400_000).toISOString();
 
-  // Pull corrected reviews. We deliberately select ONLY the corrected scores +
-  // the misread flag — NOT review_notes (free text / PII).
+  // Pull corrected reviews. We deliberately select ONLY scores, timestamps, the
+  // review path and the misread flag — NOT review_notes (free text / PII).
   const { data: reviews, error: reviewsError } = await supabaseAdmin
     .from("human_reviews")
-    .select("grade_report_id, original_score, adjusted_score, intentional_misread, reviewed_at")
+    .select(`${REVIEW_BASELINE_COLUMNS}, intentional_misread`)
     .gte("reviewed_at", since)
     .order("reviewed_at", { ascending: false })
     .limit(ASSEMBLY_SCAN_CAP);
   if (reviewsError) throw new Error(`Failed to scan reviews: ${reviewsError.message}`);
 
-  const reviewRows = (reviews ?? []) as Array<{
-    grade_report_id: string;
-    original_score: number;
-    adjusted_score: number | null;
-    intentional_misread: boolean | null;
-    reviewed_at: string;
-  }>;
+  const reviewRows = (reviews ?? []) as unknown as Array<
+    ReviewBaselineRow & {
+      intentional_misread: boolean | null;
+      reviewed_at: string;
+    }
+  >;
 
   // One report can have several reviews; newest-first query means the first time
-  // we see a report id carries its latest correction.
+  // we see a report id carries its latest correction. US-3323: a send-back is
+  // not a correction and never becomes an exemplar.
   const seen = new Set<string>();
   const latestByReport = reviewRows.filter((r) => {
+    if (isSendBack(r)) return false;
     if (seen.has(r.grade_report_id)) return false;
     seen.add(r.grade_report_id);
     return true;
@@ -425,19 +432,26 @@ export async function assembleExemplarSet(
         .map((s) => [s.id, s]),
     );
 
-    for (const r of uncontaminated) {
-      const report = reportById.get(r.grade_report_id);
-      if (!report) continue;
+    // US-3323: the AI side comes from the earliest review's snapshot. The
+    // report's overall_score is the HUMAN's once adjusted, so every correction
+    // used to reach this miner as "AI 8.0, corrected 8.0", which is no lesson.
+    const keep = new Set(reportIds);
+    const graded = buildReviewedGrades(
+      reviewRows.filter((r) => keep.has(r.grade_report_id)),
+      reportById,
+    );
+    for (const g of graded) {
+      const report = reportById.get(g.gradeReportId)!;
       const sub = subById.get(report.submission_id);
       const category = sub?.garment_category ?? "unknown";
       if (scope && category !== scope) continue;
       signals.push({
         garment_category: category,
         garment_type: sub?.garment_type ?? "unknown",
-        ai_overall_score: report.overall_score,
-        corrected_overall_score: r.adjusted_score ?? r.original_score,
-        intentional_misread: r.intentional_misread === true,
-        reviewed_at: r.reviewed_at,
+        ai_overall_score: g.aiOverall,
+        corrected_overall_score: g.humanOverall,
+        intentional_misread: g.latest.intentional_misread === true,
+        reviewed_at: g.latest.reviewed_at,
       });
     }
   }

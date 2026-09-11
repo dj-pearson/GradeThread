@@ -26,6 +26,12 @@ import {
   EMPTY_CALIBRATION,
 } from "../lib/confidence-calibration.ts";
 import { reviewConfidenceThreshold } from "../lib/ai-config.ts";
+import {
+  buildReviewedGrades,
+  REVIEW_BASELINE_COLUMNS,
+  type ReviewBaselineRow,
+  signedOverallError,
+} from "../lib/review-baseline.ts";
 
 // Bounded mining window: recent-enough to reflect the current prompts, big
 // enough for per-category sample sizes.
@@ -47,30 +53,23 @@ export async function handleConfidenceCalibrationCron(
       Date.now() - SCAN_WINDOW_DAYS * 86_400_000,
     ).toISOString();
 
-    // 1. Reviews (latest per report wins — newest-first scan, first-seen kept).
+    // 1. Reviews in the window. buildReviewedGrades collapses them to one entry
+    //    per grade below: AI side from the earliest review's snapshot, human
+    //    side from the report (US-3323).
     const { data: reviewRows, error: reviewErr } = await supabaseAdmin
       .from("human_reviews")
-      .select("grade_report_id, original_score, adjusted_score, reviewed_at")
+      .select(REVIEW_BASELINE_COLUMNS)
       .gte("reviewed_at", since)
       .order("reviewed_at", { ascending: false })
       .limit(REVIEW_SCAN_CAP);
     if (reviewErr) throw new Error(`review scan failed: ${reviewErr.message}`);
-    const seen = new Set<string>();
-    const reviews = ((reviewRows ?? []) as Array<{
-      grade_report_id: string;
-      original_score: number;
-      adjusted_score: number | null;
-    }>).filter((r) => {
-      if (seen.has(r.grade_report_id)) return false;
-      seen.add(r.grade_report_id);
-      return true;
-    });
+    const reviews = (reviewRows ?? []) as unknown as ReviewBaselineRow[];
     if (reviews.length === 0) {
       return c.json({ ok: true, skipped: true, reason: "no reviews in window" });
     }
 
-    // 2. Reports (AI confidence + AI overall) + submissions (category).
-    const reportIds = reviews.map((r) => r.grade_report_id);
+    // 2. Reports (AI confidence) + submissions (category).
+    const reportIds = [...new Set(reviews.map((r) => r.grade_report_id))];
     const { data: reportRows } = await supabaseAdmin
       .from("grade_reports")
       .select("id, overall_score, confidence_score, submission_id")
@@ -98,17 +97,19 @@ export async function handleConfidenceCalibrationCron(
     // 3. Pairs per category. A review WITHOUT an adjustment is an approval —
     //    absError 0 — which is exactly the "the AI was right" signal the
     //    curve needs; dropping approvals would bias every bin pessimistic.
+    //    US-3323: an ADJUSTMENT used to be absError 0 too, because the report's
+    //    overall_score is the human's once adjusted. That taught the curve the
+    //    AI is never wrong, and a threshold derived from it only ever falls.
+    //    A send-back is not a verdict at all and is dropped by the helper.
     const pairsByCategory = new Map<string, CalibrationPair[]>();
-    for (const review of reviews) {
-      const report = reportById.get(review.grade_report_id);
-      if (!report || !Number.isFinite(report.confidence_score)) continue;
+    for (const grade of buildReviewedGrades(reviews, reportById)) {
+      const report = reportById.get(grade.gradeReportId)!;
+      if (!Number.isFinite(report.confidence_score)) continue;
       const category =
         (categoryBySub.get(report.submission_id) ?? "unknown").toLowerCase();
-      const finalScore = review.adjusted_score ?? review.original_score;
-      if (!Number.isFinite(finalScore)) continue;
       const pair: CalibrationPair = {
         confidence: report.confidence_score,
-        absError: Math.abs(report.overall_score - finalScore),
+        absError: Math.abs(signedOverallError(grade)),
       };
       const arr = pairsByCategory.get(category) ?? [];
       arr.push(pair);
