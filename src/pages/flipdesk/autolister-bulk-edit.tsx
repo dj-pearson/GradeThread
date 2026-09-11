@@ -52,6 +52,13 @@ import { AiDiffChip } from "@/components/flipdesk/ai-diff-chip";
 import { marginFloorWithPostage } from "@/lib/margin-floor";
 import { useItemAttrs } from "./autolister/use-item-attrs";
 import {
+  applyValidation,
+  emptyTally,
+  tally,
+  validateOneRow,
+  validationSummary,
+} from "./autolister/validate-blockers";
+import {
   aiAspect,
   aiPriceInput,
   conditionLabel,
@@ -169,6 +176,10 @@ interface EditRow {
   returnPolicyId: string;
   // Server-side validation blockers (US-320) — populated by "Validate" actions.
   validationBlockers: string[] | null;
+  // US-3375: the third outcome. Set to the reason when the last check did not
+  // produce a verdict, which is neither clean nor blocked, and which leaves
+  // validationBlockers alone rather than clearing it.
+  validationUnchecked: string | null;
   dirty: boolean;
 }
 
@@ -337,6 +348,7 @@ export function FlipdeskAutolisterBulkEditPage() {
           paymentPolicyId: r.payment_policy_id ?? "",
           returnPolicyId: r.return_policy_id ?? "",
           validationBlockers: null,
+          validationUnchecked: null,
           dirty: false,
         };
       }),
@@ -971,6 +983,9 @@ export function FlipdeskAutolisterBulkEditPage() {
   // US-320: real publish-blocker checks via /listings/validate. Bounded
   // concurrency so a 100-row batch doesn't hammer the edge service. Save
   // dirty rows first so the server validates the latest edits.
+  //
+  // US-3375: the verdict logic moved to autolister/validate-blockers.ts, which
+  // is where the reason a failed check is not a pass is written down.
   async function validateRows(targetRows: EditRow[]) {
     if (targetRows.length === 0) {
       toast.info("Select rows to validate (or save edits first).");
@@ -983,44 +998,20 @@ export function FlipdeskAutolisterBulkEditPage() {
     setValidating(true);
     try {
       const CONCURRENCY = 4;
-      let ok = 0;
-      let blocked = 0;
+      const counts = emptyTally();
       for (let i = 0; i < targetRows.length; i += CONCURRENCY) {
         const batch = targetRows.slice(i, i + CONCURRENCY);
         const results = await Promise.all(
-          batch.map(async (row) => {
-            try {
-              const res = await edgeFetch("/api/flipdesk/ebay/listings/validate", {
-                method: "POST",
-                json: { inventory_item_id: row.itemId },
-              });
-              const json = await res.json().catch(() => ({}));
-              const blockers = Array.isArray(json.blockers)
-                ? (json.blockers as string[])
-                : [];
-              return { id: row.id, blockers };
-            } catch (err) {
-              return {
-                id: row.id,
-                blockers: [
-                  err instanceof Error ? err.message : "Validation request failed.",
-                ],
-              };
-            }
-          }),
+          batch.map((row) =>
+            validateOneRow(edgeFetch, { id: row.id, itemId: row.itemId }),
+          ),
         );
-        setRows((prev) =>
-          prev.map((r) => {
-            const hit = results.find((x) => x.id === r.id);
-            return hit ? { ...r, validationBlockers: hit.blockers } : r;
-          }),
-        );
-        for (const r of results) {
-          if (r.blockers.length === 0) ok++;
-          else blocked++;
-        }
+        setRows((prev) => applyValidation(prev, results));
+        tally(counts, results);
       }
-      toast.success(`Validated ${targetRows.length} — ${ok} clean, ${blocked} blocked.`);
+      const { level, message } = validationSummary(targetRows.length, counts);
+      if (level === "success") toast.success(message);
+      else toast.warning(message);
     } finally {
       setValidating(false);
     }
@@ -1053,6 +1044,12 @@ export function FlipdeskAutolisterBulkEditPage() {
     // reflect missing required aspects, etc., that the local heuristics can't see.
     if (r.validationBlockers && r.validationBlockers.length > 0) {
       issues.push(...r.validationBlockers);
+    }
+    // US-3375: a check that did not complete is flagged too. A row nobody could
+    // check is not a row that passed, and this is the only per-row surface the
+    // grid has to say so.
+    if (r.validationUnchecked) {
+      issues.push(`Could not be checked: ${r.validationUnchecked}`);
     }
     return issues;
   }
