@@ -29,7 +29,14 @@ import { assert, assertEquals } from "@std/assert";
 import type Anthropic from "@anthropic-ai/sdk";
 import { getAnthropicClient } from "../lib/ai-config.ts";
 import { AGENT_TOOLS } from "../lib/agent-tools.ts";
-import { type AgentRow, prodKernelDeps } from "../lib/agent-kernel.ts";
+import {
+  type AgentRow,
+  type KernelDeps,
+  type KernelModelStep,
+  prodKernelDeps,
+  type RunFinalize,
+  runAgent,
+} from "../lib/agent-kernel.ts";
 
 const EPH = { type: "ephemeral" } as const;
 
@@ -247,4 +254,114 @@ Deno.test("the tool schemas do not reorder when the allowlist does", async () =>
     JSON.stringify(reversed.tools),
     "tool order must come from the registry, not from the agent's allowlist order",
   );
+});
+
+// --- The bill the run row writes down ---------------------------------------
+//
+// Turning caching on changed what `usage.input_tokens` MEANS: it stopped
+// counting the cached share. The breakpoint tests above prove the request is
+// right; these two prove the ACCOUNTING did not quietly go wrong behind it.
+// Without them the symptom is a per-run cost that falls further than the real
+// spend, which is indistinguishable from the feature working well.
+
+Deno.test("makeStep carries Anthropic's cache token fields out of the response", async () => {
+  const previous = Deno.env.get("AI_ENABLE_CACHING");
+  Deno.env.set("AI_ENABLE_CACHING", "1");
+  const client = getAnthropicClient();
+  const surface = client.messages as unknown as { create: (...args: unknown[]) => unknown };
+  const original = surface.create;
+  surface.create = () =>
+    Promise.resolve({
+      ...FAKE_RESPONSE,
+      usage: {
+        input_tokens: 120,
+        output_tokens: 40,
+        cache_read_input_tokens: 1400,
+        cache_creation_input_tokens: 0,
+      },
+    });
+  let step: KernelModelStep;
+  try {
+    step = await prodKernelDeps().makeStep(agentRow(), "claude-sonnet-5", 2048)(loopMessages(2));
+  } finally {
+    surface.create = original;
+    if (previous === undefined) Deno.env.delete("AI_ENABLE_CACHING");
+    else Deno.env.set("AI_ENABLE_CACHING", previous);
+  }
+  assertEquals(step.usage.inputTokens, 120);
+  assertEquals(
+    step.usage.cacheReadTokens,
+    1400,
+    "a step that drops cache_read_input_tokens prices a cached run as if the cached part were free",
+  );
+  assertEquals(step.usage.cacheWriteTokens, 0);
+});
+
+Deno.test("a cached run bills the write premium and the reads, and counts every input token", async () => {
+  // Three runs, same conversation, only the CACHE SPLIT differs. The middle one
+  // is what a real cached run looks like: a write on step 1, a read after it.
+  const finalized: RunFinalize[] = [];
+  const run = (usage: KernelModelStep["usage"]) => {
+    finalized.length = 0;
+    const deps: Partial<KernelDeps> = {
+      loadAgent: () => Promise.resolve(agentRow()),
+      getGlobalPause: () => Promise.resolve(false),
+      checkBudget: () => Promise.resolve({ exhausted: false, reason: null }),
+      createRun: () => Promise.resolve("run-cache"),
+      recordStep: () => Promise.resolve(),
+      finalizeRun: (_id, p) => {
+        finalized.push(p);
+        return Promise.resolve();
+      },
+      makeStep: () => () =>
+        Promise.resolve({
+          text: '{"summary":"ok","findings":[],"proposals":[]}',
+          toolUses: [],
+          stopReason: "end_turn",
+          usage,
+          assistantContent: [],
+        }),
+      toolRegistry: {
+        anthropicTools: () => [],
+        isAllowed: () => false,
+        execute: () => Promise.reject(new Error("no tools")),
+      },
+      persistProposals: () => Promise.resolve(0),
+      notifyProposalsFiled: () => Promise.resolve(),
+      emitEvent: () => {},
+      loadMemory: () => Promise.resolve([]),
+      persistMemory: () => Promise.resolve(),
+      loadHandoffs: () => Promise.resolve([]),
+      markHandoffsConsumed: () => Promise.resolve(),
+      loadHandoffPolicy: () => Promise.resolve({ acceptsFrom: [] }),
+      deliverHandoff: () => Promise.resolve(),
+      fileHandoffTask: () => Promise.resolve(),
+    };
+    return runAgent("sentinel", "cron", deps);
+  };
+
+  const uncached = await run({ inputTokens: 2400, outputTokens: 50 });
+  const cached = await run({
+    inputTokens: 1000,
+    outputTokens: 50,
+    cacheReadTokens: 1200,
+    cacheWriteTokens: 200,
+  });
+  const pretendFree = await run({ inputTokens: 1000, outputTokens: 50 });
+
+  // Same 2,400 input tokens reached the model either way, so the run row must
+  // report 2,400 either way - otherwise the deploy looks like a 58% token drop.
+  assertEquals(
+    cached.tokensIn,
+    2400,
+    "tokens_in must count cached input too, or the Mission Control column changes units at the deploy",
+  );
+  assertEquals(uncached.tokensIn, 2400);
+
+  assert(cached.costUsd < uncached.costUsd, "a cached run must be cheaper than the same run uncached");
+  assert(
+    cached.costUsd > pretendFree.costUsd,
+    "cached input is discounted, not free - dropping the cache fields under-reports the spend",
+  );
+  assertEquals(finalized.at(-1)?.tokensIn, 1000, "guard fixture drifted");
 });

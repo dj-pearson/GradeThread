@@ -240,7 +240,17 @@ export interface KernelModelStep {
   text: string;
   toolUses: Array<{ id: string; name: string; input: unknown }>;
   stopReason: string | null;
-  usage: { inputTokens: number; outputTokens: number };
+  usage: {
+    inputTokens: number;
+    outputTokens: number;
+    // US-3148: cached input, which Anthropic reports OUTSIDE input_tokens and
+    // bills at its own rate (1.25x to write an entry, 0.1x to read one).
+    // Optional because this seam is also implemented by test fakes and by any
+    // provider that reports no cache numbers; absent reads as zero, which
+    // prices as zero, so an old implementer stays correct rather than NaN.
+    cacheReadTokens?: number;
+    cacheWriteTokens?: number;
+  };
   assistantContent: Anthropic.ContentBlockParam[];
 }
 
@@ -518,6 +528,18 @@ export async function runAgent(
 
   let tokensIn = 0;
   let tokensOut = 0;
+  // US-3148: caching changed what `usage.input_tokens` MEANS. It now counts
+  // only the input that was neither read from nor written to the cache, so
+  // summing it alone would make agent_runs.tokens_in (and the Mission Control
+  // column at src/pages/admin/agents.tsx:544) fall by the cached share the day
+  // caching shipped - a graph that reads as a saving and is really a change of
+  // units - and cost_usd would silently drop the 1.25x write premium on step 1
+  // altogether. So tokensIn carries EVERY input token the model read, and these
+  // two carry the split so costOf() can price each part at its own rate. The
+  // ai_usage_events ledger already does this correctly (ai-config.ts
+  // captureAiUsage -> toAiTokenUsage); this is the per-RUN row catching up.
+  let cacheReadIn = 0;
+  let cacheWriteIn = 0;
   let finalText: string | null = null;
 
   // US-1589: the run has truly begun (past the pause/kill gate).
@@ -541,10 +563,10 @@ export async function runAgent(
   const costOf = (): number =>
     computeCostUsd({
       model,
-      inputTokens: tokensIn,
+      inputTokens: tokensIn - cacheReadIn - cacheWriteIn,
       outputTokens: tokensOut,
-      cacheWriteTokens: 0,
-      cacheReadTokens: 0,
+      cacheWriteTokens: cacheWriteIn,
+      cacheReadTokens: cacheReadIn,
     });
 
   try {
@@ -571,8 +593,12 @@ export async function runAgent(
 
       const t0 = d.now();
       const s = await step(messages);
-      tokensIn += s.usage.inputTokens;
+      const stepCacheRead = s.usage.cacheReadTokens ?? 0;
+      const stepCacheWrite = s.usage.cacheWriteTokens ?? 0;
+      tokensIn += s.usage.inputTokens + stepCacheRead + stepCacheWrite;
       tokensOut += s.usage.outputTokens;
+      cacheReadIn += stepCacheRead;
+      cacheWriteIn += stepCacheWrite;
       await d.recordStep(runId, {
         seq: seq++,
         stepType: "model_call",
@@ -883,9 +909,20 @@ export function prodKernelDeps(): KernelDeps {
           ...effortParams(model, "agent_kernel", "low"),
           max_tokens: maxOutputTokens,
           // US-3148: this breakpoint covers the TOOL SCHEMAS too - Anthropic
-          // renders tools before system - which is most of the prefix for an
-          // agent whose charter is short. Measured: all 15 charters clear the
-          // 1,024-token minimum once tools are counted; see loop-cache.ts.
+          // renders tools before system. All 15 charters clear the 1,024-token
+          // minimum on claude-sonnet-5 once tools are counted; see loop-cache.ts
+          // for the count_tokens numbers and for the four Haiku agents whose
+          // system breakpoint is inert against that model's 4,096 minimum.
+          //
+          // CORRECTED 2026-09-11: this used to add "which is most of the
+          // prefix for an agent whose charter is short", and loop-cache.ts says
+          // the same. It is backwards at the SEEDED allowlists, which give each
+          // agent 1 to 5 read tools. Measured in characters against the real
+          // charters and the real filtered tool list: tools are 413 to 1,719
+          // chars of a 1,885 to 4,541-char prefix, so 20 to 38 percent. THE
+          // CHARTER IS THE PREFIX; the tools ride along. That matters because
+          // it says where a prefix that falls under the minimum gets fixed, and
+          // trimming a charter is the edit most likely to push one under.
           system: cachedSystem(system, caching),
           tools,
           messages: withCachedTail(messages, caching),
@@ -904,6 +941,11 @@ export function prodKernelDeps(): KernelDeps {
           usage: {
             inputTokens: resp.usage.input_tokens,
             outputTokens: resp.usage.output_tokens,
+            // US-3148: the two fields that only exist once a breakpoint is
+            // sent. Dropping them here is what made the run row price a cached
+            // run as if it were free.
+            cacheReadTokens: resp.usage.cache_read_input_tokens ?? 0,
+            cacheWriteTokens: resp.usage.cache_creation_input_tokens ?? 0,
           },
           assistantContent: resp.content as Anthropic.ContentBlockParam[],
         };
