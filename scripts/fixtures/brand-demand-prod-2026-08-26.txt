@@ -1,0 +1,51 @@
+# The top 20 brands by inventory_items count on prod, measured 2026-08-26.
+#
+# PROVENANCE: this is not a new query. It is the ranking US-2922 AC1 produced by
+# running `deno run --allow-net --allow-env
+# services/edge-functions/scripts/size-chart-coverage.ts --top 100 --json`
+# against prod with a real service-role key, transcribed out of that story's
+# notes so the numbers can be re-scored instead of re-quoted.
+#
+# ⚠ READ THE DENOMINATOR BEFORE USING IT.
+#
+#   711  items scanned on prod that day
+#   100  brands ranked
+#    20  brands transcribed here, which is what the notes wrote down
+#
+# So this file is the HEAD of the distribution and nothing else. Rank 1 has 15
+# items, rank 10 has 6, rank 20 has 4 -- the tail is two-item deep and this file
+# cannot see it. A percentage computed against these 20 brands (145 items) is a
+# percentage of the head, not of the platform. The same warning applies to
+# brand-kb-gap-prod-2026-09-06.txt and for the same reason.
+#
+# ⚠ IT IS ALSO A DIFFERENT POPULATION FROM THE OTHER FIXTURE. This one ranks
+# items whose brand AND department both resolve, because the size-chart script
+# scores brand+department pairs. brand-kb-gap-prod-2026-09-06.txt tallies the
+# brand column alone, eleven days later. They overlap and they disagree
+# slightly; neither is wrong. Do not merge them into one tally.
+#
+# Format: count|brand
+#
+# Re-score:  node scripts/brand-colorway-gap.mjs --brands scripts/fixtures/brand-demand-prod-2026-08-26.txt
+# Live:      node scripts/brand-colorway-gap.mjs --db
+
+15|Vuori
+12|Peter Millar
+8|prAna
+7|GANT
+7|Bonobos
+7|Vineyard Vines
+7|Polo Ralph Lauren
+7|Carhartt
+7|Patagonia
+6|Ermenegildo Zegna
+6|Lauren Ralph Lauren
+6|Vince
+6|Banana Republic
+5|Quince
+5|Free Fly
+5|L'AGENCE
+4|Beyond Yoga
+4|Christian Dior
+4|St. John
+4|Mizzen+Main

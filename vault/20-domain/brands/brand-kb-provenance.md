@@ -9,7 +9,7 @@ code_refs:
   - supabase/migrations/00578_brand_kb_provenance_required.sql
   - supabase/migrations/00760_validate_brand_provenance_constraints.sql
   - services/edge-functions/src/routes/admin-brand-knowledge.ts
-reviewed: 2026-09-10
+reviewed: 2026-09-11
 tags: [brands, provenance, contract]
 summary: Every brand-KB row carries a non-blank source_url and a non-null confidence, and every datable tag_eras entry carries its own — enforced NOT VALID until 00760 cleared the last 45 rows and VALIDATED all three, which also ended the trap where a migration about registered numbers failed on a constraint about eras.
 ---
@@ -71,16 +71,37 @@ honestly marked (`verified = false` already says so).
 
 ### The measured baseline
 
-Taken from a from-zero throwaway stack, which holds exactly what the migrations
-seed:
+Counted from `supabase/migrations`, which is what a from-zero stack holds. **Both
+columns are re-derivable, so do not quote them from memory.** The row counts come
+from the same scanner `scripts/brand-kb-gap.mjs` and
+`scripts/brand-colorway-gap.mjs` use, and the provenance column asks the
+constraint's own question: is `source_url` non-blank and `confidence` non-null.
 
-| table | rows | missing provenance |
-|---|---:|---:|
-| `brand_knowledge` | 204 | 0 |
-| `brand_styles` | 735 | 0 |
-| `brand_style_codes` | 30 | 0 |
-| `brand_colorways` | 159 | 0 |
-| `brand_size_charts` | 316 | **11** |
+Measured 2026-09-11, at migration `00789`:
+
+| table | rows | missing provenance | last prod-verified |
+|---|---:|---:|---|
+| `brand_knowledge` | 549 | 0 | 547, 2026-09-10 (`00783`) |
+| `brand_styles` | 816 | 0 | 818, 2026-09-06 (`00735`) |
+| `brand_style_codes` | 34 | 0 | — |
+| `brand_colorways` | 17,813 | 0 | 17,813, 2026-09-07 (`00761`) |
+| `brand_size_charts` | 478 | see below | 321, 2026-08-26 |
+
+> [!warning] The version of this table that stood until 2026-09-11 was stale in five of five rows
+> It read 204 / 735 / 30 / 159 / 316 and was quoted as current for weeks after
+> every figure had moved. US-3127 was filed on its `brand_colorways` row, and
+> the row count it complained about had already grown 112x. A baseline with no
+> date on it is indistinguishable from a current measurement. **Re-run the count
+> rather than citing this table**, and if the numbers differ, the table is what
+> is wrong.
+
+⚠ **`brand_size_charts` provenance is NOT stated here on purpose.** The residue
+was eleven rows when this section was written; a scan on 2026-09-11 found 148,
+all of them in `00498`, and `00498` is under active edit by the size-chart
+backfill, so that number is a snapshot of somebody else's in-flight work rather
+than a fact about the corpus. [[size-chart-coverage-backfill]] owns it. The
+constraint is on `brand_knowledge` and `brand_colorways`, not on this table, so
+nothing is unenforced while it moves.
 
 > **The definition of done for the backfill** was
 > `ALTER TABLE public.<t> VALIDATE CONSTRAINT <t>_sourced;` per table, once prod

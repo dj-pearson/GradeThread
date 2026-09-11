@@ -25,11 +25,24 @@ import { resolve } from "node:path";
 //                        field, which is the answer everybody wants to hear. The
 //                        self-test scores the captured prod fixture and asserts
 //                        it still finds the licensor and the fibre.
+//   brand-colorway-gap.mjs (US-3127) same scanner, same failure mode, applied to
+//                        the colorway side: a statement it stops parsing reads as
+//                        a brand with no palette, which is precisely the finding
+//                        the script exists to make. Its self-test asserts the
+//                        real corpus still yields 10,000+ rows with zero unparsed
+//                        statements and zero orphan brand keys.
+//   brand-feed-probe.mjs   (US-3125) pins the four-outcome classifier. Collapsing
+//                        `refused` into `none` writes off brands that are merely
+//                        rate-limiting, and nobody looks again. It also pins that
+//                        a 200 carrying HTML is NOT a feed, which is the one that
+//                        would otherwise seed a bot-challenge page's contents.
+//   shopify-brand-harvest.mjs  same bot-challenge guard on the read side.
 //
-// All three are offline: fixtures and supabase/migrations, no network. The
-// network paths of the two FTC scripts are deliberately NOT exercised here -- CI
-// must not depend on a government website being up, and a red lane that means
-// "the FTC is slow today" is a lane people stop reading.
+// All of them are offline: fixtures and supabase/migrations, no network. The
+// network paths of the two FTC scripts and the two harvest scripts are
+// deliberately NOT exercised here -- CI must not depend on a government website
+// or a brand's storefront being up, and a red lane that means "the FTC is slow
+// today" is a lane people stop reading.
 
 const ROOT = resolve(process.cwd());
 
@@ -38,6 +51,9 @@ const SELF_TESTS = [
   ["scripts/ops/ftc-rn-recheck.mjs", /self-test OK/],
   ["scripts/brand-kb-gap.mjs", /self-test OK/],
   ["scripts/brand-field-audit.mjs", /self-test OK/],
+  ["scripts/brand-colorway-gap.mjs", /self-test OK/],
+  ["scripts/ops/brand-feed-probe.mjs", /self-test: \d+ cases OK/],
+  ["scripts/ops/shopify-brand-harvest.mjs", /self-test: .*OK/],
 ] as const;
 
 describe("the brand-KB operator scripts pass their own self-tests", () => {

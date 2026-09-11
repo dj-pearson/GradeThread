@@ -13,9 +13,11 @@ code_refs:
   - supabase/migrations/00759_house_colour_vocabulary.sql
   - scripts/ops/brand-feed-probe.mjs
   - scripts/ops/shopify-brand-harvest.mjs
+  - scripts/brand-colorway-gap.mjs
+  - scripts/fixtures/brand-demand-prod-2026-08-26.txt
   - services/edge-functions/src/lib/aspect-normalize.ts
   - src/lib/aspect-normalize.ts
-reviewed: 2026-09-10
+reviewed: 2026-09-11
 tags: [brands, colorways, ebay, taxonomy, contract]
 summary: A colorway earns its place by naming something the seller cannot name themselves, so it carries both the brand's word and eBay's bucket - and an unresolved bucket stays NULL, because a wrong "Brown" is a confident error that ships.
 ---
@@ -99,6 +101,27 @@ All Mankind's colours are wash names — Arizona, Belton, Cisco, Franklin, Kansa
 Hilo, Halona, Midtown, Milkyway. A wash name carries no colour information *by
 design*; it names a finish. FRAME, Cotopaxi and Outdoor Research are the same
 shape for the same reason.
+
+### The NULL count is a CONSEQUENCE of the harvest, not a second gap
+
+Added 2026-09-11 (US-3127), because "3,820 buckets stay NULL" and "267 brands
+have no palette" get read as one problem and they are on different axes: the
+first counts **rows inside brands that DO have a palette**, the second counts
+**brands**. Neither can be derived from the other.
+
+And the direction matters. Follow the same two numbers through the packs:
+
+| after | rows | NULL bucket | NULL share |
+|---|---:|---:|---:|
+| `00737` | 2,294 | 1,013 | **44.2%** |
+| `00758` | 17,311 | 6,004 | 34.7% |
+| `00759` | 17,311 | 3,820 | **22.1%** |
+| `00761` | 17,813 | 4,067 | 22.8% |
+
+The absolute count rose 3.8x and the share **halved**. At 159 rows the largest
+NULL count arithmetically possible was 159; the figure grew because the table
+grew 112x, and it grew more slowly than the table did. A bigger NULL count here
+is evidence the resolver is winning, not losing.
 
 ## Three sources fill the gap, in increasing order of inference
 
@@ -198,6 +221,173 @@ needs the colour table, and the harvester deliberately knows nothing about eBay.
 
 Every seeding pass touches only rows where `base_color IS NULL`, so nothing an
 earlier pass derived is overwritten and a re-run changes nothing.
+
+## How much is covered, and which number answers which question
+
+Added 2026-09-11 (US-3127). Three different numbers get quoted as "colorway
+coverage" and they measure three different things. Ask which one before quoting
+any of them.
+
+| question | unit | measured |
+|---|---|---:|
+| how big is the table? | rows | **17,813** |
+| how many brands have a palette? | brands | **282 of 549** (51.4%) |
+| how many colour rows resolve to an eBay bucket? | rows | **13,746 of 17,813** (77.2%) |
+
+`scripts/brand-colorway-gap.mjs` is what asks these, and it is the colorway side
+of the join `scripts/brand-kb-gap.mjs` already does for `brand_knowledge`,
+matching on `brand_key`, `canonical_brand` AND `aliases`, reusing the same SQL
+scanner and the same NOT-A-BRAND classification. The verdicts differ because the
+questions do: that script asks whether the KB knows the brand, this one asks
+whether it knows its colours, so a brand is routinely COVERED there and
+NO-PALETTE here.
+
+> [!warning] A row count is the wrong unit and "frozen at 159" was already stale when it was filed
+> US-3127 was written from a prod count of 159 rows taken on 2026-09-06. `00734`
+> was applied to prod the same day and `00761` two days later. The story's whole
+> premise had been answered before anybody read it, which is the argument for a
+> script over a typed query: a number nobody can re-ask gets quoted forever.
+
+### The gap ranked by what sellers hold, which is the only ranking worth having
+
+Scored against `scripts/fixtures/brand-demand-prod-2026-08-26.txt`, which is the
+top 20 brands by `inventory_items` count, transcribed from the prod run US-2922 AC1
+made. **Read that file's denominator before quoting a percentage from it**: 20
+brands out of 100 ranked, 132 items out of 711 scanned. It is the head, not the
+platform.
+
+    NO PALETTE   14 brands, 106 items   KB row exists, zero colorways
+    THIN          2 brands,  14 items   1..7 colorways, below 00734's own bar
+    COVERED       3 brands,  13 items   8+
+    NO KB ROW     1 brand,    5 items   L'AGENCE -- a brand-kb-gap.mjs problem
+
+So **17 of the top 20 brands sellers hold are not usefully covered**, against
+51.4% of the KB overall. The harvest went where the feeds were, and the feeds are
+not where the demand is.
+
+### The 35 THIN brands are all the same 35 brands, and that is the finding
+
+Every brand with 1 to 7 colorways was hand-seeded before `00473` and **not one
+was ever re-harvested**. 39 brands still carry nothing but those hand-written
+rows: 155 of the corpus's 17,813. They are the residue of the original 159, and
+they are the worst rows in the table by the table's own rule: J.Crew's single
+colorway is a plain colour word, Free People's two both are.
+
+`beyondyoga` is the only brand from that cohort a later pack revisited (99
+colorways from `00758`). The others look covered in a `count(distinct brand_key)`
+and are not.
+
+**The 38 rows carrying a `hex` are all from that cohort too**, across thirteen
+packs from `00390` to `00465`, and no harvested row carries one. The
+no-hex rule in "What is never seeded" was written at `00732`; everything before
+it predates the rule. Those values were not published by the brands.
+
+## Why it stopped at 159, and what that proves about a recorded refusal
+
+Also US-3127, and the question had to be answered before adding a single row:
+**did colorways stop because a sourcing rule refused them, or because the pack
+template quietly dropped the table?** `registered_numbers` covers a minority of
+brands and that is a decision, so low coverage in this KB is not self-evidently a
+gap. Here it is.
+
+Rows contributed per migration, cumulative:
+
+    00390 .. 00472   159 rows over 23 brands   the hand-written era
+    00473 .. 00729     0 rows over  0 brands   257 migrations, ~300 brands added
+    00732 .. 00761  17,654 rows over 260 brands   the catalogue harvest
+
+The cumulative count crosses 159 at `00472` to the row. **From `00473` to
+`00729` not one migration seeded a colorway and not one recorded a colorway
+decision**: no refusal, no "no palette found", nothing. The only two mentions in
+that whole range are incidental: `00576` uses the word in prose about decoders,
+`00578` names the table in a constraint. So the omission is **incidental, a
+pack-shape habit**, and this is a backfill rather than a documented refusal.
+
+### But the hand-written era DID record refusals, and reading the catalogue overturned one
+
+This is the part worth keeping, because it is the more useful half:
+
+- `00456` refused Supreme, Stüssy, Kith and Palace, because "their colors are per-drop
+  and plain (red, black), so there is nothing proprietary to seed".
+- `00459` refused the three packs before it on the same ground, and named the
+  contrast: a shoe ships a small stable named palette that buyers search by name,
+  "UGG Chestnut is a real search and Anthropologie Sage is not".
+- `00461` refused Dior, Saint Laurent, Balenciaga, Fendi, Versace and Céline,
+  keeping only Hermès and Bottega Veneta.
+
+Those were real judgements and they were honestly recorded. They were also made
+**from memory rather than from the brand's catalogue**, and `00758` falsified one
+of them by reading Kith's: **398 colorways, 6% plain colour words.** A refusal
+sourced from what an author could recall about a brand is a different object from
+one sourced from the brand's own published data, and only the second kind
+survives somebody looking.
+
+⚠ `00459`'s header says `00456` "seeded none". It seeded nine, BAPE's named camo
+patterns and Fear of God Essentials' season colours. The claim is wrong about one
+of the three packs it names.
+
+## The feed method has hit its ceiling, and it hit it exactly at the demand
+
+Measured 2026-09-11 (US-3127) by probing all 16 head brands with
+`scripts/ops/brand-feed-probe.mjs` and then by hand. **Zero answered
+`/products.json` with a feed.** The Shopify harvest read 260 brands and cannot
+read the ones sellers actually hold.
+
+One exception, and it is a method extension worth having:
+
+> [!warning] A headless Shopify brand hides its feed on `<store>.myshopify.com`
+> `vuoriclothing.com/products.json` is a **404**. `vuori-clothing.myshopify.com/products.json`
+> serves the feed. Vuori runs a Next.js storefront over a Shopify backend, and
+> the canonical `myshopify.com` domain is asserted in the storefront's own HTML,
+> so it is discoverable, first-party, and the probe's origin rule never tries it.
+> **Sweep the storefront HTML for `*.myshopify.com` before recording "no feed".**
+> Of the other 15 head brands, none carries one, so this is not a general escape
+> hatch; it is one brand, and it happens to be rank 1 by item count.
+
+### The second method: JSON-LD `color` on a product page
+
+Some brands publish `"color"` inside a PDP's `application/ld+json` block. That is
+the same class of source as `/products.json`, a documented published format
+reached through the site's own `robots.txt` sitemap, and it works where the
+Shopify endpoint does not. It is **slower and dirtier**: one colour per product
+rather than a variant option list, so the "five or more products" rule needs the
+whole catalogue walked, and the field mixes real house names with print names and
+truncated codes ("Dstn Strp/Lobster Rf", "Vineyard Ss Pb/Wc").
+
+It also fails a test the feed method never had to state: **the field can be the
+site's colour FACET rather than the brand's colour NAME.** Measured on 25 product
+pages each —
+
+| brand | distinct names | plain colour words | verdict |
+|---|---:|---:|---|
+| Vince | 18 | 1 (5.6%) | house names: ECLIPSE, BEACH STONE, COCOA BROWN |
+| GANT | 8 | 8 (**100%**) | a filter bucket. Refuse. |
+| Banana Republic | 15 | 15 (**100%**) | a filter bucket. Refuse. |
+
+A palette of blue/black/red passes no test this table has and tells a listing
+writer nothing eBay's own Color list did not. Sample before walking a catalogue.
+
+### The refusals, with the test each failed
+
+All 2026-09-11, all re-checkable. **Refused is not the same as none.** The last
+three are a moment in time and `00761` recovered fifteen brands that collapsing
+the two would have lost permanently.
+
+| brand | items | test it failed |
+|---|---:|---|
+| Peter Millar | 12 | Imperva block page served as **HTTP 200** with a 6,183-byte body. Recorded in `00730`; reconfirmed. |
+| Carhartt | 7 | `/products.json` 404; PLP HTML carries no colour; PDP `ld+json` has no `color`. |
+| GANT | 7 | Publishes `ld+json` `color`, and it is **100% plain colour words**. A facet, not a palette. |
+| prAna | 8 | 404, no PLP colour, PDP `ld+json` has no `color`. |
+| Bonobos | 7 | Same three. Still on its five hand-seeded rows from `00467`. |
+| Polo Ralph Lauren | 7 | 404; the storefront answers 307/404 to automation; sitemap yields no product page. |
+| Banana Republic | 6 | `ld+json` `color` is **100% plain**. Same verdict as GANT. |
+| Lauren Ralph Lauren | 6 | Sitemap yields no product page. |
+| Ermenegildo Zegna | 6 | 404; 55 sitemaps, 24 fetched, no product page found. |
+| Quince | 5 | 404; sitemap yields no product page. |
+| Patagonia | 7 | `/products.json` **410**; the product page from its sitemap 404s. Still on four hand-seeded rows. |
+| Christian Dior | 4 | **refused, retry**: 503 on the feed, 403 on the storefront. |
+| Mizzen+Main | 4 | **refused, retry**: 429. Already recorded as throttling in `00731`. |
 
 ## Two things a reader will misread
 
