@@ -29,16 +29,27 @@ migration and its code MUST travel together and reach prod in the right order.
    `00609_appstore_transaction_environment.sql` is the worked example, and was
    the only migration in 658 that got this wrong.
 
-   > ⚠ **`scripts/apply-prod-migrations.sh` does NOT re-run the whole
-   > directory.** This line used to say it did. It reads the highest recorded
-   > version and skips every file at or below it
-   > (`[[ "$prefix" > "$current" ]] || continue`). The skip is by **maximum, not
-   > by membership**, so a hole BELOW the maximum is never re-applied — which is
-   > precisely how `listings.draft_id` from 00134 stayed missing in production
+   > ⚠ **Neither applier re-runs the whole directory.** Both apply only what the
+   > target does NOT already record, so "safe to run twice" has to be a property
+   > of the SQL, never something the applier gives you.
+   >
+   > **CORRECTED 2026-09-11 (US-3395):** this block used to say
+   > `scripts/apply-prod-migrations.sh` skips by **maximum** rather than by
+   > membership, so a hole BELOW the maximum was never applied. That was true,
+   > and it is how `listings.draft_id` from 00134 stayed missing in production
    > for months while every version above it was recorded (US-2726, US-2832).
-   > An agent who believes the old sentence has no reason to go looking for the
-   > hole. `scripts/prod-schema-audit.sql` is what actually answers "is anything
-   > missing", and it is a read.
+   > It is fixed: the shell script now computes pending by MEMBERSHIP in
+   > `public.applied_migrations`, the same way `computePending()` in
+   > `scripts/lib/prod-db.mjs` always has.
+   > `scripts/apply-prod-migrations-gap.test.mjs` is the proof: it seeds a
+   > throwaway database into the exact shape that shipped (00001 and 00003
+   > recorded, 00002 missing) and asserts the gap migration's object lands.
+   > Do not re-derive the old warning from an old note; check the script.
+   >
+   > What has NOT changed: **a recorded version is not proof the objects are
+   > there.** A file applied without `ON_ERROR_STOP` can record itself after
+   > failing (00611 did, 2026-08-17). `scripts/prod-schema-audit.sql` is what
+   > answers "is anything missing", and it is a read.
 2. **`EXPECTED_SCHEMA_VERSION` bump in the SAME commit**
    (`services/edge-functions/src/lib/schema-version.ts`) = the new file's
    NNNNN. CI (`schema-version_test.ts`) enforces it — note the comparison is
@@ -89,12 +100,31 @@ the moment the frontend auto-deploys.
 
 ## Prod apply runbook
 
-1. Apply the SQL (in NNNNN order): `scripts/apply-prod-migrations.sh`, or run
-   the files by hand. All idempotent, so re-running the tail is safe.
-2. `NOTIFY pgrst, 'reload schema';` whenever a table/column/RPC changed.
-3. Redeploy the edge on Coolify (its boot guard now expects the new version;
+**The applier is `npm run migrate:prod` (`scripts/migrate-prod.mjs`).** One tool,
+named the same way here, in `.claude/commands/migrate-prod.md` and in
+`vault/10-ops/migrations-process.md`.
+
+1. `npm run migrate:prod` (read-only). It asks prod which versions are recorded
+   and diffs the repo by membership, so treat its answer as the truth about
+   prod rather than `PENDING_MIGRATIONS.md`, which has been stale both ways.
+2. Read `PENDING_MIGRATIONS.md` for what each pending file does and its risk,
+   and report any disagreement with step 1 instead of papering over it.
+3. `npm run migrate:prod -- --apply --yes` takes a `pg_dump` backup first,
+   applies in order, stops at the first failure, then sends the schema reload.
+   **The user runs this, not you.** It needs `PROD_SSH_HOST`; if it exits 2
+   saying that is unset, ask rather than guessing a host.
+4. Redeploy the edge on Coolify (its boot guard now expects the new version;
    there's a ~40s grace window, US-778, plus a pre-deploy migrate gate).
-4. THEN push / OK the push.
+5. THEN push / OK the push.
+
+`scripts/apply-prod-migrations.sh` still exists and is still correct, but it is
+the NON-INTERACTIVE path for a host that has a direct `SUPABASE_DB_URL` and no
+ssh: the Coolify pre-deployment command (`services/edge-functions/COOLIFY.md`).
+It has no backup step and no confirmation flag, because a pre-deploy hook cannot
+answer a prompt. Since US-3395 it computes pending by membership exactly like
+`migrate-prod.mjs`, so the two cannot disagree about what is pending, and a
+failed version lookup exits non-zero instead of being read as an empty database.
+Don't reach for it by hand.
 
 ## Local verification caveats
 

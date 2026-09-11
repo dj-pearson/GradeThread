@@ -8,6 +8,8 @@ code_refs:
   - scripts/ops/backup-storage.sh
   - scripts/ops/restore-storage.sh
   - scripts/ops/restore-storage-drill.sh
+  - scripts/ops/restore-postgres.sh
+  - scripts/restore-postgres-guard.test.mjs
 reviewed: 2026-09-11
 tags: [ops, backup, disaster-recovery]
 summary: What is backed up, how often, and the restore drills that prove it works — Postgres AND the storage mirror. The storage half has a restore script, a drill and a procedure; its crypt password still lives on the host it protects against losing, which is the open half.
@@ -24,7 +26,7 @@ wires it to a schedule and records the verified restore procedure.
 |---|---|
 | `scripts/ops/backup-postgres.sh` | nightly `pg_dump` (custom format) → verify → **encrypt (age)** → sha256 of the ciphertext → offsite via rclone → prune local |
 | `scripts/ops/backup-storage.sh` | daily `rclone sync` of the storage volume offsite **to a crypt remote**, deletions kept in dated `storage-deleted/` prefixes |
-| `scripts/ops/restore-postgres.sh` | verify sha256 → **decrypt** → restore a dump into a target DB (prod-guarded) + sanity queries |
+| `scripts/ops/restore-postgres.sh` | **refuse unless the target is named back** → verify sha256 → **decrypt** → restore into the target DB → **verify the restore itself** (non-empty counts, every table in the dump present, optional source comparison) |
 | `scripts/ops/restore-drill.sh` | automated end-to-end drill: dump → **encrypt/verify/decrypt round-trip** → fresh scratch container → restore → source-vs-restored count comparison |
 
 ## Targets
@@ -208,11 +210,20 @@ and was executed end-to-end on 2026-06-12 (see drill log).
    `anon`/`authenticated`/`service_role` roles and Supabase extensions that
    only the Supabase image pre-creates.
 2. Fetch the latest dump + checksum: `rclone copy r2:gradethread-backups/pg/<latest>.dump* .`
-3. `bash scripts/ops/restore-postgres.sh <dump> <target-db-url>` — it verifies
-   the sha256, restores with `--no-owner --no-privileges --clean --if-exists`,
-   and prints sanity counts. `pg_restore` reporting "errors ignored" for
-   pre-existing Supabase scaffolding (extension comments, event triggers) is
-   expected; the sanity counts are the success criterion.
+3. `bash scripts/ops/restore-postgres.sh <dump> <target-db-url>`. **It refuses
+   the first time, on purpose** (see [The restore guard](#the-restore-guard-us-3394)
+   below): copy the `RESTORE_CONFIRM_TARGET='<host>:<port>/<dbname>'` line out
+   of the refusal, read it, and re-run with it. Then it verifies the sha256,
+   restores with `--no-owner --no-privileges --clean --if-exists`, and
+   **decides for itself** whether the restore worked. `pg_restore` reporting
+   "errors ignored" for pre-existing Supabase scaffolding (extension comments,
+   event triggers) is still expected and is not a failure; `pg_restore` failing
+   for any other reason now stops the run instead of being swallowed.
+   The verdict is a single `PASS` or `FAIL` line and the exit code matches it.
+   Set `SOURCE_DB_URL` when a source database is reachable and it compares the
+   two value-for-value; without one it still fails the run on an empty table,
+   an empty `schema_migrations`, or any table present in the dump and absent
+   from the target.
 4. For PITR instead (bad migration, not lost volume): wal-g path above.
 5. Restore storage: `RCLONE_REMOTE=r2crypt:gradethread-backups bash scripts/ops/restore-storage.sh /var/lib/supabase/storage`
    — see [Storage restore](#storage-restore-procedure-us-2659) below.
@@ -226,6 +237,57 @@ and was executed end-to-end on 2026-06-12 (see drill log).
 6. Point the Supabase services / edge service at the restored DB; smoke test:
    `/health/ready` returns 200, edge logs show `[schema-version] OK`, a known
    certificate page loads, a test grade submits.
+
+### The restore guard (US-3394)
+
+Until 2026-09-11 this page called `restore-postgres.sh` "prod-guarded". It was
+not. The only check was:
+
+```bash
+case "$TARGET" in
+  *gradethread.com*) [ "$ALLOW_PROD_RESTORE" = 1 ] || exit 1 ;;
+esac
+```
+
+**No GradeThread Postgres DSN contains `gradethread.com`.** That name belongs to
+the HTTP surfaces (`api.`, `functions.`). Postgres is reached as
+`postgres://postgres:...@<host>:5432/postgres`, or over ssh plus `docker exec`
+with no URL at all, or from the DB host itself by the backup cron. So the arm
+never matched any target the script was ever pointed at, and nothing in the repo
+exercised it: `restore-drill.sh` reimplements the restore rather than calling
+this script, so three months of green drills said nothing about the guard.
+
+**What replaced it, and why not a better hostname list.** "This looks like prod"
+is a judgement a string match cannot make, and a heuristic that is wrong is
+worse than no heuristic because it manufactures confidence at the one moment
+being wrong is unrecoverable. So the script now refuses **every** target and
+makes the operator name back the one they are about to destroy:
+
+```
+ERROR: refusing to restore. ...
+  target resolves to: db-host:5432/postgres
+  Re-run with:
+    RESTORE_CONFIRM_TARGET='db-host:5432/postgres' \
+      scripts/ops/restore-postgres.sh <dump-file> <target-db-url>
+```
+
+Three properties that are deliberate, so leave them alone:
+
+- It is the **target's own identity**, not a flag. A blanket `ALLOW=1` in a shell
+  profile or a CI environment cannot satisfy it, and confirming one database
+  does not let you restore over a different one.
+- It is **credential-free**: `host:port/dbname`, never the password. Nobody has
+  to re-type a secret into a second place mid-incident, and the line is safe in
+  scrollback.
+- `ALLOW_PROD_RESTORE` is **no longer read**. Setting it prints a note saying so,
+  so an old copy of this runbook fails loudly rather than appearing to work.
+
+The guard is exercised by `scripts/restore-postgres-guard.test.mjs` in
+`npm run test:scripts`. It runs the real script against fake `pg_restore` and
+`psql` binaries on `PATH` and asserts the destructive call was never made, so a
+future rewrite that neuters the guard turns the lane red. No database needed:
+a guard test that required Postgres would not run, and a guard that does not run
+is exactly how this survived.
 
 ### Rehearsing the drill locally
 

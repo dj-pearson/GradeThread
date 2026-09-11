@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-3401",
+  "nextId": "US-3403",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -4953,33 +4953,6 @@
       "priority": 9
     },
     {
-      "id": "US-3394",
-      "passes": false,
-      "title": "The production guard on the database restore is a substring that probably cannot match, and the restore swallows its own failure",
-      "description": "Found 2026-09-11 by an audit of the operator scripts. Confirmed by the head against the source.\n\n`scripts/ops/restore-postgres.sh:33` is the only thing between a `pg_restore --clean --if-exists` and production:\n\n```\n  case \"$TARGET\" in\n    *gradethread.com*)\n      if [ \"${ALLOW_PROD_RESTORE:-}\" != \"1\" ]; then ... exit 1\n```\n\n**The documented production DSN shape does not contain `gradethread.com`.** `services/edge-functions/.env.example:31-32` gives `postgres://postgres:...@db-host:5432/postgres`, and `migrate-prod.mjs` reaches prod by ssh plus `docker exec` with no URL at all.\n\n**The guard has never run.** No test anywhere references `restore-postgres.sh` or `ALLOW_PROD_RESTORE`, and `restore-drill.sh` reimplements the restore rather than calling this script. `vault/10-ops/backups.md:27` describes it as \"prod-guarded\".\n\nSecond defect in the same file, `:87`: `pg_restore ... || true` swallows every failure. The sanity counts then print and the script exits 0 with \"compare the counts above against the source\". **It never compares them itself**, so a restore that half-applied looks like a restore that worked, during the one procedure where being wrong costs the most.\n\n**The owner can settle the first half in one command**: echo the real target DSN and see whether the case arm matches it.",
-      "acceptanceCriteria": [
-        "Whether the guard matches the real production DSN is MEASURED before anything is redesigned; the whole story turns on it",
-        "The guard stops being a substring of a hostname. A restore should refuse by default and require an explicit opt-in for ANY target, because 'this looks like prod' is a judgement a string match cannot make",
-        "pg_restore's failure is not swallowed, and a partial restore cannot exit 0",
-        "The script compares the sanity counts itself rather than printing them and asking the operator to, since the operator is mid-incident",
-        "The guard is exercised by a test, because it has never once run and vault/10-ops/backups.md calls it prod-guarded"
-      ],
-      "priority": 2
-    },
-    {
-      "id": "US-3395",
-      "passes": false,
-      "title": "The migrations runbook names the applier that skips gaps, and that is how a column stayed missing in prod for months",
-      "description": "Found 2026-09-11 by an audit of the operator scripts.\n\n`scripts/apply-prod-migrations.sh:30` is `[[ \"$prefix\" > \"$current\" ]] || continue`. It **skips by maximum rather than by membership**, so a hole below the highest recorded version is never applied. That is exactly how `listings.draft_id` from 00134 stayed missing in production for months (US-2726, US-2832).\n\nThe script's own header says \"Safe to re-run\" and carries no warning about the gap behaviour.\n\n**`.claude/skills/migrations/SKILL.md:92` names it as step 1.** That is the skill CLAUDE.md tells every agent to load before touching migrations, so the authoritative surface points at the broken tool.\n\n`scripts/migrate-prod.mjs` already fixes this: it computes pending by membership, backs up first, needs two flags, and is wired as `npm run migrate:prod`. `.claude/commands/migrate-prod.md:15` gets it right. **Two surfaces disagree and the wrong one is the authoritative one.**\n\nThird defect in the same file, `:19-20`: `2>/dev/null || echo \"00000\"` turns a failed `latest_schema_migration()` call into \"apply all 645 files\", discarding the reason. A connection error and a fresh database are indistinguishable.\n\nThis matters more than usual right now: **three migrations are held on branches awaiting approval**, so the next prod apply is not hypothetical.",
-      "acceptanceCriteria": [
-        "The skill and the script agree on which tool applies migrations, and the one that skips gaps either stops being named or stops skipping",
-        "A failed version lookup is not indistinguishable from a fresh database; it fails rather than defaulting to 00000",
-        "A test proves the chosen applier applies a migration in a gap below the maximum, because that is the exact failure that shipped and nothing currently covers it",
-        "vault/10-ops/migrations-process.md and the skill are re-read against whichever tool wins, since the runbook is what an operator follows under pressure"
-      ],
-      "priority": 2
-    },
-    {
       "id": "US-3396",
       "passes": false,
       "title": "Nine operator scripts print a real-looking answer built from a failed read, and nine exit 0 after failing",
@@ -5045,6 +5018,31 @@
         "A guard fails on a seeded key no canonicaliser can produce, or the story records why that cannot be derived"
       ],
       "priority": 10
+    },
+    {
+      "id": "US-3401",
+      "passes": false,
+      "title": "Four operator surfaces still describe the old restore, and one of them is the in-app runbook",
+      "description": "Left over from US-3394, which replaced the restore's production guard and was fenced out of these.\n\nThe restore now **refuses every target by default** and requires the operator to name the target back as `host:port/dbname`. `ALLOW_PROD_RESTORE` is no longer read. Four surfaces still describe the old shape:\n\n- **`src/lib/admin/runbooks.ts:286`** walks an operator through the restore **in the admin UI** and says nothing about the confirmation step. So the in-app runbook now stops one step short of working, and it is the surface most likely to be followed by someone who has not read the script.\n- `vault/10-ops/launch-checklist.md:257,279`\n- `docs/operator-worklist.md:673`\n- `vault/10-ops/incident-response.md:72` points at the restore for the database-outage path.\n\n`vault/10-ops/backups.md` **is** updated and is the one to copy from: it records what the old check matched, why the replacement refuses everything rather than trying to recognise production, and which three properties not to soften.\n\n**The order matters.** A runbook that is one step short during an incident is worse than one that is obviously stale, because the operator follows it, hits a refusal they were not told about, and starts improvising against a database that has already been dropped.",
+      "acceptanceCriteria": [
+        "The admin-UI runbook covers the confirmation step, since that is the one an operator follows without reading the script",
+        "All four surfaces name the same procedure, and the one already-correct note is the source rather than a fifth wording",
+        "A test fails when a runbook names a flag the script no longer reads, or the story records why that cannot be derived; ALLOW_PROD_RESTORE is the worked example and it is now inert"
+      ],
+      "priority": 5
+    },
+    {
+      "id": "US-3402",
+      "passes": false,
+      "title": "Five first-party skills are mirrored into .agents and two copies have diverged",
+      "description": "Found 2026-09-11 by US-3395 while correcting the migrations runbook.\n\n`npm run skills-sync` **already fails on main**, reporting five first-party skills wrongly mirrored into `.agents/`: `durable-jobs`, `grading-engine`, `migrations`, `tenant-isolation`, `vault`. Its own message says first-party skills belong only in `.claude`.\n\n**The two migrations copies have diverged**: 6,754 bytes against 6,639, and one is CRLF while the other is LF. `.agents/skills/migrations/SKILL.md` still names `apply-prod-migrations.sh` as step 1 of the prod apply runbook, which US-3395 has just corrected in `.claude/`.\n\nSo there is a second copy of the instructions an agent loads before touching migrations, it is stale, and the thing that would have said so is already red and unread. **That is the fifth documented instance in this repo of a working guard whose output nobody acted on.**\n\nAn earlier session also recorded that the `grading-engine` copy has genuinely drifted and is missing US-3320's `ILLEGIBLE_LABEL_CONFIDENCE_CAP`, so this is not only a migrations problem.\n\nTwo fixes, per skills-sync's own message: copy `.claude` over `.agents`, or delete the `.agents` copies. Deleting is probably right if nothing reads them, and finding out what reads them is the first step.",
+      "acceptanceCriteria": [
+        "What actually loads .agents/skills is established before anything is deleted, because the answer decides between copy and delete",
+        "All five are settled in one pass, not just migrations, since grading-engine is already known to have drifted in a way that changes a grading cap",
+        "skills-sync goes green, and it is run to prove it rather than reasoned about",
+        "If the copies stay, something keeps them byte-identical; a comment asking people to remember is what produced two spellings of one runbook"
+      ],
+      "priority": 6
     }
   ]
 }

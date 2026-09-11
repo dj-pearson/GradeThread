@@ -6,6 +6,9 @@ status: current
 source_of_truth: vault
 code_refs:
   - scripts/check-loose-repair-sql.mjs
+  - scripts/migrate-prod.mjs
+  - scripts/apply-prod-migrations.sh
+  - scripts/apply-prod-migrations-gap.test.mjs
 reviewed: 2026-09-11
 tags: [ops, database, migrations]
 summary: How migrations are authored, verified and applied to self-hosted prod.
@@ -98,21 +101,45 @@ pending, which makes it usable as a gate.
 with the shell winning. Setting `PROD_DB_CONTAINER` there too skips discovery,
 which saves one ssh round trip per container on the host.
 
-> [!important] It compares by membership; `apply-prod-migrations.sh` compares by maximum
-> The shell script skips every file at or below the highest recorded version, so
-> a gap BELOW that maximum is never re-applied. That is exactly how
-> `listings.draft_id` from 00134 stayed missing in production for months while
-> every version above it was recorded (US-2726, US-2832). `npm run migrate:prod`
-> checks each file against the full `applied_migrations` set instead, so it sees
-> the hole. Read the grandfathering warning above before applying anything at or
-> below 00291.
+> [!important] Both appliers compare by membership (CORRECTED 2026-09-11, US-3395)
+> Pending means "this version is not in `applied_migrations`", not "this version
+> is above the highest one recorded". The difference is not academic: while
+> `scripts/apply-prod-migrations.sh` compared against the maximum, a gap BELOW
+> that maximum was never applied, and `listings.draft_id` from 00134 stayed
+> missing in production for months while every version above it sat recorded
+> (US-2726, US-2832). `npm run migrate:prod` always compared by membership; the
+> shell script does too since US-3395, and
+> `scripts/apply-prod-migrations-gap.test.mjs` holds both honest by seeding a
+> throwaway database into that exact shape and asserting the gap migration's
+> object lands. This block used to describe the old behaviour as current; if you
+> are reading a note elsewhere that still does, check the script.
+> Read the grandfathering warning above before applying anything at or below
+> 00291.
 
-The older paths still work and are still correct where a connection string is
-available: `SUPABASE_DB_URL="…" ./scripts/apply-prod-migrations.sh`, or pasting
-into the Studio SQL editor for a one-off. Every migration **self-records its own
-version** (footer below), so the guard stays in sync whichever route is used —
-**as long as the apply happens before the edge redeploys.** When a push
-redeploys edge first, use the `npm run catchup` recovery at the top of this doc.
+> [!warning] A recorded version is not proof the objects are there
+> A file applied without `ON_ERROR_STOP` can record itself after failing (00611
+> did, 2026-08-17), and `migrate:prod` says so in its own "nothing pending"
+> output. `scripts/prod-schema-audit.sql` is what answers "is anything
+> missing", and it is a read.
+
+### The other paths, and when they are the right one
+
+**`scripts/apply-prod-migrations.sh`** is the NON-INTERACTIVE path for a host
+that already has a direct `SUPABASE_DB_URL` and no ssh, which in practice means
+the Coolify **Pre-deployment Command** (`services/edge-functions/COOLIFY.md`,
+and step 1 of [[deploy]]). It takes no backup and asks no confirmation, because
+a pre-deploy hook cannot answer a prompt. Since US-3395 it computes pending the
+same way `migrate:prod` does, and a failed version lookup exits non-zero with
+the reason rather than being read as an empty database and replaying the whole
+directory. **Do not reach for it by hand** when you have ssh; `migrate:prod`
+backs up first and shows you the list before it touches anything.
+
+**Pasting into the Studio SQL editor** is still fine for a genuine one-off.
+
+Every migration **self-records its own version** (footer below), so the guard
+stays in sync whichever route is used, **as long as the apply happens before the
+edge redeploys.** When a push redeploys edge first, use the `npm run catchup`
+recovery at the top of this doc.
 
 Record each production apply (date, migrations applied, operator) in the deploy
 log / incident channel.
@@ -351,10 +378,21 @@ grace window before declaring fatal — `SCHEMA_GUARD_GRACE_ATTEMPTS` (8) ×
 race becomes a delayed boot; a genuinely forgotten migration still ends in the
 same loud fatal.
 
-That is the safety net. The root fix — wiring `npm run migrate:prod` as the
-edge's Coolify **Pre-deployment Command**, so a failed migration aborts the
-rollout and the old container keeps serving — is a one-time ops setup that is
-**still pending**; see [[deploy]] step 3 and [[blocked-work-gates]].
+That is the safety net. The root fix is the edge's Coolify **Pre-deployment
+Command**, so a failed migration aborts the rollout and the old container keeps
+serving. It is a one-time ops setup that is **still pending**; see [[deploy]]
+step 3 and [[blocked-work-gates]].
+
+> [!note] The pre-deploy command is the shell script, not `npm run migrate:prod`
+> Corrected 2026-09-11 (US-3395); this paragraph named `migrate:prod`, and
+> [[deploy]] step 1 still names both as if they were interchangeable. They are
+> not. `migrate:prod` reaches prod by **ssh from your machine** and is the
+> hands-on path. The Coolify hook runs **on the Coolify host**, which already
+> holds a direct `SUPABASE_DB_URL` and has no reason to ssh to itself, so the
+> command is
+> `SUPABASE_DB_URL="$SUPABASE_DB_URL" bash scripts/apply-prod-migrations.sh`
+> (`services/edge-functions/COOLIFY.md`). Both now compute pending the same way,
+> so wiring the hook cannot reintroduce the gap-skipping behaviour.
 
 ## One-time backfill: confirm 00057–00074 (and 00094–00097) are applied
 
