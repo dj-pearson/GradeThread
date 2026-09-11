@@ -788,6 +788,7 @@ function PlatformPanel({
                 size="sm"
                 className="h-7"
                 disabled={endListing.isPending}
+                aria-label={`End the ${label} listing`}
                 onClick={() =>
                   endListing.mutate(
                     { listingId: status.row!.id },
@@ -818,6 +819,7 @@ function PlatformPanel({
                 size="sm"
                 className="h-7 text-xs"
                 disabled={cancelJob.isPending}
+                aria-label={`Cancel the queued ${label} cross-post`}
                 onClick={() =>
                   cancelJob.mutate(status.queueItem!.id, {
                     onError: (e) => toastError(e, "Could not cancel that job."),
@@ -833,6 +835,7 @@ function PlatformPanel({
                 size="sm"
                 className="h-7 text-xs"
                 disabled={markDone.isPending}
+                aria-label={`Mark the ${label} listing ended in FlipDesk`}
                 onClick={() =>
                   markDone.mutate(status.row!.id, {
                     onError: (e) => toastError(e, "Could not update the queue."),
@@ -848,6 +851,7 @@ function PlatformPanel({
                 size="sm"
                 className="h-7"
                 disabled={enqueueRetry.isPending}
+                aria-label={`Queue the ${label} cross-post again`}
                 onClick={() =>
                   enqueueRetry.mutate(
                     {
@@ -876,6 +880,7 @@ function PlatformPanel({
                 size="sm"
                 className="h-7"
                 disabled={confirming}
+                aria-label={`Mark the ${label} listing as live in FlipDesk`}
                 onClick={confirmPublished}
               >
                 I published it
@@ -1706,19 +1711,25 @@ export function ListingKit({ itemId, baseName }: { itemId: string; baseName?: st
               const v = variants[p];
               const hasErr = v ? !v.validation?.ok : false;
               const state = statuses[p]?.state;
+              const name = spec?.label ?? p;
               return (
                 <TabsTrigger key={p} value={p} className="gap-1.5">
-                  {spec?.label ?? p}
+                  {name}
                   {hasErr && <span className="h-1.5 w-1.5 rounded-full bg-brand-red" />}
-                  {/* US-3367: the channel's state, at a glance. */}
+                  {/* US-3367: the channel's state, at a glance. The label names
+                      the channel so a screen reader hears which tab is live. */}
                   {state === "live" && (
-                    <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" aria-label="live" />
+                    <span
+                      className="h-1.5 w-1.5 rounded-full bg-emerald-500"
+                      role="img"
+                      aria-label={`${name}: live`}
+                    />
                   )}
                   {(state === "queued" || state === "delist_queued") && (
-                    <Clock className="h-3 w-3 text-muted-foreground" aria-label="queued" />
+                    <Clock className="h-3 w-3 text-muted-foreground" aria-label={`${name}: queued`} />
                   )}
                   {state === "failed" && (
-                    <XCircle className="h-3 w-3 text-brand-red" aria-label="needs you" />
+                    <XCircle className="h-3 w-3 text-brand-red-text" aria-label={`${name}: needs you`} />
                   )}
                 </TabsTrigger>
               );

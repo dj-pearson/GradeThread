@@ -91,6 +91,7 @@ export function CrossListingsCard({ itemId }: { itemId: string }) {
                       size="sm"
                       className="h-7"
                       disabled={endListing.isPending}
+                      aria-label={`End the ${label} listing`}
                       onClick={() =>
                         endListing.mutate(
                           { listingId: s.row!.id },
@@ -122,6 +123,7 @@ export function CrossListingsCard({ itemId }: { itemId: string }) {
                       size="sm"
                       className="h-7 text-xs"
                       disabled={markDone.isPending}
+                      aria-label={`Mark the ${label} listing ended in FlipDesk`}
                       onClick={() =>
                         markDone.mutate(s.row!.id, {
                           onError: (e) => toastError(e, "Could not update the queue."),
