@@ -525,6 +525,7 @@ The first three are a **feature group** (`quickbooks`) on `/health/ready`, so an
 | `EBAY_TOKEN_REVOKE_URL` | ⬜ Coolify edge | Revocation endpoint. Disconnect only calls eBay to revoke when this is set; unset ⇒ local disconnect only. |
 | `EBAY_NOTIFICATION_ENDPOINT_URL` | ⬜ Coolify edge | Public URL for the general (order/payout/return) notification subscription — distinct from the account-deletion endpoint below. |
 | `EBAY_FEED_SYNC` / `EBAY_FEED_SYNC_MIN_CATALOG` | ⬜ Coolify edge | Bulk Feed API sync toggle (default OFF) and the catalog size below which it stays off (default 1000) — the Feed path only pays off at scale. |
+| `EBAY_PACKAGE_WEIGHT_AND_SIZE` | ⬜ Coolify edge | Sends the predicted parcel (`packageWeightAndSize`) on the eBay inventory_item PUT at publish. OFF unless the value is exactly `true`. The field shape came from generated OpenAPI clients rather than from eBay, and a wrong field name fails at PUBLISH with the offer already created, so it ships inert: turn it on, publish one item, and read the PUT response before trusting it (`lib/ebay-client.ts`, US-2790). |
 | `EBAY_VERIFICATION_TOKEN` 🔒 | ⬜ Coolify edge | Shared secret for eBay Notification API (incl. account-deletion). |
 | `EBAY_DELETION_ENDPOINT_URL` | ⬜ Coolify edge | Public URL eBay calls for account-deletion notices. |
 | `EBAY_DEFAULT_AD_RATE` | ⬜ Coolify edge | Default promoted-listing ad rate. |

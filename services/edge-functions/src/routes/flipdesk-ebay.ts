@@ -157,7 +157,11 @@ import {
   resolveMeasurementAspects,
 } from "../lib/measurements.ts";
 import { resolveShoeSizeScaleForItem } from "../lib/shoe-size-scale.ts";
-import type { ShoeSizeScale } from "../lib/parcel-estimate.ts";
+import {
+  estimateParcel,
+  type ParcelGarmentCategory,
+  type ShoeSizeScale,
+} from "../lib/parcel-estimate.ts";
 
 /**
  * US-2796 AC3: which scale this item's stamped shoe number is on.
@@ -245,6 +249,8 @@ import {
   getInventoryItemAspects,
   listRecentOrders,
   listRecentTransactions,
+  packageWeightAndSizeForPublish,
+  type EbayPackageWeightAndSize,
   publishOrAdoptOffer,
   createOrReplaceInventoryItemGroup,
   publishItemGroupOrAdopt,
@@ -10505,6 +10511,44 @@ async function headProbe(url: string): Promise<{ ok: boolean; status: number }> 
   return { ok: res.ok, status: res.status };
 }
 
+/**
+ * US-2790 consumer 3: the predicted parcel, for the inventory_item PUT.
+ *
+ * OFF BY DEFAULT. packageWeightAndSizeForPublish returns undefined unless an
+ * operator has set EBAY_PACKAGE_WEIGHT_AND_SIZE=true, and an undefined optional
+ * property is dropped by JSON.stringify - so with the flag off the body eBay
+ * receives is byte-for-byte the one it received before this existed. That is
+ * asserted by a test, not assumed.
+ *
+ * SINGLE-SKU PUBLISH ONLY, deliberately. A variation group is several parcels
+ * behind one listing and the per-variant weights differ; guessing one for the
+ * whole group would be worse than sending none. Revise is left alone for the
+ * same reason it always is - it re-PUTs a listing that is already live.
+ *
+ * Never throws. A prediction is an improvement to a publish, not a condition
+ * of one, so anything unexpected here leaves the payload exactly as it was.
+ */
+function predictedPackageForPublish(
+  item: PublishItem,
+): EbayPackageWeightAndSize | undefined {
+  try {
+    const parcel = estimateParcel({
+      garmentCategory: item.garment_category,
+      material: item.material,
+      measurements: item.measurements,
+      size: item.size,
+      sizeScale: shoeScaleOf(item),
+    });
+    return packageWeightAndSizeForPublish(parcel);
+  } catch (err) {
+    console.warn(
+      "[flipdesk-ebay] parcel prediction failed (publishing without it):",
+      err instanceof Error ? err.message : String(err),
+    );
+    return undefined;
+  }
+}
+
 export type PublishItemResult =
   | {
     ok: true;
@@ -10684,6 +10728,9 @@ export async function publishItemForOwner(
       availability: {
         shipToLocationAvailability: { quantity: ctx.summary.quantity },
       },
+      // US-2790: the predicted parcel. undefined (and therefore absent from the
+      // JSON) unless EBAY_PACKAGE_WEIGHT_AND_SIZE=true.
+      packageWeightAndSize: predictedPackageForPublish(item),
     });
 
     // US-562: build the shared bestOfferTerms once so the create and re-sync
@@ -13184,9 +13231,18 @@ interface PublishItem {
   // US-825: per-aspect provenance parallel to ebay_aspects.
   ebay_aspect_sources: AspectSourceMap | null;
   item_category: string | null;
+  // US-2790: the GARMENT enum, and it is NOT item_category. item_category is a
+  // merchandising value; feeding it to estimateParcel would fall through to the
+  // `other` base weight while still reporting basis ["category"], which is a
+  // confident-looking number from a wrong input. The two are read separately
+  // and only this one reaches the estimator.
+  garment_category: ParcelGarmentCategory | null;
   color: string | null;
   material: string | null;
   style: string | null;
+  // US-2790: the tape measurements grading took, which is what makes the
+  // predicted parcel better than a category average.
+  measurements: Record<string, number | string> | null;
   // US-821 canonical attributes (jsonb). US-822 maps these onto eBay aspects.
   attributes: Record<string, string | string[]> | null;
   status: string;
@@ -13972,7 +14028,12 @@ export async function assemblePublishContext(
   const { data: itemRow, error: itemErr } = await supabaseAdmin
     .from("inventory_items")
     .select(
-      "id, user_id, title, brand, sku, size, description, condition_notes, target_price, grade_value, grade_label, certificate_url, ebay_category_id, ebay_aspects, ebay_aspect_sources, ebay_epid, item_category, color, material, style, attributes, status"
+      // US-2790: garment_category + measurements feed the predicted parcel.
+      // Both are real columns on inventory_items (00002 and the measurement
+      // capture work), NOT view-only aliases - the note above about list_price
+      // is about a column that only exists inside items_full, and these are not
+      // that. flipdesk-logistics.ts reads the same two off this same table.
+      "id, user_id, title, brand, sku, size, description, condition_notes, target_price, grade_value, grade_label, certificate_url, ebay_category_id, ebay_aspects, ebay_aspect_sources, ebay_epid, item_category, garment_category, color, material, style, measurements, attributes, status"
     )
     .eq("id", itemId)
     .maybeSingle();

@@ -33,6 +33,12 @@ import {
 } from "./title-tokens.ts";
 import { createSharedTokenCache, type SharedTokenCache } from "./coherent-cache.ts";
 import { recordEbayCall } from "./ebay-call-log.ts";
+// US-2790: the pack sizes the parcel estimator already uses. Imported rather
+// than re-typed so the dimensions eBay is told about are the SAME ones the
+// dimensional-weight rule and the margin floor bill against. parcel-estimate.ts
+// is dependency-free by contract and mirrored byte-identically into src/, so
+// importing FROM it is safe; importing INTO it is not.
+import { PACK_DIMENSIONS, type PackKind } from "./parcel-estimate.ts";
 
 // US-499: bounded deadline on every eBay HTTP call. eBay is occasionally slow;
 // without a deadline a bulk publish/sync can stall the container.
@@ -2672,6 +2678,169 @@ export interface InventoryItemPayload {
   availability: {
     shipToLocationAvailability: { quantity: number };
   };
+  // US-2790: the predicted parcel. OPTIONAL and, today, OFF. See the block
+  // below for what has to be true before it is sent.
+  packageWeightAndSize?: EbayPackageWeightAndSize;
+}
+
+// --- US-2790: packageWeightAndSize on the inventory_item PUT ---------------
+//
+// WHAT THIS IS FOR. estimateParcel already predicts the parcel a garment ships
+// in, from the measurements grading took. Three consumers read it; this is the
+// last one. Sending it means eBay computes calculated shipping and shows the
+// buyer a real postage figure instead of the seller's guess, and it means the
+// weight the seller retypes at label time is already there.
+//
+// THE SHAPE, and where it came from. Cross-checked against two independent
+// generations of eBay's own OpenAPI contract: the OpenAPI-Generator PHP client
+// for sell-inventory (which gave the three containers, their fields and the
+// unit enums) and an independent JSON Schema rendering (which settled that the
+// wire names are camelCase and added shippingIrregular). eBay's developer site
+// itself has timed out eight times across five sessions on five distinct URLs
+// plus the edp.ebay.com mirror, so do not spend a ninth attempt on it - the
+// shape is written down here and in the US-2790 notes instead.
+//
+//   dimension unit: INCH | FEET (English), CENTIMETER | METER (metric)
+//   weight unit:    POUND | OUNCE (English), KILOGRAM | GRAM (metric)
+//
+// eBay's own prose carries a copy-paste error saying the DIMENSION unit
+// description lists weight units. It is their error, not a sign the source is
+// bad; recorded so the next reader does not re-derive that conclusion.
+//
+// WHY IT SHIPS OFF. A wrong field name here fails at PUBLISH, not at compile,
+// and by then the offer already exists on a live seller's account - which is
+// the expensive place, because a stuck unpublished offer makes every retry fail
+// "offer already exists" (the same shape as the 65-char aspect trap above). The
+// shape above is well cross-checked and it still comes from GENERATED CLIENTS
+// rather than from eBay, and this repo's rule about carrier numbers is that a
+// number is sourced or it is not used. So the code is wired, tested and inert.
+// One successful sandbox PUT with the flag on is what turns it on for real.
+export interface EbayPackageDimensions {
+  height: number;
+  length: number;
+  width: number;
+  unit: "INCH" | "FEET" | "CENTIMETER" | "METER";
+}
+
+export interface EbayPackageWeight {
+  value: number;
+  unit: "POUND" | "OUNCE" | "KILOGRAM" | "GRAM";
+}
+
+export interface EbayPackageWeightAndSize {
+  dimensions?: EbayPackageDimensions;
+  weight?: EbayPackageWeight;
+  // PackageTypeEnum and shippingIrregular are DELIBERATELY not built here.
+  // The container shape is sourced; the PackageTypeEnum MEMBER names are not,
+  // and an unsourced enum value is exactly the thing that fails at publish.
+  // shippingIrregular is a physical fact about a parcel that nothing in the
+  // record knows. Both stay optional on the type so a later, sourced change
+  // does not have to re-open the interface.
+  packageType?: string;
+  shippingIrregular?: boolean;
+}
+
+/** The env var that turns the field on. Exported so the tests name it once. */
+export const EBAY_PACKAGE_WEIGHT_AND_SIZE_FLAG = "EBAY_PACKAGE_WEIGHT_AND_SIZE";
+
+/**
+ * Is the predicted parcel sent to eBay on this request?
+ *
+ * Read per call, never captured at module load - the difference between
+ * switching a misbehaving field off from a phone and needing a redeploy to do
+ * it. Exact-match "true", copying lib/scout-identify.ts: a stale "false", a
+ * "1" or an operator's "yes" all leave it OFF, because a flag that guesses at
+ * intent is a flag that puts an unproven field on a live publish by accident.
+ */
+export function packageWeightAndSizeEnabled(): boolean {
+  // THE NAME IS A LITERAL HERE ON PURPOSE, not the constant above.
+  // scripts/check-env-reference.mjs matches a quoted name inside the env read
+  // and cannot see a variable, so reading through the constant would keep this
+  // flag out of
+  // vault/10-ops/env-reference.md with the checker still reporting OK - a
+  // production switch nobody rebuilding the stack would ever be told about, and
+  // a guard reporting green about a case it cannot see. The two are held equal
+  // by a test in ebay-package-weight-size_test.ts.
+  return Deno.env.get("EBAY_PACKAGE_WEIGHT_AND_SIZE") === "true";
+}
+
+/** A finite, strictly positive number rounded to one decimal, or null. */
+function positiveOneDecimal(n: number): number | null {
+  if (!Number.isFinite(n) || n <= 0) return null;
+  return Math.round(n * 10) / 10;
+}
+
+/**
+ * The dimension container for one pack's measured sides, or undefined.
+ *
+ * TAKES THE RAW SIDES SEPARATELY ON PURPOSE. This started inside
+ * buildPackageWeightAndSize, and a sabotage run showed the all-three-or-none
+ * rule was UNREACHABLE: every entry in PACK_DIMENSIONS has three positive
+ * sides, so dropping the width check from the condition changed nothing any
+ * test could see. Splitting it means the rule is exercised at values that trip
+ * it without inventing a broken pack to make that happen - the same fix
+ * dimensionalWeightOzForCubicInches got in parcel-estimate.ts, for the same
+ * reason.
+ *
+ * eBay rejects a partial dimension set, and a parcel described on two axes is
+ * not a parcel, so anything short of three usable sides yields nothing.
+ */
+export function packageDimensionsFrom(
+  dims: { lengthIn: number; widthIn: number; heightIn: number } | undefined | null,
+): EbayPackageDimensions | undefined {
+  if (!dims) return undefined;
+  const length = positiveOneDecimal(dims.lengthIn);
+  const width = positiveOneDecimal(dims.widthIn);
+  const height = positiveOneDecimal(dims.heightIn);
+  if (length == null || width == null || height == null) return undefined;
+  return { height, length, width, unit: "INCH" };
+}
+
+/**
+ * Build the field from a predicted parcel. PURE - no env read, so a test can
+ * pin the shape without touching the flag.
+ *
+ * UNITS ARE NOT CONVERTED, and that is the point. estimateParcel returns
+ * OUNCES and eBay accepts OUNCE, so the number and its unit travel together
+ * with no arithmetic between them. Sending a pound number under an OUNCE unit
+ * (or the reverse) is a 16x error that PUBLISHES SUCCESSFULLY and only shows up
+ * as postage the seller cannot explain, so the safest conversion is none.
+ *
+ * A PARTIAL CONTAINER IS IMPOSSIBLE TO CONSTRUCT. eBay requires both `value`
+ * and `unit` whenever a container is present, and all three dimensions or none.
+ * Every container here is built whole or omitted entirely, and when neither
+ * survives the function returns undefined rather than an empty object.
+ */
+export function buildPackageWeightAndSize(
+  parcel: { weightOz: number; pack: PackKind } | null | undefined,
+): EbayPackageWeightAndSize | undefined {
+  if (!parcel) return undefined;
+
+  const out: EbayPackageWeightAndSize = {};
+
+  const oz = positiveOneDecimal(parcel.weightOz);
+  if (oz != null) out.weight = { value: oz, unit: "OUNCE" };
+
+  const dimensions = packageDimensionsFrom(
+    PACK_DIMENSIONS[parcel.pack] as
+      | { lengthIn: number; widthIn: number; heightIn: number }
+      | undefined,
+  );
+  if (dimensions) out.dimensions = dimensions;
+
+  if (!out.weight && !out.dimensions) return undefined;
+  return out;
+}
+
+/**
+ * The gated entry point the publish path calls. Returns undefined - so the
+ * payload is byte-identical to today's - unless an operator has set the flag.
+ */
+export function packageWeightAndSizeForPublish(
+  parcel: { weightOz: number; pack: PackKind } | null | undefined,
+): EbayPackageWeightAndSize | undefined {
+  if (!packageWeightAndSizeEnabled()) return undefined;
+  return buildPackageWeightAndSize(parcel);
 }
 
 // eBay hard-rejects any item-specific (aspect) VALUE longer than 65 characters
