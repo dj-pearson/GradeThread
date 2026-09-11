@@ -17,7 +17,7 @@ import {
   ZeroRowsAffectedError,
 } from "../lib/db-write.ts";
 import { requireScope } from "../lib/scope-guard.ts";
-import { reviewSnapshot } from "../lib/review-baseline.ts";
+import { REPORT_FACTOR_COLUMNS, reviewSnapshot } from "../lib/review-baseline.ts";
 
 // Admin dispute resolution (US-474). Mounted at /api/admin/disputes — inherits
 // authMiddleware + adminAuthMiddleware from main.ts (/api/admin/*).
@@ -83,8 +83,12 @@ async function loadDisputeContext(disputeId: string) {
     .from("grade_reports")
     .select(
       "id, submission_id, overall_score, grade_tier, ai_summary, buyer_writeup, certificate_id, " +
-        "fabric_condition_score, structural_integrity_score, cosmetic_appearance_score, " +
-        "functional_elements_score, odor_cleanliness_score, coverage",
+        // US-3323: the five columns reviewSnapshot() below reads, shared with the
+        // accuracy readers so that trimming this select means editing the constant
+        // they all use. The cast on the result is `as unknown as`, which ASSERTS
+        // rather than checks, so nothing else here would notice five nulls going
+        // into human_reviews and the AI factors being lost again.
+        `${REPORT_FACTOR_COLUMNS}, coverage`,
     )
     .eq("id", d.grade_report_id)
     .maybeSingle();

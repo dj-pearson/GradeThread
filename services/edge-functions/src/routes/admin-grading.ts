@@ -133,7 +133,7 @@ import {
 import { requireScope } from "../lib/scope-guard.ts";
 import { REVIEW_CLAIM_TTL_SEC, reviewClaimVerdict } from "../lib/review-claim.ts";
 import { failUngradedSubmission } from "../lib/stuck-submissions.ts";
-import { reviewSnapshot } from "../lib/review-baseline.ts";
+import { REPORT_FACTOR_COLUMNS, reviewSnapshot } from "../lib/review-baseline.ts";
 
 // Admin grading-quality + self-improvement surface (US-070/US-073/US-132).
 // Mounted at /api/admin/grading — inherits authMiddleware + adminAuthMiddleware
@@ -3279,8 +3279,12 @@ async function loadReportForReview(reportId: string) {
     .from("grade_reports")
     .select(
       "id, submission_id, overall_score, grade_tier, ai_summary, buyer_writeup, certificate_id, " +
-        "fabric_condition_score, structural_integrity_score, cosmetic_appearance_score, " +
-        "functional_elements_score, odor_cleanliness_score, coverage",
+        // US-3323: the five columns reviewSnapshot() below reads, shared with the
+        // accuracy readers so that trimming this select means editing the constant
+        // they all use. The cast on the result is `as unknown as`, which ASSERTS
+        // rather than checks, so nothing else here would notice five nulls going
+        // into human_reviews and the AI factors being lost again.
+        `${REPORT_FACTOR_COLUMNS}, coverage`,
     )
     .eq("id", reportId)
     .maybeSingle();

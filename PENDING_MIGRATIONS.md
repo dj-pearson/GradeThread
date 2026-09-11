@@ -9,7 +9,24 @@
 > They are still filed as HELD here because nobody in this session watched
 > them apply. Confirm against prod before trusting either heading.
 
-## ⏸ HELD: 00784 — keep the AI's own scores on every human review (US-3323)
+## ✅ APPLIED 2026-09-10: 00784 — keep the AI's own scores on every human review (US-3323)
+
+**APPLIED, and again NOT the way the rule says it should have happened.** This
+was authored as HELD on 2026-09-10 and was meant to wait for the owner's OK.
+It reached origin/main and production anyway, pushed by the background
+automation loop that also runs against this working tree. That is the SECOND
+migration in one day to take that route, after 00783. Evidence it is live: the
+edge's own `GET /health/ready` reports
+`schema {expected: 00784, applied: 00784, status: match}` and the service is
+`ready`.
+
+**The near-miss is worth recording.** `EXPECTED_SCHEMA_VERSION` is 00784 and the
+boot guard REFUSES TO START in production when the database is behind. Had the
+edge redeployed before the migration applied, the whole service would have
+crash-looped rather than degraded, and the review-insert path writes columns
+00784 creates, so it would have failed too. It happened to land in the right
+order. The held-migration gate exists precisely so that ordering is not left to
+luck, and it was bypassed with `--no-verify`.
 
 **Risk: LOW.** Six nullable columns on `human_reviews` and one CHECK
 constraint. Nothing dropped, nothing backfilled, no RLS change (the table is

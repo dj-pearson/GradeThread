@@ -34,6 +34,14 @@ import { GradingCanaryPanel } from "@/components/admin/grading-canary-panel";
 import { GradingAccuracyPanel } from "@/components/admin/grading-accuracy-panel";
 import { ListingPromptPerformancePanel } from "@/components/admin/listing-prompt-performance-panel";
 import { edgeFetch } from "@/lib/edge-fetch";
+import {
+  type AccuracyReportRow,
+  type AccuracyReviewRow,
+  computeVersionAccuracy,
+  formatLean,
+  type ReviewAccuracyData,
+  summarizeAgreement,
+} from "@/lib/review-accuracy";
 import { CHART_PALETTE } from "@/lib/constants";
 import { MfaStepUpDialog } from "@/components/admin/admin-mfa-gate";
 import {
@@ -96,19 +104,6 @@ import {
 
 // ─── Types ──────────────────────────────────────────────────────────
 
-interface ReviewAccuracyData {
-  versionName: string;
-  totalReviews: number;
-  meanAbsoluteError: number;
-  agreementRate: number; // within 0.5 points
-  correlation: number;
-  factorAccuracies: {
-    factor: string;
-    mae: number;
-    agreementRate: number;
-  }[];
-}
-
 interface EnrichedPromptVersion extends AiPromptVersionRow {
   computedAccuracy: number | null;
   totalReviewed: number;
@@ -166,14 +161,6 @@ const ACCURACY_THRESHOLD = 0.8; // 80% agreement rate
 // mistaken for the complete one.
 const REVIEW_LIMIT = 5000;
 
-const FACTOR_NAMES = [
-  "fabric_condition",
-  "structural_integrity",
-  "cosmetic_appearance",
-  "functional_elements",
-  "odor_cleanliness",
-] as const;
-
 const FACTOR_LABELS: Record<string, string> = {
   fabric_condition: "Fabric Condition",
   structural_integrity: "Structural Integrity",
@@ -206,23 +193,6 @@ const TOOLTIP_STYLE = {
     fontSize: "12px",
   },
 };
-
-function pearsonCorrelation(x: number[], y: number[]): number {
-  const n = x.length;
-  if (n < 2) return 0;
-  const meanX = x.reduce((s, v) => s + v, 0) / n;
-  const meanY = y.reduce((s, v) => s + v, 0) / n;
-  let num = 0, denomX = 0, denomY = 0;
-  for (let i = 0; i < n; i++) {
-    const dx = x[i]! - meanX;
-    const dy = y[i]! - meanY;
-    num += dx * dy;
-    denomX += dx * dx;
-    denomY += dy * dy;
-  }
-  const denom = Math.sqrt(denomX * denomY);
-  return denom === 0 ? 0 : num / denom;
-}
 
 type SortField = "created_at" | "accuracy" | "total_grades" | "version_name";
 type SortDir = "asc" | "desc";
@@ -353,8 +323,14 @@ export function AdminAiModelsPage() {
       if (reportsRes.error) throw reportsRes.error;
       const reports = (reportsRes.data ?? []) as GradeReportRow[];
 
-      const totalReviewed = reviews.length;
-      const agreedCount = reviews.filter((r) => r.adjusted_score === null).length;
+      // US-3323: "the AI got this one right" is a property of a GRADE, not of a
+      // review row. Counting rows with adjusted_score === null folded every
+      // send-back ("photos too poor to grade") into the approved-as-is bucket
+      // and counted a twice-reviewed grade twice.
+      const { totalReviewed, agreedCount } = summarizeAgreement(
+        reviews as unknown as AccuracyReviewRow[],
+        new Map(reports.map((r) => [r.id, r as unknown as AccuracyReportRow])),
+      );
 
       return {
         versions: versions.map((v): EnrichedPromptVersion => ({
@@ -385,78 +361,21 @@ export function AdminAiModelsPage() {
   // ─── Compute accuracy metrics per prompt version ───────────────────
 
   const accuracyByVersion = useMemo((): ReviewAccuracyData[] => {
-    if (allReviews.length === 0 || allReports.length === 0) return [];
-
-    // Build report lookup
-    const reportMap = new Map<string, GradeReportRow>();
-    for (const r of allReports) {
-      reportMap.set(r.id, r);
-    }
-
-    // Group reviews by model_version (via grade report)
-    const groups = new Map<string, { aiScores: number[]; humanScores: number[]; errors: number[]; agreed: number; factorErrors: Record<string, number[]> }>();
-
-    for (const review of allReviews) {
-      const report = reportMap.get(review.grade_report_id);
-      if (!report) continue;
-
-      const versionKey = report.model_version || "unknown";
-      if (!groups.has(versionKey)) {
-        const fe: Record<string, number[]> = {};
-        for (const f of FACTOR_NAMES) fe[f] = [];
-        groups.set(versionKey, { aiScores: [], humanScores: [], errors: [], agreed: 0, factorErrors: fe });
-      }
-
-      const g = groups.get(versionKey)!;
-      const humanFinal = review.adjusted_score ?? review.original_score;
-      const error = Math.abs(report.overall_score - humanFinal);
-      g.errors.push(error);
-      if (error <= 0.5) g.agreed++;
-      g.aiScores.push(report.overall_score);
-      g.humanScores.push(humanFinal);
-
-      // Per-factor error estimation
-      const aiOverall = report.overall_score;
-      const errorRatio = aiOverall !== 0 ? (humanFinal - aiOverall) / aiOverall : 0;
-      const factorScores: Record<string, number> = {
-        fabric_condition: report.fabric_condition_score,
-        structural_integrity: report.structural_integrity_score,
-        cosmetic_appearance: report.cosmetic_appearance_score,
-        functional_elements: report.functional_elements_score,
-        odor_cleanliness: report.odor_cleanliness_score,
-      };
-      for (const f of FACTOR_NAMES) {
-        const fScore = factorScores[f] ?? 0;
-        const fErr = review.adjusted_score === null ? 0 : Math.abs(fScore * errorRatio);
-        const arr = g.factorErrors[f];
-        if (arr) arr.push(fErr);
-      }
-    }
-
-    const result: ReviewAccuracyData[] = [];
-    for (const [versionName, g] of groups) {
-      const mae = g.errors.length > 0 ? g.errors.reduce((s, e) => s + e, 0) / g.errors.length : 0;
-      const agreementRate = g.errors.length > 0 ? g.agreed / g.errors.length : 0;
-      const correlation = pearsonCorrelation(g.aiScores, g.humanScores);
-
-      result.push({
-        versionName,
-        totalReviews: g.errors.length,
-        meanAbsoluteError: mae,
-        agreementRate,
-        correlation,
-        factorAccuracies: FACTOR_NAMES.map((f) => {
-          const fErrors = g.factorErrors[f] ?? [];
-          return {
-            factor: f,
-            mae: fErrors.length > 0 ? fErrors.reduce((s, e) => s + e, 0) / fErrors.length : 0,
-            agreementRate: fErrors.length > 0 ? fErrors.filter((e) => e <= 0.5).length / fErrors.length : 0,
-          };
-        }),
-      });
-    }
-
-    return result.sort((a, b) => b.totalReviews - a.totalReviews);
+    // US-3323: the AI side comes from each review's own snapshot of the report
+    // as it FOUND it, never from the report's current columns. An adjustment
+    // overwrites those columns with the reviewer's numbers, so comparing them
+    // with the reviewer's numbers scored every corrected grade at 0.00 error
+    // and 100% agreement — the page read as most accurate exactly where a human
+    // had overruled it, and the threshold banner below could never fire.
+    //
+    // computeVersionAccuracy mirrors services/edge-functions/src/lib/
+    // review-baseline.ts, which the server-side readers use; the accuracy panel
+    // further down this same page is served by those. Keeping the rule in one
+    // shape is why the two cannot print different errors for one garment.
+    return computeVersionAccuracy(
+      allReviews as unknown as AccuracyReviewRow[],
+      new Map(allReports.map((r) => [r.id, r as unknown as AccuracyReportRow])),
+    );
   }, [allReviews, allReports]);
 
   // Detect low accuracy alert
@@ -1148,7 +1067,7 @@ export function AdminAiModelsPage() {
                 {lowAccuracyVersions.map((v) => (
                   <span key={v.versionName}>
                     <strong>{v.versionName}</strong>: {(v.agreementRate * 100).toFixed(1)}%
-                    agreement ({v.totalReviews} reviews)
+                    agreement ({v.totalReviews} graded items)
                     {". "}
                   </span>
                 ))}
@@ -1254,7 +1173,7 @@ export function AdminAiModelsPage() {
                         labelFormatter={(label: unknown, payload: unknown) => {
                           const items = payload as { payload?: { fullName?: string; reviews?: number } }[] | undefined;
                           const item = items?.[0]?.payload;
-                          return `${item?.fullName ?? String(label)} (${item?.reviews ?? 0} reviews)`;
+                          return `${item?.fullName ?? String(label)} (${item?.reviews ?? 0} graded items)`;
                         }}
                       />
                       <Legend />
@@ -1275,7 +1194,7 @@ export function AdminAiModelsPage() {
                         <div className="flex items-center justify-between">
                           <CardTitle className="text-sm font-medium">{version.versionName}</CardTitle>
                           <div className="flex items-center gap-2">
-                            <Badge variant="secondary">{version.totalReviews} reviews</Badge>
+                            <Badge variant="secondary">{version.totalReviews} graded items</Badge>
                             {version.agreementRate >= ACCURACY_THRESHOLD ? (
                               <Badge className="bg-green-100 text-green-700 dark:bg-green-950/50 dark:text-green-300">Good</Badge>
                             ) : version.totalReviews >= 5 ? (
@@ -1288,7 +1207,7 @@ export function AdminAiModelsPage() {
                       </CardHeader>
                       <CardContent className="space-y-3">
                         {/* Overall metrics */}
-                        <div className="grid grid-cols-3 gap-4 text-sm">
+                        <div className="grid grid-cols-2 gap-4 text-sm sm:grid-cols-4">
                           <div>
                             <p className="text-muted-foreground">Agreement Rate</p>
                             <p className={`font-bold text-lg ${version.agreementRate >= ACCURACY_THRESHOLD ? "text-green-600 dark:text-green-400" : version.totalReviews >= 5 ? "text-red-600 dark:text-red-400" : ""}`}>
@@ -1298,6 +1217,17 @@ export function AdminAiModelsPage() {
                           <div>
                             <p className="text-muted-foreground">Mean Absolute Error</p>
                             <p className="font-bold text-lg">{version.meanAbsoluteError.toFixed(2)}</p>
+                          </div>
+                          {/* US-3323: the direction of the error. Positive means
+                              reviewers keep raising this version's grades. */}
+                          <div>
+                            <p className="text-muted-foreground">AI leans</p>
+                            <p
+                              className="font-bold text-lg"
+                              title="mean (human − AI) overall points"
+                            >
+                              {formatLean(version.meanSignedError)}
+                            </p>
                           </div>
                           <div>
                             <p className="text-muted-foreground">Correlation</p>
@@ -1320,10 +1250,21 @@ export function AdminAiModelsPage() {
                                 />
                               </div>
                               <span className="w-14 text-xs text-right tabular-nums">
-                                {(fa.agreementRate * 100).toFixed(0)}%
+                                {fa.count > 0 ? `${(fa.agreementRate * 100).toFixed(0)}%` : "—"}
                               </span>
                               <span className="w-16 text-xs text-muted-foreground text-right tabular-nums">
-                                MAE {fa.mae.toFixed(2)}
+                                {fa.count > 0 ? `MAE ${fa.mae.toFixed(2)}` : "no data"}
+                              </span>
+                              {/* US-3323: a pre-00784 grade that a reviewer
+                                  adjusted has no surviving AI factors, so it
+                                  counts toward the overall error and toward no
+                                  factor. Naming the sample keeps a thin factor
+                                  from reading as a confident one. */}
+                              <span
+                                className="w-14 text-xs text-muted-foreground text-right tabular-nums"
+                                title="graded items this factor could be measured on"
+                              >
+                                n={fa.count}
                               </span>
                             </div>
                           ))}

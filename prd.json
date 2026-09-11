@@ -4904,21 +4904,6 @@
       ]
     },
     {
-      "id": "US-3323",
-      "passes": false,
-      "title": "Every corrected grade reads as zero error: an adjustment overwrites the AI score that accuracy tracking compares against",
-      "description": "applyGradeAdjustment (lib/grade-adjustment.ts) writes the reviewer correction over grade_reports.overall_score and the five factor columns. Every accuracy reader then treats the report CURRENT score as the AI grade and compares it with the reviewer score, which is the same number: computeAccuracySummary, computeConfidenceCalibration, the confidence-calibration cron, the defect-type bias report, the few-shot exemplar miner and the training export. Result: MAE 0 and 100 percent agreement on exactly the grades a human corrected, a calibration miner that would lower the review threshold on that evidence, and a public transparency figure built on it. The AI per-factor scores are not stored anywhere once a grade is adjusted (only original_score survives, on human_reviews). Send-backs (photos too poor to grade) are also counted as approved-as-is. Found 2026-09-10 while preparing a 150-grade owner review campaign whose whole purpose is AI-vs-human learning.",
-      "acceptanceCriteria": [
-        "human_reviews keeps the AI per-factor scores the review found (original_* columns) and which review path wrote the row (review_action), via a held migration",
-        "One pure helper decides AI side (earliest review snapshot) and human side (report current state); every accuracy reader uses it",
-        "Send-backs are excluded from accuracy, calibration, defect bias and exemplars",
-        "The accuracy report carries signed bias (human minus AI) per factor, per category and per prompt version, and the admin panel shows it",
-        "Tests prove a corrected grade reports its real error, and a sabotaged helper turns them red",
-        "OPERATOR: apply the migration to prod before the push, then NOTIFY pgrst reload schema"
-      ],
-      "priority": 5
-    },
-    {
       "id": "US-3324",
       "passes": false,
       "title": "A bare 'Duluth' resolves Duluth Trading's size chart, and Duluth Pack is a different company",
