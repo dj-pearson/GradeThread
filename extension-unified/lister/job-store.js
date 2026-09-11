@@ -374,6 +374,37 @@
   var DRAIN_MAX_CONCURRENT = 1;
 
   /**
+   * How many rows this browser may CLAIM on a drain pass.
+   *
+   * US-3061: the same number it can start, and the reason this is a function
+   * rather than a constant on the request is the defect it fixes. The drain used
+   * to ask for five rows and start one. `planDrain` put the other four in
+   * `skipped`, nothing read `skipped`, and the server had already stamped all
+   * five `claimed` - and `/claim` only ever reads rows whose status is `queued`.
+   * So four rows out of every five were taken out of the queue by a browser that
+   * never ran them and could never be handed them again. They sat `claimed`
+   * until `expires_at` seven days later, while the drain returned "ok", the
+   * worker tab printed its next-check countdown, and the stale-queue notice read
+   * `max(claimed_at)` and concluded the desktop was keeping up.
+   *
+   * Measured before the fix, against the local stack: 8 seeded rows, 20
+   * consecutive drains, 2 done and 6 stranded.
+   *
+   * Claiming exactly the free slots costs nothing: a job that settles fires
+   * another drain immediately (see reportJob), so the throughput is the same
+   * one-at-a-time it always was. What changes is that a row is only ever taken
+   * out of the queue by a browser that is about to run it.
+   */
+  function drainClaimLimit(jobs, maxConcurrent) {
+    var max = (typeof maxConcurrent === "number") ? maxConcurrent : DRAIN_MAX_CONCURRENT;
+    var pending = 0;
+    Object.keys(jobs || {}).forEach(function (id) {
+      if (isPending((jobs || {})[id])) pending += 1;
+    });
+    return Math.max(0, max - pending);
+  }
+
+  /**
    * The queue kinds this extension can actually carry out.
    *
    * The server used to accept a third kind, `share`, and this list was the only
@@ -513,6 +544,7 @@
   root.GT_LISTER_JOBS = {
     DRAIN_MAX_CONCURRENT: DRAIN_MAX_CONCURRENT,
     RUNNABLE_QUEUE_KINDS: RUNNABLE_QUEUE_KINDS,
+    drainClaimLimit: drainClaimLimit,
     planDrain: planDrain,
     jobFromQueueRow: jobFromQueueRow,
     WATCH_TTL_MS: WATCH_TTL_MS,

@@ -216,6 +216,16 @@
     // Stop means "this tab, now" and must not outlive the tab.
     state.pause = out.pause || null;
     renderStale(out.staleTabs);
+    renderUnsent(out.unsentResults);
+  }
+
+  /** US-3061: finished jobs whose result GradeThread has not recorded yet. */
+  function renderUnsent(count) {
+    var box = el("unsent");
+    if (!box) return;
+    var line = W.unsentResultLine(count);
+    box.hidden = line === "";
+    box.textContent = line;
   }
 
   async function tick() {

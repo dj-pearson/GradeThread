@@ -2009,20 +2009,23 @@ async function reportJob(job, result) {
   // network. Its outcome goes back to the queue row instead, which is the only
   // place they will look for it.
   if (job.queueId) {
-    await queueFetch("/" + job.queueId + "/complete", {
-      method: "POST",
-      body: JSON.stringify({
-        ok: result && result.ok === true,
-        result: {
-          error: result && typeof result.error === "string"
-            ? result.error.slice(0, 400)
-            : null,
-          manual: Boolean(result && result.manual),
-          listingUrl: result && typeof result.listingUrl === "string"
-            ? result.listingUrl
-            : null,
-        },
-      }),
+    // US-3061: through completeQueueRow, which keeps the result when the server
+    // does not take it. This used to be a bare post whose answer was discarded,
+    // so a dead token or one offline second at the end of a marketplace tab left
+    // a FINISHED job sitting `claimed` on the server. /claim reads only `queued`
+    // rows, so nothing could ever hand it back: the seller's phone showed the
+    // job as still running until expires_at seven days later.
+    await completeQueueRow(job.queueId, {
+      ok: result && result.ok === true,
+      result: {
+        error: result && typeof result.error === "string"
+          ? result.error.slice(0, 400)
+          : null,
+        manual: Boolean(result && result.manual),
+        listingUrl: result && typeof result.listingUrl === "string"
+          ? result.listingUrl
+          : null,
+      },
     });
     // Immediately look for the next one. The drain runs a single job at a time,
     // so without this a queue of six would take six sweep ticks — half an hour —
@@ -2367,9 +2370,24 @@ async function beginJob(kind, payload, sender, sendResponse, clientRef) {
 // browser the seller is also using is not a feature.
 const QUEUE_ENDPOINT = "https://functions.gradethread.com/api/flipdesk/extension-queue";
 
-async function queueFetch(path, init) {
+/**
+ * The queue call, with the OUTCOME kept.
+ *
+ * US-3061: `queueFetch` below flattens a dead token, an offline moment, a 404
+ * and a 500 into the same `null`, which is fine for a poll and wrong for a
+ * write. Every caller that is RECORDING something needs to know whether the
+ * server took it, so the recording ones go through this and the reads keep the
+ * shorter one.
+ *
+ * `ok` is the HTTP result and nothing more; whether the write actually landed is
+ * GT_WORKER_STATE.resultAccepted's question, because a 200 that updated no rows
+ * is not a failed request.
+ */
+async function queueFetchResult(path, init) {
   const { gtBuyerToken } = await ext.storage.local.get("gtBuyerToken");
-  if (!gtBuyerToken || typeof gtBuyerToken !== "string") return null;
+  if (!gtBuyerToken || typeof gtBuyerToken !== "string") {
+    return { ok: false, status: 0, body: null, reason: "no-token" };
+  }
   try {
     const resp = await fetch(QUEUE_ENDPOINT + (path || ""), Object.assign({
       cache: "no-store",
@@ -2378,14 +2396,120 @@ async function queueFetch(path, init) {
         "Content-Type": "application/json",
       },
     }, init || {}));
-    if (!resp.ok) return null;
-    return await resp.json();
+    let body = null;
+    try { body = await resp.json(); } catch (_e) { body = null; }
+    return { ok: resp.ok, status: resp.status, body: body, reason: null };
   } catch (_e) {
-    // Offline, or the seller's token expired. The queue is server-side state and
-    // survives; the next tick tries again. Nothing is lost by failing quietly
-    // here, and a toast about a background poll would be noise.
-    return null;
+    return { ok: false, status: 0, body: null, reason: "network" };
   }
+}
+
+async function queueFetch(path, init) {
+  const out = await queueFetchResult(path, init);
+  // Offline, or the seller's token expired. The queue is server-side state and
+  // survives; the next tick tries again. Nothing is lost by failing quietly
+  // here, and a toast about a background poll would be noise.
+  return out.ok ? out.body : null;
+}
+
+// -- US-3061: a result is not sent until the server says it took it ---------
+//
+// See the "unsent results" section of queue/worker-state.js for what this is
+// fixing. In short: every `/complete` post used to be fire-and-forget, so one
+// lost POST left a finished job sitting `claimed` on the server for seven days
+// with nothing able to pick it up, while the drain reported "ok".
+
+/** storage.local, not session: an unsent result must survive a browser restart,
+ *  which is exactly the case that loses it. */
+const UNSENT_RESULTS_KEY = "gtQueueUnsentResults";
+let unsentQueue = Promise.resolve();
+
+function withUnsentResults(fn) {
+  const run = unsentQueue.then(async () => {
+    let store = [];
+    try {
+      const out = await ext.storage.local.get(UNSENT_RESULTS_KEY);
+      store = (out && out[UNSENT_RESULTS_KEY]) || [];
+    } catch (_e) { /* unavailable - treat as none */ }
+    const res = await fn(store);
+    if (res && res.store) {
+      try {
+        await ext.storage.local.set({ [UNSENT_RESULTS_KEY]: res.store });
+      } catch (_e) { /* full/unavailable - the next attempt re-records it */ }
+    }
+    return res && res.value;
+  });
+  unsentQueue = run.then(() => undefined, () => undefined);
+  return run;
+}
+
+/**
+ * Report a queue row's outcome, and keep the result if the server did not take
+ * it.
+ *
+ * Returns true when the row is settled server-side. Every `/complete` in this
+ * file goes through here - the expired rows, the unsupported ones, the refused
+ * targets and the finished jobs alike - because "we told the server" was a claim
+ * none of them checked.
+ */
+async function completeQueueRow(queueId, body) {
+  if (typeof queueId !== "string" || queueId === "") return false;
+  const W = self.GT_WORKER_STATE;
+  const out = await queueFetchResult("/" + queueId + "/complete", {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+  if (W.resultAccepted(out, queueId)) {
+    await withUnsentResults(async (store) => ({ store: W.clearUnsentResult(store, queueId) }));
+    return true;
+  }
+  await withUnsentResults(async (store) => ({
+    store: W.recordUnsentResult(store, { queueId: queueId, body: body, status: out.status }, Date.now()),
+  }));
+  return false;
+}
+
+/**
+ * Re-send the results the server has not taken yet.
+ *
+ * Runs at the head of every drain, BEFORE anything is claimed: a row whose
+ * result is still owed is a row the server still thinks is running, and claiming
+ * more work while the last batch is unrecorded is how a backlog turns into a
+ * queue that looks busy and is not.
+ */
+async function flushUnsentResults() {
+  const W = self.GT_WORKER_STATE;
+  const due = await withUnsentResults(async (store) => ({ value: W.dueUnsentResults(store, Date.now()) }));
+  for (const entry of due || []) {
+    const out = await queueFetchResult("/" + entry.queueId + "/complete", {
+      method: "POST",
+      body: JSON.stringify(entry.body),
+    });
+    if (W.resultAccepted(out, entry.queueId)) {
+      await withUnsentResults(async (store) => ({ store: W.clearUnsentResult(store, entry.queueId) }));
+      continue;
+    }
+    await withUnsentResults(async (store) => ({
+      store: W.recordUnsentResult(
+        store,
+        { queueId: entry.queueId, body: entry.body, status: out.status },
+        Date.now(),
+      ),
+    }));
+  }
+  // Out of attempts. Said out loud rather than dropped quietly - a result binned
+  // in silence is the original defect wearing a ledger.
+  await withUnsentResults(async (store) => {
+    const gone = W.exhaustedUnsentResults(store);
+    if (gone.length === 0) return { value: 0 };
+    for (const e of gone) {
+      console.error(
+        "[gt] gave up re-sending a queue result after " + e.attempts +
+          " attempts; the row will expire on the server:", e.queueId, "last status", e.lastStatus,
+      );
+    }
+    return { store: W.dropExhaustedResults(store), value: gone.length };
+  });
 }
 
 let drainInFlight = false;
@@ -2422,6 +2546,13 @@ async function drainQueue() {
     // Same gates as an interactive cross-post, checked in the same order. A
     // drained job is not a special case that gets to skip the seller's consent.
     // US-3143: nor is a web-triggered one — a nudge is a trigger, not a bypass.
+    // US-3061: results the server has not taken yet go first, and they go BEFORE
+    // the gates. A gate decides whether this browser may take on NEW work; an
+    // owed result is a report of work the seller's own browser already did, and
+    // a plan that lapsed on Tuesday must not be the reason Monday's delist is
+    // still showing as running on their phone. See flushUnsentResults.
+    await flushUnsentResults();
+
     if (!(await sellerAllowed())) return "not-allowed";
     if (!(await tosAccepted())) return "needs-consent";
     // US-3061: a marketplace has asked for a person — a login wall or a human
@@ -2431,31 +2562,44 @@ async function drainQueue() {
     // to answer one; retrying past one is the same refusal with worse manners.
     if (await workerPaused()) return "paused";
 
+    // US-3061: CLAIM ONLY WHAT THIS BROWSER CAN START.
+    //
+    // This asked for five rows and started one. planDrain put the other four in
+    // `skipped`, nothing in this file ever read `skipped`, and the server had
+    // already stamped all five `claimed` - while `/claim` only ever reads rows
+    // whose status is `queued`. So four rows in five were taken out of the queue
+    // by a browser that never ran them and could never be handed them again:
+    // they sat `claimed` until expires_at seven days later, and this function
+    // returned "ok" the whole time. Measured on the local stack before the fix:
+    // 8 seeded rows, 20 consecutive drains, 2 done and 6 stranded.
+    //
+    // ONE jobs snapshot feeds both the limit and the plan, so the two cannot
+    // disagree about how many slots are free and `skipped` cannot come back.
+    const jobs = await withJobs(async (j) => ({ value: j }));
+    const limit = self.GT_LISTER_JOBS.drainClaimLimit(jobs);
+    if (limit <= 0) return "busy";
+
     const claimed = await queueFetch("/claim", {
       method: "POST",
-      body: JSON.stringify({ limit: 5, installId: await getInstanceId() }),
+      body: JSON.stringify({ limit: limit, installId: await getInstanceId() }),
     });
     const rows = (claimed && claimed.claimed) || [];
     if (rows.length === 0) return "empty";
 
-    const jobs = await withJobs(async (j) => ({ value: j }));
     const plan = self.GT_LISTER_JOBS.planDrain(rows, jobs, { now: Date.now() });
     const onAndroid = await isAndroidRuntime();
 
     // AC6: expired rows are REPORTED, never silently dropped. A seller who
     // believes a delist is still pending is a seller heading for a double sale.
     for (const row of plan.expired) {
-      await queueFetch("/" + row.id + "/complete", {
-        method: "POST",
-        body: JSON.stringify({
-          ok: false,
-          result: {
-            expired: true,
-            error: "This waited longer than a week without your desktop browser " +
-              "opening, so GradeThread stopped waiting. Queue it again if you " +
-              "still want it run.",
-          },
-        }),
+      await completeQueueRow(row.id, {
+        ok: false,
+        result: {
+          expired: true,
+          error: "This waited longer than a week without your desktop browser " +
+            "opening, so GradeThread stopped waiting. Queue it again if you " +
+            "still want it run.",
+        },
       });
     }
 
@@ -2465,17 +2609,14 @@ async function drainQueue() {
     // a share row was quietly turned into a LIST job and the seller got a
     // duplicate listing out of a request to share their closet.
     for (const row of plan.unsupported || []) {
-      await queueFetch("/" + row.id + "/complete", {
-        method: "POST",
-        body: JSON.stringify({
-          ok: false,
-          result: {
-            unsupported: true,
-            error: "This version of the GradeThread extension can't run a \"" +
-              row.kind + "\" job. Update the extension, or start it from the " +
-              "extension's own window.",
-          },
-        }),
+      await completeQueueRow(row.id, {
+        ok: false,
+        result: {
+          unsupported: true,
+          error: "This version of the GradeThread extension can't run a \"" +
+            row.kind + "\" job. Update the extension, or start it from the " +
+            "extension's own window.",
+        },
       });
     }
 
@@ -2498,12 +2639,9 @@ async function drainQueue() {
           )
         : Boolean(target);
       if (!allowed) {
-        await queueFetch("/" + row.id + "/complete", {
-          method: "POST",
-          body: JSON.stringify({
-            ok: false,
-            result: { error: "GradeThread can't open that target for " + row.platform + "." },
-          }),
+        await completeQueueRow(row.id, {
+          ok: false,
+          result: { error: "GradeThread can't open that target for " + row.platform + "." },
         });
         continue;
       }
@@ -2513,15 +2651,12 @@ async function drainQueue() {
       // than attempted, because a desktop selector that misses on mobile fills
       // nothing and reports a cross-post that never happened (US-2165).
       if (onAndroid && !self.GT_LISTER_GUARD.mobileFlowAllowed(self.GT_LISTER_SELECTORS, row.platform)) {
-        await queueFetch("/" + row.id + "/complete", {
-          method: "POST",
-          body: JSON.stringify({
-            ok: false,
-            result: {
-              mobileUnsupported: true,
-              error: self.GT_LISTER_GUARD.mobileRefusalFor(self.GT_LISTER_SELECTORS, row.platform),
-            },
-          }),
+        await completeQueueRow(row.id, {
+          ok: false,
+          result: {
+            mobileUnsupported: true,
+            error: self.GT_LISTER_GUARD.mobileRefusalFor(self.GT_LISTER_SELECTORS, row.platform),
+          },
         });
         continue;
       }
@@ -2533,7 +2668,19 @@ async function drainQueue() {
         // to make them uninstall it.
         tab = await ext.tabs.create({ url: target, active: false });
       } catch (_e) {
-        continue; // try again on the next tick; the row stays claimed
+        // US-3061: this said "try again on the next tick; the row stays claimed",
+        // and it could not. The row IS claimed, and /claim only ever hands back
+        // rows whose status is `queued` - so leaving it was leaving it for seven
+        // days, showing as running on the seller's phone the whole time. A
+        // window that will not open is reported, per US-2165.
+        await completeQueueRow(row.id, {
+          ok: false,
+          result: {
+            error: "GradeThread could not open a " + row.platform + " tab to run " +
+              "this. Queue it again with fewer windows open.",
+          },
+        });
+        continue;
       }
       // US-3061: record that WE opened this tab. Everything the worker is
       // allowed to do later — close it on completion, report it as stale, focus
@@ -2548,7 +2695,19 @@ async function drainQueue() {
         tabId: tab.id,
         now: Date.now(),
       });
-      if (!job) continue; // planDrain already filtered these; belt and braces
+      if (!job) {
+        // planDrain already filtered these; belt and braces. The row is claimed
+        // either way, so it is REPORTED rather than left - see the tabs.create
+        // branch above for why "leave it claimed" is not a retry.
+        await completeQueueRow(row.id, {
+          ok: false,
+          result: {
+            error: "This version of the GradeThread extension can't run a \"" +
+              row.kind + "\" job. Update the extension.",
+          },
+        });
+        continue;
+      }
       await withJobs(async (j) => ({ jobs: self.GT_LISTER_JOBS.put(j, job) }));
       await scheduleJobAlarm(job);
     }
@@ -4031,6 +4190,13 @@ ext.runtime.onMessage.addListener(function (msg, sender, sendResponse) {
           ok: true,
           pause: await readWorkerPause(),
           staleTabs: await staleWorkerTabs(),
+          // US-3061: results this browser holds because the server has not taken
+          // them. Reported, because a page that says "last check 12:04, next in
+          // 60s" over a backlog of unrecorded work is making the unchecked claim
+          // the ledger was written to stop.
+          unsentResults: await withUnsentResults(async (store) => ({
+            value: self.GT_WORKER_STATE.unsentResultCount(store),
+          })),
         });
         break;
       // The seller says they answered the check. The ONLY thing that clears a
@@ -4182,9 +4348,12 @@ if (ext.tabs && ext.tabs.onUpdated && ext.tabs.onUpdated.addListener) {
       if (watch.relistNewListingId) {
         await confirmRelistListed(watch.relistNewListingId, url);
         if (watch.queueId) {
-          await queueFetch("/" + watch.queueId + "/complete", {
-            method: "POST",
-            body: JSON.stringify({ ok: true, result: { listingUrl: url, copied: true } }),
+          // US-3061: checked, and held if the server does not take it. This is
+          // the one completion the seller can least afford to lose - the relist
+          // copy is already live on the marketplace when it is sent.
+          await completeQueueRow(watch.queueId, {
+            ok: true,
+            result: { listingUrl: url, copied: true },
           });
         }
       } else {

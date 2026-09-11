@@ -64,6 +64,12 @@
            work away. -->
       <p class="wrk-stale" id="stale" hidden></p>
 
+      <!-- US-3061: finished jobs whose result GradeThread has not been able to
+           record yet. Shown rather than retried in silence: without this line
+           the page says "last check 12:04, next in 60s" over a backlog of work
+           the server still believes is running. -->
+      <p class="wrk-stale" id="unsent" hidden></p>
+
       <p class="wrk-foot">
         Leave this tab open and queued work runs here, in your own browser,
         signed in as you. GradeThread never holds your marketplace password

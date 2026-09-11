@@ -282,6 +282,166 @@
     return out;
   }
 
+  // -- unsent results --------------------------------------------------------
+  //
+  // When a drained job finishes, the extension posts the result back to the
+  // queue row it came from. That post was fire-and-forget: `queueFetch` returns
+  // null for a dead token, an offline moment and every HTTP error alike, and all
+  // six call sites threw the value away. So a marketplace tab that did the work,
+  // plus one lost POST, left the row `claimed` on the server - and `/claim` only
+  // ever reads rows whose status is `queued`, so nothing ever picked it up
+  // again. The seller's phone showed the job as still running for the seven days
+  // until `expires_at`, while this page printed its next-check countdown and the
+  // drain reported "ok".
+  //
+  // The window is not small. A drained job holds a marketplace tab for tens of
+  // seconds and the result lands at the end of it, so a laptop lid, a train
+  // tunnel or a token that lapsed mid-job all land squarely inside it.
+  //
+  // So a result is HELD until the server says it took it. This is the ledger;
+  // background.js does the posting and the persisting, and the worker page shows
+  // the count, because a backlog nobody can see is the thing being fixed.
+
+  /**
+   * How many times one result may be re-sent before it is dropped.
+   *
+   * Eight, against the backoff below, is a bit over an hour of trying - long
+   * enough to cover a closed lid or a dead tunnel, short enough that a row the
+   * server will never accept (the seller cancelled it from their phone) does not
+   * ride along for a week.
+   */
+  var RESULT_ATTEMPT_LIMIT = 8;
+
+  /** The wait before each attempt, in ms. The last value repeats. */
+  var RESULT_BACKOFF_MS = [0, 30 * 1000, 60 * 1000, 2 * 60 * 1000, 5 * 60 * 1000, 15 * 60 * 1000];
+
+  /**
+   * Most unsent results held at once.
+   *
+   * The drain runs one job at a time, so reaching even ten means something is
+   * broken rather than busy. The cap is here so a browser offline for a week
+   * cannot fill storage.local; the OLDEST go, because the newest result is the
+   * one whose marketplace tab the seller most recently watched.
+   */
+  var RESULT_MAX_ENTRIES = 25;
+
+  function resultList(store) {
+    if (!Array.isArray(store)) return [];
+    return store.filter(function (e) {
+      return isObj(e) && typeof e.queueId === "string" && e.queueId !== "";
+    });
+  }
+
+  function resultBackoffFor(attempts) {
+    var i = Math.max(0, Math.min(RESULT_BACKOFF_MS.length - 1, attempts));
+    return RESULT_BACKOFF_MS[i];
+  }
+
+  /**
+   * Did the server take this result?
+   *
+   * THE FUNCTION THE WHOLE SECTION EXISTS FOR. `/:id/complete` answers
+   * `{ updated: { id, status } }` for a row it actually updated and 404
+   * `{ error: "Not found." }` for an id that matched none - and the id is
+   * filtered together with the owner, so "matched none" is also what a foreign
+   * id gets. A caller that checks only the HTTP status, or only that some body
+   * came back, accepts both. So the id is compared: the row the server says it
+   * updated has to be the row we asked about.
+   */
+  function resultAccepted(result, queueId) {
+    if (!isObj(result) || result.ok !== true) return false;
+    var body = result.body;
+    if (!isObj(body) || !isObj(body.updated)) return false;
+    return body.updated.id === queueId;
+  }
+
+  /**
+   * Record a result the server did not take.
+   *
+   * One entry per queue row: a second miss for the same row REPLACES the first
+   * rather than queueing beside it, because both describe the same job and the
+   * newer one is the attempt that actually just happened.
+   */
+  function recordUnsentResult(store, entry, now) {
+    var e = isObj(entry) ? entry : {};
+    if (typeof e.queueId !== "string" || e.queueId === "") return resultList(store);
+    var t = num(now) === null ? 0 : now;
+    var prior = null;
+    var rest = resultList(store).filter(function (x) {
+      if (x.queueId === e.queueId) { prior = x; return false; }
+      return true;
+    });
+    var attempts = (prior && num(prior.attempts) !== null ? prior.attempts : 0) + 1;
+    var next = rest.concat([{
+      queueId: e.queueId,
+      body: isObj(e.body) ? e.body : {},
+      attempts: attempts,
+      firstAt: prior && num(prior.firstAt) !== null ? prior.firstAt : t,
+      lastAt: t,
+      nextAt: t + resultBackoffFor(attempts),
+      lastStatus: num(e.status),
+    }]);
+    return next.length <= RESULT_MAX_ENTRIES
+      ? next
+      : next.slice(next.length - RESULT_MAX_ENTRIES);
+  }
+
+  /** The server took it. Nothing about this row is owed any more. */
+  function clearUnsentResult(store, queueId) {
+    return resultList(store).filter(function (e) { return e.queueId !== queueId; });
+  }
+
+  /** Entries whose backoff has elapsed, oldest first. */
+  function dueUnsentResults(store, now) {
+    var t = num(now) === null ? 0 : now;
+    return resultList(store)
+      .filter(function (e) { return (num(e.nextAt) === null ? 0 : e.nextAt) <= t; })
+      .sort(function (a, b) { return (a.firstAt || 0) - (b.firstAt || 0); });
+  }
+
+  /**
+   * Entries that have used up RESULT_ATTEMPT_LIMIT.
+   *
+   * Returned rather than dropped in place, so the caller has to say something
+   * about them. A result silently binned is the failure this section exists to
+   * stop, one level up.
+   */
+  function exhaustedUnsentResults(store) {
+    return resultList(store).filter(function (e) {
+      return (num(e.attempts) === null ? 0 : e.attempts) >= RESULT_ATTEMPT_LIMIT;
+    });
+  }
+
+  /** The ledger minus everything that is out of attempts. */
+  function dropExhaustedResults(store) {
+    return resultList(store).filter(function (e) {
+      return (num(e.attempts) === null ? 0 : e.attempts) < RESULT_ATTEMPT_LIMIT;
+    });
+  }
+
+  /** How many results are waiting to be sent. */
+  function unsentResultCount(store) {
+    return resultList(store).length;
+  }
+
+  /**
+   * The line the worker page shows while results are owed.
+   *
+   * Said out loud rather than kept in storage, because the seller's own
+   * understanding of "the drain is running" has to include "and two results have
+   * not reached GradeThread yet" - otherwise the page is making the same
+   * unchecked claim the ledger was written to stop.
+   */
+  function unsentResultLine(count) {
+    var n = num(count) === null ? 0 : count;
+    if (n <= 0) return "";
+    return n === 1
+      ? "One finished job has not been recorded on GradeThread yet. It will " +
+        "keep trying; nothing has been lost."
+      : n + " finished jobs have not been recorded on GradeThread yet. They " +
+        "will keep trying; nothing has been lost.";
+  }
+
   root.GT_WORKER_STATE = {
     PORT_NAME: PORT_NAME,
     DRAIN_INTERVAL_MS: DRAIN_INTERVAL_MS,
@@ -304,5 +464,16 @@
     removeOwnedTab: removeOwnedTab,
     pruneOwnedTabs: pruneOwnedTabs,
     staleTabs: staleTabs,
+    RESULT_ATTEMPT_LIMIT: RESULT_ATTEMPT_LIMIT,
+    RESULT_BACKOFF_MS: RESULT_BACKOFF_MS,
+    RESULT_MAX_ENTRIES: RESULT_MAX_ENTRIES,
+    resultAccepted: resultAccepted,
+    recordUnsentResult: recordUnsentResult,
+    clearUnsentResult: clearUnsentResult,
+    dueUnsentResults: dueUnsentResults,
+    exhaustedUnsentResults: exhaustedUnsentResults,
+    dropExhaustedResults: dropExhaustedResults,
+    unsentResultCount: unsentResultCount,
+    unsentResultLine: unsentResultLine,
   };
 })(typeof self !== "undefined" ? self : globalThis);

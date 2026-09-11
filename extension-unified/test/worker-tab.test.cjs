@@ -358,9 +358,253 @@ const NOW = Date.UTC(2026, 8, 9, 12, 0, 0);
   assert.strictEqual(android.strict_min_version, "142.0", "Firefox for Android 142+");
 }
 
+// -- 9. AC4: a drain never takes a row it cannot start ----------------------
+//
+// THE DEFECT THIS SECTION EXISTS FOR, measured on the local stack on 2026-09-11
+// with 8 seeded rows and 20 consecutive drains: 2 rows done, 6 stranded.
+//
+// drainQueue asked /claim for five rows and started one. planDrain put the other
+// four in `skipped`; nothing in background.js read `skipped`; and the server had
+// already stamped all five `claimed` - while /claim only ever hands back rows
+// whose status is `queued`. So four rows in five were taken out of the queue by
+// a browser that never ran them and could never be handed them again. They sat
+// `claimed` until expires_at seven days later, and for all seven days drainQueue
+// returned "ok", the worker tab printed its next-check countdown, and the
+// US-3198 stale-queue notice read max(claimed_at) and concluded the desktop was
+// keeping up.
+//
+// Nothing threw. Every HTTP call was a 200. That is the shape.
+{
+  const jobStore = {};
+  new Function("self", fs.readFileSync(path.join(dir, "lister", "job-store.js"), "utf8"))(jobStore);
+  const J = jobStore.GT_LISTER_JOBS;
+
+  assert.strictEqual(typeof J.drainClaimLimit, "function", "job-store exports the claim size");
+  assert.strictEqual(J.drainClaimLimit({}), 1, "an idle browser claims one row");
+  assert.strictEqual(J.drainClaimLimit(null), 1, "no job map is an idle browser");
+
+  const pending = { a: { jobId: "a", state: "pending", queueId: "q1" } };
+  assert.strictEqual(J.drainClaimLimit(pending), 0, "a busy browser claims nothing");
+  assert.ok(J.isPending(pending.a), "the fixture is the state isPending recognises");
+
+  const settled = { a: { jobId: "a", state: "done", queueId: "q1" } };
+  assert.strictEqual(J.drainClaimLimit(settled), 1, "a settled job frees its slot");
+
+  // THE PROPERTY, not the number: whatever the limit says, planDrain must be
+  // able to start every row a claim of that size can return. A limit that
+  // outruns the plan is the bug, in any future shape it takes.
+  for (const jobs of [{}, pending, settled]) {
+    const limit = J.drainClaimLimit(jobs);
+    const rows = [];
+    for (let i = 0; i < limit; i++) {
+      rows.push({
+        id: "row-" + i,
+        kind: "delist",
+        platform: "poshmark",
+        payload: {},
+        created_at: "2026-09-11T00:0" + i + ":00Z",
+        expires_at: "2099-01-01T00:00:00Z",
+      });
+    }
+    const plan = J.planDrain(rows, jobs, { now: Date.parse("2026-09-11T12:00:00Z") });
+    assert.strictEqual(
+      plan.skipped.length,
+      0,
+      "a claim of drainClaimLimit() rows must leave nothing in `skipped` - a " +
+        "skipped row is a row the server has marked claimed and will never " +
+        "offer again",
+    );
+    assert.strictEqual(plan.toRun.length, limit, "every claimed row is started");
+  }
+}
+
+// -- 10. the drain claims from the plan, and reports every row it takes -----
+//
+// Scans, and they are scans on purpose: section 9 holds the LOGIC by calling it,
+// and this holds WHERE it is wired, which a call cannot see. Comments are
+// stripped first - blocks as blocks, then line comments - because the comments
+// added with this fix quote the very strings being searched for, and a guard
+// that reads its own documentation is the oldest way one of these goes green.
+{
+  const code = (src) => src
+    .replace(/\/\*[\s\S]*?\*\//g, "")
+    .split("\n")
+    .filter((l) => !/^\s*\/\//.test(l))
+    .join("\n");
+
+  const BGC = code(BG);
+  const drain = BGC.slice(
+    BGC.indexOf("async function drainQueue()"),
+    BGC.indexOf("\n}\n", BGC.indexOf("async function drainQueue()")),
+  );
+
+  assert.ok(
+    drain.includes("self.GT_LISTER_JOBS.drainClaimLimit(jobs)"),
+    "the claim size comes from the job map, not a literal",
+  );
+  assert.ok(
+    !/limit:\s*\d/.test(drain),
+    "no hard-coded claim size may come back - that literal 5 is the whole defect",
+  );
+  // ONE snapshot feeds both, so the limit and the plan cannot disagree about how
+  // many slots are free. Two reads would reopen the gap by a different door.
+  assert.strictEqual(
+    (drain.match(/withJobs\(async \(j\) => \(\{ value: j \}\)\)/g) || []).length,
+    1,
+    "drainQueue reads the job map exactly once",
+  );
+  assert.ok(
+    drain.indexOf("drainClaimLimit(jobs)") < drain.indexOf('queueFetch("/claim"'),
+    "the limit is decided BEFORE anything is claimed",
+  );
+  assert.ok(
+    drain.indexOf("planDrain(rows, jobs") > drain.indexOf("drainClaimLimit(jobs)"),
+    "the same `jobs` snapshot feeds the plan",
+  );
+  assert.ok(
+    /if \(limit <= 0\) return "busy";/.test(drain),
+    "a browser with no free slot claims nothing at all",
+  );
+
+  // EVERY path out of the toRun loop reports its row. A `continue` that leaves a
+  // claimed row behind is the same seven-day silence by another route, and both
+  // of them carried a comment saying the row would be retried. It could not be.
+  assert.ok(
+    !/continue; \/\/ try again on the next tick/.test(BG),
+    "the comment promising a retry that cannot happen is gone",
+  );
+  const toRun = drain.slice(drain.indexOf("for (const row of plan.toRun)"));
+  const continues = (toRun.match(/\n\s*continue;/g) || []).length;
+  const reports = (toRun.match(/await completeQueueRow\(row\.id,/g) || []).length;
+  assert.strictEqual(
+    continues,
+    reports,
+    "every `continue` in the toRun loop is preceded by a report - " + continues +
+      " exits, " + reports + " reports. Counted rather than checked for one, " +
+      "because deleting any single report leaves an `includes` green.",
+  );
+
+  // No completion may go back to being fire-and-forget.
+  assert.strictEqual(
+    (BGC.match(/queueFetch\("\/" \+ [^)]*"\/complete"/g) || []).length,
+    0,
+    "every /complete goes through completeQueueRow, which checks the answer",
+  );
+  assert.ok(
+    BGC.includes("async function completeQueueRow(queueId, body)"),
+    "the checked completion helper exists",
+  );
+  assert.ok(
+    /completeQueueRow[\s\S]{0,600}?W\.resultAccepted\(out, queueId\)/.test(BGC),
+    "completeQueueRow asks whether the SERVER took it, not whether the request " +
+      "returned - an update that matched no rows is a 200",
+  );
+  // Before the CLAIM, and before the GATES. A gate decides whether this browser
+  // may take on new work; an owed result reports work already done, so a plan
+  // that lapsed afterwards must not be what strands it.
+  const flushAt = drain.indexOf("await flushUnsentResults()");
+  assert.ok(flushAt > -1, "the drain re-sends what the server has not taken");
+  assert.ok(
+    flushAt < drain.indexOf('queueFetch("/claim"'),
+    "results the server has not taken are re-sent BEFORE more work is claimed",
+  );
+  assert.ok(
+    flushAt < drain.indexOf("await sellerAllowed()"),
+    "and BEFORE the plan and consent gates. An owed result is a report of work " +
+      "the seller's browser already did, not a request to do more",
+  );
+  assert.ok(
+    /UNSENT_RESULTS_KEY[\s\S]{0,400}?storage\.local\.get\(UNSENT_RESULTS_KEY\)/.test(BGC),
+    "the ledger is storage.LOCAL - a browser restart is the case that loses a " +
+      "result, so session storage would drop it exactly when it matters",
+  );
+}
+
+// -- 11. the ledger: a result is held until the server says it took it ------
+{
+  // The one that matters. `/:id/complete` answers { updated: { id, status } }
+  // for a row it updated and 404 { error } for an id that matched none - and
+  // because the id is filtered together with the owner, "matched none" is also
+  // what a foreign id gets. Checking the HTTP status alone accepts both.
+  assert.strictEqual(
+    W.resultAccepted({ ok: true, status: 200, body: { updated: { id: "q1", status: "done" } } }, "q1"),
+    true,
+    "the server named the row it updated",
+  );
+  assert.strictEqual(
+    W.resultAccepted({ ok: true, status: 200, body: { updated: { id: "q2", status: "done" } } }, "q1"),
+    false,
+    "a different row is not this row",
+  );
+  assert.strictEqual(
+    W.resultAccepted({ ok: true, status: 200, body: { ok: true } }, "q1"),
+    false,
+    "a 200 that names no updated row is not a completion",
+  );
+  assert.strictEqual(
+    W.resultAccepted({ ok: false, status: 404, body: { error: "Not found." } }, "q1"),
+    false,
+    "a 404 is not a completion",
+  );
+  assert.strictEqual(
+    W.resultAccepted({ ok: false, status: 0, body: null, reason: "network" }, "q1"),
+    false,
+    "an offline moment is not a completion",
+  );
+
+  const T0 = Date.UTC(2026, 8, 11, 12, 0, 0);
+  let store = W.recordUnsentResult([], { queueId: "q1", body: { ok: true }, status: 0 }, T0);
+  assert.strictEqual(W.unsentResultCount(store), 1, "the result is kept");
+  assert.strictEqual(store[0].attempts, 1);
+  assert.strictEqual(store[0].nextAt, T0 + W.RESULT_BACKOFF_MS[1], "the retry waits");
+  assert.deepStrictEqual(W.dueUnsentResults(store, T0), [], "not due yet");
+  assert.strictEqual(W.dueUnsentResults(store, T0 + 30 * 1000).length, 1, "due after the backoff");
+
+  // A second miss for the same row replaces the first rather than piling up.
+  store = W.recordUnsentResult(store, { queueId: "q1", body: { ok: true }, status: 500 }, T0 + 60000);
+  assert.strictEqual(W.unsentResultCount(store), 1, "one entry per row");
+  assert.strictEqual(store[0].attempts, 2, "the attempt count carries over");
+  assert.strictEqual(store[0].firstAt, T0, "the first attempt's time is kept");
+
+  assert.deepStrictEqual(W.clearUnsentResult(store, "q1"), [], "the server took it");
+  assert.strictEqual(W.clearUnsentResult(store, "other").length, 1, "another row is untouched");
+
+  // It gives up, and the caller is handed what it gave up on rather than
+  // discovering a shorter list. A result binned in silence is the original bug.
+  let many = [];
+  for (let i = 0; i < W.RESULT_ATTEMPT_LIMIT; i++) {
+    many = W.recordUnsentResult(many, { queueId: "q1", body: {}, status: 0 }, T0 + i * 1000);
+  }
+  assert.strictEqual(many[0].attempts, W.RESULT_ATTEMPT_LIMIT);
+  assert.strictEqual(W.exhaustedUnsentResults(many).length, 1, "out of attempts is reported");
+  assert.deepStrictEqual(W.dropExhaustedResults(many), [], "and then dropped");
+
+  // The cap holds, and it drops the OLDEST.
+  let full = [];
+  for (let i = 0; i < W.RESULT_MAX_ENTRIES + 5; i++) {
+    full = W.recordUnsentResult(full, { queueId: "q" + i, body: {}, status: 0 }, T0 + i);
+  }
+  assert.strictEqual(full.length, W.RESULT_MAX_ENTRIES, "the ledger is bounded");
+  assert.strictEqual(full[full.length - 1].queueId, "q" + (W.RESULT_MAX_ENTRIES + 4), "newest kept");
+  assert.ok(!full.some((e) => e.queueId === "q0"), "oldest dropped");
+
+  // And the seller is told. A page that prints a next-check countdown over a
+  // backlog of unrecorded work is making the unchecked claim all over again.
+  assert.strictEqual(W.unsentResultLine(0), "", "nothing owed, nothing said");
+  assert.match(W.unsentResultLine(1), /has not been recorded/);
+  assert.match(W.unsentResultLine(3), /^3 finished jobs/);
+  assert.ok(WORKER_HTML.includes('id="unsent"'), "the page has somewhere to say it");
+  assert.ok(WORKER_JS.includes("W.unsentResultLine(count)"), "the page says it");
+  assert.ok(
+    /unsentResults: await withUnsentResults/.test(BG),
+    "GT_WORKER_STATE reports the backlog",
+  );
+}
+
 console.log(
   "worker-tab.test.cjs: 60s cadence with an immediate first tick, a pause no timer " +
     "can clear, ownership that prunes recycled ids, a list tab never closed, " +
-    "worker.html unreachable from web content, a port that reconnects, and the " +
-    "5-minute sweep still in place",
+    "worker.html unreachable from web content, a port that reconnects, the " +
+    "5-minute sweep still in place, a drain that claims only what it can start, " +
+    "and a result held until the server says it took it",
 );
