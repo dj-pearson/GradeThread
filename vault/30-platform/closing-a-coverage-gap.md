@@ -9,8 +9,11 @@ code_refs:
   - services/edge-functions/src/lib/cross-listing-sale.ts
   - services/edge-functions/src/lib/pending-revises.ts
   - services/edge-functions/src/lib/extension-relist.ts
+  - services/edge-functions/src/lib/cross-push.ts
+  - services/edge-functions/src/lib/listing-lifecycle.ts
+  - extension-unified/lister/job-store.js
   - src/lib/constants.ts
-reviewed: 2026-08-11
+reviewed: 2026-09-11
 tags: [runbook, marketplaces, extension, process]
 summary: The eight steps that take a marketplace from "a label in the UI" to a channel a seller can publish and delist on, in the order that makes a half-finished one impossible to ship.
 ---
@@ -302,6 +305,21 @@ Two rules the queue adds:
   and hand the tab back to me if Poshmark asks for a human check"* — which cannot
   be honoured with nobody at the machine. So before adding a verb, ask what it
   promised the seller, and whether that promise holds while they are elsewhere.
+- **A list job earns a gap; a delist never does** (US-3367). After a `list`
+  job settles, `background.js` schedules the next drain through a one-shot
+  alarm 30 s later, plus or minus 15 s of jitter, and `drainQueue` answers
+  `paced` without touching `/claim` while the gap holds, so no row is stamped
+  claimed by a browser about to sit on it. Delist, revise and relist re-drain
+  immediately. The rule is the pure `pacingHold` / `nextListDrainAt` in
+  `lister/job-store.js`; the seller picks the gap on the options page
+  (`gtPacingGapMs` in `storage.local`). Two things feed the queue from the web
+  in one press: the Listing Kit's "List everywhere" and the composer's
+  Publish, both through `POST /cross-push`, and `planCrossPushSkip` in
+  `lib/cross-push.ts` refuses a channel that is already live (row `active`
+  with a URL) or already waiting, so pressing either twice cannot mint a
+  duplicate listing. A manual End on an extension channel
+  (`endOwnedListing`) now inserts the same `delist` queue row a sale does,
+  instead of only stamping `delist_requested_at` for a banner click.
 
 ## The mirror rule (while it lasts)
 
