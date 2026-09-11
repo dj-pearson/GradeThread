@@ -40,6 +40,15 @@
 // would run the SAME model twice and report agreement, which is worse than not
 // running: it manufactures evidence.
 //
+// ⚠ AND IT MUST DIFFER FROM THE MODEL THE PRIMARY GRADE ACTUALLY RAN ON (US-3359).
+// The allowlist is not that check: it answers "safe to grade with", and the
+// primary model is on it. GRADING_COMPOSITE_MODEL, the US-1066 cascade's cheap
+// first pass and the escalation to the stronger model all move the primary at
+// runtime, so `resolveSecondOpinionConfig` takes the caller's RESOLVED primary
+// (CompositeGradeResult.model) as a required argument and refuses a match.
+// Without it an operator who typed the primary id into the settings row got a
+// report saying two models agreed, from one model.
+//
 // COST + LATENCY BUDGET (AC4).
 //   Cost.   One extra composite per triggered item. The composite is a text-only
 //           synthesis of the per-image analyses, so it is the CHEAP stage — the
@@ -111,17 +120,24 @@ export const DEFAULT_SECOND_OPINION_CONFIG: SecondOpinionConfig = {
  * depends on is usable — so a caller can trust `enabled` alone and does not have
  * to re-validate. A refusal is reported rather than swallowed.
  *
- * ONE CASE THIS DOES NOT CATCH, recorded by US-3347 so the next sweep does not
- * have to work it out again. The default model is now a tier and a test holds it
- * apart from the grading default, but an operator who WRITES the primary model
- * into the settings row gets it accepted: it is on the allowlist, and this
- * function is pure, so it cannot see which model the primary composite actually
- * resolved to (an env override can move that at runtime). Closing it means the
- * caller passing its resolved primary model in, which is a change to
- * grading-pipeline.ts and belongs to whoever next opens that file.
+ * THE CASE THAT NEEDED THE CALLER (US-3347 found it, US-3359 closed it). The
+ * default model is a tier and a test holds it apart from the grading default,
+ * but an operator who WRITES the primary model into the settings row used to get
+ * it accepted: it is on the allowlist, and nothing here could see which model the
+ * primary composite ACTUALLY resolved to. GRADING_COMPOSITE_MODEL, the US-1066
+ * cascade's cheap first pass, and the escalation to the stronger model can all
+ * move that at runtime, so no code default could stand in for it.
+ *
+ * So `primaryModel` is a REQUIRED argument, not an option. The caller knows the
+ * answer -- it is `CompositeGradeResult.model`, the id the composite that
+ * produced these scores actually ran on -- and requiring it is what stops the
+ * next caller from quietly reintroducing the hole. An unknown primary disables
+ * the pass too: running blind is the same manufactured-evidence risk in a
+ * costume, and a pass that does not run is always the safe failure here.
  */
 export function resolveSecondOpinionConfig(
   raw: Partial<SecondOpinionConfig> | null | undefined,
+  primaryModel: string,
 ): { config: SecondOpinionConfig; refusal: string | null } {
   const cfg: SecondOpinionConfig = { ...DEFAULT_SECOND_OPINION_CONFIG, ...(raw ?? {}) };
   if (!cfg.enabled) return { config: { ...cfg, enabled: false }, refusal: null };
@@ -138,6 +154,32 @@ export function resolveSecondOpinionConfig(
         `allowlist; the pass is disabled rather than run against the primary model`,
     };
   }
+
+  // US-3359: the allowlist says "safe to grade with", not "different from the
+  // model that just graded this". Both refusals below produce the same outcome
+  // for the same reason: a second opinion from the first model is manufactured
+  // evidence, and it is worse than no second opinion because it LOOKS like
+  // corroboration on the report.
+  const primary = String(primaryModel ?? "").trim();
+  if (!primary) {
+    return {
+      config: { ...cfg, enabled: false },
+      refusal:
+        `second-opinion cannot run without knowing which model produced the ` +
+        `primary grade; the pass is disabled rather than risk grading twice ` +
+        `with one model`,
+    };
+  }
+  if (primary.toLowerCase() === model.toLowerCase()) {
+    return {
+      config: { ...cfg, enabled: false },
+      refusal:
+        `second-opinion model "${model}" is the model the primary grade ran ` +
+        `on; the pass is disabled rather than grade twice with one model and ` +
+        `report the result as agreement`,
+    };
+  }
+
   const bandOk =
     Number.isFinite(cfg.bandMin) && Number.isFinite(cfg.bandMax) &&
     cfg.bandMin >= 0 && cfg.bandMax <= 1 && cfg.bandMin < cfg.bandMax;

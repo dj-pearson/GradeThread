@@ -262,6 +262,30 @@ waitlist" button beside a live "Start Grading Free" is a vaporware signal, and
 was rightly removed. A waitlist shown only when the door is actually shut is a
 different, true claim.
 
+## The third shape: wired, called, and UNREACHABLE (US-3359, 2026-09-11)
+
+Everything above is a module with no callers. The second-opinion grading pass
+(`lib/second-opinion.ts`, US-2279) has one, in `grading-pipeline.ts`, and four
+wiring guards asserting the call is shaped correctly. Every test passed from the
+day it shipped, 2026-08-17. It has never run once.
+
+Its switch is `system_settings.grading_second_opinion`, and that key appeared in
+**0 of 785 migrations**, 0 frontend files and 0 vault notes. `admin-settings.ts`
+answers `PUT /:key` with 404 when the row is absent, because settings rows are
+seeded and never created from the UI, so no operator surface could bring it into
+existence. `getSetting` returned the `{}` fallback forever, which resolves to a
+disabled pass, which is indistinguishable from "an operator has not turned it on
+yet". The rule this generalises to lives in [[system-settings]]: a key with no
+seed migration is unreachable, not off.
+
+**Why the existing detectors could not see it.** `check-unwired-modules.mjs`
+looks for modules with no importers, and this module had one. The wiring guards
+source-scan the caller, and the caller was correct. Nothing in the repo asserts
+that a config key a feature depends on can actually be written. The guard that
+now does is in `second-opinion_test.ts`, and it reads the migrations directory
+for the key rather than the code for the call. **When a feature's switch is a
+row, the row is part of the wiring.**
+
 ## Deliberately dead — and why that was not enough
 
 ### `grade-badge.ts` — retired by policy, then DELETED (US-2382, 2026-08-02)

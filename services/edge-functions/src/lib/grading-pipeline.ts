@@ -2863,6 +2863,14 @@ export async function processSubmission(submissionId: string) {
     try {
       const { config: soCfg, refusal } = resolveSecondOpinionConfig(
         await getSetting<Partial<SecondOpinionConfig>>("grading_second_opinion", {}),
+        // US-3359: the model the composite ABOVE actually ran on, not a code
+        // default. This is the only place that knows it: GRADING_COMPOSITE_MODEL
+        // can override it, the US-1066 cascade may have used the cheap first-pass
+        // model, and the escalation may have replaced compositeResult wholesale
+        // with a stronger model's answer. The resolver refuses a second opinion
+        // equal to it, because grading twice with one model and reporting
+        // agreement is manufactured evidence, not a weaker check.
+        compositeResult.model,
       );
       if (refusal) {
         // Loud, because a refusal means an operator turned this on and it is not

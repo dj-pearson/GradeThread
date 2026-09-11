@@ -1,5 +1,5 @@
 ---
-title: Changing the AI model, and the seven places a code change does not reach
+title: Changing the AI model, and the eight places a code change does not reach
 type: runbook
 status: current
 source_of_truth: code
@@ -9,10 +9,11 @@ code_refs:
   - services/edge-functions/src/lib/ai-usage.ts
   - services/edge-functions/src/lib/ai-token-profile.ts
   - services/edge-functions/src/lib/agent-kernel.ts
+  - services/edge-functions/src/lib/second-opinion.ts
   - services/edge-functions/src/tests/ai-model-registry_test.ts
 reviewed: 2026-09-11
 tags: [ops, ai, cost, models]
-summary: A model change is one line in ai-model-registry.ts plus one Coolify team variable; it deliberately does not reach the three allowlists, the price table or the four system_settings rows, and this says why and what to do about each.
+summary: A model change is one line in ai-model-registry.ts plus one Coolify team variable; it deliberately does not reach the three allowlists, the price table or the five system_settings rows, and this says why and what to do about each.
 ---
 
 # Changing the AI model (US-3186)
@@ -41,7 +42,7 @@ reappears in code in `ai-config.ts`, `ai-usage.ts`, `ai-token-profile.ts` or
 
 ## What the code change does NOT reach
 
-Seven things. Two are code and deliberately independent; five are data.
+Eight things. Two are code and deliberately independent; six are data.
 
 ### Deliberately independent, in code
 
@@ -71,11 +72,12 @@ Today the list is one id, `claude-sonnet-4-6`, the default before 2026-07-02.
 
 ### Data, so a deploy cannot move them
 
-Four rows in `system_settings` ([[system-settings]]) and the team variable
+Five rows in `system_settings` ([[system-settings]]) and the team variable
 itself. A code change touches none of them.
 
 | Key | What a wrong id does |
 |---|---|
+| `grading_second_opinion.model` | ROUTES, once migration 00791 lands (US-3359). Dormant while `enabled:false`, which is how it is seeded. The dangerous direction is a stale id that has drifted onto the PRIMARY model: `resolveSecondOpinionConfig` now refuses that and disables the pass rather than grading twice with one model and reporting agreement, so this one fails loudly. Omit `model` from the row entirely and it falls back to `CURRENT_MODELS.secondOpinion`. |
 | `grading_model_cascade.escalationModel` | ROUTES. Dormant while `enabled:false`; flipping it on starts grading escalations on whatever is written here. |
 | `ai_action_model_cascade` | ROUTES FlipDesk AI actions. Falls back to the lightweight and default tiers when unset, so leaving it alone is safe. |
 | `ai_model_prices` | PRICES. The `ai_profitability` / `ai_budget_status` RPCs re-price the ledger from this copy, not from `MODEL_PRICES`. Same deletion trap. |

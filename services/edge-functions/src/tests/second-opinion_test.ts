@@ -21,6 +21,10 @@ const {
 } = await import("../lib/second-opinion.ts");
 
 const ON = { ...DEFAULT_SECOND_OPINION_CONFIG, enabled: true };
+
+// The model the primary composite resolved to. US-3359 made this a required
+// argument to resolveSecondOpinionConfig, so every call below names one.
+const PRIMARY = "claude-sonnet-5";
 const base = {
   confidence: 0.8,
   itemValue: null as number | null,
@@ -33,7 +37,7 @@ Deno.test("US-2279: the feature is OFF by default", () => {
   // An additive stage that spends money must not start spending because a
   // deploy shipped. Turning it on is a settings row, deliberately.
   assertEquals(DEFAULT_SECOND_OPINION_CONFIG.enabled, false);
-  const { config } = resolveSecondOpinionConfig(undefined);
+  const { config } = resolveSecondOpinionConfig(undefined, PRIMARY);
   assertEquals(config.enabled, false);
 });
 
@@ -44,7 +48,7 @@ Deno.test("US-2279: a non-allowlisted second model DISABLES the pass, it does no
   const { config, refusal } = resolveSecondOpinionConfig({
     enabled: true,
     model: "gpt-not-a-real-grading-model",
-  });
+  }, PRIMARY);
   assertEquals(config.enabled, false);
   assert(refusal !== null);
   assertStringIncludes(refusal, "not on the grading allowlist");
@@ -55,7 +59,7 @@ Deno.test("US-2279: an allowlisted model is accepted", () => {
   const { config, refusal } = resolveSecondOpinionConfig({
     enabled: true,
     model: "claude-opus-4-8",
-  });
+  }, PRIMARY);
   assertEquals(refusal, null);
   assertEquals(config.enabled, true);
   assertEquals(config.model, "claude-opus-4-8");
@@ -75,10 +79,75 @@ Deno.test("US-2279: an unusable band or epsilon disables rather than half-runs",
       enabled: true,
       model: "claude-opus-4-8",
       ...bad,
-    });
+    }, PRIMARY);
     assertEquals(config.enabled, false, `${JSON.stringify(bad)} should disable`);
     assert(refusal !== null, `${JSON.stringify(bad)} should explain itself`);
   }
+});
+
+// ── The primary-model collision (US-3359) ───────────────────────────────────
+//
+// The allowlist answers "safe to grade with". It does NOT answer "different from
+// the model that just graded this", and the primary model is on it. Before this,
+// an operator who typed the primary id into the settings row got a grade report
+// saying two models agreed, produced by one model.
+
+Deno.test("US-3359: the PRIMARY model is refused as the second opinion, allowlist or not", () => {
+  const { config, refusal } = resolveSecondOpinionConfig({
+    enabled: true,
+    model: "claude-opus-4-8",
+  }, "claude-opus-4-8");
+  assertEquals(config.enabled, false, "one model grading twice is not a second opinion");
+  assert(refusal !== null, "a refusal must be reported, not swallowed");
+  assertStringIncludes(refusal, "the model the primary grade ran on");
+  assertStringIncludes(refusal, "report the result as agreement");
+});
+
+Deno.test("US-3359: the same model under a different case or with padding is still the same model", () => {
+  // The settings row is hand-typed JSON. "Claude-Opus-4-8 " must not sneak past
+  // a === comparison and buy a second opinion from the first model.
+  for (const typed of [" claude-opus-4-8", "claude-opus-4-8 ", "  claude-opus-4-8  "]) {
+    const { config } = resolveSecondOpinionConfig({ enabled: true, model: typed }, "claude-opus-4-8");
+    assertEquals(config.enabled, false, `"${typed}" should be refused as the primary`);
+  }
+  const { config: cased } = resolveSecondOpinionConfig(
+    { enabled: true, model: "claude-opus-4-8" },
+    "CLAUDE-OPUS-4-8",
+  );
+  assertEquals(cased.enabled, false, "a differently-cased primary is still the primary");
+});
+
+Deno.test("US-3359: an env override that moves the PRIMARY onto the configured second model disables the pass", () => {
+  // The whole reason this argument exists. GRADING_COMPOSITE_MODEL, the US-1066
+  // cascade's cheap first pass and the escalation to the stronger model all move
+  // the primary at runtime, so a pure function with only a code default could
+  // never see this coming. The settings row never changed; the primary did.
+  const row = { enabled: true, model: "claude-opus-4-8" };
+  assertEquals(resolveSecondOpinionConfig(row, "claude-sonnet-5").config.enabled, true);
+  assertEquals(resolveSecondOpinionConfig(row, "claude-opus-4-8").config.enabled, false);
+});
+
+Deno.test("US-3359: an UNKNOWN primary disables the pass rather than running blind", () => {
+  // Running without knowing what produced the first grade is the same
+  // manufactured-evidence risk wearing a different hat, and not running is
+  // always the safe failure for an additive check.
+  for (const unknown of ["", "   "]) {
+    const { config, refusal } = resolveSecondOpinionConfig(
+      { enabled: true, model: "claude-opus-4-8" },
+      unknown,
+    );
+    assertEquals(config.enabled, false);
+    assert(refusal !== null);
+    assertStringIncludes(refusal, "without knowing which model produced the primary grade");
+  }
+});
+
+Deno.test("US-3359: a DISABLED row still short-circuits, so an unknown primary costs nothing", () => {
+  // The disabled path returns before any of the checks above. That is what keeps
+  // the off state byte-identical for every submission.
+  const { config, refusal } = resolveSecondOpinionConfig({ enabled: false }, "");
+  assertEquals(config.enabled, false);
+  assertEquals(refusal, null, "an off feature has nothing to refuse");
 });
 
 // ── Trigger ─────────────────────────────────────────────────────────────────
@@ -265,4 +334,71 @@ Deno.test("US-2279 WIRING: the config comes from settings and defaults to a disa
   // A refusal must be audible. An operator who turned this on and got silence
   // would reasonably conclude it was running.
   assertStringIncludes(PIPELINE_CODE, "second opinion refused:");
+});
+
+Deno.test("US-3359 WIRING: the RESOLVED primary model is handed to the resolver", () => {
+  // Not getGradingCompositeModel() and not a code default: compositeResult.model
+  // is the id the composite that produced THESE scores actually ran on, after
+  // any env override, cascade first pass or escalation. Passing anything else
+  // reopens the hole while looking correct.
+  const call = PIPELINE_CODE.match(/resolveSecondOpinionConfig\([\s\S]*?\n\s*\);/)?.[0];
+  assert(call, "the resolveSecondOpinionConfig call was not found in grading-pipeline.ts");
+  assertStringIncludes(call, "compositeResult.model");
+});
+
+// ── The switch has to EXIST (US-3359) ───────────────────────────────────────
+//
+// This is the bug the whole story is about, and it is invisible from the code:
+// every guard above passed for three weeks while the pass could not run, because
+// admin-settings.ts answers PUT /:key with 404 when no row exists and
+// system_settings rows are only ever created by a migration. A feature switch
+// with no seed row is a feature with no switch.
+
+const MIGRATIONS_DIR = new URL("../../../../supabase/migrations/", import.meta.url);
+
+async function migrationsMentioning(needle: string): Promise<string[]> {
+  const hits: string[] = [];
+  for await (const entry of Deno.readDir(MIGRATIONS_DIR)) {
+    if (!entry.isFile || !entry.name.endsWith(".sql")) continue;
+    const sql = await Deno.readTextFile(new URL(entry.name, MIGRATIONS_DIR));
+    if (sql.includes(needle)) hits.push(entry.name);
+  }
+  return hits.sort();
+}
+
+Deno.test("US-3359: a migration seeds the grading_second_opinion settings row", async () => {
+  const hits = await migrationsMentioning("'grading_second_opinion'");
+  assert(
+    hits.length > 0,
+    "no migration seeds system_settings.grading_second_opinion, so the second-opinion " +
+      "pass has no switch: admin-settings.ts PUT /:key 404s on a key with no row",
+  );
+});
+
+Deno.test("US-3359: the seed leaves an operator's existing row alone", async () => {
+  // Nobody could prove the row's absence on prod before this was written --
+  // system_settings is revoked from anon, so it is missing from PostgREST's anon
+  // OpenAPI document, and absence there means "not visible", not "not there".
+  // An upsert would have overwritten a hand-seeded row, including one somebody
+  // had turned ON.
+  const [seed] = await migrationsMentioning("'grading_second_opinion'");
+  assert(seed, "the seed migration is missing");
+  const sql = await Deno.readTextFile(new URL(seed, MIGRATIONS_DIR));
+  assertStringIncludes(sql.toLowerCase(), "on conflict (key) do nothing");
+});
+
+Deno.test("US-3359: the seeded row is DISABLED and matches the code defaults", async () => {
+  // Applying a migration must never start paying for a second model pass. The
+  // band and epsilon are checked too: a seed that disagreed with
+  // DEFAULT_SECOND_OPINION_CONFIG would silently become the real config the
+  // moment somebody flipped enabled, and the code default would be a lie.
+  const [seed] = await migrationsMentioning("'grading_second_opinion'");
+  assert(seed, "the seed migration is missing");
+  const body = (await Deno.readTextFile(new URL(seed, MIGRATIONS_DIR)))
+    .replace(/^\s*--.*$/gm, "");
+  assertStringIncludes(body, "'enabled',      false");
+  assertStringIncludes(body, `'bandMin',      ${DEFAULT_SECOND_OPINION_CONFIG.bandMin}`);
+  assertStringIncludes(body, `'bandMax',      ${DEFAULT_SECOND_OPINION_CONFIG.bandMax}`);
+  assertStringIncludes(body, `'epsilon',      ${DEFAULT_SECOND_OPINION_CONFIG.epsilon}`);
+  assertStringIncludes(body, `'model',        '${DEFAULT_SECOND_OPINION_CONFIG.model}'`);
 });
