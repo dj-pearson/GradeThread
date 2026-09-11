@@ -2734,6 +2734,9 @@ export function promptVersionSuffix(
     // US-3335. Optional and appended last: awarded reference photos rode along
     // in the composite call.
     anchors?: boolean;
+    // US-3338. Optional and appended last: a per-image read of this grade ran
+    // the fabric-zoom pass. Read off the per-image stamps, like scale.
+    fabricZoom?: boolean;
   },
 ): string {
   return (blocks.baseline ? "+baseline" : "") +
@@ -2745,7 +2748,8 @@ export function promptVersionSuffix(
     (blocks.cleanliness ? "+clean2" : "") +
     (blocks.schemaSystem ? "+sysschema" : "") +
     (blocks.scale ? "+scale" : "") +
-    (blocks.anchors ? "+anchors" : "");
+    (blocks.anchors ? "+anchors" : "") +
+    (blocks.fabricZoom ? "+fabriczoom" : "");
 }
 
 /**
@@ -3146,6 +3150,10 @@ export async function compositeGrade(
   const scale = perImageResults.some((r) =>
     /\+scale(?:\+|$)/.test(r.prompt_version ?? "")
   );
+  // US-3338: same rule for the fabric-zoom pass, which stamps the read it merged.
+  const fabricZoom = perImageResults.some((r) =>
+    /\+fabriczoom(?:\+|$)/.test(r.prompt_version ?? "")
+  );
 
   // US-3329: visible-cleanliness wording on the system prompt and on the
   // factor-weights sentence, flag-gated. Off = both untouched, no suffix.
@@ -3180,6 +3188,7 @@ export async function compositeGrade(
     schemaSystem: tailInSystem,
     scale,
     anchors: referenceAnchors.length > 0,
+    fabricZoom,
   });
 
   // US-2432: the other half of the attribution. promptVersion names the SYSTEM

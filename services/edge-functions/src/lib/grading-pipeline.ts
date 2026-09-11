@@ -23,6 +23,16 @@ import {
 import { DEFECT_WEIGHTS_VERSION } from "./defect-weighting.ts";
 import { loadReferenceAnchors, referenceAnchorsActive } from "./reference-anchors.ts";
 import {
+  downloadSubmissionBytes,
+  FABRIC_ZOOM_PHASE,
+  fabricZoomCapUsd,
+  fabricZoomDecision,
+  fabricZoomEnabled,
+  fabricZoomSpentTodayUsd,
+  pickFabricCloseup,
+  runFabricZoomPass,
+} from "./fabric-zoom.ts";
+import {
   applyCardSizing,
   cardSizingEnabled,
   fitCardInImage,
@@ -2484,6 +2494,45 @@ export async function processSubmission(submissionId: string) {
       });
     }
 
+    // --- Step 4d (US-3338): light zoom on the fabric close-up ---
+    // One re-read of the fabric close-up as native-resolution tiles, merged
+    // through the zoom-merge path. Flag-gated, never on a Forensic grade (its
+    // zoom above is unchanged), and skipped at the daily spend cap. The tile
+    // calls are metered on their own phase below.
+    let fabricZoomUsages: AiTokenUsage[] = [];
+    if (fabricZoomEnabled()) {
+      const closeup = pickFabricCloseup(images);
+      const decision = fabricZoomDecision({
+        enabled: true,
+        forensic: wantForensic,
+        hasCloseup: !!closeup,
+        capUsd: await fabricZoomCapUsd(),
+        // Only read the ledger when the answer can matter.
+        spentTodayUsd: closeup && !wantForensic ? await fabricZoomSpentTodayUsd() : 0,
+      });
+      if (decision.run && closeup) {
+        const zoom = await runFabricZoomPass(perImageResults, closeup, {
+          download: downloadSubmissionBytes,
+          analyze: (dataUri) =>
+            analyzeImage(
+              dataUri,
+              "detail",
+              submission.garment_type,
+              submission.garment_category,
+              styleHint,
+              undefined,
+              firstPassModel,
+              submissionId,
+            ),
+        });
+        perImageResults = zoom.results;
+        fabricZoomUsages = zoom.usages;
+        console.log(`[Pipeline] fabric zoom for ${submissionId}: ${zoom.tiles} tile(s) read`);
+      } else {
+        console.log(`[Pipeline] fabric zoom skipped for ${submissionId}: ${decision.reason}`);
+      }
+    }
+
     // --- Step 5: Run compositeGrade() with all per-image results ---
     const garmentInfo: GarmentInfo = {
       garment_type: submission.garment_type,
@@ -3741,6 +3790,9 @@ export async function processSubmission(submissionId: string) {
         ...(compositeResult.usage
           ? [{ phase: "composite", usage: compositeResult.usage }]
           : []),
+        // US-3338: the fabric-zoom tile reads, on their own phase (the daily
+        // cap sums exactly this phase). Empty when the pass did not run.
+        ...fabricZoomUsages.map((usage) => ({ phase: FABRIC_ZOOM_PHASE, usage })),
         // US-3335: the reference anchors' share of the composite call, on its
         // own phase so their cost per grade is visible. Absent when off.
         ...(compositeResult.anchor_usage
