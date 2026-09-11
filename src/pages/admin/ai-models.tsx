@@ -166,7 +166,7 @@ const FACTOR_LABELS: Record<string, string> = {
   structural_integrity: "Structural Integrity",
   cosmetic_appearance: "Cosmetic Appearance",
   functional_elements: "Functional Elements",
-  odor_cleanliness: "Odor & Cleanliness",
+  odor_cleanliness: "Cleanliness",
 };
 
 // US-590: the rows of the dry-run comparison table. Each pulls one value out of
@@ -178,7 +178,7 @@ const DRY_RUN_ROWS: { label: string; get: (g: DryRunGrade) => string | number }[
   { label: "Structural Integrity", get: (g) => g.factor_scores.structural_integrity.toFixed(1) },
   { label: "Cosmetic Appearance", get: (g) => g.factor_scores.cosmetic_appearance.toFixed(1) },
   { label: "Functional Elements", get: (g) => g.factor_scores.functional_elements.toFixed(1) },
-  { label: "Odor & Cleanliness", get: (g) => g.factor_scores.odor_cleanliness.toFixed(1) },
+  { label: "Cleanliness", get: (g) => g.factor_scores.odor_cleanliness.toFixed(1) },
   { label: "Confidence", get: (g) => g.confidence_score.toFixed(2) },
   { label: "Needs human review", get: (g) => (g.needs_human_review ? "Yes" : "No") },
   { label: "Defects found", get: (g) => g.defects_found },

@@ -100,7 +100,7 @@ describe("gradeEmbedCardHtml", () => {
       "Structural Integrity",
       "Cosmetic Appearance",
       "Functional Elements",
-      "Odor &amp; Cleanliness",
+      "Cleanliness",
     ]) {
       expect(html).toContain(label);
     }

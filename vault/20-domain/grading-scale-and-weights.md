@@ -12,7 +12,7 @@ code_refs:
   - services/edge-functions/src/lib/human-review.ts
   - services/edge-functions/src/lib/defect-weighting.ts
   - services/edge-functions/src/tests/weighted-grade-parity_test.ts
-reviewed: 2026-09-10
+reviewed: 2026-09-11
 tags: [grading, contract]
 summary: The 1.0-10.0 scale, the five weighted factors, the rounding rule that has now shipped wrong twice, and which engine criteria are published and therefore no longer free to tune.
 ---
@@ -97,10 +97,23 @@ Canonical source is `GRADE_FACTORS` in `src/lib/constants.ts` (verified
 | Structural Integrity | `structural_integrity` | 0.25 |
 | Cosmetic Appearance | `cosmetic_appearance` | 0.20 |
 | Functional Elements | `functional_elements` | 0.15 |
-| Odor & Cleanliness | `odor_cleanliness` | 0.10 |
+| Cleanliness | `odor_cleanliness` | 0.10 |
 
 Weights sum to 1.00. Every UI surface reads `GRADE_FACTORS` rather than restating
 the numbers — keep it that way.
+
+**The fifth factor is named for what a photo can show (US-3329, 2026-09-10).**
+It was published as "Odor & Cleanliness", and a photo cannot carry smell, so
+every certificate printed an odor score nobody checked. Owner's call: keep the
+factor, its key and its 10% weight (so no grade moved and the rounding sites
+were untouched), and rename it **Cleanliness**, defined as visible evidence
+only: stains, soiling, yellowing, sweat and deodorant marks, pet hair, lint,
+residue. The key stays `odor_cleanliness` everywhere, including the database
+column, because renaming it would touch every reader for no change in meaning.
+The model's own wording moves behind `GRADING_CLEANLINESS_V2` (default off,
+`+clean2` suffix); until that flag is on, the prompt still says "Odor &
+Cleanliness" while every screen says "Cleanliness", which is the honest
+direction for the two to disagree in.
 
 ## The rounding rule, and why it has its own section
 

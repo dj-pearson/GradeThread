@@ -344,21 +344,21 @@ const FACTOR_CONTENT: Record<GradeFactorKey, FactorContent> = {
   },
   odor_cleanliness: {
     definition:
-      "Odor & Cleanliness is weighted at 10% of the overall grade. It evaluates whether the garment is clean and free of odors such as smoke, mildew, or perfume that would affect a buyer's experience.",
+      "Cleanliness is weighted at 10% of the overall grade. It judges what a photo can show: stains, soiling, yellowing, sweat and deodorant marks, pet hair, lint and residue. Smell cannot be seen, so it is not scored; a seller can state a smoke-free or pet-free home, and the certificate shows that as the seller's statement.",
     lookFor: [
-      "Smoke, mildew, mustiness, or strong perfume odors",
+      "Yellowing, grey film or spotting left by smoke or mildew",
       "Residual stains, dirt, or laundry residue",
       "Pet hair or environmental contaminants",
       "Overall freshness and ready-to-wear cleanliness",
     ],
     examples: [
-      "A coat flagged for a lingering smoke smell despite looking clean.",
-      "A thrifted shirt assessed for mustiness before listing.",
+      "A white shirt marked down for yellowed underarms and a grey collar band.",
+      "A coat whose certificate notes the seller's smoke-free statement, shown as the seller's claim.",
     ],
     faqs: [
       {
-        q: "How does odor and cleanliness affect a condition grade?",
-        a: "Odor & Cleanliness evaluates whether an item is clean and free of smells like smoke, mildew, or perfume. It is weighted at 10% of the overall grade.",
+        q: "How does cleanliness affect a condition grade?",
+        a: "Cleanliness scores the visible signs of use and storage: stains, soiling, yellowing and residue. It is weighted at 10% of the overall grade. Smell is not scored, because a photo cannot show it.",
       },
     ],
   },

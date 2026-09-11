@@ -107,7 +107,7 @@ const FACTORS: Array<{ key: keyof PublicCertificate; label: string; weight: numb
   { key: "structural_integrity_score", label: "Structural Integrity", weight: 25 },
   { key: "cosmetic_appearance_score", label: "Cosmetic Appearance", weight: 20 },
   { key: "functional_elements_score", label: "Functional Elements", weight: 15 },
-  { key: "odor_cleanliness_score", label: "Odor & Cleanliness", weight: 10 },
+  { key: "odor_cleanliness_score", label: "Cleanliness", weight: 10 },
 ];
 
 type Ctx = EventContext<PagesEnv, "id", Record<string, unknown>>;

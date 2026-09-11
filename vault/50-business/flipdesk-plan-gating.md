@@ -9,10 +9,12 @@ code_refs:
   - services/edge-functions/src/tests/plan-gate-coverage_test.ts
   - services/edge-functions/src/routes/flipdesk-closet-import.ts
   - src/lib/constants.ts
-reviewed: 2026-09-10
+reviewed: 2026-09-11
 tags: [flipdesk, plans, billing, contract]
 summary: Every FlipDesk endpoint touching a gated capacity or feature calls requireFlipdesk; the 80%-warning and 402 responses are a protocol two frontends depend on.
 ---
+
+> [!note] Re-reviewed 2026-09-11 (US-3329). The only change to this note's code refs since its last review renames the fifth grading factor's LABEL from "Odor & Cleanliness" to "Cleanliness" (and in ai-grading.ts adds the flag-gated GRADING_CLEANLINESS_V2 wording). Checked: nothing this note states depends on that label, the factor key, or its weight.
 
 # FlipDesk plan gating contract
 

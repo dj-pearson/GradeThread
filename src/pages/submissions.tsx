@@ -202,7 +202,7 @@ async function exportSubmissionsCsv(ids?: string[]) {
     "Structural Integrity",
     "Cosmetic Appearance",
     "Functional Elements",
-    "Odor & Cleanliness",
+    "Cleanliness",
     "Certificate URL",
   ];
 

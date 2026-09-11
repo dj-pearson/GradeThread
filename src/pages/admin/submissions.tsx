@@ -836,7 +836,7 @@ export function AdminSubmissionsPage() {
                     { label: "Structural Integrity (25%)", score: viewingRawAnalysis.structural_integrity_score },
                     { label: "Cosmetic Appearance (20%)", score: viewingRawAnalysis.cosmetic_appearance_score },
                     { label: "Functional Elements (15%)", score: viewingRawAnalysis.functional_elements_score },
-                    { label: "Odor & Cleanliness (10%)", score: viewingRawAnalysis.odor_cleanliness_score },
+                    { label: "Cleanliness (10%)", score: viewingRawAnalysis.odor_cleanliness_score },
                   ].map((factor) => (
                     <div key={factor.label} className="flex items-center justify-between text-sm">
                       <span className="text-muted-foreground">{factor.label}</span>

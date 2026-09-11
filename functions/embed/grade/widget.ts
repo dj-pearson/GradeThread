@@ -43,7 +43,7 @@ const FACTORS: Array<{ key: keyof PublicCertificate; label: string }> = [
   { key: "structural_integrity_score", label: "Structural Integrity" },
   { key: "cosmetic_appearance_score", label: "Cosmetic Appearance" },
   { key: "functional_elements_score", label: "Functional Elements" },
-  { key: "odor_cleanliness_score", label: "Odor & Cleanliness" },
+  { key: "odor_cleanliness_score", label: "Cleanliness" },
 ];
 
 const BRAND_NAVY = "#0F3460";

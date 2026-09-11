@@ -20,10 +20,12 @@ code_refs:
   - supabase/migrations/00587_item_photo_role_qualifier.sql
   - supabase/migrations/00589_submission_image_role.sql
   - services/edge-functions/src/routes/flipdesk-grading.ts
-reviewed: 2026-09-10
+reviewed: 2026-09-11
 tags: [flipdesk, photos, listings, ebay, contract]
 summary: Two independent levers (canonical order and required set) duplicated across ~7 surfaces, plus the separate path photo edits take to reach eBay.
 ---
+
+> [!note] Re-reviewed 2026-09-11 (US-3329). The only change to this note's code refs since its last review renames the fifth grading factor's LABEL from "Odor & Cleanliness" to "Cleanliness" (and in ai-grading.ts adds the flag-gated GRADING_CLEANLINESS_V2 wording). Checked: nothing this note states depends on that label, the factor key, or its weight.
 
 # Listing photos — order, required set, and how edits reach eBay
 

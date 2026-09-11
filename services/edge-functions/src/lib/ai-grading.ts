@@ -587,6 +587,56 @@ const GARMENT_CATEGORY_CRITERIA_V2: Record<string, string> = {
  * without a deploy — which is the most the architecture currently allows (see
  * the note above GARMENT_CATEGORY_CRITERIA_V2).
  */
+/**
+ * US-3329 rollout gate (default OFF): the factor formerly called "Odor &
+ * Cleanliness" is described as VISIBLE cleanliness only. A photo cannot carry
+ * smell, and the old wording let the model imply a smell check nobody made.
+ *
+ * Same posture as GRADING_CATEGORY_CRITERIA_V2: off means every assembled
+ * prompt is byte-identical to today's, and on appends "+clean2" to the version
+ * so accuracy tracking can split the eras. The factor key, its weight and the
+ * lockstep rounding are untouched; only the words the model reads change.
+ */
+export function cleanlinessV2Enabled(): boolean {
+  const v = (Deno.env.get("GRADING_CLEANLINESS_V2") ?? "").trim().toLowerCase();
+  return v === "1" || v === "true";
+}
+
+const CLEANLINESS_V2_DEFINITION =
+  "Visible cleanliness only: stains, soiling, yellowing, sweat and deodorant marks, pet hair, lint and residue. Smell cannot be seen in a photo, so never infer, mention or score it";
+
+/**
+ * Exact v1 -> v2 substitutions. Exported so the guard test can prove each v1
+ * phrase really occurs in the code default it targets: a phrase that stops
+ * matching would turn the flag into a silent no-op.
+ */
+export const CLEANLINESS_WORDING: ReadonlyArray<readonly [string, string]> = [
+  [
+    "5. Odor & Cleanliness (10% weight): Visible cleanliness indicators, staining patterns",
+    `5. Cleanliness (10% weight): ${CLEANLINESS_V2_DEFINITION}`,
+  ],
+  [
+    "- Odor & Cleanliness: 10% — Visible cleanliness indicators, staining patterns",
+    `- Cleanliness: 10% — ${CLEANLINESS_V2_DEFINITION}`,
+  ],
+  ["Functional 15%, Odor 10%)", "Functional 15%, Cleanliness 10%)"],
+];
+
+/**
+ * Apply the v2 wording to a prompt text. `applied` is true only when the text
+ * actually changed, so a DB override that does not carry the v1 phrase is not
+ * mislabelled as the v2 era. Disabled = the input, unchanged.
+ */
+export function applyCleanlinessWording(
+  text: string,
+  enabled: boolean = cleanlinessV2Enabled(),
+): { text: string; applied: boolean } {
+  if (!enabled) return { text, applied: false };
+  let out = text;
+  for (const [v1, v2] of CLEANLINESS_WORDING) out = out.split(v1).join(v2);
+  return { text: out, applied: out !== text };
+}
+
 export function categoryCriteriaV2Enabled(): boolean {
   const v = (Deno.env.get("GRADING_CATEGORY_CRITERIA_V2") ?? "").trim()
     .toLowerCase();
@@ -1387,7 +1437,9 @@ export async function analyzeImage(
   // Cache the (static) system prompt so repeated per-image calls within a
   // submission — and across submissions inside the 5-min cache window —
   // don't re-bill the prompt tokens. Mirrors the FlipDesk extractor.
-  const systemBlock: AiSystemBlock = { text: prompt.text, cache: isCachingEnabled() };
+  // US-3329: visible-cleanliness wording, flag-gated; identical text when off.
+  const perImageClean = applyCleanlinessWording(prompt.text);
+  const systemBlock: AiSystemBlock = { text: perImageClean.text, cache: isCachingEnabled() };
 
   try {
     // US-414 + US-2568: the provider wraps getAnthropicClient(), so this call
@@ -1572,7 +1624,9 @@ export async function analyzeImage(
       // ordered suffix chain (+baseline/+fabric/+visual/+tag/+cat2) whose order
       // reinterprets every version string ever recorded if it moves.
       // Byte-identical when nothing overrode: the suffix is "".
-      prompt_version: `${prompt.versionName}${blockVersionSuffix(blocks)}`,
+      prompt_version: `${prompt.versionName}${blockVersionSuffix(blocks)}${
+        perImageClean.applied ? "+clean2" : ""
+      }`,
     };
   } catch (error) {
     const latencyMs = Date.now() - startTime;
@@ -2509,6 +2563,8 @@ export function promptVersionSuffix(
     // it — inserting a suffix in the middle rewrites what every previously
     // recorded version string means.
     roles?: boolean;
+    // US-3329. Optional and appended last, for the same reason as roles.
+    cleanliness?: boolean;
   },
 ): string {
   return (blocks.baseline ? "+baseline" : "") +
@@ -2516,7 +2572,8 @@ export function promptVersionSuffix(
     (blocks.visual ? "+visual" : "") +
     (blocks.tag ? "+tag" : "") +
     (blocks.categoryV2 ? "+cat2" : "") +
-    (blocks.roles ? "+roles" : "");
+    (blocks.roles ? "+roles" : "") +
+    (blocks.cleanliness ? "+clean2" : "");
 }
 
 /**
@@ -2860,6 +2917,22 @@ export async function compositeGrade(
     !!imageRoleContextFor(r.image_type, r.image_role)
   );
 
+  // US-3329: visible-cleanliness wording on the system prompt and on the
+  // factor-weights sentence, flag-gated. Off = both untouched, no suffix.
+  const compositeClean = applyCleanlinessWording(prompt.text);
+  const weightsText = compositeBlocks.composite_factor_weights?.text ??
+    COMPOSITE_FACTOR_WEIGHTS;
+  const weightsClean = applyCleanlinessWording(weightsText);
+  const promptBlocksForUser: PromptBlockOverrides = weightsClean.applied
+    ? {
+      ...compositeBlocks,
+      composite_factor_weights: {
+        text: weightsClean.text,
+        versionName: compositeBlocks.composite_factor_weights?.versionName ?? "",
+      },
+    }
+    : compositeBlocks;
+
   const promptVersion = prompt.versionName + promptVersionSuffix({
     baseline: !!baselineBlock,
     fabric: !!fabricBlock,
@@ -2867,6 +2940,7 @@ export async function compositeGrade(
     tag: !!tagBlock,
     categoryV2,
     roles,
+    cleanliness: compositeClean.applied || weightsClean.applied,
   });
 
   // US-2432: the other half of the attribution. promptVersion names the SYSTEM
@@ -2883,7 +2957,7 @@ export async function compositeGrade(
   // corrected precedents. Empty string when no set is active → grading unchanged.
   // An override path (eval / dry-run / shadow) measures the prompt itself, so the
   // block is never auto-appended there.
-  let systemText = prompt.text;
+  let systemText = compositeClean.text;
   if (
     shouldAppendActiveExemplars(promptOverride !== undefined, suppressExemplars)
   ) {
@@ -2929,7 +3003,7 @@ export async function compositeGrade(
                 baselineBlock,
                 fabricBlock,
                 tagBlock,
-                compositeBlocks,
+                promptBlocksForUser,
               ),
             }]
             : [
@@ -2947,7 +3021,7 @@ export async function compositeGrade(
                   baselineBlock,
                   fabricBlock,
                   tagBlock,
-                  compositeBlocks,
+                  promptBlocksForUser,
                 ) + `\n\n${VISUAL_VERIFICATION_ADDENDUM}`,
               },
             ],

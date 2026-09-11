@@ -817,7 +817,9 @@ export const GRADE_FACTORS = {
   structural_integrity: { label: "Structural Integrity", weight: 0.25 },
   cosmetic_appearance: { label: "Cosmetic Appearance", weight: 0.20 },
   functional_elements: { label: "Functional Elements", weight: 0.15 },
-  odor_cleanliness: { label: "Odor & Cleanliness", weight: 0.10 },
+  // US-3329: photos cannot carry smell, so the factor is named for what is
+  // actually judged: visible cleanliness. Key and weight are unchanged.
+  odor_cleanliness: { label: "Cleanliness", weight: 0.10 },
 } as const;
 
 export type GradeFactorKey = keyof typeof GRADE_FACTORS;

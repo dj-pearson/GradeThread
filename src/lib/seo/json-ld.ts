@@ -66,7 +66,7 @@ export function organizationLd(): JsonLd {
       "Pre-owned clothing condition grading",
       "The 1.0–10.0 clothing condition grade scale",
       "Clothing condition tiers (NWT, NWOT, Excellent, Very Good, Good, Fair, Poor)",
-      "Garment grading factors: fabric condition, structural integrity, cosmetic appearance, functional elements, odor and cleanliness",
+      "Garment grading factors: fabric condition, structural integrity, cosmetic appearance, functional elements, cleanliness",
       "Distinguishing intentional garment design from damage",
       "Condition-based resale value of used clothing (the GradeThread Condition Index)",
       "Verifiable condition certificates for pre-owned clothing",

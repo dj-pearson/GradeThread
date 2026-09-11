@@ -928,8 +928,10 @@ Deno.test("US-2438: analyzeImage resolves blocks and passes them to the builder"
     /buildUserPrompt\([^)]*\bblocks,/s.test(body),
     "the resolved blocks are no longer passed to buildUserPrompt — the seam is dead code",
   );
+  // US-3329 appends the flag-gated "+clean2" AFTER the block suffix (appended,
+  // never inserted), so the pin allows exactly that one trailing expression.
   assert(
-    /prompt_version:\s*`\$\{prompt\.versionName\}\$\{blockVersionSuffix\(blocks\)\}`/
+    /prompt_version:\s*`\$\{prompt\.versionName\}\$\{blockVersionSuffix\(blocks\)\}(\$\{\s*perImageClean\.applied \? "\+clean2" : ""\s*\})?`/
       .test(body),
     "the per-image entry no longer records which blocks served",
   );

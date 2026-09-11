@@ -26,7 +26,7 @@ enum GradeFactor: String, CaseIterable, Identifiable {
         case .structuralIntegrity: return "Structural Integrity"
         case .cosmeticAppearance:  return "Cosmetic Appearance"
         case .functionalElements:  return "Functional Elements"
-        case .odorCleanliness:     return "Odor & Cleanliness"
+        case .odorCleanliness:     return "Cleanliness" // US-3329: photos cannot carry smell
         }
     }
 

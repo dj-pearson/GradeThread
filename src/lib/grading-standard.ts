@@ -28,7 +28,7 @@ export const PUBLISHED_FACTOR_WEIGHTS = [
   { key: "structural_integrity", label: "Structural integrity", weight: 0.25 },
   { key: "cosmetic_appearance", label: "Cosmetic appearance", weight: 0.2 },
   { key: "functional_elements", label: "Functional elements", weight: 0.15 },
-  { key: "odor_cleanliness", label: "Odor & cleanliness", weight: 0.1 },
+  { key: "odor_cleanliness", label: "Cleanliness", weight: 0.1 },
 ] as const;
 
 /**
@@ -63,20 +63,20 @@ export const PUBLISHED_SIZE_BUCKETS = [
  * shares per defect sum to 1.0.
  */
 export const PUBLISHED_FLAW_ROUTING = [
-  { flaw: "Stain", routes: [["Odor & cleanliness", 0.6], ["Cosmetic appearance", 0.4]] },
+  { flaw: "Stain", routes: [["Cleanliness", 0.6], ["Cosmetic appearance", 0.4]] },
   { flaw: "Hole / puncture", routes: [["Fabric condition", 0.8], ["Cosmetic appearance", 0.2]] },
   { flaw: "Rip / tear", routes: [["Structural integrity", 0.6], ["Fabric condition", 0.4]] },
   { flaw: "Seam failure / unthreading", routes: [["Structural integrity", 1.0]] },
   { flaw: "Pilling", routes: [["Fabric condition", 0.7], ["Cosmetic appearance", 0.3]] },
   { flaw: "Abrasion / thinning", routes: [["Fabric condition", 0.8], ["Cosmetic appearance", 0.2]] },
   { flaw: "Fading", routes: [["Cosmetic appearance", 0.7], ["Fabric condition", 0.3]] },
-  { flaw: "Discoloration", routes: [["Cosmetic appearance", 0.6], ["Odor & cleanliness", 0.4]] },
+  { flaw: "Discoloration", routes: [["Cosmetic appearance", 0.6], ["Cleanliness", 0.4]] },
   { flaw: "Snag / pull", routes: [["Fabric condition", 0.6], ["Cosmetic appearance", 0.4]] },
   { flaw: "Broken zipper", routes: [["Functional elements", 1.0]] },
   { flaw: "Broken button", routes: [["Functional elements", 0.8], ["Cosmetic appearance", 0.2]] },
   { flaw: "Missing hardware", routes: [["Functional elements", 1.0]] },
   { flaw: "Stretched / misshapen", routes: [["Structural integrity", 0.6], ["Cosmetic appearance", 0.4]] },
-  { flaw: "Odor", routes: [["Odor & cleanliness", 1.0]] },
+  { flaw: "Sweat or mildew marks", routes: [["Cleanliness", 1.0]] },
   { flaw: "Wrinkle / crease", routes: [["Cosmetic appearance", 1.0]] },
 ] as const satisfies ReadonlyArray<{
   flaw: string;

@@ -25,10 +25,12 @@ code_refs:
   - supabase/migrations/00535_ingested_listings.sql
   - supabase/migrations/00536_buyer_video_grading.sql
   - supabase/migrations/00537_buyer_growth_metrics.sql
-reviewed: 2026-09-10
+reviewed: 2026-09-11
 tags: [buyer, plans, entitlements, contract]
 summary: A buyer's effective tier is the higher of their buyer subscription and the tier their seller plan already includes; the plan matrix is written twice and only a cross-boundary parity test keeps the halves honest.
 ---
+
+> [!note] Re-reviewed 2026-09-11 (US-3329). The only change to this note's code refs since its last review renames the fifth grading factor's LABEL from "Odor & Cleanliness" to "Cleanliness" (and in ai-grading.ts adds the flag-gated GRADING_CLEANLINESS_V2 wording). Checked: nothing this note states depends on that label, the factor key, or its weight.
 
 # The buyer platform
 

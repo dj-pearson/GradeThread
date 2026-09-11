@@ -19,10 +19,12 @@ code_refs:
   - services/edge-functions/src/lib/prompt-blocks.ts
   - services/edge-functions/src/lib/listing-eval.ts
   - supabase/migrations/00563_prompt_block_versions.sql
-reviewed: 2026-09-10
+reviewed: 2026-09-11
 tags: [grading, prompts, security, injection, contract]
 summary: Everything in a grading prompt is either server-generated trusted context or seller-supplied fenced text; the two channels must never be concatenated, and the test for which one a new block belongs to is who can influence its content.
 ---
+
+> [!note] Re-reviewed 2026-09-11 (US-3329). The only change to this note's code refs since its last review renames the fifth grading factor's LABEL from "Odor & Cleanliness" to "Cleanliness" (and in ai-grading.ts adds the flag-gated GRADING_CLEANLINESS_V2 wording). Checked: nothing this note states depends on that label, the factor key, or its weight.
 
 # The two prompt channels
 

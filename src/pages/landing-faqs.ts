@@ -6,7 +6,7 @@
 export const LANDING_FAQS = [
   {
     q: "How does AI grading work?",
-    a: "You upload photos of your garment (front, back, label, and detail shots). Our Claude Vision AI analyzes the images across 5 weighted factors — Fabric Condition (30%), Structural Integrity (25%), Cosmetic Appearance (20%), Functional Elements (15%), and Odor & Cleanliness (10%) — to produce a standardized 1.0–10.0 grade.",
+    a: "You upload photos of your garment (front, back, label, and detail shots). Our Claude Vision AI analyzes the images across 5 weighted factors — Fabric Condition (30%), Structural Integrity (25%), Cosmetic Appearance (20%), Functional Elements (15%), and Cleanliness (10%) — to produce a standardized 1.0–10.0 grade.",
   },
   {
     q: "What if I disagree with a grade?",

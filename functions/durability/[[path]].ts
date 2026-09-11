@@ -67,7 +67,7 @@ const FACTOR_LABELS: Record<string, string> = {
   structural_integrity_score: "Structural",
   cosmetic_appearance_score: "Cosmetic",
   functional_elements_score: "Functional",
-  odor_cleanliness_score: "Odor & cleanliness",
+  odor_cleanliness_score: "Cleanliness",
 };
 
 function methodologyHtml(): string {

@@ -7,10 +7,12 @@ code_refs:
   - src/prerender/head-builder.ts
   - src/prerender/entry-server.tsx
   - src/lib/seo/json-ld.ts
-reviewed: 2026-09-06
+reviewed: 2026-09-11
 tags: [seo, prerender, ci, contract]
 summary: What CI enforces about the HTML crawlers actually receive, and how to read each failure.
 ---
+
+> [!note] Re-reviewed 2026-09-11 (US-3329). The only change to this note's code refs since its last review renames the fifth grading factor's LABEL from "Odor & Cleanliness" to "Cleanliness" (and in ai-grading.ts adds the flag-gated GRADING_CLEANLINESS_V2 wording). Checked: nothing this note states depends on that label, the factor key, or its weight.
 # Prerender / hydration parity — runbook (US-1669)
 
 > **Re-reviewed 2026-09-05.** Drift flagged `entry-server.tsx` for `b159b4b3c`

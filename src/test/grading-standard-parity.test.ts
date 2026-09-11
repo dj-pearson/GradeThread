@@ -58,7 +58,7 @@ describe("US-2107: published standard matches the grading engine", () => {
       "Structural integrity": "structural_integrity",
       "Cosmetic appearance": "cosmetic_appearance",
       "Functional elements": "functional_elements",
-      "Odor & cleanliness": "odor_cleanliness",
+      "Cleanliness": "odor_cleanliness",
     };
     for (const { flaw, routes } of PUBLISHED_FLAW_ROUTING) {
       for (const [label, share] of routes) {

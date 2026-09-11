@@ -10,10 +10,12 @@ code_refs:
   - services/edge-functions/src/lib/connector-allowance.ts
   - services/edge-functions/src/middleware/mcp-auth.ts
   - services/edge-functions/src/lib/mcp-budget.ts
-reviewed: 2026-09-10
+reviewed: 2026-09-11
 tags: [pricing, connector, plan-gating, contract]
 summary: connectorAccess opens at pro; connector write actions have their own monthly counter derived from the audit log, not a share of aiActionsPerMonth.
 ---
+
+> [!note] Re-reviewed 2026-09-11 (US-3329). The only change to this note's code refs since its last review renames the fifth grading factor's LABEL from "Odor & Cleanliness" to "Cleanliness" (and in ai-grading.ts adds the flag-gated GRADING_CLEANLINESS_V2 wording). Checked: nothing this note states depends on that label, the factor key, or its weight.
 
 # The connector's gate and its allowance
 

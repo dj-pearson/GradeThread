@@ -9,10 +9,12 @@ code_refs:
   - services/edge-functions/src/lib/human-review.ts
   - services/edge-functions/src/lib/ai-grading.ts
   - src/test/fixtures/weighted-grade-cases.json
-reviewed: 2026-09-10
+reviewed: 2026-09-11
 tags: [grading, rounding, lockstep, contract]
 summary: One client helper and one edge helper compute the weighted overall; they must agree exactly, and the formula has shipped wrong twice when copies drifted.
 ---
+
+> [!note] Re-reviewed 2026-09-11 (US-3329). The only change to this note's code refs since its last review renames the fifth grading factor's LABEL from "Odor & Cleanliness" to "Cleanliness" (and in ai-grading.ts adds the flag-gated GRADING_CLEANLINESS_V2 wording). Checked: nothing this note states depends on that label, the factor key, or its weight.
 
 # The weighted-overall lockstep
 

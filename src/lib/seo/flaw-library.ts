@@ -459,7 +459,7 @@ export const FLAW_ENTRIES: FlawEntry[] = [
       "Look along the inner collar, where the same residue tends to migrate",
     ],
     gradeImpact:
-      "Pit stains hit Odor & Cleanliness (10%) and Fabric Condition (30%). Faint, washable shadowing keeps an item in Good (6); crusted, stiffened yellowing that won't lift caps it at Fair (5) or Poor (3–4), especially on light dress shirts.",
+      "Pit stains hit Cleanliness (10%) and Fabric Condition (30%). Faint, washable shadowing keeps an item in Good (6); crusted, stiffened yellowing that won't lift caps it at Fair (5) or Poor (3–4), especially on light dress shirts.",
     fixability:
       "Sometimes improvable. Fresh marks respond to oxygen soaks or enzyme presoaks; set-in aluminum staining that has stiffened the weave is usually permanent. Treat before photographing, and never bleach — chlorine locks the yellow in.",
     disclosure:
@@ -827,7 +827,7 @@ export const FLAW_ENTRIES: FlawEntry[] = [
       "Turn the piece to catch grease marks that only show as a subtle gloss",
     ],
     gradeImpact:
-      "Stains split across Odor & Cleanliness (10%) and Cosmetic Appearance (20%). A small, hidden mark keeps an item near Very Good (7); a prominent front-and-center stain that won't wash out pulls it to Fair (5) or below.",
+      "Stains split across Cleanliness (10%) and Cosmetic Appearance (20%). A small, hidden mark keeps an item near Very Good (7); a prominent front-and-center stain that won't wash out pulls it to Fair (5) or below.",
     fixability:
       "Depends on the stain. Fresh water-based marks often wash out; set-in grease, ink, and protein stains resist and may be permanent. Always attempt cleaning before grading, since a lifted stain can meaningfully raise the result.",
     disclosure:
@@ -1161,7 +1161,7 @@ export const FLAW_ENTRIES: FlawEntry[] = [
       "Feel for stiffness in the underarm panel where product has accumulated",
     ],
     gradeImpact:
-      "Deodorant marks fall under Odor & Cleanliness (10%). Light surface residue that brushes off is negligible and stays near Excellent (8); crusted, set-in buildup that has stiffened the underarm weave drops the item toward Good (6).",
+      "Deodorant marks fall under Cleanliness (10%). Light surface residue that brushes off is negligible and stays near Excellent (8); crusted, set-in buildup that has stiffened the underarm weave drops the item toward Good (6).",
     fixability:
       "Usually removable. A white-vinegar soak, an old nylon rubbed over the streak, or an enzyme wash lifts most buildup. Clean it before photographing, since residue reads as a permanent stain to buyers otherwise.",
     disclosure:
@@ -1199,7 +1199,7 @@ export const FLAW_ENTRIES: FlawEntry[] = [
       "Check structured or lined pieces most carefully — they hold smoke longest",
     ],
     gradeImpact:
-      "Smoke odor is judged entirely under Odor & Cleanliness (10%) and it caps that factor hard. A faint smell that airs out keeps an item near Good (6); a strong, clinging smoke odor that survives washing drops it to Fair (5) or below regardless of visual condition.",
+      "A photo cannot carry smell, so a GradeThread grade does not score smoke odor directly. What it does grade is the visible trace smoke leaves, such as yellowing or grey film, under Cleanliness (10%). Sellers can state a smoke-free home on the listing; the grade never treats that statement as checked.",
     fixability:
       "Often treatable, sometimes stubborn. Airing out, vinegar or baking-soda washes, and ozone treatment reduce or remove it; heavily saturated padding and linings can hold smoke through multiple attempts.",
     disclosure:
@@ -1238,7 +1238,7 @@ export const FLAW_ENTRIES: FlawEntry[] = [
       "Check storage-prone areas — pockets, cuffs, and the inside of collars",
     ],
     gradeImpact:
-      "Mildew odor is weighed under Odor & Cleanliness (10%), with a Cosmetic Appearance (20%) hit if it has left spotting. A faint musty smell that airs out stays near Good (6); a strong odor plus visible mold speckling drops the item to Fair (5) or Poor (3–4).",
+      "The smell of mildew does not show in a photo, so it is not scored. The spotting mildew leaves does: visible mold speckling counts under Cleanliness (10%) and Cosmetic Appearance (20%), and heavy speckling drops the item to Fair (5) or Poor (3–4).",
     fixability:
       "Sometimes removable. A vinegar soak, sunlight, and thorough drying kill light mildew and clear the smell; deep-set mold spotting can permanently discolor fibers and may return in humidity.",
     disclosure:

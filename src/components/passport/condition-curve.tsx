@@ -42,7 +42,7 @@ const FACTORS: { key: ConditionFactorKey; label: string }[] = [
   { key: "structural_integrity_score", label: "Structural" },
   { key: "cosmetic_appearance_score", label: "Cosmetic" },
   { key: "functional_elements_score", label: "Functional" },
-  { key: "odor_cleanliness_score", label: "Odor & Clean" },
+  { key: "odor_cleanliness_score", label: "Cleanliness" },
 ];
 
 function formatDate(iso: string): string {

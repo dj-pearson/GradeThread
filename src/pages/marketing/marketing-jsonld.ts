@@ -138,7 +138,7 @@ export const HOW_IT_WORKS_STEPS = [
   },
   {
     name: "AI analyzes 5 weighted factors",
-    text: "Claude Vision inspects fabric condition, structural integrity, cosmetic appearance, functional elements, and odor & cleanliness, then combines them into one standardized 1.0–10.0 score.",
+    text: "Claude Vision inspects fabric condition, structural integrity, cosmetic appearance, functional elements, and cleanliness, then combines them into one standardized 1.0–10.0 score.",
   },
   {
     name: "Get your grade and report",
@@ -290,7 +290,7 @@ export const CONDITION_GRADING_FAQS = [
   },
   {
     q: "How is the overall grade calculated?",
-    a: "The overall grade is a weighted blend of five factors: Fabric Condition (30%), Structural Integrity (25%), Cosmetic Appearance (20%), Functional Elements (15%), and Odor & Cleanliness (10%).",
+    a: "The overall grade is a weighted blend of five factors: Fabric Condition (30%), Structural Integrity (25%), Cosmetic Appearance (20%), Functional Elements (15%), and Cleanliness (10%).",
   },
 ];
 
@@ -311,7 +311,7 @@ export const GRADING_STANDARD_FAQS = [
   },
   {
     q: "How is the overall grade calculated?",
-    a: "The grade is a weighted blend of five factors — Fabric Condition (30%), Structural Integrity (25%), Cosmetic Appearance (20%), Functional Elements (15%), and Odor & Cleanliness (10%) — expressed on a 1.0–10.0 scale in half-point increments so graders can place an item precisely between tiers.",
+    a: "The grade is a weighted blend of five factors — Fabric Condition (30%), Structural Integrity (25%), Cosmetic Appearance (20%), Functional Elements (15%), and Cleanliness (10%) — expressed on a 1.0–10.0 scale in half-point increments so graders can place an item precisely between tiers.",
   },
   {
     q: "How does GradeThread keep grades consistent and objective?",
@@ -343,7 +343,7 @@ export function gradingStandardJsonLd(): JsonLd[] {
 export const GRADING_SCALE_FAQS = [
   {
     q: "What is the clothing condition grading scale?",
-    a: "The GradeThread Scale is a standardized 1.0–10.0 system for grading the condition of pre-owned clothing. Every garment is scored across five weighted factors — fabric condition, structural integrity, cosmetic appearance, functional elements, and odor & cleanliness — and mapped to one of seven named tiers, from New With Tags (10) down to Poor (3–4). Because the rubric is fixed and published, a grade means the same thing on every item, for every seller and buyer.",
+    a: "The GradeThread Scale is a standardized 1.0–10.0 system for grading the condition of pre-owned clothing. Every garment is scored across five weighted factors — fabric condition, structural integrity, cosmetic appearance, functional elements, and cleanliness — and mapped to one of seven named tiers, from New With Tags (10) down to Poor (3–4). Because the rubric is fixed and published, a grade means the same thing on every item, for every seller and buyer.",
   },
   {
     q: "What do the clothing grades from 1 to 10 mean?",
@@ -1334,7 +1334,7 @@ const METHODOLOGY_MODIFIED = "2026-07-06";
 export const METHODOLOGY_FAQS = [
   {
     q: "Does GradeThread train its own grading model?",
-    a: "No, and the distinction is worth stating. Photos are read by a general-purpose vision model built by Anthropic, directed by GradeThread's own versioned rubric — five weighted factors (fabric, structure, cosmetics, function, odor) combined into a 1.0–10.0 score. Nothing about a graded garment adjusts that model's weights. Expert reviewer corrections and post-sale outcomes feed a continuous accuracy loop as scored reference examples and as cases in the golden set that tests each new rubric version. A version promoted through our admin flow cannot serve live traffic unless its most recent run against that golden set cleared fixed error and agreement thresholds, measured on the same model that will run it. The rubric shipped inside the service is the fallback when no promoted version is active; it follows the same shadow, eval and canary sequence as policy rather than as an automatic refusal.",
+    a: "No, and the distinction is worth stating. Photos are read by a general-purpose vision model built by Anthropic, directed by GradeThread's own versioned rubric — five weighted factors (fabric, structure, cosmetics, function, cleanliness) combined into a 1.0–10.0 score. Nothing about a graded garment adjusts that model's weights. Expert reviewer corrections and post-sale outcomes feed a continuous accuracy loop as scored reference examples and as cases in the golden set that tests each new rubric version. A version promoted through our admin flow cannot serve live traffic unless its most recent run against that golden set cleared fixed error and agreement thresholds, measured on the same model that will run it. The rubric shipped inside the service is the fallback when no promoted version is active; it follows the same shadow, eval and canary sequence as policy rather than as an automatic refusal.",
   },
   {
     q: "What does a GradeThread grade claim — and not claim?",
@@ -1425,7 +1425,7 @@ export const RESALE_REPORT_FAQS = [
   },
   {
     q: "What are the most common flaws in secondhand clothing?",
-    a: "GradeThread records every genuine flaw it finds against a published defect taxonomy — stains, holes and punctures, rips and tears, seam failure, pilling, abrasion and thinning, fading, discoloration, snags and pulls, broken zippers, broken or missing buttons, missing hardware, stretched or misshapen shape, odor indicators, and set-in wrinkles. The report ranks them by how many GRADED GARMENTS carry each kind, so an item with three stains counts once toward stains rather than three times. Intentional design features such as distressing or raw hems are classified as style attributes, not damage, so they never appear as flaws.",
+    a: "GradeThread records every genuine flaw it finds against a published defect taxonomy — stains, holes and punctures, rips and tears, seam failure, pilling, abrasion and thinning, fading, discoloration, snags and pulls, broken zippers, broken or missing buttons, missing hardware, stretched or misshapen shape, sweat or mildew marks, and set-in wrinkles. The report ranks them by how many GRADED GARMENTS carry each kind, so an item with three stains counts once toward stains rather than three times. Intentional design features such as distressing or raw hems are classified as style attributes, not damage, so they never appear as flaws.",
   },
   {
     q: "What is the average condition grade of used clothing?",
@@ -1449,7 +1449,7 @@ export const DURABILITY_REPORT_FAQS = [
   },
   {
     q: "How is clothing durability measured?",
-    a: "Durability here is condition RETENTION: the share of a garment's original GradeThread grade it keeps on its latest regrade, averaged across many garments in a cohort (brand × garment type). We also report which of the five condition factors — fabric, structural, cosmetic, functional, odor & cleanliness — decays fastest. It is an aggregate signal from real grades, not a lab stress test, and thinly-sampled cohorts are withheld.",
+    a: "Durability here is condition RETENTION: the share of a garment's original GradeThread grade it keeps on its latest regrade, averaged across many garments in a cohort (brand × garment type). We also report which of the five condition factors — fabric, structural, cosmetic, functional, cleanliness — decays fastest. It is an aggregate signal from real grades, not a lab stress test, and thinly-sampled cohorts are withheld.",
   },
   {
     q: "Can I cite the State of Secondhand Durability report?",

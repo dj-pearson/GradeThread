@@ -2099,7 +2099,7 @@
     <string name="grade_factor_structural">Structural Integrity</string>
     <string name="grade_factor_cosmetic">Cosmetic Appearance</string>
     <string name="grade_factor_functional">Functional Elements</string>
-    <string name="grade_factor_odor">Odor &amp; Cleanliness</string>
+    <string name="grade_factor_odor">Cleanliness</string>
     <string name="inventory_sort_newest">Newest</string>
     <string name="inventory_sort_oldest">Oldest</string>
     <string name="inventory_sort_best_roi">Best ROI</string>

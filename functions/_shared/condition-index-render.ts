@@ -87,7 +87,7 @@ export const GRADING_FACTOR_LINKS: ReadonlyArray<{ label: string; weight: string
   { label: "Structural Integrity", weight: "25%", path: "/grading/structural-integrity" },
   { label: "Cosmetic Appearance", weight: "20%", path: "/grading/cosmetic-appearance" },
   { label: "Functional Elements", weight: "15%", path: "/grading/functional-elements" },
-  { label: "Odor & Cleanliness", weight: "10%", path: "/grading/odor-cleanliness" },
+  { label: "Cleanliness", weight: "10%", path: "/grading/odor-cleanliness" },
 ];
 
 // ── Per-grade rows (published grades only, high → low) ───────────────
