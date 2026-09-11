@@ -81,6 +81,17 @@ const EMPTY_SUMMARY = (): AutoEndSummary => ({
   nothingLive: 0,
 });
 
+/**
+ * US-3367: the group is "rows whose draft_id is X" PLUS the anchor row X
+ * itself. The extension writeback sets draft_id on the Poshmark row but never
+ * on the eBay draft it points at, so without the second clause a Poshmark sale
+ * found no eBay sibling and eBay stayed live. `.or()` on a SELECT is fine;
+ * US-1552 is about mutations.
+ */
+export function siblingSelector(draftId: string): string {
+  return `draft_id.eq.${draftId},id.eq.${draftId}`;
+}
+
 // Best-effort: never throws. Returns the per-outcome breakdown above.
 export async function autoEndCrossListings(
   ownerId: string,
@@ -117,7 +128,7 @@ export async function autoEndCrossListings(
           // seller's queue view names it by.
           "listing_url, inventory_item_id, inventory_items!inner(user_id, sku)",
       )
-      .eq("draft_id", draftId)
+      .or(siblingSelector(draftId))
       .eq("inventory_items.user_id", ownerId)
       .neq("id", soldListingId)
       .in("listing_status", ["draft", "active", "sold"]);
@@ -358,7 +369,7 @@ async function notifyDelistNeeded(
  * automation is a slower delist; aborting the pass would leave the REMAINING
  * siblings untouched, which is a double sale.
  */
-async function queueExtensionDelist(ownerId: string, row: SiblingRow): Promise<void> {
+export async function queueExtensionDelist(ownerId: string, row: SiblingRow): Promise<void> {
   // The same rule the popup and the SaaS answer with, imported rather than
   // restated — pending-delists.ts documents what a second copy of this list
   // already cost once. A draft was only ever prefilled and a URL-less row was

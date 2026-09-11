@@ -34,6 +34,11 @@ import {
 import { resolveAdapter } from "./marketplace-adapters/index.ts";
 import { resyncItemListedStatus } from "./active-listings.ts";
 import { delistMethodFor } from "./cross-listing-sale.ts";
+// US-3367: cross-listings.ts has no edge back into this module (only the two
+// mcp-*-tools files import it), so the manual End can share the sale path's
+// queue helper without a cycle.
+import { queueExtensionDelist } from "./cross-listings.ts";
+import { deliverExtensionWake } from "./notify.ts";
 
 export interface OwnedListingRow {
   id: string;
@@ -509,6 +514,22 @@ export async function endOwnedListing(
         502,
       );
     }
+    // US-3367: the stamp is the manual path (the banner). Also hand it to the
+    // extension's background drain, exactly as a sale-triggered end does, so
+    // "End listing" runs the next time a browser with the extension opens
+    // instead of waiting for a click on the Listings page. queueExtensionDelist
+    // dedupes, refuses a row it cannot end, and never throws.
+    await queueExtensionDelist(ownerId, {
+      id: row.id,
+      platform: row.platform ?? "",
+      platform_offer_id: row.platform_offer_id,
+      platform_listing_id: row.platform_listing_id,
+      listing_status: row.listing_status ?? "",
+      listing_url: row.listing_url,
+      inventory_item_id: row.inventory_item_id,
+      inventory_items: { user_id: ownerId, sku: row.item_sku },
+    });
+    void deliverExtensionWake(ownerId);
     await endLocally(listingId, row.inventory_item_id, ownerId);
     // `ended_upstream: false` is the truth: it is NOT yet ended on the
     // marketplace. The queued flag is what tells the client to say so.
