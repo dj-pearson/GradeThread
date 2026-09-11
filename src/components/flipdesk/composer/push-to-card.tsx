@@ -114,8 +114,13 @@ export function PushToCard({
             cross-push. */}
         <div className="rounded-md border border-dashed p-2.5">
           <div className="flex flex-wrap items-center gap-1.5 text-sm">
+            {/* US-3380: nowrap because this is the one place the channel
+                names sit side by side with nothing between them. "Facebook
+                Marketplace" is two words, and a phone-width line break inside
+                it reads as two channels rather than one. The row still wraps,
+                between names, which is what the flex-wrap is for. */}
             {extensionPlatforms.map((p) => (
-              <span key={p} className="font-medium">
+              <span key={p} className="font-medium whitespace-nowrap">
                 {MARKETPLACE_LABELS[p]}
               </span>
             ))}

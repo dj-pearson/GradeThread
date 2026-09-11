@@ -1640,13 +1640,32 @@ export const EXPENSE_CATEGORY_LABELS: Record<
   other: "Other",
 };
 
+// THE SELLER-FACING NAME FOR EVERY MARKETPLACE, and the web half of one
+// vocabulary shared with the browser extension.
+//
+// US-3373 settled the extension's four surfaces on extension-unified/queue/
+// queue-view.js's PLATFORM_LABELS. US-3380 is the other side of that: this map
+// is bigger (12 keys against the extension's 5, because the web app names
+// channels the Lister has no flow for), so the two cannot be merged, but every
+// key they SHARE has to read the same. src/lib/__tests__/platform-label-
+// vocabulary.test.ts derives both maps from source and fails if any shared key
+// disagrees, so a platform added to either side is checked with no edit there.
+//
+// facebook was "Facebook" here until US-3380 and is "Facebook Marketplace"
+// everywhere else that runs the job: extension-unified/lister/facebook.js,
+// background.js's SUPPORTED_LISTER, iOS ExtensionLifecycle.platformLabel,
+// Android ExtensionQueue/PendingDelists, scripts/gen-ios-delist-selectors.mjs,
+// and marketplace-specs.ts right here in src/. The long form wins for the same
+// two reasons US-3373 gave: it is what the code running the job already says,
+// and "Facebook" on its own names a company that sells two ways while this
+// product drives Marketplace and cannot touch Shops.
 export const MARKETPLACE_LABELS: Record<(typeof LISTING_PLATFORMS)[number], string> = {
   ebay: "eBay",
   poshmark: "Poshmark",
   mercari: "Mercari",
   depop: "Depop",
   grailed: "Grailed",
-  facebook: "Facebook",
+  facebook: "Facebook Marketplace",
   offerup: "OfferUp",
   shopify: "Shopify",
   etsy: "Etsy",
