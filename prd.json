@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-3323",
+  "nextId": "US-3324",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -4861,20 +4861,6 @@
       "priority": 7
     },
     {
-      "id": "US-3317",
-      "passes": false,
-      "title": "The desk send-to-extension path still prices from the eBay draft, because listing-kit reads only that row",
-      "description": "Found 2026-09-10 while closing US-2736, and deliberately left out of it because listing-kit.tsx was frozen by that pass's scope fence.\n\nUS-2736 made the per-channel price survive a write, a read-back and a revise on the cross-push and queued-extension paths. The desk path did not move. src/components/flipdesk/listing-kit.tsx:1027 reads the draft row with .eq(\"platform\", \"ebay\"), so when a seller presses send-to-extension from the Listing Kit it sends the SHARED price, not the override recorded for the channel being sent to.\n\nThis is unchanged behaviour rather than a regression: it is what the desk has always done. It matters now because the other two paths no longer do it, so the same item sent two different ways gets two different prices, and the one that disagrees with the stored row is the one a human pressed deliberately. Silent divergence between a manual action and an automated one is worse than either being wrong consistently.\n\nThe rule already exists and is tested: resolveSiblingPrice in services/edge-functions/src/lib/cross-listing-fields.ts, with 16 exact-cent cases in cross-listing-price_test.ts. This story is about the desk reading the right row and going through that rule, not about inventing a second one.",
-      "acceptanceCriteria": [
-        "listing-kit.tsx reads the sibling listings row for the channel being sent to, not the eBay draft, and falls back to the shared price only when no sibling row exists",
-        "The price it sends goes through the same resolveSiblingPrice rule the cross-push and queue paths use, so three callers cannot hold three opinions about what an item costs on one marketplace",
-        "A test sends the same item to the same channel through the desk path and the queued path and asserts both produce the same integer cents, since that equality is the whole point",
-        "The step is respected: a whole-dollar marketplace never receives cents from this path either",
-        "If the desk genuinely should be able to override a stored per-channel price, that is a deliberate product answer and the override is recorded rather than discarded, so the next read-back does not undo what the seller just typed"
-      ],
-      "priority": 7
-    },
-    {
       "id": "US-3318",
       "passes": false,
       "title": "Existing Poshmark and Vinted rows record prices those marketplaces cannot hold",
@@ -4930,6 +4916,21 @@
       "dependsOn": [
         "US-3320"
       ]
+    },
+    {
+      "id": "US-3323",
+      "passes": false,
+      "title": "Every corrected grade reads as zero error: an adjustment overwrites the AI score that accuracy tracking compares against",
+      "description": "applyGradeAdjustment (lib/grade-adjustment.ts) writes the reviewer correction over grade_reports.overall_score and the five factor columns. Every accuracy reader then treats the report CURRENT score as the AI grade and compares it with the reviewer score, which is the same number: computeAccuracySummary, computeConfidenceCalibration, the confidence-calibration cron, the defect-type bias report, the few-shot exemplar miner and the training export. Result: MAE 0 and 100 percent agreement on exactly the grades a human corrected, a calibration miner that would lower the review threshold on that evidence, and a public transparency figure built on it. The AI per-factor scores are not stored anywhere once a grade is adjusted (only original_score survives, on human_reviews). Send-backs (photos too poor to grade) are also counted as approved-as-is. Found 2026-09-10 while preparing a 150-grade owner review campaign whose whole purpose is AI-vs-human learning.",
+      "acceptanceCriteria": [
+        "human_reviews keeps the AI per-factor scores the review found (original_* columns) and which review path wrote the row (review_action), via a held migration",
+        "One pure helper decides AI side (earliest review snapshot) and human side (report current state); every accuracy reader uses it",
+        "Send-backs are excluded from accuracy, calibration, defect bias and exemplars",
+        "The accuracy report carries signed bias (human minus AI) per factor, per category and per prompt version, and the admin panel shows it",
+        "Tests prove a corrected grade reports its real error, and a sabotaged helper turns them red",
+        "OPERATOR: apply the migration to prod before the push, then NOTIFY pgrst reload schema"
+      ],
+      "priority": 5
     }
   ]
 }

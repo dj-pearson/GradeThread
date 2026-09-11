@@ -28,6 +28,10 @@ import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { supabase } from "@/lib/supabase";
 import { stepPrice } from "@/lib/marketplace-price";
+import {
+  type ResolvedSiblingPrice,
+  resolveSiblingPrice,
+} from "@/lib/cross-listing-price";
 import { cn } from "@/lib/utils";
 import {
   charStatus,
@@ -198,6 +202,7 @@ function KitField({ field, value, editable, onChange }: KitFieldProps) {
 function PlatformPanel({
   platform,
   variant,
+  channelPrice,
   fallbackPrice,
   photos,
   primaryId,
@@ -207,6 +212,12 @@ function PlatformPanel({
 }: {
   platform: MarketplacePlatform;
   variant: PlatformKitVariant | undefined;
+  /**
+   * US-3317: what THIS channel costs, off its own sibling `listings` row.
+   * Null when the channel has no row yet, which is the only case the shared
+   * price is used for.
+   */
+  channelPrice: number | null;
   /** US-2736: used when the stored variant carries no price. 0 means none. */
   fallbackPrice: number;
   photos: ExportablePhoto[];
@@ -371,23 +382,27 @@ function PlatformPanel({
     .map((key) => spec.fields.find((f) => f.key === key)?.label)
     .filter((label): label is string => Boolean(label));
 
+  // US-3317: price is NOT editable here, and that is a decision rather than an
+  // omission — see resolveKitPrice. The desk reads this channel's recorded
+  // price; it does not mint a new one, because a number typed into a panel that
+  // writes nothing back is undone by the next read.
   const editableKeys = new Set(["title", "description", "category", "department"]);
   // US-2736: one resolved variant, so the DISPLAYED price, the validation that
   // decides "Ready to list", and the payload the extension receives can never
   // disagree about what this item costs. Patching only the render would have
   // shown a price the extension still refused to type.
-  const resolvedPrice = variant.price > 0 ? variant.price : fallbackPrice;
-  // US-2739: round to the platform's own step BEFORE anything reads the price.
   //
-  // Poshmark's listing-price input is inputmode="numeric" pattern="[0-9]*" —
-  // digits only, no decimal point — because Poshmark prices in whole dollars.
-  // "32.49" is not a value that field can hold, so sending one is not a
-  // rounding nicety; it is handing the marketplace something it rejects.
-  //
-  // Rounded to NEAREST rather than floored: flooring quietly costs the seller
-  // money on every cross-post, and the number is shown in the row below before
-  // they send it, so it is a visible adjustment rather than a silent one.
-  const steppedPrice = stepPrice(resolvedPrice, spec.priceStep ?? 0);
+  // US-3317: and one RULE, shared with the cross-push and the queue, so the
+  // three of them cannot hold three opinions about what this channel charges.
+  // The step (Poshmark and Vinted price in whole dollars, and their inputs are
+  // pattern="[0-9]*") is applied inside it, to nearest rather than floored —
+  // flooring quietly costs the seller money on every cross-post, and the number
+  // is shown in the row below before they send it.
+  const steppedPrice = resolveKitPrice(platform, {
+    channelPrice,
+    variantPrice: variant.price,
+    fallbackPrice,
+  }).price;
   // The description the edge just rendered from this listing's blocks against
   // the item's CURRENT facts. It replaces the stored variant's string for the
   // same reason the stepped price replaces the stored price: what the panel
@@ -1018,26 +1033,23 @@ export function ListingKit({ itemId, baseName }: { itemId: string; baseName?: st
   const qc = useQueryClient();
   const gen = useGeneratePlatformFields();
 
-  // The eBay draft row carries platform_fields + the cover photo id.
+  // The eBay draft row carries platform_fields + the cover photo id. US-3317:
+  // every OTHER platform's row is read alongside it, because what a channel
+  // costs lives on that channel's own row and this component used to send the
+  // eBay number to all of them. RLS scopes `listings` to the owner, so this is
+  // the seller's own rows and nobody else's.
   const { data } = useQuery({
     queryKey: ["platform-fields", itemId],
     queryFn: async () => {
-      const { data: row } = await supabase
+      const { data: rows } = await supabase
         .from("listings")
-        .select("id, platform_fields, primary_photo_id, listing_price")
+        .select("id, platform, platform_fields, primary_photo_id, listing_price")
         .eq("inventory_item_id", itemId)
-        .eq("platform", "ebay")
-        .order("created_at", { ascending: false })
-        .limit(1)
-        .maybeSingle();
-      return (row ?? null) as {
-        id: string;
-        platform_fields: Record<string, unknown> | null;
-        primary_photo_id: string | null;
-        listing_price: number | null;
-      } | null;
+        .order("created_at", { ascending: false });
+      return readKitListings((rows ?? []) as KitListingRow[]);
     },
   });
+  const draft = data?.draft ?? null;
 
   // Listing photos (RLS scopes to the owner) for the per-platform export.
   const { data: photos = [] } = useQuery({
@@ -1054,7 +1066,7 @@ export function ListingKit({ itemId, baseName }: { itemId: string; baseName?: st
       return (rows ?? []) as ExportablePhoto[];
     },
   });
-  const primaryId = data?.primary_photo_id ?? null;
+  const primaryId = draft?.primary_photo_id ?? null;
 
   // US-2736: the price the kit falls back to when the stored variant has none.
   //
@@ -1119,7 +1131,7 @@ export function ListingKit({ itemId, baseName }: { itemId: string; baseName?: st
   // on a draft row must not shadow a real price further down the list.
   const fallbackPrice =
     [
-      data?.listing_price,
+      draft?.listing_price,
       itemPrice?.target_price,
       itemPrice?.any_listing_price,
       // Coerced for the same reason as the variant: PostgREST hands back a
@@ -1132,7 +1144,7 @@ export function ListingKit({ itemId, baseName }: { itemId: string; baseName?: st
   // Seed from persisted platform_fields; overlay anything just generated.
   const variants = useMemo(() => {
     const map: Record<string, PlatformKitVariant> = {};
-    const stored = (data?.platform_fields ?? {}) as Record<string, Record<string, unknown>>;
+    const stored = (draft?.platform_fields ?? {}) as Record<string, Record<string, unknown>>;
     for (const [plat, raw] of Object.entries(stored)) {
       map[plat] = normalize(plat, raw);
     }
@@ -1140,7 +1152,7 @@ export function ListingKit({ itemId, baseName }: { itemId: string; baseName?: st
       map[v.platform] = v;
     }
     return map;
-  }, [data?.platform_fields, gen.data]);
+  }, [draft?.platform_fields, gen.data]);
 
   const hasAny = Object.keys(variants).length > 0;
 
@@ -1154,11 +1166,11 @@ export function ListingKit({ itemId, baseName }: { itemId: string; baseName?: st
   // the composer's save already invalidates ["platform-fields", itemId], and
   // this rides the same key so one save refreshes both.
   const { data: liveDescriptions } = useQuery({
-    queryKey: ["platform-descriptions", data?.id ?? null, kitPlatforms],
-    enabled: Boolean(data?.id) && kitPlatforms.length > 0,
+    queryKey: ["platform-descriptions", draft?.id ?? null, kitPlatforms],
+    enabled: Boolean(draft?.id) && kitPlatforms.length > 0,
     queryFn: async () => {
       const res = await edgeFetch(
-        `/api/flipdesk/description/${data!.id}/platform-descriptions` +
+        `/api/flipdesk/description/${draft!.id}/platform-descriptions` +
           `?platforms=${encodeURIComponent(kitPlatforms.join(","))}`,
       );
       if (!res.ok) return {} as Record<string, string>;
@@ -1240,6 +1252,7 @@ export function ListingKit({ itemId, baseName }: { itemId: string; baseName?: st
               <PlatformPanel
                 platform={p}
                 variant={variants[p]}
+                channelPrice={data?.channelPrices[p] ?? null}
                 fallbackPrice={fallbackPrice}
                 photos={photos}
                 primaryId={primaryId}
@@ -1277,6 +1290,109 @@ export function ListingKit({ itemId, baseName }: { itemId: string; baseName?: st
  * stepping is APPLIED is still a property worth holding.
  */
 export { stepPrice };
+
+/**
+ * What this channel costs, on the desk path. (US-3317)
+ *
+ * ORDERS THE CANDIDATES; it does not decide between them. The deciding is
+ * `resolveSiblingPrice`, which the cross-push fan-out and the queued extension
+ * job already share, and which also applies the marketplace's own price step.
+ * A second rule here is what the story exists to prevent.
+ *
+ * The candidates, in the order `buildListPayload` reads them on the edge:
+ *
+ *   1. channelPrice  — this channel's OWN sibling `listings` row.
+ *   2. variantPrice  — the kit variant's stored price, a snapshot of the shared
+ *                      price from whenever the kit last ran.
+ *   3. fallbackPrice — the item's shared price (eBay draft, then target price).
+ *
+ * WHY `overridePrice` AND NOT `explicitPrice`. The explicit slot means "the
+ * seller typed a price for this channel on THIS push", and the desk has no such
+ * field: the Listing Kit's price row is read-only and this function writes
+ * nothing. Putting the stored channel price in the slot reserved for a typed one
+ * would make the next person to add that field find it already occupied.
+ *
+ * EXPORTED FOR TEST, and the test that matters is the equality one: the same
+ * item sent to the same channel through here and through the edge's
+ * `buildListPayload` has to come out at the same integer cents.
+ */
+export function resolveKitPrice(
+  platform: MarketplacePlatform,
+  input: {
+    /** This channel's own recorded price. Null when it has no row yet. */
+    channelPrice?: number | null;
+    /** `platform_fields[platform].price` — 0 on every pre-US-2736 draft. */
+    variantPrice?: number | null;
+    /** The item's shared price. 0 means the item has none anywhere. */
+    fallbackPrice?: number | null;
+  },
+): ResolvedSiblingPrice {
+  const variantPrice = numericOr(input.variantPrice, 0);
+  return resolveSiblingPrice(platform, {
+    overridePrice: input.channelPrice,
+    // First POSITIVE, not first non-null: a variant generated before the server
+    // learned about prices carries 0, and a 0 must not shadow the item's real
+    // shared price further down the list.
+    sharedPrice: variantPrice > 0 ? variantPrice : input.fallbackPrice,
+  });
+}
+
+/** One `listings` row, as the kit reads it. */
+export interface KitListingRow {
+  id: string;
+  platform: string | null;
+  platform_fields: Record<string, unknown> | null;
+  primary_photo_id: string | null;
+  listing_price: number | null;
+}
+
+export interface KitListings {
+  /** The eBay draft: the words, the cover photo and the shared price. */
+  draft: KitListingRow | null;
+  /** Dollars per platform, positive only. Absent means "no row for it". */
+  channelPrices: Record<string, number>;
+}
+
+/**
+ * Split this item's `listings` rows into the draft and the per-channel prices.
+ * (US-3317)
+ *
+ * The query used to be `.eq("platform", "ebay")`, so the only price the desk
+ * could see was the shared one — and a channel priced deliberately higher or
+ * lower had its OWN row sitting right there, unread, while the extension was
+ * handed eBay's number to type. The eBay row is still the draft; the siblings
+ * are now read alongside it for the one field that is per-channel. The same
+ * change US-2736 made to `hydrateListRows`, which this file was fenced out of.
+ *
+ * A channel's price is its row's `listing_price`, and ONLY that — the same
+ * single field `hydrateListRows` reads for the queued path, deliberately, so the
+ * two cannot answer differently. `platform_fields[platform].price_override` is
+ * the seller's per-channel INTENT and is the input cross-push resolves the row's
+ * price from; it is written by `mapSiblingListingFields` in the same statement
+ * that writes `listing_price`, so a row can never carry one without the other.
+ * Reading it here as a second candidate would add a case that cannot happen in
+ * production and CAN differ from the queue, which is a fourth opinion bought for
+ * nothing.
+ *
+ * A row carrying 0 (created by an extension writeback, never pushed) contributes
+ * nothing and the shared price is used — first POSITIVE, not first non-null.
+ * Rows arrive newest-first, so the first positive one per platform wins.
+ */
+export function readKitListings(rows: readonly KitListingRow[]): KitListings {
+  let draft: KitListingRow | null = null;
+  const channelPrices: Record<string, number> = {};
+  for (const row of rows) {
+    const platform = row.platform ?? "";
+    if (!draft && platform === "ebay") draft = row;
+    if (!platform || channelPrices[platform] !== undefined) continue;
+    // Coerced for the same reason every other price on this path is: PostgREST
+    // hands back a Postgres `numeric` as a STRING, and "40.49" is a real price
+    // that `typeof === "number"` calls absent.
+    const price = numericOr(row.listing_price, 0);
+    if (price > 0) channelPrices[platform] = price;
+  }
+  return { draft, channelPrices };
+}
 
 /**
  * A number, from a number or a numeric string, or the fallback.

@@ -240,7 +240,9 @@ describe("a draft with no stored price still cross-posts one (US-2736)", () => {
     // VIEW, and asking this table for it fails the whole query.
     expect(src).toContain('.select("target_price")');
     expect(src).not.toContain('"target_price, list_price"');
-    expect(src).toContain("data?.listing_price");
+    // US-3317: the query now returns every platform's row, so the eBay draft
+    // is named `draft` rather than being the whole result.
+    expect(src).toContain("draft?.listing_price");
     expect(src).toContain("itemPrice?.target_price");
     expect(src).toContain("itemPrice?.any_listing_price");
   });
@@ -274,12 +276,18 @@ describe("a draft with no stored price still cross-posts one (US-2736)", () => {
     // maths only runs on a price above zero, and an unchanged value returns the
     // original object rather than a copy.
     const src = code(KIT);
-    expect(src).toContain("const resolvedPrice = variant.price > 0 ? variant.price : fallbackPrice");
-    // The step maths moved into the exported stepPrice (US-2739), where its
-    // "never invents a price" behaviour is asserted by CALLING it rather than by
-    // matching the expression: src/test/step-price.test.ts, "never goes below
-    // one step, and never invents a price".
-    expect(src).toContain("const steppedPrice = stepPrice(");
+    // US-3317: the precedence moved into resolveKitPrice, which orders the three
+    // candidates and hands them to the shared resolveSiblingPrice. "First
+    // POSITIVE, not first non-null" is still spelled out here.
+    expect(src).toContain("sharedPrice: variantPrice > 0 ? variantPrice : input.fallbackPrice");
+    // The step maths moved into the exported stepPrice (US-2739) and is now
+    // applied inside resolveSiblingPrice, where its "never invents a price"
+    // behaviour is asserted by CALLING it rather than by matching the
+    // expression: src/test/step-price.test.ts, "never goes below one step, and
+    // never invents a price", and the "no price anywhere" case in
+    // src/test/desk-queue-price-parity.test.ts, which asserts 0 cents on BOTH
+    // the desk and the queued path.
+    expect(src).toContain("const steppedPrice = resolveKitPrice(");
     expect(src).toContain("steppedPrice === variant.price");
   });
 });
@@ -300,8 +308,10 @@ describe("a price is sent in the units the marketplace accepts (US-2739)", () =>
     // a placement check: ONE steppedPrice, computed before the row, the
     // validation and the payload all read it.
     const src = code(KIT);
-    expect(src).toContain("const resolvedPrice = variant.price > 0 ? v");
-    expect(src).toContain("const steppedPrice = stepPrice(");
+    // US-3317: one steppedPrice still, now produced by the rule the cross-push
+    // and the queue share instead of by a third expression living here.
+    expect(src).toContain("const steppedPrice = resolveKitPrice(");
+    expect(src).toContain("resolveSiblingPrice(platform, {");
     expect(src).toContain("steppedPrice === variant.price");
   });
 
