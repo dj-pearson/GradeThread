@@ -377,6 +377,13 @@ function EbayPoliciesDialog({
   }, [data]);
 
   const policies = data?.policies ?? [];
+  // US-3265 (AC6): the offer is gated on a MISSING KIND, not on an empty list.
+  // eBay needs all three, and the route already creates only the ones the
+  // account lacks -- so an account with a payment policy and no shipping policy
+  // is the same dead end as an account with none, just one step further in.
+  const missingKinds = POLICY_KINDS.filter(
+    (k) => !policies.some((p) => p.policy_type === k.type),
+  );
   const dirty =
     !!data &&
     POLICY_KINDS.some(
@@ -433,150 +440,157 @@ function EbayPoliciesDialog({
             <Loader2 className="h-4 w-4 animate-spin" />
             Loading your eBay policies…
           </div>
-        ) : policies.length === 0 ? (
-          /* US-3265: this used to say "set them up in eBay Seller Hub, then
-             press Re-sync" -- a hand-off in the middle of connecting, to the
-             account least equipped to take it, with every publish refused
-             until it came back. FlipDesk holds the seller's eBay token and
-             already creates the merchant location nobody else creates; these
-             four answers are the rest of it. */
-          <div className="space-y-4">
-            <p className="text-sm text-muted-foreground">
-              This eBay account has no business policies yet. Answer these and
-              FlipDesk will create the three that eBay requires. You can change
-              any of it on eBay later.
-            </p>
-            <div className="grid gap-3 sm:grid-cols-2">
-              <div className="space-y-1">
-                <Label htmlFor="policy-handling" className="text-xs">
-                  Days to post after a sale
-                </Label>
-                <Input
-                  id="policy-handling"
-                  type="number"
-                  min={0}
-                  max={30}
-                  value={handlingDays}
-                  onChange={(e) => setHandlingDays(e.target.value)}
-                />
-              </div>
-              <div className="space-y-1">
-                <Label htmlFor="policy-shipping" className="text-xs">
-                  What the buyer pays for postage (0 for free)
-                </Label>
-                <Input
-                  id="policy-shipping"
-                  type="number"
-                  min={0}
-                  step="0.01"
-                  value={shippingCost}
-                  onChange={(e) => setShippingCost(e.target.value)}
-                />
-              </div>
-            </div>
-            <div className="space-y-2">
-              <Label className="text-xs">Returns</Label>
-              <div className="flex flex-wrap gap-2">
-                <Button
-                  type="button"
-                  size="sm"
-                  variant={acceptsReturns ? "default" : "outline"}
-                  onClick={() => setAcceptsReturns(true)}
-                >
-                  I accept returns
-                </Button>
-                <Button
-                  type="button"
-                  size="sm"
-                  variant={acceptsReturns ? "outline" : "default"}
-                  onClick={() => setAcceptsReturns(false)}
-                >
-                  No returns
-                </Button>
-              </div>
-              {acceptsReturns && (
-                <div className="flex flex-wrap items-center gap-2 pt-1">
-                  <select
-                    aria-label="Return window"
-                    value={returnDays}
-                    onChange={(e) => setReturnDays(e.target.value as "30" | "60")}
-                    className="h-9 rounded-md border border-input bg-background px-2 text-sm text-foreground [&>option]:bg-background [&>option]:text-foreground"
-                  >
-                    <option value="30">30 days to return</option>
-                    <option value="60">60 days to return</option>
-                  </select>
-                  <select
-                    aria-label="Who pays return postage"
-                    value={returnPaidBy}
-                    onChange={(e) =>
-                      setReturnPaidBy(e.target.value as "BUYER" | "SELLER")
-                    }
-                    className="h-9 rounded-md border border-input bg-background px-2 text-sm text-foreground [&>option]:bg-background [&>option]:text-foreground"
-                  >
-                    <option value="BUYER">Buyer pays return postage</option>
-                    <option value="SELLER">I pay return postage</option>
-                  </select>
-                </div>
-              )}
-            </div>
-            <Button
-              onClick={() =>
-                createPolicies.mutate({
-                  handling_days: Math.max(
-                    0,
-                    Math.min(30, Math.round(Number(handlingDays) || 0)),
-                  ),
-                  shipping_cost_cents: Math.max(
-                    0,
-                    Math.round((Number(shippingCost) || 0) * 100),
-                  ),
-                  accepts_returns: acceptsReturns,
-                  return_days: returnDays === "60" ? 60 : 30,
-                  return_shipping_paid_by: returnPaidBy,
-                })
-              }
-              disabled={createPolicies.isPending}
-            >
-              {createPolicies.isPending && (
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              )}
-              Create these for me
-            </Button>
-          </div>
         ) : (
-          <div className="space-y-3">
-            {POLICY_KINDS.map((kind) => {
-              const options = policies.filter((p) => p.policy_type === kind.type);
-              return (
-                <div key={kind.type} className="space-y-1">
-                  <Label htmlFor={`policy-${kind.key}`} className="text-xs">
-                    {kind.label}
-                  </Label>
-                  <select
-                    id={`policy-${kind.key}`}
-                    value={selection[kind.key] ?? ""}
-                    onChange={(e) =>
-                      setSelection((prev) => ({
-                        ...prev,
-                        [kind.key]: e.target.value,
-                      }))
-                    }
-                    className="h-9 w-full rounded-md border border-input bg-background px-2 text-sm text-foreground [&>option]:bg-background [&>option]:text-foreground"
-                  >
-                    <option value="">
-                      {options.length === 0
-                        ? "None on your account"
-                        : "Select a policy…"}
-                    </option>
-                    {options.map((p) => (
-                      <option key={p.policy_id} value={p.policy_id}>
-                        {p.policy_name}
-                      </option>
-                    ))}
-                  </select>
+          <div className="space-y-5">
+            {missingKinds.length > 0 && (
+              /* US-3265: this used to say "set them up in eBay Seller Hub, then
+                 press Re-sync" -- a hand-off in the middle of connecting, to the
+                 account least equipped to take it, with every publish refused
+                 until it came back. FlipDesk holds the seller's eBay token and
+                 already creates the merchant location nobody else creates; these
+                 four answers are the rest of it. */
+              <div className="space-y-4">
+                <p className="text-sm text-muted-foreground">
+                  {policies.length === 0
+                    ? "This eBay account has no business policies yet. Answer these and FlipDesk will create the three that eBay requires. You can change any of it on eBay later."
+                    : `This eBay account is missing its ${
+                      missingKinds.map((k) => k.label.toLowerCase()).join(" and ")
+                    }. Answer these and FlipDesk will create what is missing. The policies you already have are left exactly as they are.`}
+                </p>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <div className="space-y-1">
+                    <Label htmlFor="policy-handling" className="text-xs">
+                      Days to post after a sale
+                    </Label>
+                    <Input
+                      id="policy-handling"
+                      type="number"
+                      min={0}
+                      max={30}
+                      value={handlingDays}
+                      onChange={(e) => setHandlingDays(e.target.value)}
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label htmlFor="policy-shipping" className="text-xs">
+                      What the buyer pays for postage (0 for free)
+                    </Label>
+                    <Input
+                      id="policy-shipping"
+                      type="number"
+                      min={0}
+                      step="0.01"
+                      value={shippingCost}
+                      onChange={(e) => setShippingCost(e.target.value)}
+                    />
+                  </div>
                 </div>
-              );
-            })}
+                <div className="space-y-2">
+                  <Label className="text-xs">Returns</Label>
+                  <div className="flex flex-wrap gap-2">
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant={acceptsReturns ? "default" : "outline"}
+                      onClick={() => setAcceptsReturns(true)}
+                    >
+                      I accept returns
+                    </Button>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant={acceptsReturns ? "outline" : "default"}
+                      onClick={() => setAcceptsReturns(false)}
+                    >
+                      No returns
+                    </Button>
+                  </div>
+                  {acceptsReturns && (
+                    <div className="flex flex-wrap items-center gap-2 pt-1">
+                      <select
+                        aria-label="Return window"
+                        value={returnDays}
+                        onChange={(e) => setReturnDays(e.target.value as "30" | "60")}
+                        className="h-9 rounded-md border border-input bg-background px-2 text-sm text-foreground [&>option]:bg-background [&>option]:text-foreground"
+                      >
+                        <option value="30">30 days to return</option>
+                        <option value="60">60 days to return</option>
+                      </select>
+                      <select
+                        aria-label="Who pays return postage"
+                        value={returnPaidBy}
+                        onChange={(e) =>
+                          setReturnPaidBy(e.target.value as "BUYER" | "SELLER")
+                        }
+                        className="h-9 rounded-md border border-input bg-background px-2 text-sm text-foreground [&>option]:bg-background [&>option]:text-foreground"
+                      >
+                        <option value="BUYER">Buyer pays return postage</option>
+                        <option value="SELLER">I pay return postage</option>
+                      </select>
+                    </div>
+                  )}
+                </div>
+                <Button
+                  onClick={() =>
+                    createPolicies.mutate({
+                      handling_days: Math.max(
+                        0,
+                        Math.min(30, Math.round(Number(handlingDays) || 0)),
+                      ),
+                      shipping_cost_cents: Math.max(
+                        0,
+                        Math.round((Number(shippingCost) || 0) * 100),
+                      ),
+                      accepts_returns: acceptsReturns,
+                      return_days: returnDays === "60" ? 60 : 30,
+                      return_shipping_paid_by: returnPaidBy,
+                    })
+                  }
+                  disabled={createPolicies.isPending}
+                >
+                  {createPolicies.isPending && (
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  )}
+                  Create these for me
+                </Button>
+              </div>
+            )}
+            {policies.length > 0 && (
+              <div className="space-y-3">
+                {POLICY_KINDS.map((kind) => {
+                  const options = policies.filter((p) => p.policy_type === kind.type);
+                  return (
+                    <div key={kind.type} className="space-y-1">
+                      <Label htmlFor={`policy-${kind.key}`} className="text-xs">
+                        {kind.label}
+                      </Label>
+                      <select
+                        id={`policy-${kind.key}`}
+                        value={selection[kind.key] ?? ""}
+                        onChange={(e) =>
+                          setSelection((prev) => ({
+                            ...prev,
+                            [kind.key]: e.target.value,
+                          }))
+                        }
+                        className="h-9 w-full rounded-md border border-input bg-background px-2 text-sm text-foreground [&>option]:bg-background [&>option]:text-foreground"
+                      >
+                        <option value="">
+                          {options.length === 0
+                            ? "None on your account"
+                            : "Select a policy…"}
+                        </option>
+                        {options.map((p) => (
+                          <option key={p.policy_id} value={p.policy_id}>
+                            {p.policy_name}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
           </div>
         )}
 

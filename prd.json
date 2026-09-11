@@ -4585,23 +4585,6 @@
       "priority": 1615
     },
     {
-      "id": "US-3265",
-      "passes": false,
-      "title": "eBay connect creates the seller's warehouse location but not their business policies, so a first-time seller is sent back to eBay mid-setup",
-      "description": "As a seller connecting eBay for the first time, I want FlipDesk to create my shipping, payment and return policies from a few plain questions, so that my first publish does not fail with 'Configure eBay business policies on your seller account'.",
-      "acceptanceCriteria": [
-        "services/edge-functions/src/lib/ebay-client.ts gains createFulfillmentPolicy, createPaymentPolicy and createReturnPolicy POSTing to /sell/account/v1/{fulfillment,payment,return}_policy, mirroring the existing createInventoryLocation: idempotent (an already-existing policy name is confirmed by GET rather than surfaced as an error) and tenant-safe on the workspace owner id.",
-        "The policy creation runs only after optInToProgram(ownerId, 'SELLING_POLICY_MANAGEMENT') reports the account is opted in, and refuses with a clear message when it is not.",
-        "src/pages/flipdesk/marketplaces.tsx offers a 'Create these for me' path when getDefaultPolicies returns MissingPolicies, asking at most four plain-language questions (handling time, domestic shipping charge or free, returns accepted and window, who pays return shipping) and nothing an eBay-literate seller would have to look up.",
-        "After creation the new ids are written through the existing business_policies sync and set as the workspace defaults via the existing PUT /api/flipdesk/ebay/policies/default, so the composer and publish path pick them up with no second step.",
-        "The route is tenant-scoped on workspaceOwnerId ?? userId and gains a case in services/edge-functions/src/tests/tenant-isolation_test.ts (US-268).",
-        "A seller who already has policies sees no change: the flow is offered only when at least one of the three is missing.",
-        "This is scoped to CREATING policies where none exist; choosing among existing policies and seeding them onto a draft stays US-2855, and the two do not both write the default."
-      ],
-      "priority": 11,
-      "notes": "Done 2026-09-09. createDefaultPolicies + createPolicy + findPolicyIdByName in ebay-client.ts POST to /sell/account/v1/{fulfillment,payment,return}_policy; before this the file had four GETs there and no POST, which is the whole defect. Idempotence is BY NAME: eBay answers 20400 for a duplicate name, and on that error the id is looked up and returned, so a second press produces one policy rather than two identical ones the seller then has to choose between. Only missing kinds are created (the \"have\" set), so an account with its own shipping policy keeps it. POST /api/flipdesk/ebay/policies/create validates the four answers (0-30 handling days, 0-100000 cents, 30 or 60 day window, BUYER|SELLER), re-syncs first so a policy made on eBay minutes ago is not duplicated, opts into SELLING_POLICY_MANAGEMENT before writing (eBay refuses policy writes outside it with an error naming neither the program nor the fix), then sets the workspace defaults through setDefaultPolicies - the same writer the picker uses, asserted to be the only one in the handler. Tenant-scoped on workspaceOwnerId ?? userId, already under workspaceMiddleware via the /policies/* mount, with a tenant-isolation case. The dialog's 'set them up in eBay Seller Hub, then press Re-sync' is gone and four plain questions are in its place; a test asserts none of eBay's own vocabulary (categoryTypes, marketplaceTypes, immediatePay) reaches the seller. 9 deno cases + 7 web cases. NOT VERIFIED AGAINST A LIVE EBAY ACCOUNT from this host - no seller token here - so the request bodies are checked for shape and against eBay's documented required fields, not against a real 201. USPSGroundAdvantage is the domestic service; a seller on a marketplace other than EBAY_US will need that revisited."
-    },
-    {
       "id": "US-3266",
       "passes": false,
       "title": "iOS: land post-order pushes on the exact row, not just the tab",

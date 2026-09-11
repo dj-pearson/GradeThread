@@ -44,6 +44,18 @@ describe("the empty-policies state (US-3265)", () => {
     }
   });
 
+  it("is offered when ANY of the three is missing, not only when all are", () => {
+    // The route already creates only the kinds the account lacks. The page was
+    // the narrower gate: it showed the four questions only for an account with
+    // NO policies at all, so a seller with a payment policy and no shipping
+    // policy got the picker with an empty shipping dropdown and no way to fill
+    // it -- the same dead end, one step further in.
+    expect(PAGE).toMatch(/const missingKinds = POLICY_KINDS\.filter/);
+    expect(PAGE).toMatch(/missingKinds\.length > 0 && \(/);
+    // And the picker still renders for the policies that DO exist.
+    expect(PAGE).toMatch(/policies\.length > 0 && \(/);
+  });
+
   it("sends whole cents and a bounded handling time", () => {
     // The input is dollars because that is what a seller thinks in; the wire is
     // cents because that is what the route validates.

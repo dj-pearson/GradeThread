@@ -2034,6 +2034,39 @@ flipdeskEbayRoutes.post("/policies/create", async (c) => {
     }
   }
 
+  // ...and then ASK, rather than assume. optInToProgram returns void, so "the
+  // call did not throw" is not the same fact as "the account is in the
+  // program" -- US-2641 was three eBay verbs (price, end, relist) that each
+  // reported success on exactly that reasoning. get_opted_in_programs is the
+  // read that settles it, and the client already has it.
+  //
+  // A failed READ is a different thing from a negative answer: it says nothing
+  // about the program, and blocking on it would strand a seller whose account
+  // is fine. So an unreadable program list falls through to the create, where
+  // eBay's own refusal is surfaced verbatim; only a list that comes back
+  // WITHOUT the program is refused here.
+  let optedIn: string[] | null = null;
+  try {
+    optedIn = await getOptedInPrograms(ownerId);
+  } catch (err) {
+    console.warn(
+      "[flipdesk-ebay] could not read opted-in programs; letting the create " +
+        "surface eBay's own error:",
+      err instanceof Error ? err.message : String(err),
+    );
+  }
+  if (optedIn && !optedIn.includes("SELLING_POLICY_MANAGEMENT")) {
+    return c.json(
+      {
+        error:
+          "eBay still has business policies switched off for this account, so " +
+          "there is nowhere to put them. Turn on business policies in your eBay " +
+          "account settings, then press this again.",
+      },
+      502,
+    );
+  }
+
   let result: { created: string[] };
   try {
     result = await createDefaultPolicies(
@@ -2081,6 +2114,44 @@ flipdeskEbayRoutes.post("/policies/create", async (c) => {
   await setDefaultPolicies(ownerId, selection);
 
   const final = await listCachedPolicies(ownerId);
+
+  // Confirm that the three policies the publish path reads are actually there,
+  // as defaults, before telling the seller they can publish. eBay accepting a
+  // POST is not the same event as the policy being readable on the account, and
+  // an ok:true here with a kind still missing is precisely the message the
+  // seller has already had once: "Configure eBay business policies", after
+  // being told it was done. readCachedDefaults() requires an is_default row per
+  // kind, so that is the bar checked here -- the same one publish uses.
+  const confirmed = new Set(
+    final.filter((p) => p.is_default).map((p) => p.policy_type),
+  );
+  const stillMissing = (["fulfillment", "payment", "return"] as const).filter(
+    (kind) => !confirmed.has(kind),
+  );
+  if (stillMissing.length > 0) {
+    const plain: Record<string, string> = {
+      fulfillment: "shipping",
+      payment: "payment",
+      return: "returns",
+    };
+    const names = stillMissing.map((k) => plain[k] ?? k).join(" and ");
+    console.error(
+      `[flipdesk-ebay] /policies/create: eBay did not return ${stillMissing.join(", ")} after creating them for ${ownerId}`,
+    );
+    return c.json(
+      {
+        ok: false,
+        created: result.created,
+        still_missing: stillMissing,
+        error:
+          `eBay has not given back your ${names} policy yet, so publishing would ` +
+          `still fail. Nothing was lost: press this again in a moment and it will ` +
+          `pick up whatever was already made.`,
+      },
+      502,
+    );
+  }
+
   return c.json({
     ok: true,
     created: result.created,
