@@ -140,6 +140,25 @@ export function resolveIncludedCap(
   return snapshot ?? liveCap;
 }
 
+/**
+ * The included-grade allowance as the charge will see it, for anything that
+ * DISPLAYS it. /validate used to derive this from the compiled cap with no
+ * snapshot, so the composer could show a count runPaymentPrecedence disagreed
+ * with. Same inputs, same rollover test, same cap rule.
+ */
+export function includedAllowance(input: {
+  dbUsed: number;
+  resetAt: string;
+  snapshot: number | null | undefined;
+  liveCap: number;
+  now?: Date;
+}): { used: number; cap: number; remaining: number } {
+  const rolledOver = new Date(input.resetAt) <= (input.now ?? new Date());
+  const used = rolledOver ? 0 : input.dbUsed;
+  const cap = resolveIncludedCap(input.snapshot, input.liveCap, rolledOver);
+  return { used, cap, remaining: Math.max(0, cap - used) };
+}
+
 // Resolve the plan that governs included grades + caps, accounting for a paused
 // subscription and an EXPIRED TRIAL both falling back to Free.
 //

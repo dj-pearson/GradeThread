@@ -34,6 +34,8 @@ import {
   tierPriceDollars,
   type GradeTier,
 } from "./grade-billing.ts";
+import { includedAllowance } from "./grade-pricing.ts";
+import { type FlipdeskPlan, getPlanMatrix } from "./pricing-config.ts";
 
 // Local alias keeps the existing interface names readable.
 type GradingTier = GradeTier;
@@ -101,6 +103,9 @@ export interface ValidationResult {
     grades_remaining: number; // included remaining + affordable credit grades
     included_remaining: number; // included standard grades left this month
     credit_balance: number; // grade credit balance
+    // The owner account: grades are free and uncapped, but still counted in
+    // grades_used_this_month so the counter can be watched moving.
+    unlimited: boolean;
   };
   items: ValidatedItem[];
   total_cost: number; // dollar value (display)
@@ -303,7 +308,7 @@ export async function buildValidation(
   const { data: userRow, error: userErr } = await supabaseAdmin
     .from("users")
     .select(
-      "flipdesk_plan, subscription_status, trial_ends_at, grades_used_this_month, grade_reset_at, grade_credit_balance, suspended",
+      "role, flipdesk_plan, subscription_status, trial_ends_at, past_due_since, grades_used_this_month, grade_reset_at, included_grades_this_period, grade_credit_balance, suspended",
     )
     .eq("id", ownerId)
     .maybeSingle();
@@ -311,11 +316,14 @@ export async function buildValidation(
     return { ok: false, status: 404, error: "User not found" };
   }
   const user = userRow as {
+    role: string | null;
     flipdesk_plan: string;
     subscription_status: string | null;
     trial_ends_at: string | null;
+    past_due_since: string | null;
     grades_used_this_month: number;
     grade_reset_at: string;
+    included_grades_this_period: number | null;
     grade_credit_balance: number;
     suspended: boolean;
   };
@@ -331,16 +339,34 @@ export async function buildValidation(
   // Mirror runPaymentPrecedence: included standard grades come from the plan's
   // monthly bundle (Standard tier only); everything else is paid with credits.
   // We compute "as if" here — /submit charges atomically via the shared path.
+  //
+  // Same inputs as the charge: past_due_since for the plan, the live DB plan
+  // matrix for the cap, and the per-period snapshot. This used the compiled
+  // cap with no snapshot, so the composer could show a count the charge
+  // disagreed with the moment an operator edited a plan.
   const effectivePlan = effectivePlanFor(
     user.flipdesk_plan,
     user.subscription_status,
     user.trial_ends_at,
+    new Date(),
+    user.past_due_since,
   );
-  const includedCap = INCLUDED_STANDARD_PER_MONTH[effectivePlan] ?? 0;
-  const resetAt = new Date(user.grade_reset_at).getTime();
-  const usedThisMonth = resetAt <= Date.now() ? 0 : user.grades_used_this_month;
-  const includedRemaining = Math.max(0, includedCap - usedThisMonth);
+  const planCfg = (await getPlanMatrix())[effectivePlan as FlipdeskPlan];
+  const allowance = includedAllowance({
+    dbUsed: user.grades_used_this_month,
+    resetAt: user.grade_reset_at,
+    snapshot: user.included_grades_this_period,
+    liveCap: planCfg?.includedStandardGradesPerMonth ??
+      (INCLUDED_STANDARD_PER_MONTH[effectivePlan] ?? 0),
+  });
+  const includedCap = allowance.cap;
+  const usedThisMonth = allowance.used;
+  const includedRemaining = allowance.remaining;
   const creditBalance = user.grade_credit_balance ?? 0;
+  // The owner grades free and uncapped (grade-precedence.ts), so a batch is
+  // always payable for them. Without this an owner past the included cap with
+  // few credits would be refused here for a grade the charge would have comped.
+  const unlimited = user.role === "super_admin";
 
   const itemIds = Array.from(
     new Set(inputs.map((i) => i.inventory_item_id)),
@@ -486,7 +512,7 @@ export async function buildValidation(
   );
 
   const totalCost = items.reduce((acc, i) => acc + i.cost, 0);
-  const affordable = creditBalance >= creditsRequired;
+  const affordable = unlimited || creditBalance >= creditsRequired;
   const canSubmit = items.length > 0 && items.every((i) => i.ready) && affordable;
 
   return {
@@ -501,10 +527,12 @@ export async function buildValidation(
         grades_remaining: includedRemaining + creditBalance,
         included_remaining: includedRemaining,
         credit_balance: creditBalance,
+        unlimited,
       },
       items,
       total_cost: Number(totalCost.toFixed(2)),
-      credits_required: creditsRequired,
+      // Nothing is debited for the owner, so nothing is required.
+      credits_required: unlimited ? 0 : creditsRequired,
       can_submit: canSubmit,
       limit_exceeded: !affordable,
     },

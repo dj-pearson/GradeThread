@@ -26,7 +26,8 @@
 //     checkout to everyone including the seller.
 //   • THE SUPER-ADMIN COMP IS UNCAPPED AND STILL AUDITED. It writes a zero-delta
 //     ledger row rather than skipping the ledger, so a free grade is still a
-//     grade someone can account for.
+//     grade someone can account for. A Standard comp under the cap is also
+//     counted through the real included claim, and never debits credits.
 //   • AN INCLUDED GRANT RECORDS NO BALANCE. `balance_after` is null because
 //     snapshotting the balance was a non-atomic read that drifted whenever a
 //     concurrent debit landed between read and insert (US-398). A balance that is
@@ -148,31 +149,43 @@ export async function performPaymentPrecedence(
 ): Promise<PrecedenceOutcome> {
   const { user, tier, pricing } = args;
 
-  // ── The platform owner grades free, uncapped ──
-  //
-  // Handled at the chokepoint rather than per-caller so it covers the web flow,
-  // the bulk bridge and the public API at once. Scoped strictly to super_admin —
-  // ordinary `admin`/`reviewer` accounts pay like anyone else, which is the
-  // whole reason this is a role check and not an is-staff check.
-  if (user.role === "super_admin") {
-    await io.markPaid("included");
-    await io.recordGrant("super_admin unlimited grade (uncapped, no charge)");
-    return {
-      paid: true,
-      method: "included",
-      // Deliberately the UNCHANGED counter: nothing was consumed, so reporting
-      // an incremented value would make a free grade look like it ate one of
-      // the seller's included allowance.
-      newIncludedUsed: user.grades_used_this_month,
-    };
-  }
-
   const includedUsed = args.rolledOver ? 0 : user.grades_used_this_month;
   const includedCap = resolveIncludedCap(
     user.included_grades_this_period,
     args.liveCap,
     args.rolledOver,
   );
+
+  // ── The platform owner grades free, uncapped ──
+  //
+  // Handled at the chokepoint rather than per-caller so it covers the web flow,
+  // the bulk bridge and the public API at once. Scoped strictly to super_admin —
+  // ordinary `admin`/`reviewer` accounts pay like anyone else, which is the
+  // whole reason this is a role check and not an is-staff check.
+  //
+  // The grade is still COUNTED, through the same included claim a seller's
+  // Standard grade takes (owner's call, 2026-09-11). Until then the owner's
+  // counter never moved, so the one account that grades every day could not
+  // tell a working claim from a broken one. Counting never charges: over the
+  // cap, on a lost claim, or on Premium/Express, the grade is simply free, and
+  // the audit row says what a seller would have paid instead.
+  if (user.role === "super_admin") {
+    const counted = tier === "standard" && includedUsed < includedCap
+      ? await io.claimIncluded(includedCap)
+      : null;
+    await io.markPaid("included");
+    await io.recordGrant(
+      counted?.claimed
+        ? `super_admin unlimited grade (counted ${counted.newUsed}/${includedCap}, no charge)`
+        : `super_admin unlimited grade (uncapped, no charge; a seller would have used ` +
+          `${pricing.tierCreditCost} credit${pricing.tierCreditCost === 1 ? "" : "s"})`,
+    );
+    return {
+      paid: true,
+      method: "included",
+      newIncludedUsed: counted?.claimed ? counted.newUsed : includedUsed,
+    };
+  }
 
   // ── (1) Included monthly grades — STANDARD only ──
   //

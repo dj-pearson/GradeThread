@@ -42,7 +42,10 @@ import {
 } from "@/hooks/use-grading";
 import { supabase } from "@/lib/supabase";
 import { useLatestRun } from "@/hooks/use-latest-run";
-import { acceptValidation } from "@/components/flipdesk/grading-validation-run";
+import {
+  acceptValidation,
+  allowanceReadback,
+} from "@/components/flipdesk/grading-validation-run";
 import { GARMENT_TYPES, GARMENT_CATEGORIES } from "@/lib/constants";
 import {
   deriveGarmentDefaults,
@@ -116,6 +119,11 @@ export function GradeThisItemCard({
     null,
   );
   const [creditBalance, setCreditBalance] = useState<number | null>(null);
+  // The owner account grades free but is still counted, so the card can say
+  // "Unlimited" and show the count moving. Null until the first validate.
+  const [usage, setUsage] = useState<
+    { unlimited: boolean; used: number; cap: number } | null
+  >(null);
   // US-1423: inline garment picker state (only shown when garment_type/
   // garment_category are the sole thing blocking grading).
   const [garmentType, setGarmentType] = useState<GarmentType | "">("");
@@ -172,6 +180,11 @@ export function GradeThisItemCard({
         setPlanRemaining(patch.planRemaining);
         setIncludedRemaining(patch.includedRemaining);
         setCreditBalance(patch.creditBalance);
+        setUsage({
+          unlimited: patch.unlimited,
+          used: patch.includedUsed,
+          cap: patch.includedCap,
+        });
       })
       .catch(() => {
         /* surfaced by hook's onError */
@@ -214,14 +227,22 @@ export function GradeThisItemCard({
       });
       const ok = res.results.find((r) => r.ok && r.inventory_item_id === item.id);
       if (ok && ok.ok) {
-        const costText =
-          payMethod === "included"
+        const costText = usage?.unlimited
+          ? "free, owner account"
+          : payMethod === "included"
             ? "free with your plan"
             : payMethod === "credits"
               ? `${creditCost} credit${creditCost === 1 ? "" : "s"}`
               : fmtMoney(ok.cost);
+        // Read the allowance back from the server so the toast shows what the
+        // charge actually wrote. A failed read-back just drops the line.
+        const after = await validate
+          .mutateAsync({ inventoryItemId: item.id, tier })
+          .catch(() => null);
+        const readback = after ? allowanceReadback(tier, after) : "";
         toast.success(
-          `Submitted for grading — ${tier} tier (${costText}).`,
+          `Submitted for grading — ${tier} tier (${costText}).` +
+            (readback ? ` ${readback}` : ""),
         );
       } else {
         const failed = res.results.find((r) => !r.ok);
@@ -285,6 +306,11 @@ export function GradeThisItemCard({
         setPlanRemaining(patch.planRemaining);
         setIncludedRemaining(patch.includedRemaining);
         setCreditBalance(patch.creditBalance);
+        setUsage({
+          unlimited: patch.unlimited,
+          used: patch.includedUsed,
+          cap: patch.includedCap,
+        });
       }
       toast.success("Garment details saved.");
     } catch (err) {
@@ -448,8 +474,10 @@ export function GradeThisItemCard({
   // Standard draws from the monthly included bundle first, then credits, then a
   // one-time charge; Premium/Express skip the included bundle (credits/charge).
   const creditCost = GRADING_TIER_CREDIT_COST[tier];
+  // The owner grades free on every tier (grade-precedence.ts super_admin).
   const coveredByIncluded =
-    tier === "standard" && (includedRemaining ?? 0) > 0;
+    usage?.unlimited === true ||
+    (tier === "standard" && (includedRemaining ?? 0) > 0);
   const coveredByCredits =
     !coveredByIncluded && (creditBalance ?? 0) >= creditCost;
   const payMethod: "included" | "credits" | "charge" = coveredByIncluded
@@ -596,7 +624,12 @@ export function GradeThisItemCard({
             ) : (
               "Fix the above before submitting."
             )}
-            {planRemaining != null && (
+            {usage?.unlimited ? (
+              <span className="ml-2 text-muted-foreground/70">
+                · Unlimited grades · {usage.used} of {usage.cap} counted this
+                month
+              </span>
+            ) : planRemaining != null && (
               <span className="ml-2 text-muted-foreground/70">
                 · {planRemaining} grade{planRemaining === 1 ? "" : "s"} left
                 this month
