@@ -43,7 +43,10 @@ import { Progress } from "@/components/ui/progress";
 import { edgeFetch } from "@/lib/edge-fetch";
 import { useAuthStore } from "@/stores/auth-store";
 import { MARKETPLACE_LABELS } from "@/lib/constants";
-import { CLOSET_IMPORT_PLATFORMS } from "@/lib/marketplace-disclosure";
+import {
+  CLOSET_IMPORT_PLATFORMS,
+  isClosetImportPlatform,
+} from "@/lib/marketplace-disclosure";
 import {
   presetIdForAnswer,
   readExistingListings,
@@ -422,10 +425,15 @@ export function FlipdeskImportPage() {
   // US-9201: the two closet-import events. `closet_import_first_item` fires
   // once per account per device, the first time a closet import creates an
   // item, and carries only the seconds since the extension was installed.
+  //
+  // US-3154: the gate reads the SHARED list. It used to name poshmark and
+  // mercari inline, which were the only two when it was written, and nothing
+  // updated it when Grailed shipped -- so every Grailed closet import has been
+  // invisible to both events since US-3155.
   const userId = user?.id;
   const recordClosetCompletion = useCallback((finished: ImportRun) => {
     const origin = finished.origin;
-    if (origin !== "poshmark" && origin !== "mercari") return;
+    if (!isClosetImportPlatform(origin)) return;
     track("closet_import_completed", {
       platform: origin,
       status: finished.status,

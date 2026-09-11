@@ -279,6 +279,16 @@ export const MARKETPLACE_SPECS: Record<MarketplacePlatform, MarketplaceSpec> = {
       { value: "Used - fair", label: "Used — fair" },
     ],
     tags: { max: 5, required: false, help: "Up to 5 hashtags" },
+    // US-3154: NO priceStep, and the absence is deliberate rather than missed.
+    //
+    // Depop prices to the penny. The partner-API client already relies on that:
+    // publishDepop passes `price` straight into DepopProductInput with no
+    // rounding anywhere on the path (services/edge-functions/src/lib/
+    // marketplace-adapters/depop.ts), so every Depop publish this repo has ever
+    // made sent cents. Adding priceStep: 1 here would round a live $24.99
+    // listing to $25 on its next revise, which is a price change the seller
+    // never asked for. Poshmark and Vinted carry the step because their own
+    // inputs refuse a decimal point; Depop's does not.
     usesOwnTaxonomy: true,
     brandAllowList: false,
     fields: [

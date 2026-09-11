@@ -386,6 +386,21 @@ export function platformLabel(platform: ClosetImportPlatform): string {
   return labels[platform];
 }
 
+/**
+ * "Poshmark, Mercari and Grailed" — the supported marketplaces, in a sentence.
+ *
+ * US-3154. The route's 400 said that phrase in hand-written prose, and so did
+ * the web bundle and the extension background. Adding a fourth marketplace made
+ * three of those wrong with nothing failing. Built from the list instead, with
+ * the same helper mirrored at src/lib/marketplace-disclosure.ts for the bundle
+ * that cannot import from here.
+ */
+export function closetImportPlatformSentence(): string {
+  const labels = CLOSET_IMPORT_PLATFORMS.map(platformLabel);
+  if (labels.length <= 1) return labels[0] ?? "";
+  return `${labels.slice(0, -1).join(", ")} and ${labels[labels.length - 1]}`;
+}
+
 /** item_photos.photo_type for the n-th copied photo: cover first, then details. */
 export function photoTypeForIndex(i: number): "front" | "detail" {
   return i === 0 ? "front" : "detail";

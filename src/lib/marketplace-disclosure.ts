@@ -117,6 +117,37 @@ export const CLOSET_IMPORT_PLATFORMS = ["poshmark", "mercari", "grailed"] as con
 export type ClosetImportPlatform = (typeof CLOSET_IMPORT_PLATFORMS)[number];
 
 /**
+ * Is this import run's origin a closet read?
+ *
+ * US-3154. `flipdesk_import_runs.origin` holds either a spreadsheet origin
+ * (csv/sheet/paste) or the marketplace a closet was read from, so anything that
+ * treats closet runs differently has to ask this question. It used to be asked
+ * by naming the platforms inline, and the inline copy in import.tsx was never
+ * updated when Grailed arrived: every Grailed closet import fired no analytics
+ * at all, which in the funnel is indistinguishable from nobody running one.
+ * One list, one membership test, and a new platform is covered by adding it
+ * above and nowhere else.
+ */
+export function isClosetImportPlatform(v: unknown): v is ClosetImportPlatform {
+  return typeof v === "string" &&
+    (CLOSET_IMPORT_PLATFORMS as readonly string[]).includes(v);
+}
+
+/**
+ * "Poshmark, Mercari and Grailed" -- the supported marketplaces, in a sentence.
+ *
+ * US-3154. That phrase was written out by hand in four places (the edge route's
+ * 400, this bundle's failure copy, the extension background's refusal, and the
+ * card's own prose), and the day a fourth marketplace lands three of them are
+ * wrong and none of them fails a build. Built from the list, it cannot be.
+ */
+export function closetImportPlatformSentence(): string {
+  const labels = CLOSET_IMPORT_PLATFORMS.map((p) => MARKETPLACE_LABELS[p]);
+  if (labels.length <= 1) return labels[0] ?? "";
+  return `${labels.slice(0, -1).join(", ")} and ${labels[labels.length - 1]}`;
+}
+
+/**
  * US-3263: the MOST listings an account with no FlipDesk plan may bring in per
  * read.
  *

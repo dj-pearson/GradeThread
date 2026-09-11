@@ -28,6 +28,7 @@ import { findForbiddenKey } from "../lib/sync-payload-guard.ts";
 import { type CapacityHeadroom, capacityHeadroom, requireFlipdesk } from "../lib/plan-gate.ts";
 import {
   applyFreeTierCap,
+  closetImportPlatformSentence,
   type ClosetImportRow,
   FREE_CLOSET_IMPORT_ROWS,
   freeRowAllowance,
@@ -132,7 +133,7 @@ flipdeskClosetImportRoutes.post("/runs", async (c) => {
   const platform = typeof body.platform === "string" ? body.platform.toLowerCase() : "";
   if (!isClosetImportPlatform(platform)) {
     return c.json(
-      { error: "Closet import supports Poshmark, Mercari and Grailed." },
+      { error: `Closet import supports ${closetImportPlatformSentence()}.` },
       400,
     );
   }

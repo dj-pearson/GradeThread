@@ -1488,11 +1488,32 @@ function closetImportTabPatterns(platform) {
   return out;
 }
 
+/**
+ * "Poshmark, Mercari and Grailed" — built from the bundled adapters.
+ *
+ * US-3154. This sentence was typed out by hand here, in the web bundle and in
+ * the edge route's 400. Three hand-written copies of one list is how US-3261
+ * happened; a fourth adapter now changes all three by changing none of them.
+ */
+function closetImportSupportedSentence() {
+  const SEL = self.GT_CLOSET_IMPORT_SELECTORS || {};
+  const labels = Object.keys(SEL)
+    .filter((k) => SEL[k] && SEL[k].enabled)
+    .map((k) => SEL[k].label || k);
+  if (labels.length === 0) return "no marketplaces yet";
+  if (labels.length === 1) return labels[0];
+  return labels.slice(0, -1).join(", ") + " and " + labels[labels.length - 1];
+}
+
 async function runClosetImport(msg) {
   const platform = msg && typeof msg.platform === "string" ? msg.platform.toLowerCase() : "";
   const patterns = closetImportTabPatterns(platform);
   if (patterns.length === 0) {
-    return { ok: false, reason: "unsupported", error: "Closet import supports Poshmark, Mercari and Grailed." };
+    return {
+      ok: false,
+      reason: "unsupported",
+      error: "Closet import supports " + closetImportSupportedSentence() + ".",
+    };
   }
   // US-3263: NO seller gate here any more. An account without a plan may bring
   // in a bounded number of listings, and the server decides that number from

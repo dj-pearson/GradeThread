@@ -6,6 +6,8 @@ import { assert, assertEquals } from "@std/assert";
 import {
   applyFreeTierCap,
   closetFillPatch,
+  CLOSET_IMPORT_PLATFORMS,
+  closetImportPlatformSentence,
   closetListingPatch,
   isClosetImportPlatform,
   listingIdFromUrl,
@@ -215,6 +217,24 @@ Deno.test("grailed is a known platform with a label, and an unknown one still is
   assertEquals(platformLabel("grailed"), "Grailed");
   assert(!isClosetImportPlatform("depop"), "depop lands in US-3154, not here");
   assert(!isClosetImportPlatform("etsy"));
+});
+
+// US-3154. The route's 400 used to spell the supported list out in prose, and so
+// did the web bundle and the extension background — three hand-written copies of
+// a list that already drifted once (US-3261, where the constant gained Grailed
+// and the CHECK constraint did not). This builds it, so the prose cannot be the
+// thing that is wrong.
+Deno.test("the supported-marketplace sentence is built from the platform list", () => {
+  const sentence = closetImportPlatformSentence();
+  for (const platform of CLOSET_IMPORT_PLATFORMS) {
+    assert(
+      sentence.includes(platformLabel(platform)),
+      `"${sentence}" does not name ${platform}`,
+    );
+  }
+  // Serial comma-free "A, B and C", which is the wording the route already used.
+  assertEquals(sentence, "Poshmark, Mercari and Grailed");
+  assert(!sentence.includes("Depop"), "depop is not accepted until the origin CHECK permits it");
 });
 
 // ── US-3263: the free-plan bound ──────────────────────────────────────────

@@ -8,10 +8,19 @@ code_refs:
   - .env.example
   - services/edge-functions/.env.example
   - services/edge-functions/src/lib/env-validation.ts
-reviewed: 2026-09-10
+reviewed: 2026-09-11
 tags: [ops, env, deploy, contract]
 summary: Every env var the codebase reads, which of the eight deployment surfaces it belongs to, and which six are boot-fatal in production.
 ---
+
+> **Re-reviewed 2026-09-11.** Drift flagged `services/edge-functions/.env.example` for US-2665, which added
+> warnings to three variables saying they are NOT set in production
+> (`EDGE_MEMORY_LIMIT_MB`, `EDGE_TRACE_SAMPLE_RATE`,
+> `GRADING_MAX_CONCURRENT_PIPELINES`). No variable was added, renamed or
+> removed, and `check-env-reference.mjs` still reports 258 variables all
+> recorded here. The contract is unchanged; what changed is that the template
+> now says out loud what this note's own optional-marker warning already
+> said. Re-read against the diff: still accurate.
 # GradeThread + FlipDesk — Environment Variable Reference (master index)
 
 > **Re-reviewed 2026-09-03.** Drift flagged `services/edge-functions/.env.example`

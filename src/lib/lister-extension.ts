@@ -15,6 +15,11 @@ import { marketplacePriceString, stepPrice } from "@/lib/marketplace-price";
 import { orderedCappedPhotos, type ExportablePhoto } from "@/lib/photo-export";
 import type { PlatformKitVariant } from "@/hooks/use-autolister";
 import { chromeWebStoreUrl, firefoxAddonUrl, isFirefoxUa } from "@/lib/app-links";
+import { MARKETPLACE_LABELS } from "@/lib/constants";
+import {
+  type ClosetImportPlatform,
+  closetImportPlatformSentence,
+} from "@/lib/marketplace-disclosure";
 
 // Platforms the extension automates (no write API). Depop is excluded — it has
 // a partner API path (US-712..714), not the extension path.
@@ -1026,16 +1031,17 @@ export function closetImportCapNotice(
  */
 export function closetImportFailureText(
   reason: ClosetImportReason | null,
-  platform: "poshmark" | "mercari" | "grailed",
+  platform: ClosetImportPlatform,
 ): string {
-  const label = platform === "poshmark"
-    ? "Poshmark"
-    : platform === "mercari"
-      ? "Mercari"
-      : "Grailed";
+  // US-3154: the label and the supported-platform sentence both come from
+  // CLOSET_IMPORT_PLATFORMS now. This used to be a hand-written if/else chain
+  // and a hard-coded "Poshmark, Mercari and Grailed", which is a fourth copy of
+  // a list that already drifted once (US-3261). A fourth platform now needs no
+  // edit here at all.
+  const label = MARKETPLACE_LABELS[platform];
   switch (reason) {
     case "unsupported":
-      return "Closet import supports Poshmark, Mercari and Grailed.";
+      return `Closet import supports ${closetImportPlatformSentence()}.`;
     case "seller_locked":
       return "Closet import is part of a paid FlipDesk plan.";
     case "needs_sign_in":

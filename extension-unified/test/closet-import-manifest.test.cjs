@@ -188,6 +188,35 @@ const tokenAt = fnSrc.indexOf("gtBuyerToken");
 const readAt = fnSrc.indexOf("GT_CLOSET_IMPORT_READ");
 assert.ok(tokenAt !== -1 && readAt > tokenAt, "runClosetImport must require a signed-in token BEFORE reading a page");
 
+// US-3154: the "which marketplaces" sentence is BUILT from the bundled
+// adapters, not typed out.
+//
+// It was typed out in three places -- here, the web bundle's
+// closetImportFailureText and the edge route's 400 -- and the copy that mattered
+// was the one nobody updated. That is the same shape as US-3261, where the
+// platform constant gained Grailed and the origin CHECK did not: two statements
+// of one list, no test reading both. Evaluated rather than grepped, so it is the
+// behaviour that is held and not the spelling.
+const sentenceFn = /function closetImportSupportedSentence\(\)\s*\{[\s\S]*?\n\}/.exec(bg);
+assert.ok(sentenceFn, "background.js must build the supported-marketplace sentence");
+const supported = new Function(
+  "self",
+  `${sentenceFn[0]}; return closetImportSupportedSentence();`,
+)({ GT_CLOSET_IMPORT_SELECTORS: SEL });
+for (const platform of Object.keys(SEL)) {
+  if (!SEL[platform].enabled) continue;
+  assert.ok(
+    supported.includes(SEL[platform].label),
+    `the unsupported-marketplace refusal says "${supported}", which omits ` +
+      `${SEL[platform].label}. A seller told the wrong list gives up on a ` +
+      `marketplace the extension does read.`,
+  );
+}
+assert.ok(
+  /error: "Closet import supports " \+ closetImportSupportedSentence\(\)/.test(fnSrc),
+  "runClosetImport must use the built sentence for its unsupported refusal",
+);
+
 // ── 5. The store submission discloses the script ──────────────────────────
 
 const doc = fs.readFileSync(path.join(dir, "SUBMISSION.md"), "utf8");

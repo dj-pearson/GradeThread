@@ -8,10 +8,18 @@ code_refs:
   - services/edge-functions/src/lib/help-analytics.ts
   - functions/_shared/help-analytics.ts
   - src/lib/analytics-events.ts
-reviewed: 2026-09-10
+reviewed: 2026-09-11
 tags: [help-center, analytics, seo, contract]
 summary: PostHog cannot see the public help pages because they are server-rendered, so views are counted in Postgres for the public surface and in PostHog for the app, and adding the two together produces a wrong number rather than a bigger one.
 ---
+
+> **Re-reviewed 2026-09-11.** Drift flagged `analytics-events.ts` for the same two `photo_precheck` keys
+> (US-3331). Neither is a help-centre event and nothing this note measures
+> moved. Re-read against the diff: still accurate. Worth noting for the next
+> reader rather than re-dating in silence: this note now carries several
+> consecutive re-reads that all say 'a key was added elsewhere in the array',
+> so watching the whole file is a signal with little information in it. The
+> honest fix is to narrow what this note's code_refs points at.
 
 # Help Center measurement
 
