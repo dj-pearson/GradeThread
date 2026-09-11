@@ -423,7 +423,9 @@ async function getPanelItem(tabId, url) {
 async function getQueue() {
   const { gtBuyerToken } = await ext.storage.local.get("gtBuyerToken");
   if (!gtBuyerToken || typeof gtBuyerToken !== "string") {
-    return { ok: false, reason: "signed-out", pending: [], needsAttention: [] };
+    return {
+      ok: false, reason: "signed-out", pending: [], needsAttention: [], finishedNeedsReview: [],
+    };
   }
   try {
     const resp = await fetch(QUEUE_ENDPOINT, {
@@ -431,20 +433,37 @@ async function getQueue() {
       cache: "no-store",
     });
     if (resp.status === 401) {
-      return { ok: false, reason: "signed-out", pending: [], needsAttention: [] };
+      return {
+        ok: false, reason: "signed-out", pending: [], needsAttention: [], finishedNeedsReview: [],
+      };
     }
     if (resp.status === 403) {
-      return { ok: false, reason: "no-plan", pending: [], needsAttention: [] };
+      return {
+        ok: false, reason: "no-plan", pending: [], needsAttention: [], finishedNeedsReview: [],
+      };
     }
-    if (!resp.ok) return { ok: false, reason: "error", pending: [], needsAttention: [] };
+    if (!resp.ok) {
+      return {
+        ok: false, reason: "error", pending: [], needsAttention: [], finishedNeedsReview: [],
+      };
+    }
     const json = await resp.json();
     return {
       ok: true,
       pending: Array.isArray(json.pending) ? json.pending : [],
       needsAttention: Array.isArray(json.needsAttention) ? json.needsAttention : [],
+      // US-3370: runs that finished and still want a human, inside the server's
+      // own 48-hour window. A separate key because the two lists above each
+      // carry a promise the seller reads off them ("still coming" and "nothing
+      // happened on the marketplace"), and a finished run falsifies both.
+      finishedNeedsReview: Array.isArray(json.finishedNeedsReview)
+        ? json.finishedNeedsReview
+        : [],
     };
   } catch (_e) {
-    return { ok: false, reason: "error", pending: [], needsAttention: [] };
+    return {
+      ok: false, reason: "error", pending: [], needsAttention: [], finishedNeedsReview: [],
+    };
   }
 }
 
@@ -1986,6 +2005,130 @@ async function pushToSaasTab(job, result) {
   }
 }
 
+// US-3370: the result envelope a DRAINED queue row is completed with.
+//
+// IT IS A LIST, AND A HAND-WRITTEN LIST IS THE BUG THIS EXISTS TO CLOSE. The
+// old one was three fields typed out inline (error, manual, listingUrl), and
+// runFlow has returned eleven more since US-1877. `photosWitness` was one of
+// them: lister/common.js has emitted it since US-2738 and US-3367 built the
+// whole seller-facing rendering for it, and it never once reached the wire,
+// because a list written by hand drops a field in total silence.
+//
+// WHY IT IS STILL A LIST AND NOT Object.assign({}, result). The other end is
+// hostile to a document nobody chose. The edge runs this through
+// normalizeQueuePayload, which does two things on the way in:
+//
+//   * REFUSES the whole completion with a 400 when any key at any depth looks
+//     credential-shaped, matched on a SUFFIX, so a future flow field ending in
+//     "pass" or "session" would 400 every completion carrying it. And a refused
+//     completion does not fail quietly: completeQueueRow holds the result and
+//     re-sends the same refused body until it gives up, which is precisely the
+//     stuck-`claimed` row US-3061 was written to end.
+//   * drops the result to {} WHOLE, not truncated, when the JSON goes past
+//     8 KB. One oversized value would take the error string down with it.
+//
+// Coercion is the other half. A flow returning an object where a word belongs,
+// or a list that grows without a bound (`fields` is short today and nothing
+// makes it stay short), must not be able to put that shape into a row three
+// clients render. So: a declared table, every value coerced and capped here,
+// where the cost of a new field is a decision rather than an accident.
+//
+// The table is a SUPERSET of what the flows return. `ok` is the only key any
+// flow produces that is deliberately absent, because the completion body
+// carries its own top-level `ok` and two copies could disagree.
+//
+// WHAT KEEPS IT IN STEP WITH runFlow. test/queue-result-envelope.test.cjs reads
+// every result literal in lister/common.js and lister/job-store.js (every
+// `return {` carrying an `ok` key), and fails when a key is neither in the
+// table below nor named in that test's NOT_SENT list with a reason. Adding a
+// field to a flow now goes red until someone decides where it belongs.
+//
+// NOT used by drainQueue's own refusals. Those build small literals of their
+// own (expired, unsupported, mobileUnsupported) that never come from a flow,
+// and routing them through here would silently drop exactly those three keys.
+const QUEUE_RESULT_FIELDS = {
+  // Always sent, whatever the run did. Three clients have read these since
+  // US-2481 and an absent key is not the same thing as a null one to any of
+  // them, so these keep their old unconditional shape.
+  error: { type: "text", max: 400, always: true },
+  manual: { type: "flag", always: true },
+  listingUrl: { type: "url", max: 500, always: true },
+  // Everything below is sent only when the run produced it, and `undefined` is
+  // load-bearing downstream: queue-view.js photoWitnessState reads
+  // `photosTotal === undefined` to tell an extension build old enough to send
+  // no counts at all from a run that attached nothing, and those are two
+  // different sentences to a seller.
+  filled: { type: "flag" },
+  priceFilled: { type: "flag" },
+  brandFilled: { type: "flag" },
+  tagsCommitted: { type: "count" },
+  tagsTotal: { type: "count" },
+  photosAttached: { type: "flag" },
+  photosTotal: { type: "count" },
+  photosFailed: { type: "count" },
+  photosUnverified: { type: "count" },
+  // The one this story is named after. "page", "none" or "not-asked".
+  photosWitness: { type: "text", max: 32 },
+  delisted: { type: "flag" },
+  revised: { type: "flag" },
+  copied: { type: "flag" },
+  unverified: { type: "flag" },
+  // A revise that wrote some fields and not others, and which ones it wrote.
+  // Names, never values: runReviseFlow pushes the field name onto this list.
+  partial: { type: "flag" },
+  fields: { type: "words", max: 40, maxLength: 12 },
+  verifiedBy: { type: "text", max: 64 },
+  // The delist could not find the listing to end at all.
+  notFound: { type: "flag" },
+  // A machine-readable code beside the seller-facing `error` string, for the
+  // refusals that have one ("empty_payload").
+  reason: { type: "text", max: 48 },
+  timedOut: { type: "flag" },
+  tabClosed: { type: "flag" },
+  late: { type: "flag" },
+  // Which selector-config version ran. A selector break reported without it is
+  // a bug report with no build number on it.
+  version: { type: "text", max: 32 },
+};
+
+/**
+ * Project a flow result onto the queue envelope.
+ *
+ * Every value is coerced rather than copied: a flow that returns a string where
+ * a count belongs, or an object where a word belongs, must not be able to put
+ * that shape into a row three clients render.
+ */
+function queueResultEnvelope(result) {
+  const r = result && typeof result === "object" ? result : {};
+  const out = {};
+  for (const name of Object.keys(QUEUE_RESULT_FIELDS)) {
+    const spec = QUEUE_RESULT_FIELDS[name];
+    const raw = r[name];
+    if (raw === undefined && !spec.always) continue;
+    if (spec.type === "flag") {
+      out[name] = raw === true;
+    } else if (spec.type === "count") {
+      out[name] = typeof raw === "number" && isFinite(raw) ? Math.max(0, Math.round(raw)) : null;
+    } else if (spec.type === "words") {
+      // A short list of short names. Capped on both axes, because an array is
+      // the one shape here that has no natural size.
+      out[name] = Array.isArray(raw)
+        ? raw.filter(function (w) { return typeof w === "string" && w !== ""; })
+          .slice(0, spec.maxLength)
+          .map(function (w) { return w.slice(0, spec.max); })
+        : [];
+    } else {
+      // "text" and "url" alike: a string, or a number spelled out (version is
+      // a number on some flows), capped. Anything else is not a value.
+      const text = typeof raw === "string"
+        ? raw
+        : (typeof raw === "number" && isFinite(raw) ? String(raw) : null);
+      out[name] = text === null ? null : text.slice(0, spec.max);
+    }
+  }
+  return out;
+}
+
 // Settle a job outward on BOTH paths: the live port if we still have it, and the
 // durable push. The page de-duplicates by jobId, so a double delivery is safe and
 // whichever arrives first wins.
@@ -2015,17 +2158,14 @@ async function reportJob(job, result) {
     // a FINISHED job sitting `claimed` on the server. /claim reads only `queued`
     // rows, so nothing could ever hand it back: the seller's phone showed the
     // job as still running until expires_at seven days later.
+    // US-3370: through queueResultEnvelope, which is the declared field table
+    // above rather than three fields typed out here. The inline version dropped
+    // everything runFlow learned about the run: no photo counts, no witness, no
+    // price or tag result, no config version. A seller whose Poshmark uploader
+    // took the file list and rendered nothing got a row that said "done".
     await completeQueueRow(job.queueId, {
       ok: result && result.ok === true,
-      result: {
-        error: result && typeof result.error === "string"
-          ? result.error.slice(0, 400)
-          : null,
-        manual: Boolean(result && result.manual),
-        listingUrl: result && typeof result.listingUrl === "string"
-          ? result.listingUrl
-          : null,
-      },
+      result: queueResultEnvelope(result),
     });
     // Immediately look for the next one. The drain runs a single job at a time,
     // so without this a queue of six would take six sweep ticks — half an hour —

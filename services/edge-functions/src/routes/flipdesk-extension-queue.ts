@@ -111,14 +111,120 @@ flipdeskExtensionQueueRoutes.post("/", async (c) => {
   }, 201);
 });
 
+/**
+ * US-3370: how long a FINISHED run stays on the queue view.
+ *
+ * A queue is a to-do list. Returning every `done` row forever turns it into a
+ * history, and a history is a surface nobody reads, which is the same silence
+ * this feature was built to end wearing better manners.
+ *
+ * 48 hours, because the drain runs when the seller's browser opens and the
+ * popup is the thing they open to run it. Two days covers a laptop closed over
+ * a weekend without accumulating a week of rows. A refusal older than that is
+ * not queue news any more: the listing has been sitting on the marketplace for
+ * days and the place to learn about it is the listing itself.
+ */
+export const FINISHED_REVIEW_WINDOW_MS = 48 * 60 * 60 * 1000;
+
+/** And a hard cap, so a heavy seller's two days cannot become the payload. */
+export const FINISHED_REVIEW_LIMIT = 25;
+
+/**
+ * Did this finished run leave the seller something to do?
+ *
+ * Only rows this answers true for are returned. A clean cross-post is not queue
+ * news and must not be: a list that fills up with successes is a list the
+ * seller stops reading, and the one row that matters goes with it.
+ *
+ * DELIBERATELY NOT HERE, and each omission is a decision rather than an
+ * oversight:
+ *
+ *   photosUnverified > 0  queue-view.js maps an unconfirmed attach to
+ *                         "unknown", which is every ordinary run on four of the
+ *                         five channels because they declare no photoConfirm
+ *                         selector. A row that appears on every ordinary run
+ *                         trains the seller to skip the one that matters.
+ *   priceFilled === false Real, and actionable, and no client has a sentence
+ *                         for it yet. Putting the row in front of a seller with
+ *                         nothing written to explain it is US-3367's mistake
+ *                         upside down: the data arriving before the words.
+ */
+export function finishedNeedsReview(result: Record<string, unknown> | null): boolean {
+  if (!result || typeof result !== "object") return false;
+  // The uploader was handed the files, was asked for a preview, and rendered
+  // nothing out of them. The listing has no images on it.
+  if (result.photosWitness === "none") return true;
+  // Some or all of the files did not go in at all.
+  if (typeof result.photosFailed === "number" && result.photosFailed > 0) return true;
+  // The flow gave up and told the seller to finish by hand.
+  if (result.manual === true) return true;
+  // We clicked save or confirm and nothing proved it took.
+  if (result.unverified === true) return true;
+  // A run that completed and still had something to say.
+  if (typeof result.error === "string" && result.error.trim() !== "") return true;
+  return false;
+}
+
+/**
+ * The finished runs that still want a human, newest first.
+ *
+ * A SECOND QUERY RATHER THAN A WIDER `in`. The live read below is the drain's
+ * own view and is capped at 200 rows of outstanding work; folding `done` into
+ * it would let a busy day of completed jobs push queued rows out of that cap,
+ * and the queued list is the one a seller cannot afford to lose. This read
+ * carries its own window and its own much smaller cap.
+ *
+ * Owner-scoped (US-268). Nothing the client sent addresses this read, but it is
+ * still a read of a multi-tenant table.
+ */
+async function finishedNeedingReview(
+  ownerId: string,
+  nowMs: number,
+): Promise<QueueRow[]> {
+  const since = new Date(nowMs - FINISHED_REVIEW_WINDOW_MS).toISOString();
+  const { data, error } = await supabaseAdmin
+    .from("extension_work_queue")
+    .select(QUEUE_SELECT_COLS)
+    .eq("user_id", ownerId) // US-268
+    .eq("status", "done")
+    .gte("completed_at", since)
+    .order("completed_at", { ascending: false })
+    .limit(FINISHED_REVIEW_LIMIT);
+  // Advisory, exactly like lastDrainedAt: a failed read here must not take down
+  // the pending list, which is what the seller came for.
+  if (error) return [];
+  return ((data ?? []) as unknown as QueueRow[]).filter((r) => finishedNeedsReview(r.result));
+}
+
 // GET / — what is outstanding, for a human to look at.
 //
 // This is the seller-facing view: still waiting, plus anything that expired
 // undrained. The expired half is the point (AC6) — silence about work that never
 // ran is how a delist quietly turns into a double sale.
+//
+// US-3370 ADDS A THIRD LIST, AND IT IS A THIRD LIST FOR A REASON. A run can
+// finish and still leave the seller work. The commonest is a cross-post whose
+// uploader took the file list and rendered nothing out of it, so the form is
+// filled and the listing carries no images. That row was invisible here until
+// now, because `done` was not in the status filter at all, and it cannot be
+// folded into either existing list: both carry a promise in their consumers own
+// words.
+//
+//   pending          the web renders it as "Runs in your desktop browser" and
+//                    the extension popup counts it into "Run these now".
+//   needsAttention   the web renders it under "Didn't run" with the sentence
+//                    "Nothing happened on the marketplace, do it there
+//                    yourself, or queue it again".
+//
+// A finished run falsifies both, and the second is dangerous rather than merely
+// wrong: told that nothing happened and to queue it again, a seller makes a
+// duplicate listing. So the rows that want a human after a finished run get a
+// key of their own, which every existing client ignores and no existing client
+// is made to lie by.
 flipdeskExtensionQueueRoutes.get("/", async (c) => {
   const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
-  const nowIso = new Date().toISOString();
+  const now = Date.now();
+  const nowIso = new Date(now).toISOString();
   await expireStaleQueueRows(ownerId, nowIso);
 
   const { data, error } = await supabaseAdmin
@@ -133,11 +239,25 @@ flipdeskExtensionQueueRoutes.get("/", async (c) => {
     return failSafe(c, 500, "Could not load the queue.", error, "flipdesk.queue.list");
   }
 
-  const rows = await withItemTitles(ownerId, (data ?? []) as unknown as QueueRow[]);
+  const live = (data ?? []) as unknown as QueueRow[];
+  const finished = await finishedNeedingReview(ownerId, now);
+  // One title lookup for both lists. withItemTitles runs two queries of its
+  // own, and running them twice to name two halves of one screen is a cost with
+  // nothing behind it.
+  const finishedIds = new Set(finished.map((r) => r.id));
+  const rows = await withItemTitles(ownerId, live.concat(finished));
   return c.json({
-    pending: rows.filter((r) => r.status === "queued" || r.status === "claimed"),
+    pending: rows.filter((r) =>
+      !finishedIds.has(r.id) && (r.status === "queued" || r.status === "claimed")
+    ),
     // Surfaced separately so a client cannot render them as "still coming".
-    needsAttention: rows.filter((r) => r.status === "expired" || r.status === "failed"),
+    needsAttention: rows.filter((r) =>
+      !finishedIds.has(r.id) && (r.status === "expired" || r.status === "failed")
+    ),
+    // US-3370: finished, and still wanting a human. Never "still coming", never
+    // "didn't run". finishedNeedsReview says what qualifies and what does not;
+    // FINISHED_REVIEW_WINDOW_MS says how long it stays.
+    finishedNeedsReview: rows.filter((r) => finishedIds.has(r.id)),
     lastDrainedAt: await lastDrainedAt(ownerId),
   });
 });

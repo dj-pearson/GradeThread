@@ -6205,6 +6205,64 @@ Deno.test({
 });
 
 Deno.test({
+  // US-3370: the queue GET grew a THIRD list. `finishedNeedsReview` is a second
+  // read of extension_work_queue, on a status the route never returned before
+  // (`done`), and the service-role client bypasses RLS, so a widened status set
+  // is a widened surface whether or not the filter looks harmless.
+  //
+  // The GET takes no id, so the property is the same one the claim case holds:
+  // B's list can only ever be B's rows. Asserted against A's item id, which is
+  // the thing a leak would actually carry - a queue row is an instruction, and
+  // the instruction names the garment.
+  name: "B's queue list never returns A's finished work",
+  ignore: !CONFIGURED,
+  fn: async () => {
+    const res = await fetch(`${BASE}/api/flipdesk/extension-queue`, {
+      headers: authHeaders(B_JWT!),
+    });
+    if (res.status === 402 || res.status === 403) {
+      await res.body?.cancel();
+      return; // B has no FlipDesk plan; the earlier gate is a pass.
+    }
+    assertEquals(res.status, 200, "B must be able to read B's own queue");
+    const body = await res.json() as {
+      pending?: unknown;
+      needsAttention?: unknown;
+      finishedNeedsReview?: Array<{
+        id: string;
+        status: string;
+        inventory_item_id: string | null;
+        payload: Record<string, unknown> | null;
+      }>;
+    };
+    assert(
+      Array.isArray(body.finishedNeedsReview),
+      "the queue view must always carry finishedNeedsReview, even empty - a " +
+        "client that has to guess whether the key exists will render nothing",
+    );
+    const aItemId = Deno.env.get("TEST_USER_A_ITEM_ID");
+    for (const row of body.finishedNeedsReview ?? []) {
+      assertEquals(
+        row.status,
+        "done",
+        "finishedNeedsReview must carry only finished rows; a queued row here " +
+          "would be rendered as work that already ran",
+      );
+      if (!aItemId) continue;
+      assert(
+        row.inventory_item_id !== aItemId,
+        "B's finished list returned a row pointing at A's item - the new read " +
+          "is unscoped",
+      );
+      assert(
+        (row.payload ?? {}).itemId !== aItemId,
+        "B's finished list carried A's item in a payload",
+      );
+    }
+  },
+});
+
+Deno.test({
   // Not a tenancy case, but it belongs with them: the queue must refuse a
   // marketplace credential. This is the US-2476 bright line — GradeThread's
   // servers never hold a marketplace password or session cookie — and a queue is
