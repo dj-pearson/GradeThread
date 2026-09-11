@@ -653,6 +653,14 @@ if (on("ios")) {
 // --web, which has no business scanning a client tree.
 if ((on("ios") || on("android")) && existsSync(resolve(root, "android"))) {
   run("android: no unreachable declarations", "node scripts/check-android-orphans.mjs");
+  // US-3311. Same argument, same second: the two things about the screenshot
+  // suite that a text scan settles. An infinite animation in app code hangs
+  // every capture that reaches it (thirteen goldens were 93% of a two-hour
+  // suite and all thirteen failed), and a golden no test names can never fail
+  // at all. Both are invisible to Gradle, and waiting for the Gradle lane to
+  // ask would mean learning about the first one twenty minutes into a shard.
+  run("android: screenshot goldens still detect", "node scripts/check-screenshot-goldens.mjs --self-test");
+  run("android: no unfreezable animation, no unnamed golden", "node scripts/check-screenshot-goldens.mjs");
 }
 
 // ── Android — mirrors android-ci.yml "build-and-test" (US-2502) ──────────────

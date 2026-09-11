@@ -316,6 +316,18 @@ jobs:
         run: |
           node scripts/check-ios-orphans.mjs
           node scripts/check-android-orphans.mjs
+      # US-3311: the Android screenshot suite, asked the two questions that need
+      # no renderer. It runs HERE rather than in android-ci.yml on purpose -
+      # android-ci skips a push that touches no android/** file, and the first
+      # rule is about a hazard whose whole cost is that it shows up twenty
+      # minutes into a Gradle shard. Thirteen goldens photographed a spinner for
+      # eleven days because the only thing that could tell you was the lane too
+      # expensive to finish.
+      - name: Android screenshot goldens
+        if: ${{ !cancelled() }}
+        run: |
+          node scripts/check-screenshot-goldens.mjs --self-test
+          node scripts/check-screenshot-goldens.mjs
       # US-2876: the Swift tables generated out of TypeScript (surfaces,
       # product terms, help slugs). Text-only on both sides, so it runs here
       # rather than on the macOS runner -- a stale mirror should fail in the

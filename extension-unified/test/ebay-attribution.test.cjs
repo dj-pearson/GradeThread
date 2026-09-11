@@ -143,22 +143,59 @@ const SURFACES = [
   {
     file: "research/marketplace.js",
     what: "the in-page overlay, drawn inside eBay's own listing page",
+    // The CALL, not the name. See codeOnly below for why the distinction is the
+    // whole value of this check.
+    call: "GT_MP_NOTICE.appendNotice(",
   },
   {
     file: "compare.js",
     what: "the compare table, which renders pinned listing titles and prices",
+    call: "GT_MP_NOTICE.noticesForMarketplaces(",
   },
 ];
+
+/**
+ * Comments about the notice are not the notice.
+ *
+ * This check used to match /GT_MP_NOTICE/ against the whole file, which two
+ * kinds of broken code satisfy: a surface whose render call was deleted but
+ * whose explaining comment stayed (and the comment right above each call names
+ * the module, because that is what a good comment does), and a surface that
+ * reads the global into a variable and never calls it. Both leave the shopper
+ * looking at eBay's listing data with no notice on it, which is the one outcome
+ * this file exists to prevent.
+ *
+ * Blocks first, THEN line comments: inside a block comment the continuation
+ * lines start with plain prose, so dropping lines by prefix leaves the interior
+ * behind.
+ */
+function codeOnly(src) {
+  return src
+    .replace(/\/\*[\s\S]*?\*\//g, " ")
+    .split("\n")
+    .map((line) => {
+      const i = line.search(/(^|[^:])\/\//);
+      return i === -1 ? line : line.slice(0, i);
+    })
+    .join("\n");
+}
+
+// A floor. An empty SURFACES list would make the loop below a no-op and read
+// exactly like every surface passing.
+assert.ok(
+  SURFACES.length >= 2,
+  "SURFACES must name at least the overlay and the compare view",
+);
 
 for (const surface of SURFACES) {
   // ${surface.file} wires up the attribution notice
 (function () {
-    const src = read(surface.file);
-    assert.match(
-      src,
-      /GT_MP_NOTICE/,
-      `${surface.file} shows eBay data (${surface.what}) and must render the ` +
-        `notice via self.GT_MP_NOTICE`,
+    const code = codeOnly(read(surface.file));
+    assert.ok(
+      code.includes(surface.call),
+      `${surface.file} shows eBay data (${surface.what}) and must CALL ` +
+        `self.${surface.call}...). A mention in a comment, or reading the ` +
+        `global without calling it, renders no notice.`,
     );
   })();
 

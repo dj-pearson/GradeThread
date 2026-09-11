@@ -1,3 +1,8 @@
+// US-3112 found this red: the suite reaches src/lib/supabase.ts through its
+// static imports, so it must seed the env before that module evaluates. It
+// passed in every run that happened to load another test first.
+import "./_env.ts";
+
 // US-3186: the derived model surfaces may only name ids the registry knows.
 //
 // A model id used to be decided in twelve places. Seven of them are code in
