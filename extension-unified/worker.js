@@ -154,6 +154,9 @@
     var empty = el("empty");
     if (!list) return;
     list.textContent = "";
+    // US-3373: no `platformLabels` option is passed, and none exists to pass.
+    // Platform names are queue-view.js's, here and in popup.js and panel.js,
+    // so a row reads the same in all three.
     var views = QUEUE_VIEW.buildList(payload, { now: Date.now(), stages: stages });
     var groups = QUEUE_VIEW.groupRows(views);
     for (var g = 0; g < groups.length; g++) {

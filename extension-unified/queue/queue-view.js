@@ -31,6 +31,26 @@
     relist: "Relist",
   };
 
+  // US-3373: THE EXTENSION'S ONE PLATFORM VOCABULARY. Every surface reads this
+  // map and none of them may carry its own; popup.js, panel.html and worker.html
+  // all load this file first, and queue/worker-state.js already reads it through
+  // GT_QUEUE_VIEW for the pause line.
+  //
+  // It used to be one of two. popup.js held a copy calling facebook "Facebook"
+  // and passed it in as an override, so a single queue row read "Facebook" in
+  // the popup and "Facebook Marketplace" in the side panel and the worker tab.
+  // Nothing broke; it just made one queue look like two features.
+  //
+  // "Facebook Marketplace" is the one that won, for two reasons that are not
+  // about length. It is what the code that actually runs the job already says
+  // (background.js SUPPORTED_LISTER, lister/facebook.js), so the shorter form
+  // would have left the queue disagreeing with the runner. And "Facebook" on
+  // its own names a company that sells things two ways: this extension drives
+  // Marketplace and cannot touch Shops.
+  //
+  // A key with no entry here renders as its raw name rather than being dropped
+  // (see `label`), for the same reason KIND_LABELS does it: a row the seller
+  // cannot see is a row they cannot cancel.
   var PLATFORM_LABELS = {
     poshmark: "Poshmark",
     mercari: "Mercari",
@@ -341,9 +361,23 @@
     var stages = o.stages && typeof o.stages === "object" ? o.stages : null;
     var jobInfo = status === "claimed" && stages && stages[row.id] ? stages[row.id] : null;
     var stageText = jobInfo ? stageLabel(jobInfo.stage) : null;
-    var platformLabel = label(
-      (o.platformLabels || PLATFORM_LABELS), row.platform, "the marketplace",
-    );
+    // US-3373: NO PER-SURFACE OVERRIDE, AND THERE MUST NOT BE ONE AGAIN.
+    //
+    // This read used to be `o.platformLabels || PLATFORM_LABELS`. The argument
+    // for keeping it was that the popup's meta line is narrower than the
+    // panel's, so it wants a shorter name. That argument does not survive
+    // looking at where the string ends up: it is spliced into whole sentences
+    // built a few lines below this one: finishedReasonFor's "The listing is on
+    // X already", photoNoteFor's note, dismissHint's "The listing stays up on
+    // X." All three surfaces print those sentences word for word, on purpose,
+    // so an override does not shorten a chip, it renames the subject of a
+    // shared sentence in one surface only.
+    //
+    // The narrowness it was supposed to buy was imaginary anyway: popup.css
+    // gives .pop-delist-meta `white-space: nowrap; text-overflow: ellipsis`, so
+    // that line truncates at 380px whatever the name is, and the full string is
+    // already on the row's `title` tooltip.
+    var platformLabel = label(PLATFORM_LABELS, row.platform, "the marketplace");
     // US-3367: the run's own answer about its photos, on every row, whatever
     // the row's status. It is deliberately NOT folded into `needsAttention`:
     // that flag means "this never reached the marketplace", which is the one

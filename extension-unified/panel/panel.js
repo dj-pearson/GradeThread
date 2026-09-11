@@ -96,6 +96,9 @@
     const stages = jobsRes && jobsRes.ok && jobsRes.byQueueId
       ? jobsRes.byQueueId
       : null;
+    // US-3373: no `platformLabels` option is passed, and none exists to pass.
+    // Platform names are queue-view.js's, here and in popup.js and worker.js,
+    // so a row reads the same in all three.
     const rows = QUEUE_VIEW.buildList(res, { now: Date.now(), stages: stages });
 
     if (!rows.length) {

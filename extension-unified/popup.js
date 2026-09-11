@@ -37,7 +37,7 @@ const MARKETPLACE_HOST_RE =
   /(^|\.)(ebay\.|poshmark\.|grailed\.com|mercari\.com|depop\.com|vinted\.)/i;
 
 // One list, shared by the platform rows and the last-job line. The header of this
-// file warns about hand-maintained duplicates that drift — this is that list.
+// file warns about hand-maintained duplicates that drift — this WAS that list.
 //
 // 2026-08-11: it had drifted. Vinted went live in selectors.js and was missing
 // here, so it never appeared in the platform rows AT ALL and its last-job line
@@ -45,15 +45,23 @@ const MARKETPLACE_HOST_RE =
 // added too — it renders honestly as "Coming soon" off its own `enabled: false`,
 // which is better than a supported platform being invisible.
 //
+// US-3373: IT DRIFTED AGAIN, THE OTHER WAY. The copy here said facebook was
+// "Facebook" while queue/queue-view.js said "Facebook Marketplace", and this
+// file passed its copy into the queue as an override, so one queue row read
+// "Facebook" in the popup and "Facebook Marketplace" in the side panel and the
+// worker tab. A second hand-maintained spelling of a name is the same bug as a
+// missing one, so there is no longer a copy: queue-view.js owns the vocabulary
+// for every surface and this reads it. popup.html loads queue/queue-view.js
+// immediately before popup.js, which is why this can be read at load.
+//
+// Defensive `&&` rather than a bare property read: if that script ever fails to
+// load, a throw HERE would take the whole popup down (research, account,
+// sign-in), where today it only breaks the queue block. Every read below falls
+// back to the raw key, so the degraded popup says "poshmark" rather than nothing.
+//
 // The ORDER below drives the rows. It is derived against the real config, so a
 // key with no entry in selectors.js is skipped rather than rendering an empty row.
-const PLATFORM_LABELS = {
-  poshmark: "Poshmark",
-  mercari: "Mercari",
-  grailed: "Grailed",
-  vinted: "Vinted",
-  facebook: "Facebook",
-};
+const PLATFORM_LABELS = (self.GT_QUEUE_VIEW && self.GT_QUEUE_VIEW.PLATFORM_LABELS) || {};
 const PLATFORM_ORDER = ["poshmark", "mercari", "grailed", "vinted", "facebook"];
 
 const PLAN_LABELS = {
@@ -96,15 +104,15 @@ function scoreRing(score) {
   return ring;
 }
 
-const MARKETPLACE_LABELS = {
+// The research half reads listings on two sites the Lister has no flow for, so
+// this map is the Lister vocabulary PLUS those two, never a second spelling of
+// a name the Lister already has. US-3373: it used to hold its own "Facebook",
+// which put the split inside a single popup, where a research chip and a queue
+// row three sections apart named the same site differently.
+const MARKETPLACE_LABELS = Object.assign({
   ebay: "eBay",
-  poshmark: "Poshmark",
-  grailed: "Grailed",
-  mercari: "Mercari",
   depop: "Depop",
-  vinted: "Vinted",
-  facebook: "Facebook",
-};
+}, PLATFORM_LABELS);
 
 /** One letter on the marketplace's own hue; popup.css maps data-platform. */
 function monogram(platform) {
@@ -1559,9 +1567,11 @@ async function renderQueue(caps) {
     return;
   }
 
+  // US-3373: no `platformLabels` here, and none in panel.js or worker.js
+  // either. The names come from queue-view.js on all three surfaces, because
+  // they end up inside sentences all three print word for word.
   const rows = QUEUE_VIEW.buildList(res, {
     now: Date.now(),
-    platformLabels: PLATFORM_LABELS,
     stages: stages,
   });
   const counts = QUEUE_VIEW.summarize(rows);

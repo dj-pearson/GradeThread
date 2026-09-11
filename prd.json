@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-3380",
+  "nextId": "US-3381",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -4870,18 +4870,6 @@
       ]
     },
     {
-      "id": "US-3373",
-      "passes": false,
-      "title": "Facebook is called two different things depending on which extension surface you are looking at",
-      "description": "Found 2026-09-11 during US-3371, not acted on there because it is a vocabulary decision rather than a bug.\n\n`extension-unified/popup.js:50` carries its own platform label map calling facebook `\"Facebook\"`, and passes it in as `platformLabels`. `extension-unified/queue/queue-view.js:39` defaults to `\"Facebook Marketplace\"`. Neither `panel.js:99` nor `worker.js:152` passes the override.\n\nSo one queue row reads **Facebook** in the popup and **Facebook Marketplace** in the side panel and the worker tab. Same row, same data, three surfaces, two names.\n\nNothing breaks. It is the kind of split that makes a seller wonder whether they are looking at two different things.\n\nThe longer form is arguably right for the panel's full-width status line and wrong for the popup's narrow one, so \"pick one\" may not be the answer. If it is not, the override needs to be a deliberate per-surface choice rather than a map one file happens to carry.\n\nCheck the other platforms in both maps while deciding; facebook is the one that was noticed, not necessarily the only one that differs.",
-      "acceptanceCriteria": [
-        "Both label maps are diffed entry by entry and every difference is reported, since facebook was found by eye",
-        "Either one vocabulary wins everywhere, or the per-surface override becomes explicit at each call site with the reason, rather than being whatever map a file happens to hold",
-        "A test fails when the surfaces disagree about a platform's name, derived from the maps rather than listing the platforms by hand"
-      ],
-      "priority": 12
-    },
-    {
       "id": "US-3376",
       "passes": false,
       "title": "Seventeen writes in the web app drop their result, and the UI reports success anyway",
@@ -4924,6 +4912,19 @@
         "A test drives the non-2xx path and asserts both halves: the visitor sees the same page, and the operator signal fires"
       ],
       "priority": 9
+    },
+    {
+      "id": "US-3380",
+      "passes": false,
+      "title": "The web app is now the only place that still calls it Facebook instead of Facebook Marketplace",
+      "description": "Left over from US-3373, which settled the extension's four surfaces on one vocabulary owned by `extension-unified/queue/queue-view.js`.\n\n`src/lib/constants.ts:1649` `MARKETPLACE_LABELS` says `facebook: \"Facebook\"`. Everything else agrees: the extension's popup, side panel, worker tab and background all say **Facebook Marketplace**, and so do `extension-unified/lister/facebook.js:30` and `background.js:205`, which pass it as a literal into every job the flow actually runs.\n\nIt is not a third vocabulary. `constants.ts` agrees with the extension on every other shared key. Facebook is the single remaining disagreement in the product, and the web app is where a seller sees the same queue from the other side.\n\n**Not a one-line edit**, which is why US-3373 filed it instead of doing it: `MARKETPLACE_LABELS` feeds the composer's platform picker and several tests, and it holds 12 keys against the extension's 5, so the two maps cannot simply be merged.\n\nThe reasoning to copy, from US-3373: the long form wins because it is what the code that RUNS the job already says, and because \"Facebook\" names a company that sells things two ways while this product drives Marketplace and cannot touch Shops.",
+      "acceptanceCriteria": [
+        "src/lib/constants.ts agrees with the extension's vocabulary on every key the two maps share, and the seven keys only the web app has are left alone",
+        "The composer's platform picker and every test that reads the label are updated in the same change, since the picker is why this was not done inline",
+        "A test fails when the web app and the extension disagree about a shared platform name, derived from both maps rather than listing the platforms by hand",
+        "The web app's seven extra keys are checked against how the rest of the product names those platforms, because facebook was found by eye and that is a sample of one"
+      ],
+      "priority": 12
     }
   ]
 }
