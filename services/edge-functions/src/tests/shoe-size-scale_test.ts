@@ -340,9 +340,16 @@ Deno.test("US-2796: the parcel route is the one producer, and it feeds the scale
   }
 });
 
-Deno.test("US-2796: estimateParcel has exactly one edge caller", async () => {
+Deno.test("US-2796: every edge caller of estimateParcel resolves a size scale", async () => {
   // Pins the claim the case above rests on. A second edge caller that forgets
   // the scale is how this regresses without either file being touched.
+  //
+  // US-2790 (2026-09-11) added the SECOND caller, and this case was a hard-coded
+  // list of one, so it went red on a caller that does the right thing. A list of
+  // filenames cannot tell a correct new caller from a careless one, and the thing
+  // worth holding was never the COUNT: it is that whoever calls estimateParcel
+  // passes a sizeScale. So this now asserts the property. A third caller that
+  // resolves a scale passes silently; one that does not is named.
   const paths: string[] = [];
   for (const dir of ["src/routes", "src/lib"]) {
     for await (const entry of Deno.readDir(dir)) {
@@ -352,16 +359,28 @@ Deno.test("US-2796: estimateParcel has exactly one edge caller", async () => {
   assertEquals(paths.length > 50, true, "only " + paths.length + " edge sources scanned");
 
   const callers: string[] = [];
+  const missingScale: string[] = [];
   for (const p of paths) {
     if (p.endsWith("parcel-estimate.ts")) continue; // its own definition
     const text = await Deno.readTextFile(p);
-    if (/\bestimateParcel\(/.test(text)) callers.push(p);
+    if (!/estimateParcel\(/.test(text)) continue;
+    callers.push(p);
+    // The scale has to reach the CALL, so look for the argument rather than
+    // for the import: a file can import the resolver and still forget to pass
+    // what it returns, which is the whole failure this guards.
+    if (!/sizeScale\s*:/.test(text)) missingScale.push(p);
   }
   assertEquals(
-    callers,
-    ["src/routes/flipdesk-logistics.ts"],
-    "estimateParcel gained an edge caller. It must resolve a sizeScale too, or " +
-      "it prices a UK-stamped boot as a US men's one.",
+    callers.length >= 1,
+    true,
+    "no edge caller of estimateParcel was found at all - the scan matched " +
+      "nothing, which reads exactly like a clean result",
+  );
+  assertEquals(
+    missingScale,
+    [],
+    "these call estimateParcel without passing a sizeScale, so they price a " +
+      "UK-stamped boot as a US men's one: " + missingScale.join(", "),
   );
 });
 
