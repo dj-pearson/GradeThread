@@ -80,10 +80,20 @@ const ALLOWED = {
     "placement is a follow-on for somebody on a Mac. Delete this entry when " +
     "the first screen gets one.",
   AIAttributeConfirmView:
-    "UNREACHABLE (US-2791), and the starkest of the three: referenced nowhere " +
-    "at all, not even by a test. US-826 closed on an AC reading \"AIExtractView " +
-    "shows confirm chips\"; this is those chips, and AIExtractView has never " +
-    "presented them.",
+    "SUPERSEDED, not unbuilt, and the reason here used to say the opposite. " +
+    "It read \"AIExtractView has never presented them\", which is FALSE and " +
+    "cost a story: US-2791 was filed off this sentence. AIExtractView DID " +
+    "present them. 615c848d3 (2026-06-20) built the chips and wired them " +
+    "into the .ready phase behind a confirmingAttributes gate, with the " +
+    "persist call and attributes_confirmed / attributes_rejected analytics. " +
+    "699f1846b (2026-06-22) deleted those fifteen lines ON PURPOSE to make " +
+    "extraction headless, and its message records the decision as agreed " +
+    "with the owner: \"drop the chip screen\". Nothing is lost by their " +
+    "absence - persistCanonicalAttributes at flipdesk-ai.ts:1096 still " +
+    "gap-fills inventory_items.attributes server-side. The types stay " +
+    "because AIFillReviewSheet and ItemCanvasView still use " +
+    "AIAttributeConfirm.keys and .Result. Delete this entry only when the " +
+    "view itself goes, and do not re-file it as a missing surface.",
 };
 
 /** Top-level struct/class declarations. */
