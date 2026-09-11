@@ -134,7 +134,17 @@ export function countHelpArticleView(
       signal: AbortSignal.timeout(5_000),
     } as RequestInit,
   ).then(
-    () => {},
+    // US-3384: this fulfilment handler was `() => {}`, and the console.warn
+    // below was doing the work of looking covered. A rejection is only a
+    // network-level failure; a 401 from a rotated CF_PAGES_ORIGIN_SECRET, a 429
+    // from the public limiter or a 500 all RESOLVE, so the edge could have been
+    // rejecting every view count and the signal would have read zero with zero
+    // log lines. The likeliest failure was the one nothing was watching.
+    (res: Response) => {
+      if (!res.ok) {
+        console.warn(`[help/view] edge rejected the count: ${res.status} (slug=${safe})`);
+      }
+    },
     (e: unknown) => {
       // A lost count under-reports. A thrown error inside waitUntil would be a
       // Function error on a page that has already been delivered.

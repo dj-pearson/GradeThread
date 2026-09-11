@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
@@ -240,5 +240,45 @@ describe("the migration", () => {
     expect(sql.trimEnd().endsWith(
       "insert into public.applied_migrations (version) values ('00606') on conflict do nothing;",
     )).toBe(true);
+  });
+});
+
+// US-3384: the fire-and-forget view counter used to be `.then(() => {}, warn)`.
+// A rejection is only ever a network-level failure, so a 401 from a rotated
+// CF_PAGES_ORIGIN_SECRET, a 429 from the public limiter or a 500 all resolved
+// and were counted as successes: the edge could have been rejecting EVERY view
+// and the number would have read zero with zero log lines. The console.warn was
+// what made that look covered. These drive the call rather than reading it.
+describe("a rejected view count is visible (US-3384)", () => {
+  const UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0 Safari/537.36";
+  const countEnv = { EDGE_API_URL: "https://functions.example.invalid" } as never;
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  it("logs the STATUS when the edge rejects the count", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response("no", { status: 401 })));
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    await countHelpArticleView(countEnv, "the-photos-we-need", UA);
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(String(warn.mock.calls[0]?.[0])).toContain("401");
+    expect(String(warn.mock.calls[0]?.[0])).toContain("the-photos-we-need");
+  });
+
+  it("says nothing when the edge accepts it", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(null, { status: 204 })));
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    await countHelpArticleView(countEnv, "the-photos-we-need", UA);
+    expect(warn).not.toHaveBeenCalled();
+  });
+
+  it("still swallows a network failure rather than erroring a delivered page", async () => {
+    vi.stubGlobal("fetch", vi.fn(() => Promise.reject(new Error("socket hang up"))));
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    await expect(countHelpArticleView(countEnv, "the-photos-we-need", UA)).resolves
+      .toBeUndefined();
+    expect(warn).toHaveBeenCalledTimes(1);
   });
 });

@@ -115,6 +115,11 @@ const ROUTE_ADDED = new Set([
   "description",
   "hero_image_url",
   "images",
+  // US-3384: computed in the handler, not read from any column — true when the
+  // submission_images read or the storage signing behind hero_image_url FAILED,
+  // so the SSR page can tell "this cert has no photos" from "we could not find
+  // out" instead of noindexing a real certificate on a transient error.
+  "photos_unavailable",
   "verified_capture_passed",
   "live_capture_verified",
   "verified_360_badge",

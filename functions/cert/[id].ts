@@ -69,6 +69,11 @@ interface PublicCertificate {
   // human-review adjustment. Absent/null on an unrevised certificate.
   certified_content_updated_at?: string | null;
   hero_image_url: string | null;
+  // US-3384: true when a read behind the gallery FAILED upstream, so
+  // hero_image_url and images are incomplete rather than empty. Optional: the
+  // edge and Pages deploy separately, and an older edge simply omits it, which
+  // reads as false and restores the previous behaviour exactly.
+  photos_unavailable?: boolean;
   // US-1413: the full ordered gallery (signed URLs). Returned by the public
   // endpoint but previously ignored by the SSR — now rendered as a photo grid.
   images?: Array<{ id: string; image_type: string; display_order: number; url: string }>;
@@ -118,6 +123,15 @@ const FACTORS: Array<{ key: keyof PublicCertificate; label: string; weight: numb
 
 type Ctx = EventContext<PagesEnv, "id", Record<string, unknown>>;
 
+// US-3384 AC2: what an INCOMPLETE certificate render is served with.
+//
+// `no-store` is read by withEdgeCache (blog-render.ts), which refuses to store
+// it, and by every shared cache downstream. SSR_CACHE_CONTROL would pin this
+// render for an hour with a day of stale-while-revalidate behind it, which is
+// how one transient upstream failure becomes a day of the wrong certificate
+// page. A cached wrong answer is worse than a slow one.
+const INCOMPLETE_CACHE_CONTROL = "no-store";
+
 // US-1665: the "what does a {grade} grade mean?" module varies by grade band (10
 // variants, not one boilerplate). Keyed by the rounded band (1–10); every variant
 // links to the canonical scale (/grading/scale). Kept in sync with the SPA
@@ -148,7 +162,10 @@ export const onRequestGet: PagesFunction<PagesEnv> = (context: Ctx) =>
 // US-1945: a DISTINCT, cert-branded 404 — never the generic/blog one — so a
 // buyer following a certificate link that can't be resolved gets a clear
 // "certificate not found" (and can't confuse it with a genuine verified cert).
-async function renderCertificate(context: Ctx): Promise<Response> {
+// Exported for US-3384's regression test, which drives this with a stubbed
+// upstream: the noindex/caching decision below is only checkable by rendering.
+// Cloudflare Pages routes on the onRequest* exports and ignores the rest.
+export async function renderCertificate(context: Ctx): Promise<Response> {
   const { params, env } = context;
   const id = String(params.id ?? "");
   if (!id) return certNotFoundResponse(env);
@@ -193,6 +210,16 @@ async function renderCertificate(context: Ctx): Promise<Response> {
   if (!data?.certificate) return certNotFoundResponse(env);
 
   const cert = data.certificate;
+  // US-3384: `hero_image_url: null` used to mean two different things and the
+  // page could not tell them apart, so it picked the destructive reading and
+  // put noindex on certificates that have photos. The edge now says which one
+  // this is; true means the gallery read or the storage signing FAILED.
+  const photosUnavailable = cert.photos_unavailable === true;
+  if (photosUnavailable) {
+    console.warn(
+      `[cert ssr] incomplete photo read for ${id} — serving indexable and uncached`,
+    );
+  }
   // US-1945: only the stored, verifiable certificate_number is shown as
   // "Certificate No." — never a UUID-derived look-alike that /verify can't
   // resolve. Absent a real number the cert is identified by its URL + QR.
@@ -479,9 +506,18 @@ async function renderCertificate(context: Ctx): Promise<Response> {
       // certificates are worth crawling. It cannot be a shared import (that
       // endpoint runs in Deno, this runs in Cloudflare Pages), so changing the
       // rule here means changing it there in the same commit.
-      noindex: !cert.hero_image_url,
+      //
+      // US-3384: "thin" is a claim about the certificate, so it may only be
+      // made from a read that SUCCEEDED and came back empty. When the upstream
+      // says the photo read failed, we do not know whether this cert is thin,
+      // and the only safe answer is to leave the index decision alone.
+      noindex: !cert.hero_image_url && !photosUnavailable,
     },
-    { cacheControl: SSR_CACHE_CONTROL },
+    {
+      cacheControl: photosUnavailable
+        ? INCOMPLETE_CACHE_CONTROL
+        : SSR_CACHE_CONTROL,
+    },
   );
 }
 

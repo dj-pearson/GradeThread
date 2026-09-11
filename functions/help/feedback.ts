@@ -38,9 +38,15 @@ export const onRequestPost: PagesFunction<PagesEnv> = async (context: Ctx) => {
   // phishing primitive, and this form is on every article.
   const safeSlug = /^[a-z0-9-]{1,80}$/.test(slug) ? slug : null;
   const safeCategory = /^[a-z0-9-]{1,80}$/.test(categorySlug) ? categorySlug : null;
-  const back = safeSlug && safeCategory
-    ? `${base}/help/${safeCategory}/${safeSlug}?thanks=1`
-    : `${base}/help`;
+  const article = safeSlug && safeCategory
+    ? `${base}/help/${safeCategory}/${safeSlug}`
+    : null;
+  // Where a RECORDED vote goes, and where a rejected one goes. US-3384: the
+  // thank-you is a claim that the vote landed, so it is only attached when it
+  // did. Unthanked, the reader sees the article with the widget still on it,
+  // which is true and is also the retry.
+  const back = article ? `${article}?thanks=1` : `${base}/help`;
+  const backUnthanked = article ?? `${base}/help`;
 
   if (!safeSlug || (helpful !== "yes" && helpful !== "no")) {
     return Response.redirect(back, 303);
@@ -55,8 +61,14 @@ export const onRequestPost: PagesFunction<PagesEnv> = async (context: Ctx) => {
   const originSecret = env.CF_PAGES_ORIGIN_SECRET?.trim();
   if (originSecret) headers["x-pages-origin"] = originSecret;
 
+  // US-3384: this was a bare `await fetch(...)` whose Response was discarded, so
+  // the ONLY failure it could see was a network error. A 401 from a rotated
+  // CF_PAGES_ORIGIN_SECRET, a 429 from the public limiter or a 500 from the edge
+  // all resolve normally — they produced no log line anywhere, and the reader
+  // was 303'd to ?thanks=1 and thanked for feedback the edge had just rejected.
+  let recorded = false;
   try {
-    await fetch(
+    const res = await fetch(
       `${edgeApi(env)}/api/content/public/help/${encodeURIComponent(safeSlug)}/feedback`,
       {
         method: "POST",
@@ -65,11 +77,18 @@ export const onRequestPost: PagesFunction<PagesEnv> = async (context: Ctx) => {
         signal: AbortSignal.timeout(5_000),
       } as RequestInit,
     );
+    recorded = res.ok;
+    if (!res.ok) {
+      console.warn(
+        `[help/feedback] edge rejected the vote: ${res.status} (slug=${safeSlug})`,
+      );
+    }
   } catch (e) {
-    // Best-effort. A lost vote under-reports; a visible error on a page somebody
-    // was only trying to be helpful on is worse than the missing datum.
+    // Still best-effort, and still quiet to the reader: a visible error on a page
+    // somebody was only trying to be helpful on is worse than the missing datum.
+    // What changed is that the failure is now visible to US.
     console.warn("[help/feedback] forward failed:", e);
   }
 
-  return Response.redirect(back, 303);
+  return Response.redirect(recorded ? back : backUnthanked, 303);
 };

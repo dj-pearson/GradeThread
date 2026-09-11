@@ -15,6 +15,29 @@ import {
 } from "./app-shell-headers";
 
 /**
+ * What these routes serve when the shell itself could not be fetched (US-3384).
+ *
+ * 503 + Retry-After, never a 200 over somebody else's error body. Every route
+ * using serveSpaShell is noindex and no-cache already, so the only reader is a
+ * person, and a person is better served by "try again shortly" than by an asset
+ * server's error page wearing a green status code. `no-store` keeps it out of
+ * every cache, including the browser's.
+ */
+function shellUnavailable(reason: string): Response {
+  return new Response("Temporarily unavailable - please retry shortly.", {
+    status: 503,
+    headers: {
+      "content-type": "text/plain; charset=utf-8",
+      "retry-after": "60",
+      "cache-control": "no-store",
+      "x-robots-tag": "noindex, nofollow",
+      // Diagnosable from `curl -I` without putting the reason in the body.
+      "x-gt-shell": reason,
+    },
+  });
+}
+
+/**
  * Returns the SPA shell (dist/index.html) with HTTP 200 so the React app boots
  * and client-side routing renders the requested path. Fetches "/" through the
  * static-asset binding (which bypasses Functions, so there's no loop) rather
@@ -27,9 +50,30 @@ export async function serveSpaShell(
   const origin = new URL(request.url).origin;
   // ASSETS is always bound at runtime; guard only to satisfy the optional type.
   if (!env.ASSETS) {
-    return new Response("Service unavailable", { status: 503 });
+    return shellUnavailable("binding missing");
   }
-  const shell = await env.ASSETS.fetch(`${origin}/`);
+
+  // US-3384: this call used to be trusted unconditionally. A non-2xx shell got
+  // the robots regex applied (matching nothing), the bootstrap hash computed
+  // over it, and was served as a 200 with the full app security headers — so a
+  // broken deploy reached a shopper on /login or /dashboard as a successful
+  // page. The identical call in blog-render.ts renderHydratableSsrResponse
+  // checks `.ok` and catches; this is that shape.
+  //
+  // There is no fallback body to serve here: the shell IS the app, and there is
+  // nothing else to render sixteen route groups with. So the honest answer is a
+  // 503, which also tells a health check the truth.
+  let shell: Response;
+  try {
+    shell = await env.ASSETS.fetch(`${origin}/`);
+  } catch (e) {
+    console.warn("[spa-shell] asset fetch threw:", e);
+    return shellUnavailable("fetch threw");
+  }
+  if (!shell.ok) {
+    console.warn(`[spa-shell] asset fetch returned ${shell.status} for ${origin}/`);
+    return shellUnavailable(`status ${shell.status}`);
+  }
 
   // US-2045: KEEP THESE APP ROUTES OUT OF THE INDEX.
   //
@@ -53,7 +97,13 @@ export async function serveSpaShell(
   // every major crawler, outranks any meta tag, and cannot be defeated by a
   // template change. The meta rewrite below is a secondary signal for tooling
   // that only reads HTML.
-  let html = await shell.text();
+  let html: string;
+  try {
+    html = await shell.text();
+  } catch (e) {
+    console.warn("[spa-shell] shell body unreadable:", e);
+    return shellUnavailable("body unreadable");
+  }
   html = html.replace(
     /<meta\s+name=["']robots["'][^>]*>/i,
     '<meta name="robots" content="noindex, nofollow">',

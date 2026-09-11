@@ -1349,7 +1349,7 @@ contentPublicRoutes.get("/certificates/:id", async (c) => {
 
   // Garment metadata from the parent submission (title/brand/category +
   // the seller's buyer-facing description, US-760).
-  const { data: submission } = await supabaseAdmin
+  const { data: submission, error: submissionError } = await supabaseAdmin
     .from("submissions")
     .select(
       // user_id is read for the US-1912 seller-integrity lookup below and is
@@ -1359,6 +1359,22 @@ contentPublicRoutes.get("/certificates/:id", async (c) => {
     )
     .eq("id", rep.submission_id)
     .maybeSingle();
+  // US-3384 AC5, BEHAVIOUR CHANGE. This read used to drop its error, and the
+  // null it left behind went into isCertificateWithheld(), which reads a null
+  // submission as NOT withheld. That is right for a row that is genuinely
+  // absent and wrong for a row we could not read: a DB blip published a
+  // certificate whose submission is flagged or still `pending_review`, and the
+  // SSR page then edge-cached that answer for an hour with a day of
+  // stale-while-revalidate behind it.
+  //
+  // 500 here (not 404) is deliberate and is the same three-valued rule the rest
+  // of this surface follows: fetchJson() in functions/_shared/blog-render.ts
+  // turns 404/410 into "gone" and everything else into UpstreamUnavailable, so
+  // a 404 would DEINDEX a real certificate (US-2044) while a 500 becomes a 503 +
+  // Retry-After that keeps the URL and is never cached. The withhold predicate
+  // itself is unchanged and stays fail-open on a null row; the caller is the
+  // only place that can tell absent from unknown.
+  if (submissionError) return publicError(c, submissionError, "cert submission");
 
   // US-484: WITHHOLD a suspect certificate. A grade whose submission was flagged
   // for moderation (not-clothing / suspected image manipulation / cross-account
@@ -1380,16 +1396,50 @@ contentPublicRoutes.get("/certificates/:id", async (c) => {
   // viewers saw no photos at all. Serving signed URLs here (service-role) is the
   // same pattern the SSR/OG hero already uses — without exposing the private
   // bucket wholesale. The SSR hero is just the front/first entry of this list.
-  const { data: imageRows } = await supabaseAdmin
+  //
+  // US-3384: BOTH reads below used to drop their error, and the null they then
+  // produced was indistinguishable from "this certificate genuinely has no
+  // photos". functions/cert/[id].ts turns hero_image_url === null into
+  // `noindex` (US-1665 AC4), so one transient PostgREST or storage-signing
+  // failure deindexed a real certificate, dropped its shareable slab image and
+  // its whole gallery - and the result was then stored by withEdgeCache for an
+  // hour with a day of stale-while-revalidate behind it. Absent and unknown are
+  // different answers; `photos_unavailable` below is which one this is.
+  //
+  // The tenant scope is unchanged: rep.submission_id comes from the report row
+  // this route already proved is a public certificate (US-268).
+  let photosUnavailable = false;
+  const { data: imageRows, error: imagesError } = await supabaseAdmin
     .from("submission_images")
     .select("id, storage_path, image_type, display_order")
     .eq("submission_id", rep.submission_id)
     .order("display_order", { ascending: true });
+  if (imagesError) {
+    photosUnavailable = true;
+    console.error(
+      "content-public cert: submission_images read failed:",
+      imagesError.message,
+    );
+    captureException(imagesError, {
+      route: "GET /certificates/:id",
+      url: "cert gallery: submission_images read failed",
+    });
+  }
   const galleryRows = (imageRows ?? []) as CertSubmissionImageRow[];
   const galleryImages = await buildCertGallery(galleryRows, async (path) => {
-    const { data: signed } = await supabaseAdmin.storage
+    const { data: signed, error: signError } = await supabaseAdmin.storage
       .from("submission-images")
       .createSignedUrl(path, CERT_IMAGE_TTL);
+    if (signError || !signed?.signedUrl) {
+      // A row we read and cannot sign is a photo we KNOW exists and cannot
+      // show. Dropping it from the gallery is right for rendering and wrong for
+      // concluding the certificate is photoless, so say so instead.
+      photosUnavailable = true;
+      console.error(
+        "content-public cert: signing a certificate photo failed:",
+        signError?.message ?? "no signed url returned",
+      );
+    }
     return signed?.signedUrl ?? null;
   });
   const heroImageUrl = selectHeroUrl(galleryRows, galleryImages);
@@ -1500,6 +1550,12 @@ contentPublicRoutes.get("/certificates/:id", async (c) => {
         (piaRow as { limiting_flaw?: unknown } | null)?.limiting_flaw,
       ),
       hero_image_url: heroImageUrl,
+      // US-3384: true when a read behind the gallery FAILED, so hero_image_url
+      // and images are INCOMPLETE rather than empty. Consumers must not treat
+      // this as "photoless": functions/cert/[id].ts skips the noindex and serves
+      // the page uncacheable when it sees this. False is the ordinary answer and
+      // means the gallery is exactly what it says it is.
+      photos_unavailable: photosUnavailable,
       // US-1413: full ordered gallery (signed URLs) for the SPA photo grid +
       // defect callouts. The SSR path ignores this and uses hero_image_url only.
       images: galleryImages,

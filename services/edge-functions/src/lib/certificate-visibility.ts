@@ -31,6 +31,36 @@ export interface CertificateModerationState {
  * A null/missing submission is treated as NOT withheld here — the caller has
  * already proven a certified (public) report exists; absence of a moderation
  * row means nothing flagged it.
+ *
+ * US-3384 AC5 — re-argued, because this is now the LAST gate, and the answer
+ * is: the predicate keeps failing open, and the CALLER stops feeding it a null
+ * it cannot interpret.
+ *
+ * The argument for changing it here was that a DB error on the submission read
+ * yields null, null reads as not-withheld, and a flagged or `pending_review`
+ * certificate becomes publicly resolvable — then gets edge-cached for an hour
+ * with a day of stale-while-revalidate, so one blip publishes it for a day.
+ * Real, and it was live. But making THIS function withhold on null fixes it by
+ * breaking the other case: a certified report whose submission row is genuinely
+ * gone would 404 forever, and a 404 deindexes a real certificate (US-2044).
+ * One null cannot carry both answers, which is the same defect this story is
+ * about on the photo path.
+ *
+ * So the split is by layer. Absent stays not-withheld here. Unknown is caught
+ * where it is knowable, by the caller: content-public.ts GET /certificates/:id
+ * destructures `error` on its submission read and answers 500, which the Pages
+ * SSR turns into a 503 + Retry-After that keeps the URL and caches nothing,
+ * instead of handing this function a null that means something else.
+ *
+ * Every OTHER caller still passes a null that can mean either, and this note is
+ * where that is written down rather than left to be rediscovered: the
+ * number-lookup and integrity-verify endpoints, the revision-chain successor
+ * check and the cert-image path in the same file, plus condition-alerts.ts,
+ * condition-index.ts, demand-board-db.ts, buyer-purchases.ts, buyer-trust.ts,
+ * guarantee-public.ts and public-grading.ts. None of them is the indexable,
+ * shared, hour-cached certificate page, which is why that one was fixed first
+ * and alone. If you add a caller: handle the read error before you ask this
+ * question, because this function cannot.
  */
 export function isCertificateWithheld(
   sub: CertificateModerationState | null | undefined,
