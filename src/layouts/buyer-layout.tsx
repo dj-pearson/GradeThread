@@ -7,6 +7,7 @@ import { PastDueBanner } from "@/components/billing/past-due-banner";
 import { useAuthStore } from "@/stores/auth-store";
 import { RouteAnnouncer } from "@/components/route-announcer";
 import { useSurfaceTitle } from "@/hooks/use-surface-title";
+import { useFocusOnNavigation } from "@/hooks/use-focus-on-navigation";
 
 // US-1802: buyer app shell. A surface parallel to DashboardLayout (seller) with
 // its own sidebar. A dual-role account (is_seller) gets a one-click context
@@ -19,6 +20,9 @@ export function BuyerLayout() {
   const isSeller = profile?.is_seller === true;
 
   useSurfaceTitle();
+  // US-3244 AC4. /buyer/billing?cancel=1 deliberately focuses its Cancel button
+  // on arrival, and the hook's already-focused check is what leaves that alone.
+  useFocusOnNavigation("buyer-main");
 
   return (
     <div className="flex h-screen overflow-hidden">

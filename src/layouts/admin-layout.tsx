@@ -66,6 +66,7 @@ import { CommandPalette } from "@/components/admin/command-palette";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { AppBillingDialogs } from "@/components/billing/app-billing-dialogs";
 import { RouteAnnouncer } from "@/components/route-announcer";
+import { useFocusOnNavigation } from "@/hooks/use-focus-on-navigation";
 import {
   Sheet,
   SheetContent,
@@ -427,6 +428,15 @@ export function AdminLayout() {
   const [paletteOpen, setPaletteOpen] = useState(false);
   // Mobile-only nav drawer (the desktop `<aside>` is hidden below `md`).
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
+
+  // US-3244 AC4. Unlike the title hook, this needs nothing from the surfaces
+  // registry -- it moves the cursor, it does not name anything -- so admin gets
+  // it on the same terms as the other two trees. Note the drawer above: on a
+  // phone every admin nav click closes a Sheet, and the hook deliberately
+  // stands down while one is closing rather than fighting Radix's focus
+  // restore. Desktop admin, where the sidebar is a plain <aside>, is where this
+  // actually does its work.
+  useFocusOnNavigation("main-content");
 
   // US-901: Cmd/Ctrl-K opens the global admin command palette. allowInInput so
   // it still fires while focus is in a field (the standard palette behaviour).

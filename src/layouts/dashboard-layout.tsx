@@ -9,6 +9,7 @@ import { useCheckoutReconciler } from "@/hooks/use-checkout-reconciler";
 import { useSurfaceTitle } from "@/hooks/use-surface-title";
 import { useExtensionTokenHandoff } from "@/hooks/use-extension-token-handoff";
 import { RouteAnnouncer } from "@/components/route-announcer";
+import { useFocusOnNavigation } from "@/hooks/use-focus-on-navigation";
 import { CommandPalette } from "@/components/flipdesk/command-palette";
 import { ShortcutsHelp } from "@/components/dashboard/shortcuts-help";
 import { FlipdeskActivation } from "@/components/onboarding/flipdesk-activation";
@@ -38,6 +39,11 @@ export function DashboardLayout() {
   // the tab strip, in history and in a bookmark. Derived from the surfaces
   // registry, not written per page.
   useSurfaceTitle();
+  // US-3244 AC4: and put the keyboard on the new page. Focus otherwise stays on
+  // the sidebar link, so reaching the content after a navigation means tabbing
+  // through the whole nav again -- every time. Stands down for a page that
+  // autofocuses its own field and for an open or closing dialog; see the hook.
+  useFocusOnNavigation("main-content");
   // US-3296: the extension's account token lives 30 days and nothing ever
   // renewed it, so every connected seller silently dropped to the anonymous
   // entitlements about a month after connecting and every Lister action failed.
