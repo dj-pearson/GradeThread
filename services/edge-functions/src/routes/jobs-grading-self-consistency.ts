@@ -40,6 +40,8 @@ import {
 } from "../lib/grading-reliability.ts";
 import { captureException, recordMetric } from "../lib/observability.ts";
 import { emitOpsEvent } from "../lib/ops-events.ts";
+import { appendSpreads, coerceRecord, GRADE_RANGE_SETTING } from "../lib/grade-range.ts";
+import { bustSettingCache } from "../lib/system-settings.ts";
 
 /** Signed-URL TTL for the sampled images. Long enough for N sequential grades. */
 const IMAGE_URL_TTL_SECONDS = 900;
@@ -108,6 +110,40 @@ async function imageUrls(submissionId: string): Promise<string[]> {
   return urls;
 }
 
+/**
+ * US-3339: add this run's measured spreads to the per-category record the grade
+ * range is built from. Read fresh (not through the settings cache) and written
+ * back whole; the job lock above means no second writer. Returns false when the
+ * write failed, which the response reports rather than hides.
+ */
+export async function persistCategorySpreads(
+  measured: ReadonlyArray<{ category: string | null; spread: number }>,
+  at: string,
+): Promise<boolean> {
+  if (measured.length === 0) return true;
+  const { data } = await supabaseAdmin
+    .from("system_settings")
+    .select("value")
+    .eq("key", GRADE_RANGE_SETTING)
+    .maybeSingle();
+  const next = appendSpreads(
+    coerceRecord((data as { value?: unknown } | null)?.value),
+    measured.map((m) => ({ ...m, at })),
+  );
+  const { error } = await supabaseAdmin
+    .from("system_settings")
+    .upsert(
+      { key: GRADE_RANGE_SETTING, value: next, value_type: "json" },
+      { onConflict: "key" },
+    );
+  bustSettingCache(GRADE_RANGE_SETTING);
+  if (error) {
+    captureException(error, { level: "warn", route: "jobs.grading-self-consistency.persist" });
+    return false;
+  }
+  return true;
+}
+
 export async function handleGradingSelfConsistencyCron(c: Context): Promise<Response> {
   if (!(await requireJobSecret(c))) {
     return c.json({ error: "Unauthorized" }, 401);
@@ -133,6 +169,8 @@ export async function handleGradingSelfConsistencyCron(c: Context): Promise<Resp
   if (!lock.acquired) return c.json({ ok: true, skipped: "locked" });
 
   const items: SelfConsistencyItem[] = [];
+  // US-3339: the same measurements, keyed by category, for the grade range.
+  const measured: Array<{ category: string | null; spread: number }> = [];
   const failures: string[] = [];
   try {
     const submissions = await sampleSubmissions(sample);
@@ -155,6 +193,7 @@ export async function handleGradingSelfConsistencyCron(c: Context): Promise<Resp
         }
         const result = gradeSelfConsistency(scores);
         items.push({ item_id: s.id, scores });
+        measured.push({ category: s.garment_category, spread: result.max_spread });
         recordMetric("grading.self_consistency.spread", result.max_spread);
       } catch (err) {
         // One submission failing is not the measurement failing. Record it so a
@@ -168,6 +207,7 @@ export async function handleGradingSelfConsistencyCron(c: Context): Promise<Resp
     }
 
     const report = assessSelfConsistency(items);
+    const persisted = await persistCategorySpreads(measured, new Date().toISOString());
 
     // The alert is the point of running it on a schedule rather than by hand.
     if (items.length > 0 && !report.passes) {
@@ -187,6 +227,7 @@ export async function handleGradingSelfConsistencyCron(c: Context): Promise<Resp
       requested: sample,
       runs,
       failures: failures.length,
+      persisted,
       report,
     });
   } catch (err) {

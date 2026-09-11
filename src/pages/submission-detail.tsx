@@ -20,6 +20,7 @@ import {
 } from "lucide-react";
 import { useRealtimeSubmission } from "@/hooks/use-realtime-submission";
 import { useDocumentVisible } from "@/hooks/use-document-visible";
+import { GradeRangeNote } from "@/components/grading/grade-range-note";
 import { Button } from "@/components/ui/button";
 import { ScoreBandIcon } from "@/components/grade/score-indicator";
 import { Badge } from "@/components/ui/badge";
@@ -1051,6 +1052,11 @@ export function SubmissionDetailPage() {
                     <p className="mt-1 text-sm text-muted-foreground">
                       Scores {tierBandRange(gradeReport.grade_tier)} out of 10
                     </p>
+                    {/* US-3339: a measured range, only where regrades were measured. */}
+                    <GradeRangeNote
+                      score={gradeReport.overall_score}
+                      category={submission.garment_category}
+                    />
                   </div>
                 </div>
               </CardContent>

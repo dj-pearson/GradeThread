@@ -78,6 +78,7 @@ import { track } from "@/lib/analytics";
 import { badgeArrival, badgeArrivalNote } from "@/lib/badge-arrival";
 import { isExtensionInstalled } from "@/lib/lister-extension";
 import { edgeApiUrl } from "@/lib/edge-api";
+import { GradeRangeNote } from "@/components/grading/grade-range-note";
 import { CrossSurfaceNudge } from "@/components/cross-surface/cross-surface-nudge";
 import type {
   PublicGradeReportRow,
@@ -843,6 +844,11 @@ export function CertificatePage() {
                 <p className="mt-1 text-sm text-muted-foreground">
                   Scores {tierBandRange(gradeReport.grade_tier)} out of 10
                 </p>
+                {/* US-3339: a measured range, only where regrades were measured. */}
+                <GradeRangeNote
+                  score={gradeReport.overall_score}
+                  category={submission?.garment_category}
+                />
                 {submission && (
                   <p className="mt-2 text-base font-medium">
                     {submission.title}

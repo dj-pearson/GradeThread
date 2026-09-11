@@ -125,6 +125,15 @@ import { loadSeasonTimezone } from "../lib/rewards-seasons.ts";
 import { PILLAR_CORNERSTONE_URL, PILLAR_LABELS } from "../lib/content-interlink.ts";
 import { cleanlinessVisible, normalizeSellerStatements } from "../lib/cleanliness-visibility.ts";
 import { publicLimitingFlaw } from "../lib/limiting-flaw.ts";
+import {
+  coerceRecord,
+  GRADE_RANGE_SETTING,
+  publicRanges,
+  RANGE_MIN_SAMPLES,
+  RANGE_PERCENTILE,
+  RANGE_WINDOW_DAYS,
+} from "../lib/grade-range.ts";
+import { getSetting } from "../lib/system-settings.ts";
 
 // US-580: these endpoints are anonymous/unauthenticated, so a 500 body must
 // NEVER carry raw error.message — that leaks DB/PostgREST internals (table
@@ -773,6 +782,25 @@ contentPublicRoutes.get("/style-codes.json", async (c) => {
   const codes = indexableCodes((data ?? []) as SitemapCandidateRow[]);
   const truncated = warnIfCapped("style-codes.json", (data ?? []).length, STYLE_CODE_SITEMAP_CAP);
   return c.json({ truncated, codes });
+});
+
+// ── GET /grade-ranges.json (US-3339) ─────────────────────
+// The measured regrade spread per garment category, only for categories with
+// enough recent measurements (lib/grade-range.ts). Aggregates only: no
+// submission, grade or owner is named. The certificate and the seller report
+// both turn a score into "likely X to Y" from this, and show nothing for a
+// category that is not here. Never derived from confidence_score.
+contentPublicRoutes.get("/grade-ranges.json", async (c) => {
+  const record = coerceRecord(await getSetting<unknown>(GRADE_RANGE_SETTING, null));
+  c.header("Cache-Control", "public, max-age=600");
+  return c.json({
+    ranges: publicRanges(record),
+    method: {
+      percentile: RANGE_PERCENTILE,
+      min_samples: RANGE_MIN_SAMPLES,
+      window_days: RANGE_WINDOW_DAYS,
+    },
+  });
 });
 
 // ── GET /registered-numbers/:number ───────────────────────
