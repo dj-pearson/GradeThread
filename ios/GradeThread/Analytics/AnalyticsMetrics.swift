@@ -95,12 +95,28 @@ enum AnalyticsRange: String, CaseIterable, Identifiable {
     }
 
     /// Inclusive start of the window, or nil for all-time.
+    ///
+    /// US-3306: returned as a UTC-ANCHORED DAY, not a raw moment. Every caller
+    /// compares this against something date-only: three of them window
+    /// `LocalSale.saleDate` (a bare `YYYY-MM-DD` widened by Postgres to 00:00Z)
+    /// and the fourth sends it to `flipdesk_return_reduction` as a `date`
+    /// parameter. A raw `now`-minus-N-days carries a wall-clock time, so the
+    /// boundary day fell in or out by the seller's UTC offset and the hour they
+    /// opened Analytics. WHICH day is N days back is still a local question:
+    /// the local calendar steps it, the UTC calendar anchors it.
     func start(now: Date, calendar: Calendar = .current) -> Date? {
+        guard let days = dayOffset else { return nil }
+        guard let stepped = calendar.date(byAdding: .day, value: days, to: now) else { return nil }
+        return MoneyDate.anchor(localDayOf: stepped, localCalendar: calendar)
+    }
+
+    /// Days back from now, or nil for all-time.
+    private var dayOffset: Int? {
         switch self {
-        case .all: return nil
-        case .days30: return calendar.date(byAdding: .day, value: -30, to: now)
-        case .days90: return calendar.date(byAdding: .day, value: -90, to: now)
-        case .days365: return calendar.date(byAdding: .day, value: -365, to: now)
+        case .all:     return nil
+        case .days30:  return -30
+        case .days90:  return -90
+        case .days365: return -365
         }
     }
 }

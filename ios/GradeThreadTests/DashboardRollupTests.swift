@@ -60,6 +60,31 @@ final class DashboardRollupTests: XCTestCase {
         XCTAssertEqual(m.revenueThisWeek, 50, accuracy: 0.001)
     }
 
+    /// US-3306: `LocalSale.saleDate` is a UTC-anchored DAY (`sales.sale_date`
+    /// is written as a bare `YYYY-MM-DD`), so the "past 7 days" boundary has to
+    /// be one too. It used to be `now` minus seven days with the wall-clock time
+    /// still on it, which put the seventh day back in or out of Home's week
+    /// depending on the seller's UTC offset and the hour they opened the app.
+    func test_weekWindow_boundaryDayCountsFromEveryZone() throws {
+        func zoned(_ zone: String) -> Calendar {
+            var c = Calendar(identifier: .gregorian)
+            c.timeZone = TimeZone(identifier: zone) ?? .current
+            return c
+        }
+        // 2026-09-08 12:00Z, the same local day in both zones below.
+        let today = Date(timeIntervalSince1970: 1_788_868_800)
+        let sevenDaysBack = try XCTUnwrap(MoneyDate.parse("2026-09-01"))
+        let sale = makeSale(itemId: "a", price: 50, date: sevenDaysBack)
+
+        for zone in ["America/Chicago", "Asia/Tokyo"] {
+            let m = DashboardRollup.compute(
+                items: [], sales: [sale], now: today, calendar: zoned(zone)
+            )
+            XCTAssertEqual(m.soldThisWeekCount, 1, zone)
+            XCTAssertEqual(m.revenueThisWeek, 50, accuracy: 0.001, zone)
+        }
+    }
+
     func test_netProfit_subtractsFeesAndCostBasis() {
         let item = makeItem(id: "item-1", status: "sold", cost: 10)
         let sale = makeSale(itemId: "item-1", price: 50, fees: 5, date: now.addingTimeInterval(-86_400))

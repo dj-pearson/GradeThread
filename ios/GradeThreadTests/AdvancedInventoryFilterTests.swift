@@ -344,6 +344,149 @@ final class AdvancedInventoryFilterTests: XCTestCase {
         XCTAssertFalse(InventoryFilter.matches(unsold, crit, soldDates: map))
     }
 
+    // MARK: - US-3306: one DateBand, two bands, two zone rules
+
+    /// A calendar standing in for a device set to `zone`.
+    private func calendar(_ zone: String) -> Calendar {
+        var c = Calendar(identifier: .gregorian)
+        c.timeZone = TimeZone(identifier: zone) ?? .current
+        return c
+    }
+
+    /// The moment the filter sheet actually stores for a picked day: the toggle
+    /// seeds `Date()` and a `displayedComponents: .date` picker keeps that time
+    /// component, so a bound is a local day PLUS a time of day. Both rules have
+    /// to ignore the time half.
+    private func pickedDay(_ y: Int, _ m: Int, _ d: Int, in cal: Calendar) -> Date {
+        var parts = DateComponents()
+        parts.year = y
+        parts.month = m
+        parts.day = d
+        parts.hour = 14
+        parts.minute = 37
+        return cal.date(from: parts) ?? .distantPast
+    }
+
+    /// The AC3 fixture: a sale anchored to the first of a month and an item
+    /// created that same day, filtered from a device in Chicago (UTC-5) and one
+    /// in Tokyo (UTC+9). Both bands must return the same rows in both zones.
+    ///
+    /// Before US-3306 the sale band did not: Chicago picked 1 Sep 14:37 local
+    /// (19:37Z), which is after the stored 1 Sep 00:00Z, so the sale dropped
+    /// out of its own month, while Tokyo picked 1 Sep 14:37 JST (31 Aug 05:37Z)
+    /// and kept it.
+    func test_dateBands_returnSameRowsFromChicagoAndTokyo() throws {
+        let ctx = ModelContext(try makeContainer())
+        let zones = [calendar("America/Chicago"), calendar("Asia/Tokyo")]
+
+        // Stored sale day: `sales.sale_date` is written as a bare "2026-09-01",
+        // so Postgres widens it to 2026-09-01T00:00:00Z.
+        let saleDay = try XCTUnwrap(MoneyDate.parse("2026-09-01"))
+        let dayBefore = try XCTUnwrap(MoneyDate.parse("2026-08-31"))
+        // Stored purchase moment: a real `created_at`. Mid-day UTC so it is
+        // still 1 September on both devices' wall clocks, which is what makes
+        // "the same rows in both zones" a fair question to ask of this band.
+        let createdAt = saleDay.addingTimeInterval(12 * 3_600)
+
+        let onTime = makeItem(id: "on-time", createdAt: createdAt, context: ctx)
+        let neverSold = makeItem(id: "never-sold", createdAt: createdAt, context: ctx)
+        let soldEarlier = makeItem(id: "sold-earlier", createdAt: createdAt, context: ctx)
+        let fixture = [onTime, neverSold, soldEarlier]
+        let soldDates = ["on-time": saleDay, "sold-earlier": dayBefore]
+
+        for cal in zones {
+            let zone = cal.timeZone.identifier
+            let from = pickedDay(2026, 9, 1, in: cal)
+            let to = pickedDay(2026, 9, 30, in: cal)
+
+            var saleFilter = InventoryFilterCriteria()
+            saleFilter.saleDates = .init(from: from, to: to)
+            let sold = fixture.filter {
+                InventoryFilter.matches($0, saleFilter, soldDates: soldDates, localCalendar: cal)
+            }
+            XCTAssertEqual(sold.map(\.id), ["on-time"], "sale band disagreed in \(zone)")
+
+            var purchaseFilter = InventoryFilterCriteria()
+            purchaseFilter.purchaseDates = .init(from: from, to: to)
+            let bought = fixture.filter {
+                InventoryFilter.matches($0, purchaseFilter, soldDates: soldDates, localCalendar: cal)
+            }
+            XCTAssertEqual(
+                bought.map(\.id),
+                ["on-time", "never-sold", "sold-earlier"],
+                "purchase band disagreed in \(zone)"
+            )
+        }
+    }
+
+    /// The sale band's boundary day, from five zones spanning UTC-11 to UTC+14.
+    /// A stored sale day is the same day everywhere, so the answer must be too.
+    func test_saleDateBand_boundaryDayIsZoneIndependent() throws {
+        let saleDay = try XCTUnwrap(MoneyDate.parse("2026-09-01"))
+        let before = try XCTUnwrap(MoneyDate.parse("2026-08-31"))
+        let after = try XCTUnwrap(MoneyDate.parse("2026-09-02"))
+
+        let zones = ["Pacific/Pago_Pago", "America/Chicago", "UTC", "Asia/Tokyo", "Pacific/Kiritimati"]
+        for zone in zones {
+            let cal = calendar(zone)
+            let lower = InventoryFilterCriteria.DateBand(from: pickedDay(2026, 9, 1, in: cal))
+            let upper = InventoryFilterCriteria.DateBand(to: pickedDay(2026, 9, 1, in: cal))
+
+            XCTAssertTrue(lower.contains(saleDay, storedAs: .utcAnchoredDay, localCalendar: cal), zone)
+            XCTAssertTrue(upper.contains(saleDay, storedAs: .utcAnchoredDay, localCalendar: cal), zone)
+            XCTAssertFalse(lower.contains(before, storedAs: .utcAnchoredDay, localCalendar: cal), zone)
+            XCTAssertFalse(upper.contains(after, storedAs: .utcAnchoredDay, localCalendar: cal), zone)
+        }
+    }
+
+    /// The other half of the contract, stated as a test so nobody "fixes" it:
+    /// a real timestamp IS read on the seller's calendar, on purpose. An item
+    /// created at 2026-09-01T02:00Z happened on 31 August in Chicago and on
+    /// 1 September in Tokyo, and a September filter should say so.
+    func test_purchaseDateBand_readsCreatedAtOnTheSellersCalendar() throws {
+        let createdAt = try XCTUnwrap(MoneyDate.parse("2026-09-01")).addingTimeInterval(2 * 3_600)
+        let chicago = calendar("America/Chicago")
+        let tokyo = calendar("Asia/Tokyo")
+        let chicagoSeptember = InventoryFilterCriteria.DateBand(
+            from: pickedDay(2026, 9, 1, in: chicago),
+            to: pickedDay(2026, 9, 30, in: chicago)
+        )
+        let tokyoSeptember = InventoryFilterCriteria.DateBand(
+            from: pickedDay(2026, 9, 1, in: tokyo),
+            to: pickedDay(2026, 9, 30, in: tokyo)
+        )
+
+        XCTAssertFalse(
+            chicagoSeptember.contains(createdAt, storedAs: .serverTimestamp, localCalendar: chicago)
+        )
+        XCTAssertTrue(
+            tokyoSeptember.contains(createdAt, storedAs: .serverTimestamp, localCalendar: tokyo)
+        )
+    }
+
+    /// Both bounds are whole local days in both modes: a bound picked at
+    /// 14:37 does not cut the day it names in half at either end.
+    func test_dateBand_boundsCoverTheWholePickedDay() throws {
+        let cal = calendar("America/Chicago")
+        let band = InventoryFilterCriteria.DateBand(
+            from: pickedDay(2026, 9, 1, in: cal),
+            to: pickedDay(2026, 9, 1, in: cal)
+        )
+        var earlyParts = DateComponents()
+        earlyParts.year = 2026
+        earlyParts.month = 9
+        earlyParts.day = 1
+        earlyParts.hour = 0
+        earlyParts.minute = 5
+        let earlyOnTheDay = try XCTUnwrap(cal.date(from: earlyParts))
+        let lateOnTheDay = earlyOnTheDay.addingTimeInterval(23 * 3_600)
+        let nextMorning = earlyOnTheDay.addingTimeInterval(25 * 3_600)
+
+        XCTAssertTrue(band.contains(earlyOnTheDay, storedAs: .serverTimestamp, localCalendar: cal))
+        XCTAssertTrue(band.contains(lateOnTheDay, storedAs: .serverTimestamp, localCalendar: cal))
+        XCTAssertFalse(band.contains(nextMorning, storedAs: .serverTimestamp, localCalendar: cal))
+    }
+
     // MARK: - US-1052: advanced AND/OR rule builder
 
     func test_ruleQuery_emptyMatchesEverything() throws {

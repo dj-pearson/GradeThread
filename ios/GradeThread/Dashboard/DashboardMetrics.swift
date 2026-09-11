@@ -103,9 +103,18 @@ enum DashboardRollup {
         var costById: [String: Double] = [:]
         for item in items { costById[item.id] = item.acquiredPrice ?? 0 }
 
-        let windowStart = calendar.date(
-            byAdding: .day, value: -weekWindowDays, to: now
-        ) ?? now
+        // US-3306: the boundary has to be a UTC-anchored DAY, because that is
+        // what it gets compared against. `LocalSale.saleDate` comes off
+        // `sales.sale_date`, which every writer fills with a bare `YYYY-MM-DD`,
+        // so it arrives pinned to 00:00Z. A raw `now`-minus-7-days carries a
+        // wall-clock time, so the seventh day back fell in or out of "Past 7
+        // days" by the seller's UTC offset and the hour they opened Home. Which
+        // day is seven days back is still a local question; only the anchor is
+        // UTC. Same split as `MoneyDate.monthAnchor`.
+        let windowStart = MoneyDate.anchor(
+            localDayOf: calendar.date(byAdding: .day, value: -weekWindowDays, to: now) ?? now,
+            localCalendar: calendar
+        )
         // Only COMPLETED sales count — a cancelled/refunded order was never a
         // real sale. Profit via the shared SalePnL helper (mirrors web pnl.ts).
         let weekSales = sales.filter {
