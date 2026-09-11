@@ -11,13 +11,22 @@ code_refs:
   - functions/_shared/rn-render.ts
   - supabase/migrations/00708_registered_number_lookups.sql
   - services/edge-functions/src/lib/listing-registered-number.ts
-reviewed: 2026-09-02
+reviewed: 2026-09-10
 tags: [seo, rn, brands, contract]
 summary: The FTC public RN search needs no account (00466 says otherwise and is wrong), a number is indexable only once a company is resolved, and an RN may never be presented as proof of a brand or of authenticity.
 ---
 
 # RN number lookup
 
+> **Re-reviewed 2026-09-10.** Both flagged refs, `ftc-rn-search.ts` and
+> `seed-registered-numbers.ts`, changed the same day this note did and for the
+> same reason: US-3313 replaced the stale "six brands of ~180" coverage figure
+> in seven files at once. Nothing about the mechanism moved. The only thing
+> carried back into this note is the corrected count, 121 numbers across 115
+> brands out of 549 `brand_knowledge` rows, and the instruction to count it
+> with `scripts/ops/ftc-rn-recheck.mjs --self-test` rather than quote a number
+> from prose. That figure stood wrong here for about a year.
+>
 > **Re-reviewed 2026-09-02.** Drift flagged all four refs for US-9036's second
 > half (`3c1b4477b`), which records every UNANSWERED number as demand:
 > `/rn/:number` fires a fire-and-forget `record_registered_number_lookup` on a

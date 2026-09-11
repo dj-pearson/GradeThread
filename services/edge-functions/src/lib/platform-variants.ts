@@ -16,6 +16,8 @@ import {
   validateListingForPlatform,
 } from "./marketplace-specs.ts";
 import type { CategoryResolution } from "./marketplace-category.ts";
+// US-2739 owns the unit boundary; this file does not do its own /100.
+import { centsToDollars, stepPriceCents, dollarsToCents } from "./marketplace-price.ts";
 
 function clampConfidence(v: unknown): number {
   const n = typeof v === "number" ? v : Number(v);
@@ -189,7 +191,18 @@ export function assemblePlatformVariant(
     color: base.color,
     size: base.size,
     style: styleFromSpecifics(base.itemSpecifics),
-    price: Math.round(base.priceCents) / 100,
+    // US-2736/US-2739: the variant is STORED, and it is stored in the units the
+    // marketplace it belongs to can hold. This was `Math.round(cents) / 100` —
+    // a fifth unit crossing outside marketplace-price.ts, and an unstepped one,
+    // so a generated Poshmark variant sat in the database at 3249 cents while
+    // every surface that read it displayed and typed 3200. The stored number is
+    // the one reconciliation and profit read; it has to be the real one.
+    price: centsToDollars(
+      stepPriceCents(
+        Math.round(base.priceCents),
+        dollarsToCents(spec.priceStep ?? 0),
+      ),
+    ),
     tags,
     confidence: clampConfidence(base.confidence),
     // placeholder; replaced below once the field map exists

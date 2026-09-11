@@ -290,13 +290,20 @@ async function hydrateListRows(
         .select("id, inventory_item_id, photo_url, photo_type, photo_role, sort_order")
         .in("inventory_item_id", ownedIds)
         .order("sort_order", { ascending: true }),
+      // US-2736: every platform's row, not just eBay's.
+      //
+      // This was `.eq("platform", "ebay")`, so the only price the queue could
+      // see was the shared one — and a channel priced deliberately higher or
+      // lower had its OWN listings row sitting right there, unread, while the
+      // extension was handed eBay's number to type. The eBay row is still the
+      // draft (the words and the cover photo come from it); the sibling row is
+      // now read alongside it for the one field that is per-channel.
       supabaseAdmin
         .from("listings")
         .select(
           "id, inventory_item_id, platform, listing_title, listing_description, listing_price, primary_photo_id, platform_fields",
         )
         .eq("user_id", ownerId) // US-268
-        .eq("platform", "ebay")
         .in("inventory_item_id", ownedIds),
     ]);
 
@@ -321,11 +328,29 @@ async function hydrateListRows(
     primary_photo_id: string | null;
     platform_fields: Record<string, unknown> | null;
   }>();
+  // US-2736: that channel's own price, by listing id AND by `<itemId>|<platform>`.
+  //
+  // The queue row names the exact `listings` row it was enqueued for, so that
+  // is the first lookup. The item+platform key is the fallback for a row
+  // enqueued without one (the kit's own "queue for my desktop" button), and it
+  // is deliberately second: an item can own more than one row per platform
+  // across cross-listing groups, and picking by id is the only way to be sure
+  // which listing's price is being sent.
+  const channelPriceById = new Map<string, number>();
+  const channelPrices = new Map<string, number>();
   for (const r of (draftsRes.data ?? []) as (
-    & { id: string; inventory_item_id: string | null; platform_fields: Record<string, unknown> | null }
+    & { id: string; inventory_item_id: string | null; platform: string; platform_fields: Record<string, unknown> | null }
     & { listing_title: string | null; listing_description: string | null; listing_price: number | null; primary_photo_id: string | null }
   )[]) {
-    if (r.inventory_item_id) drafts.set(r.inventory_item_id, r);
+    if (!r.inventory_item_id) continue;
+    if (r.platform === "ebay") drafts.set(r.inventory_item_id, r);
+    // The row's own price when it has one. A sibling carrying 0 (never pushed,
+    // or a stale row) contributes nothing and the kit/draft price is used —
+    // first POSITIVE, the same rule every other price resolution here uses.
+    if (typeof r.listing_price === "number" && r.listing_price > 0) {
+      channelPriceById.set(r.id, r.listing_price);
+      channelPrices.set(`${r.inventory_item_id}|${r.platform}`, r.listing_price);
+    }
   }
 
   // The description is RE-RENDERED here, not read out of platform_fields.
@@ -396,6 +421,9 @@ async function hydrateListRows(
         }
         : null,
       maxPhotos: spec?.maxPhotos ?? 12,
+      // US-2736: this channel's own price, when its listings row has one.
+      channelPrice: (row.listing_id ? channelPriceById.get(row.listing_id) : undefined) ??
+        channelPrices.get(`${row.inventory_item_id}|${row.platform}`) ?? null,
       // US-2739: the marketplace's own price units. 1 on Poshmark and Vinted.
       priceStep: spec?.priceStep ?? 0,
       platformLabel: spec?.label ?? row.platform,

@@ -44,6 +44,8 @@ function input(over: Partial<BuildListPayloadInput> = {}): BuildListPayloadInput
     ],
     platformFields: null,
     draft: null,
+    // US-2736: no sibling row by default; the cases that care set it.
+    channelPrice: null,
     maxPhotos: 16,
     // US-2739: the fixture platform is Poshmark, which prices in whole dollars.
     priceStep: 1,
@@ -396,4 +398,61 @@ Deno.test("a queued revise sends the price in the marketplace's units", () => {
   assertEquals(revisePriceFor("poshmark", undefined), null);
   assertEquals(revisePriceFor("poshmark", Number.NaN), null);
   assertEquals(revisePriceFor("poshmark", 0), 0, "a zero is a zero, not a step");
+});
+
+// ── US-2736: the channel's own price reaches the channel's own form ───────
+//
+// The queue read the eBay draft row and nothing else, so `price` came from the
+// kit variant (a snapshot of the SHARED price when the kit last ran) or from
+// eBay's own listing_price. A seller who priced Poshmark at $40 while eBay sat
+// at $52 had their Poshmark sibling row recording 4000 cents and the extension
+// typing 5200 into the form — the listing, the row and the payout disagreed
+// three ways, and nothing anywhere said so.
+Deno.test("US-2736: the sibling row's own price wins over the kit's and eBay's", () => {
+  const withChannel = buildListPayload(input({
+    platform: "poshmark",
+    priceStep: 1,
+    channelPrice: 40,
+    platformFields: { title: "x", price: 52 },
+    draft: {
+      listing_title: "x",
+      listing_description: "d",
+      listing_price: 52,
+      primary_photo_id: null,
+    },
+  }));
+  assertEquals(withChannel.price, "40");
+
+  // The same call with no sibling row is the OLD behaviour, kept for every
+  // channel that has not been pushed yet: the kit variant's price.
+  const noChannel = buildListPayload(input({
+    platform: "poshmark",
+    priceStep: 1,
+    channelPrice: null,
+    platformFields: { title: "x", price: 52 },
+  }));
+  assertEquals(noChannel.price, "52");
+});
+
+Deno.test("US-2736: the channel price still crosses the unit boundary", () => {
+  // 4049 cents on the sibling row, and Poshmark can hold 4000.
+  assertEquals(
+    buildListPayload(input({ platform: "poshmark", priceStep: 1, channelPrice: 40.49 })).price,
+    "40",
+  );
+  // Mercari keeps its cents.
+  assertEquals(
+    buildListPayload(input({ platform: "mercari", priceStep: 0, channelPrice: 40.49 })).price,
+    "40.49",
+  );
+});
+
+Deno.test("US-2736: a stale 0 on a sibling row does not shadow a real price", () => {
+  const out = buildListPayload(input({
+    platform: "poshmark",
+    priceStep: 1,
+    channelPrice: 0,
+    platformFields: { title: "x", price: 52 },
+  }));
+  assertEquals(out.price, "52", "first POSITIVE, not first non-null");
 });

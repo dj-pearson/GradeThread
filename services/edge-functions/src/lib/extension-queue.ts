@@ -293,6 +293,22 @@ export interface BuildListPayloadInput {
   platformFields: Record<string, unknown> | null;
   /** The eBay draft, for the no-kit fallback. Null when there is none. */
   draft: ListPayloadDraft | null;
+  /**
+   * US-2736: this channel's OWN price, off its sibling `listings` row. Null
+   * when the channel has no row yet.
+   *
+   * WINS over both the kit variant and the eBay draft, because it is the only
+   * one of the three that is about THIS marketplace. The kit variant's price is
+   * a snapshot of the shared price when the kit last ran; the draft's is eBay's.
+   * A seller who priced Poshmark at $40 and eBay at $52 had the queue hand the
+   * extension $52 to type, and the sibling row went on recording $40 — so the
+   * listing, the row and the payout disagreed three ways and nothing said so.
+   *
+   * REQUIRED, not optional-with-a-default, for the same reason `priceStep` is:
+   * a caller that forgets it silently reintroduces exactly this bug, and a
+   * compile error is the only version of that mistake anyone finds.
+   */
+  channelPrice: number | null;
   /** Photo cap for this platform (`MarketplaceSpec.maxPhotos`). */
   maxPhotos: number;
   /**
@@ -400,7 +416,13 @@ export function buildListPayload(
       ? str((condition as Record<string, unknown>).label)
       : "";
 
-  const priceNumber = typeof v.price === "number" && v.price > 0
+  // US-2736: the channel's own price first, then the kit variant's, then the
+  // shared draft's. First POSITIVE, never first non-null — a stale 0 on any of
+  // the three must not shadow a real price further down, which is the same rule
+  // the kit and the variant generator already use.
+  const priceNumber = typeof input.channelPrice === "number" && input.channelPrice > 0
+    ? input.channelPrice
+    : typeof v.price === "number" && v.price > 0
     ? v.price
     : (draft?.listing_price ?? null);
 

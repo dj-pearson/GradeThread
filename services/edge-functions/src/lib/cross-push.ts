@@ -34,6 +34,7 @@ import {
 } from "./marketplace-adapters/index.ts";
 import {
   mapSiblingListingFields,
+  resolveSiblingPrice,
   type StoredPlatformVariant,
   validateSiblingForPublish,
 } from "./cross-listing-fields.ts";
@@ -55,7 +56,17 @@ export interface CrossPushInput {
   /** listings.draft_id for the group — the source draft's own id. */
   groupId: string;
   platform: CrossListingPlatform;
+  /**
+   * The item's SHARED price — the eBay draft's, else the item's target.
+   *
+   * US-2736: this is the fallback, not the answer. A per-channel price the
+   * seller set beats it (`explicitPrice` on this push, or the one stored on the
+   * sibling from an earlier one), and whichever wins is rounded to the
+   * marketplace's own step before anything is written.
+   */
   price: number;
+  /** US-2736: the price the seller typed for THIS channel on THIS push. */
+  explicitPrice?: number | null;
   /** Per-marketplace AI variant (US-721), or undefined to copy the draft. */
   variant?: StoredPlatformVariant;
 }
@@ -64,6 +75,15 @@ export interface CrossPushOutcome {
   result: AdapterResult;
   /** The sibling row the attempt used — "" when the row couldn't be created. */
   listingRowId: string;
+  /**
+   * US-2736: the price this channel was actually pushed at, in dollars and in
+   * the marketplace's own units.
+   *
+   * The caller used to report its own input back to the seller, which was the
+   * shared price whatever the sibling ended up costing. A response that names a
+   * number nothing was listed at is worse than no number.
+   */
+  price: number;
   /**
    * US-3213: the work went to the DESKTOP EXTENSION queue instead of an API.
    *
@@ -107,7 +127,7 @@ export async function ensureCrossListingGroup(
 export async function crossPushPlatform(
   input: CrossPushInput,
 ): Promise<CrossPushOutcome> {
-  const { ownerId, draft, groupId, platform, price, variant } = input;
+  const { ownerId, draft, groupId, platform, price, explicitPrice, variant } = input;
 
   // US-708: resolve the adapter from the platform via the registry. An unknown
   // platform yields a typed 501 rather than silently falling through to eBay.
@@ -120,37 +140,40 @@ export async function crossPushPlatform(
         error: `${platform} cross-listing isn't supported yet.`,
       },
       listingRowId: "",
+      price: 0,
     };
   }
 
   // The source draft IS this platform's row (eBay today) — publish it directly
   // rather than minting a duplicate.
   if (platform === draft.platform) {
+    const own = resolveSiblingPrice(platform, { explicitPrice, sharedPrice: price });
     const result = await adapter.publish({
       ownerId,
       inventoryItemId: draft.inventory_item_id,
       listingRowId: draft.id,
-      price,
+      price: own.price,
     });
-    return { result, listingRowId: draft.id };
+    return { result, listingRowId: draft.id, price: own.price };
   }
 
-  // US-564: map the shared draft onto this platform's requirements (title /
-  // description clamped to its limits, condition/category/tags carried through)
-  // instead of copying the eBay draft verbatim.
-  const mapped = mapSiblingListingFields(
-    platform,
-    {
-      listing_title: draft.listing_title,
-      listing_description: draft.listing_description,
-    },
-    price,
-    variant,
-  );
-
+  // US-2736: read this channel's OWN price back before deciding what it costs.
+  //
+  // The lookup used to select `id` alone, so a re-push knew nothing about the
+  // sibling except that it existed — and the only price to hand was the shared
+  // eBay one. A seller who priced Depop $4 above their eBay draft therefore
+  // watched that channel get repriced back every time anything touched the
+  // item: an automation, a second cross-push, a bulk edit. The price was
+  // written and never read.
+  //
+  // It is the stored OVERRIDE that is read here, not the row's current
+  // `listing_price`. The row's price is rewritten by every push and by every
+  // markdown rule, so it states what the listing costs today rather than what
+  // the seller decided about this channel; letting it win would freeze a
+  // channel at whatever it was first pushed at and there would be no way back.
   const { data: existing } = await supabaseAdmin
     .from("listings")
-    .select("id")
+    .select("id, platform_fields")
     .eq("draft_id", groupId)
     .eq("platform", platform)
     // US-1638: defense-in-depth — groupId already derives from the
@@ -158,17 +181,61 @@ export async function crossPushPlatform(
     // (free + index-backed via listings.user_id, migration 00146).
     .eq("user_id", ownerId)
     .maybeSingle();
-  let rowId = (existing as { id: string } | null)?.id ?? null;
+  const existingRow = existing as
+    | { id: string; platform_fields: Record<string, unknown> | null }
+    | null;
+  let rowId = existingRow?.id ?? null;
+
+  const priorBlob = readSiblingBlob(existingRow?.platform_fields ?? null, platform);
+  const storedOverride = typeof priorBlob?.price_override === "number"
+    ? priorBlob.price_override
+    : null;
+  // An explicit price on this push REPLACES the stored intent; otherwise the
+  // stored one is carried forward untouched. There is no path here that clears
+  // an override — a seller who wants this channel back on the shared price
+  // needs a control that says so, and inferring it from a blank field would
+  // silently reprice the listing (US-2736 note).
+  const overrideToStore = typeof explicitPrice === "number" &&
+      Number.isFinite(explicitPrice) && explicitPrice > 0
+    ? explicitPrice
+    : storedOverride;
+
+  // US-564: map the shared draft onto this platform's requirements (title /
+  // description clamped to its limits, condition/category/tags carried through)
+  // instead of copying the eBay draft verbatim. US-2736: and onto its price
+  // units — `mapped.listing_price` is the ONE number the row, the stored blob
+  // and the adapter all get, so they cannot disagree about what this costs.
+  const resolved = resolveSiblingPrice(platform, {
+    explicitPrice,
+    overridePrice: storedOverride,
+    sharedPrice: price,
+  });
+  const mapped = mapSiblingListingFields(
+    platform,
+    {
+      listing_title: draft.listing_title,
+      listing_description: draft.listing_description,
+    },
+    resolved.price,
+    variant,
+    overrideToStore,
+  );
 
   if (rowId) {
     const update: Record<string, unknown> = {
-      listing_price: price,
+      listing_price: mapped.listing_price,
       listing_title: mapped.listing_title,
       listing_description: mapped.listing_description,
     };
-    // Only overwrite platform_fields when we actually have a variant — never
-    // clobber a previously generated one with null.
-    if (mapped.platform_fields) update.platform_fields = mapped.platform_fields;
+    // Only overwrite platform_fields when we actually have a variant or an
+    // override — never clobber a previously generated one with null, and MERGE
+    // rather than replace so a price-only blob cannot erase the kit's words.
+    const nextBlob = mergeSiblingBlob(
+      existingRow?.platform_fields ?? null,
+      platform,
+      mapped.platform_fields?.[platform] ?? null,
+    );
+    if (nextBlob) update.platform_fields = nextBlob;
     await supabaseAdmin
       .from("listings")
       .update(update)
@@ -184,7 +251,7 @@ export async function crossPushPlatform(
         listing_origin: "gradethread",
         listing_status: "draft",
         is_active: false,
-        listing_price: price,
+        listing_price: mapped.listing_price,
         listing_title: mapped.listing_title,
         listing_description: mapped.listing_description,
         platform_fields: mapped.platform_fields ?? undefined,
@@ -201,6 +268,7 @@ export async function crossPushPlatform(
           error: `Could not create the ${platform} listing row.`,
         },
         listingRowId: "",
+        price: mapped.listing_price,
       };
     }
     rowId = (created as { id: string }).id;
@@ -233,6 +301,7 @@ export async function crossPushPlatform(
         blockers,
       },
       listingRowId: rowId,
+      price: mapped.listing_price,
     };
   }
 
@@ -268,16 +337,58 @@ export async function crossPushPlatform(
           error: enqueued.error,
         },
         listingRowId: rowId,
+        price: mapped.listing_price,
       };
     }
-    return { result: { ok: true }, listingRowId: rowId, queued: true };
+    return {
+      result: { ok: true },
+      listingRowId: rowId,
+      price: mapped.listing_price,
+      queued: true,
+    };
   }
 
   const result = await adapter.publish({
     ownerId,
     inventoryItemId: draft.inventory_item_id,
     listingRowId: rowId,
-    price,
+    // US-2736: the SAME number the row records. An adapter handed the shared
+    // price would put a figure on the marketplace that the listings row never
+    // held, and the mismatch only surfaces as a payout that does not reconcile.
+    price: mapped.listing_price,
   });
-  return { result, listingRowId: rowId };
+  return { result, listingRowId: rowId, price: mapped.listing_price };
+}
+
+/** This platform's slice of a sibling's `platform_fields`, or null. */
+function readSiblingBlob(
+  fields: Record<string, unknown> | null,
+  platform: string,
+): StoredPlatformVariant | null {
+  const raw = fields?.[platform];
+  return raw && typeof raw === "object" && !Array.isArray(raw)
+    ? raw as StoredPlatformVariant
+    : null;
+}
+
+/**
+ * Merge this platform's newly mapped blob over whatever the sibling already
+ * held, dropping `undefined` values on the way in.
+ *
+ * The drop is load-bearing: `{ ...prior, title: undefined }` serializes to JSON
+ * with NO title key, so spreading a price-only blob over a generated one would
+ * delete the kit's words rather than leave them alone.
+ */
+function mergeSiblingBlob(
+  existing: Record<string, unknown> | null,
+  platform: string,
+  next: StoredPlatformVariant | null,
+): Record<string, unknown> | null {
+  if (!next) return null;
+  const defined: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(next)) {
+    if (value !== undefined) defined[key] = value;
+  }
+  const prior = readSiblingBlob(existing, platform) ?? {};
+  return { ...(existing ?? {}), [platform]: { ...prior, ...defined } };
 }

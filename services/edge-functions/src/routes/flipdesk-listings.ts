@@ -303,21 +303,28 @@ flipdeskListingsRoutes.post("/cross-push", async (c) => {
     return c.json({ error: "Could not start the cross-listing group." }, 500);
   }
 
-  function priceFor(platform: CrossListingPlatform): number {
+  /** The price the seller typed for THIS channel on THIS push, or null. */
+  function explicitPriceFor(platform: CrossListingPlatform): number | null {
     const raw = rawPrices[platform];
-    const explicit = typeof raw === "number" && isFinite(raw) && raw > 0
-      ? raw
-      : null;
-    // Default per the story: the draft's price (itself seeded from the item's
-    // target price in the composer), then the item's target price.
-    const target = draft.inventory_items.target_price;
-    return explicit ??
-      (draft.listing_price > 0
-        ? draft.listing_price
-        : target != null && target > 0
-        ? target
-        : 0);
+    return typeof raw === "number" && isFinite(raw) && raw > 0 ? raw : null;
   }
+
+  // The item's SHARED price, which every channel falls back to: the draft's
+  // price (itself seeded from the item's target price in the composer), then
+  // the item's target price. First POSITIVE, so a stale 0 on the draft row does
+  // not shadow a real target price (US-2736).
+  //
+  // This used to BE the answer rather than the fallback, and `priceFor` merged
+  // the explicit price into it — so cross-push could not tell "the seller wants
+  // $40 on Depop" from "we had nothing else to use", and therefore could not
+  // keep the first one. crossPushPlatform now gets the two separately and
+  // resolves them against the channel's own stored price.
+  const sharedPrice = draft.listing_price > 0
+    ? draft.listing_price
+    : draft.inventory_items.target_price != null &&
+        draft.inventory_items.target_price > 0
+    ? draft.inventory_items.target_price
+    : 0;
 
   // US-564 (AC3): resolve the per-marketplace field variants once for the whole
   // fan-out (one AI pass covers every missing platform).
@@ -330,19 +337,22 @@ flipdeskListingsRoutes.post("/cross-push", async (c) => {
   const results: Partial<Record<CrossListingPlatform, PlatformPushResult>> = {};
 
   for (const platform of platforms) {
-    const price = priceFor(platform);
     // US-2156: the per-platform slice moved to lib/cross-push.ts so the
     // crosslist_to automation action publishes through the exact same path a
     // human cross-push does — find-or-create the sibling row, map it onto the
     // platform's limits, pre-flight it, publish.
-    const { result, listingRowId, queued } = await crossPushPlatform({
+    const { result, listingRowId, queued, price } = await crossPushPlatform({
       ownerId,
       draft,
       groupId,
       platform,
-      price,
+      price: sharedPrice,
+      explicitPrice: explicitPriceFor(platform),
       variant: variantMap[platform],
     });
+    // US-2736: the price REPORTED is the price pushed — the channel's own,
+    // rounded to its own units. Reporting the input back meant a Poshmark row
+    // that went out at $32 was announced at $32.49.
     results[platform] = toPushResult(result, listingRowId, price, queued);
   }
 
