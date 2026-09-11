@@ -19,9 +19,15 @@ summary: flipdesk_expenses.spent_on is a date-only column, so every client ancho
 # An expense date is a calendar date
 
 `flipdesk_expenses.spent_on` is a **`date`** column. It answers "which day did
-this belong to", not "at what instant did this happen". A sale date is a real
-moment; an expense date is not, and treating them alike is the bug below in
-miniature.
+this belong to", not "at what instant did this happen".
+
+⚠ **This used to say "a sale date is a real moment; an expense date is not",
+and that was wrong in the expensive direction.** Neither `sales.sale_date` nor
+`sales.sold_at` is reliably a moment. Both are `timestamptz`, and most of what
+lands in them is a calendar day that Postgres widened to UTC midnight. The
+section "The sales columns are timestamptz, and mostly are not moments" below
+has the writer-by-writer detail. Read it before writing anything that reads
+either one.
 
 ## The rule
 
@@ -166,7 +172,109 @@ sites, including a widget tile that read zero every day of the year west of UTC.
 value, needs opposite zone rules for its sale band and its purchase band, and
 mentions no `Calendar` at all, so a grep never finds it.
 
+## The sales columns are timestamptz, and mostly are not moments (US-3315, 2026-09-11)
+
+`sales.sale_date` and `sales.sold_at` are both `timestamptz`. The type is a
+promise neither column keeps, and the failure is invisible because midnight UTC
+is a perfectly plausible timestamp.
+
+Measured against the local stack on 2026-09-11, through PostgREST, exactly as
+the clients write it:
+
+| sent | stored | read back in America/Chicago |
+|---|---|---|
+| `"2026-09-11"` | `2026-09-11 00:00:00+00` | `2026-09-10 19:00:00-05`, `::date` = the 10th |
+| `"2026-09-11T21:37:04Z"` | `2026-09-11 21:37:04+00` | the same instant |
+
+The widening uses the **session** time zone, not UTC by definition. Every
+Postgres role here runs at UTC (`authenticator`, `anon`, `authenticated` and
+`service_role` set no `TimeZone`, and the cluster default is UTC), which is what
+makes the anchor UTC rather than an accident of whoever opened the connection.
+A deployment that changed the session zone would move every bare-date write
+without changing a line of application code.
+
+### Nine writers, and five of them have a real instant
+
+Found by walking every source root for an assignment of the column, then reading
+each one, so the list is a census rather than a memory. It is pinned by
+`services/edge-functions/src/tests/sold-at-provenance_test.ts`, which walks the
+same tree and fails on any site that is not registered.
+
+| writer | what it hands `sold_at` |
+|---|---|
+| `routes/flipdesk-ebay.ts` | eBay `order.creationDate`, a real instant |
+| `lib/orphan-sale-match.ts` | the same eBay instant, copied off the orphan row |
+| `lib/etsy-orders.ts` | `created_timestamp` (epoch seconds) as an instant |
+| `lib/shopify-orders.ts` | `processed_at`, else `created_at`, both instants |
+| `lib/depop-orders.ts` | `created_at`/`purchased_at`/`date`, passed through unchecked |
+| `record-sale-dialog.tsx` | a bare day from an `input type="date"` |
+| `ios/.../SaleRecorder.swift` | a bare day from `MoneyDate` |
+| `routes/flipdesk-import.ts` | a bare day, via `isoDate()` in `lib/inventory-import.ts` |
+| `routes/flipdesk-sync.ts` | whatever the browser extension scraped |
+
+Android writes it nowhere. It decodes the column in `SyncService` and its only
+sales mutation is `shipped_at`.
+
+**The three API connectors fall back to `new Date()`** when the marketplace
+reported no date at all. That is a real instant of the wrong event (the sync
+ran), and it is named here rather than hidden, because it is the one case where
+`sold_at` carries a plausible time of day that means nothing.
+
+**Poshmark, Mercari, Grailed, Vinted and Facebook have no instant to give.**
+They come through the extension's Sold-page scrape, and those pages print
+"Today", "3 days ago" or "Aug 18". `parseSoldAt` in
+`extension-unified/sync/observe.js` resolves each to `Date.UTC(y, m, d)`, so the
+value arrives already anchored at midnight. It is a day wearing an instant's
+clothes, and it is honest only by accident.
+
+### The rule, and why the column keeps its type
+
+**`sold_at` holds a marketplace instant where one was reported, and a
+UTC-anchored calendar day where one was not. No writer may synthesise a time of
+day it was not given.**
+
+Narrowing the column to `date` was the other option and it is destructive: five
+of the nine writers already store a real moment, `ALTER COLUMN ... TYPE date
+USING sold_at::date` would throw every one of those times away, and the cast
+runs in the session zone, so it would move some rows a day while doing it.
+Filling the four day-shaped writers with a manufactured instant is worse still.
+A date picker, a spreadsheet cell and a scraped "3 days ago" have no moment in
+them, and `Date.now()` at save time records when the seller typed, not when the
+item sold. Midnight is at least recognisable as "no time was known".
+
+### What the mixture already costs
+
+- `items_full` exposes `COALESCE(sold_at, sale_date)` as `sale_date` and
+  `sold_at` as `sold_at_raw`, and derives `days_to_sell` by subtracting
+  `listed_at` from it. For a manual sale that subtraction starts at midnight.
+- `lib/ship-deadline.ts` derives `ship_by` as `sold_at + handling_days`. It is
+  only called from the eBay path today, where `sold_at` is a real instant. If
+  any day-shaped writer ever gains a handling time, the deadline it produces
+  lands at 00:00Z, which reads as the previous evening for the whole of the
+  Americas.
+- `lib/consignor-payout.ts` uses `sold_at` as the base of the consignor hold
+  window, so a manual sale's hold lapses up to a day early.
+- The public API declares `sold_at` as `format: date-time`
+  (`lib/openapi-spec.ts`) and serves it from `items_full.sale_date`, so the
+  promise is made to integrators as well.
+
+⚠ **`sales.sale_date` is the same shape and is NOT covered by the new guard.**
+It is `timestamptz NOT NULL DEFAULT now()`, every client slices a day into it,
+and US-3231, US-3302 and US-3306 each shipped a bug from reading it as a moment.
+Anything bucketing either column by day or month must use the UTC calendar, the
+way `MoneyDate` already does on iOS.
+
+⚠ **One live defect found while taking the census and deliberately not fixed
+here.** `routes/flipdesk-sync.ts` updates `listings` with
+`{ listing_status: "sold", sold_at }`, and `public.listings` has no `sold_at`
+column. Measured on the local stack: that PATCH returns HTTP 400 `PGRST204`
+while the same PATCH without the field returns 200, and the result is never
+checked. So an extension-confirmed sale writes its `sales` row and never flips
+its listing to sold. That file was owned by another change when this was
+written.
+
 ## Related
 
 - [[flipdesk-plan-gating]] — the surface these expenses live under
+- [[sync-source-of-truth]], for which side owns a field when two sources disagree
 - [[INDEX]]

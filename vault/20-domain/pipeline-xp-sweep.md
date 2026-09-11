@@ -63,6 +63,11 @@ Three things this table is easy to get wrong:
 - **`inventory_items.status` is never proof.** Items move backward — returned,
   relisted, archived — and one enum value cannot say which earlier stages
   happened.
+- **`item_sold`'s date is often a UTC-anchored midnight, not a moment.**
+  `sales.sold_at` and `sales.sale_date` are both `timestamptz`, and four of the
+  nine writers of `sold_at` hand it a bare calendar day. The per-date XP ceiling
+  therefore buckets those sales by their UTC day, which is the right rule and is
+  not obvious from the column type. See [[expense-date-is-a-calendar-date]].
 
 Each stage pays at most once per item however many listings, photos or comp runs
 it has: cross-posting one item to four marketplaces is one item's work.

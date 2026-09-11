@@ -587,6 +587,61 @@ The Foreign class is only visible in the pull's own log line, because a SKU with
 no live offer produces no orphan row either: the `!o.listingId` branch resolves
 no item and falls straight through to `skipped`.
 
+## The join that fixed it (2026-09-11, US-3362)
+
+Shipped in `doListingsPull`. No migration: 00477's index was already the right
+index, and the change is which column the pass reads through.
+
+**`buildEbaySkuIndex(items, listings)`** (exported from `flipdesk-ebay.ts`)
+replaces the old `inventory_items.sku` map. It is a pure function over the two
+preloads, and it claims a SKU in a fixed precedence, first writer winning:
+
+1. `listings.inventory_sku` - what eBay is KNOWN to hold, pinned at publish.
+2. `variantSku(inventory_sku, v)` for each member of `listings.variations`,
+   parsed with the same `normalizeVariations` the publish path runs, so the two
+   stay in lockstep.
+3. `inventory_items.sku` - today's value, right until the seller edited it.
+4. `deriveInventorySku(item)` - reproduces what a blank-SKU publish minted, and
+   covers a listing row that predates 00477's backfill.
+
+Rule 3 losing to rule 1 is the Renamed case and is deliberate: if item A now
+carries a SKU that item B was published under, eBay still holds it for B, and
+resolving it to A would mark the wrong item ended.
+
+**Three things moved with it.**
+
+- Both preloads (`inventory_items`, and the eBay `listings` rows) now run BEFORE
+  the offer fan-out rather than after it, because the skip set that decides which
+  SKUs cost a call has to be expressed in eBay's SKUs, and the index is that
+  translation. `offerCheckRowsForIndex` spreads one item's
+  `ebay_offer_checked_at` across every SKU the index maps to it, so a Minted or
+  Variant SKU can enter the skip set at all. Same two queries as before, two
+  columns wider (`inventory_sku`, `variations`), and the item query no longer
+  filters `sku is not null` - a blank-SKU item is the whole point.
+- The per-offer decision came out of the loop as **`routeRemoteOffer`**, which
+  returns `listed | ended | orphan | skipped`. Both ended-without-sale branches
+  are now that function's answer rather than two inline ternaries, which is what
+  makes the path testable: it sits behind a resolved item id, so a guard that
+  greps for `endedItemIds` is green for the entire lifetime of the bug.
+- The US-3111 stamp is `.in("id", plan.itemIds)` via **`planOfferStamp`**, and
+  the SKUs are mapped back from the returned ids for the coverage count. The
+  plan's `unresolved` list is the Foreign residue and is printed as
+  `offers_unresolved=` on the pull-complete line, next to `offers_read`.
+
+One unrelated bug went with it: the modern pass wrote orphans with a hard-coded
+`title: null` although `listAllOffers` already carries the title, which is why a
+Reconciliation row could be nameless even for a foreign listing the legacy pass
+was suppressed from re-describing.
+
+**What to expect on prod.** `offers_unstamped` should fall to roughly
+`offers_unresolved`, and US-3357's arithmetic (`1 + 3f = 1.7`) predicts about
+23% of the eBay inventory list. A much smaller residue means that analysis was
+wrong and the container log is the next step; the SQL in the section above
+counts the Minted and Renamed halves directly.
+
+Tests: `src/tests/ebay-sku-resolution_test.ts` (25 cases; the Minted class is
+driven end to end - blank SKU in, `ended` out).
+
 ## Related
 
 - [[ebay-condition-and-policies]] — a rejected condition is one way a publish fails

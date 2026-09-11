@@ -153,8 +153,14 @@ Deno.test("the offer stamp asks PostgREST which rows it hit", async () => {
   const end = src.indexOf("unstampedOfferCoverage(", start);
   assert(end > start, "the coverage check is no longer run after the stamp");
   const block = src.slice(start, end);
+  // US-3362 rekeyed the stamp from `sku` to the resolved inventory_items.id,
+  // which is the point of that story: keyed on `sku` the UPDATE matched zero
+  // rows for a Minted, Renamed or Variant SKU and still answered 200. This
+  // assertion used to pin the COLUMN and would have read that fix as the
+  // regression it exists to catch, so it now pins the PROPERTY - the stamp asks
+  // PostgREST which rows it hit - and accepts either key.
   assert(
-    block.includes('.select("sku")'),
+    block.includes('.select("id")') || block.includes('.select("sku")'),
     "the offer stamp no longer returns the rows it updated, so the unstamped " +
       "count is meaningless",
   );

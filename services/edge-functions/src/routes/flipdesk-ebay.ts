@@ -429,7 +429,7 @@ import {
   type PriceQtyUpdate,
 } from "../lib/ebay-bulk.ts";
 // US-1999: one derivation rule, and the published SKU wins over item.sku.
-import { resolveInventorySku } from "../lib/ebay-sku.ts";
+import { deriveInventorySku, resolveInventorySku } from "../lib/ebay-sku.ts";
 // US-1968: existing-listing migration (pure response parsing + eBay's 5/call cap).
 import { chunkForMigrate, parseMigrateResponse } from "../lib/ebay-migrate.ts";
 
@@ -2702,6 +2702,230 @@ interface OfferCheckRow {
   ebay_offer_checked_at: string | null;
 }
 
+// -- US-3362: resolving an eBay SKU to a local item ----------------------
+//
+// THE BUG THIS REGION EXISTS FOR. The catalog pass used to resolve every eBay
+// SKU through `inventory_items.sku` alone. eBay is not keyed on that column -
+// it is keyed on `listings.inventory_sku`, the value `deriveInventorySku` minted
+// at publish. The two agree only when the seller typed a SKU and never changed
+// it, and the composer's SKU field is optional, so a blank one publishes as
+// `FD-<8 hex>` against a local row holding NULL. Four classes could not resolve:
+//
+//   Minted   - blank SKU at publish, so eBay holds FD-xxxxxxxx and we hold NULL
+//   Renamed  - the seller edited sku after publishing (the case 00477 exists for)
+//   Variant  - eBay holds variantSku(base, v); only the base is stored
+//   Foreign  - another tool's listing, or a locally deleted item
+//
+// An unresolved SKU is not merely an extra call. The item's OWN live listing is
+// filed as an orphan, and ended-without-sale never fires for it, because both
+// `endedItemIds.add` sites sit behind a resolved item id - so a listing ends on
+// eBay and FlipDesk goes on showing it as listed.
+//
+// The lookup needs no migration: 00477 already created
+// `idx_listings_user_inventory_sku ON listings (user_id, inventory_sku)
+//  WHERE inventory_sku IS NOT NULL` for exactly this.
+
+/** An inventory row as far as SKU resolution is concerned. */
+export interface SkuIndexItem {
+  id: string;
+  sku: string | null;
+}
+
+/** A listing row as far as SKU resolution is concerned. */
+export interface SkuIndexListing {
+  inventory_item_id: string | null;
+  /** The SKU eBay actually holds this listing under (pinned at publish). */
+  inventory_sku: string | null;
+  /** US-568 variation matrix; eBay holds one SKU per variant, not the base. */
+  variations: ListingVariations | null;
+}
+
+/**
+ * Pure: every SKU eBay could name for this seller, mapped to the local item.
+ *
+ * Precedence runs from what eBay is KNOWN to hold down to what it can be
+ * inferred to hold, and an earlier pass always wins:
+ *
+ *   1. `listings.inventory_sku` - authoritative, written at publish time.
+ *   2. `variantSku(inventory_sku, v)` - what a group listing's members are.
+ *   3. `inventory_items.sku` - today's value; right until it was edited.
+ *   4. `deriveInventorySku(item)` - reproduces what a blank-SKU publish minted,
+ *      and covers a row that predates 00477's `inventory_sku` backfill.
+ *
+ * Listing rows are expected newest-first, so the most recent listing wins a
+ * SKU two rows both claim. Rule 3 losing to rule 1 is the Renamed case and is
+ * deliberate: if item A now carries a SKU that item B was published under, eBay
+ * still holds it for B.
+ *
+ * Pure so the join can be proved without a database - a resolution that
+ * silently matches nothing is exactly the failure this replaces.
+ */
+export function buildEbaySkuIndex(
+  items: readonly SkuIndexItem[],
+  listings: readonly SkuIndexListing[],
+): Map<string, string> {
+  const index = new Map<string, string>();
+  const claim = (sku: string | null | undefined, itemId: string): void => {
+    const key = sku?.trim();
+    if (!key || !itemId) return;
+    if (!index.has(key)) index.set(key, itemId);
+  };
+  for (const l of listings) {
+    if (l.inventory_item_id) claim(l.inventory_sku, l.inventory_item_id);
+  }
+  for (const l of listings) {
+    const base = l.inventory_sku?.trim();
+    if (!base || !l.inventory_item_id) continue;
+    // normalizeVariations is what the publish path itself runs before minting
+    // variant SKUs, so using it here keeps the two in lockstep. A matrix that
+    // has since fallen below two purchasable variants yields nothing, which is
+    // the same answer publish would give today.
+    const matrix = normalizeVariations(l.variations);
+    if (!matrix) continue;
+    for (const v of matrix.variants) {
+      claim(variantSku(base, v), l.inventory_item_id);
+    }
+  }
+  for (const it of items) claim(it.sku, it.id);
+  for (const it of items) claim(deriveInventorySku(it), it.id);
+  return index;
+}
+
+/**
+ * Pure: the offer-recheck rows `selectSkusToSkip` needs, in eBay-SKU space.
+ *
+ * `ebay_offer_checked_at` is stamped on the ITEM, but the skip set is consumed
+ * by `listAllOffers`, which only ever sees eBay's SKUs. Expanding one item's
+ * timestamp across every SKU the index maps to it is what lets a Minted or
+ * Variant SKU enter the skip set at all - before US-3362 those SKUs could
+ * never be stamped, so they were re-read on every pass forever.
+ */
+export function offerCheckRowsForIndex(
+  items: readonly { id: string; ebay_offer_checked_at: string | null }[],
+  index: ReadonlyMap<string, string>,
+): OfferCheckRow[] {
+  const stampByItem = new Map<string, string | null>();
+  for (const it of items) stampByItem.set(it.id, it.ebay_offer_checked_at);
+  const rows: OfferCheckRow[] = [];
+  for (const [sku, itemId] of index) {
+    const at = stampByItem.get(itemId);
+    if (at) rows.push({ sku, ebay_offer_checked_at: at });
+  }
+  return rows;
+}
+
+export interface OfferStampPlan {
+  /** Unique inventory_items.id values to stamp, in first-seen order. */
+  itemIds: string[];
+  /** Every read SKU that resolved to a given item, for reporting back. */
+  skusByItemId: Map<string, string[]>;
+  /** Read SKUs with no local item at all - the Foreign residue. */
+  unresolved: string[];
+}
+
+/**
+ * Pure: turn the SKUs a pass read into the rows the stamp should address.
+ *
+ * The stamp used to be `.in("sku", chunk)`, which is the same wrong column the
+ * resolution used, so it could match zero rows without erroring (PostgREST
+ * answers 200 with an empty body). Keying it on the resolved id means it can
+ * only miss for a SKU that genuinely has no local item, and `unresolved` names
+ * exactly that set rather than leaving it as an unexplained gap.
+ */
+export function planOfferStamp(
+  readSkus: readonly string[],
+  index: ReadonlyMap<string, string>,
+): OfferStampPlan {
+  const itemIds: string[] = [];
+  const skusByItemId = new Map<string, string[]>();
+  const unresolved: string[] = [];
+  const seen = new Set<string>();
+  for (const sku of readSkus) {
+    if (!sku || seen.has(sku)) continue;
+    seen.add(sku);
+    const itemId = index.get(sku);
+    if (!itemId) {
+      unresolved.push(sku);
+      continue;
+    }
+    const existing = skusByItemId.get(itemId);
+    if (existing) {
+      existing.push(sku);
+    } else {
+      skusByItemId.set(itemId, [sku]);
+      itemIds.push(itemId);
+    }
+  }
+  return { itemIds, skusByItemId, unresolved };
+}
+
+/** The offer fields the catalog pass routes on. */
+export interface RoutableOffer {
+  sku: string | null;
+  listingId: string | null;
+  listingStatus: string | null;
+  availableQuantity: number | null;
+}
+
+/** The local listing fields the routing decision reads. */
+export interface RoutableLocalListing {
+  is_active: boolean | null;
+  listing_status: string | null;
+}
+
+export type OfferRouting =
+  /** eBay says this listing is live -> flip the item to 'listed'. */
+  | { kind: "listed"; itemId: string; state: EbayListingState }
+  /** eBay says it is not live -> Path A moves the item back to Drafts. */
+  | { kind: "ended"; itemId: string; state: EbayListingState }
+  /** No local item for this SKU -> snapshot it on Reconciliation. */
+  | { kind: "orphan"; listingId: string }
+  /** A genuine unpublished draft. Nothing to reconcile. */
+  | { kind: "skipped" };
+
+/**
+ * Pure: what a catalog pass should do with one remote offer.
+ *
+ * US-3362 pulled this out of the loop because the ended-without-sale path is
+ * the story's seller-facing bug and it CANNOT BE PROVED BY A SOURCE SCAN. Both
+ * `endedItemIds.add` sites sit behind a resolved item id, so a test that greps
+ * for `endedItemIds` passes just as happily when the resolution is broken and
+ * nothing ever reaches them. Driving this function with a Minted SKU is the
+ * only way to show the item actually gets there.
+ *
+ * `itemId` is the caller's resolution through {@link buildEbaySkuIndex}; this
+ * function never resolves a SKU itself, so wiring the wrong index still shows
+ * up here as `orphan`.
+ */
+export function routeRemoteOffer(
+  offer: RoutableOffer,
+  itemId: string | null,
+  localListing: RoutableLocalListing | null,
+): OfferRouting {
+  if (!offer.listingId) {
+    // No live listingId is normally a genuine draft. But when we still hold a
+    // LIVE local listing for this SKU, eBay has just told us it is no longer
+    // live: it ended, sold out, or was removed for a policy issue (eBay drops a
+    // policy-removed listing out of the active feed entirely). Absence is its
+    // own fact, distinct from any status eBay could have sent.
+    const localIsLive = localListing
+      ? localListing.is_active === true || localListing.listing_status === "active"
+      : false;
+    if (itemId && localIsLive) {
+      return { kind: "ended", itemId, state: absentListingState() };
+    }
+    return { kind: "skipped" };
+  }
+  if (!itemId) return { kind: "orphan", listingId: offer.listingId };
+  // US-2656 / US-2684: eBay's own word and what it means, with the quantity
+  // riding along because a cancelled order leaves availableQuantity at 0 while
+  // listingStatus still reads ACTIVE.
+  const state = resolveEbayListingState(offer.listingStatus, offer.availableQuantity);
+  return state.isActive
+    ? { kind: "listed", itemId, state }
+    : { kind: "ended", itemId, state };
+}
+
 /**
  * Pure: which SKUs a catalog pass may skip.
  *
@@ -2785,28 +3009,6 @@ export function unstampedOfferCoverage(
   };
 }
 
-/**
- * The SKUs read inside the recheck window. FAILS OPEN to an empty set, which is
- * exactly the pre-US-3111 behaviour of reading every SKU — a wasted call beats
- * a catalog that silently stops reconciling.
- */
-async function loadRecentlyReadOfferSkus(userId: string): Promise<Set<string>> {
-  const { data, error } = await supabaseAdmin
-    .from("inventory_items")
-    .select("sku, ebay_offer_checked_at")
-    .eq("user_id", userId)
-    .not("sku", "is", null)
-    .not("ebay_offer_checked_at", "is", null);
-  if (error) {
-    console.warn(
-      `[flipdesk-ebay] offer-recheck window unavailable (${error.message}); ` +
-        `reading every SKU this pass`,
-    );
-    return new Set<string>();
-  }
-  return selectSkusToSkip((data ?? []) as OfferCheckRow[], Date.now());
-}
-
 async function doListingsPull(
   userId: string,
   connId: string,
@@ -2830,12 +3032,116 @@ async function doListingsPull(
   // below, per-item errors). Declared up here so the offers/inventory fetch can
   // record a ceiling hit; a non-empty list flips the run to "partial".
   const errors: string[] = [];
+
+  // -- SKU resolution (US-3362) ----------------------------------------
+  // Both preloads run BEFORE the eBay fetch, because the skip set that decides
+  // which SKUs we spend a call on has to be expressed in eBay's SKUs, and that
+  // translation is the index. They used to sit after the fetch and be read off
+  // `inventory_items.sku` alone, which is the wrong column (see
+  // buildEbaySkuIndex). Same two queries as before, two columns wider.
+  //
+  // Catalog fields come along so the sync can make eBay the source of truth
+  // (title overwrite, brand/size/color/style/material fill-if-blank) without a
+  // per-item read.
+  type ItemRow = {
+    id: string;
+    sku: string | null;
+    // US-3110: when GetItem was last asked about this item, whether or not eBay
+    // had anything to give. See SPECIFICS_RECHECK_MS.
+    ebay_specifics_checked_at: string | null;
+    // US-3111: when we last spent an offer read on this item.
+    ebay_offer_checked_at: string | null;
+  } & LocalCatalog;
+  const { data: itemRows, error: itemRowsError } = await supabaseAdmin
+    .from("inventory_items")
+    .select(
+      "id, sku, title, brand, size, color, style, material, ebay_specifics_checked_at, ebay_offer_checked_at",
+    )
+    .eq("user_id", userId);
+  if (itemRowsError) {
+    // Load-bearing: with no catalog every eBay listing resolves to nothing and
+    // the pass files the seller's whole inventory as orphans. Say so loudly and
+    // flag the run partial rather than let that read as a clean sync.
+    console.error(
+      "[flipdesk-ebay] catalog preload failed:",
+      itemRowsError.message,
+    );
+    errors.push(`catalog preload: ${itemRowsError.message.slice(0, 200)}`);
+  }
+  const allItems = (itemRows ?? []) as ItemRow[];
+  const itemById = new Map<string, ItemRow>();
+  for (const r of allItems) itemById.set(r.id, r);
+
+  // US-405: this user's existing eBay listings, so the loops below join in
+  // memory instead of a per-row SELECT. Tenant-scoped via the inner join on
+  // inventory_items.user_id (listings has no user_id - US-268).
+  type ExistingListingRow = {
+    id: string;
+    inventory_item_id: string;
+    platform_listing_id: string | null;
+    platform_offer_id: string | null;
+    listing_url: string | null;
+    listing_price: number | null;
+    listing_status: string | null;
+    listing_title: string | null;
+    is_active: boolean | null;
+    quantity: number | null;
+    listed_at: string | null;
+    listing_description: string | null;
+    platform_category_id: string | null;
+    // US-1081: provenance signals + drift marker. batch_id/synced_to_ebay_at
+    // decide whether this listing is GradeThread-originated (GT is the source of
+    // truth -> inbound pull must NOT overwrite eBay-owned editable fields; it only
+    // records that eBay drifted in platform_fields.sync_drift).
+    batch_id: string | null;
+    synced_to_ebay_at: string | null;
+    platform_fields: Record<string, unknown> | null;
+    // US-1077: persisted provenance marker. Preserved on matched rows so a pull
+    // can't relabel a GradeThread-originated listing as eBay-originated.
+    listing_origin: string | null;
+    // US-3362: the SKU eBay actually holds this listing under, and the variation
+    // matrix whose members eBay holds under variantSku(). Both feed the index.
+    inventory_sku: string | null;
+    variations: ListingVariations | null;
+  };
+  const existingListingByItem = new Map<string, ExistingListingRow>();
+  const { data: listingRows, error: listingRowsError } = await supabaseAdmin
+    .from("listings")
+    .select(
+      "id, inventory_item_id, platform_listing_id, platform_offer_id, listing_url, listing_price, listing_status, listing_title, is_active, quantity, listed_at, listing_description, platform_category_id, batch_id, synced_to_ebay_at, platform_fields, listing_origin, inventory_sku, variations, created_at, inventory_items!inner(user_id)",
+    )
+    .eq("platform", "ebay")
+    .eq("inventory_items.user_id", userId)
+    .order("created_at", { ascending: false });
+  if (listingRowsError) {
+    console.error(
+      "[flipdesk-ebay] listing preload failed:",
+      listingRowsError.message,
+    );
+    errors.push(`listing preload: ${listingRowsError.message.slice(0, 200)}`);
+  }
+  const allListings = (listingRows ?? []) as unknown as ExistingListingRow[];
+  for (const r of allListings) {
+    // created_at desc -> the first row seen for an item is the most recent.
+    if (r.inventory_item_id && !existingListingByItem.has(r.inventory_item_id)) {
+      existingListingByItem.set(r.inventory_item_id, r);
+    }
+  }
+
+  // Every SKU eBay could name, mapped to the local item. This is the fix for
+  // US-3362: the pass used to consult `inventory_items.sku` and nothing else.
+  const skuToItemId = buildEbaySkuIndex(allItems, allListings);
+
   // US-3111: the SKUs whose offer we read recently enough to skip this pass.
-  // Loaded before the fetch and empty on any failure, so the worst case is the
-  // old behaviour of reading every SKU.
+  // Empty on any failure, so the worst case is the old behaviour of reading
+  // every SKU - a wasted call beats a catalog that silently stops reconciling.
   const skipSkus = catalogPass
-    ? await loadRecentlyReadOfferSkus(userId)
+    ? selectSkusToSkip(
+      offerCheckRowsForIndex(allItems, skuToItemId),
+      Date.now(),
+    )
     : new Set<string>();
+
   let offers: RemoteOffer[];
   let offerSkusRead: string[] = [];
   try {
@@ -2873,65 +3179,13 @@ async function doListingsPull(
     return;
   }
 
-  // Pre-load this user's SKU → inventory_item mapping so we can do the
-  // join in memory rather than N+1 queries against Supabase. Catalog fields
-  // come along so the sync can make eBay the source of truth (title overwrite,
-  // brand/size/color/style/material fill-if-blank) without a per-item read.
-  type ItemRow = {
-    id: string;
-    sku: string;
-    // US-3110: when GetItem was last asked about this item, whether or not eBay
-    // had anything to give. See SPECIFICS_RECHECK_MS.
-    ebay_specifics_checked_at: string | null;
-  } & LocalCatalog;
-  const { data: itemsBySku } = await supabaseAdmin
-    .from("inventory_items")
-    .select(
-      "id, sku, title, brand, size, color, style, material, ebay_specifics_checked_at",
-    )
-    .eq("user_id", userId)
-    .not("sku", "is", null);
-  const skuToItemId = new Map<string, string>();
-  const itemBySku = new Map<string, ItemRow>();
-  for (const r of (itemsBySku ?? []) as ItemRow[]) {
-    if (r.sku) {
-      skuToItemId.set(r.sku, r.id);
-      itemBySku.set(r.sku, r);
-    }
-  }
-
   // ── US-405: batched-write accumulators ──────────────────────────────
   // The offers + legacy passes below used to do a per-row SELECT, then an
   // INSERT/UPDATE, then a status flip — thousands of sequential PostgREST
   // round-trips on a large seller. Instead we pre-load existing listings into a
-  // map (like the SKU map), accumulate every write in memory, and flush them as
-  // a handful of bulk calls before the orders pass. This takes a 1,000-offer
-  // sync from minutes to seconds.
-  type ExistingListingRow = {
-    id: string;
-    inventory_item_id: string;
-    platform_listing_id: string | null;
-    platform_offer_id: string | null;
-    listing_url: string | null;
-    listing_price: number | null;
-    listing_status: string | null;
-    listing_title: string | null;
-    is_active: boolean | null;
-    quantity: number | null;
-    listed_at: string | null;
-    listing_description: string | null;
-    platform_category_id: string | null;
-    // US-1081: provenance signals + drift marker. batch_id/synced_to_ebay_at
-    // decide whether this listing is GradeThread-originated (GT is the source of
-    // truth → inbound pull must NOT overwrite eBay-owned editable fields; it only
-    // records that eBay drifted in platform_fields.sync_drift).
-    batch_id: string | null;
-    synced_to_ebay_at: string | null;
-    platform_fields: Record<string, unknown> | null;
-    // US-1077: persisted provenance marker. Preserved on matched rows so a pull
-    // can't relabel a GradeThread-originated listing as eBay-originated.
-    listing_origin: string | null;
-  };
+  // map (above, with the SKU index), accumulate every write in memory, and
+  // flush them as a handful of bulk calls before the orders pass. This takes a
+  // 1,000-offer sync from minutes to seconds.
   // Every column the offers/legacy passes may write to `listings`. Building a
   // FULL row for every insert AND edit (seeded from the pre-loaded snapshot,
   // then patched) keeps the upsert array uniform — and supplies all the
@@ -2985,27 +3239,6 @@ async function doListingsPull(
     "comped",
     "drafted",
   ];
-
-  // Pre-load this user's existing eBay listings (most-recent per item) so the
-  // loops below join in memory instead of a per-row SELECT. Tenant-scoped via
-  // the inner join on inventory_items.user_id (listings has no user_id — US-268).
-  const existingListingByItem = new Map<string, ExistingListingRow>();
-  {
-    const { data: rows } = await supabaseAdmin
-      .from("listings")
-      .select(
-        "id, inventory_item_id, platform_listing_id, platform_offer_id, listing_url, listing_price, listing_status, listing_title, is_active, quantity, listed_at, listing_description, platform_category_id, batch_id, synced_to_ebay_at, platform_fields, listing_origin, created_at, inventory_items!inner(user_id)",
-      )
-      .eq("platform", "ebay")
-      .eq("inventory_items.user_id", userId)
-      .order("created_at", { ascending: false });
-    for (const r of (rows ?? []) as unknown as ExistingListingRow[]) {
-      // created_at desc → the first row seen for an item is the most recent.
-      if (r.inventory_item_id && !existingListingByItem.has(r.inventory_item_id)) {
-        existingListingByItem.set(r.inventory_item_id, r);
-      }
-    }
-  }
 
   // Accumulators flushed in one bulk call each after both listing passes.
   const pendingListing = new Map<string, ListingWrite>();
@@ -3131,7 +3364,7 @@ async function doListingsPull(
     patch: CatalogPatch,
   ): Promise<void> {
     if (Object.keys(patch).length === 0) return;
-    // Tenant-safe: itemId came from this user's itemBySku map (US-268).
+    // Tenant-safe: itemId came from this user's own catalog preload (US-268).
     const { error } = await supabaseAdmin
       .from("inventory_items")
       .update(patch)
@@ -3295,6 +3528,19 @@ async function doListingsPull(
 
   for (const o of offers) {
     try {
+      const sku = o.sku;
+      // US-3362: resolved through every SKU eBay could be holding this item
+      // under, not just `inventory_items.sku`. The routing below - and with it
+      // both ended-without-sale branches - sits behind this one lookup, which
+      // is why a wrong answer here reads as an orphan rather than as a bug.
+      const resolvedItemId = sku ? skuToItemId.get(sku) ?? null : null;
+      const routed = routeRemoteOffer(
+        o,
+        resolvedItemId,
+        resolvedItemId
+          ? existingListingByItem.get(resolvedItemId) ?? null
+          : null,
+      );
       // No live listingId on this offer. Normally that's a genuine draft
       // (unpublished offer) — skip. BUT if we still hold a LIVE local listing
       // for this SKU, eBay just told us it's no longer live: the listing ended,
@@ -3302,49 +3548,39 @@ async function doListingsPull(
       // policy-removed listing out of the active feed, so it returns with no
       // listingId). Reconcile it to ended so Path A (below) drops the item back
       // to Drafts and it becomes relistable, instead of leaving it stuck
-      // "active" forever. Gate on an existing ACTIVE local row so a legitimately
-      // unpublished draft is never touched.
+      // "active" forever. routeRemoteOffer gates that on an existing ACTIVE
+      // local row, so a legitimately unpublished draft is never touched.
       if (!o.listingId) {
-        const goneItemId = o.sku ? skuToItemId.get(o.sku) ?? null : null;
-        const goneExisting = goneItemId
-          ? existingListingByItem.get(goneItemId) ?? null
-          : null;
-        if (
-          goneItemId &&
-          goneExisting &&
-          (goneExisting.is_active === true ||
-            goneExisting.listing_status === "active")
-        ) {
+        if (routed.kind === "ended") {
           // US-2656: absence is its own fact, distinct from any status eBay
           // could have sent, so it carries its own reason onto the row.
-          const gone = absentListingState();
-          applyListingPatch(ensurePendingListing(goneItemId), {
-            listing_status: gone.status,
-            is_active: gone.isActive,
+          applyListingPatch(ensurePendingListing(routed.itemId), {
+            listing_status: routed.state.status,
+            is_active: routed.state.isActive,
           });
-          ebayStateByItem.set(goneItemId, gone);
-          endedItemIds.add(goneItemId);
+          ebayStateByItem.set(routed.itemId, routed.state);
+          endedItemIds.add(routed.itemId);
         }
         skipped += 1;
         continue;
       }
-      const sku = o.sku;
-      const itemId = sku ? skuToItemId.get(sku) ?? null : null;
+      // `skipped` cannot reach here (routeRemoteOffer only returns it for an
+      // offer with no listingId, handled above), but narrowing on the two kinds
+      // that carry an item beats asserting that.
+      const onItem = routed.kind === "listed" || routed.kind === "ended"
+        ? routed
+        : null;
+      const itemId = onItem?.itemId ?? null;
       const priceNum = o.price ? Number(o.price.value) : null;
-      // US-2656: every non-ACTIVE answer used to become "ended" right here, in a
-      // single ternary, and the reason eBay gave was dropped on the floor. The
-      // resolver keeps eBay's own word and what it means; OUT_OF_STOCK in
-      // particular resolves to ACTIVE, because that listing is still on eBay and
-      // relisting it would mint a duplicate.
-      // US-2684: the quantity rides along because eBay answers "is this
-      // buyable" there far more reliably than it does in listingStatus. A
-      // cancelled order leaves availableQuantity at 0 with the status still
-      // reading ACTIVE, and that listing is live, holding its item id, and
-      // unbuyable — which is exactly the state nothing here could name.
-      const ebayState = resolveEbayListingState(o.listingStatus, o.availableQuantity);
-      const isActive = ebayState.isActive;
+      // US-2656: every non-ACTIVE answer used to become "ended" in a single
+      // ternary here, and the reason eBay gave was dropped on the floor. The
+      // resolver inside routeRemoteOffer keeps eBay's own word and what it
+      // means; OUT_OF_STOCK in particular resolves to ACTIVE, because that
+      // listing is still on eBay and relisting it would mint a duplicate.
+      const ebayState = onItem?.state ?? null;
+      const isActive = routed.kind === "listed";
 
-      if (itemId) {
+      if (itemId && ebayState) {
         // US-405: the existing listing comes from the pre-loaded map, not a
         // per-row SELECT.
         const existing = existingListingByItem.get(itemId) ?? null;
@@ -3491,7 +3727,9 @@ async function doListingsPull(
         // Modern offers carry title + aspects (from listAllOffers) — free.
         // US-1081: for GradeThread-originated listings GradeThread owns the
         // title, so skip eBay's title overwrite (specifics still fill-if-blank).
-        const localRow = sku ? itemBySku.get(sku) : undefined;
+        // US-3362: keyed on the resolved item, not on the SKU eBay sent. A
+        // Minted or Renamed SKU has no `inventory_items.sku` entry to find.
+        const localRow = itemById.get(itemId);
         if (localRow) {
           await applyCatalogPatch(
             itemId,
@@ -3517,7 +3755,12 @@ async function doListingsPull(
           user_id: userId,
           ebay_item_id: o.listingId,
           custom_label: sku ?? null,
-          title: null,
+          // US-3362: the offer already carries the title (listAllOffers reads it
+          // off the inventory item), and this hard-coded null was the reason a
+          // Reconciliation row could be nameless. The legacy pass that would
+          // otherwise have supplied it never runs for this listing - the modern
+          // pass has already put its id in processedListingIds.
+          title: o.title?.trim() ? o.title : null,
           current_price: priceNum,
           available_quantity: o.availableQuantity ?? null,
           listing_url: ebayListingUrl(o.listingId),
@@ -3667,7 +3910,8 @@ async function doListingsPull(
           // ONLY when this item still has a blank target field, and only while
           // under the per-sync cap (so the first backfill is bounded and later
           // syncs cost ~0 calls). Title still syncs even when the cap is hit.
-          const localRow = sku ? itemBySku.get(sku) : undefined;
+          // US-3362: keyed on the resolved item, not on the SKU eBay sent.
+          const localRow = itemById.get(itemId);
           if (localRow) {
             // A blank field is only worth an API call if we have not already
             // asked recently. eBay genuinely has no Material on plenty of
@@ -3776,24 +4020,32 @@ async function doListingsPull(
   // US-3111: remember which SKUs we spent an offer read on, including the ones
   // eBay had no offer for. Chunked because a large seller's pass can name a few
   // thousand SKUs and PostgREST sends `.in()` in the URL.
+  //
+  // US-3362: keyed on the resolved inventory_items.id, not on `sku`. The old
+  // `.in("sku", chunk)` consulted the same wrong column the resolution did, so
+  // for a Minted, Renamed or Variant SKU it matched zero rows, returned 200,
+  // and left the SKU to be re-read on every pass forever.
   let offerStampCoverage: OfferStampCoverage | null = null;
+  let offerStampPlan: OfferStampPlan | null = null;
   if (offerSkusRead.length > 0) {
     const CHUNK = 400;
-    // US-3110: the SKUs the stamp actually landed on, as PostgREST reports them
-    // back. Collected rather than counted so the gap can be NAMED.
+    const plan = planOfferStamp(offerSkusRead, skuToItemId);
+    offerStampPlan = plan;
+    // US-3110: the SKUs the stamp actually landed on, mapped back from the ids
+    // PostgREST reports. Collected rather than counted so the gap can be NAMED.
     const stampedSkus: string[] = [];
     let stampWriteFailed = false;
-    for (let i = 0; i < offerSkusRead.length; i += CHUNK) {
-      const chunk = offerSkusRead.slice(i, i + CHUNK);
+    for (let i = 0; i < plan.itemIds.length; i += CHUNK) {
+      const chunk = plan.itemIds.slice(i, i + CHUNK);
       const { data: stampedRows, error } = await supabaseAdmin
         .from("inventory_items")
         .update({ ebay_offer_checked_at: new Date().toISOString() })
         .eq("user_id", userId)
-        .in("sku", chunk)
+        .in("id", chunk)
         // US-3110: make the update say which rows it hit. Without this a stamp
         // that matched ZERO rows is indistinguishable from one that matched
         // every SKU, because neither returns an error.
-        .select("sku");
+        .select("id");
       if (error) {
         // Not fatal: an unstamped SKU is simply read again next pass, which is
         // the old behaviour. Say so, because a persistent failure here restores
@@ -3806,8 +4058,11 @@ async function doListingsPull(
         stampWriteFailed = true;
         break;
       }
-      for (const r of (stampedRows ?? []) as Array<{ sku: string | null }>) {
-        if (r.sku) stampedSkus.push(r.sku);
+      for (const r of (stampedRows ?? []) as Array<{ id: string | null }>) {
+        if (!r.id) continue;
+        for (const sku of plan.skusByItemId.get(r.id) ?? []) {
+          stampedSkus.push(sku);
+        }
       }
     }
     // Only meaningful when every chunk was attempted: a bail-out leaves the
@@ -3823,8 +4078,9 @@ async function doListingsPull(
         console.warn(
           `[flipdesk-ebay] ${offerStampCoverage.unstamped} of ` +
             `${offerStampCoverage.read} offer reads could not be stamped ` +
-            `(no inventory_items row for the SKU); they will be re-read every ` +
-            `pass. sample: ${offerStampCoverage.sample.join(", ")}`,
+            `(${plan.unresolved.length} of them resolve to no local ` +
+            `item at all); they will be re-read every pass. sample: ` +
+            `${offerStampCoverage.sample.join(", ")}`,
         );
       }
     }
@@ -4747,10 +5003,16 @@ async function doListingsPull(
       // eBay call volume, and "how many of those reads can never be cached"
       // was previously answerable only by dividing the daily call total by the
       // SKU count and guessing.
+      // US-3362: offers_unresolved is the residue AFTER the join - the SKUs
+      // eBay names that map to no local item at all (another tool's listing, or
+      // an item deleted here). Printed next to offers_read so the operator can
+      // read the fraction straight off the line instead of inferring it from
+      // the daily call total.
       (offerStampCoverage
         ? `offers_read=${offerStampCoverage.read} ` +
           `offers_stamped=${offerStampCoverage.stamped} ` +
-          `offers_unstamped=${offerStampCoverage.unstamped} `
+          `offers_unstamped=${offerStampCoverage.unstamped} ` +
+          `offers_unresolved=${offerStampPlan?.unresolved.length ?? 0} `
         : "") +
       `errors=${errors.length}`,
   );
