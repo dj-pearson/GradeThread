@@ -1,4 +1,4 @@
-import { type ReactNode, useEffect, useMemo, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { toastError } from "@/lib/toast-error";
@@ -92,6 +92,10 @@ import {
 } from "@/lib/channel-copy";
 import { kitPlatformsFor } from "@/lib/kit-platforms";
 import { edgeFetch } from "@/lib/edge-fetch";
+import {
+  type CaptureFailure,
+  recordExtensionCapture,
+} from "@/lib/extension-capture";
 import {
   QUEUED_NOTICE,
   useCancelExtensionWork,
@@ -321,6 +325,13 @@ function PlatformPanel({
   // toast did and the two can never disagree.
   const [lastFill, setLastFill] = useState<ListerResult | null>(null);
   const [confirming, setConfirming] = useState(false);
+  // US-3409: the automatic capture could not be recorded. Kept with the URL the
+  // extension caught, because the retry this offers must send the same listing
+  // and not a blank "I published it".
+  const [captureFailure, setCaptureFailure] = useState<
+    { failure: CaptureFailure; listingUrl: string | null } | null
+  >(null);
+  const [recapturing, setRecapturing] = useState(false);
   // US-2720: set only by an explicit refusal FROM the extension — never
   // inferred from the plan we think the account is on, because the extension is
   // the thing enforcing it.
@@ -363,40 +374,51 @@ function PlatformPanel({
   //
   // Scoped to THIS panel's item + platform: a seller can have several kits open,
   // and promoting the wrong row would put a real URL on the wrong listing.
+  //
+  // US-3409: the writeback is `recordExtensionCapture` now, which retries what a
+  // retry can fix and reports what it cannot. This used to be `if (!wb.ok)
+  // return;` — the check ran, worked, and threw the answer away, so a seller
+  // whose listing was live on Poshmark and missing from FlipDesk was told
+  // nothing at all.
+  const runCapture = useCallback(
+    async (listingUrl: string | null) => {
+      const outcome = await recordExtensionCapture({
+        itemId,
+        platform,
+        listingUrl,
+      });
+      if (outcome.kind === "failed") {
+        setCaptureFailure({ failure: outcome, listingUrl });
+        // The listing IS live, so the manual fallback has to be reachable even
+        // when the insert never landed and the server therefore has no row to
+        // derive a "prefilled" status from.
+        setPrefilled(true);
+        return;
+      }
+      setCaptureFailure(null);
+      setPrefilled(false);
+      setLastFill(null);
+      toast.success(`${spec?.label ?? platform} listing is live — recorded in FlipDesk.`);
+      void qc.invalidateQueries({ queryKey: ["platform-fields", itemId] });
+      void qc.invalidateQueries({ queryKey: ["item_listing_platforms"] });
+      void qc.invalidateQueries({ queryKey: ["item_listings", itemId] });
+      // The composer's own views of the item. A confirmed cross-post flips
+      // the item to `listed`, and leaving these stale is why the status
+      // chip beside the editor kept saying "drafted" after the toast said
+      // the opposite.
+      void qc.invalidateQueries({ queryKey: ["items_full"] });
+      void qc.invalidateQueries({ queryKey: ["inventory_item_ebay", itemId] });
+    },
+    [platform, itemId, qc, spec?.label],
+  );
+
   useEffect(() => {
     return onListerListed((e) => {
       if (e.platform !== platform) return;
       if (e.itemId && e.itemId !== itemId) return;
-      void (async () => {
-        try {
-          const wb = await edgeFetch("/api/flipdesk/listings/extension-writeback", {
-            method: "POST",
-            json: {
-              item_id: itemId,
-              platform,
-              published: true,
-              listing_url: e.listingUrl,
-            },
-          });
-          if (!wb.ok) return; // "I published it" is still there as the fallback
-          setPrefilled(false);
-          setLastFill(null);
-          toast.success(`${spec?.label ?? platform} listing is live — recorded in FlipDesk.`);
-          void qc.invalidateQueries({ queryKey: ["platform-fields", itemId] });
-          void qc.invalidateQueries({ queryKey: ["item_listing_platforms"] });
-          void qc.invalidateQueries({ queryKey: ["item_listings", itemId] });
-          // The composer's own views of the item. A confirmed cross-post flips
-          // the item to `listed`, and leaving these stale is why the status
-          // chip beside the editor kept saying "drafted" after the toast said
-          // the opposite.
-          void qc.invalidateQueries({ queryKey: ["items_full"] });
-          void qc.invalidateQueries({ queryKey: ["inventory_item_ebay", itemId] });
-        } catch {
-          // Silent: the seller never asked for this, and the manual path covers it.
-        }
-      })();
+      void runCapture(e.listingUrl);
     });
-  }, [platform, itemId, qc, spec?.label]);
+  }, [platform, itemId, runCapture]);
 
   if (!spec) return null;
 
@@ -458,13 +480,36 @@ function PlatformPanel({
     }
   };
 
+  // US-3409: the seller's own go at the capture that failed, with the SAME live
+  // URL the extension caught. `runCapture` has already tried three times by the
+  // time this button exists, so this is for the outage that outlasted them.
+  const retryCapture = () => {
+    const pending = captureFailure;
+    if (!pending) return;
+    setRecapturing(true);
+    void runCapture(pending.listingUrl).finally(() => setRecapturing(false));
+  };
+
   if (!variant) {
     return (
-      <p className="py-8 text-center text-sm text-muted-foreground">
-        Not generated yet. New drafts fill this on their own for the channels
-        you chose under Marketplaces; for this one, click “Generate for all
-        marketplaces” above.
-      </p>
+      <div className="space-y-3">
+        {/* US-3409: a capture can fail on a panel whose variant was cleared
+            since the send, and this early return is the one place the notice
+            below would otherwise have nowhere to render. */}
+        {captureFailure && (
+          <ListingCaptureNotice
+            platformLabel={spec.label}
+            failure={captureFailure.failure}
+            retrying={recapturing}
+            onRetry={retryCapture}
+          />
+        )}
+        <p className="py-8 text-center text-sm text-muted-foreground">
+          Not generated yet. New drafts fill this on their own for the channels
+          you chose under Marketplaces; for this one, click “Generate for all
+          marketplaces” above.
+        </p>
+      </div>
     );
   }
 
@@ -777,6 +822,18 @@ function PlatformPanel({
 
   return (
     <div className="space-y-3">
+      {/* US-3409: the automatic capture failed. First thing in the panel,
+          because everything below it is about a listing FlipDesk does not
+          know exists. */}
+      {captureFailure && (
+        <ListingCaptureNotice
+          platformLabel={spec.label}
+          failure={captureFailure.failure}
+          retrying={recapturing}
+          onRetry={retryCapture}
+        />
+      )}
+
       {/* US-3367: what this channel is doing, and the one verb that applies.
           Rendered above everything else because it is the answer to "did it
           go up" and "where is it", which used to have no answer at all. */}
@@ -1228,6 +1285,80 @@ function PlatformPanel({
             />
           );
         })}
+      </div>
+    </div>
+  );
+}
+
+// US-3409: the automatic capture went live and FlipDesk could not write it down.
+//
+// WHY THIS IS NOT A RED TOAST, which was the obvious thing to reach for and the
+// wrong one. Three facts decide the wording:
+//
+//   1. The listing IS live. The extension only fires this event after it watches
+//      the marketplace tab land on the published listing, so the seller's actual
+//      job is done and nothing they made is broken. Red, on the screen they use
+//      to post, reads as "your listing failed" and the likeliest thing a seller
+//      does about that is post it a second time. A duplicate listing is a worse
+//      outcome than the one this message exists to report.
+//   2. The failure already survived three tries (recordExtensionCapture). By the
+//      time anything is said, "try again in a second" has been tried, so the
+//      message must not pretend the seller is the first line of defence.
+//   3. A toast is gone in four seconds and this one arrives while the seller is
+//      still in the marketplace tab submitting the form. It has to be here when
+//      they come back, which means panel state, not a notification.
+//
+// So it stays on screen, it says the listing is safe before it says anything
+// went wrong, it names what is actually lost until the record exists, and it
+// carries the one button that fixes it — a retry with the SAME captured URL,
+// not the blank "I published it" the seller would otherwise have to find.
+export function ListingCaptureNotice({
+  platformLabel,
+  failure,
+  retrying,
+  onRetry,
+}: {
+  platformLabel: string;
+  failure: CaptureFailure;
+  retrying: boolean;
+  onRetry: () => void;
+}) {
+  return (
+    <div
+      role="status"
+      className="flex items-start gap-2 rounded-md border border-amber-300 bg-amber-50 p-2.5 text-xs text-amber-900 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-200"
+    >
+      <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+      <div className="space-y-1.5">
+        <p>
+          <span className="font-medium">
+            Your {platformLabel} listing is live. FlipDesk could not record it.
+          </span>{" "}
+          Nothing is wrong with the listing itself and you do not need to post it
+          again.{" "}
+          {failure.attempts > 1
+            ? `We tried ${failure.attempts} times to record it here and the last try failed (${failure.ref}).`
+            : `Recording it here failed (${failure.ref}).`}
+        </p>
+        <p>
+          Until it is recorded, FlipDesk will not show this item as live on{" "}
+          {platformLabel}, and it will not end the listing for you when the item
+          sells somewhere else.
+        </p>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className="h-7"
+          disabled={retrying}
+          aria-label={`Record the ${platformLabel} listing in FlipDesk again`}
+          onClick={onRetry}
+        >
+          {retrying ? (
+            <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" aria-hidden="true" />
+          ) : null}
+          Record it again
+        </Button>
       </div>
     </div>
   );
