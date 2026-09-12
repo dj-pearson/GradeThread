@@ -2,7 +2,7 @@
 
 ## WHAT IS STILL WAITING FOR YOU, 2026-09-11
 
-Six migrations are finished and parked on branches. Merge them in this order.
+Seven migrations are finished and parked on branches. Merge them in this order.
 Each branch is one merge and carries its own SQL, manifest and version bump.
 
 | Order | Branch | Migration | What it does |
@@ -13,6 +13,7 @@ Each branch is one merge and carries its own SQL, manifest and version bump.
 | 4 | `held-v2/us-3256-00797` | 00797 | the seeded cogs_labor row says Labour, the chart says Labor |
 | 5 | `held-v2/us-3410-00798` | 00798 | COMMENTs recording five objects prod has and no migration builds |
 | 6 | `held-v2/us-3312-00799` | 00799 | two brand_knowledge notes that are false in prod |
+| 7 | `held-v2/us-3316-00800` | 00800 | a workspace seat can read the import runs it already sees |
 
 Why 00796 is missing from that list: it is ALREADY ON MAIN AND ALREADY APPLIED
 TO PROD. It went out with the 2026-09-11 merge push and prod's /health/ready
