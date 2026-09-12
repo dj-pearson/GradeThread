@@ -2,7 +2,7 @@
 
 ## WHAT IS STILL WAITING FOR YOU, 2026-09-11
 
-Seven migrations are finished and parked on branches. Merge them in this order.
+Six migrations are finished and parked on branches. Merge them in this order.
 Each branch is one merge and carries its own SQL, manifest and version bump.
 
 | Order | Branch | Migration | What it does |
@@ -13,7 +13,6 @@ Each branch is one merge and carries its own SQL, manifest and version bump.
 | 4 | `held-v2/us-3256-00797` | 00797 | the seeded cogs_labor row says Labour, the chart says Labor |
 | 5 | `held-v2/us-3410-00798` | 00798 | COMMENTs recording five objects prod has and no migration builds |
 | 6 | `held-v2/us-3312-00799` | 00799 | two brand_knowledge notes that are false in prod |
-| 7 | `held-v2/us-3316-00800` | 00800 | a workspace seat can read the import runs it already sees |
 
 Why 00796 is missing from that list: it is ALREADY ON MAIN AND ALREADY APPLIED
 TO PROD. It went out with the 2026-09-11 merge push and prod's /health/ready
@@ -11661,3 +11660,34 @@ because it looks authoritative.
 **Verified on a throwaway local stack:** applied from clean and re-applied
 (idempotent); the US-1108 self-record footer present; schema-version guard green
 at 00561 with the manifest regenerated in the same pass.
+
+## APPLIED: 00800 - a workspace seat can read the import runs it already sees (US-3316)
+
+**It reached production before anybody approved it, and this is how that was
+found.** Prod's `/health/ready` reported `applied 00800` against an `expected
+00796`, with `unexpected: ['00800']`. Confirmed by reading prod's PostgREST
+OpenAPI document with the anon key: `flipdesk_import_runs`'s table comment now
+carries this migration's US-3316 sentence, and the comment is written AFTER the
+CREATE POLICY in the file, so the whole file ran.
+
+The file sat in the working tree for about an hour while it was being written.
+Whatever applies migrations here picked it up from there. It was never pushed
+and never merged; parking it on a branch afterwards was too late.
+
+**It is not harmful and it is not being reverted.** It is the change that was
+intended, and its own reasoning holds: a viewer already reads every field of
+every run in this workspace through `GET /api/flipdesk/import/runs`, which sits
+behind `workspaceMiddleware` with no role floor above viewer. The policy
+removes a disagreement between two read paths rather than opening a new one.
+The SQL is idempotent, so re-applying it is a no-op.
+
+**00798 did NOT run.** `listings.ebay_drift` still carries its original US-1081
+description rather than the retirement text 00798 writes, so only this one got
+out. Checked, not assumed.
+
+
+On main as of 2026-09-11. The branch it was parked on is deleted.
+Its guard travels WITH it: three of the four cases read this migration off
+disk, so on a main without 00800 they report red for a hole main does not
+have.
+Apply the held branches in ascending order; each is one merge.

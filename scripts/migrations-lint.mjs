@@ -112,6 +112,21 @@ export const KNOWN_GAPS = new Map([
       + "never checked). That branch deletes this entry when it lands.",
   ],
   [
+    "00797",
+    "held on held-v2/us-3256-00797 (the seeded cogs_labor row says Labour). "
+      + "That branch deletes this entry when it lands.",
+  ],
+  [
+    "00798",
+    "held on held-v2/us-3410-00798 (COMMENTs recording five withdrawn objects). "
+      + "That branch deletes this entry when it lands.",
+  ],
+  [
+    "00799",
+    "held on held-v2/us-3312-00799 (two brand_knowledge notes false in prod). "
+      + "That branch deletes this entry when it lands.",
+  ],
+  [
     "00527",
     "held on purpose: 00527_revoke_public_function_execute.sql.BLOCKED. The " +
       "suffix is the safety mechanism (US-2403 — a denied function call " +
