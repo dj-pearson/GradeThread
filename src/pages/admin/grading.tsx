@@ -3,6 +3,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/hooks/use-auth";
 import { useDocumentVisible } from "@/hooks/use-document-visible";
 import { edgeFetch } from "@/lib/edge-fetch";
+import { ReviewPhotos } from "@/components/admin/review-photos";
 import { HeldGradesCard } from "@/components/admin/held-grades-card";
 import { ReferenceGalleryCard } from "@/components/admin/reference-gallery-card";
 import { GRADE_FACTORS } from "@/lib/constants";
@@ -50,7 +51,6 @@ import {
   Clock,
   Lock,
   Loader2,
-  ImageIcon,
   AlertTriangle,
 } from "lucide-react";
 import { SearchInput } from "@/components/search-input";
@@ -798,31 +798,7 @@ export function AdminGradingQueuePage() {
                 ) : !detail || detail.images.length === 0 ? (
                   <p className="text-sm text-muted-foreground">No photos available.</p>
                 ) : (
-                  <div className="grid grid-cols-3 gap-3">
-                    {detail.images.map((img) => (
-                      <div key={img.id} className="relative">
-                        {img.signed_url ? (
-                          <img
-                            src={img.signed_url}
-                            alt={img.image_type}
-                            loading="lazy"
-                            decoding="async"
-                            className="aspect-square rounded-lg border object-cover"
-                          />
-                        ) : (
-                          <div className="aspect-square rounded-lg border bg-muted flex items-center justify-center">
-                            <ImageIcon className="h-8 w-8 text-muted-foreground" />
-                          </div>
-                        )}
-                        <Badge
-                          variant="secondary"
-                          className="absolute bottom-2 left-2 text-xs capitalize"
-                        >
-                          {img.image_type}
-                        </Badge>
-                      </div>
-                    ))}
-                  </div>
+                  <ReviewPhotos key={selected.report_id} images={detail.images} />
                 )}
               </div>
 
