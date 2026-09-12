@@ -29,7 +29,7 @@
 // supabase-js .insert()/.update()/.upsert() payload in this repo is built from.
 // A SELECT string like "id, badge_enabled, ..." is a read and does not match.
 import { describe, it, expect } from "vitest";
-import { readFileSync, readdirSync, statSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import { join, relative, sep } from "node:path";
 
 /**
@@ -46,17 +46,24 @@ const DEAD_COLUMNS = ["badge_enabled", "slab_image_mode"] as const;
 const ROOTS = ["src", "services/edge-functions/src", "functions"];
 const SKIP_DIRS = new Set(["node_modules", "dist", "coverage", ".git"]);
 
+/**
+ * US-3411: `withFileTypes` asks the directory for the entry kind that the
+ * directory already knows, instead of issuing a separate statSync per entry.
+ * That is 4,574 syscalls this walk no longer makes, and it took the walk from
+ * 102ms to 25ms measured on the dev box. The set of files returned is
+ * byte-identical — same roots, same skips, same .ts/.tsx filter.
+ */
 function walk(dir: string, out: string[] = []): string[] {
-  let entries: string[];
+  let entries: import("node:fs").Dirent[];
   try {
-    entries = readdirSync(dir);
+    entries = readdirSync(dir, { withFileTypes: true });
   } catch {
     return out;
   }
-  for (const name of entries) {
-    if (SKIP_DIRS.has(name)) continue;
-    const full = join(dir, name);
-    if (statSync(full).isDirectory()) walk(full, out);
+  for (const entry of entries) {
+    if (SKIP_DIRS.has(entry.name)) continue;
+    const full = join(dir, entry.name);
+    if (entry.isDirectory()) walk(full, out);
     else if (/\.(ts|tsx)$/.test(full)) out.push(full);
   }
   return out;
@@ -89,17 +96,54 @@ function writeSites(src: string, column: string): string[] {
   return hits;
 }
 
+/**
+ * US-3411: the corpus is read ONCE for all columns, not once per case.
+ *
+ * The old shape read every file inside each `it()`, so the 4,332-file,
+ * 41.9 MB corpus was read twice — 8,664 readFileSync calls plus 4,574
+ * statSync calls from the walk. Measured on the dev box: 0.53s with nothing
+ * else running, 8.68s inside a full parallel `src/test/` run, and 27.4s on
+ * the box where US-3354 hit it with three other agents competing for the same
+ * disk. None of that is regex time (117ms for both columns over the whole
+ * corpus); it is all file I/O, and file I/O is exactly the thing that scales
+ * with how loaded the machine is. Reading N times means flaking N times as
+ * easily, and the list is allowed to GROW, so the old shape got worse every
+ * time a dead column was found.
+ *
+ * Memoised rather than computed at module scope so the cost lands inside a
+ * test with a timeout instead of inside collection, where a hang would be
+ * harder to read.
+ *
+ * THE SCANNED SET IS UNCHANGED: same FILES, same self-exclusion, same
+ * writeSites() on the same full text of every file. The `includes()` line is
+ * a pre-filter for the identical literal the regex requires, so it cannot
+ * skip a file the regex would have matched.
+ */
+let scanCache: Map<string, string[]> | null = null;
+function offendersByColumn(): Map<string, string[]> {
+  if (scanCache) return scanCache;
+  const found = new Map<string, string[]>(
+    DEAD_COLUMNS.map((c) => [c as string, [] as string[]]),
+  );
+  for (const file of FILES) {
+    // The guard cannot flag its own documentation of the ban.
+    if (file.endsWith("src/test/no-dead-column-writes.test.ts")) continue;
+    const src = readFileSync(file, "utf8");
+    for (const column of DEAD_COLUMNS) {
+      if (!src.includes(column)) continue;
+      for (const site of writeSites(src, column)) {
+        found.get(column)?.push(`${file}: ${site}`);
+      }
+    }
+  }
+  scanCache = found;
+  return found;
+}
+
 describe("no dead-column writes (US-2382)", () => {
   for (const column of DEAD_COLUMNS) {
     it(`nothing writes listings.${column}`, () => {
-      const offenders: string[] = [];
-      for (const file of FILES) {
-        // The guard cannot flag its own documentation of the ban.
-        if (file.endsWith("src/test/no-dead-column-writes.test.ts")) continue;
-        for (const site of writeSites(readFileSync(file, "utf8"), column)) {
-          offenders.push(`${file}: ${site}`);
-        }
-      }
+      const offenders = offendersByColumn().get(column) ?? [];
       expect(
         offenders,
         `listings.${column} has no reader. Writing it stores a value nothing ` +
@@ -108,13 +152,17 @@ describe("no dead-column writes (US-2382)", () => {
           `DEAD_COLUMNS in the same commit and say what reads it.\n` +
           offenders.join("\n"),
       ).toEqual([]);
-      // Each case re-reads the whole scanned corpus, which takes ~2s alone and
-      // ~7s when the full suite is running in parallel — over vitest's 5s
-      // default. It failed on a TIMEOUT in a full run while passing in
-      // isolation, which is the worst way for a guard to fail: it looks like a
-      // real finding, it is not reproducible, and the next person learns to
-      // re-run rather than to read it.
-    }, 30_000);
+      // US-3411: the per-case `}, 30_000)` that used to sit here is GONE, and
+      // deleting it is not a bigger timeout — it is the removal of a smaller
+      // one. vitest.config.ts sets testTimeout to 90s precisely because this
+      // repo's source-scanning guards walk the whole tree and slow down under
+      // parallel load; every other guard that pins its own number pins it
+      // ABOVE that (listing-page-sql-parity 120s, no-standing-loss-copy 120s,
+      // eslint-covers-extensions 180s). This file was the only one that had
+      // opted itself into a STRICTER budget than the repo default, which is
+      // why this was the one that flaked at 27.4s while a 23.3s guard next to
+      // it never did. The real fix is above: one read pass instead of two.
+    });
   }
 
   // Vacuity guard. If the walker stops finding files -- a moved root, a broken
