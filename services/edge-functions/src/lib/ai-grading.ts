@@ -860,9 +860,16 @@ IMPORTANT: You must respond ONLY with valid JSON matching the exact schema reque
 // draft ai_prompt_versions row, a shadow compare on live traffic, the
 // golden-set eval gate and a canary slice, not an edit in a content session.
 // It rides US-3150's lane (that story moves the schema and rules into the
-// cached system block and needs the same run); US-3150 is not started, and
-// spending a golden-set eval on deleting one redundant sentence buys nothing
-// the eval for US-3150 would not cover for free.
+// cached system block and needs the same run), and spending a golden-set eval
+// on deleting one redundant sentence buys nothing the eval for US-3150 would
+// not cover for free.
+// STATUS 2026-09-13: US-3150's REFACTOR landed on 2026-09-11 behind
+// GRADING_SCHEMA_IN_SYSTEM, default OFF — but its AC5/AC6 are open and THE LANE
+// HAS STILL NEVER RUN (no ANTHROPIC_API_KEY, no eval corpus and no live traffic
+// in any agent environment here). So the gate this comment names is still shut;
+// only its wording moved. The condition to watch is "a completed runEval pass",
+// not "US-3150 started" — a gate phrased as an action reads as closed the moment
+// somebody does the action. Tracked in vault/10-ops/blocked-work-gates.md §5.
 // The composite twin of this comment is at the matching prompt below.
 
 // ── DB-driven prompt overrides ────────────────────────────────────────

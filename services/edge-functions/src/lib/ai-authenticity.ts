@@ -300,6 +300,18 @@ const SYSTEM_PROMPT =
 // fix the parse failures on its own — that is the shape a follow-up should
 // take, and it still wants the two-schema decision made first.
 // Not converted here, and not left implicit: it is named in the story note.
+//
+// ⚠ STATUS 2026-09-13, AND THE REASON IT IS STILL NOT CONVERTED IS NOT THE ONE
+// ABOVE. The two-schema decision is the easy half. What actually stops it is
+// that there is NO measured failure rate for this call: the 402 errors that
+// justified the content conversions all come from content_scheduler_runs, and
+// authenticity does not run in the scheduler, so it contributes zero of them.
+// Converting it blind means changing decoding on the PAID grading path, with no
+// ANTHROPIC_API_KEY available here to try a single real request against, in
+// exchange for a benefit nobody has sized. Measure first: count
+// "AI returned invalid JSON for authenticity assessment" in the edge logs over a
+// window. If it is zero, the right answer is to leave this exactly as it is.
+// Gate tracked in vault/10-ops/blocked-work-gates.md §5.
 
 function buildUserPrompt(garmentInfo: GarmentInfo, tellsBlock: string): string {
   const brand = sanitizeSellerText(garmentInfo.brand, 120) || "Unknown";

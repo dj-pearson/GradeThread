@@ -173,6 +173,8 @@ more; it releases on the golden set.
 | macOS unavailable | a macOS session | US-1995 (iOS title-sync), most Android/iOS stories |
 | Counsel review not done | US-2114 | the entire US-2115…US-2125 compliance batch — **all P0/P1** |
 | No product screenshots | design assets | US-1949 AC1 |
+| No prod service-role key in any agent environment *(added 2026-09-13)* | run `deno run --allow-net --allow-env scripts/content-parse-failure-report.ts` from the edge dir with `SUPABASE_URL` + `SUPABASE_SERVICE_ROLE_KEY` set | **US-3151 AC6/AC7** — `content_scheduler_runs` is admin-read under RLS (00198), so an anon key returns `*/0` and reads as "no errors". The script prints the before/after counts the ACs ask for and exits non-zero if they fail |
+| The grading shadow/eval/canary lane has never been run *(added 2026-09-13)* | `ANTHROPIC_API_KEY` + live traffic for `grading-shadow.ts` + a golden-set `runEval` pass, then canary and `invalidatePromptCache()` | **US-3150 AC5/AC6** (the `GRADING_SCHEMA_IN_SYSTEM` flag is landed but default-OFF and inert until the lane runs) and **US-3151 AC1/AC4** (two redundant "respond ONLY with valid JSON" lines in `ai-grading.ts` and the authenticity conversion) |
 
 ---
 
