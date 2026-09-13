@@ -4531,3 +4531,9 @@ Branch: ralph/gradethread-build
 - Timestamp: 2026-09-13T15:39:17.460Z
 - Cost: $2.8424 over 4 turns
 ---
+## US-3112: eBay compliance: extension attribution, and stop calling APIs we cannot use
+- Status: BLOCKED (needs a human)
+- Timestamp: 2026-09-13T15:45:03.413Z
+- Reason: One prod eBay seller must reconnect at /oauth/start to grant sell.payment.dispute, and someone with Coolify container-log access must read the next ebay-notification-reconcile run and file the real cause of its 12 per-topic errors.
+- Cost: $0.8714 over 5 turns
+---
