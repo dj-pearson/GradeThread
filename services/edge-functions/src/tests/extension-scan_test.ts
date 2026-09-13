@@ -16,7 +16,10 @@ import assert from "node:assert/strict";
 
 import {
   bucketScanCards,
+  hydrateEbayScanCards,
   parseScanBody,
+  type ScanCardFacts,
+  type ScanCardInput,
   SCAN_DISCLAIMER,
   type ScanCompStats,
   scanCardResults,
@@ -32,8 +35,11 @@ function card(over: Record<string, unknown> = {}) {
     priceText: "$60.00",
     conditionText: "Pre-owned",
     photoCount: 6,
+    // US-3042: null unless a case says otherwise — every marketplace but eBay
+    // sends the tile's text, and on eBay this is the ONLY field sent.
+    ebayItemId: null,
     ...over,
-  };
+  } as ScanCardInput;
 }
 
 Deno.test("parseScanBody: caps at 24 cards and keeps the first 24", () => {
@@ -241,5 +247,141 @@ Deno.test("SCAN_DISCLAIMER says plainly that no photos were analyzed", () => {
     /stated condition/i.test(SCAN_DISCLAIMER) &&
       /price/i.test(SCAN_DISCLAIMER),
     `the scan must name what it IS based on: ${SCAN_DISCLAIMER}`,
+  );
+});
+
+// ── US-3042: an eBay grid's card fields come from Browse, not the tile ───────
+//
+// Scan mode was the same compliance finding as the detail-page scrape, one
+// screen earlier and 24 times per page: it read each eBay result tile's title,
+// price and condition and posted them to us. On eBay the caller now sends a key
+// and an item id, and these are the replacements.
+
+function facts(over: Partial<ScanCardFacts> = {}): ScanCardFacts {
+  return {
+    title: "Patagonia Better Sweater Fleece Jacket",
+    priceCents: 6000,
+    currency: "USD",
+    conditionId: "3000",
+    conditionLabel: "Pre-owned",
+    ...over,
+  };
+}
+
+Deno.test("parseScanBody: keeps a valid eBay item id and refuses anything else", () => {
+  const r = parseScanBody({
+    cards: [
+      { key: "k1", ebayItemId: "123456789012" },
+      { key: "k2", ebayItemId: " 123456789012 " },
+      { key: "k3", ebayItemId: "12345" },
+      { key: "k4", ebayItemId: "not-an-id" },
+      { key: "k5", ebayItemId: 123456789012 },
+      { key: "k6" },
+    ],
+  });
+  assert(r.ok);
+  assertEquals(r.cards[0].ebayItemId, "123456789012");
+  assertEquals(r.cards[1].ebayItemId, "123456789012", "trimmed");
+  for (const i of [2, 3, 4, 5]) {
+    assertEquals(r.cards[i].ebayItemId, null, `card ${i} must not carry an id`);
+  }
+});
+
+Deno.test("hydrateEbayScanCards: REPLACES the card fields with eBay's own", () => {
+  // A caller sending page text alongside the id must not be able to steer the
+  // verdict — the same reason hydrateEbayListingBody replaces rather than merges.
+  const [out] = hydrateEbayScanCards(
+    [card({ key: "k1", ebayItemId: "123456789012", title: "STEERED", priceText: "$1.00", conditionText: "New" })],
+    "ebay",
+    new Map([["123456789012", facts()]]),
+  );
+  assertEquals(out.title, "Patagonia Better Sweater Fleece Jacket");
+  assertEquals(out.priceText, "60.00");
+  assertEquals(out.conditionText, "3000", "eBay's own conditionId, not the tile's label");
+  assertEquals(out.photoCount, null, "no result tile prints a photo count");
+  assertEquals(out.key, "k1", "the caller's key survives so the client can match rows");
+});
+
+Deno.test("hydrateEbayScanCards: an unresolvable card is dropped, never left as page text", () => {
+  const out = hydrateEbayScanCards(
+    [
+      card({ key: "resolved", ebayItemId: "123456789012", title: "PAGE" }),
+      card({ key: "unresolved", ebayItemId: "999999999999", title: "PAGE" }),
+      card({ key: "no-id", ebayItemId: null, title: "PAGE" }),
+    ],
+    "ebay",
+    new Map([["123456789012", facts()]]),
+  );
+  assertEquals(out.length, 1);
+  assertEquals(out[0].key, "resolved");
+  assert(
+    !out.some((c) => c.title === "PAGE"),
+    "a card we could not read from eBay gets no badge — it never falls back to the tile",
+  );
+});
+
+Deno.test("hydrateEbayScanCards: falls back to the condition LABEL, and to no price", () => {
+  const [out] = hydrateEbayScanCards(
+    [card({ key: "k1", ebayItemId: "123456789012" })],
+    "EBAY",
+    new Map([["123456789012", facts({ conditionId: null, priceCents: null })]]),
+  );
+  assertEquals(out.conditionText, "Pre-owned");
+  assertEquals(out.priceText, "", "no price is empty, never a zero the shopper would compare");
+});
+
+Deno.test("hydrateEbayScanCards: every other marketplace passes through untouched", () => {
+  // Poshmark, Mercari, Grailed, Depop and Vinted publish no API to read
+  // instead. That is a real difference, not an inconsistency.
+  const cards = [card({ key: "k1", title: "Poshmark tile" })];
+  for (const mp of ["poshmark", "mercari", null, ""]) {
+    assertEquals(hydrateEbayScanCards(cards, mp, new Map()), cards, `${mp} must pass through`);
+  }
+});
+
+Deno.test("hydrateEbayScanCards: the replaced fields still drive the verdict", () => {
+  // End to end through the pure half: eBay's conditionId must bucket and price
+  // exactly like the tile text it replaced, or the badge silently changes.
+  const hydrated = hydrateEbayScanCards(
+    [card({ key: "k1", ebayItemId: "123456789012", title: "", priceText: "", conditionText: "" })],
+    "ebay",
+    new Map([["123456789012", facts({ priceCents: 3000 })]]),
+  );
+  const [row] = scanCardResults(hydrated, "ebay", new Map([["k1", STATS]]), buildBand);
+  assertEquals(row.priceCents, 3000, "the price came from eBay and still parses");
+  assert(row.claimedGrade !== null, "eBay's conditionId still reads as a claimed condition");
+  assertEquals(row.fairness, "low", "well under the comp band");
+});
+
+Deno.test("the /scan route hydrates and then uses the HYDRATED cards", async () => {
+  // The decay this stops: `hydrateEbayScanCards` is pure and well tested, and
+  // none of that matters if the route calls it and then goes on to bucket and
+  // score `parsed.cards` anyway. Rewiring one of the two call sites back is a
+  // one-word edit that no behavioural test here can see, and the badge would
+  // quietly be computed from page text again.
+  //
+  // Read with line endings normalised: a Windows checkout hands this file CRLF,
+  // and a needle spanning a newline would silently miss.
+  const src = (await Deno.readTextFile(
+    new URL("../routes/public-grading.ts", import.meta.url),
+  )).replace(/\r\n/g, "\n");
+
+  assert(
+    src.includes("hydrateEbayScanCards("),
+    "the /scan route no longer reads eBay's own card fields",
+  );
+  assert(
+    src.includes("readEbayCardsByLegacyIds("),
+    "the /scan route no longer fetches the cards from Browse",
+  );
+  for (const call of ["bucketScanCards(scanCards,", "scanCardResults(\n          scanCards,"]) {
+    assert(
+      src.includes(call),
+      `the /scan route must pass the HYDRATED cards here, not parsed.cards: ${call}`,
+    );
+  }
+  assert(
+    !/bucketScanCards\(parsed\.cards|scanCardResults\(\s*parsed\.cards/.test(src),
+    "the /scan route still scores the caller's own card text somewhere",
   );
 });

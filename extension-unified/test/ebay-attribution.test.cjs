@@ -94,6 +94,69 @@ const NOTICE = loadShimmed("research/marketplace-notice.js", "GT_MP_NOTICE");
 })();
 
 
+// US-3042: the notice for page-read data drops the API claim and keeps the rest
+(function () {
+  // A required sentence is still a factual claim. The compare tray holds rows
+  // pinned before the eBay read moved server-side, whose title, price and
+  // thumbnail WERE read off eBay's page — printing "retrieved through the eBay
+  // API" over those turns a compliance notice into a false statement.
+  const api = NOTICE.noticeFor("ebay");
+  const page = NOTICE.pageNoticeFor("ebay");
+  assert.ok(page, "eBay must have a page-sourced notice too");
+  assert.match(api, /retrieved through the eBay API/);
+  assert.ok(
+    !/retrieved through the eBay API/.test(page),
+    "the page-sourced notice must not claim the data came through the API",
+  );
+  // Everything eBay actually requires is in BOTH.
+  for (const required of [
+    /from eBay/,
+    /trademark of eBay Inc/,
+    /not\s+endorsed or certified by eBay Inc/,
+  ]) {
+    assert.match(api, required);
+    assert.match(page, required);
+  }
+  // Scoped to eBay like the other one — a Vinted row gets neither.
+  for (const key of ["poshmark", "vinted", "", "nope"]) {
+    assert.strictEqual(NOTICE.pageNoticeFor(key), null);
+  }
+})();
+
+
+// a row's stored source picks the wording, and an unstamped row gets neither claim
+(function () {
+  const rows = [
+    { marketplace: "ebay", source: "ebay-api" },
+    { marketplace: "ebay", source: "ebay-api" },
+    { marketplace: "poshmark", source: "page" },
+  ];
+  const apiOnly = NOTICE.noticesForEntries(rows);
+  assert.strictEqual(apiOnly.length, 1, "deduped to one notice");
+  assert.match(apiOnly[0], /retrieved through the eBay API/);
+
+  // A legacy row (no source recorded) must NOT inherit the API claim.
+  const legacy = NOTICE.noticesForEntries([{ marketplace: "ebay" }]);
+  assert.strictEqual(legacy.length, 1, "a legacy eBay row still needs attribution");
+  assert.ok(
+    !/retrieved through the eBay API/.test(legacy[0]),
+    "an unstamped row must not claim the API — that is the whole point of the stamp",
+  );
+  assert.match(legacy[0], /not\s+endorsed or certified by eBay Inc/);
+
+  // A mixed table carries both sentences rather than picking the flattering one.
+  const mixed = NOTICE.noticesForEntries([
+    { marketplace: "ebay", source: "ebay-api" },
+    { marketplace: "ebay", source: "page" },
+  ]);
+  assert.strictEqual(mixed.length, 2, "two provenances, two sentences");
+
+  assert.strictEqual(NOTICE.noticesForEntries([]).length, 0);
+  assert.strictEqual(NOTICE.noticesForEntries(null).length, 0);
+  assert.strictEqual(NOTICE.noticesForEntries([null, undefined]).length, 0);
+})();
+
+
 // ── scope ────────────────────────────────────────────────────────────────────
 
 // marketplaces without a notice get null, not a generic sentence
@@ -150,7 +213,18 @@ const SURFACES = [
   {
     file: "compare.js",
     what: "the compare table, which renders pinned listing titles and prices",
-    call: "GT_MP_NOTICE.noticesForMarketplaces(",
+    // US-3042: the ROW-aware call. noticesForMarketplaces() keys on the
+    // marketplace alone, which prints the API sentence over a row whose fields
+    // were read off eBay's page.
+    call: "GT_MP_NOTICE.noticesForEntries(",
+  },
+  {
+    file: "popup.js",
+    what: "the read history, which prints the listing title of every past read",
+    // US-3042: the third surface, and the one that was missed. It shows eBay
+    // listing titles (and, in the By seller view, eBay seller handles) with no
+    // notice at all, which is exactly the gap the header above describes.
+    call: "GT_MP_NOTICE.noticesForEntries(",
   },
 ];
 
@@ -183,8 +257,8 @@ function codeOnly(src) {
 // A floor. An empty SURFACES list would make the loop below a no-op and read
 // exactly like every surface passing.
 assert.ok(
-  SURFACES.length >= 2,
-  "SURFACES must name at least the overlay and the compare view",
+  SURFACES.length >= 3,
+  "SURFACES must name at least the overlay, the compare view and the read history",
 );
 
 for (const surface of SURFACES) {
@@ -252,8 +326,44 @@ for (const surface of SURFACES) {
 })();
 
 
+// popup.html does the same for the read history (US-3042)
+(function () {
+  // Classic scripts, no imports: order is the dependency graph here too. Loading
+  // the module after popup.js leaves self.GT_MP_NOTICE undefined at paint and
+  // the notice silently never appears — which is how this surface came to show
+  // eBay titles with nothing on them in the first place.
+  const html = read("popup.html");
+  assert.match(html, /research\/marketplace-notice\.js/);
+  assert.match(html, /id="attribution"/);
+  const noticeAt = html.indexOf("research/marketplace-notice.js");
+  const popupAt = html.indexOf("src=\"popup.js\"");
+  assert.ok(
+    noticeAt !== -1 && popupAt !== -1 && noticeAt < popupAt,
+    "the notice module must load before popup.js reads it",
+  );
+})();
+
+
+// a stored read records where its printed fields came from (US-3042)
+(function () {
+  // The popup's wording is chosen off this. saveRead is the ONE place every
+  // completed read passes through, so an unstamped row here would reach the
+  // history and take whichever sentence the default happened to be.
+  const bg = codeOnly(read("background.js"));
+  assert.ok(
+    /source:\s*\["ebay-api",\s*"page"\]\.indexOf\(read\.source\)/.test(bg),
+    "saveRead must store the read's source, allowlisted",
+  );
+  assert.ok(
+    /:\s*"unknown"/.test(bg),
+    "an unrecognised source must fall back to unknown, not to the API claim",
+  );
+})();
+
+
 console.log(
   "ebay-attribution.test.cjs: eBay notice wording matches the web component, " +
-  "scoped to eBay only, deduped across a mixed table, and wired into the " +
-  "overlay and the compare view in the right load order",
+  "scoped to eBay only, two wordings chosen by each row's stored source, " +
+  "deduped across a mixed table, and wired into the overlay, the compare view " +
+  "and the popup's read history in the right load order",
 );

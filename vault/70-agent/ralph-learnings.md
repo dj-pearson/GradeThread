@@ -547,6 +547,19 @@ which is not a vault note and had never been checked at all.
   delete any batch still on the device. Full contract:
   [[extension-telemetry-consent]].
 
+## A fence built for the paths a story NAMED is not a fence for the surface
+- US-3042 removed the eBay detail-page scrape and shipped a guard over the three
+  paths its wording listed (grade / ingest / appraise). Scan mode was a fourth,
+  reading 24 search tiles' titles, prices and conditions per page and posting all
+  of them — the same finding at the highest volume, green in every guard, for two
+  passes. When an AC fences a SURFACE, enumerate that surface's request paths out
+  of the code before believing the list. Rule + the two guard mechanics it turns
+  on: [[ebay-content-comes-from-the-api]].
+- Corollary: a sentence a partner REQUIRES is still a factual claim. "retrieved
+  through the eBay API" over a row whose fields were scraped is a compliance
+  notice a reviewer can check and disprove. Store provenance on the row and pick
+  the wording from it; default an unstamped row to the claim-nothing variant.
+
 ## A hand-written list of tables is a list that goes stale
 - `GET /api/account/export` named seller tables inline, so the ENTIRE buyer
   platform (measurements, closet, purchases, saved searches, reward ledger,

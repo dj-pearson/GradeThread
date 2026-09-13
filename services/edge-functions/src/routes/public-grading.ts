@@ -28,6 +28,7 @@ import { parsePriceCents, priceFairness } from "../lib/price-fairness.ts";
 // client). The route keeps the I/O; everything imported here is pure.
 import {
   bucketScanCards,
+  hydrateEbayScanCards,
   MAX_SCAN_COMP_BUCKETS,
   parseScanBody,
   SCAN_DISCLAIMER,
@@ -40,6 +41,7 @@ import {
   type EbayListingRead,
   hydrateEbayListingBody,
   isValidEbayItemId,
+  readEbayCardsByLegacyIds,
   readEbayListingForGrading,
 } from "../lib/ebay-item-read.ts";
 // US-9033: the free tag reader reuses the AutoLister's tag-OCR pass rather than
@@ -1576,6 +1578,31 @@ publicGradingRoutes.post("/grade-from-url", async (c) => {
           ? { available: true, deepLink: `${publicSiteUrl()}/tools/fit-checker?utm_source=extension&utm_medium=fit` }
           : null,
         signupPrompt,
+        // US-3042: what eBay told US about this listing, echoed back so the
+        // extension never has to read it off the page to SHOW it either.
+        //
+        // The compare tray was the hole this closes. The grade itself had been
+        // API-sourced since this story's first pass, but pinning a row still
+        // scraped the title, price, seller and thumbnail out of eBay's page —
+        // and the compare view then printed them under a notice saying "from
+        // eBay, retrieved through the eBay API", which was not true of that
+        // path. A sentence eBay requires is a sentence that has to be true.
+        //
+        // `source` is stamped rather than implied: the tray stores rows, and a
+        // row pinned before this shipped must not inherit the claim.
+        listing: listing
+          ? {
+            source: "ebay-api",
+            itemId: listing.itemId,
+            title: listing.title,
+            brand: listing.brand,
+            priceCents: listing.priceCents,
+            currency: listing.currency,
+            seller: listing.sellerUsername,
+            thumbUrl: listing.imageUrls[0] ?? null,
+            itemWebUrl: listing.itemWebUrl,
+          }
+          : null,
         disclaimer: GRADE_CHECK_DISCLAIMER,
         deepLink,
         // US-3051: what is left after THIS read was counted, so the overlay
@@ -1676,6 +1703,40 @@ publicGradingRoutes.post("/scan", async (c) => {
       ? (body as { marketplace: string }).marketplace.slice(0, 24)
       : null;
 
+    // US-3042: the search grid gets the same treatment the detail page got. On
+    // eBay the caller sent item ids and no page text, so the title, price and
+    // claimed condition every card below is judged on come from Browse here —
+    // two calls for a 24-card grid, both counted. A card Browse cannot resolve
+    // is dropped and simply gets no badge.
+    //
+    // This is the finding one screen earlier than the one US-3042 opened on.
+    // Scan mode read 24 tiles' titles, prices and conditions out of eBay's own
+    // search page and posted them to us, which is the same license problem in
+    // the place it happens most often.
+    const scanCards = marketplace?.toLowerCase() === "ebay"
+      ? hydrateEbayScanCards(
+        parsed.cards,
+        marketplace,
+        await readEbayCardsByLegacyIds(
+          parsed.cards.map((card) => card.ebayItemId).filter((id): id is string => !!id),
+        ),
+      )
+      : parsed.cards;
+    if (scanCards.length === 0) {
+      // Every card unresolvable (or none carried an id). An empty cards array is
+      // the same honest silence a comp failure already degrades to.
+      return c.json(
+        {
+          estimate: true,
+          signal: "claimed-condition-and-price",
+          comped: false,
+          cards: [],
+          disclaimer: SCAN_DISCLAIMER,
+        },
+        200,
+      );
+    }
+
     // One category resolution for the whole grid — every card on a search page
     // is an answer to the same query, so comping them under different categories
     // would be noise, not precision.
@@ -1697,7 +1758,7 @@ publicGradingRoutes.post("/scan", async (c) => {
 
     const statsByKey = new Map<string, ScanCompStats>();
     if (categoryId) {
-      const buckets = bucketScanCards(parsed.cards, marketplace).slice(0, MAX_SCAN_COMP_BUCKETS);
+      const buckets = bucketScanCards(scanCards, marketplace).slice(0, MAX_SCAN_COMP_BUCKETS);
       for (const bucket of buckets) {
         try {
           const { stats } = await searchBrowseComps({
@@ -1730,7 +1791,7 @@ publicGradingRoutes.post("/scan", async (c) => {
         // the eBay client. This is the real implementation; the unit test passes
         // its own, which is what makes the decision logic testable at all.
         cards: scanCardResults(
-          parsed.cards,
+          scanCards,
           marketplace,
           statsByKey,
           (stats, claimedGrade) =>

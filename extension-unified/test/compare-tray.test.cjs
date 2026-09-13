@@ -259,4 +259,38 @@ console.log(
   }
 }
 
-console.log("compare-tray.test.cjs: best value picks grade per dollar with ties to the higher grade, sits out unpriced rows, needs two; summary and stacked cards wired");
+// ── US-3042: every row records where its printed fields came from ─────────
+{
+  // The compare view chooses its eBay attribution wording off this, so an
+  // unstamped or bogus value must land on "unknown" — the wording that claims
+  // nothing — and never on the flattering "read through eBay's API".
+  assert.strictEqual(T.makeEntry(listing({ source: "ebay-api" }), DATA, 1).source, "ebay-api");
+  assert.strictEqual(T.makeEntry(listing({ source: "page" }), DATA, 1).source, "page");
+  assert.strictEqual(T.makeEntry(listing(), DATA, 1).source, "unknown");
+  for (const bogus of ["ebay-API", "api", "", null, 7, {}]) {
+    assert.strictEqual(
+      T.makeEntry(listing({ source: bogus }), DATA, 1).source,
+      "unknown",
+      "an unrecognised source must fall back to unknown, not be trusted",
+    );
+  }
+
+  // priceTextFromCents: the formatter that lets an API-read row show a price
+  // without the page being read for one. Must round-trip through priceCents(),
+  // or a row would show a price the sort and the best-value math cannot see.
+  assert.strictEqual(T.priceTextFromCents(6000, "USD"), "$60.00");
+  assert.strictEqual(T.priceTextFromCents(1999, ""), "$19.99");
+  assert.strictEqual(T.priceTextFromCents(1999, "eur"), "EUR 19.99");
+  assert.strictEqual(T.priceTextFromCents(0, "USD"), "$0.00");
+  for (const bad of [null, undefined, -1, NaN, Infinity, "x"]) {
+    assert.strictEqual(T.priceTextFromCents(bad, "USD"), "", "no price is an empty string, never NaN");
+  }
+  assert.strictEqual(
+    T.priceCents({ priceText: T.priceTextFromCents(12345, "USD") }),
+    12345,
+    "the formatter and the parser are one rule",
+  );
+  assert.strictEqual(T.priceCents({ priceText: T.priceTextFromCents(12345, "EUR") }), 12345);
+}
+
+console.log("compare-tray.test.cjs: best value picks grade per dollar with ties to the higher grade, sits out unpriced rows, needs two; summary and stacked cards wired; every row stamps its provenance");

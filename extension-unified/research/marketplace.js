@@ -837,18 +837,36 @@
     pin.setAttribute("type", "button");
     pin.textContent = TRAY.STRINGS.pin;
     pin.addEventListener("click", async () => {
-      const entry = TRAY.makeEntry(
-        {
-          url: renderedUrl,
-          title: extractTitle() || document.title,
-          marketplace: (adapter && adapter.key) || "",
-          seller: extractSeller(),
-          priceText: extractPrice(),
-          thumbUrl: extractImageUrls()[0] || null,
-        },
-        data,
-        Date.now(),
-      );
+      // US-3042: the row the compare view PRINTS has to come from the same place
+      // the grade did. The endpoint echoes eBay's own title, price, seller and
+      // hero image back in `data.listing`, so the eBay arm reads nothing off the
+      // page — and the notice the compare view renders over that row ("from
+      // eBay, retrieved through the eBay API") is then true of it.
+      //
+      // No fallback to scraping if the block is missing: an older server would
+      // silently reinstate exactly what this removes. The row is built from the
+      // URL and the grade alone, which is still a usable line in the table.
+      const fromApi = data && data.listing && data.listing.source === "ebay-api"
+        ? data.listing
+        : null;
+      const pinIsEbay = !!ebayItemIdHere(renderedUrl);
+      const entry = TRAY.makeEntry(pinIsEbay ? {
+        url: renderedUrl,
+        title: (fromApi && fromApi.title) || "",
+        marketplace: (adapter && adapter.key) || "",
+        seller: (fromApi && fromApi.seller) || null,
+        priceText: fromApi ? TRAY.priceTextFromCents(fromApi.priceCents, fromApi.currency) : "",
+        thumbUrl: (fromApi && fromApi.thumbUrl) || null,
+        source: fromApi ? "ebay-api" : "unknown",
+      } : {
+        url: renderedUrl,
+        title: extractTitle() || document.title,
+        marketplace: (adapter && adapter.key) || "",
+        seller: extractSeller(),
+        priceText: extractPrice(),
+        thumbUrl: extractImageUrls()[0] || null,
+        source: "page",
+      }, data, Date.now());
       if (!entry) return;
       const res = await send({ type: "GT_CC_TRAY_PIN", entry: entry });
       // Only claim it worked once the worker says it stored it. A button that
@@ -1210,9 +1228,13 @@
     // up filed against the wrong item.
     const myEpoch = epoch;
     const gradedUrl = location.href;
-    const gradedTitle = title || document.title;
+    // US-3042: on eBay these two are filled from the endpoint's echo of eBay's
+    // own response AFTER the round trip, not from the page. The popup's read
+    // history prints both, which makes it a surface showing eBay data — the
+    // same obligation the overlay and the compare view carry.
+    const gradedTitle = ebayItemId ? "" : title || document.title;
     const gradedMarketplace = (adapter && adapter.key) || "";
-    const gradedSeller = extractSeller();
+    const gradedSeller = ebayItemId ? null : extractSeller();
 
     const res = await send(
       ebayItemId
@@ -1251,9 +1273,16 @@
       return;
     }
     if (res.ok && res.data) {
+      // US-3042: eBay's own title and seller, from the endpoint's echo of the
+      // Browse response. Absent (an older server) means the row is stored
+      // without them rather than falling back to reading the page.
+      const readFromApi = res.data.listing && res.data.listing.source === "ebay-api"
+        ? res.data.listing
+        : null;
       // The page WAS readable (we just graded it), so an unresolvable seller is a
-      // selector problem rather than a broken adapter.
-      if (!gradedSeller) reportSellerMiss();
+      // selector problem rather than a broken adapter. Not on eBay: nothing was
+      // read there, so a missing seller says nothing about the selectors.
+      if (!gradedSeller && !ebayItemId) reportSellerMiss();
       renderResult(res.data);
       send({
         type: "GT_CC_SAVE_READ",
@@ -1261,8 +1290,11 @@
           // AC5: the URL that was graded, captured pre-flight — never whatever the
           // address bar happens to say now.
           url: gradedUrl,
-          title: gradedTitle,
+          title: ebayItemId ? (readFromApi && readFromApi.title) || "" : gradedTitle,
           marketplace: gradedMarketplace,
+          // Where the printed fields came from, so the popup's read history can
+          // pick attribution wording that is true of this row.
+          source: ebayItemId ? (readFromApi ? "ebay-api" : "unknown") : "page",
           overallScore: res.data.overallScore,
           gradeTier: res.data.gradeTier,
           confidence: res.data.confidence,
@@ -1270,7 +1302,7 @@
           // — after the await this is a different listing whenever the shopper
           // navigated, and a read filed against the wrong SELLER is the bug the
           // epoch guard exists to prevent, one field over.
-          seller: gradedSeller,
+          seller: ebayItemId ? (readFromApi && readFromApi.seller) || null : gradedSeller,
           // The endpoint's discrepancy block carries the seller's claim on our
           // scale. It is a paid signal, so it is often absent; storing null
           // rather than 0 keeps "no claim" out of the average.
@@ -1356,13 +1388,20 @@
       if (node.getAttribute(SCAN_MARK)) return; // already badged
       const linkEl = firstMatchIn(node, cfgSearch.link);
       const href = (linkEl && linkEl.href) || "";
+      // US-3042: the same rule as the detail page, one screen earlier. On eBay a
+      // tile's id is the whole read — the title, price and condition printed on
+      // it stay in the browser and the server fetches them from Browse. A tile
+      // with no item id (a promoted slot, an ad) yields null and is dropped by
+      // runScan rather than falling back to reading it.
+      const ebayItemId = ebayItemIdHere(href);
       cards.push({
         node: node,
         href: href,
         key: SCAN.cardKey(href, i),
-        title: textIn(node, cfgSearch.title).slice(0, 200),
-        priceText: textIn(node, cfgSearch.price).slice(0, 40),
-        conditionText: textIn(node, cfgSearch.condition).slice(0, 60),
+        ebayItemId: ebayItemId,
+        title: ebayItemId ? "" : textIn(node, cfgSearch.title).slice(0, 200),
+        priceText: ebayItemId ? "" : textIn(node, cfgSearch.price).slice(0, 40),
+        conditionText: ebayItemId ? "" : textIn(node, cfgSearch.condition).slice(0, 60),
         // No marketplace prints a photo count on a result card today; the field
         // exists because the endpoint accepts it and an adapter may gain one.
         photoCount: null,
@@ -1464,7 +1503,13 @@
     if (scanning || !SCAN) return;
     const cfgSearch = adapter && adapter.search;
     if (!cfgSearch) return;
-    const cards = collectCards(cfgSearch);
+    // US-3042: on eBay a tile we cannot name by item id cannot be scanned at
+    // all, because the only alternative is reading it. Dropped here rather than
+    // sent with empty fields, so the request carries no card we have nothing to
+    // say about and the shopper sees no badge on it.
+    const collected = collectCards(cfgSearch);
+    const scanIsEbay = !!(adapter && adapter.key === "ebay");
+    const cards = scanIsEbay ? collected.filter((c) => !!c.ebayItemId) : collected;
     if (!cards.length) {
       // The honest degrade stays silent to the shopper — they never asked for a
       // scan, so an error banner over their search page would be pure noise. But
@@ -1487,7 +1532,12 @@
       type: "GT_CC_SCAN",
       marketplace: (adapter && adapter.key) || "",
       query: SCAN.searchQueryFrom(location.href, cfgSearch.queryParams),
-      cards: cards.map((c) => ({
+      // US-3042: two shapes, and only one of them carries page content — the
+      // same split gradeFromUrls makes for a single listing.
+      cards: cards.map((c) => (scanIsEbay ? {
+        key: c.key,
+        ebayItemId: c.ebayItemId,
+      } : {
         key: c.key,
         title: c.title,
         priceText: c.priceText,

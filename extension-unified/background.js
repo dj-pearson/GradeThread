@@ -1164,6 +1164,19 @@ async function scanCards({ cards, marketplace, query, brand }) {
   if (!Array.isArray(cards) || cards.length === 0) {
     return { ok: false, status: 400, error: "Nothing to scan." };
   }
+  // US-3042: the last line of defence for the SEARCH grid, matching the one
+  // gradeFromUrls keeps for a single listing. Even if the content script
+  // regressed and started reading eBay's result tiles again, what leaves this
+  // browser for an eBay page is a key and an item id. A card with no id is
+  // dropped rather than sent bare — the server would only drop it anyway, and a
+  // request carrying unusable cards reads like one carrying usable ones.
+  const scanIsEbay = String(marketplace || "").toLowerCase() === "ebay";
+  const outCards = scanIsEbay
+    ? cards
+      .filter((c) => c && typeof c.ebayItemId === "string" && /^\d{9,15}$/.test(c.ebayItemId))
+      .map((c) => ({ key: c.key, ebayItemId: c.ebayItemId }))
+    : cards;
+  if (outCards.length === 0) return { ok: false, status: 400, error: "Nothing to scan." };
   const instanceId = await getInstanceId();
   const headers = {
     "Content-Type": "application/json",
@@ -1181,7 +1194,7 @@ async function scanCards({ cards, marketplace, query, brand }) {
       method: "POST",
       headers: headers,
       body: JSON.stringify({
-        cards: cards,
+        cards: outCards,
         marketplace: marketplace || undefined,
         query: query || undefined,
         brand: brand || undefined,
@@ -1895,6 +1908,10 @@ async function saveRead(read) {
     // paid signal, so it is often absent; null is stored rather than 0 so an
     // absent claim can't be averaged as "claimed nothing".
     seller: typeof read.seller === "string" && read.seller ? read.seller.slice(0, 80) : null,
+    // US-3042: where the title and seller above came from. The popup prints
+    // both, and picks its eBay attribution wording off this. Unrecognised (or a
+    // row written before this shipped) is "unknown", never the API claim.
+    source: ["ebay-api", "page"].indexOf(read.source) !== -1 ? read.source : "unknown",
     claimedGrade: typeof read.claimedGrade === "number" && isFinite(read.claimedGrade)
       ? read.claimedGrade
       : null,

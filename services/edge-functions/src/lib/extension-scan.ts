@@ -55,6 +55,10 @@ export interface ScanCardInput {
   priceText: string;
   conditionText: string;
   photoCount: number | null;
+  /** US-3042: an eBay legacy item id, parsed out of the card's own link. On eBay
+   *  this is the ONLY field the caller sends; the three above arrive empty and
+   *  are filled from Browse by `hydrateEbayScanCards`. */
+  ebayItemId: string | null;
 }
 
 export interface ScanCardResult {
@@ -88,12 +92,16 @@ export function parseScanBody(
     const photoCount = typeof r.photoCount === "number" && Number.isFinite(r.photoCount)
       ? Math.max(0, Math.min(99, Math.round(r.photoCount)))
       : null;
+    const ebayItemId = typeof r.ebayItemId === "string" && /^\d{9,15}$/.test(r.ebayItemId.trim())
+      ? r.ebayItemId.trim()
+      : null;
     cards.push({
       key,
       title: typeof r.title === "string" ? r.title.trim().slice(0, 200) : "",
       priceText: typeof r.priceText === "string" ? r.priceText.trim().slice(0, 40) : "",
       conditionText: typeof r.conditionText === "string" ? r.conditionText.trim().slice(0, 60) : "",
       photoCount,
+      ebayItemId,
     });
     if (cards.length >= MAX_SCAN_CARDS) break;
   }
@@ -104,6 +112,66 @@ export function parseScanBody(
     query: typeof b.query === "string" ? b.query.trim().slice(0, 200) : "",
     brand: typeof b.brand === "string" ? b.brand.trim().slice(0, 80) : "",
   };
+}
+
+/** What Browse told us about one search-grid card. Structurally the subset of
+ *  `EbayCardRead` this module needs, redeclared so nothing here has to import
+ *  the eBay client — the same reason `BandBuilder` is injected below. */
+export interface ScanCardFacts {
+  title: string;
+  priceCents: number | null;
+  currency: string;
+  conditionId: string | null;
+  conditionLabel: string | null;
+}
+
+/**
+ * US-3042: replace an eBay scan's card fields with eBay's own.
+ *
+ * On eBay the caller sends a key and an item id and NOTHING else — the title,
+ * price and condition printed on the tile stay in the shopper's browser. This is
+ * where the three fields the decision logic needs come back, out of Browse.
+ *
+ * REPLACED, never merged, for the same reason `hydrateEbayListingBody` replaces:
+ * a merge would leave a caller able to steer the verdict with page text on the
+ * one marketplace where we deliberately do not read the page, which would make
+ * the change cosmetic.
+ *
+ * A card with no id, or one Browse could not resolve, is DROPPED. It gets no
+ * badge, which is what a search page the shopper never asked us to touch should
+ * look like when we have nothing honest to say about a tile.
+ *
+ * Pure, and a no-op for every other marketplace — Poshmark, Mercari, Grailed,
+ * Depop and Vinted publish no API to read instead, so their cards pass through.
+ */
+export function hydrateEbayScanCards(
+  cards: ScanCardInput[],
+  marketplace: string | null,
+  factsByItemId: Map<string, ScanCardFacts>,
+): ScanCardInput[] {
+  if ((marketplace ?? "").trim().toLowerCase() !== "ebay") return cards;
+  const out: ScanCardInput[] = [];
+  for (const card of cards) {
+    const facts = card.ebayItemId ? factsByItemId.get(card.ebayItemId) : undefined;
+    if (!facts) continue;
+    out.push({
+      key: card.key,
+      title: facts.title.slice(0, 200),
+      // Cents rendered plainly rather than formatted: the parser downstream
+      // wants a number, and a localized currency string is a second thing to
+      // get wrong.
+      priceText: facts.priceCents != null ? (facts.priceCents / 100).toFixed(2) : "",
+      // eBay's numeric conditionId is the seller's own declaration to eBay, and
+      // a better source than the tile's abbreviated label ever was.
+      conditionText: facts.conditionId ?? facts.conditionLabel ?? "",
+      // No result tile prints a photo count and Browse is not asked for the
+      // gallery here, so the thin-photos signal has no eBay source. null, not a
+      // guess: `scanCardResults` reads null as "not known", never as "thin".
+      photoCount: null,
+      ebayItemId: card.ebayItemId,
+    });
+  }
+  return out;
 }
 
 /**

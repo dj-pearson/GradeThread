@@ -58,6 +58,33 @@
     }
   }
 
+  /**
+   * Where a row's printed fields came from. The compare view picks its
+   * attribution wording off this, so it is stored rather than inferred: a row
+   * pinned before US-3042 shipped was read off eBay's page, and it must not
+   * inherit a sentence saying it came through eBay's API.
+   */
+  const SOURCES = ["ebay-api", "page", "unknown"];
+
+  /**
+   * Price text from cents, for a row whose price came from an API rather than a
+   * page. Kept here beside priceCents() — the parser and the formatter are one
+   * rule and drift the moment they live apart.
+   */
+  function priceTextFromCents(cents, currency) {
+    // Strict about the TYPE, not just the value: `Number(null)` is 0, so a
+    // coercing check turns "this listing had no price" into "$0.00" — a price
+    // the shopper would compare against, invented by a type conversion.
+    const n = typeof cents === "number" ? cents : NaN;
+    if (!isFinite(n) || n < 0) return "";
+    const amount = (Math.round(n) / 100).toFixed(2);
+    const code = typeof currency === "string" ? currency.trim().toUpperCase() : "";
+    // USD reads as money to everyone; anything else keeps its code, because a
+    // bare "$" on a EUR listing is a wrong number, not a cosmetic slip.
+    if (!code || code === "USD") return "$" + amount;
+    return code + " " + amount;
+  }
+
   /** A finite grade in [1,10] or null — the single NaN gate, as in US-1884. */
   function safeScore(v) {
     const n = typeof v === "number" ? v : Number(v);
@@ -87,6 +114,10 @@
         : null,
       priceText: String((listing && listing.priceText) || "").slice(0, 40),
       thumbUrl: typeof (listing && listing.thumbUrl) === "string" ? listing.thumbUrl : null,
+      // US-3042. Defaults to "unknown", never to "ebay-api": an unstamped row is
+      // one whose provenance nobody recorded, and guessing the flattering answer
+      // is how a required sentence becomes a false one.
+      source: SOURCES.indexOf(listing && listing.source) !== -1 ? listing.source : "unknown",
       overallScore: safeScore(data && data.overallScore),
       gradeTier: String((data && data.gradeTier) || ""),
       confidence: typeof (data && data.confidence) === "number" && isFinite(data.confidence)
@@ -242,7 +273,9 @@
     MAX,
     STRINGS,
     FAIRNESS_LABEL,
+    SOURCES,
     keyFor,
+    priceTextFromCents,
     makeEntry,
     put,
     remove,

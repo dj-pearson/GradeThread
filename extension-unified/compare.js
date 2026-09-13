@@ -116,10 +116,13 @@ function render(list, sortBy) {
   // every render because the tray changes underneath it. Driven by the pinned
   // rows rather than hard-coded, so clearing the last eBay row also clears
   // eBay's notice instead of leaving a claim about data no longer shown.
+  // US-3042: driven by the ROWS, not just their marketplace names, so the
+  // wording matches where each row's fields came from. This table prints
+  // titles, prices and thumbnails, and the sentence over them says where those
+  // came from — for a row pinned before the eBay read moved server-side, the
+  // answer is eBay's page, and claiming the API for it would be a false notice.
   if (attribution && self.GT_MP_NOTICE) {
-    const notices = self.GT_MP_NOTICE.noticesForMarketplaces(
-      list.map((e) => e.marketplace),
-    );
+    const notices = self.GT_MP_NOTICE.noticesForEntries(list);
     for (const text of notices) {
       const p = document.createElement("p");
       p.textContent = text;

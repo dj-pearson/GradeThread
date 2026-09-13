@@ -500,11 +500,37 @@ function renderReadChips() {
   }
 }
 
+/**
+ * US-3042: the attribution the read history owes the marketplaces on it.
+ *
+ * This list prints listing TITLES, which makes it a surface that displays eBay
+ * data — the same obligation the overlay and the compare view already carry, on
+ * the one surface that had been missed. Driven by the rows actually on screen,
+ * so filtering the last eBay read away also clears eBay's notice rather than
+ * leaving a claim about data no longer shown.
+ *
+ * The wording follows each row's stored `source`: a read taken before the eBay
+ * fields moved server-side had its title read off eBay's page, and the sentence
+ * saying "retrieved through the eBay API" would not be true of it.
+ */
+function paintAttribution(list) {
+  const box = document.getElementById("attribution");
+  if (!box) return;
+  box.textContent = "";
+  if (!self.GT_MP_NOTICE) return;
+  for (const text of self.GT_MP_NOTICE.noticesForEntries(list)) {
+    const p = document.createElement("p");
+    p.textContent = text;
+    box.appendChild(p);
+  }
+}
+
 function paintReads() {
   const ul = document.getElementById("reads");
   const more = document.getElementById("readMore");
   if (!ul) return;
   const list = currentReads();
+  paintAttribution(list);
   ul.textContent = "";
   if (more) more.hidden = true;
   if (!list.length) {

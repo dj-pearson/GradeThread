@@ -40,12 +40,31 @@
 })(typeof self !== "undefined" ? self : this, function () {
   "use strict";
 
+  // The trademark and non-endorsement halves are what eBay requires and are
+  // identical in both wordings. Only the PROVENANCE clause differs.
+  const TRADEMARK =
+    "eBay is a trademark of eBay Inc. GradeThread uses the eBay API but is " +
+    "not endorsed or certified by eBay Inc.";
+
   const NOTICE_BY_MARKETPLACE = {
-    ebay:
-      "Listing data from eBay, retrieved through the eBay API. eBay is a " +
-      "trademark of eBay Inc. GradeThread uses the eBay API but is not " +
-      "endorsed or certified by eBay Inc.",
+    ebay: "Listing data from eBay, retrieved through the eBay API. " + TRADEMARK,
   };
+
+  // US-3042: the same notice for a row whose fields were NOT retrieved through
+  // the API.
+  //
+  // The compare tray stores rows, and a row pinned before the eBay read moved
+  // server-side had its title, price and thumbnail read off eBay's own page. The
+  // sentence above is required, and it is also a factual claim — printing it
+  // over that row would make a compliance notice into a false statement, which
+  // is a worse outcome than the one it was added to prevent. So the provenance
+  // clause is dropped and everything eBay asks for stays.
+  const PAGE_NOTICE_BY_MARKETPLACE = {
+    ebay: "Listing data from eBay. " + TRADEMARK,
+  };
+
+  /** Rows stamped with this read their fields from eBay's API (US-3042). */
+  const API_SOURCE = "ebay-api";
 
   /**
    * The notice for one marketplace key, or null when that marketplace has none.
@@ -61,6 +80,18 @@
   }
 
   /**
+   * The notice for one marketplace whose data was read from a PAGE rather than
+   * through the marketplace's API, or null when it has none.
+   */
+  function pageNoticeFor(marketplace) {
+    if (typeof marketplace !== "string") return null;
+    const key = marketplace.trim().toLowerCase();
+    return Object.prototype.hasOwnProperty.call(PAGE_NOTICE_BY_MARKETPLACE, key)
+      ? PAGE_NOTICE_BY_MARKETPLACE[key]
+      : null;
+  }
+
+  /**
    * The distinct notices a mixed list of entries needs, in a stable order.
    *
    * Used by the compare view, where the shopper has pinned listings from
@@ -72,6 +103,31 @@
     const out = [];
     for (const m of marketplaces || []) {
       const notice = noticeFor(m);
+      if (notice && !seen.has(notice)) {
+        seen.add(notice);
+        out.push(notice);
+      }
+    }
+    return out;
+  }
+
+  /**
+   * The distinct notices a table of TRAY ROWS needs (US-3042).
+   *
+   * Same job as noticesForMarketplaces, but it reads each row's stored `source`
+   * so the wording matches where that row's fields actually came from. A table
+   * holding both an API-read row and an older page-read one carries both
+   * sentences, which is accurate and rare — the tray holds six rows and they
+   * turn over fast.
+   */
+  function noticesForEntries(entries) {
+    const seen = new Set();
+    const out = [];
+    for (const entry of entries || []) {
+      if (!entry) continue;
+      const notice = entry.source === API_SOURCE
+        ? noticeFor(entry.marketplace)
+        : pageNoticeFor(entry.marketplace);
       if (notice && !seen.has(notice)) {
         seen.add(notice);
         out.push(notice);
@@ -100,8 +156,12 @@
 
   return {
     NOTICE_BY_MARKETPLACE: NOTICE_BY_MARKETPLACE,
+    PAGE_NOTICE_BY_MARKETPLACE: PAGE_NOTICE_BY_MARKETPLACE,
+    API_SOURCE: API_SOURCE,
     noticeFor: noticeFor,
+    pageNoticeFor: pageNoticeFor,
     noticesForMarketplaces: noticesForMarketplaces,
+    noticesForEntries: noticesForEntries,
     appendNotice: appendNotice,
   };
 });

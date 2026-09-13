@@ -88,6 +88,8 @@ export interface EbayListingRead {
   conditionId: string | null;
   conditionLabel: string | null;
   itemWebUrl: string | null;
+  /** eBay's own seller username, so a surface showing one need not read the page. */
+  sellerUsername: string | null;
 }
 
 function toCents(value: string | undefined): number | null {
@@ -145,6 +147,7 @@ export async function readEbayListingForGrading(
       conditionId?: string;
       condition?: string;
       itemWebUrl?: string;
+      seller?: { username?: string };
       localizedAspects?: Array<{ name?: string; value?: string }>;
     };
 
@@ -184,6 +187,7 @@ export async function readEbayListingForGrading(
       conditionId: item.conditionId?.trim() || null,
       conditionLabel: item.condition?.trim() || null,
       itemWebUrl: item.itemWebUrl?.trim() || null,
+      sellerUsername: item.seller?.username?.trim() || null,
     };
   } catch (err) {
     console.error(
@@ -192,6 +196,117 @@ export async function readEbayListingForGrading(
     );
     return null;
   }
+}
+
+/** What a SEARCH-GRID card needs: the three fields a result tile prints. */
+export interface EbayCardRead {
+  itemId: string;
+  title: string;
+  priceCents: number | null;
+  currency: string;
+  conditionId: string | null;
+  conditionLabel: string | null;
+}
+
+/** Browse getItems takes at most 20 RESTful ids per call. */
+const MAX_ITEMS_PER_CALL = 20;
+
+/**
+ * Read a GRID of listings — the search-results equivalent of
+ * `readEbayListingForGrading`.
+ *
+ * WHY THIS EXISTS. Scan mode (US-2237) badged an eBay search page by reading the
+ * title, price and condition printed on each result tile and posting all 24 of
+ * them to us. That is the same finding as the detail-page scrape US-3042 removed,
+ * one screen earlier and 24 times per page: eBay content leaving a shopper's
+ * browser instead of coming through eBay's API. Nothing about the badge changes;
+ * only where its inputs come from.
+ *
+ * COST. Browse getItems takes 20 ids per call, so a full 24-card grid costs TWO
+ * calls rather than 24, and both are counted through `countedEbayFetch` like
+ * every other eBay request. That keeps the scan's shape — a handful of calls per
+ * page, no Vision spend, nothing persisted.
+ *
+ * A legacy item id maps to the RESTful id `v1|<id>|0`, which is what getItems
+ * accepts. That form resolves single-variation listings, which is nearly all
+ * clothing; a multi-variation parent may not resolve, and the card then carries
+ * no entry here and gets NO BADGE. Silence is the honest degrade for a surface
+ * the shopper never asked for.
+ *
+ * Never throws: a failed chunk drops its cards, it does not fail the scan.
+ */
+export async function readEbayCardsByLegacyIds(
+  legacyItemIds: string[],
+): Promise<Map<string, EbayCardRead>> {
+  const out = new Map<string, EbayCardRead>();
+  const ids = Array.from(
+    new Set(legacyItemIds.filter((id) => isValidEbayItemId(id)).map((id) => id.trim())),
+  );
+  if (ids.length === 0) return out;
+
+  let token: string;
+  try {
+    token = await getAppAccessToken();
+  } catch (err) {
+    console.error(
+      "[ebay-item-read] card token failed:",
+      err instanceof Error ? err.message : String(err),
+    );
+    return out;
+  }
+
+  for (let i = 0; i < ids.length; i += MAX_ITEMS_PER_CALL) {
+    const chunk = ids.slice(i, i + MAX_ITEMS_PER_CALL);
+    try {
+      const url = `${apiHost()}/buy/browse/v1/item/?item_ids=${
+        encodeURIComponent(chunk.map((id) => `v1|${id}|0`).join(","))
+      }`;
+      const res = await countedEbayFetch(url, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "X-EBAY-C-MARKETPLACE-ID": getMarketplaceId(),
+          Accept: "application/json",
+        },
+      });
+      if (!res.ok) {
+        console.warn(`[ebay-item-read] getItems failed (${res.status})`);
+        continue;
+      }
+      // getItems answers 200 with a per-item warnings array for the ids it could
+      // not resolve, so a partial success is the NORMAL case, not an error.
+      const payload = (await res.json()) as {
+        items?: Array<{
+          itemId?: string;
+          legacyItemId?: string;
+          title?: string;
+          price?: { value?: string; currency?: string };
+          conditionId?: string;
+          condition?: string;
+        }>;
+      };
+      for (const item of payload.items ?? []) {
+        // Prefer eBay's own echo of the legacy id; fall back to parsing the
+        // RESTful id we sent, so a response without it still matches a card.
+        const legacy = item.legacyItemId?.trim() ||
+          item.itemId?.split("|")[1]?.trim() || "";
+        if (!isValidEbayItemId(legacy)) continue;
+        out.set(legacy, {
+          itemId: legacy,
+          title: (item.title ?? "").trim(),
+          priceCents: toCents(item.price?.value),
+          currency: item.price?.currency ?? "USD",
+          conditionId: item.conditionId?.trim() || null,
+          conditionLabel: item.condition?.trim() || null,
+        });
+      }
+    } catch (err) {
+      console.error(
+        "[ebay-item-read] card read failed:",
+        err instanceof Error ? err.message : String(err),
+      );
+    }
+  }
+  return out;
 }
 
 /**

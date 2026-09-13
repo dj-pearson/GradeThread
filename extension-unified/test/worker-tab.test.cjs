@@ -30,7 +30,14 @@ const fs = require("node:fs");
 const path = require("node:path");
 
 const dir = path.resolve(__dirname, "..");
-const read = (...p) => fs.readFileSync(path.join(dir, ...p), "utf8");
+// Line endings normalised at the READ. This file slices functions out of the
+// source with needles like `"\n}\n"`, and a Windows checkout hands it CRLF —
+// the needle then misses, `slice(start, -1)` silently becomes "the rest of the
+// file", and the assertion runs against code it never meant. That is how the
+// drainQueue single-read check went red here while passing in CI: it was
+// counting every `withJobs` in the file rather than the ones in drainQueue.
+const read = (...p) =>
+  fs.readFileSync(path.join(dir, ...p), "utf8").replace(/\r\n/g, "\n");
 
 const BG = read("background.js");
 const WORKER_JS = read("worker.js");

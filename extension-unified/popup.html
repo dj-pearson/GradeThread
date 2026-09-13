@@ -159,6 +159,11 @@
             Worked out from your own reads on this device. Nothing about a seller is
             ever sent to GradeThread.
           </p>
+          <!-- US-3042: this list prints marketplace listing titles, so it is a
+               surface that shows eBay data and needs eBay's attribution and
+               non-endorsement notice like the overlay and the compare view.
+               Filled by popup.js from the rows actually on screen. -->
+          <div class="pop-hint" id="attribution"></div>
           </div>
           <!-- US-2240: the compare tray's door. Shown only when something is
                pinned; an "Open compare (0)" is a dead door. -->
@@ -625,6 +630,10 @@
     <script src="research/seller-memory.js"></script>
     <!-- US-2240: the tray key + helpers, shared with the worker and compare.html. -->
     <script src="research/compare-tray.js"></script>
+    <!-- US-3042: the marketplace attribution notices, shared with the content
+         script and compare.html. Before popup.js, which reads self.GT_MP_NOTICE
+         when it paints the read history. -->
+    <script src="research/marketplace-notice.js"></script>
     <!-- US-3057: the pure history filter. Before popup.js, which reads self.GT_READ_FILTER. -->
     <script src="research/read-filter.js"></script>
     <!-- US-3052: the flip panel's pure formatting + cache helpers, shared with
