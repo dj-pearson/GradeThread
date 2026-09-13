@@ -4520,3 +4520,9 @@ Branch: ralph/gradethread-build
 - Timestamp: 2026-09-13T05:19:41.873Z
 - Cost: $10.8785 over 106 turns
 ---
+## US-3042: eBay Application Growth Check: close the compliance gaps before applying
+- Status: BLOCKED (needs a human)
+- Timestamp: 2026-09-13T15:01:55.010Z
+- Reason: Redeploy the edge, confirm the two Coolify crons (`/api/jobs/ebay-rate-limits` hourly, `/api/jobs/ebay-retention` daily) are green, then let the counter run before reading `ebay_api_call_daily` for the growth-check form — and mark the story `[OPERATOR]` so the loop stops re-picking it.
+- Cost: $2.7383 over 31 turns
+---
