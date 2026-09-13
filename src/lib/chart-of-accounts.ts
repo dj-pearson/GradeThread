@@ -108,9 +108,14 @@ export const SYSTEM_ACCOUNTS: readonly LedgerAccount[] = [
   },
   {
     code: "cogs_labor",
-    // Spelled the way migration 00684 seeded it. The seed is applied and
-    // immutable, and chart-of-accounts.test.ts pins this chart to it.
-    name: "Labour that went into the goods",
+    // US-3256. 00684 seeded this row as "Labour"; the form it names is Schedule
+    // C Part III line 37, "Cost of labor", so the US spelling is the correct one
+    // and the seeded row is the drift. Migration 00797 upserts the row to match
+    // and is HELD on held-v2/us-3256-00797 pending an owner apply, so until then
+    // the two charts disagree on this one field by design --
+    // chart-of-accounts.test.ts carries a self-expiring HELD_SEED_CORRECTIONS
+    // entry that allows exactly this drift and goes red the moment 00797 lands.
+    name: "Labor that went into the goods",
     flow: "cogs",
     schedule_c_part: "III",
     schedule_c_line: "37",

@@ -113,7 +113,8 @@ export const KNOWN_GAPS = new Map([
   ],
   [
     "00797",
-    "held on held-v2/us-3256-00797 (the seeded cogs_labor row says Labour). "
+    "held on held-v3/us-3256-00797 (the seeded cogs_labor row says Labour). "
+      + "Rebuilt onto main at 00800 on 2026-09-13; the v2 branch is superseded. "
       + "That branch deletes this entry when it lands.",
   ],
   [

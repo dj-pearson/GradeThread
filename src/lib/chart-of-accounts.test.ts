@@ -145,6 +145,58 @@ function parseSeededAccounts(sql: string): LedgerAccount[] {
   }));
 }
 
+/**
+ * Drift between the two charts that a HELD migration already fixes.
+ *
+ * US-3256. The same shape as `KNOWN_GAPS` in scripts/migrations-lint.mjs, and
+ * for the same reason: a migration that is written and verified but parked on a
+ * branch awaiting an owner apply is a THIRD state, neither "agrees" nor "has
+ * drifted". Without somewhere to say so there are only two moves, and both are
+ * wrong -- leave the guard red, which is how it stops being read, or spell the
+ * TypeScript side the way the bad seed does, which is what commit e321bdae4
+ * did and which quietly made "Labour" the answer this repo stands behind.
+ *
+ * Each entry is checked in BOTH directions by the case below, so it cannot rot:
+ * the drift it describes must still exist, and its migration must still be
+ * absent. The branch that lands the migration deletes its own entry in the same
+ * commit, exactly as the KNOWN_GAPS branches do.
+ */
+const HELD_SEED_CORRECTIONS = [
+  {
+    code: "cogs_labor",
+    field: "name" as const,
+    seed: "Labour that went into the goods",
+    ts: "Labor that went into the goods",
+    migration: "00797",
+    branch: "held-v2/us-3256-00797",
+    why:
+      "Schedule C Part III line 37 is \"Cost of labor\". 00684 seeded the " +
+      "British spelling; 00797 upserts the row to the US one.",
+  },
+] as const;
+
+/**
+ * True only for the EXACT pair of values a held correction names.
+ *
+ * Deliberately not "skip this field for this code": that would blind the guard
+ * to any FUTURE drift on the same field, which is how an allowance turns into a
+ * hole. A third value on either side is still reported.
+ */
+function isHeldCorrection(
+  code: string,
+  field: keyof LedgerAccount,
+  seedValue: unknown,
+  tsValue: unknown,
+): boolean {
+  return HELD_SEED_CORRECTIONS.some(
+    (c) =>
+      c.code === code &&
+      c.field === field &&
+      seedValue === c.seed &&
+      tsValue === c.ts,
+  );
+}
+
 describe("the TypeScript chart matches the seeded one", () => {
   const seeded = seededChart();
 
@@ -169,11 +221,70 @@ describe("the TypeScript chart matches the seeded one", () => {
     );
   });
 
-  it("agrees field for field", () => {
+  it("agrees field for field, on every row and every field", () => {
+    // US-3256. This used to `expect(...).toEqual(...)` INSIDE the loop, so the
+    // first disagreeing row threw and every row behind it went uncompared.
+    // `cogs_labor` sits at sort_order 220, the 8th of 33 system rows, so for as
+    // long as it was red this guard reported nothing whatsoever about the other
+    // 25. Collect every disagreement and assert the collection is empty, so one
+    // bad row can never again hide the rest.
+    const fields: (keyof LedgerAccount)[] = [
+      "code",
+      "name",
+      "flow",
+      "schedule_c_part",
+      "schedule_c_line",
+      "schedule_c_label",
+      "no_line_reason",
+      "sort_order",
+    ];
+    const drift: string[] = [];
     for (const sqlRow of seeded) {
       const tsRow = accountByCode(sqlRow.code);
-      expect(tsRow, `${sqlRow.code} missing from the TS chart`).toBeDefined();
-      expect({ ...sqlRow }).toEqual({ ...(tsRow as LedgerAccount) });
+      if (!tsRow) {
+        drift.push(`${sqlRow.code}: missing from the TS chart`);
+        continue;
+      }
+      for (const f of fields) {
+        if (sqlRow[f] === tsRow[f]) continue;
+        if (isHeldCorrection(sqlRow.code, f, sqlRow[f], tsRow[f])) continue;
+        drift.push(
+          `${sqlRow.code}.${f}: SQL ${JSON.stringify(sqlRow[f])} !== TS ${JSON.stringify(tsRow[f])}`,
+        );
+      }
+    }
+    expect(
+      drift,
+      `${drift.length} field(s) drifted:\n${drift.join("\n")}`,
+    ).toEqual([]);
+  });
+
+  it("allows a held correction only while its migration is still held", () => {
+    // Both directions, so the list cannot go stale either way.
+    const files = readdirSync(MIGRATIONS_DIR);
+    for (const c of HELD_SEED_CORRECTIONS) {
+      // 1. The migration must still be ABSENT. When `${c.branch}` merges, this
+      //    goes red and forces the entry out in the same commit.
+      const landed = files.filter((f) => f.startsWith(`${c.migration}_`));
+      expect(
+        landed,
+        `${c.migration} has landed (${landed.join(", ")}), so the ` +
+          `HELD_SEED_CORRECTIONS entry for ${c.code}.${c.field} is stale and ` +
+          `must be deleted -- the seed now says what the TS chart says.`,
+      ).toEqual([]);
+
+      // 2. The drift it describes must still be real. An entry excusing a
+      //    disagreement that no longer exists is an allowance nothing needs.
+      const sqlRow = seeded.find((r) => r.code === c.code);
+      expect(sqlRow, `${c.code} is not in the seeded chart`).toBeDefined();
+      expect(
+        (sqlRow as LedgerAccount)[c.field],
+        `${c.code}.${c.field} no longer reads ${JSON.stringify(c.seed)} in the seed`,
+      ).toBe(c.seed);
+      expect(
+        accountByCode(c.code)?.[c.field],
+        `${c.code}.${c.field} no longer reads ${JSON.stringify(c.ts)} in the TS chart`,
+      ).toBe(c.ts);
     }
   });
 

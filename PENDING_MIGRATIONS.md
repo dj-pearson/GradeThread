@@ -10,9 +10,26 @@ Each branch is one merge and carries its own SQL, manifest and version bump.
 | 1 | `held-v2/us-3387-00793` | 00793 | retire 23 size charts a rename orphaned |
 | 2 | `held-v2/us-3397-00794` | 00794 | stop anon enumerating the storage buckets |
 | 3 | `held-v2/us-3398-00795` | 00795 | the deletion log stops claiming a purge it never checked |
-| 4 | `held-v2/us-3256-00797` | 00797 | the seeded cogs_labor row says Labour, the chart says Labor |
+| 4 | `held-v3/us-3256-00797` | 00797 | the seeded cogs_labor row says Labour, the chart says Labor |
 | 5 | `held-v2/us-3410-00798` | 00798 | COMMENTs recording five objects prod has and no migration builds |
 | 6 | `held-v2/us-3312-00799` | 00799 | two brand_knowledge notes that are false in prod |
+
+**00797 was REBUILT on 2026-09-13 and its branch renamed** from
+`held-v2/us-3256-00797` to `held-v3/us-3256-00797` (the v2 branch is left in
+place, superseded, at 1b91502b2). Two things had gone wrong while it sat:
+
+- Main moved to 00800, so the v2 branch's `EXPECTED_SCHEMA_VERSION = "00797"`
+  would have merged a LOWER value onto a higher one and reddened
+  `schema-version_test.ts`. 00797 fills a gap under the watermark now, so the
+  rebuilt branch leaves EXPECTED_SCHEMA_VERSION at 00800 and changes only the
+  manifest. This is why the story's own AC saying "bump the version" no longer
+  applies: a gap-filling migration must NOT bump it.
+- Commit e321bdae4 respelled `src/lib/chart-of-accounts.ts` to "Labour" to make
+  the guard green. That made merging the v2 branch a landmine -- its SQL seeds
+  "Labor", main's chart said "Labour", and the guard would have gone red AFTER
+  the merge, at the least convenient moment. Main now carries the US spelling
+  again plus a self-expiring `HELD_SEED_CORRECTIONS` entry, so the guard is
+  green while 00797 is held AND goes red if the entry outlives the migration.
 
 Why 00796 is missing from that list: it is ALREADY ON MAIN AND ALREADY APPLIED
 TO PROD. It went out with the 2026-09-11 merge push and prod's /health/ready
