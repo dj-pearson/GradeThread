@@ -2859,6 +2859,64 @@ export function planOfferStamp(
   return { itemIds, skusByItemId, unresolved };
 }
 
+/**
+ * How many characters of `in.(...)` payload one PostgREST request may carry.
+ *
+ * Kong fronts prod's PostgREST with nginx defaults, so the whole request LINE -
+ * method, path, query string and HTTP version - has to fit an 8 KB buffer. 4000
+ * leaves better than half of that for the scheme, host, path,
+ * `user_id=eq.<uuid>`, `select=`, and the percent-encoding of everything else.
+ */
+export const IN_FILTER_CHAR_BUDGET = 4000;
+
+/**
+ * Pure: split ids into chunks no PostgREST request line can choke on.
+ *
+ * THE BUG THIS EXISTS FOR, and why a fixed row count was never the right unit.
+ * US-3111 chunked the offer stamp at 400 per request and that was comfortably
+ * safe - for SKUs, which are short (`FD-1a2b3c4d` encodes to 14 characters with
+ * its separator). US-3362 then re-keyed the same stamp onto
+ * `inventory_items.id` to fix a resolution bug, and a uuid encodes to 39. The
+ * constant did not move, so the payload went from ~5,600 characters to ~15,600
+ * and Kong began answering **414 URI too long** to every stamp.
+ *
+ * Measured on prod 2026-09-13: both `ebay_offer_checked_at` and
+ * `ebay_specifics_checked_at` had failed on every catalog pass since US-3362
+ * deployed, the newest stamp in the table was 40 hours old, and the recheck
+ * window this story exists to enforce had quietly reverted to the full fan-out
+ * it replaced.
+ *
+ * So the chunk is measured in CHARACTERS, not rows. A future change of key -
+ * uuid to composite, sku to slug - cannot re-break it, because the thing the
+ * limit is actually about is now the thing being counted.
+ *
+ * An id that busts the budget on its own is still emitted, alone. Dropping it
+ * would silently unstamp a row, which is the failure mode this whole path is
+ * built to make loud.
+ */
+export function chunkIdsForInFilter(
+  ids: readonly string[],
+  budget: number = IN_FILTER_CHAR_BUDGET,
+): string[][] {
+  const chunks: string[][] = [];
+  let current: string[] = [];
+  let used = 0;
+  for (const id of ids) {
+    // The value as it lands in the query string, plus the comma PostgREST needs
+    // between entries (URLSearchParams encodes that comma as `%2C`).
+    const cost = encodeURIComponent(id).length + 3;
+    if (current.length > 0 && used + cost > budget) {
+      chunks.push(current);
+      current = [];
+      used = 0;
+    }
+    current.push(id);
+    used += cost;
+  }
+  if (current.length > 0) chunks.push(current);
+  return chunks;
+}
+
 /** The offer fields the catalog pass routes on. */
 export interface RoutableOffer {
   sku: string | null;
@@ -4028,15 +4086,13 @@ async function doListingsPull(
   let offerStampCoverage: OfferStampCoverage | null = null;
   let offerStampPlan: OfferStampPlan | null = null;
   if (offerSkusRead.length > 0) {
-    const CHUNK = 400;
     const plan = planOfferStamp(offerSkusRead, skuToItemId);
     offerStampPlan = plan;
     // US-3110: the SKUs the stamp actually landed on, mapped back from the ids
     // PostgREST reports. Collected rather than counted so the gap can be NAMED.
     const stampedSkus: string[] = [];
     let stampWriteFailed = false;
-    for (let i = 0; i < plan.itemIds.length; i += CHUNK) {
-      const chunk = plan.itemIds.slice(i, i + CHUNK);
+    for (const chunk of chunkIdsForInFilter(plan.itemIds)) {
       const { data: stampedRows, error } = await supabaseAdmin
         .from("inventory_items")
         .update({ ebay_offer_checked_at: new Date().toISOString() })
@@ -4088,21 +4144,29 @@ async function doListingsPull(
 
   // US-3110: remember which items we asked GetItem about, including the ones it
   // had nothing for. One bulk stamp, not one write per item.
+  //
+  // Chunked on the same character budget as the offer stamp. This one was never
+  // chunked at all, and it failed on prod for the same reason and on the same
+  // passes: 297 uuids in one `in.()` is roughly 11,600 characters of request
+  // line, and Kong answers 414.
   if (specificsCheckedItemIds.length > 0) {
-    const { error } = await supabaseAdmin
-      .from("inventory_items")
-      .update({ ebay_specifics_checked_at: new Date().toISOString() })
-      .eq("user_id", userId)
-      .in("id", specificsCheckedItemIds);
-    if (error) {
-      // Not fatal: the worst case is that the next sync re-asks, which is the
-      // behaviour we had before. Say so rather than swallowing it, because a
-      // persistent failure here restores the 3,300-calls-a-day burn silently.
-      console.error(
-        "[flipdesk-ebay] failed to stamp ebay_specifics_checked_at:",
-        error.message,
-      );
-      errors.push(`specifics stamp: ${error.message.slice(0, 200)}`);
+    for (const chunk of chunkIdsForInFilter(specificsCheckedItemIds)) {
+      const { error } = await supabaseAdmin
+        .from("inventory_items")
+        .update({ ebay_specifics_checked_at: new Date().toISOString() })
+        .eq("user_id", userId)
+        .in("id", chunk);
+      if (error) {
+        // Not fatal: the worst case is that the next sync re-asks, which is the
+        // behaviour we had before. Say so rather than swallowing it, because a
+        // persistent failure here restores the 3,300-calls-a-day burn silently.
+        console.error(
+          "[flipdesk-ebay] failed to stamp ebay_specifics_checked_at:",
+          error.message,
+        );
+        errors.push(`specifics stamp: ${error.message.slice(0, 200)}`);
+        break;
+      }
     }
   }
 

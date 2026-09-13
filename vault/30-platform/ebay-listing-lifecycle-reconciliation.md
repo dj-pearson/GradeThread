@@ -643,6 +643,94 @@ counts the Minted and Renamed halves directly.
 Tests: `src/tests/ebay-sku-resolution_test.ts` (25 cases; the Minted class is
 driven end to end - blank SKU in, `ended` out).
 
+## The stamp that could not fit in a URL (2026-09-13, US-3111 AC7)
+
+US-3111's AC7 asked for two numbers 48 hours after deploy. Reading them is what
+found a live outage in the mechanism itself, so the answers come second.
+
+### What the container log said
+
+    [flipdesk-ebay] failed to stamp ebay_offer_checked_at: URI too long
+    [flipdesk-ebay] failed to stamp ebay_specifics_checked_at: URI too long
+
+on every catalog pass since US-3362 deployed. Kong fronts PostgREST with nginx
+defaults, so the whole request line has to fit an 8 KB buffer.
+
+**The cause is a unit mismatch, and it is the part worth remembering.** US-3111
+chunked the offer stamp at 400 rows per request, which was comfortably safe -
+for SKUs. `FD-1a2b3c4d` costs 14 characters with its separator, so 400 of them
+is about 5,600. US-3362 then re-keyed the same stamp onto `inventory_items.id`
+to fix the resolution bug in [[#The SKU eBay holds is not the SKU on the item (2026-09-11, US-3357)]].
+A uuid costs 39. The row count did not move and the payload tripled to about
+15,600. The `ebay_specifics_checked_at` stamp beside it was never chunked at
+all and failed the same way on the same passes, at 297 ids.
+
+> [!warning] A row count is a proxy for a limit that is measured in characters
+> `chunkIdsForInFilter` packs to a CHARACTER budget (`IN_FILTER_CHAR_BUDGET`,
+> 4000) rather than a row count, so the next change of key cannot re-break it.
+> Its guard checks what each stamp FILTERS ON, not whether a chunker appears
+> somewhere above it: the first draft looked backwards for the nearest `for (`,
+> and an unchunked stamp below a chunked one borrowed its sibling's loop and
+> read as budgeted. That draft is kept as a failing case in
+> `ebay-stamp-url-budget_test.ts` so the guard is tested rather than merely
+> green.
+
+Neither failure was silent in the code's own terms - US-3111 AC4's fail-open
+logged both and pushed them onto the run's errors. It was silent in the terms
+that matter: a `console.error` in a rotating container log is not a page, and
+the measurement that would have caught it was the AC nobody had run yet.
+
+### The two numbers AC7 asked for
+
+**Call volume, from `ebay_api_call_daily`.** The stagger works, and it kept
+working through the stamp outage because the fan-out ceiling bounds a pass:
+
+| day | GET /sell/inventory/v1/offer |
+|---|---|
+| 2026-09-02 | 25,021 (pre-fix) |
+| 2026-09-04 | 1,614 (fix live) |
+| 2026-09-07 | 1,056 |
+| 2026-09-11 | 1,338 |
+| 2026-09-12 | 2,242 |
+
+Against ~984 SKUs that is roughly one read per SKU per day, which is what the
+story projected. The 09-12 rise is the stamp outage showing up where it was
+always going to: the skip set emptying out.
+
+**Stuck listings - and the AC could not be run as written.** It asks that "no
+listing sits in 'listed' with an ended eBay listing for more than 24 hours".
+`public.listings` has `listing_status`, not `status`, and no `ended_at` at all.
+The subject is the ITEM: `inventory_items.status = 'listed'`, reconciled by
+`resyncItemListedStatus`, which flips to `drafted` only once NOTHING is live on
+any marketplace. So the query has to mirror that rule, not the listing row:
+
+```sql
+-- Items still 'listed' with nothing live anywhere, split by whether the eBay
+-- listing ever actually reached eBay. Only the second class is a stuck listing.
+select l.listing_status,
+       (l.platform_listing_id is not null or l.platform_offer_id is not null
+        or l.synced_to_ebay_at is not null) as reached_ebay,
+       count(distinct i.id) as items
+from public.inventory_items i
+join public.listings l on l.inventory_item_id = i.id and l.platform = 'ebay'
+where i.status = 'listed'
+  and not exists (select 1 from public.listings a
+                  where a.inventory_item_id = i.id and a.is_active)
+group by 1, 2;
+```
+
+Prod, 2026-09-13: **37 items, all of them `draft` rows that never reached eBay**,
+plus one behind a `sold` listing. **Zero** sit behind an ended eBay listing, so
+the AC passes - but the 37 are a real and separate defect, and reporting a bare
+zero off the AC's own wording would have hidden them. There is no clock column
+for "how long", because there is no `ended_at`; the nearest honest one is
+`platform_fields->'ebay_state'->>'observed_at'`, which is written only on a
+CHANGE and is therefore the transition time when present and absent otherwise.
+
+Note also that during the stamp outage this answer was cheap in the wrong way:
+`ended_to_draft=0` on every pass. Zero stuck items and zero detections are the
+same reading when the detector is dead.
+
 ## Inbound eBay notifications are not running; polling is the real source
 
 Measured on prod 2026-09-12/13 from the edge container log (US-3110 AC9). The

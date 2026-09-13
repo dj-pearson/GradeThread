@@ -185,6 +185,26 @@ which is not a vault note and had never been checked at all.
 
 
 
+- NEVER restore a sabotage run with `cp <backup>` or `git checkout -- <file>`
+  while your OWN fix is uncommitted in that file. Both took the fix with them
+  here, twice in one story, and the second time the guard under test was the
+  only evidence anything had changed. The durable answer is not a better backup:
+  write the guard as a PURE function over source TEXT, export it from the test,
+  and feed it the broken shape as a string literal. Then the sabotage case is a
+  permanent test rather than a file edit you have to undo — and it keeps working
+  after the tree is committed. Worked example: `unbudgetedStamps` in
+  `ebay-stamp-url-budget_test.ts`.
+- A guard that looks BACKWARD for context ("is there a chunker above this
+  write?") can be satisfied by a NEIGHBOUR's code. The unchunked stamp in
+  US-3111 sat twenty lines below a correctly chunked one, found its `for (`, and
+  read as covered. Assert on something the broken shape cannot borrow — here,
+  the variable the call actually filters on.
+- A chunk size in ROWS is a proxy for a limit measured in CHARACTERS, and the
+  proxy breaks the moment the key type changes. `.in("id", chunk)` at 400 rows
+  was ~5,600 chars of URL for SKUs and ~15,600 for uuids; Kong answered 414 URI
+  too long on every catalog pass for two days. Count characters. Rule + the prod
+  measurement: [[ebay-listing-lifecycle-reconciliation]].
+
 ## Agent cohabitation (co-running loops)
 - A CO-RUNNING loop that commits with `git add -A` / `git commit -a` will SWEEP
   YOUR STAGED FILES INTO ITS OWN COMMIT — staging early does not reserve them.
