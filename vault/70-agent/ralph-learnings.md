@@ -159,6 +159,23 @@ which is not a vault note and had never been checked at all.
   yourself (the test compares VERBATIM). Both need SUPABASE_URL/
   SUPABASE_SERVICE_ROLE_KEY set or they die on the supabase.ts import.
 
+- A FAILING TEST HIDES A FAILING GATE: vitest emits no coverage summary when a
+  test file fails, so `test:coverage` exits 1 for the visible reason and the
+  threshold check never runs. `us-spelling-guard` had been timing out on this
+  Windows box (a repo-wide walk done TWICE, once per `it`, against the 90s cap —
+  fixed by sharing one cached walk, exactly as `vitest.config.ts` predicted a
+  third raise would mean); behind it, all four coverage floors had been breached
+  on main for days. Read a green-after-fix run as a NEW measurement, not a
+  restoration, and check CI's own log before blaming your diff — main's
+  2026-09-12 run had the same four breaches with slightly WORSE numbers.
+- An upstream's permanent refusal is not a run failure. eBay answers
+  403/195011 "Not authorized for this topic" for topics our keyset will never be
+  granted, and counting those as errors gave the notification reconcile 128
+  consecutive red runs with zero successes — a signal nobody could read. Route a
+  permanent refusal to its own named list, and make the job's failure count the
+  thing you actually care about (bucket health), or the downgrade turns a dead
+  pipeline green. Rule + the prod measurement:
+  [[ebay-listing-lifecycle-reconciliation]].
 - The CRLF trap has a second, nastier form than the one above: a needle used to
   SLICE (`src.indexOf("\n}\n")` to find a function's end) returns -1 on this
   host, `slice(0, -1)` silently becomes "the rest of the file", and the guard

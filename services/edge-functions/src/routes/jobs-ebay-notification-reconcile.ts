@@ -91,6 +91,20 @@ export async function handleEbayNotificationReconcileCron(
         })),
       });
     }
+    // US-3110 AC9: the topics eBay will not grant this keyset (403 / 195011).
+    //
+    // Logged separately from the errors above because the action is different in
+    // kind. An entry here is never fixed by code or by a retry — someone has to
+    // be granted the topic in the eBay developer portal, or we accept that the
+    // bucket is served by the polling backstop instead. Naming them on one line
+    // is what makes that decision possible without SSH.
+    if (result.notAuthorized.length > 0) {
+      logEvent("warn", "ebay_notification.topics_not_authorized", {
+        env: result.env,
+        count: result.notAuthorized.length,
+        topics: result.notAuthorized.slice(0, MAX_LOGGED_ERRORS),
+      });
+    }
     // Meter the drift so "how often does eBay's config fall out from under us"
     // is answerable from a dashboard, not by grepping logs.
     recordMetric("ebay.notification_missing_buckets", result.health.missingBuckets.length, {
@@ -104,7 +118,21 @@ export async function handleEbayNotificationReconcileCron(
       repointed: result.repointed,
       alreadyCurrent: result.alreadyCurrent,
       skipped: result.skipped,
+      notAuthorized: result.notAuthorized,
       errors: result.errors,
+      // US-3110 AC9: the ledger's failure signal is bucket HEALTH, not the
+      // attempt log. `failed` is a FAILURE_KEY (lib/cron-run-outcome.ts), so a
+      // required bucket left unsubscribed is recorded as an `error` run in
+      // cron_runs and counts against success_rate.
+      //
+      // This had never been wired, and it is what makes the 195011 downgrade
+      // above safe: before today the run went red because eBay refused twelve
+      // topics, which happened to coincide with the pipeline being dead but did
+      // not measure it. Now the red means the thing an operator cares about —
+      // five of five required buckets have no enabled, correctly-routed
+      // subscription, so no inbound eBay event reaches FlipDesk at all and
+      // every sale, payout and return arrives only via the polling backstop.
+      failed: result.health.missingBuckets.length,
       missingBuckets: result.health.missingBuckets,
       healthy: result.health.ok,
     });

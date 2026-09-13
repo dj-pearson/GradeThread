@@ -527,6 +527,11 @@ adminMarketplaceOpsRoutes.post("/notifications/reconcile", requireScope("marketp
         repointed: result.repointed,
         already_current: result.alreadyCurrent,
         missing_buckets: result.health.missingBuckets,
+        // US-3110 AC9: topics eBay refused with 403/195011. Recorded here
+        // because the audit log is the one copy of this that outlives a
+        // container restart — the reason answering AC9 needed SSH in the first
+        // place was that the diagnosis existed only in a rotating log.
+        not_authorized: result.notAuthorized,
         errors: result.errors,
       },
     });

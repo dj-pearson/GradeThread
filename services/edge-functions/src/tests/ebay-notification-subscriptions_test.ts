@@ -20,11 +20,14 @@ const {
   destinationKindForBucket,
   destinationNameFor,
   idFromLocation,
+  isTopicNotAuthorizedError,
   pickHttpsJsonSchemaVersion,
   planSubscriptionActions,
   summarizeNotificationHealth,
   topicsByBucket,
 } = await import("../lib/ebay-notification-subscriptions.ts");
+
+const { FAILURE_KEYS } = await import("../lib/cron-run-outcome.ts");
 
 const DEST = { general: "dest-general", deletion: "dest-deletion" };
 
@@ -349,4 +352,79 @@ Deno.test("destination id is parsed out of eBay's Location header", () => {
   assertEquals(idFromLocation("/commerce/notification/v1/destination/abc?x=1"), "abc");
   assertEquals(idFromLocation(null), null);
   assertEquals(idFromLocation(""), null);
+});
+
+// ── US-3110 AC9: eBay's permanent topic refusal ───────────────────────
+//
+// The body below is VERBATIM from the production container log (the 2026-09-12
+// 18:17 and 2026-09-13 00:17 runs), not an invention. Pinning eBay's real
+// wording is the point: this is the string the reconcile has to recognize, and a
+// paraphrase would let the real one regress without a test noticing.
+const NOT_AUTHORIZED_BODY =
+  '{"errors":[{"errorId":195011,"domain":"API_NOTIFICATION","category":"REQUEST",' +
+  '"message":"Not authorized for this topic."}]}';
+
+const ebayError = (status: number, body: string): Error & { status: number; body: string } => {
+  const err = new Error(
+    `eBay Notification API POST /subscription failed (${status}): ${body}`,
+  ) as Error & { status: number; body: string };
+  err.status = status;
+  err.body = body;
+  return err;
+};
+
+Deno.test("AC9: eBay's 403/195011 refusal is recognized as permanent, not a failure", () => {
+  assertEquals(isTopicNotAuthorizedError(ebayError(403, NOT_AUTHORIZED_BODY)), true);
+});
+
+Deno.test("AC9: the refusal is matched on errorId OR wording, so either alone is enough", () => {
+  // eBay has changed message text before and kept the code; it has also returned
+  // the sentence with a different code. Neither half may be load-bearing alone.
+  assertEquals(
+    isTopicNotAuthorizedError(ebayError(403, '{"errors":[{"errorId":195011}]}')),
+    true,
+  );
+  assertEquals(
+    isTopicNotAuthorizedError(ebayError(403, '{"message":"NOT AUTHORIZED FOR THIS TOPIC"}')),
+    true,
+  );
+});
+
+Deno.test("AC9: only 403 is permanent — a 401 or 500 stays a real, retryable error", () => {
+  // A 401 is an expired app token and a 5xx is eBay being down. Both are fixed by
+  // the next run, so swallowing them would hide an outage behind a quiet skip.
+  assertEquals(isTopicNotAuthorizedError(ebayError(401, NOT_AUTHORIZED_BODY)), false);
+  assertEquals(isTopicNotAuthorizedError(ebayError(500, NOT_AUTHORIZED_BODY)), false);
+  assertEquals(isTopicNotAuthorizedError(ebayError(403, '{"errorId":195001}')), false);
+  assertEquals(isTopicNotAuthorizedError(ebayError(403, "")), false);
+});
+
+Deno.test("AC9: the reconcile cron reports missing buckets as the ledger's failure count", () => {
+  // The 195011 downgrade above is only safe while bucket health drives the run's
+  // status. If `failed` is ever dropped from the cron body, a dead notification
+  // pipeline reports SUCCESS: `missingBuckets` is not a FAILURE_KEY, so nothing
+  // else in the body carries the signal, and the job would read green while no
+  // inbound eBay event reaches FlipDesk at all. That is the exact silence this
+  // story was filed to end, so it is pinned rather than trusted.
+  //
+  // CRLF-normalized: git checks this tree out with \r\n on Windows, and a needle
+  // spanning a newline would never match on the dev box while passing in CI.
+  const src = Deno.readTextFileSync(
+    new URL("../routes/jobs-ebay-notification-reconcile.ts", import.meta.url),
+  ).replace(/\r\n/g, "\n");
+  assert(
+    src.includes("failed: result.health.missingBuckets.length"),
+    "the reconcile cron must report missingBuckets as `failed` so cron_runs records an error run",
+  );
+  assert(FAILURE_KEYS.includes("failed"), "`failed` must remain a cron FAILURE_KEY");
+  // And the refusal list has to reach the body, or the one thing a human can act
+  // on is readable only over SSH — which is what made AC9 take three passes.
+  assert(src.includes("notAuthorized: result.notAuthorized"));
+});
+
+Deno.test("AC9: a non-eBay throw is never mistaken for a refusal", () => {
+  assertEquals(isTopicNotAuthorizedError(new Error("boom")), false);
+  assertEquals(isTopicNotAuthorizedError(null), false);
+  assertEquals(isTopicNotAuthorizedError(undefined), false);
+  assertEquals(isTopicNotAuthorizedError("403 not authorized for this topic"), false);
 });

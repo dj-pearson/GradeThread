@@ -14,9 +14,18 @@ import { describe, expect, it } from "vitest";
 // @ts-ignore -- plain ESM script, no types
 import { ALLOW, BRITISH, britishWordsIn, run, selfCheckProblems } from "../../scripts/check-us-spelling.mjs";
 
+// `run()` walks the whole tree (26k copy positions, ~13s cold) and BOTH cases
+// below need its result. Called twice it does that walk twice, and under
+// full-suite load the second call reliably blew the 90s cap while passing in
+// isolation — a red that says nothing about spelling. Scan once, share it: the
+// two cases already assume the same tree, so there is no case a second walk
+// could distinguish.
+let scan: ReturnType<typeof run> | null = null;
+const scanOnce = (): ReturnType<typeof run> => (scan ??= run());
+
 describe("US spelling in user-facing copy (US-3233)", () => {
   it("finds no British spelling in any copy position", () => {
-    const { scanned, findings } = run();
+    const { scanned, findings } = scanOnce();
     expect(scanned, "the scanner extracted nothing, so a clean result means nothing")
       .toBeGreaterThan(10_000);
     expect(
@@ -31,7 +40,7 @@ describe("US spelling in user-facing copy (US-3233)", () => {
   });
 
   it("keeps every allow entry load-bearing", () => {
-    const { stale } = run();
+    const { stale } = scanOnce();
     expect(
       stale,
       "an allow entry whose file no longer carries the word it excuses. The " +

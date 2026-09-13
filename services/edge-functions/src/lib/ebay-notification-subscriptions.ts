@@ -644,6 +644,37 @@ function isAlreadyExistsError(err: unknown): boolean {
   );
 }
 
+// US-3110 AC9: eBay's "your keyset may not have this topic" refusal.
+//
+// Read off the live container log 2026-09-12/13: every run POSTs a subscription
+// for each topic in a required bucket and gets back
+//   403 {"errorId":195011,"domain":"API_NOTIFICATION","message":"Not authorized
+//   for this topic."}
+// for twelve of them — ORDER_CONFIRMATION, ORDER_RETURN_ACTIVITY,
+// PRIORITY_LISTING_REVISION, and (the tell that this is eBay's catalog and not
+// our list) LOAN_APPLICATION_CANCEL, a lending-product topic no clothing
+// reseller will ever be granted.
+//
+// This is not a failure a retry can fix. It is a property of the production
+// keyset that changes only when a human is granted the topic in the developer
+// portal, so counting it as a run failure meant the cron reported `errors:12`
+// every six hours forever — 128 consecutive red runs with zero successes and no
+// way to tell "eBay refuses us" from "our code broke". It is the same category
+// as the plan's existing skips (`no HTTPS+JSON payload advertised`): a topic we
+// cannot act on, with a reason.
+//
+// Downgrading it CANNOT hide a broken pipeline, and that is deliberate: bucket
+// health is computed from the re-read subscription list, independently of this,
+// and the cron reports `failed` from `missingBuckets`. A required bucket left
+// unsubscribed is still a red run — it just now says which of the two problems
+// it is.
+export function isTopicNotAuthorizedError(err: unknown): boolean {
+  const e = err as { status?: number; body?: string };
+  if (e?.status !== 403) return false;
+  const body = (e?.body ?? "").toLowerCase();
+  return body.includes("195011") || body.includes("not authorized for this topic");
+}
+
 export interface ReconcileResult {
   env: EbayEnv;
   created: string[];
@@ -651,6 +682,14 @@ export interface ReconcileResult {
   repointed: string[];
   alreadyCurrent: number;
   skipped: Array<{ topicId: string; reason: string }>;
+  /**
+   * Topics eBay refused with 195011. Kept OUT of both `skipped` and `errors`:
+   * out of `errors` because no retry fixes it, and out of `skipped` because
+   * those are decisions WE made from the catalog, while this is eBay's answer to
+   * a call we actually spent. It is the list a human takes to the developer
+   * portal.
+   */
+  notAuthorized: string[];
   errors: Array<{ topicId: string; message: string }>;
   health: NotificationHealth;
 }
@@ -697,7 +736,21 @@ export async function reconcileNotifications(opts: {
     repointed: [],
     alreadyCurrent: 0,
     skipped: plan.skipped,
+    notAuthorized: [],
     errors: [],
+  };
+
+  // One place, so the three action loops below cannot drift on what counts as a
+  // permanent refusal.
+  const recordFailure = (topicId: string, err: unknown): void => {
+    if (isTopicNotAuthorizedError(err)) {
+      result.notAuthorized.push(topicId);
+      return;
+    }
+    result.errors.push({
+      topicId,
+      message: err instanceof Error ? err.message : String(err),
+    });
   };
 
   for (const action of plan.create) {
@@ -721,10 +774,7 @@ export async function reconcileNotifications(opts: {
         result.alreadyCurrent++;
         continue;
       }
-      result.errors.push({
-        topicId: action.topicId,
-        message: err instanceof Error ? err.message : String(err),
-      });
+      recordFailure(action.topicId, err);
     }
   }
 
@@ -745,10 +795,7 @@ export async function reconcileNotifications(opts: {
       });
       result.repointed.push(action.topicId);
     } catch (err) {
-      result.errors.push({
-        topicId: action.topicId,
-        message: err instanceof Error ? err.message : String(err),
-      });
+      recordFailure(action.topicId, err);
     }
   }
 
@@ -760,10 +807,7 @@ export async function reconcileNotifications(opts: {
       );
       result.enabled.push(action.topicId);
     } catch (err) {
-      result.errors.push({
-        topicId: action.topicId,
-        message: err instanceof Error ? err.message : String(err),
-      });
+      recordFailure(action.topicId, err);
     }
   }
 

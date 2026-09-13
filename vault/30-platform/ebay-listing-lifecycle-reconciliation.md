@@ -16,7 +16,8 @@ code_refs:
   - services/edge-functions/src/lib/ebay-webhook-topics.ts
   - services/edge-functions/src/lib/ebay-notification-subscriptions.ts
   - services/edge-functions/src/routes/flipdesk-webhooks.ts
-reviewed: 2026-09-11
+  - services/edge-functions/src/routes/jobs-ebay-notification-reconcile.ts
+reviewed: 2026-09-13
 tags: [ebay, listings, sync, gotcha]
 summary: A listing eBay ended or removed used to stay "active" locally with End and Relist as silent no-ops; the fix is to treat "already not live" as success, not as an error - and to keep WHICH of those it was, since ended and removed-by-eBay need opposite actions.
 ---
@@ -641,6 +642,45 @@ counts the Minted and Renamed halves directly.
 
 Tests: `src/tests/ebay-sku-resolution_test.ts` (25 cases; the Minted class is
 driven end to end - blank SKU in, `ended` out).
+
+## Inbound eBay notifications are not running; polling is the real source
+
+Measured on prod 2026-09-12/13 from the edge container log (US-3110 AC9). The
+reconcile cron reports `ebay.notification_missing_buckets = 5` — **all five**
+required buckets — and has done so on every run. No eBay notification reaches
+FlipDesk. Every sale, payout, return and listing-end arrives through the polling
+backstop and the marketplace-event sweep instead, which is why those paths carry
+the whole lifecycle and why their call volume is the thing worth tuning.
+
+The cause is eBay's, not ours. Each run POSTs a subscription per topic in a
+required bucket and gets:
+
+    403 {"errorId":195011,"domain":"API_NOTIFICATION",
+         "message":"Not authorized for this topic."}
+
+for twelve of them, including `ORDER_CONFIRMATION`, `ORDER_RETURN_ACTIVITY`,
+`PRIORITY_LISTING_REVISION` and — the tell that this list is eBay's catalog and
+not ours — `LOAN_APPLICATION_CANCEL`, a lending-product topic no clothing
+reseller will be granted. `classifyEbayTopic` matches on substrings so the
+reconcile subscribes anything eBay's catalog puts in a required bucket; that is
+right for the inbound receiver and generous for the outbound decision.
+
+**The rule: 195011 is permanent, so it is not a run failure.** No retry fixes
+it — a human has to be granted the topic in the eBay developer portal, or the
+bucket stays on polling. Counting it as a failure is what made this cron report
+`errors:12` every six hours for 128 consecutive red runs with zero successes,
+and made "eBay refuses us" indistinguishable from "our code broke".
+`isTopicNotAuthorizedError` now routes those into `result.notAuthorized`, which
+the cron logs as `ebay_notification.topics_not_authorized` and the admin
+reconcile writes to the audit log as `not_authorized` — a record that outlives a
+container restart, which the rotating log did not.
+
+**What keeps that honest:** the run's failure count is now bucket HEALTH
+(`failed: result.health.missingBuckets.length`), not the attempt log. A required
+bucket with no enabled, correctly-routed subscription is still a red run. Before
+this the ledger read the refusals, which happened to coincide with the pipeline
+being dead but never measured it. Pinned by
+`src/tests/ebay-notification-subscriptions_test.ts`.
 
 ## Related
 
