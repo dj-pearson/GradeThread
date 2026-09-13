@@ -4526,3 +4526,8 @@ Branch: ralph/gradethread-build
 - Reason: Redeploy the edge, confirm the two Coolify crons (`/api/jobs/ebay-rate-limits` hourly, `/api/jobs/ebay-retention` daily) are green, then let the counter run before reading `ebay_api_call_daily` for the growth-check form — and mark the story `[OPERATOR]` so the loop stops re-picking it.
 - Cost: $2.7383 over 31 turns
 ---
+## US-3111: Stagger the per-SKU eBay offer read
+- Status: COMPLETE
+- Timestamp: 2026-09-13T15:39:17.460Z
+- Cost: $2.8424 over 4 turns
+---
