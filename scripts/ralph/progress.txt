@@ -4515,3 +4515,8 @@ Branch: ralph/gradethread-build
 - Reason: Redeploy the edge, confirm the two Coolify crons (`/api/jobs/ebay-rate-limits` hourly, `/api/jobs/ebay-retention` daily) are green, then let the call counter run before reading `ebay_api_call_daily` for the growth-check form.
 - Cost: $22.5520 over 188 turns
 ---
+## US-3110: Cut eBay API call volume before the Application Growth Check
+- Status: COMPLETE
+- Timestamp: 2026-09-13T05:19:41.873Z
+- Cost: $10.8785 over 106 turns
+---
