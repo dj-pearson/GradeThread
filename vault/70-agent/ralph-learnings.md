@@ -199,6 +199,27 @@ which is not a vault note and had never been checked at all.
   US-3111 sat twenty lines below a correctly chunked one, found its `for (`, and
   read as covered. Assert on something the broken shape cannot borrow — here,
   the variable the call actually filters on.
+- A guard red because its fix is HELD ON A BRANCH is the easiest guard in the
+  repo to "fix" wrongly: the cheapest way to green is to change the code side to
+  match the bad data, and that silently makes the wrong value the answer the
+  repo stands behind. e321bdae4 did exactly that to US-3256, respelling the TS
+  chart of accounts to the British "Labour" that 00684 seeded, three hours after
+  the held branch was built to correct the seed. It also turned the held branch
+  into a landmine, since merging it would redden the guard AFTER the merge.
+  The answer is a THIRD state, spelled the way `KNOWN_GAPS` in
+  `scripts/migrations-lint.mjs` already spells it: a list entry naming the exact
+  pair of values, the migration that fixes it and the branch holding it, checked
+  in BOTH directions (the drift must still exist AND the migration must still be
+  absent) so the branch is forced to delete its own entry when it lands. Worked
+  example: `HELD_SEED_CORRECTIONS` in `src/lib/chart-of-accounts.test.ts`.
+- A held branch ROTS while it waits, in two ways worth checking before merging
+  one: its migration NUMBER can be taken by a parallel session, and its
+  `EXPECTED_SCHEMA_VERSION` bump can go STALE — once main passes it, the branch
+  would merge a LOWER value onto a higher one and redden `schema-version_test`.
+  A migration that has become a gap fill under the watermark must NOT bump the
+  version at all; regenerate the manifest instead, which is the thing that can
+  see a gap the watermark cannot. Rebuild the branch on current main and prove
+  it with `git merge --no-commit --no-ff` plus the guard, then `--abort`.
 - A chunk size in ROWS is a proxy for a limit measured in CHARACTERS, and the
   proxy breaks the moment the key type changes. `.in("id", chunk)` at 400 rows
   was ~5,600 chars of URL for SKUs and ~15,600 for uuids; Kong answered 414 URI
