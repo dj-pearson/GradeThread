@@ -4573,3 +4573,9 @@ Branch: ralph/gradethread-build
 - Reason: Decide whether to add @testing-library/react and fund component tests, or lower the four coverage floors — CI cannot go green until one of those happens.
 - Cost: $13.7755 over 138 turns
 ---
+## US-2913: Play Console setup and the reviewer demo account: the five operator blockers
+- Status: BLOCKED (needs a human)
+- Timestamp: 2026-09-14T01:52:36.448Z
+- Reason: Sign in to Play Console, Infisical and Coolify and work `android/PLAY_SETUP_RUNBOOK.md` Phases 2, 3, 6, 7, 8, 10 and 14; the repo side of this story is done.
+- Cost: $7.9596 over 88 turns
+---
