@@ -4888,7 +4888,8 @@
         "the Reconciliation page expands a payout into that table, shows the per-sourcer subtotals, and says plainly when a payout has no linked sales yet rather than rendering an empty table",
         "the report never re-derives net profit: money comes from sale_pnl, the same source the finances dashboard and the team scorecard read"
       ],
-      "priority": 2
+      "priority": 2,
+      "notes": "2026-09-14: built and committed at 816129605, HELD (migration 00801). Design change from the filed AC: the report is a DIRECT sale_pnl read from the client (src/lib/payout-breakdown.ts), not the edge route the AC named. sale_pnl is security_invoker, so RLS decides visibility, which is how use-ship-queue.ts and the team scorecard already read it; an edge route would hand-roll that scoping AND need a manual container redeploy to ship a page change. The Finances calls stay on the edge where they must be. Verified: new view body run beside the live view on prod read-only, 221 rows vs 221, net 7179.53 vs 7179.53, no row multiplication (ebay_payouts is UNIQUE(user_id,payout_id)); 82 rows pick up payout_id, 12 pick up payout_date because headers exist for 2 of the 5 referenced payouts. 14 web tests + 6 edge tests + 1 new source-level tenant-isolation guard, deno lint/check clean, tsc -b clean, ui:check 0 blocking. The old /finances/payouts/:id/sales edge route and useEbayPayoutSales hook are superseded; the hook is removed, the route left in place."
     }
   ]
 }
