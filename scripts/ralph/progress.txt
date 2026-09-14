@@ -4549,3 +4549,9 @@ Branch: ralph/gradethread-build
 - Reason: Mark US-3042's title `[OPERATOR]` in prd.json, then redeploy the edge, confirm the two Coolify crons (`/api/jobs/ebay-rate-limits` hourly, `/api/jobs/ebay-retention` daily) are green in `cron_runs`, and let the call counter run before reading `ebay_api_call_daily` for the growth-check form.
 - Cost: $1.5474 over 14 turns
 ---
+## US-3112: eBay compliance: extension attribution, and stop calling APIs we cannot use
+- Status: BLOCKED (needs a human)
+- Timestamp: 2026-09-14T00:28:04.346Z
+- Reason: One eBay seller must reconnect at /oauth/start, and someone must read the next reconcile run's cron_runs.detail and file the cause of its 12 errors.
+- Cost: $3.2583 over 36 turns
+---
