@@ -18,6 +18,7 @@ import {
   upstreamUnavailableResponse,
   type PagesEnv,
 } from "./blog-render";
+import { BLOG_TOPIC_SLUGS } from "./blog-topics";
 // US-2636: the SAME threshold and the SAME predicate the page uses to decide
 // whether to noindex itself. Imported rather than restated — the module's own
 // docblock says the citation-block and the indexing decisions "must not
@@ -621,20 +622,32 @@ export async function blogUrls(env: PagesEnv): Promise<SitemapUrl[]> {
       });
     }
 
-    // Tag archives are deliberately NOT listed.
+    // US-9037: the CURATED topic archives, and only those.
     //
-    // They were 138 of the ~892 URLs here against ~61 published posts, so most
-    // tags carry one or two articles whose content exists in full on the post
-    // page — thin, near-duplicate URLs. The sitemap is a statement about which
-    // pages we want ranked, and these are now served `noindex, follow`
-    // (functions/blog/[[path]].ts renderTag). Listing a noindexed URL sends
-    // Google two contradictory signals and spends crawl budget on the losing
-    // one, which a domain with no external authority cannot spare.
+    // Blanket listing was wrong and blanket exclusion has stopped being right.
+    // Measured on prod 2026-09-14 there are 259 tags, 209 of which carry one or
+    // two posts, still thin near-duplicate URLs whose content exists in full
+    // on the post page. Those stay out, and keep serving `noindex, follow`.
     //
-    // They remain fully crawlable and linked from every post's tag list — this
-    // removes an indexing CLAIM, not the pages or their internal links. Undo by
-    // restoring this loop and dropping the `robots` override in renderTag; the
-    // two must change together.
+    // The curated set in blog-topics.ts is different: each has a hand-written
+    // name, description and intro, and sits well above the post floor. Those
+    // pages say `index, follow`, so the sitemap has to say the same thing. The
+    // registry is the single source for both; changing one means changing the
+    // other, and src/test/blog-topics.test.ts fails if they drift.
+    //
+    // No lastmod. The payload gives tag NAMES with no dates, and stamping the
+    // blog's newest date on every topic would claim 28 archives changed
+    // whenever any post did. An absent lastmod is honest; a wrong one teaches a
+    // crawler to discount every date in the file.
+    const listedTags = new Set(data.tags ?? []);
+    for (const slug of BLOG_TOPIC_SLUGS) {
+      if (!listedTags.has(slug)) continue;
+      urls.push({
+        loc: `${base}/blog/tag/${encodeURIComponent(slug)}`,
+        changefreq: "weekly",
+        priority: 0.6,
+      });
+    }
   }
   // US-2100: hub inherits its newest child's date instead of today().
   return withHubLastmod(urls);

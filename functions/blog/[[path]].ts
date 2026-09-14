@@ -48,6 +48,12 @@ import {
   type PublicPostListItem,
 } from "../_shared/blog-render";
 import { paginationNav } from "../_shared/blog-pagination";
+import {
+  BLOG_TOPICS,
+  BLOG_TOPIC_SLUGS,
+  blogTopic,
+  isIndexableTopic,
+} from "../_shared/blog-topics";
 import { buildPostMarkdown } from "../_shared/html-to-markdown";
 import { headOf } from "../_shared/head-of";
 
@@ -158,6 +164,30 @@ async function renderPostMarkdown(env: PagesEnv, slug: string): Promise<Response
 /** US-2099: posts per page on the hub and tag pages. */
 const BLOG_PAGE_SIZE = 20;
 
+/**
+ * US-9037: the curated topic archives, linked from every page of the hub.
+ *
+ * An indexable page needs a crawl path from an indexed one. Tag links already
+ * exist on each post, but only for that post's own tags, so a topic was
+ * reachable only from articles a crawler had already found. The hub is the
+ * blog's highest-authority URL and is in the sitemap, so the topic set hangs
+ * off it directly.
+ *
+ * Rendered on every hub page, not just page 1: /blog/page/2 and later are
+ * self-canonical real URLs and there is no reason to make the topic set
+ * reachable from one of them and not the rest.
+ */
+function renderTopicLinks(): string {
+  const links = BLOG_TOPIC_SLUGS.map((slug) => {
+    const name = BLOG_TOPICS[slug]?.name ?? slug;
+    return `<a href="/blog/tag/${encodeURIComponent(slug)}">${escape(name)}</a>`;
+  }).join("");
+  return `<nav aria-labelledby="blog-topics" style="margin-top:48px;padding-top:24px;border-top:1px solid var(--border,#e5e7eb)">
+  <h2 id="blog-topics" style="font-size:1.1rem;margin-bottom:12px">Browse by topic</h2>
+  <div style="display:flex;flex-wrap:wrap;gap:8px 16px;line-height:1.9">${links}</div>
+</nav>`;
+}
+
 async function renderIndex(env: PagesEnv, page = 1): Promise<Response> {
   const offset = (page - 1) * BLOG_PAGE_SIZE;
   // US-2044: a 404 is a REMOVAL signal. Only serve one when the upstream
@@ -213,6 +243,7 @@ async function renderIndex(env: PagesEnv, page = 1): Promise<Response> {
   <p style="color:var(--muted);margin-bottom:32px">Condition grading for resellers, FlipDesk workflows, and how to make pre-owned clothing sell faster.</p>
   ${posts.length === 0 ? "<p>No posts yet.</p>" : cards}
   ${paginationNav("/blog", page, totalPages)}
+  ${renderTopicLinks()}
 </main>`;
 
   const jsonLd = [
@@ -281,11 +312,15 @@ async function renderPost(env: PagesEnv, slug: string): Promise<Response> {
 
   const tagsHtml =
     post.tags.length > 0
-      ? `<div class="tag-list">${post.tags
-          .map(
-            (t) =>
-              `<a href="/blog/tag/${encodeURIComponent(t)}">${escape(t)}</a>`,
-          )
+      ? // US-9037: a curated topic is linked by its display name, so the anchor
+        // text into an indexable page reads "Defect taxonomy" rather than the
+        // slug. Uncurated tags keep the slug: those pages are noindexed and
+        // dressing up the link would not change that.
+        `<div class="tag-list">${post.tags
+          .map((t) => {
+            const label = blogTopic(t)?.name ?? t;
+            return `<a href="/blog/tag/${encodeURIComponent(t)}">${escape(label)}</a>`;
+          })
           .join("")}</div>`
       : "";
 
@@ -591,25 +626,65 @@ async function renderTag(env: PagesEnv, tag: string, page = 1): Promise<Response
     )
     .join("");
 
+  // US-9037: a curated topic renders its own name, description and intro, and
+  // is the only kind of tag archive that may be indexed. Everything else keeps
+  // the bare "Tag: x" listing and `noindex, follow`. See
+  // functions/_shared/blog-topics.ts for why this is editorial and not a count.
+  const topic = blogTopic(tag);
+  const indexable = isIndexableTopic(tag, allPosts.length);
+  const heading = topic ? topic.name : `Tag: ${tag}`;
+
   const breadcrumbItems = [
     { name: "GradeThread", url: `${siteUrl(env)}/` },
     { name: "Blog", url: `${siteUrl(env)}/blog` },
-    { name: `Tag: ${tag}`, url: canonical },
+    { name: heading, url: canonical },
   ];
+
+  // The intro is the whole reason an archive is worth indexing: it is the only
+  // text on the page that does not also appear on the posts. Page 2+ repeats it
+  // deliberately: those pages are self-canonical, so they need their own copy.
+  const introHtml = topic
+    ? `<p style="color:var(--muted);max-width:70ch;margin-bottom:32px">${escape(topic.intro)}</p>`
+    : "";
 
   const bodyHtml = `${renderBreadcrumbs(breadcrumbItems, siteUrl(env), { wide: true })}
   <main class="container container--wide">
-  <h1>Tag: ${escape(tag)}</h1>
+  <h1>${escape(heading)}</h1>
+  ${introHtml}
   ${posts.length === 0 ? `<p>No posts tagged <code>${escape(tag)}</code>.</p>` : cards}
   ${paginationNav(`/blog/tag/${encodeURIComponent(tag)}`, page, totalPages)}
 </main>`;
+
+  const jsonLd: Record<string, unknown>[] = [breadcrumbListLd(breadcrumbItems)];
+  if (topic) {
+    jsonLd.push({
+      "@context": "https://schema.org",
+      "@type": "CollectionPage",
+      url: canonical,
+      name: topic.title,
+      description: topic.description,
+      isPartOf: { "@type": "Blog", "@id": `${siteUrl(env)}/blog` },
+      mainEntity: {
+        "@type": "ItemList",
+        numberOfItems: allPosts.length,
+        itemListElement: posts.map((p, i) => ({
+          "@type": "ListItem",
+          position: (page - 1) * BLOG_PAGE_SIZE + i + 1,
+          url: `${siteUrl(env)}/blog/${p.slug}`,
+          name: p.title,
+        })),
+      },
+    });
+  }
 
   return renderSsrResponse(
     {
       // US-2099 AC5: was `${tag} — GradeThread Blog`, an em-dash separator that
       // matched nothing else on the site; every other page uses " | GradeThread".
-      title: `${tag}${page > 1 ? ` — page ${page}` : ""} | GradeThread Blog`,
-      description: `Articles tagged ${tag} on the GradeThread blog.`,
+      title: `${topic ? topic.title : tag}${page > 1 ? ` — page ${page}` : ""} | GradeThread Blog`,
+      description: topic
+        ? topic.description
+        : `Articles tagged ${tag} on the GradeThread blog.`,
       canonicalUrl: canonical,
       // US-2099 AC5: was logo_icon_512.png — a SQUARE image on a
       // summary_large_image card, which unfurls badly cropped. Use the shared
@@ -620,14 +695,17 @@ async function renderTag(env: PagesEnv, tag: string, page = 1): Promise<Response
       ogImageHeight: 630,
       gaMeasurementId: ga4MeasurementId(env),
       twitterSite: twitterSiteHandle(env),
-      // Tag archives are noindex,follow. They were 138 of the ~892 URLs in the
-      // sitemap against ~61 published posts, so most tags list one or two
-      // articles — thin, near-duplicate pages whose content exists in full on
-      // the post itself. On a domain with no external authority that is crawl
-      // budget spent proving low value. "follow" is deliberate: the archives
-      // still pass equity through to the posts they link.
-      robots: "noindex, follow",
-      jsonLd: [breadcrumbListLd(breadcrumbItems)],
+      // US-9037: a tag archive is indexable only when it is a CURATED topic
+      // that also clears the live post floor. Uncurated tags keep
+      // `noindex, follow`. Measured on prod 2026-09-14, 209 of 259 tags carry
+      // one or two posts, so most archives are still thin, near-duplicate pages
+      // whose content exists in full on the post itself. "follow" throughout:
+      // even a noindexed archive passes equity to the posts it links.
+      //
+      // functions/_shared/sitemap.ts blogUrls lists exactly the curated set, so
+      // the sitemap and this directive cannot disagree. Change them together.
+      robots: indexable ? "index, follow" : "noindex, follow",
+      jsonLd,
       bodyHtml,
     },
     { status: posts.length === 0 ? 404 : 200, cacheControl: SSR_CACHE_CONTROL },
