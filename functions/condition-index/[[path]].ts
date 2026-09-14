@@ -81,12 +81,15 @@ function dollars(cents: number | null): string {
 const SERP_TITLE_MAX = 60;
 
 function fitTitle(label: string): string {
+  const shortest = `${label} Resale Value`;
   const candidates = [
     `What a ${label} Sells For, by Condition`,
     `${label} Resale Value by Condition`,
-    `${label} Resale Value`,
+    shortest,
   ];
-  return candidates.find((c) => c.length <= SERP_TITLE_MAX) ?? candidates[2];
+  // A label long enough to bust the cap on its own keeps its name and loses the
+  // framing; there is nothing shorter left to try.
+  return candidates.find((c) => c.length <= SERP_TITLE_MAX) ?? shortest;
 }
 
 type Ctx = EventContext<PagesEnv, "path", Record<string, unknown>>;

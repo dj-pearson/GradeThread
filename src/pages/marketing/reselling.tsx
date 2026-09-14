@@ -12,6 +12,7 @@ import {
   getResellingGuideBySlug,
   resellingGuidePath,
 } from "@/lib/seo/reselling-guides";
+import { CROSSLIST_PAIRS, crosslistPairPath } from "@/lib/seo/crosslist-pairs";
 import { verifiedLabel } from "@/lib/seo/freshness";
 import {
   resellingPillarJsonLd,
@@ -113,6 +114,33 @@ export function ResellingPillarPage() {
                 <p className="mt-1 text-sm text-muted-foreground">
                   {g.description}
                 </p>
+              </li>
+            ))}
+          </ul>
+        </div>
+      </section>
+
+      {/* US-3412: the pillar down-link the interlink policy requires. The
+          fourteen pair pages (US-9214) shipped with their only inbound link on
+          /reselling/best-crosslisting-apps, which the US-9009 diagnosis put at
+          position 46 with zero clicks — so the cluster hung off the weakest
+          page on the site instead of its own pillar. */}
+      <section className="px-6 py-16">
+        <div className="mx-auto max-w-3xl">
+          <h2 className="text-3xl font-bold">Moving a listing between marketplaces</h2>
+          <p className="mt-3 text-muted-foreground">
+            What carries over, what the destination needs that the source never
+            asked for, and whether it gets there by API, by extension, or by hand.
+          </p>
+          <ul className="mt-6 grid gap-2 sm:grid-cols-2">
+            {CROSSLIST_PAIRS.map((p) => (
+              <li key={p.slug}>
+                <Link
+                  to={crosslistPairPath(p.slug)}
+                  className="text-sm font-medium text-brand-navy hover:underline dark:text-foreground"
+                >
+                  {p.fromLabel} to {p.toLabel}
+                </Link>
               </li>
             ))}
           </ul>
