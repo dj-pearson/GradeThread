@@ -21,6 +21,7 @@ import { requireJobSecret } from "../lib/job-auth.ts";
 import { acquireJobLock } from "../lib/job-lock.ts";
 import { isEbayConfigured } from "../lib/ebay-client.ts";
 import { captureException, logEvent, recordMetric } from "../lib/observability.ts";
+import { MAX_DIAGNOSTICS } from "../lib/cron-run-outcome.ts";
 import {
   reconcileNotifications,
   warnOnMissingTopics,
@@ -79,18 +80,42 @@ export async function handleEbayNotificationReconcileCron(
     // bounds its own: a wholesale misconfiguration would otherwise emit one
     // eBay error body per topic every six hours, and the first few say what the
     // last few say.
+    const boundedErrors = result.errors.slice(0, MAX_LOGGED_ERRORS).map((e) => ({
+      topicId: e.topicId,
+      message: e.message.length > MAX_ERROR_CHARS
+        ? `${e.message.slice(0, MAX_ERROR_CHARS)}...`
+        : e.message,
+    }));
     if (result.errors.length > 0) {
       logEvent("warn", "ebay_notification.reconcile_failed", {
         env: result.env,
         count: result.errors.length,
-        errors: result.errors.slice(0, MAX_LOGGED_ERRORS).map((e) => ({
-          topicId: e.topicId,
-          message: e.message.length > MAX_ERROR_CHARS
-            ? `${e.message.slice(0, MAX_ERROR_CHARS)}...`
-            : e.message,
-        })),
+        errors: boundedErrors,
       });
     }
+
+    // US-3112: the same lines, but somewhere an operator can actually reach.
+    //
+    // The logEvent above goes to the container's stdout, which is exactly the
+    // place the 2026-09-03 run's twelve errors were lost from — it rotated
+    // before anyone read it, and the only durable record, cron_runs.detail, said
+    // `{"failures":{"errors":12}}`. `diagnostics` is read by readJobOutcome
+    // (lib/cron-run-outcome.ts) and persisted to that same column, so the next
+    // red run is diagnosable with one service-role query instead of SSH.
+    //
+    // Errors first and refusals in whatever room is left: readJobOutcome caps
+    // the array at MAX_DIAGNOSTICS, and a refusal is a standing fact about the
+    // keyset that the `notAuthorized` list in the response already names, while
+    // an error is the thing that just went wrong and may never be seen again.
+    const errorLines = boundedErrors.map((e) =>
+      `subscribe failed for ${e.topicId}: ${e.message}`
+    );
+    const diagnostics = [
+      ...errorLines,
+      ...result.notAuthorized
+        .slice(0, Math.max(0, MAX_DIAGNOSTICS - errorLines.length))
+        .map((t) => `not authorized for topic ${t} on this keyset`),
+    ];
     // US-3110 AC9: the topics eBay will not grant this keyset (403 / 195011).
     //
     // Logged separately from the errors above because the action is different in
@@ -120,6 +145,10 @@ export async function handleEbayNotificationReconcileCron(
       skipped: result.skipped,
       notAuthorized: result.notAuthorized,
       errors: result.errors,
+      // Persisted to cron_runs.detail by finishCronRun. Not a FAILURE_KEY, so
+      // naming a failure cannot by itself turn a run red — `failed` below still
+      // decides that.
+      diagnostics,
       // US-3110 AC9: the ledger's failure signal is bucket HEALTH, not the
       // attempt log. `failed` is a FAILURE_KEY (lib/cron-run-outcome.ts), so a
       // required bucket left unsubscribed is recorded as an `error` run in
@@ -147,7 +176,15 @@ export async function handleEbayNotificationReconcileCron(
     const message = err instanceof Error ? err.message : String(err);
     console.error(`[ebay-notify] reconcile failed: ${message}`);
     return c.json(
-      { error: "eBay notification reconcile failed", message: message.slice(0, 500) },
+      {
+        error: "eBay notification reconcile failed",
+        message: message.slice(0, 500),
+        // US-3112: the throw path needs the ledger too. Every run from
+        // 2026-08-20 onward failed HERE, and cron_runs.detail recorded `{}`
+        // because a 500 body carries no counters — so 128 consecutive red runs
+        // left no record of a single cause anywhere durable.
+        diagnostics: [`reconcile threw: ${message}`],
+      },
       500,
     );
   } finally {

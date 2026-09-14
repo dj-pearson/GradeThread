@@ -54,6 +54,30 @@ export const PROCESSED_KEYS = [
   "count",
 ] as const;
 
+/**
+ * US-3112: the one body key that may carry SENTENCES rather than counts.
+ *
+ * Every key above is a number, so a job that knows exactly what went wrong had
+ * nowhere to put it and the ledger recorded the count alone. That is how the
+ * eBay notification reconcile's 2026-09-03 18:17 run came to say
+ * `{"failures":{"errors":12}}` — twelve of what, on which topic, existed only in
+ * a container log that has since rotated away, so the story asking somebody to
+ * diagnose it needed SSH nobody has.
+ *
+ * A job returns `diagnostics: string[]`; they land in `cron_runs.detail` and the
+ * `job.failed` ops event, which are both queryable with the service-role key.
+ */
+export const DIAGNOSTICS_KEY = "diagnostics";
+
+/**
+ * Bounds applied HERE, not trusted from the job. `detail` is a jsonb column
+ * written on every run of every cron in the fleet; a misconfiguration that
+ * produced one entry per topic per tick would otherwise grow the table without
+ * limit, and the first few entries say what the last few say.
+ */
+export const MAX_DIAGNOSTICS = 10;
+export const MAX_DIAGNOSTIC_CHARS = 300;
+
 export interface JobOutcome {
   /**
    * A lower bound on the units of work that failed — the LARGEST single failure
@@ -66,6 +90,11 @@ export interface JobOutcome {
   failures: Record<string, number>;
   /** Rows the run processed; null only when the body is not a JSON object. */
   rowsProcessed: number | null;
+  /**
+   * Short human-readable lines the job wrote about what failed, bounded and
+   * truncated. Empty when the job said nothing — never fabricated from counts.
+   */
+  diagnostics: string[];
 }
 
 /** A count from a body value: a finite non-negative number, or an array length. */
@@ -81,10 +110,36 @@ function isPlainObject(v: unknown): v is Record<string, unknown> {
   return typeof v === "object" && v !== null && !Array.isArray(v);
 }
 
+/**
+ * The `diagnostics` body value, normalised. Non-strings are stringified only
+ * when they are a plain scalar; an object is dropped rather than written as
+ * `[object Object]`, which is a line that costs a reader time and tells them
+ * nothing. Blank entries are dropped for the same reason.
+ */
+function readDiagnostics(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  const out: string[] = [];
+  for (const entry of value) {
+    if (out.length >= MAX_DIAGNOSTICS) break;
+    let line: string;
+    if (typeof entry === "string") line = entry;
+    else if (typeof entry === "number" || typeof entry === "boolean") line = String(entry);
+    else continue;
+    line = line.trim();
+    if (!line) continue;
+    out.push(
+      line.length > MAX_DIAGNOSTIC_CHARS
+        ? `${line.slice(0, MAX_DIAGNOSTIC_CHARS)}...`
+        : line,
+    );
+  }
+  return out;
+}
+
 /** Pure: what a parsed job response body says about its own outcome. */
 export function readJobOutcome(body: unknown): JobOutcome {
   if (!isPlainObject(body)) {
-    return { failedItems: 0, failures: {}, rowsProcessed: null };
+    return { failedItems: 0, failures: {}, rowsProcessed: null, diagnostics: [] };
   }
 
   const failures: Record<string, number> = {};
@@ -105,7 +160,12 @@ export function readJobOutcome(body: unknown): JobOutcome {
     }
   }
 
-  return { failedItems, failures, rowsProcessed };
+  return {
+    failedItems,
+    failures,
+    rowsProcessed,
+    diagnostics: readDiagnostics(body[DIAGNOSTICS_KEY]),
+  };
 }
 
 /**
@@ -170,7 +230,12 @@ export function finishCronRun(params: {
   const bodyPromise = cloneJsonBody(params.response);
 
   void (async () => {
-    let outcome: JobOutcome = { failedItems: 0, failures: {}, rowsProcessed: null };
+    let outcome: JobOutcome = {
+      failedItems: 0,
+      failures: {},
+      rowsProcessed: null,
+      diagnostics: [],
+    };
     try {
       outcome = readJobOutcome(bodyPromise ? await bodyPromise : null);
     } catch {
@@ -179,6 +244,14 @@ export function finishCronRun(params: {
 
     const status = cronRunStatusFor(httpStatus, outcome.failedItems);
     const hasFailures = Object.keys(outcome.failures).length > 0;
+    const hasDiagnostics = outcome.diagnostics.length > 0;
+
+    // US-3112: diagnostics are written whether or not a counter came with them.
+    // A job can know what went wrong without being able to count it, and the
+    // reverse — a count with no sentence — is the state this story exists to end.
+    const detail: Record<string, unknown> = {};
+    if (hasFailures) detail.failures = outcome.failures;
+    if (hasDiagnostics) detail.diagnostics = outcome.diagnostics;
 
     const { recordCronRun } = await import("./cron-runs.ts");
     void recordCronRun({
@@ -188,7 +261,7 @@ export function finishCronRun(params: {
       durationMs,
       triggeredBy,
       rowsProcessed: outcome.rowsProcessed ?? undefined,
-      detail: hasFailures ? { failures: outcome.failures } : undefined,
+      detail: hasFailures || hasDiagnostics ? detail : undefined,
     });
 
     if (status !== "error") return;
@@ -204,6 +277,7 @@ export function finishCronRun(params: {
         failed_items: outcome.failedItems,
         failures: outcome.failures,
         rows_processed: outcome.rowsProcessed,
+        diagnostics: outcome.diagnostics,
       },
     });
   })();

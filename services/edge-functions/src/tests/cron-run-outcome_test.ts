@@ -95,6 +95,62 @@ Deno.test("US-2312: a negative or non-finite counter is ignored, not trusted", (
   assertEquals(o.rowsProcessed, 0);
 });
 
+// ── diagnostics (US-3112) ────────────────────────────────────────────
+
+Deno.test("US-3112: a job's sentences survive into the outcome, not just its counts", () => {
+  // The shape jobs-ebay-notification-reconcile.ts now returns. Before this the
+  // ledger kept `{failures:{errors:12}}` and the twelve causes lived only in a
+  // container log that rotated, which is why the story asking somebody to
+  // diagnose them needed access nobody has.
+  const o = readJobOutcome({
+    ok: true,
+    errors: [{ topicId: "ITEM_SOLD" }, { topicId: "ITEM_PAID" }],
+    diagnostics: [
+      "subscribe failed for ITEM_SOLD: Destination is disabled",
+      "subscribe failed for ITEM_PAID: Destination is disabled",
+    ],
+  });
+  assertEquals(o.failedItems, 2);
+  assertEquals(o.diagnostics.length, 2);
+  assert(o.diagnostics[0]?.includes("ITEM_SOLD"), o.diagnostics[0]);
+});
+
+Deno.test("US-3112: diagnostics never invent a failure and never mask one", () => {
+  // `diagnostics` is not a FAILURE_KEY: a job that explains itself on a clean
+  // run stays green, and one that explains a real failure stays red.
+  const clean = readJobOutcome({ ok: true, diagnostics: ["nothing to do"] });
+  assertEquals(clean.failedItems, 0);
+  assertEquals(cronRunStatusFor(200, clean.failedItems), "success");
+
+  const red = readJobOutcome({ ok: true, failed: 3, diagnostics: ["three timed out"] });
+  assertEquals(cronRunStatusFor(200, red.failedItems), "error");
+});
+
+Deno.test("US-3112: diagnostics are bounded and truncated by the READER", () => {
+  // Enforced here rather than trusted from the job, because `detail` is written
+  // on every run of every cron: a misconfiguration emitting one line per topic
+  // per tick would otherwise grow the column without limit.
+  const many = Array.from({ length: 40 }, (_, i) => `line ${i}`);
+  assertEquals(readJobOutcome({ ok: true, diagnostics: many }).diagnostics.length, 10);
+
+  const long = readJobOutcome({ ok: true, diagnostics: ["x".repeat(1000)] });
+  assertEquals(long.diagnostics[0]?.length, 303); // 300 + "..."
+  assert(long.diagnostics[0]?.endsWith("..."));
+});
+
+Deno.test("US-3112: a junk diagnostics value degrades to no lines, never to noise", () => {
+  // An object entry would stringify to "[object Object]" — a line that costs a
+  // reader time and tells them nothing. Dropped instead.
+  assertEquals(readJobOutcome({ ok: true, diagnostics: "not an array" }).diagnostics, []);
+  assertEquals(readJobOutcome({ ok: true, diagnostics: 12 }).diagnostics, []);
+  assertEquals(readJobOutcome({ ok: true }).diagnostics, []);
+  assertEquals(
+    readJobOutcome({ ok: true, diagnostics: [{ topicId: "X" }, "  ", null, "real"] })
+      .diagnostics,
+    ["real"],
+  );
+});
+
 // ── cronRunStatusFor ─────────────────────────────────────────────────
 
 Deno.test("US-2312: ledger status covers HTTP failure AND body-reported failure", () => {

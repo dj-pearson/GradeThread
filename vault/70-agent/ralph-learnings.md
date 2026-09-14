@@ -176,6 +176,15 @@ which is not a vault note and had never been checked at all.
   thing you actually care about (bucket health), or the downgrade turns a dead
   pipeline green. Rule + the prod measurement:
   [[ebay-listing-lifecycle-reconciliation]].
+- A cron ledger that stores only NUMBERS turns "diagnose this" into an SSH task.
+  `readJobOutcome` (lib/cron-run-outcome.ts) read five counter keys and had
+  nowhere to put a sentence, so `cron_runs.detail` recorded
+  `{"failures":{"errors":12}}` and the twelve causes lived only in a container
+  log that rotated — which is how US-3112's last AC stayed blocked on a person
+  with access nobody has. A job may now return `diagnostics: string[]`; the
+  reader bounds and truncates it (the job is not trusted to) and it lands in
+  `detail` plus the `job.failed` ops event. Wire the THROW path too: a 500 body
+  carries no counters, so 128 consecutive red runs had recorded `{}`.
 - The CRLF trap has a second, nastier form than the one above: a needle used to
   SLICE (`src.indexOf("\n}\n")` to find a function's end) returns -1 on this
   host, `slice(0, -1)` silently becomes "the rest of the file", and the guard
