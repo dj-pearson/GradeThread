@@ -4561,3 +4561,9 @@ Branch: ralph/gradethread-build
 - Reason: Run `deno run --allow-net --allow-env scripts/content-parse-failure-report.ts` from `services/edge-functions` with a prod `SUPABASE_SERVICE_ROLE_KEY` set, which closes AC6/AC7; AC1/AC4 need someone to run the grading eval lane with an `ANTHROPIC_API_KEY`.
 - Cost: $4.6723 over 49 turns
 ---
+## US-3256: cogs_labor is spelled 'Labour' in the seeded ledger_accounts row and 'Labor' in the TypeScript chart
+- Status: BLOCKED (needs a human)
+- Timestamp: 2026-09-14T00:55:20.227Z
+- Reason: merge `held-v3/us-3256-00797`, apply migration 00797 to prod, and read the `cogs_labor` row back to confirm it says "Labor that went into the goods".
+- Cost: $1.7927 over 3 turns
+---
