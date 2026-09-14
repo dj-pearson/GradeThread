@@ -4585,3 +4585,9 @@ Branch: ralph/gradethread-build
 - Reason: Restore check access, start Docker, provide Python, and have an operator verify GradeThread's deployment, both eBay jobs, and two weeks of measured calls.
 - Cost: unavailable over 1 turns
 ---
+## US-3112: eBay compliance: extension attribution, and stop calling APIs we cannot use
+- Status: BLOCKED (needs a human)
+- Timestamp: 2026-09-14T02:52:20.900Z
+- Reason: Have the affected seller reconnect eBay in GradeThread, and restore the check environment so full verification can pass.
+- Cost: unavailable over 1 turns
+---
