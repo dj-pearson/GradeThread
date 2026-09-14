@@ -4579,3 +4579,9 @@ Branch: ralph/gradethread-build
 - Reason: Sign in to Play Console, Infisical and Coolify and work `android/PLAY_SETUP_RUNBOOK.md` Phases 2, 3, 6, 7, 8, 10 and 14; the repo side of this story is done.
 - Cost: $7.9596 over 88 turns
 ---
+## US-3042: eBay Application Growth Check: close the compliance gaps before applying
+- Status: BLOCKED (needs a human)
+- Timestamp: 2026-09-14T02:41:41.881Z
+- Reason: Restore check access, start Docker, provide Python, and have an operator verify GradeThread's deployment, both eBay jobs, and two weeks of measured calls.
+- Cost: unavailable over 1 turns
+---
