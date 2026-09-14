@@ -4543,3 +4543,9 @@ Branch: ralph/gradethread-build
 - Reason: Run `content-parse-failure-report.ts` with a prod service-role key (AC6/AC7), and run the grading shadow/eval/canary lane with an `ANTHROPIC_API_KEY` before the two redundant JSON sentences in `ai-grading.ts` can be deleted (AC1).
 - Cost: $7.3520 over 82 turns
 ---
+## US-3042: eBay Application Growth Check: close the compliance gaps before applying
+- Status: BLOCKED (needs a human)
+- Timestamp: 2026-09-14T00:16:20.804Z
+- Reason: Mark US-3042's title `[OPERATOR]` in prd.json, then redeploy the edge, confirm the two Coolify crons (`/api/jobs/ebay-rate-limits` hourly, `/api/jobs/ebay-retention` daily) are green in `cron_runs`, and let the call counter run before reading `ebay_api_call_daily` for the growth-check form.
+- Cost: $1.5474 over 14 turns
+---
