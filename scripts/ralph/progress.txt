@@ -4555,3 +4555,9 @@ Branch: ralph/gradethread-build
 - Reason: One eBay seller must reconnect at /oauth/start, and someone must read the next reconcile run's cron_runs.detail and file the cause of its 12 errors.
 - Cost: $3.2583 over 36 turns
 ---
+## US-3151: The content engine fails 45% of its runs on unparseable JSON, and structured outputs would make that impossible
+- Status: BLOCKED (needs a human)
+- Timestamp: 2026-09-14T00:49:07.641Z
+- Reason: Run `deno run --allow-net --allow-env scripts/content-parse-failure-report.ts` from `services/edge-functions` with a prod `SUPABASE_SERVICE_ROLE_KEY` set, which closes AC6/AC7; AC1/AC4 need someone to run the grading eval lane with an `ANTHROPIC_API_KEY`.
+- Cost: $4.6723 over 49 turns
+---
