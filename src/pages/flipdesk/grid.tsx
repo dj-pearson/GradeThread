@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   keepPreviousData,
   useQuery,
@@ -17,13 +17,6 @@ import {
   Undo2,
 } from "lucide-react";
 import { SearchInput } from "@/components/search-input";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
 import { TableLoadingSkeleton } from "@/components/ui/skeletons";
 import { EmptyState } from "@/components/ui/empty-state";
 import { ErrorState } from "@/components/ui/error-state";
@@ -45,96 +38,10 @@ import {
 } from "@/pages/flipdesk/inventory-sort";
 import { InventoryViewSwitcher } from "@/components/flipdesk/inventory-view-switcher";
 import type { ItemFullRow } from "@/types/database";
-
-// Editable grid columns. `field` is the inventory_items DB column to write.
-interface GridCol {
-  key: string;
-  label: string;
-  field: string;
-  numeric: boolean;
-  width: string;
-  get: (it: ItemFullRow) => string;
-}
-
-const COLS: GridCol[] = [
-  {
-    key: "sku",
-    label: "SKU",
-    field: "sku",
-    numeric: false,
-    width: "w-28",
-    get: (it) => it.item_number ?? "",
-  },
-  {
-    key: "title",
-    label: "Title",
-    field: "title",
-    numeric: false,
-    width: "w-72",
-    get: (it) => it.item_title ?? "",
-  },
-  {
-    key: "brand",
-    label: "Brand",
-    field: "brand",
-    numeric: false,
-    width: "w-36",
-    get: (it) => it.brand ?? "",
-  },
-  {
-    key: "style",
-    label: "Style",
-    field: "style",
-    numeric: false,
-    width: "w-36",
-    get: (it) => it.style ?? "",
-  },
-  {
-    key: "size",
-    label: "Size",
-    field: "size",
-    numeric: false,
-    width: "w-20",
-    get: (it) => it.size ?? "",
-  },
-  {
-    key: "cost",
-    label: "Cost",
-    field: "acquired_price",
-    numeric: true,
-    width: "w-24",
-    get: (it) => (it.purchase_price == null ? "" : String(it.purchase_price)),
-  },
-  {
-    key: "target",
-    label: "Target",
-    field: "target_price",
-    numeric: true,
-    width: "w-24",
-    get: (it) => (it.target_price == null ? "" : String(it.target_price)),
-  },
-  {
-    // US-3122: who bought the item. The spreadsheet is the surface where a
-    // seller assigns twenty of these at once, and it is what makes the new
-    // "Sourced by" sort and filter worth having — both are useless while the
-    // column is empty. It writes the NAME as text, exactly as intake and the
-    // composer do; the 00672 roster picks the name, it does not replace it.
-    key: "sourced_by",
-    label: "Sourced by",
-    field: "sourced_by",
-    numeric: false,
-    width: "w-32",
-    get: (it) => it.sourced_by ?? "",
-  },
-  {
-    key: "notes",
-    label: "Notes",
-    field: "condition_notes",
-    numeric: false,
-    width: "w-72",
-    get: (it) => it.notes ?? "",
-  },
-];
+import { GridSheet } from "./grid-sheet";
+import { GRID_COLS as COLS, COMMON_ASPECTS, DEFAULT_GRID_KEYS, aspectColumn, cellLock, isListingColumn, validateGridValue, type GridCol, type GridRow } from "./grid-columns";
+import { useGridListings, useSaveGridListing } from "./use-grid-listings";
+import { GridReview } from "./grid-review";
 
 const PAGE_SIZE = 100;
 
@@ -144,7 +51,7 @@ const PAGE_SIZE = 100;
 // prune the unused view columns from the plan.
 const GRID_COLUMNS =
   "id,item_number,item_title,brand,style,size,purchase_price,target_price," +
-  "sourced_by,notes,status";
+  "sourced_by,notes,status,color,material,location_bin,floor_price,listing_id,listing_platform,listing_status";
 
 // Minimal typed view of the PostgREST builder for the (untyped) items_full
 // view — supports the count + search + range chain this page needs.
@@ -191,6 +98,8 @@ interface EditLog {
 export function FlipdeskGridPage() {
   const user = useAuthStore((s) => s.user);
   const qc = useQueryClient();
+  const ownerId = useAuthStore((s) => s.activeWorkspaceOwnerId) ?? user?.id;
+  const saveListing = useSaveGridListing();
   const confirm = useConfirm();
   // US-958: search lives in the URL (`?q=`) so it carries across view-mode
   // switches (shared with the table + kanban views).
@@ -214,6 +123,21 @@ export function FlipdeskGridPage() {
   const [staged, setStaged] = useState<Staged>(new Map());
   const [history, setHistory] = useState<EditLog[]>([]);
   const [saving, setSaving] = useState(false);
+  const [reviewOpen, setReviewOpen] = useState(false);
+  const [failures, setFailures] = useState<{ itemId: string; title: string; message: string }[]>([]);
+  const [progress, setProgress] = useState(0);
+  const originals = useRef(new Map<string, GridRow>());
+  const [columnKeys, setColumnKeys] = useState<string[]>(() => {
+    try {
+      const saved: unknown = JSON.parse(localStorage.getItem("flipdesk-grid-columns-v1") ?? "null");
+      if (Array.isArray(saved) && saved.length && saved.every(key => typeof key === "string")) return saved;
+    } catch { /* Storage may be unavailable. Defaults still work. */ }
+    return DEFAULT_GRID_KEYS;
+  });
+  function chooseColumns(keys: string[]) {
+    setColumnKeys(keys);
+    try { localStorage.setItem("flipdesk-grid-columns-v1", JSON.stringify(keys)); } catch { /* Device storage is optional. */ }
+  }
 
   // US-3207: skips its FIRST run, so an inbound `?page=3` is not thrown away on
   // the render that was meant to honour it. A real search or sort change after
@@ -237,7 +161,7 @@ export function FlipdeskGridPage() {
     queryKey: [
       "items_full",
       "grid",
-      user?.id,
+      ownerId,
       page,
       search.trim(),
       sortColumn.field,
@@ -277,7 +201,18 @@ export function FlipdeskGridPage() {
     },
   });
 
-  const pageRows = data?.rows ?? [];
+  const inventoryRows = data?.rows ?? [];
+  const listingQuery = useGridListings(inventoryRows, ownerId);
+  const pageRows: GridRow[] = inventoryRows.map(row => ({
+    ...row,
+    listing: row.listing_id ? listingQuery.data?.get(row.listing_id) : undefined,
+    listingError: row.listing_id && !listingQuery.data?.has(row.listing_id)
+      ? (listingQuery.isLoading ? "Loading listing fields..." : "Listing fields could not load. Reload to try again.") : undefined,
+  }));
+  const aspectNames = [...new Set([...COMMON_ASPECTS, ...pageRows.flatMap(row => Object.keys(row.listing?.item_specifics_override ?? {})), ...columnKeys.filter(key => key.startsWith("aspect.")).map(key => key.slice(7))])];
+  const allColumns = [...COLS, ...aspectNames.map(aspectColumn)];
+  const selectedColumns = allColumns.filter(col => columnKeys.includes(col.key));
+  const visibleColumns = selectedColumns.length ? selectedColumns : COLS.filter(col => DEFAULT_GRID_KEYS.includes(col.key));
   const total = data?.total ?? 0;
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
   const safePage = Math.min(page, totalPages);
@@ -307,7 +242,7 @@ export function FlipdeskGridPage() {
   // away. Not blocked while saving -- the save clears the staged edits.
   const guard = useNavigationGuard(dirtyCount > 0 && !saving);
 
-  function cellValue(it: ItemFullRow, col: GridCol): string {
+  function cellValue(it: GridRow, col: GridCol): string {
     const s = staged.get(it.id);
     if (s && col.field in s) return s[col.field] ?? "";
     return col.get(it);
@@ -319,12 +254,14 @@ export function FlipdeskGridPage() {
 
   // Stage one cell. Records the prior value for undo.
   function stageCell(
-    it: ItemFullRow,
+    it: GridRow,
     col: GridCol,
     value: string,
     log = true,
   ) {
-    const original = col.get(it);
+    if (saving || cellLock(it, col)) return;
+    if (!originals.current.has(it.id)) originals.current.set(it.id, it);
+    const original = col.get(originals.current.get(it.id)!);
     setStaged((prev) => {
       const next = new Map(prev);
       const rec = { ...(next.get(it.id) ?? {}) };
@@ -346,7 +283,8 @@ export function FlipdeskGridPage() {
     });
   }
 
-  function undo() {
+  const undo = useCallback(() => {
+    if (saving) return;
     setHistory((h) => {
       if (h.length === 0) return h;
       const last = h[h.length - 1]!;
@@ -361,7 +299,7 @@ export function FlipdeskGridPage() {
       });
       return h.slice(0, -1);
     });
-  }
+  }, [saving]);
 
   // Cmd/Ctrl-Z undo.
   useEffect(() => {
@@ -373,21 +311,21 @@ export function FlipdeskGridPage() {
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, []);
+  }, [undo]);
 
   function focusCell(rowIdx: number, colIdx: number) {
-    const el = document.querySelector<HTMLInputElement>(
+    const el = document.querySelector<HTMLInputElement | HTMLSelectElement>(
       `[data-grid-row="${rowIdx}"][data-grid-col="${colIdx}"]`,
     );
     el?.focus();
-    el?.select();
+    if (el instanceof HTMLInputElement) el.select();
   }
 
   function handleKeyDown(
-    e: React.KeyboardEvent<HTMLInputElement>,
+    e: React.KeyboardEvent<HTMLInputElement | HTMLSelectElement>,
     rowIdx: number,
     colIdx: number,
-    it: ItemFullRow,
+    it: GridRow,
     col: GridCol,
   ) {
     if (e.key === "Enter" || e.key === "ArrowDown") {
@@ -406,10 +344,11 @@ export function FlipdeskGridPage() {
 
   // Multi-cell paste: TSV from a spreadsheet fills cells down/right.
   function handlePaste(
-    e: React.ClipboardEvent<HTMLInputElement>,
+    e: React.ClipboardEvent<HTMLInputElement | HTMLSelectElement>,
     rowIdx: number,
     colIdx: number,
   ) {
+    if (saving) return;
     const text = e.clipboardData.getData("text/plain");
     if (!text || (!text.includes("\n") && !text.includes("\t"))) {
       return; // single value — let the default paste happen
@@ -427,8 +366,9 @@ export function FlipdeskGridPage() {
       grid.forEach((cells, dr) => {
         cells.forEach((raw, dc) => {
           const targetItem = pageRows[rowIdx + dr];
-          const targetCol = COLS[colIdx + dc];
-          if (!targetItem || !targetCol) return;
+          const targetCol = visibleColumns[colIdx + dc];
+          if (!targetItem || !targetCol || cellLock(targetItem, targetCol)) return;
+          if (!originals.current.has(targetItem.id)) originals.current.set(targetItem.id, targetItem);
           const original = targetCol.get(targetItem);
           const rec = { ...(next.get(targetItem.id) ?? {}) };
           logs.push({
@@ -451,7 +391,7 @@ export function FlipdeskGridPage() {
   // The item columns this grid edits that a listing title can quote. `color` and
   // `department` are syncable fields too but this grid has no column for either,
   // so listing them would only widen the read for values that cannot change here.
-  const TITLE_SYNC_COLS = ["brand", "style", "size"] as const;
+  const TITLE_SYNC_COLS = ["brand", "style", "size", "color"] as const;
 
   interface TitleSyncListing {
     id: string;
@@ -481,14 +421,15 @@ export function FlipdeskGridPage() {
     lst: TitleSyncListing | undefined,
   ): Promise<unknown | null> {
     if (!lst) return null;
-    const before = pageRows.find((r) => r.id === itemId);
+    const before = originals.current.get(itemId);
     if (!before) return null;
     const changes = changesFromItemDiff(
-      { brand: before.brand, style: before.style, size: before.size },
+      { brand: before.brand, style: before.style, size: before.size, color: before.color },
       {
         brand: "brand" in patch ? patch.brand : before.brand,
         style: "style" in patch ? patch.style : before.style,
         size: "size" in patch ? patch.size : before.size,
+        color: "color" in patch ? patch.color : before.color,
       },
     );
     const titlePatch = buildTitleSyncPatch({
@@ -520,11 +461,14 @@ export function FlipdeskGridPage() {
     }
     setStaged(new Map());
     setHistory([]);
+    setFailures([]);
+    originals.current.clear();
   }
 
   async function saveAll() {
     if (staged.size === 0) return;
     setSaving(true);
+    setProgress(0);
     const errors: { message: string }[] = [];
     let savedCount = 0;
 
@@ -567,52 +511,56 @@ export function FlipdeskGridPage() {
       }
     }
 
-    await Promise.all(
-      Array.from(staged.entries()).map(async ([itemId, rec]) => {
-        try {
-          const patch: Record<string, unknown> = {};
-          for (const [field, value] of Object.entries(rec)) {
-            const col = COLS.find((c) => c.field === field);
-            if (col?.numeric) {
-              patch[field] = value.trim() === "" ? null : Number(value);
-            } else {
-              patch[field] = value.trim() === "" ? null : value;
-            }
-          }
-          const { error } = await supabase
-            .from("inventory_items")
-            .update(patch as never)
-            .eq("id", itemId);
-          if (error) throw error;
-          const titleErr = await syncListingTitle(
-            itemId,
-            patch,
-            listingByItem.get(itemId),
-          );
-          if (titleErr) {
-            titleSyncFailed += 1;
-            titleSyncError = titleSyncError ?? titleErr;
-          }
-          savedCount++;
-        } catch (err) {
-          errors.push({
-            message: err instanceof Error ? err.message : String(err),
-          });
+    const savedIds = new Set<string>();
+    const failed: typeof failures = [];
+    // Keep requests sequential: a row may need several eBay calls.
+    for (const [itemId, rec] of staged.entries()) {
+      const original = originals.current.get(itemId);
+      try {
+        if (!original) throw new Error("Reload this item before saving.");
+        const itemPatch: Record<string, unknown> = {};
+        const listingEdits: Record<string, string> = {};
+        for (const [field, value] of Object.entries(rec)) {
+          const col = allColumns.find(candidate => candidate.field === field);
+          if (!col) throw new Error("A column is no longer available.");
+          const invalid = validateGridValue(col, value, { ...original, floor_price: rec.floor_price ? Number(rec.floor_price) : original.floor_price });
+          if (invalid) throw new Error(`${col.label}: ${invalid}`);
+          if (isListingColumn(col)) listingEdits[field] = value;
+          else itemPatch[field] = value.trim() === "" ? null : col.numeric ? Number(value) : value;
         }
-      }),
-    );
+        await saveListing(original, listingEdits, allColumns);
+        if (Object.keys(itemPatch).length > 0) {
+          const { error } = await supabase.from("inventory_items").update(itemPatch as never).eq("id", itemId);
+          if (error) throw error;
+          // An explicit listing title must win over automatic substitutions.
+          if (!("listing.listing_title" in rec)) {
+            const titleErr = await syncListingTitle(itemId, itemPatch, listingByItem.get(itemId));
+            if (titleErr) { titleSyncFailed += 1; titleSyncError ??= titleErr; }
+          }
+        }
+        savedCount++;
+        savedIds.add(itemId);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : "This row could not be saved. Try again.";
+        errors.push({ message });
+        failed.push({ itemId, title: original?.item_title ?? "Item", message });
+      }
+      setProgress(count => count + 1);
+    }
+    setFailures(failed);
+    setStaged(prev => new Map([...prev].filter(([id]) => !savedIds.has(id))));
+    setHistory(prev => prev.filter(edit => !savedIds.has(edit.itemId)));
+    savedIds.forEach(id => originals.current.delete(id));
     setSaving(false);
-    await qc.invalidateQueries({ queryKey: ["items_full"] });
+    setReviewOpen(false);
+    await Promise.all([
+      qc.invalidateQueries({ queryKey: ["items_full"] }),
+      qc.invalidateQueries({ queryKey: ["grid-listings"] }),
+    ]);
     if (errors.length === 0) {
-      setStaged(new Map());
-      setHistory([]);
       toast.success(`Saved ${savedCount} row${savedCount === 1 ? "" : "s"}.`);
     } else {
-      toastWarning(
-        errors[0],
-        `Saved ${savedCount}, ${errors.length} failed.`,
-        { duration: 12_000 },
-      );
+      toastWarning(errors[0], `Saved ${savedCount}, ${errors.length} failed.`, { duration: 12_000 });
     }
     // Its own toast, after the row result. The row saved; the live listing did
     // not follow, and that is what a buyer searching the old brand still sees.
@@ -631,7 +579,7 @@ export function FlipdeskGridPage() {
   }
 
   return (
-    <div className={cn("space-y-4", staged.size > 0 && "pb-24")}>
+    <div className={cn("min-w-0 max-w-full space-y-4", staged.size > 0 && "pb-32")}>
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="space-y-3">
           <div className="flex items-center gap-3">
@@ -641,8 +589,7 @@ export function FlipdeskGridPage() {
             <div>
               <h1 className="text-2xl font-bold tracking-tight">Inventory</h1>
               <p className="text-sm text-muted-foreground">
-                Spreadsheet-style bulk editing. Tab between cells, paste
-                columns from Sheets, Cmd-Z to undo.
+                Edit inventory and eBay listings in bulk. Choose columns, make changes, then review and save.
               </p>
             </div>
           </div>
@@ -656,7 +603,7 @@ export function FlipdeskGridPage() {
           value={searchDraft}
           onChange={(e) => setSearch(e.target.value)}
           placeholder="Search title, brand, SKU…"
-          className="w-64"
+          className="w-full sm:w-64"
         />
         <SortMenu
           options={sortOptionsForMode("grid")}
@@ -666,189 +613,38 @@ export function FlipdeskGridPage() {
           label="Sort rows by"
         />
         {history.length > 0 && (
-          <Button variant="ghost" size="sm" onClick={undo}>
+          <Button variant="ghost" size="sm" onClick={undo} disabled={saving}>
             <Undo2 className="mr-2 h-4 w-4" />
             Undo
           </Button>
         )}
       </div>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>{total.toLocaleString()} rows</CardTitle>
-          <CardDescription>
-            Sorted by {sortOption.label.toLowerCase()}. Click a cell to edit.
-            Enter / ↑ ↓ move between rows; Esc reverts a cell. Changed cells
-            turn amber.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="px-0">
-          {isLoading ? (
-            <TableLoadingSkeleton rows={10} columns={8} />
-          ) : isError ? (
-            <ErrorState
-              title="Couldn't load your inventory"
-              description="Something went wrong while loading these items."
-              onRetry={() => refetch()}
-              retrying={isFetching}
-            />
-          ) : pageRows.length === 0 ? (
-            search.trim() ? (
-              <EmptyState
-                icon={Search}
-                title="No rows match your search"
-                description={`Nothing matched "${search.trim()}". Try a different title, brand, or SKU.`}
-                secondaryAction={{
-                  label: "Clear search",
-                  onClick: () => setSearch(""),
-                }}
-              />
-            ) : (
-              <EmptyState
-                icon={Grid3x3}
-                title="No inventory yet"
-                description="Add or import items to start editing them spreadsheet-style here."
-                action={{ label: "Add item", to: "/dashboard/flipdesk/intake" }}
-              />
-            )
-          ) : (
-            <>
-              <div
-                className={cn(
-                  "overflow-x-auto transition-opacity",
-                  isPlaceholderData && "opacity-60",
-                )}
-              >
-                <table
-                  className="w-full border-collapse text-xs"
-                  role="grid"
-                  aria-label="Editable inventory grid"
-                  aria-rowcount={total}
-                  aria-colcount={COLS.length + 1}
-                >
-                  <thead>
-                    <tr className="border-b bg-muted/40" role="row" aria-rowindex={1}>
-                      <th
-                        role="columnheader"
-                        aria-colindex={1}
-                        className="w-10 px-2 py-2 text-left font-medium text-muted-foreground"
-                      >
-                        #
-                      </th>
-                      {COLS.map((col, colIdx) => (
-                        <th
-                          key={col.key}
-                          role="columnheader"
-                          aria-colindex={colIdx + 2}
-                          className={cn(
-                            "px-2 py-2 text-left font-medium text-muted-foreground",
-                            col.width,
-                          )}
-                        >
-                          {col.label}
-                        </th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {pageRows.map((it, rowIdx) => {
-                      const rowNumber = pageStart + rowIdx + 1;
-                      return (
-                        <tr
-                          key={it.id}
-                          className="border-b"
-                          role="row"
-                          aria-rowindex={pageStart + rowIdx + 2}
-                        >
-                          <td
-                            role="rowheader"
-                            aria-colindex={1}
-                            className="px-2 py-0 text-[10px] text-muted-foreground"
-                          >
-                            {rowNumber}
-                          </td>
-                          {COLS.map((col, colIdx) => {
-                            const dirty = isCellDirty(it.id, col.field);
-                            return (
-                              <td
-                                key={col.key}
-                                role="gridcell"
-                                aria-colindex={colIdx + 2}
-                                className="p-0"
-                              >
-                                <input
-                                  data-grid-row={rowIdx}
-                                  data-grid-col={colIdx}
-                                  aria-label={`${col.label}, row ${rowNumber}`}
-                                  value={cellValue(it, col)}
-                                  onChange={(e) =>
-                                    stageCell(it, col, e.target.value)
-                                  }
-                                  onKeyDown={(e) =>
-                                    handleKeyDown(e, rowIdx, colIdx, it, col)
-                                  }
-                                  onPaste={(e) =>
-                                    handlePaste(e, rowIdx, colIdx)
-                                  }
-                                  onFocus={(e) => e.currentTarget.select()}
-                                  inputMode={col.numeric ? "decimal" : "text"}
-                                  className={cn(
-                                    // AA-contrast active-cell indicator (US-449):
-                                    // a 2px brand-red inset ring (≥3:1 against the
-                                    // light gray AND dark night surfaces) plus a
-                                    // tint, lifted above the row borders with z-10.
-                                    "h-8 w-full border-0 bg-transparent px-2 outline-none focus:relative focus:z-10 focus:bg-brand-red/10 focus:ring-2 focus:ring-inset focus:ring-brand-red dark:focus:bg-brand-red/20",
-                                    col.numeric && "text-right tabular-nums",
-                                    dirty &&
-                                      "bg-amber-100 dark:bg-amber-950/40",
-                                  )}
-                                />
-                              </td>
-                            );
-                          })}
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-
-              <div className="flex flex-wrap items-center justify-between gap-3 border-t px-4 py-3 text-xs">
-                <div className="text-muted-foreground">
-                  {pageStart + 1}–{pageStart + pageRows.length} of{" "}
-                  {total.toLocaleString()}
-                </div>
-                <div className="flex items-center gap-1">
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => setPage((p) => Math.max(1, p - 1))}
-                    disabled={safePage <= 1}
-                  >
-                    <ChevronLeft className="h-4 w-4" />
-                    Prev
-                  </Button>
-                  <span className="px-2">
-                    Page {safePage} of {totalPages}
-                  </span>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-                    disabled={safePage >= totalPages}
-                  >
-                    Next
-                    <ChevronRight className="h-4 w-4" />
-                  </Button>
-                </div>
-              </div>
-            </>
-          )}
-        </CardContent>
-      </Card>
+      {listingQuery.isError && <p role="alert" className="text-sm text-destructive">Listing fields could not load. Inventory fields are still available. <button className="underline" onClick={() => void listingQuery.refetch()}>Retry</button></p>}
+      {failures.length > 0 && <div role="alert" className="space-y-2 rounded-lg border p-3 text-sm">
+        <p className="font-medium">{failures.length} rows still need attention. Their changes are kept for retry.</p>
+        {failures.map(failure => <p key={failure.itemId}><span className="font-medium">{failure.title}:</span> {failure.message}</p>)}
+      </div>}
+      {isLoading ? <TableLoadingSkeleton rows={10} columns={8} /> : isError ? (
+        <ErrorState title="Couldn't load your inventory" description="Something went wrong while loading these items." onRetry={() => refetch()} retrying={isFetching} />
+      ) : pageRows.length === 0 ? (
+        <EmptyState icon={Search} title={search.trim() ? "No rows match your search" : "No inventory yet"} description="Add items or change your search to start editing." />
+      ) : <div className={cn("min-w-0", isPlaceholderData && "pointer-events-none opacity-60")}>
+        <GridSheet rows={pageRows} columns={visibleColumns} allColumns={allColumns} onColumns={chooseColumns} pageStart={pageStart} saving={saving || isPlaceholderData}
+          value={cellValue} dirty={isCellDirty} onChange={stageCell} onKeyDown={handleKeyDown} onPaste={handlePaste} />
+        <div className="flex flex-wrap items-center justify-between gap-3 py-3 text-sm">
+          <span className="text-muted-foreground">{pageStart + 1}-{pageStart + pageRows.length} of {total.toLocaleString()} items</span>
+          <div className="flex items-center gap-2">
+            <Button variant="outline" size="sm" onClick={() => setPage(p => Math.max(1, p - 1))} disabled={saving || isPlaceholderData || safePage <= 1}><ChevronLeft className="mr-1 h-4 w-4" />Prev</Button>
+            <span>Page {safePage} of {totalPages}</span>
+            <Button variant="outline" size="sm" onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={saving || isPlaceholderData || safePage >= totalPages}>Next<ChevronRight className="ml-1 h-4 w-4" /></Button>
+          </div>
+        </div>
+      </div>}
+      <GridReview open={reviewOpen} onOpenChange={setReviewOpen} staged={staged} originals={originals.current} columns={allColumns} saving={saving} progress={progress} onSave={() => void saveAll()} />
 
       {staged.size > 0 && (
-        <div className="fixed inset-x-0 bottom-0 z-40 border-t bg-card/95 backdrop-blur supports-[backdrop-filter]:bg-card/80">
+        <div className="sticky bottom-[calc(4rem+env(safe-area-inset-bottom))] z-30 rounded-lg border bg-background md:bottom-0">
           <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-3 px-4 py-3">
             <div className="text-sm">
               <span className="font-semibold text-amber-700 dark:text-amber-400">
@@ -875,13 +671,13 @@ export function FlipdeskGridPage() {
                 <X className="mr-2 h-4 w-4" />
                 Discard
               </Button>
-              <Button onClick={saveAll} disabled={saving}>
+              <Button onClick={() => setReviewOpen(true)} disabled={saving}>
                 {saving ? (
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                 ) : (
                   <Check className="mr-2 h-4 w-4" />
                 )}
-                Save all
+                Review changes
               </Button>
             </div>
           </div>

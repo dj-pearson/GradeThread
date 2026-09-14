@@ -20,6 +20,11 @@ const TEST_USER = { id: "11111111-1111-4111-8111-111111111111" };
 const ITEM_ID = "aaaaaaaa-0000-4000-8000-000000000001";
 const LISTING_ID = "bbbbbbbb-0000-4000-8000-000000000002";
 
+vi.mock("@/pages/flipdesk/use-grid-listings", () => ({
+  useGridListings: () => ({ data: new Map(), isLoading: false, isError: false }),
+  useSaveGridListing: () => async () => {},
+}));
+
 // -- supabase ----------------------------------------------------------------
 // Three shapes are needed, and they must be told apart:
 //   items_full   select().order().range()      -> the page of rows
@@ -177,6 +182,11 @@ async function editBrandAndSave(value: string) {
     setter.call(cell!, value);
     cell!.dispatchEvent(new Event("input", { bubbles: true }));
   });
+  const review = Array.from(document.querySelectorAll("button")).find(
+    (b) => b.textContent?.trim() === "Review changes",
+  );
+  expect(review).toBeTruthy();
+  await act(async () => { review!.click(); });
   const save = Array.from(document.querySelectorAll("button")).find(
     (b) => b.textContent?.trim() === "Save all",
   );

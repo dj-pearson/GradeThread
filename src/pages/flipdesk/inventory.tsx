@@ -1,8 +1,10 @@
-import { lazy, Suspense } from "react";
-import { Navigate, useSearchParams } from "react-router";
+import { lazy, Suspense, useEffect, useRef } from "react";
+import { Navigate, useLocation, useSearchParams } from "react-router";
 import type { InventoryView } from "@/components/flipdesk/inventory-view-switcher";
 import { delistRedirectTarget } from "@/lib/delist-links";
 import { LoadingRegion, TableLoadingSkeleton } from "@/components/ui/skeletons";
+import { useAuthStore } from "@/stores/auth-store";
+import { inventoryViewKey, readInventoryView, writeInventoryView } from "./inventory-last-view";
 
 // US-958: one route — /dashboard/flipdesk/inventory — hosts every Inventory
 // shape (Triage table / Spreadsheet grid / Kanban pipeline / Prep) as a
@@ -43,7 +45,19 @@ function resolveMode(raw: string | null): InventoryView {
 }
 
 export function FlipdeskInventoryPage() {
+  const userId = useAuthStore(state => state.user?.id);
+  const ownerId = useAuthStore(state => state.activeWorkspaceOwnerId) ?? userId;
+  return <InventoryWorkspace key={`${userId}:${ownerId}`} storageKey={userId && ownerId ? inventoryViewKey(userId, ownerId) : null} />;
+}
+
+function InventoryWorkspace({ storageKey }: { storageKey: string | null }) {
   const [searchParams] = useSearchParams();
+  const location = useLocation();
+  const entryKey = useRef(location.key);
+  // Restore only on entry with a bare URL. An explicit bookmark, saved view,
+  // workflow link, or a switch back to the default Table always wins.
+  const remembered = useRef(storageKey ? readInventoryView(storageKey) : "");
+  const restore = location.key === entryKey.current && !location.search && remembered.current;
   // US-3369: the "listing still live" notification lands here; on the web its
   // Delist panel is on the item page, so send the seller there.
   const delistTarget = delistRedirectTarget(searchParams);
@@ -57,7 +71,12 @@ export function FlipdeskInventoryPage() {
           ? PrepView
           : TableView;
 
+  useEffect(() => {
+    if (storageKey && !restore && !delistTarget) writeInventoryView(storageKey, searchParams);
+  }, [storageKey, restore, delistTarget, searchParams]);
+
   if (delistTarget) return <Navigate to={delistTarget} replace />;
+  if (restore) return <Navigate to={`${location.pathname}?${restore}`} replace />;
 
   return (
     <Suspense
