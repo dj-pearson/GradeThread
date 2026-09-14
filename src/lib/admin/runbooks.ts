@@ -423,7 +423,18 @@ export const RUNBOOKS: Runbook[] = [
   {
     slug: "incident-response",
     sourceNote: "vault/10-ops/incident-response.md",
-    reviewed: "2026-08-01",
+    // Re-read 2026-09-13 against 45d7450aa, and there WAS something to carry.
+    // The vault note's DB-loss step now warns that `restore-postgres.sh` refuses
+    // the first run on every target (US-3394) and that you must not route around
+    // it with a hand `pg_restore`. This copy said only "restore from backup
+    // (restore-drill runbook)". The restore-drill copy does carry the refusal in
+    // full, so a reader who follows the pointer is covered -- but the failure
+    // this warning exists for is an on-call operator who does NOT follow it,
+    // hits an unexplained refusal, and improvises the one command that drops
+    // every object and loses the verification. The vault note chose to repeat it
+    // inline at the pointer for that reason; §4 now does the same, in one
+    // sentence, and still defers the mechanics.
+    reviewed: "2026-09-13",
     title: "Incident response",
     category: "Resilience",
     summary:
@@ -468,6 +479,7 @@ export const RUNBOOKS: Runbook[] = [
       "## 4. Recover",
       "",
       "- Apply the fix or rollback. Replay stuck work from **Dead Letters**. For a catastrophic DB issue, restore from backup (restore-drill runbook).",
+      "- **Expect the restore to refuse the first run, on every target (US-3394).** It prints a credential-free `RESTORE_CONFIRM_TARGET='<host>:<port>/<dbname>'` line; read it, confirm it names the target you meant, and re-run with it. Nothing turns the gate off — `ALLOW_PROD_RESTORE` is no longer read — and a refusal means the target was not touched. **Do not fall back to `pg_restore` by hand:** `--clean` drops every object before it writes, and you lose the checksum, the table-coverage check and the PASS/FAIL verdict that say whether the database you just replaced is fit for service.",
       "- Re-run the post-deploy smoke checks; watch readiness return to green.",
       "",
       "## 5. Review",
@@ -539,7 +551,24 @@ export const RUNBOOKS: Runbook[] = [
     // `VITE_*` set in Cloudflare Pages" — so the retired row was never here to
     // remove. The generic line is why, and it is the same instinct that keeps
     // the cron count out of §2: name the class, let the source hold the list.
-    reviewed: "2026-09-10",
+    //
+    // Re-read 2026-09-13 against 45d7450aa. Two changes in the vault note, both
+    // about the restore drill: the refusal `restore-postgres.sh` now makes on
+    // every target (US-3394), and a checklist line that went from "sanity-queried
+    // (row counts plausible)" to "ending on the script's own PASS line". Neither
+    // is carried, and for the reason this copy has given five times now: §3 here
+    // is one line naming the CLASS ("a restore drill has passed recently") and
+    // pointing at the restore-drill runbook, which does carry the refusal in
+    // full and led its step 2 with it in the same commit. Duplicating the
+    // mechanics into a second in-app copy is how the two drift.
+    //
+    // Worth separating from the cron-count cases above, though: those were
+    // "nothing changed that this copy states". This one IS a change to the
+    // procedure a reader here would run. It is safe only because the pointer
+    // resolves to a surface that was corrected simultaneously. If the
+    // restore-drill copy ever stops carrying the gate, this line becomes a
+    // pointer at a lie, and nothing here would go red.
+    reviewed: "2026-09-13",
     title: "Launch readiness gate",
     category: "Deploy",
     summary:

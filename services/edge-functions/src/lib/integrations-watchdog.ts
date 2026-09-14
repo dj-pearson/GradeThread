@@ -15,7 +15,7 @@
 // this is a typed schedule, and neither derives cleanly from the other.
 //
 // @sourceNote vault/10-ops/key-rotation.md
-// @reviewed 2026-08-08
+// @reviewed 2026-09-13
 //
 // scripts/runbook-sync.mjs fails when that note has a commit newer than the date
 // above. Bumping it asserts a human re-read both — cadences here, procedure
@@ -45,6 +45,24 @@
 // them early is deliberate: this array is the operator's checklist, and a secret
 // that appears only once someone remembers to add it is the failure mode.
 //
+// Re-read 2026-09-13 after US-2659 (a8334aa86) rewrote the note's storage-mirror
+// section, AND ONE ROW HERE WAS FALSE. `RCLONE_CRYPT_PASSWORD / SALT` said "NOT
+// PROVISIONED YET", copied from the 2026-08-08 pass when the mechanism was new.
+// The note now states plainly that the password and salt for the `r2crypt`
+// remote exist TODAY, in exactly one place — the rclone config on the DB host —
+// and [[backups]] shows that remote running in the live crontab. So the
+// operator's own checklist was saying there is nothing here to protect, about
+// the only secret that can read every listing photo, grading label shot and
+// certificate asset in the offsite mirror. Corrected below, with the
+// single-home risk carried rather than left to the prose.
+//
+// Two things deliberately NOT changed. `BACKUP_AGE_RECIPIENT / BACKUP_AGE_IDENTITY`
+// keeps its "NOT PROVISIONED YET": the note's row gives its intended homes and
+// the crontab block in [[backups]] carries a placeholder `age1...`, so nothing
+// readable from here settles whether the keypair exists, and inventing an
+// answer is the failure this comment exists to prevent. And the cadences are
+// unchanged — US-2659 added no secret and moved no timer.
+//
 // The rotation SCHEDULE from vault/10-ops/key-rotation.md, checked in as structured data so
 // the agent can compute a due/overdue calendar. `cadence_days: null` = an
 // event-driven secret (rotate on leak / on policy / on endpoint change) — it has
@@ -69,7 +87,7 @@ export const KEY_ROTATION_REGISTRY: readonly RotationEntry[] = [
   { secret: "DEPLOY_REGISTRY_TOKENS", location: "ci", cadence_days: 90, note: "Deploy/registry tokens in GitHub Actions (US-522 inventory)." },
   { secret: "CHROME_EXTENSION_SIGNING_KEY", location: "chrome-web-store", cadence_days: null, note: "US-2284: leaked to git history 2026-07-13, untracked 2026-08-01 — rotation still OWED. Grants a store update every installed user auto-receives (see vault/10-ops/key-rotation.md)." },
   { secret: "BACKUP_AGE_RECIPIENT / BACKUP_AGE_IDENTITY", location: "db-host", cadence_days: 365, note: "US-2416 backup encryption. Rotating is cheap; LOSING the identity destroys every backup encrypted under it, silently — nothing breaks, /health stays green, you find out at the only moment it matters. Keep the OLD identity for at least 30 days after rotating: offsite retention is 30 days, so deleting it on rotation day destroys most of the recovery window. NOT PROVISIONED YET." },
-  { secret: "RCLONE_CRYPT_PASSWORD / SALT", location: "db-host", cadence_days: null, note: "US-2416 storage-mirror encryption. Rotating is a RE-SEED, not a rotation: the existing mirror becomes unreadable and rclone re-uploads the whole volume as new objects. On leak only. NOT PROVISIONED YET." },
+  { secret: "RCLONE_CRYPT_PASSWORD / SALT", location: "db-host", cadence_days: null, note: "US-2416 storage-mirror encryption, and the ONE secret that reads every photo in the offsite mirror. IN USE TODAY and single-homed: it lives only in the rclone config on the DB host, the machine an offsite mirror exists to survive losing. Give it two homes that are not the host (US-2659 AC3/AC6, vault/10-ops/key-rotation.md). Rotating is a RE-SEED, not a rotation: the existing mirror becomes unreadable and rclone re-uploads the whole volume as new objects. On leak only." },
 ];
 
 // The warn window: a scheduled secret within this many days of its next due date

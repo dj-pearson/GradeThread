@@ -36,7 +36,9 @@
 // describe() block below exists to prove this guard cannot redden on them.
 //
 // STILL OPEN, deliberately, and recorded here so nobody re-derives it:
-//   - android/.../marketplaces/ListingCard.kt:62 says facebook -> "Facebook"
+//   - android/app/src/main/java/com/gradethread/app/marketplaces/ListingCard.kt:62
+//     (the elided `android/.../` form this line used to carry resolved to no
+//     file, so the comment-path guard could not check it) says facebook -> "Facebook"
 //     while three other Android files say "Facebook Marketplace". It is the
 //     fifth copy and the only Android file that disagrees with its own
 //     platform. Android was out of scope for the change that added this file;

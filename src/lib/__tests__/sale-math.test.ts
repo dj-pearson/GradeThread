@@ -31,4 +31,22 @@ describe("computeNetProfit", () => {
     expect(web).toMatch(formula);
     expect(edge).toMatch(formula);
   });
+
+  // The case above pinned two copies and the comment at the top of this file
+  // said the third -- the dialog -- was one of them. It was not: until
+  // 2026-09-13 record-sale-dialog.tsx spelled the whole expression out in its
+  // own useMemo, so the preview a seller reads before pressing Save was the one
+  // copy nothing checked, and check-web-unwired.mjs was correctly reporting
+  // sale-math.ts as a module no production file imports. Assert the wiring, not
+  // just the arithmetic: a formula guard cannot see a caller that never calls.
+  it("is what the Record Sale dialog actually previews", () => {
+    const dialog = readFileSync(
+      "src/components/flipdesk/record-sale-dialog.tsx",
+      "utf8",
+    );
+    expect(dialog).toMatch(/import \{ computeNetProfit \} from "@\/lib\/sale-math"/);
+    expect(dialog).toMatch(/computeNetProfit\(/);
+    // And it must not grow a fourth copy: no inline re-derivation of the sum.
+    expect(dialog).not.toMatch(/n\(form\.sale_price\)\s*\+\s*\n?\s*n\(form\.shipping_collected\)\s*-/);
+  });
 });

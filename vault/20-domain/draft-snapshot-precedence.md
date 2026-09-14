@@ -10,10 +10,23 @@ code_refs:
   - src/pages/flipdesk/grid.tsx
   - src/lib/title-sync-patch.ts
   - services/edge-functions/src/routes/flipdesk-ebay.ts
-reviewed: 2026-09-11
+reviewed: 2026-09-13
 tags: [flipdesk, listings, publishing, contract]
 summary: Publish prefers the listings-row snapshot over the item, so any surface writing the item's title, description or price must reach the draft row too.
 ---
+
+> **Re-reviewed 2026-09-13.** flipdesk-ebay.ts changed for US-3111 (`5a3156dc0`).
+> The whole diff is a chunker: `chunkIdsForInFilter` / `IN_FILTER_CHAR_BUDGET`
+> replace a fixed 400-row slice, and the two catalog stamps
+> (`ebay_offer_checked_at`, `ebay_specifics_checked_at`) now fan out by character
+> budget instead of row count. Both write a timestamp column on
+> `inventory_items` and nothing else, so they touch none of the three fields this
+> note is about. Re-verified the rule at HEAD rather than taking the diff's word:
+> `listing.listing_title ?? item.title` at `flipdesk-ebay.ts:14252` and `:14396`,
+> `resolvePublishPrice` at `:13281`, `COLS` in `src/pages/flipdesk/grid.tsx:59`
+> still exactly nine keys (sku, title, brand, style, size, cost, target,
+> sourced_by, notes) and `TITLE_SYNC_COLS` still the three
+> brand/style/size at `grid.tsx:454`. Still accurate.
 
 > **Re-reviewed 2026-09-11.** flipdesk-ebay.ts changed for US-3265, which added an opt-in read-back and a
 > post-create confirmation to the BUSINESS POLICIES handler. Nothing on the draft

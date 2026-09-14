@@ -194,6 +194,24 @@ which is not a vault note and had never been checked at all.
 
 
 
+- A `reviewed:` bump is the only guard output you can satisfy by doing NOTHING,
+  which makes `vault-lint` DRIFT and `runbook-sync` the two reds most likely to
+  be cleared with a date and no reading — and a date bumped without reading
+  converts a true warning into a false all-clear. Treat the flag as a prompt to
+  re-verify the note's COUNTABLE claims at HEAD, not against the diff that
+  triggered it: US-3308 found 16 of 60 notes wrong that way in one pass, and a
+  later pass found the `RCLONE_CRYPT_PASSWORD` row of `KEY_ROTATION_REGISTRY`
+  still saying "NOT PROVISIONED YET" about the one secret that reads every photo
+  in the offsite mirror. Line numbers in a note rot fastest; say "grep the
+  symbol" rather than re-pinning them a fourth time.
+- A COMMENT predicting a recurrence does not prevent one. `ci.yml` carried an
+  accurate paragraph saying a step added before the install needs
+  `if: ${{ !cancelled() }}`, and three days later `setup-deno` landed without it,
+  a blocked held-migration gate skipped it, and four `cron-render-scripts` cases
+  reported `deno: not found` as if the guard were broken. When a known failure
+  repeats, add the CHECK, not a louder sentence:
+  `src/test/ci-gate-cascade.test.ts` now asserts the property over the workflow
+  text. Same shape as [[guards-that-cannot-fail]].
 - NEVER restore a sabotage run with `cp <backup>` or `git checkout -- <file>`
   while your OWN fix is uncommitted in that file. Both took the fix with them
   here, twice in one story, and the second time the guard under test was the

@@ -13,10 +13,25 @@ code_refs:
   - src/lib/aspect-provenance.ts
   - src/test/fixtures/required-aspects-cases.json
   - scripts/aspect-demand-cut.mjs
-reviewed: 2026-09-11
+reviewed: 2026-09-13
 tags: [ebay, publishing, aspects, gotcha]
 summary: Publish fills required item specifics the stored override lacks; revise did not, so listings published fine and then failed every later revise.
 ---
+
+> **Re-reviewed 2026-09-13.** flipdesk-ebay.ts changed for US-3111 (`5a3156dc0`):
+> `chunkIdsForInFilter` packs the two catalog stamps to a character budget rather
+> than a row count. It sends no item specifics and never reaches the resolver.
+>
+> **The line numbers in the 2026-09-10 block below are all stale, by ~+960, and
+> they were stale the same way the pass before it.** GREP THE SYMBOL, do not
+> trust a line number in this note: `forceColumnAspects` is defined at
+> `flipdesk-ebay.ts:14017` and called at `:9538` and `:14185`,
+> `deriveAspectsFromItem` at `:14002`, the revise pre-flight
+> `requiredMissingAspects` at `:9774` (imported at `:202`),
+> `requiredMissingAspectNames` at `src/lib/aspect-provenance.ts:56`,
+> `inferDepartment` / `resolveDepartment` at `aspect-registry.ts:510` / `:545`,
+> and `MAX_AI_ASPECTS = 45` at `aspect-priority.ts:65`. Every symbol is alive and
+> the pipeline is intact, so the contract is unchanged.
 
 > **Re-reviewed 2026-09-11.** flipdesk-ebay.ts changed for US-3265, in the policy-create handler only. Aspect
 > completeness is untouched. Re-read against the diff: still accurate.

@@ -101,7 +101,22 @@ jobs:
       # developer laptop is not a guard. Version pinned to match security.yml and
       # money-cert-integration.yml, so one Deno behaviour change cannot pass one
       # lane and fail another.
+      #
+      # `if: !cancelled()` here is the SAME load-bearing line as on `npm ci`
+      # above, and it was missing until 2026-09-13 -- which is exactly the
+      # recurrence US-3308 AC1 said to expect when it wrote "the same shape can
+      # return on any step added before it". This step has no condition, so a
+      # blocked held-migration gate skipped it, and then
+      # `scripts/cron-render-scripts.test.mjs` failed four cases with
+      # `/bin/sh: 1: deno: not found` and took the whole `Test (scripts)` lane
+      # down. Run 34769726043 reported that as a broken guard. It was a skipped
+      # install, for the second time, for the same reason.
+      #
+      # A comment did not stop it happening twice. src/test/ci-gate-cascade.test.ts
+      # now asserts the property instead: every step in this job after the gate
+      # carries the condition.
       - uses: denoland/setup-deno@v2
+        if: ${{ !cancelled() }}
         with:
           deno-version: "2.8.0"
       # US-1998: every gate below carries `if: !cancelled()` so a failure in one

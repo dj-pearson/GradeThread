@@ -26,6 +26,7 @@ import { cn } from "@/lib/utils";
 import { supabase } from "@/lib/supabase";
 import { advanceItemStatus } from "@/lib/status-writer";
 import { todayLocalDate } from "@/lib/local-date";
+import { computeNetProfit } from "@/lib/sale-math";
 import { MARKETPLACE_LABELS } from "@/lib/constants";
 import { useItemListings, type ItemListingRow } from "@/hooks/use-item-listings";
 import { useEndOtherListings } from "@/hooks/use-pending-delists";
@@ -119,19 +120,24 @@ export function RecordSaleDialog({
     if (!choiceTouched.current) setSoldChoice(defaultSoldListing(listingRows));
   }, [listingRows]);
 
-  // Live net-profit preview.
+  // Live net-profit preview. The arithmetic lives in `@/lib/sale-math` because
+  // that is the copy `sale-math.test.ts` pins against the edge's record-sale.ts
+  // by source. Until 2026-09-13 this block spelled the expression out inline
+  // instead, so there were THREE copies and the guard could only see two of
+  // them -- the one the seller reads before pressing Save was the unpinned one.
   const net = useMemo(() => {
     if (!item) return 0;
-    const cost = item.purchase_price ?? 0;
-    return (
-      n(form.sale_price) +
-      n(form.shipping_collected) -
-      n(form.platform_fees) -
-      n(form.payment_processing_fees) -
-      n(form.shipping_cost) -
-      n(form.tax) -
-      n(form.other_costs) -
-      cost
+    return computeNetProfit(
+      {
+        sale_price: n(form.sale_price),
+        shipping_collected: n(form.shipping_collected),
+        platform_fees: n(form.platform_fees),
+        payment_processing_fees: n(form.payment_processing_fees),
+        shipping_cost: n(form.shipping_cost),
+        tax: n(form.tax),
+        other_costs: n(form.other_costs),
+      },
+      item.purchase_price ?? 0,
     );
   }, [form, item]);
 

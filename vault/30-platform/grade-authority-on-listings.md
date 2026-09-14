@@ -11,10 +11,23 @@ code_refs:
   - src/lib/listing-templates.ts
   - src/test/no-dead-column-writes.test.ts
   - src/components/flipdesk/composer/photos-card.tsx
-reviewed: 2026-09-11
+reviewed: 2026-09-13
 tags: [ebay, listings, grading, policy, contract]
 summary: A grade reaches a marketplace listing as text and a structured specific only — never burned into a photo, never as a QR slab image, never as a link.
 ---
+
+> **Re-reviewed 2026-09-13.** flipdesk-ebay.ts changed for US-3111 (`5a3156dc0`):
+> a character-budget chunker for the two catalog stamps. It writes two timestamp
+> columns on `inventory_items` and composes no photo, no aspect and no
+> description, so it cannot reach any of the three channels below.
+>
+> **GREP THE SYMBOL — the 2026-09-10 line numbers below are stale by ~+550.**
+> Verified at HEAD: `applyGradeListingPromotion` at `flipdesk-ebay.ts:14058`,
+> `stripCertLinks` at `:14327`, the publish SELECT's comment still excluding
+> `badge_enabled` / `slab_image_mode` at `:13822`,
+> `generateUniqueCertNumber` at `cert-number.ts:30`, and
+> `src/lib/listing-templates.ts:10` carrying `{{grade}}` only inside the comment
+> that records its removal. The text-only rule holds.
 
 > **Re-reviewed 2026-09-11.** flipdesk-ebay.ts changed for US-3265, in the policy-create handler only. Nothing
 > about how the grade reaches a listing moved. Re-read against the diff: still

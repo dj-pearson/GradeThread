@@ -5,7 +5,7 @@ type: learning
 status: current
 source_of_truth: vault
 code_refs: []
-reviewed: 2026-09-10
+reviewed: 2026-09-13
 tags: [ci, agent, verification]
 summary: The frontend CI job fails on knowledge guards far more often than on code, so read which STEP failed before assuming a regression - and until 2026-09-10 a failing first step skipped npm ci, which made every later check in the job report a falsehood.
 ---
@@ -146,6 +146,28 @@ failures this page tells you to expect, which is why nobody went further.
 The fix is `if: ${{ !cancelled() }}` on the install, and the reasoning is in a
 comment above it in `ci.yml`. **The same shape returns on any step added before
 the install**, so if you add one, give it the same condition or put it after.
+
+### It returned three days later, on a different step
+
+2026-09-13, same story. `denoland/setup-deno@v2` was added to the `build` job
+with no condition — the operator scripts under `scripts/` are Deno and the lane
+had never had it installed. A blocked gate skipped the setup, and then
+`scripts/cron-render-scripts.test.mjs` failed four cases with `/bin/sh: 1: deno:
+not found`, taking `Test (scripts)` down with it. Run `34769726043` reads as a
+broken guard. It was a skipped install, for the second time, for the same
+reason, three days after the paragraph above predicted it in as many words.
+
+So the warning was written, was accurate, and did not work. **Prose has no
+compiler**, which is this page's own recurring finding turned on itself. What
+holds it now is `src/test/ci-gate-cascade.test.ts`: it parses the `build` job,
+finds the gate, and fails if any step after it lacks a condition that survives a
+prior failure (`!cancelled()`, or `failure()` for the annotation step that runs
+*because* the gate blocked). The broken shapes are string literals in the test,
+so the guard is tested rather than merely green, and it was proved against the
+real workflow by removing the line and watching it redden.
+
+Read that as the general rule, not a CI detail: when a repeat of a known failure
+arrives, the thing to add is the check, not a louder sentence.
 
 ### Why the lane went dark rather than being fixed on day one
 

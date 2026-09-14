@@ -50,7 +50,7 @@ const REVIEW_INFO_DIR = join(root, "ios", "fastlane", "metadata", "review_inform
 // The placeholder values the repo is allowed to hold. Kept in lockstep with
 // ios/fastlane/Fastfile (REVIEW_DEMO_*_PLACEHOLDER) and with the
 // `gradethread-appreview-demo-credential` rule in .gitleaks.toml.
-// src/test/review-demo-credentials.test.ts fails if the three drift apart.
+// scripts/review-demo-credentials.test.mjs fails if the three drift apart.
 const TRACKED_PLACEHOLDERS = {
   "demo_user.txt": "REVIEW_DEMO_EMAIL_PLACEHOLDER@gradethread.com",
   "demo_password.txt": "REVIEW_DEMO_PASSWORD_PLACEHOLDER",

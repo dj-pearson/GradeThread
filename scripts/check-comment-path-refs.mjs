@@ -194,6 +194,16 @@ const ALLOWED_SYMBOL_REFS = {
     "TIER_COLOR in the edge's cert-og-template.ts. Both claims are true; a " +
     "same-line rule cannot tell which symbol belongs to which path. Splitting " +
     "the sentence to satisfy a scanner would make it worse to read.",
+  "scripts/check-ui-antipatterns.mjs|DB_ONLY":
+    "the same two-pairs-on-one-line shape. The sentence lists three registries " +
+    "that share a design (knownNoise in check-ui-antipatterns.mjs, DB_ONLY in " +
+    "verified-chart-parity_test.ts, SERVICE_ROLE_ONLY in rls-guard_test.ts) and " +
+    "the same-line rule pairs DB_ONLY with the wrong one of them. Both claims " +
+    "were checked at HEAD on 2026-09-13 and both hold: knownNoise is in " +
+    "check-ui-antipatterns.mjs, and DB_ONLY really is in " +
+    "verified-chart-parity_test.ts (6 occurrences) as well as in " +
+    "sizing-chart-orphans_test.ts, which is where the second copy of this " +
+    "sentence lives.",
 };
 
 /**
