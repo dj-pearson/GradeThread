@@ -1,5 +1,50 @@
 # PENDING MIGRATIONS — applied to prod separately from the push
 
+## EIGHT HEADINGS WERE STALE, AND THAT IS WHY MAIN CI WAS RED, 2026-09-13
+
+00786, 00787, 00788, 00789, 00790, 00791, 00792 and 00796 were still headed
+HELD while prod already had all eight. The held-migration gate blocks on any
+HELD heading whose file is on the pushed commit, so the `build` job in `CI` had
+been failing on those eight for a normal-state reason that had stopped being
+true — which is US-3308's whole subject: a lane red for a non-defect carries no
+information, and a real failure underneath it is invisible.
+
+This file had already noticed part of it and left the rest. The 00796 note below
+says in as many words that it is applied. The paragraph about 00793-00795 says a
+parallel session shipped 00790 and 00791 and prod applied those. Neither flipped
+a heading, so the gate kept blocking on entries the file itself contradicted.
+
+**The evidence, read credential-free on 2026-09-13 and repeatable by anyone:**
+
+```bash
+curl -s https://functions.gradethread.com/health/ready   # schema + release
+curl -s https://functions.gradethread.com/health         # release SHA
+```
+
+`schema` answered `{"expected":"00800","applied":"00800","status":"match"}` with
+**no `complete` key and no `missing` key**. Both absences are load-bearing and
+neither is the same as a blank answer. `summarizeSchema` (routes/health.ts:156)
+emits `complete:false` whenever the completeness read did not happen or threw,
+and emits `missing` whenever the set comparison found a gap; `/health/ready`
+always passes a completeness object when `database` is `ok`, and it was. So the
+shape observed means the SET was compared over the whole generated manifest and
+came back empty — not merely that the watermark is 00800.
+
+And the manifest it compared against is the current one: `/health` reports
+release `4e884a242a8b9ecf6557e7a41eda046a9fdda882`, which was the tip of
+`origin/main` at the time, i.e. the deployed build's manifest already lists
+00786 through 00800. A stale container would have made `missing: []` vacuous,
+which is the one way this reasoning could have been wrong.
+
+**What the headings now claim, exactly.** They say prod HAS these migrations,
+confirmed from prod's own schema record. They do NOT say anyone in a session
+watched them apply, which is why each is dated and marked "not watched" rather
+than being folded in with the owner-applied entries above. If you need the
+stronger claim for one of them, `check-prod-migration.ts` is the tool.
+
+Nothing below 00786 was touched, and the six genuinely-held branches in the next
+section are unchanged and still waiting.
+
 ## WHAT IS STILL WAITING FOR YOU, 2026-09-11
 
 Six migrations are finished and parked on branches. Merge them in this order.
@@ -87,7 +132,7 @@ against the golden set rather than on a merge order.
 > They are still filed as HELD here because nobody in this session watched
 > them apply. Confirm against prod before trusting either heading.
 
-## ⏸ HELD: 00796 — the deletion log stops saying the Stripe customer survived (US-3404)
+## ✅ APPLIED 2026-09-13 (confirmed from prod, not watched): 00796 — the deletion log stops saying the Stripe customer survived (US-3404)
 
 **Risk: LOW.** Two columns on `public.account_deletion_log`
 (`stripe_delete_status text NOT NULL DEFAULT 'unverified'`,
@@ -131,7 +176,7 @@ select stripe_delete_status, count(*) from public.account_deletion_log
  group by 1;  -- all 'unverified' until the next deletion runs
 ```
 
-## ⏸ HELD: 00792 — the seller's marketplace usernames (US-3369)
+## ✅ APPLIED 2026-09-13 (confirmed from prod, not watched): 00792 — the seller's marketplace usernames (US-3369)
 
 **Risk: LOW.** One nullable column, `flipdesk_settings.marketplace_handles
 jsonb`, plus a comment. Nothing existing is altered, no backfill.
@@ -145,7 +190,7 @@ deploys before the SQL shows a failed read there: the "Your Poshmark
 listings" link does not appear and saving a username errors. Everything else
 in the delist change works without it. The edge reads it through
 `loadSellerHandles`, which treats a failed read as "no usernames".
-## ⏸ HELD: 00791 — drop the bare 'duluth' brand token (US-3319 follow-up)
+## ✅ APPLIED 2026-09-13 (confirmed from prod, not watched): 00791 — drop the bare 'duluth' brand token (US-3319 follow-up)
 
 **Risk: LOW.** One `UPDATE` on `brand_size_charts`: removes `'duluth'` from
 `brand_match` on the `duluthtradingco` rows that still carry it. No schema
@@ -166,7 +211,7 @@ select brand_match from public.brand_size_charts
  where brand_key = 'duluthtradingco';  -- no row contains 'duluth' on its own
 ```
 
-## ⏸ HELD: 00790 — the second-opinion switch (US-2279 / US-3359)
+## ✅ APPLIED 2026-09-13 (confirmed from prod, not watched): 00790 — the second-opinion switch (US-2279 / US-3359)
 
 **Risk: LOW.** One `INSERT ... ON CONFLICT (key) DO NOTHING` into
 `system_settings` for `grading_second_opinion`, seeded DISABLED and matching
@@ -184,7 +229,7 @@ select value->>'enabled', value->>'model' from public.system_settings
  where key = 'grading_second_opinion';  -- false, claude-opus-4-8
 ```
 
-## ⏸ HELD: 00789 — the admin reference gallery (US-3334)
+## ✅ APPLIED 2026-09-13 (confirmed from prod, not watched): 00789 — the admin reference gallery (US-3334)
 
 **Risk: LOW.** One new deny-all table, `grading_reference_photos` (RLS on,
 no policies), a partial unique index, a category index and the
@@ -206,7 +251,7 @@ select relrowsecurity from pg_class where relname = 'grading_reference_photos'; 
 select count(*) from pg_policies where tablename = 'grading_reference_photos';   -- 0
 ```
 
-## ⏸ HELD: 00788 — the flaw that keeps a grade from the next level (US-3330)
+## ✅ APPLIED 2026-09-13 (confirmed from prod, not watched): 00788 — the flaw that keeps a grade from the next level (US-3330)
 
 **Risk: MEDIUM, because it recreates `public_grade_reports` again.** Adds
 `grade_reports.limiting_flaw jsonb`, then `CREATE OR REPLACE VIEW` generated
@@ -228,7 +273,7 @@ select count(*) from information_schema.columns
 where table_name = 'public_grade_reports' and column_name = 'limiting_flaw';  -- 1
 ```
 
-## ⏸ HELD: 00787 — seller smoke-free / pet-free statement, and "not visible in these photos" (US-3329)
+## ✅ APPLIED 2026-09-13 (confirmed from prod, not watched): 00787 — seller smoke-free / pet-free statement, and "not visible in these photos" (US-3329)
 
 **Risk: MEDIUM, because it recreates `public_grade_reports`.** Adds
 `submissions.seller_statements text[] NOT NULL DEFAULT '{}'` with a CHECK
@@ -253,7 +298,7 @@ where table_name = 'public_grade_reports'
   and column_name in ('seller_statements', 'cleanliness_visible');  -- 2 rows
 ```
 
-## ⏸ HELD: 00786 — grades wait for the turnaround the customer paid for (US-3326)
+## ✅ APPLIED 2026-09-13 (confirmed from prod, not watched): 00786 — grades wait for the turnaround the customer paid for (US-3326)
 
 **Risk: MEDIUM, because it rewrites two RLS policies.** Adds three nullable
 columns to `grade_reports`, widens the `review_status` CHECK with `'held'`,
