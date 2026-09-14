@@ -51,6 +51,18 @@ summary: Traps from the Android conversion backlog (US-1299…US-1396); read whe
 - Still genuinely ungated-able: emulator/device-only ACs (e.g. US-1396
   accessibility audit) presuppose a running app on a device. Don't fabricate an
   audit/test result — leave a note and stop without emitting STORY_DONE.
+- A drift guard between the two CODE copies of a product catalog leaves the third
+  copy, the STORE CONSOLE, pinned only by the operator doc someone types from.
+  US-3138 added four Action Credit packs to `ANDROID_CATALOG` and `CreditPacks.kt`,
+  `android-catalog-drift_test` stayed green, and both Play operator docs went on
+  saying ten products. Play omits an id it does not have from the catalog response
+  instead of erroring (`PlayBilling`: "Missing ids are simply absent"), so the
+  consequence is an empty top-up sheet on a signed release with every lane green.
+  Pin the operator TABLE to the catalog: US-2913's
+  `play-console-product-doc_test.ts` does it as pure functions over markdown text,
+  so the sabotage cases are string literals. **The iOS twin still has this gap** —
+  `ios/APP_STORE_SUBMISSION.md` §6 lists the subscriptions and grade credits and
+  has never listed `com.gradethread.actions.*`.
 
 ## Related
 

@@ -25,7 +25,7 @@ on a first-time developer account.
 | Signing | Play App Signing; we hold only the upload key |
 | Version name | Comes from the git tag (`android-v1.0.0` gives `1.0.0`) |
 | Version code | The GitHub Actions run number, never hand-edited |
-| Products | 6 subscriptions + 4 consumable credit packs |
+| Products | 14 in-app products: 6 subscriptions, 4 grade credit packs, 4 Action Credit packs |
 
 ---
 
@@ -266,11 +266,18 @@ is Supabase and will 404 this path.
 
 ---
 
-## Phase 8. Create the ten products
+## Phase 8. Create the 14 in-app products
 
 Play Console, Monetize, Products. **The ids must match exactly.** The server
 fails closed on an unknown id, which means a typo here is a customer who is
 charged by Google and entitled to nothing.
+
+This phase said **ten** until 2026-09-13 and had been wrong since US-3138 added
+the four Action Credit packs. An id that is missing from the Console is not an
+error Play reports; it is simply absent from the catalog response, so the app
+shows an empty top-up sheet and every gate in the release lane stays green.
+`services/edge-functions/src/tests/play-console-product-doc_test.ts` now pins
+these tables to `ANDROID_CATALOG`.
 
 ### Subscriptions
 
@@ -290,7 +297,7 @@ a base plan with no offer ships as a price tag with a dead button.
 Settings that matter: grace period **on, 3 days**; account hold **on**;
 resubscribe **on**; proration default.
 
-### Consumable credit packs
+### Consumable grade credit packs
 
 | Product ID | Credits | Price USD |
 |---|---|---|
@@ -299,10 +306,27 @@ resubscribe **on**; proration default.
 | `credits_50` | 50 | 109.99 |
 | `credits_100` | 100 | 199.99 |
 
-Type **Consumable**. Set the USD price and let Play convert for other countries.
-Do not hand-set regional prices.
+### Consumable Action Credit packs
+
+A **second wallet**, not more of the same credits: grade credits pay for condition
+grading, Action Credits pay for AI actions. Play sees one product type for both,
+and the product id is the only thing keeping a purchase in the right wallet.
+
+| Product ID | Actions | Price USD |
+|---|---|---|
+| `action_credits_50` | 50 | 4.99 |
+| `action_credits_150` | 150 | 13.99 |
+| `action_credits_400` | 400 | 34.99 |
+| `action_credits_1000` | 1000 | 79.99 |
+
+Type **Consumable** for both tables. Set the USD price and let Play convert for
+other countries. Do not hand-set regional prices.
 
 Activate every product. A draft product is invisible to the app.
+
+Do **not** create the four `buyer_*` subscription ids that exist in
+`BUYER_ANDROID_CATALOG`. Nothing on Android queries them and the server does not
+entitle them, so they would be four products on sale that grant nothing.
 
 ---
 
@@ -389,9 +413,12 @@ Two things to decide before you fill in Data safety:
   whenever the country is unknown, an explicit choice honoured under either
   regime. Describe the three clients identically on the form. The reasoning is
   in `vault/20-domain/client-analytics-consent.md`.
-- **The public support email**, which is shown on the listing.
-  `support@gradethread.com` is the answer the checklist assumes, and it matches
-  the domain that already has mail authentication set up.
+- **The public support email is `support@gradethread.com`.** Decided, not assumed:
+  it is already the address the Android settings screen, the edge's mail, the web
+  error states and the privacy policy hand to users, and it is on the domain with
+  DKIM, SPF and DMARC. What is still yours is making sure somebody reads that
+  inbox; Play measures response time on it. See §4.2 of
+  `PLAY_STORE_SUBMISSION.md`.
 
 ---
 
@@ -481,6 +508,11 @@ billing-source fix has not reached production. It is on main and applied, so thi
 should pass; it is listed because it is the failure that costs a real customer
 real money.
 
+Then one more, because it is the step that catches the Phase 8 mistake: buy
+`action_credits_50` and check the **Action Credit** balance moved and the grade
+credit balance did not. Two wallets ride one Play product type, so a miscreated
+id credits the wrong one and step 2 cannot see it.
+
 ---
 
 ## Phase 15. Submit
@@ -513,6 +545,7 @@ you click. It is the same ground as this runbook, in checkbox form.
 | Play rejects the bundle as unsigned | The keystore variables are missing from Infisical. The lane catches this now. |
 | The build succeeds, nobody can sign in | `SUPABASE_ANON_KEY` was empty at build time (Phase 4). |
 | A price shows but the buy button does nothing | The subscription has a base plan and no offer (Phase 8). |
+| A top-up sheet is empty, with no error | Those product ids do not exist in the Console, or are still drafts. Play omits an unknown id from the catalog response rather than failing (Phase 8). |
 | Buyer charged, no plan granted | The three Coolify variables from Phase 6, or a product id that does not match. |
 | RTDN never arrives | The secret in the subscription URL does not match Coolify, or the publisher grant in 7.2 is missing. |
 | Links open the browser instead of the app | `ANDROID_CERT_SHA256` is not set on Pages, or Pages was not redeployed (Phase 13). |

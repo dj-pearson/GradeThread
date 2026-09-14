@@ -20,12 +20,12 @@ factual answers aligned, not the wording).
 | Artifact | App Bundle (`.aab`), ABI + density splits on, language split off |
 | Supported ABIs | armeabi-v7a, arm64-v8a, x86_64 |
 | Signing | Play App Signing; upload key from Infisical (`ANDROID_KEYSTORE_BASE64`) |
-| In-app purchases | 6 subscriptions + 4 consumable credit packs (§5) |
+| In-app purchases | **14 in-app products**: 6 subscriptions + 4 grade credit packs + 4 Action Credit packs (§5) |
 | Ads | None |
 | Privacy policy | https://gradethread.com/privacy |
 | Terms | https://gradethread.com/terms |
 | Data deletion URL | https://gradethread.com/account-deletion |
-| Support email | **Decide before submitting** — see §4.2 |
+| Support email | `support@gradethread.com` — decided, see §4.2 |
 
 ---
 
@@ -38,7 +38,7 @@ Read this first. Everything else in this file is fillable once these are true.
 | 1 | **In-app account deletion.** Play's User Data policy requires an in-app path for any app that lets users create an account, plus a web URL. Settings → Delete account previously showed "email support@gradethread.com", which does not satisfy it. | Code | **Fixed** — `SettingsViewModel.confirmDeleteAccount` now calls `POST /api/account/delete` behind a typed confirmation, mirroring the web flow. |
 | 2 | **Data deletion URL.** Play Console → Data safety asks for a public page describing deletion. | Web | **Fixed** — `/account-deletion`, registered in `src/lib/seo/public-routes.ts`. |
 | 3 | **Upload key.** The Play Console record exists (`com.gradethread.myapp`). `ANDROID_KEYSTORE_BASE64` / `PLAY_SERVICE_ACCOUNT_JSON` must be in Infisical `prod /` before the release lane can build a signed bundle. | Operator | ☐ |
-| 4 | **10 in-app products created in Play Console** with ids matching `ANDROID_CATALOG` exactly (§5). The server fails closed on an unknown id, so a typo is a charge with no entitlement. | Operator | ☐ |
+| 4 | **14 in-app products created in Play Console** with ids matching `ANDROID_CATALOG` exactly (§5). The server fails closed on an unknown id, so a typo is a charge with no entitlement. This row said **10** until 2026-09-13, and had been wrong since US-3138 added the four Action Credit packs: `BillingRepository` queries them by id, Play answers "missing ids are simply absent", and the Action Credits top-up sheet renders empty with nothing in any lane going red. `services/edge-functions/src/tests/play-console-product-doc_test.ts` now pins this count and both product tables to `ANDROID_CATALOG`, so the third copy of the list cannot drift again while the first two agree. | Operator | ☐ |
 | 5 | **Reviewer demo account.** The app is login-gated end to end; without credentials in App access, review returns "we could not access the app". | Operator | ☐ |
 | 6 | **Screenshots.** `metadata/.../phoneScreenshots/` held a README and no PNGs. | Code | **Fixed** — US-2894, 2026-09-04. `node android/scripts/make-play-graphics.mjs` builds the icon, the feature graphic, six phone shots and two tablet shots from assets already in the repo, so the set is reproducible rather than a folder somebody dragged files into. |
 | 7 | **Server env for Play billing** — `GOOGLE_PLAY_SERVICE_ACCOUNT_JSON`, `GOOGLE_PLAY_PACKAGE_NAME`, `GOOGLE_RTDN_WEBHOOK_SECRET` in Coolify (§5.4). Without them every purchase verifies as an error and the buyer is charged with no plan. | Operator | ☐ |
@@ -403,10 +403,25 @@ Required, and it is the answer with the most teeth.
 
 | Field | Value |
 |---|---|
-| Email | **Pick one and use it everywhere** (**required**, shown publicly on the listing) |
+| Email | `support@gradethread.com` (**required**, shown publicly on the listing) |
 | Phone | Optional — leave blank rather than publish a personal number |
 | Website | https://gradethread.com |
 | Privacy policy | https://gradethread.com/privacy |
+
+**The email is `support@gradethread.com`, and that is now a decision rather than a
+suggestion.** It is already the address the shipping code hands to users: the
+Android settings screen, the edge's transactional mail, the web error states, the
+certificate report dialog and the privacy policy all name it, and it is on the
+domain that has DKIM, SPF and DMARC set up
+(`vault/50-business/deliverability.md`). Picking anything else here means editing
+every one of those, because Play shows this address on the listing and a seller
+who mails it has to reach the same inbox as a seller who tapped Contact support.
+
+This section used to say "pick one and use it everywhere" while §7 had already
+ticked `support@gradethread.com`, so the document disagreed with itself about the
+one field a reviewer can see. **What is still owed to a human: somebody has to
+read that inbox.** Play measures response time on it, and an unmonitored support
+address is a policy problem rather than a typo.
 
 ### 4.3 Countries and pricing
 
@@ -463,9 +478,9 @@ Settings that matter:
 - **Proration**: default. Plan changes go through the same entitlement resolution as
   Stripe.
 
-### 5.2 Consumable credit packs (Monetize → Products → In-app products)
+### 5.2 Consumable grade credit packs (Monetize → Products → In-app products)
 
-From `billing/CreditPacks.kt`:
+From the `CreditPack` enum in `billing/CreditPacks.kt`:
 
 | Product ID | Credits | Base price (USD) |
 |---|---|---|
@@ -476,6 +491,39 @@ From `billing/CreditPacks.kt`:
 
 Type **Consumable**. The client consumes on the server's confirmation, not before —
 `credits_*` grants are idempotent on the purchase token.
+
+### 5.2a Consumable Action Credit packs (same form, different wallet)
+
+From the `ActionCreditPack` enum in the same file. **These four are a second
+wallet, not more of the same credits**: grade credits pay for condition grading,
+Action Credits pay for AI actions (attribute extraction, listing drafts), and
+`ANDROID_CATALOG` keeps them apart by product id because that id is all the server
+gets back from Play.
+
+| Product ID | Actions | Base price (USD) |
+|---|---|---|
+| `action_credits_50` | 50 | $4.99 |
+| `action_credits_150` | 150 | $13.99 |
+| `action_credits_400` | 400 | $34.99 |
+| `action_credits_1000` | 1000 | $79.99 |
+
+Type **Consumable**, exactly like §5.2. Play has no notion of two wallets.
+
+**These were missing from this document for the whole of US-3138's life, and the
+failure they cause is a quiet one.** `BillingRepository.actionCreditOffers` asks
+Play for these four ids, and Play's contract for an id it does not have is not an
+error: the row is simply absent from the response. So an operator who created the
+ten products this file used to list would ship an app whose Action Credits sheet
+is empty, with the release lane green, every drift test green, and no crash to
+read. `services/edge-functions/src/tests/play-console-product-doc_test.ts` pins the tables above and the
+count in §0 to `ANDROID_CATALOG` so a future product cannot be added on the two
+code sides and forgotten on the Console side.
+
+Note what is deliberately NOT here: the four `buyer_*` subscription ids in
+`BUYER_ANDROID_CATALOG`. They are not wired into Google verification
+(`classifyAndroidProduct` returns null for them) and no Android surface queries
+them, so creating them in the Console would put four products on sale that the
+server refuses to entitle. The same guard asserts they stay absent from this file.
 
 ### 5.3 The prices in the app are fallbacks
 
@@ -517,6 +565,11 @@ Round-trip to verify before submitting, in order:
 4. Let it expire → the RTDN lapses it, or the sweep does within 72 hours.
 5. Buy the same product on a second account → rejected, because the purchase token is
    bound to one user.
+
+Then one more, because it is the step that catches the mistake §5.2a describes:
+buy `action_credits_50` and check the **Action Credit** balance moved and the
+grade credit balance did not. Two wallets behind one Play product type means a
+miscreated id credits the wrong one, and step 2 above cannot see that.
 
 ---
 
@@ -725,8 +778,10 @@ lines, leaving a lone "s" beneath the label on every screen.
 - [ ] `PLAY_SERVICE_ACCOUNT_JSON` in Infisical with release-manager rights
 - [ ] `GOOGLE_PLAY_SERVICE_ACCOUNT_JSON` + `GOOGLE_PLAY_PACKAGE_NAME` + `GOOGLE_RTDN_WEBHOOK_SECRET` in Coolify
 - [ ] RTDN Pub/Sub topic + push subscription pointed at the webhook
+- [ ] 14 in-app products created and **activated** (a draft product is invisible to the app)
 - [ ] 6 subscriptions created, each with a base plan AND an offer
-- [ ] 4 consumable credit packs created
+- [ ] 4 grade credit packs created (§5.2)
+- [ ] 4 Action Credit packs created (§5.2a) — the ones this checklist forgot until 2026-09-13
 - [ ] License testers added; the five-step purchase round-trip in §5.5 passed
 - [ ] Icon 512×512, feature graphic 1024×500
 - [ ] 2–8 phone screenshots; tablet sets if claiming tablet support
