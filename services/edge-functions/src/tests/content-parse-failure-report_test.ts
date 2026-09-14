@@ -18,6 +18,7 @@ import "./_env.ts";
 
 import { assert, assertEquals } from "@std/assert";
 import {
+  cadenceEvidence,
   classifyContentRunError,
   type ErrorBucket,
   isOutputShapeFailure,
@@ -30,9 +31,15 @@ import {
 // their counts. Copied verbatim from the note so a wording drift is visible
 // here rather than as a silent drop to zero.
 const MEASURED_BEFORE: Array<[string, ErrorBucket]> = [
-  ["content-ai-blog / content-ai-social: model returned unparseable JSON", "output_shape_retired"],
+  [
+    "content-ai-blog / content-ai-social: model returned unparseable JSON",
+    "output_shape_retired",
+  ],
   ["AI returned invalid JSON for blog article", "output_shape_retired"],
-  ["social generation failed: AI response contained no text block", "output_shape_retired"],
+  [
+    "social generation failed: AI response contained no text block",
+    "output_shape_retired",
+  ],
   ["AI returned invalid JSON for social post", "output_shape_retired"],
   ["content-ai-social: response was cut off at max_tokens", "max_tokens"],
   ["content-ai-social: hit max_tokens before emitting", "max_tokens"],
@@ -94,10 +101,26 @@ Deno.test("summarizeWindow counts only error rows and ranks the messages", () =>
   const s = summarizeWindow("T", "2026-08-09", "2026-09-08", [
     { outcome: "success", surface: "blog", error: null },
     { outcome: "skip", surface: null, error: "cadence met for blog today" },
-    { outcome: "error", surface: "blog", error: "AI returned invalid JSON for blog article" },
-    { outcome: "error", surface: "blog", error: "AI returned invalid JSON for blog article" },
-    { outcome: "error", surface: "social", error: "content-ai-social: hit max_tokens" },
-    { outcome: "error", surface: "blog", error: "AI response was not a JSON object" },
+    {
+      outcome: "error",
+      surface: "blog",
+      error: "AI returned invalid JSON for blog article",
+    },
+    {
+      outcome: "error",
+      surface: "blog",
+      error: "AI returned invalid JSON for blog article",
+    },
+    {
+      outcome: "error",
+      surface: "social",
+      error: "content-ai-social: hit max_tokens",
+    },
+    {
+      outcome: "error",
+      surface: "blog",
+      error: "AI response was not a JSON object",
+    },
   ]);
 
   assertEquals(s.runs, 6);
@@ -108,40 +131,47 @@ Deno.test("summarizeWindow counts only error rows and ranks the messages", () =>
   assertEquals(s.buckets.max_tokens, 1);
   assertEquals(s.buckets.other, 0);
   assertEquals(s.messages[0]?.count, 2);
-  assertEquals(s.messages[0]?.text, "AI returned invalid JSON for blog article");
+  assertEquals(
+    s.messages[0]?.text,
+    "AI returned invalid JSON for blog article",
+  );
 });
 
-Deno.test("splitProxy excludes all three kinds of partial day", () => {
-  // The real 2026-08-25..09-13 feed, which is what the story's note records.
-  const perDay = new Map<string, number>([
-    ["2026-08-25", 2], // oldest, clipped by the feed's 50-item cap
-    ["2026-08-26", 3],
-    ["2026-08-27", 3],
-    ["2026-08-28", 3],
-    ["2026-08-29", 1],
-    ["2026-08-30", 2],
-    ["2026-08-31", 2],
-    ["2026-09-01", 2],
-    ["2026-09-02", 2],
-    ["2026-09-03", 3],
-    ["2026-09-04", 1],
-    ["2026-09-05", 2],
-    ["2026-09-06", 2],
-    ["2026-09-07", 2],
-    ["2026-09-08", 1], // the cutover: the deploy landed partway through it
-    ["2026-09-09", 4],
-    ["2026-09-10", 4],
-    ["2026-09-11", 4],
-    ["2026-09-12", 4],
-    ["2026-09-13", 3], // newest, still accruing
-  ]);
+/** The real 2026-08-25..09-13 feed, which is what the story's note records. */
+const REAL_FEED = new Map<string, number>([
+  ["2026-08-25", 2], // oldest, clipped by the feed's 50-item cap
+  ["2026-08-26", 3],
+  ["2026-08-27", 3],
+  ["2026-08-28", 3],
+  ["2026-08-29", 1],
+  ["2026-08-30", 2],
+  ["2026-08-31", 2],
+  ["2026-09-01", 2],
+  ["2026-09-02", 2],
+  ["2026-09-03", 3],
+  ["2026-09-04", 1],
+  ["2026-09-05", 2],
+  ["2026-09-06", 2],
+  ["2026-09-07", 2],
+  ["2026-09-08", 1], // the cutover: the deploy landed partway through it
+  ["2026-09-09", 4],
+  ["2026-09-10", 4],
+  ["2026-09-11", 4],
+  ["2026-09-12", 4],
+  ["2026-09-13", 3], // newest, still accruing
+]);
 
+Deno.test("splitProxy excludes all three kinds of partial day", () => {
+  const perDay = REAL_FEED;
   const split = splitProxy(perDay, "2026-09-08");
 
   assertEquals(split.oldest, "2026-08-25");
   assertEquals(split.newest, "2026-09-13");
   for (const day of ["2026-08-25", "2026-09-08", "2026-09-13"]) {
-    assert(split.days.find((d) => d.day === day)?.partial, `${day} should be partial`);
+    assert(
+      split.days.find((d) => d.day === day)?.partial,
+      `${day} should be partial`,
+    );
   }
 
   // 13 full days before, and the best of them never reached 4.
@@ -160,6 +190,63 @@ Deno.test("splitProxy excludes all three kinds of partial day", () => {
   const naivePosts = split.after.posts + perDay.get("2026-09-08")!;
   assertEquals((naivePosts / naiveDays).toFixed(2), "3.40");
   assertEquals((split.after.posts / split.after.days).toFixed(2), "4.00");
+});
+
+// The proxy's own caveat used to end at "this is also consistent with the
+// operator having raised post_cadence_per_day_blog on the same day". It is not
+// fully consistent with that, and the same numbers say so: the cadence is a
+// CEILING (content-scheduler.ts:1119 picks blog only while blogToday < cadence),
+// so a day of N posts proves N was allowed that day, and raising a cap cannot
+// add output to a day that never reached the cap it already had.
+
+Deno.test("cadenceEvidence bounds the raised-the-cadence objection out of the real feed", () => {
+  const split = splitProxy(REAL_FEED, "2026-09-08");
+  const cadence = cadenceEvidence(split);
+
+  // Four separate before-days reached 3, so the floor is not one stray manual
+  // publish — which is the reading the script's remaining caveat warns about.
+  assertEquals(cadence.before, { days: 13, floor: 3, atFloor: 4 });
+  assertEquals(cadence.after, { days: 4, floor: 4, atFloor: 4 });
+
+  // The load-bearing number: 9 of 13 before-days published fewer than the 3 the
+  // same window proves was available to them.
+  assertEquals(cadence.belowOwnFloor, 9);
+  assert(
+    cadence.belowOwnFloor > 0,
+    "a raised cap cannot explain a day below its own floor",
+  );
+});
+
+Deno.test("cadenceEvidence stays silent when the cadence story WOULD explain it", () => {
+  // The counterfactual this analysis has to be able to report. Engine equally
+  // healthy on both sides, operator raises the cap from 3 to 4 at the cutover:
+  // every before-day is pinned at 3, so there is nothing the cap does not
+  // account for and belowOwnFloor must be zero. A test that only ever sees the
+  // real feed cannot tell "the fix worked" from "this function returns 9".
+  const pinned = new Map<string, number>([
+    ["2026-09-04", 1], // oldest, partial
+    ["2026-09-05", 3],
+    ["2026-09-06", 3],
+    ["2026-09-07", 3],
+    ["2026-09-08", 2], // cutover, partial
+    ["2026-09-09", 4],
+    ["2026-09-10", 4],
+    ["2026-09-11", 1], // newest, partial
+  ]);
+  const cadence = cadenceEvidence(splitProxy(pinned, "2026-09-08"));
+
+  assertEquals(cadence.before, { days: 3, floor: 3, atFloor: 3 });
+  assertEquals(cadence.belowOwnFloor, 0);
+});
+
+Deno.test("cadenceEvidence does not divide by an empty window", () => {
+  // Run the report before the cutover has any full days and it must return
+  // zeroes rather than -Infinity from Math.max of an empty list.
+  const early = new Map<string, number>([["2026-09-12", 2], ["2026-09-13", 4]]);
+  const cadence = cadenceEvidence(splitProxy(early, "2026-09-08"));
+  assertEquals(cadence.before, { days: 0, floor: 0, atFloor: 0 });
+  assertEquals(cadence.after, { days: 0, floor: 0, atFloor: 0 });
+  assertEquals(cadence.belowOwnFloor, 0);
 });
 
 Deno.test("publishedPerDay buckets RSS pubDates by UTC day", () => {

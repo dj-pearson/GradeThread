@@ -74,7 +74,9 @@ export type ErrorBucket =
  * post-fix guards use; a non-zero count there means the schema stopped being
  * sent or stopped being honored, and it must not read as success.
  */
-export function classifyContentRunError(raw: string | null | undefined): ErrorBucket {
+export function classifyContentRunError(
+  raw: string | null | undefined,
+): ErrorBucket {
   const text = (raw ?? "").trim();
   if (!text) return "none";
 
@@ -212,7 +214,10 @@ export interface ProxySplit {
  * through it. Counting the cutover day as a full AFTER day is what made the
  * first run of this report read 3.40/day instead of 4.00.
  */
-export function splitProxy(perDay: Map<string, number>, cutover: string): ProxySplit {
+export function splitProxy(
+  perDay: Map<string, number>,
+  cutover: string,
+): ProxySplit {
   const keys = [...perDay.keys()].sort((a, b) => a.localeCompare(b));
   const oldest = keys[0] ?? "";
   const newest = keys[keys.length - 1] ?? "";
@@ -241,13 +246,72 @@ export function splitProxy(perDay: Map<string, number>, cutover: string): ProxyS
   return { days, oldest, newest, before, after };
 }
 
+export interface SideSaturation {
+  /** Full days counted on this side. */
+  days: number;
+  /** Lower bound on `post_cadence_per_day_blog` during them — the best day. */
+  floor: number;
+  /** How many of those days reached that floor. */
+  atFloor: number;
+}
+
+export interface CadenceEvidence {
+  before: SideSaturation;
+  after: SideSaturation;
+  /** BEFORE days that published FEWER than the same window proves was available. */
+  belowOwnFloor: number;
+}
+
+/**
+ * Bound the proxy's own confound: "the operator raised the cadence on cutover day".
+ *
+ * The scheduler picks the blog surface only while `blogToday <
+ * post_cadence_per_day_blog` (content-scheduler.ts:1119), so the cadence is a
+ * CEILING on a day's AI blog posts and never a floor. Run that backwards and a
+ * day of N posts is evidence the cadence was at least N that day.
+ *
+ * That lower bound is what the confound needs and cannot survive: raising a cap
+ * only adds output on days that were ALREADY PINNED to it. A day that published
+ * fewer than the count another day in the same window proves was allowed was not
+ * short of allowance — it was short of successful generations.
+ *
+ * ⚠ THE FLOOR IS EVIDENCE, NOT PROOF, and the gap is worth naming rather than
+ * burying: `publishDueScheduledPosts` promotes admin-scheduled drafts on every
+ * tick regardless of cadence, and a manual dashboard publish is not gated at
+ * all. So a single high day could be a human rather than a higher cap. Count how
+ * many days reached the floor before leaning on it — one is an anecdote.
+ *
+ * Pure, so the arithmetic is pinned by a test rather than by a printout nobody
+ * re-reads.
+ */
+export function cadenceEvidence(split: ProxySplit): CadenceEvidence {
+  const sideOf = (want: "before" | "after"): SideSaturation => {
+    const posts = split.days
+      .filter((d) => !d.partial && d.side === want)
+      .map((d) => d.posts);
+    const floor = posts.length > 0 ? Math.max(...posts) : 0;
+    return {
+      days: posts.length,
+      floor,
+      atFloor: posts.filter((p) => p >= floor).length,
+    };
+  };
+  const before = sideOf("before");
+  const after = sideOf("after");
+  return { before, after, belowOwnFloor: before.days - before.atFloor };
+}
+
 async function runProxy(cutover: string, rssUrl: string): Promise<number> {
-  console.log("No SUPABASE_SERVICE_ROLE_KEY — falling back to the public RSS proxy.\n");
+  console.log(
+    "No SUPABASE_SERVICE_ROLE_KEY — falling back to the public RSS proxy.\n",
+  );
 
   let xml: string;
   try {
     const res = await fetch(rssUrl, {
-      headers: { "user-agent": "gradethread-ops/1.0 (+content-parse-failure-report)" },
+      headers: {
+        "user-agent": "gradethread-ops/1.0 (+content-parse-failure-report)",
+      },
     });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     xml = await res.text();
@@ -270,7 +334,9 @@ async function runProxy(cutover: string, rssUrl: string): Promise<number> {
   for (const d of split.days) {
     const side = d.side === "before" ? "before" : "after ";
     console.log(
-      `  ${d.day}  ${String(d.posts).padStart(2)}  ${side}${d.partial ? "   (partial)" : ""}`,
+      `  ${d.day}  ${String(d.posts).padStart(2)}  ${side}${
+        d.partial ? "   (partial)" : ""
+      }`,
     );
   }
 
@@ -278,23 +344,48 @@ async function runProxy(cutover: string, rssUrl: string): Promise<number> {
   if (split.before.days > 0) {
     console.log(
       `  BEFORE ${cutover}: ${split.before.posts} posts over ${split.before.days} full days ` +
-        `= ${(split.before.posts / split.before.days).toFixed(2)}/day, best day ${split.before.best}`,
+        `= ${
+          (split.before.posts / split.before.days).toFixed(2)
+        }/day, best day ${split.before.best}`,
     );
   }
   if (split.after.days > 0) {
     console.log(
       `  AFTER  ${cutover}: ${split.after.posts} posts over ${split.after.days} full days ` +
-        `= ${(split.after.posts / split.after.days).toFixed(2)}/day, worst day ${split.after.worst}`,
+        `= ${
+          (split.after.posts / split.after.days).toFixed(2)
+        }/day, worst day ${split.after.worst}`,
     );
   }
 
+  const cadence = cadenceEvidence(split);
+  if (cadence.before.days > 0 && cadence.after.days > 0) {
+    console.log(`
+  CADENCE FLOOR — the same numbers, against the obvious objection.
+
+    The objection is that the engine did not get better, the operator just
+    RAISED post_cadence_per_day_blog on the day the fix deployed. Run the cap
+    backwards to bound it: the tick picks blog only while blogToday < cadence
+    (content-scheduler.ts:1119), so a day of N posts proves the cadence was at
+    least N that day.
+
+      BEFORE  cadence was >= ${cadence.before.floor}, reached on ${cadence.before.atFloor} of ${cadence.before.days} full days
+      AFTER   cadence was >= ${cadence.after.floor}, reached on ${cadence.after.atFloor} of ${cadence.after.days} full days
+
+    Raising a cap only adds output on days that were ALREADY PINNED to it, and
+    ${cadence.belowOwnFloor} of the ${cadence.before.days} before-days published fewer than the ${cadence.before.floor} the same window
+    proves was available to them. No cadence change explains those days. They
+    were not short of allowance. They were short of parseable replies.`);
+  }
+
   console.log(`
-  ⚠ WHAT THIS CANNOT TELL YOU. Throughput is a proxy. A scheduler saturating
-    its daily cadence every day is consistent with zero parse failures, but it
-    is also consistent with the operator having RAISED post_cadence_per_day_blog
-    on the same day the fix deployed. It cannot see social or refresh at all,
-    and it cannot produce the per-message counts AC7 asks for. Re-run with
-    SUPABASE_SERVICE_ROLE_KEY for the real answer.`);
+  ⚠ WHAT THIS STILL CANNOT TELL YOU. Throughput is a proxy. The floor above is
+    EVIDENCE, not proof: publishDueScheduledPosts promotes admin-scheduled
+    drafts on every tick regardless of cadence and a manual dashboard publish
+    is ungated, so a lone high day could be a person rather than a higher cap.
+    It also cannot see social or refresh at all, and it cannot produce the
+    per-message counts AC7 asks for. Re-run with SUPABASE_SERVICE_ROLE_KEY for
+    the real answer.`);
 
   return 0;
 }
@@ -317,7 +408,9 @@ async function fetchWindow(
       .lt("ran_at", untilIso)
       .order("ran_at", { ascending: true })
       .range(offset, offset + PAGE - 1);
-    if (error) throw new Error(`content_scheduler_runs read failed: ${error.message}`);
+    if (error) {
+      throw new Error(`content_scheduler_runs read failed: ${error.message}`);
+    }
     const page = (data ?? []) as SchedulerRun[];
     rows.push(...page);
     if (page.length < PAGE) break;
@@ -329,14 +422,22 @@ function printWindow(s: WindowSummary): void {
   const rate = s.runs > 0 ? ((s.errors / s.runs) * 100).toFixed(1) : "0.0";
   console.log(`${s.label}  ${s.from} .. ${s.until}`);
   console.log(`  runs ${s.runs}, errors ${s.errors} (${rate}%)`);
-  console.log(`  output-shape, retired wording : ${s.buckets.output_shape_retired}`);
-  console.log(`  output-shape, current wording : ${s.buckets.output_shape_current}`);
+  console.log(
+    `  output-shape, retired wording : ${s.buckets.output_shape_retired}`,
+  );
+  console.log(
+    `  output-shape, current wording : ${s.buckets.output_shape_current}`,
+  );
   console.log(`  max_tokens truncation         : ${s.buckets.max_tokens}`);
   console.log(`  everything else               : ${s.buckets.other}`);
   if (s.messages.length > 0) {
     console.log("  messages:");
     for (const m of s.messages.slice(0, 15)) {
-      console.log(`    ${String(m.count).padStart(4)}  [${m.bucket}]  ${m.text.slice(0, 120)}`);
+      console.log(
+        `    ${String(m.count).padStart(4)}  [${m.bucket}]  ${
+          m.text.slice(0, 120)
+        }`,
+      );
     }
   }
   console.log("");
@@ -357,7 +458,8 @@ async function main(): Promise<number> {
   const key = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
   // A placeholder from .env.example is not a credential. Treating it as one is
   // how a run reports "0 errors" because every read was refused.
-  const keyLooksReal = !!key && key.length > 40 && !/your-|placeholder|changeme/i.test(key);
+  const keyLooksReal = !!key && key.length > 40 &&
+    !/your-|placeholder|changeme/i.test(key);
 
   console.log("US-3151 — content scheduler output-shape failures\n");
 
@@ -375,7 +477,12 @@ async function main(): Promise<number> {
       cutover,
       await fetchWindow(client, beforeFrom, cutover),
     );
-    after = summarizeWindow("AFTER ", cutover, until, await fetchWindow(client, cutover, until));
+    after = summarizeWindow(
+      "AFTER ",
+      cutover,
+      until,
+      await fetchWindow(client, cutover, until),
+    );
   } catch (err) {
     console.error((err as Error).message);
     console.error(
@@ -394,24 +501,33 @@ async function main(): Promise<number> {
       `${RECORDED_BEFORE.outputShape} output-shape for the BEFORE window.\n`,
   );
 
-  const shapeAfter = after.buckets.output_shape_retired + after.buckets.output_shape_current;
+  const shapeAfter = after.buckets.output_shape_retired +
+    after.buckets.output_shape_current;
   if (after.runs === 0) {
     console.log("AC7: NOT MEASURABLE — the AFTER window holds no runs at all.");
     return 1;
   }
   if (shapeAfter > 0) {
-    console.log(`AC7: FAIL — ${shapeAfter} output-shape failures after ${cutover}.`);
+    console.log(
+      `AC7: FAIL — ${shapeAfter} output-shape failures after ${cutover}.`,
+    );
     return 1;
   }
-  console.log(`AC7: PASS — zero output-shape failures across ${after.runs} runs after ${cutover}.`);
+  console.log(
+    `AC7: PASS — zero output-shape failures across ${after.runs} runs after ${cutover}.`,
+  );
 
   const beforeRate = before.runs > 0 ? before.errors / before.runs : 0;
   const afterRate = after.errors / after.runs;
   console.log(
     afterRate <= beforeRate
-      ? `AC6: PASS — error rate ${(afterRate * 100).toFixed(1)}% is at or below ` +
+      ? `AC6: PASS — error rate ${
+        (afterRate * 100).toFixed(1)
+      }% is at or below ` +
         `the ${(beforeRate * 100).toFixed(1)}% before it.`
-      : `AC6: FAIL — error rate rose from ${(beforeRate * 100).toFixed(1)}% to ` +
+      : `AC6: FAIL — error rate rose from ${
+        (beforeRate * 100).toFixed(1)
+      }% to ` +
         `${(afterRate * 100).toFixed(1)}%.`,
   );
   return afterRate <= beforeRate ? 0 : 1;

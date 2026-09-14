@@ -173,8 +173,36 @@ more; it releases on the golden set.
 | macOS unavailable | a macOS session | US-1995 (iOS title-sync), most Android/iOS stories |
 | Counsel review not done | US-2114 | the entire US-2115…US-2125 compliance batch — **all P0/P1** |
 | No product screenshots | design assets | US-1949 AC1 |
-| No prod service-role key in any agent environment *(added 2026-09-13)* | run `deno run --allow-net --allow-env scripts/content-parse-failure-report.ts` from the edge dir with `SUPABASE_URL` + `SUPABASE_SERVICE_ROLE_KEY` set | **US-3151 AC6/AC7** — `content_scheduler_runs` is admin-read under RLS (00198), so an anon key returns `*/0` and reads as "no errors". The script prints the before/after counts the ACs ask for and exits non-zero if they fail |
+| No prod service-role key in any agent environment *(added 2026-09-13)* | run `deno run --allow-net --allow-env scripts/content-parse-failure-report.ts` from the edge dir with `SUPABASE_URL` + `SUPABASE_SERVICE_ROLE_KEY` set | **US-3151 AC6/AC7** — `content_scheduler_runs` is admin-read under RLS (00198), so an anon key returns `*/0` and reads as "no errors". The script prints the before/after counts the ACs ask for and exits non-zero if they fail. **Run it with no key first** — the credential-free half now answers more than "throughput went up" (see below) |
 | The grading shadow/eval/canary lane has never been run *(added 2026-09-13)* | `ANTHROPIC_API_KEY` + live traffic for `grading-shadow.ts` + a golden-set `runEval` pass, then canary and `invalidatePromptCache()` | **US-3150 AC5/AC6** (the `GRADING_SCHEMA_IN_SYSTEM` flag is landed but default-OFF and inert until the lane runs) and **US-3151 AC1/AC4** (two redundant "respond ONLY with valid JSON" lines in `ai-grading.ts` and the authenticity conversion) |
+
+### How much a blocked measurement can still answer (US-3151, 2026-09-13)
+
+Worth copying, because "blocked on a credential" was treated as "unmeasurable"
+here for three passes and it was not quite true.
+
+`content-parse-failure-report.ts` cannot read `content_scheduler_runs` without
+the key above, so it falls back to counting published posts per day out of the
+public RSS feed. That proxy carried an obvious objection in its own printout:
+throughput rising is *also* consistent with the operator having raised
+`post_cadence_per_day_blog` on the day the fix deployed.
+
+The same numbers bound that objection, with no credential. The scheduler picks
+the blog surface only while `blogToday < post_cadence_per_day_blog`
+(`content-scheduler.ts:1119`), so the cadence is a **ceiling** on a day's posts
+and never a floor — which means a day of N posts is evidence the cadence was at
+least N that day. Measured 2026-09-13: the before window proves a cadence of at
+least 3 and reached it on 4 of 13 full days; the after window pins at 4 on every
+full day. **Raising a cap only adds output on days that were already at the cap**,
+and 9 of the 13 before-days were below the one their own window proves was
+available. A cadence change cannot explain them.
+
+The generalisation: when a gate blocks the *direct* measurement, look for a
+quantity the system's own control logic bounds. A cap read backwards is a lower
+bound on the cap. It does not close AC6/AC7 — only the per-message counts do —
+but it is the difference between "we think it worked" and a number an objection
+has to get past. Caveat kept in the script: `publishDueScheduledPosts` and manual
+dashboard publishes are ungated, so a *lone* high day could be a person.
 
 ---
 

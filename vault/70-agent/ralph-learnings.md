@@ -543,6 +543,17 @@ which is not a vault note and had never been checked at all.
   re-picks the story every iteration; US-1997 cost three full runs that way.
   Never emit both tokens. Full contract: `scripts/ralph/CLAUDE.md`.
 
+- "Blocked on a credential" is rarely "unmeasurable". Before writing that a
+  number cannot be obtained, look for a quantity the system's own CONTROL LOGIC
+  bounds, and read the control backwards. US-3151 spent three passes unable to
+  read `content_scheduler_runs` (admin-RLS, no prod key), so it fell back to
+  counting published posts per day — and the caveat it printed, "this is also
+  consistent with the operator raising the cadence", turns out to be bounded by
+  the same numbers: the scheduler picks blog only while `blogToday < cadence`,
+  so a day of N posts PROVES the cadence was at least N. Raising a cap only adds
+  output on days already pinned to it, and 9 of 13 before-days were below the cap
+  their own window proves they had. Rule + the measurement:
+  [[blocked-work-gates]].
 - A story's `notes` can say "BLOCKED on US-XXXX" and be STALE — the blocker may
   have shipped in a run since. US-1912 sat three passes on "AC4 blocked on
   US-1849 (rewards engine not built)"; `rewards-engine.ts` + 00443/00538–00549
