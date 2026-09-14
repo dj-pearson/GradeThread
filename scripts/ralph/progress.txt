@@ -4591,3 +4591,9 @@ Branch: ralph/gradethread-build
 - Reason: Have the affected seller reconnect eBay in GradeThread, and restore the check environment so full verification can pass.
 - Cost: unavailable over 1 turns
 ---
+## US-3151: The content engine fails 45% of its runs on unparseable JSON, and structured outputs would make that impossible
+- Status: BLOCKED (needs a human)
+- Timestamp: 2026-09-14T03:02:16.970Z
+- Reason: Run verification in an unrestricted environment and provide live GradeThread access for the grading checks and scheduler report.
+- Cost: unavailable over 1 turns
+---
