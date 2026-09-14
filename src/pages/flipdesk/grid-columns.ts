@@ -37,7 +37,7 @@ const listing = (field: keyof GridListing, label: string, width = 170): GridCol 
 
 export const GRID_COLS: GridCol[] = [
   item("sku", "item_number", "SKU", 140),
-  item("title", "item_title", "Inventory title", 280),
+  { ...item("title", "item_title", "Inventory title", 280), required: true },
   { ...listing("listing_title", "Listing title", 320), required: true, maxLength: 80 },
   { ...listing("listing_price", "Listing price", 140), numeric: true, required: true },
   { ...listing("quantity", "Quantity", 110), numeric: true, integer: true, required: true },

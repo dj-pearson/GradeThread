@@ -209,7 +209,7 @@ export function FlipdeskGridPage() {
     listingError: row.listing_id && !listingQuery.data?.has(row.listing_id)
       ? (listingQuery.isLoading ? "Loading listing fields..." : "Listing fields could not load. Reload to try again.") : undefined,
   }));
-  const aspectNames = [...new Set([...COMMON_ASPECTS, ...pageRows.flatMap(row => Object.keys(row.listing?.item_specifics_override ?? {})), ...columnKeys.filter(key => key.startsWith("aspect.")).map(key => key.slice(7))])];
+  const aspectNames = [...new Set([...COMMON_ASPECTS, ...pageRows.flatMap(row => Object.keys(row.listing?.item_specifics_override ?? {})), ...[...columnKeys, ...[...staged.values()].flatMap(edits => Object.keys(edits))].filter(key => key.startsWith("aspect.")).map(key => key.slice(7))])];
   const allColumns = [...COLS, ...aspectNames.map(aspectColumn)];
   const selectedColumns = allColumns.filter(col => columnKeys.includes(col.key));
   const visibleColumns = selectedColumns.length ? selectedColumns : COLS.filter(col => DEFAULT_GRID_KEYS.includes(col.key));
@@ -240,7 +240,7 @@ export function FlipdeskGridPage() {
   // component state until Save all writes them, and the page already confirmed
   // before an explicit Discard while saying nothing when you simply navigated
   // away. Not blocked while saving -- the save clears the staged edits.
-  const guard = useNavigationGuard(dirtyCount > 0 && !saving);
+  const guard = useNavigationGuard(dirtyCount > 0);
 
   function cellValue(it: GridRow, col: GridCol): string {
     const s = staged.get(it.id);
@@ -260,7 +260,10 @@ export function FlipdeskGridPage() {
     log = true,
   ) {
     if (saving || cellLock(it, col)) return;
-    if (!originals.current.has(it.id)) originals.current.set(it.id, it);
+    if (!staged.has(it.id) || !originals.current.has(it.id)) originals.current.set(it.id, it);
+    else if (!originals.current.get(it.id)?.listing && it.listing) {
+      originals.current.set(it.id, { ...originals.current.get(it.id)!, listing: it.listing, listingError: undefined });
+    }
     const original = col.get(originals.current.get(it.id)!);
     setStaged((prev) => {
       const next = new Map(prev);
@@ -304,7 +307,7 @@ export function FlipdeskGridPage() {
   // Cmd/Ctrl-Z undo.
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "z") {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "z" && e.target instanceof HTMLElement && e.target.hasAttribute("data-grid-row")) {
         e.preventDefault();
         undo();
       }
@@ -368,7 +371,7 @@ export function FlipdeskGridPage() {
           const targetItem = pageRows[rowIdx + dr];
           const targetCol = visibleColumns[colIdx + dc];
           if (!targetItem || !targetCol || cellLock(targetItem, targetCol)) return;
-          if (!originals.current.has(targetItem.id)) originals.current.set(targetItem.id, targetItem);
+          if (!prev.has(targetItem.id) || !originals.current.has(targetItem.id)) originals.current.set(targetItem.id, targetItem);
           const original = targetCol.get(targetItem);
           const rec = { ...(next.get(targetItem.id) ?? {}) };
           logs.push({
@@ -472,7 +475,7 @@ export function FlipdeskGridPage() {
     const errors: { message: string }[] = [];
     let savedCount = 0;
 
-    // US-1995: this grid edits Brand, Style and Size directly, so the listing
+    // US-1995: this grid edits Brand, Style, Size and Color directly, so the listing
     // TITLE has to follow — a seller who fixes a brand across twenty rows here
     // otherwise gets twenty titles still naming the old one.
     //
@@ -484,30 +487,36 @@ export function FlipdeskGridPage() {
     // (vault/20-domain/sync-source-of-truth.md), and without the column the only
     // safe default would be to skip every row.
     const syncCandidates = Array.from(staged.entries())
-      .filter(([, rec]) => TITLE_SYNC_COLS.some((f) => f in rec))
-      .map(([id]) => id);
+      .filter(([, rec]) => !("listing.listing_title" in rec) && TITLE_SYNC_COLS.some((f) => f in rec))
+      .flatMap(([id]) => originals.current.get(id)?.listing_id ? [originals.current.get(id)!.listing_id!] : []);
     const listingByItem = new Map<string, TitleSyncListing>();
     // US-3376: how many listing titles could NOT be made to follow, and the
     // first reason. Counted separately from `errors` because the row itself
     // saved: these are two different things to tell the seller.
     let titleSyncFailed = 0;
     let titleSyncError: unknown = null;
-    if (syncCandidates.length > 0) {
+    for (let start = 0; start < syncCandidates.length; start += 75) {
+      const candidates = syncCandidates.slice(start, start + 75);
+      try {
       const { data: lst, error: lstErr } = await supabase
         .from("listings")
         .select(
           "id, inventory_item_id, listing_title, title_variants, listing_origin, ai_generated_snapshot",
         )
-        .in("inventory_item_id", syncCandidates);
+        .in("id", candidates);
       // A dropped read here is the worst version of this bug: the map comes back
       // empty, every syncListingTitle call returns early on `!lst`, and NO title
       // follows anywhere while the save reports a clean success.
       if (lstErr) {
         titleSyncError = lstErr;
-        titleSyncFailed = syncCandidates.length;
+        titleSyncFailed += candidates.length;
       }
       for (const row of (lst ?? []) as TitleSyncListing[]) {
         if (row.inventory_item_id) listingByItem.set(row.inventory_item_id, row);
+      }
+      } catch (error) {
+        titleSyncError ??= error;
+        titleSyncFailed += candidates.length;
       }
     }
 
@@ -523,7 +532,7 @@ export function FlipdeskGridPage() {
         for (const [field, value] of Object.entries(rec)) {
           const col = allColumns.find(candidate => candidate.field === field);
           if (!col) throw new Error("A column is no longer available.");
-          const invalid = validateGridValue(col, value, { ...original, floor_price: rec.floor_price ? Number(rec.floor_price) : original.floor_price });
+          const invalid = validateGridValue(col, value, { ...original, floor_price: "floor_price" in rec ? (rec.floor_price.trim() ? Number(rec.floor_price) : null) : original.floor_price });
           if (invalid) throw new Error(`${col.label}: ${invalid}`);
           if (isListingColumn(col)) listingEdits[field] = value;
           else itemPatch[field] = value.trim() === "" ? null : col.numeric ? Number(value) : value;
@@ -583,7 +592,7 @@ export function FlipdeskGridPage() {
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="space-y-3">
           <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-brand-navy text-white">
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-brand-navy text-white">
               <Grid3x3 className="h-5 w-5" />
             </div>
             <div>

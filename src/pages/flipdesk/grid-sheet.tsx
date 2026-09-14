@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { useEbayPolicies } from "@/hooks/use-ebay";
 import { cn } from "@/lib/utils";
+import { deriveListingOrigin } from "@/lib/listing-origin";
 import { cellLock, DEFAULT_GRID_KEYS, GRID_GROUPS, INVENTORY_GRID_KEYS, validateGridValue, type GridCol, type GridRow } from "./grid-columns";
 
 type CellElement = HTMLInputElement | HTMLSelectElement;
@@ -35,6 +36,9 @@ export function GridSheet(props: Props) {
   const [pickerOpen, setPickerOpen] = useState(false);
   const [columnSearch, setColumnSearch] = useState("");
   const [compact, setCompact] = useState(false);
+  const [fillOpen, setFillOpen] = useState(false);
+  const [fillKey, setFillKey] = useState("");
+  const [fillValue, setFillValue] = useState("");
   const scrollRef = useRef<HTMLDivElement>(null);
   const topScrollRef = useRef<HTMLDivElement>(null);
   const showRows = layout ? layout === "rows" : mobile;
@@ -43,6 +47,10 @@ export function GridSheet(props: Props) {
   const identityWidth = mobile ? 132 : compact ? 160 : 200;
   const colWidth = (col: GridCol) => Math.round(col.width * (compact ? 0.8 : 1));
   const tableWidth = identityWidth + columns.reduce((sum, col) => sum + colWidth(col), 0);
+  const importedCount = rows.filter(row => row.listing && deriveListingOrigin(row.listing) === "ebay").length;
+  const fillColumn = columns.find(col => col.key === fillKey) ?? columns[0];
+  const fillRows = fillColumn ? rows.filter(row => !cellLock(row, fillColumn)) : [];
+  const fillError = fillColumn ? fillRows.map(row => validateGridValue(fillColumn, fillValue, row)).find(Boolean) : null;
 
   useEffect(() => { setRowIndex(0); }, [pageStart]);
 
@@ -102,6 +110,7 @@ export function GridSheet(props: Props) {
     <div className="flex flex-wrap items-center justify-between gap-2 border-b px-3 py-2">
       <div className="flex flex-wrap items-center gap-2">
         <Button variant="outline" size="sm" disabled={saving} onClick={() => setPickerOpen(true)}><Columns3 className="mr-2 h-4 w-4" />Columns ({columns.length}/{allColumns.length})</Button>
+        <Button variant="outline" size="sm" disabled={saving} onClick={() => { setFillValue(""); setFillOpen(true); }}>Fill column</Button>
         <Button variant="ghost" size="sm" aria-pressed={!showRows} onClick={() => setLayout("sheet")}><Table2 className="mr-2 h-4 w-4" />Spreadsheet</Button>
         <Button variant="ghost" size="sm" aria-pressed={showRows} onClick={() => setLayout("rows")}><List className="mr-2 h-4 w-4" />One item</Button>
       </div>
@@ -115,6 +124,7 @@ export function GridSheet(props: Props) {
       {showRows ? "Edit the fields below, then move to the next item. Your changes stay until you save." : "Scroll sideways or use the arrows for more columns. Item names stay pinned. Tab moves between cells; Enter moves down."}
       {columns.some(col => col.group === "Item specifics") && " Separate multiple specific values with a semicolon."}
     </p>
+    {importedCount > 0 && <p className="px-3 pb-2 text-xs text-muted-foreground">{importedCount} imported eBay listings have read-only listing fields. Their inventory fields can still be edited here.</p>}
     {policies.isError && columns.some(col => col.policy) && <p role="alert" className="px-3 pb-2 text-sm text-destructive">Policies could not load. <button className="underline" onClick={() => void policies.refetch()}>Retry policies</button></p>}
     {showRows && activeRow ? <div className="px-3 pb-4">
       <div className="sticky top-0 z-10 mb-4 flex items-center justify-between gap-3 border-y bg-background py-3">
@@ -166,6 +176,24 @@ export function GridSheet(props: Props) {
         })}
         {!allColumns.some(col => col.label.toLowerCase().includes(columnSearch.toLowerCase())) && <p className="text-sm text-muted-foreground">No columns match that search.</p>}
         <Button onClick={() => setPickerOpen(false)}>Done</Button>
+      </DialogContent>
+    </Dialog>
+    <Dialog open={fillOpen} onOpenChange={setFillOpen}>
+      <DialogContent>
+        <DialogHeader><DialogTitle>Fill a column on this page</DialogTitle><DialogDescription>Apply one value to {fillRows.length} editable items on this page. {rows.length - fillRows.length} locked items will be skipped. Review and save afterwards.</DialogDescription></DialogHeader>
+        <label className="space-y-1 text-sm">Column<select aria-label="Column to fill" value={fillColumn?.key ?? ""} onChange={event => { setFillKey(event.target.value); setFillValue(""); }} className="block h-11 w-full rounded-md border bg-background px-3">{columns.map(col => <option key={col.key} value={col.key}>{col.label}</option>)}</select></label>
+        <label className="space-y-1 text-sm">New value
+          {fillColumn?.options || fillColumn?.policy ? <select aria-label="Fill value" value={fillValue} onChange={event => setFillValue(event.target.value)} className="block h-11 w-full rounded-md border bg-background px-3">
+            <option value="">Choose a value</option>
+            {(fillColumn.options ?? (policies.data?.policies ?? []).filter(policy => policy.policy_type === fillColumn.policy).map(policy => ({ value: policy.policy_id, label: policy.policy_name }))).map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
+          </select> : <input aria-label="Fill value" value={fillValue} onChange={event => setFillValue(event.target.value)} inputMode={fillColumn?.numeric ? "decimal" : "text"} className="block h-11 w-full rounded-md border bg-background px-3" />}
+        </label>
+        {fillError && <p role="alert" className="text-sm text-destructive">{fillError}</p>}
+        <Button disabled={!fillColumn || !fillRows.length || !!fillError} onClick={() => {
+          if (!fillColumn) return;
+          fillRows.forEach(row => onChange(row, fillColumn, fillValue));
+          setFillOpen(false);
+        }}>Apply to {fillRows.length} items</Button>
       </DialogContent>
     </Dialog>
   </section>;

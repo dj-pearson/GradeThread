@@ -28,22 +28,22 @@ async function mount(path: string) {
 
 describe("remembered Inventory view", () => {
   it("keeps view settings without replaying a search, page or action", () => {
-    const params = new URLSearchParams("mode=grid&sort=added_desc&tab=active&size=50&q=private&page=8&view=old&delist=1");
-    expect(inventoryViewSearch(params)).toBe("mode=grid&sort=added_desc&tab=active&size=50");
+    const params = new URLSearchParams("mode=grid&sort=newest&tab=active&size=50&q=private&page=8&view=old&delist=1");
+    expect(inventoryViewSearch(params)).toBe("mode=grid&sort=newest&tab=active&size=50");
     writeInventoryView(inventoryViewKey("one", "shop"), params);
     expect(readInventoryView(inventoryViewKey("two", "shop"))).toBe("");
     expect(readInventoryView(inventoryViewKey("one", "other"))).toBe("");
   });
   it("restores the last sort when returning through a bare Inventory link", async () => {
-    const router = await mount("/dashboard/flipdesk/inventory?sort=added_desc&tab=active");
+    const router = await mount("/dashboard/flipdesk/inventory?sort=newest&tab=active");
     await act(async () => { await router.navigate("/away"); });
     await act(async () => { await router.navigate("/dashboard/flipdesk/inventory"); });
     await settle();
-    expect(router.state.location.search).toBe("?sort=added_desc&tab=active");
+    expect(router.state.location.search).toBe("?sort=newest&tab=active");
     expect(host.textContent).toContain("Table view");
   });
   it("honors an explicit link instead of merging a previous grid/filter into it", async () => {
-    writeInventoryView(inventoryViewKey("seller", "shop"), new URLSearchParams("mode=grid&sort=added_desc&filter=old"));
+    writeInventoryView(inventoryViewKey("seller", "shop"), new URLSearchParams("mode=grid&sort=newest&filter=old"));
     const router = await mount("/dashboard/flipdesk/inventory?tab=sold");
     expect(router.state.location.search).toBe("?tab=sold");
     expect(host.textContent).toContain("Table view");
