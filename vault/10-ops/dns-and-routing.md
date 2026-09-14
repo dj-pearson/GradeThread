@@ -6,12 +6,23 @@ source_of_truth: code
 code_refs:
   - services/edge-functions/src/main.ts
   - scripts/ops/edge-watchdog.sh
-reviewed: 2026-09-11
+reviewed: 2026-09-14
 tags: [ops, dns, edge, routing]
 summary: Two hostnames serve two different systems; calling an app route on the Supabase host 404s silently.
 ---
 
 # DNS and routing
+
+> **Re-reviewed 2026-09-14.** Drift flagged `main.ts` for US-3413. The diff
+> is two lines plus an import: `app.post("/api/jobs/ebay-payout-link", ...)`,
+> the same shape as the extension-queue-stale route the 2026-09-11 entry
+> below already walks through. It is a Hono route, so it lives on
+> `functions.gradethread.com` and 404s on `api.gradethread.com` like every
+> other `/api/*`. Re-verified the claim rather than the line numbers:
+> `main.ts` now mounts 87 top-level routes and **every one is under `/api/`**,
+> which this note's split assigns to the edge service (counted with
+> `grep -o 'app\.\(get\|post\|put\|patch\|delete\)("/[^"]*"'`, then filtered
+> for any path not starting `/api/`: none). Still accurate.
 
 > **Re-reviewed 2026-09-11.** Drift flagged `main.ts` for `f889dd66a`
 > (US-3198). The whole diff is THREE lines: an import, a comment, and
