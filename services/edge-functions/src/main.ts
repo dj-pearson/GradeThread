@@ -226,6 +226,7 @@ import { handleMarketplaceEventsCron } from "./routes/jobs-marketplace-events.ts
 import { handleEbayOrderBackstopCron } from "./routes/jobs-ebay-order-backstop.ts";
 import { handlePhotoArchiveCron } from "./routes/jobs-photo-archive.ts";
 import { handleReconciliationSweepCron } from "./routes/jobs-reconciliation-sweep.ts";
+import { handleEbayPayoutLinkCron } from "./routes/jobs-ebay-payout-link.ts";
 import { handleEbayNotificationReconcileCron } from "./routes/jobs-ebay-notification-reconcile.ts";
 import { handleEbayRateLimitsCron } from "./routes/jobs-ebay-rate-limits.ts";
 import { handleEbayRetentionCron } from "./routes/jobs-ebay-retention.ts";
@@ -1916,6 +1917,8 @@ app.post("/api/jobs/photo-archive", (c) => handlePhotoArchiveCron(c));
 // US-2617: the nightly payout reconciliation sweep, and the last of the three
 // crons US-2310 found unreachable. Same shape and same reason as the one above.
 app.post("/api/jobs/reconciliation-sweep", (c) => handleReconciliationSweepCron(c));
+// US-3413: fills sales.payout_reference the sync could not know yet.
+app.post("/api/jobs/ebay-payout-link", (c) => handleEbayPayoutLinkCron(c));
 // US-308/US-309 admin SEO endpoints. /summary + /gsc/sync are admin JWT
 // gated by the /api/admin/* middleware groups above.
 app.route("/api/admin/seo", adminSeoRoutes);

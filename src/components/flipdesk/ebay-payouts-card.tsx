@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Banknote, ChevronDown, ChevronRight } from "lucide-react";
+import { Banknote, ChevronDown, ChevronRight, Download } from "lucide-react";
 import {
   Card,
   CardContent,
@@ -8,11 +8,10 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import {
-  useEbayConnection,
-  useEbayPayouts,
-  useEbayPayoutSales,
-} from "@/hooks/use-ebay";
+import { Button } from "@/components/ui/button";
+import { useEbayConnection, useEbayPayouts } from "@/hooks/use-ebay";
+import { usePayoutBreakdown } from "@/hooks/use-payout-breakdown";
+import { payoutBreakdownCsv } from "@/lib/payout-breakdown";
 
 // US-1446: eBay payouts pulled live from the Finances API — the lump-sum bank
 // deposits resellers actually reconcile against (vs the manual CSV import
@@ -37,27 +36,153 @@ function fmtDate(iso: string | null): string {
   return Number.isNaN(t) ? "—" : new Date(t).toLocaleDateString();
 }
 
-// US-1446 AC2: expanded payout → its constituent sales → net.
-function PayoutSales({ payoutId }: { payoutId: string }) {
-  const { data, isLoading } = useEbayPayoutSales(payoutId);
+function usd(n: number): string {
+  return `$${n.toFixed(2)}`;
+}
+
+// US-3413: the payout BREAKDOWN, replacing US-1446's one-line summary.
+//
+// The old panel said "12 sales settled, net $326.62" and stopped, which answers
+// a question nobody asks: the seller already knows what the bank paid, because
+// the bank told them. What they cannot see anywhere else is which items were in
+// the deposit and who sourced each one.
+//
+// Money comes from sale_pnl through lib/payout-breakdown.ts and is not
+// recomputed here. Per-sourcer is first because that is the question this
+// report exists for; the item table under it is the evidence.
+function PayoutBreakdownPanel({ payoutId }: { payoutId: string }) {
+  const { data, isLoading, error } = usePayoutBreakdown(payoutId);
+
   if (isLoading) {
-    return <p className="py-1 text-xs text-muted-foreground">Loading sales…</p>;
+    return <p className="py-1 text-xs text-muted-foreground">Loading breakdown…</p>;
   }
-  if (!data || data.sales.length === 0) {
+  if (error) {
     return (
       <p className="py-1 text-xs text-muted-foreground">
-        No matched sales for this payout yet (sync sales to link them).
+        Could not load the items for this payout.
       </p>
     );
   }
+  if (!data || data.items.length === 0) {
+    // Said plainly rather than shown as an empty table. A deposit with no
+    // linked items is the normal state for a few days after it settles: the
+    // nightly ebay-payout-link pass is what attaches them.
+    return (
+      <p className="py-1 text-xs text-muted-foreground">
+        No items linked to this payout yet. The nightly payout-link pass
+        attaches them once eBay reports which sales it settled.
+      </p>
+    );
+  }
+
+  const onExport = () => {
+    const blob = new Blob([payoutBreakdownCsv(data)], {
+      type: "text/csv;charset=utf-8",
+    });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `payout-${payoutId}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const itemWord = data.totals.items === 1 ? "item" : "items";
+
   return (
-    <div className="rounded-md bg-muted/40 p-2 text-xs">
-      <div className="mb-1 flex justify-between font-medium">
-        <span>
-          {data.sales.length} sale{data.sales.length === 1 ? "" : "s"} settled
+    <div className="space-y-3 rounded-md bg-muted/40 p-3 text-xs">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <span className="font-medium">
+          {data.totals.items} {itemWord} settled · net {usd(data.totals.net)}
         </span>
-        <span className="tabular-nums">Net ${data.net.toFixed(2)}</span>
+        <Button variant="ghost" size="sm" className="h-7 gap-1" onClick={onExport}>
+          <Download className="h-3.5 w-3.5" />
+          CSV
+        </Button>
       </div>
+
+      {/* Per person. Rendered even when there is only one, so a solo seller
+          sees the same shape as a shop and nothing reads as conditional. */}
+      <div className="overflow-x-auto">
+        <table className="w-full min-w-[22rem] border-collapse">
+          <thead>
+            <tr className="text-left text-muted-foreground">
+              <th className="py-1 pr-3 font-medium">Sourced by</th>
+              <th className="py-1 pr-3 text-right font-medium">Items</th>
+              <th className="py-1 pr-3 text-right font-medium">Revenue</th>
+              <th className="py-1 pr-3 text-right font-medium">Fees</th>
+              <th className="py-1 pr-3 text-right font-medium">Cost</th>
+              <th className="py-1 text-right font-medium">Net</th>
+            </tr>
+          </thead>
+          <tbody>
+            {data.bySourcer.map((r) => (
+              <tr key={r.key} className="border-t border-border/60">
+                <td className="py-1 pr-3 font-medium">{r.person}</td>
+                <td className="py-1 pr-3 text-right tabular-nums">{r.items}</td>
+                <td className="py-1 pr-3 text-right tabular-nums">{usd(r.revenue)}</td>
+                <td className="py-1 pr-3 text-right tabular-nums">{usd(r.fees)}</td>
+                <td className="py-1 pr-3 text-right tabular-nums">{usd(r.costBasis)}</td>
+                <td className="py-1 text-right font-medium tabular-nums">
+                  {usd(r.net)}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      <details>
+        <summary className="cursor-pointer text-muted-foreground">
+          Show the {data.totals.items} {itemWord}
+        </summary>
+        <div className="mt-2 overflow-x-auto">
+          <table className="w-full min-w-[30rem] border-collapse">
+            <thead>
+              <tr className="text-left text-muted-foreground">
+                <th className="py-1 pr-3 font-medium">Item</th>
+                <th className="py-1 pr-3 font-medium">Sourced by</th>
+                <th className="py-1 pr-3 text-right font-medium">Revenue</th>
+                <th className="py-1 pr-3 text-right font-medium">Fees</th>
+                <th className="py-1 pr-3 text-right font-medium">Cost</th>
+                <th className="py-1 text-right font-medium">Net</th>
+              </tr>
+            </thead>
+            <tbody>
+              {data.items.map((it) => (
+                <tr key={it.saleId} className="border-t border-border/60">
+                  <td className="py-1 pr-3">
+                    <div className="max-w-[18rem] truncate">{it.title}</div>
+                    {it.sku && <div className="text-muted-foreground">{it.sku}</div>}
+                  </td>
+                  <td className="py-1 pr-3">{it.sourcer}</td>
+                  <td className="py-1 pr-3 text-right tabular-nums">
+                    {usd(it.revenue)}
+                  </td>
+                  <td className="py-1 pr-3 text-right tabular-nums">{usd(it.fees)}</td>
+                  <td className="py-1 pr-3 text-right tabular-nums">
+                    {usd(it.costBasis)}
+                  </td>
+                  <td className="py-1 text-right tabular-nums">{usd(it.net)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </details>
+
+      {/* Two numbers, shown as two numbers. Net is profit on the COMPLETED
+          sales in this deposit; the deposit also settles refunds, shipping
+          labels and adjustments, which are not sales and are not in sale_pnl.
+          Making them agree in code would be inventing a reconciliation nobody
+          has done. */}
+      {data.headerAmount != null && (
+        <p className="text-muted-foreground">
+          eBay deposited {usd(data.headerAmount)}. Net above is profit on the
+          completed sales it settled, so the two differ by refunds, shipping
+          labels and adjustments.
+        </p>
+      )}
     </div>
   );
 }
@@ -79,7 +204,7 @@ export function EbayPayoutsCard() {
         </CardTitle>
         <CardDescription>
           Bank deposits from eBay Managed Payments (last 90 days), pulled live —
-          reconcile against the payout that actually hit your bank.
+          open one to see the items it settled and what each sourcer earned.
         </CardDescription>
       </CardHeader>
       <CardContent>
@@ -130,7 +255,7 @@ export function EbayPayoutsCard() {
                   </button>
                   {isOpen && (
                     <div className="mt-2 pl-6">
-                      <PayoutSales payoutId={p.payoutId} />
+                      <PayoutBreakdownPanel payoutId={p.payoutId} />
                     </div>
                   )}
                 </li>

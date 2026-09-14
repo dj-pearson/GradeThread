@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-3413",
+  "nextId": "US-3414",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -4872,6 +4872,21 @@
         "The /condition-index/:slug description states the real grade-8 price when the curve has one, falling back to the old wording when it does not",
         "OPERATOR: apply the blog_posts seo_title/seo_description update to prod (10 rows) - blog metadata lives in the DB, not the repo",
         "Re-measure CTR on the affected pages in Search Console 28 days after the deploy and record the before/after in a note"
+      ],
+      "priority": 2
+    },
+    {
+      "id": "US-3413",
+      "passes": false,
+      "title": "Payout breakdown report: what each eBay deposit paid, per item and per sourcer",
+      "description": "Measured on prod 2026-09-14: 4 eBay payouts are stored ($2,236.20, 2026-06-19 to 2026-09-01) but only 84 of 228 sales carry a payout_reference, and the coverage is collapsing - September 0 of 12, August 4 of 29, June 0 of 27. Two of the four stored payouts link to zero sales; the September one settled 68 transactions and matches nothing. Cause: payout_reference is only written during the eBay sync's finances enrichment, which reads the window since the last sync cursor. eBay settles a payout days after the sale, so by the time the payoutId exists the cursor has moved past that order and nothing goes back. The nightly reconciliation-sweep does not cover this path - it works payout_imports (the CSV route) only. Sourcing attribution is in good shape by contrast (Tiff 164 sales / $7,955.19, Dan 52 / $1,841.12, 12 unassigned), and sale_pnl already carries sourcer_name/sourcer_key alongside revenue, fees, costs, cost_basis and net. What is missing is payout as a dimension and a report that reads it. Deliver: a backfill-and-nightly pass that fills the missing references, payout_id and payout_date on sale_pnl, and a Payout breakdown report that expands one deposit into its items with per-sourcer subtotals.",
+      "acceptanceCriteria": [
+        "a reusable linkPayoutsForOwner(ownerId, days) upserts ebay_payouts headers and fills sales.payout_reference ONLY where it is currently null, every query scoped .eq user_id ownerId",
+        "a nightly cron at /api/jobs/ebay-payout-link runs it across owners with an eBay connection, is registered in CRON_REGISTRY with a healthy-response description, and is recorded in cron_runs",
+        "sale_pnl carries payout_id and payout_date so payout is a grouping key beside sourcer, source, brand and category; the existing net-profit arithmetic is untouched and check-sale-pnl-invariant still passes",
+        "GET /api/flipdesk/ebay/finances/payouts/:payoutId/breakdown returns each settled item with title, sku, sourcer, cost basis, fees and net, plus per-sourcer subtotals and a payout total, and has a tenant-isolation_test.ts case proving a foreign payout id returns no rows",
+        "the Reconciliation page expands a payout into that table, shows the per-sourcer subtotals, and says plainly when a payout has no linked sales yet rather than rendering an empty table",
+        "the report never re-derives net profit: money comes from sale_pnl, the same source the finances dashboard and the team scorecard read"
       ],
       "priority": 2
     }

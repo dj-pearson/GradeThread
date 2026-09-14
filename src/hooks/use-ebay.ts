@@ -415,38 +415,12 @@ export function useEbayPayouts(enabled = true) {
   });
 }
 
-// US-1446 chunk 2: a payout's constituent sales + net (payout -> transactions
-// -> net). Fetched on demand when a payout row is expanded.
-export interface EbayPayoutSale {
-  id: string;
-  inventory_item_id: string | null;
-  sale_price: number | null;
-  platform_fees: number | null;
-  payout_amount: number | null;
-  sold_at: string | null;
-}
-export interface EbayPayoutSalesResponse {
-  sales: EbayPayoutSale[];
-  net: number;
-}
-export function useEbayPayoutSales(payoutId: string | null) {
-  return useQuery({
-    queryKey: ["ebay_payout_sales", payoutId],
-    enabled: !!payoutId,
-    staleTime: 10 * 60_000,
-    queryFn: async (): Promise<EbayPayoutSalesResponse> => {
-      const res = await fetch(
-        `${edgeApiUrl()}/api/flipdesk/ebay/finances/payouts/${encodeURIComponent(payoutId!)}/sales`,
-        { headers: await ebayHeaders() },
-      );
-      const json = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        throw new Error(json.error || "Could not load payout details.");
-      }
-      return json as EbayPayoutSalesResponse;
-    },
-  });
-}
+// US-3413: the payout's constituent sales used to be fetched here, from
+// /finances/payouts/:id/sales. It is now a direct sale_pnl read in
+// lib/payout-breakdown.ts, so the per-item money comes from the same view the
+// finances dashboard and the team scorecard use rather than from a second
+// derivation over the sales table. The edge route still exists and is still
+// correct; nothing in the app calls it.
 
 // US-1475: eBay Catalog (EPID) product match for an item — candidates + the top
 // product's authoritative aspects.

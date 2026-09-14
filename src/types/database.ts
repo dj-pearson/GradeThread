@@ -1821,6 +1821,17 @@ export interface SalePnlRow {
   source_key: string;
   brand_key: string;
   category_key: string;
+  /**
+   * US-3413: the eBay payoutId this sale settled in, or null until the deposit
+   * settles and the nightly link pass finds it. `sales.payout_reference`.
+   */
+  payout_id: string | null;
+  /**
+   * The deposit date, from ebay_payouts. Null when we hold the reference but
+   * not the header — a real state, since references come from the sync and
+   * headers only arrive when the payouts endpoint is read.
+   */
+  payout_date: string | null;
   revenue: number | string;
   fees: number | string;
   costs: number | string;

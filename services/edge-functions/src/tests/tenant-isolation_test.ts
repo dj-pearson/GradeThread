@@ -1945,6 +1945,76 @@ Deno.test({
   },
 });
 
+// US-3413: the payout-link pass walks every owner with an active eBay
+// connection and WRITES sales.payout_reference across the fleet. Owner ids come
+// from marketplace_connections rows and never from the request, so as with the
+// sweep above the job secret is the only gate between a signed-in user and a
+// fleet-wide write into other tenants' books.
+Deno.test({
+  name: "ebay-payout-link job rejects a user JWT (must use job secret)",
+  ignore: !CONFIGURED,
+  fn: async () => {
+    const res = await fetch(`${BASE}/api/jobs/ebay-payout-link`, {
+      method: "POST",
+      headers: authHeaders(A_JWT!),
+    });
+    const status = res.status;
+    await res.body?.cancel();
+    assert(
+      status === 401,
+      `POST /jobs/ebay-payout-link with a user JWT should 401 (no job secret), got ${status}`,
+    );
+  },
+});
+
+Deno.test({
+  name: "ebay-payout-link job rejects a bogus X-Internal-Job-Secret",
+  ignore: !BASE,
+  fn: async () => {
+    const res = await fetch(`${BASE}/api/jobs/ebay-payout-link`, {
+      method: "POST",
+      headers: {
+        "X-Internal-Job-Secret": "wrong-secret-value",
+        "Content-Type": "application/json",
+      },
+    });
+    const status = res.status;
+    await res.body?.cancel();
+    assert(
+      status === 401,
+      `POST /jobs/ebay-payout-link with a bogus job secret should 401, got ${status}`,
+    );
+  },
+});
+
+// The write itself, pinned at the source. The fleet cases above prove nobody
+// unauthorised can START the pass; this proves that when it runs, the sales
+// update carries the owner scope rather than relying on the id it just
+// selected. US-268: the scope travels with the statement.
+Deno.test("ebay-payout-link scopes its sales write by owner", async () => {
+  const src = await Deno.readTextFile(
+    new URL("../lib/ebay-payout-link.ts", import.meta.url),
+  );
+  const at = src.indexOf('.update({ payout_reference: payoutId }');
+  assert(at > 0, "the payout_reference update site moved; re-point this guard");
+  const window = src.slice(at, at + 400);
+  assert(window.includes('.eq("user_id", ownerId)'), "update is not owner-scoped");
+  assert(
+    window.includes('.is("payout_reference", null)'),
+    "update must only ever FILL a reference, never overwrite one",
+  );
+  // The read is scoped too, or the write is keyed on rows selected from
+  // another tenant. Every .from("sales") in the file must reach an owner
+  // filter within the statement, so a new query cannot be added unscoped.
+  for (const idx of [...src.matchAll(/\.from\("sales"\)/g)].map((m) => m.index!)) {
+    const statement = src.slice(idx, idx + 400);
+    assert(
+      statement.includes('.eq("user_id", ownerId)'),
+      `an unscoped .from("sales") at offset ${idx}`,
+    );
+  }
+});
+
 // US-2272: the credential-refresh cron sweeps EVERY verified seller's live eBay
 // listings and revises their descriptions. It resolves the tenant from each row
 // (users → that seller's own listings, scoped by user_id) and takes no ids from
