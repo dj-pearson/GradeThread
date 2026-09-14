@@ -4567,3 +4567,9 @@ Branch: ralph/gradethread-build
 - Reason: merge `held-v3/us-3256-00797`, apply migration 00797 to prod, and read the `cogs_labor` row back to confirm it says "Labor that went into the goods".
 - Cost: $1.7927 over 3 turns
 ---
+## US-3308: Main CI has failed every run for days, and one skipped npm ci made every other check lie
+- Status: BLOCKED (needs a human)
+- Timestamp: 2026-09-14T01:30:19.062Z
+- Reason: Decide whether to add @testing-library/react and fund component tests, or lower the four coverage floors — CI cannot go green until one of those happens.
+- Cost: $13.7755 over 138 turns
+---
