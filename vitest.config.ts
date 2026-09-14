@@ -137,6 +137,36 @@ export default defineConfig({
     // would pass today. It is left at 56 deliberately: 0.02 of margin is not a
     // ratchet, it is a tripwire, and the next test that imports a new module
     // puts CI back where it was for the four red runs this story exists to fix.
+    // ── ALL FOUR ARE BREACHED ON MAIN, and this is NOT a floor change ────
+    //
+    // Measured 2026-09-13 (US-3308) on a clean local run, 823 files and 10,190
+    // tests passing with nothing failing: statements 56.88, branches 50.00,
+    // functions 52.08, lines 57.93. CI run 34769726043 on main reports
+    // 56.87 / 49.98 / 52.03 / 57.92 — the same numbers, so this is main's
+    // condition and not anyone's diff.
+    //
+    // The floors are LEFT WHERE THEY ARE on purpose. Lowering four ratchets by
+    // 4-5 points each to clear a red lane is the owner's call, not a side
+    // effect of the story that happened to notice, and it would give away every
+    // ratchet at once rather than the one-floor-at-a-time discipline the three
+    // notes above were careful to keep.
+    //
+    // Where the gap actually is, since "write more tests" has already been
+    // tried and measured to move the ratio the WRONG way. The twenty largest
+    // uncovered files are React components and hooks, led by
+    // src/pages/flipdesk/composer.tsx (1,010 of its 1,018 statements uncovered,
+    // 2.7% of the whole denominator on its own), src/hooks/use-ebay.ts (801 of
+    // 844) and the flipdesk component tree behind them. That is precisely the
+    // surface the 2026-09-06 note above says this repo currently cannot test,
+    // and it names the unblock: the repo deliberately carries no
+    // @testing-library/react and the convention is renderToStaticMarkup.
+    //
+    // So closing roughly 1,500 statements of gap is one decision, not a
+    // backlog of small ones, and it is the same decision that note asked for.
+    // Until it is made, `Test (with coverage)` is red on main for a reason that
+    // is real, known, and not a regression — which is the exact state US-3308
+    // exists to stop being invisible, so: it is written here, where the next
+    // person to read a red coverage step will look.
     // A floor is meant to sit BELOW current and catch a deletion.
     coverage: {
       provider: "v8",
