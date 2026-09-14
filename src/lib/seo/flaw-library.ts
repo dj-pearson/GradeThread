@@ -523,9 +523,9 @@ export const FLAW_ENTRIES: FlawEntry[] = [
     slug: "seam-stress",
     name: "Seam stress",
     alternateNames: ["seam slippage", "blown seams", "open seams"],
-    title: "How to Fix a Split or Stressed Seam",
+    title: "Split Seam: What Resews, What Doesn't",
     description:
-      "Where a seam failed decides whether it resews. The interfacing step that stops a repair tearing again, and the allowance that means it will not hold.",
+      "A blown seam is either fixable or it is not, and the seam allowance decides. How to check yours, and what a stressed shoulder or crotch seam does to the grade.",
     h1: "Seam stress and blown seams",
     definition:
       "Seam stress is the strain, slippage, or bursting of a garment's stitched joins, where threads pull open and let daylight show through the seam. It appears at shoulders, side seams, crotches, and armholes, and because it undermines how the piece holds together it weighs on structural integrity.",
@@ -1419,9 +1419,9 @@ export const FLAW_ENTRIES: FlawEntry[] = [
     slug: "elastic-degradation",
     name: "Elastic degradation",
     alternateNames: ["dead elastic", "worn elastic", "shot elastic"],
-    title: "Perished Elastic: Replace, Not Revive",
+    title: "Stretched-Out Elastic: Can It Be Fixed?",
     description:
-      "Stretched-out elastane never recovers. How to replace elastic in a casing, and why leggings and swimwear are finished when the fabric itself goes.",
+      "Dead elastic in a waistband or cuff never springs back. How to spot it in ten seconds, when replacing the casing is worth it, and what it costs the grade.",
     h1: "Elastic degradation",
     definition:
       "Elastic degradation is the breakdown of stretch fibers in waistbands, cuffs, and straps, where the elastic goes slack, crumbly, or wavy and no longer rebounds. Age, heat, and washing accelerate it, leaving the garment loose and unsupportive, and it weighs on functional elements and structural integrity.",

@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-3412",
+  "nextId": "US-3413",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -4860,6 +4860,20 @@
         "Every other file touched by that merge is checked for the same shape, since two files had it and only one was found by compiling"
       ],
       "priority": 4
+    },
+    {
+      "id": "US-3412",
+      "passes": false,
+      "title": "Rewrite SERP titles and descriptions on the top-10 zero-click pages",
+      "description": "Google Search Console (16-month export, pulled 2026-09-14) shows 234 clicks on 23,082 impressions, a 1.01% CTR. Ranking is not the problem: average position went from 26.6 on 2026-08-24 to 9.1 on 2026-09-12. Twenty pages rank in the top 10 with ZERO clicks, which is a title/meta problem, not a ranking one. Two root causes: titles that restate the definition Google already answers in the snippet or AI Overview, and titles that overflow the ~60-char SERP cap and get truncated mid-phrase. The condition-index template was the worst offender: 35 pages at position 7.7, zero clicks, every title built as '<label> resale value by condition - GradeThread Condition Index' (72+ chars for a typical label).",
+      "acceptanceCriteria": [
+        "Every registry route rewritten keeps title + ' | GradeThread' <= 60 chars and description 70-160, unique, with route-metadata.test.ts green",
+        "The /condition-index/:slug SSR title fits the 60-char SERP cap for a typical garment label and leads with the answer, not the brand suffix",
+        "The /condition-index/:slug description states the real grade-8 price when the curve has one, falling back to the old wording when it does not",
+        "OPERATOR: apply the blog_posts seo_title/seo_description update to prod (10 rows) - blog metadata lives in the DB, not the repo",
+        "Re-measure CTR on the affected pages in Search Console 28 days after the deploy and record the before/after in a note"
+      ],
+      "priority": 2
     }
   ]
 }
