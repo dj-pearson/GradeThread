@@ -15,6 +15,11 @@
 
 $ErrorActionPreference = 'SilentlyContinue'
 
+# Kill only trees rooted at a loop runner, never an interactive Codex process.
+Get-CimInstance Win32_Process -Filter "Name='node.exe'" |
+  Where-Object { $_.CommandLine -match 'ralph[\\/]run-codex\.mjs' } |
+  ForEach-Object { & taskkill.exe /PID $_.ProcessId /T /F }
+
 # Each rule: process image name + a regex that must match its command line.
 $rules = @(
   # `run-sdk` must be matched explicitly: 'ralph[\\/]run\.mjs' requires a literal

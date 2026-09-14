@@ -24,8 +24,7 @@
 // Usage:  npm run ralph -- 10        (10 iterations; default 10)
 // Env:    RALPH_DEFAULT_MODEL (default "opus"), RALPH_HARD_MODEL, RALPH_FORCE_MODEL,
 //         RALPH_ITER_TIMEOUT (seconds, default 2400), RALPH_MAX_TURNS,
-//         RALPH_MAX_BUDGET_USD, RALPH_NO_RESUME=1
-import { query } from "@anthropic-ai/claude-agent-sdk";
+//         RALPH_MAX_BUDGET_USD, RALPH_NO_RESUME=1, RALPH_DOWNTIME_SECONDS (default 300)
 import { execFileSync } from "node:child_process";
 import {
   appendFileSync,
@@ -38,6 +37,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { comparePriority } from "../lib/prd-priority.mjs";
 import { archiveNow, markDone, serialize } from "../prd-story.mjs";
+import { acquireLock } from "./loop-lock.mjs";
 
 const HERE = import.meta.dirname;
 const ROOT = path.resolve(HERE, "..", "..");
@@ -47,11 +47,17 @@ const PROMPT = path.join(HERE, "CLAUDE.md");
 const CURRENT_STORY = path.join(HERE, "current-story.json");
 const PROGRESS = path.join(HERE, "progress.txt");
 const STOP_FLAG = path.join(HERE, "STOP");
-const SESSIONS = path.join(HERE, "sessions.json"); // storyId → sessionId, for resume
-const COSTS = path.join(HERE, "costs.jsonl");
 
 const maxIterations = Number(process.argv[2]) || 10;
 const timeoutMs = (Number(process.env.RALPH_ITER_TIMEOUT) || 2400) * 1000;
+
+export async function waitBetweenStories(seconds, shouldStop, sleep = (ms) =>
+  new Promise((resolve) => setTimeout(resolve, ms))) {
+  for (let remaining = seconds * 1000; remaining > 0; remaining -= 1000) {
+    if (shouldStop()) return;
+    await sleep(Math.min(1000, remaining));
+  }
+}
 
 const readJson = (p, fallback = {}) => {
   try {
@@ -222,6 +228,7 @@ function canUseTool(toolName, input) {
 
 // ── One iteration ───────────────────────────────────────────────────────────
 async function runStory(story, model, resumeSessionId) {
+  const { query } = await import("@anthropic-ai/claude-agent-sdk");
   const prompt = readFileSync(PROMPT, "utf8");
   const abort = new AbortController();
   const timer = setTimeout(() => abort.abort(), timeoutMs);
@@ -322,7 +329,17 @@ function describeOutcome({ done, blocked, blockedReason, result, aborted }) {
 // ── Loop ────────────────────────────────────────────────────────────────────
 // Guarded so the vitest suite can import selectStory/resolveModel without
 // launching a real loop.
-async function main() {
+export async function main(options = {}) {
+const release = acquireLock(path.join(HERE, "loop.lock"));
+process.once("exit", release);
+const runAttempt = options.runStory ?? runStory;
+const chooseModel = options.resolveModel ?? resolveModel;
+const SESSIONS = options.sessionsFile ?? path.join(HERE, "sessions.json");
+const COSTS = options.costsFile ?? path.join(HERE, "costs.jsonl");
+const downtimeSeconds = Number(process.env.RALPH_DOWNTIME_SECONDS ?? 300);
+if (!Number.isFinite(downtimeSeconds) || downtimeSeconds < 0) {
+  throw new Error("RALPH_DOWNTIME_SECONDS must be a non-negative number.");
+}
 const sessions = readJson(SESSIONS, {});
 // Stories the agent reported it cannot finish, this run only. Deliberately not
 // persisted — see STORY_BLOCKED_TOKEN above for why a durable mark would be
@@ -331,6 +348,10 @@ const sessions = readJson(SESSIONS, {});
 const blockedThisRun = new Map();
 
 for (let i = 1; i <= maxIterations; i++) {
+  if (i > 1 && !existsSync(STOP_FLAG)) {
+    console.log(`\nWaiting ${downtimeSeconds} seconds before the next story attempt.`);
+    await waitBetweenStories(downtimeSeconds, () => existsSync(STOP_FLAG));
+  }
   if (existsSync(STOP_FLAG)) {
     rmSync(STOP_FLAG, { force: true });
     console.log("\nGraceful stop requested — exiting before the next iteration.");
@@ -392,7 +413,7 @@ for (let i = 1; i <= maxIterations; i++) {
     process.exit(1);
   }
 
-  const model = resolveModel(story);
+  const model = chooseModel(story);
   // Resume only the SAME story — a session carries that story's context and is
   // meaningless for a different one. This is what makes a timed-out iteration
   // cheap to retry instead of a total loss.
@@ -409,15 +430,15 @@ for (let i = 1; i <= maxIterations; i++) {
 
   writeFileSync(CURRENT_STORY, JSON.stringify(story, null, 2) + "\n");
 
-  const outcome = await runStory(story, model, resumeId);
+  const outcome = await runAttempt(story, model, resumeId);
   const { done, blocked, blockedReason, sessionId, result } = outcome;
 
   // ── Accounting: the thing the shell-out could not report ──────────────────
   if (result) {
-    const usd = result.total_cost_usd ?? 0;
+    const usd = result.total_cost_usd;
     const u = result.usage ?? {};
     console.log(
-      `\n  ${result.num_turns} turns · $${usd.toFixed(4)} · ` +
+      `\n  ${result.num_turns} turns · ${usd == null ? "cost unavailable" : `$${usd.toFixed(4)}`} · ` +
         `${u.input_tokens ?? 0} in / ${u.output_tokens ?? 0} out · ` +
         `${Math.round((result.duration_ms ?? 0) / 1000)}s`,
     );
@@ -435,7 +456,7 @@ for (let i = 1; i <= maxIterations; i++) {
         subtype: result.subtype,
         done,
         num_turns: result.num_turns,
-        total_cost_usd: usd,
+        total_cost_usd: usd ?? null,
         duration_ms: result.duration_ms,
         usage: result.usage,
         denials: result.permission_denials?.length ?? 0,
@@ -450,6 +471,11 @@ for (let i = 1; i <= maxIterations; i++) {
   if (done || blocked) delete sessions[story.id];
   else if (sessionId) sessions[story.id] = sessionId;
   writeFileSync(SESSIONS, JSON.stringify(sessions, null, 2) + "\n");
+
+  if (outcome.fatal) {
+    console.error("Loop stopped after an execution error. Story remains open; fix the error and restart to resume.");
+    process.exit(1);
+  }
 
   if (blocked) {
     blockedThisRun.set(story.id, blockedReason);
@@ -467,10 +493,10 @@ for (let i = 1; i <= maxIterations; i++) {
       `## ${story.id}: ${story.title}\n- Status: BLOCKED (needs a human)\n` +
         `- Timestamp: ${new Date().toISOString()}\n` +
         `- Reason: ${blockedReason || "(none given)"}\n` +
-        `- Cost: $${(result?.total_cost_usd ?? 0).toFixed(4)} over ${result?.num_turns ?? 0} turns\n---\n`,
+        `- Cost: ${result?.total_cost_usd == null ? "unavailable" : `$${result.total_cost_usd.toFixed(4)}`} over ${result?.num_turns ?? 0} turns\n---\n`,
     );
     git("add", PROGRESS);
-    git("commit", "-m", `chore(${story.id}): record blocked-on-human`);
+    git("commit", "-m", `chore(${story.id}): record blocked-on-human\n\nCo-Authored-By: Codex <noreply@anthropic.com>`);
     continue;
   }
 
@@ -499,10 +525,10 @@ for (let i = 1; i <= maxIterations; i++) {
 
   appendFileSync(
     PROGRESS,
-    `## ${story.id}: ${story.title}\n- Status: COMPLETE\n- Timestamp: ${new Date().toISOString()}\n- Cost: $${(result?.total_cost_usd ?? 0).toFixed(4)} over ${result?.num_turns ?? 0} turns\n---\n`,
+    `## ${story.id}: ${story.title}\n- Status: COMPLETE\n- Timestamp: ${new Date().toISOString()}\n- Cost: ${result?.total_cost_usd == null ? "unavailable" : `$${result.total_cost_usd.toFixed(4)}`} over ${result?.num_turns ?? 0} turns\n---\n`,
   );
   git("add", PRD, ARCHIVE, PROGRESS);
-  git("commit", "-m", `chore(${story.id}): mark story complete`);
+  git("commit", "-m", `chore(${story.id}): mark story complete\n\nCo-Authored-By: Codex <noreply@anthropic.com>`);
 
   const remaining = readJson(PRD, { userStories: [] }).userStories.filter(
     (s) => !s.passes,

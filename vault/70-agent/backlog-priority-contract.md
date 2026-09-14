@@ -69,6 +69,7 @@ absence to `+Infinity` rather than letting arithmetic produce `NaN`.
 |---|---|
 | `scripts/lib/prd-priority.mjs` | The definition: `comparePriority`, `priorityRank`, `isValidPriority`, `UNRANKED` |
 | `scripts/ralph/run-sdk.mjs` | `selectStory` sorts eligible open stories with `comparePriority` |
+| `scripts/ralph/run-codex.mjs` | Default loop; reuses the shared runner's `selectStory` without changing priority order |
 | `scripts/prd-lint.mjs` | Fails an open story whose `priority` is present and non-numeric |
 
 Anything new that orders the backlog imports from the first row. Adding a fourth

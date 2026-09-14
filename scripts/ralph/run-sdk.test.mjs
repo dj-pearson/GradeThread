@@ -6,7 +6,25 @@
 // Importing this module must NOT start a loop; run-sdk.mjs guards main() behind
 // an entrypoint check, and that guard is itself load-bearing here.
 import { describe, expect, it } from "vitest";
-import { extractBlockedReason, resolveModel, selectStory } from "./run-sdk.mjs";
+import { extractBlockedReason, resolveModel, selectStory, waitBetweenStories } from "./run-sdk.mjs";
+
+describe("story downtime", () => {
+  it("waits a full five minutes between attempts", async () => {
+    let elapsed = 0;
+    await waitBetweenStories(300, () => false, async (ms) => { elapsed += ms; });
+    expect(elapsed).toBe(300_000);
+  });
+
+  it("honors a graceful stop during downtime", async () => {
+    let elapsed = 0;
+    await waitBetweenStories(300, () => elapsed >= 2000, async (ms) => { elapsed += ms; });
+    expect(elapsed).toBe(2000);
+  });
+
+  it("does not sleep when downtime is disabled", async () => {
+    await waitBetweenStories(0, () => false, async () => { throw new Error("unexpected sleep"); });
+  });
+});
 
 const story = (over = {}) => ({
   id: "US-1",

@@ -4,10 +4,45 @@ Ralph is the autonomous loop that implements `prd.json` user stories one per
 iteration. This folder holds everything you need to run and control it. Commands
 below are run from the **repo root**.
 
-> **`npm run ralph` now runs `run-sdk.mjs` — the Claude Agent SDK runner.** The
-> old shell path (`run.mjs` → `ralph.sh` → `claude --print`) is still there as
-> `npm run ralph:sh`. See [Which runner?](#which-runner) — behavior is the same,
-> observability and safety are not.
+> **`npm run ralph` runs Codex via `run-codex.mjs`.** It uses your existing
+> `codex login` account and configured model. The previous Claude runner is
+> available only through `npm run ralph:claude`; the legacy shell is `ralph:sh`.
+
+## Codex loop
+
+Run `npm run ralph -- 10` for up to ten attempts. The first starts immediately;
+each later attempt starts five minutes after the previous one finishes, including
+tests and bookkeeping. Lowest priority number goes first, with the existing
+dependency and operator gates. Blocked stories stay open and are skipped for the
+rest of this run; they are reconsidered after a restart.
+
+`CODEX.md` is the story prompt. The runner shares selection and completion code
+with `run-sdk.mjs`, but never calls the Claude SDK. Codex sessions and usage are
+stored separately in `codex-sessions.json` and `codex-usage.jsonl`. Final replies
+are in `codex-logs/`. Dollar cost is unavailable from this interface.
+
+Codex runs with workspace-write access and approvals disabled. The prompt
+requires local commits, repository checks, and no pushing or deployment. It
+does not inherit the Claude-specific tool gate or hooks. Tasks requiring access
+outside that sandbox must be reported blocked. Neither runner may run alongside
+the other: a shared `loop.lock` guards the two Node runners. Do not run the
+legacy shell loop concurrently; it does not use that lock.
+
+Usage, login, transport failures and timeouts stop the Codex loop immediately,
+leaving the story open and saving its session for the next manual restart.
+This is a local process, not a recurring wake-up task; the computer must stay on.
+The existing STOP flag ends either Node loop after the current attempt, or within
+one second during downtime. Force-stop support on Windows kills the Codex runner
+and its child process tree; it does not target interactive Codex sessions.
+
+Settings: `RALPH_DOWNTIME_SECONDS` (300), `RALPH_ITER_TIMEOUT` (2400 seconds),
+`RALPH_NO_RESUME=1`, optional `RALPH_CODEX_MODEL` and `RALPH_CODEX_BIN` (executable
+path). Claude model pins in stories are not passed to Codex. Invalid attempt
+counts fail before work begins. Run `npm run ralph:test` for the runner tests.
+
+The transport uses the documented [non-interactive Codex interface](https://learn.chatgpt.com/docs/non-interactive-mode).
+
+The commands below also work for Codex unless labeled legacy or Claude.
 
 ## TL;DR
 
@@ -42,7 +77,7 @@ auto-kill at `RALPH_ITER_TIMEOUT`, default 40 min, then retry).
 
 ## Which runner?
 
-| | `npm run ralph` (SDK, default) | `npm run ralph:sh` (legacy shell) |
+| | `npm run ralph:claude` (Claude SDK) | `npm run ralph:sh` (legacy shell) |
 |---|---|---|
 | Implementation | `run-sdk.mjs` → `@anthropic-ai/claude-agent-sdk` | `run.mjs` → `ralph.sh` → `claude --print` |
 | Why an iteration ended | Structured: `success` / `error_max_turns` / `error_max_budget_usd` / timeout, plus `stop_reason` | One exit code + a grep for `STORY_DONE` |
@@ -63,15 +98,21 @@ to force every retry to start cold.
 
 ## Start
 
+Both Node runners wait five minutes after each attempt finishes before
+selecting the next story, including retries and blocked attempts. The first
+story starts immediately. Set `RALPH_DOWNTIME_SECONDS` to override the 300-second
+break (0 disables it). A graceful stop interrupts the break within one second.
+The legacy shell runner does not use this setting.
+
 - **`npm run ralph -- 200`** — run up to 200 iterations. Each iteration:
-  1. **`ralph.sh` selects the story** (highest-priority *eligible* `passes:false`
-     story — see `dependsOn` below) with `jq` and writes just that one object to
+  1. **The runner selects the story** (highest-priority *eligible* `passes:false`
+     story — see `dependsOn` below) and writes just that one object to
      `current-story.json` (~1.5 KB).
-  2. The agent runs against the static `CLAUDE.md` prompt, reads
+  2. The agent runs against `CODEX.md` (`CLAUDE.md` for the Claude runner), reads
      `current-story.json` (NOT the 300 KB `prd.json`), implements + verifies
      (`tsc`, `build:locked`, `npm test`, `verify:db` for migrations), commits the
      code, and signals `<promise>STORY_DONE</promise>`.
-  3. **`ralph.sh` flips `passes:true`** for that story with `jq`, appends to
+  3. **The runner flips `passes:true`** for that story, archives it, appends to
      `progress.txt`, and commits — the agent never reads or rewrites `prd.json`.
 
   This split exists to cut token usage: selecting + flipping in the harness keeps
@@ -109,7 +150,7 @@ If every open story ends up gated (operator-gated or `dependsOn`-blocked), the
 runner exits non-zero with the offenders rather than emitting `COMPLETE` — open
 work remaining is never "done".
 
-Model tiering (default **Opus**; a story can pin a cheaper `"model"` or escalate
+For the Claude runners only: model tiering (default **Opus**; a story can pin a cheaper `"model"` or escalate
 via `"hard"`) gives every story the strong model unless told otherwise. Env
 overrides: `RALPH_DEFAULT_MODEL`, `RALPH_HARD_MODEL`, and `RALPH_FORCE_MODEL`
 (forces one model for every story — handy for a one-off all-Opus or all-Sonnet

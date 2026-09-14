@@ -217,3 +217,8 @@ keyword/*
 # US-3138: tesseract.js runtime, staged from node_modules by
 # scripts/copy-tesseract-assets.mjs on install and build. ~14 MB of binaries.
 public/tesseract/
+
+scripts/ralph/codex-logs/
+scripts/ralph/codex-sessions.json
+scripts/ralph/codex-usage.jsonl
+scripts/ralph/loop.lock

@@ -18,6 +18,9 @@ case "$(uname -s)" in
   MINGW*|MSYS*|CYGWIN*)
     powershell.exe -NoProfile -ExecutionPolicy Bypass -Command - <<'PS'
 $ErrorActionPreference = 'SilentlyContinue'
+Get-CimInstance Win32_Process -Filter "Name='node.exe'" |
+  Where-Object { $_.CommandLine -match 'ralph[\\/]run-codex\.mjs' } |
+  ForEach-Object { & taskkill.exe /PID $_.ProcessId /T /F }
 $rules = @(
   @{ Name='node.exe';   Rx='ralph[\\/]run-sdk\.mjs';     Label='ralph runner (run-sdk.mjs)' },
   @{ Name='node.exe';   Rx='ralph[\\/]run\.mjs';         Label='ralph runner (run.mjs)' },
@@ -48,7 +51,7 @@ PS
   *)
     # Linux/macOS: match the full command line; exclude this script's own pid.
     self=$$
-    patterns=( 'ralph/run-sdk\.mjs' 'ralph/run\.mjs' 'ralph/ralph\.sh' 'scripts/prerender\.mjs' 'build-lock\.mjs' 'claude .*--print' '--input-format[= ]stream-json' )
+    patterns=( 'ralph/run-codex\.mjs' 'ralph/run-sdk\.mjs' 'ralph/run\.mjs' 'ralph/ralph\.sh' 'scripts/prerender\.mjs' 'build-lock\.mjs' 'claude .*--print' '--input-format[= ]stream-json' )
     killed=0
     for pat in "${patterns[@]}"; do
       for pid in $(pgrep -f "$pat" 2>/dev/null); do
