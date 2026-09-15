@@ -45,8 +45,10 @@ import {
 import { supabase } from "@/lib/supabase";
 import { useAuthStore } from "@/stores/auth-store";
 import { useWorkspace } from "@/hooks/use-workspace";
+import { useSkuSequence } from "@/hooks/use-sku-sequence";
 import { useSources } from "@/hooks/use-sources";
 import { SourcedBySelect } from "@/components/flipdesk/sourced-by-select";
+import { SkuAutoHint } from "@/components/flipdesk/sku-auto-hint";
 import { BulkIntake } from "@/components/flipdesk/bulk-intake";
 import { SnapCatalog } from "@/components/flipdesk/snap-catalog";
 import { PwaInstallBanner } from "@/components/flipdesk/pwa-install-banner";
@@ -166,6 +168,10 @@ export function FlipdeskIntakePage() {
   const qc = useQueryClient();
   const user = useAuthStore((s) => s.user);
   const { workspaceOwnerId, can } = useWorkspace();
+  // US-3418: keyed on the WORKSPACE OWNER, which is also what the insert below
+  // writes into user_id and what the trigger keys its counter on. Reading the
+  // acting member's own row here would show a number this save will not get.
+  const skuSequence = useSkuSequence(workspaceOwnerId ?? undefined);
   const { data: sources = [] } = useSources();
   const [params] = useSearchParams();
   const [form, setForm] = useState<FormState>(INITIAL);
@@ -705,7 +711,7 @@ export function FlipdeskIntakePage() {
                   id="sku-input"
                   value={form.sku}
                   onChange={(e) => patch("sku", e.target.value)}
-                  placeholder="optional"
+                  placeholder={skuSequence.nextSku ?? "optional"}
                 />
                 <Button
                   type="button"
@@ -724,6 +730,10 @@ export function FlipdeskIntakePage() {
                   )}
                 </Button>
               </div>
+              {/* US-3418: name the number this item will get if the box is left
+                  alone, or offer to switch numbering on. Renders nothing while
+                  the setting is still loading, so the form does not jump. */}
+              <SkuAutoHint ownerId={workspaceOwnerId ?? undefined} />
             </div>
             <Field
               label="Brand"

@@ -60,9 +60,10 @@ vi.mock("@/lib/supabase", () => ({
   supabase: { from: () => ({}), rpc: async () => ({ data: null, error: null }) },
 }));
 
-const { FlipdeskSkuNumberingPage, rpcMessage } = await import(
+const { FlipdeskSkuNumberingPage } = await import(
   "@/pages/flipdesk/sku-numbering"
 );
+const { rpcMessage } = await import("@/lib/sku-rpc-message");
 
 function markup(over: Partial<typeof sequenceState> = {}) {
   Object.assign(sequenceState, {

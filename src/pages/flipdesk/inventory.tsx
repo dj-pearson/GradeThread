@@ -5,6 +5,7 @@ import { delistRedirectTarget } from "@/lib/delist-links";
 import { LoadingRegion, TableLoadingSkeleton } from "@/components/ui/skeletons";
 import { useAuthStore } from "@/stores/auth-store";
 import { inventoryViewKey, readInventoryView, writeInventoryView } from "./inventory-last-view";
+import { SkuExhaustedBanner } from "@/components/flipdesk/sku-auto-hint";
 
 // US-958: one route — /dashboard/flipdesk/inventory — hosts every Inventory
 // shape (Triage table / Spreadsheet grid / Kanban pipeline / Prep) as a
@@ -79,14 +80,22 @@ function InventoryWorkspace({ storageKey }: { storageKey: string | null }) {
   if (restore) return <Navigate to={`${location.pathname}?${restore}`} replace />;
 
   return (
-    <Suspense
-      fallback={
-        <LoadingRegion label="Loading inventory" className="space-y-4">
-          <TableLoadingSkeleton rows={8} columns={6} className="rounded-lg border" />
-        </LoadingRegion>
-      }
-    >
-      <View />
-    </Suspense>
+    <>
+      {/* US-3418: a used-up SKU sequence makes new items save with a BLANK sku
+          and says nothing, by design -- US-3415 chose that over failing the
+          insert on a seller mid photo session. This is the other half of that
+          bargain, and it sits in the shell so it shows on every inventory view
+          rather than only on the one the seller happens to be using. */}
+      <SkuExhaustedBanner />
+      <Suspense
+        fallback={
+          <LoadingRegion label="Loading inventory" className="space-y-4">
+            <TableLoadingSkeleton rows={8} columns={6} className="rounded-lg border" />
+          </LoadingRegion>
+        }
+      >
+        <View />
+      </Suspense>
+    </>
   );
 }

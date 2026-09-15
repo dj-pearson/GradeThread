@@ -34,6 +34,8 @@ import { VirtualList } from "@/components/flipdesk/virtual-list";
 import { supabase } from "@/lib/supabase";
 import { useAuthStore } from "@/stores/auth-store";
 import { useWorkspace } from "@/hooks/use-workspace";
+import { useSkuSequence } from "@/hooks/use-sku-sequence";
+import { SkuAutoHint } from "@/components/flipdesk/sku-auto-hint";
 import { useSources } from "@/hooks/use-sources";
 import { ITEM_CATEGORIES } from "@/lib/constants";
 import { todayLocalDate } from "@/lib/local-date";
@@ -113,6 +115,9 @@ export function BulkIntake() {
   const qc = useQueryClient();
   const user = useAuthStore((s) => s.user);
   const { workspaceOwnerId, can } = useWorkspace();
+  // US-3418: the WORKSPACE OWNER's counter, which is what the insert
+  // below writes into user_id and what the trigger reads.
+  const skuSequence = useSkuSequence(workspaceOwnerId ?? undefined);
   const { data: sources = [] } = useSources();
   const [session, setSession] = useState<BulkSession>(loadSession);
   const [finalizing, setFinalizing] = useState(false);
@@ -425,7 +430,12 @@ export function BulkIntake() {
               <Input id="bi-sku-item"
                 value={session.draft.sku}
                 onChange={(e) => patchDraft("sku", e.target.value)}
+                placeholder={skuSequence.nextSku ?? undefined}
               />
+              {/* US-3418: bulk intake is where leaving the box empty matters
+                  most -- a seller adding twenty items does not want to type
+                  twenty numbers. */}
+              <SkuAutoHint ownerId={workspaceOwnerId ?? undefined} />
             </div>
             <div className="space-y-1">
               <Label htmlFor="bi-brand">Brand</Label>

@@ -25,6 +25,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { supabase } from "@/lib/supabase";
+import { rpcMessage } from "@/lib/sku-rpc-message";
 import { useAuthStore } from "@/stores/auth-store";
 import { cn } from "@/lib/utils";
 import {
@@ -32,6 +33,7 @@ import {
   countingSlots,
   DEFAULT_ALPHABET,
   fitCounters,
+  isCountingSegment,
   SKU_PRESETS,
   type SkuPreset,
   type SkuSegment,
@@ -61,23 +63,6 @@ type SeedResult = {
   exhausted?: boolean;
 };
 
-/**
- * Pull the human message out of a PostgREST error, whatever shape it took.
- *
- * Exported so it can be asserted directly: US-3416 wrote those strings for a
- * seller to read, and the contract this file signs is that they reach the
- * screen unchanged. A test that only rendered the page could not tell a
- * faithful passthrough from a hard-coded fallback that happened to look right.
- */
-export function rpcMessage(error: unknown): string {
-  if (error && typeof error === "object") {
-    const e = error as { message?: unknown; details?: unknown; hint?: unknown };
-    for (const field of [e.message, e.details, e.hint]) {
-      if (typeof field === "string" && field.trim()) return field;
-    }
-  }
-  return "Something went wrong saving your SKU settings.";
-}
 
 export function FlipdeskSkuNumberingPage() {
   const user = useAuthStore((s) => s.user);
@@ -633,10 +618,7 @@ function StartingValue({
   counters: readonly number[];
   onChange: (next: number[]) => void;
 }) {
-  const counting = pattern.filter(
-    (s): s is Extract<SkuSegment, { kind: "number" | "letter" }> =>
-      s.kind === "number" || s.kind === "letter",
-  );
+  const counting = pattern.filter(isCountingSegment);
 
   if (counting.length === 0) {
     return (

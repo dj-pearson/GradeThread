@@ -103,8 +103,18 @@ export const SKU_PRESETS: readonly SkuPreset[] = [
   },
 ];
 
-/** True for the segment kinds that consume a counter slot. */
-export function isCountingSegment(segment: SkuSegment): boolean {
+/** The two segment kinds that consume a counter slot. */
+export type CountingSegment = Extract<SkuSegment, { kind: "number" | "letter" }>;
+
+/**
+ * True for the segment kinds that consume a counter slot.
+ *
+ * A type predicate rather than a plain boolean, so a caller that filters with
+ * it can then read `min`/`max` or `alphabet` without a cast. Returning bare
+ * `boolean` here pushed that cast onto every consumer, which is how a `text`
+ * segment ends up being asked for its width.
+ */
+export function isCountingSegment(segment: SkuSegment): segment is CountingSegment {
   return segment.kind === "number" || segment.kind === "letter";
 }
 
