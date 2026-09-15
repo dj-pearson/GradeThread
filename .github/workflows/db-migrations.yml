@@ -27,6 +27,7 @@ on:
       - "scripts/check-ledger-invariant.mjs"
       - "scripts/check-sale-pnl-invariant.mjs"
       - "scripts/check-created-by.mjs"
+      - "scripts/check-sku-sequences.mjs"
       - "scripts/check-cogs-worksheet.mjs"
       - "scripts/check-facilitator-tax.mjs"
       - "scripts/check-1099k-bridge.mjs"
@@ -59,6 +60,7 @@ on:
       - "scripts/check-ledger-invariant.mjs"
       - "scripts/check-sale-pnl-invariant.mjs"
       - "scripts/check-created-by.mjs"
+      - "scripts/check-sku-sequences.mjs"
       - "scripts/check-cogs-worksheet.mjs"
       - "scripts/check-facilitator-tax.mjs"
       - "scripts/check-1099k-bridge.mjs"
@@ -166,6 +168,13 @@ jobs:
       # instead of looking identical.
       - name: created_by is stamped and immutable (US-3023)
         run: node scripts/check-created-by.mjs
+      # US-3414: CREATE FUNCTION does not validate a plpgsql body, so a typo in
+      # the SKU odometer installs cleanly and raises on its first call. The
+      # headline case is J9999 advancing to K0000 -- J0000 means the carry never
+      # reached the letter wheel, and the migration source reads identically
+      # either way.
+      - name: SKU odometer renders and carries (US-3414)
+        run: node scripts/check-sku-sequences.mjs
       - name: COGS worksheet and its cross-check (US-2986)
         run: node scripts/check-cogs-worksheet.mjs
       # Net profit is IDENTICAL on both tax branches, so only gross receipts

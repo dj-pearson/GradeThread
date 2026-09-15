@@ -565,6 +565,14 @@ if (on("db")) {
     // workspace MEMBER of another owner's workspace, so writing user_id instead
     // of auth.uid() is caught rather than looking identical.
     run("db: created_by is stamped and immutable (US-3023)", "node scripts/check-created-by.mjs");
+    // US-3414: the SKU odometer is seven plpgsql functions and one carry rule.
+    // CREATE FUNCTION does not validate a plpgsql body, so a typo installs
+    // cleanly and raises on first call -- and the whole feature is one string
+    // that is either unique inside the tenant or is not. This calls every
+    // function with the two patterns the owner actually uses, and pins that the
+    // sequence table carries exactly one policy, a SELECT: a client that could
+    // write the counter row could set it backwards and mint duplicate SKUs.
+    run("db: SKU odometer renders and carries (US-3414)", "node scripts/check-sku-sequences.mjs");
     run("db: COGS worksheet and its cross-check (US-2986)", "node scripts/check-cogs-worksheet.mjs");
     run("db: facilitator vs seller-collected sales tax (US-2987)", "node scripts/check-facilitator-tax.mjs");
     run("db: 1099-K gross is branch-independent (US-2988)", "node scripts/check-1099k-bridge.mjs");

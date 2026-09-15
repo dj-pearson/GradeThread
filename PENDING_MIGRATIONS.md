@@ -45,6 +45,34 @@ stronger claim for one of them, `check-prod-migration.ts` is the tool.
 Nothing below 00786 was touched, and the six genuinely-held branches in the next
 section are unchanged and still waiting.
 
+## HELD 2026-09-14: 00802 - per-tenant SKU numbering, the odometer only (US-3414)
+
+**What it does.** Adds one table, `public.flipdesk_sku_sequences` (one row per
+tenant, holding a SKU pattern and where its counters are sitting), and seven
+IMMUTABLE plpgsql functions that render, advance and parse that pattern. Nothing
+else. It wires nothing to `inventory_items` and changes no existing object.
+
+**Risk: as low as a migration gets.** Every object it creates is new. It alters
+no table, drops nothing, backfills nothing, and contains no `REVOKE`. The table
+defaults `enabled` to false and no row is created until a tenant saves settings,
+so applying this changes the behavior of exactly zero accounts.
+
+**Apply order.** Anywhere after 00801. 00803 and 00804 below depend on it.
+
+**No frontend ordering trap in EITHER direction.** Nothing in `src/` or
+`services/edge-functions/src/` reads this table or calls these functions yet.
+The first reader is 00804's RPC set, consumed by the settings screen in US-3417,
+which is a later push. Apply before or after the push, it makes no difference.
+
+**After applying:** `NOTIFY pgrst, 'reload schema';` so PostgREST picks up the
+new table and functions. `npm run migrate:prod` sends this for you.
+
+**Verified locally on 2026-09-14** against the full migration schema, and
+sabotage-proved twice: `scripts/check-sku-sequences.mjs` went red when
+`flipdesk_sku_advance` was made to wrap instead of report exhaustion, and again
+when `flipdesk_sku_render` folded its unpadded-number case into `lpad` (which
+returns the empty string at width 0). Both were restored and the check is green.
+
 ## HELD 2026-09-14: 00801 - payout becomes a grouping key on sale_pnl (US-3413)
 
 **What it does.** Replaces the `public.sale_pnl` view with the same body plus
