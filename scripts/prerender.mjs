@@ -210,7 +210,9 @@ for (const [key, value] of Object.entries(prodEnv)) {
 }
 
 const vite = await createServer({
-  server: { middlewareMode: true },
+  // This server only renders a fixed build. Watching the whole workspace adds
+  // startup IO and can starve module loading on large Windows checkouts.
+  server: { middlewareMode: true, watch: null },
   appType: "custom",
   logLevel: "error",
 });

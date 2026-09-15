@@ -56,6 +56,15 @@
       type="font/woff2"
       crossorigin
     />
+    <!-- The hero uses Outfit. Discover it with the HTML instead of waiting
+         for the stylesheet, then replacing the headline's fallback font. -->
+    <link
+      rel="preload"
+      href="/fonts/outfit-latin.woff2"
+      as="font"
+      type="font/woff2"
+      crossorigin
+    />
 
     <!-- Consent Mode v2 + Google Analytics bootstrap.
          INLINED (was the external /head-init.js) so it costs no render-blocking
@@ -102,10 +111,9 @@
         } catch (e) { /* leave __gtLoc as-is */ }
         gtag("config", "G-CMDWCFC275", { page_location: __gtLoc });
 
-        // gtag.js (~154 KiB) off the critical path: load it once the page is
-        // idle so it never competes with LCP. The consent defaults + config
-        // above are already queued on the dataLayer, so GA replays them in
-        // order the moment it arrives.
+        // An idle callback in the head can fire while page assets are still
+        // downloading. Wait for load first so tracking does not compete with
+        // the headline font and route chunks. Consent and events stay queued.
         function loadGtag() {
           if (window.__gtagLoaded) return;
           window.__gtagLoaded = true;
@@ -114,11 +122,14 @@
           s.src = "https://www.googletagmanager.com/gtag/js?id=G-CMDWCFC275";
           document.head.appendChild(s);
         }
-        if ("requestIdleCallback" in window) {
-          requestIdleCallback(loadGtag, { timeout: 4000 });
-        } else {
-          setTimeout(loadGtag, 2500);
+        function scheduleGtag() {
+          if ("requestIdleCallback" in window) {
+            requestIdleCallback(loadGtag, { timeout: 4000 });
+          } else {
+            setTimeout(loadGtag, 0);
+          }
         }
+        window.addEventListener("load", scheduleGtag, { once: true });
       })();
     </script>
   </head>

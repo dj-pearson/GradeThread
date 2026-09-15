@@ -11,6 +11,7 @@ import { initSentry } from "@/lib/sentry";
 import { captureUtms, captureClickIds } from "@/lib/ad-attribution";
 import { initAdAttributionSync } from "@/lib/ad-attribution-sync";
 import { initUtmAttributionSync } from "@/lib/utm-attribution-sync";
+import { mountWhenRouterReady } from "@/lib/mount-when-router-ready";
 import "@/index.css";
 
 // Stale-chunk guard. After a deploy, an already-open tab (or a stale PWA
@@ -59,10 +60,12 @@ initAdAttributionSync();
 // same lifecycle as the click-id sync above.
 initUtmAttributionSync();
 
-createRoot(document.getElementById("root")!).render(
-  <StrictMode>
+mountWhenRouterReady(router, () => {
+  createRoot(document.getElementById("root")!).render(
+    <StrictMode>
       <QueryClientProvider client={queryClient}>
         <RouterProvider router={router} />
       </QueryClientProvider>
-  </StrictMode>
-);
+    </StrictMode>
+  );
+});
