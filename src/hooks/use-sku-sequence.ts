@@ -38,12 +38,24 @@ export type UseSkuSequence = {
 };
 
 /**
- * Pass an explicit `ownerId` when acting inside somebody else's workspace;
- * otherwise this reads the signed-in user's own row.
+ * Pass an explicit `ownerId` to pin the tenant; otherwise this resolves the
+ * ACTIVE WORKSPACE OWNER, which is what the trigger reads.
+ *
+ * The default is the owner and not the signed-in user on purpose. A member
+ * inserting into somebody else's workspace writes inventory_items.user_id =
+ * the owner, so the number they are about to receive comes from the OWNER's
+ * counter. Defaulting to `user.id` would show a member a number from their own
+ * (usually empty) sequence, and the two are indistinguishable on a solo
+ * account, which is how that kind of bug survives review.
+ *
+ * Read straight off the auth store rather than through useWorkspace(): this
+ * renders inside the inventory shell, and useWorkspace pulls in the supabase
+ * client, the query client and sonner for a value that is two selectors.
  */
 export function useSkuSequence(ownerId?: string): UseSkuSequence {
   const user = useAuthStore((s) => s.user);
-  const owner = ownerId ?? user?.id;
+  const activeOwnerId = useAuthStore((s) => s.activeWorkspaceOwnerId);
+  const owner = ownerId ?? activeOwnerId ?? user?.id;
 
   const row = useQuery({
     queryKey: [SKU_SEQUENCE_KEY, owner],

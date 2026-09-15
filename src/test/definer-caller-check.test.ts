@@ -119,6 +119,39 @@ const takesUserArg = (t: string) =>
   /p_(user_id|owner_id|seller_id|buyer_id)\s+uuid/i.test(head(t));
 
 /**
+ * DELEGATED — the body calls another corpus function that is itself
+ * caller-scoped or role-guarded, and acts on its answer.
+ *
+ * The fourth real pattern, and the one this file did not know about until
+ * 00804's `flipdesk_sku_preview` / `_seed` / `_save` were written. Each opens
+ * with `if not public.flipdesk_sku_may_read(p_owner) then raise`, and
+ * `flipdesk_sku_may_read` is `(select auth.uid()) = p_owner or
+ * is_workspace_member_with_role(p_owner, 'viewer')`. That is a caller check
+ * that is BETTER than an inlined `auth.uid()`, because the rule is written once
+ * for read and once for write instead of copied into every function that needs
+ * it -- and it read as unguarded here.
+ *
+ * Exactly as strong as the checks above and no stronger: like them, this asks
+ * whether the function establishes the caller ANYWHERE in its body, not whether
+ * every branch is gated by it. A guard that pretended otherwise would be
+ * claiming a proof it does not have.
+ */
+const delegatesCallerCheck = (
+  t: string,
+  defs: Map<string, { text: string; file: string }>,
+  self: string,
+) => {
+  for (const m of t.matchAll(/\b(?:public\.)?([a-z0-9_]+)\s*\(/gi)) {
+    const callee = m[1]!.toLowerCase();
+    if (callee === self) continue;
+    const d = defs.get(callee);
+    if (!d) continue;
+    if (callerScoped(d.text) || roleGuarded(d.text)) return true;
+  }
+  return false;
+};
+
+/**
  * Callable by the browser, DEFINER, and deliberately without a caller check.
  *
  * SHRINK-ONLY: an entry that gains a check must be removed, so this cannot
@@ -176,11 +209,35 @@ describe("a browser-callable SECURITY DEFINER function decides who is asking", (
     expect(callerScoped(wm!.text)).toBe(true);
   });
 
+  it("a delegated check counts, and an unrelated call does not", () => {
+    // The pattern 00804 introduced. Pinned as units so the rule cannot be
+    // widened into 'calls any function at all' by a later edit.
+    const may = defs.get("flipdesk_sku_may_read");
+    expect(may, "flipdesk_sku_may_read is gone").toBeDefined();
+    expect(callerScoped(may!.text)).toBe(true);
+
+    const save = defs.get("flipdesk_sku_save");
+    expect(save, "flipdesk_sku_save is gone").toBeDefined();
+    expect(callerScoped(save!.text), "save inlines no auth.uid()").toBe(false);
+    expect(delegatesCallerCheck(save!.text, defs, "flipdesk_sku_save")).toBe(true);
+
+    // Calling something that checks nothing is not a check.
+    expect(
+      delegatesCallerCheck("select public.flipdesk_sku_render(p, c, d);", defs, "x"),
+    ).toBe(false);
+    expect(delegatesCallerCheck("select 1;", defs, "x")).toBe(false);
+  });
+
   it("every one of them checks the caller, except the named exception", () => {
     const unchecked = browserCallable
       .filter((name) => {
         const t = defs.get(name)!.text;
-        return !roleGuarded(t) && !callerScoped(t) && !takesUserArg(t);
+        return (
+          !roleGuarded(t) &&
+          !callerScoped(t) &&
+          !takesUserArg(t) &&
+          !delegatesCallerCheck(t, defs, name)
+        );
       })
       .sort();
 
@@ -189,8 +246,9 @@ describe("a browser-callable SECURITY DEFINER function decides who is asking", (
       "a SECURITY DEFINER function is granted to anon or authenticated and never " +
         "establishes who the caller is. It runs as its OWNER, so RLS does not " +
         "apply, and any logged-in account can call it. Add a gt_require_role or " +
-        "is_admin guard, scope the body on auth.uid(), or take p_user_id — or add " +
-        "it to NO_CALLER_CHECK_ON_PURPOSE with the reason.",
+        "is_admin guard, scope the body on auth.uid(), take p_user_id, or call a " +
+        "predicate that does one of those — or add it to " +
+        "NO_CALLER_CHECK_ON_PURPOSE with the reason.",
     ).toEqual(Object.keys(NO_CALLER_CHECK_ON_PURPOSE).sort());
   });
 
