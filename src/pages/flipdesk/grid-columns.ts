@@ -67,7 +67,7 @@ export const GRID_COLS: GridCol[] = [
 
 export function aspectColumn(name: string): GridCol {
   return {
-    key: `aspect.${name}`, field: `aspect.${name}`, label: name,
+    key: `aspect.${name}`, field: `aspect.${name}`, label: `Specific: ${name}`,
     group: "Item specifics", width: 190, maxLength: 200,
     get: row => (row.listing?.item_specifics_override?.[name] ?? []).join("; "),
   };
@@ -77,6 +77,14 @@ export const DEFAULT_GRID_KEYS = ["sku", "listing.listing_title", "listing.listi
 export const INVENTORY_GRID_KEYS = ["sku", "title", "brand", "style", "size", "color", "material", "acquired_price", "target_price", "floor_price", "location_bin", "sourced_by", "condition_notes"];
 export const GRID_GROUPS: GridGroup[] = ["Inventory", "Listing", "Shipping & returns", "Item specifics"];
 export const isListingColumn = (col: GridCol) => col.group !== "Inventory";
+
+export function sameGridValue(col: GridCol, left: string, right: string): boolean {
+  const normalize = (value: string) => col.field.startsWith("aspect.")
+    ? value.split(";").map(part => part.trim()).filter(Boolean).join("; ")
+    : value.trim();
+  if (col.numeric && left.trim() && right.trim()) return Number(left) === Number(right);
+  return normalize(left) === normalize(right);
+}
 
 export function cellLock(row: GridRow, col: GridCol): string | null {
   if (!isListingColumn(col)) return null;

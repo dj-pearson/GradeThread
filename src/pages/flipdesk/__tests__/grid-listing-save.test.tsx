@@ -90,6 +90,14 @@ describe("grid listing saves", () => {
       item_specifics_sources: { Fit: "manual", Material: "manual" },
     });
   });
+  it("can retry prices and specifics after their saved formatting changes", async () => {
+    const before = row();
+    mocks.fresh.listing_status = "active";
+    mocks.fresh.listing_price = 25;
+    mocks.fresh.item_specifics_override = { Fit: ["Relaxed", "Oversized"], Material: ["Cotton"] };
+    await save(before, { "listing.listing_price": "25.00", "aspect.Fit": "Relaxed;Oversized" }, [...GRID_COLS, aspectColumn("Fit")]);
+    expect(mocks.revise).toHaveBeenCalledWith({ listingId: "listing", patch: { listing_price: 25, resync_ebay_fields: true } });
+  });
   it("fails a zero-row save rather than claiming the listing was updated", async () => {
     mocks.saved = false;
     await expect(save(row(), { "listing.listing_title": "New title" })).rejects.toThrow("changed while saving");

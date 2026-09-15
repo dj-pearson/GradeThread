@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/lib/supabase";
 import { useBulkEditListings, useEbayReviseListing, type BulkEditFields, type ReviseListingPatch } from "@/hooks/use-ebay";
-import { cellLock, type GridListing, type GridRow, type GridCol } from "./grid-columns";
+import { cellLock, sameGridValue, type GridListing, type GridRow, type GridCol } from "./grid-columns";
 
 const LISTING_COLUMNS = "id,inventory_item_id,platform,listing_status,listing_origin,platform_listing_id,batch_id,synced_to_ebay_at,listing_title,listing_price,quantity,platform_category_id,ebay_condition,ebay_condition_description,shipping_policy_id,payment_policy_id,return_policy_id,item_specifics_override,item_specifics_sources,variations";
 
@@ -45,7 +45,7 @@ export function useSaveGridListing() {
       // A retry may find our prior write after eBay refused it. That is safe;
       // an unrelated edit made since this grid loaded must not be overwritten.
       const current = col.get(latest);
-      if (current !== col.get(row) && current !== raw) throw new Error(`${col.label} changed elsewhere. Reload before replacing it.`);
+      if (!sameGridValue(col, current, col.get(row)) && !sameGridValue(col, current, raw)) throw new Error(`${col.label} changed elsewhere. Reload before replacing it.`);
       const value = raw.trim();
       if (field.startsWith("aspect.")) {
         const name = field.slice(7);
