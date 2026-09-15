@@ -9,11 +9,18 @@ code_refs:
   - src/prerender/entry-server.tsx
   - src/prerender/head-builder.ts
   - src/routes/index.tsx
-reviewed: 2026-09-10
+reviewed: 2026-09-15
 tags: [seo, prerender, routing]
 summary: A new indexable page must be registered in several places in lockstep; CI guards catch some omissions but not all.
 ---
 
+> **Re-reviewed 2026-09-15.** Drift on `src/routes/index.tsx` only:
+> US-3417 added `/dashboard/flipdesk/settings/sku`. It is an AUTHENTICATED
+> route, so it belongs in neither `PUBLIC_ROUTES` nor
+> `src/prerender/entry-server.tsx`, and it took a `CONTEXTUAL_ROUTES` entry in
+> `src/lib/surfaces.ts` instead — which is the path this note describes for a
+> route that is not indexable. Nothing about the registry, the lockstep
+> wiring points or the CI guards moved.
 # SEO — the public route registry
 
 > **Re-reviewed 2026-09-10.** Two drifts, neither of them a new indexable page.

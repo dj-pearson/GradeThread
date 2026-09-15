@@ -7,7 +7,7 @@ code_refs:
   - services/edge-functions/src/lib/coherent-cache.ts
   - services/edge-functions/src/lib/schema-version.ts
   - services/edge-functions/src/lib/circuit-breaker.ts
-reviewed: 2026-09-14
+reviewed: 2026-09-15
 tags: [edge, caching, deploy, contract]
 summary: The edge runs N replicas, migrations apply separately from the code roll, and a deadline must cover the response body — three facts that constrain what any edge module may assume.
 ---
@@ -41,6 +41,18 @@ summary: The edge runs N replicas, migrations apply separately from the code rol
 > for no signal on the code that matters most here. So the ref stays and the
 > dated re-reads stay cheap; that is the trade, deliberately made.
 
+> **Re-reviewed 2026-09-15.** Drift on `schema-version.ts` for the SKU
+> numbering trio (US-3414/3415/3416). Three bumps in one day rather than one,
+> 00801 through 00804, and every one is the same single line moving with its
+> migration. Nothing about the boot guard, the grace window, the phantom list
+> or refuse-to-start moved.
+>
+> The 2026-09-14 entry already settled whether to keep this ref; not
+> re-opening it. One thing worth adding: prod ran AHEAD of the deployed edge
+> for most of 2026-09-15 (`/health/ready` reporting `applied: 00804` against
+> `expected: 00801`, with all three in `unexpected`). That is the warn-only
+> branch this note documents, observed in the wild rather than argued, and it
+> cleared on the next deploy exactly as described.
 # Edge runtime invariants
 
 > **Re-reviewed 2026-09-06, no change.** Drift flagged `schema-version.ts` for

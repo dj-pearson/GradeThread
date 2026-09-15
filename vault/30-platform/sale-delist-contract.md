@@ -14,10 +14,26 @@ code_refs:
   - src/components/flipdesk/delist-panel.tsx
   - src/components/flipdesk/record-sale-dialog.tsx
   - src/lib/delist-links.ts
-reviewed: 2026-09-11
+reviewed: 2026-09-15
 tags: [flipdesk, delist, extension, cross-listing]
 summary: A sale on any marketplace ends every other live listing of the same item; API channels end on the server, extension channels in the seller's browser from a link or by searching their active listings, and every listing keeps a link to that marketplace's own active-listings page as the fallback.
 ---
+
+> **Re-reviewed 2026-09-15**, from outside this note's own work — the drift
+> was flagged while US-3419 was landing something unrelated, and had been
+> standing since 2026-09-13.
+>
+> The whole diff to `record-sale-dialog.tsx` (b160d85dc, US-3308) is the
+> net-profit expression moving inline-to-`@/lib/sale-math`: one import, one
+> comment, and the arithmetic replaced by a `computeNetProfit` call with the
+> same terms. **Nothing about delisting moved** — not the sibling selection,
+> not the API-versus-extension split, not the pending-delist queue, not the
+> active-listings fallback link. Every rule below still reads true against the
+> file.
+>
+> Recorded rather than silently re-dated because bumping `reviewed` asserts
+> somebody re-read the refs, and the honest version of that claim says which
+> ref was read and what was looked for.
 
 # What a sale ends, and how
 

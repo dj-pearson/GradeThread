@@ -8,10 +8,18 @@ code_refs:
   - src/test/listings-select-star.test.ts
   - src/test/listing-row-schema-parity.test.ts
   - src/types/database.ts
-reviewed: 2026-09-14
+reviewed: 2026-09-15
 tags: [schema, listings, flipdesk, perf]
 summary: What the listings table's ninety-odd columns are for, why none of them is provably dead, and the rule for reading them.
 ---
+
+> [!note] Re-reviewed 2026-09-15. `src/types/database.ts` gained
+> `FlipdeskSkuSequenceRow` and its `flipdesk_sku_sequences` Tables entry
+> (US-3414, migration 00802). Checked: it is a new table keyed on `user_id`,
+> not a `listings` column, and `ListingRow` is untouched. Note that
+> `listings.inventory_sku` is unaffected too — it is a snapshot taken at
+> publish time (00477) and the SKU generator deliberately does not write it.
+> See [[sku-numbering]].
 
 > [!note] Re-reviewed 2026-09-11. src/types/database.ts gained PublicGradeReportRow.seller_statements / cleanliness_visible and GradeReportRow.release_at (US-3326, US-3329). Checked: none is a listings column, and nothing this note inventories moved.
 
