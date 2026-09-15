@@ -103,9 +103,9 @@ export const PLATFORM_STANDARDS: PlatformStandard[] = [
   {
     slug: "ebay",
     name: "eBay",
-    title: "eBay Conditions: Which One Avoids Returns",
+    title: "eBay Condition Chart: Avoid the Return",
     description:
-      "How eBay's item conditions map to a 1.0–10.0 grade, what triggers a not-as-described return, and the listing copy that matches the condition you picked.",
+      "Every eBay clothing condition matched to a 1.0-10.0 grade, plus the wording that stops a not-as-described case. A table you can copy straight into a listing.",
     h1: "eBay condition standards mapped to the 1.0–10.0 scale",
     definition:
       "eBay uses a fixed set of item conditions — New, New other, and the Used tiers (Excellent, Very Good, Good, Acceptable) for pre-owned clothing. Each maps cleanly onto a band of the GradeThread 1.0–10.0 scale, so an objective grade tells you exactly which eBay condition to select and backs it up.",
@@ -131,9 +131,9 @@ export const PLATFORM_STANDARDS: PlatformStandard[] = [
   {
     slug: "poshmark",
     name: "Poshmark",
-    title: "Poshmark Condition Standards, Mapped",
+    title: "Poshmark NWT, EUC, VGUC and GUC Decoded",
     description:
-      "How Poshmark condition wording (NWT, EUC, VGUC, GUC) maps to a 1.0–10.0 grade, what triggers a Posh Protect case, and listing copy per grade.",
+      "What Poshmark's condition shorthand really means, each acronym matched to a 1.0-10.0 grade, and the phrasing that keeps a Posh Protect case off your sale.",
     h1: "Poshmark condition standards mapped to the 1.0–10.0 scale",
     definition:
       "Poshmark structures only 'New With Tags' — every other condition is free text, and sellers lean on community shorthand: EUC (Excellent Used Condition), VGUC (Very Good Used Condition), GUC (Good Used Condition). Mapping that shorthand to the GradeThread 1.0–10.0 scale turns fuzzy adjectives into a verifiable grade.",
@@ -159,9 +159,9 @@ export const PLATFORM_STANDARDS: PlatformStandard[] = [
   {
     slug: "mercari",
     name: "Mercari",
-    title: "Mercari Condition Standards, Mapped",
+    title: "Mercari's 5 Conditions: Which to Pick",
     description:
-      "How Mercari's 5-step condition scale (New to Poor) maps to a 1.0–10.0 grade, what triggers a Mercari return, and listing copy per grade.",
+      "New, Like new, Good, Fair, Poor: what each Mercari step actually covers, the grade band behind it, and the description line that prevents a return.",
     h1: "Mercari condition standards mapped to the 1.0–10.0 scale",
     definition:
       "Mercari uses a five-step condition selector — New, Like new, Good, Fair, Poor. Each step spans a band of the GradeThread 1.0–10.0 scale, so a grade tells you which step to pick and gives you the evidence to back it if a buyer disputes it.",
@@ -243,9 +243,9 @@ export const PLATFORM_STANDARDS: PlatformStandard[] = [
   {
     slug: "vinted",
     name: "Vinted",
-    title: "Vinted Condition Standards, Mapped",
+    title: "Vinted Conditions: All 5, Mapped to 1-10",
     description:
-      "How Vinted's condition options (New to Satisfactory) map to a 1.0–10.0 grade, what triggers a Buyer Protection claim, and listing copy per grade.",
+      "What New, Like new, Very good, Good and Satisfactory each mean on Vinted, the grade band behind them, and the wording that avoids a Buyer Protection claim.",
     h1: "Vinted condition standards mapped to the 1.0–10.0 scale",
     definition:
       // Names re-read 2026-09-05 from https://www.vinted.com/help/50-choosing-item-condition.

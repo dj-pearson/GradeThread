@@ -77,11 +77,36 @@ describe("US-2100: lastmod is derived, not stamped", () => {
     expect(hub.lastmod, "hub still stamped today()").toBe("2026-05-20");
     expect(hub.lastmod).not.toBe(TODAY);
 
-    // US-2100 AC3 originally asserted tag URLs derived an honest lastmod. Tag
-    // archives are no longer emitted at all — they are served `noindex, follow`
-    // and a noindexed URL has no business in the sitemap. The derived-lastmod
-    // guarantee this file exists to protect is now carried by the hub above.
+    // US-2100 AC3 originally asserted tag URLs derived an honest lastmod.
+    // "denim" is not a curated topic, so it is not emitted at all (US-9037) and
+    // the derived-lastmod guarantee this file protects is carried by the hub.
     expect(urls.find((u) => u.loc.includes("/blog/tag/"))).toBeUndefined();
+  });
+
+  it("a curated topic URL contributes no lastmod to the blog section", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => ({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          posts: [
+            { slug: "new", published_at: "2026-05-20", updated_at: "2026-05-20" },
+          ],
+          tags: ["denim-grading"],
+        }),
+      })) as never,
+    );
+    const urls = await blogUrls(ENV);
+    const topic = urls.find((u) => u.loc.endsWith("/blog/tag/denim-grading"));
+
+    // US-9037: emitted, because the page says `index, follow`...
+    expect(topic).toBeDefined();
+    // ...and dateless, because the payload carries tag NAMES and no dates. A
+    // topic that borrowed the blog's newest date would claim every archive
+    // changed whenever any post did.
+    expect(topic!.lastmod).toBeUndefined();
+    expect(newestLastmod(urls)).toBe("2026-05-20");
   });
 
   it("index entries carry their section's date, not today()", () => {

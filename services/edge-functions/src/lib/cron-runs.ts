@@ -365,6 +365,14 @@ export const CRON_REGISTRY: CronDef[] = [
   // routes/jobs-reconciliation-sweep.ts. The Coolify task URL must be updated;
   // /api/flipdesk/reconciliation/run is still the seller's own "Auto-match".
   { name: "reconciliation-sweep", label: "Payout reconciliation sweep", schedule: "0 5 * * *", category: "flipdesk", endpoint: "/api/jobs/reconciliation-sweep", recorded: true, healthy: "200 {owners,eligible_owners,auto_matched,ambiguous,...}; ambiguous is not an error — those rows are queued for the seller on purpose" },
+  // US-3413: the payout LINK pass. Distinct from reconciliation-sweep above,
+  // which matches payout_imports (the CSV path) and never calls the Finances
+  // API. This one re-reads Finances transactions over a 90-day window and
+  // fills sales.payout_reference where it is still null, which the sync cannot
+  // do: eBay assigns a payout id days after the order, by which time the sync
+  // cursor has moved past it. Runs after reconciliation-sweep so the two do not
+  // contend for the same sales rows.
+  { name: "ebay-payout-link", label: "eBay payout link pass", schedule: "30 5 * * *", category: "flipdesk", endpoint: "/api/jobs/ebay-payout-link", recorded: true, healthy: "200 {owners,eligible_owners,payouts_upserted,sales_linked,sales_still_unlinked,failed_owners}; sales_linked falls toward 0 once the backlog drains and sales_still_unlinked is normal — those are orders whose deposit has not settled yet. skipped:true with reason ebay_not_configured is healthy in an env with no keyset" },
   // US-1047: auto leave-feedback (no-op unless system setting feedback.auto_leave).
   { name: "ebay-leave-feedback", label: "eBay auto leave-feedback", schedule: "0 10 * * *", category: "sync", endpoint: "/api/flipdesk/ebay/jobs/leave-feedback", recorded: true, healthy: "200; no-op unless system setting feedback.auto_leave=true" },
   // US-561: promoted-listings performance sync.

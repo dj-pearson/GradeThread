@@ -170,7 +170,7 @@ describe("staticUrls (from seo-manifest.json)", () => {
 });
 
 describe("blogUrls + certUrls", () => {
-  it("blogUrls includes the index, each post, and each tag", async () => {
+  it("blogUrls includes the index, each post, and only CURATED tag archives", async () => {
     vi.stubGlobal(
       "fetch",
       mockFetch({
@@ -178,7 +178,8 @@ describe("blogUrls + certUrls", () => {
           posts: [
             { slug: "first-post", published_at: "2026-01-01", updated_at: "2026-02-01" },
           ],
-          tags: ["resale", "grading"],
+          // "resale" is a real uncurated tag; "denim-grading" is in the registry.
+          tags: ["resale", "denim-grading"],
         },
       }),
     );
@@ -186,12 +187,46 @@ describe("blogUrls + certUrls", () => {
     const locs = urls.map((u) => u.loc);
     expect(locs).toContain("https://gradethread.com/blog");
     expect(locs).toContain("https://gradethread.com/blog/first-post");
-    // Tag archives are excluded on purpose: they are served `noindex, follow`
-    // (functions/blog/[[path]].ts renderTag), and listing a noindexed URL here
-    // would tell Google the opposite of what the page itself says. The two must
-    // stay in lockstep — if tags are ever reindexed, restore both.
+    // US-9037: an uncurated tag is still served `noindex, follow`, so listing it
+    // here would tell Google the opposite of what the page says.
     expect(locs).not.toContain("https://gradethread.com/blog/tag/resale");
+    // A curated topic says `index, follow`, so the sitemap has to agree.
+    expect(locs).toContain("https://gradethread.com/blog/tag/denim-grading");
+  });
+
+  it("blogUrls lists no topic the payload did not report as published", async () => {
+    vi.stubGlobal(
+      "fetch",
+      mockFetch({
+        "/api/content/public/sitemap.json": {
+          posts: [
+            { slug: "first-post", published_at: "2026-01-01", updated_at: "2026-02-01" },
+          ],
+          tags: [],
+        },
+      }),
+    );
+    const locs = (await blogUrls(env)).map((u) => u.loc);
     expect(locs.some((l) => l.includes("/blog/tag/"))).toBe(false);
+  });
+
+  it("topic URLs carry no lastmod — the payload has no dates to derive one from", async () => {
+    vi.stubGlobal(
+      "fetch",
+      mockFetch({
+        "/api/content/public/sitemap.json": {
+          posts: [
+            { slug: "first-post", published_at: "2026-01-01", updated_at: "2026-02-01" },
+          ],
+          tags: ["denim-grading"],
+        },
+      }),
+    );
+    const topic = (await blogUrls(env)).find((u) =>
+      u.loc.endsWith("/blog/tag/denim-grading"),
+    )!;
+    expect(topic).toBeDefined();
+    expect(topic.lastmod).toBeUndefined();
   });
 
   it("certUrls maps public certificates to /cert/:id with lastmod", async () => {

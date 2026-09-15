@@ -7,7 +7,7 @@ code_refs:
   - services/edge-functions/src/lib/coherent-cache.ts
   - services/edge-functions/src/lib/schema-version.ts
   - services/edge-functions/src/lib/circuit-breaker.ts
-reviewed: 2026-09-11
+reviewed: 2026-09-14
 tags: [edge, caching, deploy, contract]
 summary: The edge runs N replicas, migrations apply separately from the code roll, and a deadline must cover the response body — three facts that constrain what any edge module may assume.
 ---
@@ -24,6 +24,22 @@ summary: The edge runs N replicas, migrations apply separately from the code rol
 > entry that only ever drifts on a version constant is a signal with no
 > information in it, and the honest fix is to narrow what this note watches
 > rather than keep dating a clean read.
+
+> **Re-reviewed 2026-09-14.** Drift on `schema-version.ts` for US-3413, and
+> the diff is the same one line: `EXPECTED_SCHEMA_VERSION` 00800 to 00801,
+> moving with its migration. Nothing about the boot guard, the grace window
+> or refuse-to-start moved.
+>
+> **I took up the previous entry's suggestion and then declined it, which is
+> worth recording so the next reader does not re-open it.** That entry says
+> the honest fix is to narrow what this note watches, since this ref only
+> ever drifts on a version constant. It cannot be narrowed usefully: the
+> drift guard watches FILES, not line ranges, and `schema-version.ts` is not
+> only the constant — `assertSchemaVersion`, the grace window, the phantom
+> list and `checkSchemaCompleteness` all live in it, and those ARE the
+> mechanism this note documents. Dropping the ref would trade a noisy signal
+> for no signal on the code that matters most here. So the ref stays and the
+> dated re-reads stay cheap; that is the trade, deliberately made.
 
 # Edge runtime invariants
 

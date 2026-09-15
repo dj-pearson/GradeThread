@@ -106,9 +106,9 @@ export const RESELLER_TERMS: ResellerTerm[] = [
     term: "VGUC",
     alternateNames: ["Very Good Used Condition"],
     group: "condition-lingo",
-    title: "VGUC: What It Means and What It's Worth",
+    title: "VGUC Meaning: Is the Item Worth Buying?",
     description:
-      "VGUC means Very Good Used Condition, but sellers use it loosely. What VGUC really covers, where it lands on a 1–10 grade, and what to check before you buy.",
+      "VGUC is Very Good Used Condition, and sellers stretch it. What it should cover, the 1-10 grade it maps to, and the five things to check before you buy.",
     h1: "What does VGUC mean?",
     definition:
       "VGUC stands for Very Good Used Condition. It describes a pre-owned garment with light, even wear consistent with occasional use: maybe slight softening of the fabric or very minor pilling, but no holes, stains, odor, or broken hardware. On the GradeThread scale it anchors a 7 out of 10.",
@@ -175,9 +175,9 @@ export const RESELLER_TERMS: ResellerTerm[] = [
     term: "GUC",
     alternateNames: ["Good Used Condition"],
     group: "condition-lingo",
-    title: "GUC Meaning (Good Used Condition)",
+    title: "GUC Meaning: How Worn Is Good Used?",
     description:
-      "GUC means Good Used Condition — visible but minor wear that doesn't stop the item being worn. What it means and its 1–10 grade.",
+      "GUC is Good Used Condition: real wear that still wears fine. Where it sits on a 1-10 grade, and how to tell GUC apart from a seller hiding a flaw.",
     h1: "What does GUC mean?",
     definition:
       "GUC stands for Good Used Condition. It describes a pre-owned garment with visible, honest wear — light pilling, minor fading, small marks, or slight stretching — but nothing that stops it being worn or that a buyer would call damage. On the GradeThread scale, GUC anchors a 6 out of 10.",
@@ -628,9 +628,9 @@ export const RESELLER_TERMS: ResellerTerm[] = [
     term: "INR",
     alternateNames: ["Item Not Received"],
     group: "marketplace",
-    title: "INR Claims: When a Buyer Says It Never Arrived",
+    title: "INR Claim: How Not to Eat the Loss",
     description:
-      "INR means Item Not Received. How an INR claim differs from SNAD, what tracking actually proves, and how to respond so you are not the one eating the loss.",
+      "INR means Item Not Received. What tracking proves, what it does not, and the response that keeps the refund off your account when a buyer opens a claim.",
     h1: "What does INR mean?",
     definition:
       "INR stands for Item Not Received, a buyer claim that a paid-for order never arrived. Unlike SNAD, it's about delivery, not condition. Sellers protect themselves with tracked shipping and proof of delivery, since marketplaces side with buyers when there's no tracking. INR is a fulfillment dispute and has nothing to do with an item's grade.",
@@ -949,9 +949,9 @@ export const RESELLER_TERMS: ResellerTerm[] = [
     slug: "thrift-flip",
     term: "Thrift flip",
     group: "sourcing",
-    title: "Thrift Flip Meaning (Resale & Upcycle)",
+    title: "Thrift Flip Meaning, and What Sells",
     description:
-      "A thrift flip is buying a thrifted item cheap and reselling — or altering — it for profit. What flipping means and where condition grading fits.",
+      "A thrift flip is buying cheap and reselling for profit. What counts as a flip, which items carry margin, and the condition check that kills a bad buy.",
     h1: "What is a thrift flip?",
     definition:
       "A thrift flip is buying a low-cost thrifted item and reselling it for profit, sometimes after cleaning, mending, or altering it (upcycling) to raise its value. The margin comes from the gap between a cheap sourcing price and resale demand. Judging condition at purchase — a rough 1.0–10.0 read — is what separates a profitable flip from a dud.",
@@ -995,9 +995,9 @@ export const RESELLER_TERMS: ResellerTerm[] = [
     term: "Pit to pit",
     alternateNames: ["Pit-to-pit", "Chest width", "P2P"],
     group: "measurements",
-    title: "Pit to Pit Measurement Explained",
+    title: "Pit to Pit: Measure It, Then Convert It",
     description:
-      "Pit to pit is the flat-laid chest width measured armpit to armpit. How to take it and why it beats sizing tags for online fit.",
+      "Pit to pit is chest width measured flat, armpit to armpit. How to take it in ten seconds, and how to turn that number into a size buyers actually trust.",
     h1: "How do you measure pit to pit?",
     definition:
       "Pit to pit is a garment measurement taken across the chest from one armpit seam to the other while the item lies flat; doubling it gives the full chest circumference. Because vanity sizing makes tag sizes unreliable, resellers list pit-to-pit so buyers can match fit to a garment they already own.",

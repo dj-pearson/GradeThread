@@ -68,9 +68,28 @@ interface CurveDto {
   examples?: ExampleCert[];
 }
 
+const EM_DASH = "—";
+
 function dollars(cents: number | null): string {
-  if (cents == null) return "—";
-  return `$${(cents / 100).toFixed(0)}`;
+  if (cents == null) return EM_DASH;
+  return `${(cents / 100).toFixed(0)}`;
+}
+
+// Google shows roughly 60 characters of a title. The phrasings below run from
+// most persuasive to shortest; take the first that fits so a long garment label
+// loses the framing rather than losing its own name.
+const SERP_TITLE_MAX = 60;
+
+function fitTitle(label: string): string {
+  const shortest = `${label} Resale Value`;
+  const candidates = [
+    `What a ${label} Sells For, by Condition`,
+    `${label} Resale Value by Condition`,
+    shortest,
+  ];
+  // A label long enough to bust the cap on its own keeps its name and loses the
+  // framing; there is nothing shorter left to try.
+  return candidates.find((c) => c.length <= SERP_TITLE_MAX) ?? shortest;
 }
 
 type Ctx = EventContext<PagesEnv, "path", Record<string, unknown>>;
@@ -151,8 +170,15 @@ export const onRequestGet: PagesFunction<PagesEnv> = async (context: Ctx) => {
 
     return renderSsrResponse(
       {
-        title: `${curve.label} resale value by condition — GradeThread Condition Index`,
-        description: `What a ${curve.label} sells for at each condition grade, from condition-matched comps. Updated ${formatDate(curve.refreshedAt)}.`,
+        // US-3412: the old title was 72+ chars for a typical label, so Google cut
+        // it mid-brand and the value promise never reached the SERP. 35 of these
+        // pages ranked at position 7.7 with zero clicks. Lead with the answer,
+        // and fall back down the list until one fits the ~60-char cap.
+        title: fitTitle(curve.label),
+        description:
+          headline === EM_DASH
+            ? `What a ${curve.label} sells for at each condition grade, from condition-matched comps. Updated ${formatDate(curve.refreshedAt)}.`
+            : `A grade-8 ${curve.label} sells for about ${headline}. The full price range at every condition grade, from condition-matched resale comps.`,
         canonicalUrl: canonical,
         bodyHtml: body,
         jsonLd,
@@ -218,7 +244,7 @@ export const onRequestGet: PagesFunction<PagesEnv> = async (context: Ctx) => {
 
     return renderSsrResponse(
       {
-        title: "The Condition Index — what used clothing is worth by condition · GradeThread",
+        title: "Condition Index: What Used Clothing Is Worth",
         description: "See how much popular pre-owned clothing is worth at each condition grade, from condition-matched resale comps.",
         canonicalUrl: `${site}/condition-index`,
         bodyHtml: body,

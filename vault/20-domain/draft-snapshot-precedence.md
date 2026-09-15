@@ -8,12 +8,17 @@ code_refs:
   - src/lib/composer-save.ts
   - src/pages/flipdesk/composer.tsx
   - src/pages/flipdesk/grid.tsx
+  - src/pages/flipdesk/grid-columns.ts
+  - src/pages/flipdesk/use-grid-listings.ts
   - src/lib/title-sync-patch.ts
   - services/edge-functions/src/routes/flipdesk-ebay.ts
-reviewed: 2026-09-13
+reviewed: 2026-09-14
 tags: [flipdesk, listings, publishing, contract]
 summary: Publish prefers the listings-row snapshot over the item, so any surface writing the item's title, description or price must reach the draft row too.
 ---
+
+The grid was expanded on 2026-09-14. The current writer list is below;
+the dated reviews record the older nine-column grid.
 
 > **Re-reviewed 2026-09-13.** flipdesk-ebay.ts changed for US-3111 (`5a3156dc0`).
 > The whole diff is a chunker: `chunkIdsForInFilter` / `IN_FILTER_CHAR_BUDGET`
@@ -143,7 +148,7 @@ reads the listing first — but the item's copy is no longer left at whatever it
 was named on the day it was created. Which fields flow which way is
 [[sync-source-of-truth]]'s to state, not this note's.
 
-## Why this is mostly safe: one full editor, and one grid that half-syncs
+## The composer and the bulk grid
 
 `FlipdeskComposerPage` (`src/pages/flipdesk/composer.tsx`) is the only **full**
 item/listing editor, at every status. `/dashboard/flipdesk/items/:id`,
@@ -155,15 +160,28 @@ to the listings row** through `buildListingFields` (`src/lib/composer-save.ts`),
 which both save paths share precisely so a column cannot be wired into one and
 forgotten in the other.
 
-**It is not the only writer.** `src/pages/flipdesk/grid.tsx` edits nine item
-columns inline, against `inventory_items` only: `sku`, `title`, `brand`, `style`,
-`size`, `acquired_price`, `target_price`, `sourced_by` (US-3123) and
-`condition_notes`. The `COLS` table at the top of the file is that list. Since
-US-1995 it syncs **brand/style/size** into `listings.listing_title`
-(`TITLE_SYNC_COLS`, consumed by `syncListingTitle`) — but a grid edit to
-**Title** or **Target price** still never reaches the listings row, and will not
-publish. That is the open case of the rule below, stated here rather than left to
-be rediscovered.
+The Inventory grid now has 22 base columns in `grid-columns.ts`, plus eight
+common item specifics and any additional specifics stored on the page's listings.
+Thirteen columns write inventory fields: SKU, inventory title, brand, style, size,
+color, material, cost, target price, floor price, storage bin, sourced by and
+private notes. The separate **Listing title** and **Listing price** columns write
+the listing snapshot directly. The review dialog labels inventory title and
+target price as inventory-only; sellers must use the listing columns to change
+what gets published. The older inventory-title/target-price mirroring gap is
+not silently treated as fixed.
+
+`use-grid-listings.ts` resolves each page row's exact `listing_id`, rechecks the
+listing before saving, and rejects conflicting edits and imported eBay-origin
+listings. Draft edits write the listing snapshot without invoking a publishing
+endpoint. Active listing edits use the existing eBay revision route; policy
+changes use the existing bulk-edit route only for active listings. A local save
+followed by an eBay refusal remains a failed row with its edits retained for retry.
+Item specifics merge into the existing override map and record manual sources.
+
+Inventory brand/style/size/color edits still use `syncListingTitle`, now against
+the row's exact listing id. An explicit listing-title edit takes precedence over
+the automatic substitution. An inventory save and a failed automatic title sync
+remain separate outcomes, with a warning for the latter.
 
 **And since US-1995 a composer save is no longer a pure copy of the form.**
 `titleSyncPatchFor()` builds a `TitleSyncPatch` from the specifics write-back and
@@ -206,8 +224,9 @@ otherwise serve the snapshot and the seller's change silently will not ship.
 That is not hypothetical: bulk edit needed its own title sync for exactly this
 reason, having been shipped for the canvas and never for there. The composer is
 safe because it writes the listing row directly; nothing else gets that for free,
-and the grid is the standing proof — it got the sync for three columns and still
-lacks it for two.
+and the grid keeps separate inventory and listing columns. Its inventory-title
+and target-price edits still do not author the listing snapshot; the dedicated
+listing columns do.
 
 There is now a **second** way to diverge, added by the backwards title sync:
 editing `brand`, `size`, `color` or `style` on the item makes

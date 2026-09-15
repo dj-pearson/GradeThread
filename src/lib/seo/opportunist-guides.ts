@@ -113,9 +113,9 @@ export const OPPORTUNIST_GUIDES: OpportunistGuide[] = [
   },
   {
     path: "/reselling/comps/ebay-sold-comps",
-    title: "How to Read eBay Sold Comps",
+    title: "eBay Sold Comps: Read Them in 60 Seconds",
     description:
-      "How to read eBay sold comps to price used clothing: sold vs active listings, filtering by condition, and turning real sale prices into an accurate list price.",
+      "Sold comps price your item, active listings do not. The filters to set, the outliers to drop, and how to turn real sale prices into a list price that moves.",
     h1: "eBay sold comps: how to price with real sale data",
     definition:
       "eBay sold comps are the prices that comparable items actually sold for — not what sellers are asking. They're the single most reliable pricing input a reseller has, because they reflect real buyer demand. Pricing to sold comps in the same condition, rather than to hopeful active listings, is what keeps items from sitting unsold.",

@@ -20,6 +20,11 @@ const TEST_USER = { id: "11111111-1111-4111-8111-111111111111" };
 const ITEM_ID = "aaaaaaaa-0000-4000-8000-000000000001";
 const LISTING_ID = "bbbbbbbb-0000-4000-8000-000000000002";
 
+vi.mock("@/pages/flipdesk/use-grid-listings", () => ({
+  useGridListings: () => ({ data: new Map(), isLoading: false, isError: false }),
+  useSaveGridListing: () => async () => {},
+}));
+
 // -- supabase ----------------------------------------------------------------
 // Three shapes are needed, and they must be told apart:
 //   items_full   select().order().range()      -> the page of rows
@@ -29,6 +34,7 @@ const LISTING_ID = "bbbbbbbb-0000-4000-8000-000000000002";
 let listingsReadError: unknown = null;
 let titleWriteError: unknown = null;
 let itemWriteError: unknown = null;
+let failItemId: string | null = null;
 const titleWrites: Record<string, unknown>[] = [];
 const listingsReads: number[] = [];
 
@@ -45,6 +51,7 @@ const ROW = {
   created_at: "2026-01-01T00:00:00Z",
   updated_at: "2026-01-01T00:00:00Z",
 };
+let pageRows = [ROW];
 
 const LISTING = {
   id: LISTING_ID,
@@ -61,7 +68,7 @@ vi.mock("@/lib/supabase", () => ({
       select: () => ({
         order: () => ({
           range: () =>
-            Promise.resolve({ data: [ROW], error: null, count: 1 }),
+            Promise.resolve({ data: pageRows, error: null, count: pageRows.length }),
         }),
         // The title-sync read. Resolves with { error } - it does not reject.
         in: () => {
@@ -76,12 +83,12 @@ vi.mock("@/lib/supabase", () => ({
         }),
       }),
       update: (patch: Record<string, unknown>) => ({
-        eq: () => {
+        eq: (_column: string, id: string) => {
           if (table === "listings") {
             titleWrites.push(patch);
             return Promise.resolve({ data: null, error: titleWriteError });
           }
-          return Promise.resolve({ data: null, error: itemWriteError });
+          return Promise.resolve({ data: null, error: id === failItemId ? new Error("This item could not be saved.") : itemWriteError });
         },
       }),
     }),
@@ -113,6 +120,7 @@ vi.mock("sonner", () => ({
     error: () => {},
     warning: () => {},
     message: () => {},
+    info: () => {},
   },
 }));
 vi.mock("@/lib/toast-error", () => ({
@@ -164,9 +172,9 @@ async function settle() {
   }
 }
 
-async function editBrandAndSave(value: string) {
+async function editCell(label: string, value: string) {
   const cell = document.querySelector<HTMLInputElement>(
-    'input[aria-label="Brand, row 1"]',
+    `input[aria-label="${label}"]`,
   );
   expect(cell).toBeTruthy();
   const setter = Object.getOwnPropertyDescriptor(
@@ -177,6 +185,14 @@ async function editBrandAndSave(value: string) {
     setter.call(cell!, value);
     cell!.dispatchEvent(new Event("input", { bubbles: true }));
   });
+}
+
+async function reviewAndSave() {
+  const review = Array.from(document.querySelectorAll("button")).find(
+    (b) => b.textContent?.trim() === "Review changes",
+  );
+  expect(review).toBeTruthy();
+  await act(async () => { review!.click(); });
   const save = Array.from(document.querySelectorAll("button")).find(
     (b) => b.textContent?.trim() === "Save all",
   );
@@ -187,6 +203,11 @@ async function editBrandAndSave(value: string) {
   await settle();
 }
 
+async function editBrandAndSave(value: string) {
+  await editCell("Brand, row 1", value);
+  await reviewAndSave();
+}
+
 beforeEach(() => {
   successes.length = 0;
   warnings.length = 0;
@@ -195,6 +216,9 @@ beforeEach(() => {
   listingsReadError = null;
   titleWriteError = null;
   itemWriteError = null;
+  failItemId = null;
+  pageRows = [ROW];
+  localStorage.clear();
   useAuthStore.setState({
     user: TEST_USER as never,
     session: { user: TEST_USER } as never,
@@ -258,5 +282,41 @@ describe("inventory grid: the listing-title sync", () => {
     expect(titleWrites).toHaveLength(1);
     expect(successes).toEqual(["Saved 1 row."]);
     expect(warnings).toEqual([]);
+  });
+
+  it("keeps only failed rows for retry after a partial save", async () => {
+    const secondId = "aaaaaaaa-0000-4000-8000-000000000003";
+    pageRows = [ROW, { ...ROW, id: secondId, item_title: "Second jacket" }];
+    failItemId = secondId;
+    mount(h(FlipdeskGridPage));
+    await settle();
+    await editCell("Brand, row 1", "Carhartt");
+    await editCell("Brand, row 2", "Patagonia");
+    await reviewAndSave();
+    expect(container!.textContent).toContain("1 cell changed");
+    expect(container!.textContent).toContain("Second jacket: This item could not be saved.");
+    expect(titleWrites).toHaveLength(1);
+    failItemId = null;
+    await reviewAndSave();
+    expect(successes).toEqual(["Saved 1 row."]);
+    expect(container!.textContent).not.toContain("cell changed");
+    expect(container!.textContent).not.toContain("still need attention");
+  });
+
+  it("pastes into visible columns without changing a hidden column", async () => {
+    localStorage.setItem("flipdesk-grid-columns-v1", JSON.stringify(["sku", "size"]));
+    mount(h(FlipdeskGridPage));
+    await settle();
+    const cell = container!.querySelector<HTMLInputElement>('input[aria-label="SKU, row 1"]')!;
+    const event = new Event("paste", { bubbles: true, cancelable: true });
+    Object.defineProperty(event, "clipboardData", { value: { getData: () => "NEW-SKU\tXL" } });
+    await act(async () => { cell.dispatchEvent(event); });
+    expect(container!.querySelector<HTMLInputElement>('input[aria-label="Size, row 1"]')!.value).toBe("XL");
+    expect(container!.textContent).toContain("2 cells changed");
+    const review = [...container!.querySelectorAll("button")].find(button => button.textContent === "Review changes")!;
+    await act(async () => { review.click(); });
+    const dialog = document.querySelector('[role="dialog"]')!;
+    expect(dialog.textContent).toContain("/ Size");
+    expect(dialog.textContent).not.toContain("/ Inventory title");
   });
 });

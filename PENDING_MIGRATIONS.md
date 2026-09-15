@@ -45,6 +45,56 @@ stronger claim for one of them, `check-prod-migration.ts` is the tool.
 Nothing below 00786 was touched, and the six genuinely-held branches in the next
 section are unchanged and still waiting.
 
+## HELD 2026-09-14: 00801 - payout becomes a grouping key on sale_pnl (US-3413)
+
+**What it does.** Replaces the `public.sale_pnl` view with the same body plus
+two columns, `payout_id` (from `sales.payout_reference`) and `payout_date` (from
+`ebay_payouts`), and adds `idx_sales_user_payout_reference`. Nothing about the
+money changes: the revenue/fees/costs/net terms are copied from 00706 verbatim.
+
+**Risk: low, and measured rather than argued.** `sale_pnl` is read by the
+Analytics team scorecard, the ship queue and now the payout breakdown. The one
+real hazard in adding a LEFT JOIN to a view is row multiplication, so the new
+body was run beside the live view on prod, read-only, on 2026-09-14:
+
+```
+ live_rows | new_rows | live_net | new_net | with_payout_id | with_payout_date
+       221 |      221 |  7179.53 | 7179.53 |             82 |               12
+```
+
+Identical row count, identical total net to the cent. `ebay_payouts` carries
+`UNIQUE (user_id, payout_id)` so the join is at most 1:1 by construction, and
+this is the evidence. 82 rows pick up a payout id; only 12 pick up a date,
+because we hold headers for two of the five payouts sales reference. That gap is
+what the new `ebay-payout-link` cron closes over the following nights.
+
+**Apply order.** Anywhere. It depends only on `sale_pnl` (00706) and
+`ebay_payouts` (00327), both long applied, and it is independent of the six
+gap-fills 00793-00799 still parked on branches below it.
+
+**⚠ THE FRONTEND READS THE NEW COLUMNS, so the order matters in ONE direction.**
+`src/lib/payout-breakdown.ts` selects `payout_id, payout_date` from `sale_pnl`
+and Cloudflare Pages auto-deploys the moment this is pushed. Push before the SQL
+applies and expanding a payout on the Reconciliation page answers a PostgREST
+42703 and the panel shows its error state. Nothing else on the page breaks and
+no data is at risk, but it is a visible break: **apply first, then push.**
+
+The edge side has no such ordering trap. The new `/api/jobs/ebay-payout-link`
+cron writes only `sales.payout_reference`, a column that has existed since
+00008, so it is safe against the current schema and needs the edge redeploy only
+to exist at all.
+
+**After applying:** `NOTIFY pgrst, 'reload schema';` - a view whose column list
+changed is exactly the case PostgREST caches. `npm run migrate:prod` sends this
+for you.
+
+**Then, once the edge is redeployed**, add the Coolify cron task for
+`ebay-payout-link` (POST `/api/jobs/ebay-payout-link`, `30 5 * * *`, with
+`X-Internal-Job-Secret`). Without the task the pass never runs and payout
+coverage stays where it is: 84 of 228 sales linked, September 0 of 12. The first
+run will do the backfill; it reads a 90-day window and fills only rows whose
+reference is null.
+
 ## WHAT IS STILL WAITING FOR YOU, 2026-09-11
 
 Six migrations are finished and parked on branches. Merge them in this order.

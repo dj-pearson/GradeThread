@@ -11,6 +11,7 @@ import {
 import { HelpCategoryLink } from "@/components/marketing/help-category-link";
 import { NotFoundPage } from "@/pages/not-found";
 import { getFlipdeskLandingByPath } from "@/lib/seo/flipdesk-landing";
+import { CROSSLIST_PAIRS, crosslistPairPath } from "@/lib/seo/crosslist-pairs";
 import {
   flipdeskLandingJsonLd,
   flipdeskLandingBreadcrumbItems,
@@ -132,6 +133,36 @@ export function FlipdeskLandingPage({ slug: slugProp }: { slug?: string }) {
           </p>
         </div>
       </section>
+
+      {/* US-3412: the fourteen pair pages (US-9214) had exactly one inbound
+          internal link, from /reselling/best-crosslisting-apps — the page the
+          US-9009 diagnosis measured at position 46 with zero clicks. New pages
+          hanging off the weakest page on the site is how they stay unindexed.
+          This page sits at 10.75, so the down-link runs from here too. */}
+      {landing.slug === "crosslisting" && (
+        <section className="border-t px-6 py-16">
+          <div className="mx-auto max-w-3xl">
+            <h2 className="text-2xl font-bold sm:text-3xl">Moving one listing between two marketplaces</h2>
+            <p className="mt-4 text-muted-foreground">
+              Each page says what carries over, what the destination marketplace
+              needs that the source never asked for, and whether the listing gets
+              there by API, by the browser extension, or by hand.
+            </p>
+            <ul className="mt-6 grid gap-2 sm:grid-cols-2">
+              {CROSSLIST_PAIRS.map((p) => (
+                <li key={p.slug}>
+                  <Link
+                    to={crosslistPairPath(p.slug)}
+                    className="text-sm font-medium text-brand-navy hover:underline dark:text-foreground"
+                  >
+                    {p.fromLabel} to {p.toLabel}
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          </div>
+        </section>
+      )}
 
       {/* FAQ */}
       <section className="border-t bg-card px-6 py-16">

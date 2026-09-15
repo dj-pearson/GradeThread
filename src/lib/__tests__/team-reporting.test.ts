@@ -42,6 +42,10 @@ function sale(over: Partial<SalePnlRow> = {}): SalePnlRow {
     source_key: "Goodwill",
     brand_key: "Carhartt",
     category_key: "Outerwear",
+    // US-3413 added these to the view. The scorecard does not group by payout,
+    // so they default to the unsettled state a sale spends its first days in.
+    payout_id: null,
+    payout_date: null,
     revenue: "100.00",
     fees: "10.00",
     costs: "5.00",

@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "claude/seo-strategy-options-evftv2",
   "description": "SEO rebuild backlog, held OUT of prd.json entirely so the Ralph loop can never collide with it. Derived from vault/40-growth/seo-strategy-options-2026-08.md and the 2026-08-18 Keyword Planner pull (docs/seo/keyword-pull-2026-08-results.csv). Build order is Path 3 (calculators, 127,100/mo seller intent), then Path 7 (conversion + comparisons), then Path 1 (damage and care, 295,750/mo, authority engine only). Path 2 (returns) and Path 4 (resale value) were killed by the pull and are deliberately absent. IDS USE A RESERVED HIGH BLOCK (US-9001+) RATHER THAN prd.json.nextId: an earlier attempt reserved US-2674..US-2689 by bumping prd.json.nextId, and PR #275 merged the same block to main first, so the reservation both conflicted and failed. prd.json is now never touched by this file. Ralph allocates sequentially from US-2684 and will not reach 9001. On merge back, renumber into the live sequence and re-rank priorities, which are local to this file.",
-  "nextId": "US-9037",
+  "nextId": "US-9038",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -744,6 +744,21 @@
         "US-9031",
         "US-9034"
       ]
+    },
+    {
+      "id": "US-9037",
+      "passes": false,
+      "title": "Index the blog tag archives that are actually substantial (GSC noindex exclusion)",
+      "description": "GSC's 2026-09-14 coverage export lists 134 /blog/tag/* URLs under 'Excluded by noindex tag', and the same URLs turn up in 'Crawled - currently not indexed'. The blanket noindex was correct when it was written (138 tags against ~61 posts). Measured on prod 2026-09-14 there are now 196 published posts and 259 tags, and the shape has changed: 209 tags still carry 1-2 posts, but 23 carry 8 or more and defect-taxonomy alone carries 71. Blanket-flipping all 259 to index would just move them into 'crawled, not indexed' - an archive page that is a title plus three cards has no reason to rank. Curate a topic registry instead: a hand-written name, meta description and intro for each substantial tag, indexable only when the tag also clears a live post-count floor, listed in the sitemap, and linked from the blog hub so there is a crawl path. Everything else keeps noindex,follow.",
+      "acceptanceCriteria": [
+        "functions/_shared/blog-topics.ts holds a curated registry of tag slugs with a display name, meta description and intro paragraph; only slugs in the registry can be indexed",
+        "renderTag serves robots 'index, follow' only when the tag is in the registry AND the live published-post count is at or above the floor; every other tag keeps 'noindex, follow'",
+        "an indexed topic page renders the curated H1, description and intro instead of the bare 'Tag: x' heading, and carries CollectionPage JSON-LD",
+        "blogUrls lists exactly the curated topics that the sitemap.json payload reports as having published posts; the old 'tags are never listed' tests are replaced by ones asserting curated-only",
+        "the blog hub renders a Browse by topic block linking every curated topic, so each one has an internal crawl path from a page that is already indexed",
+        "no edge-function or migration change is required - the whole change ships with Cloudflare Pages"
+      ],
+      "priority": 2
     }
   ]
 }
