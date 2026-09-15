@@ -24,15 +24,16 @@ import {
 import { FieldError } from "@/components/ui/form-feedback";
 import { cn } from "@/lib/utils";
 import { supabase } from "@/lib/supabase";
-import { advanceItemStatus } from "@/lib/status-writer";
+import { edgeFetch } from "@/lib/edge-fetch";
+import { requestDrainNow } from "@/lib/lister-extension";
+import { QUEUED_NOTICE } from "@/hooks/use-extension-queue";
 import { todayLocalDate } from "@/lib/local-date";
 import { computeNetProfit } from "@/lib/sale-math";
 import { MARKETPLACE_LABELS } from "@/lib/constants";
 import { useItemListings, type ItemListingRow } from "@/hooks/use-item-listings";
-import { useEndOtherListings } from "@/hooks/use-pending-delists";
 import { ItemDelistPanel } from "@/components/flipdesk/delist-panel";
 import { defaultSoldListing, SOLD_ELSEWHERE as ELSEWHERE } from "@/lib/delist-links";
-import type { ItemFullRow, ListingPlatform, SaleInsert } from "@/types/database";
+import type { ItemFullRow, ListingPlatform } from "@/types/database";
 
 function soldChoiceLabel(row: ItemListingRow): string {
   const name = MARKETPLACE_LABELS[row.platform as ListingPlatform] ?? row.platform;
@@ -70,7 +71,6 @@ export function RecordSaleDialog({
   // The dialog used to close out `item.listing_id`, which is the item's primary
   // (usually eBay) listing, whatever marketplace the sale was actually on.
   const { data: listingRows = [] } = useItemListings(item?.id);
-  const endOthers = useEndOtherListings();
   const choices = listingRows.filter(
     (r) => r.listing_status === "active" || r.listing_status === "draft",
   );
@@ -176,139 +176,86 @@ export function RecordSaleDialog({
       // US-3369: the listing that actually sold, or none when it sold somewhere
       // FlipDesk has no listing for.
       const soldListingId = soldChoice === ELSEWHERE ? null : soldChoice;
-      const insert: SaleInsert = {
-        inventory_item_id: item.id,
-        listing_id: soldListingId,
-        sale_price: n(form.sale_price),
-        shipping_collected: n(form.shipping_collected),
-        platform_fees: n(form.platform_fees),
-        payment_processing_fees: n(form.payment_processing_fees),
-        shipping_cost: n(form.shipping_cost),
-        tax: n(form.tax),
-        other_costs: n(form.other_costs),
-        net_profit: net,
-        buyer_username: form.buyer_username.trim() || null,
-        sale_date: form.sale_date || undefined,
-        sold_at: form.sale_date || null,
-      };
-      const { error } = await supabase
-        .from("sales")
-        .insert(insert as never);
-      if (error) throw error;
 
-      await advanceItemStatus(item.id, item.status, "sold");
-
-      // US-1424: a manual sale must also close out the listing, or the item
-      // stays is_active=true / 'active' after being marked sold (overselling
-      // risk + a stale 'active' chip). This is best-effort — the sale is
-      // already recorded, so a listing-close hiccup warns rather than failing
-      // the whole action.
+      // US-3367: one request. The server inserts the sale, advances the item,
+      // closes the row it sold through (decrementing a multi-unit listing, per
+      // US-1424 AC3), and hands every OTHER listing of the garment to the
+      // sibling planner. It answers with which marketplaces the seller's
+      // browser will end and which need the seller.
       //
-      // US-3369: THE listing that sold, which the seller just picked. This
-      // closed `item.listing_id` before, which is the item's primary listing:
-      // a Poshmark sale marked the eBay listing sold and left Poshmark live. It
-      // also no longer ends anything on eBay itself: a listing that sold on
-      // eBay has already ended there, and an eBay listing that did NOT sell is
-      // one of the "other listings" below, ended by the same server engine a
-      // webhook sale uses.
-      let lastUnitSold = true;
-      if (soldListingId) {
-        try {
-          const { data: lst, error: lErr } = await supabase
-            .from("listings")
-            .select("id, quantity")
-            .eq("id", soldListingId)
-            .maybeSingle();
-          if (lErr) throw lErr;
-          const listing = lst as { id: string; quantity: number | null } | null;
-          if (listing) {
-            // AC3: a multi-quantity listing only ends when the last unit sells —
-            // otherwise decrement the remaining quantity and keep it active.
-            const remaining = Math.max(0, (listing.quantity ?? 1) - 1);
-            if (remaining > 0) {
-              lastUnitSold = false;
-              const { error } = await supabase
-                .from("listings")
-                .update({ quantity: remaining } as never)
-                .eq("id", listing.id);
-              if (error) throw error;
-            } else {
-              // AC1: end the listing locally (sold + inactive).
-              const { error } = await supabase
-                .from("listings")
-                .update({
-                  listing_status: "sold",
-                  is_active: false,
-                  quantity: 0,
-                } as never)
-                .eq("id", listing.id);
-              if (error) throw error;
-            }
-          }
-        } catch (err) {
-          toastWarning(
-            err,
-            "Sale recorded, but we could not update the listing.",
-            { duration: 10_000 },
-          );
-        }
-      }
+      // This path was written from the browser between 40e95fadc and now: that
+      // merge restored an older dialog that inserted `sales` directly, and the
+      // compile fix on top of it kept the browser copy. A direct insert skips
+      // the server's fee and provenance handling and ends nothing beyond the
+      // one listing it knows about, which is the bug US-3367 was filed for.
+      const res = await edgeFetch("/api/flipdesk/sales/record", {
+        method: "POST",
+        json: {
+          inventory_item_id: item.id,
+          listing_id: soldListingId,
+          sale_price: n(form.sale_price),
+          shipping_collected: n(form.shipping_collected),
+          platform_fees: n(form.platform_fees),
+          payment_processing_fees: n(form.payment_processing_fees),
+          shipping_cost: n(form.shipping_cost),
+          tax: n(form.tax),
+          other_costs: n(form.other_costs),
+          buyer_username: form.buyer_username.trim() || null,
+          sale_date: form.sale_date || null,
+        },
+      });
+      const json = (await res.json().catch(() => ({}))) as {
+        error?: string;
+        queued?: string[];
+        unresolved?: string[];
+      };
+      if (!res.ok) throw new Error(json.error ?? "Failed.");
+      const queued = json.queued ?? [];
+      const unresolved = json.unresolved ?? [];
 
-      // US-3369: the garment is gone, so end it everywhere else. Same engine,
-      // same auto-end switch, as a sale that arrives by webhook. Units left on
-      // a multi-quantity listing mean it is still for sale, so nothing ends.
-      let showDelistStep = false;
-      if (lastUnitSold) {
-        try {
-          const res = await endOthers.mutateAsync({
-            itemId: item.id,
-            soldListingId,
-            mode: "auto",
-          });
-          const { data: fresh, error: freshErr } = await supabase
-            .from("listings")
-            .select("id, listing_status")
-            .eq("inventory_item_id", item.id);
-          // US-3376: this READ used to drop its error, which made `liveLeft`
-          // zero and could SKIP the delist step entirely. That step is the one
-          // thing that catches an auto-end which reported success and did not
-          // end anything, so "we don't know" has to mean "show it", not "hide
-          // it". null = unknown, and unknown counts as "something is still up".
-          const liveLeft = freshErr
-            ? null
-            : ((fresh ?? []) as { id: string; listing_status: string }[]).filter(
-                (r) =>
-                  r.id !== soldListingId &&
-                  (r.listing_status === "active" ||
-                    r.listing_status === "draft"),
-              ).length;
-          if (freshErr) {
-            toastWarning(
-              freshErr,
-              "We couldn't check what's still listed elsewhere.",
-              {
-                action: "check remaining listings",
-                duration: 10_000,
-                nextStep: "Use the delist step before you close this.",
-              },
-            );
-          }
-          showDelistStep =
-            res.pending.length > 0 ||
-            res.summary.unresolved > 0 ||
-            (liveLeft ?? 1) > 0;
-          const ended = res.summary.ended;
-          if (ended > 0) {
-            toast.success(`Ended ${ended} other listing${ended === 1 ? "" : "s"} automatically.`);
-          }
-        } catch (err) {
-          // The sale is recorded; the panel on the item page can still run it.
-          toastWarning(err, "Sale recorded, but we could not end the other listings.", {
-            duration: 10_000,
-            nextStep: "Open the item and press Delist from other platforms.",
-          });
-        }
+      // US-3376: read back what is still live rather than trusting the plan.
+      // This is the one check that catches an auto-end which reported success
+      // and ended nothing, so "we don't know" has to mean "show the step", not
+      // "hide it". null = unknown, and unknown counts as still listed.
+      const { data: fresh, error: freshErr } = await supabase
+        .from("listings")
+        .select("id, listing_status")
+        .eq("inventory_item_id", item.id);
+      const liveLeft = freshErr
+        ? null
+        : ((fresh ?? []) as { id: string; listing_status: string }[]).filter(
+            (r) =>
+              r.id !== soldListingId &&
+              (r.listing_status === "active" || r.listing_status === "draft"),
+          ).length;
+      if (freshErr) {
+        toastWarning(freshErr, "We couldn't check what's still listed elsewhere.", {
+          action: "check remaining listings",
+          duration: 10_000,
+          nextStep: "Use the delist step before you close this.",
+        });
       }
+      const showDelistStep =
+        queued.length > 0 || unresolved.length > 0 || (liveLeft ?? 1) > 0;
+
+      const label = (pf: string) => MARKETPLACE_LABELS[pf as ListingPlatform] ?? pf;
+      if (queued.length > 0) {
+        // Deliberately not "ended": those listings are live until the seller's
+        // browser runs the job. QUEUED_NOTICE is the shared sentence for that.
+        toast.info(
+          `Ending it on ${queued.map(label).join(", ")} from your browser. ${QUEUED_NOTICE}`,
+          { duration: 12_000 },
+        );
+        void requestDrainNow();
+      }
+      if (unresolved.length > 0) {
+        toastWarning(undefined, `${unresolved.map(label).join(", ")} still needs you.`, {
+          duration: 12_000,
+        });
+      }
+      void qc.invalidateQueries({ queryKey: ["pending_delists"] });
+      void qc.invalidateQueries({ queryKey: ["extension_queue"] });
+      void qc.invalidateQueries({ queryKey: ["item_listing_platforms"] });
 
       await qc.invalidateQueries({ queryKey: ["items_full"] });
       await qc.invalidateQueries({ queryKey: ["sale_for_item", item.id] });

@@ -311,7 +311,6 @@ const REGISTRY: Record<string, readonly Site[]> = {
         "the seller typed, not when the item sold.",
     },
   ],
-  "src/hooks/use-ebay.ts": [{ text: "sold_at: string | null;", kind: "shape" }],
   "src/hooks/use-ship-queue.ts": [{ text: "sold_at: string | null;", kind: "shape" }],
   "src/hooks/use-sold-sync.ts": [
     {

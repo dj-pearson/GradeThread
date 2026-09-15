@@ -166,33 +166,6 @@ export async function autoEndCrossListings(
       .from("listings")
       .select("draft_id, inventory_item_id, inventory_items!inner(user_id)")
       .eq("id", soldListingId)
-      .maybeSingle();
-    const draftId = (sold as { draft_id: string | null } | null)?.draft_id;
-    if (!draftId) return EMPTY_SUMMARY(); // not part of a cross-listing group
-
-    const { data: settings } = await supabaseAdmin
-      .from("flipdesk_settings")
-      .select("auto_end_cross_listings")
-      .eq("user_id", ownerId)
-      .maybeSingle();
-    const enabled =
-      (settings as { auto_end_cross_listings: boolean } | null)
-        ?.auto_end_cross_listings !== false;
-    if (!enabled) return EMPTY_SUMMARY();
-
-    // Tenant-scoped via inventory_items.user_id (US-268) — listings carry no
-    // user_id of their own. We pull 'sold' siblings too (not just live ones) so
-    // planCrossListingSale can detect a simultaneous-sale oversell (US-1290).
-    const { data, error } = await supabaseAdmin
-      .from("listings")
-      .select(
-        "id, platform, platform_offer_id, platform_listing_id, listing_status, " +
-          // US-3141: listing_url and inventory_item_id are what the queued
-          // delist job needs — the URL the extension opens, and the item the
-          // seller's queue view names it by.
-          "listing_url, inventory_item_id, inventory_items!inner(user_id, sku)",
-      )
-      .or(siblingSelector(draftId))
       .eq("inventory_items.user_id", ownerId)
       .maybeSingle();
     const s = sold as
@@ -259,11 +232,11 @@ export async function endOtherListings(
     // are safe inside the filter string. .or() on a SELECT is fine; it is
     // mutations the self-hosted PostgREST refuses it on (US-1552).
     if (target.itemId && target.draftId) {
-      q = q.or(`inventory_item_id.eq.${target.itemId},draft_id.eq.${target.draftId}`);
+      q = q.or(`inventory_item_id.eq.${target.itemId},${siblingSelector(target.draftId)}`);
     } else if (target.itemId) {
       q = q.eq("inventory_item_id", target.itemId);
     } else {
-      q = q.eq("draft_id", target.draftId as string);
+      q = q.or(siblingSelector(target.draftId as string));
     }
     if (target.soldListingId) q = q.neq("id", target.soldListingId);
 

@@ -91,12 +91,72 @@ export function checkPairs(pairs, { commitTime, exists }) {
   return { errors, warnings };
 }
 
+/**
+ * Lines that move on their own, with no human deciding anything.
+ *
+ * WHY THIS EXISTS. Before it, the deploy-order entry was re-read TEN
+ * consecutive times and carried nothing, every time for the same reason: a cron
+ * was added, the generated table in `deploy.md` grew a row, and the count in
+ * its prose went up by one. The distillations quote no count. The comment in
+ * runbooks.ts had already written down that the honest fix was to narrow what
+ * this watches rather than keep bumping a date, and a lane that cries wolf ten
+ * times is a lane nobody reads (US-3308).
+ *
+ * CLASSIFIED BY CONTENT, NOT POSITION. A diff hunk's line numbers refer to the
+ * file as it was at that commit, and mapping them onto today's marker positions
+ * is wrong the moment anything above them moves. These four patterns are what
+ * `scripts/render-cron-docs.ts` emits, so a changed line matching one of them
+ * was written by the generator and not by a person. Everything else counts,
+ * including prose that happens to sit inside the generated block.
+ */
+const GENERATED_LINE = [
+  // A row of the generated cron table.
+  /^\s*\|.*`\/api\/jobs\//,
+  // Its footer: "_92 scheduled jobs. ..."
+  /^\s*_\d+ scheduled jobs\./,
+  // deploy.md quotes the same count in a sentence.
+  /there are \*\*\d+\*\* \(`CRON_REGISTRY`/,
+  // The region markers themselves.
+  /^\s*<!--\s*cron-registry:(start|end)/,
+];
+
+/** True when every line this commit added or removed was generator output. */
+export function isGeneratedOnlyDiff(diff) {
+  const changed = diff
+    .split("\n")
+    .filter((l) => (l.startsWith("+") || l.startsWith("-")) && !/^[+-]{3}/.test(l))
+    .map((l) => l.slice(1));
+  // An empty or unreadable diff is never silently walked past.
+  if (changed.length === 0) return false;
+  return changed.every((l) => GENERATED_LINE.some((re) => re.test(l)));
+}
+
+/**
+ * The newest commit that changed something a person wrote.
+ *
+ * Walks back past generator-only commits. Bounded at 20: a note whose last 20
+ * commits are all generated churn is saying something this script cannot fix,
+ * and reporting the oldest of them beats walking forever.
+ */
 function gitCommitTime(root) {
   const cache = new Map();
   return (rel) => {
     if (cache.has(rel)) return cache.get(rel);
-    const r = spawnSync("git", ["log", "-1", "--format=%cI", "--", rel], { cwd: root, encoding: "utf8", shell: false });
-    const val = r.status === 0 && r.stdout.trim() ? r.stdout.trim() : null;
+    const log = spawnSync("git", ["log", "-20", "--format=%H %cI", "--", rel], { cwd: root, encoding: "utf8", shell: false });
+    let val = null;
+    if (log.status === 0 && log.stdout.trim()) {
+      const commits = log.stdout.trim().split("\n").map((l) => {
+        const i = l.indexOf(" ");
+        return { sha: l.slice(0, i), iso: l.slice(i + 1) };
+      });
+      for (const c of commits) {
+        const show = spawnSync("git", ["show", "--format=", "--unified=0", c.sha, "--", rel], { cwd: root, encoding: "utf8", shell: false });
+        if (show.status !== 0 || !isGeneratedOnlyDiff(show.stdout)) { val = c.iso; break; }
+      }
+      // Every commit in the window was generator output; fall back to the
+      // oldest rather than reporting "never changed".
+      val ??= commits[commits.length - 1]?.iso ?? null;
+    }
     cache.set(rel, val);
     return val;
   };

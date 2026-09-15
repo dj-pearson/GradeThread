@@ -84,17 +84,33 @@ vi.mock("@/hooks/use-item-listings", () => ({
   itemListingsKey: (id: string) => ["item_listings", id],
 }));
 
-// The auto-end reports total success and nothing pending. That is the whole
+// The server reports total success and nothing pending. That is the whole
 // point: every OTHER signal says "nothing left to do", so the probe is the only
 // thing standing between the seller and a garment still for sale elsewhere.
-vi.mock("@/hooks/use-pending-delists", () => ({
-  useEndOtherListings: () => ({
-    mutateAsync: () =>
-      Promise.resolve({
-        summary: { ended: 0, queued: 0, unresolved: 0, nothingLive: 0 },
-        pending: [],
-      }),
-  }),
+//
+// US-3367 owns the write, so this mocks the endpoint rather than a client
+// mutation hook. It was the hook until the merge in 40e95fadc put the insert
+// back in the browser; if this ever needs changing back, the dialog has
+// regressed rather than the test.
+vi.mock("@/lib/edge-fetch", () => ({
+  edgeFetch: () =>
+    Promise.resolve({
+      ok: true,
+      json: () =>
+        Promise.resolve({
+          ok: true,
+          sale_id: "sale-1",
+          ended: 0,
+          queued: [],
+          unresolved: [],
+          nothing_live: 0,
+        }),
+    } as unknown as Response),
+}));
+
+vi.mock("@/lib/lister-extension", () => ({ requestDrainNow: () => {} }));
+vi.mock("@/hooks/use-extension-queue", () => ({
+  QUEUED_NOTICE: "Keep this tab open.",
 }));
 
 vi.mock("@/components/flipdesk/delist-panel", () => ({
