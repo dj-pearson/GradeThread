@@ -472,6 +472,13 @@ export const CONTEXTUAL_ROUTES: readonly { path: string; why: string }[] = [
       "item editor, which is where a seller is standing when they want one.",
   },
   {
+    path: "/dashboard/flipdesk/settings/sku",
+    why:
+      "US-3417 SKU numbering, reached from the SKU box in Add item and Bulk " +
+      "intake and from the inventory header. A seller decides how their SKUs " +
+      "are shaped while looking at the field that asks for one, not from nav.",
+  },
+  {
     path: "/dashboard/example",
     why: "The grade-report example page, linked from marketing copy rather than nav.",
   },

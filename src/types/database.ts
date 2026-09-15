@@ -2958,6 +2958,32 @@ export type FlipdeskSettingsUpdate = Partial<
   Omit<FlipdeskSettingsRow, "user_id" | "created_at" | "updated_at">
 >;
 
+// US-3414 (migration 00802): one row per tenant holding the SKU pattern and
+// where its counters are sitting. READ-ONLY from the browser by design — 00802
+// gives this table a SELECT policy and no write policy at all, because a client
+// that can move `counters` backwards can mint duplicate SKUs. Writes go through
+// the flipdesk_sku_save RPC (00804).
+export interface FlipdeskSkuSequenceRow {
+  user_id: string;
+  enabled: boolean;
+  // The ordered segment list. Typed as unknown here on purpose: the only thing
+  // that should trust its shape is src/lib/sku-presets.ts, and the only thing
+  // that RENDERS it is Postgres.
+  pattern: unknown;
+  // The NEXT value to issue, one integer per counting segment, left to right.
+  // Not the last one issued: render(pattern, counters) IS the next SKU.
+  counters: number[];
+  // The rendered date segments as of the last issue, e.g. "26". Compared with
+  // today's rendering when reset_on_date_change is on.
+  date_stamp: string | null;
+  reset_on_date_change: boolean;
+  // Every value the pattern can produce is used. New items save with a NULL
+  // sku while this is true; a successful flipdesk_sku_save clears it.
+  exhausted: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
 // US-3073 (migration 00722): the widget board a user arranged, one row per
 // (user, surface). `layout` is the ordered document
 // {"version": n, "widgets": [{"id": ..., "size": ...}]} — typed as unknown
@@ -4967,6 +4993,13 @@ export interface Database {
         Row: FlipdeskSettingsRow;
         Insert: FlipdeskSettingsInsert;
         Update: FlipdeskSettingsUpdate;
+      };
+      // Insert and Update repeat the Row rather than narrowing it: the table
+      // has no write policy, so nothing in the browser can use either.
+      flipdesk_sku_sequences: {
+        Row: FlipdeskSkuSequenceRow;
+        Insert: FlipdeskSkuSequenceRow;
+        Update: FlipdeskSkuSequenceRow;
       };
       dashboard_layouts: {
         Row: DashboardLayoutRow;

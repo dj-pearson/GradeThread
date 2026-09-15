@@ -45,7 +45,16 @@ stronger claim for one of them, `check-prod-migration.ts` is the tool.
 Nothing below 00786 was touched, and the six genuinely-held branches in the next
 section are unchanged and still waiting.
 
-## HELD 2026-09-15: 00804 - preview, seed and save for SKU numbering (US-3416)
+## ✅ APPLIED 2026-09-15 (owner, confirmed from prod): 00804 - preview, seed and save for SKU numbering (US-3416)
+
+**Confirmed, credential-free:** `curl -s https://functions.gradethread.com/health/ready`
+answered `{"expected":"00801","applied":"00804","status":"ahead","unexpected":["00802","00803","00804"]}`.
+`applied` is the DB's own watermark. `ahead` and the `unexpected` list are the
+deployed edge build still expecting 00801 while the DB has moved to 00804; that
+is warn-only in `schema-version.ts` and clears on the next edge deploy.
+
+**The ordering note below is therefore satisfied:** the SQL is in place ahead of
+the frontend that calls it, so US-3417 can push without answering 404s.
 
 **What it does.** Adds six functions and no tables: `flipdesk_sku_may_read`,
 `flipdesk_sku_may_write`, `flipdesk_sku_validate`, `flipdesk_sku_preview`,
