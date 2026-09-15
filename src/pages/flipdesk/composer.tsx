@@ -544,7 +544,7 @@ export function FlipdeskComposerPage({
   const reviseListing = useEbayReviseListing();
   // 00432: seller's Promoted-Listings defaults — seed the promote toggle/rate/
   // mode when this listing has no explicit choice yet (off by default, opt-in).
-  const { data: promoDefaults, isLoading: promoDefaultsLoading } =
+  const { data: promoDefaults, isLoading: promoDefaultsLoading, isError: promoDefaultsError, refetch: refetchPromoDefaults } =
     useSellerPromoDefaults();
   // US-2852: the seller's listing defaults (format, Best Offer, quantity). Same
   // gate as the promo defaults — seeding before they land would write the
@@ -757,7 +757,7 @@ export function FlipdeskComposerPage({
   useEffect(() => {
     if (initialised || !item) return;
     if (item.listing_id && !listing) return; // wait for the listing fetch
-    if (promoDefaultsLoading) return; // wait for the seller promote default
+    if (promoDefaultsLoading || promoDefaultsError) return; // wait for verified seller defaults
     if (listingDefaultsLoading) return; // wait for the seller listing defaults
     // Wait for photos too — seeding primary_photo_id against an empty (still-
     // loading) set would seed null and Save would WIPE the saved primary photo.
@@ -881,6 +881,7 @@ export function FlipdeskComposerPage({
     photos,
     photosLoading,
     promoDefaultsLoading,
+    promoDefaultsError,
     promoDefaults,
     listingDefaultsLoading,
     listingDefaults,
@@ -3144,6 +3145,10 @@ export function FlipdeskComposerPage({
   // told their item had been deleted. That is the worst thing this page can
   // say: the item is the seller's work, and the natural next move is to go and
   // recreate it.
+  if (promoDefaultsError) {
+    return <ErrorState title="Couldn't load promotion defaults" description="Retry before editing so your saved ad settings are preserved." onRetry={() => void refetchPromoDefaults()} />;
+  }
+
   if (isError) {
     return (
       <ErrorState

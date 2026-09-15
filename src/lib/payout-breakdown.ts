@@ -1,4 +1,5 @@
 import { supabase } from "@/lib/supabase";
+import { fetchAllPages } from "@/lib/paged-read";
 import type { SalePnlRow } from "@/types/database";
 import { sourcerKey, sourcerLabel } from "@/lib/team-reporting";
 
@@ -195,39 +196,47 @@ export async function fetchPayoutBreakdown(
   ownerId: string,
   payoutId: string,
 ): Promise<PayoutBreakdown> {
-  const { data, error } = await supabase
-    .from("sale_pnl")
-    .select(PAYOUT_PNL_COLUMNS)
-    .eq("user_id", ownerId)
-    .eq("payout_id", payoutId);
-  if (error) throw error;
-  const rows = (data ?? []) as unknown as SalePnlRow[];
+  const rows = await fetchAllPages<SalePnlRow>(async (from, to) => {
+    const { data, error } = await supabase
+      .from("sale_pnl")
+      .select(PAYOUT_PNL_COLUMNS)
+      .eq("user_id", ownerId)
+      .eq("payout_id", payoutId)
+      .order("sale_id", { ascending: true })
+      .range(from, to);
+    if (error) throw error;
+    return (data ?? []) as unknown as SalePnlRow[];
+  });
 
   const itemIds = [...new Set(rows.map((r) => r.inventory_item_id).filter(Boolean))] as string[];
   const itemFacts = new Map<string, { title: string | null; sku: string | null }>();
-  if (itemIds.length > 0) {
-    const { data: items, error: itemsErr } = await supabase
-      .from("inventory_items")
-      .select("id, title, sku")
-      .eq("user_id", ownerId)
-      .in("id", itemIds);
-    if (itemsErr) throw itemsErr;
-    for (const it of (items ?? []) as unknown as Array<{
-      id: string;
-      title: string | null;
-      sku: string | null;
-    }>) {
+  type ItemFact = { id: string; title: string | null; sku: string | null };
+  // Bound URL length and read to an empty page, including under a lower server cap.
+  for (let i = 0; i < itemIds.length; i += 100) {
+    const items = await fetchAllPages<ItemFact>(async (from, to) => {
+      const { data, error } = await supabase
+        .from("inventory_items")
+        .select("id, title, sku")
+        .eq("user_id", ownerId)
+        .in("id", itemIds.slice(i, i + 100))
+        .order("id", { ascending: true })
+        .range(from, to);
+      if (error) throw error;
+      return (data ?? []) as unknown as ItemFact[];
+    });
+    for (const it of items) {
       itemFacts.set(it.id, { title: it.title, sku: it.sku });
     }
   }
 
   // The header is optional on purpose: a reference can exist without one.
-  const { data: header } = await supabase
+  const { data: header, error: headerReadError } = await supabase
     .from("ebay_payouts")
     .select("amount_cents, currency, payout_date")
     .eq("user_id", ownerId)
     .eq("payout_id", payoutId)
     .maybeSingle();
+  if (headerReadError) throw headerReadError;
   const h = header as unknown as {
     amount_cents: number | null;
     currency: string | null;

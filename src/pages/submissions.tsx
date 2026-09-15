@@ -375,11 +375,12 @@ export function SubmissionsPage() {
         ids: string[]
       ): Promise<Record<string, Pick<GradeReportRow, "overall_score" | "grade_tier">>> => {
         if (ids.length === 0) return {};
-        const { data: reports } = await supabase
+        const { data: reports, error: reportsReadError } = await supabase
           .from("grade_reports")
           .select("submission_id, overall_score, grade_tier")
           .in("submission_id", ids)
           .is("superseded_at", null);
+        if (reportsReadError) throw reportsReadError;
         const rows = (reports ?? []) as Array<
           Pick<GradeReportRow, "overall_score" | "grade_tier"> & { submission_id: string }
         >;

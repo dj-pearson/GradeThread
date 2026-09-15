@@ -204,18 +204,19 @@ export function FlipdeskScoutPage() {
 
   // The seller's standing target, so a number set once in Buy decision is not
   // typed again here. Read-only: the field below overrides it for this scan.
-  const { data: storedTargetPct } = useQuery({
+  const { data: storedTargetPct, isError: targetError, isLoading: targetLoading, refetch: reloadTarget } = useQuery({
     // Underscore, matching what sourcing-target-setting.tsx reads AND
     // invalidates. It was a hyphen here, so saving a new target refreshed the
     // settings card and left this page showing the old number until a reload.
     queryKey: ["sourcing_target", user?.id],
     enabled: Boolean(user?.id),
     queryFn: async () => {
-      const { data } = await supabase
+      const { data, error: dataReadError } = await supabase
         .from("flipdesk_settings")
         .select("sourcing_target_roi_pct")
         .eq("user_id", user?.id ?? "")
         .maybeSingle();
+      if (dataReadError) throw dataReadError;
       return (data as { sourcing_target_roi_pct: number | null } | null)
         ?.sourcing_target_roi_pct ?? null;
     },
@@ -286,6 +287,11 @@ export function FlipdeskScoutPage() {
     };
     scan.mutate(input);
   }
+
+  if (targetError) {
+    return <div role="alert" className="space-y-2 p-6"><p>Couldn't load your profit target. Retry before comparing deals.</p><Button variant="outline" onClick={() => void reloadTarget()}>Try again</Button></div>;
+  }
+  if (targetLoading) return <p role="status" className="p-6">Loading your profit target...</p>;
 
   return (
     <div className="mx-auto w-full max-w-4xl space-y-6 p-6">

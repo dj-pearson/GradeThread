@@ -152,7 +152,7 @@ export function FilingWalkthroughCard() {
   const from = `${year}-01-01`;
   const to = `${year + 1}-01-01`;
 
-  const { data: profile } = useQuery({
+  const { data: profile, isError: profileError, isPending: profilePending, refetch: refetchProfile } = useQuery({
     queryKey: ["tax-profile", user?.id],
     enabled: !!user,
     queryFn: fetchTaxProfile,
@@ -162,19 +162,20 @@ export function FilingWalkthroughCard() {
   // fetchTaxProfile hands back TAX_PROFILE_DEFAULTS when there is no row, which
   // is right for every screen that just needs a fiscal year and wrong here:
   // this card has to tell "chose the defaults" apart from "never opened it".
-  const { data: profileSaved = false } = useQuery({
+  const { data: profileSaved = false, isError: savedError, isPending: savedPending, refetch: refetchSaved } = useQuery({
     queryKey: ["tax-profile-exists", user?.id],
     enabled: !!user,
     queryFn: async () => {
-      const { count } = await supabase
+      const { count, error: countReadError } = await supabase
         .from("tax_profiles")
         .select("id", { count: "exact", head: true });
+      if (countReadError) throw countReadError;
       return (count ?? 0) > 0;
     },
     staleTime: 30 * 60 * 1000,
   });
 
-  const { data: signals, isLoading } = useQuery({
+  const { data: signals, isLoading, isError: signalsError, refetch: refetchSignals } = useQuery({
     queryKey: ["filing-signals", user?.id, year],
     enabled: !!user,
     staleTime: 5 * 60 * 1000,
@@ -191,28 +192,30 @@ export function FilingWalkthroughCard() {
         payments,
         closed,
       ] = await Promise.all([
-        fetchReviewCount(from, to).catch(() => 0),
-        fetchMileageSummary(from, to).catch(() => null),
-        fetchVehicleYear(year).catch(() => null),
-        fetchHomeOfficeYear(year).catch(() => null),
-        fetchPlatformsWithSales(year).catch(() => []),
-        fetchForms(year).catch(() => []),
-        fetchPayments(year).catch(() => []),
-        fetchClosedPeriods().catch(() => []),
+        fetchReviewCount(from, to),
+        fetchMileageSummary(from, to),
+        fetchVehicleYear(year),
+        fetchHomeOfficeYear(year),
+        fetchPlatformsWithSales(year),
+        fetchForms(year),
+        fetchPayments(year),
+        fetchClosedPeriods(),
       ]);
 
-      const { count: withoutReceipt } = await supabase
+      const { count: withoutReceipt, error: withoutReceiptReadError } = await supabase
         .from("flipdesk_expenses")
         .select("id", { count: "exact", head: true })
         .gte("spent_on", from)
         .lt("spent_on", to)
         .gt("amount", RECEIPT_THRESHOLD_DOLLARS)
         .is("receipt_path", null);
+      if (withoutReceiptReadError) throw withoutReceiptReadError;
 
-      const { data: snapRows } = await supabase
+      const { data: snapRows, error: snapRowsReadError } = await supabase
         .from("inventory_snapshots")
         .select("as_of, items_without_cost")
         .in("as_of", [from, to]);
+      if (snapRowsReadError) throw snapRowsReadError;
       const snaps = (snapRows ?? []) as {
         as_of: string;
         items_without_cost: number;
@@ -224,7 +227,7 @@ export function FilingWalkthroughCard() {
       // and the one that has to stay cheap.
       let bridgesWithVariance = 0;
       for (const f of forms) {
-        const bridge = await fetchBridge(f.platform, year).catch(() => null);
+        const bridge = await fetchBridge(f.platform, year);
         if (bridge && bridge.form_present && bridge.variance_cents !== 0) {
           bridgesWithVariance += 1;
         }
@@ -303,7 +306,12 @@ export function FilingWalkthroughCard() {
         </div>
       </CardHeader>
       <CardContent className="space-y-4">
-        {isLoading || !full ? (
+        {profileError || savedError || signalsError ? (
+          <div role="alert" className="space-y-2">
+            <p>We couldn't check your filing records. Completion and filing advice are unavailable until all checks load.</p>
+            <Button variant="outline" onClick={() => void Promise.all([refetchProfile(), refetchSaved(), refetchSignals()])}>Try again</Button>
+          </div>
+        ) : isLoading || profilePending || savedPending || !full ? (
           <div className="space-y-3">
             <Skeleton className="h-5 w-56" />
             <Skeleton className="h-40 w-full" />

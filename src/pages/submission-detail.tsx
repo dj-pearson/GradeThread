@@ -187,6 +187,8 @@ export function SubmissionDetailPage() {
   // US-2145: the authenticity appeal dialog.
   const [appealOpen, setAppealOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [refreshError, setRefreshError] = useState(false);
+  const [loadAttempt, setLoadAttempt] = useState(0);
   const [dispute, setDispute] = useState<DisputeRow | null>(null);
   const [linkedItem, setLinkedItem] = useState<InventoryItemRow | null>(null);
   const [disputeDialogOpen, setDisputeDialogOpen] = useState(false);
@@ -204,27 +206,34 @@ export function SubmissionDetailPage() {
 
   const refetchData = useCallback(async () => {
     if (!id) return;
-    const { data: sub } = await supabase
-      .from("submissions")
-      .select("*")
-      .eq("id", id)
-      .single();
-    // A refetch (realtime handler or the 5s interval) can still be in flight
-    // when the route param changes A→B; without this guard its resolution would
-    // setState the previous submission's data over B. Drop stale writes.
-    if (currentIdRef.current !== id) return;
-    if (sub) setSubmission(sub);
+    try {
+      const { data: sub, error: subError } = await supabase
+        .from("submissions")
+        .select("*")
+        .eq("id", id)
+        .single();
+      // A refetch (realtime handler or the 5s interval) can still be in flight
+      // when the route param changes A→B; without this guard its resolution would
+      // setState the previous submission's data over B. Drop stale writes.
+      if (currentIdRef.current !== id) return;
+      if (subError) throw subError;
 
-    const { data: reportData } = await supabase
-      .from("grade_reports")
-      .select("*")
-      // US-479: a regraded submission keeps superseded history; fetch only the
-      // active report so .single() resolves to exactly one row.
-      .eq("submission_id", id)
-      .is("superseded_at", null)
-      .maybeSingle();
-    if (currentIdRef.current !== id) return;
-    if (reportData) setGradeReport(reportData);
+      const { data: reportData, error: reportError } = await supabase
+        .from("grade_reports")
+        .select("*")
+        // US-479: a regraded submission keeps superseded history; fetch only the
+        // active report so .single() resolves to exactly one row.
+        .eq("submission_id", id)
+        .is("superseded_at", null)
+        .maybeSingle();
+      if (currentIdRef.current !== id) return;
+      if (reportError) throw reportError;
+      if (sub) setSubmission(sub);
+      setGradeReport(reportData ?? null);
+      setRefreshError(false);
+    } catch {
+      if (currentIdRef.current === id) setRefreshError(true);
+    }
   }, [id]);
 
   // Subscribe to realtime status updates for this submission (US-1628: pass
@@ -360,6 +369,7 @@ export function SubmissionDetailPage() {
     async function fetchData() {
       setLoading(true);
       setError(null);
+      setRefreshError(false);
       // Reset stale detail state on id change so B never briefly shows A's
       // grade/dispute/images while it loads.
       setSubmission(null);
@@ -378,7 +388,7 @@ export function SubmissionDetailPage() {
 
       if (cancelled) return;
       if (subError || !sub) {
-        setError("Submission not found.");
+        setError(subError && subError.code !== "PGRST116" ? "Couldn't load this submission. Please try again." : "Submission not found.");
         setLoading(false);
         return;
       }
@@ -407,24 +417,34 @@ export function SubmissionDetailPage() {
         setGradeReport(reportData);
       }
 
-      // Fetch a linked inventory item, if any (non-fatal — optional).
-      const { data: linkedItemData } = await supabase
+      // No linked item is valid; a failed lookup must not hide an existing one.
+      const { data: linkedItemData, error: linkedItemError } = await supabase
         .from("inventory_items")
         .select("*")
         .eq("submission_id", id!)
         .maybeSingle();
       if (cancelled) return;
+      if (linkedItemError) {
+        setError("Couldn't check the linked inventory item. Please try again.");
+        setLoading(false);
+        return;
+      }
       if (linkedItemData) {
         setLinkedItem(linkedItemData as InventoryItemRow);
       }
 
       // Fetch submission images
-      const { data: imagesRaw } = await supabase
+      const { data: imagesRaw, error: imagesError } = await supabase
         .from("submission_images")
         .select("*")
         .eq("submission_id", id!);
 
       if (cancelled) return;
+      if (imagesError) {
+        setError("Couldn't load the submission photos. Please try again.");
+        setLoading(false);
+        return;
+      }
       const imagesData = (imagesRaw ?? []) as SubmissionImageRow[];
       if (imagesData.length > 0) {
         const sorted = [...imagesData].sort(
@@ -437,12 +457,18 @@ export function SubmissionDetailPage() {
         // before any thumbnail rendered). Private bucket → short-lived signed
         // URLs (US-276).
         const urls: Record<string, string> = {};
-        const { data: signed } = await supabase.storage
+        const { data: signed, error: signingError } = await supabase.storage
           .from("submission-images")
           .createSignedUrls(
             sorted.map((img) => img.storage_path),
             900,
           );
+        if (cancelled) return;
+        if (signingError || signed?.some((entry) => entry.error)) {
+          setError("Couldn't open the submission photos. Please try again.");
+          setLoading(false);
+          return;
+        }
         if (signed) {
           const idByPath = new Map(sorted.map((img) => [img.storage_path, img.id]));
           for (const entry of signed) {
@@ -458,13 +484,18 @@ export function SubmissionDetailPage() {
       // the normal zero-dispute case is NOT an error (.single() threw PGRST116).
       if (reportData) {
         const reportId = (reportData as GradeReportRow).id;
-        const { data: disputeData } = await supabase
+        const { data: disputeData, error: disputeError } = await supabase
           .from("disputes")
           .select("*")
           .eq("grade_report_id", reportId)
           .maybeSingle();
 
         if (cancelled) return;
+        if (disputeError) {
+          setError("Couldn't check the existing dispute. Please try again before filing another.");
+          setLoading(false);
+          return;
+        }
         if (disputeData) {
           setDispute(disputeData as DisputeRow);
         }
@@ -474,11 +505,15 @@ export function SubmissionDetailPage() {
       setLoading(false);
     }
 
-    fetchData();
+    void fetchData().catch(() => {
+      if (cancelled) return;
+      setError("Couldn't load this submission. Please try again.");
+      setLoading(false);
+    });
     return () => {
       cancelled = true;
     };
-  }, [id]);
+  }, [id, loadAttempt]);
 
   const canDispute =
     submission?.status === "completed" &&
@@ -671,6 +706,7 @@ export function SubmissionDetailPage() {
             <h3 className="mt-4 text-lg font-medium">
               {error || "Submission not found"}
             </h3>
+            <Button variant="outline" className="mt-4" onClick={() => setLoadAttempt((attempt) => attempt + 1)}>Try again</Button>
           </CardContent>
         </Card>
       </div>
@@ -717,6 +753,12 @@ export function SubmissionDetailPage() {
 
   return (
     <div className="space-y-6">
+      {refreshError && (
+        <div role="alert" className="space-y-2">
+          <p>Couldn't refresh this grade. You're seeing the last loaded result.</p>
+          <Button variant="outline" onClick={() => void refetchData()}>Try again</Button>
+        </div>
+      )}
       {/* Header */}
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex items-center gap-4">

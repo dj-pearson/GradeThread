@@ -1664,7 +1664,7 @@ export function useSetItemAspect() {
         return next;
       };
 
-      const { data: listingRow } = await supabase
+      const { data: listingRow, error: listingRowReadError } = await supabase
         .from("listings")
         .select("id, item_specifics_override")
         .eq("inventory_item_id", itemId)
@@ -1672,6 +1672,7 @@ export function useSetItemAspect() {
         .order("created_at", { ascending: false })
         .limit(1)
         .maybeSingle();
+      if (listingRowReadError) throw listingRowReadError;
 
       if (listingRow) {
         const row = listingRow as {
@@ -1683,11 +1684,12 @@ export function useSetItemAspect() {
         // doesn't shadow Brand/Size/Color the validator would otherwise see.
         let base = row.item_specifics_override;
         if (!base || Object.keys(base).length === 0) {
-          const { data: itemRow } = await supabase
+          const { data: itemRow, error: itemRowReadError } = await supabase
             .from("inventory_items")
             .select("ebay_aspects")
             .eq("id", itemId)
             .maybeSingle();
+          if (itemRowReadError) throw itemRowReadError;
           base =
             (itemRow as { ebay_aspects: Record<string, string[]> | null } | null)
               ?.ebay_aspects ?? null;
@@ -1699,11 +1701,12 @@ export function useSetItemAspect() {
           .eq("id", row.id);
         if (error) throw error;
       } else {
-        const { data: itemRow } = await supabase
+        const { data: itemRow, error: itemRowReadError } = await supabase
           .from("inventory_items")
           .select("ebay_aspects")
           .eq("id", itemId)
           .maybeSingle();
+        if (itemRowReadError) throw itemRowReadError;
         const cur =
           (itemRow as { ebay_aspects: Record<string, string[]> | null } | null)
             ?.ebay_aspects ?? null;
@@ -1993,7 +1996,7 @@ export function useEbayReplyMessage() {
 export async function resolveInventoryItemIdForEbayItem(
   ebayItemId: string,
 ): Promise<string | null> {
-  const { data } = await supabase
+  const { data, error: dataReadError } = await supabase
     .from("listings")
     .select("inventory_item_id")
     .eq("platform", "ebay")
@@ -2001,6 +2004,7 @@ export async function resolveInventoryItemIdForEbayItem(
     .order("created_at", { ascending: false })
     .limit(1)
     .maybeSingle();
+  if (dataReadError) throw dataReadError;
   const row = (data ?? null) as { inventory_item_id: string | null } | null;
   return row?.inventory_item_id ?? null;
 }
@@ -2944,11 +2948,12 @@ export function useEbayPromotableListings(enabled = true) {
 
       // Cover photos in one round trip rather than N.
       const itemIds = rows.map((r) => r.inventory_item_id);
-      const { data: photos } = await supabase
+      const { data: photos, error: photosReadError } = await supabase
         .from("item_photos")
         .select("inventory_item_id, photo_url, sort_order")
         .in("inventory_item_id", itemIds)
         .order("sort_order", { ascending: true });
+      if (photosReadError) throw photosReadError;
       const cover = new Map<string, string>();
       for (const p of (photos ?? []) as Array<{
         inventory_item_id: string;
@@ -3442,11 +3447,12 @@ export function useEbayOrderTotal(orderId: string | null) {
     // RLS scopes `sales` to the caller, so this cannot read another tenant's
     // order even though the id came off an eBay payload.
     queryFn: async (): Promise<number | null> => {
-      const { data } = await supabase
+      const { data, error: dataReadError } = await supabase
         .from("sales")
         .select("sale_price")
         .eq("platform_order_id", orderId as string)
         .maybeSingle();
+      if (dataReadError) throw dataReadError;
       const price = (data as { sale_price?: number | null } | null)?.sale_price;
       return typeof price === "number" && Number.isFinite(price) ? price : null;
     },

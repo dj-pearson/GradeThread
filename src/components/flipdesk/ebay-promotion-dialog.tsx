@@ -119,7 +119,7 @@ export function EbayPromotionDialog({
   promotionId,
 }: EbayPromotionDialogProps) {
   const editing = !!promotionId;
-  const { data: listings = [], isLoading: listingsLoading } =
+  const { data: listings = [], isLoading: listingsLoading, isError: listingsError, refetch: reloadListings } =
     useEbayPromotableListings(open);
   const { data: existing, isLoading: existingLoading } = useEbayItemPromotion(
     open ? promotionId : null,
@@ -228,7 +228,7 @@ export function EbayPromotionDialog({
   };
 
   const saving = create.isPending || update.isPending;
-  const loading = editing && existingLoading;
+  const loading = (editing && existingLoading) || listingsLoading;
   const active = TYPE_OPTIONS.find((t) => t.value === type);
 
   return (
@@ -241,6 +241,7 @@ export function EbayPromotionDialog({
             listings.
           </DialogDescription>
         </DialogHeader>
+        {listingsError && <div role="alert" className="space-y-2"><p>Couldn't load listings and their photos. Retry before saving this promotion.</p><Button variant="outline" onClick={() => void reloadListings()}>Try again</Button></div>}
 
         {loading ? (
           <div className="flex items-center justify-center py-10">
@@ -411,7 +412,7 @@ export function EbayPromotionDialog({
           <Button variant="outline" onClick={() => onOpenChange(false)} disabled={saving}>
             Cancel
           </Button>
-          <Button onClick={submit} disabled={!!problem || saving || loading}>
+          <Button onClick={submit} disabled={!!problem || saving || loading || listingsError}>
             {saving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
             {editing ? "Save changes" : "Create on eBay"}
           </Button>

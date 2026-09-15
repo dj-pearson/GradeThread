@@ -26,13 +26,14 @@ export function useSellerPromoDefaults() {
     enabled: !!userId,
     staleTime: 5 * 60_000,
     queryFn: async (): Promise<SellerPromoDefaults> => {
-      const { data } = await supabase
+      const { data, error: dataReadError } = await supabase
         .from("users")
         .select(
           "promote_listings_by_default, default_promo_rate_pct, default_promo_mode",
         )
         .eq("id", userId!)
         .maybeSingle();
+      if (dataReadError) throw dataReadError;
       const row = data as SellerPromoDefaults | null;
       return row ?? OFF_BY_DEFAULT;
     },

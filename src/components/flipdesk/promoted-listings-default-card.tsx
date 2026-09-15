@@ -10,6 +10,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Separator } from "@/components/ui/separator";
@@ -41,7 +42,7 @@ const MODE_LABELS: Record<PromoMode, string> = {
 // turning this on promotes new/un-configured listings, while a per-listing
 // choice in the composer still overrides it.
 export function PromotedListingsDefaultCard() {
-  const { data: defaults, isLoading } = useSellerPromoDefaults();
+  const { data: defaults, isLoading, isError, refetch } = useSellerPromoDefaults();
   const update = useUpdateSellerPromoDefaults();
 
   const [enabled, setEnabled] = useState(false);
@@ -104,6 +105,10 @@ export function PromotedListingsDefaultCard() {
     const m = (v === "cpc" || v === "smart" ? v : "cps") as PromoMode;
     setMode(m);
     void save({ default_promo_mode: m });
+  }
+
+  if (isError) {
+    return <div role="alert" className="space-y-2"><p>Couldn't load promotion defaults. Your saved settings have not changed.</p><Button variant="outline" onClick={() => void refetch()}>Try again</Button></div>;
   }
 
   return (

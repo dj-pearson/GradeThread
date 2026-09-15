@@ -60,11 +60,12 @@ export function GradingRecentSubmissionsWidget() {
       > = {};
 
       if (completedIds.length > 0) {
-        const { data: reports } = await supabase
+        const { data: reports, error: reportsReadError } = await supabase
           .from("grade_reports")
           .select("submission_id, overall_score, grade_tier")
           .in("submission_id", completedIds)
-          .is("superseded_at", null); // US-479: active report per submission
+          .is("superseded_at", null);
+        if (reportsReadError) throw reportsReadError; // US-479: active report per submission
 
         const reportRows = (reports ?? []) as Array<
           Pick<GradeReportRow, "overall_score" | "grade_tier"> & {

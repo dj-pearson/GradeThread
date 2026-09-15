@@ -21,16 +21,17 @@ export function ApiOverageCard() {
   const { user } = useAuth();
   const [pending, setPending] = useState<string | null>(null);
 
-  const { data: balance } = useQuery<number>({
+  const { data: balance, isPending, isError, refetch } = useQuery<number>({
     queryKey: ["api-credit-balance", user?.id],
     enabled: !!user?.id,
     staleTime: 60_000,
     queryFn: async () => {
-      const { data } = await supabase
+      const { data, error: dataReadError } = await supabase
         .from("api_credit_wallet")
         .select("balance")
         .eq("user_id", user!.id)
         .maybeSingle();
+      if (dataReadError) throw dataReadError;
       return ((data as { balance: number } | null)?.balance) ?? 0;
     },
   });
@@ -63,11 +64,17 @@ export function ApiOverageCard() {
           API overage credits
         </CardTitle>
         <CardDescription>
-          Balance: <span className="font-medium text-foreground">{(balance ?? 0).toLocaleString()}</span> credits.
+          Balance: <span className="font-medium text-foreground">{isError ? "Unavailable" : isPending ? "Loading..." : `${(balance ?? 0).toLocaleString()} credits`}</span>.
           Beyond your monthly quota, each API call spends 1 credit instead of failing. Credits never expire.
         </CardDescription>
       </CardHeader>
       <CardContent className="grid gap-3 sm:grid-cols-4">
+        {isError && (
+          <div role="alert" className="space-y-2 sm:col-span-4">
+            <p>We couldn't load your credit balance. Your credits have not changed.</p>
+            <button type="button" className="underline" onClick={() => void refetch()}>Try again</button>
+          </div>
+        )}
         {PACKS.map((p) => (
           <button
             key={p.key}
