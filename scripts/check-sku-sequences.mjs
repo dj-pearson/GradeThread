@@ -437,6 +437,160 @@ if (t.bulk_distinct !== 20) {
   );
 }
 
+// ---------------------------------------------------------------------------
+// Fixture 3: preview, seed and save (US-3416)
+//
+// Every rejection is asserted on its MESSAGE. The settings screen shows these
+// strings verbatim, so a validator that refuses the right patterns while saying
+// the wrong thing is still broken -- it just fails in front of the seller
+// instead of in here.
+// ---------------------------------------------------------------------------
+
+const q = runFixture("sku-rpcs.sql");
+
+console.log("");
+console.log(`  seed over 1..1031      next ${JSON.stringify(q.seed_plain_counters)} after ${q.seed_plain_matched} (${q.seed_plain_count} matched)`);
+console.log(`  seed with no match     ${JSON.stringify(q.seed_nomatch_counters)}`);
+console.log(`  preview from J1230     ${JSON.stringify(q.preview_letters)}`);
+console.log(`  preview around J1234   ${JSON.stringify(q.preview_skips)}`);
+console.log(`  saved counters         ${JSON.stringify(q.saved_counters)}, exhausted=${q.saved_exhausted}`);
+
+// 1. THE headline: a seller whose SKUs run 1..1031 is told 1032.
+if (!same(q.seed_plain_counters, [1032])) {
+  fail(
+    `the seed did not start after the highest existing SKU.\n` +
+      `  expected [1032] over items numbered 1..1031, got ${JSON.stringify(q.seed_plain_counters)}` +
+      (same(q.seed_plain_counters, [1031])
+        ? `\n  Off by one: it returned the highest itself rather than the next.\n` +
+          `  counters is the NEXT value to issue, so this has to be advanced once.`
+        : same(q.seed_plain_counters, [1000]) || same(q.seed_plain_counters, [100])
+          ? `\n  That looks like a TEXT comparison: '999' sorts above '1031' as a\n` +
+            `  string. The ordering has to be on the parsed int[], not on the sku.`
+          : ""),
+  );
+}
+if (q.seed_plain_matched !== "1031") {
+  fail(`the seed reported its highest match as ${JSON.stringify(q.seed_plain_matched)}, expected "1031".`);
+}
+// 1031 matches, and the two planted strings that do not fit must be absent.
+if (String(q.seed_plain_count) !== "1031") {
+  fail(
+    `the seed counted ${q.seed_plain_count} matching SKUs, expected 1031.` +
+      (String(q.seed_plain_count) === "1033"
+        ? `\n  It counted 'hoodie-blue' and 'J1234' too. parse must return NULL\n` +
+          `  for a string that does not fit, and the seed must drop those rows.`
+        : ""),
+  );
+}
+
+// 2. Nothing matching means start at the floor, not at zero and not at an error.
+if (!same(q.seed_nomatch_counters, [7])) {
+  fail(
+    `a seed that matched nothing returned ${JSON.stringify(q.seed_nomatch_counters)}, expected [7].\n` +
+      `  With no match it has to fall back to the pattern's own floor, and that\n` +
+      `  pattern's number segment has min 7.`,
+  );
+}
+if (q.seed_nomatch_matched !== null) {
+  fail(`a seed that matched nothing still named ${JSON.stringify(q.seed_nomatch_matched)} as its match.`);
+}
+if (!same(q.seed_empty_counters, [1])) {
+  fail(`a tenant with no items at all seeded to ${JSON.stringify(q.seed_empty_counters)}, expected [1].`);
+}
+
+// 3. Preview does not advance before its first value.
+if (!same(q.preview_letters, ["J1230", "J1231", "J1232", "J1233", "J1235"])) {
+  fail(
+    `preview returned ${JSON.stringify(q.preview_letters)}.\n` +
+      `  expected ["J1230","J1231","J1232","J1233","J1235"] -- five values from\n` +
+      `  J1230, with the tenant's existing J1234 stepped over.` +
+      (Array.isArray(q.preview_letters) && q.preview_letters[0] === "J1231"
+        ? `\n  It advanced BEFORE the first value. counters is the NEXT value to\n` +
+          `  issue, so element 0 is render(counters) with nothing in between.`
+        : ""),
+  );
+}
+
+// 4. And it steps over what the tenant already holds, so the seller sees what
+// they will actually get rather than what an empty account would have got.
+if (!same(q.preview_skips, ["J1232", "J1233", "J1235", "J1236"])) {
+  fail(
+    `preview did not step over an existing SKU.\n` +
+      `  expected ["J1232","J1233","J1235","J1236"], got ${JSON.stringify(q.preview_skips)}` +
+      (Array.isArray(q.preview_skips) && q.preview_skips.includes("J1234")
+        ? `\n  J1234 is already on an item in that tenant. Showing it promises a\n` +
+          `  number the trigger will not hand out.`
+        : ""),
+  );
+}
+
+// 5. The rejections, by their wording.
+for (const [key, needle, what] of [
+  ["err_no_counter", /at least one number or letter/i, "a pattern with nothing to count"],
+  ["err_dupe_alpha", /cannot repeat a character/i, "an alphabet with a repeated character"],
+  ["err_greedy", /has to be last/i, "an unpadded number in front of another number"],
+  ["err_too_long", /capped at 50/i, "a pattern that can exceed 50 characters"],
+  ["err_wrong_len", /part\(s\) but the pattern counts/i, "a counters array of the wrong length"],
+  ["err_out_of_range", /outside what the pattern allows/i, "a counter beyond its segment's bounds"],
+]) {
+  const got = q[key];
+  if (got === null || got === undefined) {
+    fail(
+      `save ACCEPTED ${what}.\n` +
+        `  Every one of these produces SKUs that cannot be read back, reissued,\n` +
+        `  or written to eBay at all.`,
+    );
+  }
+  if (!needle.test(String(got))) {
+    fail(
+      `save rejected ${what}, but said:\n` +
+        `    ${got}\n` +
+        `  expected wording matching ${needle}. The settings screen shows this\n` +
+        `  message verbatim, so the words are the contract.`,
+    );
+  }
+}
+
+// 6. A good save lands and clears exhausted.
+if (q.saved_enabled !== true || !same(q.saved_counters, [1032])) {
+  fail(
+    `the save did not land: enabled=${q.saved_enabled}, counters=${JSON.stringify(q.saved_counters)}.\n` +
+      `  expected enabled=true, counters=[1032].`,
+  );
+}
+if (q.saved_exhausted !== false) {
+  fail(
+    "a successful save left exhausted set.\n" +
+      "  Widening the pattern is the fix a seller is told to apply when the\n" +
+      "  numbers run out, and saving is the only way a pattern gets wider. If\n" +
+      "  the flag survives, the advice does not work.",
+  );
+}
+
+// 7. Read and write floors are different, and both hold.
+if (q.viewer_preview_err !== null) {
+  fail(
+    `a workspace VIEWER could not preview: ${q.viewer_preview_err}\n` +
+      `  Reading is viewer and up, matching what workspaceMiddleware allows.`,
+  );
+}
+if (q.viewer_save_err === null) {
+  fail(
+    "a workspace VIEWER was allowed to SAVE the SKU pattern.\n" +
+      "  Changing the shape of everybody's SKUs is owner or admin.",
+  );
+}
+if (!/owner or an admin/i.test(String(q.viewer_save_err))) {
+  fail(`the viewer's refusal said: ${q.viewer_save_err}\n  expected it to name who CAN do it.`);
+}
+if (q.stranger_err === null) {
+  fail(
+    "somebody with no membership at all could read another tenant's SKU preview.\n" +
+      "  flipdesk_sku_preview is SECURITY DEFINER, so it bypasses RLS and the\n" +
+      "  access check inside it is the ONLY thing standing between tenants.",
+  );
+}
+
 console.log(
   "\n✓ SKU odometer: 1032 counts up, J9999 carries to K0000, Z9999 reports" +
     " exhaustion instead of wrapping, dates render without eating a counter," +
@@ -445,5 +599,9 @@ console.log(
     "\n✓ SKU trigger: issues and advances, never overwrites a supplied SKU," +
     " walks past hand-typed ones, restarts on a new period, stays silent when" +
     " off, draws from the OWNER's counter, and flags exhaustion instead of" +
-    " failing the insert.",
+    " failing the insert." +
+    "\n✓ SKU RPCs: a tenant numbered 1..1031 seeds to 1032 without touching a" +
+    " row, preview shows what the trigger will actually hand out, six bad" +
+    " patterns are refused in the words the screen displays, a good save clears" +
+    " exhausted, and a viewer can read but not write.",
 );

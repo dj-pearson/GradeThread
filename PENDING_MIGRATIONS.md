@@ -45,6 +45,39 @@ stronger claim for one of them, `check-prod-migration.ts` is the tool.
 Nothing below 00786 was touched, and the six genuinely-held branches in the next
 section are unchanged and still waiting.
 
+## HELD 2026-09-15: 00804 - preview, seed and save for SKU numbering (US-3416)
+
+**What it does.** Adds six functions and no tables: `flipdesk_sku_may_read`,
+`flipdesk_sku_may_write`, `flipdesk_sku_validate`, `flipdesk_sku_preview`,
+`flipdesk_sku_seed` and `flipdesk_sku_save`. They are the settings screen's only
+way to touch `flipdesk_sku_sequences`, which 00802 deliberately gave a SELECT
+policy and no write policy at all.
+
+**Risk: low.** Every object is new, `CREATE OR REPLACE`, and nothing calls any
+of them yet. `flipdesk_sku_save` is the sole writer; `preview` and `seed` are
+`STABLE` and write nothing. The seed reads `inventory_items` and returns a
+number -- **it never renumbers an existing row**, which is the property the
+whole feature rests on.
+
+**Apply order.** After 00803.
+
+**The one ordering direction that matters.** The settings screen in US-3417
+calls all three RPCs and Cloudflare Pages auto-deploys the moment the frontend
+is pushed. Push that before this SQL applies and the screen answers PostgREST
+404s on every call. Nothing else breaks and no data is at risk, but it is
+visible: **apply this before pushing US-3417.** Nothing in the repo calls them
+today, so applying it early is free.
+
+**After applying:** `NOTIFY pgrst, 'reload schema';` -- PostgREST caches its
+function list and will not expose a new RPC until it reloads. `npm run
+migrate:prod` sends this for you.
+
+**Verified locally on 2026-09-15** against the full migration schema, fourteen
+cases in `scripts/fixtures/sku-rpcs.sql` including a 1031-item seed, and
+sabotage-proved twice: the check went red when `flipdesk_sku_seed` returned the
+highest match instead of the next value, and again when `flipdesk_sku_preview`
+dropped its tenant check and let a stranger read another workspace.
+
 ## ✅ APPLIED 2026-09-14 (owner, confirmed from prod): 00803 - the trigger that fills a blank SKU (US-3415)
 
 **What it does.** Adds `public.flipdesk_assign_sku()` and the `BEFORE INSERT`
