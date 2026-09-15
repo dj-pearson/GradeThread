@@ -12,13 +12,24 @@ code_refs:
   - src/pages/flipdesk/use-grid-listings.ts
   - src/lib/title-sync-patch.ts
   - services/edge-functions/src/routes/flipdesk-ebay.ts
-reviewed: 2026-09-14
+reviewed: 2026-09-15
 tags: [flipdesk, listings, publishing, contract]
 summary: Publish prefers the listings-row snapshot over the item, so any surface writing the item's title, description or price must reach the draft row too.
 ---
 
 The grid was expanded on 2026-09-14. The current writer list is below;
 the dated reviews record the older nine-column grid.
+
+> **Re-reviewed 2026-09-15.** `grid-columns.ts` and `use-grid-listings.ts`
+> changed in `4dd48a240`. Neither moves the precedence. `aspectColumn` now
+> labels a specific `Specific: <name>` instead of the bare name, which only
+> changes a header and the text of the changed-elsewhere error. The real change
+> is `sameGridValue`, which the stale-row check in `useSaveGridListing` now uses
+> in place of `!==`: it trims, re-joins a semicolon list, and compares numerics
+> by value, so a retry after eBay refused a write no longer reads its own
+> re-formatted value as somebody else's edit. Both operands still come from the
+> LISTINGS row via `col.get`, and every write below `cellLock` still lands on
+> that row, so the rule this note states is unchanged.
 
 > **Re-reviewed 2026-09-13.** flipdesk-ebay.ts changed for US-3111 (`5a3156dc0`).
 > The whole diff is a chunker: `chunkIdsForInFilter` / `IN_FILTER_CHAR_BUDGET`

@@ -6,6 +6,7 @@ import { LoadingRegion, TableLoadingSkeleton } from "@/components/ui/skeletons";
 import { useAuthStore } from "@/stores/auth-store";
 import { inventoryViewKey, readInventoryView, writeInventoryView } from "./inventory-last-view";
 import { SkuExhaustedBanner } from "@/components/flipdesk/sku-auto-hint";
+import { useWorkspace } from "@/hooks/use-workspace";
 
 // US-958: one route — /dashboard/flipdesk/inventory — hosts every Inventory
 // shape (Triage table / Spreadsheet grid / Kanban pipeline / Prep) as a
@@ -63,6 +64,9 @@ function InventoryWorkspace({ storageKey }: { storageKey: string | null }) {
   // Delist panel is on the item page, so send the seller there.
   const delistTarget = delistRedirectTarget(searchParams);
   const mode = resolveMode(searchParams.get("mode"));
+  // The trigger draws from the OWNER's counter (inventory_items.user_id), so
+  // the exhaustion warning has to ask about the owner, not the acting member.
+  const { workspaceOwnerId } = useWorkspace();
   const View =
     mode === "grid"
       ? GridView
@@ -86,7 +90,7 @@ function InventoryWorkspace({ storageKey }: { storageKey: string | null }) {
           insert on a seller mid photo session. This is the other half of that
           bargain, and it sits in the shell so it shows on every inventory view
           rather than only on the one the seller happens to be using. */}
-      <SkuExhaustedBanner />
+      <SkuExhaustedBanner ownerId={workspaceOwnerId ?? undefined} />
       <Suspense
         fallback={
           <LoadingRegion label="Loading inventory" className="space-y-4">
