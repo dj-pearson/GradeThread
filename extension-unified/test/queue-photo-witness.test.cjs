@@ -1,4 +1,4 @@
-// GradeThread unified extension: the photo witness on a QUEUE row (US-3367).
+// GradeThread unified extension: the photo witness on a QUEUE row (US-3407).
 //
 // Zero-dependency node script: throws on drift.
 //
@@ -11,7 +11,7 @@
 // by the other route, and it is the route where a seller is least likely to look
 // at the listing afterwards.
 //
-// Four things are asserted here and none of them can be answered by reading the
+// Five things are asserted here and none of them can be answered by reading the
 // source for a string:
 //
 //   1. Every witness shape DRIVES viewRow, absent and unrecognised included.
@@ -31,6 +31,9 @@
 //      annotation lands in the body, the signature is renamed) this test fails
 //      loudly rather than skipping, because a parity check that silently stops
 //      checking is worse than not having one.
+
+//   5. The shipped popup renderer attaches exactly one refusal warning and
+//      keeps unconfirmed runs quiet across all five marketplaces.
 
 const assert = require("node:assert");
 const fs = require("node:fs");
@@ -135,8 +138,7 @@ function view(result, over) {
   );
   assert.ok(notAsked.photoNote, "AC3 records it: quiet is not the same as absent");
 
-  // ABSENT. The shape an older install sends, and the shape the queue row
-  // actually carries today (see the plumbing note at the bottom of this file).
+  // ABSENT. The shape an older install can send.
   const absentWitness = view({ photosTotal: 8, photosFailed: 0 });
   assert.strictEqual(absentWitness.photoState, "unknown");
   assert.strictEqual(absentWitness.photoAlert, false);
@@ -391,46 +393,60 @@ function view(result, over) {
   }
 }
 
-// ── 6. the popup renders the one state that is an alarm, and only that one ──
-//
-// Source assertion, and it is the weakest check in this file on purpose: the
-// popup is DOM wiring with no browser here. It pins the two things that would
-// silently undo the rest: reading the field at all, and gating on photoAlert
-// rather than on photoNote, which would put a line on every ordinary Mercari,
-// Grailed, Vinted and Facebook run.
+// US-3407: execute the shipped popup renderer for every witness shape.
+// The small DOM records attached nodes, so reading photoNote without putting
+// it in the list cannot pass. Existing envelope and finished-review suites
+// cover transport and the bounded list of completed jobs (US-3368/US-3370).
 {
   const js = fs.readFileSync(path.join(EXT, "popup.js"), "utf8").replace(/\r\n/g, "\n");
-  assert.ok(
-    js.includes("row.photoNote"),
-    "popup.js never reads row.photoNote, so the view model would be perfect and " +
-      "reach nobody, which is exactly the shape of the bug US-3367 opened on",
-  );
-  assert.ok(
-    js.includes("row.photoAlert && row.photoNote"),
-    "popup.js must gate the photo line on photoAlert. Rendering every note " +
-      "puts a line on every ordinary run of four of the five channels (AC3).",
-  );
+  const start = js.indexOf("function renderQueueRow(");
+  const end = js.indexOf("\n}\n", start);
+  assert.ok(start >= 0 && end > start, "popup renderQueueRow must be loadable");
+  const document = {
+    createElement(tag) {
+      return {
+        tagName: tag, children: [], className: "", textContent: "",
+        appendChild(child) { this.children.push(child); return child; },
+        addEventListener() {},
+      };
+    },
+  };
+  const render = new Function("document", "monogram", "timeAgo",
+    js.slice(start, end + 2) + "\nreturn renderQueueRow;",
+  )(document, () => document.createElement("span"), () => "");
+  function nodes(node) {
+    return [node].concat(node.children.flatMap(nodes));
+  }
+  const cases = [
+    ["page", "confirmed", false],
+    ["none", "refused", true],
+    ["not-asked", "unknown", false],
+    [undefined, "unknown", false],
+    ["future-witness", "unknown", false],
+    [null, "unknown", false],
+    [true, "unknown", false],
+  ];
+  for (const platform of ["poshmark", "mercari", "grailed", "vinted", "facebook"]) {
+    for (const [witness, state, alarm] of cases) {
+      const result = { photosTotal: 3 };
+      if (witness !== undefined) result.photosWitness = witness;
+      const v = view(result, { platform, status: "done" });
+      assert.strictEqual(v.photoState, state);
+      const list = document.createElement("ul");
+      render(list, v, {});
+      const rendered = nodes(list);
+      const photoLines = rendered.filter((n) => n.textContent === v.photoNote);
+      assert.strictEqual(photoLines.length, alarm ? 1 : 0,
+        platform + "/" + String(witness) + ": refusal must render once; unknown must stay quiet");
+      if (alarm) {
+        assert.ok(photoLines[0].className.includes("is-review"));
+        assert.ok(/Add them there yourself/.test(photoLines[0].textContent));
+      }
+      assert.ok(rendered.some((n) => n.textContent === "Ran"), "done is not a success claim");
+      assert.ok(!rendered.some((n) => n.textContent === "Retry"), "a finished run must not offer retry");
+      assert.ok(!rendered.some((n) => /success|confirmed|previewed/.test(n.textContent)),
+        "the queue must not invent confirmation");
+    }
+  }
 }
-
-// ── PLUMBING, MEASURED 2026-09-11, AND STILL OPEN ──────────────────────────
-//
-// Everything above is the RENDERING half and it is real. The other half is not
-// in place, and this comment is here so the next person does not read a green
-// test as a working feature:
-//
-//   * background.js:2018 completes a drained queue row with a result envelope
-//     of exactly three fields: { error, manual, listingUrl }. `photosWitness`
-//     is not among them, so no `extension_work_queue.result` in production
-//     carries a witness today.
-//   * GET /api/flipdesk/extension-queue selects statuses queued/claimed/
-//     expired/failed only (flipdesk-extension-queue.ts:127). A run that
-//     completes is `done` and never reaches this view model at all.
-//
-// Both files are outside US-3367's scope. Until they change, the assertions
-// above prove the view model handles every shape correctly and prove nothing
-// about what a seller currently sees.
-console.log(
-  "queue-photo-witness.test.cjs: four witness shapes drive the row, the default " +
-    "arm is unknown, not-asked raises no alarm, and the TypeScript taxonomy is " +
-    "executed against the extension's copy",
-);
+console.log("queue-photo-witness.test.cjs: taxonomy parity and 35 shipped popup render cases passed");
