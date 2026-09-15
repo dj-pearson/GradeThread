@@ -45,7 +45,38 @@ stronger claim for one of them, `check-prod-migration.ts` is the tool.
 Nothing below 00786 was touched, and the six genuinely-held branches in the next
 section are unchanged and still waiting.
 
-## HELD 2026-09-14: 00802 - per-tenant SKU numbering, the odometer only (US-3414)
+## ✅ APPLIED 2026-09-14 (owner, confirmed from prod): 00803 - the trigger that fills a blank SKU (US-3415)
+
+**What it does.** Adds `public.flipdesk_assign_sku()` and the `BEFORE INSERT`
+trigger `assign_sku_on_insert` on `public.inventory_items`. When an item is
+saved with a blank SKU and its tenant has numbering switched on, the trigger
+fills it from `flipdesk_sku_sequences`. It creates no table and alters no
+column.
+
+**Why a trigger.** Inventory items are created from thirteen call sites across
+the web app, the edge service, iOS and Android. A helper would need thirteen
+edits plus a Swift and a Kotlin port, and the one call site somebody forgets
+fails silently. This is the only place all of them already pass through.
+
+**It is inert until a tenant opts in.** `flipdesk_sku_sequences.enabled`
+defaults to false and 00802 creates no rows, so at the moment of applying this,
+zero accounts have a sequence row and the trigger returns `NEW` untouched on
+every insert in the system. It also returns `NEW` untouched whenever the caller
+supplied a SKU, under any setting.
+
+**It cannot fail an insert.** On an exhausted sequence, or after 1000 taken
+candidates, it flags the row and leaves `sku` NULL rather than raising. That was
+a deliberate call: an unsaved item is worse than an unnumbered one.
+
+**Apply order.** After 00802.
+
+**Verified locally on 2026-09-14** against the full migration schema, ten cases
+in `scripts/fixtures/sku-assignment.sql`, and sabotage-proved three ways:
+keying the lookup on `auth.uid()` instead of `NEW.user_id`, dropping the trigger
+outright, and omitting the counter write-back. Each produced a distinct, correct
+diagnosis.
+
+## ✅ APPLIED 2026-09-14 (owner, confirmed from prod): 00802 - per-tenant SKU numbering, the odometer only (US-3414)
 
 **What it does.** Adds one table, `public.flipdesk_sku_sequences` (one row per
 tenant, holding a SKU pattern and where its counters are sitting), and seven
@@ -73,7 +104,27 @@ sabotage-proved twice: `scripts/check-sku-sequences.mjs` went red when
 when `flipdesk_sku_render` folded its unpadded-number case into `lpad` (which
 returns the empty string at width 0). Both were restored and the check is green.
 
-## HELD 2026-09-14: 00801 - payout becomes a grouping key on sale_pnl (US-3413)
+## ✅ APPLIED 2026-09-14 (confirmed from prod, not watched): 00801 - payout becomes a grouping key on sale_pnl (US-3413)
+
+**The heading was stale and the gate was blocked on it**, which is the same
+defect the section at the top of this file is about. `held-migration-gate.mjs`
+reported 00801 under "ALREADY ON origin/main — the rule was broken earlier" and
+refused every push, mine included.
+
+**Evidence, read credential-free on 2026-09-14 and repeatable by anyone:**
+
+```bash
+curl -s https://functions.gradethread.com/health/ready   # .schema
+```
+
+answered `{"expected":"00801","applied":"00803","status":"ahead","unexpected":["00802","00803"]}`.
+`applied` is the DB's own watermark, and 00803 is past 00801, so prod has it.
+The `ahead` status and the `unexpected` pair are the deployed edge build still
+expecting 00801 while the DB has moved to 00803; that is warn-only in
+`schema-version.ts` and clears on the next edge deploy.
+
+**This flip says only that prod HAS 00801.** It does not say anyone watched it
+apply, and it does not speak to the follow-up work below.
 
 **What it does.** Replaces the `public.sale_pnl` view with the same body plus
 two columns, `payout_id` (from `sales.payout_reference`) and `payout_date` (from

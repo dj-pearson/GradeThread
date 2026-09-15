@@ -234,8 +234,216 @@ if (!/false/.test(String(r.default_exhausted))) {
   fail(`flipdesk_sku_sequences.exhausted defaults to ${r.default_exhausted}, not false.`);
 }
 
+// ---------------------------------------------------------------------------
+// Fixture 2: the BEFORE INSERT trigger (US-3415)
+//
+// CREATE TRIGGER succeeding says nothing about whether the trigger fires, which
+// counter it reads, or whether it writes its advance back. The migration source
+// reads as correct in all three failure modes.
+// ---------------------------------------------------------------------------
+
+const t = runFixture("sku-assignment.sql");
+
+console.log("");
+console.log(`  plain issue            ${t.plain_sku}`);
+console.log(`  supplied kept          ${t.supplied_sku}`);
+console.log(`  letter carry           ${t.j9999_sku} -> ${t.k0000_sku}`);
+console.log(`  at the end             ${t.last_sku}, exhausted=${t.exhausted_flag}`);
+console.log(`  skipped a typed SKU    ${t.skip_first} -> ${t.skip_second} (past ${t.planted_sku})`);
+console.log(`  yearly reset           ${t.reset_sku}`);
+console.log(`  by a workspace member  ${t.member_sku}`);
+console.log(`  20 bulk inserts        ${t.bulk_distinct} distinct of ${t.bulk_total}`);
+
+// 0. Separate "no trigger" from "wrong trigger" before reading any SKU. A
+// trigger keyed on auth.uid() instead of NEW.user_id produces NULL for every
+// service-role insert, which is indistinguishable from an absent trigger unless
+// this is asked first -- and that misdiagnosis sends the next reader hunting
+// for a CREATE TRIGGER statement that is sitting right there in 00803.
+if (t.trigger_installed !== true) {
+  fail(
+    "assign_sku_on_insert is not on public.inventory_items.\n" +
+      "  Apply supabase/migrations/00803_assign_sku_trigger.sql.",
+  );
+}
+
+// 1. It fires at all, and it writes the advance back.
+if (t.plain_sku !== "1032") {
+  fail(
+    `the trigger did not issue the counter's value.\n` +
+      `  expected "1032", got ${JSON.stringify(t.plain_sku)}` +
+      (t.plain_sku === null
+        ? `\n  The trigger IS installed, so it fired and bailed before rendering.\n` +
+          `  The likeliest cause by far: the sequence lookup is keyed on\n` +
+          `  auth.uid() rather than NEW.user_id. auth.uid() is NULL for a\n` +
+          `  service-role insert and is the MEMBER's id for a workspace insert;\n` +
+          `  neither owns a sequence row. The tenant is NEW.user_id.`
+        : t.plain_sku === "1033"
+          ? `\n  It advanced BEFORE issuing. counters holds the NEXT value, so\n` +
+            `  render(counters) IS the SKU and the advance comes after.`
+          : ""),
+  );
+}
+if (!same(t.plain_counters, [1033])) {
+  fail(
+    `after issuing 1032 the counter reads ${JSON.stringify(t.plain_counters)}, expected [1033].` +
+      (same(t.plain_counters, [1032])
+        ? `\n  The advance was never written back, so the NEXT item gets 1032 too.`
+        : ""),
+  );
+}
+
+// 2. A supplied SKU is untouchable, and costs nothing.
+if (t.supplied_sku !== "MINE-1") {
+  fail(
+    `the trigger overwrote a SKU the caller supplied.\n` +
+      `  expected "MINE-1", got ${JSON.stringify(t.supplied_sku)}\n` +
+      `  It must return NEW untouched whenever sku is non-blank.`,
+  );
+}
+if (!same(t.counters_before_supplied, t.counters_after_supplied)) {
+  fail(
+    `a supplied SKU moved the counter, from ` +
+      `${JSON.stringify(t.counters_before_supplied)} to ${JSON.stringify(t.counters_after_supplied)}.\n` +
+      `  The bail-out has to happen BEFORE the claim, or every hand-typed SKU\n` +
+      `  silently burns a generated one.`,
+  );
+}
+
+// 3. The case this feature exists for, through the trigger this time.
+if (t.j9999_sku !== "J9999" || t.k0000_sku !== "K0000") {
+  fail(
+    `the letter wheel did not carry through the trigger.\n` +
+      `  expected J9999 then K0000, got ${JSON.stringify(t.j9999_sku)} then ` +
+      `${JSON.stringify(t.k0000_sku)}` +
+      (t.k0000_sku === "J0000"
+        ? `\n  The number wheel rolled over but nothing carried left.`
+        : t.k0000_sku === null
+          ? `\n  NULL on the second insert means it read J9999 as the END.`
+          : ""),
+  );
+}
+
+// 4. Exhaustion flags itself, and does NOT fail the insert.
+if (t.last_sku !== "Z9999") {
+  fail(`the final value issued as ${JSON.stringify(t.last_sku)}, expected "Z9999".`);
+}
+if (t.exhausted_flag !== true) {
+  fail(
+    "issuing the last possible value did not set exhausted.\n" +
+      "  Without the flag the next insert walks 1000 candidates before giving\n" +
+      "  up, holding the sequence row lock the whole time.",
+  );
+}
+if (t.after_exhaust_saved !== true) {
+  fail(
+    "an insert against an exhausted sequence did not save.\n" +
+      "  The trigger must return NEW with a NULL sku. Raising here stops a\n" +
+      "  seller dead, mid session, with an error they cannot diagnose.",
+  );
+}
+if (t.after_exhaust_sku !== null) {
+  fail(
+    `an exhausted sequence still issued ${JSON.stringify(t.after_exhaust_sku)}.\n` +
+      `  The exhausted flag is not gating, so SKUs are being reissued.`,
+  );
+}
+
+// 5. The skip. This is what makes a hand-typed SKU safe.
+if (t.planted_sku !== "J1235") {
+  fail(
+    `the fixture's planted SKU reads ${JSON.stringify(t.planted_sku)}; it should ` +
+      `be untouched at "J1235".`,
+  );
+}
+if (t.skip_first !== "J1234" || t.skip_second !== "J1236") {
+  fail(
+    `the generator did not walk past a hand-typed SKU.\n` +
+      `  expected J1234 then J1236 either side of the planted J1235,\n` +
+      `  got ${JSON.stringify(t.skip_first)} then ${JSON.stringify(t.skip_second)}` +
+      (t.skip_second === "J1235"
+        ? `\n  It reissued the planted value. In production the unique index\n` +
+          `  rejects that save with a 23505 the seller cannot act on.`
+        : ""),
+  );
+}
+
+// 6. The yearly reset.
+if (t.reset_sku !== `${t.expected_stamp}-00001`) {
+  fail(
+    `a rolled-over period did not restart at the floor.\n` +
+      `  expected "${t.expected_stamp}-00001", got ${JSON.stringify(t.reset_sku)}\n` +
+      `  The stored stamp was last year's and the counter was at 842.`,
+  );
+}
+if (t.reset_stamp !== t.expected_stamp) {
+  fail(
+    `date_stamp reads ${JSON.stringify(t.reset_stamp)} after the reset, expected ` +
+      `${JSON.stringify(t.expected_stamp)}. It would reset again on every insert.`,
+  );
+}
+
+// 7. Off means off, and a tenant who never configured this is unaffected.
+if (t.disabled_sku !== null) {
+  fail(
+    `numbering is disabled for that tenant and it still issued ` +
+      `${JSON.stringify(t.disabled_sku)}.`,
+  );
+}
+if (t.no_row_saved !== true) {
+  fail("a tenant with no sequence row could not insert an item at all.");
+}
+if (t.no_row_sku !== null) {
+  fail(`a tenant with NO sequence row got ${JSON.stringify(t.no_row_sku)}.`);
+}
+
+// 8. The tenant is the OWNER, not the actor. On a solo account those are the
+// same person, so this is the only case that can tell the two apart.
+if (t.member_sku !== "1033") {
+  fail(
+    `an insert by a workspace MEMBER drew from the wrong counter.\n` +
+      `  expected "1033" from the OWNER's sequence, got ${JSON.stringify(t.member_sku)}` +
+      (t.member_sku === null
+        ? `\n  NULL means the trigger looked up auth.uid() -- the member -- who\n` +
+          `  has no sequence row. inventory_items.user_id is the workspace OWNER.`
+        : ""),
+  );
+}
+if (!same(t.counters_after_member, [1034])) {
+  fail(
+    `the member's insert did not advance the OWNER's counter.\n` +
+      `  expected [1034], got ${JSON.stringify(t.counters_after_member)}\n` +
+      `  A member drawing the right number but leaving the counter behind\n` +
+      `  hands the owner's next item the same SKU.`,
+  );
+}
+
+// 9. Twenty inserts, twenty SKUs.
+//
+// This one does NOT stand alone, and it is worth saying so. Measured here on
+// 2026-09-14: a trigger that never writes its advance back still produces 20
+// distinct SKUs, because each insert re-renders the same stale candidate, finds
+// the previous row already holding it, and walks past via the collision skip.
+// The assertion that actually catches a missing write-back is plain_counters
+// above. Deleting that one and keeping this would leave a guard that passes for
+// the wrong reason.
+if (t.bulk_total !== 20) {
+  fail(`the bulk insert produced ${t.bulk_total} rows, expected 20.`);
+}
+if (t.bulk_distinct !== 20) {
+  fail(
+    `20 inserts produced ${t.bulk_distinct} DISTINCT SKUs.\n` +
+      `  The trigger is reading the counter without writing the advance back,\n` +
+      `  or advancing a copy it never persists.`,
+  );
+}
+
 console.log(
   "\n✓ SKU odometer: 1032 counts up, J9999 carries to K0000, Z9999 reports" +
     " exhaustion instead of wrapping, dates render without eating a counter," +
-    " parse is the inverse of render, and the sequence table is read-only to clients.",
+    " parse is the inverse of render, and the sequence table is read-only to" +
+    " clients." +
+    "\n✓ SKU trigger: issues and advances, never overwrites a supplied SKU," +
+    " walks past hand-typed ones, restarts on a new period, stays silent when" +
+    " off, draws from the OWNER's counter, and flags exhaustion instead of" +
+    " failing the insert.",
 );
