@@ -223,3 +223,103 @@ export function proposePickers(
     return build(src);
   });
 }
+
+// ─── Matching a proposal against whatever the form is showing ───────────────
+//
+// US-3210 AC3 wants the lister to "select the matching option in the live form".
+// That splits cleanly in two, and only one half needs a browser:
+//
+//   - finding the picker and reading its options  -> needs the live form, and
+//     the selectors are deliberately absent from extension-unified/lister/
+//     selectors.js ("driving an option list is a different problem with its own
+//     verification"). Blocked on the same session AC6 needs.
+//   - deciding WHICH option a proposal means      -> pure, and it is here.
+//
+// Written ahead of the browser work on purpose: it is the half that carries the
+// judgement, it is the half a captured fixture would be used to test anyway, and
+// it makes the eventual session selectors-and-glue rather than selectors-and-
+// design.
+
+/** What the lister did, or could not do, with one picker. */
+export type PickerOutcome = "selected" | "option-not-found" | "left-blank";
+
+export interface PickerAttempt extends PickerProposal {
+  outcome: PickerOutcome;
+  /** The option text actually chosen. Null unless outcome is "selected". */
+  matched: string | null;
+}
+
+/**
+ * Loose enough to survive a form's own spelling, strict enough not to pick the
+ * wrong thing: case, surrounding punctuation and runs of whitespace are
+ * ignored, and nothing else is.
+ */
+function foldOption(s: string): string {
+  return s
+    .toLowerCase()
+    .replace(/[()[\]{}.,;:!?'"`]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/**
+ * Which of `options` the proposal means, or null.
+ *
+ * THREE PASSES, NARROWEST FIRST, and it stops at the first one that finds
+ * exactly ONE candidate. An ambiguous pass is treated as no match rather than
+ * as "take the first", because taking the first is how a wrong pick gets made
+ * silently -- the thing AC3 names.
+ *
+ *   1. folded equality              "NWT" vs "nwt"
+ *   2. the option STARTS WITH it    "NWT" vs "NWT (New With Tags)"
+ *   3. the option CONTAINS it       "Navy" vs "Deep Navy Blue"
+ *
+ * Pass 3 is the risky one and it is why single-candidate is required: "Blue"
+ * against a list holding "Blue" and "Light Blue" resolves at pass 1; against a
+ * list holding only "Light Blue" and "Navy Blue" it is genuinely ambiguous and
+ * the seller decides.
+ */
+export function matchOption(value: string, options: readonly string[]): string | null {
+  const want = foldOption(value);
+  if (!want) return null;
+  const folded = options.map((o) => ({ raw: o, fold: foldOption(o) }));
+  for (const pass of [
+    (o: { fold: string }) => o.fold === want,
+    (o: { fold: string }) => o.fold.startsWith(`${want} `) || o.fold === want,
+    (o: { fold: string }) => o.fold.includes(want),
+  ]) {
+    const hits = folded.filter(pass);
+    if (hits.length === 1) return hits[0]!.raw;
+  }
+  return null;
+}
+
+/**
+ * Resolve one proposal against a picker's live state.
+ *
+ * `current` is what the seller already has selected. AC7: a field they set is
+ * never overwritten, and that check comes FIRST, before the proposal is even
+ * looked at -- a pick that is "right" is still wrong if it replaces a human's
+ * answer.
+ */
+export function resolvePicker(
+  proposal: PickerProposal,
+  options: readonly string[],
+  current?: string | null,
+): PickerAttempt {
+  if (clean(current) !== null) {
+    return {
+      ...proposal,
+      outcome: "left-blank",
+      matched: null,
+      why: `the seller already chose "${clean(current)}"`,
+    };
+  }
+  if (proposal.confidence === "none" || proposal.value === null) {
+    return { ...proposal, outcome: "left-blank", matched: null };
+  }
+  const matched = matchOption(proposal.value, options);
+  return matched === null
+    ? { ...proposal, outcome: "option-not-found", matched: null }
+    : { ...proposal, outcome: "selected", matched };
+}

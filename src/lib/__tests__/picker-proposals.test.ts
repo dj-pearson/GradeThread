@@ -1,5 +1,10 @@
 import { describe, it, expect } from "vitest";
-import { proposePickers, type PickerProposal } from "@/lib/picker-proposals";
+import {
+  matchOption,
+  proposePickers,
+  resolvePicker,
+  type PickerProposal,
+} from "@/lib/picker-proposals";
 import { MARKETPLACE_SPECS } from "@/lib/marketplace-specs";
 import { mapEbayCondition } from "@/lib/ebay-prefill";
 
@@ -93,5 +98,83 @@ describe("picker proposals (US-3210)", () => {
     const c = by(proposePickers("poshmark", { color: "Deep Ocean" }), "color");
     expect(c).toMatchObject({ value: "Deep Ocean", confidence: "likely" });
     expect(by(proposePickers("poshmark", {}), "color")).toMatchObject({ confidence: "none" });
+  });
+});
+
+describe("matching a proposal against a live option list (US-3210 AC3)", () => {
+  const POSHMARK_CONDITION = ["NWT (New With Tags)", "NWOT (New Without Tags)", "EUC", "GUC"];
+
+  it("ignores case, punctuation and spacing, and nothing else", () => {
+    expect(matchOption("nwt", POSHMARK_CONDITION)).toBe("NWT (New With Tags)");
+    expect(matchOption("EUC", POSHMARK_CONDITION)).toBe("EUC");
+    expect(matchOption("Like  new", ["Like new", "New"])).toBe("Like new");
+  });
+
+  it("prefers an exact option over one that merely starts with it", () => {
+    // "Blue" against a list holding both must not resolve to "Blue Green".
+    expect(matchOption("Blue", ["Blue", "Blue Green", "Light Blue"])).toBe("Blue");
+  });
+
+  it("refuses an ambiguous match rather than taking the first", () => {
+    // Taking the first is exactly how a wrong pick gets made silently, which is
+    // what AC3 names. Two candidates means the seller decides.
+    expect(matchOption("Blue", ["Light Blue", "Navy Blue"])).toBeNull();
+    expect(matchOption("M", ["M / 8", "M / 10"])).toBeNull();
+  });
+
+  it("returns null rather than throwing on an empty list or an empty value", () => {
+    expect(matchOption("M", [])).toBeNull();
+    expect(matchOption("   ", ["M"])).toBeNull();
+  });
+});
+
+describe("resolving a picker against the live form (US-3210 AC3, AC7)", () => {
+  const proposal = (over: Partial<PickerProposal> = {}): PickerProposal => ({
+    field: "size",
+    value: "M",
+    confidence: "exact",
+    why: "test",
+    ...over,
+  });
+
+  it("selects the matching option", () => {
+    expect(resolvePicker(proposal(), ["S", "M", "L"])).toMatchObject({
+      outcome: "selected",
+      matched: "M",
+    });
+  });
+
+  it("reports an option it cannot find instead of picking something else", () => {
+    expect(resolvePicker(proposal({ value: "32x34" }), ["S", "M", "L"])).toMatchObject({
+      outcome: "option-not-found",
+      matched: null,
+    });
+  });
+
+  it("leaves a none proposal alone", () => {
+    expect(
+      resolvePicker(proposal({ value: null, confidence: "none" }), ["S", "M"]),
+    ).toMatchObject({ outcome: "left-blank", matched: null });
+  });
+
+  it("never overwrites a field the seller already set", () => {
+    // AC7, and the check comes FIRST: a pick that is "right" is still wrong if
+    // it replaces a human's answer. Even an exact proposal stands down.
+    const r = resolvePicker(proposal(), ["S", "M", "L"], "L");
+    expect(r.outcome).toBe("left-blank");
+    expect(r.matched).toBeNull();
+    expect(r.why).toContain("already chose");
+  });
+
+  it("treats a whitespace-only current value as unset", () => {
+    expect(resolvePicker(proposal(), ["S", "M", "L"], "   ")).toMatchObject({
+      outcome: "selected",
+    });
+  });
+
+  it("carries the proposal's own fields through, so the writeback can report them", () => {
+    // AC4 wants proposed value, confidence and outcome in one payload.
+    const r = resolvePicker(proposal({ confidence: "likely" }), ["S", "M", "L"]);
+    expect(r).toMatchObject({ field: "size", value: "M", confidence: "likely", outcome: "selected" });
   });
 });
