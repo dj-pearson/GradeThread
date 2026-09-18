@@ -374,14 +374,21 @@ describe("US-3423: the gate asks about the ref this branch actually pushes to", 
     expect(both).toMatch(/if \(incoming\.length > 0\) \{[\s\S]{0,400}IN THIS PUSH/);
   });
 
-  it("still exits 1 on this repo right now, which is the point", () => {
-    // 00793 and 00797 are held and on origin. The rework changed the SENTENCE,
-    // never the verdict. A version of this that made the gate quiet would have
-    // been a bypass with extra steps.
+  it("the rework changed the sentence, never the verdict", () => {
+    // WHAT THIS USED TO SAY, and why it was the wrong assertion: it pinned
+    // "00793 and 00797 are in PENDING_MIGRATIONS.md as HELD", which was true on
+    // the afternoon US-3423 landed and false the same evening, when the owner
+    // applied both. A case that fails because the backlog moved is a case that
+    // gets deleted rather than read.
+    //
+    // The property that actually matters is that widening the ref list did not
+    // make the parser quieter. Asked of a synthetic doc, so it stays true
+    // whatever this repo happens to be holding.
     const held = heldMigrations(
-      readFileSync(resolve(process.cwd(), "PENDING_MIGRATIONS.md"), "utf8"),
+      "## HELD 2026-09-18: 00793 - a held one\n" +
+        "## \u2705 APPLIED 2026-09-18 (owner): 00797 - an applied one\n",
+      () => ["00793_a.sql", "00797_b.sql"],
     );
-    expect(held.map((h) => h.version)).toContain("00793");
-    expect(held.map((h) => h.version)).toContain("00797");
+    expect(held.map((h) => h.version)).toEqual(["00793"]);
   });
 });

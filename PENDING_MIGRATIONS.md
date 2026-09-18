@@ -216,13 +216,21 @@ coverage stays where it is: 84 of 228 sales linked, September 0 of 12. The first
 run will do the backfill; it reads a 90-day window and fills only rows whose
 reference is null.
 
-## HELD 2026-09-18: 00793 - retire the 23 size-chart rows a rename orphaned (US-3387)
+## ✅ APPLIED 2026-09-18 (owner): 00793 - retire the 23 size-chart rows a rename orphaned (US-3387)
 
-**Same branch and the same warning as 00797 below it.** The held-migration gate
-exits 1 on this entry, which is the gate working; it is overridden for the one
-reason recorded there, that the container this was written in is ephemeral so
-not pushing loses the work rather than holding it. origin/main does not carry
-this file and nothing deploys from a feature branch.
+**NOT READ BACK FROM HERE.** The owner reported both this and 00797 applied on
+2026-09-18 and cleared the push. This container has no route to prod - the
+read-only `npm run migrate:prod` is refused here - so the source of this heading
+is the owner's word, which is what `(owner)` means throughout this file, as
+against `(confirmed from prod)`. The readback below is still worth running.
+
+**The readback, unrun:**
+
+```sql
+select count(*) from public.brand_size_charts
+ where brand_key = 'duluthtradingco' and department = 'Men';
+-- expect: 1, where it was 2 before
+```
 
 **REBUILT, NOT MERGED.** `held-v2/us-3387-00793` is not on origin and neither is
 any other held branch (US-3421, and `node scripts/check-held-branches.mjs` is
@@ -275,9 +283,21 @@ two agree today -- if 00498 is regenerated again without a matching retirement
 they will not. The SQL was parsed with libpg_query and never executed: this
 container has no Docker and no route to prod.
 
-## ⏳ HELD 2026-09-18: 00797 - the seeded cogs_labor row says Labour (US-3256)
+## ✅ APPLIED 2026-09-18 (owner): 00797 - the seeded cogs_labor row says Labour (US-3256)
 
-**⚠ THE HELD-MIGRATION GATE BLOCKS THIS PUSH AND WAS OVERRIDDEN ON PURPOSE.**
+**NOT READ BACK FROM HERE**, same as 00793 above: the owner reported it applied
+on 2026-09-18 and cleared the push, and `npm run migrate:prod` is refused in
+this container even read-only. `(owner)` rather than `(confirmed from prod)`.
+
+**THE BRANCH IS UNFROZEN.** `claude/wizardly-gauss-8osusm` was unmergeable until
+these two landed. It carries US-3408, US-3420, US-3413's closure, US-2855 AC2,
+US-3422, US-3423 and US-3210 AC4.
+
+**The override history below is kept rather than deleted.** It is the record of
+what this entry cost while it was held, and deleting it once the entry goes
+green is how the count goes back to being unreadable.
+
+**⚠ THE HELD-MIGRATION GATE BLOCKED THE PUSH AND WAS OVERRIDDEN ON PURPOSE.**
 `node scripts/held-migration-gate.mjs` exits 1 in BOTH modes on this entry,
 which is the gate doing its job. It was overridden for one reason and it is
 recorded here rather than only in a chat message, because six earlier bypasses
@@ -307,9 +327,8 @@ ORIGIN, naming the ref per file. The verdict never changed; only the sentence
 did. Read the 2026-09-18 rows above as the honest record of what this entry has
 cost, not the gate's older wording.
 
-**⚠ THIS BRANCH CANNOT BE MERGED UNTIL YOU APPLY THIS FILE.** The migration is
-on `claude/wizardly-gauss-8osusm`, which also carries US-3408, US-3420,
-US-3413's closure, US-2855 AC2, US-3422, US-3423 and US-3210 AC4. That is the owner's call, made 2026-09-18 when the
+**~~THIS BRANCH CANNOT BE MERGED UNTIL YOU APPLY THIS FILE.~~ Cleared
+2026-09-18.** The migration is on `claude/wizardly-gauss-8osusm` and is applied. That is the owner's call, made 2026-09-18 when the
 alternative (a separate held branch) was offered. It means three finished
 stories are waiting on one UPDATE, so this is the cheapest pending entry in the
 file to clear.
