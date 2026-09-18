@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
+  isPickerPlatform,
   matchOption,
   proposePickers,
   resolvePicker,
@@ -176,5 +177,76 @@ describe("resolving a picker against the live form (US-3210 AC3, AC7)", () => {
     // AC4 wants proposed value, confidence and outcome in one payload.
     const r = resolvePicker(proposal({ confidence: "likely" }), ["S", "M", "L"]);
     expect(r).toMatchObject({ field: "size", value: "M", confidence: "likely", outcome: "selected" });
+  });
+});
+
+// ── US-3210 AC4, first half: this mapper now has a production caller ─────────
+//
+// It did not, until 2026-09-18, and `node scripts/check-web-unwired.mjs` said
+// so: "src/lib/picker-proposals.ts imported only by picker-proposals.test.ts".
+// That gate's own allowlist forbids exactly this shape -- "an implementation
+// nobody calls is a feature that does not run" -- so allowlisting it was not an
+// option and wiring it was.
+//
+// The caller is the Listing Kit's manual-fields notice, which used to say
+// "You'll set these on Poshmark yourself: Category, Size, Color, NWT" and now
+// adds what to pick for the three of those four this mapper can answer.
+
+describe("isPickerPlatform", () => {
+  it("accepts the two platforms with a picker contract", () => {
+    expect(isPickerPlatform("poshmark")).toBe(true);
+    expect(isPickerPlatform("mercari")).toBe(true);
+  });
+
+  it("refuses the platforms that have none", () => {
+    // Grailed, Vinted and Facebook declare no manualFields, so proposing for
+    // them would return an empty list that reads like "nothing to set".
+    for (const p of ["grailed", "vinted", "facebook", "ebay", "depop", ""]) {
+      expect(isPickerPlatform(p), `${p} has no picker contract`).toBe(false);
+    }
+  });
+
+  it("covers every platform that declares manualFields, and only those", () => {
+    // The real coupling. A third platform gaining manualFields without gaining
+    // a rule here would get an empty proposal list and a notice that quietly
+    // stopped suggesting anything.
+    const declaring = Object.entries(MARKETPLACE_SPECS)
+      .filter(([, spec]) => (spec.manualFields ?? []).length > 0)
+      .map(([key]) => key)
+      .sort();
+    expect(declaring.filter(isPickerPlatform)).toEqual(declaring);
+  });
+});
+
+describe("what the Listing Kit notice can say (US-3210 AC4)", () => {
+  it("answers three of Poshmark's four pickers for a graded item", () => {
+    const rows = proposePickers("poshmark", {
+      gradeValue: 8.5,
+      gradeTier: "Excellent",
+      size: "M",
+      color: "Navy",
+    });
+    const answered = rows.filter((r) => r.value !== null).map((r) => r.field);
+    expect(answered.sort()).toEqual(["color", "nwt", "size"]);
+    // And the fourth stays none, with a reason, rather than a guess.
+    expect(by(rows, "category")).toMatchObject({ value: null, confidence: "none" });
+  });
+
+  it("says nothing about condition or NWT when the item has no grade", () => {
+    // The notice reads gradeValue and gradeLabel off inventory_items. Before
+    // US-3210 AC4 the kit's facts query selected neither, so an item with a
+    // grade would still have come back unknowable here -- which is why the
+    // wiring had to touch the query and not only the render.
+    const posh = proposePickers("poshmark", { size: "M", color: "Navy" });
+    expect(by(posh, "nwt")).toMatchObject({ value: null, confidence: "none" });
+    const merc = proposePickers("mercari", { size: "M" });
+    expect(by(merc, "condition")).toMatchObject({ value: null, confidence: "none" });
+  });
+
+  it("proposes nothing at all for an item with no facts, rather than blanks", () => {
+    // Every proposal is `none`, so the notice adds no second sentence and the
+    // seller sees exactly what they saw before this change.
+    const rows = proposePickers("mercari", {});
+    expect(rows.every((r) => r.value === null)).toBe(true);
   });
 });

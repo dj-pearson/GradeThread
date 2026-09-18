@@ -197,6 +197,19 @@ const BUILDERS: Record<string, (src: PickerSource) => PickerProposal> = {
 /** The platforms this mapper covers. Others have no picker contract yet. */
 export type PickerPlatform = "poshmark" | "mercari";
 
+const PICKER_PLATFORMS: readonly string[] = ["poshmark", "mercari"];
+
+/**
+ * Narrows any marketplace key to one this mapper covers.
+ *
+ * Here rather than at the call site so the list of covered platforms lives in
+ * one file. A caller that hand-wrote `p === "poshmark" || p === "mercari"` would
+ * silently stop covering the third platform this mapper eventually learns.
+ */
+export function isPickerPlatform(platform: string): platform is PickerPlatform {
+  return PICKER_PLATFORMS.includes(platform);
+}
+
 /**
  * One proposal per picker the platform declares as manual.
  *
