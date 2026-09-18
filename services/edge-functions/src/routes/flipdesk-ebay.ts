@@ -1872,6 +1872,11 @@ flipdeskEbayRoutes.post("/policies/sync", async (c) => {
       synced: result.policies.length,
       merchant_location_key: result.merchantLocationKey,
       missing: result.missing,
+      // US-2855 AC2: kinds whose stored default pointed at a policy the seller
+      // deleted on eBay. The sync has already moved each to the account's first
+      // policy of that kind; this is what lets the caller SAY so once, instead
+      // of the seller meeting it as a refused publish.
+      replaced_defaults: result.replacedDefaults,
     });
   } catch (err) {
     console.error("[flipdesk-ebay] /policies/sync failed:", err);

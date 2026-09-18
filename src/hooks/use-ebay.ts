@@ -512,7 +512,13 @@ export function useEbayPromotions(enabled = true) {
 export function useSyncEbayPolicies() {
   const qc = useQueryClient();
   return useMutation<
-    { synced: number; merchant_location_key: string | null; missing: string[] },
+    {
+      synced: number;
+      merchant_location_key: string | null;
+      missing: string[];
+      /** US-2855 AC2: kinds whose stored default pointed at a deleted policy. */
+      replaced_defaults?: string[];
+    },
     Error,
     void
   >({
@@ -527,11 +533,26 @@ export function useSyncEbayPolicies() {
         synced: number;
         merchant_location_key: string | null;
         missing: string[];
+        replaced_defaults?: string[];
       };
     },
     onSuccess: (data) => {
       qc.invalidateQueries({ queryKey: ["ebay_policies"] });
       toast.success(`Synced ${data.synced} business policies from eBay.`);
+      // US-2855 AC2: the sync has ALREADY moved each of these to the account's
+      // first policy of that kind, so this is a notice and not a warning to act
+      // on. Said once, here, because the alternative is the seller meeting it
+      // as a refused publish -- which is what the comment above this hook
+      // describes ("invalid shipping policy") and what sellers were re-syncing
+      // by hand to clear.
+      const replaced = data.replaced_defaults ?? [];
+      if (replaced.length > 0) {
+        const kinds = replaced.join(", ");
+        toast.info(
+          `Your default ${kinds} ${replaced.length === 1 ? "policy no longer exists" : "policies no longer exist"} on eBay. ` +
+            `We switched to your first ${replaced.length === 1 ? "one" : "of each"} instead. Change it in eBay settings if that is wrong.`,
+        );
+      }
     },
     onError: (err) => toastError(err),
   });
