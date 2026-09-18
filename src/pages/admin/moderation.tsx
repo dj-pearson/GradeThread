@@ -54,6 +54,8 @@ interface FlaggedSubmission {
   user: UserRow | null;
   report: GradeReportRow | null;
   images: { id: string; url: string }[];
+  /** US-3260: photos that exist on the submission and would not sign. */
+  imagesUnavailable: number;
 }
 
 interface FlagType {
@@ -223,20 +225,29 @@ function SubmissionsTab() {
       for (const submission of submissions) {
         const imgs = imagesBySubmission.get(submission.id) ?? [];
         const signed: { id: string; url: string }[] = [];
+        // US-3260: a signing failure used to drop the photo from the list with
+        // no trace, so a moderator decided a flagged submission on whatever
+        // subset happened to sign. The count is what makes that visible: the
+        // card can say "2 of 5 photos could not be loaded" instead of showing
+        // three and implying there are three.
+        let unavailable = 0;
         for (const img of imgs) {
-          const { data: urlData } = await supabase.storage
+          const { data: urlData, error: signingError } = await supabase.storage
             .from("submission-images")
             // private bucket — short-lived signed URL (US-276)
             .createSignedUrl(img.storage_path, 900);
-          if (urlData?.signedUrl) {
-            signed.push({ id: img.id, url: urlData.signedUrl });
+          if (signingError || !urlData?.signedUrl) {
+            unavailable += 1;
+            continue;
           }
+          signed.push({ id: img.id, url: urlData.signedUrl });
         }
         result.push({
           submission,
           user: usersById.get(submission.user_id) ?? null,
           report: reportBySubmission.get(submission.id) ?? null,
           images: signed,
+          imagesUnavailable: unavailable,
         });
       }
       return result;
@@ -453,6 +464,14 @@ function SubmissionsTab() {
                         </p>
                       )}
                     </div>
+                  )}
+
+                  {entry.imagesUnavailable > 0 && (
+                    <p className="text-xs text-destructive">
+                      {entry.imagesUnavailable} of{" "}
+                      {entry.images.length + entry.imagesUnavailable} photos could not be
+                      loaded. You are not seeing the whole submission.
+                    </p>
                   )}
 
                   {entry.images.length > 0 && (

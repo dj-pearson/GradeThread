@@ -41,7 +41,14 @@ export function AdminMfaGate({ children }: { children: React.ReactNode }) {
         return;
       }
       // Not AAL2: do we already have a verified factor to challenge?
-      const { data: factors } = await supabase.auth.mfa.listFactors();
+      //
+      // US-3260: the error is read. Discarding it left `factors` null, `totp`
+      // undefined, and the admin on the ENROL screen -- told to set up an
+      // authenticator they already have. Enrolling a second factor from there
+      // is not harmless: it is the failure that looks like a fresh account.
+      const { data: factors, error: factorsError } = await supabase.auth.mfa
+        .listFactors();
+      if (factorsError) throw factorsError;
       const totp = factors?.totp?.find((f) => f.status === "verified");
       if (totp) {
         setState({ phase: "challenge", factorId: totp.id });
@@ -243,7 +250,12 @@ export function MfaStepUpDialog({
     setBusy(true);
     setErr(null);
     try {
-      const { data: factors } = await supabase.auth.mfa.listFactors();
+      // US-3260: read the error, so a failed lookup does not report itself as
+      // "No authenticator enrolled." The admin sees a message they can act on
+      // instead of one that is about a different problem entirely.
+      const { data: factors, error: factorsError } = await supabase.auth.mfa
+        .listFactors();
+      if (factorsError) throw factorsError;
       const totp = factors?.totp?.find((f) => f.status === "verified");
       if (!totp) throw new Error("No authenticator enrolled.");
       await challengeAndVerifyTotp(totp.id, code);

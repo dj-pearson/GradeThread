@@ -6,10 +6,35 @@ import { uncheckedReads } from "@/lib/__tests__/_supabase-read-scan";
 
 // US-3260: only optional links and viewer-dependent labels may keep a fallback.
 // These are named exceptions, not spare slots for another unchecked money read.
+//
+// ⚠ 2026-09-18: the two team-reporting entries came OFF this list. Their reason
+// was sound as far as it went -- RLS makes that roster viewer-dependent, and a
+// member who legitimately cannot see another member is not a failure. What it
+// missed is that RLS refusing a row produces NO ERROR AT ALL: PostgREST filters
+// it and returns a short set. So anything arriving there as an error was always
+// a network or server failure, and it rendered identically to the by-design
+// case -- every name reading as the unnamed label. Both reads now log a named
+// warning and still return what they got, so the partial answer survives and
+// the failure stops being silent.
+//
+// ⚠ WHAT THIS SCANNER DOES NOT COVER, recorded because two real defects were
+// found there the same day. It ignores the session read and the storage
+// signed-URL call as non-database reads, which is right for a guard about
+// database reads and is not the same as those reads being safe. A discarded
+// signing error was dropping photos out of the admin moderation queue with no
+// trace, so a moderator judged a flagged submission on whatever subset happened
+// to sign; a discarded factor-list error was sending an admin who already had
+// an authenticator to the enrol screen. Both are fixed. Neither would have been
+// caught here, and widening this scanner to reach them would flag every
+// optional Authorization-header read in the app.
+//
+// The wording above avoids naming those two calls in their code spelling on
+// purpose: src/lib/__tests__/signed-url-ttl.test.ts parses every occurrence of
+// the signing call and tried to resolve a TTL out of this paragraph. Prose
+// about a call reading as the call is the same shape as the dashboard_layouts
+// case in US-3256.
 const OPTIONAL_READS: Record<string, string> = {
   "src/hooks/use-badge-studio.ts|public_passport_links|{ data: linkRaw }": "An optional passport link can be omitted; the verified certificate remains available.",
-  "src/lib/team-reporting.ts|workspace_members|{ data: memberRows }": "Viewer-limited roster labels only; contribution totals come from separate checked reads.",
-  "src/lib/team-reporting.ts|users|{ data: userRows }": "Missing display names use the explicit unnamed label; no amounts or permissions derive from them.",
   "src/pages/certificate.tsx|public_passport_links|{ data: passportLink }": "An optional passport shortcut does not change the loaded certificate or grade.",
   "src/pages/embed-grade.tsx|submissions|{ data: subData }": "Owner-restricted descriptive metadata can be absent on a public embed; the public grade report is checked separately.",
   "src/pages/embed-grade.tsx|public_passport_links|{ data: passportLink }": "An optional passport shortcut does not change the verified embedded grade.",
@@ -42,7 +67,7 @@ describe("unchecked database reads", () => {
     `)).toEqual([]);
   });
 
-  it("allows only the eight reviewed optional reads; new sites and stale exceptions fail", () => {
+  it("allows only the six reviewed optional reads; new sites and stale exceptions fail", () => {
     const keys: string[] = [];
     for (const file of sourceFiles(["src"])) {
       if (!/\.tsx?$/.test(file) || /(?:^|[/\\])(?:test|__tests__)(?:[/\\]|$)|\.(?:test|spec)\./.test(file)) continue;
