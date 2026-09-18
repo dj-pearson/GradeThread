@@ -6,7 +6,7 @@ source_of_truth: vault
 code_refs:
   - scripts/prd-operator.mjs
   - src/test/prd-operator-queue.test.ts
-reviewed: 2026-08-15
+reviewed: 2026-09-18
 tags: [prd, backlog, operator, agent]
 summary: Work only a person can do is declared as an acceptance criterion starting OPERATOR:, and `npm run prd:operator` is the queue.
 ---
@@ -110,6 +110,48 @@ and its held-migration check already use, for the same reason.
 `OPERATOR:` criterion written from its own evidence, which moves it into the
 exact list and makes the detection unnecessary for that story. The undeclared
 section is a migration aid, not the destination.
+
+## A criterion the heuristics never read is invisible too
+
+2026-09-18. The caveat above says the count is a floor because a story can phrase
+its operator work in prose the patterns do not match. There is a second way to be
+invisible and it is worse, because no amount of phrase tuning reaches it: the
+reporter read **notes** for undeclared work and never read **criteria**.
+
+Seven open stories were absent from the queue entirely. Their remaining work is
+an ordinary criterion — "Measured at 8 weeks, 2026-11-15, in this story's notes:
+impressions, position and clicks" — which is neither an `OPERATOR:` criterion nor
+a sentence in a note. Five of the seven sit at priority 16 to 20, which is
+exactly where a reader looking for the next job lands, so they were picked up and
+re-read instead of skipped.
+
+`collect()` now also scans criteria, for one shape: a date paired with a
+measuring verb, where the date has **not yet arrived**. `followUpDate()` is
+deliberately narrow — a date recording when something happened ("applied
+2026-09-13 by the owner") is not a follow-up — and it reads a window on both
+sides of the date, because the first version only looked left and missed "On
+2026-10-17, 60 days after the pass, read Search Console", which is the one such
+criterion that *was* already declared.
+
+## Sitting 0: nothing to do yet
+
+These land in a sitting of their own, ahead of the other nine. Two reasons, and
+the second is the load-bearing one:
+
+- A sitting planned around an item nobody can finish is not a plan.
+- Classification is **first match wins**, so a date-gated item has to be caught
+  before any other pattern sees it. US-9017's criterion names prod credentials
+  and Search Console; left later in the order it lands in the command sitting,
+  where an operator would try to run it two months early.
+
+The kind carries a `test(text, today)` function rather than a `match` regex,
+because "in the future" is not something a regex can express. That is the only
+kind that does, and a case asserts every kind has exactly one mechanism.
+
+**A date that has ARRIVED falls through to the ordinary sittings.** Parking a
+follow-up whose date has passed would rebuild the original defect one layer up:
+finished-looking work sitting in a bucket labelled "nothing to do yet". Three
+cases pin the boundary at before, on, and after.
 
 ## The false positives that shipped first
 

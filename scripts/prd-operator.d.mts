@@ -40,7 +40,17 @@ export interface AuditCandidate {
   quote: string;
 }
 
-export function collect(stories: readonly OperatorStory[]): {
+/**
+ * The earliest date a story says a follow-up MEASUREMENT is due, or null.
+ * Only a date paired with a measuring verb counts; a date recording when
+ * something happened does not.
+ */
+export function followUpDate(text: string): string | null;
+
+/**
+ * `today` is injectable so a test can drive the date boundary. Defaults to now.
+ */
+export function collect(stories: readonly OperatorStory[], today?: string): {
   declared: DeclaredEntry[];
   undeclared: UndeclaredEntry[];
   openCount: number;
