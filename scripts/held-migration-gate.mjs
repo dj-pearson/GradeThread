@@ -110,6 +110,38 @@ function existsInRef(ref, path) {
   }
 }
 
+/** The branch's own tracking ref, or null when it has none (a fresh branch). */
+export function trackingUpstream(run = git) {
+  try {
+    return run(["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}"]) || null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The refs a held migration is checked against, in priority order.
+ *
+ * An explicit --upstream means the caller is asking one specific question, so it
+ * wins alone. Otherwise it is the branch's tracking ref AND origin/main: a
+ * feature branch can leak to its own remote without main ever seeing the file,
+ * and main can carry a leak this branch does not have.
+ */
+export function upstreamRefs(explicit, tracking) {
+  if (explicit) return [explicit];
+  return [...new Set([tracking, "origin/main"].filter(Boolean))];
+}
+
+/** True when the ref resolves locally. A fresh clone may not have origin/main. */
+function refExists(ref) {
+  try {
+    git(["rev-parse", "--verify", `${ref}^{commit}`]);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 function defaultReaddir(dir) {
   try {
     return readdirSync(dir);
@@ -151,7 +183,6 @@ export function heldMigrations(docText, readdir = defaultReaddir) {
 }
 
 function main() {
-  const upstream = arg("--upstream", "origin/main");
   const ciMode = process.argv.includes("--ci");
 
   let doc;
@@ -211,14 +242,31 @@ function main() {
     return 1;
   }
 
-  // Does the upstream ref exist locally? On a fresh clone or a new branch it
-  // may not, in which case there is nothing to compare against and blocking
-  // would be wrong.
-  try {
-    git(["rev-parse", "--verify", `${upstream}^{commit}`]);
-  } catch {
+  // WHICH REFS COUNT AS "UPSTREAM", and why this is a list (2026-09-18, US-3423).
+  //
+  // This resolved to origin/main and nothing else, so on a FEATURE branch it
+  // asked the wrong question. Measured here: 00793 and 00797 were already on
+  // origin/claude/wizardly-gauss-8osusm — the leak had happened — and the gate
+  // reported them under "this push would send a migration", with the remedy for
+  // a leak that was still preventable. The block was right; the sentence under
+  // it was false, and it was false in the one direction this file keeps warning
+  // about, the direction where an operator acts on the wrong message.
+  //
+  // It also blocked a push carrying NO migration at all, which is how a control
+  // earns a --no-verify habit. Three of this gate's six recorded bypasses were
+  // --no-verify.
+  //
+  // So: the branch's own tracking ref AND origin/main, both, deduped. Checking
+  // more refs can only move a file from `incoming` into `already` or add one
+  // that neither bucket held — it can never let a held migration through.
+  const refs = upstreamRefs(arg("--upstream", null), trackingUpstream()).filter(
+    refExists,
+  );
+
+  if (refs.length === 0) {
     console.log(
-      `[held-migration-gate] upstream ${upstream} not found locally — skipping.`,
+      `[held-migration-gate] no upstream ref found locally (tried ` +
+        `${upstreamRefs(arg("--upstream", null), trackingUpstream()).join(", ")}) — skipping.`,
     );
     return 0;
   }
@@ -235,15 +283,25 @@ function main() {
   // which is the worst possible split: locally green, red after pushing. A
   // pre-push hook that cannot stop the thing it is named for is a detector, not
   // a gate.
-  const already = runnable.filter((h) => existsInRef(upstream, h.file));
-  const incoming = runnable.filter(
-    (h) => !existsInRef(upstream, h.file) && existsSync(h.file),
-  );
+  //
+  // `onAnyRef` replaced `existsInRef(upstream, …)`. The incoming predicate is
+  // still "not upstream yet, but present here" — existsSync is deliberately
+  // kept rather than a diff range, because a range that fails to compute would
+  // answer "nothing incoming", and every failure of this control has been in
+  // the direction of saying yes.
+  // The ref each held file was found on, or null. Named per file rather than
+  // per heading: with two refs in play, "ALREADY ON origin/main" over a file
+  // that is only on the feature branch is the same false sentence this change
+  // exists to remove, one layer in.
+  const refOf = (h) => refs.find((ref) => existsInRef(ref, h.file)) ?? null;
+  const already = runnable.filter((h) => refOf(h) !== null);
+  const incoming = runnable.filter((h) => refOf(h) === null && existsSync(h.file));
   const leaked = [...already, ...incoming];
 
   if (leaked.length === 0) {
     console.log(
-      `[held-migration-gate] ${runnable.length} HELD migration(s), none on ${upstream} — OK.`,
+      `[held-migration-gate] ${runnable.length} HELD migration(s), none on ` +
+        `${refs.join(" or ")} — OK.`,
     );
     return 0;
   }
@@ -277,20 +335,26 @@ function main() {
   console.error("");
   console.error("[held-migration-gate] BLOCKED — two different problems:");
   console.error("");
-  console.error(`  ALREADY ON ${upstream} — the rule was broken earlier:`);
-  for (const h of already) console.error(`  • ${h.file}`);
+  console.error("  ALREADY ON ORIGIN — the rule was broken earlier:");
+  for (const h of already) console.error(`  • ${h.file}  (on ${refOf(h)})`);
   console.error("");
   console.error("  Either the SQL was applied to prod and PENDING_MIGRATIONS.md was");
   console.error("  never updated (flip the heading to '## ✅ APPLIED:' and date it),");
   console.error("  or code shipped ahead of the schema and the migration needs");
   console.error("  applying now. Do not bypass this to make it quiet.");
   console.error("");
-  console.error("  IN THIS PUSH — still preventable:");
-  for (const h of incoming) console.error(`  • ${h.file}`);
-  console.error("");
-  console.error("  Apply the SQL to prod first, then flip its heading to");
-  console.error("  '## ✅ APPLIED:' and date it.");
-  console.error("");
+  // Only when there IS one. An empty list under this heading followed by its
+  // remedy is the 2026-08-15 defect wearing different clothes: a true heading
+  // over nothing, and an instruction addressed to a situation that is not
+  // happening. Printed here on 2026-09-18 with `incoming` empty.
+  if (incoming.length > 0) {
+    console.error("  IN THIS PUSH — still preventable:");
+    for (const h of incoming) console.error(`  • ${h.file}`);
+    console.error("");
+    console.error("  Apply the SQL to prod first, then flip its heading to");
+    console.error("  '## ✅ APPLIED:' and date it.");
+    console.error("");
+  }
   return 1;
 }
 

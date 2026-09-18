@@ -7,7 +7,7 @@
 import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { heldMigrations } from "./held-migration-gate.mjs";
+import { heldMigrations, upstreamRefs } from "./held-migration-gate.mjs";
 
 describe("US-2346: which headings count as HELD", () => {
   it("reads the real file's shape, emoji and all", () => {
@@ -191,7 +191,18 @@ describe("US-2346: the hook blocks an INCOMING held migration", () => {
     // The incoming case is "not upstream yet, but present here", and both halves
     // matter: without the first it would fire on every already-known leak twice,
     // without the second it fires on nothing.
-    expect(src).toMatch(/!existsInRef\(upstream, h\.file\)[\s\S]{0,80}existsSync\(h\.file\)/);
+    //
+    // The first half used to be spelled `!existsInRef(upstream, h.file)` against
+    // one ref. It is now `refOf(h) === null` across every candidate ref, for the
+    // reason in upstreamRefs below. The PROPERTY is unchanged and is what this
+    // pins: incoming means not-upstream AND present here.
+    expect(src).toMatch(/refOf\(h\) === null[\s\S]{0,80}existsSync\(h\.file\)/);
+    expect(
+      src,
+      "existsSync is the incoming test on purpose — a diff range that fails to " +
+        "compute answers 'nothing incoming', and every failure of this control " +
+        "has been in the direction of saying yes",
+    ).toContain("existsSync(h.file)");
   });
 
   it("tells the two cases apart in its output", () => {
@@ -284,5 +295,93 @@ describe("US-2777: a heading with no filename still arms the gate", () => {
       expect(h.file, `PENDING_MIGRATIONS.md marks ${h.version} HELD with no file on disk`)
         .not.toBeNull();
     }
+  });
+});
+
+// ── The SEVENTH way round this gate, and the first that blocked too much ─────
+//
+// 2026-09-18. Every previous entry in this file is a bypass: the gate said OK
+// when it should have said no. This one is the other direction, and it is not a
+// lesser problem, because three of the six bypasses were `--no-verify` and a
+// gate that blocks pushes carrying no migration is how that habit is taught.
+//
+// `arg("--upstream", "origin/main")` was the whole resolution, so on a feature
+// branch the gate compared against a ref the branch does not push to. Measured:
+// 00793 and 00797 were already on origin/claude/wizardly-gauss-8osusm, and the
+// gate printed them under "this push would send a migration that
+// PENDING_MIGRATIONS.md still marks HELD" — the heading for a leak that has not
+// happened yet, above two files that leaked days ago, with the remedy for the
+// wrong one of the two situations.
+//
+// Same class as the 2026-08-15 defect four blocks up: a true-sounding heading
+// over the wrong list.
+
+describe("US-3423: the gate asks about the ref this branch actually pushes to", () => {
+  it("checks the tracking ref AND origin/main, not one of them", () => {
+    expect(upstreamRefs(null, "origin/feature")).toEqual([
+      "origin/feature",
+      "origin/main",
+    ]);
+  });
+
+  it("does not list origin/main twice when that IS the tracking ref", () => {
+    expect(upstreamRefs(null, "origin/main")).toEqual(["origin/main"]);
+  });
+
+  it("falls back to origin/main on a branch with no upstream yet", () => {
+    // A brand-new branch has no @{upstream}. Dropping to nothing would make the
+    // gate skip, which is the saying-yes direction.
+    expect(upstreamRefs(null, null)).toEqual(["origin/main"]);
+  });
+
+  it("an explicit --upstream wins alone, because the caller asked one question", () => {
+    expect(upstreamRefs("origin/release", "origin/feature")).toEqual([
+      "origin/release",
+    ]);
+  });
+
+  it("checking more refs can only ever move a file INTO the blocked set", () => {
+    // The safety argument in one case. `already` is "on any ref" and `incoming`
+    // is "on no ref but present here", so widening the ref list moves files
+    // between the two buckets and adds to their union. It cannot subtract.
+    const src = readFileSync(
+      resolve(process.cwd(), "scripts/held-migration-gate.mjs"),
+      "utf8",
+    );
+    expect(src).toContain("const refOf = (h) => refs.find((ref) => existsInRef(ref, h.file))");
+    expect(src).toContain("const already = runnable.filter((h) => refOf(h) !== null)");
+  });
+
+  it("names the ref each leaked file was found on, not one heading for both", () => {
+    // With two refs in play a single "ALREADY ON origin/main" heading is false
+    // for any file that is only on the feature branch — the same wrong-list
+    // failure this file already records once.
+    const src = readFileSync(
+      resolve(process.cwd(), "scripts/held-migration-gate.mjs"),
+      "utf8",
+    );
+    expect(src).toMatch(/\$\{h\.file\}\s*\(on \$\{refOf\(h\)\}\)/);
+  });
+
+  it("prints no empty IN THIS PUSH section", () => {
+    // What it did on the run that found this: the heading, then nothing, then
+    // "Apply the SQL to prod first" for a push that carried no SQL.
+    const src = readFileSync(
+      resolve(process.cwd(), "scripts/held-migration-gate.mjs"),
+      "utf8",
+    );
+    const both = src.slice(src.indexOf("BOTH kinds are present"));
+    expect(both).toMatch(/if \(incoming\.length > 0\) \{[\s\S]{0,400}IN THIS PUSH/);
+  });
+
+  it("still exits 1 on this repo right now, which is the point", () => {
+    // 00793 and 00797 are held and on origin. The rework changed the SENTENCE,
+    // never the verdict. A version of this that made the gate quiet would have
+    // been a bypass with extra steps.
+    const held = heldMigrations(
+      readFileSync(resolve(process.cwd(), "PENDING_MIGRATIONS.md"), "utf8"),
+    );
+    expect(held.map((h) => h.version)).toContain("00793");
+    expect(held.map((h) => h.version)).toContain("00797");
   });
 });
