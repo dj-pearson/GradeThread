@@ -216,6 +216,70 @@ coverage stays where it is: 84 of 228 sales linked, September 0 of 12. The first
 run will do the backfill; it reads a 90-day window and fills only rows whose
 reference is null.
 
+## ⏳ HELD 2026-09-18: 00797 - the seeded cogs_labor row says Labour (US-3256)
+
+**⚠ THE HELD-MIGRATION GATE BLOCKS THIS PUSH AND WAS OVERRIDDEN ON PURPOSE.**
+`node scripts/held-migration-gate.mjs` exits 1 in BOTH modes on this entry,
+which is the gate doing its job. It was overridden for one reason and it is
+recorded here rather than only in a chat message, because six earlier bypasses
+of this control were each discovered later from the file: the container this was
+written in is ephemeral, so not pushing means the work is lost rather than held.
+The rule the gate protects is intact - **origin/main does not have this file**,
+and nothing deploys from a feature branch. The moment this branch merges, that
+stops being true.
+
+**⚠ THIS BRANCH CANNOT BE MERGED UNTIL YOU APPLY THIS FILE.** The migration is
+on `claude/wizardly-gauss-8osusm`, which also carries US-3408, US-3420 and
+US-3413's closure. That is the owner's call, made 2026-09-18 when the
+alternative (a separate held branch) was offered. It means three finished
+stories are waiting on one UPDATE, so this is the cheapest pending entry in the
+file to clear.
+
+**Why it exists at all.** The `held-v3/us-3256-00797` branch the table below
+names **does not exist on origin** - no `held-*` branch does, across all 212
+remote heads. Every held branch in this document lives on one machine. This
+file is rebuilt from the recorded design rather than merged from that branch.
+
+**What it does.** One row. Upserts `ledger_accounts` where `code = 'cogs_labor'`
+so `name` reads `Labor that went into the goods` instead of `Labour ...`.
+Schedule C Part III line 37 is titled "Cost of labor", so the US spelling is the
+form the row is naming.
+
+**Risk: very low.** One system row, no schema change, no new object. Keyed on
+`ledger_accounts_system_code_idx`, the partial unique index over `(code) WHERE
+user_id IS NULL`, so a seller's own sub-account sharing the code is untouched.
+Re-running writes the value the row already holds.
+
+**It is an upsert and not the one-line UPDATE the story's AC names, on purpose.**
+`src/lib/chart-of-accounts.test.ts` reads the seeded chart by parsing the seed
+blocks out of the migrations, later files winning. A bare UPDATE is invisible to
+that parse, so it would have corrected production and left the guard red
+forever.
+
+**EXPECTED_SCHEMA_VERSION is NOT bumped, and must not be.** 00797 fills a gap
+under the watermark; the highest file is still 00804 and the constant stays
+there. Only the manifest changes (+1 line).
+
+**Apply order.** Anywhere. It depends on 00684 only, which prod has had since
+long before the current watermark. It is independent of the other five held
+numbers and does not need to wait for them.
+
+**After applying:** `NOTIFY pgrst, 'reload schema';` is not strictly needed - no
+column or function changed - but send it anyway if you are already in there.
+Then read the row back, because this guard has never checked production:
+
+```sql
+select code, name from public.ledger_accounts
+ where code = 'cogs_labor' and user_id is null;
+-- expect: cogs_labor | Labor that went into the goods
+```
+
+**What is NOT verified, said plainly.** The guard compares the TypeScript chart
+to the migration FILES and has never read prod. The readback above is the only
+thing that answers whether prod's row actually moved. This was written in a
+container with no Docker and no prod reach, so the SQL was parsed with
+libpg_query (Postgres's own grammar) and never executed against any database.
+
 ## WHAT IS STILL WAITING FOR YOU, 2026-09-11
 
 Six migrations are finished and parked on branches. Merge them in this order.
@@ -226,7 +290,7 @@ Each branch is one merge and carries its own SQL, manifest and version bump.
 | 1 | `held-v2/us-3387-00793` | 00793 | retire 23 size charts a rename orphaned |
 | 2 | `held-v2/us-3397-00794` | 00794 | stop anon enumerating the storage buckets |
 | 3 | `held-v2/us-3398-00795` | 00795 | the deletion log stops claiming a purge it never checked |
-| 4 | `held-v3/us-3256-00797` | 00797 | the seeded cogs_labor row says Labour, the chart says Labor |
+| 4 | ~~`held-v3/us-3256-00797`~~ **rebuilt 2026-09-18 onto `claude/wizardly-gauss-8osusm`, see the entry above** | 00797 | the seeded cogs_labor row says Labour, the chart says Labor |
 | 5 | `held-v2/us-3410-00798` | 00798 | COMMENTs recording five objects prod has and no migration builds |
 | 6 | `held-v2/us-3312-00799` | 00799 | two brand_knowledge notes that are false in prod |
 

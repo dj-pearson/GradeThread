@@ -112,12 +112,6 @@ export const KNOWN_GAPS = new Map([
       + "never checked). That branch deletes this entry when it lands.",
   ],
   [
-    "00797",
-    "held on held-v3/us-3256-00797 (the seeded cogs_labor row says Labour). "
-      + "Rebuilt onto main at 00800 on 2026-09-13; the v2 branch is superseded. "
-      + "That branch deletes this entry when it lands.",
-  ],
-  [
     "00798",
     "held on held-v2/us-3410-00798 (COMMENTs recording five withdrawn objects). "
       + "That branch deletes this entry when it lands.",
