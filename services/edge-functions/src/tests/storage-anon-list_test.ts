@@ -50,12 +50,41 @@ import { assert, assertEquals } from "@std/assert";
 const REPO_ROOT = new URL("../../../../", import.meta.url);
 const MIGRATIONS_DIR = new URL("supabase/migrations/", REPO_ROOT);
 
-// Everything BELOW this number predates the rule; 00794 is the fix that brings
-// all ten of them to `TO authenticated`, and it is itself in scope. The
-// historical files are left alone on purpose: flagging them would produce a
-// permanently red guard, which is the failure mode this repo keeps hitting.
-// Do NOT raise this number to silence a failure.
-const RATCHET_FROM = "00794";
+// ⚠ THIS RATCHET POLICED NOTHING FOR ITS ENTIRE LIFE, AND IT REPORTED GREEN.
+//
+// It was `RATCHET_FROM = "00794"`, on the reasoning that 00794 brings all ten
+// historical policies to `TO authenticated` and is itself in scope. 00794 was
+// never written: it is parked on `held-v2/us-3397-00794`, which is on none of
+// origin's 212 heads, and the migrations directory jumps 00793 -> 00796.
+// Measured 2026-09-18: the highest-numbered migration touching storage.objects
+// is 00463, so `prefix >= "00794"` selected ZERO policies out of 22. Two cases
+// passed, one of them vacuously, and `deno test` printed ok.
+//
+// That is the exact failure this file's own header warns about one paragraph up
+// ("a permanently red guard, which is the failure mode this repo keeps
+// hitting") -- and the opposite error, a permanently GREEN one, is worse,
+// because a red guard gets looked at.
+//
+// SO THE BASELINE IS NAMED, NOT NUMBERED. Every policy that exists today and
+// breaks the rule is listed below with its file. Anything not on the list is in
+// scope immediately, which is what a ratchet is for, and the list can only
+// shrink: an entry that stops matching also fails, so fixing one forces its
+// removal. No migration number gates it, so a held branch that never lands
+// cannot disarm it again.
+//
+// AND THE RULE ITSELF WAS THE WRONG RULE. It asked whether a `TO` clause is
+// PRESENT. A new bucket arriving with `TO authenticated USING (bucket_id =
+// 'x')` -- precisely the shape US-3403 objects to, where any signed-up stranger
+// can still enumerate the bucket -- satisfied that and always would have. The
+// rule now asks whether the policy is unconditional on bucket_id alone,
+// whatever role it names.
+const KNOWN_UNSCOPED_SELECT: Record<string, string> = {
+  "item-photos public read": "00017_item_photos_storage.sql",
+  "content-images public read": "00041_content_module.sql",
+  "avatars public read": "00127_avatars_bucket.sql",
+  "cert-assets public read": "00380_cert_assets_bucket.sql",
+  "content-videos public read": "00463_social_video.sql",
+};
 
 const PUBLIC_BUCKETS = [
   "item-photos",
@@ -67,7 +96,18 @@ const PUBLIC_BUCKETS = [
 
 // ── half 1: the ratchet (always runs) ───────────────────────────────────────
 
-type PolicyStatement = { file: string; name: string; hasToClause: boolean };
+type PolicyStatement = {
+  file: string;
+  name: string;
+  hasToClause: boolean;
+  isSelect: boolean;
+  /**
+   * True when the USING clause tests nothing but bucket_id. That is the shape
+   * that makes a bucket enumerable by whichever role the policy names, so it is
+   * the property worth failing on rather than the presence of a TO clause.
+   */
+  bucketIdOnly: boolean;
+};
 
 /** Every `create policy ... on storage.objects` statement in the tree. */
 async function collectStoragePolicies(): Promise<PolicyStatement[]> {
@@ -82,12 +122,27 @@ async function collectStoragePolicies(): Promise<PolicyStatement[]> {
       const body = m[0];
       if (!/on\s+storage\.objects/i.test(body)) continue;
       const name = m[2] ?? m[3] ?? m[1] ?? "";
+      const afterOn = body.replace(/on\s+storage\.objects/i, "");
+      // The USING expression, up to WITH CHECK or the statement's end.
+      const using = /\busing\s*\(([\s\S]*?)\)\s*(?:with\s+check|;\s*$)/i.exec(
+        `${body}`,
+      )?.[1] ?? /\busing\s*\(([\s\S]*)\)\s*;/i.exec(body)?.[1] ?? "";
       out.push({
         file: entry.name,
         name,
         // `TO <role>` sits between the ON clause and FOR/USING/WITH CHECK.
         hasToClause: /\bto\s+(authenticated|anon|service_role|public|[a-z_]+)\b/i
-          .test(body.replace(/on\s+storage\.objects/i, "")),
+          .test(afterOn),
+        // A policy with no FOR is FOR ALL, which includes SELECT.
+        isSelect: !/\bfor\s+(insert|update|delete)\b/i.test(afterOn),
+        // Strip the bucket_id test and see whether ANY other condition remains.
+        // `auth.uid()`, `storage.foldername(...)`, `is_admin()` all leave one.
+        bucketIdOnly:
+          using.trim().length > 0 &&
+          using
+            .replace(/bucket_id\s*=\s*'[^']*'/gi, "")
+            .replace(/[\s()]|\band\b|\btrue\b/gi, "")
+            .length === 0,
       });
     }
   }
@@ -108,18 +163,65 @@ Deno.test("storage.objects policies: the scan finds the real corpus", async () =
   );
 });
 
-Deno.test("no NEW storage.objects policy may omit its TO clause", async () => {
+Deno.test("no NEW storage.objects SELECT policy may be unconditional on bucket_id", async () => {
   const policies = await collectStoragePolicies();
-  const offenders = policies.filter((p) => {
-    const prefix = p.file.slice(0, 5);
-    return prefix >= RATCHET_FROM && !p.hasToClause;
-  });
+  const offenders = policies.filter(
+    (p) => p.isSelect && p.bucketIdOnly && !(p.name in KNOWN_UNSCOPED_SELECT),
+  );
   assertEquals(
     offenders.map((p) => `${p.file}: "${p.name}"`),
     [],
-    "A storage.objects policy with no TO clause applies to EVERY role, anon " +
-      "included, and lets anyone with the bundled anon key enumerate the " +
-      "bucket. Add `TO authenticated` (or the role you actually mean).",
+    "A storage.objects SELECT policy whose USING clause tests nothing but " +
+      "bucket_id lets every role it names enumerate the whole bucket. With no " +
+      "TO clause that is anon, so the bundled key is enough; with " +
+      "`TO authenticated` it is any stranger who signed up, which is US-3403. " +
+      "Scope it: an owner-folder test ((storage.foldername(name))[1] = " +
+      "(select auth.uid())::text) or public.is_admin(). If it is genuinely " +
+      "meant to be world-readable, that read goes through " +
+      "/object/public/<bucket>, which consults no policy at all.",
+  );
+});
+
+Deno.test("the unscoped-SELECT baseline shrinks and never grows", async () => {
+  // A baseline that can stay stale is a baseline nobody clears. Each entry has
+  // to keep matching a real policy in the file it names, so fixing one forces
+  // its removal here, and a rename cannot leave a dead entry behind that
+  // silently exempts a new policy of the same name.
+  const policies = await collectStoragePolicies();
+  const stale: string[] = [];
+  for (const [name, file] of Object.entries(KNOWN_UNSCOPED_SELECT)) {
+    const hit = policies.find((p) => p.name === name && p.file === file);
+    if (!hit) stale.push(`${name} (expected in ${file}) no longer exists`);
+    else if (!hit.bucketIdOnly) stale.push(`${name} in ${file} is now scoped`);
+  }
+  assertEquals(
+    stale,
+    [],
+    "Remove the fixed entries from KNOWN_UNSCOPED_SELECT. This list is the " +
+      "record of what is still exposed, so a stale entry overstates the " +
+      "problem and, worse, exempts any future policy reusing that name.",
+  );
+});
+
+Deno.test("the baseline is exactly the five public buckets, and every one is anon-readable", async () => {
+  // Not a restatement of the list. It asserts WHY each entry is there: all five
+  // carry no TO clause at all, so today the exposure is to anon rather than to
+  // authenticated. US-3403 is written as though 00794 had already narrowed
+  // these to `TO authenticated`; it was never written, and the directory jumps
+  // 00793 -> 00796. Whoever closes this should know the starting point is worse
+  // than the story says.
+  const policies = await collectStoragePolicies();
+  const unscoped = policies.filter((p) => p.isSelect && p.bucketIdOnly);
+  assertEquals(
+    unscoped.map((p) => p.name).sort(),
+    Object.keys(KNOWN_UNSCOPED_SELECT).sort(),
+  );
+  const anonReadable = unscoped.filter((p) => !p.hasToClause).map((p) => p.name);
+  assertEquals(
+    anonReadable.sort(),
+    Object.keys(KNOWN_UNSCOPED_SELECT).sort(),
+    "One of these gained a TO clause. Good, but update this case and the " +
+      "comment above it, because the exposure it describes has changed.",
   );
 });
 

@@ -125,10 +125,39 @@ function buildMap() {
   return { path, unresolved };
 }
 
+/**
+ * Split a run's `error:` lines into attributed and unattributed.
+ *
+ * Exported so the split is testable without a three-minute suite run, and
+ * because the two things it gets right are both easy to regress: dropping
+ * deno's own exit banner, and refusing to attribute anything that is not a
+ * module-load error naming a degraded dependency.
+ */
+export function classifyErrors(output) {
+  const lines = output
+    .replace(/\u001b\[[0-9;]*m/g, "")
+    .split("\n")
+    .map((l) => l.trim())
+    .filter((l) => /^error:/.test(l))
+    // deno prints this as its own exit banner after the summary. It is not a
+    // failure; counting it made the first run report 110 errors for 109 tests.
+    .filter((l) => l !== "error: Test failed");
+  return {
+    attributed: lines.filter((l) => ARTIFACT_SIGNATURES.some((re) => re.test(l))),
+    rest: lines.filter((l) => !ARTIFACT_SIGNATURES.some((re) => re.test(l))),
+  };
+}
+
 function main() {
   const args = process.argv.slice(2);
   const mapOnly = args.includes("--map-only");
-  const files = args.filter((a) => !a.startsWith("--"));
+  // deno runs with cwd = services/edge-functions, so a path has to be relative
+  // to THAT. Repo-relative is what a caller naturally types (and what every
+  // other script here takes), so strip the prefix rather than reporting
+  // "not found" for a file that is plainly present.
+  const files = args
+    .filter((a) => !a.startsWith("--"))
+    .map((a) => a.replace(/^(\.\/)?services\/edge-functions\//, ""));
 
   // `!spawnSync(...).status === 0` was the first spelling and it is always
   // false: `!0 === 0` is `true === 0`. The guard existed and never fired, which
@@ -183,26 +212,66 @@ function main() {
   const summary = /\n(ok|FAILED)\s*\|\s*(\d+) passed[^\n]*/.exec(output);
   if (summary) console.log(`[edge-test] ${summary[0].trim()}`);
 
-  // Classify every `error:` line. Anything not matching a known signature is
-  // reported as UNEXPLAINED, which is the only kind worth a human's time.
-  const errorLines = output
-    .split("\n")
-    .filter((l) => /^error:/.test(l.trim()))
-    .map((l) => l.trim());
-  const unexplained = errorLines.filter(
-    (l) => !ARTIFACT_SIGNATURES.some((re) => re.test(l)),
-  );
-  const artifacts = errorLines.length - unexplained.length;
+  // THREE CATEGORIES, AND THE THIRD ONE IS THE POINT.
+  //
+  // The first version had two: a signature match was "explained", everything
+  // else was "unexplained". On the first full run that called 109 of 110
+  // failures explained and flagged one -- `turn 1: mark vanished` in
+  // measure-auto-upright_test.ts. That file imports imagescript, so the failure
+  // IS caused by the substitution. But it is an ASSERTION failure, not a module
+  // load error: the npm build rotated the pixels differently rather than
+  // refusing to load. Widening the signature list until it matched would have
+  // been the wrong lesson, because the next such failure is indistinguishable
+  // from a real defect and there is no way to tell from here.
+  //
+  // So a failure is only ATTRIBUTED to a degraded dependency when it is a module
+  // load error naming that dependency. An assertion failure in a file that uses
+  // one is UNKNOWN: not a pass, not a defect, and never counted as either.
+  // Anything else is UNEXPLAINED and exits 1.
+  const { attributed, rest } = classifyErrors(output);
 
-  if (artifacts > 0) {
+  // Which failing files touch a degraded dependency at all. Read off the run's
+  // own FAILURES block, so it needs no module graph and claims nothing about
+  // files deno did not name.
+  const failingFiles = [
+    ...new Set(
+      [...output.matchAll(/\.\/(src\/tests\/[A-Za-z0-9_-]+_test\.ts)/g)].map((m) => m[1]),
+    ),
+  ];
+  const degradedUsers = new Set();
+  for (const f of failingFiles) {
+    let text = "";
+    try {
+      text = readFileSync(join(EDGE, f), "utf8");
+    } catch {
+      continue;
+    }
+    for (const key of Object.keys(DEGRADED)) {
+      if (text.includes(key)) degradedUsers.add(f);
+    }
+  }
+
+  if (attributed.length > 0) {
     console.log(
-      `[edge-test] ${artifacts} failure(s) explained by an unsubstitutable ` +
-        `dependency. Not defects; not evidence of health either.`,
+      `[edge-test] ${attributed.length} module-load failure(s) attributed to a ` +
+        `degraded dependency by name. Not defects; not evidence of health either.`,
     );
   }
-  if (unexplained.length > 0) {
-    console.error(`[edge-test] ${unexplained.length} UNEXPLAINED failure(s):`);
-    for (const line of [...new Set(unexplained)].slice(0, 20)) {
+  if (degradedUsers.size > 0) {
+    console.log(
+      `[edge-test] ${degradedUsers.size} failing file(s) import a degraded ` +
+        `dependency directly, so any assertion failure in them is UNKNOWN ` +
+        `rather than passing or failing:`,
+    );
+    for (const f of [...degradedUsers].sort()) console.log(`  ${f}`);
+  }
+  if (rest.length > 0) {
+    console.error(
+      `[edge-test] ${rest.length} failure(s) this script cannot attribute. ` +
+        `Read them; a substitution CAN cause an assertion failure, and so can ` +
+        `a real defect, and they look the same from here:`,
+    );
+    for (const line of [...new Set(rest)].slice(0, 20)) {
       console.error(`  ${line}`);
     }
     return 1;

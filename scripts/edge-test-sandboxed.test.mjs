@@ -8,7 +8,7 @@
 import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { rewriteImports, DEGRADED } from "./edge-test-sandboxed.mjs";
+import { classifyErrors, rewriteImports, DEGRADED } from "./edge-test-sandboxed.mjs";
 
 const denoJson = JSON.parse(
   readFileSync(resolve(process.cwd(), "services/edge-functions/deno.json"), "utf8"),
@@ -111,5 +111,84 @@ describe("the sandboxed edge-test import map", () => {
       /deno\.land|esm\.sh/.test(v),
     );
     expect(stillBlocked).toEqual([]);
+  });
+});
+
+// ── Classifying failures, which is where this script earns its keep ──────────
+//
+// The first version had two buckets: signature match = "explained", everything
+// else = "unexplained". On the first full run that reported 109 of 110 failures
+// as explained. One was not: `turn 1: mark vanished` in
+// measure-auto-upright_test.ts, an ASSERTION failure in a file that imports
+// imagescript. The substitution caused it, and widening the signature list
+// until it matched would have been the wrong fix -- the next such failure is
+// indistinguishable from a real defect and nothing here can tell them apart.
+
+describe("classifyErrors", () => {
+  it("drops deno's exit banner, which is not a failure", () => {
+    // Counting it is why the first run reported 110 errors for 109 failing
+    // tests. An off-by-one in the direction of inventing a failure is mild; the
+    // same bug in the other direction would have hidden one.
+    const { attributed, rest } = classifyErrors(
+      "ok | 10 passed | 0 failed\nerror: Test failed\n",
+    );
+    expect(attributed).toEqual([]);
+    expect(rest).toEqual([]);
+  });
+
+  it("attributes a module-load error that names a degraded dependency", () => {
+    const { attributed, rest } = classifyErrors(
+      "error: SyntaxError: The requested module 'denomailer' does not provide " +
+        "an export named 'SMTPClient'\n",
+    );
+    expect(attributed).toHaveLength(1);
+    expect(rest).toEqual([]);
+  });
+
+  it("does NOT attribute an assertion failure, even in a degraded file", () => {
+    // The measured case. This is the whole reason the third category exists.
+    const { attributed, rest } = classifyErrors(
+      "error: AssertionError: Values are not equal: turn 1: mark vanished\n",
+    );
+    expect(attributed).toEqual([]);
+    expect(rest).toEqual([
+      "error: AssertionError: Values are not equal: turn 1: mark vanished",
+    ]);
+  });
+
+  it("leaves a real defect unattributed", () => {
+    const { rest } = classifyErrors(
+      "error: TypeError: cannot read properties of null (reading 'userId')\n",
+    );
+    expect(rest).toHaveLength(1);
+  });
+
+  it("reads through ANSI colour, which deno emits by default", () => {
+    // Classifying the coloured text would match nothing and report every
+    // failure as unattributable -- noisy, but in the safe direction. Still
+    // worth pinning, because the safe direction is where it gets ignored.
+    const { attributed } = classifyErrors(
+      "\u001b[31merror\u001b[0m: SyntaxError: The requested module " +
+        "'denomailer' does not provide an export named 'SMTPClient'\n",
+    );
+    expect(attributed).toHaveLength(1);
+  });
+
+  it("every degraded signature matches the text its dependency really emits", () => {
+    // A signature nobody has seen fire is a signature that may not fire.
+    // Measured 2026-09-18: these are the two strings the run actually printed.
+    const real = {
+      denomailer:
+        "error: SyntaxError: The requested module 'denomailer' does not " +
+        "provide an export named 'SMTPClient'",
+      imagescript:
+        "error: TypeError: Cannot read properties of undefined (reading 'encode')",
+    };
+    for (const [key, line] of Object.entries(real)) {
+      expect(
+        DEGRADED[key].signature.test(line),
+        `${key}'s signature does not match the error it produces`,
+      ).toBe(true);
+    }
   });
 });
