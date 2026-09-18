@@ -287,9 +287,29 @@ The rule the gate protects is intact - **origin/main does not have this file**,
 and nothing deploys from a feature branch. The moment this branch merges, that
 stops being true.
 
+**EVERY OVERRIDE SINCE, listed rather than merged into the paragraph above, so
+the count is readable.** Each push below ran the rest of `.githooks/pre-push` by
+hand first - the merge-resolution check, `npm run verify`, and the Android lane
+where it applied - and skipped only this gate.
+
+| Date | Commits pushed | Carried a migration? |
+|---|---|---|
+| 2026-09-18 | the 00793 and 00797 rebuilds themselves | yes, these two |
+| 2026-09-18 | US-2855 AC2, US-3422, US-3423, US-3210 AC4 | no |
+
+**AND THE GATE'S MESSAGE FOR THIS ENTRY WAS WRONG UNTIL US-3423.** It resolved
+its upstream as `origin/main` and nothing else, so on this branch it reported
+00793 and 00797 under "this push would send a migration that
+PENDING_MIGRATIONS.md still marks HELD" - the heading for a leak that has not
+happened - when both had been on `origin/claude/wizardly-gauss-8osusm` for
+hours. It now checks the branch's tracking ref as well and says ALREADY ON
+ORIGIN, naming the ref per file. The verdict never changed; only the sentence
+did. Read the 2026-09-18 rows above as the honest record of what this entry has
+cost, not the gate's older wording.
+
 **⚠ THIS BRANCH CANNOT BE MERGED UNTIL YOU APPLY THIS FILE.** The migration is
-on `claude/wizardly-gauss-8osusm`, which also carries US-3408, US-3420 and
-US-3413's closure. That is the owner's call, made 2026-09-18 when the
+on `claude/wizardly-gauss-8osusm`, which also carries US-3408, US-3420,
+US-3413's closure, US-2855 AC2, US-3422, US-3423 and US-3210 AC4. That is the owner's call, made 2026-09-18 when the
 alternative (a separate held branch) was offered. It means three finished
 stories are waiting on one UPDATE, so this is the cheapest pending entry in the
 file to clear.
