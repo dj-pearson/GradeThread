@@ -42,7 +42,16 @@ const CEILINGS: Record<string, number> = {
   // where the refusal each one ignored could be read and reported once
   // instead of four times. That also took the last supabase call out of
   // this file, so the client import went with it.
-  "src/pages/flipdesk/autolister.tsx": 3309,
+  // Lowered a ninth time from 3309 by US-3420. The two amber AI chip blocks --
+  // the US-1904 proposed-item row and the US-1544 grouping suggestions, 76
+  // lines of near-identical markup -- moved into autolister/suggestion-chips.tsx.
+  // What forced it is worth keeping: repeated-labels.test.ts recorded the
+  // accessible names for Create and Apply as WRITTEN AND REVERTED, because two
+  // aria-label attributes put this file two lines over the ceiling. So the
+  // ceiling was the reason a screen-reader defect stayed open, which is the
+  // ceiling working -- the message says extract rather than raise, and that is
+  // what closed both.
+  "src/pages/flipdesk/autolister.tsx": 3264,
   "src/pages/flipdesk/autolister-bulk-edit.tsx": 2010,
   // Lowered from 1120 when the rows gained the generated title and a cover
   // thumbnail, and the listing review query, the cover query, the title rule
