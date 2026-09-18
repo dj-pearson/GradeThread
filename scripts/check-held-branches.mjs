@@ -71,9 +71,15 @@ export const REGISTRIES = [
  *
  * Measured 2026-09-18 (US-3421): `git ls-remote --heads origin` returned 212
  * heads and none matched `held-*`.
+ *
+ * Down one the same day: 00793's entry came out when US-3387 REBUILT that
+ * migration into the tree from the list its own guard already carried, so no
+ * registry names that branch any more. This case fired on its first real use
+ * and named the entry to delete, which is the shrink-only half working rather
+ * than a nuisance. Rebuilding is not the same as pushing the branch: four are
+ * still reachable from one machine only.
  */
 export const KNOWN_ABSENT = new Map([
-  ["held-v2/us-3387-00793", "00793, retire 23 size charts a rename orphaned"],
   ["held-v2/us-3397-00794", "00794, stop anon enumerating the storage buckets"],
   ["held-v2/us-3398-00795", "00795, the deletion log stops claiming a purge it never checked"],
   ["held-v2/us-3410-00798", "00798, COMMENTs recording five objects prod has and no migration builds"],

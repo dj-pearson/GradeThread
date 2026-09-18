@@ -216,6 +216,65 @@ coverage stays where it is: 84 of 228 sales linked, September 0 of 12. The first
 run will do the backfill; it reads a 90-day window and fills only rows whose
 reference is null.
 
+## HELD 2026-09-18: 00793 - retire the 23 size-chart rows a rename orphaned (US-3387)
+
+**Same branch and the same warning as 00797 below it.** The held-migration gate
+exits 1 on this entry, which is the gate working; it is overridden for the one
+reason recorded there, that the container this was written in is ephemeral so
+not pushing loses the work rather than holding it. origin/main does not carry
+this file and nothing deploys from a feature branch.
+
+**REBUILT, NOT MERGED.** `held-v2/us-3387-00793` is not on origin and neither is
+any other held branch (US-3421, and `node scripts/check-held-branches.mjs` is
+the guard). Everything needed to rebuild it was already in the repo:
+`HELD_BY_00793` in `services/edge-functions/src/tests/sizing-chart-orphans_test.ts`
+names all 23 rows, and the exact-case values were reconstructed by replaying
+every insert and delete in `supabase/migrations/` the way that guard does.
+
+**What it does.** Deletes 23 rows from `public.brand_size_charts`. No schema
+change, no new object.
+
+**Why they are there.** The conflict key on every chart migration is
+`(brand_key, department, garment)`, so RENAMING a garment scope inserts a second
+row instead of updating the first, and both survive. The resolver reads every
+row for a brand, narrows by category only, and keeps the first three -- so the
+stale row and its replacement land in the same prompt, and on a brand with
+several charts the stale one pushes a sourced chart out entirely. Measured:
+in 58 brand/category probes an orphan sits inside the 3-chart budget while a
+sourced chart is cut from it.
+
+**00782 did this for 14 rows and was believed exhaustive. It was not.** Its list
+came from diffing the original 00498 against the regenerated one, which can only
+surface rows 00498 itself seeded. Duluth Trading's fourth tops chart came from
+00776 and was invisible to that method.
+
+**Risk: low, and bounded by a guard.** Every row deleted has a surviving
+same-brand, same-department sibling -- that is what makes it a rename rather
+than a retirement. The 26 orphans that do NOT have one are deliberately left:
+15 hand-written charts with no rival at all, 11 whose only rival is in another
+department, each registered with its reason in that test file. Deleting those
+would remove a body's only chart.
+
+**Apply order.** Anywhere. It depends on nothing above it, and it is independent
+of 00797.
+
+**After applying:** `NOTIFY pgrst, 'reload schema';` is not needed -- no column
+or function changed -- and the readback is a count:
+
+```sql
+select count(*) from public.brand_size_charts
+ where brand_key = 'duluthtradingco' and department = 'Men';
+-- expect: 1, where it is 2 today
+```
+
+**What is NOT verified.** The model is reconstructed from the migration files,
+not read from prod. Before 00793 it holds 464 rows and all 23 targets; after,
+441 and none of them. Prod's own 00498 is the 2026-07-29 version rather than the
+current one, and the difference is exactly the 14 tuples 00782 deletes, so the
+two agree today -- if 00498 is regenerated again without a matching retirement
+they will not. The SQL was parsed with libpg_query and never executed: this
+container has no Docker and no route to prod.
+
 ## ⏳ HELD 2026-09-18: 00797 - the seeded cogs_labor row says Labour (US-3256)
 
 **⚠ THE HELD-MIGRATION GATE BLOCKS THIS PUSH AND WAS OVERRIDDEN ON PURPOSE.**
@@ -287,7 +346,7 @@ Each branch is one merge and carries its own SQL, manifest and version bump.
 
 | Order | Branch | Migration | What it does |
 |---|---|---|---|
-| 1 | `held-v2/us-3387-00793` | 00793 | retire 23 size charts a rename orphaned |
+| 1 | ~~`held-v2/us-3387-00793`~~ **rebuilt 2026-09-18 onto `claude/wizardly-gauss-8osusm`, see the entry above** | 00793 | retire 23 size charts a rename orphaned |
 | 2 | `held-v2/us-3397-00794` | 00794 | stop anon enumerating the storage buckets |
 | 3 | `held-v2/us-3398-00795` | 00795 | the deletion log stops claiming a purge it never checked |
 | 4 | ~~`held-v3/us-3256-00797`~~ **rebuilt 2026-09-18 onto `claude/wizardly-gauss-8osusm`, see the entry above** | 00797 | the seeded cogs_labor row says Labour, the chart says Labor |

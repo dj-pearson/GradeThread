@@ -97,11 +97,6 @@ export const KNOWN_GAPS = new Map([
   // do. So "gap explained" and "gap filled" are both green and there is no
   // third state where this list can quietly go stale.
   [
-    "00793",
-    "held on held-v2/us-3387-00793 (retire 23 size charts a rename orphaned). "
-      + "That branch deletes this entry when it lands.",
-  ],
-  [
     "00794",
     "held on held-v2/us-3397-00794 (stop anon enumerating the storage "
       + "buckets). That branch deletes this entry when it lands.",

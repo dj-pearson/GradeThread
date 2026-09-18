@@ -27,8 +27,13 @@ describe("held-branch registries (US-3421)", () => {
 
   it("finds a real set of names, so the scan cannot pass vacuously", () => {
     // A parse that matches nothing reports the same clean result as a repo with
-    // nothing parked. This repo has six parked migrations today.
-    expect(named.size).toBeGreaterThanOrEqual(5);
+    // nothing parked. Tied to the baseline rather than to a literal, because
+    // this number falls every time a held migration lands: it was 5 when this
+    // was written and 4 the same afternoon, when US-3387 rebuilt 00793 into the
+    // tree. A hardcoded floor would have to be edited on every such landing,
+    // which is how a floor quietly stops being a floor.
+    expect(named.size).toBeGreaterThanOrEqual(KNOWN_ABSENT.size);
+    expect(KNOWN_ABSENT.size, "the baseline is empty — delete this guard").toBeGreaterThan(0);
   });
 
   it("every registry still contributes at least one name", () => {
@@ -61,9 +66,12 @@ describe("held-branch registries (US-3421)", () => {
 
   it("reports a named branch the remote does not have", () => {
     // The comparison itself, against a fixed remote set rather than the network.
-    const onRemote = new Set(["main", "held-v2/us-3387-00793"]);
+    // The fixture is taken from the live list rather than named, because the
+    // branch this pinned by hand stopped being named when its migration landed.
+    const present = [...named.keys()][0]!;
+    const onRemote = new Set(["main", present]);
     const missing = missingBranches(named, onRemote);
-    expect(missing.map((m) => m.branch)).not.toContain("held-v2/us-3387-00793");
+    expect(missing.map((m) => m.branch)).not.toContain(present);
     expect(missing.length, "everything else should be reported").toBe(named.size - 1);
     expect(missing[0]?.files.length, "a finding says where it was named").toBeGreaterThan(0);
   });
