@@ -55,6 +55,7 @@ import {
   resolveSeedAuctionDuration,
   resolveSeedBestOffer,
   resolveSeedFormat,
+  resolveSeedPolicyId,
   resolveSeedQuantity,
 } from "@/lib/listing-defaults";
 import { useMeasurementPrefs } from "@/stores/measurement-prefs";
@@ -538,7 +539,12 @@ export function FlipdeskComposerPage({
   const { data: ebayConnection } = useEbayConnection();
   // US-558: the seller's business policies feed the preview's shipping/returns
   // lines. Only fetch once eBay is connected.
-  const { data: ebayPolicies } = useEbayPolicies(!!ebayConnection);
+  // US-2855: `isLoading` is read because the seed below waits for it. The wait
+  // is conditional on the connection on purpose -- this query is DISABLED
+  // without one, so an unconditional wait would never resolve and the composer
+  // would never initialise for any seller who does not use eBay.
+  const { data: ebayPolicies, isLoading: ebayPoliciesLoading } =
+    useEbayPolicies(!!ebayConnection);
   const crossPush = useCrossPush();
   // US-1490: push edits to an ALREADY-published eBay listing (Save & resubmit).
   const reviseListing = useEbayReviseListing();
@@ -759,6 +765,11 @@ export function FlipdeskComposerPage({
     if (item.listing_id && !listing) return; // wait for the listing fetch
     if (promoDefaultsLoading || promoDefaultsError) return; // wait for verified seller defaults
     if (listingDefaultsLoading) return; // wait for the seller listing defaults
+    // US-2855: and for the eBay account policy defaults, but ONLY when there is
+    // a connection to load them from. Seeding before they arrive would set the
+    // three policy controls to null and then set `initialised`, so the seed
+    // would be lost for good rather than late.
+    if (ebayConnection && ebayPoliciesLoading) return;
     // Wait for photos too — seeding primary_photo_id against an empty (still-
     // loading) set would seed null and Save would WIPE the saved primary photo.
     if (photosLoading) return;
@@ -849,10 +860,17 @@ export function FlipdeskComposerPage({
     // US-2250: quantity defaults to 1 for a brand-new draft, or the seller's own
     // default when they set one (fixed price only — an auction is always 1).
     setQuantity(String(resolveSeedQuantity(listing, listingDefaults, seedFormat)));
-    // US-2251: business policies; null means "use my account default".
-    setShippingPolicyId(listing?.shipping_policy_id ?? null);
-    setPaymentPolicyId(listing?.payment_policy_id ?? null);
-    setReturnPolicyId(listing?.return_policy_id ?? null);
+    // US-2251: business policies; null on a SAVED row means "use my account
+    // default", and that stays true.
+    // US-2855: a draft with no listings row now opens on the account default
+    // instead of blank. It was already being applied at publish, so the right
+    // policy reached eBay either way -- what the seller could not do was SEE
+    // which one, or change it before publishing. The preview line below
+    // compensated for display only, which made the gap harder to notice.
+    const policyDefaults = ebayPolicies?.defaults;
+    setShippingPolicyId(resolveSeedPolicyId(listing, "shipping", policyDefaults));
+    setPaymentPolicyId(resolveSeedPolicyId(listing, "payment", policyDefaults));
+    setReturnPolicyId(resolveSeedPolicyId(listing, "return", policyDefaults));
     const seededPrimary =
       listing?.primary_photo_id &&
       photos.some((p) => p.id === listing.primary_photo_id)
@@ -885,6 +903,9 @@ export function FlipdeskComposerPage({
     promoDefaults,
     listingDefaultsLoading,
     listingDefaults,
+    ebayConnection,
+    ebayPoliciesLoading,
+    ebayPolicies,
   ]);
 
   // US-2256: everything this page owns and could lose, in one string. Compared
