@@ -14,6 +14,9 @@
 
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
+import { relative, sep } from "node:path";
+import { execFileSync } from "node:child_process";
+import ts from "typescript";
 
 /** tsconfigs here carry // comments, which JSON.parse rejects. */
 function readTsconfig(path: string): Record<string, unknown> {
@@ -37,7 +40,37 @@ describe("the functions/ typecheck lane (US-2401)", () => {
   });
 
   it("covers the whole tree", () => {
-    expect(fns.include).toEqual(["functions/**/*.ts"]);
+    // US-3408 rewrote this from `toEqual(["functions/**/*.ts"])`, which pinned
+    // the string rather than the claim — and the string was WRONG. TypeScript's
+    // include globbing skips any directory whose name starts with a dot, so
+    // functions/.well-known/ (the Apple app-site-association and the Android
+    // assetlinks, both live routes) matched nothing and were compiled by no
+    // lane, which is the exact hole US-2401 was filed to close. A literal
+    // assertion cannot tell a covering glob from a nearly-covering one; ask the
+    // compiler which files it resolved and compare that to what is on disk.
+    const parsed = ts.parseJsonConfigFileContent(
+      ts.readConfigFile("tsconfig.functions.json", ts.sys.readFile).config,
+      ts.sys,
+      process.cwd(),
+      undefined,
+      "tsconfig.functions.json",
+    );
+    const covered = new Set(
+      parsed.fileNames.map((f) => relative(process.cwd(), f).split(sep).join("/")),
+    );
+    const onDisk = execFileSync("git", ["ls-files", "functions/**/*.ts"], {
+      encoding: "utf8",
+    })
+      .trim()
+      .split("\n")
+      .filter(Boolean);
+
+    expect(onDisk.length, "no functions found — the guard would be vacuous").toBeGreaterThan(20);
+    const uncovered = onDisk.filter((f) => !covered.has(f));
+    expect(
+      uncovered,
+      `these Pages Functions are in no project and are compiled by nothing: ${uncovered.join(", ")}`,
+    ).toEqual([]);
   });
 
   it("loads the Workers types the tree relies on", () => {

@@ -295,6 +295,17 @@ jobs:
       - name: Loose repair SQL
         if: ${{ !cancelled() }}
         run: node scripts/check-loose-repair-sql.mjs
+      # US-3408: a conflict resolved by interleaving both sides. git reports the
+      # conflict and then reports the resolution as clean, because it checks for
+      # markers and nothing else. 40e95fadc shipped that shape in two files and
+      # origin/main did not compile for forty minutes. The gate that cannot be
+      # bypassed is .githooks/reference-transaction; this step is the second
+      # pass, for a merge committed where hooks were off. Needs the fetch-depth:
+      # 0 above to see the merge's first parent — on a shallow checkout it
+      # silently finds nothing to check. No-op when HEAD is not a merge.
+      - name: Merge resolution
+        if: ${{ !cancelled() }}
+        run: node scripts/check-merge-resolution.mjs
       # The SQL itself, parsed with libpg_query — Postgres's own grammar as WASM,
       # so a pass means real Postgres rather than a regex someone wrote. The DB
       # Migrations workflow APPLIES these for real and is the stronger proof; it

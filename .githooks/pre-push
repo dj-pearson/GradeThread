@@ -20,6 +20,14 @@ set -euo pipefail
 echo "[pre-push] Checking for held migrations already on origin…"
 node scripts/held-migration-gate.mjs
 
+# US-3408: the merge in HEAD, if HEAD is one. The gate that cannot be skipped is
+# .githooks/reference-transaction, which fires at the ref update rather than at
+# the push; this line is for a merge committed on a checkout where hooks were
+# off. Under three seconds, and it prints "no merge resolution to check" and
+# exits 0 on every ordinary push.
+echo "[pre-push] Checking the merge resolution, if this push carries one…"
+node scripts/check-merge-resolution.mjs
+
 echo "[pre-push] Running local CI mirror (npm run verify)…"
 echo "[pre-push] Bypass with: git push --no-verify"
 npm run verify

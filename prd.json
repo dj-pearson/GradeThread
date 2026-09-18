@@ -4858,7 +4858,8 @@
         "OPERATOR: apply the blog_posts seo_title/seo_description update to prod (10 rows) - blog metadata lives in the DB, not the repo",
         "Re-measure CTR on the affected pages in Search Console 28 days after the deploy and record the before/after in a note"
       ],
-      "priority": 2
+      "priority": 2,
+      "notes": "2026-09-18 loop check. AC1, AC2 and AC3 are MET and were verified by running the guards rather than read off the commit messages: route-metadata.test.ts, ctr-rewrite-worklist.test.ts and condition-index-render.test.ts pass 593 of 593 on a clean tree. The code landed in 7816848af (twelve registry rewrites across flaw-library, opportunist-guides, platform-standards and reseller-glossary, plus fitTitle() and the grade-8 price in the /condition-index/:slug description) and 65be68156 (the noUncheckedIndexedAccess fallback that 7816848af shipped red past a stale tsc -b). AC4 AND AC5 REMAIN AND BOTH NEED THE OWNER. AC4 has a second problem worth naming before it is handed over: the story says 'apply the blog_posts seo_title/seo_description update to prod (10 rows)' and NO ARTIFACT FOR IT EXISTS IN THE REPO. 7816848af's message says the ten posts carry their copy in the database and that the update is an operator AC, but it does not name the ten, and docs/seo/ctr-rewrite-worklist.csv is US-9017's worklist, not this one. scripts/apply-blog-ctr-rewrites.mjs is the right vehicle and takes a CSV, so what is missing is the ten rows of reviewed copy. Whoever holds the Search Console export that found them has to produce that CSV before the operator step is runnable at all; right now AC4 is not blocked on prod access, it is blocked on copy nobody wrote down. AC5 cannot start until 28 days after AC4 deploys."
     },
     {
       "id": "US-3413",
