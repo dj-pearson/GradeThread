@@ -95,22 +95,29 @@ export const ALLOWED_DEAD_MODULES = {
     "and is not listed separately because this module is its only importer, so "+
     "the audit reports the root and not the branch. Remove this entry when the "+
     "job imports composeSellerDigest; the gate fails if you forget.",
-  "cross-channel-link-plan.ts":
-    "PENDING, and the second of the two decision layers US-3197 is building " +
-    "before anything writes a row. cross-channel-link.ts answers 'are these " +
-    "two rows the same garment?'; this answers the harder question it leaves " +
-    "open, which is WHICH JOINS ACTUALLY HAPPEN across a whole closet. Four " +
-    "rules, each one a way the naive version merges the wrong things: mutual " +
-    "best only, so one generic title cannot swallow five garments; one join " +
-    "per row per run, so A-B and B-C never become a three-way merge off two " +
-    "pairwise decisions; one listing per platform in a group; and already " +
-    "joined is skipped rather than re-joined, which is AC5's idempotency. It " +
-    "is unwired for the same reason its predecessor was: a wrong link merges " +
-    "two garments and there is no unmerge button, so the rules are testable " +
-    "to the case before any code applies them. What is still missing is the " +
-    "WRITER that applies a plan, the review table AC4 needs (a migration), " +
-    "and AC1's orchestration. Remove this entry when the import worker " +
-    "imports planCrossChannelLinks; the gate fails if you forget.",
+  "cross-channel-link-writes.ts":
+    "PENDING, and the third and last decision layer US-3197 builds before " +
+    "anything executes. cross-channel-link.ts decides a pair, " +
+    "cross-channel-link-plan.ts decides which pairs join, and this decides " +
+    "what a join DOES: the merged listing moves onto the keeper's item and " +
+    "takes the keeper's GROUP ANCHOR as its draft_id (the keeper's own " +
+    "draft_id when it has one, because it may already be a sibling), and the " +
+    "emptied item is ARCHIVED rather than deleted -- and only when that " +
+    "listing was its last, since archiving an item that still has live " +
+    "channels hides them until a buyer finds out. Every mutation is emitted " +
+    "with the value it overwrote, in the shape flipdesk_import_effects." +
+    "previous already uses, so the existing undo reverses a merge the same " +
+    "way it reverses an import. That is the answer to the 'there is no " +
+    "unmerge button' line that runs through every note on this feature, and " +
+    "it is why this is pure and unwired: the executor that applies these is " +
+    "mechanical, and all the judgement is here where a test can drive it. " +
+    "cross-channel-link-plan.ts is NOT listed separately because this module " +
+    "is its only importer, so the audit reports the root and not the branch " +
+    "-- the same arrangement seller-digest.ts and seller-anomaly.ts have. Its " +
+    "own four rules (mutual best only, one join per row per run, one listing " +
+    "per platform in a group, already-joined is skipped) are what decide " +
+    "WHICH pairs reach this file at all. Remove this entry when the confirm " +
+    "route imports planLinkWrites; the gate fails if you forget.",
   "condition-curve-measured.ts":
     "PENDING. US-2847 shipped the WRITING half of measured condition curves: " +
     "buildMeasuredCurvePoints turns a fit into the same CurvePoint shape a " +
