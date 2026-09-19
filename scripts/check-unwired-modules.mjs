@@ -95,22 +95,22 @@ export const ALLOWED_DEAD_MODULES = {
     "and is not listed separately because this module is its only importer, so "+
     "the audit reports the root and not the branch. Remove this entry when the "+
     "job imports composeSellerDigest; the gate fails if you forget.",
-  "cross-channel-link.ts":
-    "PENDING, and deliberately so. US-3197 shipped the DECISION half: " +
-    "decideLink(a, b) answers whether a Poshmark listing and an eBay listing " +
-    "are the same physical garment, as a pure function of two rows, with hard " +
-    "refusals that no title score may promote past and an ambiguity rule that " +
-    "demotes to review when the top two candidates are within 0.06. It was " +
-    "built on its own and first BECAUSE a wrong link merges two garments and " +
-    "there is no unmerge button, so the rules had to be testable to the case " +
-    "before any code wrote a row. What does not exist yet is the writer: " +
-    "joining matched rows onto one inventory_items row and one " +
-    "listings.draft_id per vault/20-domain/sync-source-of-truth.md, and the " +
-    "review queue AC4 needs, which needs a table and therefore a migration. " +
-    "Until then a seller who lists one jacket on two channels and imports both " +
-    "still gets two items - that gap is US-3197's remaining ACs, not a " +
-    "regression in this module. Remove this entry when the import worker " +
-    "imports decideLink; the gate fails if you forget.",
+  "cross-channel-link-plan.ts":
+    "PENDING, and the second of the two decision layers US-3197 is building " +
+    "before anything writes a row. cross-channel-link.ts answers 'are these " +
+    "two rows the same garment?'; this answers the harder question it leaves " +
+    "open, which is WHICH JOINS ACTUALLY HAPPEN across a whole closet. Four " +
+    "rules, each one a way the naive version merges the wrong things: mutual " +
+    "best only, so one generic title cannot swallow five garments; one join " +
+    "per row per run, so A-B and B-C never become a three-way merge off two " +
+    "pairwise decisions; one listing per platform in a group; and already " +
+    "joined is skipped rather than re-joined, which is AC5's idempotency. It " +
+    "is unwired for the same reason its predecessor was: a wrong link merges " +
+    "two garments and there is no unmerge button, so the rules are testable " +
+    "to the case before any code applies them. What is still missing is the " +
+    "WRITER that applies a plan, the review table AC4 needs (a migration), " +
+    "and AC1's orchestration. Remove this entry when the import worker " +
+    "imports planCrossChannelLinks; the gate fails if you forget.",
   "condition-curve-measured.ts":
     "PENDING. US-2847 shipped the WRITING half of measured condition curves: " +
     "buildMeasuredCurvePoints turns a fit into the same CurvePoint shape a " +
