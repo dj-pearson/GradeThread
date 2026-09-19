@@ -471,12 +471,23 @@ read-only `npm run migrate:prod` is refused here - so the source of this heading
 is the owner's word, which is what `(owner)` means throughout this file, as
 against `(confirmed from prod)`. The readback below is still worth running.
 
-**The readback, unrun:**
+**The readback, unrun. CORRECTED 2026-09-19 -- the numbers below were wrong
+both before and after, and an operator running the old version would have read
+the fix as a failure.** Duluth Trading has THREE seeded tuples, all in
+department `Men`: a work-pants chart, a tops chart, and the alpha-tops rename
+00793 retires. So the count was 3 before the apply and is 2 after, not 2 and 1.
+The question this readback means to ask is whether ONE tops chart remains, so
+it lists the rows rather than counting them. Executed against a local Postgres
+carrying all 808 migrations on 2026-09-19: 2 rows, exactly as below.
 
 ```sql
-select count(*) from public.brand_size_charts
- where brand_key = 'duluthtradingco' and department = 'Men';
--- expect: 1, where it was 2 before
+select department, garment from public.brand_size_charts
+ where brand_key = 'duluthtradingco'
+ order by garment;
+-- expect exactly these two rows, both Men:
+--   Tops & outerwear (body inches)
+--   Work pants (WAIST x INSEAM, inches)
+-- and in particular ONE row whose garment starts with 'Tops'.
 ```
 
 **REBUILT, NOT MERGED.** `held-v2/us-3387-00793` is not on origin and neither is
@@ -514,13 +525,8 @@ would remove a body's only chart.
 of 00797.
 
 **After applying:** `NOTIFY pgrst, 'reload schema';` is not needed -- no column
-or function changed -- and the readback is a count:
-
-```sql
-select count(*) from public.brand_size_charts
- where brand_key = 'duluthtradingco' and department = 'Men';
--- expect: 1, where it is 2 today
-```
+or function changed. The readback is the corrected one above: list the rows and
+expect two, with exactly one tops chart among them.
 
 **What is NOT verified.** The model is reconstructed from the migration files,
 not read from prod. Before 00793 it holds 464 rows and all 23 targets; after,

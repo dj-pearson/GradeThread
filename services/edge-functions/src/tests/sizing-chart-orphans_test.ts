@@ -494,3 +494,54 @@ Deno.test("US-3387: the in-code corpus carries no duplicate of its own", () => {
     "sizing-charts.ts holds the same (brand, department, garment) twice",
   );
 });
+
+Deno.test("US-3387: the operator readback's expected number comes from the model", () => {
+  // WHY THIS CASE EXISTS. AC5 of US-3387 told the operator to run
+  //
+  //   select count(*) from public.brand_size_charts
+  //    where brand_key = 'duluthtradingco' and department = 'Men'
+  //
+  // and expect 1, where it had been 2. Both numbers were wrong. Duluth Trading
+  // has THREE seeded tuples, all in department Men: a work-pants chart, a tops
+  // chart, and the alpha-tops rename 00793 retires. So the count was 3 before
+  // the apply and is 2 after, and an operator running the AC as written would
+  // have read 2, seen "expect 1", and concluded the migration had failed.
+  //
+  // A number written by hand into an acceptance criterion drifts the moment
+  // another chart is seeded for the same brand. This case derives both halves
+  // from the same model the census uses, so the AC's number is checked rather
+  // than remembered. Executed against a local Postgres carrying all migrations
+  // on 2026-09-19: 2 rows, matching this model exactly.
+  const duluthMen = (model: Map<string, Chart>) =>
+    [...model.values()]
+      .filter((c) => c.brandKey === "duluthtradingco" && c.department === "Men")
+      .map((c) => c.garment)
+      .sort();
+
+  assertEquals(duluthMen(preRetirement).length, 3, "before 00793's delete");
+  assertEquals(
+    duluthMen(dbCharts),
+    retirementPresent
+      ? ["Tops & outerwear (body inches)", "Work pants (WAIST x INSEAM, inches)"]
+      : [
+        "Tops & outerwear (alpha, body inches)",
+        "Tops & outerwear (body inches)",
+        "Work pants (WAIST x INSEAM, inches)",
+      ],
+    "what the operator readback counts",
+  );
+
+  // The question AC5 was actually asking -- does a Duluth shirt still resolve
+  // two tops charts -- is answered by the tops rows, not by every row the brand
+  // has. This is the filter the readback should have carried.
+  assertEquals(
+    duluthMen(dbCharts).filter((g) => g.startsWith("Tops")),
+    retirementPresent
+      ? ["Tops & outerwear (body inches)"]
+      : [
+        "Tops & outerwear (alpha, body inches)",
+        "Tops & outerwear (body inches)",
+      ],
+    "one tops chart is the fix; two is the defect 00793 retires",
+  );
+});
