@@ -84,7 +84,9 @@
     "prepare": "node scripts/setup-git-hooks.mjs && node scripts/copy-tesseract-assets.mjs",
     "vault:review": "node scripts/vault-lint.mjs --report",
     "migrations:parse": "node scripts/migrations-parse.mjs",
-    "tesseract:stage": "node scripts/copy-tesseract-assets.mjs"
+    "tesseract:stage": "node scripts/copy-tesseract-assets.mjs",
+    "agents:sync": "node scripts/gen-agents-md.mjs",
+    "agents:check": "node scripts/gen-agents-md.mjs --check"
   },
   "repository": {
     "type": "git",
