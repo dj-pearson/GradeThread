@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router";
 import { finishedRunNote, marketplaceLabel } from "@/lib/finished-queue-run";
+import { LinkDuplicatesCard } from "@/components/flipdesk/link-duplicates-card";
 import {
   Plug,
   ArrowRight,
@@ -2222,6 +2223,11 @@ export function FlipdeskMarketplacesPage() {
 
           {/* US-2481: what your phone queued and this desktop has not run yet. */}
           <ExtensionQueueSection />
+
+          {/* US-3197: one garment listed on two channels, joined onto one
+              item. Here rather than on the import page because it is about
+              what is already in FlipDesk, not about getting more in. */}
+          <LinkDuplicatesCard />
 
           <SoldSyncSection />
 
