@@ -1,5 +1,32 @@
 # PENDING MIGRATIONS — applied to prod separately from the push
 
+## THE HOLD RULE, IN ONE PLACE (US-3421 AC3, settled by the owner 2026-09-19)
+
+**It protects `origin/main`, and only `origin/main`.** Cloudflare Pages builds
+main; the next Coolify edge deploy boot-guards the schema version. So a
+migration must not reach **main** until the owner has applied the SQL.
+
+**Pushing a held migration to a side branch — `claude/*`, `held-*` — is
+allowed and preferred.** A branch that is not main deploys nothing, so the
+push costs nothing the rule is defending and buys durability, review, and the
+ability for any clone to land the migration after the apply.
+
+This was ambiguous for months and the ambiguity cost real work: five finished
+migrations existed on one machine only, and 00797 had to be rewritten from its
+description in this file because its branch existed nowhere else. The entries
+below are the specification whenever that happens again.
+
+**Still forbidden:** merging or pushing a held migration to `main` before the
+apply.
+
+`scripts/held-migration-gate.mjs` blocks the push either way, because it keys
+on the HELD heading rather than on the target branch. On a side branch
+`--no-verify` is the intended bypass and the only one; say so when you use it.
+`scripts/check-held-branches.mjs` is the other half — it asks the REMOTE
+whether a branch this file names actually exists, which cross-checking the
+registries cannot answer.
+
+
 ## EIGHT HEADINGS WERE STALE, AND THAT IS WHY MAIN CI WAS RED, 2026-09-13
 
 00786, 00787, 00788, 00789, 00790, 00791, 00792 and 00796 were still headed

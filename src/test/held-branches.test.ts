@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import {
   REGISTRIES,
   KNOWN_ABSENT,
@@ -182,5 +182,109 @@ describe("held branches that carry no migration", () => {
     for (const branch of KNOWN_ABSENT_UNNUMBERED.keys()) {
       expect(KNOWN_ABSENT.has(branch), `${branch} is in both baselines`).toBe(false);
     }
+  });
+});
+
+// US-3421 AC3: the hold rule is written down where the guard points.
+//
+// The guard's own failure text says it ("the hold rule protects origin/MAIN
+// ... a side branch is not a violation"), and until 2026-09-19 nothing else
+// did. The migrations skill said "committed to local main but NEVER pushed"
+// with no exception, so every session that met a held migration had to stop
+// and ask -- and the ambiguity is why five finished migrations sat on one
+// machine and 00797 had to be rewritten from its description.
+//
+// Two homes, because they answer different readers: PENDING_MIGRATIONS.md is
+// where the guard points, and the skill is what an agent loads before writing
+// a migration at all. A rule in one and not the other is the drift this whole
+// file exists to catch.
+
+describe("the hold rule is written down, in both places (US-3421 AC3)", () => {
+  const SKILL = readFileSync(
+    resolve(process.cwd(), ".claude/skills/migrations/SKILL.md"),
+    "utf8",
+  );
+  const PENDING_DOC = readFileSync(resolve(process.cwd(), "PENDING_MIGRATIONS.md"), "utf8");
+  const GUARD = readFileSync(
+    resolve(process.cwd(), "scripts/check-held-branches.mjs"),
+    "utf8",
+  );
+
+  // SCOPED TO THE RULE BLOCK IN EACH FILE, and that is not tidiness. The
+  // first version of these cases searched the WHOLE document, and three of
+  // four sabotages passed: both files say "origin/main", "deploys nothing"
+  // and "main" in other paragraphs, so deleting the rule itself changed
+  // nothing they could see. That is the third time in this session a guard
+  // has matched a string somewhere instead of where it does something.
+  function block(doc: string, from: string, to: RegExp): string {
+    const i = doc.indexOf(from);
+    if (i < 0) return "";
+    const rest = doc.slice(i + from.length);
+    const m = to.exec(rest);
+    return from + (m ? rest.slice(0, m.index) : rest);
+  }
+  // From the SECTION heading, not from the callout: what the rule protects is
+  // stated in the intro paragraph and the side-branch permission in the
+  // callout below it, and a slice starting at the callout misses the first.
+  const SKILL_RULE = block(SKILL, "## \u{1F512} Held-migration push rule", /\n## /u);
+  const PENDING_RULE = block(PENDING_DOC, "## THE HOLD RULE, IN ONE PLACE", /\n## /);
+  const RULES: [string, string][] = [
+    ["skill", SKILL_RULE],
+    ["PENDING_MIGRATIONS.md", PENDING_RULE],
+  ];
+
+  it("both files carry a rule block at all", () => {
+    // Fail closed: an empty slice would make every case below vacuous, which
+    // is exactly how the first version of this suite passed a deletion.
+    for (const [name, rule] of RULES) {
+      expect(rule.length, `${name} has no hold-rule block`).toBeGreaterThan(300);
+    }
+  });
+
+  it("the guard still points at PENDING_MIGRATIONS.md", () => {
+    // If it stopped, "where the guard points" would mean somewhere else and
+    // this whole suite would be pinning the wrong file.
+    expect(GUARD).toContain("PENDING_MIGRATIONS.md");
+  });
+
+  it("the rule says WHAT it protects, not just that it exists", () => {
+    // "Never push" is the instruction people already had, and it is what left
+    // the side-branch question open for months.
+    for (const [name, rule] of RULES) {
+      expect(rule, `${name}'s rule does not name origin/main`).toMatch(/origin\/main/i);
+    }
+  });
+
+  it("the rule permits a side branch, in a SENTENCE not a heading", () => {
+    // Two weaknesses fixed here, both measured. The first version alternated
+    // over `not a violation|allowed|preferred`, and "deploys nothing" appears
+    // in these files' ordinary prose. The second matched `side branch ...
+    // allowed`, which the HEADING "A SIDE BRANCH IS NOT A VIOLATION"
+    // satisfies on its own -- so deleting the permission sentence underneath
+    // it stayed green. The permission is a sentence about PUSHING, and that
+    // is what has to be there.
+    for (const [name, rule] of RULES) {
+      expect(rule, `${name} no longer permits pushing to a side branch`).toMatch(
+        /pushing a held migration to a[\s\S]{0,140}preferred/i,
+      );
+    }
+  });
+
+  it("the rule still forbids the thing that is actually forbidden", () => {
+    // A permission written without its limit is read as a blanket one.
+    for (const [name, rule] of RULES) {
+      expect(rule, `${name} lost the main prohibition`).toMatch(
+        /(still )?forbidden[\s\S]{0,160}main/i,
+      );
+    }
+  });
+
+  it("the bypass is named, and named as narrow", () => {
+    // The pre-push hook blocks a side-branch push too, so a rule that permits
+    // the push without saying how is a rule nobody can follow.
+    for (const [name, rule] of RULES) {
+      expect(rule, `${name} does not name the bypass`).toContain("--no-verify");
+    }
+    expect(SKILL_RULE).toMatch(/never use it to push to main/i);
   });
 });
