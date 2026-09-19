@@ -78,12 +78,27 @@ const MIGRATIONS_DIR = new URL("supabase/migrations/", REPO_ROOT);
 // can still enumerate the bucket -- satisfied that and always would have. The
 // rule now asks whether the policy is unconditional on bucket_id alone,
 // whatever role it names.
+//
+// AND THE SCAN READ EVERY STATEMENT AS LIVE, WHICH MADE THE BASELINE UNABLE TO
+// CLEAR (US-3403, 2026-09-19). A policy is not the text of the first migration
+// that created it; it is the text of the LAST one. 00807 drops and recreates
+// all five with a scoped USING, and under the old scan the five original
+// `create policy` statements in 00017, 00041, 00127, 00380 and 00463 still
+// matched, so every baseline entry stayed satisfied and the shrink-only rule
+// could never fire. The list would have gone on describing an exposure that
+// had been closed -- which is the same defect as a stale note, with the added
+// cost that it exempts any future policy reusing one of those names.
+//
+// So the corpus is now resolved IN MIGRATION ORDER: the last statement for a
+// name wins, and a `drop policy` with no create after it removes the name
+// entirely. That is what Postgres ends up with, and `pg_policies` on a stack
+// carrying every migration is what proves it.
 const KNOWN_UNSCOPED_SELECT: Record<string, string> = {
-  "item-photos public read": "00017_item_photos_storage.sql",
-  "content-images public read": "00041_content_module.sql",
-  "avatars public read": "00127_avatars_bucket.sql",
-  "cert-assets public read": "00380_cert_assets_bucket.sql",
-  "content-videos public read": "00463_social_video.sql",
+  // Empty since 00807 (US-3403). Every entry that was here is now scoped:
+  // item-photos and avatars to the owner folder (plus workspace members for
+  // item-photos), and cert-assets, content-images and content-videos to
+  // public.is_admin(). Measured on a Postgres 16 carrying all 799 migrations:
+  // anon listed 8 objects across the five buckets before and 0 after.
 };
 
 const PUBLIC_BUCKETS = [
@@ -99,6 +114,8 @@ const PUBLIC_BUCKETS = [
 type PolicyStatement = {
   file: string;
   name: string;
+  /** A `drop policy` rather than a `create policy`. Ends the name's life. */
+  dropped: boolean;
   hasToClause: boolean;
   isSelect: boolean;
   /**
@@ -107,14 +124,57 @@ type PolicyStatement = {
    * the property worth failing on rather than the presence of a TO clause.
    */
   bucketIdOnly: boolean;
+  /** The USING expression as written, so a case can assert WHICH condition. */
+  using: string;
 };
 
-/** Every `create policy ... on storage.objects` statement in the tree. */
+/**
+ * The storage.objects policies a fresh database ENDS UP WITH, not every
+ * statement ever written.
+ *
+ * Migrations are replayed in filename order and the last statement for a name
+ * wins, because that is what Postgres does. A `drop policy` with no create
+ * after it removes the name. Without this, a policy fixed by a later
+ * migration still reads as broken from the file that first created it, and
+ * the shrink-only baseline below can never clear.
+ */
 async function collectStoragePolicies(): Promise<PolicyStatement[]> {
+  const all = await collectAllStoragePolicyStatements();
+  const effective = new Map<string, PolicyStatement>();
+  for (const stmt of all) {
+    if (stmt.dropped) effective.delete(stmt.name);
+    else effective.set(stmt.name, stmt);
+  }
+  return [...effective.values()];
+}
+
+/** Every statement, in migration order, drops included. */
+async function collectAllStoragePolicyStatements(): Promise<PolicyStatement[]> {
   const out: PolicyStatement[] = [];
+  const names: string[] = [];
   for await (const entry of Deno.readDir(MIGRATIONS_DIR)) {
-    if (!entry.isFile || !entry.name.endsWith(".sql")) continue;
+    if (entry.isFile && entry.name.endsWith(".sql")) names.push(entry.name);
+  }
+  // Filename order IS apply order: the NNNNN prefix is the version.
+  names.sort();
+  for (const name of names) {
+    const entry = { name };
     const sql = await Deno.readTextFile(new URL(entry.name, MIGRATIONS_DIR));
+    for (
+      const m of sql.matchAll(
+        /drop\s+policy\s+(?:if\s+exists\s+)?("([^"]+)"|'([^']+)'|[a-z0-9_]+)\s+on\s+storage\.objects/gi,
+      )
+    ) {
+      out.push({
+        file: entry.name,
+        name: m[2] ?? m[3] ?? m[1] ?? "",
+        hasToClause: false,
+        isSelect: false,
+        bucketIdOnly: false,
+        using: "",
+        dropped: true,
+      });
+    }
     // Statement = from `create policy` to the first `;` that ends it. Policy
     // DDL has no inner semicolons, so this is exact rather than approximate.
     const re = /create\s+policy\s+("([^"]+)"|'([^']+)'|[a-z0-9_]+)([\s\S]*?);/gi;
@@ -128,6 +188,7 @@ async function collectStoragePolicies(): Promise<PolicyStatement[]> {
         `${body}`,
       )?.[1] ?? /\busing\s*\(([\s\S]*)\)\s*;/i.exec(body)?.[1] ?? "";
       out.push({
+        dropped: false,
         file: entry.name,
         name,
         // `TO <role>` sits between the ON clause and FOR/USING/WITH CHECK.
@@ -137,6 +198,7 @@ async function collectStoragePolicies(): Promise<PolicyStatement[]> {
         isSelect: !/\bfor\s+(insert|update|delete)\b/i.test(afterOn),
         // Strip the bucket_id test and see whether ANY other condition remains.
         // `auth.uid()`, `storage.foldername(...)`, `is_admin()` all leave one.
+        using,
         bucketIdOnly:
           using.trim().length > 0 &&
           using
@@ -203,25 +265,82 @@ Deno.test("the unscoped-SELECT baseline shrinks and never grows", async () => {
   );
 });
 
-Deno.test("the baseline is exactly the five public buckets, and every one is anon-readable", async () => {
-  // Not a restatement of the list. It asserts WHY each entry is there: all five
-  // carry no TO clause at all, so today the exposure is to anon rather than to
-  // authenticated. US-3403 is written as though 00794 had already narrowed
-  // these to `TO authenticated`; it was never written, and the directory jumps
-  // 00793 -> 00796. Whoever closes this should know the starting point is worse
-  // than the story says.
+Deno.test("no storage.objects SELECT policy is unconditional any more", async () => {
+  // THIS REPLACES A CASE THAT WOULD NOW PASS VACUOUSLY. It used to assert the
+  // set of unscoped policies EQUALS the baseline; with 00807 both are empty,
+  // so the equality holds while asserting nothing -- the failure this file's
+  // own header calls worse than a red guard. The positive form is the one
+  // worth keeping: nothing is unconditional, stated directly.
   const policies = await collectStoragePolicies();
   const unscoped = policies.filter((p) => p.isSelect && p.bucketIdOnly);
   assertEquals(
-    unscoped.map((p) => p.name).sort(),
-    Object.keys(KNOWN_UNSCOPED_SELECT).sort(),
+    unscoped.map((p) => `${p.file}: "${p.name}"`).sort(),
+    [],
+    "A storage.objects SELECT policy is unconditional on bucket_id again.",
   );
-  const anonReadable = unscoped.filter((p) => !p.hasToClause).map((p) => p.name);
   assertEquals(
-    anonReadable.sort(),
-    Object.keys(KNOWN_UNSCOPED_SELECT).sort(),
-    "One of these gained a TO clause. Good, but update this case and the " +
-      "comment above it, because the exposure it describes has changed.",
+    Object.keys(KNOWN_UNSCOPED_SELECT),
+    [],
+    "KNOWN_UNSCOPED_SELECT is empty since 00807 and should stay that way. " +
+      "An entry added here exempts a policy from the rule above.",
+  );
+});
+
+Deno.test("the five public buckets are scoped, each to the reader it named", async () => {
+  // Not "they have a condition" -- WHICH condition, because the per-bucket
+  // decision is the whole of US-3403 and a later edit could satisfy the rule
+  // above while quietly widening one of them back out.
+  const byName = new Map(
+    (await collectStoragePolicies()).map((p) => [p.name, p]),
+  );
+  const EXPECTED: Record<string, RegExp> = {
+    // The seller's own folder, or a member of that seller's workspace.
+    "item-photos public read": /is_workspace_member\(/i,
+    // The owner's own folder. Public display is unaffected either way.
+    "avatars public read": /foldername\(name\)\)\[1\] = \(select auth\.uid\(\)\)/i,
+    // Shareable, not discoverable in bulk: a list is every certificate id.
+    "cert-assets public read": /is_admin\(\)/i,
+    // Admin-only, which is who their write policies already name.
+    "content-images public read": /is_admin\(\)/i,
+    "content-videos public read": /is_admin\(\)/i,
+  };
+  for (const [name, want] of Object.entries(EXPECTED)) {
+    const policy = byName.get(name);
+    assert(policy, `"${name}" no longer exists`);
+    assert(
+      !policy.bucketIdOnly,
+      `"${name}" is unconditional on bucket_id again (${policy.file})`,
+    );
+    assert(
+      want.test(policy.using),
+      `"${name}" in ${policy.file} no longer gates on ${want.source}`,
+    );
+    // `TO authenticated` is belt and braces over the condition, and its
+    // absence is what made this an anon exposure rather than a smaller one.
+    assert(policy.hasToClause, `"${name}" lost its TO clause (${policy.file})`);
+  }
+});
+
+Deno.test("a later migration supersedes an earlier policy of the same name", async () => {
+  // The scan's own mechanism, asserted rather than trusted. If the effective
+  // resolution broke, every case above would go back to reading 00017's
+  // original unscoped statement and this file would report an exposure that
+  // no longer exists -- or, once the baseline is empty, report it as a
+  // failure nobody can clear.
+  const all = await collectAllStoragePolicyStatements();
+  const creates = all.filter((p) => p.name === "item-photos public read" && !p.dropped);
+  assert(
+    creates.length >= 2,
+    "expected item-photos public read to be created by 00017 and again by " +
+      `00807, saw ${creates.length}`,
+  );
+  const effective = (await collectStoragePolicies())
+    .find((p) => p.name === "item-photos public read");
+  assert(effective, "the effective item-photos policy vanished");
+  assertEquals(
+    effective.file,
+    "00807_scope_storage_public_read_policies.sql",
+    "the scan is reading an earlier statement as live",
   );
 });
 

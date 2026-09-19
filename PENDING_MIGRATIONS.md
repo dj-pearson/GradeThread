@@ -45,6 +45,72 @@ stronger claim for one of them, `check-prod-migration.ts` is the tool.
 Nothing below 00786 was touched, and the six genuinely-held branches in the next
 section are unchanged and still waiting.
 
+## ⏳ HELD: 00807_scope_storage_public_read_policies.sql (US-3403 — stop a stranger enumerating the five public buckets)
+
+**Risk: LOW, and lower than it reads.** It narrows five `FOR SELECT` policies
+on `storage.objects` and touches no data. **It cannot take a public image
+dark**: storage-api serves `GET /object/public/<bucket>/<path>` on a SUPERUSER
+connection after checking `buckets.public`, so that route consults no policy
+at all. Read `vault/10-ops/storage-anon-enumeration.md` before applying.
+
+**What it fixes.** All five were `USING (bucket_id = '<name>')` with no `TO`
+clause, and a policy with no `TO` applies to every role including `anon`.
+Measured against prod on 2026-09-11 with the anon key that ships in the
+deployed frontend bundle: 7,057 objects listed in `item-photos` (3.5 GB), 124
+in `content-images`, 44 in `cert-assets`.
+
+| Bucket | Narrowed to |
+|---|---|
+| `item-photos` | the owner folder, or a workspace member of that owner |
+| `avatars` | the owner folder |
+| `cert-assets` | `public.is_admin()` |
+| `content-images` | `public.is_admin()` |
+| `content-videos` | `public.is_admin()` |
+
+**It does NOT assume held 00794 has run.** `DROP POLICY IF EXISTS` then
+`CREATE` for all five, correct whether or not 00794 ever lands. A file that
+only narrowed the four smaller buckets would have tidied two EMPTY ones while
+leaving the 3.5 GB one open to anon.
+
+**Nothing in the app loses a capability**, checked rather than assumed. The
+only `.list()` in the tree is `account-storage-purge.ts` on the service-role
+client, which bypasses RLS; every client-side `createSignedUrl` targets
+`submission-images`. `src/test/storage-public-read-scope.test.ts` pins both
+and fails if a browser caller appears.
+
+**Measured on Postgres 16 carrying all 799 migrations**, RLS on, one
+transaction per role with `set local role` and `request.jwt.claims` — which is
+what `POST /object/list` does. `anon` saw all 8 seeded objects before and
+**0** after; a signed-up stranger dropped from 8 to 2, both in their own
+folders; an admin sees only the three published-content objects. Re-applied
+three times with no change.
+
+**READ THE RESULT BACK OFF `pg_policies`, never off this file:**
+
+```sql
+-- Anything here applies to anon. FIVE rows are expected, not zero: they are
+-- all submission-images and all gated on auth.uid(), so anon matches nothing.
+select policyname, cmd, roles
+from pg_policies
+where schemaname = 'storage' and roles::text like '%public%';
+
+-- And the five that changed should now be {authenticated} with a real USING.
+select policyname, roles, qual
+from pg_policies
+where schemaname = 'storage' and policyname like '%public read';
+```
+
+```sql
+-- after applying
+NOTIFY pgrst, 'reload schema';
+```
+
+**No ordering hazard**: no code reads a new column and no route changes. Apply
+after 00806, which is the next number down.
+
+**EXPECTED_SCHEMA_VERSION is 00807 in the same commit**, and the manifest was
+regenerated.
+
 ## ⏳ HELD: 00806_repair_whole_dollar_listing_prices.sql (US-3318 — Poshmark and Vinted rows priced in cents)
 
 **Risk: MEDIUM. This one rewrites seller money.** It is the only entry here
