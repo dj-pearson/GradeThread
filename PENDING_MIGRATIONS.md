@@ -45,6 +45,62 @@ stronger claim for one of them, `check-prod-migration.ts` is the tool.
 Nothing below 00786 was touched, and the six genuinely-held branches in the next
 section are unchanged and still waiting.
 
+## ⏳ HELD: 00806_repair_whole_dollar_listing_prices.sql (US-3318 — Poshmark and Vinted rows priced in cents)
+
+**Risk: MEDIUM. This one rewrites seller money.** It is the only entry here
+that UPDATEs existing rows rather than adding structure, so read the count
+before and after rather than trusting the run.
+
+**Run the diagnostic FIRST.** It is a read, it writes nothing, and it prints
+the per-platform counts the story asks for, including how many rows sit below
+the marketplace floor rather than merely carrying cents:
+
+```
+SUPABASE_URL=… SUPABASE_SERVICE_ROLE_KEY=… \
+  node scripts/diagnose-whole-dollar-price-drift.mjs
+```
+
+**What it repairs.** Poshmark and Vinted price in WHOLE DOLLARS. Until US-2736
+and US-2739, every non-eBay channel was priced from the shared eBay number
+with no rounding, so a sibling row recorded 32.49 for a listing the
+marketplace can only hold at 32, and a 40-cent item was recorded at 0.40
+against a floor of 1.00. Those two stories fixed what the extension TYPES and
+what a new push RECORDS; neither repairs a row already written, and the row is
+what profit, payout reconciliation and the revise price all read.
+
+- `listings.listing_price` and `listings.platform_fields[platform].price` (and
+  `price_override` where one exists) move TOGETHER, in one statement set. A row
+  whose two copies disagree is worse than one that is merely wrong.
+- Rounded to NEAREST, never below one step. This is `stepPriceCents` from
+  `src/lib/marketplace-price.ts` expressed in SQL, and
+  `src/test/whole-dollar-price-repair.test.ts` pins the two together.
+- ONLY poshmark and vinted, the two platforms declaring `priceStep` in
+  `src/lib/marketplace-specs.ts`. The same test fails if that set changes and
+  this migration does not.
+- A price of zero or below is left alone: that is "no price set", not a
+  rounding error.
+
+**It reports what it did.** `RAISE NOTICE '[00806] whole-dollar repair: N
+listing_price row(s), N platform_fields row(s)'`. Read that line and put it on
+the story; a silent success and a no-op look identical in a psql transcript,
+and not knowing the count is why this story exists.
+
+**Idempotent, measured rather than asserted:** applied to a local Postgres 16
+carrying all 798 migrations, against a fixture holding every shape the story
+names. First run reported 4 and 4; the second and third reported 0 and 0.
+
+**No ordering hazard.** It changes no schema and no code reads a new column,
+so it can be applied before or after the edge deploy. It should still go after
+00805, which is the next number down.
+
+```sql
+-- after applying
+NOTIFY pgrst, 'reload schema';
+```
+
+**EXPECTED_SCHEMA_VERSION is 00806 in the same commit**, and the manifest was
+regenerated.
+
 ## ⏳ HELD: 00805_phone_capture_groups.sql (US-3185 — several items on one capture code)
 
 **Risk: LOW.** Two `ADD COLUMN ... IF NOT EXISTS` with a `DEFAULT 0` on two
