@@ -70,6 +70,11 @@ import {
   sendToLister,
 } from "@/lib/lister-extension";
 import {
+  isPickerPlatform,
+  proposePickers,
+  type PickerProposal,
+} from "@/lib/picker-proposals";
+import {
   type CrossListingPlatform,
   MARKETPLACE_EXTENSION_FLOW,
   MARKETPLACE_LABELS,
@@ -251,6 +256,13 @@ export interface KitItemFacts {
   brand: string | null;
   color: string | null;
   size: string | null;
+  /**
+   * US-3210 AC4. Read for the picker proposals below and nothing else. Without
+   * the grade, Poshmark's new-with-tags toggle and Mercari's condition are both
+   * unknowable, which is two of the five pickers this notice covers.
+   */
+  gradeValue: number | null;
+  gradeLabel: string | null;
 }
 
 /** The free-text fields a seller can give their own words per channel. */
@@ -519,6 +531,31 @@ function PlatformPanel({
   const manualFieldLabels = (spec.manualFields ?? [])
     .map((key) => spec.fields.find((f) => f.key === key)?.label)
     .filter((label): label is string => Boolean(label));
+
+  // US-3210 AC4: what we can propose for each of those pickers.
+  //
+  // The notice used to be one flat sentence -- "You'll set these on Poshmark
+  // yourself: Category, Size, Color, NWT" -- which is true and tells the seller
+  // nothing they can act on. Two of those four are already known from the item
+  // they filled in once, and a third (new-with-tags) is known from its grade.
+  //
+  // The picker's OWN option list is still the extension's problem and still
+  // needs a browser session (AC3's DOM half, AC6's fixtures), so nothing here
+  // claims a field is filled. It says what to pick, per field, and stays silent
+  // where the mapper returns `none` -- category, which has no eBay-to-platform
+  // map in this repo at all.
+  const pickerProposals: PickerProposal[] = isPickerPlatform(platform)
+    ? proposePickers(platform, {
+        gradeValue: itemFacts?.gradeValue ?? null,
+        gradeTier: itemFacts?.gradeLabel ?? null,
+        size: itemFacts?.size || variant.size,
+        color: itemFacts?.color || variant.color,
+      })
+    : [];
+  const labelForField = (key: string) =>
+    spec.fields.find((f) => f.key === key)?.label ?? key;
+  const suggested = pickerProposals.filter((p) => p.value !== null);
+  const unmapped = pickerProposals.filter((p) => p.value === null);
 
   // US-3317: price is NOT editable here, and that is a decision rather than an
   // omission — see resolveKitPrice. The desk reads this channel's recorded
@@ -1250,6 +1287,30 @@ function PlatformPanel({
             {manualFieldLabels.join(", ")}. They are option lists whose choices
             change per garment, so GradeThread leaves them for you rather than
             guessing.
+            {suggested.length > 0 && (
+              <>
+                {" "}
+                <span className="font-medium text-foreground">
+                  What to pick, from this item:
+                </span>{" "}
+                {suggested
+                  .map((p) => `${labelForField(p.field)} ${p.value}`)
+                  .join(", ")}
+                .{" "}
+                {/* The seller confirms every one of these on the real form.
+                    Saying "confirm" rather than "we set these" is the whole
+                    difference between a suggestion and a claim the extension
+                    cannot yet make. */}
+                Confirm each on the form.
+              </>
+            )}
+            {unmapped.length > 0 && suggested.length > 0 && (
+              <>
+                {" "}
+                No suggestion for{" "}
+                {unmapped.map((p) => labelForField(p.field)).join(" or ")}.
+              </>
+            )}
           </span>
         </div>
       )}
@@ -1815,7 +1876,7 @@ export function ListingKit({ itemId, baseName }: { itemId: string; baseName?: st
       const [{ data: row, error: itemError }, { data: priced, error: priceError }] = await Promise.all([
         supabase
           .from("inventory_items")
-          .select("target_price, title, brand, color, size")
+          .select("target_price, title, brand, color, size, grade_value, grade_label")
           .eq("id", itemId)
           .maybeSingle(),
         // The composer's third source is `item.list_price`, which is NOT a
@@ -1836,12 +1897,27 @@ export function ListingKit({ itemId, baseName }: { itemId: string; baseName?: st
       if (itemError) throw itemError;
       if (priceError) throw priceError;
       const item = row as
-        | (KitItemFacts & { target_price: number | null })
+        | {
+            target_price: number | null;
+            title: string | null;
+            brand: string | null;
+            color: string | null;
+            size: string | null;
+            grade_value: number | null;
+            grade_label: string | null;
+          }
         | null;
       return {
         target_price: item?.target_price ?? null,
         facts: item
-          ? { title: item.title, brand: item.brand, color: item.color, size: item.size }
+          ? {
+              title: item.title,
+              brand: item.brand,
+              color: item.color,
+              size: item.size,
+              gradeValue: item.grade_value,
+              gradeLabel: item.grade_label,
+            }
           : null,
         any_listing_price:
           (priced as { listing_price: number | null } | null)?.listing_price ?? null,

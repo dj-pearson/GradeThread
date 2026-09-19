@@ -169,8 +169,20 @@ describe("session patterns are real regexes, not text that looks like one", () =
   //
   // CLAUDE.md forbids invisible characters in source for exactly this reason.
   // A guard that reads the file is the only thing that sees them.
-  it("no session pattern contains a control character", () => {
+  it("every kind classifies by exactly one mechanism", () => {
+    // A kind carries a `match` regex OR a `test` function, never both and never
+    // neither. `dated` needs a function because "in the future" is not something
+    // a regex can express; everything else is a pattern.
     for (const kind of SESSION_KINDS) {
+      expect(
+        Boolean(kind.match) !== Boolean(kind.test),
+        `${kind.key}: needs exactly one of match or test`,
+      ).toBe(true);
+    }
+  });
+
+  it("no session pattern contains a control character", () => {
+    for (const kind of SESSION_KINDS.filter((k) => k.match)) {
       const bad = [...kind.match.source].filter((c) => c.charCodeAt(0) < 32);
       expect(
         bad.map((c) => c.charCodeAt(0)),
@@ -192,12 +204,30 @@ describe("session patterns are real regexes, not text that looks like one", () =
       counsel: "counsel has to write it",
       sourcing: "source licensed reference imagery",
       host: "full-disk encryption on the box",
+      dated: "read Search Console on 2099-01-01 and record the result",
     };
     for (const kind of SESSION_KINDS) {
       const probe = probes[kind.key];
       expect(probe, `no probe for session kind ${kind.key} — add one`).toBeTruthy();
-      expect(kind.match.test(probe), `${kind.key} does not match its own probe`).toBe(true);
+      const hit = kind.match ? kind.match.test(probe) : kind.test(probe, "2026-09-18");
+      expect(hit, `${kind.key} does not match its own probe`).toBe(true);
     }
+  });
+
+  it("the dated kind lets a date that has ARRIVED fall through", () => {
+    // The whole point. A follow-up whose date has passed is ordinary work and
+    // must not sit in a bucket labelled "nothing to do yet".
+    const dated = SESSION_KINDS.find((k) => k.key === "dated");
+    const text = "read Search Console on 2026-10-17 and record the result";
+    expect(dated.test(text, "2026-09-18"), "before the date: parked").toBe(true);
+    expect(dated.test(text, "2026-10-17"), "on the date: actionable").toBe(false);
+    expect(dated.test(text, "2026-12-01"), "after the date: actionable").toBe(false);
+  });
+
+  it("the dated kind ignores a date that records when something happened", () => {
+    const dated = SESSION_KINDS.find((k) => k.key === "dated");
+    expect(dated.test("applied 2099-01-01 by the owner, confirmed from prod", "2026-09-18")).toBe(false);
+    expect(dated.test("Found 2099-01-01 by the guard rewrite", "2026-09-18")).toBe(false);
   });
 
   it("the sittings are numbered in the order they are listed", () => {
@@ -237,10 +267,18 @@ describe("a vendor NAME is not an action", () => {
     }
   });
 
-  it("the longest-lead sitting runs first", () => {
+  it("the longest-lead sitting runs first among the ones you can start", () => {
     // Not cosmetic. Every other sitting is work the operator finishes in one
     // go; this one is a REQUEST to somebody else with days of lead time, so it
-    // is started first and the wait is spent on the other eight.
-    expect(SESSION_KINDS[0].key).toBe("thirdparty");
+    // is started first and the wait is spent on the others.
+    //
+    // `dated` sits ahead of it and is not a counter-example: its lead time is
+    // longer still and its items cannot be STARTED at all. It is first so that
+    // first-match classification cannot let an earlier pattern swallow a
+    // date-gated item -- US-9017 names prod credentials and Search Console and
+    // would otherwise land in the command sitting, where an operator would try
+    // to run it two months early.
+    expect(SESSION_KINDS[0].key).toBe("dated");
+    expect(SESSION_KINDS[1].key).toBe("thirdparty");
   });
 });

@@ -2125,6 +2125,13 @@ export interface SyncedPolicies {
   policies: SyncedPolicy[];
   merchantLocationKey: string | null;
   missing: string[];
+  /**
+   * US-2855 AC2: kinds whose stored default pointed at a policy the seller has
+   * since deleted on eBay, and which this sync moved to the account's first
+   * policy of that kind instead. Returned so a caller can tell the seller ONCE
+   * rather than letting them find out from a refused publish.
+   */
+  replacedDefaults: EbayPolicyKind[];
 }
 
 /**
@@ -2218,6 +2225,43 @@ export async function syncBusinessPolicies(
 
   const synced: SyncedPolicy[] = [];
 
+  // Which policy ids eBay still has, per kind. Needed BEFORE the push loop,
+  // because deciding whether a stored default is still alive cannot be done one
+  // row at a time.
+  const liveIdsByKind = new Map<EbayPolicyKind, Set<string>>([
+    ["fulfillment", new Set(fulfillmentPolicies.map((p) => p.fulfillmentPolicyId))],
+    ["payment", new Set(paymentPolicies.map((p) => p.paymentPolicyId))],
+    ["return", new Set(returnPolicies.map((p) => p.returnPolicyId))],
+  ]);
+
+  /**
+   * US-2855 AC2, and the defect was worse than the story described.
+   *
+   * `isDefault` used to read `existingDefault ? existingDefault === id :
+   * isFirst`. When the seller DELETED the policy their stored default points
+   * at, `existingDefault` is still set and matches nothing eBay returned, so
+   * NO row of that kind got is_default -- and the stale row, which this upsert
+   * never touches because eBay did not return its id, kept is_default = true.
+   * readCachedDefaults then returned a DEAD policy id and publish sent it to
+   * eBay, which is a refused publish naming a policy the seller cannot find.
+   * The story predicted a "Configure eBay business policies" blocker; that only
+   * happens when the kind has NO policies at all.
+   *
+   * So a stored default is honoured only while it still EXISTS. Once it does
+   * not, the kind falls back to eBay's first policy of that kind, which is the
+   * account default the criterion asks for, and the kind is reported in
+   * `replacedDefaults` so somebody can say so once.
+   */
+  const replacedDefaults: EbayPolicyKind[] = [];
+  const deadDefaults = new Map<EbayPolicyKind, string>();
+  for (const [kind, live] of liveIdsByKind) {
+    const stored = existingDefaultByType.get(kind);
+    if (stored && live.size > 0 && !live.has(stored)) {
+      replacedDefaults.push(kind);
+      deadDefaults.set(kind, stored);
+    }
+  }
+
   const push = (
     kind: EbayPolicyKind,
     id: string,
@@ -2225,7 +2269,9 @@ export async function syncBusinessPolicies(
     data: Record<string, unknown>,
     isFirst: boolean,
   ) => {
-    const existingDefault = existingDefaultByType.get(kind);
+    const existingDefault = deadDefaults.has(kind)
+      ? undefined
+      : existingDefaultByType.get(kind);
     const isDefault = existingDefault
       ? existingDefault === id
       : isFirst;
@@ -2272,6 +2318,35 @@ export async function syncBusinessPolicies(
     }
   }
 
+  // The dead row still claims is_default, and this upsert cannot have cleared
+  // it: eBay did not return that id, so it was not in `synced`. Left alone it
+  // outranks the replacement in readCachedDefaults, which selects on
+  // is_default and does not care whether the policy still exists.
+  //
+  // Cleared by exact policy_id rather than by "everything else of this kind":
+  // this is a mutation, and the self-hosted PostgREST rejects logical operators
+  // on UPDATE (US-1552), so the narrow filter is both safer and the only shape
+  // that is known to work on prod.
+  for (const [kind, deadId] of deadDefaults) {
+    const { error: clearErr } = await supabaseAdmin
+      .from("business_policies")
+      .update({ is_default: false })
+      .eq("user_id", userId)
+      .eq("marketplace", "ebay")
+      .eq("policy_id", deadId);
+    if (clearErr) {
+      console.error(
+        `[ebay-client] could not clear the dead ${kind} default ${deadId}:`,
+        clearErr,
+      );
+    } else {
+      console.warn(
+        `[ebay-client] the stored ${kind} default (${deadId}) no longer exists ` +
+          `on eBay; falling back to the account's first ${kind} policy.`,
+      );
+    }
+  }
+
   // Persist the merchant location on the connection so resolveCachedDefaults
   // can pick it up without re-hitting eBay every publish.
   const merchantLocationKey = locations[0]?.merchantLocationKey ?? null;
@@ -2284,7 +2359,7 @@ export async function syncBusinessPolicies(
       .eq("is_active", true);
   }
 
-  return { policies: synced, merchantLocationKey, missing };
+  return { policies: synced, merchantLocationKey, missing, replacedDefaults };
 }
 
 /**

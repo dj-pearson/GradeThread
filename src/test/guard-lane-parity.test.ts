@@ -63,6 +63,16 @@ const NOT_A_LANE_CHECK: Record<string, string> = {
     "does not. Run the script directly when you want the report rather than " +
     "the pass/fail: `node scripts/check-us-spelling.mjs`, or " +
     "`--self-check` for just the rule.",
+  "check-ci-conclusion.mjs":
+    "NOT A LANE CHECK BY CONSTRUCTION (US-3408 AC3). It asks GitHub what the " +
+    "check runs for a pushed SHA concluded, which is the one question neither " +
+    "verify nor CI can answer about itself: verify runs before the push exists " +
+    "and CI would be reading the run it is inside. It is what the loop runs " +
+    "AFTER pushing -- `npm run ci:conclusion -- --wait` -- so a red main is " +
+    "read rather than assumed, which is the hole US-3408 was filed for. Its " +
+    "reporting is gated: src/test/merge-resolution-gate.test.ts drives it " +
+    "against a local server and pins that an unfinished run, no runs at all " +
+    "and an unreachable API all report UNKNOWN rather than green.",
   "check-close-claims.mjs":
     "a commit-msg HOOK (.githooks/commit-msg), not a lane check. It reads the " +
     "message being written, which neither verify nor CI has.",

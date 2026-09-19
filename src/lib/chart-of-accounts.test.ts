@@ -161,18 +161,23 @@ function parseSeededAccounts(sql: string): LedgerAccount[] {
  * absent. The branch that lands the migration deletes its own entry in the same
  * commit, exactly as the KNOWN_GAPS branches do.
  */
-const HELD_SEED_CORRECTIONS = [
-  {
-    code: "cogs_labor",
-    field: "name" as const,
-    seed: "Labour that went into the goods",
-    ts: "Labor that went into the goods",
-    migration: "00797",
-    branch: "held-v2/us-3256-00797",
-    why:
-      "Schedule C Part III line 37 is \"Cost of labor\". 00684 seeded the " +
-      "British spelling; 00797 upserts the row to the US one.",
-  },
+const HELD_SEED_CORRECTIONS: readonly {
+  code: string;
+  field: keyof LedgerAccount;
+  seed: unknown;
+  ts: unknown;
+  migration: string;
+  branch: string;
+  why: string;
+}[] = [
+  // Empty, and the machinery stays. US-3256's entry -- cogs_labor.name, seeded
+  // "Labour" against a TypeScript chart that says "Labor" -- came out on
+  // 2026-09-18 when 00797 was written, exactly as the comment above promised.
+  // The shape is kept because the third state it names is a real one in this
+  // repo: a finished migration parked awaiting an owner apply is neither
+  // "agrees" nor "has drifted", and without somewhere to say so the only two
+  // moves are leaving the guard red or spelling the TypeScript side the way
+  // the bad seed does. Commit e321bdae4 did the second one once already.
 ] as const;
 
 /**

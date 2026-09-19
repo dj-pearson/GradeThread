@@ -389,6 +389,23 @@ if (on("web")) {
   // 2026-09-11 in 30de51229 wired into NOTHING, which is the same defect one
   // level up: a guard that passes and never runs (US-3308 AC6).
   run("web: loose repair SQL", "node scripts/check-loose-repair-sql.mjs");
+  // US-3408: a conflict resolved by interleaving both sides — one side's
+  // function bodies, the other side's imports. git reports the conflict and
+  // then reports the resolution as clean, because it checks for markers and
+  // nothing else. 40e95fadc shipped that shape in two files, tsc -b reported 11
+  // errors and the push used --no-verify, so origin/main was un-buildable for
+  // about forty minutes. The real gate is .githooks/reference-transaction,
+  // which --no-verify cannot skip; this lane is the second pass, for a merge
+  // made on a checkout that had no hooks. No-op on a push carrying no merge.
+  run("web: merge resolution", "node scripts/check-merge-resolution.mjs");
+  // US-3421: a registry naming a `held-*` branch the remote does not have. Six
+  // finished migrations are parked on branches that exist on one machine, and
+  // it stayed invisible because PENDING_MIGRATIONS.md and KNOWN_GAPS agree with
+  // EACH OTHER -- only the remote knows. Shrink-only against a baseline, so it
+  // gates the sixth arriving rather than reddening on the five already there,
+  // and it SKIPS loudly when the remote cannot be asked instead of printing a
+  // green line it did not earn.
+  run("web: held branches exist", "node scripts/check-held-branches.mjs");
   // US-3410: prod's column set against the one the migrations build, both
   // directions. `listings.ebay_drift` has been in prod since July and is built
   // by no file in this tree; it was found by accident while reading about a

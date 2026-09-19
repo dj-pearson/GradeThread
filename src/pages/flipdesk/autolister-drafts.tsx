@@ -1244,6 +1244,7 @@ export function FlipdeskAutolisterDraftsPage() {
                                 variant="ghost"
                                 onClick={() => setEditingId(null)}
                                 title="Cancel (Esc)"
+                                aria-label={`Cancel editing ${draftName}`}
                               >
                                 <X className="mr-1 h-3.5 w-3.5" />
                                 Cancel
@@ -1271,6 +1272,13 @@ export function FlipdeskAutolisterDraftsPage() {
         open={reidentifyOpen}
         onOpenChange={setReidentifyOpen}
         itemIds={selectedItemIds}
+        itemLabel={(itemId) => {
+          const d = drafts?.find((x) => x.inventory_item_id === itemId);
+          return itemRowLabel({
+            item_title: d ? titleFor(d) : null,
+            id: itemId,
+          });
+        }}
         mode="reidentify"
         onReviewItem={(itemId) =>
           void navigate(`/dashboard/flipdesk/items/${itemId}/draft`)

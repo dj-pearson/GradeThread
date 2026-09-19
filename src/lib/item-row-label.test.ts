@@ -333,8 +333,29 @@ describe("the AutoLister photo grid and chips name themselves (US-2450)", () => 
   it("the chips reuse the identity already on screen", () => {
     // suggestionLabel is what the chip RENDERS. Inventing a second description
     // for the same chip is how a spoken name drifts from a printed one.
-    expect(AUTO_SRC).toContain("`Dismiss suggestion: ${suggestionLabel(s, g.id)}`");
-    expect(AUTO_SRC).toMatch(/Dismiss proposal of \$\{r\.photoIds\.length\} photos/);
+    //
+    // US-3420 moved the chips into autolister/suggestion-chips.tsx and pinned
+    // this the other way round, because the old assertion pinned the literal
+    // aria-label strings and those are no longer written at the call site. The
+    // component now takes ONE `label` per row and uses it in BOTH buttons, so
+    // a spoken name cannot drift from its sibling's; what is left to check
+    // here is that the page feeds it the same value it prints.
+    const CHIPS = readFileSync(
+      resolve(process.cwd(), "src/pages/flipdesk/autolister/suggestion-chips.tsx"),
+      "utf8",
+    );
+    for (const spoken of [
+      "`Apply suggestion: ${s.label}`",
+      "`Dismiss suggestion: ${s.label}`",
+      "`Create the proposed item from ${r.label}`",
+      "`Dismiss proposal of ${r.label}`",
+    ]) {
+      expect(CHIPS, `${spoken} is missing`).toContain(spoken);
+    }
+    // And the page's label is built from what the chip prints, not invented.
+    expect(AUTO_SRC).toContain("text: suggestionLabel(s, g.id)");
+    expect(AUTO_SRC).toContain("label: suggestionLabel(s, g.id)");
+    expect(AUTO_SRC).toMatch(/label: `\$\{r\.photoIds\.length\} photos, /);
   });
 });
 

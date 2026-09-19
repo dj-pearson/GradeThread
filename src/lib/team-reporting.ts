@@ -1041,14 +1041,33 @@ export const EMPTY_THROUGHPUT: Throughput = {
  * themselves plus the owner. Everyone else comes back from buildThroughput as
  * UNNAMED_LABEL rather than as a uuid or as 'Automated'. Never throws on a
  * refused read -- a partial roster is the correct output here, not an error.
+ *
+ * US-3260: the errors are READ, and the distinction is the point. RLS refusing
+ * a row does not produce an error at all -- PostgREST filters it and returns a
+ * short set -- so anything that DOES arrive here as an error is a network or
+ * server failure, which the "partial roster is correct" rule above was never
+ * about. Both look identical in the output: every name becomes UNNAMED_LABEL,
+ * exactly as it does for a member who legitimately cannot see the others.
+ *
+ * It still does not throw, because the sibling reads in fetchThroughput do and
+ * a name that cannot be resolved should not take the whole throughput report
+ * down. Surfacing it in the UI would mean carrying a partial flag through
+ * Throughput and every consumer of it; that is recorded on the story rather
+ * than done here. The warning is what stops the failure being silent.
  */
 export async function fetchRoster(ownerId: string): Promise<RosterEntry[]> {
   const out = new Map<string, string>();
 
-  const { data: memberRows } = await supabase
+  const { data: memberRows, error: memberError } = await supabase
     .from("workspace_members")
     .select("member_id")
     .eq("owner_id", ownerId);
+  if (memberError) {
+    console.warn(
+      `[team-reporting] the workspace roster could not be read (${memberError.message}). ` +
+        "Names in this report may read as unnamed even where they are known.",
+    );
+  }
   const ids = new Set<string>([ownerId]);
   for (const r of (memberRows ?? []) as unknown as Array<{
     member_id: string;
@@ -1056,10 +1075,16 @@ export async function fetchRoster(ownerId: string): Promise<RosterEntry[]> {
     ids.add(r.member_id);
   }
 
-  const { data: userRows } = await supabase
+  const { data: userRows, error: userError } = await supabase
     .from("users")
     .select("id, full_name, email")
     .in("id", [...ids]);
+  if (userError) {
+    console.warn(
+      `[team-reporting] member names could not be read (${userError.message}). ` +
+        "Everyone in this report will read as unnamed.",
+    );
+  }
   for (const u of (userRows ?? []) as unknown as Array<{
     id: string;
     full_name: string | null;

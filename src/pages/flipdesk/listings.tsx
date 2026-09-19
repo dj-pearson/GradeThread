@@ -72,6 +72,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { supabase } from "@/lib/supabase";
+import { itemRowLabel } from "@/lib/item-row-label";
 import { useAuthStore } from "@/stores/auth-store";
 import { ItemDetailDialog } from "@/components/flipdesk/item-detail-dialog";
 import { useKeyboardShortcuts } from "@/hooks/use-keyboard-shortcuts";
@@ -2146,6 +2147,7 @@ export function FlipdeskListingsPage() {
         open={aiEnrichOpen}
         onOpenChange={setAiEnrichOpen}
         itemIds={Array.from(selected)}
+        itemLabel={(itemId) => itemRowLabel(items.find((i) => i.id === itemId) ?? { id: itemId })}
         onReviewItem={(itemId) => {
           const it = items.find((i) => i.id === itemId);
           if (it) setDetailItem(it);

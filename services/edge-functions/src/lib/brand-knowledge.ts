@@ -142,6 +142,14 @@ interface BrandSizeChartRow {
   source_url: string | null;
   verified: boolean | null;
   measurement_basis: string | null;
+  // US-3406. 00499 added this column and nothing read it for seven weeks, which
+  // is measurable from the outside: flipdesk-size-bands reports
+  // `chart.sizeClass ?? detectSizeClass(chart)`, and on THIS path sizeClass was
+  // always undefined because the select below did not ask for it. So the route
+  // answered with a re-derivation of the garment string while a stored value
+  // sat in the row, and the in-code fallback path answered from the declared
+  // value. Two paths, two answers for the same chart, and the live one lost.
+  size_class: string | null;
 }
 
 // ── Pure assembly + budget (unit-tested without a DB) ───────────────────────
@@ -200,6 +208,13 @@ function chartFromRow(r: BrandSizeChartRow): SizingChart {
     // default the column carries, because every chart seeded before that
     // migration held body measurements.
     measurementBasis: r.measurement_basis === "flat" ? "flat" : "body",
+    // NULL stays undefined rather than becoming "standard", and the difference
+    // is load-bearing: undefined means nobody has classified this chart, so the
+    // caller's `?? detectSizeClass(chart)` fallback still runs. Writing
+    // "standard" here would assert a classification the row does not make, and
+    // ~284 of the seeded rows carry NULL because 00499 only emitted a row where
+    // a system was readable or the class was non-standard.
+    sizeClass: r.size_class ?? undefined,
   };
 }
 
@@ -370,7 +385,7 @@ export async function resolveBrandKnowledgePack(
       supabaseAdmin
         .from("brand_size_charts")
         .select(
-          "brand_label, brand_match, department, garment, category_match, rows, note, source_url, verified, measurement_basis",
+          "brand_label, brand_match, department, garment, category_match, rows, note, source_url, verified, measurement_basis, size_class",
         )
         .eq("brand_key", key),
     ]);

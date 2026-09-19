@@ -85,32 +85,45 @@ const BASELINE = 20;
 // promotion and unscheduling the wrong drop all cost money, so those went
 // first. A budget rather than a floor (see the case that uses it), and it only
 // goes down.
-// ⚠ 59, NOT 57, AND THE TWO MISSING ONES ARE A REAL CONSTRAINT RATHER THAN
-// AN OVERSIGHT. autolister.tsx carries a shrink-only LINE-COUNT ceiling from
-// US-2520 and sits exactly on it, so the two aria-labels its proposal rows
-// need (Create, Apply) could not be added without pushing the file over. The
-// ceiling says to extract a piece rather than raise the number, and it is
-// right — but that is a refactor of a 3600-line file, not a label fix. The
-// labels were written, the ceiling caught them, and they were reverted.
+// ⚠ 59, NOT 57. The two missing ones were the aria-labels autolister.tsx's
+// proposal rows need (Create, Apply), which could not be added because that
+// file sat exactly on its shrink-only US-2520 line ceiling and two attributes
+// pushed it over. They were written, the ceiling caught them, and they were
+// reverted.
 //
-// Worth knowing generally: a file at its ceiling cannot take an accessibility
-// fix, however small. That is the trade US-2520 chose deliberately.
-// 96 -> 4 over 2026-08-23. The FOUR that remain are not a backlog; each is
-// parked for a stated reason, so treat a drop below 4 as suspicious rather
-// than as progress:
+// ⚠ CORRECTED 2026-09-18 (US-3420), and the correction is the useful half.
+// This block used to conclude "a file at its ceiling cannot take an
+// accessibility fix, however small — that is the trade US-2520 chose
+// deliberately". That reads like a standing constraint and it is not one: the
+// ceiling's own failure message says to EXTRACT rather than raise the number,
+// and doing what it said took 76 lines of duplicated chip markup out of the
+// page (autolister/suggestion-chips.tsx), left 45 lines of headroom, and made
+// the accessible name part of the component's contract. The ceiling was never
+// the obstacle; reading it as one is what parked the fix for three weeks.
+// 96 -> 4 over 2026-08-23, and 4 -> 0 on 2026-09-18. The four that had been
+// parked are listed below, each with what its excuse turned out to be worth:
 //
-//   autolister.tsx x2   Create and Apply on the proposal rows. The labels are
-//                       written and were REVERTED: that file sits exactly on
-//                       its US-2520 line-count ceiling, so two attribute
-//                       lines push it over. The ceiling says to extract a
-//                       piece rather than raise the number, and that is a
-//                       refactor of a 3,600-line page, not a label fix.
-//   bulk-ai-enrich      Review. The row keys on r.item_id and no
-//   autolister-drafts   Cancel. Same: keyed on d.id.
-//                       human-readable title is in scope for either. Naming
-//                       them means threading a value through the component,
-//                       and an id read aloud is worse than the repeated verb.
-const TEXT_BASELINE = 4;
+//   autolister.tsx x2   Create and Apply. The labels had been written and
+//                       REVERTED, because two aria-label attributes put that
+//                       file over its US-2520 line ceiling. The ceiling's own
+//                       message says extract rather than raise, and that was
+//                       the right instruction: the two amber chip blocks were
+//                       76 lines of near-identical markup and are now
+//                       autolister/suggestion-chips.tsx, where the accessible
+//                       name is part of the component's contract and a caller
+//                       cannot render a chip without supplying one. The page
+//                       lost 45 lines and the ceiling came down with it. So a
+//                       ceiling was the reason an accessibility defect stayed
+//                       open, and following it closed both.
+//   bulk-ai-enrich      Review. "No human-readable title is in scope" was true
+//                       of the dialog and not of its two callers, which both
+//                       hold the rows. It takes an optional itemLabel prop and
+//                       falls back to itemRowLabel's id fragment.
+//   autolister-drafts   Cancel. draftName, built by itemRowLabel, was already
+//                       in scope eleven lines above the button.
+//
+// The baseline is 0 and every one of these is a real name, not a suppression.
+const TEXT_BASELINE = 0;
 
 function walk(dir: string, out: string[] = []): string[] {
   for (const entry of readdirSync(dir)) {

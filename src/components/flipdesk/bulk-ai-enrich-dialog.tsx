@@ -22,6 +22,7 @@ import {
 } from "@/hooks/use-ai-extract";
 import { useAuth } from "@/hooks/use-auth";
 import { FLIPDESK_PLANS, flipdeskPlanForLegacy, type PlanKey } from "@/lib/constants";
+import { itemRowLabel } from "@/lib/item-row-label";
 
 interface BulkAiEnrichDialogProps {
   open: boolean;
@@ -37,6 +38,16 @@ interface BulkAiEnrichDialogProps {
   mode?: BulkExtractMode;
   /** Open a single item for per-item review of pending suggestions. */
   onReviewItem: (itemId: string) => void;
+  /**
+   * US-3420: a name for one result row, so its Review button says WHICH item.
+   * The rows this dialog renders carry only a status and a field count, so
+   * every Review button announced the bare word "Review" and a screen-reader
+   * user had nothing to choose between. The dialog is given ids and never
+   * titles, so the caller — which has the rows — supplies this. Omitted, the
+   * fallback is itemRowLabel's id fragment: ugly to hear, distinguishing,
+   * which is the job.
+   */
+  itemLabel?: (itemId: string) => string;
   /** Called after a batch completes so the caller can refetch. */
   onDone: () => void;
 }
@@ -47,6 +58,7 @@ export function BulkAiEnrichDialog({
   itemIds,
   mode = "gap_fill",
   onReviewItem,
+  itemLabel = (itemId) => itemRowLabel({ id: itemId }),
   onDone,
 }: BulkAiEnrichDialogProps) {
   const { profile } = useAuth();
@@ -253,6 +265,9 @@ export function BulkAiEnrichDialog({
                       variant="ghost"
                       size="sm"
                       className="h-7"
+                      aria-label={`Review ${r.pending.length} field${
+                        r.pending.length === 1 ? "" : "s"
+                      } on ${itemLabel(r.item_id)}`}
                       onClick={() => {
                         onReviewItem(r.item_id);
                         close();
