@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router";
+import { finishedRunNote, marketplaceLabel } from "@/lib/finished-queue-run";
 import {
   Plug,
   ArrowRight,
@@ -1700,6 +1701,9 @@ function ExtensionQueueSection() {
 
   const pending = data?.pending ?? [];
   const needsAttention = data?.needsAttention ?? [];
+  // US-3425: runs that FINISHED and still want a human. The edge has answered
+  // with this since US-3370 and no web surface read it.
+  const finished = data?.finishedNeedsReview ?? [];
   // US-3198: the loading guard stays; the empty guard is gone. QueueSummary is
   // the thing a seller with an empty queue needs to see.
   if (isLoading) return null;
@@ -1808,6 +1812,57 @@ function ExtensionQueueSection() {
                 {job.result?.error ? ` — ${job.result.error}` : ""}
               </li>
             ))}
+          </ul>
+        </div>
+      )}
+
+      {/* US-3425: it RAN. Its own words, because both lists above would be
+          wrong about it and one of them dangerously so — "Nothing happened on
+          the marketplace, queue it again" after a run that happened is how a
+          seller posts the same garment twice. */}
+      {finished.length > 0 && (
+        <div className="mt-2 rounded-lg border p-3">
+          <p className="flex items-center gap-2 text-sm font-medium">
+            <AlertTriangle className="h-4 w-4 text-brand-red-text" />
+            Ran, and needs you
+          </p>
+          <p className="mt-0.5 text-xs text-muted-foreground">
+            These reached the marketplace. Something on them still needs
+            fixing there — do not queue them again, or you will post twice.
+          </p>
+          <ul className="mt-2 space-y-1.5">
+            {finished.map((job) => {
+              const note = finishedRunNote(job.platform, job.result);
+              return (
+                <li key={job.id} className="text-xs">
+                  <span className="font-medium text-foreground">
+                    {job.item_title
+                      ? `${job.item_title} — ${describe(job.kind, job.platform)}`
+                      : describe(job.kind, job.platform)}
+                  </span>
+                  <span
+                    className={
+                      note.severity === "alarm"
+                        ? "text-brand-red-text"
+                        : "text-muted-foreground"
+                    }
+                  >
+                    {" "}
+                    {note.sentence}
+                  </span>
+                  {note.href && (
+                    <a
+                      href={note.href}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="ml-1 underline underline-offset-2"
+                    >
+                      Open on {marketplaceLabel(job.platform)}
+                    </a>
+                  )}
+                </li>
+              );
+            })}
           </ul>
         </div>
       )}
