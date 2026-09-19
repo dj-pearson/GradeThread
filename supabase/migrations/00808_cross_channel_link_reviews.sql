@@ -23,6 +23,12 @@
 -- ordering is stable today and a uniqueness rule that depends on that would
 -- silently start duplicating if the anchor rule ever changed.
 --
+-- THE UNDO LIVES ON THE ROW, and that is a granularity decision rather than a
+-- convenience. flipdesk_import_effects reverses a whole RUN; a seller who
+-- confirms twenty joins and regrets one wants THAT ONE back, not the scan.
+-- So a confirmed row keeps the writes it made, with the values they
+-- overwrote, and splitting an already-linked pair replays them backwards.
+--
 -- Deny-all RLS, service-role only, registered in SERVICE_ROLE_ONLY in
 -- rls-guard_test.ts. A readable row names two of the seller's listings and a
 -- similarity score, which is theirs; a WRITABLE one would let a caller
@@ -46,6 +52,12 @@ CREATE TABLE IF NOT EXISTS public.flipdesk_cross_channel_link_reviews (
   -- describe rows that have since changed.
   reasons        jsonb NOT NULL DEFAULT '[]'::jsonb,
   status         text NOT NULL DEFAULT 'pending',
+  -- What a confirmation CHANGED, with the values it overwrote, exactly as
+  -- cross-channel-link-writes.ts emits them. This is where the unmerge button
+  -- comes from, and it is per PAIR rather than per run on purpose: a seller
+  -- who confirms twenty joins and regrets one wants that one back, and
+  -- flipdesk_import_effects' undo reverses a whole run. Null until confirmed.
+  applied_writes jsonb,
   resolved_at    timestamptz,
   created_at     timestamptz NOT NULL DEFAULT now(),
   updated_at     timestamptz NOT NULL DEFAULT now()

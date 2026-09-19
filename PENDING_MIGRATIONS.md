@@ -47,9 +47,17 @@ section are unchanged and still waiting.
 
 ## ⏳ HELD: 00808_cross_channel_link_reviews.sql (US-3197 — the cross-channel matches a human has to decide)
 
-**Risk: LOW.** One new table, no data touched, nothing reads it yet. The
-feature that will (Universal Import's linking half) is still being built, so
-applying this early costs nothing and blocks nothing.
+**Risk: LOW.** One new table, no data touched.
+
+> [!note] AMENDED 2026-09-19, AFTER ITS FIRST COMMIT AND BEFORE ANY APPLY.
+> `applied_writes jsonb` was added. If you have already applied 00808, apply
+> it again — the file is idempotent and the second run adds only that column.
+> The reason for the change: the undo belongs on the ROW, not on the run.
+> `flipdesk_import_effects` reverses a whole import, and a seller who confirms
+> twenty joins and regrets one wants that one back.
+
+The edge now reads this table (`lib/cross-channel-link-service.ts`), so apply
+it **before** the next edge deploy.
 
 **What it is for.** Universal Import joins a Poshmark listing and an eBay
 listing of ONE physical garment onto one item. The decision layers

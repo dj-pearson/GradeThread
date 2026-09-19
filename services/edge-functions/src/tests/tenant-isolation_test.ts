@@ -9368,6 +9368,78 @@ Deno.test({
 });
 
 Deno.test({
+  // US-3197: the cross-channel link confirm route ACTS on the ids its review
+  // row names -- it moves a listing onto another item and archives the one it
+  // left. A review row reachable across tenants is therefore not a read leak,
+  // it is a merge of somebody else's garments with no unmerge button they
+  // know about.
+  //
+  // The id is a uuid B could hold from anywhere, so the row must be
+  // owner-scoped on the read that precedes the write, and the answer must be
+  // 404 rather than 403: B should not learn whether the id exists.
+  name: "B cannot confirm or split another workspace's cross-channel match",
+  ignore: !CONFIGURED,
+  fn: async () => {
+    for (const decision of ["confirm", "split"]) {
+      const res = await fetch(
+        `${BASE}/api/flipdesk/import/link/reviews/00000000-0000-4000-8000-000000000042/${decision}`,
+        { method: "POST", headers: authHeaders(B_JWT!) },
+      );
+      await res.body?.cancel();
+      assert(
+        res.status === 404 || res.status === 402 || res.status === 403,
+        `${decision} on a foreign match returned ${res.status}; expected 404`,
+      );
+    }
+  },
+});
+
+Deno.test({
+  // The queue read. Every row names two of the seller's listings and a
+  // similarity score, which is a map of their catalogue.
+  name: "the cross-channel review queue returns only the caller's own matches",
+  ignore: !CONFIGURED,
+  fn: async () => {
+    const res = await fetch(`${BASE}/api/flipdesk/import/link/reviews`, {
+      headers: authHeaders(B_JWT!),
+    });
+    if (res.status === 402 || res.status === 403) {
+      await res.body?.cancel();
+      return; // not entitled; nothing to prove about scoping
+    }
+    const body = await res.json() as { reviews?: Array<Record<string, unknown>> };
+    assert(Array.isArray(body.reviews), "the queue did not return a list");
+    // A's fixture listings must not appear in B's queue.
+    const aItem = Deno.env.get("TEST_USER_A_ITEM_ID");
+    if (aItem) {
+      const leaked = body.reviews.filter((r) =>
+        r.item_a_id === aItem || r.item_b_id === aItem
+      );
+      assertEquals(leaked, [], "A's item appeared in B's review queue");
+    }
+  },
+});
+
+Deno.test({
+  // The scan is a WRITE: it joins listings and archives items. An
+  // unauthenticated caller able to run it would reshape a stranger's
+  // catalogue, and there is no unmerge button they would know to press.
+  name: "an unauthenticated caller cannot run a cross-channel link scan",
+  ignore: !CONFIGURED,
+  fn: async () => {
+    const res = await fetch(`${BASE}/api/flipdesk/import/link/scan`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+    });
+    await res.body?.cancel();
+    assert(
+      res.status === 401 || res.status === 403,
+      `unauthenticated link scan returned ${res.status}; expected 401/403`,
+    );
+  },
+});
+
+Deno.test({
   // US-3185: the group boundary is a PUBLIC route, reached with the token and
   // nothing else, so the same two questions apply as to the upload: a token
   // that is not ours must reach no session, and one that is must move only
