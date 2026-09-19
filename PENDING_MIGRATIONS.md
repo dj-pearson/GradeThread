@@ -45,6 +45,53 @@ stronger claim for one of them, `check-prod-migration.ts` is the tool.
 Nothing below 00786 was touched, and the six genuinely-held branches in the next
 section are unchanged and still waiting.
 
+## ⏳ HELD: 00808_cross_channel_link_reviews.sql (US-3197 — the cross-channel matches a human has to decide)
+
+**Risk: LOW.** One new table, no data touched, nothing reads it yet. The
+feature that will (Universal Import's linking half) is still being built, so
+applying this early costs nothing and blocks nothing.
+
+**What it is for.** Universal Import joins a Poshmark listing and an eBay
+listing of ONE physical garment onto one item. The decision layers
+(`cross-channel-link.ts`, `cross-channel-link-plan.ts`) deliberately refuse
+more than they accept, and what they refuse has to go somewhere a person can
+answer it. **Nothing merges without a confirmation** — a row here is a
+question, not a pending action, and no job drains this table.
+
+**Why a table rather than recomputing the list.** The queue is a screen a
+seller works through over days, and the decision depends on rows that change
+under them. Recomputing would reshuffle it, resurrect pairs they already
+split, and lose the reasons they were shown when they decided. A resolved row
+is also the only record that a human said NO; without it the next import
+proposes the same merge forever.
+
+- Deny-all RLS, **zero policies**, registered in `SERVICE_ROLE_ONLY` in
+  `rls-guard_test.ts`, and it carries its own
+  `REVOKE ALL ... FROM anon, authenticated` per US-3355.
+- The unique index is on the **order-independent** pair
+  (`least`/`greatest`), so the same pair asked the other way round collides
+  instead of creating a second question. That is what makes a re-import
+  idempotent at the review layer, the way `(platform, platform_listing_id)`
+  already is at the import layer.
+- CHECKs on `status` and on the two listings being distinct.
+
+**Measured on a local Postgres 16 carrying all 800 migrations**, not reviewed:
+applied from clean and re-applied three times with no change; the
+order-independent unique index rejects the reversed pair; both CHECKs reject
+their bad row; RLS is on with 0 policies; and after a simulated platform
+`GRANT ALL`, the REVOKE takes `anon`/`authenticated` from **14 grants to 0**
+while `service_role` keeps its 7.
+
+```sql
+-- after applying
+NOTIFY pgrst, 'reload schema';
+```
+
+**No ordering hazard**: no code reads the table yet. Apply after 00807.
+
+**EXPECTED_SCHEMA_VERSION is 00808 in the same commit**, and the manifest was
+regenerated.
+
 ## ⏳ HELD: 00807_scope_storage_public_read_policies.sql (US-3403 — stop a stranger enumerating the five public buckets)
 
 **Risk: LOW, and lower than it reads.** It narrows five `FOR SELECT` policies
