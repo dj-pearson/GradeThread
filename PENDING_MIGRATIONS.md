@@ -45,6 +45,49 @@ stronger claim for one of them, `check-prod-migration.ts` is the tool.
 Nothing below 00786 was touched, and the six genuinely-held branches in the next
 section are unchanged and still waiting.
 
+## ⏳ HELD: 00805_phone_capture_groups.sql (US-3185 — several items on one capture code)
+
+**Risk: LOW.** Two `ADD COLUMN ... IF NOT EXISTS` with a `DEFAULT 0` on two
+tables that are minutes old at any moment (a capture session lives fifteen
+minutes and nothing reads a finished one), one widened CHECK, one new index.
+No data is rewritten and no existing row changes meaning: every row already in
+those tables was written by a one-item code, and 0 is the index a one-item code
+would have stamped.
+
+**What it does.**
+
+- `phone_capture_sessions.group_index` — the item the phone is shooting now.
+  Moved only by `POST /api/flipdesk/capture/s/:token/next-item`.
+- `phone_capture_photos.group_index` — the item a shot was taken on, copied
+  from the session at insert. The phone never sends an index, so there is
+  nothing for a tampered page to scatter.
+- `phone_capture_sessions_target_kind_check` widens to accept `staging`.
+  AutoLister photo intake has no `listing_generation_batches` row to bind to —
+  that row is created when generation STARTS, which is after the photos exist
+  and have been grouped into items — so a capture started from the intake page
+  binds to the seller's own AutoLister session id.
+- `idx_phone_capture_photos_session_group` — the desktop reads a session's
+  photos in item order, then in shooting order inside an item.
+
+**APPLY ORDER: SQL FIRST, then the edge, then the frontend.** The edge selects
+`group_index` in `SESSION_COLUMNS` and inserts it on every capture photo, so an
+edge deploy that lands before this SQL answers PostgREST 42703 on the whole
+query and every phone upload fails. The frontend reads the new fields off the
+edge's responses and degrades to "one item" without them, so it is the safe
+one to be early.
+
+```sql
+-- after applying
+NOTIFY pgrst, 'reload schema';
+```
+
+**Idempotent, and it has to be:** both `ADD COLUMN`s are `IF NOT EXISTS`, the
+CHECK is dropped before it is recreated (an existing CHECK cannot be widened in
+place), and the index is `IF NOT EXISTS`. Running it twice changes nothing.
+
+**EXPECTED_SCHEMA_VERSION is 00805 in the same commit**, and the manifest was
+regenerated (`node scripts/gen-migration-manifest.mjs`).
+
 ## ✅ APPLIED 2026-09-15 (owner, confirmed from prod): 00804 - preview, seed and save for SKU numbering (US-3416)
 
 **Confirmed, credential-free:** `curl -s https://functions.gradethread.com/health/ready`

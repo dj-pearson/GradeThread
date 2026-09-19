@@ -119,9 +119,16 @@ Deno.test("the phone is told what it needs and nothing about the seller", () => 
   // shape reaches a page anybody holding the link can open. US-3162 added
   // missingTypes, which is a fixed vocabulary shared by every seller and so
   // names nothing about this one.
+  // The whole key set, not a subset: this is the "and nothing else" half, and
+  // it is what would fire if a later change handed the phone a seller id, a
+  // title or a target id. US-3185 added the three group keys, none of which
+  // names anything outside this session.
   assertEquals(Object.keys(view).sort(), [
     "expiresAt",
+    "groupIndex",
     "missingTypes",
+    "multiItem",
+    "photosInGroup",
     "photosLeft",
     "photosTaken",
     "targetKind",
@@ -181,7 +188,10 @@ Deno.test("an item capture carries the missing list and still names nothing else
   assertEquals(view.missingTypes, ["back", "tag"]);
   assertEquals(Object.keys(view).sort(), [
     "expiresAt",
+    "groupIndex",
     "missingTypes",
+    "multiItem",
+    "photosInGroup",
     "photosLeft",
     "photosTaken",
     "targetKind",

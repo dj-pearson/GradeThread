@@ -22,6 +22,8 @@ import { useTagOcrWiring } from "./autolister/tag-ocr";
 import { useGooglePhotosImport } from "@/hooks/use-google-photos-import";
 import { itemPhotoThumb } from "@/lib/images";
 import { PhotoEditorDialog } from "@/components/flipdesk/photo-editor-dialog";
+import { useAutolisterPhoneCapture } from "./autolister/use-phone-capture";
+import { uploadActions } from "./autolister/upload-actions";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card } from "@/components/ui/card";
@@ -897,23 +899,8 @@ export function FlipdeskAutolisterPage() {
   // compress -> validate -> paced upload) lives in the app-level store — see
   // src/stores/autolister-upload-store.ts. These are thin delegates so the
   // existing JSX call sites stay unchanged.
-  async function handleFiles(files: FileList | File[] | null) {
-    if (!files || !ownerId) return;
-    const list = Array.from(files);
-    if (list.length === 0) return;
-    await useAutolisterUploadStore
-      .getState()
-      .enqueueFiles(list, sessionId.current);
-  }
-
-  // US-539: re-run failed pipelines without re-picking files.
-  async function retryUploadTasks(taskIds: string[]) {
-    await useAutolisterUploadStore.getState().retryTasks(taskIds);
-  }
-
-  function dismissUploadTask(id: string) {
-    useAutolisterUploadStore.getState().dismissTask(id);
-  }
+  const { handleFiles, retryUploadTasks, dismissUploadTask } =
+    uploadActions(ownerId, sessionId.current);
 
 
   // US-3140: Google Photos import. The sequence — start, popup, poll until the
@@ -942,6 +929,10 @@ export function FlipdeskAutolisterPage() {
         })),
       ]),
   });
+
+  // US-3185: phone-as-camera for a whole bin, wired in ./autolister/use-phone-capture.
+  const phoneCapture = useAutolisterPhoneCapture(ownerId, sessionId.current, groups,
+    (add, next) => { setStaged((prev) => [...prev, ...add]); setGroups(next); });
 
   // US-1550: remember the chosen grid sort (see `ungroupedSorted`, which
   // renders it; unlike the pre-US-1540 sort buttons this never rewrites the
@@ -2561,6 +2552,7 @@ export function FlipdeskAutolisterPage() {
               }
             : null
         }
+        phoneCapture={phoneCapture}
       />
 
       <UploadProgressPanel

@@ -9368,6 +9368,75 @@ Deno.test({
 });
 
 Deno.test({
+  // US-3185: the group boundary is a PUBLIC route, reached with the token and
+  // nothing else, so the same two questions apply as to the upload: a token
+  // that is not ours must reach no session, and one that is must move only
+  // its OWN session's counter.
+  //
+  // The damage if it did not: an index advanced on somebody else's session
+  // would file the next shots that seller takes under an item they never
+  // started, which is a silent mis-grouping of another workspace's catalogue.
+  name: "a made-up capture token cannot advance anybody's item counter",
+  ignore: !CONFIGURED,
+  fn: async () => {
+    for (
+      const token of [
+        "not-a-token",
+        "../../api/flipdesk/items",
+        "B".repeat(44),
+      ]
+    ) {
+      const res = await fetch(
+        `${BASE}/api/flipdesk/capture/s/${encodeURIComponent(token)}/next-item`,
+        { method: "POST" },
+      );
+      await res.body?.cancel();
+      assert(
+        res.status === 404 || res.status === 410,
+        `next-item on token "${token}" returned ${res.status}; expected 404/410`,
+      );
+    }
+  },
+});
+
+Deno.test({
+  // US-3185: `staging` is the one target kind with no row to own, because
+  // AutoLister intake happens before a generation batch exists. What keeps it
+  // scoped is that the session records the CALLER's owner id and the status
+  // read filters on it — so a staging id borrowed from another seller mints a
+  // code into the borrower's own session, and the other seller's desktop never
+  // sees it. This asserts the half that could actually leak: reading back.
+  name: "B cannot read a staging capture session started by A",
+  ignore: !CONFIGURED,
+  fn: async () => {
+    const mint = await fetch(`${BASE}/api/flipdesk/capture/sessions`, {
+      method: "POST",
+      headers: authHeaders(A_JWT!),
+      body: JSON.stringify({
+        targetKind: "staging",
+        targetId: crypto.randomUUID(),
+      }),
+    });
+    if (mint.status === 402 || mint.status === 403) {
+      await mint.body?.cancel();
+      return; // A is not entitled here; nothing to prove about B.
+    }
+    const started = await mint.json() as { sessionId?: string };
+    assert(typeof started.sessionId === "string", "A could not start a staging capture");
+
+    const res = await fetch(
+      `${BASE}/api/flipdesk/capture/sessions/${started.sessionId}`,
+      { headers: authHeaders(B_JWT!) },
+    );
+    await res.body?.cancel();
+    assert(
+      res.status === 404 || res.status === 402,
+      `A's staging capture read as B returned ${res.status}; expected 404`,
+    );
+  },
+});
+
+Deno.test({
   // US-3155: the Grailed closet import. Same shape as the Poshmark case above —
   // the batch names a marketplace listing id the caller supplies, so the row it
   // matches must be scoped to the caller's own tenant or B writes into A's

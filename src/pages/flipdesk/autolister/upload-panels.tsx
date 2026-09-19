@@ -4,6 +4,7 @@ import {
   Images,
   Loader2,
   RotateCcw,
+  Smartphone,
   Upload,
   X,
 } from "lucide-react";
@@ -15,6 +16,7 @@ import {
   type UploadTask,
 } from "@/stores/autolister-upload-store";
 import { cn } from "@/lib/utils";
+import type { AutolisterPhoneCapture } from "./use-phone-capture";
 
 // US-2520: lifted out of autolister.tsx. Getting photos in is a self-contained
 // job — it ends the moment a file is staged — and it was sitting in the middle
@@ -33,6 +35,7 @@ export function UploadDropzone({
   onDropFiles,
   uploading,
   googlePhotos,
+  phoneCapture,
 }: {
   entitled: boolean;
   dragging: boolean;
@@ -50,6 +53,20 @@ export function UploadDropzone({
     onImport: () => void;
     onCancel: () => void;
   } | null;
+  /**
+   * US-3185: shoot a whole bin on the phone, one code for all of it.
+   *
+   * Sits with Google Photos rather than on a page of its own, because every
+   * one of these is the same job — getting photos in — and a seller looking
+   * for "another way to add photos" looks in one place.
+   *
+   * It carries its own dialog, rendered here beside the button that opens it,
+   * so the page wires one prop rather than a prop and a sibling element.
+   *
+   * Null while the session has no owner yet, for the same reason Google Photos
+   * is: there is nowhere for the photos to land.
+   */
+  phoneCapture: AutolisterPhoneCapture | null;
 }) {
   return (
     <Card
@@ -130,6 +147,21 @@ export function UploadDropzone({
           <FolderOpen className="mr-1.5 h-4 w-4" />
           Pick a folder
         </Button>
+        {phoneCapture && (
+          <>
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              onClick={phoneCapture.onStart}
+              disabled={!entitled || phoneCapture.active}
+            >
+              <Smartphone className="mr-1.5 h-4 w-4" />
+              {phoneCapture.active ? "Phone camera is open" : "Shoot with your phone"}
+            </Button>
+            {phoneCapture.dialog}
+          </>
+        )}
         {googlePhotos && (
           <Button
             type="button"
