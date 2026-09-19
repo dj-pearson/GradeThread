@@ -4,8 +4,10 @@ import { join } from "node:path";
 import {
   REGISTRIES,
   KNOWN_ABSENT,
+  KNOWN_ABSENT_UNNUMBERED,
   namedBranches,
   missingBranches,
+  unnumberedBranches,
 } from "../../scripts/check-held-branches.mjs";
 
 // US-3421. The guard asks the REMOTE whether a branch a registry names actually
@@ -103,5 +105,82 @@ describe("held-branch registries (US-3421)", () => {
     expect(verify).toContain("scripts/check-held-branches.mjs");
     const ci = readFileSync(join(ROOT, ".github/workflows/ci.yml"), "utf8");
     expect(ci).toContain("scripts/check-held-branches.mjs");
+  });
+});
+
+// ── The branch no registry could hold ───────────────────────────────────────
+//
+// Found 2026-09-18 while investigating US-3399. Both registries are keyed on a
+// migration: the merge-order table has a version column, KNOWN_GAPS explains a
+// hole in the numbering. A branch with finished work and no SQL fits neither, so
+// it can only be named in prose, and prose is deliberately out of scope. The
+// guard was green while `held/us-3399-chart-order` was as lost as the four it
+// tracks -- its SHA, d3ec2de55, is not an object in this clone.
+
+describe("held branches that carry no migration", () => {
+  const unnumbered = unnumberedBranches(ROOT);
+
+  it("finds the one branch with no migration number", () => {
+    expect([...unnumbered.keys()]).toContain("held/us-3399-chart-order");
+  });
+
+  it("stays silent on every branch that DOES carry a number", () => {
+    // The noise argument, as a case rather than a claim. PENDING_MIGRATIONS.md
+    // names nine numbered branches in prose alone -- the same stories at
+    // successive conventions and numbers -- and those have a registry, so this
+    // check must not repeat them.
+    for (const name of unnumbered.keys()) {
+      expect(name, `${name} carries a migration number and has a registry`).not.toMatch(
+        /\d{5}/,
+      );
+    }
+  });
+
+  it("the numbered narration really is in the file, so the case above is not vacuous", () => {
+    // If PENDING_MIGRATIONS.md stopped narrating superseded branches, the
+    // silence above would be silence about nothing.
+    const doc = readFileSync(join(ROOT, "PENDING_MIGRATIONS.md"), "utf8");
+    const numbered = [...doc.matchAll(/\bheld(?:-v\d+)?\/[A-Za-z0-9._-]*\d{5}[A-Za-z0-9._-]*/g)];
+    expect(
+      new Set(numbered.map((m) => m[0])).size,
+      "expected the file to still name several numbered held branches",
+    ).toBeGreaterThan(4);
+  });
+
+  it("reads prose, which is the opposite of the numbered scan and the point", () => {
+    // `namedBranches` is scoped to table rows. This one is not, deliberately:
+    // a migration-less branch has no table row to be in.
+    const named = namedBranches(ROOT);
+    expect([...named.keys()]).not.toContain("held/us-3399-chart-order");
+    expect([...unnumbered.keys()]).toContain("held/us-3399-chart-order");
+  });
+
+  it("the baseline says what each entry holds, not just that it is gone", () => {
+    // An entry naming only a branch tells the next reader nothing about what
+    // rebuilding it costs. US-3399's says which test file went with it.
+    expect(KNOWN_ABSENT_UNNUMBERED.size).toBeGreaterThan(0);
+    for (const [branch, what] of KNOWN_ABSENT_UNNUMBERED) {
+      expect(what.length, `${branch} has no description`).toBeGreaterThan(40);
+    }
+  });
+
+  it("the baseline matches what is missing today, both directions", () => {
+    // Shrink-only, same as KNOWN_ABSENT: an entry that stops being missing
+    // fails as loudly as a new gap.
+    const onRemote = new Set<string>();
+    const missing = new Set(
+      missingBranches(unnumbered, onRemote).map((m) => m.branch),
+    );
+    for (const branch of KNOWN_ABSENT_UNNUMBERED.keys()) {
+      expect(missing, `${branch} is baselined but not named any more`).toContain(branch);
+    }
+  });
+
+  it("the two baselines never name the same branch", () => {
+    // They are found by different rules and reported separately. An overlap
+    // would double-report one branch and make the counts disagree.
+    for (const branch of KNOWN_ABSENT_UNNUMBERED.keys()) {
+      expect(KNOWN_ABSENT.has(branch), `${branch} is in both baselines`).toBe(false);
+    }
   });
 });

@@ -86,6 +86,69 @@ export const KNOWN_ABSENT = new Map([
   ["held-v2/us-3312-00799", "00799, two brand_knowledge notes that are false in prod"],
 ]);
 
+/**
+ * Held branches that carry NO migration, which no registry can hold.
+ *
+ * THE BLIND SPOT, found 2026-09-18 while investigating US-3399. Both registries
+ * above are keyed on a migration: the merge-order table has a version column,
+ * and `KNOWN_GAPS` exists to explain a hole in the numbering. A branch holding
+ * finished work and no SQL has nowhere to be named, so it can only appear in
+ * PENDING_MIGRATIONS.md PROSE -- and prose is deliberately out of scope, for the
+ * good reason in the `table-rows` comment above.
+ *
+ * So this guard was green while `held/us-3399-chart-order` (d3ec2de55, the
+ * chart-ordering fix plus a `brand-knowledge-chart-order_test.ts` that exists
+ * nowhere else) was exactly as lost as the four it tracks. `git cat-file -t
+ * d3ec2de55` returns "Not a valid object name" in a fresh clone.
+ *
+ * MEASURED, because the noise question is the whole reason prose is out of
+ * scope: PENDING_MIGRATIONS.md names 14 held branches, 4 in table rows and 10 in
+ * prose only. NINE of the ten carry a five-digit migration number in the name --
+ * `held/us-3387-00793` beside `held-v2/us-3387-00793`, `held/us-3256-00790`
+ * beside `held-v2/us-3256-00797` -- i.e. the same story at successive
+ * conventions and numbers, which is the narration the scoping exists to skip.
+ * Exactly ONE has no number. So "no migration number in the name" is a precise
+ * discriminator, not a heuristic: it finds the one branch that has no other
+ * home and stays silent on the nine that do.
+ *
+ * Shrink-only in both directions, like KNOWN_ABSENT.
+ */
+export const KNOWN_ABSENT_UNNUMBERED = new Map([
+  [
+    "held/us-3399-chart-order",
+    "US-3399's chart-ordering fix (d3ec2de55): the ORDER BY plus " +
+      "brand-knowledge-chart-order_test.ts, which exists in no clone. " +
+      "Unrecoverable -- the SHA is not an object here, so it must be rebuilt.",
+  ],
+]);
+
+/** A five-digit migration number anywhere in the branch name. */
+const NUMBERED_RE = /\b\d{5}\b/;
+
+/**
+ * Held branch names found ANYWHERE in the registries, prose included, that
+ * carry no migration number.
+ *
+ * Reads the files unscoped on purpose. That is the opposite of `namedBranches`
+ * and it is safe for exactly the reason measured above: dropping the numbered
+ * names drops all the narration.
+ */
+export function unnumberedBranches(root = ROOT) {
+  /** @type {Map<string, string[]>} */
+  const found = new Map();
+  for (const { file } of REGISTRIES) {
+    const p = path.join(root, file);
+    if (!existsSync(p)) continue;
+    const text = readFileSync(p, "utf8").replace(/~~[^~]*~~/g, "");
+    for (const m of text.matchAll(BRANCH_RE)) {
+      if (NUMBERED_RE.test(m[0])) continue;
+      if (!found.has(m[0])) found.set(m[0], []);
+      if (!found.get(m[0]).includes(file)) found.get(m[0]).push(file);
+    }
+  }
+  return found;
+}
+
 // `held/x`, `held-v2/x`, `held-v3/x`. Deliberately loose about the suffix: the
 // convention has already gone from `held/` to `held-v2/` to `held-v3/` in a
 // week, and a guard whose real trigger is a naming convention is a guard that
@@ -186,11 +249,32 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
   const fresh = missing.filter((m) => !KNOWN_ABSENT.has(m.branch));
   const cleared = [...KNOWN_ABSENT.keys()].filter((b) => !missingNames.has(b));
 
-  if (fresh.length === 0 && cleared.length === 0) {
-    const held = KNOWN_ABSENT.size;
+  // The migration-less half, checked separately because it is found by a
+  // different rule and its baseline is its own.
+  const unnumbered = unnumberedBranches();
+  const unnumberedMissing = missingBranches(unnumbered, onRemote);
+  const unnumberedNames = new Set(unnumberedMissing.map((m) => m.branch));
+  const freshUnnumbered = unnumberedMissing.filter(
+    (m) => !KNOWN_ABSENT_UNNUMBERED.has(m.branch),
+  );
+  const clearedUnnumbered = [...KNOWN_ABSENT_UNNUMBERED.keys()].filter(
+    (b) => !unnumberedNames.has(b),
+  );
+
+  if (
+    fresh.length === 0 &&
+    cleared.length === 0 &&
+    freshUnnumbered.length === 0 &&
+    clearedUnnumbered.length === 0
+  ) {
     console.log(
       `[held-branches] ${named.size} named branch(es) on ${remote}; ` +
-        `${held} still absent and baselined, no new ones — ok`,
+        `${KNOWN_ABSENT.size} still absent and baselined, no new ones — ok`,
+    );
+    console.log(
+      `[held-branches] ${unnumbered.size} branch(es) carry no migration and so ` +
+        `no registry can hold them; ${KNOWN_ABSENT_UNNUMBERED.size} absent and ` +
+        `baselined — ok`,
     );
     process.exit(0);
   }
@@ -208,6 +292,35 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
         "  from being rewritten. Push the branch, or stop naming it: the hold\n" +
         "  rule protects origin/MAIN, which is what deploys, and a side branch\n" +
         "  is not a violation of it.",
+    );
+  }
+
+  if (freshUnnumbered.length) {
+    console.error(
+      `[held-branches] ${freshUnnumbered.length} branch(es) carry NO migration, ` +
+        `are named only in prose, and do NOT exist on ${remote}:`,
+    );
+    for (const { branch, files } of freshUnnumbered) {
+      console.error(`  • ${branch}   (named in ${files.join(", ")})`);
+    }
+    console.error("");
+    console.error(
+      "  A held branch with no SQL has no registry: the merge-order table has a\n" +
+        "  version column and KNOWN_GAPS explains a hole in the numbering, and\n" +
+        "  this has neither. Nothing else will ever notice it is gone. Push it,\n" +
+        "  or land the work, or stop naming it.",
+    );
+  }
+
+  if (clearedUnnumbered.length) {
+    console.error(
+      `[held-branches] ${clearedUnnumbered.length} KNOWN_ABSENT_UNNUMBERED ` +
+        `entr(y/ies) are no longer missing:`,
+    );
+    for (const b of clearedUnnumbered) console.error(`  • ${b}`);
+    console.error("");
+    console.error(
+      "  Delete the entry in the same commit. Shrink-only, same as the list above.",
     );
   }
 
