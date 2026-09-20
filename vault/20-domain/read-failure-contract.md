@@ -15,10 +15,21 @@ code_refs:
   - src/test/submission-detail-linked-item-read.test.tsx
   - src/test/submission-detail-photo-read.test.tsx
   - src/test/blocking-read-density.test.ts
-reviewed: 2026-09-19
+reviewed: 2026-09-20
 tags: [data, reliability, finances]
 summary: Failed database reads must not appear as zero balances, empty inventory, completed filing checks, or defaults that can overwrite saved values.
 ---
+
+
+> [!note] Re-reviewed 2026-09-20. All five drifted refs are the commits this
+> note was EXTENDED BY, in the same commits: US-3427 (a failed dispute lookup
+> withholds the dispute, not the grade report), US-3428 (a failed linked-item
+> lookup withholds the nudge and re-reads before a retake), US-3433 (a failed
+> photo read withholds the photos, not the grade) and US-3434 (guard the count,
+> not the shape, of blocking reads). The two sections those passes added --
+> "The dependent action, not the page" and "Count the consumers" -- are the
+> contract this note now states, and `blocking-read-density.test.ts` is what
+> holds the count. Nothing here is a claim a later change falsified.
 
 # Failed reads must not become facts
 

@@ -7,10 +7,18 @@ code_refs:
   - services/edge-functions/src/lib/coherent-cache.ts
   - services/edge-functions/src/lib/schema-version.ts
   - services/edge-functions/src/lib/circuit-breaker.ts
-reviewed: 2026-09-15
+reviewed: 2026-09-20
 tags: [edge, caching, deploy, contract]
 summary: The edge runs N replicas, migrations apply separately from the code roll, and a deadline must cover the response body — three facts that constrain what any edge module may assume.
 ---
+
+
+> [!note] Re-reviewed 2026-09-20. Drift on `schema-version.ts`, and for the
+> third time the diff is the same one line. `EXPECTED_SCHEMA_VERSION` went
+> 00808 to 00813 across four held migrations (00809, 00810, 00811, 00812,
+> 00813). Read the file's whole history since the last review: every commit
+> touching it changes that constant and nothing else. The boot guard, the grace
+> window and the manifest comparison this note describes are unchanged.
 
 > **Re-reviewed 2026-09-11.** Drift on `schema-version.ts` again, and again the
 > whole diff is the one line this note already documents four times over:

@@ -8,10 +8,24 @@ code_refs:
   - services/edge-functions/src/lib/size-systems.ts
   - services/edge-functions/src/lib/grading-size.ts
   - services/edge-functions/src/lib/sizing-charts.ts
-reviewed: 2026-09-11
+reviewed: 2026-09-20
 tags: [sizing, brands, conversion, contract]
 summary: Only four size-system conversions are performed, every one derived from paired data already in the corpus; EU, JP, AU and alpha are refused outright, and a refusal is the correct answer rather than a gap.
 ---
+
+
+> [!note] Re-reviewed 2026-09-20. Both drifted refs are this note's own
+> commits. `size-systems.ts` had `CLASS_PATTERNS` widened so "curve" reads as
+> plus and a bare "big" as big_and_tall (US-3406), which is the paragraph on
+> extended sizing above, written in the same commit. `sizing-charts.ts` gained
+> `narrowToFamily` in `findSizingCharts`'s fallback (US-3405), which changes
+> which charts are RETURNED and not what any of them means.
+>
+> Re-checked the two census numbers this note leans on rather than assuming
+> them: the corpus is still 415 charts in the seed, and the four conversions
+> and their offsets are untouched -- neither commit went near
+> `detectSizeSystem` or the offset table. The third ref, `grading-size.ts`, did
+> not change.
 
 # Size-system conversions
 

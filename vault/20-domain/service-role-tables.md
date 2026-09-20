@@ -10,10 +10,25 @@ code_refs:
   - supabase/migrations/00810_revoke_operator_grants_a_credentials.sql
   - supabase/migrations/00811_revoke_operator_grants_b_people.sql
   - supabase/migrations/00812_revoke_operator_grants_c_platform.sql
-reviewed: 2026-09-11
+reviewed: 2026-09-20
 tags: [security, rls, tenant-isolation, contract]
 summary: rls-guard discovers tenant tables by regex on the CREATE TABLE block - any column ending in user_id or owner_id - so an operator table must be registered in SERVICE_ROLE_ONLY; the same file also enforces the (select auth.uid()) initplan form, with a five-entry exemption list whose entries fall into two DIFFERENT cases - a negligible table, and a policy already superseded by a corrective migration. Of the two layers an operator table is supposed to have, only RLS-with-zero-policies was load-bearing until 00810-00812: 88 of the 142 registered tables carried no REVOKE at all. Those 88 are listed here by name and grouped by what a policy would expose, and the retrofit is written as three held migrations covering 94 tables (the 88 plus six that revoked only their writes), because prod's anon OpenAPI document already publishes 87 of them and 941 column names. service-role-grant-posture_test.ts now asserts both that every registered table has a REVOKE and that no later GRANT has undone it.
 ---
+
+
+> [!note] Re-reviewed 2026-09-20. Five drifts, four of them this note's own
+> commit. The three `00810`/`00811`/`00812` migrations and
+> `service-role-grant-posture_test.ts` landed together with the retrofit
+> callout above, so they and the note were written against each other.
+>
+> The fifth is not mine and was read: `rls-guard_test.ts` changed on 2026-09-19
+> (US-3197) to register ONE new table, `flipdesk_cross_channel_link_reviews`,
+> as deny-all in both directions, with the reason beside it -- a writable row
+> would let a caller manufacture a merge question against another tenant's
+> listings. That is this note's discovery rule working exactly as described: an
+> operator table that the `user_id`-column regex cannot find has to be
+> registered by hand. It arrived WITH a revoke, so it does not belong in the
+> census, which is why that list is still empty.
 
 > **Re-reviewed 2026-09-11.** Drift flagged `rls-guard_test.ts` for US-3334,
 > which registered one new operator table, `grading_reference_photos`, in

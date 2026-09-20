@@ -10,10 +10,18 @@ code_refs:
   - supabase/migrations/00777_ledger_rebuild_safeupdate.sql
   - supabase/migrations/00697_home_office.sql
   - src/lib/ledger.ts
-reviewed: 2026-09-13
+reviewed: 2026-09-20
 tags: [postgres, migrations, ledger, prod-only]
 summary: Production loads the safeupdate extension and rejects any UPDATE or DELETE with no WHERE clause as SQLSTATE 21000. The local image does not have it, so the statement applies green locally, in verify:db and in CI, and fails for the first time on a real user's request — which is how one DELETE kept the Money tab at $0.00 for four months.
 ---
+
+
+> [!note] Re-reviewed 2026-09-20. Drift on `scripts/migrations-lint.mjs` from
+> two commits on 2026-09-18. Both are pure DELETIONS from `KNOWN_GAPS` -- the
+> 00793 and 00797 entries removing themselves as those migrations landed, which
+> is that list's shrink-only rule working. `whereLessMutations`, the rule this
+> note leans on, is untouched, and it still grandfathers the five applied
+> instances by name.
 # A WHERE-less mutation is a production-only failure
 
 Production loads the [`safeupdate`](https://github.com/eradman/pg-safeupdate)

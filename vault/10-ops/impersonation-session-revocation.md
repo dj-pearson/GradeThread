@@ -11,10 +11,18 @@ code_refs:
   - scripts/check-session-revocation.mjs
   - src/lib/impersonation.ts
   - src/lib/__tests__/impersonation-revoke-warning.test.ts
-reviewed: 2026-09-11
+reviewed: 2026-09-20
 tags: [security, auth, impersonation, contract]
 summary: Stopping an impersonation falls back to deleting the target's auth.sessions rows through an RPC we own, because GoTrue's admin logout route does not exist on the version this project runs — and even a working revocation cannot kill an access token already issued.
 ---
+
+
+> [!note] Re-reviewed 2026-09-20. Drift on `scripts/check-session-revocation.mjs`
+> (US-3435). Read the diff: five lines, all of them the INVOCATION. It resolves
+> its target through `psqlTarget()` now instead of building a `docker exec`
+> command by hand, so it runs against any Postgres carrying the migrations.
+> Everything this note describes -- the user, the two sessions and the refresh
+> token it seeds, and the cascade it asserts -- is untouched.
 # Ending an impersonation
 
 ## The route it relied on does not exist
