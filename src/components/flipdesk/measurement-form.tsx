@@ -45,14 +45,18 @@ import {
   fetchMeasurementStats,
   measurementStatsQueryKey,
 } from "@/lib/measurement-stats-fetch";
+import { asAiFieldSource, isAiWritten } from "@/lib/ai-field-sources";
+import type { AiFieldSourceEntry } from "@/types/database";
 
 type MeasurementValues = Record<string, number | string>;
 
-interface AiSourceMeta {
-  source: string;
-  confidence: number;
-  accepted: boolean;
-}
+// US-3444: this file used to redeclare the entry shape as
+// `{ source, confidence, accepted: boolean }`, which was wrong twice over --
+// Android writes a bare string (US-3358) and `accepted` is a tri-state
+// (US-3352). The AI badge below read `ai.confidence` straight off the entry, so
+// an Android-written measurement rendered `NaN% confident, undefined` in its
+// tooltip. The shared type and its narrowing helper are the fix; a local copy
+// is what let the two drift.
 
 interface Props {
   category: string | null | undefined;
@@ -63,7 +67,7 @@ interface Props {
    * Map of ai_field_sources from the item. We look up keys prefixed
    * `measurements.<field>` and render an "AI" badge on those fields.
    */
-  aiSources?: Record<string, AiSourceMeta> | null;
+  aiSources?: Record<string, AiFieldSourceEntry> | null;
   /**
    * US-2827: the item's size. Supplying it turns on the live cohort check —
    * a value outside what other sellers record for the same size and garment
@@ -231,7 +235,8 @@ export function MeasurementForm({
     });
   }
 
-  function aiMetaFor(key: string): AiSourceMeta | null {
+  /** The entry for a field, whatever shape it is in. */
+  function aiEntryFor(key: string): AiFieldSourceEntry | null {
     if (touched.has(key)) return null;
     return aiSources?.[`measurements.${key}`] ?? null;
   }
@@ -351,7 +356,12 @@ export function MeasurementForm({
 
       <div className="grid gap-3 sm:grid-cols-2">
         {template.map((field) => {
-          const ai = aiMetaFor(field.key);
+          const aiEntry = aiEntryFor(field.key);
+          // The badge shows whenever an AI pass wrote the field; the CONFIDENCE
+          // only when the entry carries one. Android's string form says the
+          // first and not the second, which is why these are two questions.
+          const aiWritten = isAiWritten(aiEntry);
+          const ai = asAiFieldSource(aiEntry);
           // Only `length` fields have a comparable cohort; a US shoe size and a
           // case diameter are different quantities. `null` from isOutsideBand
           // means "no band to check against", which is not a pass and renders
@@ -387,12 +397,14 @@ export function MeasurementForm({
                 {field.required && (
                   <span className="text-destructive">*</span>
                 )}
-                {ai && (
+                {aiWritten && (
                   <span
                     className="rounded bg-primary/10 px-1 py-0.5 text-[9px] font-medium text-primary"
-                    title={`AI estimate from brand sizing (${Math.round(
-                      ai.confidence * 100,
-                    )}% confident, ${ai.source}). Verify against the actual garment.`}
+                    title={ai
+                      ? `AI estimate from brand sizing (${Math.round(
+                        ai.confidence * 100,
+                      )}% confident, ${ai.source}). Verify against the actual garment.`
+                      : "Filled by an AI pass. No confidence was recorded for it. Verify against the actual garment."}
                   >
                     AI
                   </span>
