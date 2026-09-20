@@ -14,6 +14,7 @@ code_refs:
   - src/test/submission-detail-dispute-read.test.tsx
   - src/test/submission-detail-linked-item-read.test.tsx
   - src/test/submission-detail-photo-read.test.tsx
+  - src/test/blocking-read-density.test.ts
 reviewed: 2026-09-19
 tags: [data, reliability, finances]
 summary: Failed database reads must not appear as zero balances, empty inventory, completed filing checks, or defaults that can overwrite saved values.
@@ -86,6 +87,17 @@ down: `grep` for a load effect that early-returns on a read the page is not
 *for*. The scan that found it is two lines -- a `setError` followed within a few
 lines by a bare `return`, counted per file -- and the file with four of them was
 the one already known to have two defects.
+
+`src/test/blocking-read-density.test.ts` is that scan, kept (US-3434). It does
+NOT flag a blocking read; 19 of the 19 sites outside that one file are correct,
+because most of these files load one thing and that thing is what the page is
+for. It flags the **count**: three or more in one file, and somebody should name
+the consumers. That is the signal that actually worked.
+
+The other half of the contract -- a failed read caught and written into an empty
+collection -- was scanned at the same time and is clean: 15 candidates, every one
+either a busy-flag reset inside a `catch` or a read already carrying its own
+failure flag. The command palette's two were fixed by US-3381 and US-2517.
 
 ## Named optional exceptions
 
