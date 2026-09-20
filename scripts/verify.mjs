@@ -609,6 +609,16 @@ if (on("db")) {
       "db: whole-dollar price repair lands where its header says (US-3318)",
       "node scripts/check-whole-dollar-price-repair.mjs",
     );
+    // US-3443: brandKey drops an accented letter rather than transliterating
+    // it, so "Kuhl" with an umlaut keys as `khl`. Four charts were stored under
+    // both spellings and the copy grading could reach was the one with no
+    // source_url. The keys are written by hand in some migrations and computed
+    // by a generator in others, so the TABLE is the only place the question has
+    // one answer.
+    run(
+      "db: every chart carries the brand_key the resolver computes (US-3443)",
+      "node scripts/check-chart-brand-keys.mjs",
+    );
     run("db: COGS worksheet and its cross-check (US-2986)", "node scripts/check-cogs-worksheet.mjs");
     run("db: facilitator vs seller-collected sales tax (US-2987)", "node scripts/check-facilitator-tax.mjs");
     run("db: 1099-K gross is branch-independent (US-2988)", "node scripts/check-1099k-bridge.mjs");

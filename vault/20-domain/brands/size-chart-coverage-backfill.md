@@ -257,7 +257,8 @@ This runbook says several times that charts "compete for the three-chart
 budget". Until 2026-09-20 nothing decided that competition: the resolver's
 `brand_size_charts` read carried no `ORDER BY`, so the three that reached the
 grading prompt were whatever physical order Postgres returned, and that order
-changes if a row is ever updated in place. Measured over the 441-row corpus,
+changes if a row is ever updated in place. Measured over the 441-row corpus
+(437 after 00813 removed four accent-keyed duplicates, US-3443),
 122 of 2,172 brand x category probes are over budget, so this is not a corner.
 
 The rule now, and it is three things rather than one:

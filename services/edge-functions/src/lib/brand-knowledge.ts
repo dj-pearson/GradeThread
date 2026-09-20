@@ -265,6 +265,8 @@ export function applyChartOrder<
 // were whatever physical order Postgres happened to return. Measured on the
 // 441-row post-00793 corpus: 122 of 2,172 brand x category probes are over
 // budget, and 112 of those 122 fall through the category step entirely.
+// (00813 later removed four accent-keyed duplicates, so the corpus is 437; the
+// four were duplicates of rows still present and none of these counts moved.)
 //
 // The read now carries created_at DESC, verified DESC, department ASC,
 // garment ASC. That is TOTAL, because (brand_key, department, garment) is

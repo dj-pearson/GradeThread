@@ -30,6 +30,7 @@ on:
       - "scripts/check-sku-sequences.mjs"
       - "scripts/check-dispute-report-ownership.mjs"
       - "scripts/check-whole-dollar-price-repair.mjs"
+      - "scripts/check-chart-brand-keys.mjs"
       - "scripts/check-cogs-worksheet.mjs"
       - "scripts/check-facilitator-tax.mjs"
       - "scripts/check-1099k-bridge.mjs"
@@ -65,6 +66,7 @@ on:
       - "scripts/check-sku-sequences.mjs"
       - "scripts/check-dispute-report-ownership.mjs"
       - "scripts/check-whole-dollar-price-repair.mjs"
+      - "scripts/check-chart-brand-keys.mjs"
       - "scripts/check-cogs-worksheet.mjs"
       - "scripts/check-facilitator-tax.mjs"
       - "scripts/check-1099k-bridge.mjs"
@@ -190,6 +192,11 @@ jobs:
       # move together or the composer and reconciliation disagree.
       - name: Whole-dollar price repair lands where its header says (US-3318)
         run: node scripts/check-whole-dollar-price-repair.mjs
+      # US-3443: brandKey drops an accented letter, so "Kuhl" with an umlaut
+      # keys as `khl`. Four charts were stored under both spellings and the one
+      # grading could reach carried no source_url.
+      - name: Every chart carries the brand_key the resolver computes (US-3443)
+        run: node scripts/check-chart-brand-keys.mjs
       - name: COGS worksheet and its cross-check (US-2986)
         run: node scripts/check-cogs-worksheet.mjs
       # Net profit is IDENTICAL on both tax branches, so only gross receipts

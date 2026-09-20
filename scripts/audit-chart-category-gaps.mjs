@@ -33,6 +33,14 @@
 //  2. It reads the seed, which generates 00498. A later migration can change a
 //     live row without touching the seed -- 00791 did exactly that -- so a
 //     finding here is a claim about the code path, not about the table.
+//     ⚠ FIXED 2026-09-20 (US-3443): pass `--dsn "postgresql://..."` (or
+//     `--container <name>`) and it reads brand_size_charts instead, which is
+//     what production answers from. The two differ: 415 charts in the seed
+//     against 437 rows in the table after 00813, because several migrations
+//     added charts without regenerating sizing-charts.ts -- the hat and cap
+//     brands, the menswear-tailoring and boot-width conventions, and seven
+//     later sourcing rows. Every seed chart IS in the table; nothing is missing
+//     the other way.
 //  3. ASKED below is the COMMON category words on purpose. Scoring the whole
 //     garment vocabulary produced 305 findings, most of them a chart not
 //     listing "monokini", which is a wall nobody can work from.
@@ -57,11 +65,15 @@
 // the family filter, which is what ships now.
 //
 // Usage:  node scripts/audit-chart-category-gaps.mjs [--all] [--wide]
+//                                                     [--dsn "postgresql://..."]
 // `--all` prints every brand rather than the worst twenty.
 // `--wide` scores the measurement vocabulary instead of the resolver's.
+// `--dsn` / `--container` read the TABLE rather than the TypeScript seed.
 
 import ts from "typescript";
 import { readFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import { looksUnreachable, psqlTarget } from "./lib/psql-target.mjs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -147,6 +159,51 @@ export function readCharts(root = ROOT) {
   return charts;
 }
 
+/** Every chart in the TABLE, which is what production answers from.
+ *
+ *  Shaped exactly like readCharts()'s output so every function below is
+ *  indifferent to which source it got. The brand is the row's `brand_label`,
+ *  which is what the seed's `brand` field holds too. */
+export function readChartsFromDb(argv = process.argv.slice(2)) {
+  const psql = psqlTarget(argv);
+  const sql = `select brand_label || E'\t' || department || E'\t' || garment ` +
+    `|| E'\t' || array_to_string(category_match, ',') ` +
+    `from public.brand_size_charts order by brand_key, department, garment;`;
+  const res = spawnSync(psql.cmd, [...psql.argv, "-c", sql], {
+    encoding: "utf8",
+    maxBuffer: 32 * 1024 * 1024,
+  });
+  const out = `${res.stdout ?? ""}${res.stderr ?? ""}`;
+  if (looksUnreachable(out, res.status)) {
+    console.error(`\u2717 could not reach ${psql.how}.\n  ${psql.hint}`);
+    process.exit(2);
+  }
+  const charts = [];
+  for (const line of out.split("\n")) {
+    const parts = line.split("\t");
+    if (parts.length !== 4) continue;
+    const [brand, department, garment, cats] = parts;
+    if (!brand) continue;
+    charts.push({
+      brand: brand.trim(),
+      department: department.trim(),
+      garment: garment.trim(),
+      categoryMatch: cats.split(",").map((c) => c.trim()).filter(Boolean),
+      line: 0,
+    });
+  }
+  // Vacuity floor: an unparsed result reports a corpus with no gaps.
+  if (charts.length < 100) {
+    console.error(
+      `\u2717 only ${charts.length} chart rows parsed from the database - the ` +
+        `query or the parse broke, and every finding below would be absent ` +
+        `rather than clean.`,
+    );
+    process.exit(1);
+  }
+  return charts;
+}
+
 /** brand-knowledge.ts slices the pool to this many before the prompt sees it. */
 export const MAX_CHARTS = 3;
 
@@ -192,7 +249,9 @@ export function auditFallbacks(charts, vocab = ASKED) {
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  const charts = readCharts();
+  const fromDb = process.argv.includes("--dsn") ||
+    process.argv.includes("--container");
+  const charts = fromDb ? readChartsFromDb() : readCharts();
   const wide = process.argv.includes("--wide");
   const vocab = wide ? ASKED : REACHABLE;
   const { brands, fallbacks } = auditFallbacks(charts, vocab);
@@ -200,7 +259,10 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
   const allWrong = fallbacks.filter((f) => f.wrongSlots === f.slots);
   const wrongNow = fallbacks.filter((f) => f.wrongSlotsShipped > 0);
 
-  console.log(`[chart-gaps] ${charts.length} charts across ${brands} brands`);
+  console.log(
+    `[chart-gaps] ${charts.length} charts across ${brands} brands, read from ` +
+      `${fromDb ? "the DATABASE" : "the TypeScript seed"}`,
+  );
   console.log(
     `[chart-gaps] vocabulary: ${wide ? "MEASUREMENT (wide)" : "RESOLVER (reachable)"} — ` +
       `${Object.values(vocab).flat().length} words`,

@@ -1,6 +1,6 @@
 # What the backlog is waiting on you for
 
-Regenerate with: node scripts/operator-worklist.mjs. Built from prd.json, where 158 of 277 open stories carry at least one OPERATOR criterion — a step only you can take.
+Regenerate with: node scripts/operator-worklist.mjs. Built from prd.json, where 159 of 277 open stories carry at least one OPERATOR criterion — a step only you can take.
 
 This is not a list of blocked work. Most of these stories have buildable criteria before the operator step, and several were finished this session right up to it. It is a list of the last mile.
 
@@ -8,7 +8,7 @@ This is not a list of blocked work. Most of these stories have buildable criteri
 
 Computed from PENDING_MIGRATIONS.md and the criteria below, so it is right on the day you read it. Everything under this heading is two sittings, and it is the two that move the most stories.
 
-**1. Apply the 8 held migrations, oldest first.** `npm run migrate:prod` reads what prod already has; `npm run migrate:prod -- --apply --yes` takes a backup and applies. Each entry in PENDING_MIGRATIONS.md carries its own risk note and its own readback -- run the readback, do not assume the apply.
+**1. Apply the 9 held migrations, oldest first.** `npm run migrate:prod` reads what prod already has; `npm run migrate:prod -- --apply --yes` takes a backup and applies. Each entry in PENDING_MIGRATIONS.md carries its own risk note and its own readback -- run the readback, do not assume the apply.
 
 - `00805_phone_capture_groups.sql` — US-3185 — several items on one capture code
 - `00806_repair_whole_dollar_listing_prices.sql` — US-3318 — Poshmark and Vinted rows priced in cents
@@ -18,6 +18,7 @@ Computed from PENDING_MIGRATIONS.md and the criteria below, so it is right on th
 - `00810_revoke_operator_grants_a_credentials.sql` — US-3355 — batch A, 12 credential and OAuth-server tables
 - `00811_revoke_operator_grants_b_people.sql` — US-3355 — batch B, 25 tables of records about named people and cross-seller data
 - `00812_revoke_operator_grants_c_platform.sql` — US-3355 — batch C, 57 platform, reference and economics tables
+- `00813_chart_brand_key_accent_duplicates.sql` — US-3443 — four size charts stored twice, and grading reads the unsourced copy
 
    Applying them and flipping each heading to `## ✅ APPLIED:` with a date is also what clears `node scripts/held-migration-gate.mjs --ci`, which CI runs first and which fails on any branch carrying a held migration. Until then a pull request from a branch that has one cannot go green, however good the rest of it is.
 
@@ -31,7 +32,7 @@ Most of these are not separate sittings. Grouped by what you need open:
 
 - **Somewhere else (read the step)** — 63 steps
 - **Coolify, or a deploy + env change** — 25 steps
-- **Production database (psql or the Supabase SQL editor)** — 23 steps
+- **Production database (psql or the Supabase SQL editor)** — 24 steps
 - **A marketplace account, logged in** — 23 steps
 - **A lawyer** — 11 steps
 - **A grading run that costs real money** — 8 steps
@@ -620,6 +621,12 @@ the owner approves before it is pushed, and the after-count is read back from pr
 priority 6
 
 apply 00809 after 00805-00808, then run the readback query in PENDING_MIGRATIONS.md and confirm two rows come back as plus and big_and_tall with source_url present
+
+### US-3355 — 88 of 142 service-role tables have never had a REVOKE, so RLS is their only layer
+
+priority 7
+
+apply 00810, then 00811, then 00812, off-peak, stopping after any batch; send NOTIFY pgrst, 'reload schema' after each; then re-fetch prod's PostgREST OpenAPI root with the anon key and confirm the path count has fallen from 449 toward 356
 
 ### US-3044 — [GATE] Measure what the 2026-09-02 AutoLister change did to specific fill rates and per-item cost before the next cut
 

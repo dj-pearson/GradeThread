@@ -72,6 +72,56 @@ stronger claim for one of them, `check-prod-migration.ts` is the tool.
 Nothing below 00786 was touched, and the six genuinely-held branches in the next
 section are unchanged and still waiting.
 
+## ⏳ HELD: 00813_chart_brand_key_accent_duplicates.sql (US-3443 - four size charts stored twice, and grading reads the unsourced copy)
+
+**EXECUTED 2026-09-20 against the local cluster** carrying all 813 migrations.
+Before: 441 chart rows, four of them duplicated. After: 437, with the four
+surviving rows carrying the `source_url` and `confidence 0.55` that had been
+sitting on the copies grading could not reach. Applied twice; the second run
+moved 0 and deleted 0. `node scripts/check-chart-brand-keys.mjs --dsn ...` goes
+from two findings to a tick.
+
+**Risk: LOW.** Blast radius four UPDATEs and four DELETEs, all four deletes on
+rows no lookup can reach. No DDL.
+
+**What was wrong.** `brandKey` is
+`raw.toLowerCase().replace(/[^a-z0-9]/g, "")`, which DROPS an accented letter
+rather than transliterating it, so the German-spelled outdoor brand keys as
+`khl` and the Swedish one as `fjllrven`. 00472 wrote four chart rows by hand
+under the transliterated spellings; 00498's generator wrote the same four
+charts from the seed under the dropped ones. The eight rows are identical in
+`rows`, `category_match`, `brand_match`, `note` and `measurement_basis`, and
+differ only in that **00472's carry the source_url and 00472's are the
+unreachable ones**. So the grading prompt has been served the unsourced
+approximation while the sourced chart sat beside it.
+
+**It reports what it did.** A `RAISE NOTICE` carries both counts, and a second
+DO block raises an exception if any row outside the three named convention keys
+still carries a key the resolver cannot compute.
+
+**Client-side read risk: NONE.** Nothing in `src/` reads `brand_size_charts`;
+both readers are edge-side and both key on `brand_key`.
+
+**Ordering: apply after 00812.** It touches only `brand_size_charts`, which has
+existed since 00389, so the number is the only dependency.
+
+**`NOTIFY pgrst, 'reload schema';` is NOT needed** - no table, column or RPC
+signature changed.
+
+**EXPECTED_SCHEMA_VERSION is 00813 in the same commit**, and the manifest was
+regenerated.
+
+**After applying, confirm it in one read:**
+
+```sql
+select brand_key, department, source_url
+  from public.brand_size_charts
+ where brand_key in ('khl', 'kuhl', 'fjllrven', 'fjallraven')
+ order by brand_key;
+-- expect FOUR rows, keys khl and fjllrven only, every source_url non-null.
+-- Any kuhl or fjallraven row means the delete matched nothing.
+```
+
 ## US-3355: the grant retrofit, in three batches (00810, 00811, 00812)
 
 The three headings below are one piece of work and share this section. They are
