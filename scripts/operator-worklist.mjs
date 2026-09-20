@@ -37,6 +37,114 @@ out.push(
 );
 out.push("");
 
+// ── THE OPENING MOVE, BEFORE THE 157-STORY LIST (US-3042 pass, 2026-09-20) ──
+//
+// Grouping by venue turned an impossible list into "open this, do these", and
+// it still opens with 62 steps under "somewhere else". What it does not answer
+// is the only question worth asking first: what is the SHORTEST thing you can
+// do that unblocks the most stories.
+//
+// It has a mechanical answer. Held migrations are named in PENDING_MIGRATIONS.md
+// with a fixed heading shape, each naming the story it carries. Applying them
+// is one sitting. The edge deploy that must follow is a second, and a large
+// share of the remaining criteria are "after the edge deploy, measure X" --
+// they are not separate work at all, they are the same deploy plus a read.
+//
+// So this section is computed, never hand-maintained: a hand-kept "start here"
+// is out of date the first time a migration lands.
+
+/** Held migrations, oldest first, from PENDING_MIGRATIONS.md's own headings. */
+function heldMigrations() {
+  let doc;
+  try {
+    doc = readFileSync(ROOT + "PENDING_MIGRATIONS.md", "utf8");
+  } catch {
+    return [];
+  }
+  const held = [];
+  // `## <hourglass> HELD: 00808_name.sql (US-3197 - what it carries)`
+  const re = /^##\s*\S*\s*HELD:\s*(\d{5})_(\S+?)\.sql\s*\(([^)]*)\)/gim;
+  let m;
+  while ((m = re.exec(doc))) {
+    const inside = m[3];
+    const story = /US-\d+/.exec(inside);
+    held.push({
+      version: m[1],
+      name: m[2],
+      story: story ? story[0] : null,
+      // Everything after the story id and its separator, which is the human
+      // sentence the heading already wrote.
+      what: inside.replace(/^US-\d+\s*[-\u2014:]*\s*/, "").trim(),
+    });
+  }
+  held.sort((a, b) => a.version.localeCompare(b.version));
+  return held;
+}
+
+/** Steps that are a READ taken after the edge deploy, not separate work. */
+const AFTER_DEPLOY =
+  /after (the )?(edge )?deploy|once (the )?edge|following the deploy|after it deploys/i;
+
+function startHere(rows) {
+  const held = heldMigrations();
+  const afterDeploy = [];
+  for (const { s, ops } of rows) {
+    for (const op of ops) if (AFTER_DEPLOY.test(op)) { afterDeploy.push(s); break; }
+  }
+  const lines = [];
+  lines.push("## Start here");
+  lines.push("");
+  if (held.length === 0 && afterDeploy.length === 0) {
+    lines.push(
+      "No migration is held and nothing is waiting on an edge deploy, so there " +
+        "is no shortest path to compute. Work the venues below in the order " +
+        "they are listed.",
+    );
+    lines.push("");
+    lines.push("---");
+    lines.push("");
+    return lines;
+  }
+  lines.push(
+    "Computed from PENDING_MIGRATIONS.md and the criteria below, so it is " +
+      "right on the day you read it. Everything under this heading is two " +
+      "sittings, and it is the two that move the most stories.",
+  );
+  lines.push("");
+  if (held.length > 0) {
+    lines.push(
+      `**1. Apply the ${held.length} held migration${held.length === 1 ? "" : "s"}, oldest first.** ` +
+        "`npm run migrate:prod` reads what prod already has; " +
+        "`npm run migrate:prod -- --apply --yes` takes a backup and applies. " +
+        "Each entry in PENDING_MIGRATIONS.md carries its own risk note and its " +
+        "own readback -- run the readback, do not assume the apply.",
+    );
+    lines.push("");
+    for (const h of held) {
+      const who = h.story ? `${h.story} — ` : "";
+      lines.push(`- \`${h.version}_${h.name}.sql\` — ${who}${h.what}`);
+    }
+    lines.push("");
+  }
+  lines.push(
+    `**${held.length > 0 ? "2" : "1"}. Redeploy the edge on Coolify.** Its boot guard ` +
+      "expects the schema version the migrations above just set, so this " +
+      "follows them rather than leading. " +
+      (afterDeploy.length > 0
+        ? `That one deploy is the precondition for **${afterDeploy.length} ` +
+          `stor${afterDeploy.length === 1 ? "y" : "ies"}** whose remaining step is a ` +
+          "measurement taken afterwards, not separate work: " +
+          afterDeploy.map((s) => s.id).join(", ") + "."
+        : "Nothing below is waiting on it today."),
+  );
+  lines.push("");
+  lines.push("---");
+  lines.push("");
+  return lines;
+}
+
+out.push(...startHere(rows));
+
 // Group by WHERE the work happens, not by story.
 //
 // 120 steps read as an impossible list. They are not 120 sittings: most are
