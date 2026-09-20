@@ -1,9 +1,12 @@
 import { describe, it, expect } from "vitest";
+import { readFileSync } from "node:fs";
 import {
   readCharts,
   auditFallbacks,
   categoryMatches,
   claimedFamilies,
+  ASKED,
+  REACHABLE,
   MAX_CHARTS,
 } from "./audit-chart-category-gaps.mjs";
 
@@ -66,5 +69,62 @@ describe("size-chart category fallback audit (US-3405)", () => {
     // The other direction: a chart that carries the token must not be reported.
     expect(categoryMatches(["bottom", "pant", "jean"], "jean")).toBe(true);
     expect(categoryMatches(["bottom", "pant"], "jean")).toBe(false);
+  });
+});
+
+// US-3405, 2026-09-20. The audit's headline used to score a vocabulary the
+// resolver is never called with, which inflated it roughly three times.
+describe("the vocabulary the resolver can actually be called with", () => {
+  const src = readFileSync(
+    "services/edge-functions/src/lib/ai-extract.ts",
+    "utf8",
+  );
+  const arrayOf = (name) => {
+    const m = new RegExp(`export const ${name} = \\[([^\\]]*)\\]`).exec(src);
+    expect(m, `${name} not found in ai-extract.ts`).toBeTruthy();
+    return [...m[1].matchAll(/"([^"]+)"/g)].map((x) => x[1]);
+  };
+  const enumValues = new Set([
+    ...arrayOf("GARMENT_TYPES"),
+    ...arrayOf("GARMENT_CATEGORIES"),
+  ]);
+
+  it("every REACHABLE word is a value some caller can pass", () => {
+    // Not a vibe: grading-pipeline passes submission.garment_category,
+    // ai-extract passes categoryHintFromKnown over garment_category /
+    // garment_type / item_category, ai-listing passes garment_type ??
+    // garment_category. All of them are this enum or null.
+    const words = Object.values(REACHABLE).flat();
+    expect(words.length).toBeGreaterThan(10);
+    expect(words.filter((w) => !enumValues.has(w))).toEqual([]);
+  });
+
+  it("the words the wide list adds are ones no caller can pass", () => {
+    // If one of these ever becomes reachable, this fails and the headline has
+    // to widen again rather than quietly staying wrong.
+    for (const w of ["tee", "polo", "flannel", "jogger", "chino", "romper"]) {
+      expect(ASKED.top.concat(ASKED.bottom, ASKED.dress)).toContain(w);
+      expect(enumValues.has(w), `${w} is now a real category`).toBe(false);
+    }
+  });
+
+  it("scoring the reachable set finds strictly fewer asks than the wide one", () => {
+    const charts = readCharts();
+    const narrow = auditFallbacks(charts, REACHABLE).fallbacks.length;
+    const wide = auditFallbacks(charts, ASKED).fallbacks.length;
+    expect(narrow).toBeGreaterThan(0);
+    expect(narrow).toBeLessThan(wide);
+  });
+
+  it("the shipped column is zero, and it is zero by construction", () => {
+    // The audit only asks a brand about a family one of its OWN charts claims,
+    // and US-3405's filter keeps exactly those. So this column can only be
+    // zero, and the case exists to stop someone reading it as a measurement.
+    const charts = readCharts();
+    for (const vocab of [REACHABLE, ASKED]) {
+      const { fallbacks } = auditFallbacks(charts, vocab);
+      expect(fallbacks.some((f) => f.wrongSlots > 0)).toBe(true);
+      expect(fallbacks.filter((f) => f.wrongSlotsShipped > 0)).toEqual([]);
+    }
   });
 });

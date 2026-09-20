@@ -12,6 +12,8 @@
 //
 // Pure data + pure helpers (no network) so they're unit-testable.
 
+import { narrowToFamily } from "./chart-families.ts";
+
 export interface SizingRow {
   /** The brand's own size label, e.g. "M", "8", "W32 L34". */
   size: string;
@@ -12954,9 +12956,15 @@ export function findSizingCharts(
   const byCategory = pool.filter((c) =>
     c.categoryMatch.some((m) => cat.includes(m)),
   );
-  // If category narrows to something, use it; else return the whole pool so the
-  // model still gets a reference table to reason from.
-  return byCategory.length > 0 ? byCategory : pool;
+  if (byCategory.length > 0) return byCategory;
+  // US-3405: the whole pool used to come back here, so a shirt could reach the
+  // model with two bottoms charts out of three. `categoryMatch` is a
+  // hand-written word list and a brand's tops chart that never says "blouse"
+  // matches nothing, which is a data gap rather than a missing chart. Keep the
+  // charts in the asked FAMILY instead, which the garment scope states. The
+  // whole pool is still the answer when the brand has none in that family, so
+  // the model still gets a reference table to reason from.
+  return narrowToFamily(pool, cat);
 }
 
 /**

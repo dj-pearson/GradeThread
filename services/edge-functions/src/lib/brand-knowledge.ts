@@ -27,6 +27,15 @@ import {
   isKnownBrand,
 } from "./brand-normalize.ts";
 import { findSizingCharts, type SizingChart } from "./sizing-charts.ts";
+// US-3405: the family lookup moved to its own module so findSizingCharts can
+// use it too without a cycle. Re-exported here because callers and tests
+// already import it from this file.
+import {
+  categoryFamily,
+  garmentFamilies,
+  narrowToFamily,
+} from "./chart-families.ts";
+export { categoryFamily, garmentFamilies };
 import type {
   DecodeResult,
   DecoderSpec,
@@ -269,82 +278,31 @@ export function applyChartOrder<
 // exist. Sorting by recency and slicing flat took the no-category-match
 // branch from 109/112 right-family to 94/112. The 109 was luck: it was the
 // same physical order this change exists to stop trusting.
+//
+// US-3405 then replaced that branch's family SORT with a family FILTER, which
+// is strictly better: a sorted pool still spends its tail slots on the wrong
+// family. See narrowChartsByCategory below for the measurements.
 
-type GarmentFamily = "tops" | "bottoms" | "outerwear" | "dresses" | "footwear";
-
-/** Tokens that place a chart's `garment` string in a family. A chart can be in
- *  more than one ("Tops & outerwear (body inches)"), which is why this returns
- *  a set rather than a single label. */
-const GARMENT_FAMILY_TOKENS: Readonly<
-  Record<GarmentFamily, readonly string[]>
-> = {
-  tops: [
-    "top",
-    "shirt",
-    "blouse",
-    "sweater",
-    "knit",
-    "tee",
-    "polo",
-    "sweatshirt",
-    "hoodie",
-  ],
-  bottoms: [
-    "bottom",
-    "jean",
-    "pant",
-    "short",
-    "skirt",
-    "trouser",
-    "legging",
-    "tight",
-    "chino",
-    "denim (",
-    "waist",
-  ],
-  outerwear: ["outerwear", "jacket", "coat", "parka", "vest"],
-  dresses: ["dress", "gown", "rtw", "apparel"],
-  footwear: ["footwear", "shoe", "sneaker", "boot", "sandal"],
-};
-
-/** Which families a chart's garment string belongs to. */
-export function garmentFamilies(garment: string): Set<GarmentFamily> {
-  const s = (garment ?? "").toLowerCase();
-  const out = new Set<GarmentFamily>();
-  for (const [family, tokens] of Object.entries(GARMENT_FAMILY_TOKENS)) {
-    if (tokens.some((t) => s.includes(t))) out.add(family as GarmentFamily);
-  }
-  return out;
-}
-
-/** Which family a GARMENT_CATEGORIES value asks for, or null when the hint is
- *  not a clothing category we hold charts for (hat, bag, belt, ...). */
-export function categoryFamily(category: string | null): GarmentFamily | null {
-  const c = (category ?? "").toLowerCase();
-  if (!c) return null;
-  const match = (...tokens: string[]) => tokens.some((t) => c.includes(t));
-  if (match("t-shirt", "tshirt", "shirt", "blouse", "sweater", "hoodie", "top")) {
-    // "shirt" before outerwear so "t-shirt" does not land on a jacket token.
-    return "tops";
-  }
-  if (match("jacket", "coat", "parka", "vest", "outerwear")) return "outerwear";
-  if (match("jean", "pant", "short", "skirt", "trouser", "bottom")) {
-    return "bottoms";
-  }
-  if (match("dress", "gown")) return "dresses";
-  if (match("sneaker", "boot", "sandal", "shoe", "footwear")) return "footwear";
-  return null;
-}
-
-/** Narrow DB charts by category the same way findSizingCharts does its category
- *  step: keep category matches if any, else return the whole pool.
+/** Narrow DB charts by category the way findSizingCharts does: keep the charts
+ *  whose `categoryMatch` the asked category contains.
  *
- *  When nothing matches, the whole pool is kept (that is deliberate and
- *  predates this change: a chart whose `category_match` never says "shirt" is
- *  still the brand's tops chart). What is new is that the fallback pool is
- *  ordered by FAMILY first, so a shirt does not spend two of three slots on
- *  bottoms charts. Measured: 112/112 right-family in that branch, against
- *  109/112 for the heap order it replaces and 94/112 for the new order alone. */
+ *  THE FALLBACK IS THE BIGGER HALF (US-3405). `category_match` is a hand-written
+ *  word list, so a brand's tops chart that simply never says "blouse" matches
+ *  nothing and the whole pool comes back. Measured over the 441-row corpus
+ *  against the 20 category words the resolver can actually be called with:
+ *  353 of 1,514 asks land here, and 87 brands are affected.
+ *
+ *  When nothing matches, keep the brand's charts in the asked FAMILY rather
+ *  than the whole pool. A Levi's jeans chart is the right answer for "skirt"
+ *  even though Levi's publishes no skirt chart, and its tops chart is not. That
+ *  is a claim about the FAMILY, which the garment scope states, rather than
+ *  about the word, which the data would have to state -- so it needs no
+ *  migration and asserts nothing about what a brand publishes.
+ *
+ *  Measured, sort-only against family-filtered: wrong-family slots go from
+ *  296 of 779 to 0 of 483. 237 pools return fewer charts and ZERO return none,
+ *  because the whole pool is still the answer when the brand has nothing in the
+ *  family -- a loosely-matched chart beats an empty one. */
 function narrowChartsByCategory(
   charts: SizingChart[],
   category: string | null,
@@ -355,13 +313,7 @@ function narrowChartsByCategory(
     c.categoryMatch.some((m) => cat.includes(m))
   );
   if (byCat.length > 0) return byCat;
-  const want = categoryFamily(cat);
-  if (!want) return charts;
-  // Stable, so the read's total order survives inside each family.
-  return [...charts].sort((a, b) =>
-    (garmentFamilies(a.garment).has(want) ? 0 : 1) -
-    (garmentFamilies(b.garment).has(want) ? 0 : 1)
-  );
+  return narrowToFamily(charts, cat);
 }
 
 /** Take `limit` charts, spending one slot per department before a second.

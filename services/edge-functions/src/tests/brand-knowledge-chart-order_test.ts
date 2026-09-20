@@ -142,18 +142,46 @@ Deno.test("categoryFamily maps the grading categories, and skirt is not shirt", 
   assertEquals(categoryFamily(null), null);
 });
 
-Deno.test("no category match: the right family leads instead of the arrival order", () => {
+Deno.test("no category match: the wrong family is DROPPED, not just demoted", () => {
   // Arc'teryx shape: no chart's category_match says "shirt", so the whole pool
-  // falls through. Measured before this change: two of three slots went to
-  // bottoms charts for a shirt.
+  // falls through. Measured before US-3399: two of three slots went to bottoms
+  // charts for a shirt. US-3399 sorted them to the back, which still spent the
+  // third slot on one; US-3405 removes them, so asserting the WHOLE result is
+  // what separates the two.
   const charts = [
     chart("Men", "Bottoms, alpha (body inches)", ["bottom"]),
     chart("Women", "Bottoms, alpha (body inches)", ["bottom"]),
     chart("Men", "Tops", ["top"]),
     chart("Women", "Tops", ["top"]),
   ];
-  const got = chosen(charts, "shirt");
-  assertEquals(got.slice(0, 2), ["Men|Tops", "Women|Tops"]);
+  assertEquals(chosen(charts, "shirt"), ["Men|Tops", "Women|Tops"]);
+});
+
+Deno.test("a chart in two families survives both asks", () => {
+  // "Tops & outerwear" is the single most common multi-family garment scope in
+  // the corpus. Filtering on one family must not drop it from the other.
+  const charts = [
+    chart("Men", "Tops & outerwear (body inches)", ["top"]),
+    chart("Men", "Bottoms (body inches)", ["bottom"]),
+  ];
+  assertEquals(chosen(charts, "sweater"), ["Men|Tops & outerwear (body inches)"]);
+  assertEquals(chosen(charts, "coat"), ["Men|Tops & outerwear (body inches)"]);
+  assertEquals(chosen(charts, "skirt"), ["Men|Bottoms (body inches)"]);
+});
+
+Deno.test("US-3405 AC3: a brand with nothing in the family still gets the pool", () => {
+  // The fallback's whole purpose. A brand that publishes only bottoms charts
+  // and is asked about a sweater must still send something: a loosely-matched
+  // chart beats an empty answer. Measured over the corpus, zero pools return
+  // nothing under the filter.
+  const charts = [
+    chart("Men", "Bottoms (body inches)", ["bottom"]),
+    chart("Women", "Bottoms (body inches)", ["bottom"]),
+  ];
+  assertEquals(chosen(charts, "sweater"), [
+    "Men|Bottoms (body inches)",
+    "Women|Bottoms (body inches)",
+  ]);
 });
 
 Deno.test("no category match and no family: the pool is left exactly as read", () => {
@@ -244,6 +272,34 @@ Deno.test("Johnnie-O shape: every reachable department is represented", () => {
   ]);
 });
 
+// ── the SECOND narrower, which had the same defect ──────────────────────────
+
+Deno.test("US-3405: findSizingCharts falls back to the family, not the pool", async () => {
+  // brand-knowledge is not the only narrower. ai-size-estimate calls
+  // findSizingCharts directly whenever its caller passes no charts, and that
+  // feeds the grading size pass, so fixing one and not the other leaves the
+  // defect live on a real path.
+  const { findSizingCharts } = await import("../lib/sizing-charts.ts");
+  const shirt = findSizingCharts("Levi's", "blouse");
+  assert(shirt.length > 0, "the fallback must still send something");
+  assertEquals(
+    shirt.filter((c) => !garmentFamilies(c.garment).has("tops")).map((c) =>
+      `${c.department}|${c.garment}`
+    ),
+    [],
+    "a non-tops chart reached a blouse ask",
+  );
+  // And the other direction, so this is not passing because Levi's is all tops.
+  const jeans = findSizingCharts("Levi's", "skirt");
+  assert(jeans.length > 0);
+  assertEquals(
+    jeans.filter((c) => !garmentFamilies(c.garment).has("bottoms")).map((c) =>
+      c.garment
+    ),
+    [],
+  );
+});
+
 // ── the live case ───────────────────────────────────────────────────────────
 
 const LIVE_URL = Deno.env.get("BRAND_CHART_ORDER_LIVE_URL");
@@ -295,10 +351,13 @@ Deno.test({
     // Arc'teryx has no chart whose category_match says "shirt", so this is the
     // fallback branch: two of three slots used to go to bottoms charts.
     const arc = await probe("arcteryx", "shirt");
-    const tops = arc.filter((c) => garmentFamilies(c.garment).has("tops"));
-    assert(
-      tops.length >= 2,
-      `fallback sent bottoms for a shirt: ${arc.map((c) => c.garment).join(" / ")}`,
+    assert(arc.length > 0, "the fallback must still send something");
+    assertEquals(
+      arc.filter((c) => !garmentFamilies(c.garment).has("tops")).map((c) =>
+        c.garment
+      ),
+      [],
+      "US-3405: a bottoms chart reached a shirt ask",
     );
 
     // Johnnie-O has five charts across three departments and "pants" matches

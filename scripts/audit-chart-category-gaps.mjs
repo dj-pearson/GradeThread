@@ -37,8 +37,28 @@
 //     garment vocabulary produced 305 findings, most of them a chart not
 //     listing "monokini", which is a wall nobody can work from.
 //
-// Usage:  node scripts/audit-chart-category-gaps.mjs [--all]
+// ⚠ A FOURTH ONE, AND IT IS THE ONE THAT MOVED THE NUMBERS (2026-09-20).
+// ASKED is the MEASUREMENT pipeline's vocabulary. The RESOLVER is never called
+// with most of it: every caller of resolveBrandKnowledgePack passes a value
+// from GARMENT_TYPES, GARMENT_CATEGORIES or ITEM_CATEGORIES (grading-pipeline
+// passes submission.garment_category, ai-extract passes categoryHintFromKnown,
+// ai-listing passes garment_type ?? garment_category), so "tee", "polo",
+// "flannel", "jogger", "chino" and "romper" can never reach it. Scoring them
+// counts asks that cannot happen. REACHABLE below is the set that can, and it
+// is the one the headline uses. The wide list is kept because it is still the
+// right question for the measurement path and because the existing cases pin it.
+//
+// ⚠ AND THE PIPELINE CHANGED UNDER IT (US-3399, then US-3405). The fallback no
+// longer hands back the whole pool: it keeps the brand's charts in the asked
+// FAMILY, and only returns everything when the brand has none. So a fallback is
+// only harmful now when the brand has nothing in the family, which is the case
+// the fallback exists for. WRONG FAMILY is reported both ways below -- as a
+// flat slice, which is what shipped when this audit was written, and through
+// the family filter, which is what ships now.
+//
+// Usage:  node scripts/audit-chart-category-gaps.mjs [--all] [--wide]
 // `--all` prints every brand rather than the worst twenty.
+// `--wide` scores the measurement vocabulary instead of the resolver's.
 
 import ts from "typescript";
 import { readFileSync } from "node:fs";
@@ -60,6 +80,22 @@ const ASKED = {
   bottom: ["pant", "jean", "short", "skirt", "trouser", "legging", "jogger", "chino"],
   outerwear: ["jacket", "coat", "outerwear", "blazer", "vest", "fleece", "cardigan"],
   dress: ["dress", "romper", "jumpsuit"],
+};
+
+/**
+ * The words the RESOLVER can actually be called with.
+ *
+ * GARMENT_TYPES + GARMENT_CATEGORIES from
+ * services/edge-functions/src/lib/ai-extract.ts, minus the values that map to
+ * no chart family (accessories, hat, bag, belt, scarf, neckwear, gloves,
+ * other). Every caller of resolveBrandKnowledgePack passes one of these or
+ * null, so anything outside it is an ask that cannot happen.
+ */
+const REACHABLE = {
+  top: ["tops", "t-shirt", "shirt", "blouse", "sweater", "hoodie"],
+  bottom: ["bottoms", "jeans", "pants", "shorts", "skirt"],
+  outerwear: ["outerwear", "jacket", "coat"],
+  dress: ["dresses", "dress"],
 };
 
 /** Which families a free-text garment scope plainly claims to cover. */
@@ -114,7 +150,9 @@ export function readCharts(root = ROOT) {
 /** brand-knowledge.ts slices the pool to this many before the prompt sees it. */
 export const MAX_CHARTS = 3;
 
-export function auditFallbacks(charts) {
+export { REACHABLE, ASKED };
+
+export function auditFallbacks(charts, vocab = ASKED) {
   const byBrand = new Map();
   for (const c of charts) {
     const key = c.brand.toLowerCase();
@@ -123,15 +161,20 @@ export function auditFallbacks(charts) {
   }
   const fallbacks = [];
   for (const pool of byBrand.values()) {
-    for (const [family, words] of Object.entries(ASKED)) {
+    for (const [family, words] of Object.entries(vocab)) {
       // Only ask a brand about a family one of its OWN charts claims. A brand
       // with no tops chart falling back on "shirt" is the fallback doing its job.
       if (!pool.some((c) => claimedFamilies(c.garment).includes(family))) continue;
       for (const word of words) {
         if (pool.some((c) => categoryMatches(c.categoryMatch, word))) continue;
-        // What the model actually reads: the first MAX_CHARTS of the pool.
+        // What the model read when this audit was written: a flat slice.
         const slots = pool.slice(0, MAX_CHARTS);
         const wrong = slots.filter((c) => !claimedFamilies(c.garment).includes(family));
+        // What it reads now: US-3405 keeps only the asked family, and falls
+        // back to the whole pool when the brand has nothing in it.
+        const inFamily = pool.filter((c) => claimedFamilies(c.garment).includes(family));
+        const shipped = (inFamily.length > 0 ? inFamily : pool).slice(0, MAX_CHARTS);
+        const wrongNow = shipped.filter((c) => !claimedFamilies(c.garment).includes(family));
         fallbacks.push({
           brand: pool[0].brand,
           word,
@@ -139,6 +182,7 @@ export function auditFallbacks(charts) {
           poolSize: pool.length,
           slots: slots.length,
           wrongSlots: wrong.length,
+          wrongSlotsShipped: wrongNow.length,
           wrongGarments: wrong.map((c) => c.garment),
         });
       }
@@ -149,14 +193,28 @@ export function auditFallbacks(charts) {
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const charts = readCharts();
-  const { brands, fallbacks } = auditFallbacks(charts);
+  const wide = process.argv.includes("--wide");
+  const vocab = wide ? ASKED : REACHABLE;
+  const { brands, fallbacks } = auditFallbacks(charts, vocab);
   const wrong = fallbacks.filter((f) => f.wrongSlots > 0);
   const allWrong = fallbacks.filter((f) => f.wrongSlots === f.slots);
+  const wrongNow = fallbacks.filter((f) => f.wrongSlotsShipped > 0);
 
   console.log(`[chart-gaps] ${charts.length} charts across ${brands} brands`);
-  console.log(`[chart-gaps] ${fallbacks.length} brand+category asks fall back to the whole pool`);
-  console.log(`[chart-gaps] ${wrong.length} of those put a WRONG-FAMILY chart in the ${MAX_CHARTS} slots the model reads`);
-  console.log(`[chart-gaps] ${allWrong.length} fill EVERY slot with the wrong family\n`);
+  console.log(
+    `[chart-gaps] vocabulary: ${wide ? "MEASUREMENT (wide)" : "RESOLVER (reachable)"} — ` +
+      `${Object.values(vocab).flat().length} words`,
+  );
+  console.log(`[chart-gaps] ${fallbacks.length} brand+category asks fall through the category step`);
+  console.log(`[chart-gaps] ${wrong.length} put a WRONG-FAMILY chart in the ${MAX_CHARTS} slots under a FLAT slice (pre-US-3405)`);
+  // This is 0 BY CONSTRUCTION and saying so is the point: the audit only asks a
+  // brand about a family one of its own charts claims, and the filter keeps
+  // exactly those. The number that is not tautological was measured against the
+  // table rather than the seed (US-3405): 353 fallbacks where the brand has a
+  // right-family chart, 296 wrong-family slots before the filter and 0 after,
+  // with 0 pools left returning nothing.
+  console.log(`[chart-gaps] ${wrongNow.length} still do under the family filter that ships now (0 by construction — see the comment)`);
+  console.log(`[chart-gaps] ${allWrong.length} fill EVERY slot with the wrong family under a flat slice\n`);
 
   const byBrand = new Map();
   for (const f of wrong) {
