@@ -15,6 +15,8 @@ Computed from PENDING_MIGRATIONS.md and the criteria below, so it is right on th
 - `00807_scope_storage_public_read_policies.sql` — US-3403 — stop a stranger enumerating the five public buckets
 - `00808_cross_channel_link_reviews.sql` — US-3197 — the cross-channel matches a human has to decide
 
+   Applying them and flipping each heading to `## ✅ APPLIED:` with a date is also what clears `node scripts/held-migration-gate.mjs --ci`, which CI runs first and which fails on any branch carrying a held migration. Until then a pull request from a branch that has one cannot go green, however good the rest of it is.
+
 **2. Redeploy the edge on Coolify.** Its boot guard expects the schema version the migrations above just set, so this follows them rather than leading. That one deploy is the precondition for **5 stories** whose remaining step is a measurement taken afterwards, not separate work: US-3146, US-3149, US-3147, US-3148, US-3028.
 
 ---

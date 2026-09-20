@@ -125,6 +125,16 @@ function startHere(rows) {
       lines.push(`- \`${h.version}_${h.name}.sql\` — ${who}${h.what}`);
     }
     lines.push("");
+    // The gate is also what stands between the work and a merge, and that is
+    // not obvious from the apply step itself.
+    lines.push(
+      "   Applying them and flipping each heading to `## ✅ APPLIED:` with a date " +
+        "is also what clears `node scripts/held-migration-gate.mjs --ci`, which " +
+        "CI runs first and which fails on any branch carrying a held migration. " +
+        "Until then a pull request from a branch that has one cannot go green, " +
+        "however good the rest of it is.",
+    );
+    lines.push("");
   }
   lines.push(
     `**${held.length > 0 ? "2" : "1"}. Redeploy the edge on Coolify.** Its boot guard ` +
