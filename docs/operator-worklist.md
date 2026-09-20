@@ -8,18 +8,9 @@ This is not a list of blocked work. Most of these stories have buildable criteri
 
 Computed from PENDING_MIGRATIONS.md and the criteria below, so it is right on the day you read it. Everything under this heading is two sittings, and it is the two that move the most stories.
 
-**1. Apply the 10 held migrations, oldest first.** `npm run migrate:prod` reads what prod already has; `npm run migrate:prod -- --apply --yes` takes a backup and applies. Each entry in PENDING_MIGRATIONS.md carries its own risk note and its own readback -- run the readback, do not assume the apply.
+**1. Apply the 1 held migration, oldest first.** `npm run migrate:prod` reads what prod already has; `npm run migrate:prod -- --apply --yes` takes a backup and applies. Each entry in PENDING_MIGRATIONS.md carries its own risk note and its own readback -- run the readback, do not assume the apply.
 
-- `00805_phone_capture_groups.sql` — US-3185 — several items on one capture code
-- `00806_repair_whole_dollar_listing_prices.sql` — US-3318 — Poshmark and Vinted rows priced in cents
-- `00807_scope_storage_public_read_policies.sql` — US-3403 — stop a stranger enumerating the five public buckets
-- `00808_cross_channel_link_reviews.sql` — US-3197 — the cross-channel matches a human has to decide
-- `00809_size_class_curve_and_big.sql` — US-3406 — two size charts that never got their class recorded
-- `00810_revoke_operator_grants_a_credentials.sql` — US-3355 — batch A, 12 credential and OAuth-server tables
-- `00811_revoke_operator_grants_b_people.sql` — US-3355 — batch B, 25 tables of records about named people and cross-seller data
-- `00812_revoke_operator_grants_c_platform.sql` — US-3355 — batch C, 57 platform, reference and economics tables
-- `00813_chart_brand_key_accent_duplicates.sql` — US-3443 — four size charts stored twice, and grading reads the unsourced copy
-- `00814_chart_category_match_precision.sql` — US-3443 — the words a chart's own word list was missing
+- `00815_acquired_date_timezone.sql` — US-3314 — record the zone that named an acquisition day
 
    Applying them and flipping each heading to `## ✅ APPLIED:` with a date is also what clears `node scripts/held-migration-gate.mjs --ci`, which CI runs first and which fails on any branch carrying a held migration. Until then a pull request from a branch that has one cannot go green, however good the rest of it is.
 

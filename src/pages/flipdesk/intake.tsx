@@ -91,6 +91,7 @@ import type {
 } from "@/types/database";
 import { deriveGarmentDefaults } from "@/lib/garment-mapping";
 import { todayLocalDate } from "@/lib/local-date";
+import { acquiredDateZoneFor } from "@/lib/acquired-date-zone";
 import { garmentDescriptorFor } from "@/lib/measurement-templates";
 import { PageHelp } from "@/components/help/page-help";
 
@@ -442,6 +443,7 @@ export function FlipdeskIntakePage() {
         source_id: sourceId,
         sourced_by: trimOrNull(form.sourced_by),
         acquired_date: form.purchase_date || null,
+        acquired_date_tz: acquiredDateZoneFor(form.purchase_date),
         acquired_price: priceOrNull(form.purchase_price),
         description: trimOrNull(form.description),
         condition_notes: trimOrNull(form.condition_notes),

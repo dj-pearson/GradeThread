@@ -45,6 +45,7 @@ import {
 import type { AiFieldSource } from "@/types/database";
 import { deriveGarmentDefaults } from "@/lib/garment-mapping";
 import { todayLocalDate } from "@/lib/local-date";
+import { acquiredDateZoneFor } from "@/lib/acquired-date-zone";
 
 const DRAFT_TITLE = "Untitled draft";
 
@@ -171,7 +172,10 @@ export function SnapCatalog() {
       if (cost.trim() && Number.isFinite(costNum) && costNum >= 0) {
         update.acquired_price = costNum;
       }
-      if (purchaseDate) update.acquired_date = purchaseDate;
+      if (purchaseDate) {
+        update.acquired_date = purchaseDate;
+        update.acquired_date_tz = acquiredDateZoneFor(purchaseDate);
+      }
 
       // AI-suggested flat measurements from brand sizing. Persist them so
       // the MeasurementForm pre-fills next time the user opens the item.

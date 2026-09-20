@@ -77,9 +77,8 @@ describe("local vault:lint matches what CI runs", () => {
   // US-2391, the second pair the audit found. Same class, different flag.
   //
   // `npm test` is `vitest run` with NO coverage. CI runs `npm run test:coverage`,
-  // and vitest.config.ts sets FAILING thresholds (statements 65, branches 58,
-  // functions 62, lines 67). So `npm test` can be green while CI is red on
-  // coverage alone — and vault/70-agent/ralph-learnings.md told people to run
+  // and vitest.config.ts sets thresholds `npm test` never evaluates. So
+  // `npm test` can be green while CI is red on coverage alone — and vault/70-agent/ralph-learnings.md told people to run
   // exactly that to avoid shipping a red main.
   //
   // Resolved by correcting the DOC rather than by making `npm test` slow: a fast

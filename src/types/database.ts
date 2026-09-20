@@ -1119,6 +1119,13 @@ export interface InventoryItemRow {
   color: string | null;
   acquired_price: number | null;
   acquired_date: string | null;
+  /**
+   * US-3314: the IANA zone the writer was in when `acquired_date` was
+   * named. NULL means unrecorded, which is every row before 2026-09-20
+   * and every CSV import. Only load-bearing where the day was derived
+   * from a moment; where the seller typed it, this is context.
+   */
+  acquired_date_tz: string | null;
   acquired_source: string | null;
   condition_notes: string | null;
   status: ItemStatus;
@@ -3316,6 +3323,7 @@ export interface InventoryItemInsert {
   color?: string | null;
   acquired_price?: number | null;
   acquired_date?: string | null;
+  acquired_date_tz?: string | null;
   acquired_source?: string | null;
   condition_notes?: string | null;
   status?: ItemStatus;

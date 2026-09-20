@@ -290,7 +290,7 @@ export const SIZING_CHARTS: SizingChart[] = [
     categoryMatch: [
       "top", "tank", "tee", "shirt", "bra", "hoodie", "sweatshirt", "dress",
       "long sleeve", "jacket", "coat", "outerwear", "vest", "cardigan",
-    , "blouse", "sweater"],
+    "blouse", "sweater"],
     sourceUrl: "https://beyondyoga.com/pages/size-guide",
     note:
       "US-3290 added the SOURCE URL and widened this to outerwear: the rows were " +
@@ -1744,7 +1744,7 @@ export const SIZING_CHARTS: SizingChart[] = [
     categoryMatch: [
       "dress", "top", "blouse", "skirt", "shirt", "knit", "sweater",
       "bottom", "pant", "trouser", "short", "jean", "denim", "capri",
-    , "hoodie"],
+    "hoodie"],
     note:
       "US-3297 widened this to BOTTOMS and changed nothing else. This is the " +
       "only Chanel chart in the corpus carrying a HIP column, which is what " +
@@ -2144,7 +2144,7 @@ export const SIZING_CHARTS: SizingChart[] = [
       "fleece", "hooded",
       "jacket", "coat", "outerwear", "vest", "puffer", "parka", "anorak",
       "work jacket", "varsity",
-    , "blouse", "sweater"],
+    "blouse", "sweater"],
     note:
       "Fear of God Essentials is cut DELIBERATELY OVERSIZED — dropped shoulders, " +
       "boxy body — so an Essentials L drapes like a US XL, roughly one size up. " +
@@ -2223,7 +2223,7 @@ export const SIZING_CHARTS: SizingChart[] = [
     categoryMatch: [
       "top", "tee", "shirt", "blouse", "dress", "knit", "sweater", "cardigan",
       "jacket", "long sleeve",
-    , "hoodie"],
+    "hoodie"],
     note:
       "Anthropologie is US women's sizing and grades close to a general US " +
       "contemporary body — no national cross-map applies (contrast Sézane in this " +
@@ -2277,7 +2277,7 @@ export const SIZING_CHARTS: SizingChart[] = [
       "top", "tee", "shirt", "blouse", "dress", "knit", "sweater", "cardigan",
       "jacket", "long sleeve",
       "bottom", "pant", "trouser", "short", "skirt", "jean", "denim",
-    , "hoodie"],
+    "hoodie"],
     note:
       "US-3293 widened this to BOTTOMS and changed nothing else. ⚠ SEZANE " +
       "COULD NOT BE SOURCED and this is still an approximation. Its " +
@@ -2313,7 +2313,7 @@ export const SIZING_CHARTS: SizingChart[] = [
     categoryMatch: [
       "top", "tee", "shirt", "blouse", "dress", "knit", "sweater", "cardigan",
       "jacket", "long sleeve", "puffer",
-    , "hoodie"],
+    "hoodie"],
     note:
       "Aritzia RUNS SMALL against a general US contemporary body and its range " +
       "starts at 00/XXS — an Aritzia S sits near a US 2-4, roughly one size down. " +
@@ -2368,7 +2368,7 @@ export const SIZING_CHARTS: SizingChart[] = [
     categoryMatch: [
       "dress", "top", "tee", "shirt", "blouse", "knit", "sweater", "cardigan",
       "jacket", "long sleeve",
-    , "hoodie"],
+    "hoodie"],
     sourceUrl: "https://www.thereformation.com/fitting-and-sizes.html",
     note:
       "Reformation is US women's NUMERIC sizing (0-24) on a fitted, dress-led cut — " +
@@ -2410,7 +2410,7 @@ export const SIZING_CHARTS: SizingChart[] = [
     categoryMatch: [
       "top", "tee", "shirt", "blouse", "knit", "sweater", "cardigan", "blazer",
       "jacket", "suit", "long sleeve",
-    , "hoodie"],
+    "hoodie"],
     note:
       "Theory is US women's sizing on a TAILORED cut — no national cross-map applies " +
       "(contrast Sézane in this same group, whose FR 38 is a US 6). BUT: a THEORY " +
@@ -2458,7 +2458,7 @@ export const SIZING_CHARTS: SizingChart[] = [
     categoryMatch: [
       "top", "tee", "shirt", "blouse", "knit", "sweater", "cardigan", "dress",
       "jacket", "tunic", "long sleeve",
-    , "hoodie"],
+    "hoodie"],
     note:
       "Eileen Fisher RUNS LARGE: the cut is DELIBERATELY RELAXED and boxy across the " +
       "whole line — dropped shoulders, straight bodies, generous ease — so an Eileen " +
@@ -2533,7 +2533,7 @@ export const SIZING_CHARTS: SizingChart[] = [
       "heattech",
       "airism",
       "long sleeve",
-    , "hoodie"],
+    "hoodie"],
     note:
       "Uniqlo RUNS SMALL: the grade is cut to a Japanese fit and sits roughly " +
       "one size below a general US body — a Uniqlo M is nearer a US 4-6. Old " +
@@ -2570,7 +2570,7 @@ export const SIZING_CHARTS: SizingChart[] = [
       "heattech",
       "airism",
       "long sleeve",
-    , "hoodie"],
+    "hoodie"],
     note:
       "Uniqlo menswear RUNS SMALL and SLIM against a US body — roughly one size " +
       "down, most pronounced across the SHOULDERS and chest rather than the " +
@@ -2676,7 +2676,7 @@ export const SIZING_CHARTS: SizingChart[] = [
       "cardigan",
       "merino",
       "long sleeve",
-    , "hoodie"],
+    "hoodie"],
     note:
       "Banana Republic is TRUE TO SIZE with a tailored workwear cut — alongside " +
       "Tommy Hilfiger the most conservative grade in this group, and a full step " +
@@ -2711,7 +2711,7 @@ export const SIZING_CHARTS: SizingChart[] = [
       "merino",
       "oxford",
       "long sleeve",
-    , "hoodie"],
+    "hoodie"],
     note:
       "Banana Republic menswear is TRUE TO SIZE and tailored. Dress shirts are " +
       "frequently graded by NECK and SLEEVE rather than an alpha, and where both " +
@@ -3709,7 +3709,7 @@ export const SIZING_CHARTS: SizingChart[] = [
       "pant",
       "trouser",
       "short",
-    , "hoodie"],
+    "hoodie"],
     sourceUrl: "https://woolrich.us/products/check-flannel-warren-shirt-grey-brown-check",
     note:
       "BODY measurement — NOT flat-garment. WATCH THE SIZE SYSTEM, IT FOLLOWS THE " +
@@ -3761,7 +3761,7 @@ export const SIZING_CHARTS: SizingChart[] = [
       "pant",
       "trouser",
       "short",
-    , "blouse", "hoodie", "skirt"],
+    "blouse", "hoodie", "skirt"],
     sourceUrl: "https://woolrich.us/products/12gg-cozy-wool-cash-crewneck-black",
     note:
       "BODY measurement — NOT flat-garment. WATCH THE SIZE SYSTEM, IT FOLLOWS THE " +
@@ -4274,7 +4274,7 @@ export const SIZING_CHARTS: SizingChart[] = [
       "sweater",
       "jacket",
       "outerwear",
-    , "blouse"],
+    "blouse"],
     note:
       "Off-White's graphic tees and hoodies are ALPHA-sized and the brand publishes " +
       "no chart — this is the standard streetwear-alpha approximation, NOT " +
@@ -4333,7 +4333,7 @@ export const SIZING_CHARTS: SizingChart[] = [
       "sweater",
       "jacket",
       "outerwear",
-    , "blouse"],
+    "blouse"],
     note:
       "Chrome Hearts is ALPHA-sized and the brand publishes no size chart at all " +
       "(it runs no e-commerce) — this is the standard streetwear-alpha " +
@@ -4371,7 +4371,7 @@ export const SIZING_CHARTS: SizingChart[] = [
       "polo",
       "jacket",
       "outerwear",
-    , "blouse"],
+    "blouse"],
     note:
       "Aimé Leon Dore is ALPHA-sized — the standard streetwear-alpha " +
       "approximation, NOT brand-fetched. THE CUT IS BOXY AND WIDE BY DESIGN, " +
@@ -4403,7 +4403,7 @@ export const SIZING_CHARTS: SizingChart[] = [
       "knit",
       "jacket",
       "outerwear",
-    , "blouse", "sweater"],
+    "blouse", "sweater"],
     note:
       "Gallery Dept. is ALPHA-sized and publishes no chart — the standard " +
       "streetwear-alpha approximation, NOT brand-fetched. TWO WARNINGS THAT MATTER " +
@@ -4466,7 +4466,7 @@ export const SIZING_CHARTS: SizingChart[] = [
       "knit",
       "jacket",
       "outerwear",
-    , "blouse", "sweater"],
+    "blouse", "sweater"],
     note:
       "Rhude is ALPHA-sized — the standard streetwear-alpha approximation, NOT " +
       "brand-fetched. The cut sits between the two poles of this pack: closer to " +
@@ -4500,7 +4500,7 @@ export const SIZING_CHARTS: SizingChart[] = [
       "sweatshirt",
       "jacket",
       "outerwear",
-    , "blouse", "sweater"],
+    "blouse", "sweater"],
     note:
       "Sp5der is ALPHA-sized and the brand publishes essentially nothing, including " +
       "no size chart — this is the standard streetwear-alpha approximation, NOT " +
@@ -4531,7 +4531,7 @@ export const SIZING_CHARTS: SizingChart[] = [
       "sweatshirt",
       "jacket",
       "outerwear",
-    , "blouse", "sweater"],
+    "blouse", "sweater"],
     note:
       "Hellstar is ALPHA-sized and the brand publishes essentially nothing, " +
       "including no size chart — the standard streetwear-alpha approximation, NOT " +
@@ -4565,7 +4565,7 @@ export const SIZING_CHARTS: SizingChart[] = [
       "sweatshirt",
       "jacket",
       "outerwear",
-    , "blouse", "sweater"],
+    "blouse", "sweater"],
     note:
       "Anti Social Social Club is ALPHA-sized and publishes no chart — the standard " +
       "streetwear-alpha approximation, NOT brand-fetched. The pieces are printed on " +
@@ -4830,7 +4830,7 @@ export const SIZING_CHARTS: SizingChart[] = [
       "hoodie",
       "jersey",
       "long sleeve",
-    , "blouse", "sweater"],
+    "blouse", "sweater"],
     note:
       "BODY measurement (chest) — an ESTIMATOR, unlike the Fila FOOTWEAR charts " +
       "on this same brand: measure the flat chest (armpit to armpit) and DOUBLE " +
@@ -5369,7 +5369,7 @@ export const SIZING_CHARTS: SizingChart[] = [
       "vest",
       "windbreaker",
       "anorak",
-    , "blouse", "jean", "skirt", "sweater"],
+    "blouse", "jean", "skirt", "sweater"],
     note:
       "US-3293 widened this to OUTERWEAR and changed nothing else. The rows " +
       "are the same approximation and still carry NO source; a body chart that " +
@@ -5423,7 +5423,7 @@ export const SIZING_CHARTS: SizingChart[] = [
       "coat",
       "outerwear",
       "vest",
-    , "blouse", "jean", "shirt", "skirt", "sweater"],
+    "blouse", "jean", "shirt", "skirt", "sweater"],
     sourceUrl: "https://girlfriend.com/pages/size-guide-tops",
     note:
       "US-3291 REPLACED the old approximation with Girlfriend Collective's OWN " +
@@ -5600,7 +5600,7 @@ export const SIZING_CHARTS: SizingChart[] = [
     categoryMatch: [
       "top", "tee", "shirt", "blouse", "dress", "sweater", "tank", "bodysuit",
       "jacket", "coat", "outerwear", "blazer", "vest",
-    , "hoodie"],
+    "hoodie"],
     note:
       "US-3291 widened this to OUTERWEAR and nothing else changed. The rows are " +
       "the same approximation and still carry NO source: the brand's own " +
@@ -6390,7 +6390,7 @@ export const SIZING_CHARTS: SizingChart[] = [
       "trouser",
       "short",
       "jean",
-    , "hoodie", "skirt"],
+    "hoodie", "skirt"],
     sourceUrl: "https://www.untuckit.com/pages/all-size-charts",
     note:
       "US-3290 added the SOURCE URL and widened this to bottoms and outerwear: " +
@@ -6542,7 +6542,7 @@ export const SIZING_CHARTS: SizingChart[] = [
       "coat",
       "outerwear",
       "vest",
-    , "hoodie"],
+    "hoodie"],
     note:
       "Vineyard Vines' own published men's chart. ⚠ FLAGGED FOR HUMAN VERIFICATION, " +
       "REPRODUCED AS PUBLISHED: the WAIST progression is DISCONTINUOUS — S is 30-32 " +
@@ -6632,7 +6632,7 @@ export const SIZING_CHARTS: SizingChart[] = [
       "shep shirt",
       "jacket",
       "skirt",
-    , "hoodie"],
+    "hoodie"],
     note:
       "Vineyard Vines publishes ONE unified women's chart (no separate tops/bottoms/" +
       "dresses), running US numeric 00-24 mapped to alpha XXS-3X. ⚠ THE ALPHA " +
@@ -6700,7 +6700,7 @@ export const SIZING_CHARTS: SizingChart[] = [
       "overshirt",
       "blazer",
       "jacket",
-    , "hoodie"],
+    "hoodie"],
     note:
       "Faherty's OWN published chart — but ⚠ THE PUBLISHED ASSETS ARE DATED 2019, " +
       "so the live fit may have drifted; the chart's own header says 'ALL SIZES ARE " +
@@ -6825,7 +6825,7 @@ export const SIZING_CHARTS: SizingChart[] = [
       "legend",
       "jacket",
       "skirt",
-    , "hoodie"],
+    "hoodie"],
     note:
       "Faherty women's runs a DUAL system: alpha XS-XL mapped to US numeric 0-16. " +
       "⚠ THIS CHART STOPS AT XL/16 AND IS A 2019 ASSET — if Faherty now sells " +
@@ -7929,7 +7929,7 @@ export const SIZING_CHARTS: SizingChart[] = [
       "mackinaw",
       "cruiser",
       "tin cloth",
-    , "hoodie", "sweater"],
+    "hoodie", "sweater"],
     note:
       "Filson men's tops/outerwear run alpha S-XXL against a chest grid " +
       "(approximate — verify against the garment). ⚠ WOOL MACKINAW and heavy Tin " +
@@ -8012,7 +8012,7 @@ export const SIZING_CHARTS: SizingChart[] = [
     categoryMatch: [
       "shirt", "top", "board shirt", "wool shirt", "overshirt", "jacket",
       "tee", "sweater", "knit", "coat", "outerwear", "vest", "flannel",
-    , "hoodie"],
+    "hoodie"],
     sourceUrl: "https://www.pendleton-usa.com/product/mens-astoria-stretch-chinos/54360Z.html",
     note:
       "US-3293 REPLACED the approximation that stood here with Pendleton's " +
@@ -8069,7 +8069,7 @@ export const SIZING_CHARTS: SizingChart[] = [
     categoryMatch: [
       "top", "shirt", "jacket", "coat", "vest", "barn coat", "field coat",
       "tee", "polo", "sweater", "knit", "outerwear", "flannel",
-    , "hoodie"],
+    "hoodie"],
     sourceUrl: "https://www.orvis.com/mens-clothing-size-information.html",
     note:
       "US-3293 REPLACED the approximation that stood here with Orvis's OWN " +
@@ -9568,7 +9568,7 @@ export const SIZING_CHARTS: SizingChart[] = [
     categoryMatch: [
       "top", "tee", "shirt", "sweater", "knit", "hoodie", "sweatshirt", "fleece",
       "bottom", "pant", "trouser", "legging", "short", "jogger", "sweatpant",
-    , "blouse", "jean", "skirt"],
+    "blouse", "jean", "skirt"],
     sourceUrl: "https://www.canadagoose.com/us/en/customer-service/support/sizing-charts-sizefit.html",
     note:
       "Canada Goose's Women's STANDARD chart, which is the brand's apparel chart " +
@@ -9595,7 +9595,7 @@ export const SIZING_CHARTS: SizingChart[] = [
     categoryMatch: [
       "top", "tee", "shirt", "sweater", "knit", "hoodie", "sweatshirt", "fleece",
       "bottom", "pant", "trouser", "short", "jogger", "sweatpant",
-    , "jean"],
+    "jean"],
     sourceUrl: "https://www.canadagoose.com/us/en/customer-service/support/sizing-charts-sizefit.html",
     note:
       "Canada Goose's Men's STANDARD chart — the brand's apparel chart, not an " +
@@ -9625,7 +9625,7 @@ export const SIZING_CHARTS: SizingChart[] = [
     garment: "Bottoms (alpha, body inches)",
     categoryMatch: [
       "bottom", "pant", "short", "jogger", "sweatpant", "trouser", "legging", "tight",
-    , "jean"],
+    "jean"],
     sourceUrl: "https://www.champion.com/pages/mens-clothing-size-guide",
     note: "Champion's published men's bottoms chart. Body measurements, not flat.",
     rows: [
@@ -9644,7 +9644,7 @@ export const SIZING_CHARTS: SizingChart[] = [
     garment: "Bottoms (alpha/numeric, body inches)",
     categoryMatch: [
       "bottom", "pant", "short", "jogger", "sweatpant", "trouser", "legging", "tight", "skirt",
-    , "jean"],
+    "jean"],
     sourceUrl: "https://www.champion.com/pages/womens-clothing-size-guide",
     note: "Champion's published women's bottoms chart. Body measurements, not flat.",
     rows: [
@@ -9759,7 +9759,7 @@ export const SIZING_CHARTS: SizingChart[] = [
     categoryMatch: [
       "top", "tee", "shirt", "hoodie", "sweatshirt", "sweater", "knit", "crewneck",
       "jacket", "coat", "outerwear", "vest",
-    , "blouse"],
+    "blouse"],
     measurementBasis: "flat",
     sourceUrl: "https://denimtears.com/products/ss26-ao-adg-stamp-hoodie-grey",
     note:
@@ -12257,7 +12257,7 @@ export const SIZING_CHARTS: SizingChart[] = [
     categoryMatch: [
       "top", "tee", "shirt", "blouse", "knit", "sweater", "cardigan", "dress",
       "jacket", "coat", "outerwear", "vest", "long sleeve",
-    , "hoodie"],
+    "hoodie"],
     sourceUrl: "https://www.orvis.com/womens-clothing-size-information.html",
     note:
       "Orvis's own women's tops chart, BODY inches, with the US numeric run " +
@@ -12848,7 +12848,7 @@ export const SIZING_CHARTS: SizingChart[] = [
     categoryMatch: [
       "top", "tee", "shirt", "blouse", "knit", "sweater", "cardigan", "dress",
       "jacket", "coat", "outerwear", "blazer", "vest", "long sleeve",
-    , "hoodie"],
+    "hoodie"],
     sourceUrl: "https://frame-store.com/products/the-leather-runway-jacket-wf26lja016-blk",
     note:
       "FRAME's own women's chart, BODY inches, with the US numeric run written " +

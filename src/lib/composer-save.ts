@@ -20,6 +20,7 @@ import type {
   PriceSetBy,
 } from "@/types/database";
 import type { ListingFormatValue } from "@/components/flipdesk/listing-format-controls";
+import { acquiredDateZoneFor } from "@/lib/acquired-date-zone";
 
 /** The composer's listing-side form state, already resolved to storable shapes. */
 export type ComposerListingState = {
@@ -315,6 +316,8 @@ export function buildItemPatch(
     acquired_price: state.effectiveCost,
     sourced_by: trimOrNull(state.sourcedBy),
     acquired_date: state.acquiredDate || null,
+    // US-3314: the zone that named the day, beside the day.
+    acquired_date_tz: acquiredDateZoneFor(state.acquiredDate),
     ...(state.categoryTouched
       ? { item_category: state.itemCategory === "" ? null : state.itemCategory }
       : {}),

@@ -72,7 +72,45 @@ stronger claim for one of them, `check-prod-migration.ts` is the tool.
 Nothing below 00786 was touched, and the six genuinely-held branches in the next
 section are unchanged and still waiting.
 
-## ⏳ HELD: 00814_chart_category_match_precision.sql (US-3443 - the words a chart's own word list was missing)
+## ⏳ HELD: 00815_acquired_date_timezone.sql (US-3314 - record the zone that named an acquisition day)
+
+**EXECUTED 2026-09-20 against the local cluster** carrying all 815 migrations.
+One `add column if not exists` plus a `comment on column`. Applied twice; the
+second run changed nothing.
+
+**Risk: LOW.** One nullable text column on `inventory_items` and a comment. No
+data is read, written or moved, no index, no policy, no constraint.
+
+**Why it exists.** Until US-3310, both iOS writers named `acquired_date` in UTC
+from a moment carrying the seller's local wall-clock time, so rows written when
+the device's day and the UTC day disagreed are off by one. The stored value
+carries no zone, so a blanket correction would corrupt every row that was
+already right. The owner's decision on 2026-09-20 was to correct FORWARD: leave
+the old rows, record the zone from here on, and say plainly which rows are
+trustworthy. `acquired_date_tz` NULL means unrecorded - every earlier row, and
+every CSV import, since an import carries the file's day rather than a device's.
+
+**Client-side read risk: NONE, and one write risk worth naming.** Nothing reads
+the column yet. The four web writers and the iOS canvas WRITE it in the same
+commit, so if the frontend auto-deploys before this is applied, every insert
+carrying an acquisition date fails with `column "acquired_date_tz" does not
+exist` - PostgREST rejects the whole row rather than ignoring the field. **This
+one is genuinely apply-before-push.**
+
+**Apply order:** after 00814. No `NOTIFY pgrst, 'reload schema'` is optional
+here: PostgREST caches the column list, so **send the reload** or the new column
+is invisible to the API even after the ALTER succeeds.
+
+**Readback after applying:**
+
+```sql
+select column_name, is_nullable
+from information_schema.columns
+where table_name = 'inventory_items' and column_name = 'acquired_date_tz';
+-- expect one row, YES
+```
+
+## ✅ APPLIED 2026-09-20 (owner, reported applied in session): 00814_chart_category_match_precision.sql (US-3443 - the words a chart's own word list was missing)
 
 **EXECUTED 2026-09-20 against the local cluster** carrying all 814 migrations.
 87 UPDATEs, each appending only the tokens the row does not already carry.
@@ -123,7 +161,7 @@ target rows is missing from the database, or if any of them does not carry every
 word it adds. 87 silent no-op UPDATEs read exactly like a clean apply, which is
 the failure this guard exists for.
 
-## ⏳ HELD: 00813_chart_brand_key_accent_duplicates.sql (US-3443 - four size charts stored twice, and grading reads the unsourced copy)
+## ✅ APPLIED 2026-09-20 (owner, reported applied in session): 00813_chart_brand_key_accent_duplicates.sql (US-3443 - four size charts stored twice, and grading reads the unsourced copy)
 
 **EXECUTED 2026-09-20 against the local cluster** carrying all 813 migrations.
 Before: 441 chart rows, four of them duplicated. After: 437, with the four
@@ -254,22 +292,22 @@ is still serving its cached schema, so send the NOTIFY.
 The full reasoning, the eleven-group classification and the per-table names are
 in `vault/20-domain/service-role-tables.md`, which owns this contract.
 
-## ⏳ HELD: 00812_revoke_operator_grants_c_platform.sql (US-3355 - batch C, 57 platform, reference and economics tables)
+## ✅ APPLIED 2026-09-20 (owner, reported applied in session): 00812_revoke_operator_grants_c_platform.sql (US-3355 - batch C, 57 platform, reference and economics tables)
 
 Apply LAST of the three. See the shared section above for the measurement, the
 risk and the readback.
 
-## ⏳ HELD: 00811_revoke_operator_grants_b_people.sql (US-3355 - batch B, 25 tables of records about named people and cross-seller data)
+## ✅ APPLIED 2026-09-20 (owner, reported applied in session): 00811_revoke_operator_grants_b_people.sql (US-3355 - batch B, 25 tables of records about named people and cross-seller data)
 
 Apply SECOND. See the shared section above.
 
-## ⏳ HELD: 00810_revoke_operator_grants_a_credentials.sql (US-3355 - batch A, 12 credential and OAuth-server tables)
+## ✅ APPLIED 2026-09-20 (owner, reported applied in session): 00810_revoke_operator_grants_a_credentials.sql (US-3355 - batch A, 12 credential and OAuth-server tables)
 
 Apply FIRST, and it is the batch to apply if you only apply one: these hold
 PKCE verifiers, live tokens and the connector's authorization-server rows.
 See the shared section above.
 
-## ⏳ HELD: 00809_size_class_curve_and_big.sql (US-3406 — two size charts that never got their class recorded)
+## ✅ APPLIED 2026-09-20 (owner, reported applied in session): 00809_size_class_curve_and_big.sql (US-3406 — two size charts that never got their class recorded)
 
 **EXECUTED 2026-09-20 against the local cluster** carrying all 809 migrations
 from zero. Before: both rows `size_class` NULL. After: `tommyhilfiger` Women
@@ -347,7 +385,7 @@ Brothers likewise. What the migration buys is that the stored value stops
 disagreeing with the derivation, which is what `size-class-reaches-the-caller_test.ts`
 exists to keep true.
 
-## ⏳ HELD: 00808_cross_channel_link_reviews.sql (US-3197 — the cross-channel matches a human has to decide)
+## ✅ APPLIED 2026-09-20 (owner, reported applied in session): 00808_cross_channel_link_reviews.sql (US-3197 — the cross-channel matches a human has to decide)
 
 **EXECUTED 2026-09-20.** `public.flipdesk_cross_channel_link_reviews` exists with `relrowsecurity = true` and **zero policies**, which is the deny-all posture, and `anon` and `authenticated` hold no grant on it. Both indexes (`uq_cross_channel_link_reviews_pair`, `idx_cross_channel_link_reviews_open`) and both CHECK constraints are present.
 
@@ -406,7 +444,7 @@ NOTIFY pgrst, 'reload schema';
 **EXPECTED_SCHEMA_VERSION is 00808 in the same commit**, and the manifest was
 regenerated.
 
-## ⏳ HELD: 00807_scope_storage_public_read_policies.sql (US-3403 — stop a stranger enumerating the five public buckets)
+## ✅ APPLIED 2026-09-20 (owner, reported applied in session): 00807_scope_storage_public_read_policies.sql (US-3403 — stop a stranger enumerating the five public buckets)
 
 **EXECUTED 2026-09-20.** Read back off `pg_policy` rather than off the file, which is what US-3403 AC asks for. All five public-read policies on `storage.objects` are scoped: avatars and item-photos to the owner folder, cert-assets, content-images and content-videos to `is_admin()`. The item-photos policy carries the uuid-shape regex BEFORE the `::uuid` cast, which is the part that matters -- the cast RAISES on a non-uuid folder name and in a SELECT policy that fails the whole list.
 
@@ -474,7 +512,7 @@ after 00806, which is the next number down.
 **EXPECTED_SCHEMA_VERSION is 00807 in the same commit**, and the manifest was
 regenerated.
 
-## ⏳ HELD: 00806_repair_whole_dollar_listing_prices.sql (US-3318 — Poshmark and Vinted rows priced in cents)
+## ✅ APPLIED 2026-09-20 (owner, reported applied in session): 00806_repair_whole_dollar_listing_prices.sql (US-3318 — Poshmark and Vinted rows priced in cents)
 
 **EXECUTED 2026-09-20, AND THIS IS THE ONE HELD FILE THAT REWRITES SELLER DATA.** `node scripts/check-whole-dollar-price-repair.mjs --dsn "postgresql://..."` seeds the six worked examples from this file's own header plus three rows that must not move, applies the real migration, and rolls back. All nine land where the header says: 32.49 to 32.00, 32.50 to 33.00, 31.50 to 32.00 with its `price_override` stepped alongside, 0.40 and 0.01 to the 1.00 floor, 25.00 untouched, and eBay, Depop and a zero price untouched. `listing_price` and `platform_fields` agree on every row, and another key in the channel blob survives the merge. **Idempotency measured rather than argued: the same file twice in one transaction reports 4 rows then 0.**
 
@@ -532,7 +570,7 @@ NOTIFY pgrst, 'reload schema';
 **EXPECTED_SCHEMA_VERSION is 00806 in the same commit**, and the manifest was
 regenerated.
 
-## ⏳ HELD: 00805_phone_capture_groups.sql (US-3185 — several items on one capture code)
+## ✅ APPLIED 2026-09-20 (owner, reported applied in session): 00805_phone_capture_groups.sql (US-3185 — several items on one capture code)
 
 **EXECUTED 2026-09-20 against a local Postgres carrying all 808 migrations from zero.** `group_index` exists on BOTH `phone_capture_sessions` and `phone_capture_photos`, the `target_kind` CHECK reads `ANY (ARRAY['item','batch','staging'])`, and `idx_phone_capture_photos_session_group` is present. Nothing here was read off the file.
 

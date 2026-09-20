@@ -38,7 +38,18 @@ describe("operator worklist: Start here", () => {
   it("names every held migration, and no migration that is not held", () => {
     const block = startHereBlock();
     if (held.length === 0) {
-      expect(block).toContain("No migration is held");
+      // ⚠ 2026-09-20: this used to demand the literal "No migration is held",
+      // and that is only ONE of the two no-held shapes the generator writes.
+      // startHere() prints that sentence when nothing is held AND nothing is
+      // waiting on an edge deploy; with a deploy still pending it writes the
+      // computed path with the migration step omitted. The day the owner
+      // applied all ten, this case failed on a worklist that was correct.
+      // What must hold in either shape is that the block names no migration,
+      // which is the assertion below and is checked here too.
+      expect(
+        [...block.matchAll(/(\d{5}_\S+?\.sql)/g)].map((m) => m[1]),
+        "nothing is held, so the worklist must not send the owner to apply anything",
+      ).toEqual([]);
       return;
     }
     for (const file of held) {

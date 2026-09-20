@@ -171,11 +171,25 @@ export default defineConfig({
     coverage: {
       provider: "v8",
       reporter: ["text-summary", "json-summary"],
+      // RESET 2026-09-20 by the owner's decision, and a RATCHET from here:
+      // these may only ever go UP. Measured that day over 10,471 passing tests
+      // with 0 failing -- statements 57.03, branches 50.30, functions 52.00,
+      // lines 58.10 -- so each floor sits about a point under its real number,
+      // which is enough margin for ordinary churn and still catches a deletion.
+      //
+      // This is the fourth reset (72 -> 67 -> 62 -> 57 on lines) and the reason
+      // is the same every time: the floors were set as a target rather than as
+      // a floor, so they drifted above the code and the step failed for weeks
+      // on something that was not a regression. A lane that is red for a normal
+      // reason stops being read, which is US-3308's whole subject.
+      //
+      // RAISING one is a one-line change and needs no ceremony. LOWERING one is
+      // the owner's call, not a fix for a red build.
       thresholds: {
-        statements: 61,
-        branches: 55,
-        functions: 56,
-        lines: 62,
+        statements: 56,
+        branches: 49,
+        functions: 51,
+        lines: 57,
       },
     },
   },
