@@ -50,9 +50,35 @@ const GARMENT_FAMILY_TOKENS: Readonly<
     "waist",
   ],
   outerwear: ["outerwear", "jacket", "coat", "parka", "vest"],
-  dresses: ["dress", "gown", "rtw", "apparel"],
+  // "dress" is NOT in this list; see dressesMatch below. Every other token is
+  // unambiguous enough to read anywhere in the string.
+  dresses: ["gown", "rtw", "apparel"],
   footwear: ["footwear", "shoe", "sneaker", "boot", "sandal"],
 };
+
+/** The part of a garment string that states its SCOPE: everything before the
+ *  first parenthetical or the first dash note. "Jeans (waist in INCHES 24-35)
+ *  -- NOT a dress size" scopes to "Jeans"; the rest is how it is sized and what
+ *  it is not. */
+function scopeHead(garment: string): string {
+  return garment.split(/[(\u2014]|\s-{1,2}\s/)[0]!.toLowerCase();
+}
+
+/** US-3443: "dress" is the one family token that reads wrong outside the scope.
+ *
+ *  Four charts in the corpus were filed under `dresses` by a substring match
+ *  and none of them sizes a dress: two DRESS SHIRT charts (a neck-by-sleeve
+ *  measurement), a jeans chart whose note says "NOT a dress size", and a
+ *  footwear chart whose note says "dress" about the shoe. A dress ask at Brooks
+ *  Brothers was answered with a collar size.
+ *
+ *  So it is read from the scope head only, and never when the next word is
+ *  "shirt". Everything a brand genuinely files under dresses says so there:
+ *  "Dresses (US numeric)", "Tops & dresses (alpha)", "Tops, bottoms, outerwear
+ *  & dresses". */
+function dressesMatch(garment: string): boolean {
+  return /\bdress(es)?\b(?!\s*shirt)/.test(scopeHead(garment));
+}
 
 /** Which families a chart's garment string belongs to. */
 export function garmentFamilies(garment: string): Set<GarmentFamily> {
@@ -61,6 +87,7 @@ export function garmentFamilies(garment: string): Set<GarmentFamily> {
   for (const [family, tokens] of Object.entries(GARMENT_FAMILY_TOKENS)) {
     if (tokens.some((t) => s.includes(t))) out.add(family as GarmentFamily);
   }
+  if (dressesMatch(garment ?? "")) out.add("dresses");
   return out;
 }
 

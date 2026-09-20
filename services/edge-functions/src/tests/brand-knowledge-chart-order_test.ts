@@ -31,6 +31,7 @@ const {
   isSpecialisedChart,
 } = await import("../lib/brand-knowledge.ts");
 import type { AssembleInput } from "../lib/brand-knowledge.ts";
+import { SIZING_CHARTS } from "../lib/sizing-charts.ts";
 import type { SizingChart } from "../lib/sizing-charts.ts";
 
 function chart(
@@ -131,6 +132,71 @@ Deno.test("garmentFamilies reads a garment string, and a chart can be in two", (
   const both = garmentFamilies("Tops & outerwear (body inches)");
   assert(both.has("tops"));
   assert(both.has("outerwear"));
+});
+
+Deno.test("US-3443: a dress-shirt chart is not a dress chart", () => {
+  // Four charts in the corpus carried "dress" outside their scope and were
+  // filed under `dresses` by a substring match. A dress ask at Brooks Brothers
+  // was answered with a collar size, which is the most confidently wrong thing
+  // the narrowing can do: the chart IS the brand's and IS a real chart.
+  for (
+    const garment of [
+      "Dress shirts (NECK x SLEEVE in inches -- two independent measurements)",
+      "Dress shirts (neck x sleeve)",
+      "Button-down shirts (ALPHA S-XXXL) -- but dress shirts are NECK x SLEEVE, see note",
+    ]
+  ) {
+    const fams = garmentFamilies(garment);
+    assert(fams.has("tops"), `${garment} is a tops chart`);
+    assert(!fams.has("dresses"), `${garment} must not read as a dress chart`);
+  }
+  // The word in a NOTE, about what the chart is not, and about a shoe.
+  assertEquals(
+    [...garmentFamilies("Jeans (waist in INCHES 24-35) \u2014 NOT a dress size")],
+    ["bottoms"],
+  );
+  assertEquals(
+    [...garmentFamilies("Footwear (US/UK/EU + width \u2014 dress, the size is STAMPED)")],
+    ["footwear"],
+  );
+  // ANTI-VACUITY: the charts that genuinely size a dress still say so, or the
+  // fix above would have closed the family rather than narrowed it.
+  for (
+    const garment of [
+      "Dresses (US numeric)",
+      "Tops & dresses (alpha, RUNS SMALL)",
+      "Dresses & tops (FR sizing)",
+      "Tops, bottoms, outerwear & dresses (ALPHA XS-XL)",
+    ]
+  ) {
+    assert(
+      garmentFamilies(garment).has("dresses"),
+      `${garment} must still be a dress chart`,
+    );
+  }
+});
+
+Deno.test("US-3443: nothing in the seed reads as a dress chart by accident", () => {
+  // The corpus asserts the rule rather than the four rows it was found on: a
+  // chart is in `dresses` only when its SCOPE says so, which is everything
+  // before the first parenthetical or dash note.
+  const offenders = SIZING_CHARTS
+    .filter((c) => garmentFamilies(c.garment).has("dresses"))
+    .filter((c) => {
+      const head = c.garment.split(/[(\u2014]|\s-{1,2}\s/)[0]!.toLowerCase();
+      return !/\b(dress(es)?|gown|rtw|apparel|clothing)\b/.test(head);
+    })
+    .map((c) => `${c.brand}: ${c.garment}`);
+  assertEquals(offenders, [], "a dress ask would reach these charts");
+  // ANTI-VACUITY: the filter above only means something if the corpus HAS
+  // dress charts to sort through.
+  const dressCharts = SIZING_CHARTS.filter((c) =>
+    garmentFamilies(c.garment).has("dresses")
+  );
+  assert(
+    dressCharts.length > 20,
+    `only ${dressCharts.length} dress charts found; the scan is reading nothing`,
+  );
 });
 
 Deno.test("categoryFamily maps the grading categories, and skirt is not shirt", () => {
