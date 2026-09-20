@@ -190,6 +190,20 @@ export function SubmissionDetailPage() {
   const [refreshError, setRefreshError] = useState(false);
   const [loadAttempt, setLoadAttempt] = useState(0);
   const [dispute, setDispute] = useState<DisputeRow | null>(null);
+  /**
+   * US-3427: the dispute lookup failed, so we do not know whether this report
+   * has already been disputed.
+   *
+   * This is deliberately NOT `error`. The lookup answers one question -- has a
+   * dispute been filed -- and its only consumer is the "Dispute Grade" action.
+   * Blocking the page on it hid the grade report the seller paid for, which is
+   * what turned the critical-path E2E red. read-failure-contract.md says a
+   * failed read stops the DEPENDENT ACTION; here that is filing, not rendering.
+   *
+   * It must also never read as "no dispute exists", which is why canDispute
+   * consults it rather than just leaning on `dispute` being null.
+   */
+  const [disputeCheckFailed, setDisputeCheckFailed] = useState(false);
   const [linkedItem, setLinkedItem] = useState<InventoryItemRow | null>(null);
   const [disputeDialogOpen, setDisputeDialogOpen] = useState(false);
   const [disputeCategory, setDisputeCategory] = useState("");
@@ -492,12 +506,14 @@ export function SubmissionDetailPage() {
 
         if (cancelled) return;
         if (disputeError) {
-          setError("Couldn't check the existing dispute. Please try again before filing another.");
-          setLoading(false);
-          return;
-        }
-        if (disputeData) {
-          setDispute(disputeData as DisputeRow);
+          // US-3427: withhold the dispute action, not the report. Clearing
+          // `dispute` alongside the flag keeps the two from disagreeing on a
+          // retry that fails after one that succeeded.
+          setDispute(null);
+          setDisputeCheckFailed(true);
+        } else {
+          setDisputeCheckFailed(false);
+          setDispute(disputeData ? (disputeData as DisputeRow) : null);
         }
       }
 
@@ -515,16 +531,26 @@ export function SubmissionDetailPage() {
     };
   }, [id, loadAttempt]);
 
-  const canDispute =
+  // US-3427: split out so the withheld-action notice below can ask the same
+  // question the button does. Everything except "do we know about an existing
+  // dispute" lives here.
+  const disputeWindowOpen = Boolean(
     submission?.status === "completed" &&
-    gradeReport &&
-    !dispute &&
-    (() => {
-      const createdAt = new Date(gradeReport.created_at);
-      const windowStart = new Date();
-      windowStart.setDate(windowStart.getDate() - DISPUTE_WINDOW_DAYS);
-      return createdAt > windowStart;
-    })();
+      gradeReport &&
+      (() => {
+        const createdAt = new Date(gradeReport.created_at);
+        const windowStart = new Date();
+        windowStart.setDate(windowStart.getDate() - DISPUTE_WINDOW_DAYS);
+        return createdAt > windowStart;
+      })(),
+  );
+
+  // US-3427: `!disputeCheckFailed` is the load-bearing clause. Without it an
+  // unresolved lookup reads as "no dispute exists" and offers to file a second.
+  const canDispute = disputeWindowOpen && !dispute && !disputeCheckFailed;
+
+  /** The seller could dispute, but we could not find out whether they already have. */
+  const disputeCheckUnavailable = disputeWindowOpen && disputeCheckFailed;
 
   // US-949: one-tap retake. Carry the prior submission's garment details, any
   // inventory linkage, the grader's flagged photo types, and the PASSING photos
@@ -958,6 +984,25 @@ export function SubmissionDetailPage() {
                 </DialogFooter>
               </DialogContent>
             </Dialog>
+          )}
+          {/*
+            US-3427: the dispute action, withheld rather than missing. We do not
+            know whether this report already carries a dispute, so offering to
+            file one could file a second; saying nothing would read as "the
+            window closed". The retry re-runs the same load the page does.
+          */}
+          {disputeCheckUnavailable && (
+            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+              <Flag className="h-4 w-4 shrink-0" />
+              <span>Couldn&apos;t check whether you already disputed this grade.</span>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setLoadAttempt((attempt) => attempt + 1)}
+              >
+                Try again
+              </Button>
+            </div>
           )}
         </div>
       </div>

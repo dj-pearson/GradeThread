@@ -10,7 +10,9 @@ code_refs:
   - src/components/finances/filing-walkthrough-card.tsx
   - src/components/api/api-overage-card.tsx
   - src/lib/payout-breakdown.ts
-reviewed: 2026-09-15
+  - src/pages/submission-detail.tsx
+  - src/test/submission-detail-dispute-read.test.tsx
+reviewed: 2026-09-19
 tags: [data, reliability, finances]
 summary: Failed database reads must not appear as zero balances, empty inventory, completed filing checks, or defaults that can overwrite saved values.
 ---
@@ -43,6 +45,23 @@ The filing review also removed helper-level catch-to-zero, null and empty-list
 fallbacks. Payout sale lines and item facts use `fetchAllPages` with stable
 ordering; a later page failure rejects the entire result rather than publishing
 partial totals. A missing payout header remains valid only after a successful read.
+
+## The dependent action, not the page (US-3427, 2026-09-19)
+
+"Stops the dependent action" is about granularity, and reading it as "stops the
+page" costs more than the failure it guards against.
+
+The measured case: `submission-detail.tsx` blocked the entire page when the
+`disputes` lookup failed. That lookup has exactly one consumer -- whether to
+offer "Dispute Grade" -- so the action to stop was filing a dispute, not
+rendering the grade the seller paid for. It stood that way from 2026-09-15 and
+turned the critical-path E2E red for four days.
+
+The test to apply: name the read's consumers. Withhold those, say why, and
+offer a retry. Everything the failed read does not feed still renders. What is
+never allowed either way is treating the failure as an answer -- an unresolved
+dispute lookup must not read as "no dispute exists", which is why `canDispute`
+consults the failure flag rather than only a null row.
 
 ## Named optional exceptions
 
