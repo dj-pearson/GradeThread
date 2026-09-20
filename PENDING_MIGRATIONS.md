@@ -72,6 +72,44 @@ stronger claim for one of them, `check-prod-migration.ts` is the tool.
 Nothing below 00786 was touched, and the six genuinely-held branches in the next
 section are unchanged and still waiting.
 
+## ⏳ HELD: 00815_acquired_date_timezone.sql (US-3314 - record the zone that named an acquisition day)
+
+**EXECUTED 2026-09-20 against the local cluster** carrying all 815 migrations.
+One `add column if not exists` plus a `comment on column`. Applied twice; the
+second run changed nothing.
+
+**Risk: LOW.** One nullable text column on `inventory_items` and a comment. No
+data is read, written or moved, no index, no policy, no constraint.
+
+**Why it exists.** Until US-3310, both iOS writers named `acquired_date` in UTC
+from a moment carrying the seller's local wall-clock time, so rows written when
+the device's day and the UTC day disagreed are off by one. The stored value
+carries no zone, so a blanket correction would corrupt every row that was
+already right. The owner's decision on 2026-09-20 was to correct FORWARD: leave
+the old rows, record the zone from here on, and say plainly which rows are
+trustworthy. `acquired_date_tz` NULL means unrecorded - every earlier row, and
+every CSV import, since an import carries the file's day rather than a device's.
+
+**Client-side read risk: NONE, and one write risk worth naming.** Nothing reads
+the column yet. The four web writers and the iOS canvas WRITE it in the same
+commit, so if the frontend auto-deploys before this is applied, every insert
+carrying an acquisition date fails with `column "acquired_date_tz" does not
+exist` - PostgREST rejects the whole row rather than ignoring the field. **This
+one is genuinely apply-before-push.**
+
+**Apply order:** after 00814. No `NOTIFY pgrst, 'reload schema'` is optional
+here: PostgREST caches the column list, so **send the reload** or the new column
+is invisible to the API even after the ALTER succeeds.
+
+**Readback after applying:**
+
+```sql
+select column_name, is_nullable
+from information_schema.columns
+where table_name = 'inventory_items' and column_name = 'acquired_date_tz';
+-- expect one row, YES
+```
+
 ## ✅ APPLIED 2026-09-20 (owner, reported applied in session): 00814_chart_category_match_precision.sql (US-3443 - the words a chart's own word list was missing)
 
 **EXECUTED 2026-09-20 against the local cluster** carrying all 814 migrations.

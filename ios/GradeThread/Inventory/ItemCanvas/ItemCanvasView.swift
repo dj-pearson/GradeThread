@@ -3337,6 +3337,10 @@ struct ItemCanvasView: View {
         let style: String?
         let sourced_by: String?
         let acquired_date: String?
+        /// US-3314: the IANA zone that named `acquired_date`, or nil when
+        /// no date is set. The rows written before this shipped carry no
+        /// zone and are the ones a future repair may not touch.
+        let acquired_date_tz: String?
         let container: String?
         let comp_set: [ItemComp]
         let location_bin: String?
@@ -3396,6 +3400,7 @@ struct ItemCanvasView: View {
             style: state.draft.style.nonEmpty,
             sourced_by: state.draft.sourcedBy.nonEmpty,
             acquired_date: Self.acquiredDateString(state.draft.acquiredDate),
+            acquired_date_tz: Self.acquiredDateZone(state.draft.acquiredDate),
             container: state.draft.container.nonEmpty,
             comp_set: state.draft.compSet,
             location_bin: state.draft.locationBin.nonEmpty,
@@ -3431,6 +3436,16 @@ struct ItemCanvasView: View {
     /// date-only column; a fourth private copy of it was the whole bug.
     static func acquiredDateString(_ date: Date?) -> String? {
         date.map { MoneyDate.iso($0) }
+    }
+
+    /// US-3314: the zone `acquiredDateString` named the day in.
+    ///
+    /// Nil in, nil out, so a row with no acquisition date cannot claim a zone.
+    /// `MoneyDate.iso` formats in the device's current zone, which is what
+    /// US-3310 fixed, so `TimeZone.current` is the same zone the day came from
+    /// rather than a second guess at it.
+    static func acquiredDateZone(_ date: Date?) -> String? {
+        date == nil ? nil : TimeZone.current.identifier
     }
 
     /// Parses the per-item split override. Only meaningful when a consignor is

@@ -410,6 +410,38 @@ the pure builder to a measurement rather than to a second copy of the same
 arithmetic. If the SQL derivation and the TypeScript builder ever drift, one of
 those two numbers moves.
 
+## The acquisition date is approximate before 2026-09-20
+
+`inventory_items.acquired_date` is the cost-basis date, so it decides which tax
+year a purchase lands in. Until US-3310, both iOS writers named that day in UTC
+from a moment carrying the seller's local wall-clock time, so any row written
+when the device's local day differed from the UTC day is **off by one** - a day
+later for sellers west of UTC, a day earlier for those east. That is roughly the
+evening hours across the Americas and the morning hours across Asia-Pacific, so
+it is a meaningful slice of everything catalogued on a phone.
+
+**It cannot be repaired from the stored value.** The day carries no record of
+the zone it was named in, and there is no per-user timezone column to
+reconstruct one from, so a blanket shift would corrupt every row that was
+already right - and most of them were, because the error only fires when the two
+days disagree.
+
+**The decision, taken by the owner on 2026-09-20 (US-3314), was to correct
+forward.** `acquired_date_tz` (migration 00815) records the IANA zone the writer
+was in, from that date on. NULL means unrecorded: every earlier row, and every
+CSV import, since an import carries the file's day rather than a device's. So a
+future repair has a key for the rows it may touch and a NULL for the ones it may
+not.
+
+**What this means for the numbers here.** `daysHeld` and the time-on-market
+buckets read this column, so an item written on a phone before the cutoff can
+sit one day either side of its real bracket. At a month boundary that moves a
+COGS line into the neighbouring month. At a YEAR boundary it moves a purchase
+into the neighbouring tax year, and that is the only version of this that is
+more than cosmetic. Treat a Schedule C cost-basis date from a pre-cutoff phone
+row as approximate to one day, and check any row whose date sits on 31 December
+or 1 January.
+
 ## Cost of goods sold, and ending inventory
 
 `public.inventory_snapshots` (migration 00688) values what a seller was holding

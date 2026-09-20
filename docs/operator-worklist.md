@@ -8,7 +8,13 @@ This is not a list of blocked work. Most of these stories have buildable criteri
 
 Computed from PENDING_MIGRATIONS.md and the criteria below, so it is right on the day you read it. Everything under this heading is two sittings, and it is the two that move the most stories.
 
-**1. Redeploy the edge on Coolify.** Its boot guard expects the schema version the migrations above just set, so this follows them rather than leading. That one deploy is the precondition for **5 stories** whose remaining step is a measurement taken afterwards, not separate work: US-3146, US-3149, US-3147, US-3148, US-3028.
+**1. Apply the 1 held migration, oldest first.** `npm run migrate:prod` reads what prod already has; `npm run migrate:prod -- --apply --yes` takes a backup and applies. Each entry in PENDING_MIGRATIONS.md carries its own risk note and its own readback -- run the readback, do not assume the apply.
+
+- `00815_acquired_date_timezone.sql` — US-3314 — record the zone that named an acquisition day
+
+   Applying them and flipping each heading to `## ✅ APPLIED:` with a date is also what clears `node scripts/held-migration-gate.mjs --ci`, which CI runs first and which fails on any branch carrying a held migration. Until then a pull request from a branch that has one cannot go green, however good the rest of it is.
+
+**2. Redeploy the edge on Coolify.** Its boot guard expects the schema version the migrations above just set, so this follows them rather than leading. That one deploy is the precondition for **5 stories** whose remaining step is a measurement taken afterwards, not separate work: US-3146, US-3149, US-3147, US-3148, US-3028.
 
 ---
 
