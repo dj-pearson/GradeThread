@@ -30,6 +30,7 @@ import {
   normalizePhotoPath,
   type PhotoRow,
 } from "../src/lib/missing-photo-objects.ts";
+import { supabaseErrorText } from "../src/lib/supabase-error-text.ts";
 
 const BUCKET = "item-photos";
 const PAGE = 1000;
@@ -70,7 +71,7 @@ async function listObjects(prefix = "", depth = 0): Promise<string[]> {
     // list() RESOLVES with an error rather than throwing, so an unchecked call
     // here turns "we could not read it" into "it is not there".
     if (error) {
-      report(`list failed at ${BUCKET}/${prefix}: ${error.message}`);
+      report(`list failed at ${BUCKET}/${prefix}: ${supabaseErrorText(error)}`);
       return out;
     }
     const batch = data ?? [];
@@ -98,7 +99,7 @@ async function allRows(): Promise<PhotoRow[]> {
       .order("id", { ascending: true })
       .range(from, from + ROW_PAGE - 1);
     if (error) {
-      report(`item_photos read failed at offset ${from}: ${error.message}`);
+      report(`item_photos read failed at offset ${from}: ${supabaseErrorText(error)}`);
       return rows;
     }
     const batch = (data ?? []) as {
@@ -137,7 +138,7 @@ async function ownersByItem(ids: readonly string[]): Promise<Map<string, string>
       .select("id, user_id")
       .in("id", slice);
     if (error) {
-      report(`inventory_items read failed for ${slice.length} id(s): ${error.message}`);
+      report(`inventory_items read failed for ${slice.length} id(s): ${supabaseErrorText(error)}`);
       continue;
     }
     for (const r of (data ?? []) as { id: string; user_id: string }[]) {

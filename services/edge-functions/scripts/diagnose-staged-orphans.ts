@@ -36,6 +36,7 @@ import {
   type StagedObject,
   STAGING_SEGMENT,
 } from "../src/lib/staged-orphans.ts";
+import { supabaseErrorText } from "../src/lib/supabase-error-text.ts";
 
 const PAGE = 1000;
 /** Matches the erasure walk's own bound, so the two see the same tree. */
@@ -77,7 +78,7 @@ async function walk(
     // list() RESOLVES with an error rather than throwing. An unreported error
     // here is an undercount presented as a count.
     if (error) {
-      report(`list failed at ${bucket}/${prefix}: ${error.message}`);
+      report(`list failed at ${bucket}/${prefix}: ${supabaseErrorText(error)}`);
       return out;
     }
     const batch = data ?? [];
@@ -109,7 +110,7 @@ async function ownersWithStaging(bucket: string): Promise<string[]> {
       offset: page * PAGE,
     });
     if (error) {
-      report(`root list failed on ${bucket}: ${error.message}`);
+      report(`root list failed on ${bucket}: ${supabaseErrorText(error)}`);
       return owners;
     }
     const batch = data ?? [];
@@ -136,7 +137,7 @@ async function referencedPaths(): Promise<Map<string, Set<string>>> {
         // A failed reference read makes live photos look orphaned, which is
         // the one error that must never be quiet.
         report(
-          `REFERENCE READ FAILED on ${src.table}.${src.column}: ${error.message}. ` +
+          `REFERENCE READ FAILED on ${src.table}.${src.column}: ${supabaseErrorText(error)}. ` +
             `The orphan count below is NOT SAFE to act on.`,
         );
         break;
@@ -168,7 +169,7 @@ async function deletedOwners(): Promise<Set<string>> {
     .from("account_deletion_log")
     .select("deleted_user_id");
   if (error) {
-    report(`deleted-account read failed: ${error.message}`);
+    report(`deleted-account read failed: ${supabaseErrorText(error)}`);
     return out;
   }
   for (const row of data ?? []) {
