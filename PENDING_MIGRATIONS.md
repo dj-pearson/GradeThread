@@ -788,14 +788,26 @@ DB agree.
 **Apply order: after 00790.** No `NOTIFY` needed (data only). Redeploy the
 edge (boot guard expects 00791).
 
-**Check it landed:**
+**Check it landed.** ⚠ CORRECTED 2026-09-20 (US-3324): the first query in this
+block used to check `flipdesk_settings.marketplace_handles`, which belongs to
+00792 above and has nothing to do with this migration. It was a copy-paste leak,
+and an operator running it would have read a `1` as evidence 00791 landed.
 
 ```sql
-select count(*) from information_schema.columns
-where table_name = 'flipdesk_settings' and column_name = 'marketplace_handles';  -- 1
-select brand_match from public.brand_size_charts
- where brand_key = 'duluthtradingco';  -- no row contains 'duluth' on its own
+select brand_key, garment, brand_match from public.brand_size_charts
+ where brand_key = 'duluthtradingco';
+-- expect 2 rows, both Men, both with brand_match = {"duluth trading",duluthtrading}:
+--   Tops & outerwear (body inches)
+--   Work pants (WAIST x INSEAM, inches)
+
+select count(*) from public.brand_size_charts
+ where 'duluth' = any(brand_match);  -- expect 0, across the whole table
 ```
+
+**The same two queries were EXECUTED on 2026-09-20** against a local Postgres
+carrying all 808 migrations from zero, and returned exactly the rows above and
+a count of 0 over 441 charts. That proves the migration corpus produces the
+right answer; it does not prove prod, which is what the readback is for.
 
 ## ✅ APPLIED 2026-09-13 (confirmed from prod, not watched): 00790 — the second-opinion switch (US-2279 / US-3359)
 
