@@ -26,12 +26,15 @@ describe("size-chart category fallback audit (US-3405)", () => {
     expect(charts.every((c) => c.categoryMatch.length > 0)).toBe(true);
   });
 
-  it("reproduces the Arc'teryx case the story found by eye", () => {
-    // "Arc'teryx's tops charts do not list `shirt` in category_match at all."
+  it("the Arc'teryx case the story found by eye is CLOSED, and stays closed", () => {
+    // Was: "Arc'teryx's tops charts do not list `shirt` in category_match at
+    // all", and this case asserted the absence. US-3443's precision pass added
+    // the word, so the assertion is flipped rather than deleted: a chart losing
+    // it again is the same defect coming back, and nothing else would report it.
     const arc = charts.filter((c) => /arc.?teryx/i.test(c.brand) && /top/i.test(c.garment));
     expect(arc.length).toBeGreaterThan(0);
-    expect(arc.every((c) => !categoryMatches(c.categoryMatch, "shirt"))).toBe(true);
-    expect(forBrand(/arc.?teryx/i).map((f) => f.word)).toContain("shirt");
+    expect(arc.every((c) => categoryMatches(c.categoryMatch, "shirt"))).toBe(true);
+    expect(forBrand(/arc.?teryx/i).map((f) => f.word)).not.toContain("shirt");
   });
 
   it("reproduces the Vuori case the story found by eye", () => {
@@ -44,12 +47,14 @@ describe("size-chart category fallback audit (US-3405)", () => {
 
   it("scores the slots the model reads, not just the head of the pool", () => {
     // Counting only the first chart missed Arc'teryx entirely: its head IS a
-    // tops chart, and two of its three slots are still bottoms. That undercount
-    // is why this is scored over MAX_CHARTS.
+    // tops chart, and two of its three slots were still bottoms. That
+    // undercount is why this is scored over MAX_CHARTS. It is pinned on Vuori's
+    // jean now, because US-3443 closed the Arc'teryx one; the head of Vuori's
+    // pool is its Tops chart while the ask is a bottom.
     expect(MAX_CHARTS).toBe(3);
-    const arcShirt = forBrand(/arc.?teryx/i).find((f) => f.word === "shirt");
-    expect(arcShirt?.wrongSlots).toBeGreaterThan(0);
-    expect(arcShirt?.slots).toBe(MAX_CHARTS);
+    const vuoriJean = forBrand(/^vuori$/i).find((f) => f.word === "jean");
+    expect(vuoriJean?.wrongSlots).toBeGreaterThan(0);
+    expect(vuoriJean?.slots).toBe(MAX_CHARTS);
   });
 
   it("does not report a brand that genuinely has no chart for the family", () => {

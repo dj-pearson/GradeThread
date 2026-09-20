@@ -117,7 +117,14 @@ export function claimedFamilies(garment) {
   if (/\btop|shirt|tee|polo|sweater|knit|blouse|jersey/.test(g)) out.add("top");
   if (/bottom|pant|jean|short|skirt|trouser|legging|denim|waist|inseam/.test(g)) out.add("bottom");
   if (/outerwear|jacket|coat|parka|vest|fleece/.test(g)) out.add("outerwear");
-  if (/dress|gown|romper|jumpsuit|swim/.test(g)) out.add("dress");
+  // US-3443: "dress" only counts in the SCOPE head, and never before "shirt".
+  // Read across the whole string it filed a dress-shirt chart, a jeans chart
+  // whose note says "NOT a dress size" and a footwear chart under `dress`, the
+  // same way the shipped garmentFamilies() did until this story fixed it.
+  const head = g.split(/[(\u2014]|\s-{1,2}\s/)[0];
+  if (/\bdress(es)?\b(?!\s*shirt)/.test(head) || /gown|romper|jumpsuit|swim/.test(g)) {
+    out.add("dress");
+  }
   return [...out];
 }
 

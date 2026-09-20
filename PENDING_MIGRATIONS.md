@@ -72,6 +72,57 @@ stronger claim for one of them, `check-prod-migration.ts` is the tool.
 Nothing below 00786 was touched, and the six genuinely-held branches in the next
 section are unchanged and still waiting.
 
+## ⏳ HELD: 00814_chart_category_match_precision.sql (US-3443 - the words a chart's own word list was missing)
+
+**EXECUTED 2026-09-20 against the local cluster** carrying all 814 migrations.
+87 UPDATEs, each appending only the tokens the row does not already carry.
+Applied twice; the second run reported the same 87 rows covered and changed
+nothing. The audit reads the table's fall-through count from 273 down to 162.
+
+**Risk: LOW.** No DDL. It appends to one `text[]` column on 87 of 437 rows and
+overwrites nothing: each statement computes `ARRAY[...] except category_match`,
+so a word a later migration added by hand survives.
+
+**What it fixes.** `narrowChartsByCategory` keeps the charts whose
+`category_match` the asked-for category contains, and falls back to the family
+when none matches. 254 of the resolver's brand-and-category asks fell through
+that step, and 113 did so only because a chart's word list was short: a brand's
+generic "Tops" chart that never says "blouse" matches nothing, so a blouse goes
+through the fallback instead of straight to the right chart.
+
+**What it deliberately leaves.** The other 141 asks are refused: a jeans chart
+may not claim "skirt", a leggings chart may not claim "jeans", and a men's
+chart may not claim either. That asserts a product the brand does not publish,
+which is US-3405's reason for not doing this pass by rule, and it still holds.
+
+**One target row of 88 is absent on purpose.** `brand_size_charts_sourced` is a
+NOT VALID check demanding a `source_url` and a `confidence`, so the nine
+unsourced rows grandfathered by 00578 are readable but not writable. Exactly one
+target is among them - `express / Women / Tops & outerwear (US numeric 00-18 /
+alpha)`, which would have gained "hoodie". The seed carries the word, so it
+lands the day that row gets a source. Inventing one to get past the check is the
+provenance defect the check exists to prevent.
+
+**Client-side read risk: NONE.** `category_match` is read only by the edge
+service when it assembles the grading prompt. Nothing in `src/` selects the
+column, so the Cloudflare auto-deploy on push cannot reach it.
+
+**Apply order:** after 00813. No `NOTIFY pgrst, 'reload schema'` needed - no
+DDL, so PostgREST's schema cache is unaffected.
+
+**Readback after applying:**
+
+```sql
+select count(*) from public.brand_size_charts
+where brand_key = 'aloyoga' and department = 'Women' and 'blouse' = any(category_match);
+-- expect 1
+```
+
+The migration checks itself: it raises rather than returns if any of the 87
+target rows is missing from the database, or if any of them does not carry every
+word it adds. 87 silent no-op UPDATEs read exactly like a clean apply, which is
+the failure this guard exists for.
+
 ## ⏳ HELD: 00813_chart_brand_key_accent_duplicates.sql (US-3443 - four size charts stored twice, and grading reads the unsourced copy)
 
 **EXECUTED 2026-09-20 against the local cluster** carrying all 813 migrations.

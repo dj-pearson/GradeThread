@@ -56,6 +56,27 @@ Two consequences worth keeping in mind:
   is enough to send later batches chasing charts that cannot exist. The dress
   column is still printed per brand, so a real gap stays visible.
 
+> [!note] The 2026-09-20 precision pass, and the 141 words it refused (US-3443)
+> `scripts/audit-chart-category-gaps.mjs` counts the asks that fall through the
+> `categoryMatch` step. It was 254 of the resolver's brand-and-category asks on
+> the seed and 273 on the table. 113 of those fell through only because a
+> chart's word list was short, and those words landed in the seed, in a
+> regenerated 00498 and in `00814_chart_category_match_precision.sql` together.
+> Seed fall-throughs are 129 now, table 162.
+>
+> **The rest were refused and the rule is worth keeping.** A word goes in only
+> when the chart's own scope plainly covers it: a generic "Tops" or "Bottoms"
+> chart takes the family's words, a chart that names its products ("Bottoms
+> (leggings / pants)", "Jeans (waist x inseam)", "Dress shirts") does not, and
+> a men's chart never takes "blouse" or "skirt". Writing "skirt" into a jeans
+> chart asserts something about what the brand publishes, which is the reason
+> US-3405 closed its defect with a family filter instead of a data pass.
+>
+> One target row was left out by the database rather than by judgement.
+> `brand_size_charts_sourced` demands a `source_url` and a `confidence`, so the
+> nine rows grandfathered by 00578 cannot be updated at all; one of them,
+> Express women's tops, would have gained "hoodie".
+
 ## One batch
 
 Batch size is **ten brands**, matching how migrations `00447`-`00467` were
