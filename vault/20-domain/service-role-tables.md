@@ -7,9 +7,12 @@ source_of_truth: code
 code_refs:
   - services/edge-functions/src/tests/rls-guard_test.ts
   - services/edge-functions/src/tests/service-role-grant-posture_test.ts
+  - supabase/migrations/00810_revoke_operator_grants_a_credentials.sql
+  - supabase/migrations/00811_revoke_operator_grants_b_people.sql
+  - supabase/migrations/00812_revoke_operator_grants_c_platform.sql
 reviewed: 2026-09-11
 tags: [security, rls, tenant-isolation, contract]
-summary: rls-guard discovers tenant tables by regex on the CREATE TABLE block - any column ending in user_id or owner_id - so an operator table must be registered in SERVICE_ROLE_ONLY; the same file also enforces the (select auth.uid()) initplan form, with a five-entry exemption list whose entries fall into two DIFFERENT cases - a negligible table, and a policy already superseded by a corrective migration. Of the two layers an operator table is supposed to have, only RLS-with-zero-policies is load-bearing: 88 of the 142 registered tables carry no REVOKE at all, so service-role-grant-posture_test.ts fails any of them that gains a policy while its grant is open. Those 88 are listed here by name and grouped by what a policy would expose, and the recommendation is to retrofit revoke all in three enumerated batches (94 tables with the six write-only ones), because prod's anon OpenAPI document already publishes 87 of them and 941 column names.
+summary: rls-guard discovers tenant tables by regex on the CREATE TABLE block - any column ending in user_id or owner_id - so an operator table must be registered in SERVICE_ROLE_ONLY; the same file also enforces the (select auth.uid()) initplan form, with a five-entry exemption list whose entries fall into two DIFFERENT cases - a negligible table, and a policy already superseded by a corrective migration. Of the two layers an operator table is supposed to have, only RLS-with-zero-policies was load-bearing until 00810-00812: 88 of the 142 registered tables carried no REVOKE at all. Those 88 are listed here by name and grouped by what a policy would expose, and the retrofit is written as three held migrations covering 94 tables (the 88 plus six that revoked only their writes), because prod's anon OpenAPI document already publishes 87 of them and 941 column names. service-role-grant-posture_test.ts now asserts both that every registered table has a REVOKE and that no later GRANT has undone it.
 ---
 
 > **Re-reviewed 2026-09-11.** Drift flagged `rls-guard_test.ts` for US-3334,
@@ -38,15 +41,35 @@ like `garment_baselines`, `grading_exemplar_sets`, `abuse_signals`,
 `revoke all on table public.<name> from anon, authenticated` as well.
 
 **That last clause was aspiration rather than description until US-3355, and the
-sections below are the measurement.** 88 of the 142 registered tables still have
-no revoke. For a NEW table it is now a rule instead of an aspiration:
+sections below are the measurement.** 88 of the 142 registered tables had no
+revoke.
+
+> ⚠ **RETROFITTED 2026-09-20. Both layers are now real, and the census is
+> empty.** `00810` (12 tables), `00811` (25) and `00812` (57) revoke all
+> privileges from `anon` and `authenticated` on all 94 -- the 88 plus the six
+> that revoked only their writes. `NO_REVOKE_OPERATOR_TABLES` in
+> `service-role-grant-posture_test.ts` is `[]`, which turns its ratchet into the
+> whole property: a registered operator table with no REVOKE fails, full stop.
+> A second case asserts the revoke is STILL IN EFFECT after replaying every
+> grant in file order, because a later `grant select ... to anon` undoes a batch
+> while leaving the written revoke in place -- measured: before that case
+> existed, exactly that statement as a 00999 migration left the suite green.
+>
+> **The three migrations are HELD for the owner's apply** and may be applied one
+> batch at a time, riskiest first, which is what the batching is for. Read the
+> numbers below as the state BEFORE that apply.
+
+For a NEW table it is a rule rather than an aspiration:
 `service-role-grant-posture_test.ts` fails a registered table that ships without
-one unless its name is added to that file's census with a reason.
+one unless its name is added to that file's census with a reason, and the census
+is now empty so there is nothing to hide behind.
 
 ## Which of the two layers is load-bearing (US-3350, measured 2026-09-11)
 
-**RLS with zero policies is the layer that is holding. The grant is not a second
-layer on most of these tables, because most of them never revoked anything.**
+**As measured on 2026-09-11, RLS with zero policies was the layer that was
+holding, and the grant was not a second layer on most of these tables because
+most of them never revoked anything.** 00810-00812 are the fix; everything in
+this section describes what they fix.
 
 Counted over all 785 migrations:
 
@@ -65,6 +88,17 @@ them. They are unreachable today only because RLS is on and there is no policy,
 and **that is one layer, not two**. One `create policy` in a future migration is
 the whole distance between "deny-all" and "world-readable", which is what
 `service-role-grant-posture_test.ts` now fails on.
+
+**That distance is measured, both ways, and it is what 00810-00812 close.** On a
+local cluster carrying all 812 migrations, inside a transaction that rolled
+back: with the revoke applied, a wide-open
+`create policy ... for select to anon using (true)` on `oauth_clients` still
+answers `permission denied for table oauth_clients`; with the grant put back to
+its pre-00810 state, the same policy returns the seeded row. Applying all three
+batches took `anon` from SELECT on 318 of 362 public tables to 224, and
+`authenticated` from 320 to 226 -- exactly 94 each, with `submissions`,
+`inventory_items`, `listings`, `grade_reports`, `sales` and `item_photos`
+keeping theirs and `service_role` keeping everything.
 
 ### The 83 revokes DID hold on prod. The local stack is where they look broken.
 

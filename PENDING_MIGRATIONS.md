@@ -72,6 +72,102 @@ stronger claim for one of them, `check-prod-migration.ts` is the tool.
 Nothing below 00786 was touched, and the six genuinely-held branches in the next
 section are unchanged and still waiting.
 
+## US-3355: the grant retrofit, in three batches (00810, 00811, 00812)
+
+The three headings below are one piece of work and share this section. They are
+written as three separate `HELD:` entries on purpose: every parser in this repo
+that reads these headings -- `scripts/held-migration-gate.mjs`,
+`scripts/operator-worklist.mjs` and their tests -- keys on
+`HELD: NNNNN_name.sql`, and a heading naming three versions at once was read by
+only one of them. That was the seventh way this control has been routed around
+and the first one written by an agent. The gate now reads every version on a
+heading; the convention stays one heading per file.
+
+**EXECUTED 2026-09-20 against the local cluster** carrying all 812 migrations.
+Applying all three took `anon` from SELECT on **318 of 362** public tables to
+**224**, and `authenticated` from **320 to 226** -- exactly 94 each, no more and
+no fewer. Re-applied; the counts did not move. Each file ends with a readback
+that raises an exception if any of its own tables still grants SELECT, and that
+readback was proved to fire: re-granting one table and deleting its statement
+gave `ERROR: [00810] 1 of 12 tables still grant SELECT to anon or
+authenticated`.
+
+**Risk: LOW, and the batching is the risk control.** Apply in order, riskiest
+first, and stop after any batch. Nothing depends on a later one.
+
+| File | Tables | What they hold |
+|---|---|---|
+| `00810` | 12 | credential and session material in flight, plus the connector's OAuth authorization server |
+| `00811` | 25 | identity, money and legal records about named people; one seller's operational data readable by another |
+| `00812` | 57 | the admin surface and permission model, the agent kernel, paid acquisition, the brand KB and reference data, grading internals, reward economics, and the six that revoked only their writes |
+
+**What the hole is, precisely.** NO ROW IS READABLE TODAY: RLS is on with zero
+policies on all 94, so an anon SELECT returns 200 and an empty array. What is
+exposed is the SCHEMA -- prod's PostgREST OpenAPI document, fetched with the
+anon key that ships in the browser bundle, advertises 87 of them and publishes
+941 of their column names. And one `CREATE POLICY` is the entire distance from
+there to world-readable.
+
+**The second layer is measured, both ways**, on the local cluster inside a
+transaction that rolled back: with the revoke applied, a wide-open
+`create policy ... for select to anon using (true)` on `oauth_clients` still
+answers `permission denied for table oauth_clients`; with the grant put back,
+the same policy returns the seeded row.
+
+**Behavioural no-op.** 4,042 files were scanned for `.from("<table>")` and
+`rest/v1/<table>` and not one of the 94 is read through a client path. Verified
+after applying: `submissions`, `inventory_items`, `listings`, `grade_reports`,
+`sales` and `item_photos` keep their grants, and `service_role` keeps SELECT and
+INSERT on `oauth_clients`.
+
+**Client-side read risk: NONE**, and this one really is none -- the tables are
+operator-only by registration, and the edge connects as `service_role`, which
+these files never name.
+
+⚠ **Apply off-peak.** REVOKE takes a brief ACCESS EXCLUSIVE lock per table for
+the catalog update. Instant on an idle table, but it queues behind a
+long-running query.
+
+**`NOTIFY pgrst, 'reload schema';` IS needed here**, unlike the other held
+entries: PostgREST caches the schema and its OpenAPI document is built from what
+the connecting role can see.
+
+**EXPECTED_SCHEMA_VERSION is 00812 in the same commit**, and the manifest was
+regenerated.
+
+**After applying, confirm it credential-free in one request** rather than
+trusting the apply -- this is the rare case where the verification needs no
+database access at all:
+
+```bash
+curl -s https://api.gradethread.com/rest/v1/ \
+  -H "apikey: $VITE_SUPABASE_ANON_KEY" \
+  -H "Accept: application/openapi+json" | python3 -c \
+  "import json,sys; print(len(json.load(sys.stdin)['paths']), 'paths')"
+```
+
+449 paths before. Expect about **356** after all three, and about 437 after
+`00810` alone. A count that has not moved means the revoke applied but PostgREST
+is still serving its cached schema, so send the NOTIFY.
+
+The full reasoning, the eleven-group classification and the per-table names are
+in `vault/20-domain/service-role-tables.md`, which owns this contract.
+
+## ⏳ HELD: 00812_revoke_operator_grants_c_platform.sql (US-3355 - batch C, 57 platform, reference and economics tables)
+
+Apply LAST of the three. See the shared section above for the measurement, the
+risk and the readback.
+
+## ⏳ HELD: 00811_revoke_operator_grants_b_people.sql (US-3355 - batch B, 25 tables of records about named people and cross-seller data)
+
+Apply SECOND. See the shared section above.
+
+## ⏳ HELD: 00810_revoke_operator_grants_a_credentials.sql (US-3355 - batch A, 12 credential and OAuth-server tables)
+
+Apply FIRST, and it is the batch to apply if you only apply one: these hold
+PKCE verifiers, live tokens and the connector's authorization-server rows.
+See the shared section above.
+
 ## ⏳ HELD: 00809_size_class_curve_and_big.sql (US-3406 — two size charts that never got their class recorded)
 
 **EXECUTED 2026-09-20 against the local cluster** carrying all 809 migrations

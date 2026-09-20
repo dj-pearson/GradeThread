@@ -13,6 +13,7 @@
 // `ignore` is evaluated at registration, so a live case gated on SUPABASE_URL
 // arms or disarms itself depending on which other file loaded first.
 import { assert, assertEquals } from "@std/assert";
+import { requireIntegrationFixtures } from "./integration-required.ts";
 
 if (!Deno.env.get("SUPABASE_URL")) {
   Deno.env.set("SUPABASE_URL", "http://127.0.0.1:1");
@@ -396,12 +397,28 @@ Deno.test("US-3405: findSizingCharts falls back to the family, not the pool", as
 
 // ── the live case ───────────────────────────────────────────────────────────
 
-const LIVE_URL = Deno.env.get("BRAND_CHART_ORDER_LIVE_URL");
-const LIVE_KEY = Deno.env.get("BRAND_CHART_ORDER_LIVE_KEY");
+// The lane's own variables come first, so money-cert-integration.yml runs this
+// with no extra env; BRAND_CHART_ORDER_LIVE_* is the local override, and it
+// exists because brand-knowledge_test.ts sets SUPABASE_URL at module load (see
+// the header). Reading TEST_SUPABASE_* is what every other gated suite does.
+const LIVE_URL = Deno.env.get("BRAND_CHART_ORDER_LIVE_URL") ??
+  Deno.env.get("TEST_SUPABASE_URL");
+const LIVE_KEY = Deno.env.get("BRAND_CHART_ORDER_LIVE_KEY") ??
+  Deno.env.get("TEST_SUPABASE_SERVICE_ROLE_KEY");
+
+// US-2038 / US-3368: in a lane that declared it would run this, a missing
+// fixture must be a loud module-load failure rather than a quiet skip, because
+// a skip and a pass are indistinguishable in a CI summary. Outside such a lane
+// it skips as before.
+const RUN = requireIntegrationFixtures(
+  "brand-chart-order",
+  ["TEST_SUPABASE_URL", "TEST_SUPABASE_SERVICE_ROLE_KEY"],
+  !!LIVE_URL && !!LIVE_KEY,
+);
 
 Deno.test({
   name: "LIVE: the ordered read decides which charts reach the prompt",
-  ignore: !LIVE_URL || !LIVE_KEY,
+  ignore: !RUN,
   async fn() {
     const { createClient } = await import("@supabase/supabase-js");
     // Its own client, not the module's: see the header note about one process

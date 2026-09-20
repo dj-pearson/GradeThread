@@ -25,6 +25,35 @@ describe("US-2346: which headings count as HELD", () => {
     );
   });
 
+  it("reads EVERY version on one heading, because a batch lands as several files", () => {
+    // 2026-09-20, the SEVENTH bypass, and it was introduced by the commit that
+    // fixed it. US-3355 landed three batch files and the natural heading names
+    // all three. The old regex captured one version per heading, so the gate
+    // listed 00810 and said nothing about 00811 or 00812 — failing in the
+    // direction of yes, exactly like the six before it.
+    const doc = [
+      "# PENDING MIGRATIONS",
+      "",
+      "## ⏳ HELD: 00810 / 00811 / 00812 — revoke the grants on 94 operator tables (US-3355)",
+    ].join("\n");
+    expect(heldMigrations(doc).map((h) => h.version)).toEqual([
+      "00810",
+      "00811",
+      "00812",
+    ]);
+  });
+
+  it("binds a filename to the version it follows, not to the next one", () => {
+    const doc = [
+      "## ⏳ HELD: 00810_first.sql and 00811_second.sql land together",
+    ].join("\n");
+    const held = heldMigrations(doc);
+    expect(held.map((h) => h.file)).toEqual([
+      "supabase/migrations/00810_first.sql",
+      "supabase/migrations/00811_second.sql",
+    ]);
+  });
+
   it("matches PENDING as well as HELD, because the vocabulary drifted", () => {
     // 2026-08-28. This is the FIFTH time this control has been routed around
     // and the first by a SYNONYM. PENDING_MIGRATIONS.md's active convention had
