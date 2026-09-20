@@ -33,15 +33,52 @@
 //  2. It reads the seed, which generates 00498. A later migration can change a
 //     live row without touching the seed -- 00791 did exactly that -- so a
 //     finding here is a claim about the code path, not about the table.
+//     ⚠ FIXED 2026-09-20 (US-3443): pass `--dsn "postgresql://..."` (or
+//     `--container <name>`) and it reads brand_size_charts instead, which is
+//     what production answers from. The two differ: 415 charts in the seed
+//     against 437 rows in the table after 00813. Every seed chart IS in the
+//     table; nothing is missing the other way.
+//     ⚠ THE 22 ARE NOT A SEED THAT FELL BEHIND, and US-3446 filed a story to
+//     "catch it up" before the guards said otherwise. Every one of them is
+//     accounted for in src/tests/sizing-chart-orphans_test.ts: 11 are
+//     CROSS_DEPARTMENT rows whose only rival is the other department's body,
+//     7 are the DB_ONLY headwear and shoe-width charts, and the rest are
+//     hand-written charts with no rival at all. Adding them to the seed
+//     reddens that guard, which is what it is for. If the counts here need to
+//     agree, the answer is a decision about each row, not a transcription.
 //  3. ASKED below is the COMMON category words on purpose. Scoring the whole
 //     garment vocabulary produced 305 findings, most of them a chart not
 //     listing "monokini", which is a wall nobody can work from.
 //
-// Usage:  node scripts/audit-chart-category-gaps.mjs [--all]
+// ⚠ A FOURTH ONE, AND IT IS THE ONE THAT MOVED THE NUMBERS (2026-09-20).
+// ASKED is the MEASUREMENT pipeline's vocabulary. The RESOLVER is never called
+// with most of it: every caller of resolveBrandKnowledgePack passes a value
+// from GARMENT_TYPES, GARMENT_CATEGORIES or ITEM_CATEGORIES (grading-pipeline
+// passes submission.garment_category, ai-extract passes categoryHintFromKnown,
+// ai-listing passes garment_type ?? garment_category), so "tee", "polo",
+// "flannel", "jogger", "chino" and "romper" can never reach it. Scoring them
+// counts asks that cannot happen. REACHABLE below is the set that can, and it
+// is the one the headline uses. The wide list is kept because it is still the
+// right question for the measurement path and because the existing cases pin it.
+//
+// ⚠ AND THE PIPELINE CHANGED UNDER IT (US-3399, then US-3405). The fallback no
+// longer hands back the whole pool: it keeps the brand's charts in the asked
+// FAMILY, and only returns everything when the brand has none. So a fallback is
+// only harmful now when the brand has nothing in the family, which is the case
+// the fallback exists for. WRONG FAMILY is reported both ways below -- as a
+// flat slice, which is what shipped when this audit was written, and through
+// the family filter, which is what ships now.
+//
+// Usage:  node scripts/audit-chart-category-gaps.mjs [--all] [--wide]
+//                                                     [--dsn "postgresql://..."]
 // `--all` prints every brand rather than the worst twenty.
+// `--wide` scores the measurement vocabulary instead of the resolver's.
+// `--dsn` / `--container` read the TABLE rather than the TypeScript seed.
 
 import ts from "typescript";
 import { readFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import { looksUnreachable, psqlTarget } from "./lib/psql-target.mjs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -62,6 +99,22 @@ const ASKED = {
   dress: ["dress", "romper", "jumpsuit"],
 };
 
+/**
+ * The words the RESOLVER can actually be called with.
+ *
+ * GARMENT_TYPES + GARMENT_CATEGORIES from
+ * services/edge-functions/src/lib/ai-extract.ts, minus the values that map to
+ * no chart family (accessories, hat, bag, belt, scarf, neckwear, gloves,
+ * other). Every caller of resolveBrandKnowledgePack passes one of these or
+ * null, so anything outside it is an ask that cannot happen.
+ */
+const REACHABLE = {
+  top: ["tops", "t-shirt", "shirt", "blouse", "sweater", "hoodie"],
+  bottom: ["bottoms", "jeans", "pants", "shorts", "skirt"],
+  outerwear: ["outerwear", "jacket", "coat"],
+  dress: ["dresses", "dress"],
+};
+
 /** Which families a free-text garment scope plainly claims to cover. */
 export function claimedFamilies(garment) {
   const g = garment.toLowerCase();
@@ -69,7 +122,14 @@ export function claimedFamilies(garment) {
   if (/\btop|shirt|tee|polo|sweater|knit|blouse|jersey/.test(g)) out.add("top");
   if (/bottom|pant|jean|short|skirt|trouser|legging|denim|waist|inseam/.test(g)) out.add("bottom");
   if (/outerwear|jacket|coat|parka|vest|fleece/.test(g)) out.add("outerwear");
-  if (/dress|gown|romper|jumpsuit|swim/.test(g)) out.add("dress");
+  // US-3443: "dress" only counts in the SCOPE head, and never before "shirt".
+  // Read across the whole string it filed a dress-shirt chart, a jeans chart
+  // whose note says "NOT a dress size" and a footwear chart under `dress`, the
+  // same way the shipped garmentFamilies() did until this story fixed it.
+  const head = g.split(/[(\u2014]|\s-{1,2}\s/)[0];
+  if (/\bdress(es)?\b(?!\s*shirt)/.test(head) || /gown|romper|jumpsuit|swim/.test(g)) {
+    out.add("dress");
+  }
   return [...out];
 }
 
@@ -111,10 +171,57 @@ export function readCharts(root = ROOT) {
   return charts;
 }
 
+/** Every chart in the TABLE, which is what production answers from.
+ *
+ *  Shaped exactly like readCharts()'s output so every function below is
+ *  indifferent to which source it got. The brand is the row's `brand_label`,
+ *  which is what the seed's `brand` field holds too. */
+export function readChartsFromDb(argv = process.argv.slice(2)) {
+  const psql = psqlTarget(argv);
+  const sql = `select brand_label || E'\t' || department || E'\t' || garment ` +
+    `|| E'\t' || array_to_string(category_match, ',') ` +
+    `from public.brand_size_charts order by brand_key, department, garment;`;
+  const res = spawnSync(psql.cmd, [...psql.argv, "-c", sql], {
+    encoding: "utf8",
+    maxBuffer: 32 * 1024 * 1024,
+  });
+  const out = `${res.stdout ?? ""}${res.stderr ?? ""}`;
+  if (looksUnreachable(out, res.status)) {
+    console.error(`\u2717 could not reach ${psql.how}.\n  ${psql.hint}`);
+    process.exit(2);
+  }
+  const charts = [];
+  for (const line of out.split("\n")) {
+    const parts = line.split("\t");
+    if (parts.length !== 4) continue;
+    const [brand, department, garment, cats] = parts;
+    if (!brand) continue;
+    charts.push({
+      brand: brand.trim(),
+      department: department.trim(),
+      garment: garment.trim(),
+      categoryMatch: cats.split(",").map((c) => c.trim()).filter(Boolean),
+      line: 0,
+    });
+  }
+  // Vacuity floor: an unparsed result reports a corpus with no gaps.
+  if (charts.length < 100) {
+    console.error(
+      `\u2717 only ${charts.length} chart rows parsed from the database - the ` +
+        `query or the parse broke, and every finding below would be absent ` +
+        `rather than clean.`,
+    );
+    process.exit(1);
+  }
+  return charts;
+}
+
 /** brand-knowledge.ts slices the pool to this many before the prompt sees it. */
 export const MAX_CHARTS = 3;
 
-export function auditFallbacks(charts) {
+export { REACHABLE, ASKED };
+
+export function auditFallbacks(charts, vocab = ASKED) {
   const byBrand = new Map();
   for (const c of charts) {
     const key = c.brand.toLowerCase();
@@ -123,15 +230,20 @@ export function auditFallbacks(charts) {
   }
   const fallbacks = [];
   for (const pool of byBrand.values()) {
-    for (const [family, words] of Object.entries(ASKED)) {
+    for (const [family, words] of Object.entries(vocab)) {
       // Only ask a brand about a family one of its OWN charts claims. A brand
       // with no tops chart falling back on "shirt" is the fallback doing its job.
       if (!pool.some((c) => claimedFamilies(c.garment).includes(family))) continue;
       for (const word of words) {
         if (pool.some((c) => categoryMatches(c.categoryMatch, word))) continue;
-        // What the model actually reads: the first MAX_CHARTS of the pool.
+        // What the model read when this audit was written: a flat slice.
         const slots = pool.slice(0, MAX_CHARTS);
         const wrong = slots.filter((c) => !claimedFamilies(c.garment).includes(family));
+        // What it reads now: US-3405 keeps only the asked family, and falls
+        // back to the whole pool when the brand has nothing in it.
+        const inFamily = pool.filter((c) => claimedFamilies(c.garment).includes(family));
+        const shipped = (inFamily.length > 0 ? inFamily : pool).slice(0, MAX_CHARTS);
+        const wrongNow = shipped.filter((c) => !claimedFamilies(c.garment).includes(family));
         fallbacks.push({
           brand: pool[0].brand,
           word,
@@ -139,6 +251,7 @@ export function auditFallbacks(charts) {
           poolSize: pool.length,
           slots: slots.length,
           wrongSlots: wrong.length,
+          wrongSlotsShipped: wrongNow.length,
           wrongGarments: wrong.map((c) => c.garment),
         });
       }
@@ -148,15 +261,34 @@ export function auditFallbacks(charts) {
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  const charts = readCharts();
-  const { brands, fallbacks } = auditFallbacks(charts);
+  const fromDb = process.argv.includes("--dsn") ||
+    process.argv.includes("--container");
+  const charts = fromDb ? readChartsFromDb() : readCharts();
+  const wide = process.argv.includes("--wide");
+  const vocab = wide ? ASKED : REACHABLE;
+  const { brands, fallbacks } = auditFallbacks(charts, vocab);
   const wrong = fallbacks.filter((f) => f.wrongSlots > 0);
   const allWrong = fallbacks.filter((f) => f.wrongSlots === f.slots);
+  const wrongNow = fallbacks.filter((f) => f.wrongSlotsShipped > 0);
 
-  console.log(`[chart-gaps] ${charts.length} charts across ${brands} brands`);
-  console.log(`[chart-gaps] ${fallbacks.length} brand+category asks fall back to the whole pool`);
-  console.log(`[chart-gaps] ${wrong.length} of those put a WRONG-FAMILY chart in the ${MAX_CHARTS} slots the model reads`);
-  console.log(`[chart-gaps] ${allWrong.length} fill EVERY slot with the wrong family\n`);
+  console.log(
+    `[chart-gaps] ${charts.length} charts across ${brands} brands, read from ` +
+      `${fromDb ? "the DATABASE" : "the TypeScript seed"}`,
+  );
+  console.log(
+    `[chart-gaps] vocabulary: ${wide ? "MEASUREMENT (wide)" : "RESOLVER (reachable)"} — ` +
+      `${Object.values(vocab).flat().length} words`,
+  );
+  console.log(`[chart-gaps] ${fallbacks.length} brand+category asks fall through the category step`);
+  console.log(`[chart-gaps] ${wrong.length} put a WRONG-FAMILY chart in the ${MAX_CHARTS} slots under a FLAT slice (pre-US-3405)`);
+  // This is 0 BY CONSTRUCTION and saying so is the point: the audit only asks a
+  // brand about a family one of its own charts claims, and the filter keeps
+  // exactly those. The number that is not tautological was measured against the
+  // table rather than the seed (US-3405): 353 fallbacks where the brand has a
+  // right-family chart, 296 wrong-family slots before the filter and 0 after,
+  // with 0 pools left returning nothing.
+  console.log(`[chart-gaps] ${wrongNow.length} still do under the family filter that ships now (0 by construction — see the comment)`);
+  console.log(`[chart-gaps] ${allWrong.length} fill EVERY slot with the wrong family under a flat slice\n`);
 
   const byBrand = new Map();
   for (const f of wrong) {

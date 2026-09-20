@@ -11,10 +11,17 @@ code_refs:
   - functions/_shared/rn-render.ts
   - supabase/migrations/00708_registered_number_lookups.sql
   - services/edge-functions/src/lib/listing-registered-number.ts
-reviewed: 2026-09-10
+reviewed: 2026-09-20
 tags: [seo, rn, brands, contract]
 summary: The FTC public RN search needs no account (00466 says otherwise and is wrong), a number is indexable only once a company is resolved, and an RN may never be presented as proof of a brand or of authenticity.
 ---
+
+
+> [!note] Re-reviewed 2026-09-20. Drift on
+> `services/edge-functions/scripts/seed-registered-numbers.ts` (US-3437, plus a
+> docs-only commit). Read the diff: every hunk swaps `error.message` for
+> `supabaseErrorText(error)` in a throw. The seeding ORDER this note pins, and
+> the two rules it records, are untouched.
 
 # RN number lookup
 

@@ -31,16 +31,17 @@
 //   (needs Docker + the local Supabase stack; skips cleanly without them)
 
 import { spawnSync } from "node:child_process";
+import { psqlTarget } from "./lib/psql-target.mjs";
 
 const CONTAINER = process.env.SUPABASE_DB_CONTAINER ?? "supabase_db_gradethread";
 const PROBE_ID = "00000000-0000-0000-0000-0000000ffff1";
 const PROBE_EMAIL = "revoke-probe@example.invalid";
 
+// US-3435: one home for the invocation. This needs a Postgres, not Docker,
+// and `docker exec` was the only path it knew.
+const TARGET = psqlTarget();
 const psql = (args, input) =>
-  spawnSync("docker", [
-    "exec", "-i", CONTAINER, "psql", "-U", "postgres", "-d", "postgres", ...args,
-  ], { input, encoding: "utf8", maxBuffer: 16 * 1024 * 1024 });
-
+  spawnSync(TARGET.cmd, [...TARGET.argv, ...args], { input, encoding: "utf8", maxBuffer: 16 * 1024 * 1024 });
 const SQL = `
 begin;
 set local statement_timeout = '10s';

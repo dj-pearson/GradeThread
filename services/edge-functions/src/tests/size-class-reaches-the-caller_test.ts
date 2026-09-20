@@ -21,27 +21,28 @@ import { detectSizeClass } from "../lib/size-systems.ts";
 // seven weeks.
 
 /**
- * Charts whose DECLARED class the derivation disagrees with.
+ * Charts whose DECLARED class the derivation disagrees with. EMPTY, and the
+ * two entries it used to hold are the subject of 00809.
  *
- * Measured 2026-09-18 over all of SIZING_CHARTS: 7 charts declare a sizeClass
- * and `detectSizeClass` returns a different answer for exactly these 2.
+ * ⚠ FIXED 2026-09-20 (US-3406), AND ONE SENTENCE OF THE OLD NOTE WAS WRONG.
+ * It said "the stored value is wrong, not missing". Read off the table: both
+ * rows carried size_class NULL, not 'standard'. `chartSystemRow` in
+ * scripts/gen-size-systems-migration.mjs returns null when the system is
+ * unreadable AND the class derives "standard", so 00499 emitted no row for
+ * either chart at all and the column was never written. The harm is the same
+ * either way, because `?? detectSizeClass(chart)` answered "standard" for both,
+ * but a missing value and a wrong value are repaired by different SQL and only
+ * one of them is visible in a count.
  *
- * WHY THIS MATTERS RATHER THAN BEING A CURIOSITY: `chartSystemRow` in
- * scripts/gen-size-systems-migration.mjs reads `detectSizeClass(chart)` and
- * never `chart.sizeClass`, so 00499 wrote the DERIVED value. For these two the
- * derived value is "standard", which means the seeded row says a plus chart and
- * a big-and-tall chart are ordinary. Selecting the column, as this story now
- * does, cannot fix that: the stored value is wrong, not missing.
+ * CLASS_PATTERNS now reads "curve" as plus and a bare "big" as big_and_tall,
+ * 00499 is regenerated to match (two rows added, nothing else moved), and
+ * 00809 is the UPDATE for the live rows. That is the three-part commit this
+ * list existed to force.
  *
- * Shrink-only. Fixing CLASS_PATTERNS makes an entry stop disagreeing and this
- * fails, which is the point -- the fix cannot land without also landing the
- * migration that corrects the rows, because 00499 is immutable and
- * sizing-chart-parity_test.ts re-derives it from the generator.
+ * Shrink-only, and it stays: a NEW disagreement means CLASS_PATTERNS moved
+ * without its migration, which is the same failure one number later.
  */
-const DECLARED_BUT_DERIVED_STANDARD: Record<string, string> = {
-  "Tommy Hilfiger|Women|Curve, tops & bottoms (body inches)": "plus",
-  "Brooks Brothers|Men|Bottoms, big (body inches)": "big_and_tall",
-};
+const DECLARED_BUT_DERIVED_STANDARD: Record<string, string> = {};
 
 const keyOf = (c: { brand: string; department: string; garment: string }) =>
   `${c.brand}|${c.department}|${c.garment}`;
@@ -71,22 +72,45 @@ Deno.test("US-3406: exactly the known two charts derive a class they do not decl
   );
 });
 
-Deno.test("US-3406: each one derives 'standard', which is the harmful direction", () => {
-  // Not just "different". Deriving plus for a standard chart would over-warn;
-  // deriving standard for a plus chart means the seller gets a standard run's
-  // measurements with no warning at all, which is the case a plus-size seller
-  // meets as their own correct listing being flagged.
-  for (const [key, declared] of Object.entries(DECLARED_BUT_DERIVED_STANDARD)) {
+Deno.test("US-3406: the two charts 00809 repairs now derive what they declare", () => {
+  // The positive form of what this file used to assert. An empty
+  // DECLARED_BUT_DERIVED_STANDARD proves nothing on its own -- it is satisfied
+  // by a corpus with no declarations at all -- so name the two and check them.
+  const REPAIRED: Record<string, string> = {
+    "Tommy Hilfiger|Women|Curve, tops & bottoms (body inches)": "plus",
+    "Brooks Brothers|Men|Bottoms, big (body inches)": "big_and_tall",
+  };
+  for (const [key, declared] of Object.entries(REPAIRED)) {
     const chart = SIZING_CHARTS.find((c) => keyOf(c) === key);
     assert(chart, `${key} is no longer in the corpus; update this list`);
     assertEquals(chart.sizeClass, declared, `${key} declares something else now`);
     assertEquals(
       detectSizeClass(chart),
-      "standard",
-      `${key} no longer derives "standard" -- if CLASS_PATTERNS was fixed, the ` +
-        `00499 rows are stale and need the migration described above`,
+      declared,
+      `${key} derives something other than its declaration again -- ` +
+        `CLASS_PATTERNS narrowed, and 00499 plus 00809 now describe a class ` +
+        `the code no longer derives`,
     );
   }
+});
+
+Deno.test("US-3406: the bare /big/ pattern matches only the charts it was widened for", () => {
+  // The loose one. "Bottoms, big" has to read as big_and_tall, and the price is
+  // a pattern that would also claim a "Big Kids" chart. Measured over the whole
+  // corpus when it was widened: the only garments containing the word are the
+  // two "big & tall" charts and Brooks Brothers' "Bottoms, big". If a brand
+  // ever ships one that is not, this fails rather than mislabelling it.
+  const withBig = SIZING_CHARTS.filter((c) => /\bbig\b/i.test(c.garment));
+  assertEquals(
+    withBig.map(keyOf).sort(),
+    [
+      "Brooks Brothers|Men|Bottoms, big (body inches)",
+      "Johnnie-O|Men|Bottoms, big & tall (42R-56R)",
+      "Marmot|Men|Bottoms, big & tall (1XT-4XT)",
+    ],
+    "a new chart's garment scope contains the word \"big\" — confirm it really " +
+      "is the big-and-tall dimension, because CLASS_PATTERNS will class it so",
+  );
 });
 
 Deno.test("US-3406: the DB read asks for the column, and NULL stays undefined", () => {

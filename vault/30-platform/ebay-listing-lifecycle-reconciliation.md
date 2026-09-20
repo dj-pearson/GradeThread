@@ -17,10 +17,29 @@ code_refs:
   - services/edge-functions/src/lib/ebay-notification-subscriptions.ts
   - services/edge-functions/src/routes/flipdesk-webhooks.ts
   - services/edge-functions/src/routes/jobs-ebay-notification-reconcile.ts
-reviewed: 2026-09-13
+reviewed: 2026-09-20
 tags: [ebay, listings, sync, gotcha]
 summary: A listing eBay ended or removed used to stay "active" locally with End and Relist as silent no-ops; the fix is to treat "already not live" as success, not as an error - and to keep WHICH of those it was, since ended and removed-by-eBay need opposite actions.
 ---
+
+
+> [!note] Re-reviewed 2026-09-20. Drift from `e7d84ab3a`, which touches
+> ``ebay-client.ts` and `flipdesk-ebay.ts``. Read the diff rather than the dates: it is confined to
+> `syncBusinessPolicies` and the new `SyncedPolicies.replacedDefaults` -- when
+> a seller deletes the eBay policy their stored default points at, the sync now
+> repoints that kind to the account's first policy of the kind, clears the dead
+> `is_default` row by exact id, and reports the kinds so the caller can say so
+> once. Business-policy defaults only.
+>
+> This note makes no claim about them, which was checked rather than assumed:
+> it contains none of `is_default`, `business_polic`, `syncBusinessPolicies` or
+> `readCachedDefaults`. The lifecycle states and the reconciliation rules this note owns are untouched; the `flipdesk-ebay.ts` hunk is one added response field.
+>
+> ⚠ Worth recording, because this is the fifth note that commit drifted:
+> `ebay-client.ts` is 2,400 lines and seven contract notes list it in
+> `code_refs`, so ANY change to it drifts all seven. `code_refs` carry no line
+> ranges, and CONTRACT.md says drift is a heuristic. That is the heuristic
+> being coarse rather than a note going stale.
 
 > **Re-reviewed 2026-09-11.** flipdesk-ebay.ts changed for US-3265, confined to the policy-create handler
 > (opt-in read-back, and requiring all three policies back as defaults before

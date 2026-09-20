@@ -590,6 +590,35 @@ if (on("db")) {
     // sequence table carries exactly one policy, a SELECT: a client that could
     // write the counter row could set it backwards and mint duplicate SKUs.
     run("db: SKU odometer renders and carries (US-3414)", "node scripts/check-sku-sequences.mjs");
+    // US-2670: both disputes INSERT policies must check who owns the GRADE
+    // REPORT, not only that user_id matches the caller. The suite case for this
+    // goes at PostgREST and needs the fixture env, so it runs almost never;
+    // this needs only the migrated schema. It asserts BOTH directions, because
+    // a `with check (false)` refuses the foreign insert and would pass a
+    // one-sided check while breaking every real dispute.
+    run(
+      "db: a dispute cannot name another seller's report (US-2670)",
+      "node scripts/check-dispute-report-ownership.mjs",
+    );
+    // US-3318: 00806 is the one held migration that rewrites seller data. This
+    // runs its six worked examples against real rows and checks that
+    // listing_price and platform_fields move together -- the composer reads the
+    // blob and reconciliation reads the column, so a half repair makes them
+    // contradict each other as well as the marketplace.
+    run(
+      "db: whole-dollar price repair lands where its header says (US-3318)",
+      "node scripts/check-whole-dollar-price-repair.mjs",
+    );
+    // US-3443: brandKey drops an accented letter rather than transliterating
+    // it, so "Kuhl" with an umlaut keys as `khl`. Four charts were stored under
+    // both spellings and the copy grading could reach was the one with no
+    // source_url. The keys are written by hand in some migrations and computed
+    // by a generator in others, so the TABLE is the only place the question has
+    // one answer.
+    run(
+      "db: every chart carries the brand_key the resolver computes (US-3443)",
+      "node scripts/check-chart-brand-keys.mjs",
+    );
     run("db: COGS worksheet and its cross-check (US-2986)", "node scripts/check-cogs-worksheet.mjs");
     run("db: facilitator vs seller-collected sales tax (US-2987)", "node scripts/check-facilitator-tax.mjs");
     run("db: 1099-K gross is branch-independent (US-2988)", "node scripts/check-1099k-bridge.mjs");

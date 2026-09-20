@@ -114,6 +114,20 @@ export function AdminNotificationsPage() {
               ? `${rows.length} event types · ${query.data.total_volume.toLocaleString()} notifications delivered all-time.`
               : "Loading…"}
           </CardDescription>
+          {/*
+            US-3356: say what this list IS, because an operator reading a list
+            assumes it is the list. Every row here is backed by a
+            notification_type enum value. A category added as a preference key
+            alone needs no migration, appears in seller settings, and fires --
+            and has no row on this screen. One exists today
+            (extension_queue_reminders). Run
+            `node scripts/notification-surface-matrix.mjs` for the full picture.
+          */}
+          <p className="text-xs text-muted-foreground">
+            Enum-backed events only. A category that exists solely as a
+            notification-preference key has no row here even though sellers can
+            receive it.
+          </p>
         </CardHeader>
         <CardContent>
           {query.isLoading ? (

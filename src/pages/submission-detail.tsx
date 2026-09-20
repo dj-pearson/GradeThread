@@ -190,7 +190,47 @@ export function SubmissionDetailPage() {
   const [refreshError, setRefreshError] = useState(false);
   const [loadAttempt, setLoadAttempt] = useState(0);
   const [dispute, setDispute] = useState<DisputeRow | null>(null);
+  /**
+   * US-3427: the dispute lookup failed, so we do not know whether this report
+   * has already been disputed.
+   *
+   * This is deliberately NOT `error`. The lookup answers one question -- has a
+   * dispute been filed -- and its only consumer is the "Dispute Grade" action.
+   * Blocking the page on it hid the grade report the seller paid for, which is
+   * what turned the critical-path E2E red. read-failure-contract.md says a
+   * failed read stops the DEPENDENT ACTION; here that is filing, not rendering.
+   *
+   * It must also never read as "no dispute exists", which is why canDispute
+   * consults it rather than just leaning on `dispute` being null.
+   */
+  const [disputeCheckFailed, setDisputeCheckFailed] = useState(false);
   const [linkedItem, setLinkedItem] = useState<InventoryItemRow | null>(null);
+  /**
+   * US-3428: the linked-inventory lookup failed, so we do not know whether this
+   * grade is already attached to a FlipDesk item.
+   *
+   * Same shape as disputeCheckFailed (US-3427), and here the failure has TWO
+   * surfaces of opposite polarity: the linked-item card renders when the row is
+   * set, and the "Sell this with FlipDesk" nudge renders when it is NOT. Letting
+   * the page render with a null row would keep the card away (correct, we have
+   * no row) and show the nudge (wrong -- it asserts the grade is attached to
+   * nothing, which is the failed read becoming a fact).
+   */
+  const [linkedItemCheckFailed, setLinkedItemCheckFailed] = useState(false);
+  /**
+   * US-3433: the photos could not be loaded, or could not be signed.
+   *
+   * Third instance of the same shape in this one effect (US-3427's dispute
+   * read, US-3428's linked item). The photos feed the submitted-photos card,
+   * the lightbox and the retake bridge -- not the grade report, which is what
+   * the seller came for. Blocking the page on them hid the grade to explain a
+   * missing thumbnail.
+   *
+   * Both failures collapse to one flag on purpose: a listed-but-unsignable
+   * photo and an unlisted one are the same thing to the seller, and to the
+   * retake bridge, which needs a signed URL to carry anything at all.
+   */
+  const [photosUnavailable, setPhotosUnavailable] = useState(false);
   const [disputeDialogOpen, setDisputeDialogOpen] = useState(false);
   const [disputeCategory, setDisputeCategory] = useState("");
   const [disputeReason, setDisputeReason] = useState("");
@@ -425,12 +465,12 @@ export function SubmissionDetailPage() {
         .maybeSingle();
       if (cancelled) return;
       if (linkedItemError) {
-        setError("Couldn't check the linked inventory item. Please try again.");
-        setLoading(false);
-        return;
-      }
-      if (linkedItemData) {
-        setLinkedItem(linkedItemData as InventoryItemRow);
+        // US-3428: withhold what this read feeds, not the grade report.
+        setLinkedItem(null);
+        setLinkedItemCheckFailed(true);
+      } else {
+        setLinkedItemCheckFailed(false);
+        setLinkedItem(linkedItemData ? (linkedItemData as InventoryItemRow) : null);
       }
 
       // Fetch submission images
@@ -441,10 +481,14 @@ export function SubmissionDetailPage() {
 
       if (cancelled) return;
       if (imagesError) {
-        setError("Couldn't load the submission photos. Please try again.");
+        // US-3433: withhold the photos, not the grade.
+        setImages([]);
+        setImageUrls({});
+        setPhotosUnavailable(true);
         setLoading(false);
         return;
       }
+      setPhotosUnavailable(false);
       const imagesData = (imagesRaw ?? []) as SubmissionImageRow[];
       if (imagesData.length > 0) {
         const sorted = [...imagesData].sort(
@@ -465,7 +509,11 @@ export function SubmissionDetailPage() {
           );
         if (cancelled) return;
         if (signingError || signed?.some((entry) => entry.error)) {
-          setError("Couldn't open the submission photos. Please try again.");
+          // US-3433: a photo we cannot sign is a photo the seller cannot see,
+          // and it is the same answer as one we could not list.
+          setImages([]);
+          setImageUrls({});
+          setPhotosUnavailable(true);
           setLoading(false);
           return;
         }
@@ -492,12 +540,14 @@ export function SubmissionDetailPage() {
 
         if (cancelled) return;
         if (disputeError) {
-          setError("Couldn't check the existing dispute. Please try again before filing another.");
-          setLoading(false);
-          return;
-        }
-        if (disputeData) {
-          setDispute(disputeData as DisputeRow);
+          // US-3427: withhold the dispute action, not the report. Clearing
+          // `dispute` alongside the flag keeps the two from disagreeing on a
+          // retry that fails after one that succeeded.
+          setDispute(null);
+          setDisputeCheckFailed(true);
+        } else {
+          setDisputeCheckFailed(false);
+          setDispute(disputeData ? (disputeData as DisputeRow) : null);
         }
       }
 
@@ -515,24 +565,74 @@ export function SubmissionDetailPage() {
     };
   }, [id, loadAttempt]);
 
-  const canDispute =
+  // US-3427: split out so the withheld-action notice below can ask the same
+  // question the button does. Everything except "do we know about an existing
+  // dispute" lives here.
+  const disputeWindowOpen = Boolean(
     submission?.status === "completed" &&
-    gradeReport &&
-    !dispute &&
-    (() => {
-      const createdAt = new Date(gradeReport.created_at);
-      const windowStart = new Date();
-      windowStart.setDate(windowStart.getDate() - DISPUTE_WINDOW_DAYS);
-      return createdAt > windowStart;
-    })();
+      gradeReport &&
+      (() => {
+        const createdAt = new Date(gradeReport.created_at);
+        const windowStart = new Date();
+        windowStart.setDate(windowStart.getDate() - DISPUTE_WINDOW_DAYS);
+        return createdAt > windowStart;
+      })(),
+  );
+
+  // US-3427: `!disputeCheckFailed` is the load-bearing clause. Without it an
+  // unresolved lookup reads as "no dispute exists" and offers to file a second.
+  const canDispute = disputeWindowOpen && !dispute && !disputeCheckFailed;
+
+  /** The seller could dispute, but we could not find out whether they already have. */
+  const disputeCheckUnavailable = disputeWindowOpen && disputeCheckFailed;
 
   // US-949: one-tap retake. Carry the prior submission's garment details, any
   // inventory linkage, the grader's flagged photo types, and the PASSING photos
   // (as short-lived signed URLs) over to a fresh submission so a needs_photos /
   // expired result isn't a dead end. The new submission references this one and
   // supersedes it server-side (see grade.ts /submit `retake_of`).
-  function handleRetake() {
+  async function handleRetake() {
     if (!submission) return;
+
+    // US-3428: the retake bridge CARRIES linkedItemId, so it is genuinely
+    // dependent on that read. If the page-load lookup failed, sending the
+    // seller onward with `null` would silently detach a grade from an item it
+    // is already on, and there is no undo for that from the new submission.
+    //
+    // A retake is a deliberate press, not a render, so one more read here is
+    // cheap and it answers the question. Only if THAT fails do we stop, which
+    // is the dependent action stopping -- the page itself stayed up the whole
+    // time.
+    // US-3433: the retake CARRIES reusablePhotos, so a failed photo load would
+    // start the new submission with nothing to reuse and no sign that anything
+    // was lost. A retake is a deliberate press, so say so and stop rather than
+    // quietly hand over an empty set. Unlike the linked item, a re-read here
+    // would also need the signing round-trip, and the page's own retry already
+    // does both.
+    if (photosUnavailable) {
+      toast.error(
+        "Couldn't load this submission's photos, and a retake would start without them. Use Try again on the photos card first.",
+      );
+      return;
+    }
+
+    let linked = linkedItem;
+    if (linkedItemCheckFailed) {
+      const { data, error } = await supabase
+        .from("inventory_items")
+        .select("*")
+        .eq("submission_id", submission.id)
+        .maybeSingle();
+      if (error) {
+        toast.error(
+          "Couldn't check whether this grade is on a FlipDesk item, and a retake would drop the link. Try again.",
+        );
+        return;
+      }
+      linked = data ? (data as InventoryItemRow) : null;
+      setLinkedItem(linked);
+      setLinkedItemCheckFailed(false);
+    }
     const flaggedImageTypes = Array.from(
       new Set(
         (submission.quality_feedback?.issues ?? [])
@@ -556,7 +656,9 @@ export function SubmissionDetailPage() {
       title: submission.title,
       description: submission.description ?? undefined,
       styleAttributes: submission.style_attributes,
-      linkedItemId: linkedItem?.id ?? null,
+      // US-3428: `linked`, not `linkedItem` -- the re-read above may have just
+      // resolved it, and this state setter has not landed yet.
+      linkedItemId: linked?.id ?? null,
       flaggedImageTypes,
       photoRequests: submission.quality_feedback?.photo_requests ?? [],
       reusablePhotos,
@@ -958,6 +1060,25 @@ export function SubmissionDetailPage() {
                 </DialogFooter>
               </DialogContent>
             </Dialog>
+          )}
+          {/*
+            US-3427: the dispute action, withheld rather than missing. We do not
+            know whether this report already carries a dispute, so offering to
+            file one could file a second; saying nothing would read as "the
+            window closed". The retry re-runs the same load the page does.
+          */}
+          {disputeCheckUnavailable && (
+            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+              <Flag className="h-4 w-4 shrink-0" />
+              <span>Couldn&apos;t check whether you already disputed this grade.</span>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setLoadAttempt((attempt) => attempt + 1)}
+              >
+                Try again
+              </Button>
+            </div>
           )}
         </div>
       </div>
@@ -1529,7 +1650,7 @@ export function SubmissionDetailPage() {
                     recovery actions as needs_photos / expired. A failure has no
                     per-photo flags, so handleRetake reuses all photos. */}
                 <div className="mt-6 flex flex-col items-center gap-2 sm:flex-row">
-                  <Button onClick={handleRetake}>
+                  <Button onClick={() => void handleRetake()}>
                     <Camera className="mr-1.5 h-4 w-4" />
                     Retake photos
                   </Button>
@@ -1566,7 +1687,7 @@ export function SubmissionDetailPage() {
                     the photos that passed, so the seller only redoes the
                     flagged ones instead of starting from scratch. */}
                 <div className="mt-6 flex flex-col items-center gap-2 sm:flex-row">
-                  <Button onClick={handleRetake}>
+                  <Button onClick={() => void handleRetake()}>
                     <Camera className="mr-1.5 h-4 w-4" />
                     Retake photos
                   </Button>
@@ -1589,7 +1710,7 @@ export function SubmissionDetailPage() {
                 {/* US-949: retake reuses the already-uploaded photos + garment
                     details so an expired checkout isn't a dead end. */}
                 <div className="mt-6 flex flex-col items-center gap-2 sm:flex-row">
-                  <Button onClick={handleRetake}>
+                  <Button onClick={() => void handleRetake()}>
                     <Camera className="mr-1.5 h-4 w-4" />
                     Retake photos
                   </Button>
@@ -1721,7 +1842,24 @@ export function SubmissionDetailPage() {
             already tied to a FlipDesk item, nudge the grader to turn the verified
             certificate into a listing. Dismissable + event-tracked; suppressed if
             the user opted out of product messaging. */}
-        {submission.status === "completed" && gradeReport && !linkedItem && (
+        {submission.status === "completed" && gradeReport && !linkedItem &&
+          linkedItemCheckFailed && (
+          // US-3428: the nudge below says this grade is not on an item yet. We
+          // do not know that, so say what we do know and offer the retry.
+          <p className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
+            <Tag className="h-4 w-4 shrink-0" />
+            Couldn&apos;t check whether this grade is already on a FlipDesk item.
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setLoadAttempt((attempt) => attempt + 1)}
+            >
+              Try again
+            </Button>
+          </p>
+        )}
+        {submission.status === "completed" && gradeReport && !linkedItem &&
+          !linkedItemCheckFailed && (
           <CrossSurfaceNudge
             nudgeId="grade-to-flipdesk"
             icon={Tag}
@@ -1782,6 +1920,35 @@ export function SubmissionDetailPage() {
             )}
           </CardContent>
         </Card>
+      )}
+
+      {/*
+        US-3433: an absent photo card asserts "no photos were submitted", which
+        is a different fact from "we could not load them". Say the second one,
+        and offer the retry, rather than letting the section vanish.
+      */}
+      {photosUnavailable && (
+        <>
+          <Separator />
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Submitted Photos</CardTitle>
+              <CardDescription>
+                Couldn&apos;t load the photos for this submission. The grade
+                above is unaffected.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setLoadAttempt((attempt) => attempt + 1)}
+              >
+                Try again
+              </Button>
+            </CardContent>
+          </Card>
+        </>
       )}
 
       {/* Image Gallery */}

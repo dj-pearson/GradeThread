@@ -8,10 +8,24 @@ code_refs:
   - services/edge-functions/src/lib/size-systems.ts
   - services/edge-functions/src/lib/grading-size.ts
   - services/edge-functions/src/lib/sizing-charts.ts
-reviewed: 2026-09-11
+reviewed: 2026-09-20
 tags: [sizing, brands, conversion, contract]
 summary: Only four size-system conversions are performed, every one derived from paired data already in the corpus; EU, JP, AU and alpha are refused outright, and a refusal is the correct answer rather than a gap.
 ---
+
+
+> [!note] Re-reviewed 2026-09-20. Both drifted refs are this note's own
+> commits. `size-systems.ts` had `CLASS_PATTERNS` widened so "curve" reads as
+> plus and a bare "big" as big_and_tall (US-3406), which is the paragraph on
+> extended sizing above, written in the same commit. `sizing-charts.ts` gained
+> `narrowToFamily` in `findSizingCharts`'s fallback (US-3405), which changes
+> which charts are RETURNED and not what any of them means.
+>
+> Re-checked the two census numbers this note leans on rather than assuming
+> them: the corpus is still 415 charts in the seed, and the four conversions
+> and their offsets are untouched -- neither commit went near
+> `detectSizeSystem` or the offset table. The third ref, `grading-size.ts`, did
+> not change.
 
 # Size-system conversions
 
@@ -136,11 +150,37 @@ equality over eight refused shapes, not by resemblance.
 
 `size_class` (plus / petite / tall / big_and_tall / maternity) is representable,
 and as of the US-3294..3298 batches it is populated. Counted at 415 charts on
-2026-09-10: **nine extended charts**. Six plus (Levi's, Madewell, The North
-Face, Spanx, Nike, Marmot, all Women), two big_and_tall (Marmot, Johnnie-O, both
-Men) and one petite (Reformation, Women). Each declares its class in the
-`garment` scope, which is the only place `detectSizeClass` reads; a remark in
-`note` is deliberately not matched.
+2026-09-10: nine extended charts. **Eleven as of 2026-09-20** (US-3406), and the
+two that were added had been there all along: six plus (Levi's, Madewell, The
+North Face, Spanx, Nike, Marmot, all Women), two big_and_tall (Marmot,
+Johnnie-O, both Men), one petite (Reformation, Women), **plus Tommy Hilfiger's
+"Curve, tops & bottoms" and Brooks Brothers' "Bottoms, big"**. Each declares its
+class in the `garment` scope, which is the only place `detectSizeClass` reads; a
+remark in `note` is deliberately not matched.
+
+> **The two late ones are a worked example of how this dimension fails.** Both
+> DECLARED their class in `sizing-charts.ts` and both DERIVED "standard",
+> because `CLASS_PATTERNS` read `/\bplus\b|\bcurvy\b/` and
+> `/\bbig\s*(?:&|and)\s*tall\b/` — so "Curve" and a bare "big" fell through.
+> And the failure was INVISIBLE in the table rather than wrong in it:
+> `chartSystemRow` emits a row only when a system is readable OR the class is
+> non-standard, so 00499 wrote nothing at all for either chart and the column
+> stayed NULL. A census counting non-standard rows could not see them.
+> `CLASS_PATTERNS` now reads "curve" as plus and a bare "big" as big_and_tall;
+> 00499 is regenerated and 00809 moves the live rows.
+> ⚠ The bare `/\bbig\b/` is loose on purpose and the corpus is what makes it
+> safe: the only garments containing the word are the two "big & tall" charts
+> and Brooks Brothers'. `size-class-reaches-the-caller_test.ts` pins that exact
+> list, so a future "Big Kids" chart fails rather than being mislabelled.
+
+**What consults the column** (US-3406): `flipdesk-size-bands.ts` for the size
+guide's tier label, and the chart ranking in `brand-knowledge.ts`, which DEMOTES
+a non-standard chart so an unqualified garment does not lead with one. A
+demotion rather than a filter, because `submissions` carries no size class and
+no department — the chart still reaches the prompt, labelled, just not first.
+Kids and Baby are demoted the same way and are a DEPARTMENT, not a size_class
+value, which is why every class check passed while a Boys' chart led an adult
+pants query.
 
 Talbots is still the one chart that resolves to `null`, because its scope reads
 "Misses (US 2-18) / Petite (0P-16P) / Plus (14W-26W)" and names three classes at

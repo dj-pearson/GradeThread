@@ -26,6 +26,7 @@ import {
   type CaptureFetch,
   type CapturePhoto,
   type CaptureStartResult,
+  type CaptureTargetKind,
   CAPTURE_POLL_MS,
   endCapture,
   readCaptureStatus,
@@ -44,9 +45,15 @@ const fetchEdge: CaptureFetch = (path, init) =>
 export interface PhoneCaptureDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  targetKind: "item" | "batch";
+  targetKind: CaptureTargetKind;
   targetId: string;
-  /** Each newly arrived photo. Awaited, so the poll waits for the item to save. */
+  /**
+   * Each newly arrived photo. Awaited, so the poll waits for the item to save.
+   *
+   * US-3185: every photo carries the `groupIndex` the phone was on when it was
+   * taken, so a caller staging a whole bin makes one group per index rather
+   * than one heap. A single-item caller can ignore it; it is always 0 there.
+   */
   onPhotos: (photos: CapturePhoto[]) => void | Promise<void>;
 }
 
@@ -60,6 +67,9 @@ export function PhoneCaptureDialog({
   const [session, setSession] = useState<CaptureStartResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [count, setCount] = useState(0);
+  // US-3185: items the phone has started. One for a composer capture, and the
+  // number that tells a seller shooting a bin that the boundary is landing.
+  const [items, setItems] = useState(1);
   const [live, setLive] = useState(true);
   const [now, setNow] = useState(Date.now());
 
@@ -73,6 +83,7 @@ export function PhoneCaptureDialog({
     setSession(null);
     setError(null);
     setCount(0);
+    setItems(1);
     setLive(true);
     seenRef.current = new Set();
     void startCapture(fetchEdge, targetKind, targetId)
@@ -97,6 +108,7 @@ export function PhoneCaptureDialog({
         const status = await readCaptureStatus(fetchEdge, session.sessionId);
         if (!alive) return;
         setCount(status.photoCount);
+        setItems(status.itemCount > 0 ? status.itemCount : 1);
         setLive(status.live);
         const fresh = status.photos.filter((p) => !seenRef.current.has(p.id));
         if (fresh.length > 0) {
@@ -138,6 +150,8 @@ export function PhoneCaptureDialog({
           <DialogDescription>
             Point your phone camera at this code. A page opens on the phone. Take
             the photos there and they appear here.
+            {targetKind !== "item" &&
+              " Tap Next item on the phone between garments and each one arrives as its own group."}
           </DialogDescription>
         </DialogHeader>
 
@@ -164,7 +178,11 @@ export function PhoneCaptureDialog({
               <Smartphone className="h-4 w-4 text-muted-foreground" />
               {count === 0
                 ? "Waiting for the first photo…"
-                : `${count} ${count === 1 ? "photo" : "photos"} so far`}
+                : targetKind === "item"
+                  ? `${count} ${count === 1 ? "photo" : "photos"} so far`
+                  : `${items} ${items === 1 ? "item" : "items"}, ${count} ${
+                    count === 1 ? "photo" : "photos"
+                  } so far`}
             </p>
           </div>
         )}

@@ -87,8 +87,21 @@ const DOC = "PENDING_MIGRATIONS.md";
 // now punctuation. Every version of this bug fails in the direction of saying
 // yes, so the regex is now deliberately loose about everything except the two
 // things that carry meaning: the keyword and the five-digit version.
+// AND ONE HEADING CAN NAME MORE THAN ONE MIGRATION (2026-09-20). SEVENTH
+// bypass, and it was introduced by the same commit that fixed it: US-3355 lands
+// three batch files and the natural heading is
+// `## HELD: 00810 / 00811 / 00812 - revoke ...`. The regex captured ONE version
+// per heading, so the gate listed 00810 and said nothing about the other two -
+// again failing in the direction of yes.
+//
+// The heading line is now matched first, and EVERY five-digit version on it is
+// read. A trailing `_name.sql` still binds to the version it follows; the rest
+// resolve through fileForVersion. Seventh time the lesson is the same, so it is
+// worth stating flatly: this regex must be loose about everything except the
+// keyword and the versions.
 const HELD_HEADING =
-  /^##\s*(?:\S+\s+)?(?:HELD|PENDING)\b[^:\n]*:\s*(\d{5})(?:_([A-Za-z0-9_.-]+\.sql))?/gm;
+  /^##\s*(?:\S+\s+)?(?:HELD|PENDING)\b[^:\n]*:(.*)$/gm;
+const VERSION_IN_HEADING = /\b(\d{5})(?:_([A-Za-z0-9_.-]+\.sql))?/g;
 const MIGRATIONS_DIR = "supabase/migrations";
 
 function arg(name, fallback) {
@@ -168,16 +181,18 @@ function fileForVersion(version, readdir) {
 export function heldMigrations(docText, readdir = defaultReaddir) {
   const out = [];
   const seen = new Set();
-  for (const m of docText.matchAll(HELD_HEADING)) {
-    const version = m[1];
-    // One heading per version. A file that names the same migration twice -
-    // an entry plus a later correction - is one held migration, not two.
-    if (seen.has(version)) continue;
-    seen.add(version);
-    const file = m[2]
-      ? `${MIGRATIONS_DIR}/${version}_${m[2]}`
-      : fileForVersion(version, readdir);
-    out.push({ version, file });
+  for (const heading of docText.matchAll(HELD_HEADING)) {
+    for (const m of heading[1].matchAll(VERSION_IN_HEADING)) {
+      const version = m[1];
+      // One heading per version. A file that names the same migration twice -
+      // an entry plus a later correction - is one held migration, not two.
+      if (seen.has(version)) continue;
+      seen.add(version);
+      const file = m[2]
+        ? `${MIGRATIONS_DIR}/${version}_${m[2]}`
+        : fileForVersion(version, readdir);
+      out.push({ version, file });
+    }
   }
   return out;
 }

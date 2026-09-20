@@ -42,7 +42,31 @@ export interface ExtensionQueueItem {
   source: string;
   claimed_at: string | null;
   completed_at: string | null;
-  result: { error?: string | null; manual?: boolean; expired?: boolean } | null;
+  /**
+   * What the run left behind.
+   *
+   * US-3425: this used to declare three fields of the twenty-six the extension
+   * sends, so `finishedNeedsReview` could not have been rendered even once the
+   * route started returning it. The fields below are the ones
+   * `finishedNeedsReview()` on the edge qualifies a row on, plus the listing
+   * url that has been computed on every row since US-3048 and drawn by no web
+   * surface. Still a subset, deliberately -- widening it to the whole
+   * `ListerResult` would invite a screen to render a field nobody has words
+   * for, which is the mistake US-3370 recorded declining to make.
+   */
+  result:
+    | {
+      error?: string | null;
+      manual?: boolean;
+      expired?: boolean;
+      unverified?: boolean;
+      photosWitness?: string | null;
+      photosTotal?: number;
+      photosFailed?: number;
+      photosAttached?: boolean;
+      listingUrl?: string | null;
+    }
+    | null;
   expires_at: string;
   created_at: string;
   /**
@@ -62,6 +86,20 @@ interface QueueResponse {
    * this queue would otherwise reintroduce.
    */
   needsAttention: ExtensionQueueItem[];
+  /**
+   * US-3370 on the edge, US-3425 here: runs that FINISHED and still want a
+   * human. A third list because neither of the others can carry it, and the
+   * danger is asymmetric -- `pending` would merely be wrong about a run that
+   * already happened, while `needsAttention`'s own words are "Nothing happened
+   * on the marketplace, do it there yourself, or queue it again", and a seller
+   * who follows that after a run that DID happen posts the garment twice.
+   *
+   * The edge has answered with this key since US-3370 and this interface
+   * omitted it, so every web surface dropped it on the floor. US-3374 drew it
+   * in the extension popup and said in as many words that the SPA still did
+   * not.
+   */
+  finishedNeedsReview: ExtensionQueueItem[];
   /**
    * US-3198: when the desktop extension last CLAIMED work, or null if it never
    * has. The distinction carries the whole message: an empty queue and an
@@ -120,6 +158,9 @@ export function useExtensionQueue(enabled = true) {
       return {
         pending: json.pending ?? [],
         needsAttention: json.needsAttention ?? [],
+        // US-3425. Defaulted like the other two so an edge older than US-3370
+        // renders an empty section rather than throwing on a missing key.
+        finishedNeedsReview: json.finishedNeedsReview ?? [],
         lastDrainedAt: json.lastDrainedAt ?? null,
       };
     },

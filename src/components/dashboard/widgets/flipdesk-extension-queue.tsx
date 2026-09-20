@@ -59,6 +59,11 @@ export function FlipdeskExtensionQueueWidget() {
     (delists.data?.length ?? 0) +
     (revises.data?.length ?? 0);
   const failed = queue.data?.needsAttention.length ?? 0;
+  // US-3425: counted APART from `failed`, because a run that finished is not a
+  // run that did not run, and the seller's next move is the opposite one. A
+  // failed job wants re-queueing; one of these wants fixing on the marketplace
+  // and must never be queued again.
+  const ranAndNeedsYou = queue.data?.finishedNeedsReview.length ?? 0;
 
   // `installed` is the DOM marker the extension's bridge drops, so this is a
   // fact about THIS browser, not a claim about the account. A seller with the
@@ -92,11 +97,16 @@ export function FlipdeskExtensionQueueWidget() {
       icon={<MonitorSmartphone className="h-5 w-5" />}
       value={pending.toLocaleString()}
       sub={
-        failed > 0
-          ? `${failed} failed or expired, waiting on you`
-          : pending === 0
-            ? "Nothing waiting to run"
-            : "Runs in your desktop browser"
+        // US-3425 goes FIRST when both are present. A failed job is work that
+        // has not happened; one of these is a live listing with something
+        // wrong on it, which a buyer can already see.
+        ranAndNeedsYou > 0
+          ? `${ranAndNeedsYou} ran and need${ranAndNeedsYou === 1 ? "s" : ""} fixing on the marketplace`
+          : failed > 0
+            ? `${failed} failed or expired, waiting on you`
+            : pending === 0
+              ? "Nothing waiting to run"
+              : "Runs in your desktop browser"
       }
       to={
         noExtension

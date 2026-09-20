@@ -1,5 +1,32 @@
 # PENDING MIGRATIONS — applied to prod separately from the push
 
+## THE HOLD RULE, IN ONE PLACE (US-3421 AC3, settled by the owner 2026-09-19)
+
+**It protects `origin/main`, and only `origin/main`.** Cloudflare Pages builds
+main; the next Coolify edge deploy boot-guards the schema version. So a
+migration must not reach **main** until the owner has applied the SQL.
+
+**Pushing a held migration to a side branch — `claude/*`, `held-*` — is
+allowed and preferred.** A branch that is not main deploys nothing, so the
+push costs nothing the rule is defending and buys durability, review, and the
+ability for any clone to land the migration after the apply.
+
+This was ambiguous for months and the ambiguity cost real work: five finished
+migrations existed on one machine only, and 00797 had to be rewritten from its
+description in this file because its branch existed nowhere else. The entries
+below are the specification whenever that happens again.
+
+**Still forbidden:** merging or pushing a held migration to `main` before the
+apply.
+
+`scripts/held-migration-gate.mjs` blocks the push either way, because it keys
+on the HELD heading rather than on the target branch. On a side branch
+`--no-verify` is the intended bypass and the only one; say so when you use it.
+`scripts/check-held-branches.mjs` is the other half — it asks the REMOTE
+whether a branch this file names actually exists, which cross-checking the
+registries cannot answer.
+
+
 ## EIGHT HEADINGS WERE STALE, AND THAT IS WHY MAIN CI WAS RED, 2026-09-13
 
 00786, 00787, 00788, 00789, 00790, 00791, 00792 and 00796 were still headed
@@ -44,6 +71,511 @@ stronger claim for one of them, `check-prod-migration.ts` is the tool.
 
 Nothing below 00786 was touched, and the six genuinely-held branches in the next
 section are unchanged and still waiting.
+
+## ⏳ HELD: 00814_chart_category_match_precision.sql (US-3443 - the words a chart's own word list was missing)
+
+**EXECUTED 2026-09-20 against the local cluster** carrying all 814 migrations.
+87 UPDATEs, each appending only the tokens the row does not already carry.
+Applied twice; the second run reported the same 87 rows covered and changed
+nothing. The audit reads the table's fall-through count from 273 down to 162.
+
+**Risk: LOW.** No DDL. It appends to one `text[]` column on 87 of 437 rows and
+overwrites nothing: each statement computes `ARRAY[...] except category_match`,
+so a word a later migration added by hand survives.
+
+**What it fixes.** `narrowChartsByCategory` keeps the charts whose
+`category_match` the asked-for category contains, and falls back to the family
+when none matches. 254 of the resolver's brand-and-category asks fell through
+that step, and 113 did so only because a chart's word list was short: a brand's
+generic "Tops" chart that never says "blouse" matches nothing, so a blouse goes
+through the fallback instead of straight to the right chart.
+
+**What it deliberately leaves.** The other 141 asks are refused: a jeans chart
+may not claim "skirt", a leggings chart may not claim "jeans", and a men's
+chart may not claim either. That asserts a product the brand does not publish,
+which is US-3405's reason for not doing this pass by rule, and it still holds.
+
+**One target row of 88 is absent on purpose.** `brand_size_charts_sourced` is a
+NOT VALID check demanding a `source_url` and a `confidence`, so the nine
+unsourced rows grandfathered by 00578 are readable but not writable. Exactly one
+target is among them - `express / Women / Tops & outerwear (US numeric 00-18 /
+alpha)`, which would have gained "hoodie". The seed carries the word, so it
+lands the day that row gets a source. Inventing one to get past the check is the
+provenance defect the check exists to prevent.
+
+**Client-side read risk: NONE.** `category_match` is read only by the edge
+service when it assembles the grading prompt. Nothing in `src/` selects the
+column, so the Cloudflare auto-deploy on push cannot reach it.
+
+**Apply order:** after 00813. No `NOTIFY pgrst, 'reload schema'` needed - no
+DDL, so PostgREST's schema cache is unaffected.
+
+**Readback after applying:**
+
+```sql
+select count(*) from public.brand_size_charts
+where brand_key = 'aloyoga' and department = 'Women' and 'blouse' = any(category_match);
+-- expect 1
+```
+
+The migration checks itself: it raises rather than returns if any of the 87
+target rows is missing from the database, or if any of them does not carry every
+word it adds. 87 silent no-op UPDATEs read exactly like a clean apply, which is
+the failure this guard exists for.
+
+## ⏳ HELD: 00813_chart_brand_key_accent_duplicates.sql (US-3443 - four size charts stored twice, and grading reads the unsourced copy)
+
+**EXECUTED 2026-09-20 against the local cluster** carrying all 813 migrations.
+Before: 441 chart rows, four of them duplicated. After: 437, with the four
+surviving rows carrying the `source_url` and `confidence 0.55` that had been
+sitting on the copies grading could not reach. Applied twice; the second run
+moved 0 and deleted 0. `node scripts/check-chart-brand-keys.mjs --dsn ...` goes
+from two findings to a tick.
+
+**Risk: LOW.** Blast radius four UPDATEs and four DELETEs, all four deletes on
+rows no lookup can reach. No DDL.
+
+**What was wrong.** `brandKey` is
+`raw.toLowerCase().replace(/[^a-z0-9]/g, "")`, which DROPS an accented letter
+rather than transliterating it, so the German-spelled outdoor brand keys as
+`khl` and the Swedish one as `fjllrven`. 00472 wrote four chart rows by hand
+under the transliterated spellings; 00498's generator wrote the same four
+charts from the seed under the dropped ones. The eight rows are identical in
+`rows`, `category_match`, `brand_match`, `note` and `measurement_basis`, and
+differ only in that **00472's carry the source_url and 00472's are the
+unreachable ones**. So the grading prompt has been served the unsourced
+approximation while the sourced chart sat beside it.
+
+**It reports what it did.** A `RAISE NOTICE` carries both counts, and a second
+DO block raises an exception if any row outside the three named convention keys
+still carries a key the resolver cannot compute.
+
+**Client-side read risk: NONE.** Nothing in `src/` reads `brand_size_charts`;
+both readers are edge-side and both key on `brand_key`.
+
+**Ordering: apply after 00812.** It touches only `brand_size_charts`, which has
+existed since 00389, so the number is the only dependency.
+
+**`NOTIFY pgrst, 'reload schema';` is NOT needed** - no table, column or RPC
+signature changed.
+
+**EXPECTED_SCHEMA_VERSION is 00813 in the same commit**, and the manifest was
+regenerated.
+
+**After applying, confirm it in one read:**
+
+```sql
+select brand_key, department, source_url
+  from public.brand_size_charts
+ where brand_key in ('khl', 'kuhl', 'fjllrven', 'fjallraven')
+ order by brand_key;
+-- expect FOUR rows, keys khl and fjllrven only, every source_url non-null.
+-- Any kuhl or fjallraven row means the delete matched nothing.
+```
+
+## US-3355: the grant retrofit, in three batches (00810, 00811, 00812)
+
+The three headings below are one piece of work and share this section. They are
+written as three separate `HELD:` entries on purpose: every parser in this repo
+that reads these headings -- `scripts/held-migration-gate.mjs`,
+`scripts/operator-worklist.mjs` and their tests -- keys on
+`HELD: NNNNN_name.sql`, and a heading naming three versions at once was read by
+only one of them. That was the seventh way this control has been routed around
+and the first one written by an agent. The gate now reads every version on a
+heading; the convention stays one heading per file.
+
+**EXECUTED 2026-09-20 against the local cluster** carrying all 812 migrations.
+Applying all three took `anon` from SELECT on **318 of 362** public tables to
+**224**, and `authenticated` from **320 to 226** -- exactly 94 each, no more and
+no fewer. Re-applied; the counts did not move. Each file ends with a readback
+that raises an exception if any of its own tables still grants SELECT, and that
+readback was proved to fire: re-granting one table and deleting its statement
+gave `ERROR: [00810] 1 of 12 tables still grant SELECT to anon or
+authenticated`.
+
+**Risk: LOW, and the batching is the risk control.** Apply in order, riskiest
+first, and stop after any batch. Nothing depends on a later one.
+
+| File | Tables | What they hold |
+|---|---|---|
+| `00810` | 12 | credential and session material in flight, plus the connector's OAuth authorization server |
+| `00811` | 25 | identity, money and legal records about named people; one seller's operational data readable by another |
+| `00812` | 57 | the admin surface and permission model, the agent kernel, paid acquisition, the brand KB and reference data, grading internals, reward economics, and the six that revoked only their writes |
+
+**What the hole is, precisely.** NO ROW IS READABLE TODAY: RLS is on with zero
+policies on all 94, so an anon SELECT returns 200 and an empty array. What is
+exposed is the SCHEMA -- prod's PostgREST OpenAPI document, fetched with the
+anon key that ships in the browser bundle, advertises 87 of them and publishes
+941 of their column names. And one `CREATE POLICY` is the entire distance from
+there to world-readable.
+
+**The second layer is measured, both ways**, on the local cluster inside a
+transaction that rolled back: with the revoke applied, a wide-open
+`create policy ... for select to anon using (true)` on `oauth_clients` still
+answers `permission denied for table oauth_clients`; with the grant put back,
+the same policy returns the seeded row.
+
+**Behavioural no-op.** 4,042 files were scanned for `.from("<table>")` and
+`rest/v1/<table>` and not one of the 94 is read through a client path. Verified
+after applying: `submissions`, `inventory_items`, `listings`, `grade_reports`,
+`sales` and `item_photos` keep their grants, and `service_role` keeps SELECT and
+INSERT on `oauth_clients`.
+
+**Client-side read risk: NONE**, and this one really is none -- the tables are
+operator-only by registration, and the edge connects as `service_role`, which
+these files never name.
+
+⚠ **Apply off-peak.** REVOKE takes a brief ACCESS EXCLUSIVE lock per table for
+the catalog update. Instant on an idle table, but it queues behind a
+long-running query.
+
+**`NOTIFY pgrst, 'reload schema';` IS needed here**, unlike the other held
+entries: PostgREST caches the schema and its OpenAPI document is built from what
+the connecting role can see.
+
+**EXPECTED_SCHEMA_VERSION is 00812 in the same commit**, and the manifest was
+regenerated.
+
+**After applying, confirm it credential-free in one request** rather than
+trusting the apply -- this is the rare case where the verification needs no
+database access at all:
+
+```bash
+curl -s https://api.gradethread.com/rest/v1/ \
+  -H "apikey: $VITE_SUPABASE_ANON_KEY" \
+  -H "Accept: application/openapi+json" | python3 -c \
+  "import json,sys; print(len(json.load(sys.stdin)['paths']), 'paths')"
+```
+
+449 paths before. Expect about **356** after all three, and about 437 after
+`00810` alone. A count that has not moved means the revoke applied but PostgREST
+is still serving its cached schema, so send the NOTIFY.
+
+The full reasoning, the eleven-group classification and the per-table names are
+in `vault/20-domain/service-role-tables.md`, which owns this contract.
+
+## ⏳ HELD: 00812_revoke_operator_grants_c_platform.sql (US-3355 - batch C, 57 platform, reference and economics tables)
+
+Apply LAST of the three. See the shared section above for the measurement, the
+risk and the readback.
+
+## ⏳ HELD: 00811_revoke_operator_grants_b_people.sql (US-3355 - batch B, 25 tables of records about named people and cross-seller data)
+
+Apply SECOND. See the shared section above.
+
+## ⏳ HELD: 00810_revoke_operator_grants_a_credentials.sql (US-3355 - batch A, 12 credential and OAuth-server tables)
+
+Apply FIRST, and it is the batch to apply if you only apply one: these hold
+PKCE verifiers, live tokens and the connector's authorization-server rows.
+See the shared section above.
+
+## ⏳ HELD: 00809_size_class_curve_and_big.sql (US-3406 — two size charts that never got their class recorded)
+
+**EXECUTED 2026-09-20 against the local cluster** carrying all 809 migrations
+from zero. Before: both rows `size_class` NULL. After: `tommyhilfiger` Women
+"Curve, tops & bottoms (body inches)" = `plus`, `brooksbrothers` Men "Bottoms,
+big (body inches)" = `big_and_tall`. Applied three times; the second and third
+updated nothing. Class counts moved exactly `plus` 6→7, `big_and_tall` 2→3,
+NULL 262→260, and no other row changed.
+
+**Risk: LOW.** Two UPDATEs, blast radius two rows, both pinned by the table's
+full unique key `(brand_key, department, garment)`, with
+`size_class is distinct from '<value>'` so a re-run writes nothing. No DDL, no
+drop, no type change.
+
+⚠ **The one statement that can abort** is either UPDATE, because
+`brand_size_charts` carries a NOT VALID check `brand_size_charts_sourced` that
+does not validate the existing table but DOES fire on a row you update. Both
+target rows were given a `source_url` and confidence 0.85 by 00781, which is
+applied, so it passes — but a hand re-run on this table aborted on an unsourced
+row on 2026-09-09 (00499's header records it), so check those two columns in the
+readback below rather than assuming.
+
+⚠ **A zero-row match would be silent**, and 00782 and 00793 have retired and
+renamed rows in this table before. The file `RAISE NOTICE`s both row counts:
+0 and 0 on a re-run is correct, 0 and 0 on a FIRST run means the garment strings
+have moved and nothing was repaired.
+
+**Why it exists.** `size_class` is derived from the chart's garment scope by
+`detectSizeClass`, and 00499's generator emits a row only when a size SYSTEM is
+readable OR the class is non-standard. These two derived "standard", so the
+generator emitted nothing for them at all and the column stayed NULL in
+production. `CLASS_PATTERNS` is widened in the same commit to read "curve" as
+plus and a bare "big" as big_and_tall, and **00499 is regenerated** to match
+because `sizing-chart-parity_test.ts` asserts the committed file equals what the
+generator produces. 00499 is already applied and both appliers compute pending
+by MEMBERSHIP, so the regenerated file never re-runs against prod — this file is
+what moves the live rows.
+
+**Client-side read risk: LOW, and "none" would have been wrong.** Nothing in
+`src/` queries the COLUMN, but `src/components/flipdesk/size-guide-panel.tsx:69`
+renders `chart.sizeClass` when it is not "standard" — the field the edge returns
+from `/api/flipdesk/size-bands`. So the frontend does show this value, and what
+the migration changes is that two charts start carrying a label where they
+showed none. That is the correct label appearing, not a broken one, and it needs
+no deploy ordering: the frontend already handles any string there.
+
+The other consumers are edge-side: `flipdesk-size-bands.ts` (the tier) and, new
+in this commit, the chart ranking in `brand-knowledge.ts`.
+
+**Ordering: apply after 00808**, which is the next number down. No dependency on
+00805-00808 beyond the number: this touches only `brand_size_charts`, which has
+existed since 00389.
+
+**`NOTIFY pgrst, 'reload schema';` is NOT needed** — no table, column or RPC
+signature changed. Harmless if sent.
+
+**EXPECTED_SCHEMA_VERSION is 00809 in the same commit**, and the manifest was
+regenerated (`node scripts/gen-migration-manifest.mjs`).
+
+**After applying, confirm it in one read** rather than trusting the apply:
+
+```sql
+select brand_key, garment, size_class, source_url is not null as sourced, confidence
+  from public.brand_size_charts
+ where (brand_key = 'tommyhilfiger' and garment like 'Curve%')
+    or (brand_key = 'brooksbrothers' and garment = 'Bottoms, big (body inches)');
+-- expect two rows: plus and big_and_tall, both sourced = true.
+-- Fewer than two rows means the garment strings moved and the UPDATE matched
+-- nothing, which the RAISE NOTICE during the apply will also have said.
+```
+
+**Until it is applied, the ranking half still works and the data half does
+not.** With the column NULL the demotion falls back to `detectSizeClass`, which
+now reads "Curve" — so Tommy Hilfiger is already correct from the code. Brooks
+Brothers likewise. What the migration buys is that the stored value stops
+disagreeing with the derivation, which is what `size-class-reaches-the-caller_test.ts`
+exists to keep true.
+
+## ⏳ HELD: 00808_cross_channel_link_reviews.sql (US-3197 — the cross-channel matches a human has to decide)
+
+**EXECUTED 2026-09-20.** `public.flipdesk_cross_channel_link_reviews` exists with `relrowsecurity = true` and **zero policies**, which is the deny-all posture, and `anon` and `authenticated` hold no grant on it. Both indexes (`uq_cross_channel_link_reviews_pair`, `idx_cross_channel_link_reviews_open`) and both CHECK constraints are present.
+
+⚠ **The table is `flipdesk_cross_channel_link_reviews`, not `cross_channel_link_reviews`.** A readback querying the shorter name answers NULL and reads exactly like a migration that recorded itself after failing, which is a real failure mode in this repo (00611, 2026-08-17). It cost a round here; it is written down so it does not cost the next one.
+
+**Risk: LOW.** One new table, no data touched.
+
+> [!note] AMENDED 2026-09-19, AFTER ITS FIRST COMMIT AND BEFORE ANY APPLY.
+> `applied_writes jsonb` was added. If you have already applied 00808, apply
+> it again — the file is idempotent and the second run adds only that column.
+> The reason for the change: the undo belongs on the ROW, not on the run.
+> `flipdesk_import_effects` reverses a whole import, and a seller who confirms
+> twenty joins and regrets one wants that one back.
+
+The edge now reads this table (`lib/cross-channel-link-service.ts`), so apply
+it **before** the next edge deploy.
+
+**What it is for.** Universal Import joins a Poshmark listing and an eBay
+listing of ONE physical garment onto one item. The decision layers
+(`cross-channel-link.ts`, `cross-channel-link-plan.ts`) deliberately refuse
+more than they accept, and what they refuse has to go somewhere a person can
+answer it. **Nothing merges without a confirmation** — a row here is a
+question, not a pending action, and no job drains this table.
+
+**Why a table rather than recomputing the list.** The queue is a screen a
+seller works through over days, and the decision depends on rows that change
+under them. Recomputing would reshuffle it, resurrect pairs they already
+split, and lose the reasons they were shown when they decided. A resolved row
+is also the only record that a human said NO; without it the next import
+proposes the same merge forever.
+
+- Deny-all RLS, **zero policies**, registered in `SERVICE_ROLE_ONLY` in
+  `rls-guard_test.ts`, and it carries its own
+  `REVOKE ALL ... FROM anon, authenticated` per US-3355.
+- The unique index is on the **order-independent** pair
+  (`least`/`greatest`), so the same pair asked the other way round collides
+  instead of creating a second question. That is what makes a re-import
+  idempotent at the review layer, the way `(platform, platform_listing_id)`
+  already is at the import layer.
+- CHECKs on `status` and on the two listings being distinct.
+
+**Measured on a local Postgres 16 carrying all 800 migrations**, not reviewed:
+applied from clean and re-applied three times with no change; the
+order-independent unique index rejects the reversed pair; both CHECKs reject
+their bad row; RLS is on with 0 policies; and after a simulated platform
+`GRANT ALL`, the REVOKE takes `anon`/`authenticated` from **14 grants to 0**
+while `service_role` keeps its 7.
+
+```sql
+-- after applying
+NOTIFY pgrst, 'reload schema';
+```
+
+**No ordering hazard**: no code reads the table yet. Apply after 00807.
+
+**EXPECTED_SCHEMA_VERSION is 00808 in the same commit**, and the manifest was
+regenerated.
+
+## ⏳ HELD: 00807_scope_storage_public_read_policies.sql (US-3403 — stop a stranger enumerating the five public buckets)
+
+**EXECUTED 2026-09-20.** Read back off `pg_policy` rather than off the file, which is what US-3403 AC asks for. All five public-read policies on `storage.objects` are scoped: avatars and item-photos to the owner folder, cert-assets, content-images and content-videos to `is_admin()`. The item-photos policy carries the uuid-shape regex BEFORE the `::uuid` cast, which is the part that matters -- the cast RAISES on a non-uuid folder name and in a SELECT policy that fails the whole list.
+
+**Risk: LOW, and lower than it reads.** It narrows five `FOR SELECT` policies
+on `storage.objects` and touches no data. **It cannot take a public image
+dark**: storage-api serves `GET /object/public/<bucket>/<path>` on a SUPERUSER
+connection after checking `buckets.public`, so that route consults no policy
+at all. Read `vault/10-ops/storage-anon-enumeration.md` before applying.
+
+**What it fixes.** All five were `USING (bucket_id = '<name>')` with no `TO`
+clause, and a policy with no `TO` applies to every role including `anon`.
+Measured against prod on 2026-09-11 with the anon key that ships in the
+deployed frontend bundle: 7,057 objects listed in `item-photos` (3.5 GB), 124
+in `content-images`, 44 in `cert-assets`.
+
+| Bucket | Narrowed to |
+|---|---|
+| `item-photos` | the owner folder, or a workspace member of that owner |
+| `avatars` | the owner folder |
+| `cert-assets` | `public.is_admin()` |
+| `content-images` | `public.is_admin()` |
+| `content-videos` | `public.is_admin()` |
+
+**It does NOT assume held 00794 has run.** `DROP POLICY IF EXISTS` then
+`CREATE` for all five, correct whether or not 00794 ever lands. A file that
+only narrowed the four smaller buckets would have tidied two EMPTY ones while
+leaving the 3.5 GB one open to anon.
+
+**Nothing in the app loses a capability**, checked rather than assumed. The
+only `.list()` in the tree is `account-storage-purge.ts` on the service-role
+client, which bypasses RLS; every client-side `createSignedUrl` targets
+`submission-images`. `src/test/storage-public-read-scope.test.ts` pins both
+and fails if a browser caller appears.
+
+**Measured on Postgres 16 carrying all 799 migrations**, RLS on, one
+transaction per role with `set local role` and `request.jwt.claims` — which is
+what `POST /object/list` does. `anon` saw all 8 seeded objects before and
+**0** after; a signed-up stranger dropped from 8 to 2, both in their own
+folders; an admin sees only the three published-content objects. Re-applied
+three times with no change.
+
+**READ THE RESULT BACK OFF `pg_policies`, never off this file:**
+
+```sql
+-- Anything here applies to anon. FIVE rows are expected, not zero: they are
+-- all submission-images and all gated on auth.uid(), so anon matches nothing.
+select policyname, cmd, roles
+from pg_policies
+where schemaname = 'storage' and roles::text like '%public%';
+
+-- And the five that changed should now be {authenticated} with a real USING.
+select policyname, roles, qual
+from pg_policies
+where schemaname = 'storage' and policyname like '%public read';
+```
+
+```sql
+-- after applying
+NOTIFY pgrst, 'reload schema';
+```
+
+**No ordering hazard**: no code reads a new column and no route changes. Apply
+after 00806, which is the next number down.
+
+**EXPECTED_SCHEMA_VERSION is 00807 in the same commit**, and the manifest was
+regenerated.
+
+## ⏳ HELD: 00806_repair_whole_dollar_listing_prices.sql (US-3318 — Poshmark and Vinted rows priced in cents)
+
+**EXECUTED 2026-09-20, AND THIS IS THE ONE HELD FILE THAT REWRITES SELLER DATA.** `node scripts/check-whole-dollar-price-repair.mjs --dsn "postgresql://..."` seeds the six worked examples from this file's own header plus three rows that must not move, applies the real migration, and rolls back. All nine land where the header says: 32.49 to 32.00, 32.50 to 33.00, 31.50 to 32.00 with its `price_override` stepped alongside, 0.40 and 0.01 to the 1.00 floor, 25.00 untouched, and eBay, Depop and a zero price untouched. `listing_price` and `platform_fields` agree on every row, and another key in the channel blob survives the merge. **Idempotency measured rather than argued: the same file twice in one transaction reports 4 rows then 0.**
+
+**Risk: MEDIUM. This one rewrites seller money.** It is the only entry here
+that UPDATEs existing rows rather than adding structure, so read the count
+before and after rather than trusting the run.
+
+**Run the diagnostic FIRST.** It is a read, it writes nothing, and it prints
+the per-platform counts the story asks for, including how many rows sit below
+the marketplace floor rather than merely carrying cents:
+
+```
+SUPABASE_URL=… SUPABASE_SERVICE_ROLE_KEY=… \
+  node scripts/diagnose-whole-dollar-price-drift.mjs
+```
+
+**What it repairs.** Poshmark and Vinted price in WHOLE DOLLARS. Until US-2736
+and US-2739, every non-eBay channel was priced from the shared eBay number
+with no rounding, so a sibling row recorded 32.49 for a listing the
+marketplace can only hold at 32, and a 40-cent item was recorded at 0.40
+against a floor of 1.00. Those two stories fixed what the extension TYPES and
+what a new push RECORDS; neither repairs a row already written, and the row is
+what profit, payout reconciliation and the revise price all read.
+
+- `listings.listing_price` and `listings.platform_fields[platform].price` (and
+  `price_override` where one exists) move TOGETHER, in one statement set. A row
+  whose two copies disagree is worse than one that is merely wrong.
+- Rounded to NEAREST, never below one step. This is `stepPriceCents` from
+  `src/lib/marketplace-price.ts` expressed in SQL, and
+  `src/test/whole-dollar-price-repair.test.ts` pins the two together.
+- ONLY poshmark and vinted, the two platforms declaring `priceStep` in
+  `src/lib/marketplace-specs.ts`. The same test fails if that set changes and
+  this migration does not.
+- A price of zero or below is left alone: that is "no price set", not a
+  rounding error.
+
+**It reports what it did.** `RAISE NOTICE '[00806] whole-dollar repair: N
+listing_price row(s), N platform_fields row(s)'`. Read that line and put it on
+the story; a silent success and a no-op look identical in a psql transcript,
+and not knowing the count is why this story exists.
+
+**Idempotent, measured rather than asserted:** applied to a local Postgres 16
+carrying all 798 migrations, against a fixture holding every shape the story
+names. First run reported 4 and 4; the second and third reported 0 and 0.
+
+**No ordering hazard.** It changes no schema and no code reads a new column,
+so it can be applied before or after the edge deploy. It should still go after
+00805, which is the next number down.
+
+```sql
+-- after applying
+NOTIFY pgrst, 'reload schema';
+```
+
+**EXPECTED_SCHEMA_VERSION is 00806 in the same commit**, and the manifest was
+regenerated.
+
+## ⏳ HELD: 00805_phone_capture_groups.sql (US-3185 — several items on one capture code)
+
+**EXECUTED 2026-09-20 against a local Postgres carrying all 808 migrations from zero.** `group_index` exists on BOTH `phone_capture_sessions` and `phone_capture_photos`, the `target_kind` CHECK reads `ANY (ARRAY['item','batch','staging'])`, and `idx_phone_capture_photos_session_group` is present. Nothing here was read off the file.
+
+**Risk: LOW.** Two `ADD COLUMN ... IF NOT EXISTS` with a `DEFAULT 0` on two
+tables that are minutes old at any moment (a capture session lives fifteen
+minutes and nothing reads a finished one), one widened CHECK, one new index.
+No data is rewritten and no existing row changes meaning: every row already in
+those tables was written by a one-item code, and 0 is the index a one-item code
+would have stamped.
+
+**What it does.**
+
+- `phone_capture_sessions.group_index` — the item the phone is shooting now.
+  Moved only by `POST /api/flipdesk/capture/s/:token/next-item`.
+- `phone_capture_photos.group_index` — the item a shot was taken on, copied
+  from the session at insert. The phone never sends an index, so there is
+  nothing for a tampered page to scatter.
+- `phone_capture_sessions_target_kind_check` widens to accept `staging`.
+  AutoLister photo intake has no `listing_generation_batches` row to bind to —
+  that row is created when generation STARTS, which is after the photos exist
+  and have been grouped into items — so a capture started from the intake page
+  binds to the seller's own AutoLister session id.
+- `idx_phone_capture_photos_session_group` — the desktop reads a session's
+  photos in item order, then in shooting order inside an item.
+
+**APPLY ORDER: SQL FIRST, then the edge, then the frontend.** The edge selects
+`group_index` in `SESSION_COLUMNS` and inserts it on every capture photo, so an
+edge deploy that lands before this SQL answers PostgREST 42703 on the whole
+query and every phone upload fails. The frontend reads the new fields off the
+edge's responses and degrades to "one item" without them, so it is the safe
+one to be early.
+
+```sql
+-- after applying
+NOTIFY pgrst, 'reload schema';
+```
+
+**Idempotent, and it has to be:** both `ADD COLUMN`s are `IF NOT EXISTS`, the
+CHECK is dropped before it is recreated (an existing CHECK cannot be widened in
+place), and the index is `IF NOT EXISTS`. Running it twice changes nothing.
+
+**EXPECTED_SCHEMA_VERSION is 00805 in the same commit**, and the manifest was
+regenerated (`node scripts/gen-migration-manifest.mjs`).
 
 ## ✅ APPLIED 2026-09-15 (owner, confirmed from prod): 00804 - preview, seed and save for SKU numbering (US-3416)
 
@@ -224,12 +756,23 @@ read-only `npm run migrate:prod` is refused here - so the source of this heading
 is the owner's word, which is what `(owner)` means throughout this file, as
 against `(confirmed from prod)`. The readback below is still worth running.
 
-**The readback, unrun:**
+**The readback, unrun. CORRECTED 2026-09-19 -- the numbers below were wrong
+both before and after, and an operator running the old version would have read
+the fix as a failure.** Duluth Trading has THREE seeded tuples, all in
+department `Men`: a work-pants chart, a tops chart, and the alpha-tops rename
+00793 retires. So the count was 3 before the apply and is 2 after, not 2 and 1.
+The question this readback means to ask is whether ONE tops chart remains, so
+it lists the rows rather than counting them. Executed against a local Postgres
+carrying all 808 migrations on 2026-09-19: 2 rows, exactly as below.
 
 ```sql
-select count(*) from public.brand_size_charts
- where brand_key = 'duluthtradingco' and department = 'Men';
--- expect: 1, where it was 2 before
+select department, garment from public.brand_size_charts
+ where brand_key = 'duluthtradingco'
+ order by garment;
+-- expect exactly these two rows, both Men:
+--   Tops & outerwear (body inches)
+--   Work pants (WAIST x INSEAM, inches)
+-- and in particular ONE row whose garment starts with 'Tops'.
 ```
 
 **REBUILT, NOT MERGED.** `held-v2/us-3387-00793` is not on origin and neither is
@@ -267,13 +810,8 @@ would remove a body's only chart.
 of 00797.
 
 **After applying:** `NOTIFY pgrst, 'reload schema';` is not needed -- no column
-or function changed -- and the readback is a count:
-
-```sql
-select count(*) from public.brand_size_charts
- where brand_key = 'duluthtradingco' and department = 'Men';
--- expect: 1, where it is 2 today
-```
+or function changed. The readback is the corrected one above: list the rows and
+expect two, with exactly one tops chart among them.
 
 **What is NOT verified.** The model is reconstructed from the migration files,
 not read from prod. Before 00793 it holds 464 rows and all 23 targets; after,
@@ -535,14 +1073,26 @@ DB agree.
 **Apply order: after 00790.** No `NOTIFY` needed (data only). Redeploy the
 edge (boot guard expects 00791).
 
-**Check it landed:**
+**Check it landed.** ⚠ CORRECTED 2026-09-20 (US-3324): the first query in this
+block used to check `flipdesk_settings.marketplace_handles`, which belongs to
+00792 above and has nothing to do with this migration. It was a copy-paste leak,
+and an operator running it would have read a `1` as evidence 00791 landed.
 
 ```sql
-select count(*) from information_schema.columns
-where table_name = 'flipdesk_settings' and column_name = 'marketplace_handles';  -- 1
-select brand_match from public.brand_size_charts
- where brand_key = 'duluthtradingco';  -- no row contains 'duluth' on its own
+select brand_key, garment, brand_match from public.brand_size_charts
+ where brand_key = 'duluthtradingco';
+-- expect 2 rows, both Men, both with brand_match = {"duluth trading",duluthtrading}:
+--   Tops & outerwear (body inches)
+--   Work pants (WAIST x INSEAM, inches)
+
+select count(*) from public.brand_size_charts
+ where 'duluth' = any(brand_match);  -- expect 0, across the whole table
 ```
+
+**The same two queries were EXECUTED on 2026-09-20** against a local Postgres
+carrying all 808 migrations from zero, and returned exactly the rows above and
+a count of 0 over 441 charts. That proves the migration corpus produces the
+right answer; it does not prove prod, which is what the readback is for.
 
 ## ✅ APPLIED 2026-09-13 (confirmed from prod, not watched): 00790 — the second-opinion switch (US-2279 / US-3359)
 

@@ -1151,7 +1151,7 @@ export interface InventoryItemRow {
   created_by: string | null;
   comp_set: ItemComp[];
   // AI enrichment (US-158)
-  ai_field_sources: Record<string, AiFieldSource>;
+  ai_field_sources: Record<string, AiFieldSourceEntry>;
   ai_enriched_at: string | null;
   // US-821: canonical listing attributes captured in the single AI extract
   // pass. Lowercase snake_case key -> value (string) or values (string[] for
@@ -1227,29 +1227,42 @@ export interface PhotoQaIssue {
 // accepts both shapes: `isAiOwned` in
 // services/edge-functions/src/lib/reextract-policy.ts.
 //
-// Widening this declaration to `AiFieldSource | string` is the honest fix and
-// needs every src/ reader narrowed with it (AiSourceMeta in
-// src/components/flipdesk/measurement-form.tsx:51, the composer's merge at
-// src/pages/flipdesk/composer.tsx:2501), which was outside US-3358's scope
-// fence.
+// US-3444: both of the deferrals recorded here are closed and the declaration
+// now matches what is stored. Read entries through
+// `asAiFieldSource` / `readAcceptance` in src/lib/ai-field-sources.ts rather
+// than indexing a raw entry.
 export interface AiFieldSource {
   source: string; // e.g. "text", "photo:tag", "photo:front"
   confidence: number; // 0..1
-  // US-3352: the stored value is a TRI-state, and this declaration is
-  // deliberately narrower than it. In the jsonb: `true` = a person was shown
-  // this value and kept it (only a review surface may write that), `false` = a
-  // person was shown it and rejected it, `null` = the server applied it
-  // headlessly and nobody was asked. An entry with no key at all predates the
-  // rule. The edge writes the null on every auto-apply path; see the block
-  // comment above MAX_PHOTOS in
-  // services/edge-functions/src/routes/flipdesk-ai.ts.
+  // US-3352: a TRI-state, and a missing key is a FOURTH reading.
+  //   true  - a person was shown this value and kept it. Only a review surface
+  //           may write it.
+  //   false - a person was shown it and rejected, cleared or replaced it.
+  //   null  - the server applied it headlessly and nobody was asked. The edge
+  //           writes this on every auto-apply path; see autoAppliedFieldSource
+  //           in services/edge-functions/src/routes/flipdesk-ai.ts.
+  //   absent - written before the rule existed and is unknowable. Deliberately
+  //           NOT folded into the other three: pretending otherwise is how the
+  //           constant `true` survived being write-only for months.
   //
-  // Widening this to `boolean | null` also needs AiSourceMeta in
-  // src/components/flipdesk/measurement-form.tsx:54 widened, which was outside
-  // US-3352's scope fence. Nothing in src/ reads the key today, so the narrow
-  // type costs nothing yet -- but do NOT write `if (src.accepted)` against it.
-  accepted: boolean;
+  // So `if (src.accepted)` is wrong in both directions. Use readAcceptance().
+  accepted?: boolean | null;
 }
+
+/**
+ * What an `ai_field_sources` VALUE can actually be.
+ *
+ * US-3358: Android writes a BARE STRING (`AiFieldWriter.kt`'s
+ * `mapValues { JsonPrimitive(it.value) }`), so the value is the source name on
+ * its own with no confidence and no acceptance. Every other client writes the
+ * object. The reader was widened rather than Android's writer, so every row
+ * already stored that way becomes visible with no data migration.
+ *
+ * A reader that indexes this directly gets `undefined` off a string and renders
+ * it -- `NaN% confident, undefined` was live in the measurement form's AI badge
+ * until US-3444. Narrow with `asAiFieldSource` first.
+ */
+export type AiFieldSourceEntry = AiFieldSource | string;
 
 // US-821: canonical listing attributes persisted on inventory_items.attributes
 // (jsonb). Single-value attributes store a scalar string; multi attributes
@@ -2247,7 +2260,7 @@ export interface ItemFullRow {
   has_required_photos: boolean;
   // Trailing columns added in migration 00033 — AI provenance for fields
   // and prefixed measurement keys (measurements.<field>).
-  ai_field_sources: Record<string, AiFieldSource> | null;
+  ai_field_sources: Record<string, AiFieldSourceEntry> | null;
   ai_enriched_at: string | null;
   // Trailing columns added in migration 00111 — sale lifecycle. Null when the
   // item has no sale. Only 'completed' counts toward sold/revenue/profit.
@@ -3323,7 +3336,7 @@ export interface InventoryItemInsert {
   description?: string | null;
   sourced_by?: string | null;
   comp_set?: ItemComp[];
-  ai_field_sources?: Record<string, AiFieldSource>;
+  ai_field_sources?: Record<string, AiFieldSourceEntry>;
   ai_enriched_at?: string | null;
   // US-821 canonical attributes (migration 00182)
   attributes?: CanonicalAttributes;

@@ -48,6 +48,7 @@ import {
   THIRD_PARTY_PURGE_PLAN,
   type ThirdPartyPurgeIO,
 } from "../src/lib/third-party-pii-purge.ts";
+import { supabaseErrorText } from "../src/lib/supabase-error-text.ts";
 
 const argv = Deno.args;
 const apply = argv.includes("--apply");
@@ -110,7 +111,7 @@ async function readRows<T extends Record<string, unknown>>(
       .select(columns)
       .range(from, from + PAGE - 1);
     if (error) {
-      console.error(`FATAL: ${table} unreadable: ${error.message}`);
+      console.error(`FATAL: ${table} unreadable: ${supabaseErrorText(error)}`);
       // Fatal rather than reported-and-continued: an empty read here means
       // "found nothing", and "found nothing" is what this script prints right
       // before an operator closes an erasure request.
@@ -195,7 +196,7 @@ for (const target of targets) {
         const { data, error } = await db.from(table).select("id").eq("id", value);
         return {
           rows: ((data ?? []) as Array<{ id: string }>),
-          error: error ? { message: error.message } : null,
+          error: error ? { message: supabaseErrorText(error) } : null,
         };
       }
       // Address columns compare in TypeScript, canonical form on both ends —
@@ -209,7 +210,7 @@ for (const target of targets) {
     update: async (table, id, patch) => {
       if (!apply) return { error: null };
       const { error } = await db.from(table).update(patch).eq("id", id);
-      return { error: error ? { message: error.message } : null };
+      return { error: error ? { message: supabaseErrorText(error) } : null };
     },
     report: (message) => console.error(message),
   };

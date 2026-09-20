@@ -46,6 +46,7 @@ import {
   MIN_MEASUREMENT_CONTRIBUTORS,
   MIN_MEASUREMENT_SAMPLE,
 } from "../src/lib/measurement-aggregate.ts";
+import { supabaseErrorText } from "../src/lib/supabase-error-text.ts";
 
 // Trimmed and shape-checked before the first query, the same way
 // ai-token-profile.ts does it: a key with a stray newline is rejected by Deno
@@ -100,7 +101,7 @@ async function readAll<T>(table: string, select: string): Promise<T[]> {
       .range(from, from + PAGE - 1);
     if (error) {
       console.error(
-        `[coverage] ${table} read failed at offset ${from}: ${error.message}\n` +
+        `[coverage] ${table} read failed at offset ${from}: ${supabaseErrorText(error)}\n` +
           `[coverage] Refusing to print a verdict. ${out.length} row(s) were read ` +
           `before the failure, which is not the table, so every number below it ` +
           `would be a floor reported as a total.`,

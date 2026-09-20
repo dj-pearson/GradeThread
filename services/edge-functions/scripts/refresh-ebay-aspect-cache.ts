@@ -19,6 +19,7 @@ import {
   getCategoryTreeId,
   getMarketplaceId,
 } from "../src/lib/ebay-client.ts";
+import { supabaseErrorText } from "../src/lib/supabase-error-text.ts";
 
 interface Row {
   category_id: string;
@@ -62,7 +63,7 @@ const { data, error } = await supabaseAdmin
   .eq("category_tree_id", getCategoryTreeId())
   .order("fetched_at", { ascending: true });
 if (error) {
-  console.error("could not list the cache:", error.message);
+  console.error("could not list the cache:", supabaseErrorText(error));
   Deno.exit(1);
 }
 const rows = (data ?? []) as Row[];

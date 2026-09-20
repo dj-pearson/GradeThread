@@ -36,6 +36,7 @@ import {
   type ProfileWindow,
   type TokenProfileRow,
 } from "../src/lib/ai-token-profile.ts";
+import { supabaseErrorText } from "../src/lib/supabase-error-text.ts";
 
 const url = Deno.env.get("SUPABASE_URL")?.trim();
 const key = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")?.trim();
@@ -103,7 +104,7 @@ async function readLedger(): Promise<TokenProfileRow[]> {
       .order("created_at", { ascending: true })
       .range(from, from + page - 1);
     if (error) {
-      console.error(`! ai_usage_events unreadable: ${error.message}`);
+      console.error(`! ai_usage_events unreadable: ${supabaseErrorText(error)}`);
       Deno.exit(1);
     }
     const rows = (data ?? []) as unknown as TokenProfileRow[];

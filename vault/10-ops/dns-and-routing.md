@@ -6,10 +6,24 @@ source_of_truth: code
 code_refs:
   - services/edge-functions/src/main.ts
   - scripts/ops/edge-watchdog.sh
-reviewed: 2026-09-14
+reviewed: 2026-09-20
 tags: [ops, dns, edge, routing]
 summary: Two hostnames serve two different systems; calling an app route on the Supabase host 404s silently.
 ---
+
+
+> [!note] Re-reviewed 2026-09-20. Drift flagged `main.ts` for US-3197. The diff
+> is an import, a comment and `app.route("/api/flipdesk/import/link", ...)`,
+> which is under `/api/` like everything else. **Re-ran this note's own grep
+> rather than trusting the last entry: still 87 verb routes, still zero of them
+> outside `/api/`.**
+>
+> One thing worth adding, because the numbers look like they disagree.
+> `app.route(` mounts a ROUTER and there are 165 of those, three of which are
+> NOT under `/api/`: `/health`, `/oauth` and `/mcp`. They are still on the edge
+> service, so the host split this note draws is unaffected -- but "every route
+> is under /api/" is a claim about the VERB routes the grep counts, and reading
+> it as a claim about every mount would make it false.
 
 # DNS and routing
 

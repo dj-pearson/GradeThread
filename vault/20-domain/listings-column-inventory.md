@@ -8,10 +8,19 @@ code_refs:
   - src/test/listings-select-star.test.ts
   - src/test/listing-row-schema-parity.test.ts
   - src/types/database.ts
-reviewed: 2026-09-15
+reviewed: 2026-09-20
 tags: [schema, listings, flipdesk, perf]
 summary: What the listings table's ninety-odd columns are for, why none of them is provably dead, and the rule for reading them.
 ---
+
+
+> [!note] Re-reviewed 2026-09-20. `src/types/database.ts` gained
+> `AiFieldSourceEntry` and widened `AiFieldSource.accepted` to
+> `boolean | null | absent` (US-3444). Checked where those land:
+> `ai_field_sources` is declared on `InventoryItemRow`, `ItemFullRow` and
+> `InventoryItemInsert` and on no listings type, so nothing this note
+> inventories moved. That is the fourth time a `database.ts` drift on this note
+> turned out to be another table.
 
 > [!note] Re-reviewed 2026-09-15. `src/types/database.ts` gained
 > `FlipdeskSkuSequenceRow` and its `flipdesk_sku_sequences` Tables entry

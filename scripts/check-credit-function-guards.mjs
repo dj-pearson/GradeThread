@@ -25,14 +25,10 @@
 //
 // Everything runs inside a transaction that is ROLLED BACK.
 
-import { execFileSync, spawnSync } from "node:child_process";
+import { spawnSync } from "node:child_process";
 
-import {
-  DOCKER_PROBE_MS,
-  DOCKER_QUERY_MS,
-  dockerTimedOut,
-  wedgedDaemonError,
-} from "./lib/docker-timeout.mjs";
+import { DOCKER_QUERY_MS, dockerTimedOut, wedgedDaemonError } from "./lib/docker-timeout.mjs";
+import { looksUnreachable, psqlTarget } from "./lib/psql-target.mjs";
 
 /**
  * The money-like functions. The two that 00216 revoked are included on purpose:
@@ -54,36 +50,29 @@ const CREDIT_FUNCTIONS = [
 
 const MARK = "===GT-CREDIT-GUARD-BREAK===";
 
-function dbContainer() {
-  let out;
-  try {
-    out = execFileSync(
-      "docker",
-      ["ps", "--filter", "name=supabase_db_", "--format", "{{.Names}}"],
-      { encoding: "utf8", timeout: DOCKER_PROBE_MS },
-    ).trim();
-  } catch (err) {
-    if (err?.code === "ETIMEDOUT") throw wedgedDaemonError("docker ps");
-    throw err;
-  }
-  const name = out.split(/\r?\n/).filter(Boolean)[0];
-  if (!name) {
-    throw new Error(
-      "no running supabase_db_* container — boot the local stack first (`supabase db start`)",
-    );
-  }
-  return name;
-}
-
+// US-3445: this script used to shell out to `docker exec` with no other path,
+// so it could not run in a session that has Postgres but no container -- which
+// is every Claude Code web session, where the migrations apply to a plain
+// Postgres 16 in under a minute. A guard nobody can run is a guard nobody runs,
+// and CLAUDE.md already claimed every db-lane check took --dsn. It does now.
+//
 // spawnSync, not execFileSync: psql writes errors to stderr and execFileSync
 // hands back stdout only, which would assert against a truncated answer.
-function psql(container, sql) {
-  const res = spawnSync(
-    "docker",
-    ["exec", "-i", container, "psql", "-U", "postgres", "-d", "postgres", "-v", "ON_ERROR_STOP=1"],
-    { input: sql, encoding: "utf8", timeout: DOCKER_QUERY_MS },
-  );
-  if (dockerTimedOut(res)) throw wedgedDaemonError("psql inside the db container");
+function psql(target, sql) {
+  // ⚠ Drop psqlTarget's `-tA`. Every other caller wants tuples-only unaligned
+  // output; this one PARSES psql's aligned format, cutting each section at its
+  // "(n rows)" line, and `-tA` suppresses both the header and that line. The
+  // first port of this script to psqlTarget kept the flag and died with
+  // "section 'selfcheck' has no (n rows) line" -- a shape error rather than a
+  // verdict, which is the right way round but only because the parser fails
+  // closed.
+  const argv = target.argv.filter((a) => a !== "-tA");
+  const res = spawnSync(target.cmd, [...argv, "-v", "ON_ERROR_STOP=1"], {
+    input: sql,
+    encoding: "utf8",
+    timeout: DOCKER_QUERY_MS,
+  });
+  if (dockerTimedOut(res)) throw wedgedDaemonError("psql against the database");
   return { text: `${res.stdout ?? ""}${res.stderr ?? ""}`, status: res.status };
 }
 
@@ -150,9 +139,16 @@ order by 1;
 rollback;
 `;
 
-const container = dbContainer();
-const { text, status } = psql(container, sql);
+const target = psqlTarget();
+const { text, status } = psql(target, sql);
 
+if (looksUnreachable(text, status)) {
+  console.error(
+    `\u2717 could not reach ${target.how}.\n  ${target.hint}\n  ` +
+      (text.split("\n").find(Boolean) ?? "no output"),
+  );
+  process.exit(2);
+}
 if (status !== 0) {
   console.error(text);
   console.error("check-credit-function-guards: psql failed — see the output above.");

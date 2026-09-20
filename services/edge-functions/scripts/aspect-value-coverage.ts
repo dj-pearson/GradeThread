@@ -44,6 +44,7 @@ import {
   MAX_ALLOWED_VALUES_PER_ASPECT,
 } from "../src/lib/aspect-priority.ts";
 import { ASPECT_REGISTRY, ownedAspectName } from "../src/lib/aspect-registry.ts";
+import { supabaseErrorText } from "../src/lib/supabase-error-text.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL");
 const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
@@ -195,7 +196,7 @@ const { data, error } = await supabase
   .select("category_id, category_name, aspects");
 
 if (error) {
-  console.error("read failed:", error.message);
+  console.error("read failed:", supabaseErrorText(error));
   Deno.exit(1);
 }
 

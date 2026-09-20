@@ -16,6 +16,7 @@ code_refs:
   - supabase/migrations/00780_sizing_chart_sources.sql
   - supabase/migrations/00781_sizing_chart_sources.sql
   - supabase/migrations/00782_retire_orphaned_size_charts.sql
+  - services/edge-functions/src/lib/brand-knowledge.ts
 reviewed: 2026-09-10
 tags: [brands, sizing, backfill, runbook]
 summary: How to close a batch of brand size-chart gaps, why coverage is measured through the resolver rather than by counting rows, and what a batch must carry before it can be closed.
@@ -54,6 +55,27 @@ Two consequences worth keeping in mind:
   Champion and Denim Tears, none of which makes a dress. Three false gaps in ten
   is enough to send later batches chasing charts that cannot exist. The dress
   column is still printed per brand, so a real gap stays visible.
+
+> [!note] The 2026-09-20 precision pass, and the 141 words it refused (US-3443)
+> `scripts/audit-chart-category-gaps.mjs` counts the asks that fall through the
+> `categoryMatch` step. It was 254 of the resolver's brand-and-category asks on
+> the seed and 273 on the table. 113 of those fell through only because a
+> chart's word list was short, and those words landed in the seed, in a
+> regenerated 00498 and in `00814_chart_category_match_precision.sql` together.
+> Seed fall-throughs are 129 now, table 162.
+>
+> **The rest were refused and the rule is worth keeping.** A word goes in only
+> when the chart's own scope plainly covers it: a generic "Tops" or "Bottoms"
+> chart takes the family's words, a chart that names its products ("Bottoms
+> (leggings / pants)", "Jeans (waist x inseam)", "Dress shirts") does not, and
+> a men's chart never takes "blouse" or "skirt". Writing "skirt" into a jeans
+> chart asserts something about what the brand publishes, which is the reason
+> US-3405 closed its defect with a family filter instead of a data pass.
+>
+> One target row was left out by the database rather than by judgement.
+> `brand_size_charts_sourced` demands a `source_url` and a `confidence`, so the
+> nine rows grandfathered by 00578 cannot be updated at all; one of them,
+> Express women's tops, would have gained "hoodie".
 
 ## One batch
 
@@ -249,6 +271,35 @@ builder maps to the nearest row and would report a seller's size-M top as a rag
 & bone 2. Anti Social Social Club is the other shape: its per-product Size Chart
 accordion holds a real flat-spec table on TOPS and is EMPTY on every pair of
 sweatpants checked, and `/pages/size-guide` 404s. Neither was substituted for.
+
+## Which three charts win the budget (US-3399)
+
+This runbook says several times that charts "compete for the three-chart
+budget". Until 2026-09-20 nothing decided that competition: the resolver's
+`brand_size_charts` read carried no `ORDER BY`, so the three that reached the
+grading prompt were whatever physical order Postgres returned, and that order
+changes if a row is ever updated in place. Measured over the 441-row corpus
+(437 after 00813 removed four accent-keyed duplicates, US-3443),
+122 of 2,172 brand x category probes are over budget, so this is not a corner.
+
+The rule now, and it is three things rather than one:
+
+1. **The read is ordered** `created_at DESC, verified DESC, department ASC,
+   garment ASC`. Recency leads because `verified` decides nothing where it
+   matters -- it is false for every row in 108 of the 122 over-budget pools.
+   The last two keys make the order TOTAL, because
+   `brand_size_charts_key_idx` is unique on `(brand_key, department, garment)`.
+2. **When no chart's `category_match` fits, the pool is sorted by garment
+   FAMILY** before it is cut. Ordering alone made that branch worse (109/112
+   right-family down to 94/112); with the family sort it is 112/112.
+3. **The budget spends one slot per department before a second**, so one
+   department cannot eat all three while another's only chart is cut.
+
+**What that means for a batch.** A renamed twin left behind by an upsert now
+loses to its replacement only if it is OLDER, which it usually is -- but a
+delete is still the fix, because an orphan that happens to be newer wins. The
+batch numbers that decide coverage are unchanged; what changed is that "the
+resolver picks three" is now a sentence you can predict the answer to.
 
 ⚠ **A batch can DELETE a chart, and this one did.** The shared
 "The North Face / Patagonia (outerwear)" pseudo-brand entry is gone. US-1734 had

@@ -174,11 +174,19 @@ async function mockBackend(page: Page): Promise<{ submitCount: () => number }> {
     r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(REPORT) }));
   await page.route("**/rest/v1/public_grade_reports**", (r) =>
     r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(REPORT) }));
-  // The detail page does disputes.select().single(); a `[]` from the catch-all
-  // would parse to a truthy empty value and render a broken dispute card. Return
-  // the PostgREST "no rows" shape so .single() yields data=null (no dispute).
+  // US-3427: what PostgREST actually answers, corrected. This mock was written
+  // for `.single()` and returned a 406 PGRST116; US-1632 changed the page to
+  // `.maybeSingle()`, which on a GET asks for `application/json` and gets a
+  // plain 200 array back, and postgrest-js 2.95.3 only swallows a maybeSingle
+  // error when `error.details` contains "0 rows" (dist/index.mjs:138) -- which
+  // this body never had. So the mock described a response the database no
+  // longer sends, harmlessly, until submission-detail.tsx started CHECKING
+  // disputeError on 2026-09-15 and the whole critical path went red.
+  //
+  // An empty array is the no-dispute case: maybeSingle turns `[]` into
+  // data = null, error = null.
   await page.route("**/rest/v1/disputes**", (r) =>
-    r.fulfill({ status: 406, contentType: "application/json", body: JSON.stringify({ code: "PGRST116", message: "no rows" }) }));
+    r.fulfill({ status: 200, contentType: "application/json", body: "[]" }));
   await page.route("**/api/content/public/certificates/**/verify", (r) =>
     r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ ok: true }) }));
 

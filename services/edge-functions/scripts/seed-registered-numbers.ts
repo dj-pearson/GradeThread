@@ -64,6 +64,7 @@ import {
   searchFtc,
 } from "../src/lib/ftc-rn-search.ts";
 import { registeredNumberKey } from "../src/lib/registered-numbers.ts";
+import { supabaseErrorText } from "../src/lib/supabase-error-text.ts";
 
 /** Milliseconds between FTC requests. Deliberately not configurable. */
 const PACE_MS = 2000;
@@ -94,7 +95,7 @@ async function brandCandidates(): Promise<Candidate[]> {
     .from("brand_knowledge")
     .select("brand_key, canonical_brand")
     .order("brand_key", { ascending: true });
-  if (error) throw new Error(`brand_knowledge read failed: ${error.message}`);
+  if (error) throw new Error(`brand_knowledge read failed: ${supabaseErrorText(error)}`);
 
   return (data ?? [])
     .filter((r) => String(r.canonical_brand ?? "").trim().length > 1)
@@ -148,7 +149,7 @@ async function sightingCandidates(known: Set<string>): Promise<Candidate[]> {
     .eq("resolved", false)
     .order("sighting_count", { ascending: false })
     .limit(500);
-  if (error) throw new Error(`sightings read failed: ${error.message}`);
+  if (error) throw new Error(`sightings read failed: ${supabaseErrorText(error)}`);
 
   return sightingCandidatesFrom(data ?? [], known);
 }
@@ -158,7 +159,7 @@ async function existingKeys(): Promise<Set<string>> {
   const { data, error } = await supabaseAdmin
     .from("registered_number_registry")
     .select("registry_key");
-  if (error) throw new Error(`registry read failed: ${error.message}`);
+  if (error) throw new Error(`registry read failed: ${supabaseErrorText(error)}`);
   return new Set((data ?? []).map((r) => String(r.registry_key)));
 }
 
@@ -182,7 +183,7 @@ async function writeRow(record: FtcRnRecord, brandKeys: string[]): Promise<void>
       },
       { onConflict: "registry_key" },
     );
-  if (error) throw new Error(`upsert ${key} failed: ${error.message}`);
+  if (error) throw new Error(`upsert ${key} failed: ${supabaseErrorText(error)}`);
 }
 
 /**
@@ -207,7 +208,7 @@ async function resolveSighting(registryKey: string): Promise<void> {
     .update({ resolved: true } as never)
     .eq("registry_key", registryKey);
   if (error) {
-    console.error(`[warn ] ${registryKey}: registry row saved, queue flag failed: ${error.message}`);
+    console.error(`[warn ] ${registryKey}: registry row saved, queue flag failed: ${supabaseErrorText(error)}`);
   }
 }
 

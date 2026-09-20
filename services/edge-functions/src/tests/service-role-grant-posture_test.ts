@@ -450,125 +450,25 @@ Deno.test("US-3350: the guard is reading a real corpus (floor assertions)", asyn
 // Grouped by what a policy on it would actually hand a client. The grouping is
 // the point - a job lock and a table of authentication tells are not the same
 // risk, and the retrofit order in [[service-role-tables]] follows these groups.
-const NO_REVOKE_OPERATOR_TABLES = [
-  // 1. Credential and session material in flight. A read is a step toward
-  // completing somebody else's handshake; code_verifier is the PKCE secret.
-  "cloud_storage_oauth_states",
-  "google_oauth_states",
-  "google_photos_import_sessions",
-  "oauth_states",
-  "phone_capture_photos",
-  "phone_capture_sessions",
-  "qbo_oauth_states",
-  // 2. The connector's OAuth authorization server. Secrets are hashed, so a
-  // read is a read of who authorized whom; a WRITE mints a grant and skips the
-  // consent screen, which is the one thing an authorization server must refuse.
-  "oauth_access_tokens",
-  "oauth_authorization_codes",
-  "oauth_clients",
-  "oauth_grants",
-  "oauth_refresh_tokens",
-  // 3. Identity, money and legal records about named people. Names, home
-  // addresses, a taxpayer id, Stripe and App Store identifiers, and an abuse
-  // record that accuses a specific user.
-  "affiliate_tax_profiles",
-  "ai_usage_events",
-  "appstore_processed_transactions",
-  "billing_reconciliation_flags",
-  "email_consent_audit",
-  "flipdesk_subscription_events",
-  "google_processed_purchases",
-  "guarantee_claims",
-  "guarantee_remedies",
-  "measure_card_requests",
-  "pending_refunds",
-  "subscription_agreements",
-  "subscription_cancellations",
-  "support_abuse_events",
-  // 4. One seller's operational data, readable by another. The sharpest is
-  // api_idempotency_records, which stores a prior response BODY verbatim.
-  "ad_click_attributions",
-  "api_idempotency_records",
-  "badge_click_events",
-  "ebay_pending_webhook_events",
-  "flipdesk_sync_conflicts",
-  "google_sheet_sync_state",
-  "help_deflections",
-  "help_feedback",
-  "mcp_tool_calls",
-  "measure_corrections",
-  "support_assistant_usage",
-  // 5. The admin surface and the permission model itself. Reading these is an
-  // org chart and an internal roadmap; WRITING admin_scope_grants or role_scopes
-  // is privilege escalation in one INSERT.
-  "admin_notifications",
-  "admin_saved_views",
-  "admin_scope_grants",
-  "admin_task_comments",
-  "admin_task_projects",
-  "admin_tasks",
-  "bulk_admin_operations",
-  "permission_scopes",
-  "role_scopes",
-  // 6. The agent kernel. agent_proposals is the queue an operator approves from,
-  // so a write is a request to execute something on the platform's behalf.
-  "agent_handoffs",
-  "agent_memory",
-  "agent_proposals",
-  "agent_run_steps",
-  "agent_runs",
-  "agents",
-  // 7. GradeThread's own paid acquisition: budgets, spend, and the search terms
-  // that convert. Competitive intelligence about the company, not about a user.
-  "ads_accounts",
-  "ads_ad_groups",
-  "ads_ads",
-  "ads_campaigns",
-  "ads_change_audit",
-  "ads_keywords",
-  "ads_metrics_daily",
-  "ads_recommendations",
-  "ads_search_terms",
-  "ads_sync_runs",
-  // 8. Proprietary reference data - the brand knowledge base, the authenticity
-  // tells, the style-code decoders and their crawl state. Months of backfill,
-  // and authenticity_references read the other way round is a counterfeiter's
-  // checklist of what a grader looks for.
-  "authenticity_references",
-  "brand_colorways",
-  "brand_knowledge",
-  "brand_size_charts",
-  "brand_style_codes",
-  "brand_styles",
-  "durability_aggregates",
-  "garment_baselines",
-  "garment_measurement_stats",
-  "impact_factors",
-  "registered_number_lookups",
-  "registered_number_registry",
-  "registered_number_sightings",
-  "style_code_brand_candidates",
-  "style_code_discovery_state",
-  "style_code_names",
-  "style_code_observations",
-  "style_code_prospect_state",
-  "style_code_sweeps",
-  // 9. Grading internals. grade_report_revisions is deny-all even though the
-  // data is public, because the only correct read re-applies the withhold check
-  // (US-2569); a read policy would make the revision trail the way around it.
-  "grade_flaws_only",
-  "grade_report_revisions",
-  "grading_reference_photos",
-  // 10. Reward and pricing economics. Readable, it is which quest pays best and
-  // what every plan used to cost; writable, it mints XP.
-  "pricing_plan_revisions",
-  "quest_definitions",
-  "reward_quests",
-  // 11. No identity to scope to at all (US-2592). Grain is (article, surface,
-  // day), which is what lets a public help page increment it with no consent
-  // prompt. Lowest value of the 88 and still in the published API surface.
-  "help_article_views",
-];
+/**
+ * Registered operator tables with NO table-level REVOKE anywhere in the corpus.
+ *
+ * ⚠ EMPTY AS OF 2026-09-20 (US-3355), and it must stay empty. 00810, 00811 and
+ * 00812 revoke all privileges from anon and authenticated on the 94 tables this
+ * list used to name -- the 88 the census found plus the six that revoked only
+ * their writes and kept SELECT. With the list empty, the ratchet below stops
+ * being a ratchet and becomes the strong assertion: a registered operator table
+ * with no REVOKE fails, full stop.
+ *
+ * The eleven groups and what a policy on each would expose are in
+ * vault/20-domain/service-role-tables.md; the three migrations carry the same
+ * classification in their headers.
+ *
+ * Adding a name back here is allowed and is a DECISION, not a formality: it
+ * says this table is registered as operator-only and is deliberately left with
+ * the Supabase default grant, and it needs the reason written beside it.
+ */
+const NO_REVOKE_OPERATOR_TABLES: string[] = [];
 
 /** Registered operator tables whose RLS this corpus never turns on. */
 export function rlsGaps(a: Analysis, registry: Iterable<string>): string[] {
@@ -626,12 +526,85 @@ Deno.test("US-3355: every registered operator table has RLS enabled", async () =
   );
 });
 
-// US-3355 AC2. The ratchet. Shrinking is free; growing needs a name and a line.
-Deno.test("US-3355: no NEW registered table ships without a REVOKE", async () => {
+/** Registered operator tables where anon or authenticated still hold a
+ *  privilege after replaying every GRANT and REVOKE in file order. */
+export function stillGranted(
+  a: Analysis,
+  registry: Iterable<string>,
+): string[] {
+  const out: string[] = [];
+  for (const t of registry) {
+    if (!a.tables.has(t)) continue;
+    const h = a.held.get(t);
+    if (!h) continue;
+    const privs = [...h.anon, ...h.authenticated];
+    if (privs.length > 0) out.push(`${t} (${[...new Set(privs)].sort().join(",")})`);
+  }
+  return out.sort();
+}
+
+// US-3355, added 2026-09-20 with 00810-00812. The case below asks whether a
+// REVOKE was ever WRITTEN. This one asks whether it is still in effect, and the
+// difference is a real hole rather than a refinement: a later
+// `grant select on public.oauth_clients to anon;` undoes the whole batch and
+// the written-a-revoke check stays green, because the revoke is still in the
+// file. Measured before this case existed: adding exactly that statement as a
+// 00999 migration left the suite at 20 passed / 0 failed.
+//
+// The replay machinery was already here and already documented the case ("A
+// revoke followed by a later re-grant is therefore scored as open, which is the
+// case this guard exists for") -- but it only reached a table that ALSO gained
+// a policy, so a re-grant on its own was invisible. Now that the revoke layer
+// is the point rather than the gap, it is worth asserting on its own.
+Deno.test("US-3355: no registered table's revoke is undone by a later grant", async () => {
   const sql = await loadMigrations();
   const registrySrc = await Deno.readTextFile(RLS_GUARD_SRC);
   const registry = parseServiceRoleRegistry(registrySrc);
   const a = analyze(sql, registry);
+
+  // Same vacuity floors as below, for the same reason.
+  assert(
+    [...registry].length >= 140,
+    `only ${[...registry].length} tables parsed out of SERVICE_ROLE_ONLY`,
+  );
+  assert(
+    a.grantStatements >= 200,
+    `only ${a.grantStatements} grant/revoke statements parsed - GRANT_RE ` +
+      `probably broke, which makes every table read as holding nothing`,
+  );
+
+  const open = stillGranted(a, registry);
+  assertEquals(
+    open,
+    [],
+    `registered SERVICE_ROLE_ONLY tables where anon or authenticated still ` +
+      `hold a privilege after the full replay: ${open.join("; ")}. A later ` +
+      `GRANT undid a REVOKE. Remove the grant, or unregister the table.`,
+  );
+});
+
+// US-3355 AC2/AC3. This was the ratchet while 94 tables were exempt. The
+// exemption list is empty now, so it asserts the whole property: EVERY table
+// registered SERVICE_ROLE_ONLY carries a table-level REVOKE.
+Deno.test("US-3355: no registered table ships without a REVOKE", async () => {
+  const sql = await loadMigrations();
+  const registrySrc = await Deno.readTextFile(RLS_GUARD_SRC);
+  const registry = parseServiceRoleRegistry(registrySrc);
+  const a = analyze(sql, registry);
+
+  // Vacuity floors, both directions. An empty exemption list makes this case
+  // satisfiable by a broken registry parse OR a broken GRANT_RE, and neither
+  // would say anything.
+  assert(
+    [...registry].length >= 140,
+    `only ${[...registry].length} tables parsed out of SERVICE_ROLE_ONLY - ` +
+      `parseServiceRoleRegistry probably broke`,
+  );
+  assert(
+    a.revoked.size >= 140,
+    `only ${a.revoked.size} tables parsed as revoked-from - GRANT_RE probably ` +
+      `broke, which would make the assertion below vacuous in the other direction`,
+  );
 
   const unpinned = unpinnedNoRevoke(a, registry, NO_REVOKE_OPERATOR_TABLES);
   assertEquals(
