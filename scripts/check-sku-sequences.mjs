@@ -13,8 +13,17 @@
 // migration source.
 //
 // Usage:
-//   node scripts/check-sku-sequences.mjs
+//   node scripts/check-sku-sequences.mjs                     # docker container
 //   node scripts/check-sku-sequences.mjs --container my_db_container
+//   node scripts/check-sku-sequences.mjs --dsn "postgresql://postgres@/postgres?host=/tmp&port=55432"
+//
+// US-3419: the --dsn form exists because "a real Postgres" and "a Postgres in
+// the Supabase CLI's Docker container" are not the same requirement, and this
+// script only ever offered the second. In a Claude Code cloud session dockerd
+// starts but no registry blob can be pulled, so `supabase db start` cannot
+// boot -- while Postgres 16 is already installed on the box and the whole
+// migration directory applies to it from zero (CLAUDE.md has the recipe).
+// The proof was runnable there the entire time and nothing could ask for it.
 
 import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
@@ -28,6 +37,18 @@ const args = process.argv.slice(2);
 const containerAt = args.indexOf("--container");
 const container =
   containerAt >= 0 ? args[containerAt + 1] : "supabase_db_gradethread";
+const dsnAt = args.indexOf("--dsn");
+/** A libpq connection string. Beats the container path when present. */
+const dsn = dsnAt >= 0 ? args[dsnAt + 1] : process.env.SKU_CHECK_DSN;
+/** What actually runs psql, and what to tell someone when it will not start. */
+const psql = dsn
+  ? { cmd: "psql", argv: [dsn, "-t", "-A"], how: `psql against ${dsn}`, hint: "Check the connection string, and that the server is up." }
+  : {
+    cmd: "docker",
+    argv: ["exec", "-i", container, "psql", "-U", "postgres", "-d", "postgres", "-t", "-A"],
+    how: `Postgres in container "${container}"`,
+    hint: `Start it with: docker start ${container}\n  Or point this at any Postgres carrying the migrations: --dsn "postgresql://..."`,
+  };
 
 /** Run one fixture and return the JSON object it printed. */
 function runFixture(name) {
@@ -38,15 +59,14 @@ function runFixture(name) {
   }
   let raw;
   try {
-    raw = execFileSync(
-      "docker",
-      ["exec", "-i", container, "psql", "-U", "postgres", "-d", "postgres", "-t", "-A"],
-      { input: readFileSync(path, "utf8"), encoding: "utf8" },
-    );
+    raw = execFileSync(psql.cmd, psql.argv, {
+      input: readFileSync(path, "utf8"),
+      encoding: "utf8",
+    });
   } catch (err) {
     console.error(
-      `✗ could not reach Postgres in container "${container}".\n` +
-        `  Start it with: docker start ${container}\n` +
+      `✗ could not reach ${psql.how}.\n` +
+        `  ${psql.hint}\n` +
         `  ${err.stderr?.toString().split("\n").find(Boolean) ?? err.message?.split("\n")[0] ?? err}`,
     );
     process.exit(2);
