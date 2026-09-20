@@ -1,6 +1,6 @@
 # What the backlog is waiting on you for
 
-Regenerate with: node scripts/operator-worklist.mjs. Built from prd.json, where 157 of 278 open stories carry at least one OPERATOR criterion — a step only you can take.
+Regenerate with: node scripts/operator-worklist.mjs. Built from prd.json, where 156 of 277 open stories carry at least one OPERATOR criterion — a step only you can take.
 
 This is not a list of blocked work. Most of these stories have buildable criteria before the operator step, and several were finished this session right up to it. It is a list of the last mile.
 
@@ -25,8 +25,8 @@ Most of these are not separate sittings. Grouped by what you need open:
 
 - **Somewhere else (read the step)** — 62 steps
 - **Coolify, or a deploy + env change** — 25 steps
-- **Production database (psql or the Supabase SQL editor)** — 23 steps
 - **A marketplace account, logged in** — 23 steps
+- **Production database (psql or the Supabase SQL editor)** — 22 steps
 - **A lawyer** — 11 steps
 - **A grading run that costs real money** — 8 steps
 - **A decision, with nothing to open** — 4 steps
@@ -565,146 +565,6 @@ priority unranked
 
 apply at partnernetwork.ebay.com for an eBay Partner Network (EPN) publisher account naming gradethread.com and the FlipDesk app as the properties, create one campaign for FlipDesk sourcing, and store the campaign id in Coolify as EBAY_EPN_CAMPAIGN_ID (reference only, value never written to the repo); vault/10-ops/env-reference.md gains the row and the runbook note says approval typically takes days and needs a live site with real traffic
 
-## Production database (psql or the Supabase SQL editor)
-
-### US-3112 — eBay compliance: extension attribution, and stop calling APIs we cannot use
-
-priority 1
-
-one prod eBay connection lacks sell.payment.dispute and one lacks nothing else of note; that seller must reconnect at /oauth/start before dispute notifications work for them.
-
-### US-3412 — Rewrite SERP titles and descriptions on the top-10 zero-click pages
-
-priority 2
-
-apply the blog_posts seo_title/seo_description update to prod (10 rows) - blog metadata lives in the DB, not the repo
-
-### US-2347 — Run the production verification queries this audit could not run
-
-priority 5
-
-this whole story is prod reads (AC1-AC8). Most of it is already written up as scripts/prod-diagnostics-console.sql, which is read-only and was executed against a real database with ON_ERROR_STOP=1 so it cannot fail your session on a wrong column name. Run it and paste the output back into this story.
-
-### US-2727 — listings.listed_at is NOT NULL but the code writes null for a draft, so the extension writeback INSERT has never succeeded
-
-priority 5
-
-apply 00634 to prod, then NOTIFY pgrst, 'reload schema', then retry one Send to extension and confirm a 200.
-
-### US-3312 — Two brand_knowledge notes are wrong in prod: Zara's false auth-gate caveat and Urban Outfitters' CA-versus-RN trap
-
-priority 6
-
-the owner approves this migration before it is pushed, and the apply is confirmed against prod rather than assumed
-
-### US-3318 — Existing Poshmark and Vinted rows record prices those marketplaces cannot hold
-
-priority 6
-
-the owner approves before it is pushed, and the after-count is read back from prod rather than assumed
-
-### US-3044 — [GATE] Measure what the 2026-09-02 AutoLister change did to specific fill rates and per-item cost before the next cut
-
-priority 9
-
-run it against prod for the 200 drafts before 2026-09-02 and the first 200 after, and paste both tables into this story's note; the note names the one aspect whose fill rate moved least and the reason found for it.
-
-### US-3426 — Sweep the staged objects nothing references, once the orphan count exists
-
-priority 9
-
-FIRST: run scripts/diagnose-staged-orphans.ts against prod and put its whole output on this story. Nothing below starts until that number exists, and the script exits 2 rather than printing a total if any read was incomplete
-
-### US-2842 — Calibration spike: prove a comp read is close enough to price with, and measure what one costs
-
-priority 11
-
-cannot run from the Windows dev box and is not a coding task. services/edge-functions/.env points SUPABASE_URL at prod but carries a 21-char SUPABASE_SERVICE_ROLE_KEY and a 22-char ANTHROPIC_API_KEY, both placeholders, and EBAY_ENV is sandbox, which has no real comp inventory. Needs a run with real prod service-role, real Anthropic and EBAY_ENV=production credentials, plus the ~100 reads of real AI spend.
-
-### US-2618 — The Help Center is live and empty: 83 articles are written and none are in the database
-
-priority 15
-
-run SUPABASE_URL=... SUPABASE_SERVICE_ROLE_KEY=... node scripts/seed-help-articles.mjs against production, then re-check https://gradethread.com/help. The script needs the service-role key, which is why it cannot be automated from here.
-
-### US-2339 — Android: expense dates walk back one day on every edit-sync cycle
-
-priority 25
-
-audit prod expense rows for dates that already drifted (AC4). Note the drift is directional and COMPOUNDING - an affected row is off by one day per edit-sync cycle it went through, so it cannot be corrected by a single fixed offset. Only rows edited by a user in a negative-UTC-offset zone are affected.
-
-### US-2359 — Buyer plan gating: all 13 gate flags are now accounted for — only the free-tier usage count (AC4) is left
-
-priority 25
-
-run the ALL-TIME half of section 12 of scripts/prod-diagnostics-console.sql (AC4) - the demand_board and guarantee_claim rows of its first query. The 30-day slice came back 0 twice, so nobody ACTIVE loses anything; what is unanswered is whether an account that used either feature months ago should be grandfathered before the gates deploy.
-
-### US-2670 — The disputes RLS insert policy never checks who owns the grade report
-
-priority 25
-
-apply the migration, then re-run AC4 query against prod. The count is expected to be zero - every client except iOS has always gone through the edge route, and iOS filed with its own user_id against reports it was displaying, so the realistic exposure is a crafted API call rather than anything a normal app produced.
-
-### US-2922 — Top 100 brand size charts: verified, sourced and department-complete
-
-priority 43
-
-apply the seed migrations to prod and re-run the coverage script against prod, recording the result in the notes.
-
-### US-2304 — FlipDesk grading drops the label photo the pipeline still blocks on
-
-priority 45
-
-run §26 of scripts/prod-diagnostics-console.sql (AC4). It counts FlipDesk grading rows that ended in needs_photos per month and the refunds that followed. Read the two together: rows with no matching refunds is a WORSE finding than the one this AC asked about, because the seller then paid for a grade they never got.
-
-### US-2610 — A garment with no readable tag cannot be graded at all, and that is a real garment, not an edge case
-
-priority 70
-
-run section 27 of scripts/prod-diagnostics-console.sql (AC5), which decides whether this story gets built at all. It counts submissions stuck in needs_photos by which required photo is missing. READ IT WITH ITS LIMIT: quality_feedback is nulled the moment a grade is produced, so this measures who is STUCK NOW, not how often it has happened - it undercounts by every seller who added the photo and succeeded. If 'label' is far ahead of front and back, the tagless case is real and worth building; if the three are level, it is ordinary incomplete uploads and the fix is upload-time guidance rather than a grading change.
-
-### US-1968 — bulkMigrateListing — bring a seller's existing eBay (Trading) listings under management
-
-priority 1968
-
-run one real-eBay end to end - publish a Trading-API listing, migrate it with bulkMigrateListing, then revise and reprice it. This needs a live seller account with legacy listings and is unreachable from the sandbox, which is why it has never been done. It is the only remaining item; the feature was re-probed and is healthy in production.
-
-### US-2002 — Backups: mechanism verified, prod backup cron never installed — real RPO is total loss
-
-priority 1978
-
-on the prod DB host, install the backup cron and confirm a dump plus its .sha256 lands in the offsite bucket, then run restore-postgres.sh against a REAL offsite dump on a scratch host with RESTORE_CONFIRM_TARGET set to that host (the script refuses every target until it is, which is what stops a rehearsal restoring over prod) and record the measured timing (AC1, AC2, AC4). Until the cron is proven to run, the real RPO is not 24 hours, it is total loss.
-
-### US-2434 — Email-keyed PII retained for accounts deleted BEFORE the US-2005 purge shipped is still queryable
-
-priority 1982
-
-run the PII census against prod (the single remaining item). Read-only, has no --apply and never will, and never prints an address. Record the numbers on this story, and treat a missing deleted_account bucket as THE FINDING rather than as a query that came back empty - the population cannot be established from the deletion log, which is why the AC asks for a census rather than a backfill.
-
-### US-2117 — No record of what price or terms any user actually agreed to — pricing_plans is mutated in place
-
-priority 1990
-
-run section 21 of scripts/prod-diagnostics.sql against prod and paste the two counts back here. The story own note says it closes on running that rather than on more code. Read the answer the way that note does: agreements_total at zero means nobody has subscribed since the table shipped and the question is still unanswered, while a non-zero total with with_disclosure_version at zero is the BAD answer - rows are being written and the Stripe metadata is not arriving. The file is read-only and, as of 2026-08-16, is known to execute end to end: all 27 sections were run against a stack built from the full migration corpus, which is also how a fatal bug in it was found and fixed the same day.
-
-### US-2417 — Postal addresses and phone numbers are stored as plaintext columns while OAuth tokens next to them are AES-GCM encrypted
-
-priority 1990
-
-run both backfills against PROD with the real EDGE_ENCRYPTION_KEY — `deno run --allow-net --allow-env scripts/backfill-user-shipping-pii.ts --apply` and the same for scripts/backfill-measure-card-pii.ts. Until they run, the encryption this story shipped applies to NEW writes only and every pre-existing address and phone number is still plaintext, which is the exposure the story was filed for. Both are dry-run by default, both refuse to start without the key, and both are re-runnable (an already-encrypted value passes through rather than double-wrapping, which would be unrecoverable). Run the dry run first and read the row count.
-
-### US-2458 — Support cannot see a buyer subscription at all — no admin route reads buyer_plan or buyer_subscription_status
-
-priority 1991
-
-decide two things, both writes against a customer's money, which is why neither was built speculatively. (1) Should support be able to CANCEL or CHANGE a buyer subscription from the admin surface, or should that stay with the customer via the portal? (2) Is a buyer comp a product we want at all? This is AC4 and it is now the ONLY item left - AC1, AC2, AC3 and AC5 are all done and verified 2026-08-22 (8 tests green, and the buyer_past_due_since column confirmed present in production via PostgREST's OpenAPI document). No code can start until the answers exist.
-
-### US-3016 — eBay drops every descriptive aspect value the AI produces, because nothing maps Taupe onto Beige
-
-priority unranked
-
-run scripts/aspect-value-coverage.ts against prod once the cache is warm, and fold any reported misses into the family tables
-
 ## A marketplace account, logged in
 
 ### US-3367 — Cross-listing: List everywhere in one click through the paced queue, and delist every sibling when a sale is recorded
@@ -844,6 +704,140 @@ needs Whatnot partner access and live docs. Their API is private with no public 
 priority unranked
 
 , and the story cannot close without it: register the Pearson Media Vinted Pro business and ask the Vinted account management team for access to the Pro Integrations Portal, since the API is allowlisted and there is no self-serve signup. Record the application date, the contact used and the outcome in this story's notes
+
+## Production database (psql or the Supabase SQL editor)
+
+### US-3112 — eBay compliance: extension attribution, and stop calling APIs we cannot use
+
+priority 1
+
+one prod eBay connection lacks sell.payment.dispute and one lacks nothing else of note; that seller must reconnect at /oauth/start before dispute notifications work for them.
+
+### US-3412 — Rewrite SERP titles and descriptions on the top-10 zero-click pages
+
+priority 2
+
+apply the blog_posts seo_title/seo_description update to prod (10 rows) - blog metadata lives in the DB, not the repo
+
+### US-2347 — Run the production verification queries this audit could not run
+
+priority 5
+
+this whole story is prod reads (AC1-AC8). Most of it is already written up as scripts/prod-diagnostics-console.sql, which is read-only and was executed against a real database with ON_ERROR_STOP=1 so it cannot fail your session on a wrong column name. Run it and paste the output back into this story.
+
+### US-2727 — listings.listed_at is NOT NULL but the code writes null for a draft, so the extension writeback INSERT has never succeeded
+
+priority 5
+
+apply 00634 to prod, then NOTIFY pgrst, 'reload schema', then retry one Send to extension and confirm a 200.
+
+### US-3312 — Two brand_knowledge notes are wrong in prod: Zara's false auth-gate caveat and Urban Outfitters' CA-versus-RN trap
+
+priority 6
+
+the owner approves this migration before it is pushed, and the apply is confirmed against prod rather than assumed
+
+### US-3318 — Existing Poshmark and Vinted rows record prices those marketplaces cannot hold
+
+priority 6
+
+the owner approves before it is pushed, and the after-count is read back from prod rather than assumed
+
+### US-3044 — [GATE] Measure what the 2026-09-02 AutoLister change did to specific fill rates and per-item cost before the next cut
+
+priority 9
+
+run it against prod for the 200 drafts before 2026-09-02 and the first 200 after, and paste both tables into this story's note; the note names the one aspect whose fill rate moved least and the reason found for it.
+
+### US-3426 — Sweep the staged objects nothing references, once the orphan count exists
+
+priority 9
+
+FIRST: run scripts/diagnose-staged-orphans.ts against prod and put its whole output on this story. Nothing below starts until that number exists, and the script exits 2 rather than printing a total if any read was incomplete
+
+### US-2842 — Calibration spike: prove a comp read is close enough to price with, and measure what one costs
+
+priority 11
+
+cannot run from the Windows dev box and is not a coding task. services/edge-functions/.env points SUPABASE_URL at prod but carries a 21-char SUPABASE_SERVICE_ROLE_KEY and a 22-char ANTHROPIC_API_KEY, both placeholders, and EBAY_ENV is sandbox, which has no real comp inventory. Needs a run with real prod service-role, real Anthropic and EBAY_ENV=production credentials, plus the ~100 reads of real AI spend.
+
+### US-2618 — The Help Center is live and empty: 83 articles are written and none are in the database
+
+priority 15
+
+run SUPABASE_URL=... SUPABASE_SERVICE_ROLE_KEY=... node scripts/seed-help-articles.mjs against production, then re-check https://gradethread.com/help. The script needs the service-role key, which is why it cannot be automated from here.
+
+### US-2339 — Android: expense dates walk back one day on every edit-sync cycle
+
+priority 25
+
+audit prod expense rows for dates that already drifted (AC4). Note the drift is directional and COMPOUNDING - an affected row is off by one day per edit-sync cycle it went through, so it cannot be corrected by a single fixed offset. Only rows edited by a user in a negative-UTC-offset zone are affected.
+
+### US-2359 — Buyer plan gating: all 13 gate flags are now accounted for — only the free-tier usage count (AC4) is left
+
+priority 25
+
+run the ALL-TIME half of section 12 of scripts/prod-diagnostics-console.sql (AC4) - the demand_board and guarantee_claim rows of its first query. The 30-day slice came back 0 twice, so nobody ACTIVE loses anything; what is unanswered is whether an account that used either feature months ago should be grandfathered before the gates deploy.
+
+### US-2922 — Top 100 brand size charts: verified, sourced and department-complete
+
+priority 43
+
+apply the seed migrations to prod and re-run the coverage script against prod, recording the result in the notes.
+
+### US-2304 — FlipDesk grading drops the label photo the pipeline still blocks on
+
+priority 45
+
+run §26 of scripts/prod-diagnostics-console.sql (AC4). It counts FlipDesk grading rows that ended in needs_photos per month and the refunds that followed. Read the two together: rows with no matching refunds is a WORSE finding than the one this AC asked about, because the seller then paid for a grade they never got.
+
+### US-2610 — A garment with no readable tag cannot be graded at all, and that is a real garment, not an edge case
+
+priority 70
+
+run section 27 of scripts/prod-diagnostics-console.sql (AC5), which decides whether this story gets built at all. It counts submissions stuck in needs_photos by which required photo is missing. READ IT WITH ITS LIMIT: quality_feedback is nulled the moment a grade is produced, so this measures who is STUCK NOW, not how often it has happened - it undercounts by every seller who added the photo and succeeded. If 'label' is far ahead of front and back, the tagless case is real and worth building; if the three are level, it is ordinary incomplete uploads and the fix is upload-time guidance rather than a grading change.
+
+### US-1968 — bulkMigrateListing — bring a seller's existing eBay (Trading) listings under management
+
+priority 1968
+
+run one real-eBay end to end - publish a Trading-API listing, migrate it with bulkMigrateListing, then revise and reprice it. This needs a live seller account with legacy listings and is unreachable from the sandbox, which is why it has never been done. It is the only remaining item; the feature was re-probed and is healthy in production.
+
+### US-2002 — Backups: mechanism verified, prod backup cron never installed — real RPO is total loss
+
+priority 1978
+
+on the prod DB host, install the backup cron and confirm a dump plus its .sha256 lands in the offsite bucket, then run restore-postgres.sh against a REAL offsite dump on a scratch host with RESTORE_CONFIRM_TARGET set to that host (the script refuses every target until it is, which is what stops a rehearsal restoring over prod) and record the measured timing (AC1, AC2, AC4). Until the cron is proven to run, the real RPO is not 24 hours, it is total loss.
+
+### US-2434 — Email-keyed PII retained for accounts deleted BEFORE the US-2005 purge shipped is still queryable
+
+priority 1982
+
+run the PII census against prod (the single remaining item). Read-only, has no --apply and never will, and never prints an address. Record the numbers on this story, and treat a missing deleted_account bucket as THE FINDING rather than as a query that came back empty - the population cannot be established from the deletion log, which is why the AC asks for a census rather than a backfill.
+
+### US-2117 — No record of what price or terms any user actually agreed to — pricing_plans is mutated in place
+
+priority 1990
+
+run section 21 of scripts/prod-diagnostics.sql against prod and paste the two counts back here. The story own note says it closes on running that rather than on more code. Read the answer the way that note does: agreements_total at zero means nobody has subscribed since the table shipped and the question is still unanswered, while a non-zero total with with_disclosure_version at zero is the BAD answer - rows are being written and the Stripe metadata is not arriving. The file is read-only and, as of 2026-08-16, is known to execute end to end: all 27 sections were run against a stack built from the full migration corpus, which is also how a fatal bug in it was found and fixed the same day.
+
+### US-2417 — Postal addresses and phone numbers are stored as plaintext columns while OAuth tokens next to them are AES-GCM encrypted
+
+priority 1990
+
+run both backfills against PROD with the real EDGE_ENCRYPTION_KEY — `deno run --allow-net --allow-env scripts/backfill-user-shipping-pii.ts --apply` and the same for scripts/backfill-measure-card-pii.ts. Until they run, the encryption this story shipped applies to NEW writes only and every pre-existing address and phone number is still plaintext, which is the exposure the story was filed for. Both are dry-run by default, both refuse to start without the key, and both are re-runnable (an already-encrypted value passes through rather than double-wrapping, which would be unrecoverable). Run the dry run first and read the row count.
+
+### US-2458 — Support cannot see a buyer subscription at all — no admin route reads buyer_plan or buyer_subscription_status
+
+priority 1991
+
+decide two things, both writes against a customer's money, which is why neither was built speculatively. (1) Should support be able to CANCEL or CHANGE a buyer subscription from the admin surface, or should that stay with the customer via the portal? (2) Is a buyer comp a product we want at all? This is AC4 and it is now the ONLY item left - AC1, AC2, AC3 and AC5 are all done and verified 2026-08-22 (8 tests green, and the buyer_past_due_since column confirmed present in production via PostgREST's OpenAPI document). No code can start until the answers exist.
+
+### US-3016 — eBay drops every descriptive aspect value the AI produces, because nothing maps Taupe onto Beige
+
+priority unranked
+
+run scripts/aspect-value-coverage.ts against prod once the cache is warm, and fold any reported misses into the family tables
 
 ## A lawyer
 
