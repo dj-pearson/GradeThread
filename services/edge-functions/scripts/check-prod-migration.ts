@@ -51,6 +51,7 @@
 import { createClient } from "@supabase/supabase-js";
 import { EXPECTED_SCHEMA_VERSION } from "../src/lib/schema-version.ts";
 import { EXPECTED_MIGRATIONS, FOOTER_ERA_START } from "../src/lib/migration-manifest.ts";
+import { supabaseErrorText } from "../src/lib/supabase-error-text.ts";
 
 // Migrations that are ABSENT FROM PROD ON PURPOSE. Without this, the sweep
 // reports a permanent one-line gap that everybody learns to scroll past, which
@@ -188,7 +189,7 @@ async function runWithKey(url: string, key: string, asked: string[]): Promise<nu
   const db = createClient(url, key, { auth: { persistSession: false } });
   const { data, error } = await db.from("applied_migrations").select("version");
   if (error) {
-    console.error(`! applied_migrations unreadable: ${error.message}`);
+    console.error(`! applied_migrations unreadable: ${supabaseErrorText(error)}`);
     return 1;
   }
   const applied = new Set(

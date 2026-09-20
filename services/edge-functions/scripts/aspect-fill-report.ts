@@ -45,6 +45,7 @@ import {
   leastMoved,
   renderFillTable,
 } from "../src/lib/aspect-fill-report.ts";
+import { supabaseErrorText } from "../src/lib/supabase-error-text.ts";
 
 const url = Deno.env.get("SUPABASE_URL");
 const key = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
@@ -84,7 +85,7 @@ async function drafts(side: "before" | "after"): Promise<DraftRow[]> {
   const { data, error } = await q.limit(WINDOW);
   if (error) {
     console.error(
-      `[fill-report] listings (${side}) read failed: ${error.message}`,
+      `[fill-report] listings (${side}) read failed: ${supabaseErrorText(error)}`,
     );
     Deno.exit(1);
   }
@@ -111,7 +112,7 @@ async function spend(side: "before" | "after"): Promise<SpendRow[]> {
   const { data, error } = await q.limit(WINDOW * 4);
   if (error) {
     console.error(
-      `[fill-report] ai_enrichment_log (${side}) read failed: ${error.message}`,
+      `[fill-report] ai_enrichment_log (${side}) read failed: ${supabaseErrorText(error)}`,
     );
     Deno.exit(1);
   }
@@ -161,7 +162,7 @@ async function ledger(side: "before" | "after"): Promise<LedgerRow[]> {
     // The ledger is newer than the enrichment log; a missing table or column
     // must not take the fill tables down with it.
     console.error(
-      `[fill-report] ai_usage_events (${side}) read failed: ${error.message}`,
+      `[fill-report] ai_usage_events (${side}) read failed: ${supabaseErrorText(error)}`,
     );
     return [];
   }

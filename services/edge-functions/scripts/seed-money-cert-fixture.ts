@@ -43,6 +43,7 @@
 // Run:  deno run --allow-net --allow-env scripts/seed-money-cert-fixture.ts
 
 import { createClient } from "@supabase/supabase-js";
+import { supabaseErrorText } from "../src/lib/supabase-error-text.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL");
 const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ??
@@ -85,7 +86,7 @@ async function findUserByEmail(email: string): Promise<string | null> {
       page,
       perPage: 200,
     });
-    if (error) die(`listUsers failed: ${error.message}`);
+    if (error) die(`listUsers failed: ${supabaseErrorText(error)}`);
     const hit = data.users.find(
       (u) => u.email?.toLowerCase() === email.toLowerCase(),
     );

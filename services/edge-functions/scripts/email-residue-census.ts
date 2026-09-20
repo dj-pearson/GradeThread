@@ -25,6 +25,7 @@ import {
   formatCensus,
   normalizeAddress,
 } from "../src/lib/email-residue-census.ts";
+import { supabaseErrorText } from "../src/lib/supabase-error-text.ts";
 
 const url = Deno.env.get("SUPABASE_URL");
 const key = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
@@ -59,8 +60,8 @@ async function readColumn(table: string, column: string): Promise<string[]> {
       // the other six. But the partial count is NOT a count, so the table is
       // recorded here, called out in the output, and the run exits 1 - a silent
       // zero on a GDPR ticket reads as "nothing here".
-      console.error(`! ${table}.${column} unreadable: ${error.message}`);
-      unreadable.push({ table, column, reason: error.message, rowsRead: out.length });
+      console.error(`! ${table}.${column} unreadable: ${supabaseErrorText(error)}`);
+      unreadable.push({ table, column, reason: supabaseErrorText(error), rowsRead: out.length });
       return out;
     }
     // Through `unknown`: supabase-js types a dynamic .select(column) as a
@@ -94,7 +95,7 @@ const liveAccounts = new Set<string>();
       // Unlike a single table above, this one is fatal. Without the live-account
       // set EVERY address classifies as unattributable, and that number would be
       // read as an erasure backlog roughly the size of the user base.
-      console.error(`live-account read failed: ${error.message}`);
+      console.error(`live-account read failed: ${supabaseErrorText(error)}`);
       Deno.exit(1);
     }
     const rows = (data ?? []) as Array<{ email: string | null }>;

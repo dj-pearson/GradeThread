@@ -53,6 +53,7 @@ import {
   type ReportRow,
   summarizeCalibration,
 } from "../src/lib/comp-read-calibration.ts";
+import { supabaseErrorText } from "../src/lib/supabase-error-text.ts";
 
 // ── arguments ───────────────────────────────────────────────────────
 
@@ -180,7 +181,7 @@ async function loadCandidates(): Promise<LoadResult> {
   if (ownerSubmissionIds) q = q.in("submission_id", ownerSubmissionIds);
 
   const { data: reportData, error } = await q;
-  if (error) throw new Error(`grade_reports read failed: ${error.message}`);
+  if (error) throw new Error(`grade_reports read failed: ${supabaseErrorText(error)}`);
   const reports = (reportData ?? []) as ReportRow[];
 
   const submissionIds = reports.map((r) => r.submission_id).filter((s): s is string => !!s);
@@ -287,7 +288,7 @@ async function readOne(c: Candidate): Promise<ReadOutcome> {
 async function budgetSnapshot(): Promise<BudgetRow[]> {
   const { data, error } = await db.rpc("ai_budget_status");
   if (error) {
-    console.warn(`[spike] budget read failed (${error.message}); cost will be unavailable.`);
+    console.warn(`[spike] budget read failed (${supabaseErrorText(error)}); cost will be unavailable.`);
     return [];
   }
   const rows = Array.isArray(data) ? data : [];

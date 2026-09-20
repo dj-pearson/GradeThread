@@ -40,6 +40,7 @@
 // lines that are not KEY=VALUE.
 
 import { createClient } from "@supabase/supabase-js";
+import { supabaseErrorText } from "../src/lib/supabase-error-text.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL");
 const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ??
@@ -71,7 +72,7 @@ function die(msg: string): never {
 async function findUserByEmail(email: string): Promise<string | null> {
   for (let page = 1; page <= 50; page++) {
     const { data, error } = await admin.auth.admin.listUsers({ page, perPage: 200 });
-    if (error) die(`listUsers failed: ${error.message}`);
+    if (error) die(`listUsers failed: ${supabaseErrorText(error)}`);
     const hit = data.users.find((u) => u.email?.toLowerCase() === email.toLowerCase());
     if (hit) return hit.id;
     if (data.users.length < 200) break;
@@ -118,7 +119,7 @@ async function resetPipelineEvents(userId: string): Promise<void> {
       "item_listed",
       "item_sold",
     ]);
-  if (error) die(`clearing prior pipeline events failed: ${error.message}`);
+  if (error) die(`clearing prior pipeline events failed: ${supabaseErrorText(error)}`);
   log("prior pipeline events cleared");
 }
 
@@ -182,7 +183,7 @@ async function ensurePhoto(userId: string, itemId: string): Promise<void> {
     photo_type: "front",
     sort_order: 0,
   });
-  if (error) die(`photo insert failed: ${error.message}`);
+  if (error) die(`photo insert failed: ${supabaseErrorText(error)}`);
   log("photo created");
 }
 
@@ -209,7 +210,7 @@ async function ensureListing(itemId: string): Promise<void> {
     platform_listing_id: "SWEEP-FIXTURE-LISTING-1",
     listed_at: new Date("2026-01-10T00:00:00Z").toISOString(),
   });
-  if (error) die(`listing insert failed: ${error.message}`);
+  if (error) die(`listing insert failed: ${supabaseErrorText(error)}`);
   log("listing created");
 }
 
