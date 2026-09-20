@@ -109,10 +109,22 @@ export function detectSizeSystem(chart: SizingChart): SizeSystem | null {
 // Deliberately NOT matched from `note` prose: a note reading "tall inseams run
 // 34-36" is a remark about a standard chart, not a tall chart, and treating it
 // as one would mislabel dozens of ordinary charts.
+// US-3406 widened two of these, and both misses were in the harmful direction:
+// a chart the SEED declares as non-standard derived as "standard", so the
+// generated migration wrote nothing and the column stayed NULL.
+//   "Curve, tops & bottoms (body inches)"  Tommy Hilfiger, declared plus
+//   "Bottoms, big (body inches)"           Brooks Brothers, declared big_and_tall
+// "curve" is the brand's own word for its plus line, and a "big" chart with no
+// "tall" is still the big-and-tall dimension -- that is the only extended class
+// the enum has for it, and calling it standard is the falser of the two.
+// ⚠ The bare /\bbig\b/ is the loose one. Measured over all 441 rows, the only
+// garments containing the word are the two "big & tall" charts and Brooks
+// Brothers' "Bottoms, big"; nothing says "Big Kids". A case pins that, so a
+// corpus that grows one fails here rather than mislabelling it.
 const CLASS_PATTERNS: Array<[SizeClass, RegExp]> = [
-  ["big_and_tall", /\bbig\s*(?:&|and)\s*tall\b/i],
+  ["big_and_tall", /\bbig\b/i],
   ["maternity", /\bmaternity\b/i],
-  ["plus", /\bplus\b|\bcurvy\b/i],
+  ["plus", /\bplus\b|\bcurvy\b|\bcurve\b/i],
   ["petite", /\bpetite\b/i],
   ["tall", /\btall\b/i],
 ];

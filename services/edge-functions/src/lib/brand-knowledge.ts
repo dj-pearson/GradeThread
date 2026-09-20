@@ -35,6 +35,7 @@ import {
   garmentFamilies,
   narrowToFamily,
 } from "./chart-families.ts";
+import { detectSizeClass } from "./size-systems.ts";
 export { categoryFamily, garmentFamilies };
 import type {
   DecodeResult,
@@ -316,6 +317,46 @@ function narrowChartsByCategory(
   return narrowToFamily(charts, cat);
 }
 
+// US-3406: departments that answer a question nobody asked.
+//
+// `submissions` carries no department, and the size pass is instructed to infer
+// it, so this cannot be a filter. A Kids chart in the pool is still the right
+// answer for a kids garment. What it must not be is FIRST, which is the slot a
+// model weights most.
+const SPECIALISED_DEPARTMENTS = new Set(["Kids", "Baby"]);
+
+/** Is this chart for a narrower population than the garment asked about?
+ *
+ *  Two dimensions and they are not the same column. `size_class` is a value on
+ *  the row (plus, big_and_tall, petite, maternity, tall), read through the same
+ *  `?? detectSizeClass(chart)` expression flipdesk-size-bands uses so the two
+ *  paths cannot answer differently. DEPARTMENT is separate, and "kids" is not a
+ *  size_class value at all -- which is why Johnnie-O's Boys' bottoms chart led
+ *  for an adult pants query while every class check passed.
+ *
+ *  A NULL class from detectSizeClass means AMBIGUOUS, not specialised: the
+ *  Talbots chart's scope reads "Misses / Petite / Plus", so it covers the
+ *  ordinary range too and demoting it would lose the standard sizes with it. */
+export function isSpecialisedChart(chart: SizingChart): boolean {
+  if (SPECIALISED_DEPARTMENTS.has(chart.department)) return true;
+  const cls = chart.sizeClass ?? detectSizeClass(chart);
+  return cls !== null && cls !== "standard";
+}
+
+/** Rank the ordinary charts ahead of the specialised ones, stably.
+ *
+ *  A DEMOTION rather than a filter, because nothing in the submission says the
+ *  garment is not a plus-size or a kids one. Measured on the 441-row corpus:
+ *  Tommy Hilfiger + shirt led with the Curve (plus) chart and Johnnie-O + pants
+ *  led with a Kids chart, both because they are the most recently sourced rows
+ *  in their pools and the read is ordered by recency (US-3399). Neither chart
+ *  leaves the prompt; both stop leading it. */
+export function demoteSpecialisedCharts(charts: SizingChart[]): SizingChart[] {
+  return [...charts].sort((a, b) =>
+    (isSpecialisedChart(a) ? 1 : 0) - (isSpecialisedChart(b) ? 1 : 0)
+  );
+}
+
 /** Take `limit` charts, spending one slot per department before a second.
  *
  *  Department is NOT a filter and cannot be: `submissions` carries no gender or
@@ -375,9 +416,11 @@ export function assembleBrandKnowledgePack(
 
   const usedDbCharts = dbCharts.length > 0;
   const charts = balanceChartsByDepartment(
-    narrowChartsByCategory(
-      usedDbCharts ? dbCharts : fallbackCharts,
-      category,
+    demoteSpecialisedCharts(
+      narrowChartsByCategory(
+        usedDbCharts ? dbCharts : fallbackCharts,
+        category,
+      ),
     ),
     MAX_CHARTS,
   );

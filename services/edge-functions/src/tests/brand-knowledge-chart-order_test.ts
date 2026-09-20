@@ -25,7 +25,9 @@ const {
   assembleBrandKnowledgePack,
   balanceChartsByDepartment,
   categoryFamily,
+  demoteSpecialisedCharts,
   garmentFamilies,
+  isSpecialisedChart,
 } = await import("../lib/brand-knowledge.ts");
 import type { AssembleInput } from "../lib/brand-knowledge.ts";
 import type { SizingChart } from "../lib/sizing-charts.ts";
@@ -34,6 +36,7 @@ function chart(
   department: string,
   garment: string,
   cats: string[] = [],
+  sizeClass?: string,
 ): SizingChart {
   return {
     brand: "Acme",
@@ -42,7 +45,8 @@ function chart(
     garment,
     categoryMatch: cats,
     rows: [{ size: "M", measurements: { chest: "40" } }],
-  };
+    ...(sizeClass ? { sizeClass } : {}),
+  } as SizingChart;
 }
 
 function input(dbCharts: SizingChart[], category: string | null): AssembleInput {
@@ -254,21 +258,111 @@ Deno.test("balancing is a no-op when nothing is being cut", () => {
   ]);
 });
 
-Deno.test("Johnnie-O shape: every reachable department is represented", () => {
+Deno.test("every reachable department is represented", () => {
   // Two Men charts FIRST on purpose. A flat slice of the same order reaches
-  // Men and Kids only; that is the case the balance exists for, and a fixture
+  // Men and Unisex only; that is the case the balance exists for, and a fixture
   // where both answers agree would prove nothing.
+  //
+  // No Kids chart here, deliberately: US-3406 demotes those, and a fixture
+  // mixing the two rules would stop telling you which one failed.
   const charts = [
     chart("Men", "Bottoms (numeric waist)", ["pant", "bottom"]),
     chart("Men", "Bottoms (alpha)", ["pant", "bottom"]),
-    chart("Kids", "Boys' bottoms (numeric 4-16)", ["pant", "bottom"]),
+    chart("Unisex", "Bottoms (body inches)", ["pant", "bottom"]),
     chart("Women", "Bottoms (alpha + US numeric)", ["pant", "bottom"]),
   ];
-  const got = chosen(charts, "pants");
-  assertEquals(got, [
+  assertEquals(chosen(charts, "pants"), [
     "Men|Bottoms (numeric waist)",
-    "Kids|Boys' bottoms (numeric 4-16)",
+    "Unisex|Bottoms (body inches)",
     "Women|Bottoms (alpha + US numeric)",
+  ]);
+});
+
+// ── US-3406: a narrower population must not LEAD ────────────────────────────
+
+Deno.test("US-3406: a plus chart does not lead, and is not dropped either", () => {
+  // Tommy Hilfiger shape. The Curve chart is the most recently sourced row in
+  // its pool, so the recency order (US-3399) put it first for an unqualified
+  // shirt. It is still in the prompt, labelled, just not leading it.
+  const charts = [
+    chart("Women", "Curve, tops & bottoms (body inches)", ["top"], "plus"),
+    chart("Men", "Tops (alpha)", ["top"]),
+    chart("Women", "Tops (alpha/numeric)", ["top"]),
+  ];
+  assertEquals(chosen(charts, "shirt"), [
+    "Men|Tops (alpha)",
+    "Women|Tops (alpha/numeric)",
+    "Women|Curve, tops & bottoms (body inches)",
+  ]);
+});
+
+Deno.test("US-3406: a Kids chart does not lead for an adult garment", () => {
+  // Johnnie-O shape, and the half no size_class check could catch: "kids" is
+  // not a size_class value at all, it is a DEPARTMENT.
+  const charts = [
+    chart("Kids", "Boys' bottoms (numeric 4-16)", ["bottom"]),
+    chart("Men", "Bottoms (numeric waist)", ["bottom"]),
+    chart("Women", "Bottoms (alpha)", ["bottom"]),
+  ];
+  assertEquals(chosen(charts, "pants"), [
+    "Men|Bottoms (numeric waist)",
+    "Women|Bottoms (alpha)",
+    "Kids|Boys' bottoms (numeric 4-16)",
+  ]);
+});
+
+Deno.test("US-3406: a kids-only brand still leads with its Kids chart", () => {
+  // The demotion is not a filter, and this is why it cannot be one: the
+  // submission carries no department, so a brand that only makes kidswear must
+  // still send what it has. Measured over the corpus, 120 pools are still led
+  // by a specialised chart and in all 120 every chart in the set is one.
+  const charts = [
+    chart("Kids", "Toddler & Kids (2T-5T)", ["top"]),
+    chart("Baby", "Baby (MONTHS)", ["top"]),
+  ];
+  assertEquals(chosen(charts, "shirt"), [
+    "Kids|Toddler & Kids (2T-5T)",
+    "Baby|Baby (MONTHS)",
+  ]);
+});
+
+Deno.test("US-3406: an AMBIGUOUS class is not a specialised one", () => {
+  // The Talbots chart's scope reads "Misses (US numeric 2-18) / Petite (0P-16P)
+  // / Plus (14W-26W)", so detectSizeClass returns null: more than one class.
+  // That chart covers the ordinary range too, and demoting it would take the
+  // standard sizes down with the plus ones.
+  const talbots = chart(
+    "Women",
+    "Misses (US numeric 2-18) / Petite (0P-16P) / Plus (14W-26W)",
+    ["top"],
+  );
+  assertEquals(isSpecialisedChart(talbots), false);
+  assertEquals(isSpecialisedChart(chart("Women", "Tops, plus", ["top"])), true);
+  assertEquals(isSpecialisedChart(chart("Kids", "Tops", ["top"])), true);
+  assertEquals(isSpecialisedChart(chart("Men", "Tops", ["top"])), false);
+});
+
+Deno.test("US-3406: the STORED class wins over the derived one", () => {
+  // The whole point of the column. "Curve" is read by the widened patterns now,
+  // but a row carrying a class must be believed even when the garment text says
+  // nothing a pattern can see.
+  const opaque = chart("Women", "Line 7 (body inches)", ["top"], "plus");
+  assertEquals(isSpecialisedChart(opaque), true);
+  assertEquals(isSpecialisedChart(chart("Women", "Line 7 (body inches)", ["top"])), false);
+});
+
+Deno.test("US-3406: demoting is stable, so the read order survives inside each group", () => {
+  const charts = [
+    chart("Women", "Tops, plus", ["top"], "plus"),
+    chart("Men", "Tops A", ["top"]),
+    chart("Kids", "Tops", ["top"]),
+    chart("Women", "Tops B", ["top"]),
+  ];
+  assertEquals(demoteSpecialisedCharts(charts).map((c) => c.garment), [
+    "Tops A",
+    "Tops B",
+    "Tops, plus",
+    "Tops",
   ]);
 });
 
@@ -367,5 +461,16 @@ Deno.test({
     const jo = await probe("johnnieo", "pants");
     assertEquals(jo.length, 3);
     assertEquals(new Set(jo.map((c) => c.department)).size, 3);
+    // US-3406: and the Kids chart must not be the one it leads with.
+    assertEquals(jo[0].department, "Men");
+
+    // US-3406's other measured case. This one needs 00809 applied: without it
+    // the row's size_class is NULL and the derivation has to read "Curve".
+    const thShirt = await probe("tommyhilfiger", "shirt");
+    assert(thShirt.length > 0);
+    assert(
+      !/curve/i.test(thShirt[0].garment),
+      `a plus-size chart led an unqualified shirt: ${thShirt[0].garment}`,
+    );
   },
 });

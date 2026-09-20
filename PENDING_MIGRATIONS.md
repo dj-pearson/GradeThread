@@ -72,6 +72,84 @@ stronger claim for one of them, `check-prod-migration.ts` is the tool.
 Nothing below 00786 was touched, and the six genuinely-held branches in the next
 section are unchanged and still waiting.
 
+## ⏳ HELD: 00809_size_class_curve_and_big.sql (US-3406 — two size charts that never got their class recorded)
+
+**EXECUTED 2026-09-20 against the local cluster** carrying all 809 migrations
+from zero. Before: both rows `size_class` NULL. After: `tommyhilfiger` Women
+"Curve, tops & bottoms (body inches)" = `plus`, `brooksbrothers` Men "Bottoms,
+big (body inches)" = `big_and_tall`. Applied three times; the second and third
+updated nothing. Class counts moved exactly `plus` 6→7, `big_and_tall` 2→3,
+NULL 262→260, and no other row changed.
+
+**Risk: LOW.** Two UPDATEs, blast radius two rows, both pinned by the table's
+full unique key `(brand_key, department, garment)`, with
+`size_class is distinct from '<value>'` so a re-run writes nothing. No DDL, no
+drop, no type change.
+
+⚠ **The one statement that can abort** is either UPDATE, because
+`brand_size_charts` carries a NOT VALID check `brand_size_charts_sourced` that
+does not validate the existing table but DOES fire on a row you update. Both
+target rows were given a `source_url` and confidence 0.85 by 00781, which is
+applied, so it passes — but a hand re-run on this table aborted on an unsourced
+row on 2026-09-09 (00499's header records it), so check those two columns in the
+readback below rather than assuming.
+
+⚠ **A zero-row match would be silent**, and 00782 and 00793 have retired and
+renamed rows in this table before. The file `RAISE NOTICE`s both row counts:
+0 and 0 on a re-run is correct, 0 and 0 on a FIRST run means the garment strings
+have moved and nothing was repaired.
+
+**Why it exists.** `size_class` is derived from the chart's garment scope by
+`detectSizeClass`, and 00499's generator emits a row only when a size SYSTEM is
+readable OR the class is non-standard. These two derived "standard", so the
+generator emitted nothing for them at all and the column stayed NULL in
+production. `CLASS_PATTERNS` is widened in the same commit to read "curve" as
+plus and a bare "big" as big_and_tall, and **00499 is regenerated** to match
+because `sizing-chart-parity_test.ts` asserts the committed file equals what the
+generator produces. 00499 is already applied and both appliers compute pending
+by MEMBERSHIP, so the regenerated file never re-runs against prod — this file is
+what moves the live rows.
+
+**Client-side read risk: LOW, and "none" would have been wrong.** Nothing in
+`src/` queries the COLUMN, but `src/components/flipdesk/size-guide-panel.tsx:69`
+renders `chart.sizeClass` when it is not "standard" — the field the edge returns
+from `/api/flipdesk/size-bands`. So the frontend does show this value, and what
+the migration changes is that two charts start carrying a label where they
+showed none. That is the correct label appearing, not a broken one, and it needs
+no deploy ordering: the frontend already handles any string there.
+
+The other consumers are edge-side: `flipdesk-size-bands.ts` (the tier) and, new
+in this commit, the chart ranking in `brand-knowledge.ts`.
+
+**Ordering: apply after 00808**, which is the next number down. No dependency on
+00805-00808 beyond the number: this touches only `brand_size_charts`, which has
+existed since 00389.
+
+**`NOTIFY pgrst, 'reload schema';` is NOT needed** — no table, column or RPC
+signature changed. Harmless if sent.
+
+**EXPECTED_SCHEMA_VERSION is 00809 in the same commit**, and the manifest was
+regenerated (`node scripts/gen-migration-manifest.mjs`).
+
+**After applying, confirm it in one read** rather than trusting the apply:
+
+```sql
+select brand_key, garment, size_class, source_url is not null as sourced, confidence
+  from public.brand_size_charts
+ where (brand_key = 'tommyhilfiger' and garment like 'Curve%')
+    or (brand_key = 'brooksbrothers' and garment = 'Bottoms, big (body inches)');
+-- expect two rows: plus and big_and_tall, both sourced = true.
+-- Fewer than two rows means the garment strings moved and the UPDATE matched
+-- nothing, which the RAISE NOTICE during the apply will also have said.
+```
+
+**Until it is applied, the ranking half still works and the data half does
+not.** With the column NULL the demotion falls back to `detectSizeClass`, which
+now reads "Curve" — so Tommy Hilfiger is already correct from the code. Brooks
+Brothers likewise. What the migration buys is that the stored value stops
+disagreeing with the derivation, which is what `size-class-reaches-the-caller_test.ts`
+exists to keep true.
+
 ## ⏳ HELD: 00808_cross_channel_link_reviews.sql (US-3197 — the cross-channel matches a human has to decide)
 
 **EXECUTED 2026-09-20.** `public.flipdesk_cross_channel_link_reviews` exists with `relrowsecurity = true` and **zero policies**, which is the deny-all posture, and `anon` and `authenticated` hold no grant on it. Both indexes (`uq_cross_channel_link_reviews_pair`, `idx_cross_channel_link_reviews_open`) and both CHECK constraints are present.

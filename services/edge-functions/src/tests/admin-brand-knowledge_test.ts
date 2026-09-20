@@ -132,3 +132,25 @@ Deno.test("authentication_tells validation only applies to brand_knowledge", () 
   // silently dropped rather than validated — and an all-non-editable patch errors.
   assert(err(buildPatch("brand_styles", { authentication_tells: "whatever" })).length > 0);
 });
+
+// US-3406: size_class became editable, and the column has no CHECK constraint.
+Deno.test("US-3406: size_class and size_system are writable but validated", () => {
+  const ok = buildPatch("brand_size_charts", { size_class: "plus" });
+  assertEquals("patch" in ok ? ok.patch : null, { size_class: "plus" });
+
+  // The reason the validation exists: with no constraint on the column, an
+  // arbitrary string is stored and isSpecialisedChart then reads it as
+  // non-standard and demotes an ordinary chart out of the lead.
+  const bad = buildPatch("brand_size_charts", { size_class: "extra-roomy" });
+  assert("error" in bad, "an unknown size_class must be refused");
+  assert(/size_class must be null or one of/.test((bad as { error: string }).error));
+
+  // null is a real value here: roughly 260 rows carry it, and it is what lets
+  // the derivation from the garment scope run.
+  const cleared = buildPatch("brand_size_charts", { size_class: null });
+  assertEquals("patch" in cleared ? cleared.patch : null, { size_class: null });
+
+  const sys = buildPatch("brand_size_charts", { size_system: "UK" });
+  assertEquals("patch" in sys ? sys.patch : null, { size_system: "UK" });
+  assert("error" in buildPatch("brand_size_charts", { size_system: "US-ish" }));
+});
