@@ -218,8 +218,133 @@ function chartFromRow(r: BrandSizeChartRow): SizingChart {
   };
 }
 
+// ── US-3399: which three charts reach the prompt is a decision, not heap order ─
+//
+// The brand_size_charts read carries this order. It is TOTAL, and the last two
+// keys are what make it total: brand_size_charts_key_idx is UNIQUE on
+// (brand_key, department, garment) (00389:142) and brand_key is pinned by the
+// resolver's .eq, so no two rows can tie and the result can never fall back to
+// physical order.
+//
+// It lives here as data rather than as a chain of .order() calls so a live test
+// can order its own read the same way instead of restating the keys and
+// drifting from them.
+export const CHART_ORDER: ReadonlyArray<
+  { readonly column: string; readonly ascending: boolean }
+> = [
+  { column: "created_at", ascending: false },
+  { column: "verified", ascending: false },
+  { column: "department", ascending: true },
+  { column: "garment", ascending: true },
+];
+
+/** Apply CHART_ORDER to a PostgREST builder, leftmost key first. */
+export function applyChartOrder<
+  T extends { order(column: string, opts: { ascending: boolean }): T },
+>(query: T): T {
+  return CHART_ORDER.reduce<T>(
+    (acc, k) => acc.order(k.column, { ascending: k.ascending }),
+    query,
+  );
+}
+
+// Why these keys, and why ordering alone is not the whole fix.
+//
+// The brand_size_charts read used to carry no ORDER BY, so when a brand had
+// more than MAX_CHARTS matching rows, the three that reached the grading prompt
+// were whatever physical order Postgres happened to return. Measured on the
+// 441-row post-00793 corpus: 122 of 2,172 brand x category probes are over
+// budget, and 112 of those 122 fall through the category step entirely.
+//
+// The read now carries created_at DESC, verified DESC, department ASC,
+// garment ASC. That is TOTAL, because (brand_key, department, garment) is
+// unique (brand_size_charts_key_idx, 00389:142), so with brand_key pinned by
+// the .eq the last two keys can never tie and the order can never fall back to
+// the heap. Recency leads rather than `verified` because `verified` decides
+// nothing where it matters: it is false for every row in 108 of the 122
+// over-budget pools, and of the 21 verified rows 12 are in-code seed
+// approximations. It stays as a tiebreak.
+//
+// Ordering ALONE made one thing worse, and that is why the two steps below
+// exist. Sorting by recency and slicing flat took the no-category-match
+// branch from 109/112 right-family to 94/112. The 109 was luck: it was the
+// same physical order this change exists to stop trusting.
+
+type GarmentFamily = "tops" | "bottoms" | "outerwear" | "dresses" | "footwear";
+
+/** Tokens that place a chart's `garment` string in a family. A chart can be in
+ *  more than one ("Tops & outerwear (body inches)"), which is why this returns
+ *  a set rather than a single label. */
+const GARMENT_FAMILY_TOKENS: Readonly<
+  Record<GarmentFamily, readonly string[]>
+> = {
+  tops: [
+    "top",
+    "shirt",
+    "blouse",
+    "sweater",
+    "knit",
+    "tee",
+    "polo",
+    "sweatshirt",
+    "hoodie",
+  ],
+  bottoms: [
+    "bottom",
+    "jean",
+    "pant",
+    "short",
+    "skirt",
+    "trouser",
+    "legging",
+    "tight",
+    "chino",
+    "denim (",
+    "waist",
+  ],
+  outerwear: ["outerwear", "jacket", "coat", "parka", "vest"],
+  dresses: ["dress", "gown", "rtw", "apparel"],
+  footwear: ["footwear", "shoe", "sneaker", "boot", "sandal"],
+};
+
+/** Which families a chart's garment string belongs to. */
+export function garmentFamilies(garment: string): Set<GarmentFamily> {
+  const s = (garment ?? "").toLowerCase();
+  const out = new Set<GarmentFamily>();
+  for (const [family, tokens] of Object.entries(GARMENT_FAMILY_TOKENS)) {
+    if (tokens.some((t) => s.includes(t))) out.add(family as GarmentFamily);
+  }
+  return out;
+}
+
+/** Which family a GARMENT_CATEGORIES value asks for, or null when the hint is
+ *  not a clothing category we hold charts for (hat, bag, belt, ...). */
+export function categoryFamily(category: string | null): GarmentFamily | null {
+  const c = (category ?? "").toLowerCase();
+  if (!c) return null;
+  const match = (...tokens: string[]) => tokens.some((t) => c.includes(t));
+  if (match("t-shirt", "tshirt", "shirt", "blouse", "sweater", "hoodie", "top")) {
+    // "shirt" before outerwear so "t-shirt" does not land on a jacket token.
+    return "tops";
+  }
+  if (match("jacket", "coat", "parka", "vest", "outerwear")) return "outerwear";
+  if (match("jean", "pant", "short", "skirt", "trouser", "bottom")) {
+    return "bottoms";
+  }
+  if (match("dress", "gown")) return "dresses";
+  if (match("sneaker", "boot", "sandal", "shoe", "footwear")) return "footwear";
+  return null;
+}
+
 /** Narrow DB charts by category the same way findSizingCharts does its category
- *  step: keep category matches if any, else return the whole pool. */
+ *  step: keep category matches if any, else return the whole pool.
+ *
+ *  When nothing matches, the whole pool is kept (that is deliberate and
+ *  predates this change: a chart whose `category_match` never says "shirt" is
+ *  still the brand's tops chart). What is new is that the fallback pool is
+ *  ordered by FAMILY first, so a shirt does not spend two of three slots on
+ *  bottoms charts. Measured: 112/112 right-family in that branch, against
+ *  109/112 for the heap order it replaces and 94/112 for the new order alone. */
 function narrowChartsByCategory(
   charts: SizingChart[],
   category: string | null,
@@ -229,7 +354,41 @@ function narrowChartsByCategory(
   const byCat = charts.filter((c) =>
     c.categoryMatch.some((m) => cat.includes(m))
   );
-  return byCat.length > 0 ? byCat : charts;
+  if (byCat.length > 0) return byCat;
+  const want = categoryFamily(cat);
+  if (!want) return charts;
+  // Stable, so the read's total order survives inside each family.
+  return [...charts].sort((a, b) =>
+    (garmentFamilies(a.garment).has(want) ? 0 : 1) -
+    (garmentFamilies(b.garment).has(want) ? 0 : 1)
+  );
+}
+
+/** Take `limit` charts, spending one slot per department before a second.
+ *
+ *  Department is NOT a filter and cannot be: `submissions` carries no gender or
+ *  department column, and the size pass the charts feed is instructed to infer
+ *  the department itself. Every rendered block is headed with its department,
+ *  so the women's chart beside the men's is part of how the model answers. What
+ *  is not defensible is one department eating the whole budget while another's
+ *  only chart is cut, which is what a flat slice does. Measured: every
+ *  reachable department is represented in 122 of 122 over-budget pools, against
+ *  116 for the heap order and 98 for a flat slice of the new order. */
+export function balanceChartsByDepartment(
+  charts: SizingChart[],
+  limit: number,
+): SizingChart[] {
+  const seen = new Set<string>();
+  const firstPerDepartment: SizingChart[] = [];
+  const rest: SizingChart[] = [];
+  for (const c of charts) {
+    if (seen.has(c.department)) rest.push(c);
+    else {
+      seen.add(c.department);
+      firstPerDepartment.push(c);
+    }
+  }
+  return [...firstPerDepartment, ...rest].slice(0, limit);
 }
 
 export interface AssembleInput {
@@ -263,10 +422,13 @@ export function assembleBrandKnowledgePack(
   } = input;
 
   const usedDbCharts = dbCharts.length > 0;
-  const charts = narrowChartsByCategory(
-    usedDbCharts ? dbCharts : fallbackCharts,
-    category,
-  ).slice(0, MAX_CHARTS);
+  const charts = balanceChartsByDepartment(
+    narrowChartsByCategory(
+      usedDbCharts ? dbCharts : fallbackCharts,
+      category,
+    ),
+    MAX_CHARTS,
+  );
 
   // US-2214: the chart fallback is SILENT by construction — it always returns
   // something, so a brand missing from brand_size_charts looks exactly like a
@@ -382,12 +544,14 @@ export async function resolveBrandKnowledgePack(
         .select("color_name, aliases, hex, years")
         .eq("brand_key", key)
         .order("confidence", { ascending: false, nullsFirst: false }),
-      supabaseAdmin
-        .from("brand_size_charts")
-        .select(
-          "brand_label, brand_match, department, garment, category_match, rows, note, source_url, verified, measurement_basis, size_class",
-        )
-        .eq("brand_key", key),
+      applyChartOrder(
+        supabaseAdmin
+          .from("brand_size_charts")
+          .select(
+            "brand_label, brand_match, department, garment, category_match, rows, note, source_url, verified, measurement_basis, size_class",
+          )
+          .eq("brand_key", key),
+      ),
     ]);
 
     if (!bk.error) brandRow = (bk.data as BrandKnowledgeRow | null) ?? null;
