@@ -62,7 +62,17 @@ Two consequences worth keeping in mind:
 > the seed and 273 on the table. 113 of those fell through only because a
 > chart's word list was short, and those words landed in the seed, in a
 > regenerated 00498 and in `00814_chart_category_match_precision.sql` together.
-> Seed fall-throughs are 129 now, table 162.
+> Seed fall-throughs are 135 now, table 162.
+> 
+> ⚠ That seed figure read 129 for an hour, and the six were a defect in the
+> pass itself rather than a measurement. The edit appended its words after an
+> array's trailing comma, which leaves a JavaScript HOLE -- `["vest",\n, "blouse"]`
+> -- in 42 of the 88 charts. `deno check` catches it (`(string | undefined)[]`) and
+> the regenerated 00498 carried `ARRAY['a',,'b']`, which no Postgres will parse; the
+> audit did not, because a hole reads as an empty token and `word.includes("")` is
+> true for every ask. **A guard that reports something better than the truth is the
+> one to distrust.** Repaired, and `deno check` on `sizing-charts.ts` is the check
+> that would have caught it before the push.
 >
 > **The rest were refused and the rule is worth keeping.** A word goes in only
 > when the chart's own scope plainly covers it: a generic "Tops" or "Bottoms"
