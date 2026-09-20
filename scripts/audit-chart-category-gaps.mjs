@@ -36,11 +36,16 @@
 //     ⚠ FIXED 2026-09-20 (US-3443): pass `--dsn "postgresql://..."` (or
 //     `--container <name>`) and it reads brand_size_charts instead, which is
 //     what production answers from. The two differ: 415 charts in the seed
-//     against 437 rows in the table after 00813, because several migrations
-//     added charts without regenerating sizing-charts.ts -- the hat and cap
-//     brands, the menswear-tailoring and boot-width conventions, and seven
-//     later sourcing rows. Every seed chart IS in the table; nothing is missing
-//     the other way.
+//     against 437 rows in the table after 00813. Every seed chart IS in the
+//     table; nothing is missing the other way.
+//     ⚠ THE 22 ARE NOT A SEED THAT FELL BEHIND, and US-3446 filed a story to
+//     "catch it up" before the guards said otherwise. Every one of them is
+//     accounted for in src/tests/sizing-chart-orphans_test.ts: 11 are
+//     CROSS_DEPARTMENT rows whose only rival is the other department's body,
+//     7 are the DB_ONLY headwear and shoe-width charts, and the rest are
+//     hand-written charts with no rival at all. Adding them to the seed
+//     reddens that guard, which is what it is for. If the counts here need to
+//     agree, the answer is a decision about each row, not a transcription.
 //  3. ASKED below is the COMMON category words on purpose. Scoring the whole
 //     garment vocabulary produced 305 findings, most of them a chart not
 //     listing "monokini", which is a wall nobody can work from.
