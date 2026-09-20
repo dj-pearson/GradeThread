@@ -205,6 +205,18 @@ export function SubmissionDetailPage() {
    */
   const [disputeCheckFailed, setDisputeCheckFailed] = useState(false);
   const [linkedItem, setLinkedItem] = useState<InventoryItemRow | null>(null);
+  /**
+   * US-3428: the linked-inventory lookup failed, so we do not know whether this
+   * grade is already attached to a FlipDesk item.
+   *
+   * Same shape as disputeCheckFailed (US-3427), and here the failure has TWO
+   * surfaces of opposite polarity: the linked-item card renders when the row is
+   * set, and the "Sell this with FlipDesk" nudge renders when it is NOT. Letting
+   * the page render with a null row would keep the card away (correct, we have
+   * no row) and show the nudge (wrong -- it asserts the grade is attached to
+   * nothing, which is the failed read becoming a fact).
+   */
+  const [linkedItemCheckFailed, setLinkedItemCheckFailed] = useState(false);
   const [disputeDialogOpen, setDisputeDialogOpen] = useState(false);
   const [disputeCategory, setDisputeCategory] = useState("");
   const [disputeReason, setDisputeReason] = useState("");
@@ -439,12 +451,12 @@ export function SubmissionDetailPage() {
         .maybeSingle();
       if (cancelled) return;
       if (linkedItemError) {
-        setError("Couldn't check the linked inventory item. Please try again.");
-        setLoading(false);
-        return;
-      }
-      if (linkedItemData) {
-        setLinkedItem(linkedItemData as InventoryItemRow);
+        // US-3428: withhold what this read feeds, not the grade report.
+        setLinkedItem(null);
+        setLinkedItemCheckFailed(true);
+      } else {
+        setLinkedItemCheckFailed(false);
+        setLinkedItem(linkedItemData ? (linkedItemData as InventoryItemRow) : null);
       }
 
       // Fetch submission images
@@ -557,8 +569,35 @@ export function SubmissionDetailPage() {
   // (as short-lived signed URLs) over to a fresh submission so a needs_photos /
   // expired result isn't a dead end. The new submission references this one and
   // supersedes it server-side (see grade.ts /submit `retake_of`).
-  function handleRetake() {
+  async function handleRetake() {
     if (!submission) return;
+
+    // US-3428: the retake bridge CARRIES linkedItemId, so it is genuinely
+    // dependent on that read. If the page-load lookup failed, sending the
+    // seller onward with `null` would silently detach a grade from an item it
+    // is already on, and there is no undo for that from the new submission.
+    //
+    // A retake is a deliberate press, not a render, so one more read here is
+    // cheap and it answers the question. Only if THAT fails do we stop, which
+    // is the dependent action stopping -- the page itself stayed up the whole
+    // time.
+    let linked = linkedItem;
+    if (linkedItemCheckFailed) {
+      const { data, error } = await supabase
+        .from("inventory_items")
+        .select("*")
+        .eq("submission_id", submission.id)
+        .maybeSingle();
+      if (error) {
+        toast.error(
+          "Couldn't check whether this grade is on a FlipDesk item, and a retake would drop the link. Try again.",
+        );
+        return;
+      }
+      linked = data ? (data as InventoryItemRow) : null;
+      setLinkedItem(linked);
+      setLinkedItemCheckFailed(false);
+    }
     const flaggedImageTypes = Array.from(
       new Set(
         (submission.quality_feedback?.issues ?? [])
@@ -582,7 +621,9 @@ export function SubmissionDetailPage() {
       title: submission.title,
       description: submission.description ?? undefined,
       styleAttributes: submission.style_attributes,
-      linkedItemId: linkedItem?.id ?? null,
+      // US-3428: `linked`, not `linkedItem` -- the re-read above may have just
+      // resolved it, and this state setter has not landed yet.
+      linkedItemId: linked?.id ?? null,
       flaggedImageTypes,
       photoRequests: submission.quality_feedback?.photo_requests ?? [],
       reusablePhotos,
@@ -1574,7 +1615,7 @@ export function SubmissionDetailPage() {
                     recovery actions as needs_photos / expired. A failure has no
                     per-photo flags, so handleRetake reuses all photos. */}
                 <div className="mt-6 flex flex-col items-center gap-2 sm:flex-row">
-                  <Button onClick={handleRetake}>
+                  <Button onClick={() => void handleRetake()}>
                     <Camera className="mr-1.5 h-4 w-4" />
                     Retake photos
                   </Button>
@@ -1611,7 +1652,7 @@ export function SubmissionDetailPage() {
                     the photos that passed, so the seller only redoes the
                     flagged ones instead of starting from scratch. */}
                 <div className="mt-6 flex flex-col items-center gap-2 sm:flex-row">
-                  <Button onClick={handleRetake}>
+                  <Button onClick={() => void handleRetake()}>
                     <Camera className="mr-1.5 h-4 w-4" />
                     Retake photos
                   </Button>
@@ -1634,7 +1675,7 @@ export function SubmissionDetailPage() {
                 {/* US-949: retake reuses the already-uploaded photos + garment
                     details so an expired checkout isn't a dead end. */}
                 <div className="mt-6 flex flex-col items-center gap-2 sm:flex-row">
-                  <Button onClick={handleRetake}>
+                  <Button onClick={() => void handleRetake()}>
                     <Camera className="mr-1.5 h-4 w-4" />
                     Retake photos
                   </Button>
@@ -1766,7 +1807,24 @@ export function SubmissionDetailPage() {
             already tied to a FlipDesk item, nudge the grader to turn the verified
             certificate into a listing. Dismissable + event-tracked; suppressed if
             the user opted out of product messaging. */}
-        {submission.status === "completed" && gradeReport && !linkedItem && (
+        {submission.status === "completed" && gradeReport && !linkedItem &&
+          linkedItemCheckFailed && (
+          // US-3428: the nudge below says this grade is not on an item yet. We
+          // do not know that, so say what we do know and offer the retry.
+          <p className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
+            <Tag className="h-4 w-4 shrink-0" />
+            Couldn&apos;t check whether this grade is already on a FlipDesk item.
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setLoadAttempt((attempt) => attempt + 1)}
+            >
+              Try again
+            </Button>
+          </p>
+        )}
+        {submission.status === "completed" && gradeReport && !linkedItem &&
+          !linkedItemCheckFailed && (
           <CrossSurfaceNudge
             nudgeId="grade-to-flipdesk"
             icon={Tag}

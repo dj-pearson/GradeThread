@@ -12,6 +12,7 @@ code_refs:
   - src/lib/payout-breakdown.ts
   - src/pages/submission-detail.tsx
   - src/test/submission-detail-dispute-read.test.tsx
+  - src/test/submission-detail-linked-item-read.test.tsx
 reviewed: 2026-09-19
 tags: [data, reliability, finances]
 summary: Failed database reads must not appear as zero balances, empty inventory, completed filing checks, or defaults that can overwrite saved values.
@@ -62,6 +63,20 @@ offer a retry. Everything the failed read does not feed still renders. What is
 never allowed either way is treating the failure as an answer -- an unresolved
 dispute lookup must not read as "no dispute exists", which is why `canDispute`
 consults the failure flag rather than only a null row.
+
+**Count the consumers before you decide it is one flag and done** (US-3428, the
+linked-inventory read in the same effect). That one has three, and they do not
+all want the same treatment:
+
+- A surface that renders when the row IS set needs nothing. No row, no card.
+- A surface that renders when the row is NOT set has to be withheld, because it
+  states the absence as a fact. Here it is the "Sell this with FlipDesk" nudge,
+  which tells the seller this grade is not on an item yet.
+- An ACTION that carries the value onward is the genuinely dependent one, and a
+  flag is not enough for it. The retake bridge copies `linkedItemId` into a new
+  submission, where a wrongly-null value quietly detaches a grade from an item
+  it is already on. A press is not a render, so it re-reads; only if that fails
+  does the action stop, and it says why.
 
 ## Named optional exceptions
 
