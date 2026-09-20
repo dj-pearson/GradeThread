@@ -217,6 +217,20 @@ export function SubmissionDetailPage() {
    * nothing, which is the failed read becoming a fact).
    */
   const [linkedItemCheckFailed, setLinkedItemCheckFailed] = useState(false);
+  /**
+   * US-3433: the photos could not be loaded, or could not be signed.
+   *
+   * Third instance of the same shape in this one effect (US-3427's dispute
+   * read, US-3428's linked item). The photos feed the submitted-photos card,
+   * the lightbox and the retake bridge -- not the grade report, which is what
+   * the seller came for. Blocking the page on them hid the grade to explain a
+   * missing thumbnail.
+   *
+   * Both failures collapse to one flag on purpose: a listed-but-unsignable
+   * photo and an unlisted one are the same thing to the seller, and to the
+   * retake bridge, which needs a signed URL to carry anything at all.
+   */
+  const [photosUnavailable, setPhotosUnavailable] = useState(false);
   const [disputeDialogOpen, setDisputeDialogOpen] = useState(false);
   const [disputeCategory, setDisputeCategory] = useState("");
   const [disputeReason, setDisputeReason] = useState("");
@@ -467,10 +481,14 @@ export function SubmissionDetailPage() {
 
       if (cancelled) return;
       if (imagesError) {
-        setError("Couldn't load the submission photos. Please try again.");
+        // US-3433: withhold the photos, not the grade.
+        setImages([]);
+        setImageUrls({});
+        setPhotosUnavailable(true);
         setLoading(false);
         return;
       }
+      setPhotosUnavailable(false);
       const imagesData = (imagesRaw ?? []) as SubmissionImageRow[];
       if (imagesData.length > 0) {
         const sorted = [...imagesData].sort(
@@ -491,7 +509,11 @@ export function SubmissionDetailPage() {
           );
         if (cancelled) return;
         if (signingError || signed?.some((entry) => entry.error)) {
-          setError("Couldn't open the submission photos. Please try again.");
+          // US-3433: a photo we cannot sign is a photo the seller cannot see,
+          // and it is the same answer as one we could not list.
+          setImages([]);
+          setImageUrls({});
+          setPhotosUnavailable(true);
           setLoading(false);
           return;
         }
@@ -581,6 +603,19 @@ export function SubmissionDetailPage() {
     // cheap and it answers the question. Only if THAT fails do we stop, which
     // is the dependent action stopping -- the page itself stayed up the whole
     // time.
+    // US-3433: the retake CARRIES reusablePhotos, so a failed photo load would
+    // start the new submission with nothing to reuse and no sign that anything
+    // was lost. A retake is a deliberate press, so say so and stop rather than
+    // quietly hand over an empty set. Unlike the linked item, a re-read here
+    // would also need the signing round-trip, and the page's own retry already
+    // does both.
+    if (photosUnavailable) {
+      toast.error(
+        "Couldn't load this submission's photos, and a retake would start without them. Use Try again on the photos card first.",
+      );
+      return;
+    }
+
     let linked = linkedItem;
     if (linkedItemCheckFailed) {
       const { data, error } = await supabase
@@ -1885,6 +1920,35 @@ export function SubmissionDetailPage() {
             )}
           </CardContent>
         </Card>
+      )}
+
+      {/*
+        US-3433: an absent photo card asserts "no photos were submitted", which
+        is a different fact from "we could not load them". Say the second one,
+        and offer the retry, rather than letting the section vanish.
+      */}
+      {photosUnavailable && (
+        <>
+          <Separator />
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Submitted Photos</CardTitle>
+              <CardDescription>
+                Couldn&apos;t load the photos for this submission. The grade
+                above is unaffected.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setLoadAttempt((attempt) => attempt + 1)}
+              >
+                Try again
+              </Button>
+            </CardContent>
+          </Card>
+        </>
       )}
 
       {/* Image Gallery */}

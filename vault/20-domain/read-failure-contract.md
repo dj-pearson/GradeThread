@@ -13,6 +13,7 @@ code_refs:
   - src/pages/submission-detail.tsx
   - src/test/submission-detail-dispute-read.test.tsx
   - src/test/submission-detail-linked-item-read.test.tsx
+  - src/test/submission-detail-photo-read.test.tsx
 reviewed: 2026-09-19
 tags: [data, reliability, finances]
 summary: Failed database reads must not appear as zero balances, empty inventory, completed filing checks, or defaults that can overwrite saved values.
@@ -77,6 +78,14 @@ all want the same treatment:
   submission, where a wrongly-null value quietly detaches a grade from an item
   it is already on. A press is not a render, so it re-reads; only if that fails
   does the action stop, and it says why.
+
+**Three instances came out of one function** (US-3427, US-3428, US-3433: the
+dispute lookup, the linked item, the photos). The third was found by a scan for
+the shape rather than by a report, which is the argument for writing the rule
+down: `grep` for a load effect that early-returns on a read the page is not
+*for*. The scan that found it is two lines -- a `setError` followed within a few
+lines by a bare `return`, counted per file -- and the file with four of them was
+the one already known to have two defects.
 
 ## Named optional exceptions
 
