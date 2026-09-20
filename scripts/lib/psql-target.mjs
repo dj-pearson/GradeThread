@@ -70,7 +70,7 @@ export function looksUnreachable(out, status) {
  * reached; a fixture that ran and FAILED an assertion still returns ok,
  * because its answer is in the output and the caller is what decides.
  */
-export function runFixture(target, path, { includes = {} } = {}) {
+export function runFixture(target, path, { includes = {}, args = [] } = {}) {
   if (!existsSync(path)) return { ok: false, out: `fixture missing: ${path}` };
   let sql = readFileSync(path, "utf8");
 
@@ -92,7 +92,12 @@ export function runFixture(target, path, { includes = {} } = {}) {
     sql = sql.replaceAll(marker, () => text);
   }
 
-  const run = spawnSync(target.cmd, target.argv, { input: sql, encoding: "utf8" });
+  // `args` are extra psql flags a fixture needs, e.g. -F "|" for a separator
+  // its parser expects. They go at the END so they win over the defaults.
+  const run = spawnSync(target.cmd, [...target.argv, ...args], {
+    input: sql,
+    encoding: "utf8",
+  });
   const out = String(run.stdout ?? "") + String(run.stderr ?? "");
   const status = run.status ?? (run.error ? -1 : 0);
   return { ok: !run.error && !looksUnreachable(out, status), out, status };

@@ -17,40 +17,29 @@
 //   node scripts/check-sale-pnl-invariant.mjs
 //   node scripts/check-sale-pnl-invariant.mjs --container my_db_container
 
-import { execFileSync } from "node:child_process";
-import { readFileSync, existsSync } from "node:fs";
+import { existsSync } from "node:fs";
+import { psqlTarget, runFixture } from "./lib/psql-target.mjs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const FIXTURE = join(HERE, "fixtures", "sale-pnl-invariant.sql");
 
-const args = process.argv.slice(2);
-const containerAt = args.indexOf("--container");
-const container =
-  containerAt >= 0 ? args[containerAt + 1] : "supabase_db_gradethread";
+const psql = psqlTarget();
 
 if (!existsSync(FIXTURE)) {
   console.error(`✗ fixture missing: ${FIXTURE}`);
   process.exit(1);
 }
 
-let raw;
-try {
-  raw = execFileSync(
-    "docker",
-    ["exec", "-i", container, "psql", "-U", "postgres", "-d", "postgres", "-t", "-A"],
-    { input: readFileSync(FIXTURE, "utf8"), encoding: "utf8" },
-  );
-} catch (err) {
-  console.error(
-    `✗ could not reach Postgres in container "${container}".\n` +
-      `  Start it with: docker start ${container}\n` +
-      `  ${err.message?.split("\n")[0] ?? err}`,
-  );
+// US-3435: one home for the invocation. `docker exec` was the only path, so
+// this read as unrunnable without the Supabase image -- which a cloud session
+// cannot pull. It needs a Postgres, not Docker.
+const { ok: reached, out: raw } = runFixture(psql, FIXTURE);
+if (!reached) {
+  console.error(`\u2717 could not reach ${psql.how}.\n  ${psql.hint}\n  ${raw.split("\n")[0]}`);
   process.exit(2);
 }
-
 const start = raw.lastIndexOf("{");
 const end = raw.lastIndexOf("}");
 if (start < 0 || end < start) {

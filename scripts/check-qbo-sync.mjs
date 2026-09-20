@@ -23,39 +23,30 @@
 // Usage:
 //   node scripts/check-qbo-sync.mjs [--container <name>]
 
-import { spawnSync } from "node:child_process";
-import { readFileSync, existsSync } from "node:fs";
+import { existsSync } from "node:fs";
+import { psqlTarget, runFixture } from "./lib/psql-target.mjs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const FIXTURE = join(HERE, "fixtures", "qbo-sync.sql");
 
-const args = process.argv.slice(2);
-const at = args.indexOf("--container");
-const container = at >= 0 ? args[at + 1] : "supabase_db_gradethread";
+const psql = psqlTarget();
 
 if (!existsSync(FIXTURE)) {
   console.error(`✗ fixture missing: ${FIXTURE}`);
   process.exit(1);
 }
 
-const run = spawnSync(
-  "docker",
-  ["exec", "-i", container, "psql", "-U", "postgres", "-d", "postgres", "-t", "-A", "-F", "|"],
-  { input: readFileSync(FIXTURE, "utf8"), encoding: "utf8" },
-);
-
-if (run.error || run.status === null) {
-  console.error(
-    `✗ could not reach Postgres in container "${container}".\n` +
-      `  Start it with: docker start ${container}\n` +
-      `  ${run.error?.message ?? "no exit status"}`,
-  );
+// US-3435: one home for the invocation, and it reads BOTH streams -- psql
+// sends RAISE NOTICE to stderr and every assertion in this fixture is a
+// notice, so a stdout-only capture reports failures against a database that
+// is behaving perfectly.
+const { ok: reached, out: raw } = runFixture(psql, FIXTURE, { args: ["-F", "|"] });
+if (!reached) {
+  console.error(`\u2717 could not reach ${psql.how}.\n  ${psql.hint}\n  ${raw.split("\n")[0]}`);
   process.exit(2);
 }
-
-const raw = `${run.stdout ?? ""}\n${run.stderr ?? ""}`;
 const lines = raw.split("\n").map((l) => l.trim()).filter(Boolean);
 
 let documents = null;
