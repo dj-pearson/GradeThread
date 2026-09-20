@@ -74,6 +74,10 @@ section are unchanged and still waiting.
 
 ## ⏳ HELD: 00808_cross_channel_link_reviews.sql (US-3197 — the cross-channel matches a human has to decide)
 
+**EXECUTED 2026-09-20.** `public.flipdesk_cross_channel_link_reviews` exists with `relrowsecurity = true` and **zero policies**, which is the deny-all posture, and `anon` and `authenticated` hold no grant on it. Both indexes (`uq_cross_channel_link_reviews_pair`, `idx_cross_channel_link_reviews_open`) and both CHECK constraints are present.
+
+⚠ **The table is `flipdesk_cross_channel_link_reviews`, not `cross_channel_link_reviews`.** A readback querying the shorter name answers NULL and reads exactly like a migration that recorded itself after failing, which is a real failure mode in this repo (00611, 2026-08-17). It cost a round here; it is written down so it does not cost the next one.
+
 **Risk: LOW.** One new table, no data touched.
 
 > [!note] AMENDED 2026-09-19, AFTER ITS FIRST COMMIT AND BEFORE ANY APPLY.
@@ -128,6 +132,8 @@ NOTIFY pgrst, 'reload schema';
 regenerated.
 
 ## ⏳ HELD: 00807_scope_storage_public_read_policies.sql (US-3403 — stop a stranger enumerating the five public buckets)
+
+**EXECUTED 2026-09-20.** Read back off `pg_policy` rather than off the file, which is what US-3403 AC asks for. All five public-read policies on `storage.objects` are scoped: avatars and item-photos to the owner folder, cert-assets, content-images and content-videos to `is_admin()`. The item-photos policy carries the uuid-shape regex BEFORE the `::uuid` cast, which is the part that matters -- the cast RAISES on a non-uuid folder name and in a SELECT policy that fails the whole list.
 
 **Risk: LOW, and lower than it reads.** It narrows five `FOR SELECT` policies
 on `storage.objects` and touches no data. **It cannot take a public image
@@ -195,6 +201,8 @@ regenerated.
 
 ## ⏳ HELD: 00806_repair_whole_dollar_listing_prices.sql (US-3318 — Poshmark and Vinted rows priced in cents)
 
+**EXECUTED 2026-09-20, AND THIS IS THE ONE HELD FILE THAT REWRITES SELLER DATA.** `node scripts/check-whole-dollar-price-repair.mjs --dsn "postgresql://..."` seeds the six worked examples from this file's own header plus three rows that must not move, applies the real migration, and rolls back. All nine land where the header says: 32.49 to 32.00, 32.50 to 33.00, 31.50 to 32.00 with its `price_override` stepped alongside, 0.40 and 0.01 to the 1.00 floor, 25.00 untouched, and eBay, Depop and a zero price untouched. `listing_price` and `platform_fields` agree on every row, and another key in the channel blob survives the merge. **Idempotency measured rather than argued: the same file twice in one transaction reports 4 rows then 0.**
+
 **Risk: MEDIUM. This one rewrites seller money.** It is the only entry here
 that UPDATEs existing rows rather than adding structure, so read the count
 before and after rather than trusting the run.
@@ -250,6 +258,8 @@ NOTIFY pgrst, 'reload schema';
 regenerated.
 
 ## ⏳ HELD: 00805_phone_capture_groups.sql (US-3185 — several items on one capture code)
+
+**EXECUTED 2026-09-20 against a local Postgres carrying all 808 migrations from zero.** `group_index` exists on BOTH `phone_capture_sessions` and `phone_capture_photos`, the `target_kind` CHECK reads `ANY (ARRAY['item','batch','staging'])`, and `idx_phone_capture_photos_session_group` is present. Nothing here was read off the file.
 
 **Risk: LOW.** Two `ADD COLUMN ... IF NOT EXISTS` with a `DEFAULT 0` on two
 tables that are minutes old at any moment (a capture session lives fifteen

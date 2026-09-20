@@ -36,13 +36,13 @@ describe("check-dispute-report-ownership.mjs", () => {
     expect(out).toContain("--dsn");
   });
 
-  it("reads both streams, because the answer arrives on stderr", () => {
-    // The defect this pins: psql RAISE NOTICE goes to stderr. A runner using
-    // execFileSync (stdout only) saw none of the RESULT lines and reported a
-    // passing database as unproved.
+  it("goes through the one shared psql helper", () => {
+    // The stderr trap and the dollar-escape trap both live in
+    // scripts/lib/psql-target.mjs now, with their own cases. What matters here
+    // is that this script did not keep a private copy of the invocation.
     const src = readFileSync(resolve(ROOT, SCRIPT), "utf8");
-    expect(src).toMatch(/spawnSync/);
-    expect(src).toMatch(/run\.stdout[\s\S]{0,60}run\.stderr/);
+    expect(src).toMatch(/from "\.\/lib\/psql-target\.mjs"/);
+    expect(src).not.toMatch(/spawnSync|execFileSync/);
   });
 
   it("asserts BOTH directions, so a deny-everything policy cannot pass", () => {

@@ -18,52 +18,18 @@
 //
 // Writes nothing: the fixture runs inside a transaction that rolls back.
 
-import { spawnSync } from "node:child_process";
-import { existsSync, readFileSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { join } from "node:path";
+import { psqlTarget, runFixture } from "./lib/psql-target.mjs";
 
-const HERE = dirname(fileURLToPath(import.meta.url));
-const args = process.argv.slice(2);
-const at = (flag) => {
-  const i = args.indexOf(flag);
-  return i >= 0 ? args[i + 1] : undefined;
-};
-const container = at("--container") ?? "supabase_db_gradethread";
-const dsn = at("--dsn") ?? process.env.SKU_CHECK_DSN ?? process.env.DISPUTE_CHECK_DSN;
-const psql = dsn
-  ? {
-    cmd: "psql",
-    argv: [dsn, "-v", "ON_ERROR_STOP=0", "-f", "-"],
-    how: `psql against ${dsn}`,
-    hint: "Check the connection string, and that the server is up.",
-  }
-  : {
-    cmd: "docker",
-    argv: ["exec", "-i", container, "psql", "-U", "postgres", "-d", "postgres"],
-    how: `Postgres in container "${container}"`,
-    hint: `Start it with: docker start ${container}\n  ` +
-      `Or point this at any Postgres carrying the migrations: --dsn "postgresql://..."`,
-  };
-
-const fixture = join(HERE, "fixtures", "dispute-report-ownership.sql");
-if (!existsSync(fixture)) {
-  console.error(`✗ fixture missing: ${fixture}`);
-  process.exit(1);
-}
-
-// ⚠ psql prints RAISE NOTICE on STDERR, so stdout alone carries none of the
-// answer. Reading only stdout made this report "nothing was proved" against a
-// database that had just proved it. spawnSync, and both streams.
-const run = spawnSync(psql.cmd, psql.argv, {
-  input: readFileSync(fixture, "utf8"),
-  encoding: "utf8",
-});
-const out = String(run.stdout ?? "") + String(run.stderr ?? "");
-if (!/RESULT /.test(out)) {
+const psql = psqlTarget();
+const { ok, out } = runFixture(
+  psql,
+  join(import.meta.dirname, "fixtures", "dispute-report-ownership.sql"),
+);
+if (!ok || !/RESULT /.test(out)) {
   console.error(
-    `✗ could not reach ${psql.how}, or it answered nothing.\n  ${psql.hint}\n  ` +
-      (out.split("\n").find(Boolean) ?? run.error?.message ?? "no output"),
+    `\u2717 could not reach ${psql.how}, or it answered nothing.\n  ${psql.hint}\n  ` +
+      (out.split("\n").find(Boolean) ?? "no output"),
   );
   process.exit(2);
 }

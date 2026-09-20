@@ -25,52 +25,31 @@
 // migration directory applies to it from zero (CLAUDE.md has the recipe).
 // The proof was runnable there the entire time and nothing could ask for it.
 
-import { execFileSync } from "node:child_process";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync } from "node:fs";
+import { psqlTarget, runFixture } from "./lib/psql-target.mjs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 
 // .pathname is relative on Linux; fileURLToPath is the portable form.
 const HERE = dirname(fileURLToPath(import.meta.url));
 
-const args = process.argv.slice(2);
-const containerAt = args.indexOf("--container");
-const container =
-  containerAt >= 0 ? args[containerAt + 1] : "supabase_db_gradethread";
-const dsnAt = args.indexOf("--dsn");
-/** A libpq connection string. Beats the container path when present. */
-const dsn = dsnAt >= 0 ? args[dsnAt + 1] : process.env.SKU_CHECK_DSN;
-/** What actually runs psql, and what to tell someone when it will not start. */
-const psql = dsn
-  ? { cmd: "psql", argv: [dsn, "-t", "-A"], how: `psql against ${dsn}`, hint: "Check the connection string, and that the server is up." }
-  : {
-    cmd: "docker",
-    argv: ["exec", "-i", container, "psql", "-U", "postgres", "-d", "postgres", "-t", "-A"],
-    how: `Postgres in container "${container}"`,
-    hint: `Start it with: docker start ${container}\n  Or point this at any Postgres carrying the migrations: --dsn "postgresql://..."`,
-  };
+// US-2670: the invocation moved to scripts/lib/psql-target.mjs when a second
+// and third script needed it. Two copies had already disagreed once.
+const psql = psqlTarget();
 
 /** Run one fixture and return the JSON object it printed. */
-function runFixture(name) {
+function runNamedFixture(name) {
   const path = join(HERE, "fixtures", name);
   if (!existsSync(path)) {
     console.error(`✗ fixture missing: ${path}`);
     process.exit(1);
   }
-  let raw;
-  try {
-    raw = execFileSync(psql.cmd, psql.argv, {
-      input: readFileSync(path, "utf8"),
-      encoding: "utf8",
-    });
-  } catch (err) {
-    console.error(
-      `✗ could not reach ${psql.how}.\n` +
-        `  ${psql.hint}\n` +
-        `  ${err.stderr?.toString().split("\n").find(Boolean) ?? err.message?.split("\n")[0] ?? err}`,
-    );
+  const { ok, out } = runFixture(psql, path);
+  if (!ok) {
+    console.error(`✗ could not reach ${psql.how}.\n  ${psql.hint}\n  ${out.split("\n")[0]}`);
     process.exit(2);
   }
+  const raw = out;
   const start = raw.lastIndexOf("{");
   const end = raw.lastIndexOf("}");
   if (start < 0 || end < start) {
@@ -98,7 +77,7 @@ const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 // Fixture 1: the pure odometer functions (US-3414)
 // ---------------------------------------------------------------------------
 
-const r = runFixture("sku-odometer.sql");
+const r = runNamedFixture("sku-odometer.sql");
 
 console.log(`  render 1032            ${r.plain_1032}`);
 console.log(`  advance 1032           ${r.plain_next}`);
@@ -262,7 +241,7 @@ if (!/false/.test(String(r.default_exhausted))) {
 // reads as correct in all three failure modes.
 // ---------------------------------------------------------------------------
 
-const t = runFixture("sku-assignment.sql");
+const t = runNamedFixture("sku-assignment.sql");
 
 console.log("");
 console.log(`  plain issue            ${t.plain_sku}`);
@@ -466,7 +445,7 @@ if (t.bulk_distinct !== 20) {
 // instead of in here.
 // ---------------------------------------------------------------------------
 
-const q = runFixture("sku-rpcs.sql");
+const q = runNamedFixture("sku-rpcs.sql");
 
 console.log("");
 console.log(`  seed over 1..1031      next ${JSON.stringify(q.seed_plain_counters)} after ${q.seed_plain_matched} (${q.seed_plain_count} matched)`);
