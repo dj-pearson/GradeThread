@@ -82,6 +82,13 @@ export interface RankedTask {
   conservativeCents: number | null;
   dueAt: string | null;
   /**
+   * Carried through from the candidate so the scheduler (R1 07/12) can keep
+   * prerequisite order without being handed the candidates again. It was a
+   * cast-and-hope optional property there first, which is a contract nothing
+   * typechecks.
+   */
+  prerequisiteKeys: readonly string[];
+  /**
    * Set when the task cannot be done as planned. A conflicted task is RETURNED
    * rather than dropped (AC2): a deadline the seller cannot meet is the single
    * most important thing to tell them, and a planner that hid it would let
@@ -264,6 +271,7 @@ export function rankWork(input: RankInput): RankedTask[] {
       chainMinutes: chain ?? 0,
       conservativeCents,
       dueAt: task.candidate.shipBy.at,
+      prerequisiteKeys: task.candidate.prerequisiteKeys,
       conflict,
       meetsHourlyTarget: meetsTarget(score, input.hourlyTargetCents),
       version: RANKER_VERSION,
