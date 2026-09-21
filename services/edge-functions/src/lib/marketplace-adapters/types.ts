@@ -19,6 +19,13 @@ import type {
   StoredPlatformVariant,
 } from "../cross-listing-fields.ts";
 
+// US-3447: this union is the id space POST /cross-push accepts, so it must
+// hold every channel the composer's "Push to" card can select, including the
+// extension ones. Grailed, Vinted and Facebook were offered in the SPA
+// (EXTENSION_CROSS_LISTING_PLATFORMS, src/lib/constants.ts) and handled by the
+// queue branch in cross-push.ts, but were missing here, so the route's
+// isCrossListingPlatform() gate answered 400 "Unsupported platform: grailed."
+// and killed the WHOLE fan-out (eBay included) before any of it ran.
 export type CrossListingPlatform =
   | "ebay"
   | "shopify"
@@ -26,7 +33,10 @@ export type CrossListingPlatform =
   | "mercari"
   | "depop"
   | "etsy"
-  | "whatnot";
+  | "whatnot"
+  | "grailed"
+  | "vinted"
+  | "facebook";
 
 export const CROSS_LISTING_PLATFORMS: readonly CrossListingPlatform[] = [
   "ebay",
@@ -36,6 +46,9 @@ export const CROSS_LISTING_PLATFORMS: readonly CrossListingPlatform[] = [
   "depop",
   "etsy",
   "whatnot",
+  "grailed",
+  "vinted",
+  "facebook",
 ];
 
 export function isCrossListingPlatform(v: string): v is CrossListingPlatform {

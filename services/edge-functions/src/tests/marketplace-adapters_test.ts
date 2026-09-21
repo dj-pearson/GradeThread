@@ -275,8 +275,45 @@ Deno.test("cross-listing platform guard accepts the dispatch platforms only", ()
   }
   // US-599: shopify is now a real dispatch platform.
   assert(isCrossListingPlatform("shopify"));
+  // US-3447: grailed/vinted/facebook ARE dispatch platforms. They publish
+  // through the extension work queue rather than an adapter, but the route
+  // validates the request body against this guard, so excluding them made
+  // POST /cross-push answer 400 for the whole fan-out the moment one of them
+  // was ticked in the composer. This assertion used to say the opposite, which
+  // is why the hole survived: the guard asserted the bug.
+  assert(isCrossListingPlatform("grailed"));
+  assert(isCrossListingPlatform("vinted"));
+  assert(isCrossListingPlatform("facebook"));
   // US-708: the guard is what resolveAdapter uses to reject unknown platforms
   // (returning null → typed NotImplemented) instead of a silent eBay fallthrough.
-  assert(!isCrossListingPlatform("grailed"));
+  assert(!isCrossListingPlatform("offerup"));
   assert(!isCrossListingPlatform(""));
+});
+
+// US-3447 regression: every channel the SPA offers in its "Push to" card must
+// be accepted by the route's body validator. The SPA list lives in
+// src/lib/constants.ts (API_CROSS_LISTING_PLATFORMS +
+// EXTENSION_CROSS_LISTING_PLATFORMS); restating it here is deliberate, because
+// the edge cannot import it and the drift between the two is the whole defect.
+Deno.test("US-3447: every composer push channel passes the cross-push guard", () => {
+  for (
+    const platform of [
+      "ebay",
+      "shopify",
+      "depop",
+      "etsy",
+      "poshmark",
+      "mercari",
+      "grailed",
+      "vinted",
+      "facebook",
+    ]
+  ) {
+    assert(
+      isCrossListingPlatform(platform),
+      `${platform} is offered in the composer's Push to card but the ` +
+        `/cross-push body validator rejects it, which 400s the ENTIRE push ` +
+        `(every other channel included), not just this one.`,
+    );
+  }
 });
