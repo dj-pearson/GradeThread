@@ -29,6 +29,7 @@ on:
       - "scripts/check-created-by.mjs"
       - "scripts/check-sku-sequences.mjs"
       - "scripts/check-dispute-report-ownership.mjs"
+      - "scripts/check-work-session-storage.mjs"
       - "scripts/check-whole-dollar-price-repair.mjs"
       - "scripts/check-chart-brand-keys.mjs"
       - "scripts/check-cogs-worksheet.mjs"
@@ -65,6 +66,7 @@ on:
       - "scripts/check-created-by.mjs"
       - "scripts/check-sku-sequences.mjs"
       - "scripts/check-dispute-report-ownership.mjs"
+      - "scripts/check-work-session-storage.mjs"
       - "scripts/check-whole-dollar-price-repair.mjs"
       - "scripts/check-chart-brand-keys.mjs"
       - "scripts/check-cogs-worksheet.mjs"
@@ -187,6 +189,13 @@ jobs:
       # real dispute.
       - name: A dispute cannot name another seller's report (US-2670)
         run: node scripts/check-dispute-report-ownership.mjs
+      # US-3167: the work-session rules that only a database can hold. Two tabs
+      # pressing Start, a retried timing event, a revision-scoped write, a
+      # deleted item, an erased account -- every one passes a check-then-write
+      # in JavaScript and is refused by an index or an FK. Runs in one
+      # transaction that is rolled back.
+      - name: Work sessions hold under concurrency and erasure (US-3167)
+        run: node scripts/check-work-session-storage.mjs
       # US-3318: the repair that rewrites Poshmark and Vinted prices, run
       # against its own worked examples. listing_price and platform_fields must
       # move together or the composer and reconciliation disagree.

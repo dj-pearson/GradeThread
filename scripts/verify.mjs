@@ -590,6 +590,16 @@ if (on("db")) {
     // sequence table carries exactly one policy, a SELECT: a client that could
     // write the counter row could set it backwards and mint duplicate SKUs.
     run("db: SKU odometer renders and carries (US-3414)", "node scripts/check-sku-sequences.mjs");
+    // US-3167: the work-session rules that only a database can hold. Two tabs
+    // pressing Start, a retried timing event, a revision-scoped write, a
+    // deleted item, an erased account -- every one of those passes a
+    // check-then-write in JavaScript and is refused by an index or an FK. It
+    // runs inside one transaction that is rolled back, so it is safe against
+    // any database carrying the migrations.
+    run(
+      "db: work sessions hold under concurrency and erasure (US-3167)",
+      "node scripts/check-work-session-storage.mjs",
+    );
     // US-2670: both disputes INSERT policies must check who owns the GRADE
     // REPORT, not only that user_id matches the caller. The suite case for this
     // goes at PostgREST and needs the fixture env, so it runs almost never;

@@ -72,6 +72,65 @@ stronger claim for one of them, `check-prod-migration.ts` is the tool.
 Nothing below 00786 was touched, and the six genuinely-held branches in the next
 section are unchanged and still waiting.
 
+## 🔴 HELD: 00818_work_sessions.sql (US-3167 - Worth My Time R1 02/12)
+
+**EXECUTED 2026-09-21 against a local Postgres 16** carrying all 810
+migrations from zero. Applied twice; the second run logged nine
+`already exists, skipping` notices and changed nothing.
+
+**Risk: LOW.** Three new tables, seven CHECKs, two partial unique indexes,
+four supporting indexes, three triggers, three SELECT policies, three REVOKEs.
+Nothing existing is read, written, dropped or altered. The only reference to an
+existing table is an FK to `inventory_items` declared `ON DELETE SET NULL`,
+which adds no behaviour to that table's own deletes beyond nulling a column in
+the new one.
+
+**Why it exists.** It holds a seller's work session, its tasks, and the timing
+events recording when each one ran, so an interruption does not erase their
+work. The planner that fills these is R1 06/12 onward.
+
+**Two indexes are the point, and they are not optimizations.**
+`uq_work_sessions_one_active_per_user` and `uq_work_session_tasks_one_active`
+are partial unique indexes enforcing "one active session per seller" and "one
+active task per session" under CONCURRENCY. A SELECT-then-INSERT in the route
+passes twice when two tabs press Start together; an index does not. Dropping
+either was sabotage-tested and reddens the check script by name.
+
+**Client-side read risk: NONE.** Nothing in `src/` reads these tables as of
+this commit - the screen is R1 10/12 and there are no routes yet. A frontend
+that auto-deploys before this applies loses nothing.
+
+**Apply order:** after 00817. Then `NOTIFY pgrst, 'reload schema';`.
+
+**Readback after applying:**
+
+```sql
+-- 1. The three tables, RLS on, one SELECT policy each, no write policies.
+select tablename, count(*) as policies, string_agg(cmd, ',') as cmds
+from pg_policies where schemaname = 'public'
+  and tablename like 'flipdesk_work_%'
+group by tablename order by tablename;
+-- expect three rows, each policies=1 and cmds=SELECT
+
+-- 2. The two concurrency indexes exist and are PARTIAL. A non-partial one
+--    would refuse a seller's SECOND session outright, which is wrong.
+select indexname, indexdef from pg_indexes
+where schemaname = 'public'
+  and indexname in ('uq_work_sessions_one_active_per_user',
+                    'uq_work_session_tasks_one_active');
+-- expect two rows, each indexdef ending in WHERE (state = 'active'::text)
+
+-- 3. The item FK is SET NULL, not CASCADE. CASCADE would erase a seller's
+--    record of the hour they spent whenever the garment is deleted.
+select confdeltype from pg_constraint
+where conname = 'flipdesk_work_session_tasks_inventory_item_id_fkey';
+-- expect n   (n = SET NULL; c would be CASCADE and is the bug)
+```
+
+**Proved locally rather than asserted:** `node scripts/check-work-session-storage.mjs --dsn "postgresql://..."` runs seventeen rules inside one rolled-back transaction - isolation, repeated retry keys, invalid states, two competing sessions, two competing tasks, a stale revision, an item tombstone and a full account erasure that leaves the other seller alone. It is wired into `npm run verify` and into `.github/workflows/db-migrations.yml`.
+
+**Not applied yet, so the story stays open on its operator step.**
+
 ## 🔴 HELD: 00817_work_preferences.sql (US-3166 - Worth My Time R1 01/12)
 
 **EXECUTED 2026-09-21 against a local Postgres 16** carrying all 809
