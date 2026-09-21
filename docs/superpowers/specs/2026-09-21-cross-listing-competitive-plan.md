@@ -251,7 +251,7 @@ Measured per seller and shown on the dashboard where the time-saved meter (US-92
 
 ## 9. Story map
 
-Existing ids to carry the plan, in phase order: US-2718, US-2727, US-3058, US-3131, US-2473, US-2474, US-2698, US-2700, US-3063, US-3061, US-3210, US-3071, US-2479, US-2702, US-3197, US-3154, US-9209, US-3164, US-2480. New stories to file, each with the ACs sketched above: NEW-A attended listing on iOS, NEW-B item-screen entry and one registry on iOS, NEW-C one List on panel on the web, NEW-D bulk cross-list, NEW-E channel strip on the listings table, NEW-F delist log, NEW-G no-drain nudge. File them in `prd-crosslisting.json` (the reserved US-92xx block) so the Ralph loop does not collide with them, then renumber into `prd.json` when the phase starts, per that file's own description.
+Existing ids to carry the plan, in phase order: US-2718, US-2727, US-3058, US-3131, US-2473, US-2474, US-2698, US-2700, US-3063, US-3061, US-3210, US-3071, US-2479, US-2702, US-3197, US-3154, US-9209, US-3164, US-2480. New stories to file, each with the ACs sketched above: Filed 2026-09-21 in `prd.json`: US-3455 attended listing on iOS (NEW-A), US-3454 item-screen entry and one registry on iOS (NEW-B), US-3450 one List on panel on the web (NEW-C), US-3456 bulk cross-list (NEW-D), US-3451 channel strip on the listings table (NEW-E), US-3452 delist log (NEW-F), US-3453 no-drain nudge (NEW-G).
 
 Stale stories to close or rewrite while filing: US-1757 (its core AC shipped at 1.0.9), and the CLAUDE.md line about seven platforms.
 

@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-3450",
+  "nextId": "US-3457",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -4405,6 +4405,113 @@
         "marketing routes somewhere deliberate or is recorded as opening the app, matching whatever iOS settles on"
       ],
       "priority": 9
+    },
+    {
+      "id": "US-3450",
+      "passes": false,
+      "title": "One 'List on' panel in the composer: every channel, its state and one button, replacing the API-only Push-to card and the extension-only kit checklist",
+      "description": "As a FlipDesk seller, I want one place on the composer that shows every marketplace I sell on with what this item is doing there and lets me tick the ones to list on and press one button, so that listing to eBay plus Poshmark plus Mercari is one action instead of two controls in two parts of the page.",
+      "acceptanceCriteria": [
+        "A new src/components/flipdesk/composer/list-on-panel.tsx renders above the Listing Kit in src/pages/flipdesk/composer.tsx one row per platform in CROSS_LISTING_PLATFORMS filtered by the seller's chosen channels (src/lib/cross-post-channels.ts isChannelEnabled), API and extension channels together, each row carrying deriveChannelState (src/lib/channel-state.ts) as the same state word the item card uses, the per-channel price input the Push-to card had, and a disabled reason for tier api_pending and for a channel whose MARKETPLACE_EXTENSION_FLOWS list flow is verifying",
+        "One button. When the checked set is exactly ebay the existing PublishToEbayDialog opens unchanged; otherwise the existing useCrossPush call from composer.tsx (POST /api/flipdesk/listings/cross-push) is made with the checked platforms and per-channel prices, and the toast reports queued / live / already_live / already_queued / blocked per channel exactly as the kit's List everywhere does today (planListEverywhere in channel-state.ts), followed by QUEUED_NOTICE verbatim when anything queued",
+        "The Push-to card (composer/push-to-card.tsx) and the kit's channel checklist above the tabs (listing-kit.tsx, the List everywhere block) are removed; the per-tab Fill X now button in the kit stays as the attended path. A vitest case asserts the panel offers, for a fixture seller, exactly the union of platforms the two removed controls offered (API_CROSS_LISTING_PLATFORMS plus EXTENSION_CROSS_LISTING_PLATFORMS minus the not-selectable ones)",
+        "A channel already live or already queued renders unchecked and cannot be checked, with the marketplace link and the End / Cancel verb from cross-listings-card.tsx, so the panel is also the status row and a double push cannot mint a duplicate",
+        "src/lib/__tests__/marketplace-mechanism.test.ts, src/test/platform-label-vocabulary.test.ts and src/test/channel-copy-mirror.test.ts still pass; npm run ui:check reports zero blocking findings on the new file; no new endpoint and no migration",
+        "OPERATOR: on prod with the extension installed, list one draft to eBay and Poshmark from the panel and confirm the eBay dialog opens for the eBay half and a queue row appears for Poshmark"
+      ],
+      "priority": 5
+    },
+    {
+      "id": "US-3451",
+      "passes": false,
+      "title": "Channel strip on the listings table: per-marketplace state dots on every row",
+      "description": "As a FlipDesk seller, I want each row of the Listings page to show where that garment is live, queued, ended or sold across marketplaces, so that I answer 'where is this jacket listed' from the table instead of opening every item.",
+      "acceptanceCriteria": [
+        "src/pages/flipdesk/listings-table.tsx gains a Channels column rendering one dot per platform that has a listings row for the same inventory_item_id or a pending extension_work_queue row, coloured by deriveChannelState (src/lib/channel-state.ts) with the state word as the accessible label and a tooltip naming the marketplace and the since time",
+        "The dots are derived from rows the page already fetches (src/pages/flipdesk/listings-page-queries.ts) plus useExtensionQueue; a vitest case proves the column makes no request beyond those two",
+        "Clicking a dot opens the same link or End verb the item page card offers (cross-listings-card.tsx), reusing its hooks rather than copying them; a sold or ended dot has no verb",
+        "The column is hidden below the md breakpoint and the row's existing platform badge is unchanged, so the table's mobile layout does not grow; npm run ui:check stays at zero blocking findings",
+        "src/pages/flipdesk/__tests__ gains a case rendering a row with an eBay live listing, a Poshmark queued job and a Mercari ended row and asserting three dots with those three labels"
+      ],
+      "priority": 6
+    },
+    {
+      "id": "US-3452",
+      "passes": false,
+      "title": "The delist log: a per-item timeline of what a sale ended, where and when",
+      "description": "As a FlipDesk seller whose garment just sold, I want to read 'Sold on eBay 14:02. Poshmark ended 14:06. Mercari ended 14:07. Grailed: end it yourself' on the item, so that I can see the auto-delist working instead of checking each marketplace by hand, and so support has the same sentence when I say it did not fire.",
+      "acceptanceCriteria": [
+        "A pure builder in services/edge-functions/src/lib/delist-log.ts takes the item's listings rows, its extension_work_queue rows (kind delist, with created_at, claimed_at, completed_at and status) and its listing_publications rows and returns an ordered array of {at, platform, event, actor} where event is one of sold, ended_api, ended_extension, ended_by_hand, queued, waiting, unresolved and actor is server, browser or seller; a deno test covers a Poshmark sale with an eBay API end, a Mercari browser end, a Grailed unresolved marker and a Vinted row still queued",
+        "GET /api/flipdesk/items/:id/delist-log in routes/flipdesk-listings.ts returns that array, owner-checked on inventory_items.user_id against workspaceOwnerId ?? userId (US-268), with a case in services/edge-functions/src/tests/tenant-isolation_test.ts proving a foreign item id returns 404",
+        "The web item page (src/pages/flipdesk/item.tsx) renders the log under the cross-listings card as a list, and the Record Sale dialog's confirmation (src/components/flipdesk/record-sale-dialog.tsx) shows the same list for the item just recorded; the still-live and unresolved rows carry the marketplace link from src/lib/delist-links.ts",
+        "iOS: the pending-delist detail (ios/GradeThread/Marketplaces/) fetches the same route and renders the same events in the same order; ios/Scripts guards pass",
+        "No migration: every event is derived from columns that already exist (listing_status, delist_requested_at, delist_unresolved, the queue timestamps, listing_publications.published_at)"
+      ],
+      "priority": 7
+    },
+    {
+      "id": "US-3453",
+      "passes": false,
+      "title": "The no-drain nudge: when a delist has waited with no browser draining it, tell the seller what is still live and the two ways out",
+      "description": "As a FlipDesk seller who sold a garment while my laptop was closed, I want one push and one in-app notice within half an hour naming the listings still live elsewhere, with 'open your browser' and 'End it now on your phone' as the two options, so that a second buyer cannot pay for a garment I already sold.",
+      "acceptanceCriteria": [
+        "A scheduled job in services/edge-functions/src/routes/jobs-delist-nudge.ts, registered with the cron fleet the way jobs-extension-queue-stale runs, selects extension_work_queue rows of kind delist with status queued older than flipdesk_settings.delist_nudge_after_minutes (default 30, migration adds the column with the US-1108 triple: idempotent SQL, EXPECTED_SCHEMA_VERSION bumped in the same commit, self-record footer) whose owner has no drain heartbeat newer than that row",
+        "For each owner it sends at most one notice per hour through the existing notify path (lib/notify.ts deliverExtensionWake plus the in-app selling-activity notice), naming each still-live listing by marketplace and title with its link, and the two actions; a second run inside the hour sends nothing (deno test with a fixed clock)",
+        "The push tap on iOS lands on the pending-delist row (ios/GradeThread/Marketplaces/PendingDelistService.swift consumers) with End it now shown where DelistFlows enables the platform and Queue for desktop otherwise; on the web it lands on the Listings page with the pending-delist banner expanded",
+        "The job is tenant-safe: every select and update is scoped by user_id and the job writes only its own last_nudged_at marker (same migration), with a tenant-isolation_test.ts case proving one owner's rows never appear in another's notice",
+        "The notice is gated on the existing delist_reminders preference (cross-listings.ts documents it) so a seller who turned reminders off gets nothing, tested"
+      ],
+      "priority": 7
+    },
+    {
+      "id": "US-3454",
+      "passes": false,
+      "title": "iOS: 'List on more marketplaces' on the item screen, one channel registry, and revise / relist on the phone",
+      "description": "As a FlipDesk seller on iPhone, I want to cross-list any item from its own screen next to Publish to eBay, see the same channel states the web shows, and queue a revise or relist for a live channel, so that cross-listing on the phone is not hidden behind a swipe on AutoLister drafts.",
+      "acceptanceCriteria": [
+        "ios/GradeThread/Inventory/ItemCanvas/ItemCanvasView.swift gains a 'List on more marketplaces' action beside Publish to eBay (same status gate as the publish button, line ~192) that presents the existing ios/GradeThread/Marketplaces/ListingKit/PushToSheet.swift for the item; PushToSheet no longer requires the Listing Kit as its only parent",
+        "PushToSheet rows show the item's per-channel state (live, queued, needs you, ended, sold, unconfirmed) computed by a Swift port of src/lib/channel-state.ts deriveChannelState, from the item's listings rows and the extension queue; a live or queued channel is unselectable, and a new src/test/ios-channel-state-parity.test.ts pins the Swift precedence table to the TypeScript one the way ios-cross-listing-registry.test.ts pins the registry",
+        "ios/GradeThread/Marketplaces/MarketplacesView.swift drops its private ChannelTier and phasedChannels (lines ~257-368) and reads CrossListingRegistry.swift for every channel row, so Grailed, Vinted and Facebook appear with the tier and flow words the web uses; the copy at ~line 667 about copying kit fields is replaced by the real capability list",
+        "A live extension-channel row on the item offers Revise (queues kind revise naming the changed fields, ExtensionQueueService.enqueueRevise) and Relist (enqueueRelist), each followed by the shared queuedNotice verbatim; both are covered by ios/GradeThreadTests cases against a stubbed service",
+        "All ios/Scripts guards in scripts/verify.mjs IOS_GUARDS pass (no bare strings, no force unwraps, Dynamic Type); iOS CI compiles",
+        "OPERATOR: on a device, open an item that did not come through AutoLister, tap List on more marketplaces, queue Poshmark, and confirm the queue row appears in the web Marketplaces page"
+      ],
+      "priority": 9
+    },
+    {
+      "id": "US-3455",
+      "passes": false,
+      "title": "iOS attended listing: fill the Poshmark or Mercari create form in a visible web view while the seller watches, then hand them the Post button",
+      "description": "As a FlipDesk seller with only my phone, I want to list a garment on Poshmark or Mercari right now, signed in as myself in a web view the app fills while I watch, so that the phone can cross-list without waiting for a desktop browser to open later.",
+      "acceptanceCriteria": [
+        "scripts/gen-ios-delist-selectors.mjs is extended (or a sibling gen-ios-list-selectors.mjs added) to carry each enabled platform's list flow (create URL, login pattern, required probe selectors, text fields, photoInput, the four picker selectors from US-3210 and the liveListingUrlPattern) from extension-unified/lister/selectors.js into a committed ios/GradeThread/Marketplaces/WebList/ListFlows.generated.swift; --check exits 1 on drift and runs in npm run verify beside the delist generator",
+        "A WebListRunner in ios/GradeThread/Marketplaces/WebList/, sharing the WKWebView host, phase machine and sign-in / human-check handling of WebDelistRunner.swift, opens the create form, probes every required selector first and stops with 'list it yourself' naming the selector version when one is missing (never a half fill), fills the text fields, applies the US-3210 picker proposals to blank pickers only, and ends in a confirm phase with the marketplace's own Post button on screen; it never submits the form itself",
+        "Photos: the form's file input is fed from the item's photos through WKWebView's file-upload delegate (webView(_:runOpenPanelWith:...) is macOS-only, so on iOS the runner presents the system picker pre-scoped to the app's export album that ios/GradeThread/Capture already writes) and the consent screen states that photos are chosen in the marketplace's own picker; if fewer photos than the platform minimum are attached the runner reports it rather than posting",
+        "When the web view lands on a URL matching liveListingUrlPattern the runner calls the same POST /api/grading/public/listed-confirm writeback the extension uses (lib/extension-writeback.ts) so the listings row gains listing_url and state live; a URL that never matches leaves the row unconfirmed with the existing Not listed opt-out",
+        "The seven build constraints in vault/10-ops/ios-webview-delist-app-review.md section 3 hold for the list flow and are asserted where a script can: ios/Scripts/check-web-delist.py is extended to the WebList directory (no remote fetch of scripts, no credential field, web view never hidden, no timer or background run); the App Review notes in ios/fastlane/metadata/review_information/notes.txt gain a LISTING paragraph in the same words as the ENDING one, and the vault note gains a section for it in the same commit",
+        "The consent screen is the delist one with 'end' replaced by 'list', shown once per platform and re-shown when its version string changes; the sheet's copy is in Localizable.xcstrings and passes the bare-strings guard",
+        "The item's List on more marketplaces sheet offers, for Poshmark and Mercari, 'List now on your phone' beside 'Queue for desktop'; other extension channels offer queue only until their list flow is enabled in the generated table",
+        "OPERATOR: on a device signed in to a Poshmark test account, list one garment end to end and confirm the listings row shows the Poshmark URL; record the App Review outcome in the vault note"
+      ],
+      "priority": 9,
+      "dependsOn": [
+        "US-3210"
+      ]
+    },
+    {
+      "id": "US-3456",
+      "passes": false,
+      "title": "Bulk cross-list: select N items, choose channels, one button, paced through the queue",
+      "description": "As a FlipDesk seller with forty graded garments, I want to select them on the listings grid or the AutoLister drafts library, choose the marketplaces, and press one button, so that cross-listing a batch is one action rather than forty.",
+      "acceptanceCriteria": [
+        "A Cross-list action in src/pages/flipdesk/listings-actions.ts and the AutoLister drafts library (src/pages/flipdesk/autolister-drafts.tsx) opens a channel sheet reusing the List on panel's row component, then calls a new POST /api/flipdesk/listings/cross-push-bulk in routes/flipdesk-listings.ts with item ids and platforms",
+        "The route owner-checks every item (US-268, tenant-isolation_test.ts case), enforces the plan's active-listing cap once for the whole batch through the same check cross-push uses, and for each item calls crossPushPlatform (lib/cross-push.ts) so the already_live / already_queued skips apply per item; the response is one row per item per platform",
+        "API channels other than eBay publish through the existing adapters inline; eBay goes through listing_publish_batches (migration 00156) which gains a nullable platform column defaulting to 'ebay' with the US-1108 triple, so the batch page (autolister-queue.tsx) shows progress as it does for eBay today",
+        "Extension channels enqueue one paced list job per item per platform; the extension's existing pacing (US-3367 A3) applies and the queue view groups them under one batch label carried in extension_work_queue.payload",
+        "A batch of 40 items to 3 extension channels in the web test harness produces exactly 120 queue rows and no duplicate for an item already live on a channel (vitest on the pure planner, deno test on the route)",
+        "OPERATOR: run a 5-item bulk cross-list to eBay and Poshmark on prod and confirm 5 eBay publications and 5 queue rows"
+      ],
+      "priority": 20
     }
   ]
 }
