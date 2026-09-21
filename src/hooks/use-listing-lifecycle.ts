@@ -109,6 +109,8 @@ function useLifecycleInvalidation() {
     void qc.invalidateQueries({ queryKey: ["items_full"] });
     void qc.invalidateQueries({ queryKey: ["item_listing_platforms"] });
     void qc.invalidateQueries({ queryKey: ["item_listing_metrics"] });
+    // US-3452: an end is a line in the delist log.
+    void qc.invalidateQueries({ queryKey: ["delist_log"] });
   };
 }
 

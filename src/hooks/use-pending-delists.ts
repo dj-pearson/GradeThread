@@ -195,6 +195,7 @@ export function useRunDelist() {
     mutationFn: runOneDelist,
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ["pending_delists"] });
+      void qc.invalidateQueries({ queryKey: ["delist_log"] });
       void qc.invalidateQueries({ queryKey: ["item_listing_platforms"] });
       void qc.invalidateQueries({ queryKey: ["item_listings"] });
     },
@@ -235,6 +236,7 @@ export function useEndOtherListings() {
     },
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ["pending_delists"] });
+      void qc.invalidateQueries({ queryKey: ["delist_log"] });
       void qc.invalidateQueries({ queryKey: ["item_listing_platforms"] });
       void qc.invalidateQueries({ queryKey: ["item_listings"] });
       void qc.invalidateQueries({ queryKey: ["items_full"] });
@@ -261,6 +263,7 @@ export function useMarkDelistDone() {
     },
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ["pending_delists"] });
+      void qc.invalidateQueries({ queryKey: ["delist_log"] });
       void qc.invalidateQueries({ queryKey: ["item_listing_platforms"] });
     },
   });

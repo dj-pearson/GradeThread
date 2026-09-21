@@ -4936,6 +4936,23 @@ Deno.test({
   },
 });
 
+// US-3452: the delist log takes an item id in the path and answers 404 for an
+// item the caller does not own. Not an empty list: a 200 with no events would
+// confirm the id exists, and item ids travel in push payloads and links.
+Deno.test({
+  name: "B cannot read A's delist log by naming A's item",
+  ignore: !CONFIGURED || !Deno.env.get("TEST_USER_A_ITEM_ID"),
+  fn: async () => {
+    const aItemId = Deno.env.get("TEST_USER_A_ITEM_ID")!;
+    const res = await fetch(
+      `${BASE}/api/flipdesk/listings/delist-log/${encodeURIComponent(aItemId)}`,
+      { headers: authHeaders(B_JWT!) },
+    );
+    await res.body?.cancel();
+    assertDenied(res.status, "GET delist-log/:itemId as B");
+  },
+});
+
 Deno.test({
   // A malformed id must not fall back to "no filter" and hand back the whole
   // queue as though the caller had asked for it. optionalUuid() returns null for

@@ -24,6 +24,7 @@ import {
 } from "../lib/cross-push.ts";
 import { delistMethodFor } from "../lib/cross-listing-sale.ts";
 import { loadPendingDelists } from "../lib/pending-delists.ts";
+import { loadDelistLog } from "../lib/delist-log.ts";
 import { endOtherListings } from "../lib/cross-listings.ts";
 import { optionalUuid } from "../lib/extension-enqueue.ts";
 import {
@@ -505,6 +506,22 @@ flipdeskListingsRoutes.get("/pending-delists", async (c) => {
     return failSafe(c, 500, "Could not load pending delists.", error, "flipdesk.pending-delists");
   }
   return c.json({ ok: true, pending });
+});
+
+// GET /delist-log/:itemId — US-3452: what a sale ended, where, when and by
+// whom, for one item. Owner-checked on inventory_items.user_id before either
+// table is read (US-268); a foreign or unknown item is a 404, never an empty
+// list, so a leaked item id cannot be probed for existence.
+flipdeskListingsRoutes.get("/delist-log/:itemId", async (c) => {
+  const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
+  const itemId = optionalUuid(c.req.param("itemId"));
+  if (!itemId) return c.json({ error: "Item not found." }, 404);
+  const loaded = await loadDelistLog(ownerId, itemId);
+  if (!loaded.ok) {
+    if (loaded.status === 404) return c.json({ error: loaded.error }, 404);
+    return failSafe(c, 500, "Could not load the delist log.", new Error(loaded.error), "flipdesk.delist-log");
+  }
+  return c.json({ ok: true, events: loaded.events });
 });
 
 // POST /delist-confirm — the extension ended the listing on the marketplace (or

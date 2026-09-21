@@ -98,12 +98,16 @@ struct MarketplacesView: View {
         /// seller signs into and watches. Rides this same slot rather than a
         /// second `.sheet` modifier.
         case webDelist(PendingDelistService.PendingDelist)
+        /// US-3452: what the sale ended, where, when and by whom, for one
+        /// garment. Same slot, same reason.
+        case delistLog(itemId: String, title: String)
 
         var id: String {
             switch self {
             case .webChannel(let channel): return "web-\(channel.id)"
             case .sync:                    return "sync"
             case .webDelist(let row):      return "delist-\(row.listingId)"
+            case .delistLog(let itemId, _): return "delist-log-\(itemId)"
             }
         }
     }
@@ -233,6 +237,8 @@ struct MarketplacesView: View {
                 WebDelistView(row: row) { ended in
                     Task { await settleInAppDelist(ended) }
                 }
+            case .delistLog(let itemId, let title):
+                DelistLogView(itemId: itemId, title: title)
             }
         }
         // US-1189: surface a failed disconnect (the store restores .connected).
@@ -566,6 +572,14 @@ struct MarketplacesView: View {
                 .buttonStyle(.plain)
                 .foregroundStyle(.secondary)
                 .disabled(busy)
+                // US-3452: the log for this garment, so "did the others end?"
+                // is answered here rather than by opening each marketplace.
+                Button("What happened") {
+                    sheet = .delistLog(itemId: row.itemId, title: row.itemTitle ?? "After the sale")
+                }
+                .font(.caption.weight(.semibold))
+                .buttonStyle(.plain)
+                .foregroundStyle(.secondary)
                 Spacer()
                 if busy {
                     ProgressView().controlSize(.small)

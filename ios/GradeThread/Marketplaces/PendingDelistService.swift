@@ -92,6 +92,44 @@ public final class PendingDelistService {
         let pending: [PendingDelist]?
     }
 
+    /// US-3452: one line of the delist log. Mirrors `DelistLogEvent` in
+    /// `services/edge-functions/src/lib/delist-log.ts` and the web hook
+    /// `src/hooks/use-delist-log.ts`.
+    public struct DelistLogEvent: Codable, Sendable, Equatable {
+        public let at: String
+        public let platform: String
+        public let listingId: String?
+        /// sold, ended_api, ended_extension, ended_by_hand, queued, waiting, unresolved.
+        public let event: String
+        /// server, browser, seller.
+        public let actor: String
+        public let url: String?
+        public let note: String?
+
+        enum CodingKeys: String, CodingKey {
+            case at
+            case platform
+            case listingId = "listing_id"
+            case event
+            case actor
+            case url
+            case note
+        }
+    }
+
+    private struct DelistLogResponse: Decodable {
+        let events: [DelistLogEvent]?
+    }
+
+    /// What a sale ended for one item, oldest first. The edge owner-checks the
+    /// item and answers 404 for one that is not the caller's.
+    public func delistLog(itemId: String) async throws -> [DelistLogEvent] {
+        let response: DelistLogResponse = try await api.getJSON(
+            "/api/flipdesk/listings/delist-log/\(itemId)"
+        )
+        return response.events ?? []
+    }
+
     private struct ConfirmBody: Encodable {
         let listing_id: String
     }
