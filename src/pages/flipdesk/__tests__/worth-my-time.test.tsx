@@ -265,13 +265,19 @@ describe("what the plan says (AC3)", () => {
     expect(row.textContent).toContain("Closest to being ready to sell");
   });
 
+  // US-3448: this asserts the SHAPE of the link, and it once passed against a
+  // route that did not exist -- /dashboard/flipdesk/item/:id, when the router
+  // has items/:id. A test comparing a literal to the literal the code writes
+  // cannot tell an existing route from an invented one, whatever it is called.
+  // The question is answered by src/test/no-dead-internal-links.test.ts, which
+  // reads the router. This one is here for the row's wiring, not the path.
   it("links out to the EXISTING item route, not an invented one", async () => {
     buildMock.mockResolvedValue(plan());
     renderPage();
     await click("30 minutes");
     const link = Array.from(document.querySelectorAll("a"))
       .find((a) => a.textContent?.includes("Open item"))!;
-    expect(link.getAttribute("href")).toBe("/dashboard/flipdesk/item/item-1");
+    expect(link.getAttribute("href")).toBe("/dashboard/flipdesk/items/item-1");
   });
 
   it("names the bins to bring over", async () => {

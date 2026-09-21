@@ -58,7 +58,7 @@ function money(cents: number | null): string | null {
 function actionHref(itemId: string | null): string {
   // The EXISTING item route. No destination is invented here, and an action
   // this screen cannot open is simply not linked (AC4).
-  return itemId ? `/dashboard/flipdesk/item/${itemId}` : "/dashboard/flipdesk/inventory";
+  return itemId ? `/dashboard/flipdesk/items/${itemId}` : "/dashboard/flipdesk/inventory";
 }
 
 export function WorthMyTimePage() {

@@ -159,3 +159,88 @@ describe("internal links resolve to a real route", () => {
     expect(report).toEqual([]);
   });
 });
+
+// ── The catch-all blind spot (US-3448) ──────────────────────────────────────
+//
+// The guard above passes `/dashboard/flipdesk/item/:param` and every other
+// wrong dashboard path, because the router mounts `/dashboard/*` as an in-shell
+// 404. That entry is a real route, so `matches()` answers true for anything
+// under /dashboard and the whole section is exempt from the check without
+// saying so.
+//
+// It hid four links. Two pointed at `/dashboard/flipdesk/item/:id` when the
+// route is `items/:id` -- one of them the "Fix it" button in the books review
+// queue, which is a button whose entire job is to go somewhere. One was a
+// public "Grade this item" CTA pointing at `/dashboard/grade`, which has never
+// existed. The fourth was a comment naming a page that had moved.
+//
+// TWO THINGS ARE DIFFERENT HERE, and both are the reason it was missed:
+//
+//   1. The `/dashboard/*` entry is EXCLUDED from the route table, so a path
+//      that only that entry would serve counts as dead. That is the point:
+//      reaching the in-shell 404 is the failure, not the success.
+//   2. It scans every path-shaped LITERAL, not only `to=` and `href=`. The
+//      link that started this was returned from a helper
+//      (`actionHref(task.itemId)`), so no `to=` pattern could ever see it.
+//      Route strings are built in helpers all over this codebase and a guard
+//      that only reads the JSX attribute reads the minority of them.
+describe("a /dashboard link resolves past the in-shell 404 (US-3448)", () => {
+  const IN_SHELL_404 = "/dashboard/*";
+  const dashboardRoutes = readRoutePaths().filter(
+    (p) => p.startsWith("/dashboard") && p !== IN_SHELL_404,
+  );
+  const matchesDashboard = routeMatcher(dashboardRoutes);
+
+  // A path-shaped literal in any quote style: "…", '…' or a template literal.
+  // A `${…}` hole becomes :param so it can match a dynamic segment.
+  const DASH_LITERAL =
+    /["'`](\/dashboard(?:\/[A-Za-z0-9\-_.:]|\/\$\{)[A-Za-z0-9\-_/${}.:]*)["'`]/g;
+
+  function collectDashboardPaths(): FoundLink[] {
+    const found: FoundLink[] = [];
+    for (const file of walk("src")) {
+      const lines = readFileSync(resolve(root, file), "utf8").split(/\r?\n/);
+      lines.forEach((line, i) => {
+        for (const m of line.matchAll(DASH_LITERAL)) {
+          const target = m[1]!
+            .split("?")[0]!
+            .split("#")[0]!
+            .replace(/\$\{[^}]*\}/g, ":param")
+            .replace(/\/+$/, "");
+          if (target === "" || target === "/dashboard") continue;
+          if (FILE_EXTENSION.test(target)) continue;
+          found.push({ target, where: `${file.split(sep).join("/")}:${i + 1}` });
+        }
+      });
+    }
+    return found;
+  }
+
+  const paths = collectDashboardPaths();
+
+  it("the route table and the scan are both real (self-check)", () => {
+    // Guards the guard, twice over. An empty scan and an empty route table
+    // both read exactly like a clean codebase.
+    expect(dashboardRoutes.length).toBeGreaterThan(40);
+    expect(paths.length).toBeGreaterThan(60);
+    // The catch-all is gone, which is the whole mechanism.
+    expect(dashboardRoutes).not.toContain(IN_SHELL_404);
+    // A wrong path must be REFUSED here even though the guard above passes it.
+    expect(matchesDashboard("/dashboard/flipdesk/item/:param")).toBe(false);
+    expect(matchesDashboard("/dashboard/grade")).toBe(false);
+    // …and the right ones still pass, including a dynamic segment.
+    expect(matchesDashboard("/dashboard/flipdesk/items/:param")).toBe(true);
+    expect(matchesDashboard("/dashboard/submissions/new")).toBe(true);
+    expect(matchesDashboard("/dashboard/flipdesk/worth-my-time")).toBe(true);
+  });
+
+  it("no dashboard path in src lands on the in-shell 404", () => {
+    const dead = paths.filter((l) => !matchesDashboard(l.target));
+    const report = [...new Set(dead.map((l) => `${l.target}  <-  ${l.where}`))].sort();
+    expect(
+      report,
+      "these render the in-shell 404 rather than a page. The route above " +
+        "passes them only because /dashboard/* serves everything.",
+    ).toEqual([]);
+  });
+});
