@@ -10,6 +10,7 @@ import type {
 } from "@/types/database";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import {
   Select,
   SelectContent,
@@ -57,6 +58,7 @@ import {
   Clock,
   AlertTriangle,
   Loader2,
+  Ban,
 } from "lucide-react";
 import { SearchInput } from "@/components/search-input";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -165,6 +167,11 @@ export function AdminSubmissionsPage() {
   const [viewingRawAnalysis, setViewingRawAnalysis] = useState<GradeReportRow | null>(null);
   const [retriggerTarget, setRetriggerTarget] = useState<SubmissionRow | null>(null);
   const [markFailedTarget, setMarkFailedTarget] = useState<SubmissionRow | null>(null);
+  // US-3214 AC4: voiding a duplicate. Separate from mark-failed because that
+  // action only reaches a submission wedged in `processing`, and a duplicate
+  // sits wherever the second click left it.
+  const [voidTarget, setVoidTarget] = useState<SubmissionRow | null>(null);
+  const [voidReason, setVoidReason] = useState("");
   const [actionLoading, setActionLoading] = useState(false);
 
   const { data, isLoading, isError, isFetching, refetch } = useQuery({
@@ -377,6 +384,37 @@ export function AdminSubmissionsPage() {
     } finally {
       setActionLoading(false);
       setMarkFailedTarget(null);
+    }
+  }
+
+  // US-3214 AC4/AC5: void + refund, in one audited step. The reason is
+  // required by the route as well as by this form -- an audit row saying only
+  // "an admin voided it" answers none of the questions asked three months
+  // later, and this action moves money.
+  async function handleVoid() {
+    if (!voidTarget) return;
+    setActionLoading(true);
+    try {
+      const res = await edgeFetch(
+        `/api/admin/grading/submissions/${voidTarget.id}/void`,
+        { method: "POST", json: { reason: voidReason.trim() } },
+      );
+      const j = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(j.error ?? "Failed to void the submission.");
+      toast.success("Submission voided", {
+        description: j.refund === "already_refunded"
+          ? `"${voidTarget.title}" was voided. It had already been refunded.`
+          : `"${voidTarget.title}" was voided and what it consumed was given back.`,
+      });
+      queryClient.invalidateQueries({ queryKey: ["admin-submissions"] });
+    } catch (err) {
+      toast.error("Failed to void the submission", {
+        description: err instanceof Error ? err.message : "Unknown error",
+      });
+    } finally {
+      setActionLoading(false);
+      setVoidTarget(null);
+      setVoidReason("");
     }
   }
 
@@ -692,6 +730,24 @@ export function AdminSubmissionsPage() {
                                 <XCircle className="h-3.5 w-3.5" />
                               </Button>
                             )}
+                            {/* US-3214: offered on every non-terminal state,
+                                because that is where a duplicate sits. Never
+                                on `completed` -- the route refuses it, and a
+                                button that always errors is worse than none. */}
+                            {["pending", "processing", "pending_review"].includes(
+                              s.status,
+                            ) && (
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className="h-7 w-7 p-0 text-red-600 dark:text-red-400"
+                                aria-label={`Void ${s.title} and refund it`}
+                                title="Void and refund"
+                                onClick={() => setVoidTarget(s)}
+                              >
+                                <Ban className="h-3.5 w-3.5" />
+                              </Button>
+                            )}
                           </div>
                         </TableCell>
                       </ClickableRow>
@@ -940,6 +996,49 @@ export function AdminSubmissionsPage() {
             >
               {actionLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
               Mark as failed
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* US-3214: void a duplicate and give back what it consumed */}
+      <AlertDialog
+        open={!!voidTarget}
+        onOpenChange={() => {
+          setVoidTarget(null);
+          setVoidReason("");
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Void and refund</AlertDialogTitle>
+            <AlertDialogDescription>
+              This marks the submission failed and returns what it consumed:
+              the credits if credits paid for it, or the grade to the monthly
+              bundle if the plan did. The seller can grade the garment again
+              afterwards.
+              <br /><br />
+              <strong>Submission:</strong> {voidTarget?.title}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <div className="space-y-1.5">
+            <Label htmlFor="void-reason">Why (recorded in the audit log)</Label>
+            <Input
+              id="void-reason"
+              value={voidReason}
+              onChange={(e) => setVoidReason(e.target.value)}
+              placeholder="Duplicate of an earlier submission"
+            />
+          </div>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={actionLoading}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleVoid}
+              disabled={actionLoading || voidReason.trim().length < 4}
+              className="bg-red-600 hover:bg-red-700"
+            >
+              {actionLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              Void and refund
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

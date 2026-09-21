@@ -31,6 +31,7 @@ on:
       - "scripts/check-dispute-report-ownership.mjs"
       - "scripts/check-work-session-storage.mjs"
       - "scripts/check-work-override-storage.mjs"
+      - "scripts/check-one-open-grade.mjs"
       - "scripts/check-whole-dollar-price-repair.mjs"
       - "scripts/check-chart-brand-keys.mjs"
       - "scripts/check-cogs-worksheet.mjs"
@@ -69,6 +70,7 @@ on:
       - "scripts/check-dispute-report-ownership.mjs"
       - "scripts/check-work-session-storage.mjs"
       - "scripts/check-work-override-storage.mjs"
+      - "scripts/check-one-open-grade.mjs"
       - "scripts/check-whole-dollar-price-repair.mjs"
       - "scripts/check-chart-brand-keys.mjs"
       - "scripts/check-cogs-worksheet.mjs"
@@ -201,6 +203,11 @@ jobs:
 
       - name: Work override storage rules (US-3182)
         run: node scripts/check-work-override-storage.mjs
+
+      # US-3214: a double click on Submit used to buy a second grade. The
+      # index is what stops it under concurrency; the code-side read cannot.
+      - name: One open grade per garment (US-3214)
+        run: node scripts/check-one-open-grade.mjs
       # US-3318: the repair that rewrites Poshmark and Vinted prices, run
       # against its own worked examples. listing_price and platform_fields must
       # move together or the composer and reconciliation disagree.

@@ -72,6 +72,75 @@ stronger claim for one of them, `check-prod-migration.ts` is the tool.
 Nothing below 00786 was touched, and the six genuinely-held branches in the next
 section are unchanged and still waiting.
 
+## 🔴 HELD: 00821_one_open_grade_per_item.sql (US-3214 - double-click grading)
+
+**EXECUTED 2026-09-21 against a local Postgres 16** carrying all 813
+migrations from zero, with `ON_ERROR_STOP=1`. Applied twice; the second run
+logged `relation "uq_grading_submission_one_open_per_item" already exists,
+skipping` and changed nothing.
+
+**What it does.** One partial unique index on
+`flipdesk_grading_submissions (inventory_item_id)` where the status is
+`pending`, `processing` or `pending_review`, plus a backfill that closes any
+duplicates already in the table.
+
+**What it fixes, and it is money.** `submitItemsForGrading` checked nothing: a
+second click on Submit inserted a second submission, ran Claude a second time
+and charged a second time. US-2564's batch key already made the CREDIT debit
+idempotent; `claimIncluded()` in `grade-billing.ts` is a compare-and-swap
+increment with no key at all, so the monthly included bundle really did burn
+twice. Checked rather than assumed, and
+`src/tests/one-open-grade_test.ts` asserts that claim is still keyless so the
+note cannot quietly stop being true.
+
+**⚠ DEPLOY ORDER MATTERS MORE THAN USUAL HERE.** The edge in the same commit
+MOVES the `flipdesk_grading_submissions` insert from step 4 (after the charge
+and the photo copy) to step 1b (immediately after the submissions row, before
+`runPaymentPrecedence`). That reorder is what lets the index refuse the loser
+of a race while the money is still untouched. Apply this migration BEFORE
+deploying that edge; with the edge deployed and the index missing, the second
+press still charges, exactly as it does today.
+
+**Risk: LOW on a clean table, MEDIUM where sellers have double-clicked.**
+The rows the defect produced are exactly the rows the index refuses, so a bare
+`CREATE UNIQUE INDEX` would fail on any database where it happened. The `DO`
+block closes the duplicates first, keeping the OLDEST per item (the one the
+pipeline actually ran) and marking the rest `failed` with a reason. Nothing is
+deleted, so the record that they existed and were charged survives for the
+void-and-refund action US-3214 adds to the admin queue.
+
+**Read the count first if you want to know what it will touch:**
+
+```sql
+-- how many open grading submissions the backfill would close, and on how many
+-- garments
+select count(*) - count(distinct inventory_item_id) as would_close,
+       count(distinct inventory_item_id) as items
+  from public.flipdesk_grading_submissions
+ where status in ('pending', 'processing', 'pending_review');
+```
+
+**Apply order:** after 00820. Then `NOTIFY pgrst, 'reload schema';` is NOT
+required (no new relation or column), but it is harmless.
+
+**Readback after applying:**
+
+```sql
+-- the index exists, is unique, and covers exactly the three non-terminal states
+select indisunique, pg_get_expr(indpred, indrelid) as predicate
+  from pg_index
+ where indexrelid = 'public.uq_grading_submission_one_open_per_item'::regclass;
+-- expect indisunique = t and a predicate naming pending, processing,
+-- pending_review and nothing else
+
+-- and nothing is left doubled up
+select inventory_item_id, count(*)
+  from public.flipdesk_grading_submissions
+ where status in ('pending', 'processing', 'pending_review')
+ group by 1 having count(*) > 1;
+-- expect zero rows
+```
+
 ## 🔴 HELD: 00820_work_overrides.sql (US-3182 - Worth My Time R2 05/06)
 
 **EXECUTED 2026-09-21 against a local Postgres 16** carrying all 812

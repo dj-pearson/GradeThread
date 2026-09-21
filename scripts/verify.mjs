@@ -600,6 +600,11 @@ if (on("db")) {
       "db: work sessions hold under concurrency and erasure (US-3167)",
       "node scripts/check-work-session-storage.mjs",
       "node scripts/check-work-override-storage.mjs",
+      // US-3214: one open grade per garment. The read in grading-submit.ts
+      // refuses a second submission it can SEE; two clicks in two isolates
+      // both see nothing, so the rule that holds under concurrency is
+      // 00821's partial unique index, and it is tested where it lives.
+      "node scripts/check-one-open-grade.mjs",
     );
     // US-2670: both disputes INSERT policies must check who owns the GRADE
     // REPORT, not only that user_id matches the caller. The suite case for this

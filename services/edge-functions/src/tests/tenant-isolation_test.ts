@@ -10258,3 +10258,57 @@ Deno.test({
     }
   },
 });
+
+Deno.test({
+  // US-3214 (AC5): the void is an operator surface that MOVES MONEY, so a
+  // seller must not be able to reach it at all.
+  //
+  // WHAT A HIT HERE WOULD COST. The route reverses a charge and releases the
+  // grading lock on a garment. Reachable by a seller, it is a way to have a
+  // grade run and then take the payment back; reachable by ONE seller against
+  // ANOTHER's submission id, it is a way to cancel a stranger's grade and
+  // return their credits to them at a moment of the caller's choosing.
+  //
+  // The route lives on the /api/admin/* group, which carries the admin gate,
+  // the standing AAL2 requirement and the grading scope. That is three
+  // separate reasons a seller's token should bounce, and this asks the
+  // question the only way that proves it: with a real seller token.
+  name: "US-3214: a seller cannot void a grading submission",
+  ignore: !CONFIGURED,
+  fn: async () => {
+    const A_ID = Deno.env.get("TEST_USER_A_ID") ??
+      "00000000-0000-4000-8000-000000000001";
+    const paths = [
+      `${BASE}/api/admin/grading/submissions/${A_ID}/void`,
+      // And the sibling that also reverses a charge, for the same reason.
+      `${BASE}/api/admin/grading/submissions/${A_ID}/mark-failed`,
+    ];
+    for (const path of paths) {
+      for (const headers of [
+        authHeaders(B_JWT!),
+        { ...authHeaders(B_JWT!), "X-Workspace-Owner": A_ID },
+      ]) {
+        const res = await fetch(path, {
+          method: "POST",
+          headers,
+          body: JSON.stringify({ reason: "not mine to void" }),
+        });
+        await res.body?.cancel();
+        assertDenied(res.status, `POST ${path}`);
+      }
+    }
+
+    // Unauthenticated too, since an operator route that answers a bare POST is
+    // worse than one that answers a seller's.
+    const bare = await fetch(paths[0]!, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ reason: "nobody" }),
+    });
+    await bare.body?.cancel();
+    assert(
+      [401, 403, 404].includes(bare.status),
+      `an unauthenticated void returned ${bare.status}; expected 401/403/404`,
+    );
+  },
+});

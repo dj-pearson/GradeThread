@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { Link } from "react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
@@ -30,6 +30,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { useConfirm } from "@/components/ui/confirm-dialog";
 import {
   useItemGradingSubmissions,
   useSubmitForGrading,
@@ -131,6 +132,18 @@ export function GradeThisItemCard({
     "",
   );
   const [savingGarment, setSavingGarment] = useState(false);
+  const confirm = useConfirm();
+  // US-3214 AC2: the press is latched HERE, synchronously, rather than relying
+  // on the mutation's isPending.
+  //
+  // ⚠ WHY isPending IS NOT ENOUGH. It becomes true in a state update, and two
+  // clicks inside one frame both read the old value and both fire. The ref is
+  // written before any await, so the second click sees it in the same tick.
+  // The cooldown then holds the button for a moment AFTER the mutation
+  // settles, which covers the other half: a seller who sees a toast and
+  // presses again out of impatience.
+  const pressLatch = useRef(false);
+  const [cooling, setCooling] = useState(false);
 
   // US-1119: resolve the Garment Passport slug (if any) for a graded item from
   // the PII-free public view, so the graded card links the full provenance
@@ -218,7 +231,20 @@ export function GradeThisItemCard({
     await qc.invalidateQueries({ queryKey: ["items_full"] });
   }
 
+  /**
+   * How long the button stays held after a submission settles (US-3214 AC2).
+   *
+   * Long enough that an impatient second press lands on a disabled control,
+   * short enough that a seller correcting a genuine failure is not stuck
+   * waiting. Named so the test and the button cannot disagree.
+   */
+  const SUBMIT_COOLDOWN_MS = 2_000;
+
   async function doSubmit() {
+    // The synchronous latch. Two clicks in one frame: the second returns here.
+    if (pressLatch.current) return;
+    pressLatch.current = true;
+    setCooling(true);
     try {
       await persistRequirementFields();
       const res = await submit.mutateAsync({
@@ -266,7 +292,60 @@ export function GradeThisItemCard({
       } else {
         toastError(e);
       }
+    } finally {
+      // The cooldown starts when the request SETTLES, not when it was sent.
+      // A seller reading a toast and pressing again is the other half of this
+      // defect, and holding the button only while in flight does not cover it.
+      setTimeout(() => {
+        pressLatch.current = false;
+        setCooling(false);
+      }, SUBMIT_COOLDOWN_MS);
     }
+  }
+
+  /**
+   * Grade an already-graded garment again (US-3214 AC3).
+   *
+   * ⚠ IT ASKS FIRST, AND THE QUESTION NAMES THE PRICE. A second opinion is a
+   * legitimate thing to want and a second charge is a legitimate surprise;
+   * the confirmation exists so the seller means it. The cost is read from
+   * /validate at press time rather than rendered on every graded card,
+   * because the graded card is on every item page and the call is not free.
+   */
+  async function doResubmit() {
+    if (pressLatch.current) return;
+    pressLatch.current = true;
+    setCooling(true);
+    let priced: string;
+    try {
+      const v = await validate.mutateAsync({ inventoryItemId: item.id, tier });
+      const includedLeft = v.user.included_remaining ?? 0;
+      const credits = v.user.credit_balance ?? 0;
+      const cost = GRADING_TIER_CREDIT_COST[tier];
+      priced = v.user.unlimited
+        ? "It won't cost you anything: this account grades free."
+        : tier === "standard" && includedLeft > 0
+        ? `It uses one of the ${includedLeft} grade${includedLeft === 1 ? "" : "s"} left on your plan this month.`
+        : credits >= cost
+        ? `It costs ${cost} credit${cost === 1 ? "" : "s"}. You have ${credits}.`
+        : `It costs ${fmtMoney(GRADING_TIER_COSTS[tier])}, and you don't have enough credits.`;
+    } catch {
+      // A failed price read must not become a silent free-looking resubmit.
+      priced = "We couldn't check what it costs just now.";
+    } finally {
+      pressLatch.current = false;
+      setCooling(false);
+    }
+
+    const yes = await confirm({
+      title: "Grade this again?",
+      description:
+        `This garment already has a grade. ${priced} The new grade replaces ` +
+        "the one on screen.",
+      confirmLabel: "Grade it again",
+    });
+    if (!yes) return;
+    await doSubmit();
   }
 
   // US-1423: persist the inline garment picker, then re-validate so the card
@@ -356,6 +435,22 @@ export function GradeThisItemCard({
                 </a>
               </Button>
             )}
+            {/* US-3214 AC3: Resubmit, never Submit, and it asks first. A
+                second opinion is a legitimate thing to want and a second
+                charge is a legitimate surprise. */}
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => void doResubmit()}
+              disabled={cooling || submit.isPending || validate.isPending}
+            >
+              {submit.isPending || validate.isPending ? (
+                <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <Award className="mr-2 h-3.5 w-3.5" />
+              )}
+              Grade it again
+            </Button>
             {/* US-1119: link the garment's provenance timeline when a passport
                 exists, so the artifacts the grade created aren't lost. */}
             {passportSlug && (
@@ -638,7 +733,10 @@ export function GradeThisItemCard({
           </div>
           <Button
             onClick={doSubmit}
-            disabled={!ready || submit.isPending}
+            // US-3214 AC2: `cooling` covers the frame before isPending has
+            // rendered AND the moment after the request settles. Either alone
+            // leaves a window a double click lands in.
+            disabled={!ready || submit.isPending || cooling}
           >
             {submit.isPending ? (
               <Loader2 className="mr-2 h-4 w-4 animate-spin" />
