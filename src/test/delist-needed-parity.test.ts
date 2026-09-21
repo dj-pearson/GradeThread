@@ -58,9 +58,13 @@ describe("US-3144: the push category is the same string everywhere", () => {
     // `inventory_item_id` is the key both platforms ALREADY parse for every
     // other item-scoped push. Sending the item under any other name would need
     // new parsing on two platforms to reach the same screen.
-    expect(read("services/edge-functions/src/lib/transactional-push.ts")).toContain(
-      "inventory_item_id: opts.itemId",
-    );
+    // US-3275 routed every sender's ids through idFields(), so the key is
+    // written once there rather than inline per sender. Both halves are
+    // asserted: the sender passes the item id in, and idFields maps it to the
+    // key the two clients parse.
+    const push = read("services/edge-functions/src/lib/transactional-push.ts");
+    expect(push).toContain("idFields({ inventoryItemId: opts.itemId })");
+    expect(push).toContain("out.inventory_item_id = ids.inventoryItemId");
     expect(read("ios/GradeThread/Notifications/NotificationDelegate.swift")).toContain(
       'userInfo["inventory_item_id"]',
     );

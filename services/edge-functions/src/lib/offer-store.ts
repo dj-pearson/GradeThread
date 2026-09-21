@@ -145,6 +145,49 @@ export function incomingOfferToInput(
  * Without it the discount-depth analytics would divide by whatever the listing
  * costs today, and a seller who repriced would see their own history rewritten.
  */
+/**
+ * eBay listing id -> the LOCAL inventory item, for one seller (US-3275).
+ *
+ * A second query over the same rows loadListPricesByItemId reads, and
+ * deliberately not folded into it: that function has three callers and returns
+ * a Map<string, number> they all destructure, so widening its contract would
+ * touch two routes to serve one poll. One extra indexed read per poll batch is
+ * the cheaper mistake.
+ *
+ * An offer on a listing FlipDesk has never seen -- created in Seller Hub, or
+ * whose row was deleted -- simply has no entry, and the notification goes out
+ * without the id rather than with a guess.
+ */
+export async function loadInventoryItemIdsByListingId(
+  ownerId: string,
+  itemExternalIds: string[],
+): Promise<Map<string, string>> {
+  const out = new Map<string, string>();
+  const ids = [...new Set(itemExternalIds.filter(Boolean))];
+  if (ids.length === 0) return out;
+  const { data, error } = await supabaseAdmin
+    .from("listings")
+    .select("platform_listing_id, inventory_item_id")
+    .eq("user_id", ownerId) // US-268
+    .eq("platform", "ebay")
+    .in("platform_listing_id", ids);
+  if (error) {
+    console.error("[offer-store] loadInventoryItemIdsByListingId:", error.message);
+    return out;
+  }
+  for (
+    const r of (data ?? []) as unknown as Array<{
+      platform_listing_id: string | null;
+      inventory_item_id: string | null;
+    }>
+  ) {
+    if (r.platform_listing_id && r.inventory_item_id) {
+      out.set(r.platform_listing_id, r.inventory_item_id);
+    }
+  }
+  return out;
+}
+
 export async function loadListPricesByItemId(
   ownerId: string,
   itemExternalIds: string[],

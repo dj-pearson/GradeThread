@@ -280,6 +280,15 @@ const POST_SALE_LINK = "/dashboard/flipdesk/post-sale";
 export interface OfferReceivedEvent {
   userId: string;
   bestOfferId: string;
+  /**
+   * The LOCAL item, when the marketplace listing resolves to one (US-3275).
+   *
+   * Optional because a seller can receive an offer on a listing FlipDesk has
+   * never seen -- one created in Seller Hub, or one whose row was deleted.
+   * iOS tests for the key's presence, so an absent id must stay absent rather
+   * than arrive as null and re-enable a button that cannot work.
+   */
+  inventoryItemId?: string | null;
   itemTitle: string | null;
   price: number | null;
   currency: string | null;
@@ -635,7 +644,11 @@ export function notifyOfferReceived(
         buyerLabel: ev.buyerUsername?.trim() || null,
         expiresAt: ev.expiresAt,
       }),
-    push: (userId) => pushOfferReceived(userId, ev.itemTitle),
+    push: (userId) =>
+      pushOfferReceived(userId, ev.itemTitle, {
+        bestOfferId: ev.bestOfferId,
+        inventoryItemId: ev.inventoryItemId ?? null,
+      }),
   }, deps);
 }
 
@@ -669,7 +682,8 @@ export function notifyReturnOpened(
         itemLabel: ev.itemLabel?.trim() || "an order",
         reason: ev.reason,
       }),
-    push: (userId) => pushReturnOpened(userId, ev.itemLabel),
+    push: (userId) =>
+      pushReturnOpened(userId, ev.itemLabel, { caseId: ev.returnId }),
   }, deps);
 }
 
@@ -686,7 +700,8 @@ export function notifyInquiryOpened(
         reason: ev.reason,
         respondBy: ev.respondBy,
       }),
-    push: (userId) => pushInquiryOpened(userId, ev.orderLabel),
+    push: (userId) =>
+      pushInquiryOpened(userId, ev.orderLabel, { caseId: ev.inquiryId }),
   }, deps);
 }
 
@@ -703,7 +718,8 @@ export function notifyCaseOpened(
         reason: ev.reason,
         respondBy: ev.respondBy,
       }),
-    push: (userId) => pushCaseOpened(userId, ev.orderLabel),
+    push: (userId) =>
+      pushCaseOpened(userId, ev.orderLabel, { caseId: ev.caseId }),
   }, deps);
 }
 
@@ -740,7 +756,8 @@ export function notifyCaseDeadline(
         respondBy: ev.respondBy,
         tier: ev.tier,
       }),
-    push: (userId) => pushPostSaleDeadline(userId, ev.orderLabel),
+    push: (userId) =>
+      pushPostSaleDeadline(userId, ev.orderLabel, { caseId: ev.externalId }),
   }, deps);
 }
 
@@ -756,7 +773,8 @@ export function notifyCancellationRequested(
         orderLabel: ev.orderLabel?.trim() || "an order",
         reason: ev.reason,
       }),
-    push: (userId) => pushCancellationRequested(userId, ev.orderLabel),
+    push: (userId) =>
+      pushCancellationRequested(userId, ev.orderLabel, { caseId: ev.cancelId }),
   }, deps);
 }
 
@@ -774,6 +792,7 @@ export function notifyDisputeOpened(
         amountLabel: formatMoney(ev.amount, ev.currency),
         respondByDate: ev.respondByDate,
       }),
-    push: (userId) => pushDisputeOpened(userId, ev.orderLabel),
+    push: (userId) =>
+      pushDisputeOpened(userId, ev.orderLabel, { caseId: ev.disputeId }),
   }, deps);
 }

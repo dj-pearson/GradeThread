@@ -214,12 +214,31 @@ async function deliver(
 /** A brand-new completed sale was ingested from a marketplace sync. */
 export function notifySaleRecorded(
   userId: string,
-  opts: { itemTitle: string | null; price: number | null; itemId: string },
+  opts: {
+    itemTitle: string | null;
+    price: number | null;
+    itemId: string;
+    /**
+     * The sale row this notification is about (US-3275).
+     *
+     * Optional so every existing caller keeps compiling, and absent means the
+     * Mark shipped button stays hidden -- which is the honest outcome, since
+     * without it the button has nothing to close.
+     */
+    saleId?: string | null;
+  },
   deps: SellingActivityDeps = defaultDeps,
 ): Promise<void> {
   return deliver(userId, {
     inApp: buildSaleRecorded(opts),
-    push: (uid) => pushSaleCreated(uid, opts.itemTitle),
+    // US-3275 AC2: "You made a sale" is the de-facto shipping prompt -- there
+    // is no separate shipping push -- so this is the payload Mark shipped
+    // reads.
+    push: (uid) =>
+      pushSaleCreated(uid, opts.itemTitle, {
+        saleId: opts.saleId ?? null,
+        inventoryItemId: opts.itemId,
+      }),
   }, deps);
 }
 

@@ -33,6 +33,7 @@ import { logEvent } from "./observability.ts";
 import { supabaseAdmin } from "./supabase.ts";
 import {
   incomingOfferToInput,
+  loadInventoryItemIdsByListingId,
   loadListPricesByItemId,
   type OfferInput,
   recordOffers,
@@ -152,6 +153,12 @@ export interface MarketplacePollDeps {
   // The asking price at the moment the offer is seen. A snapshot, not a lookup:
   // reading it later would divide a historic discount by today's price.
   loadListPrices?: (ownerId: string, itemIds: string[]) => Promise<Map<string, number>>;
+  // US-3275: the local item behind each eBay listing, so an offer push can
+  // carry inventory_item_id and iOS can show Accept and Counter.
+  loadInventoryItemIds?: (
+    ownerId: string,
+    itemIds: string[],
+  ) => Promise<Map<string, string>>;
   // US-2927: write what this poll saw to marketplace_post_sale_cases before it
   // decides whether to notify. A seam, and optional, so every existing fake
   // keeps type-checking and a test that only cares about notification dedupe
@@ -259,6 +266,7 @@ const defaultDeps: MarketplacePollDeps = {
       : Promise.resolve(0),
   recordOffers,
   loadListPrices: loadListPricesByItemId,
+  loadInventoryItemIds: loadInventoryItemIdsByListingId,
 };
 
 // A dispute in one of these states still needs the seller's attention; CLOSED /
@@ -311,6 +319,12 @@ export async function pollMarketplaceEventsForUser(
       // keeps that price even if the listing later goes missing.
       offers.map((o) => incomingOfferToInput(o, listPrices.get(o.itemId))),
     );
+    // US-3275: resolved once for the batch, beside the price lookup, rather
+    // than per offer.
+    const localItemIds = (await deps.loadInventoryItemIds?.(
+      ownerId,
+      offers.map((o) => o.itemId).filter(Boolean),
+    )) ?? new Map<string, string>();
     for (const offer of offers) {
       if (!offer.bestOfferId) continue;
       const fresh = await deps.claim(
@@ -330,6 +344,7 @@ export async function pollMarketplaceEventsForUser(
         await deps.notifyOffer({
           userId: ownerId,
           bestOfferId: offer.bestOfferId,
+          inventoryItemId: localItemIds.get(offer.itemId) ?? null,
           itemTitle: offer.itemTitle,
           price: offer.price,
           currency: offer.currency,

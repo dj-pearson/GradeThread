@@ -4646,6 +4646,9 @@ async function doListingsPull(
                 itemTitle: li.title,
                 price: itemCost,
                 itemId,
+                // US-3275: the row the Mark shipped button closes. Already in
+                // hand from the insert a few lines above.
+                saleId: newSaleId ?? null,
               });
               // US-932: feed the internal event stream (drip trigger substrate).
               void emitEvent(userId, "sale_recorded", {
