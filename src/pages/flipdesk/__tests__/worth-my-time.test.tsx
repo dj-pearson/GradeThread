@@ -60,6 +60,14 @@ vi.mock("@/hooks/use-planner", async () => {
         }),
     }),
     useLearnedDurations: () => ({ data: undefined }),
+    // US-3183. The results panel has its own suite; held at "no history" here
+    // so these cases stay about the plan. Left unmocked it renders its own
+    // role="alert" and steals the one these cases look for.
+    useWorkOutcomes: () => ({
+      data: { outcomes: [], tasks: [], now: "2026-09-21T11:00:00.000Z" },
+      isLoading: false,
+      isError: false,
+    }),
     useSaveOverride: () => ({ mutateAsync: vi.fn(), isPending: false }),
     useResetOverride: () => ({ mutateAsync: vi.fn(), isPending: false }),
     useSuppress: () => ({ mutateAsync: vi.fn(), isPending: false }),

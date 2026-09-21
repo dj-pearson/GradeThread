@@ -311,6 +311,10 @@ const REGISTRY: Record<string, readonly Site[]> = {
         "the seller typed, not when the item sold.",
     },
   ],
+  // US-3183: the shape of the row GET /planner/outcomes hands back. A type
+  // declaration, not a write: the scorecard only ever compares this to a date
+  // range, and nothing in the planner tree writes a sale.
+  "src/hooks/use-planner.ts": [{ text: "sold_at: string | null;", kind: "shape" }],
   "src/hooks/use-ship-queue.ts": [{ text: "sold_at: string | null;", kind: "shape" }],
   "src/hooks/use-sold-sync.ts": [
     {

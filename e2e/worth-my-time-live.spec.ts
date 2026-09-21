@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import { expect, test, type Page } from "@playwright/test";
 import { seedCookieConsent } from "./consent";
 
@@ -308,6 +309,23 @@ function planList(page: Page) {
   return page.getByRole("region", { name: /jobs?, about \d+ minutes/ }).locator("ol");
 }
 
+/** Set the seller's work setup, the way the preferences screen does. */
+async function setPreferences(page: Page, patch: Record<string, unknown>) {
+  await page.evaluate(async ([edge, body]) => {
+    const raw = Object.keys(localStorage)
+      .filter((k) => k.includes("auth-token"))
+      .map((k) => localStorage.getItem(k))
+      .find(Boolean);
+    const token = JSON.parse(raw!).access_token as string;
+    const res = await fetch(`${edge}/api/flipdesk/work-preferences`, {
+      method: "PATCH",
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) throw new Error(`preferences PATCH ${res.status}`);
+  }, [EDGE!, patch] as const);
+}
+
 /** One item's own row, straight from PostgREST under the seller's own RLS. */
 async function readItem(page: Page, id: string) {
   return await page.evaluate(async ([supa, itemId]) => {
@@ -515,4 +533,179 @@ test("live: a failed save says so and keeps what was typed", async ({ page }) =>
 
   await page.unroute("**/api/flipdesk/planner/overrides");
   await clearCorrections(page);
+});
+
+// ── R2 06/06 (US-3183): the results view ─────────────────────────────────────
+//
+// The scorecard reads four tables, so these cases need rows in them. They use
+// the SAME fixture scripts/check-scorecard-e2e.mjs seeds -- one definition,
+// rather than a second one that drifts from it -- and they skip cleanly when
+// LIVE_DSN is absent, because a red test for a missing environment is a red
+// nobody reads.
+
+const DSN = process.env.LIVE_DSN;
+const USER_A = process.env.LIVE_USER_A ?? "11111111-1111-1111-1111-111111111111";
+const USER_B = process.env.LIVE_USER_B ?? "22222222-2222-2222-2222-222222222222";
+
+function fixture(mode: "--seed-only" | "--cleanup-only") {
+  execFileSync("node", [
+    "scripts/check-scorecard-e2e.mjs", mode,
+    "--user-a", USER_A, "--user-b", USER_B, "--dsn", DSN!,
+  ], { encoding: "utf8" });
+}
+
+test.describe("the results view", () => {
+  test.skip(!DSN, "set LIVE_DSN to seed the scorecard fixture");
+
+  test.beforeAll(() => fixture("--seed-only"));
+  test.afterAll(() => fixture("--cleanup-only"));
+
+  async function openResults(page: Page) {
+    await page.goto("/dashboard/flipdesk/worth-my-time");
+    await dismissOverlays(page);
+    const summary = page.getByText("How the planner has done for you");
+    await summary.click();
+    // The fixture's work was planned in January, so the range is pointed at
+    // it: the default 90-day window would also pick up whatever the other
+    // live cases left behind, and the numbers below would stop being
+    // falsifiable.
+    await page.locator("#wmt-from").fill("2026-01-01");
+    await page.locator("#wmt-to").fill("2026-01-31");
+  }
+
+  test("live: the three figures come out of real rows and are never one figure", async ({ page }) => {
+    await signIn(page);
+    await openResults(page);
+
+    // 6 garments planned in January; the money below is the books' own net.
+    // jacket 80 - 1.50 fees - 22 basis = 56.50
+    // fleece 20 - 1.50 - 4 = 14.50 (the cancelled cross-post is not counted)
+    // windbreaker 28 - 1.50 - 9 = 17.50
+    // synchilla REFUNDED 35 - 1.50 - 18 = 15.50, restated rather than dropped
+    // jeans: no acquired_price, so it is left out and said so
+    // EXACT, because the forecast sentence below repeats these figures in
+    // prose and a loose match is a strict-mode violation rather than a result.
+    await expect(page.getByText("What the books recorded")).toBeVisible();
+    await expect(page.getByText("$104.00", { exact: true })).toBeVisible({
+      timeout: 15_000,
+    });
+
+    // The projection is a separate box and is NOT added to it. Six garments
+    // were planned in the window; every one carries an estimate.
+    await expect(page.getByText("What the planner guessed")).toBeVisible();
+    await expect(page.getByText("$198.00", { exact: true })).toBeVisible();
+
+    // 30 + 20 + 10 + 12 + 0 = 72 minutes against the four settled garments.
+    // $104.00 over 72 minutes is $86.67 an hour.
+    await expect(page.getByText("Profit per tracked hour")).toBeVisible();
+    await expect(page.getByText("$86.67", { exact: true })).toBeVisible();
+    await expect(page.getByText(/Only counts minutes you confirmed/)).toBeVisible();
+  });
+
+  test("live: a garment planned twice is one sale, and a cross-post is not a second", async ({ page }) => {
+    await signIn(page);
+    await openResults(page);
+    // 5 settled garments: 4 counted + 1 left out for missing costs. If the
+    // duplicate session or the cancelled cross-post were counted again this
+    // would read 6 or 7.
+    await expect(page.getByText("On 4 items")).toBeVisible({ timeout: 15_000 });
+  });
+
+  test("live: an unrecorded cost is named, not treated as free money", async ({ page }) => {
+    await signIn(page);
+    await openResults(page);
+    await expect(page.getByText(/1 sold item is left out above/)).toBeVisible({
+      timeout: 15_000,
+    });
+  });
+
+  test("live: unsold work sits beside the wins with its hours", async ({ page }) => {
+    await signIn(page);
+    await openResults(page);
+    await expect(page.getByText("Still waiting to sell")).toBeVisible({ timeout: 15_000 });
+    // The overcoat: 25 minutes measured, then the photograph skipped.
+    await expect(page.getByText(/1 item, with 25 min already in them/)).toBeVisible();
+    await expect(page.getByText(/1 item carried into another evening/)).toBeVisible();
+  });
+
+  test("live: an empty window reports no work, not a row of zeroes", async ({ page }) => {
+    await signIn(page);
+    await openResults(page);
+    await page.locator("#wmt-from").fill("2025-01-01");
+    await page.locator("#wmt-to").fill("2025-01-31");
+    await expect(page.getByText("No planned work in these dates.").first())
+      .toBeVisible({ timeout: 15_000 });
+  });
+
+  test("live: it claims no cause, and never says earned or saved", async ({ page }) => {
+    await signIn(page);
+    await openResults(page);
+    await page.getByRole("button", { name: /Compare with the period before/ }).click();
+    await expect(page.getByText(/doesn't show that one caused the other/))
+      .toBeVisible({ timeout: 15_000 });
+
+    const text = await page.locator("main").innerText();
+    for (const banned of [/\bearn/i, /\bsaved\b/i, /guaranteed/i, /your hourly rate/i]) {
+      expect(banned.test(text), `page matched ${banned}`).toBe(false);
+    }
+  });
+
+  test("live: the panel works at 375px and from the keyboard alone", async ({ page }) => {
+    await page.setViewportSize({ width: 375, height: 760 });
+    await signIn(page);
+    await page.goto("/dashboard/flipdesk/worth-my-time");
+    await dismissOverlays(page);
+
+    const summary = page.getByText("How the planner has done for you");
+    await summary.focus();
+    await page.keyboard.press("Enter");
+    await expect(page.locator("#wmt-from")).toBeVisible();
+    // ⚠ NOT a single Tab between the two date fields. <input type="date"> is
+    // three focusable segments in Chromium, so Tab walks day/month/year
+    // before it leaves the control -- the first version of this case asserted
+    // one press and failed on a correct page. What matters is that the
+    // keyboard REACHES everything, so it walks forward until it does.
+    await page.locator("#wmt-from").focus();
+    const reached: string[] = [];
+    for (let i = 0; i < 12; i += 1) {
+      await page.keyboard.press("Tab");
+      const id = await page.evaluate(() => document.activeElement?.id ?? "");
+      const label = await page.evaluate(() =>
+        document.activeElement?.tagName === "BUTTON"
+          ? (document.activeElement.textContent ?? "").trim()
+          : ""
+      );
+      if (id) reached.push(id);
+      if (/Compare with/.test(label)) reached.push("compare");
+    }
+    expect(reached).toContain("wmt-to");
+    expect(reached).toContain("compare");
+
+    const overflow = await page.evaluate(() =>
+      document.documentElement.scrollWidth - document.documentElement.clientWidth
+    );
+    expect(overflow).toBeLessThanOrEqual(1);
+  });
+
+  test("live: a plan still builds for a seller with no learned history (AC6)", async ({ page }) => {
+    // The fixture gives Mallory one planned garment and no confirmed history,
+    // which is the shape of a seller's first evening: the estimator has
+    // nothing to learn from, so the plan must fall back to its labelled
+    // defaults rather than failing or showing a blank.
+    await signIn(page, OTHER_EMAIL ?? "");
+    await clearSessions(page);
+    // ⚠ FIRST THEY SAY WHERE THEY ARE WORKING. This seller is seeded
+    // phone-only with a camera, and measuring needs a table and a tape -- so
+    // the honest first run is "nothing fits that window", which is the
+    // candidate builder working rather than a plan failing. The first version
+    // of this case read that as a broken plan.
+    await setPreferences(page, { work_context: "home", available_tools: ["camera", "measuring_tape"] });
+    await page.goto("/dashboard/flipdesk/worth-my-time");
+    await dismissOverlays(page);
+    await page.getByRole("button", { name: "30 minutes" }).click();
+    await expect(page.getByRole("heading", { name: /jobs?, about \d+ minutes/ }))
+      .toBeVisible({ timeout: 15_000 });
+    await expect(page.getByText("Scorecard other-seller coat").first()).toBeVisible();
+    await clearSessions(page);
+  });
 });

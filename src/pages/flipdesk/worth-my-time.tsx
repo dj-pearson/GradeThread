@@ -36,6 +36,7 @@ import {
 } from "@/hooks/use-planner";
 import { SessionRunner } from "@/components/flipdesk/session-runner";
 import { TaskCorrections } from "@/components/flipdesk/task-corrections";
+import { ResultsPanel } from "@/components/flipdesk/results-panel";
 import { SUPPRESSION_STATE_COPY } from "@/lib/work-overrides-copy";
 import { isUrgentCandidate } from "@/lib/work-ranker";
 import { itemHref } from "@/lib/session-links";
@@ -327,6 +328,11 @@ export function WorthMyTimePage() {
       </section>
 
       <SessionRunner />
+
+      {/* R2 06/06 (US-3183). Below the picker and the runner on purpose: a
+          seller opening this page wants to plan an evening, and the scorecard
+          is what they check once a month. */}
+      <ResultsPanel />
 
       {prefs.isError && (
         <p role="alert" className="text-sm text-destructive">

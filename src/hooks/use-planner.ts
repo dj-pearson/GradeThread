@@ -42,6 +42,11 @@ import {
   type RankedTask,
 } from "@/lib/work-ranker";
 import {
+  compareOutcomes,
+  type Outcome,
+  type PlannedTask,
+} from "@/lib/work-outcomes";
+import {
   costOverrideFor,
   emptyBook,
   minutesOverrideFor,
@@ -675,6 +680,106 @@ export function learnedTypicalFor(
     observedHighMinutes: learned.observedHighMinutes,
     allocation: learned.allocation,
   };
+}
+
+// ── Outcomes and the scorecard (R2 02/06 + 06/06) ───────────────────
+
+interface OutcomeTaskRow {
+  task_id: string;
+  session_id: string;
+  inventory_item_id: string | null;
+  item_title_snapshot: string | null;
+  action_key: string;
+  task_state: string;
+  session_state: string;
+  estimate_value_cents: number | null;
+  estimate_source: string | null;
+  estimate_taken_at: string | null;
+  confirmed_minutes: number | null;
+  correction_minutes: number | null;
+}
+
+interface OutcomeSaleRow {
+  sale_id: string;
+  inventory_item_id: string | null;
+  status: string;
+  cancelled_at: string | null;
+  sold_at: string | null;
+  marketplace: string | null;
+  acquired_price: number | string | null;
+  money: Record<string, unknown>;
+}
+
+export interface OutcomeBook {
+  outcomes: Outcome[];
+  tasks: PlannedTask[];
+  /** Server time, so the 30-day horizon is not judged by a laptop's clock. */
+  now: string;
+}
+
+/**
+ * The planner's history, compared against the books.
+ *
+ * THE COMPARISON RUNS HERE, not on the server, for the same reason the plan
+ * does: compareOutcomes reuses saleNetCents, which is the finances
+ * dashboard's own pnl_net, and the edge cannot import it. What the server
+ * owns is the owner predicate on all four reads.
+ */
+export function useWorkOutcomes(enabled = true) {
+  return useQuery<OutcomeBook>({
+    queryKey: ["planner_outcomes"],
+    enabled,
+    // Longer than the session read. A scorecard over a month does not change
+    // between two clicks of a date range, and re-reading four tables to
+    // redraw the same figures is paying for an answer that cannot have moved.
+    staleTime: 5 * 60 * 1000,
+    queryFn: async () => {
+      const body = await edgeJson<{
+        tasks?: OutcomeTaskRow[];
+        sales?: OutcomeSaleRow[];
+        items?: { inventory_item_id: string; created_at: string | null }[];
+        now?: string;
+      }>("/api/flipdesk/planner/outcomes");
+      const now = typeof body.now === "string" ? body.now : new Date().toISOString();
+      const tasks: PlannedTask[] = (body.tasks ?? []).map((t) => ({
+        taskId: t.task_id,
+        sessionId: t.session_id,
+        inventoryItemId: t.inventory_item_id,
+        itemTitleSnapshot: t.item_title_snapshot,
+        actionKey: t.action_key,
+        taskState: t.task_state,
+        sessionState: t.session_state,
+        estimateValueCents: t.estimate_value_cents,
+        estimateSource: t.estimate_source,
+        estimateTakenAt: t.estimate_taken_at,
+        confirmedMinutes: t.confirmed_minutes,
+        correctionMinutes: t.correction_minutes,
+      }));
+      const { outcomes } = compareOutcomes({
+        tasks,
+        sales: (body.sales ?? []).map((s) => ({
+          saleId: s.sale_id,
+          inventoryItemId: s.inventory_item_id,
+          status: s.status,
+          cancelledAt: s.cancelled_at,
+          soldAt: s.sold_at,
+          money: s.money as never,
+          acquiredPrice: s.acquired_price,
+          // The legacy shipping total is not on this projection, and absent
+          // is absent: saleNetCents treats null as "not recorded" rather
+          // than as zero, which is the whole point of that column.
+          legacyShipTotal: null,
+          marketplace: s.marketplace,
+        })),
+        items: (body.items ?? []).map((i) => ({
+          inventoryItemId: i.inventory_item_id,
+          createdAt: i.created_at,
+        })),
+        now,
+      });
+      return { outcomes, tasks, now };
+    },
+  });
 }
 
 export function useBuildPlan() {
