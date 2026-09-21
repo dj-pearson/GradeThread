@@ -374,6 +374,26 @@ Restart the edge service after setting these.
 
 ## Phase 9 · First TestFlight build
 
+### 9a0. Bump `MARKETING_VERSION` FIRST, if the current one has shipped
+
+`ios/project.yml` holds `MARKETING_VERSION`, and it is the only place the
+release number lives (every target's `CFBundleShortVersionString` reads
+`$(MARKETING_VERSION)`; the build number comes from the GitHub run number and
+takes care of itself).
+
+Once a version is approved on the App Store, Apple **closes that train** and
+rejects every later upload under it at ingest — before review, so you find out
+by email rather than in the Actions log:
+
+```
+ITMS-90186: Invalid Pre-Release Train - The train version '1.0.9' is closed
+ITMS-90062: CFBundleShortVersionString [1.0.9] must contain a higher version
+            than that of the previously approved version [1.0.9]
+```
+
+A higher build number does not help. Bump the third component (`1.0.9` →
+`1.0.10`) and re-run. Build 453 was lost to exactly this on 2026-09-21.
+
 ### 9a. Trigger the workflow — pick one
 
 **A. Push to main** with any change touching `ios/**`:
@@ -496,6 +516,7 @@ The `submit_to_app_store` workflow step now runs `bundle exec fastlane release` 
 | `Import signing secrets from Infisical` step fails with 401/403 | Wrong `INFISICAL_CLIENT_ID`/`_SECRET`/`_DOMAIN`, or the machine identity has no read access to `prod` | Recheck the 3 GitHub secrets (6d) + grant Viewer on `prod` (6c) |
 | Build step gets an empty signing value (e.g. blank team ID, `No identity found` despite a valid `.p12`) | An Infisical secret key doesn't exactly match the env-var name the workflow expects | Recheck the keys in Phase 6b are spelled exactly (the key *is* the env-var name) |
 | Workflow times out > 60 min | Apple notarization queue backed up | Re-run the workflow; nothing to fix on our side |
+| Email: `ITMS-90186 Invalid Pre-Release Train` + `ITMS-90062 must contain a higher version` | `MARKETING_VERSION` is a version Apple has already approved, so that train is closed | Bump `MARKETING_VERSION` in `ios/project.yml` (see 9a0) and re-run. The build number is irrelevant here — only a higher `CFBundleShortVersionString` clears it. The workflow succeeds and Apple rejects at ingest afterwards, so the Actions log is green and the only signal is the email |
 
 ---
 

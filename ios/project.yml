@@ -33,7 +33,15 @@ settings:
     # release number) is set manually on workflow_dispatch or derived from an
     # ios-v* tag; CURRENT_PROJECT_VERSION (the build number) is the GitHub run
     # number. Bump MARKETING_VERSION here to change the default release number.
-    MARKETING_VERSION: "1.0.9"
+    # ⚠ BUMP THIS BEFORE THE FIRST BUILD OF A NEW RELEASE, NOT AFTER.
+    # Apple closes a version train once that version is approved, and every
+    # later upload under it is rejected at ingest rather than at review:
+    # ITMS-90186 ("The train version 'X' is closed for new build submissions")
+    # plus ITMS-90062 ("must contain a higher version than that of the
+    # previously approved version"). Build 453 hit exactly that on 1.0.9,
+    # which had already shipped. A higher build number does not help; only a
+    # higher CFBundleShortVersionString does.
+    MARKETING_VERSION: "1.0.10"
     CURRENT_PROJECT_VERSION: "1"
 
 # Apps are built unsigned in CI for tests; the release workflow injects a
