@@ -35,7 +35,24 @@ import {
 } from "@/lib/work-duration-learning";
 import { estimateWorkValue, type ValueResult } from "@/lib/work-value";
 import { adviseOnItem, type AdviceResult } from "@/lib/work-advice";
-import { rankWork, remainingActionsFrom, type RankedTask } from "@/lib/work-ranker";
+import {
+  isUrgentCandidate,
+  rankWork,
+  remainingActionsFrom,
+  type RankedTask,
+} from "@/lib/work-ranker";
+import {
+  costOverrideFor,
+  emptyBook,
+  minutesOverrideFor,
+  suppressionVerdictFor,
+  valueOverrideFor,
+  type OverrideBook,
+  type OverrideKind,
+  type StoredOverride,
+  type StoredSuppression,
+  type SuppressionKind,
+} from "@/lib/work-overrides";
 import { batchWork } from "@/lib/work-batching";
 import { schedulePlan, type WorkPlan } from "@/lib/work-scheduler";
 
@@ -171,6 +188,203 @@ export function useSaveWorkPreferences() {
   });
 }
 
+
+// ── Corrections and set-asides (R2 05/06, US-3182) ──────────────────
+
+interface OverrideRow {
+  id: string;
+  inventory_item_id: string;
+  action_key: string | null;
+  kind: string;
+  amount_minutes: number | null;
+  amount_cents: number | null;
+  low_cents: number | null;
+  high_cents: number | null;
+  original_json: unknown;
+  source: string;
+  updated_at: string;
+}
+
+interface SuppressionRow {
+  id: string;
+  inventory_item_id: string;
+  action_key: string | null;
+  kind: string;
+  session_id: string | null;
+  until: string | null;
+  created_at: string;
+}
+
+const OVERRIDE_KIND_SET = new Set(["task_minutes", "value_range", "remaining_cost"]);
+const SUPPRESSION_KIND_SET = new Set(["skip_session", "snooze", "dismiss"]);
+
+/**
+ * The server's rows, in the shape work-overrides.ts reads.
+ *
+ * A ROW WITH A KIND WE DO NOT KNOW IS DROPPED rather than carried through as
+ * a string. An unknown suppression kind that reached isSuppressed would fall
+ * through every branch and silently not suppress, which is the direction that
+ * shows a seller a task they dismissed.
+ */
+export function toOverrideBook(json: {
+  overrides?: OverrideRow[];
+  suppressions?: SuppressionRow[];
+  now?: string;
+}): OverrideBook {
+  const overrides: StoredOverride[] = [];
+  for (const r of json.overrides ?? []) {
+    if (!OVERRIDE_KIND_SET.has(r.kind)) continue;
+    overrides.push({
+      inventoryItemId: r.inventory_item_id,
+      actionKey: r.action_key,
+      kind: r.kind as OverrideKind,
+      value: {
+        amount: r.amount_minutes ?? r.amount_cents ?? null,
+        lowCents: r.low_cents,
+        highCents: r.high_cents,
+      },
+      originalValue: (r.original_json ?? null) as StoredOverride["originalValue"],
+      source: "seller",
+      updatedAt: r.updated_at,
+    });
+  }
+  const suppressions: StoredSuppression[] = [];
+  for (const r of json.suppressions ?? []) {
+    if (!SUPPRESSION_KIND_SET.has(r.kind)) continue;
+    suppressions.push({
+      inventoryItemId: r.inventory_item_id,
+      actionKey: r.action_key,
+      kind: r.kind as SuppressionKind,
+      sessionId: r.session_id,
+      until: r.until,
+      createdAt: r.created_at,
+    });
+  }
+  return {
+    overrides,
+    suppressions,
+    // The server's clock, not the laptop's: a snooze that expired according
+    // to a machine a day out expired for nobody else.
+    now: typeof json.now === "string" ? json.now : new Date().toISOString(),
+  };
+}
+
+export function useWorkOverrides(enabled = true) {
+  return useQuery<OverrideBook>({
+    queryKey: ["planner_overrides"],
+    enabled,
+    staleTime: 60 * 1000,
+    queryFn: async () =>
+      toOverrideBook(await edgeJson("/api/flipdesk/planner/overrides")),
+  });
+}
+
+export interface SaveOverrideArgs {
+  inventoryItemId: string;
+  actionKey?: string | null;
+  kind: OverrideKind;
+  amountMinutes?: number;
+  amountCents?: number;
+  lowCents?: number;
+  highCents?: number;
+  /** What the planner said before this. Kept so reset has something to say. */
+  original?: unknown;
+}
+
+export function useSaveOverride() {
+  const qc = useQueryClient();
+  return useMutation<unknown, PlannerError, SaveOverrideArgs>({
+    mutationFn: (a) =>
+      edgeJson("/api/flipdesk/planner/overrides", {
+        method: "PUT",
+        body: JSON.stringify({
+          inventory_item_id: a.inventoryItemId,
+          action_key: a.actionKey ?? null,
+          kind: a.kind,
+          // != null, NEVER a truthiness check. A seller's recorded zero cost
+          // is a real answer and `a.amountCents ? ... : {}` would drop it.
+          ...(a.amountMinutes != null ? { amount_minutes: a.amountMinutes } : {}),
+          ...(a.amountCents != null ? { amount_cents: a.amountCents } : {}),
+          ...(a.lowCents != null ? { low_cents: a.lowCents } : {}),
+          ...(a.highCents != null ? { high_cents: a.highCents } : {}),
+          ...(a.original !== undefined ? { original: a.original } : {}),
+        }),
+      }),
+    // Refetch rather than patch the cache: the server owns updated_at and the
+    // original it kept, and a hand-patched row would drift from both.
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ["planner_overrides"] }),
+  });
+}
+
+export function useResetOverride() {
+  const qc = useQueryClient();
+  return useMutation<
+    unknown,
+    PlannerError,
+    { inventoryItemId: string; actionKey?: string | null; kind: OverrideKind }
+  >({
+    mutationFn: (a) =>
+      edgeJson("/api/flipdesk/planner/overrides/reset", {
+        method: "POST",
+        body: JSON.stringify({
+          inventory_item_id: a.inventoryItemId,
+          action_key: a.actionKey ?? null,
+          kind: a.kind,
+        }),
+      }),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ["planner_overrides"] }),
+  });
+}
+
+export function useSuppress() {
+  const qc = useQueryClient();
+  return useMutation<
+    unknown,
+    PlannerError,
+    {
+      inventoryItemId: string;
+      actionKey?: string | null;
+      kind: SuppressionKind;
+      sessionId?: string | null;
+    }
+  >({
+    mutationFn: (a) =>
+      edgeJson("/api/flipdesk/planner/suppressions", {
+        method: "POST",
+        body: JSON.stringify({
+          inventory_item_id: a.inventoryItemId,
+          action_key: a.actionKey ?? null,
+          kind: a.kind,
+          ...(a.sessionId ? { session_id: a.sessionId } : {}),
+          // ⚠ NO EXPIRY IS SENT, deliberately. The snooze clock is the
+          // server's; a client choosing its own length is a nine-year snooze
+          // away from a dismissal nobody asked for, and no screen would show
+          // the difference. use-planner-overrides.test.ts holds this line.
+        }),
+      }),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ["planner_overrides"] }),
+  });
+}
+
+export function useResetSuppression() {
+  const qc = useQueryClient();
+  return useMutation<
+    unknown,
+    PlannerError,
+    { inventoryItemId: string; kind?: SuppressionKind }
+  >({
+    mutationFn: (a) =>
+      edgeJson("/api/flipdesk/planner/suppressions/reset", {
+        method: "POST",
+        body: JSON.stringify({
+          inventory_item_id: a.inventoryItemId,
+          ...(a.kind ? { kind: a.kind } : {}),
+        }),
+      }),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ["planner_overrides"] }),
+  });
+}
+
 // ── The plan (R1 03/12 .. 08/12, in the browser) ────────────────────
 
 /**
@@ -207,6 +421,10 @@ export interface PreparedPlan {
    * landed, the garment sold -- under yesterday's ranking.
    */
   takenAt: string;
+  /** What the seller set aside, so the page can say so rather than just omit. */
+  suppressed: PlanSuppressionNote[];
+  /** The corrections this plan was built with (US-3182). */
+  book: OverrideBook;
 }
 
 export interface BuildPlanArgs {
@@ -215,6 +433,31 @@ export interface BuildPlanArgs {
   availableTools: string[];
   hourlyTargetCents: number | null;
   now?: string;
+  /**
+   * The seller's corrections and set-asides (US-3182).
+   *
+   * Passed in rather than read here so buildPlan stays a function of its
+   * arguments: the same stock and the same book plan the same way, which is
+   * what makes "regenerate and see the difference" a thing a seller can
+   * trust.
+   */
+  book?: OverrideBook;
+  /** The seller's own finished-job history (US-3178). */
+  learned?: LearningResult | null;
+  /** The open session, so a skip applies to this sitting and no other. */
+  sessionId?: string | null;
+}
+
+/**
+ * What a correction did to the plan, for the row that carries it.
+ *
+ * Reported rather than applied quietly (AC2). A plan that quietly shrinks is
+ * a plan a seller thinks is broken.
+ */
+export interface PlanSuppressionNote {
+  itemId: string;
+  actionKey: string;
+  reason: "skip_session" | "snooze" | "dismiss";
 }
 
 /**
@@ -237,23 +480,64 @@ export async function buildPlan(args: BuildPlanArgs): Promise<PreparedPlan> {
   if (error) throw new Error(error.message);
   const items = (data ?? []) as unknown as ItemListRow[];
 
-  const candidates = candidatesFor(items, {
+  const now = args.now ?? new Date().toISOString();
+  const nowMs = Date.parse(now);
+  const book = args.book ?? emptyBook(now);
+
+  const allCandidates = candidatesFor(items, {
     workContext: args.workContext,
     availableTools: args.availableTools as never,
   });
 
+  // ── what the seller set aside (AC3) ───────────────────────────────
+  // ⚠ isUrgentCandidate is the RANKER'S own test, imported rather than
+  // rewritten. Two implementations of "urgent" would eventually disagree
+  // about one parcel on one evening, and that is the evening it matters.
+  const suppressed: PlanSuppressionNote[] = [];
+  const candidates = allCandidates.filter((c) => {
+    const verdict = suppressionVerdictFor(book, {
+      itemId: c.itemId,
+      actionKey: c.action,
+      sessionId: args.sessionId ?? null,
+      urgentShipping: isUrgentCandidate(c, Number.isFinite(nowMs) ? nowMs : 0),
+    });
+    if (!verdict.suppressed) return true;
+    suppressed.push({ itemId: c.itemId, actionKey: c.action, reason: verdict.reason });
+    return false;
+  });
+
   const byId = new Map(items.map((i) => [i.id, i]));
   const ranked = rankWork({
-    now: args.now ?? new Date().toISOString(),
+    now,
     budgetMinutes: args.budgetMinutes,
     workContext: args.workContext,
     availableTools: args.availableTools as never,
     hourlyTargetCents: args.hourlyTargetCents,
+    // Override, then learned, then default -- estimateDuration already
+    // implements that order, so the precedence lives in ONE place (AC4).
+    durationFor: ({ action, itemId }) =>
+      estimateDuration({
+        action,
+        overrideTypicalMinutes: minutesOverrideFor(book, itemId, String(action)),
+        learned: learnedTypicalFor(
+          args.learned ?? undefined,
+          String(action),
+          args.workContext,
+        ) ?? null,
+      }),
     tasks: candidates.map((c) => {
       const item = byId.get(c.itemId);
+      const corrected = valueOverrideFor(book, c.itemId);
       const value: ValueResult = estimateWorkValue({
         marketplace: item?.listing_platform ?? null,
-        evidence: item?.target_price != null
+        // A corrected range is the seller telling us what it SELLS for, so it
+        // enters as evidence at the conservative end -- the end the ranker
+        // sorts on. The high is kept in the book for the row to show; running
+        // it through the fee schedule a second time would widen a range the
+        // seller already narrowed.
+        evidence: corrected
+          ? { amountCents: corrected.lowCents, source: "seller_estimate", observedAt: now }
+          : item?.target_price != null
           ? {
             amountCents: Math.round(item.target_price * 100),
             source: "seller_estimate",
@@ -263,6 +547,10 @@ export async function buildPlan(args: BuildPlanArgs): Promise<PreparedPlan> {
         purchaseCents: item?.purchase_price != null
           ? Math.round(item.purchase_price * 100)
           : null,
+        // "What is still left to spend on this." It lands in spentCents
+        // because that is the field that DEDUCTS; the name is about when the
+        // money moved, and the planner only cares that it comes off.
+        spentCents: costOverrideFor(book, c.itemId),
       });
       return {
         candidate: c,
@@ -281,7 +569,7 @@ export async function buildPlan(args: BuildPlanArgs): Promise<PreparedPlan> {
   });
 
   const plan = schedulePlan({
-    now: args.now ?? new Date().toISOString(),
+    now,
     budgetMinutes: args.budgetMinutes,
     ranked: batched.ordered,
   });
@@ -293,9 +581,11 @@ export async function buildPlan(args: BuildPlanArgs): Promise<PreparedPlan> {
     groups: batched.groups,
     pullList: batched.pullList,
     budgetMinutes: args.budgetMinutes,
-    takenAt: args.now ?? new Date().toISOString(),
+    takenAt: now,
     itemsRead: items.length,
     truncated: items.length >= PLAN_ITEM_LIMIT,
+    suppressed,
+    book,
   };
 }
 

@@ -50,6 +50,20 @@ vi.mock("@/hooks/use-planner", async () => {
       refetch: vi.fn(),
     }),
     useStartSession: () => ({ mutateAsync: startSessionMock, isPending: false }),
+    // US-3182. The correction panel has its own suite; here it is held at
+    // "nothing corrected" so these cases keep testing the plan.
+    useWorkOverrides: () => ({
+      data: { overrides: [], suppressions: [], now: "2026-09-21T11:00:00.000Z" },
+      refetch: () =>
+        Promise.resolve({
+          data: { overrides: [], suppressions: [], now: "2026-09-21T11:00:00.000Z" },
+        }),
+    }),
+    useLearnedDurations: () => ({ data: undefined }),
+    useSaveOverride: () => ({ mutateAsync: vi.fn(), isPending: false }),
+    useResetOverride: () => ({ mutateAsync: vi.fn(), isPending: false }),
+    useSuppress: () => ({ mutateAsync: vi.fn(), isPending: false }),
+    useResetSuppression: () => ({ mutateAsync: vi.fn(), isPending: false }),
   };
 });
 
@@ -105,6 +119,9 @@ function plan(over: Record<string, unknown> = {}) {
     truncated: false,
     budgetMinutes: 30,
     takenAt: "2026-09-21T11:00:00.000Z",
+    // US-3182: the corrections the plan was built with, and what they hid.
+    suppressed: [],
+    book: { overrides: [], suppressions: [], now: "2026-09-21T11:00:00.000Z" },
     ...over,
   };
 }

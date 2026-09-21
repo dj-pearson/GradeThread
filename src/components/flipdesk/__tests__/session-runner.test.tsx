@@ -36,6 +36,15 @@ vi.mock("@/hooks/use-planner", async () => {
     useWorkPreferences: () => ({ data: workPrefs, isError: false }),
     useSessionAction: () => ({ mutateAsync: sessionMutate, isPending: false }),
     useTaskAction: () => ({ mutateAsync: taskMutate, isPending: false }),
+    // US-3182. The correction panel has its own suite; held at "nothing
+    // corrected" here so these cases stay about the session.
+    useWorkOverrides: () => ({
+      data: { overrides: [], suppressions: [], now: "2026-09-21T11:00:00.000Z" },
+    }),
+    useSaveOverride: () => ({ mutateAsync: vi.fn(), isPending: false }),
+    useResetOverride: () => ({ mutateAsync: vi.fn(), isPending: false }),
+    useSuppress: () => ({ mutateAsync: vi.fn(), isPending: false }),
+    useResetSuppression: () => ({ mutateAsync: vi.fn(), isPending: false }),
   };
 });
 

@@ -599,6 +599,7 @@ if (on("db")) {
     run(
       "db: work sessions hold under concurrency and erasure (US-3167)",
       "node scripts/check-work-session-storage.mjs",
+      "node scripts/check-work-override-storage.mjs",
     );
     // US-2670: both disputes INSERT policies must check who owns the GRADE
     // REPORT, not only that user_id matches the caller. The suite case for this

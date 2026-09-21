@@ -200,8 +200,15 @@ Deno.test("AC3: every read and write is scoped on the owner", () => {
   assert(calls.length >= 8, `expected several queries, found ${calls.length}`);
   for (const call of calls) {
     const window = code.slice(call.index!, call.index! + 600);
+    // Two spellings, because two shapes of table exist here: the shared
+    // FlipDesk tables own the seller as `user_id`, and a deny-all planner
+    // table names it `owner_user_id` (the migrations skill requires that
+    // name, so rls-guard's discovery does not mistake it for a tenant table).
+    // Both ARE the owner predicate; neither is a weakening of this check.
     assert(
-      window.includes('.eq("user_id"') || window.includes("user_id:"),
+      window.includes('.eq("user_id"') ||
+        window.includes('.eq("owner_user_id"') ||
+        window.includes("user_id:"),
       `a ${call[1]} query has no owner predicate near it`,
     );
   }

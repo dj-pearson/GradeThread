@@ -1,0 +1,417 @@
+// Worth My Time, R2 05/06 (US-3182): the controls a seller corrects us with.
+//
+// ── A NATIVE DISCLOSURE, NOT A MODAL (AC7) ──────────────────────────────────
+// A <details>, the same choice WhyThisTask made and for the same reasons: it
+// is reachable and operable from the keyboard with no handler of ours, it
+// announces its own state to a screen reader, and it degrades to open markup
+// when styles fail. A dialog here would also steal focus from a seller who is
+// halfway down a list with a garment in one hand.
+//
+// ── THE DIFFERENCE IS SHOWN BEFORE IT IS SAVED (AC2) ────────────────────────
+// Typing a new number recomputes what the plan would say and prints it under
+// the field. A seller who corrects one duration and finds three other jobs
+// gone has been given a different plan without being asked, and the next
+// thing they do is stop correcting things.
+//
+// ── NOTHING HERE TOUCHES THE ITEM (AC1) ─────────────────────────────────────
+// Every control on this panel writes to the planner's own tables through
+// /planner/overrides and /planner/suppressions. No price, no grade, no
+// status, nothing the books read. The garment's own screens own those.
+
+import { useState } from "react";
+import { Loader2 } from "lucide-react";
+import { toast } from "sonner";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { toastError } from "@/lib/toast-error";
+import {
+  useResetOverride,
+  useResetSuppression,
+  useSaveOverride,
+  useSuppress,
+} from "@/hooks/use-planner";
+import {
+  costOverrideFor,
+  decideMinutes,
+  differenceFromOverride,
+  minutesOverrideFor,
+  suppressionVerdictFor,
+  validateOverride,
+  valueOverrideFor,
+  type OverrideBook,
+  type OverrideKind,
+  type SuppressionKind,
+} from "@/lib/work-overrides";
+import {
+  OVERRIDE_ERROR_COPY,
+  SNOOZE_EXPIRED_COPY,
+  SUPPRESSION_COPY,
+  SUPPRESSION_STATE_COPY,
+  URGENT_OVERRIDES_SUPPRESSION_COPY,
+} from "@/lib/work-overrides-copy";
+
+function dollars(cents: number | null | undefined): string {
+  if (cents == null) return "";
+  return (cents / 100).toFixed(2);
+}
+
+/** Dollars typed by a person, as whole cents. NaN stays NaN for validation. */
+function toCents(text: string): number {
+  const n = Number(text.trim());
+  return Number.isFinite(n) ? Math.round(n * 100) : Number.NaN;
+}
+
+function Errors({ codes }: { codes: readonly string[] }) {
+  if (codes.length === 0) return null;
+  return (
+    <ul role="alert" className="text-xs text-destructive">
+      {codes.map((c) => (
+        <li key={c}>
+          {OVERRIDE_ERROR_COPY[c as keyof typeof OVERRIDE_ERROR_COPY] ?? c}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+export interface TaskCorrectionsProps {
+  itemId: string;
+  actionKey: string;
+  /** What the planner says today, before any correction. Null when unknown. */
+  estimateMinutes: number | null;
+  /** Everything the seller has already corrected or set aside. */
+  book: OverrideBook;
+  /** Minutes still unspent in the plan on screen, for the fit warning. */
+  remainingBudgetMinutes: number;
+  /** The open session, so a skip applies to this sitting and no other. */
+  sessionId?: string | null;
+  /** True when the ranker calls this an urgent shipment (AC3). */
+  urgentShipping?: boolean;
+  /** Fired after any change lands, so the page can offer a fresh plan. */
+  onChanged?: () => void;
+}
+
+export function TaskCorrections({
+  itemId,
+  actionKey,
+  estimateMinutes,
+  book,
+  remainingBudgetMinutes,
+  sessionId,
+  urgentShipping,
+  onChanged,
+}: TaskCorrectionsProps) {
+  const savedMinutes = minutesOverrideFor(book, itemId, actionKey);
+  const savedValue = valueOverrideFor(book, itemId);
+  const savedCost = costOverrideFor(book, itemId);
+  const verdict = suppressionVerdictFor(book, {
+    itemId,
+    actionKey,
+    sessionId,
+    urgentShipping,
+  });
+  // What the row says regardless of the urgent override, so a seller can put
+  // a snooze back even on the evening the parcel outranked it.
+  const parked = suppressionVerdictFor(book, { itemId, actionKey, sessionId });
+
+  const [minutes, setMinutes] = useState(savedMinutes != null ? String(savedMinutes) : "");
+  const [low, setLow] = useState(dollars(savedValue?.lowCents));
+  const [high, setHigh] = useState(dollars(savedValue?.highCents));
+  const [cost, setCost] = useState(dollars(savedCost));
+  const [errors, setErrors] = useState<Record<string, string[]>>({});
+
+  const save = useSaveOverride();
+  const reset = useResetOverride();
+  const suppress = useSuppress();
+  const unsuppress = useResetSuppression();
+  const busy = save.isPending || reset.isPending || suppress.isPending ||
+    unsuppress.isPending;
+
+  // AC2: what the plan WOULD say, computed as the seller types and printed
+  // before anything is written.
+  const typedMinutes = minutes.trim() === "" ? Number.NaN : Number(minutes);
+  const preview = Number.isFinite(typedMinutes) && typedMinutes > 0 &&
+      estimateMinutes != null
+    ? differenceFromOverride({
+      key: `${itemId}:${actionKey}`,
+      decision: decideMinutes({
+        overrideMinutes: typedMinutes,
+        learnedMinutes: null,
+        defaultMinutes: estimateMinutes,
+      }),
+      remainingBudgetMinutes,
+    })
+    : null;
+
+  function setError(kind: OverrideKind, codes: string[]) {
+    setErrors((e) => ({ ...e, [kind]: codes }));
+  }
+
+  async function commit(kind: OverrideKind, args: Record<string, number>) {
+    const value = kind === "value_range"
+      ? { lowCents: args.lowCents, highCents: args.highCents }
+      : { amount: args.amountMinutes ?? args.amountCents };
+    const checked = validateOverride(kind, value);
+    if (!checked.ok) {
+      setError(kind, checked.errors);
+      return;
+    }
+    setError(kind, []);
+    try {
+      await save.mutateAsync({
+        inventoryItemId: itemId,
+        // Minutes are about THIS step; money is about the garment. Scoping a
+        // price to "photograph" would hide it from every other task on the
+        // same item.
+        actionKey: kind === "task_minutes" ? actionKey : null,
+        kind,
+        ...args,
+        original: kind === "task_minutes" ? { amount: estimateMinutes } : null,
+      });
+      toast.success("Saved. Build a new plan to use it.");
+      onChanged?.();
+    } catch (err) {
+      toastError(err, "Couldn't save that correction.");
+    }
+  }
+
+  async function clear(kind: OverrideKind) {
+    try {
+      await reset.mutateAsync({
+        inventoryItemId: itemId,
+        actionKey: kind === "task_minutes" ? actionKey : null,
+        kind,
+      });
+      if (kind === "task_minutes") setMinutes("");
+      if (kind === "value_range") { setLow(""); setHigh(""); }
+      if (kind === "remaining_cost") setCost("");
+      setError(kind, []);
+      toast.success("Back to our estimate.");
+      onChanged?.();
+    } catch (err) {
+      toastError(err, "Couldn't reset that.");
+    }
+  }
+
+  async function setAside(kind: SuppressionKind) {
+    try {
+      await suppress.mutateAsync({
+        inventoryItemId: itemId,
+        actionKey: kind === "dismiss" ? null : actionKey,
+        kind,
+        sessionId: kind === "skip_session" ? sessionId ?? null : null,
+      });
+      toast.success(SUPPRESSION_STATE_COPY[kind]);
+      onChanged?.();
+    } catch (err) {
+      toastError(err, "Couldn't set that aside.");
+    }
+  }
+
+  async function putBack() {
+    try {
+      await unsuppress.mutateAsync({ inventoryItemId: itemId });
+      toast.success("Back on the list.");
+      onChanged?.();
+    } catch (err) {
+      toastError(err, "Couldn't undo that.");
+    }
+  }
+
+  return (
+    <details className="text-xs">
+      <summary className="cursor-pointer underline">Change or set aside</summary>
+      <div className="mt-2 w-72 space-y-4 rounded-lg bg-muted/50 p-3 text-left">
+        {/* AC3: the one line that has to be right. */}
+        {verdict.reason === "urgent_shipping_overrides_suppression" && (
+          <p role="status" className="font-medium">
+            {URGENT_OVERRIDES_SUPPRESSION_COPY}
+          </p>
+        )}
+        {verdict.reason === "snooze_expired" && <p>{SNOOZE_EXPIRED_COPY}</p>}
+
+        <div className="space-y-1.5">
+          <Label htmlFor={`min-${itemId}-${actionKey}`}>
+            How long does this really take?
+          </Label>
+          <div className="flex gap-2">
+            <Input
+              id={`min-${itemId}-${actionKey}`}
+              className="w-20"
+              inputMode="numeric"
+              placeholder={estimateMinutes != null ? String(estimateMinutes) : "20"}
+              value={minutes}
+              onChange={(e) => setMinutes(e.target.value)}
+            />
+            <Button
+              size="sm"
+              disabled={busy || minutes.trim() === ""}
+              onClick={() =>
+                void commit("task_minutes", { amountMinutes: Number(minutes) })}
+            >
+              Save
+            </Button>
+            {savedMinutes != null && (
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={busy}
+                onClick={() => void clear("task_minutes")}
+              >
+                Use our estimate
+              </Button>
+            )}
+          </div>
+          <Errors codes={errors.task_minutes ?? []} />
+          {preview && preview.beforeMinutes !== preview.afterMinutes && (
+            <p className="text-muted-foreground">
+              We said about {preview.beforeMinutes} min. You're saying{" "}
+              {preview.afterMinutes}.
+              {preview.nowDoesNotFit
+                ? " That's more than the time left in this plan."
+                : ""}
+            </p>
+          )}
+        </div>
+
+        <div className="space-y-1.5">
+          <Label htmlFor={`low-${itemId}`}>What do you think it sells for?</Label>
+          <div className="flex items-center gap-2">
+            <Input
+              id={`low-${itemId}`}
+              className="w-20"
+              inputMode="decimal"
+              placeholder="30"
+              value={low}
+              onChange={(e) => setLow(e.target.value)}
+            />
+            <span className="text-muted-foreground">to</span>
+            <Input
+              aria-label="Highest it sells for, in dollars"
+              className="w-20"
+              inputMode="decimal"
+              placeholder="50"
+              value={high}
+              onChange={(e) => setHigh(e.target.value)}
+            />
+          </div>
+          <div className="flex gap-2">
+            <Button
+              size="sm"
+              disabled={busy || low.trim() === "" || high.trim() === ""}
+              onClick={() =>
+                void commit("value_range", {
+                  lowCents: toCents(low),
+                  highCents: toCents(high),
+                })}
+            >
+              Save
+            </Button>
+            {savedValue && (
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={busy}
+                onClick={() => void clear("value_range")}
+              >
+                Use our estimate
+              </Button>
+            )}
+          </div>
+          <Errors codes={errors.value_range ?? []} />
+          {/* AC1, said out loud where a seller can read it. */}
+          <p className="text-muted-foreground">
+            Planning only. It doesn't change your listing price.
+          </p>
+        </div>
+
+        <div className="space-y-1.5">
+          <Label htmlFor={`cost-${itemId}`}>Anything left to spend on it?</Label>
+          <div className="flex gap-2">
+            <Input
+              id={`cost-${itemId}`}
+              className="w-20"
+              inputMode="decimal"
+              placeholder="0"
+              value={cost}
+              onChange={(e) => setCost(e.target.value)}
+            />
+            <Button
+              size="sm"
+              disabled={busy || cost.trim() === ""}
+              onClick={() =>
+                void commit("remaining_cost", { amountCents: toCents(cost) })}
+            >
+              Save
+            </Button>
+            {savedCost != null && (
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={busy}
+                onClick={() => void clear("remaining_cost")}
+              >
+                Use our estimate
+              </Button>
+            )}
+          </div>
+          <Errors codes={errors.remaining_cost ?? []} />
+        </div>
+
+        <div className="space-y-1.5">
+          <p className="font-medium">Not now</p>
+          {parked.suppressed ? (
+            <div className="space-y-1.5">
+              <p className="text-muted-foreground">
+                {SUPPRESSION_STATE_COPY[parked.reason]}
+              </p>
+              <Button size="sm" variant="outline" disabled={busy} onClick={() => void putBack()}>
+                Put it back
+              </Button>
+            </div>
+          ) : (
+            <div className="flex flex-wrap gap-2">
+              {sessionId && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={busy}
+                  onClick={() => void setAside("skip_session")}
+                >
+                  {SUPPRESSION_COPY.skip_session}
+                </Button>
+              )}
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={busy}
+                onClick={() => void setAside("snooze")}
+              >
+                {SUPPRESSION_COPY.snooze}
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={busy}
+                onClick={() => void setAside("dismiss")}
+              >
+                {SUPPRESSION_COPY.dismiss}
+              </Button>
+            </div>
+          )}
+          {/* AC3: nothing here sells, archives or deletes anything. */}
+          <p className="text-muted-foreground">
+            Setting aside only hides the suggestion. Your item stays where it is.
+          </p>
+        </div>
+
+        {busy && (
+          <p className="flex items-center gap-1 text-muted-foreground">
+            <Loader2 className="h-3 w-3 animate-spin" /> Saving
+          </p>
+        )}
+      </div>
+    </details>
+  );
+}

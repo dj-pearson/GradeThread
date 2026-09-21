@@ -72,6 +72,75 @@ stronger claim for one of them, `check-prod-migration.ts` is the tool.
 Nothing below 00786 was touched, and the six genuinely-held branches in the next
 section are unchanged and still waiting.
 
+## 🔴 HELD: 00820_work_overrides.sql (US-3182 - Worth My Time R2 05/06)
+
+**EXECUTED 2026-09-21 against a local Postgres 16** carrying all 812
+migrations from zero, with `ON_ERROR_STOP=1`. Applied twice; the second run
+logged `already exists, skipping` and changed nothing.
+
+**What it does.** Two new tables, `flipdesk_work_overrides` and
+`flipdesk_work_suppressions`, holding what a seller corrects about the
+planner's estimates and what they set aside. Deny-all RLS on both, owner
+column `owner_user_id`, FK to `inventory_items` with `ON DELETE CASCADE`, and
+a CHECK per table fixing the shape each `kind` may take.
+
+**Risk: LOW.** Nothing existing is read, written, dropped or altered. The only
+reference to an existing table is the FK, which adds nothing to that table's
+own deletes beyond removing rows in the new ones.
+
+**⚠ IT NEEDS POSTGRES 15 OR NEWER, and that is the one thing to check before
+applying.** Both unique indexes are declared `NULLS NOT DISTINCT`:
+
+```sql
+CREATE UNIQUE INDEX IF NOT EXISTS uq_work_overrides_scope
+  ON public.flipdesk_work_overrides
+    (owner_user_id, inventory_item_id, action_key, kind)
+  NULLS NOT DISTINCT;
+```
+
+`action_key` is NULL for an item-wide correction, and on Postgres 14 or below
+every NULL is distinct, so the index would not collide and a seller could
+accumulate a new row on every save. Prod is Postgres 17, so this applies; the
+version is named here because the failure is silent rather than loud.
+
+**The first draft used an expression index and had to be rewritten.** It
+spelled the same rule as `coalesce(action_key, '')`, which works as a
+constraint and cannot be named by PostgREST's `on_conflict`, so every upsert
+answered `42P10 there is no unique or exclusion constraint matching the ON
+CONFLICT specification`. Found by running the routes against a real stack, not
+by any test.
+
+**Code in the same commit READS these tables from the edge**
+(`/api/flipdesk/planner/overrides` and `/planner/suppressions`, five routes).
+The frontend calls them from the Worth My Time screen. Until this applies,
+those routes answer a 500 and the correction panel shows its error state; the
+plan itself still builds, because a failed read leaves an empty book rather
+than blocking.
+
+**Apply order:** after 00819. Then `NOTIFY pgrst, 'reload schema';` - the new
+tables are unreachable through PostgREST until it reloads.
+
+**Readback after applying:**
+
+```sql
+-- both tables exist, deny-all, with the two NULLS NOT DISTINCT indexes
+select relname, relrowsecurity
+  from pg_class
+ where relname in ('flipdesk_work_overrides', 'flipdesk_work_suppressions');
+-- expect two rows, relrowsecurity = t for both
+
+select indexrelid::regclass as index, indnullsnotdistinct
+  from pg_index
+ where indexrelid::regclass::text in
+       ('uq_work_overrides_scope', 'uq_work_suppressions_scope');
+-- expect two rows, indnullsnotdistinct = t for both
+
+select count(*) from pg_policies
+ where tablename in ('flipdesk_work_overrides', 'flipdesk_work_suppressions');
+-- expect 0: deny-all means no policy at all, and the edge reaches them
+-- service-role through owner-verified routes
+```
+
 ## 🔴 HELD: 00819_one_open_work_session.sql (US-3177 - Worth My Time R1 12/12)
 
 **Fixes a defect in 00818, which is also still held — so the two land

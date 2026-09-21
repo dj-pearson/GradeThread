@@ -351,6 +351,21 @@ const REGISTRY: Record<string, readonly Site[]> = {
         "declares it date-time, so the API promises an instant too.",
     },
   ],
+  // US-3179: the Worth My Time outcome read. A projection into a JSON
+  // response, never a write -- and it makes the SAME coalesce the rest of the
+  // tree makes, so a sale recorded as a bare calendar day reads back as that
+  // day rather than as a missing sale. Nothing here invents a time of day.
+  "services/edge-functions/src/routes/flipdesk-planner.ts": [
+    {
+      text: "sold_at: s.sold_at ?? s.sale_date ?? null,",
+      kind: "read",
+      why:
+        "COALESCE(sales.sold_at, sales.sale_date), the same order items_full " +
+        "uses. The planner's results view only ever compares it to a date " +
+        "range, so a bare day is sufficient and a fabricated instant would " +
+        "be worse than one.",
+    },
+  ],
   "services/edge-functions/src/lib/api-listings.ts": [
     { text: "sold_at: string | null;", kind: "shape" },
     { text: "sold_at: (row.sale_date as string | null) ?? null,", kind: "read" },

@@ -503,6 +503,262 @@ flipdeskPlannerRoutes.post("/sessions", async (c) => {
 
 // ── GET /sessions/current ─────────────────────────────────────────
 
+// ── Overrides and suppressions (R2 05/06, US-3182) ────────────────
+
+const OVERRIDE_KINDS = ["task_minutes", "value_range", "remaining_cost"] as const;
+const SUPPRESSION_KINDS = ["skip_session", "snooze", "dismiss"] as const;
+
+/** Bounded like every other list read here. */
+const MAX_OVERRIDE_ROWS = 500;
+
+const OVERRIDE_COLUMNS =
+  "id, inventory_item_id, action_key, kind, amount_minutes, amount_cents, low_cents, high_cents, original_json, source, updated_at";
+const SUPPRESSION_COLUMNS =
+  "id, inventory_item_id, action_key, kind, session_id, until, created_at";
+
+/**
+ * The item is the seller's, or nothing happens.
+ *
+ * ⚠ THE ONE CHECK THIS WHOLE FEATURE TURNS ON (US-268). Every override and
+ * every suppression names an inventory item id that came out of a request
+ * body. Without this, a caller could suppress another tenant's shipping
+ * obligation -- a row that makes somebody else miss a deadline -- or write a
+ * planner number against a garment they have never seen.
+ */
+async function ownsItem(ownerId: string, itemId: string): Promise<boolean> {
+  if (!itemId) return false;
+  const { data } = await supabaseAdmin
+    .from("inventory_items")
+    .select("id")
+    .eq("id", itemId)
+    .eq("user_id", ownerId) // US-268
+    .maybeSingle();
+  return data !== null;
+}
+
+/** Everything the seller has corrected or set aside. */
+flipdeskPlannerRoutes.get("/overrides", async (c) => {
+  const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
+  const [ovr, sup] = await Promise.all([
+    supabaseAdmin
+      .from("flipdesk_work_overrides")
+      .select(OVERRIDE_COLUMNS)
+      .eq("owner_user_id", ownerId) // US-268
+      .limit(MAX_OVERRIDE_ROWS),
+    supabaseAdmin
+      .from("flipdesk_work_suppressions")
+      .select(SUPPRESSION_COLUMNS)
+      .eq("owner_user_id", ownerId) // US-268
+      .limit(MAX_OVERRIDE_ROWS),
+  ]);
+  if (ovr.error || sup.error) {
+    return failSafe(
+      c, 500, "Couldn't read your corrections.",
+      ovr.error ?? sup.error, "planner.overrides.read",
+    );
+  }
+  return c.json({
+    overrides: ovr.data ?? [],
+    suppressions: sup.data ?? [],
+    // Server time, so the client's snooze arithmetic is not done against a
+    // clock the seller could be a day wrong about.
+    now: new Date().toISOString(),
+  });
+});
+
+/**
+ * Record a correction.
+ *
+ * ⚠ IT WRITES TO flipdesk_work_overrides AND TO NOTHING ELSE. A seller saying
+ * "this is worth $40 for planning" must never touch
+ * inventory_items.target_price, a grade report or anything the books read
+ * (AC1). Those have their own screens and their own consequences.
+ */
+flipdeskPlannerRoutes.put("/overrides", async (c) => {
+  const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
+  let body: Record<string, unknown> = {};
+  try {
+    body = (await c.req.json()) as Record<string, unknown>;
+  } catch {
+    return jsonError(c, 400, "That correction wasn't readable.");
+  }
+
+  const itemId = str(body.inventory_item_id);
+  const kind = str(body.kind);
+  if (!itemId) return jsonError(c, 400, "A correction needs an item.");
+  if (!kind || !(OVERRIDE_KINDS as readonly string[]).includes(kind)) {
+    return jsonError(c, 400, `Unknown correction: ${String(body.kind)}.`);
+  }
+  if (!(await ownsItem(ownerId, itemId))) {
+    // 404 rather than 403: a caller probing another tenant's ids learns
+    // nothing from "not found" that they did not already know.
+    return jsonError(c, 404, "Item not found.");
+  }
+
+  const minutes = nonNegativeInt(body.amount_minutes);
+  const cents = nonNegativeInt(body.amount_cents);
+  const low = nonNegativeInt(body.low_cents);
+  const high = nonNegativeInt(body.high_cents);
+
+  // The SHAPE is checked here and again by 00820's CHECK constraint. Two
+  // layers guarding one rule is fine; this one produces a sentence a seller
+  // can read, and the constraint is what holds under a caller that is not
+  // this route.
+  if (kind === "task_minutes" && (minutes === null || minutes <= 0)) {
+    return jsonError(c, 400, "Tell us how many minutes, as a whole number above zero.");
+  }
+  if (kind === "remaining_cost" && cents === null) {
+    return jsonError(c, 400, "Tell us the cost in cents, or zero if there is none.");
+  }
+  if (kind === "value_range" && (low === null || high === null || low > high)) {
+    return jsonError(c, 400, "A range needs a low and a high, with the low first.");
+  }
+
+  const row = {
+    inventory_item_id: itemId,
+    action_key: str(body.action_key),
+    kind,
+    amount_minutes: kind === "task_minutes" ? minutes : null,
+    amount_cents: kind === "remaining_cost" ? cents : null,
+    low_cents: kind === "value_range" ? low : null,
+    high_cents: kind === "value_range" ? high : null,
+    // WHAT IT REPLACED (AC2). Without it "reset to our estimate" has nothing
+    // to reset to, and a seller who corrected a number in March has no way
+    // back. Stored as the client saw it, because that is what they overrode.
+    original_json: body.original ?? null,
+    source: "seller",
+  };
+
+  const { data, error } = await supabaseAdmin
+    .from("flipdesk_work_overrides")
+    // US-268: the owner is written AT THE CALL, from the request context and
+    // never from the body. Inline rather than folded into `row` so the
+    // predicate is where a reader -- and the source guard in
+    // flipdesk-planner_test.ts -- looks for it.
+    .upsert({ owner_user_id: ownerId, ...row }, {
+      onConflict: "owner_user_id,inventory_item_id,action_key,kind",
+    })
+    .select(OVERRIDE_COLUMNS)
+    .maybeSingle();
+  if (error) {
+    return failSafe(c, 500, "Couldn't save that correction.", error, "planner.overrides.write");
+  }
+  return c.json({ override: data });
+});
+
+/** Reset to our estimate (AC1). Deletes the correction, keeps nothing behind. */
+flipdeskPlannerRoutes.post("/overrides/reset", async (c) => {
+  const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
+  let body: Record<string, unknown> = {};
+  try {
+    body = (await c.req.json()) as Record<string, unknown>;
+  } catch {
+    return jsonError(c, 400, "That reset wasn't readable.");
+  }
+  const itemId = str(body.inventory_item_id);
+  const kind = str(body.kind);
+  if (!itemId || !kind) return jsonError(c, 400, "A reset needs an item and a kind.");
+  if (!(await ownsItem(ownerId, itemId))) return jsonError(c, 404, "Item not found.");
+
+  // US-1552: no .or() on a mutation. The self-hosted PostgREST rejects
+  // logical operators on an UPDATE or DELETE with a 42703 that names the
+  // update-CTE alias, while the newer local stack accepts them -- so CI
+  // cannot catch it. Sequential equality predicates instead.
+  const action = str(body.action_key);
+  let q = supabaseAdmin
+    .from("flipdesk_work_overrides")
+    .delete()
+    .eq("owner_user_id", ownerId) // US-268
+    .eq("inventory_item_id", itemId)
+    .eq("kind", kind);
+  q = action === null ? q.is("action_key", null) : q.eq("action_key", action);
+  const { error } = await q;
+  if (error) {
+    return failSafe(c, 500, "Couldn't reset that.", error, "planner.overrides.reset");
+  }
+  return c.json({ ok: true });
+});
+
+/** Set a task aside: skip this session, snooze it, or dismiss it (AC3). */
+flipdeskPlannerRoutes.post("/suppressions", async (c) => {
+  const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
+  let body: Record<string, unknown> = {};
+  try {
+    body = (await c.req.json()) as Record<string, unknown>;
+  } catch {
+    return jsonError(c, 400, "That wasn't readable.");
+  }
+  const itemId = str(body.inventory_item_id);
+  const kind = str(body.kind);
+  if (!itemId) return jsonError(c, 400, "This needs an item.");
+  if (!kind || !(SUPPRESSION_KINDS as readonly string[]).includes(kind)) {
+    return jsonError(c, 400, `Unknown action: ${String(body.kind)}.`);
+  }
+  if (!(await ownsItem(ownerId, itemId))) return jsonError(c, 404, "Item not found.");
+
+  let sessionId: string | null = null;
+  if (kind === "skip_session") {
+    sessionId = str(body.session_id);
+    if (!sessionId) return jsonError(c, 400, "A skip needs the session it applies to.");
+    // The session must be the seller's too. A skip against somebody else's
+    // session id would be a row nobody could explain.
+    const owned = await loadOwnedSession(ownerId, sessionId);
+    if (!owned) return jsonError(c, 404, "Session not found.");
+  }
+
+  // THE SNOOZE CLOCK IS THE SERVER'S. A client-supplied `until` is a client
+  // choosing how long it is snoozed for, which is a nine-year snooze away
+  // from being a dismissal nobody asked for.
+  const until = kind === "snooze"
+    ? new Date(Date.now() + 7 * 86_400_000).toISOString()
+    : null;
+
+  const { data, error } = await supabaseAdmin
+    .from("flipdesk_work_suppressions")
+    .upsert({
+      owner_user_id: ownerId, // US-268
+      inventory_item_id: itemId,
+      action_key: str(body.action_key),
+      kind,
+      session_id: sessionId,
+      until,
+    }, { onConflict: "owner_user_id,inventory_item_id,action_key,kind,session_id" })
+    .select(SUPPRESSION_COLUMNS)
+    .maybeSingle();
+  if (error) {
+    return failSafe(c, 500, "Couldn't save that.", error, "planner.suppressions.write");
+  }
+  return c.json({ suppression: data });
+});
+
+/** Undo a skip, snooze or dismissal. */
+flipdeskPlannerRoutes.post("/suppressions/reset", async (c) => {
+  const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
+  let body: Record<string, unknown> = {};
+  try {
+    body = (await c.req.json()) as Record<string, unknown>;
+  } catch {
+    return jsonError(c, 400, "That wasn't readable.");
+  }
+  const itemId = str(body.inventory_item_id);
+  if (!itemId) return jsonError(c, 400, "This needs an item.");
+  if (!(await ownsItem(ownerId, itemId))) return jsonError(c, 404, "Item not found.");
+
+  // US-1552 again: equality predicates only, never .or() on a delete.
+  const kind = str(body.kind);
+  let q = supabaseAdmin
+    .from("flipdesk_work_suppressions")
+    .delete()
+    .eq("owner_user_id", ownerId) // US-268
+    .eq("inventory_item_id", itemId);
+  if (kind !== null) q = q.eq("kind", kind);
+  const { error } = await q;
+  if (error) {
+    return failSafe(c, 500, "Couldn't undo that.", error, "planner.suppressions.reset");
+  }
+  return c.json({ ok: true });
+});
+
 // ── GET /outcomes ─────────────────────────────────────────────────
 
 /** Bounded like every other list read here (US-3179 AC5). */

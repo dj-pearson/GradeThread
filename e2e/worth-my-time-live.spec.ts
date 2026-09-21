@@ -254,3 +254,265 @@ test("live: usable at 375px with no horizontal scroll", async ({ page }) => {
   expect(overflow).toBeLessThanOrEqual(1);
   await clearSessions(page);
 });
+
+// ── R2 05/06 (US-3182): correcting and setting aside ─────────────────────────
+//
+// Same stack, same rules: the corrections are written by the edge into
+// Postgres and read back through the API, and the plan is rebuilt from them.
+// The one exception is the error case at the bottom, which aborts a single
+// request on purpose because there is no honest way to make a live route fail
+// from the UI; it is marked where it happens.
+
+/** Leave no correction behind, for the same reason clearSessions exists. */
+async function clearCorrections(page: Page) {
+  await page.evaluate(async (edge) => {
+    const raw = Object.keys(localStorage)
+      .filter((k) => k.includes("auth-token"))
+      .map((k) => localStorage.getItem(k))
+      .find(Boolean);
+    if (!raw) return;
+    const token = JSON.parse(raw).access_token as string;
+    const h = { Authorization: `Bearer ${token}`, "Content-Type": "application/json" };
+    const res = await fetch(`${edge}/api/flipdesk/planner/overrides`, { headers: h });
+    if (!res.ok) return;
+    const body = await res.json();
+    const ids = new Set<string>([
+      ...(body.overrides ?? []).map((o: { inventory_item_id: string }) => o.inventory_item_id),
+      ...(body.suppressions ?? []).map((s: { inventory_item_id: string }) => s.inventory_item_id),
+    ]);
+    for (const id of ids) {
+      for (const kind of ["task_minutes", "value_range", "remaining_cost"]) {
+        await fetch(`${edge}/api/flipdesk/planner/overrides/reset`, {
+          method: "POST",
+          headers: h,
+          body: JSON.stringify({ inventory_item_id: id, kind }),
+        });
+      }
+      await fetch(`${edge}/api/flipdesk/planner/suppressions/reset`, {
+        method: "POST",
+        headers: h,
+        body: JSON.stringify({ inventory_item_id: id }),
+      });
+    }
+  }, EDGE!);
+}
+
+/**
+ * The plan's own list.
+ *
+ * NOT `page.locator("ol")`: sonner renders its toaster as an <ol> as well, so
+ * a bare selector is a strict-mode violation the moment a toast appears --
+ * which is exactly when these tests look.
+ */
+function planList(page: Page) {
+  return page.getByRole("region", { name: /jobs?, about \d+ minutes/ }).locator("ol");
+}
+
+/** One item's own row, straight from PostgREST under the seller's own RLS. */
+async function readItem(page: Page, id: string) {
+  return await page.evaluate(async ([supa, itemId]) => {
+    const raw = Object.keys(localStorage)
+      .filter((k) => k.includes("auth-token"))
+      .map((k) => localStorage.getItem(k))
+      .find(Boolean);
+    const token = JSON.parse(raw!).access_token as string;
+    const res = await fetch(
+      `${supa}/rest/v1/inventory_items?id=eq.${itemId}&select=id,status,title,target_price`,
+      { headers: { Authorization: `Bearer ${token}`, apikey: token } },
+    );
+    const rows = await res.json();
+    // LOUD, not undefined. The first version selected a column that is not on
+    // this table, PostgREST answered a 42703 object, `rows[0]` was undefined,
+    // and `expect(after).toEqual(before)` then compared undefined with
+    // undefined and passed. A read that cannot read must say so.
+    if (!Array.isArray(rows) || rows.length !== 1) {
+      throw new Error(`item read failed: ${JSON.stringify(rows)}`);
+    }
+    return rows[0] as Record<string, unknown>;
+  }, [SUPA!, id] as const);
+}
+
+async function planFor(page: Page, minutes = "30 minutes") {
+  await page.goto("/dashboard/flipdesk/worth-my-time");
+  await dismissOverlays(page);
+  await page.getByRole("button", { name: minutes }).click();
+  await expect(page.getByRole("heading", { name: /jobs?, about \d+ minutes/ }))
+    .toBeVisible({ timeout: 15_000 });
+}
+
+test("live: a correction is stored, survives a reload and changes the next plan", async ({ page }) => {
+  await signIn(page);
+  await clearSessions(page);
+  await clearCorrections(page);
+  await planFor(page);
+
+  const firstRow = planList(page).locator("> li").first();
+  // The FIRST LINE only. Opening the panel below adds its controls to the
+  // row's innerText, so comparing the whole thing would compare the panel
+  // with itself closed.
+  const before = (await firstRow.innerText()).split("\n")[0]!;
+  await firstRow.getByText("Change or set aside").click();
+
+  const field = firstRow.locator('input[id^="min-"]');
+  await field.fill("47");
+
+  // AC2: the difference is on screen BEFORE anything is written.
+  await expect(firstRow.getByText(/We said about \d+ min\. You're saying 47\./))
+    .toBeVisible();
+
+  await firstRow.getByRole("button", { name: "Save" }).first().click();
+
+  // AC2 again: the plan on screen is NOT replaced under the seller. It says it
+  // is out of date and offers the button.
+  await expect(page.getByText(/You changed something since this plan was built/))
+    .toBeVisible({ timeout: 15_000 });
+  expect((await planList(page).locator("> li").first().innerText()).split("\n")[0])
+    .toBe(before);
+
+  // THE RELOAD IS THE POINT. The correction comes back out of the database.
+  await page.reload();
+  await dismissOverlays(page);
+  await page.getByRole("button", { name: "30 minutes" }).click();
+  await expect(page.getByRole("heading", { name: /jobs?, about \d+ minutes/ }))
+    .toBeVisible({ timeout: 15_000 });
+  await expect(planList(page).locator("> li").first()).toContainText("about 47 min");
+
+  // And reset puts our estimate back.
+  const row = planList(page).locator("> li").first();
+  await row.getByText("Change or set aside").click();
+  await row.getByRole("button", { name: "Use our estimate" }).click();
+  await page.getByRole("button", { name: "Build it again" }).click();
+  await expect(planList(page).locator("> li").first())
+    .not.toContainText("about 47 min", { timeout: 15_000 });
+
+  await clearCorrections(page);
+});
+
+test("live: a dismissal takes the job out of the next plan, and can be undone", async ({ page }) => {
+  await signIn(page);
+  await clearSessions(page);
+  await clearCorrections(page);
+  await planFor(page);
+
+  const row = planList(page).locator("> li").first();
+  const title = (await row.innerText()).split("\n")[0]!;
+  const href = await row.getByRole("link", { name: /Open item/ }).getAttribute("href");
+  // itemHref carries a `?back=` so the item screen can return here, so the
+  // last path segment is not the id on its own.
+  const itemId = href!.split("?")[0]!.split("/").pop()!;
+  const before = await readItem(page, itemId);
+  await row.getByText("Change or set aside").click();
+
+  // AC3: the panel says out loud that nothing is sold, archived or deleted.
+  await expect(row.getByText(/Your item stays where it is/)).toBeVisible();
+  await row.getByRole("button", { name: "Stop suggesting this" }).click();
+
+  await page.getByRole("button", { name: "Build it again" }).click();
+  await expect(page.getByText(/jobs? (is|are) set aside/)).toBeVisible({ timeout: 15_000 });
+  expect(await planList(page).innerText()).not.toContain(title);
+
+  // ⚠ THE GARMENT ITSELF IS UNTOUCHED. Read straight out of Postgres rather
+  // than off a screen: "it still shows on the inventory page" is a weaker
+  // claim than "the row has the same status it had", and the inventory screen
+  // renders the same title in two layouts with one hidden per breakpoint, so
+  // a visibility assertion there measures CSS. A set-aside that quietly sold
+  // or archived stock would be the worst bug this feature could ship.
+  const after = await readItem(page, itemId);
+  expect(after.id).toBe(itemId);
+  expect(after).toEqual(before);
+  expect(after.status).not.toBe("archived");
+  expect(after.status).not.toBe("sold");
+
+  await clearCorrections(page);
+});
+
+test("live: a bad number is refused with a sentence, and nothing is written", async ({ page }) => {
+  await signIn(page);
+  await clearSessions(page);
+  await clearCorrections(page);
+  await planFor(page);
+
+  const row = planList(page).locator("> li").first();
+  await row.getByText("Change or set aside").click();
+  await row.locator('input[id^="min-"]').fill("0");
+  await row.getByRole("button", { name: "Save" }).first().click();
+  await expect(row.getByText("Zero minutes isn't a real answer. Put at least one."))
+    .toBeVisible();
+
+  await row.locator('input[id^="min-"]').fill("6000");
+  await row.getByRole("button", { name: "Save" }).first().click();
+  await expect(row.getByText(/longer than a whole session/)).toBeVisible();
+
+  // Nothing reached the server: the plan is not marked out of date.
+  await expect(page.getByText(/You changed something since this plan was built/))
+    .toHaveCount(0);
+
+  await clearCorrections(page);
+});
+
+test("live: the panel works at 375px and from the keyboard alone", async ({ page }) => {
+  await page.setViewportSize({ width: 375, height: 760 });
+  await signIn(page);
+  await clearSessions(page);
+  await clearCorrections(page);
+  await planFor(page);
+
+  const row = planList(page).locator("> li").first();
+  const summary = row.getByText("Change or set aside");
+
+  // KEYBOARD ONLY from here. <details><summary> is focusable and toggles on
+  // Enter with no handler of ours, which is the reason it is a disclosure
+  // rather than a dialog.
+  await summary.focus();
+  await page.keyboard.press("Enter");
+  await expect(row.locator('input[id^="min-"]')).toBeVisible();
+
+  await page.keyboard.press("Tab");
+  await expect(row.locator('input[id^="min-"]')).toBeFocused();
+  await page.keyboard.type("25");
+  await expect(row.getByText(/You're saying 25\./)).toBeVisible();
+  await page.keyboard.press("Tab");
+  await page.keyboard.press("Enter");
+  await expect(page.getByText(/You changed something since this plan was built/))
+    .toBeVisible({ timeout: 15_000 });
+
+  // Nothing runs off the side of a phone.
+  const overflow = await page.evaluate(() =>
+    document.documentElement.scrollWidth - document.documentElement.clientWidth
+  );
+  expect(overflow).toBeLessThanOrEqual(1);
+
+  await clearCorrections(page);
+});
+
+test("live: a failed save says so and keeps what was typed", async ({ page }) => {
+  await signIn(page);
+  await clearSessions(page);
+  await clearCorrections(page);
+  await planFor(page);
+
+  // ⚠ THE ONE MOCKED THING IN THIS FILE, and only this request. There is no
+  // honest way to make a live route fail from the UI, and "the network dropped
+  // mid-correction" is a state AC7 names.
+  await page.route("**/api/flipdesk/planner/overrides", (r) =>
+    r.fulfill({ status: 500, body: JSON.stringify({ error: "nope" }) })
+  );
+
+  const row = planList(page).locator("> li").first();
+  await row.getByText("Change or set aside").click();
+  await row.locator('input[id^="min-"]').fill("33");
+  await row.getByRole("button", { name: "Save" }).first().click();
+
+  // US-2869 owns the wording: a 500 is classified and the call site's own
+  // sentence is only one input to it, so the assertion is on the CLASS of
+  // message rather than on the fallback string this file passes in.
+  await expect(page.getByRole("region", { name: /Notifications/ }))
+    .toContainText(/Something broke on our side|Couldn't save that correction/, {
+      timeout: 15_000,
+    });
+  // The typed number is still there: a failed save must not also lose the work.
+  await expect(row.locator('input[id^="min-"]')).toHaveValue("33");
+
+  await page.unroute("**/api/flipdesk/planner/overrides");
+  await clearCorrections(page);
+});

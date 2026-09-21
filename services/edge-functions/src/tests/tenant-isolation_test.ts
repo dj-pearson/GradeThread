@@ -10116,3 +10116,145 @@ Deno.test({
     assertDenied(res.status, "POST /api/flipdesk/listings/:id/not-listed");
   },
 });
+
+Deno.test({
+  // US-3182 (AC5): every override and every suppression names an inventory
+  // item id that came out of a REQUEST BODY, which is the shape this file
+  // exists for.
+  //
+  // WHAT A HIT HERE WOULD COST is worse than a read. A suppression written
+  // against A's garment would hide A's own work from A's own planner -- and
+  // the one row it could hide is the pack-and-ship on a parcel somebody has
+  // already paid for. B would not see anything; A would find out from a
+  // late-shipment metric. An override is the quieter half: a planner minute
+  // or a planning value on a garment B has never seen.
+  //
+  // Every write goes through ownsItem(), so the falsifiable claim is that a
+  // foreign id is refused on ALL FOUR write routes rather than on the ones
+  // that were easy to remember. The reset routes are included deliberately:
+  // a delete that skipped the check would let B clear A's corrections, which
+  // leaves no row behind to notice.
+  name: "US-3182: B cannot correct or set aside A's item",
+  ignore: !CONFIGURED || !Deno.env.get("TEST_USER_A_ITEM_ID"),
+  fn: async () => {
+    const itemId = Deno.env.get("TEST_USER_A_ITEM_ID")!;
+    const A_ID = Deno.env.get("TEST_USER_A_ID") ??
+      "00000000-0000-4000-8000-000000000001";
+
+    const writes: { label: string; path: string; body: Record<string, unknown> }[] = [
+      {
+        label: "PUT /overrides (minutes)",
+        path: "/api/flipdesk/planner/overrides",
+        body: { inventory_item_id: itemId, kind: "task_minutes", amount_minutes: 5 },
+      },
+      {
+        label: "PUT /overrides (planning value)",
+        path: "/api/flipdesk/planner/overrides",
+        body: {
+          inventory_item_id: itemId,
+          kind: "value_range",
+          low_cents: 1,
+          high_cents: 2,
+          // owner_user_id in the body must be ignored: the route reads the
+          // owner from the request context and nothing else.
+          owner_user_id: A_ID,
+        },
+      },
+      {
+        label: "POST /overrides/reset",
+        path: "/api/flipdesk/planner/overrides/reset",
+        body: { inventory_item_id: itemId, kind: "task_minutes" },
+      },
+      {
+        label: "POST /suppressions (dismiss)",
+        path: "/api/flipdesk/planner/suppressions",
+        body: { inventory_item_id: itemId, kind: "dismiss" },
+      },
+      {
+        label: "POST /suppressions (snooze)",
+        path: "/api/flipdesk/planner/suppressions",
+        body: { inventory_item_id: itemId, kind: "snooze", owner_user_id: A_ID },
+      },
+      {
+        label: "POST /suppressions/reset",
+        path: "/api/flipdesk/planner/suppressions/reset",
+        body: { inventory_item_id: itemId },
+      },
+    ];
+
+    for (const w of writes) {
+      for (const headers of [
+        authHeaders(B_JWT!),
+        // And with A named in the workspace header, which is the other way a
+        // caller could try to borrow an owner.
+        { ...authHeaders(B_JWT!), "X-Workspace-Owner": A_ID },
+      ]) {
+        const res = await fetch(`${BASE}${w.path}`, {
+          method: w.path.endsWith("/overrides") ? "PUT" : "POST",
+          headers,
+          body: JSON.stringify(w.body),
+        });
+        await res.body?.cancel();
+        assertDenied(res.status, w.label);
+      }
+    }
+  },
+});
+
+Deno.test({
+  // US-3182 (AC5): the read side. GET /overrides takes no id, so the claim is
+  // that nothing in a query string or a header can widen it -- and then that
+  // the two sellers' answers share no item.
+  name: "US-3182: B's corrections read cannot reach A's",
+  ignore: !CONFIGURED,
+  fn: async () => {
+    const A_ID = Deno.env.get("TEST_USER_A_ID") ??
+      "00000000-0000-4000-8000-000000000001";
+    const PATH = `${BASE}/api/flipdesk/planner/overrides`;
+
+    const shapes: { label: string; url: string; headers: HeadersInit }[] = [
+      { label: "plain", url: PATH, headers: authHeaders(B_JWT!) },
+      {
+        label: "owner query param",
+        url: `${PATH}?owner_user_id=eq.${A_ID}`,
+        headers: authHeaders(B_JWT!),
+      },
+      {
+        label: "workspace-owner header",
+        url: PATH,
+        headers: { ...authHeaders(B_JWT!), "X-Workspace-Owner": A_ID },
+      },
+    ];
+
+    interface Book {
+      overrides?: { inventory_item_id?: string }[];
+      suppressions?: { inventory_item_id?: string }[];
+    }
+    const idsOf = (b: Book): string[] => [
+      ...(b.overrides ?? []).map((x) => String(x.inventory_item_id)),
+      ...(b.suppressions ?? []).map((x) => String(x.inventory_item_id)),
+    ];
+
+    const theirs: string[][] = [];
+    for (const shape of shapes) {
+      const res = await fetch(shape.url, { headers: shape.headers });
+      assert(
+        [200, 401, 403].includes(res.status),
+        `overrides (${shape.label}) should answer a known status, got ${res.status}`,
+      );
+      if (res.status !== 200) continue;
+      theirs.push(idsOf((await res.json().catch(() => ({}))) as Book));
+    }
+
+    const aRes = await fetch(PATH, { headers: authHeaders(A_JWT!) });
+    if (aRes.status !== 200) return;
+    const aIds = new Set(idsOf((await aRes.json().catch(() => ({}))) as Book));
+    for (const [i, ids] of theirs.entries()) {
+      assertEquals(
+        ids.filter((id) => aIds.has(id)),
+        [],
+        `B's corrections (${shapes[i]!.label}) contained A's item ids`,
+      );
+    }
+  },
+});

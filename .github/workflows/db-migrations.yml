@@ -30,6 +30,7 @@ on:
       - "scripts/check-sku-sequences.mjs"
       - "scripts/check-dispute-report-ownership.mjs"
       - "scripts/check-work-session-storage.mjs"
+      - "scripts/check-work-override-storage.mjs"
       - "scripts/check-whole-dollar-price-repair.mjs"
       - "scripts/check-chart-brand-keys.mjs"
       - "scripts/check-cogs-worksheet.mjs"
@@ -67,6 +68,7 @@ on:
       - "scripts/check-sku-sequences.mjs"
       - "scripts/check-dispute-report-ownership.mjs"
       - "scripts/check-work-session-storage.mjs"
+      - "scripts/check-work-override-storage.mjs"
       - "scripts/check-whole-dollar-price-repair.mjs"
       - "scripts/check-chart-brand-keys.mjs"
       - "scripts/check-cogs-worksheet.mjs"
@@ -196,6 +198,9 @@ jobs:
       # transaction that is rolled back.
       - name: Work sessions hold under concurrency and erasure (US-3167)
         run: node scripts/check-work-session-storage.mjs
+
+      - name: Work override storage rules (US-3182)
+        run: node scripts/check-work-override-storage.mjs
       # US-3318: the repair that rewrites Poshmark and Vinted prices, run
       # against its own worked examples. listing_price and platform_fields must
       # move together or the composer and reconciliation disagree.

@@ -130,7 +130,23 @@ export interface RankInput {
   /** Advisory. Null when the seller has not said (AC4). */
   hourlyTargetCents: number | null;
   tasks: readonly RankTaskInput[];
+  /**
+   * Where the minutes come from, when the caller knows better than the bare
+   * default (US-3178 learned history, US-3182 seller corrections).
+   *
+   * A RESOLVER RATHER THAN A MAP OF NUMBERS, because the ranker needs a whole
+   * DurationResult -- the setup charge and the "nobody has estimated this"
+   * answer both matter, and a map of minutes would quietly turn an
+   * unestimated step into a zero. Absent, every estimate is the default, which
+   * is what every caller before R2 got.
+   */
+  durationFor?: DurationResolver;
 }
+
+/** How one task's minutes are looked up. Pure; the ranker never fetches. */
+export type DurationResolver = (
+  args: { action: CandidateAction | string; itemId: string },
+) => DurationResult;
 
 function parseInstant(v: string | null | undefined): number | null {
   if (typeof v !== "string" || v.trim() === "") return null;
@@ -147,26 +163,43 @@ function parseInstant(v: string | null | undefined): number | null {
  */
 export function chainMinutesFor(
   actions: readonly CandidateAction[],
+  resolve?: (action: CandidateAction) => DurationResult,
 ): number | null {
   let total = 0;
   for (const action of actions) {
-    const d: DurationResult = estimateDuration({ action });
+    const d: DurationResult = resolve
+      ? resolve(action)
+      : estimateDuration({ action });
     if (isUnestimated(d)) return null;
     total += d.typical;
   }
   return total;
 }
 
-/** Is this a confirmed shipping deadline inside the urgent window? (AC2) */
-function isUrgentShipping(task: RankTaskInput, nowMs: number): boolean {
-  if (task.candidate.action !== "pack_ship") return false;
+/**
+ * Is this a confirmed shipping deadline inside the urgent window? (AC2)
+ *
+ * EXPORTED because US-3182 needs the very same answer: a snooze may never
+ * hide an obligation the ranker would call urgent, and two implementations of
+ * "urgent" would eventually disagree about one parcel on one evening, which
+ * is the evening it matters.
+ */
+export function isUrgentCandidate(
+  candidate: Pick<WorkCandidate, "action" | "shipBy">,
+  nowMs: number,
+): boolean {
+  if (candidate.action !== "pack_ship") return false;
   // ESTIMATED IS NOT VERIFIED. A derived deadline counts calendar days rather
   // than business days and can be a day early; promoting on it would push real
   // work aside for a date nobody promised.
-  if (task.candidate.shipBy.confidence !== "confirmed") return false;
-  const due = parseInstant(task.candidate.shipBy.at);
+  if (candidate.shipBy.confidence !== "confirmed") return false;
+  const due = parseInstant(candidate.shipBy.at);
   if (due === null) return false;
   return due - nowMs <= URGENT_WINDOW_HOURS * 3_600_000;
+}
+
+function isUrgentShipping(task: RankTaskInput, nowMs: number): boolean {
+  return isUrgentCandidate(task.candidate, nowMs);
 }
 
 /**
@@ -216,6 +249,8 @@ function conflictFor(
 export function rankWork(input: RankInput): RankedTask[] {
   const nowMs = parseInstant(input.now) ?? 0;
   const ranked: RankedTask[] = [];
+  const resolve: DurationResolver = input.durationFor ??
+    ((a) => estimateDuration({ action: a.action }));
 
   // AC4: at most ONE research task per plan. Unknown-value stock must not be
   // ignored forever, and it must not flood a plan either -- a seller whose
@@ -229,9 +264,18 @@ export function rankWork(input: RankInput): RankedTask[] {
   );
 
   for (const task of ordered) {
-    const own = estimateDuration({ action: task.candidate.action });
+    const own = resolve({
+      action: task.candidate.action,
+      itemId: task.candidate.itemId,
+    });
     const ownMinutes = isUnestimated(own) ? null : own.typical;
-    const chain = chainMinutesFor(task.remainingActions);
+    // The chain is resolved the same way, so a correction to a step further
+    // up the ladder moves the rate this task is ranked on rather than only
+    // the row's own label.
+    const chain = chainMinutesFor(
+      task.remainingActions,
+      (a) => resolve({ action: a, itemId: task.candidate.itemId }),
+    );
     const conflict = ownMinutes === null
       ? null
       : conflictFor(task, input, ownMinutes);

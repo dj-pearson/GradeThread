@@ -27,12 +27,17 @@ import {
   planToSessionTasks,
   useBuildPlan,
   useCurrentSession,
+  useLearnedDurations,
   useSaveWorkPreferences,
   useStartSession,
+  useWorkOverrides,
   useWorkPreferences,
   type PreparedPlan,
 } from "@/hooks/use-planner";
 import { SessionRunner } from "@/components/flipdesk/session-runner";
+import { TaskCorrections } from "@/components/flipdesk/task-corrections";
+import { SUPPRESSION_STATE_COPY } from "@/lib/work-overrides-copy";
+import { isUrgentCandidate } from "@/lib/work-ranker";
 import { itemHref } from "@/lib/session-links";
 import { estimateDuration, isUnestimated } from "@/lib/work-duration";
 import type { RankedTask } from "@/lib/work-ranker";
@@ -178,8 +183,14 @@ export function WorthMyTimePage() {
   const build = useBuildPlan();
   const currentSession = useCurrentSession();
   const startSession = useStartSession();
+  const overrides = useWorkOverrides();
+  const learned = useLearnedDurations();
   const [custom, setCustom] = useState("");
   const [plan, setPlan] = useState<PreparedPlan | null>(null);
+  // Set only when a correction lands AFTER a plan was built. The plan on
+  // screen is the one the seller agreed to, so it is never replaced under
+  // them -- they are told it is out of date and press the button (AC2).
+  const [stalePlan, setStalePlan] = useState(false);
 
   const presets = prefs.data?.sessionMinutePresets ?? [15, 30, 60];
   const context = prefs.data?.workContext ?? "home";
@@ -204,7 +215,13 @@ export function WorthMyTimePage() {
         hourlyTargetCents: prefs.data?.hourlyTargetAmount != null
           ? Math.round(prefs.data.hourlyTargetAmount * 100)
           : null,
+        // A fresh read, so a correction saved on this screen a moment ago is
+        // in the plan rather than one build behind it.
+        book: (await overrides.refetch()).data,
+        learned: learned.data,
+        sessionId: currentSession.data?.session?.id ?? null,
       });
+      setStalePlan(false);
       // AC5: a failed build leaves the previous plan on screen. setPlan runs
       // only on success, so a dropped connection never blanks the page.
       setPlan(built);
@@ -333,6 +350,36 @@ export function WorthMyTimePage() {
             </p>
           </div>
 
+          {stalePlan && (
+            <p
+              role="status"
+              className="flex flex-wrap items-center gap-2 rounded-lg bg-muted/50 p-3 text-sm"
+            >
+              <span>
+                You changed something since this plan was built. It still shows
+                the old numbers.
+              </span>
+              <Button
+                size="sm"
+                disabled={build.isPending}
+                onClick={() => void generate(plan.budgetMinutes)}
+              >
+                Build it again
+              </Button>
+            </p>
+          )}
+
+          {/* AC3: what was left out because the seller set it aside, said
+              rather than silently missing. A plan that quietly shrinks is a
+              plan a seller thinks is broken. */}
+          {plan.suppressed.length > 0 && (
+            <p className="text-xs text-muted-foreground">
+              {plan.suppressed.length}{" "}
+              {plan.suppressed.length === 1 ? "job is" : "jobs are"} set aside.{" "}
+              {SUPPRESSION_STATE_COPY[plan.suppressed[0]!.reason]}
+            </p>
+          )}
+
           {scheduled.length > 0 && !sessionOpen && (
             <Button
               disabled={startSession.isPending}
@@ -432,6 +479,27 @@ export function WorthMyTimePage() {
                         candidate={plan.candidates.find((c) => c.key === r.key) ?? null}
                         takenAt={plan.takenAt}
                         hourlyTargetSet={prefs.data?.hourlyTargetSet === true}
+                      />
+                    )}
+                    {r && (
+                      <TaskCorrections
+                        itemId={r.itemId}
+                        actionKey={r.action}
+                        estimateMinutes={minutes}
+                        book={plan.book}
+                        remainingBudgetMinutes={Math.max(
+                          0,
+                          plan.budgetMinutes - plan.plan.plannedMinutes,
+                        )}
+                        sessionId={currentSession.data?.session?.id ?? null}
+                        urgentShipping={isUrgentCandidate(
+                          plan.candidates.find((c) => c.key === r.key) ?? {
+                            action: r.action,
+                            shipBy: { at: null, confidence: "unknown" },
+                          },
+                          Date.parse(plan.takenAt),
+                        )}
+                        onChanged={() => setStalePlan(true)}
                       />
                     )}
                     <Button variant="outline" size="sm" asChild>
