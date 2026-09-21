@@ -4,8 +4,10 @@ import {
   resolveSeedBestOffer,
   resolveSeedBestOfferEnabled,
   resolveSeedFormat,
+  resolveSeedPolicyId,
   resolveSeedQuantity,
   seedBestOfferCents,
+  POLICY_SEED_KEYS,
   type SeedListingRow,
 } from "@/lib/listing-defaults";
 import {
@@ -143,5 +145,47 @@ describe("percent-of-price thresholds", () => {
     });
     const seed = resolveSeedBestOffer(null, d, "fixed_price", 5_000);
     expect(seed).toEqual({ enabled: true, acceptCents: 4_500, declineCents: 3_000 });
+  });
+});
+
+describe("business-policy seed (US-2855)", () => {
+  const defaults = {
+    fulfillment_policy_id: "F-ACCOUNT",
+    payment_policy_id: "P-ACCOUNT",
+    return_policy_id: "R-ACCOUNT",
+  };
+
+  it("opens a brand-new draft on the account default", () => {
+    // The gap this closes: the controls initialised to null, so the seller saw
+    // blank and could not tell which policy was about to be used, even though
+    // publish was already applying it.
+    expect(resolveSeedPolicyId(null, "shipping", defaults)).toBe("F-ACCOUNT");
+    expect(resolveSeedPolicyId(null, "payment", defaults)).toBe("P-ACCOUNT");
+    expect(resolveSeedPolicyId(null, "return", defaults)).toBe("R-ACCOUNT");
+  });
+
+  it("maps shipping to eBay's fulfillment spelling and nothing else", () => {
+    // The listing column is shipping_, the account default is fulfillment_.
+    // Getting that backwards seeds the wrong control with no error anywhere.
+    expect(POLICY_SEED_KEYS.shipping).toEqual({
+      listing: "shipping_policy_id",
+      account: "fulfillment_policy_id",
+    });
+    expect(resolveSeedPolicyId(null, "shipping", { payment_policy_id: "P" })).toBeNull();
+  });
+
+  it("lets a saved row own its value, including null", () => {
+    // Null on a saved row means "no override, use whatever my account default
+    // is at publish time". Seeding today's default over it would freeze this
+    // answer into the row, and the seller who changes their default a month
+    // later would silently keep the old policy on this listing.
+    expect(resolveSeedPolicyId({ shipping_policy_id: null }, "shipping", defaults)).toBeNull();
+    expect(resolveSeedPolicyId({ shipping_policy_id: "F-ROW" }, "shipping", defaults)).toBe("F-ROW");
+  });
+
+  it("returns null rather than throwing when there is no default yet", () => {
+    expect(resolveSeedPolicyId(null, "shipping", null)).toBeNull();
+    expect(resolveSeedPolicyId(null, "return", undefined)).toBeNull();
+    expect(resolveSeedPolicyId(null, "payment", {})).toBeNull();
   });
 });

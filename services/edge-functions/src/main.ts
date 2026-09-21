@@ -45,6 +45,7 @@ import { passportIdentityRoutes } from "./routes/passport-identity.ts";
 import { flipdeskPhotoProfilesRoutes } from "./routes/flipdesk-photo-profiles.ts";
 import { flipdeskImageRoutes } from "./routes/flipdesk-images.ts";
 import { flipdeskListingsRoutes } from "./routes/flipdesk-listings.ts";
+import { flipdeskLinkRoutes } from "./routes/flipdesk-link.ts";
 import { flipdeskSalesRoutes } from "./routes/flipdesk-sales.ts";
 import { flipdeskReconciliationRoutes } from "./routes/flipdesk-reconciliation.ts";
 import { flipdeskSheetsRoutes } from "./routes/flipdesk-sheets.ts";
@@ -1445,6 +1446,9 @@ app.route("/api/flipdesk/demand", flipdeskDemandRoutes);
 app.route("/api/flipdesk/photo-profiles", flipdeskPhotoProfilesRoutes);
 app.route("/api/flipdesk/images", flipdeskImageRoutes);
 app.route("/api/flipdesk/listings", flipdeskListingsRoutes);
+// US-3197: under /import/*, so it inherits that prefix's auth, workspace and
+// rate-limit middleware rather than declaring a fourth place to forget one.
+app.route("/api/flipdesk/import/link", flipdeskLinkRoutes);
 app.route("/api/flipdesk/sales", flipdeskSalesRoutes);
 // US-2958: description blocks. Renders and persists in one place, so the
 // blocks and the published string cannot drift apart.

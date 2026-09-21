@@ -12,10 +12,25 @@ code_refs:
   - src/pages/flipdesk/use-grid-listings.ts
   - src/lib/title-sync-patch.ts
   - services/edge-functions/src/routes/flipdesk-ebay.ts
-reviewed: 2026-09-15
+reviewed: 2026-09-20
 tags: [flipdesk, listings, publishing, contract]
 summary: Publish prefers the listings-row snapshot over the item, so any surface writing the item's title, description or price must reach the draft row too.
 ---
+
+
+> [!note] Re-reviewed 2026-09-20. Two drifts, both from the US-2855 eBay policy
+> work, and neither touches what this note asserts.
+> `flipdesk-ebay.ts` gained one response field, `replaced_defaults`.
+> `composer.tsx` gained a seed so a NEW draft opens on the seller's eBay
+> account policy defaults, plus a wait for that query.
+>
+> Checked against this note's subject: which record is authoritative, and the
+> single-editor rule that makes the snapshot safe. Neither moved. **This note
+> is SILENT on how a new draft's three policy controls are seeded** -- it
+> describes policy EDITS ("policy changes use the existing bulk-edit route only
+> for active listings") and says nothing about their initial value. Saying so
+> here so a future reader knows the silence is deliberate rather than reading
+> the note as covering it.
 
 The grid was expanded on 2026-09-14. The current writer list is below;
 the dated reviews record the older nine-column grid.

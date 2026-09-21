@@ -28,6 +28,9 @@ on:
       - "scripts/check-sale-pnl-invariant.mjs"
       - "scripts/check-created-by.mjs"
       - "scripts/check-sku-sequences.mjs"
+      - "scripts/check-dispute-report-ownership.mjs"
+      - "scripts/check-whole-dollar-price-repair.mjs"
+      - "scripts/check-chart-brand-keys.mjs"
       - "scripts/check-cogs-worksheet.mjs"
       - "scripts/check-facilitator-tax.mjs"
       - "scripts/check-1099k-bridge.mjs"
@@ -61,6 +64,9 @@ on:
       - "scripts/check-sale-pnl-invariant.mjs"
       - "scripts/check-created-by.mjs"
       - "scripts/check-sku-sequences.mjs"
+      - "scripts/check-dispute-report-ownership.mjs"
+      - "scripts/check-whole-dollar-price-repair.mjs"
+      - "scripts/check-chart-brand-keys.mjs"
       - "scripts/check-cogs-worksheet.mjs"
       - "scripts/check-facilitator-tax.mjs"
       - "scripts/check-1099k-bridge.mjs"
@@ -175,6 +181,22 @@ jobs:
       # either way.
       - name: SKU odometer renders and carries (US-3414)
         run: node scripts/check-sku-sequences.mjs
+      # US-2670: an authenticated caller who set user_id to their OWN id could
+      # file a dispute against ANY grade report. Both directions are asserted:
+      # a policy that refused everything would satisfy the first and break every
+      # real dispute.
+      - name: A dispute cannot name another seller's report (US-2670)
+        run: node scripts/check-dispute-report-ownership.mjs
+      # US-3318: the repair that rewrites Poshmark and Vinted prices, run
+      # against its own worked examples. listing_price and platform_fields must
+      # move together or the composer and reconciliation disagree.
+      - name: Whole-dollar price repair lands where its header says (US-3318)
+        run: node scripts/check-whole-dollar-price-repair.mjs
+      # US-3443: brandKey drops an accented letter, so "Kuhl" with an umlaut
+      # keys as `khl`. Four charts were stored under both spellings and the one
+      # grading could reach carried no source_url.
+      - name: Every chart carries the brand_key the resolver computes (US-3443)
+        run: node scripts/check-chart-brand-keys.mjs
       - name: COGS worksheet and its cross-check (US-2986)
         run: node scripts/check-cogs-worksheet.mjs
       # Net profit is IDENTICAL on both tax branches, so only gross receipts

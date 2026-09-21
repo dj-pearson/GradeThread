@@ -35,5 +35,10 @@
     "noFallthroughCasesInSwitch": true,
     "noUncheckedIndexedAccess": true
   },
-  "include": ["functions/**/*.ts"]
+  // US-3408: TypeScript's include globbing skips directories whose name starts
+  // with a dot, so functions/.well-known/ — two live routes, the Apple
+  // app-site-association and the Android assetlinks — was in no project at all.
+  // Same class as the omissions US-2401 and US-2629 closed, found by a guard
+  // that lists what it could not check instead of reporting it clean.
+  "include": ["functions/**/*.ts", "functions/.well-known/*.ts"]
 }

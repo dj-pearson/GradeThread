@@ -1,11 +1,11 @@
 ---
 title: Reading a red CI lane here
-aliases: [CI is red, vault lint drift, runbook-sync, why did CI fail]
+aliases: [CI is red, vault lint drift, runbook-sync, why did CI fail, merge resolution gate, no-verify]
 type: learning
 status: current
 source_of_truth: vault
 code_refs: []
-reviewed: 2026-09-13
+reviewed: 2026-09-18
 tags: [ci, agent, verification]
 summary: The frontend CI job fails on knowledge guards far more often than on code, so read which STEP failed before assuming a regression - and until 2026-09-10 a failing first step skipped npm ci, which made every later check in the job report a falsehood.
 ---
@@ -195,6 +195,59 @@ Two things now separate the normal red from the real one:
 **So `CI` failing is never again a reason to skip reading it.** Open the run
 summary first: if the annotation is there, the answer is "apply the SQL or keep
 the migration off the branch", and every other check is still worth reading.
+
+## Nobody was reading it at all, which is the hole under all of this
+
+Found 2026-09-11 (US-3408), fixed 2026-09-18. Merge `40e95fadc` resolved
+`record-sale-dialog.tsx` by interleaving both sides of the conflict: one side's
+function bodies, the other side's imports. `tsc -b` reported **11 errors on
+main**, the push used `--no-verify`, and `origin/main` was un-buildable for
+about **forty minutes**. CI would have said so in minutes. The loop pushed and
+moved on, so the answer arrived after the next three commits with nobody looking
+at it.
+
+Two things close it, and only the second one is about reading.
+
+**The gate `--no-verify` cannot skip.** `.githooks/reference-transaction` fires
+when git writes a ref, not when the porcelain asks it to, so `git commit
+--no-verify` runs it anyway; a non-zero exit in the `prepared` state aborts the
+transaction and no commit is created. It is inert unless `MERGE_HEAD` exists,
+which is two tests and no subprocess on every ordinary ref update, and when a
+merge IS in progress it runs `scripts/check-merge-resolution.mjs`. That script
+checks each file **on its own**, stubbing every import so a name that came from
+an import still binds — which makes the two shapes of a half-resolved file
+visible (`TS2300` duplicate identifier, `TS2304` cannot find name) without
+loading the import graph. Whole tree, 4,405 files: **36 seconds, zero findings**.
+A full `tsc -b --force` is **64 seconds**, and a 64-second gate is exactly the
+gate that gets bypassed.
+
+**Reading the answer instead of assuming it.** `npm run ci:conclusion` asks
+GitHub what the check runs for a SHA actually concluded. An unfinished run, no
+runs at all, or an API that will not answer all exit non-zero and print
+`UNKNOWN, not green` — the one thing it will not do is print a green line it did
+not earn ([[guards-that-cannot-fail]]).
+
+```bash
+npm run ci:conclusion -- --wait      # after a push; polls until every run finishes
+```
+
+### What to do when it comes back red
+
+In this order, because the first step is free and skipping it is how the last
+three CI incidents here got mis-diagnosed:
+
+1. **Name the step, not the job.** Everything above this section applies: this
+   job's knowledge guards (vault lint, runbook-sync, the held-migration gate) go
+   red for *normal states* far more often than the code does.
+2. **Red on the held-migration gate is not a defect.** The run summary says so in
+   as many words. Apply the SQL or keep the migration off the branch.
+3. **Red on a step your diff cannot reach is still yours to read.** Look for a
+   neighbouring commit that could not have caused it before concluding anything.
+4. **Red on something your diff did touch: fix forward on the same branch.** Do
+   not push again to see whether it was flaky. "Flake" is a conclusion you reach
+   after reading the failure, never instead of reading it.
+5. **Never bypass to get past it.** `--no-verify` was authorised once, for one
+   push, and became the habit; the forty minutes above is what the habit cost.
 
 ## Lane health is not uniform
 

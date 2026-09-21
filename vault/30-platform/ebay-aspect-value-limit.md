@@ -6,10 +6,29 @@ status: current
 source_of_truth: code
 code_refs:
   - services/edge-functions/src/lib/ebay-client.ts
-reviewed: 2026-09-11
+reviewed: 2026-09-20
 tags: [ebay, publishing, gotcha]
 summary: eBay rejects aspect values over 65 chars at publish, not at upload - which is why the error surfaces as an unrelated "already has active offer".
 ---
+
+
+> [!note] Re-reviewed 2026-09-20. Drift from `e7d84ab3a`, which touches
+> ``ebay-client.ts``. Read the diff rather than the dates: it is confined to
+> `syncBusinessPolicies` and the new `SyncedPolicies.replacedDefaults` -- when
+> a seller deletes the eBay policy their stored default points at, the sync now
+> repoints that kind to the account's first policy of the kind, clears the dead
+> `is_default` row by exact id, and reports the kinds so the caller can say so
+> once. Business-policy defaults only.
+>
+> This note makes no claim about them, which was checked rather than assumed:
+> it contains none of `is_default`, `business_polic`, `syncBusinessPolicies` or
+> `readCachedDefaults`. The 65-character aspect value limit this note owns is untouched.
+>
+> ⚠ Worth recording, because this is the fifth note that commit drifted:
+> `ebay-client.ts` is 2,400 lines and seven contract notes list it in
+> `code_refs`, so ANY change to it drifts all seven. `code_refs` carry no line
+> ranges, and CONTRACT.md says drift is a heuristic. That is the heuristic
+> being coarse rather than a note going stale.
 
 # eBay 65-character aspect-value limit
 

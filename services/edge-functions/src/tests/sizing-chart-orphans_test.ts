@@ -48,12 +48,24 @@ const { brandKey } = await import("../lib/brand-normalize.ts");
 const MIGRATIONS_DIR = new URL("../../../../supabase/migrations/", import.meta.url);
 
 /**
- * The 23 renames 00793 retires. THE MIGRATION IS HELD on a branch awaiting the
- * owner, so main's model still carries every one of them, and this list is
- * deliberately what the assertion expects: it fails the moment that branch
- * lands, which is the signal to DELETE the list. It also fails if any OTHER
- * unregistered orphan appears, so holding one retirement does not buy silence
- * for the next.
+ * The 23 renames 00793 retires.
+ *
+ * ⚠ 2026-09-18: 00793 IS NOW IN THIS TREE and the list STAYS. An earlier
+ * version of this comment said landing the branch was "the signal to DELETE the
+ * list", which the case below has never agreed with: with the retirement
+ * present it asserts the file and this list name the same rows. They are the
+ * same decision written twice on purpose, so a row added to one and not the
+ * other fails rather than passing quietly. The list would only come out if the
+ * migration were applied AND its rows could no longer be reconstructed, which
+ * is not a state this repo reaches.
+ *
+ * The migration was rebuilt here rather than merged: held-v2/us-3387-00793 is
+ * not on origin, and neither is any other held branch (US-3421). Everything
+ * needed to rebuild it was in this file, which is the argument for writing the
+ * list down twice.
+ *
+ * It also fails if any OTHER unregistered orphan appears, so holding one
+ * retirement does not buy silence for the next.
  */
 const HELD_BY_00793: string[] = [
   "arcteryx|men|bottoms (alpha, body inches converted from the brand's cm)",
@@ -480,5 +492,56 @@ Deno.test("US-3387: the in-code corpus carries no duplicate of its own", () => {
     [...seen].filter(([, n]) => n > 1).map(([id]) => id),
     [],
     "sizing-charts.ts holds the same (brand, department, garment) twice",
+  );
+});
+
+Deno.test("US-3387: the operator readback's expected number comes from the model", () => {
+  // WHY THIS CASE EXISTS. AC5 of US-3387 told the operator to run
+  //
+  //   select count(*) from public.brand_size_charts
+  //    where brand_key = 'duluthtradingco' and department = 'Men'
+  //
+  // and expect 1, where it had been 2. Both numbers were wrong. Duluth Trading
+  // has THREE seeded tuples, all in department Men: a work-pants chart, a tops
+  // chart, and the alpha-tops rename 00793 retires. So the count was 3 before
+  // the apply and is 2 after, and an operator running the AC as written would
+  // have read 2, seen "expect 1", and concluded the migration had failed.
+  //
+  // A number written by hand into an acceptance criterion drifts the moment
+  // another chart is seeded for the same brand. This case derives both halves
+  // from the same model the census uses, so the AC's number is checked rather
+  // than remembered. Executed against a local Postgres carrying all migrations
+  // on 2026-09-19: 2 rows, matching this model exactly.
+  const duluthMen = (model: Map<string, Chart>) =>
+    [...model.values()]
+      .filter((c) => c.brandKey === "duluthtradingco" && c.department === "Men")
+      .map((c) => c.garment)
+      .sort();
+
+  assertEquals(duluthMen(preRetirement).length, 3, "before 00793's delete");
+  assertEquals(
+    duluthMen(dbCharts),
+    retirementPresent
+      ? ["Tops & outerwear (body inches)", "Work pants (WAIST x INSEAM, inches)"]
+      : [
+        "Tops & outerwear (alpha, body inches)",
+        "Tops & outerwear (body inches)",
+        "Work pants (WAIST x INSEAM, inches)",
+      ],
+    "what the operator readback counts",
+  );
+
+  // The question AC5 was actually asking -- does a Duluth shirt still resolve
+  // two tops charts -- is answered by the tops rows, not by every row the brand
+  // has. This is the filter the readback should have carried.
+  assertEquals(
+    duluthMen(dbCharts).filter((g) => g.startsWith("Tops")),
+    retirementPresent
+      ? ["Tops & outerwear (body inches)"]
+      : [
+        "Tops & outerwear (alpha, body inches)",
+        "Tops & outerwear (body inches)",
+      ],
+    "one tops chart is the fix; two is the defect 00793 retires",
   );
 });

@@ -12,10 +12,19 @@ code_refs:
   - src/lib/sku-presets.ts
   - src/hooks/use-sku-sequence.ts
   - src/components/flipdesk/sku-auto-hint.tsx
-reviewed: 2026-09-15
+reviewed: 2026-09-20
 tags: [flipdesk, sku, inventory, contract]
 summary: How a blank SKU is filled from a per-tenant odometer, what counters means, and the five invariants that keep SKUs unique inside a tenant.
 ---
+
+
+> [!note] Re-reviewed 2026-09-20. Drift on `scripts/check-sku-sequences.mjs`
+> twice (US-3419, then US-3432). Both changed how it CONNECTS, not what it
+> proves: it takes `--dsn` now rather than only `docker exec`. This note calls
+> it "Proof against a real Postgres", which is more true than when it was
+> written -- the three fixtures (the J9999 to K0000 carry, Z9999 reporting
+> exhaustion, a workspace member drawing from the owner's counter) are
+> unchanged and all three were run against a real cluster on 2026-09-20.
 
 # SKU numbering contract
 

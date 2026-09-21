@@ -48,6 +48,7 @@ import {
   isRecognisedPhase as isRecognised,
   type SpendBucket as Bucket,
 } from "../src/lib/ai-token-profile.ts";
+import { supabaseErrorText } from "../src/lib/supabase-error-text.ts";
 
 const url = Deno.env.get("SUPABASE_URL")?.trim();
 const key = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")?.trim();
@@ -115,7 +116,7 @@ async function readUsage(): Promise<UsageRow[]> {
       .order("id", { ascending: true })
       .range(from, from + page - 1);
     if (error) {
-      console.error(`! ai_usage_events unreadable: ${error.message}`);
+      console.error(`! ai_usage_events unreadable: ${supabaseErrorText(error)}`);
       Deno.exit(1);
     }
     const rows = (data ?? []) as unknown as UsageRow[];
@@ -213,7 +214,7 @@ for (let i = 0; i < userIds.length; i += 200) {
     .in("id", userIds.slice(i, i + 200));
   if (error) {
     console.error(
-      `! users read failed for batch ${i}-${i + 200}: ${error.message}\n` +
+      `! users read failed for batch ${i}-${i + 200}: ${supabaseErrorText(error)}\n` +
         `! Every account with no plan row defaults to 'free', which has $0 ` +
         `revenue, which puts it underwater. Refusing to print a margin table ` +
         `built on a failed plan lookup.`,

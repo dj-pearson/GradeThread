@@ -41,7 +41,19 @@ lines the log aggregator scrapes (US-508) — that is what §2 samples.
 
 Logs go to stdout/stderr and are captured by Docker's logging driver.
 
-**Enforced on-host bound (the policy):** `docker-compose.coolify.yml` pins the
+> [!warning] THIS SECTION DESCRIBED THE POLICY AS ENFORCED, AND IT IS NOT
+> (US-2665). `docker-compose.coolify.yml` **is not read by Coolify.** The edge
+> deploys from its Dockerfile, so every `logging:` option below is repo INTENT
+> that has never reached a running container. Whether production has any
+> rotation at all is **unknown and should be assumed absent** until somebody
+> runs the `docker inspect` in
+> [`vault/10-ops/edge-container-settings.md`](../../vault/10-ops/edge-container-settings.md),
+> which owns the declared-vs-live answer for this and eight other settings.
+>
+> If it IS absent, container logs grow until the volume fills — and the edge
+> shares that volume with Postgres, so the blast radius is the database.
+
+**The policy (declared, not deployed):** `docker-compose.coolify.yml` pins the
 `json-file` driver with rotation:
 
 ```yaml
@@ -52,10 +64,12 @@ logging:
     max-file: "5"     # keep at most 5 → 50 MiB/container, oldest dropped
 ```
 
-So a single container can never hold more than **~50 MiB** of logs on disk; on
-roll-over the oldest segment is discarded. This is the **local retention
-window** and the **on-box disk ceiling**. At the sampled volume in §3 that is
-roughly **1–3 days** of access logs per replica before roll-off.
+That is what a container running this compose file would do: never hold more
+than **~50 MiB** of logs on disk, discarding the oldest segment on roll-over,
+which at the sampled volume in §3 is roughly **1–3 days** of access logs per
+replica. **Production is not running this compose file.** Read the paragraph
+above before quoting the 50 MiB anywhere: it is a ceiling nothing has been
+shown to apply.
 
 **Longer-lived retention:** for anything past the 50 MiB local window (incident
 forensics, audit, dashboards) ship stdout to an external aggregator. Target
@@ -82,8 +96,19 @@ returns; it never reads logs back.
 ## 2. Trace/log sampling rate
 
 `EDGE_TRACE_SAMPLE_RATE` (`[0,1]`, default **1.0**) is the edge analogue of the
-frontend's Sentry `tracesSampleRate: 0.1` (`src/main.tsx`). Production is
-configured to **`0.1`** in `docker-compose.coolify.yml`, matching the frontend.
+frontend's Sentry `tracesSampleRate: 0.1` (`src/main.tsx`).
+
+> [!warning] "Production is configured to 0.1" WAS NOT TRUE (US-2665). The
+> `0.1` is set in `docker-compose.coolify.yml`, which Coolify does not read,
+> and the variable is not readable from outside the container. The code default
+> is **1.0**, so unless somebody has set it in the Coolify UI, production logs
+> **every** successful access line and **every** ok-outcome latency span — ten
+> times the volume the rest of this document assumes, into the possibly
+> unbounded driver of §1.
+>
+> [`vault/10-ops/edge-container-settings.md`](../../vault/10-ops/edge-container-settings.md)
+> row 3 owns this and says to assume it is unset. Setting it means adding it to
+> the Coolify UI env list, not to the compose file.
 
 **What it samples (cost firehose):**
 

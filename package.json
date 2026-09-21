@@ -16,6 +16,8 @@
     "lint": "eslint .",
     "seo:links": "node scripts/check-internal-links.mjs",
     "ui:check": "node scripts/check-ui-antipatterns.mjs",
+    "check:merge": "node scripts/check-merge-resolution.mjs",
+    "ci:conclusion": "node scripts/check-ci-conclusion.mjs",
     "ui:check:authed": "node scripts/check-ui-authed.mjs",
     "unwired:check": "node scripts/check-unwired-modules.mjs",
     "unwired:check:web": "node scripts/check-web-unwired.mjs",
@@ -82,7 +84,9 @@
     "prepare": "node scripts/setup-git-hooks.mjs && node scripts/copy-tesseract-assets.mjs",
     "vault:review": "node scripts/vault-lint.mjs --report",
     "migrations:parse": "node scripts/migrations-parse.mjs",
-    "tesseract:stage": "node scripts/copy-tesseract-assets.mjs"
+    "tesseract:stage": "node scripts/copy-tesseract-assets.mjs",
+    "agents:sync": "node scripts/gen-agents-md.mjs",
+    "agents:check": "node scripts/gen-agents-md.mjs --check"
   },
   "repository": {
     "type": "git",

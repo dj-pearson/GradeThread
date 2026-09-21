@@ -73,31 +73,63 @@ Deno.test("US-3364: count_gap and circuit_breaker are NOT deduped", () => {
   }
 });
 
-Deno.test("US-3364: the key function matches what the migrations declare", async () => {
-  let sql = "";
+/** The CREATE for a named index, as the migrations LAST define it.
+ *
+ *  US-3442: this used to be `sql.indexOf("<name>")` over the whole directory
+ *  concatenated in Deno.readDir order, and it went red on a tree where nothing
+ *  had changed. Two reasons, and each is enough on its own. readDir order is
+ *  arbitrary, so 00633 can land before 00632 in the string; and 00633's leading
+ *  COMMENT quotes `marketplace_sync_reviews_open_uniq` by name while explaining
+ *  why it exists, so the first hit was prose and the 400-character window after
+ *  it held no CREATE at all. The failure said "00632's index columns changed",
+ *  which was false and sent the reader to the wrong file.
+ *
+ *  The second scan in this file already strips comments before reading, for
+ *  exactly this reason, and says so. This one now does too, reads in filename
+ *  order, and anchors on the CREATE rather than on the name. */
+async function indexDefinition(name: string): Promise<string> {
+  const files: string[] = [];
   for await (const e of Deno.readDir(MIGRATIONS)) {
-    if (!e.isFile || !e.name.endsWith(".sql")) continue;
-    sql += await Deno.readTextFile(new URL(e.name, MIGRATIONS));
+    if (e.isFile && e.name.endsWith(".sql")) files.push(e.name);
   }
+  files.sort();
+  const create = new RegExp(
+    `create\\s+unique\\s+index(?:\\s+if\\s+not\\s+exists)?\\s+${name}\\b`,
+    "i",
+  );
+  let found = "";
+  for (const f of files) {
+    const sql = (await Deno.readTextFile(new URL(f, MIGRATIONS)))
+      .replace(/--[^\n]*/g, "");
+    const m = create.exec(sql);
+    // Last definition wins: a later migration may drop and recreate it.
+    if (m) found = sql.slice(m.index);
+  }
+  assert(found, `no CREATE UNIQUE INDEX for ${name} in supabase/migrations/`);
+  return found.slice(0, 400);
+}
 
-  const open = sql.slice(sql.indexOf("marketplace_sync_reviews_open_uniq"));
+Deno.test("US-3364: the key function matches what the migrations declare", async () => {
+  const open = await indexDefinition("marketplace_sync_reviews_open_uniq");
   assert(
-    /\(user_id,\s*platform,\s*reason,\s*listing_id\)/.test(open.slice(0, 400)),
+    /\(user_id,\s*platform,\s*reason,\s*listing_id\)/.test(open),
     "00632's index columns changed; openReviewKey's listing branch must change with it",
   );
   assert(
-    /status = 'open' AND listing_id IS NOT NULL/.test(open.slice(0, 400)),
+    /status = 'open' AND listing_id IS NOT NULL/.test(open),
     "00632's predicate changed. If it is no longer partial, the route can go " +
       "back to a plain onConflict upsert and this whole file is obsolete.",
   );
 
-  const unmatched = sql.slice(sql.indexOf("marketplace_sync_reviews_unmatched_uniq"));
+  const unmatched = await indexDefinition(
+    "marketplace_sync_reviews_unmatched_uniq",
+  );
   assert(
-    /\(user_id,\s*platform,\s*dedupe_key\)/.test(unmatched.slice(0, 400)),
+    /\(user_id,\s*platform,\s*dedupe_key\)/.test(unmatched),
     "00633's index columns changed; openReviewKey's dedupe branch must change with it",
   );
   assert(
-    /listing_id IS NULL AND dedupe_key IS NOT NULL/.test(unmatched.slice(0, 400)),
+    /listing_id IS NULL AND dedupe_key IS NOT NULL/.test(unmatched),
     "00633's predicate changed; openReviewKey's precedence between the two " +
       "branches depends on it",
   );

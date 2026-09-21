@@ -89,14 +89,37 @@ before creating the file, and never renumber an already-committed migration.
 
 ## 🔒 Held-migration push rule (STANDING, from the user)
 
-A commit containing a migration is **committed to local main but NEVER
-pushed** until the user explicitly OKs it — they apply the SQL to prod BEFORE
-the push (Cloudflare Pages auto-deploys the frontend on push, and the next
-Coolify edge deploy boot-guards the new version). Package every held migration
-in `PENDING_MIGRATIONS.md`: what it does, risk level, apply order, and the
+**What it protects is `origin/main`, and only `origin/main`.** That is the
+branch Cloudflare Pages builds, and the next Coolify edge deploy boot-guards
+the schema version. So a migration must not reach **main** until the user has
+applied the SQL to prod. Package every held migration in
+`PENDING_MIGRATIONS.md`: what it does, risk level, apply order, and the
 `NOTIFY pgrst, 'reload schema';` reminder. If code in the same commit READS
 the new column/enum from the CLIENT side, say so loudly — that's what breaks
 the moment the frontend auto-deploys.
+
+> [!important] A SIDE BRANCH IS NOT A VIOLATION (settled by the owner,
+> 2026-09-19, US-3421 AC3).
+> Pushing a held migration to a `claude/*` or `held-*` branch is **allowed and
+> preferred**. Cloudflare Pages builds main; Coolify deploys on its own
+> trigger; a branch that is not main deploys nothing. So the push costs
+> nothing the rule is defending and buys durability, review, and the ability
+> for any clone to land the migration once the owner has applied it.
+>
+> This was ambiguous for months and it cost real work: US-3421 found **five
+> finished migrations on one machine only**, and US-3256 had to rewrite 00797
+> from its `PENDING_MIGRATIONS.md` description because the branch existed
+> nowhere else.
+>
+> **What is still forbidden:** merging or pushing a held migration to
+> `main` before the owner has applied the SQL.
+>
+> **The pre-push hook blocks the push anyway**, because it keys on the HELD
+> heading rather than on the target branch (`scripts/held-migration-gate.mjs`,
+> and note its `--upstream` default). On a side branch, `--no-verify` is the
+> intended bypass and the only one — never use it to push to main, and never
+> use it to skip anything else the hook checks. Say in the commit or the
+> hand-off that you did.
 
 ## Prod apply runbook
 

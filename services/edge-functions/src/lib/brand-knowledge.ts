@@ -27,6 +27,16 @@ import {
   isKnownBrand,
 } from "./brand-normalize.ts";
 import { findSizingCharts, type SizingChart } from "./sizing-charts.ts";
+// US-3405: the family lookup moved to its own module so findSizingCharts can
+// use it too without a cycle. Re-exported here because callers and tests
+// already import it from this file.
+import {
+  categoryFamily,
+  garmentFamilies,
+  narrowToFamily,
+} from "./chart-families.ts";
+import { detectSizeClass } from "./size-systems.ts";
+export { categoryFamily, garmentFamilies };
 import type {
   DecodeResult,
   DecoderSpec,
@@ -142,6 +152,14 @@ interface BrandSizeChartRow {
   source_url: string | null;
   verified: boolean | null;
   measurement_basis: string | null;
+  // US-3406. 00499 added this column and nothing read it for seven weeks, which
+  // is measurable from the outside: flipdesk-size-bands reports
+  // `chart.sizeClass ?? detectSizeClass(chart)`, and on THIS path sizeClass was
+  // always undefined because the select below did not ask for it. So the route
+  // answered with a re-derivation of the garment string while a stored value
+  // sat in the row, and the in-code fallback path answered from the declared
+  // value. Two paths, two answers for the same chart, and the live one lost.
+  size_class: string | null;
 }
 
 // ── Pure assembly + budget (unit-tested without a DB) ───────────────────────
@@ -200,11 +218,94 @@ function chartFromRow(r: BrandSizeChartRow): SizingChart {
     // default the column carries, because every chart seeded before that
     // migration held body measurements.
     measurementBasis: r.measurement_basis === "flat" ? "flat" : "body",
+    // NULL stays undefined rather than becoming "standard", and the difference
+    // is load-bearing: undefined means nobody has classified this chart, so the
+    // caller's `?? detectSizeClass(chart)` fallback still runs. Writing
+    // "standard" here would assert a classification the row does not make, and
+    // ~284 of the seeded rows carry NULL because 00499 only emitted a row where
+    // a system was readable or the class was non-standard.
+    sizeClass: r.size_class ?? undefined,
   };
 }
 
-/** Narrow DB charts by category the same way findSizingCharts does its category
- *  step: keep category matches if any, else return the whole pool. */
+// ── US-3399: which three charts reach the prompt is a decision, not heap order ─
+//
+// The brand_size_charts read carries this order. It is TOTAL, and the last two
+// keys are what make it total: brand_size_charts_key_idx is UNIQUE on
+// (brand_key, department, garment) (00389:142) and brand_key is pinned by the
+// resolver's .eq, so no two rows can tie and the result can never fall back to
+// physical order.
+//
+// It lives here as data rather than as a chain of .order() calls so a live test
+// can order its own read the same way instead of restating the keys and
+// drifting from them.
+export const CHART_ORDER: ReadonlyArray<
+  { readonly column: string; readonly ascending: boolean }
+> = [
+  { column: "created_at", ascending: false },
+  { column: "verified", ascending: false },
+  { column: "department", ascending: true },
+  { column: "garment", ascending: true },
+];
+
+/** Apply CHART_ORDER to a PostgREST builder, leftmost key first. */
+export function applyChartOrder<
+  T extends { order(column: string, opts: { ascending: boolean }): T },
+>(query: T): T {
+  return CHART_ORDER.reduce<T>(
+    (acc, k) => acc.order(k.column, { ascending: k.ascending }),
+    query,
+  );
+}
+
+// Why these keys, and why ordering alone is not the whole fix.
+//
+// The brand_size_charts read used to carry no ORDER BY, so when a brand had
+// more than MAX_CHARTS matching rows, the three that reached the grading prompt
+// were whatever physical order Postgres happened to return. Measured on the
+// 441-row post-00793 corpus: 122 of 2,172 brand x category probes are over
+// budget, and 112 of those 122 fall through the category step entirely.
+// (00813 later removed four accent-keyed duplicates, so the corpus is 437; the
+// four were duplicates of rows still present and none of these counts moved.)
+//
+// The read now carries created_at DESC, verified DESC, department ASC,
+// garment ASC. That is TOTAL, because (brand_key, department, garment) is
+// unique (brand_size_charts_key_idx, 00389:142), so with brand_key pinned by
+// the .eq the last two keys can never tie and the order can never fall back to
+// the heap. Recency leads rather than `verified` because `verified` decides
+// nothing where it matters: it is false for every row in 108 of the 122
+// over-budget pools, and of the 21 verified rows 12 are in-code seed
+// approximations. It stays as a tiebreak.
+//
+// Ordering ALONE made one thing worse, and that is why the two steps below
+// exist. Sorting by recency and slicing flat took the no-category-match
+// branch from 109/112 right-family to 94/112. The 109 was luck: it was the
+// same physical order this change exists to stop trusting.
+//
+// US-3405 then replaced that branch's family SORT with a family FILTER, which
+// is strictly better: a sorted pool still spends its tail slots on the wrong
+// family. See narrowChartsByCategory below for the measurements.
+
+/** Narrow DB charts by category the way findSizingCharts does: keep the charts
+ *  whose `categoryMatch` the asked category contains.
+ *
+ *  THE FALLBACK IS THE BIGGER HALF (US-3405). `category_match` is a hand-written
+ *  word list, so a brand's tops chart that simply never says "blouse" matches
+ *  nothing and the whole pool comes back. Measured over the 441-row corpus
+ *  against the 20 category words the resolver can actually be called with:
+ *  353 of 1,514 asks land here, and 87 brands are affected.
+ *
+ *  When nothing matches, keep the brand's charts in the asked FAMILY rather
+ *  than the whole pool. A Levi's jeans chart is the right answer for "skirt"
+ *  even though Levi's publishes no skirt chart, and its tops chart is not. That
+ *  is a claim about the FAMILY, which the garment scope states, rather than
+ *  about the word, which the data would have to state -- so it needs no
+ *  migration and asserts nothing about what a brand publishes.
+ *
+ *  Measured, sort-only against family-filtered: wrong-family slots go from
+ *  296 of 779 to 0 of 483. 237 pools return fewer charts and ZERO return none,
+ *  because the whole pool is still the answer when the brand has nothing in the
+ *  family -- a loosely-matched chart beats an empty one. */
 function narrowChartsByCategory(
   charts: SizingChart[],
   category: string | null,
@@ -214,7 +315,75 @@ function narrowChartsByCategory(
   const byCat = charts.filter((c) =>
     c.categoryMatch.some((m) => cat.includes(m))
   );
-  return byCat.length > 0 ? byCat : charts;
+  if (byCat.length > 0) return byCat;
+  return narrowToFamily(charts, cat);
+}
+
+// US-3406: departments that answer a question nobody asked.
+//
+// `submissions` carries no department, and the size pass is instructed to infer
+// it, so this cannot be a filter. A Kids chart in the pool is still the right
+// answer for a kids garment. What it must not be is FIRST, which is the slot a
+// model weights most.
+const SPECIALISED_DEPARTMENTS = new Set(["Kids", "Baby"]);
+
+/** Is this chart for a narrower population than the garment asked about?
+ *
+ *  Two dimensions and they are not the same column. `size_class` is a value on
+ *  the row (plus, big_and_tall, petite, maternity, tall), read through the same
+ *  `?? detectSizeClass(chart)` expression flipdesk-size-bands uses so the two
+ *  paths cannot answer differently. DEPARTMENT is separate, and "kids" is not a
+ *  size_class value at all -- which is why Johnnie-O's Boys' bottoms chart led
+ *  for an adult pants query while every class check passed.
+ *
+ *  A NULL class from detectSizeClass means AMBIGUOUS, not specialised: the
+ *  Talbots chart's scope reads "Misses / Petite / Plus", so it covers the
+ *  ordinary range too and demoting it would lose the standard sizes with it. */
+export function isSpecialisedChart(chart: SizingChart): boolean {
+  if (SPECIALISED_DEPARTMENTS.has(chart.department)) return true;
+  const cls = chart.sizeClass ?? detectSizeClass(chart);
+  return cls !== null && cls !== "standard";
+}
+
+/** Rank the ordinary charts ahead of the specialised ones, stably.
+ *
+ *  A DEMOTION rather than a filter, because nothing in the submission says the
+ *  garment is not a plus-size or a kids one. Measured on the 441-row corpus:
+ *  Tommy Hilfiger + shirt led with the Curve (plus) chart and Johnnie-O + pants
+ *  led with a Kids chart, both because they are the most recently sourced rows
+ *  in their pools and the read is ordered by recency (US-3399). Neither chart
+ *  leaves the prompt; both stop leading it. */
+export function demoteSpecialisedCharts(charts: SizingChart[]): SizingChart[] {
+  return [...charts].sort((a, b) =>
+    (isSpecialisedChart(a) ? 1 : 0) - (isSpecialisedChart(b) ? 1 : 0)
+  );
+}
+
+/** Take `limit` charts, spending one slot per department before a second.
+ *
+ *  Department is NOT a filter and cannot be: `submissions` carries no gender or
+ *  department column, and the size pass the charts feed is instructed to infer
+ *  the department itself. Every rendered block is headed with its department,
+ *  so the women's chart beside the men's is part of how the model answers. What
+ *  is not defensible is one department eating the whole budget while another's
+ *  only chart is cut, which is what a flat slice does. Measured: every
+ *  reachable department is represented in 122 of 122 over-budget pools, against
+ *  116 for the heap order and 98 for a flat slice of the new order. */
+export function balanceChartsByDepartment(
+  charts: SizingChart[],
+  limit: number,
+): SizingChart[] {
+  const seen = new Set<string>();
+  const firstPerDepartment: SizingChart[] = [];
+  const rest: SizingChart[] = [];
+  for (const c of charts) {
+    if (seen.has(c.department)) rest.push(c);
+    else {
+      seen.add(c.department);
+      firstPerDepartment.push(c);
+    }
+  }
+  return [...firstPerDepartment, ...rest].slice(0, limit);
 }
 
 export interface AssembleInput {
@@ -248,10 +417,15 @@ export function assembleBrandKnowledgePack(
   } = input;
 
   const usedDbCharts = dbCharts.length > 0;
-  const charts = narrowChartsByCategory(
-    usedDbCharts ? dbCharts : fallbackCharts,
-    category,
-  ).slice(0, MAX_CHARTS);
+  const charts = balanceChartsByDepartment(
+    demoteSpecialisedCharts(
+      narrowChartsByCategory(
+        usedDbCharts ? dbCharts : fallbackCharts,
+        category,
+      ),
+    ),
+    MAX_CHARTS,
+  );
 
   // US-2214: the chart fallback is SILENT by construction — it always returns
   // something, so a brand missing from brand_size_charts looks exactly like a
@@ -367,12 +541,14 @@ export async function resolveBrandKnowledgePack(
         .select("color_name, aliases, hex, years")
         .eq("brand_key", key)
         .order("confidence", { ascending: false, nullsFirst: false }),
-      supabaseAdmin
-        .from("brand_size_charts")
-        .select(
-          "brand_label, brand_match, department, garment, category_match, rows, note, source_url, verified, measurement_basis",
-        )
-        .eq("brand_key", key),
+      applyChartOrder(
+        supabaseAdmin
+          .from("brand_size_charts")
+          .select(
+            "brand_label, brand_match, department, garment, category_match, rows, note, source_url, verified, measurement_basis, size_class",
+          )
+          .eq("brand_key", key),
+      ),
     ]);
 
     if (!bk.error) brandRow = (bk.data as BrandKnowledgeRow | null) ?? null;

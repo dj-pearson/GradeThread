@@ -28,6 +28,7 @@ import {
   type MeasureCardAddress,
   MEASURE_CARD_PII_COLUMNS,
 } from "../src/lib/measure-card-pii.ts";
+import { supabaseErrorText } from "../src/lib/supabase-error-text.ts";
 
 const url = Deno.env.get("SUPABASE_URL");
 const key = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
@@ -50,7 +51,7 @@ const { data, error } = await db
   .from("measure_card_requests")
   .select("id, owner_user_id, ship_name, address_line1, address_line2, city, postal_code");
 if (error) {
-  console.error("read failed:", error.message);
+  console.error("read failed:", supabaseErrorText(error));
   Deno.exit(1);
 }
 

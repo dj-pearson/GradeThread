@@ -16,10 +16,20 @@ code_refs:
   - supabase/migrations/00726_pollable_ebay_owner_ids_no_revoke.sql
   - services/edge-functions/src/tests/body-check-denies-anon_test.ts
   - scripts/check-credit-function-guards.mjs
-reviewed: 2026-09-13
+reviewed: 2026-09-20
 tags: [postgres, security, migrations, grants]
 summary: CREATE FUNCTION grants EXECUTE to PUBLIC and every role belongs to PUBLIC, so revoking a role by name removes a grant it never held alone. Thirteen migrations used that pattern; six secured nothing, for up to three years.
 ---
+
+
+> [!note] Re-reviewed 2026-09-20. Two drifts.
+> `scripts/check-credit-function-guards.mjs` was ported to `psqlTarget`
+> (US-3445) so it runs without docker; the catalog query this note describes,
+> and its OR invariant -- unreachable by anon, or guarded in the body -- are
+> byte-unchanged, and running it for the first time here returned all ten
+> functions clean. `scripts/migrations-lint.mjs` changed on 2026-09-18; the
+> `whereLessMutations` rule this note leans on is still there and still
+> grandfathers the five applied instances by name.
 # `REVOKE … FROM anon` does not deny anon
 
 `CREATE FUNCTION` grants `EXECUTE` to **PUBLIC**, and every role is implicitly a

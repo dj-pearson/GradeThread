@@ -13,6 +13,8 @@ export interface CaptureStartResult {
   maxPhotos: number;
 }
 
+export type CaptureTargetKind = "item" | "batch" | "staging";
+
 export interface CapturePhoto {
   id: string;
   url: string;
@@ -20,6 +22,8 @@ export interface CapturePhoto {
   width: number | null;
   height: number | null;
   bytes: number;
+  /** US-3185: which item of the bin this shot was taken on. 0 for one-item codes. */
+  groupIndex: number;
 }
 
 export interface CaptureStatus {
@@ -28,6 +32,8 @@ export interface CaptureStatus {
   endedAt: string | null;
   live: boolean;
   photoCount: number;
+  /** US-3185: items the phone has started, including the one it is on. */
+  itemCount: number;
   photos: CapturePhoto[];
 }
 
@@ -37,9 +43,15 @@ export interface CapturePublicState {
   photosTaken: number;
   photosLeft: number;
   expiresAt: string;
-  targetKind: "item" | "batch";
+  targetKind: CaptureTargetKind;
   /** US-3162: required shots this item still has none of, in shooting order. */
   missingTypes: string[];
+  /** US-3185: which item of the bin the phone is on, counting from zero. */
+  groupIndex: number;
+  /** Shots already on that item. Zero is what disables "Next item". */
+  photosInGroup: number;
+  /** True when this code walks a bin and therefore shows "Next item". */
+  multiItem: boolean;
 }
 
 /**
@@ -94,7 +106,7 @@ function messageFrom(body: unknown, fallback: string): string {
 
 export async function startCapture(
   fetchEdge: CaptureFetch,
-  targetKind: "item" | "batch",
+  targetKind: CaptureTargetKind,
   targetId: string,
 ): Promise<CaptureStartResult> {
   const res = await fetchEdge("/api/flipdesk/capture/sessions", {
@@ -158,6 +170,8 @@ export interface CaptureSendResult {
   error: string | null;
   /** True when the code itself is finished, so the page should stop offering to send. */
   gone: boolean;
+  /** US-3185: shots on the current item after this one landed, when counted. */
+  photosInGroup: number | null;
 }
 
 /**
@@ -187,6 +201,7 @@ export async function sendCapturePhoto(
       duplicate?: boolean;
       photosTaken?: number;
       photosLeft?: number;
+      photosInGroup?: number;
       error?: string;
       missingTypes?: string[];
     }
@@ -203,6 +218,7 @@ export async function sendCapturePhoto(
       // 410 means the code is finished for good; 429 means it is full. Both end
       // the session for this page, and neither is worth retrying.
       gone: res.status === 410 || res.status === 429 || res.status === 404,
+      photosInGroup: null,
     };
   }
   return {
@@ -213,6 +229,7 @@ export async function sendCapturePhoto(
     photosLeft: typeof body?.photosLeft === "number" ? body.photosLeft : null,
     error: null,
     gone: false,
+    photosInGroup: typeof body?.photosInGroup === "number" ? body.photosInGroup : null,
   };
 }
 
@@ -235,6 +252,91 @@ export async function sendCapturePhotoWithRetry(
   const first = await sendCapturePhoto(fetchEdge, token, file, clientKey);
   if (first.ok || first.gone) return first;
   return await sendCapturePhoto(fetchEdge, token, file, clientKey);
+}
+
+/**
+ * US-3185: mark the group boundary — the seller has finished this garment and
+ * the next shots belong to the next one.
+ *
+ * `advanced: false` is an ordinary answer, not a failure: the server refuses to
+ * leave an item with no photos in it, so a tap before the first shot (or a
+ * double tap) returns the same index. The page says so rather than looking as
+ * though it missed the press.
+ *
+ * A dead code is not an exception here, for the same reason `readCapturePublic`
+ * does not throw: the page renders a sentence, not a stack trace.
+ */
+export interface CaptureNextItemResult {
+  ok: boolean;
+  groupIndex: number | null;
+  photosInGroup: number | null;
+  advanced: boolean;
+  error: string | null;
+  gone: boolean;
+}
+
+export async function nextCaptureItem(
+  fetchEdge: CaptureFetch,
+  token: string,
+): Promise<CaptureNextItemResult> {
+  const res = await fetchEdge(
+    `/api/flipdesk/capture/s/${encodeURIComponent(token)}/next-item`,
+    { method: "POST", unauthenticated: true },
+  );
+  const body = await res.json().catch(() => null) as
+    | { groupIndex?: number; photosInGroup?: number; advanced?: boolean; error?: string }
+    | null;
+  if (!res.ok) {
+    return {
+      ok: false,
+      groupIndex: null,
+      photosInGroup: null,
+      advanced: false,
+      error: messageFrom(body, "Could not start the next item."),
+      gone: res.status === 410 || res.status === 404,
+    };
+  }
+  return {
+    ok: true,
+    groupIndex: typeof body?.groupIndex === "number" ? body.groupIndex : null,
+    photosInGroup: typeof body?.photosInGroup === "number" ? body.photosInGroup : null,
+    advanced: body?.advanced === true,
+    error: null,
+    gone: false,
+  };
+}
+
+/**
+ * US-3185: the desktop's view of a bin — one bucket per item the phone marked.
+ *
+ * Buckets are keyed by the index the SERVER stamped, and the returned order is
+ * that index ascending, so an item with no photos in it (which the server
+ * refuses to create, but which a deleted photo could still produce) is simply
+ * absent rather than an empty group the seller has to tidy up.
+ *
+ * Pure, because the page's job after a poll is "which of these are new, and
+ * which item does each belong to", and that is worth testing without a camera.
+ */
+export function groupPhotosByItem(
+  photos: readonly CapturePhoto[],
+): { groupIndex: number; photos: CapturePhoto[] }[] {
+  const buckets = new Map<number, CapturePhoto[]>();
+  for (const p of photos) {
+    const key = Number.isInteger(p.groupIndex) && p.groupIndex >= 0 ? p.groupIndex : 0;
+    const bucket = buckets.get(key);
+    if (bucket) bucket.push(p);
+    else buckets.set(key, [p]);
+  }
+  return [...buckets.entries()]
+    .sort((a, b) => a[0] - b[0])
+    .map(([groupIndex, list]) => ({ groupIndex, photos: list }));
+}
+
+/** "Item 3 - 2 photos". What the phone shows while walking a bin. */
+export function captureItemLine(groupIndex: number, photosInGroup: number): string {
+  const item = `Item ${Math.max(0, groupIndex) + 1}`;
+  if (photosInGroup <= 0) return `${item} - no photos yet`;
+  return `${item} - ${photosInGroup} ${photosInGroup === 1 ? "photo" : "photos"}`;
 }
 
 /** A key for one shot, stable across a retry of the same file. */

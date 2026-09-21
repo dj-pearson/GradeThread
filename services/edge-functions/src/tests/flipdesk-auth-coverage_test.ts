@@ -60,7 +60,32 @@ const mounts = matchAll(
 const authPaths = matchAll(
   mainSrc,
   /app\.use\(\s*"(\/api\/flipdesk\/[^"]+)"\s*,\s*(?:authMiddleware|ebayAuthMiddleware|qboAuthMiddleware|extensionOrUserAuthMiddleware)\s*\)/g,
-).map((p) => p.replace(/\/\*$/, "").replace(/\/$/, ""));
+);
+
+// US-3441: does this auth line give `mount` a posture?
+//
+// It nests in BOTH directions, and the two directions are not the same claim.
+// A guarded line BELOW the router proves the router has a deliberate posture,
+// which is all this guard has ever asserted. A guarded line ABOVE it actually
+// covers every sub-path -- but only when it was written with a wildcard:
+// `app.use("/api/flipdesk/demand", authMiddleware)` in Hono matches that exact
+// path and nothing under it, so treating it as an ancestor would read a real
+// hole as covered.
+//
+// The ancestor direction was missing, and the cost was a false positive on a
+// router doing the RIGHT thing: flipdesk-link.ts is mounted at
+// /api/flipdesk/import/link under the existing
+// `app.use("/api/flipdesk/import/*", authMiddleware)`, and its own header says
+// that was deliberate, because a fourth app.use is a fourth place to forget a
+// middleware. This guard told it to add one.
+export function authPathCovers(authPath: string, mount: string): boolean {
+  const wildcard = authPath.endsWith("/*");
+  const base = authPath.replace(/\/\*$/, "").replace(/\/$/, "");
+  const prefix = mount.replace(/\/$/, "");
+  if (base === prefix) return true;
+  if (base.startsWith(prefix + "/")) return true;
+  return wildcard && prefix.startsWith(base + "/");
+}
 
 Deno.test("every FlipDesk router mount has an auth posture (authed or explicitly public)", () => {
   assert(mounts.length > 0, "expected to find /api/flipdesk router mounts in main.ts");
@@ -68,11 +93,7 @@ Deno.test("every FlipDesk router mount has an auth posture (authed or explicitly
   const uncovered: string[] = [];
   for (const mount of mounts) {
     if (PUBLIC_FLIPDESK_ROUTERS.has(mount)) continue;
-    const prefix = mount.replace(/\/$/, "");
-    const covered = authPaths.some(
-      (p) => p === prefix || p.startsWith(prefix + "/"),
-    );
-    if (!covered) uncovered.push(mount);
+    if (!authPaths.some((p) => authPathCovers(p, mount))) uncovered.push(mount);
   }
 
   assert(
@@ -81,6 +102,27 @@ Deno.test("every FlipDesk router mount has an auth posture (authed or explicitly
       `(add an app.use("<prefix>/*", authMiddleware), or add to PUBLIC_FLIPDESK_ROUTERS if ` +
       `genuinely public): ${uncovered.join(", ")}`,
   );
+});
+
+Deno.test("US-3441: an ancestor auth line counts only when it is a wildcard", () => {
+  // The real case: the router is mounted under a guarded wildcard prefix.
+  assert(
+    authPathCovers("/api/flipdesk/import/*", "/api/flipdesk/import/link"),
+  );
+  // Same prefix without the wildcard. Hono matches that exact path only, so a
+  // sub-router under it is NOT covered, and reading it as covered would hide
+  // exactly the hole this guard exists for.
+  assert(
+    !authPathCovers("/api/flipdesk/import", "/api/flipdesk/import/link"),
+  );
+  // Both directions that were already accepted, unchanged.
+  assert(authPathCovers("/api/flipdesk/demand", "/api/flipdesk/demand"));
+  assert(
+    authPathCovers("/api/flipdesk/ebay/listings/*", "/api/flipdesk/ebay"),
+  );
+  // An unrelated sibling never counts, wildcard or not.
+  assert(!authPathCovers("/api/flipdesk/importer/*", "/api/flipdesk/import"));
+  assert(!authPathCovers("/api/flipdesk/demand/*", "/api/flipdesk/depop"));
 });
 
 // US-1623 PATH-LEVEL eBay coverage lived here until US-2014 AC3. It diffed every
@@ -175,7 +217,7 @@ const apiMounts = [
 const apiAuthPrefixes = matchAll(
   mainSrc,
   new RegExp(`app\\.use\\(\\s*"(\\/api\\/[^"]+)"\\s*,\\s*${AUTH_MW}\\s*\\)`, "g"),
-).map((p) => p.replace(/\/\*$/, "").replace(/\/$/, ""));
+);
 
 Deno.test("every /api router mount has an auth posture (authed or explicitly public) — US-1639", () => {
   assert(apiMounts.length > 0, "expected /api router mounts in main.ts");
@@ -184,16 +226,16 @@ Deno.test("every /api router mount has an auth posture (authed or explicitly pub
   const uncovered: string[] = [];
   for (const mount of apiMounts) {
     if (PUBLIC_API_ROUTERS.has(mount)) continue;
-    const prefix = mount.replace(/\/$/, "");
-    // Nested either way: a parent auth prefix covers a child mount, and a
-    // child auth prefix proves the parent router has a posture.
-    const covered = apiAuthPrefixes.some(
-      (p) =>
-        p === prefix ||
-        p.startsWith(prefix + "/") ||
-        prefix.startsWith(p + "/"),
-    );
-    if (!covered) uncovered.push(mount);
+    // US-3441: same nesting rule as the FlipDesk guard above, including the
+    // wildcard requirement on the ancestor direction. This guard already
+    // nested both ways; what it did not do was ask whether the ancestor was
+    // written with a `/*`, and a bare `app.use("/api/x", mw)` covers that exact
+    // path only. Measured when this was tightened: ZERO of the 153 /api mounts
+    // were covered by the loose rule alone, so nothing changed today. It closes
+    // the shape rather than a live hole.
+    if (!apiAuthPrefixes.some((p) => authPathCovers(p, mount))) {
+      uncovered.push(mount);
+    }
   }
 
   assert(

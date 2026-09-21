@@ -37,6 +37,7 @@ import {
   PURGE_EXEMPT_TABLES,
 } from "../src/lib/account-email-purge.ts";
 import { normalizeAddress } from "../src/lib/email-residue-census.ts";
+import { supabaseErrorText } from "../src/lib/supabase-error-text.ts";
 
 const args = Deno.args.filter((a) => !a.startsWith("--"));
 const apply = Deno.args.includes("--apply");
@@ -67,7 +68,7 @@ const db = createClient(url, key, { auth: { persistSession: false } });
     .eq("email", address)
     .limit(1);
   if (error) {
-    console.error(`live-account check failed: ${error.message}`);
+    console.error(`live-account check failed: ${supabaseErrorText(error)}`);
     Deno.exit(1);
   }
   if ((data ?? []).length > 0) {
@@ -95,7 +96,7 @@ if (!apply) {
       .eq(target.column, address);
     console.log(
       error
-        ? `  ${target.table.padEnd(28)} unreadable: ${error.message}`
+        ? `  ${target.table.padEnd(28)} unreadable: ${supabaseErrorText(error)}`
         : `  ${target.table.padEnd(28)} ${count ?? 0} row(s) would be ${target.mode}d`,
     );
   }
@@ -106,13 +107,13 @@ if (!apply) {
 const result = await purgeEmailKeyedPii(address, {
   del: async (table, column, value) => {
     const { error } = await db.from(table).delete().eq(column, value);
-    return { error: error ? { message: error.message } : null };
+    return { error: error ? { message: supabaseErrorText(error) } : null };
   },
   anonymize: async (table, column, value, clear) => {
     const patch: Record<string, null> = {};
     for (const c of clear) patch[c] = null;
     const { error } = await db.from(table).update(patch).eq(column, value);
-    return { error: error ? { message: error.message } : null };
+    return { error: error ? { message: supabaseErrorText(error) } : null };
   },
   report: (message) => console.error(message),
 });

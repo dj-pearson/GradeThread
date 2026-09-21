@@ -32,6 +32,7 @@ import { createClient } from "@supabase/supabase-js";
 // call time, so the seeder and the edge service must run with the same value
 // (they do in the local recipe and in CI, where neither sets one).
 import { generateApiKey } from "../src/lib/api-key.ts";
+import { supabaseErrorText } from "../src/lib/supabase-error-text.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL");
 const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ??
@@ -112,7 +113,7 @@ async function findUserByEmail(email: string): Promise<string | null> {
       page,
       perPage: 200,
     });
-    if (error) die(`listUsers failed: ${error.message}`);
+    if (error) die(`listUsers failed: ${supabaseErrorText(error)}`);
     const hit = data.users.find(
       (u) => u.email?.toLowerCase() === email.toLowerCase(),
     );
@@ -219,7 +220,7 @@ async function main(): Promise<void> {
       flipdesk_plan: "business",
       subscription_status: "active",
     }).eq("id", id);
-    if (error) die(`plan setup for ${id} failed: ${error.message}`);
+    if (error) die(`plan setup for ${id} failed: ${supabaseErrorText(error)}`);
   }
   log("plan: A and B set to business (apiAccess) so the API surface is reachable");
 
@@ -234,7 +235,7 @@ async function main(): Promise<void> {
       subscription_status: "none",
       trial_ends_at: null,
     }).eq("id", fId);
-    if (error) die(`free-plan setup for ${fId} failed: ${error.message}`);
+    if (error) die(`free-plan setup for ${fId} failed: ${supabaseErrorText(error)}`);
   }
   log("plan: F set to free (no trial) so the free-tier import bound is reachable");
 
@@ -252,7 +253,7 @@ async function main(): Promise<void> {
         { owner_id: aId, member_id: vId, role: "viewer", invited_by: aId },
         { onConflict: "owner_id,member_id" },
       );
-    if (error) die(`seed workspace_members(viewer) failed: ${error.message}`);
+    if (error) die(`seed workspace_members(viewer) failed: ${supabaseErrorText(error)}`);
     log(`viewer membership: ${V_EMAIL} -> owner ${aId} (role=viewer)`);
   }
   out.TEST_VIEWER_JWT = await mintJwt(V_EMAIL);

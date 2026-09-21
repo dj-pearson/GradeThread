@@ -55,6 +55,14 @@ const PARENT_SCOPED = [
 // service-role (which bypasses RLS) reads/writes them. This is the most
 // restrictive configuration, not a gap.
 const SERVICE_ROLE_ONLY = new Set([
+  // US-3197: the cross-channel matches a human still has to decide. A row
+  // names two of the seller's own listings and a similarity score, which is
+  // theirs -- but a WRITABLE row would let a caller manufacture a merge
+  // question against another tenant's listings, and the confirm route acts on
+  // what the row names, so a forged one becomes a merge of somebody else's
+  // garments with no unmerge button. Deny-all in both directions; the seller
+  // reads and answers through an owner-scoped edge route.
+  "flipdesk_cross_channel_link_reviews",
   // US-9212: creator tax identities (the W-9 equivalent). Deny-all in both
   // directions. Readable, it is a list of legal names, addresses and the last
   // four digits of a taxpayer id; writable, a caller could certify a form for

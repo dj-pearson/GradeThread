@@ -240,7 +240,18 @@ describe("a draft with no stored price still cross-posts one (US-2736)", () => {
     // VIEW, and asking this table for it fails the whole query.
     // 2026-09-11: the same read now carries the item's facts too
     // (channel-copy.ts), and still no list_price.
-    expect(src).toContain('.select("target_price, title, brand, color, size")');
+    // 2026-09-18 (US-3210 AC4): and the grade, for the picker proposals. Pinned
+    // per column rather than as one literal, because the previous form broke
+    // the moment a column was ADDED -- which is not the failure it exists to
+    // catch. What it must catch is target_price going missing, or list_price
+    // arriving; both are still asserted.
+    const select = /\.select\("(target_price[^"]*)"\)/.exec(src)?.[1] ?? "";
+    for (const col of ["target_price", "title", "brand", "color", "size", "grade_value", "grade_label"]) {
+      expect(select, `${col} must be read from inventory_items`).toContain(col);
+    }
+    expect(select, "list_price is on the items_full VIEW, not this table").not.toContain(
+      "list_price",
+    );
     expect(src).not.toContain('"target_price, list_price"');
     // US-3317: the query now returns every platform's row, so the eBay draft
     // is named `draft` rather than being the whole result.
@@ -469,6 +480,49 @@ describe("each tab names what the seller still has to set (US-2745)", () => {
   it("a platform with none renders nothing at all", () => {
     const src = code(KIT);
     expect(src).toContain("manualFieldLabels.length > 0 &&");
+  });
+
+  // ── US-3210 AC4: the notice now says what to pick ─────────────────────────
+  //
+  // It used to be one flat sentence naming four fields, which is true and not
+  // actionable. Three of Poshmark's four are answerable from the item the
+  // seller already filled in plus its grade.
+
+  it("reads the grade off the item, or NWT and condition are unanswerable", () => {
+    // Two of the five pickers this notice covers depend on the grade, and the
+    // facts query selected neither column before this. Wiring only the render
+    // would have left both permanently `none` while looking wired.
+    const src = code(KIT);
+    expect(src).toContain("grade_value, grade_label");
+    expect(src).toContain("gradeValue: item.grade_value");
+    expect(src).toContain("gradeTier: itemFacts?.gradeLabel");
+  });
+
+  it("proposes only for a platform with a picker contract", () => {
+    // Not a hand-written poshmark-or-mercari test: the list lives in
+    // picker-proposals.ts so a third platform cannot be half-covered.
+    const src = code(KIT);
+    expect(src).toContain("isPickerPlatform(platform)");
+  });
+
+  it("asks the seller to confirm, and never claims the field is filled", () => {
+    // The extension cannot drive these pickers yet -- AC3's DOM half and AC6's
+    // captured option lists both need a browser on a logged-in session. A
+    // notice saying "we set these" would be a claim nothing behind it can keep.
+    const src = code(KIT);
+    expect(src).toContain("Confirm each on the form.");
+    for (const claim of ["We set these", "we set these", "already selected"]) {
+      expect(src, `the notice must not claim ${claim}`).not.toContain(claim);
+    }
+  });
+
+  it("says nothing extra when there is nothing to suggest", () => {
+    // An ungraded item with no size or colour proposes nothing, and the seller
+    // sees exactly the sentence they saw before this change rather than an
+    // empty "What to pick" heading.
+    const src = code(KIT);
+    expect(src).toContain("suggested.length > 0 &&");
+    expect(src).toContain("unmapped.length > 0 && suggested.length > 0 &&");
   });
 
   it("every declared key exists on that platform's field list", () => {

@@ -2,9 +2,13 @@ import { describe, expect, it } from "vitest";
 import {
   type CaptureFetch,
   type CaptureFetchResponse,
+  type CapturePhoto,
   CAPTURE_POLL_MS,
+  captureItemLine,
   endCapture,
+  groupPhotosByItem,
   missingSentence,
+  nextCaptureItem,
   photoTypeLabel,
   sendCapturePhotoWithRetry,
   readCapturePublic,
@@ -179,5 +183,104 @@ describe("phone capture (US-3161)", () => {
     // type added elsewhere cannot silently vanish from the prompt.
     expect(photoTypeLabel("tag_2")).toBe("second tag");
     expect(photoTypeLabel("some_new_type")).toBe("some new type");
+  });
+});
+
+// US-3185: one code, a bin of garments. The phone marks the boundary between
+// them and the desktop turns each index into one group.
+
+function photo(id: string, groupIndex: number): CapturePhoto {
+  return {
+    id,
+    url: `https://example.test/${id}.jpg`,
+    storagePath: `u/${id}.jpg`,
+    width: 1200,
+    height: 1600,
+    bytes: 1000,
+    groupIndex,
+  };
+}
+
+describe("phone capture, several items on one code (US-3185)", () => {
+  it("the boundary is a POST the phone makes with no index of its own", async () => {
+    const { f, calls } = fetcher([res({ ok: true, groupIndex: 1, photosInGroup: 0, advanced: true })]);
+    const moved = await nextCaptureItem(f, "tok");
+    expect(moved.ok).toBe(true);
+    expect(moved.advanced).toBe(true);
+    expect(moved.groupIndex).toBe(1);
+    expect(calls[0]?.path).toBe("/api/flipdesk/capture/s/tok/next-item");
+    expect(calls[0]?.init?.method).toBe("POST");
+    // The phone is not signed in to anything. A call that quietly required a
+    // session would work on the desk and fail on the phone.
+    expect(calls[0]?.init?.unauthenticated).toBe(true);
+    // Nothing in the request names a group.
+    expect(JSON.stringify(calls[0]?.init?.json ?? null)).not.toContain("group");
+  });
+
+  it("a tap that changed nothing is an ordinary answer, not a failure", async () => {
+    // The server refuses to leave an item with no photos in it, so a tap
+    // before the first shot comes back advanced:false with the SAME index.
+    const { f } = fetcher([res({ ok: true, groupIndex: 0, photosInGroup: 0, advanced: false })]);
+    const moved = await nextCaptureItem(f, "tok");
+    expect(moved.ok).toBe(true);
+    expect(moved.advanced).toBe(false);
+    expect(moved.groupIndex).toBe(0);
+    expect(moved.error).toBeNull();
+  });
+
+  it("a dead code ends the page rather than throwing at it", async () => {
+    const { f } = fetcher([res({ error: "This code has expired. Scan a new one." }, false, 410)]);
+    const moved = await nextCaptureItem(f, "tok");
+    expect(moved.ok).toBe(false);
+    expect(moved.gone).toBe(true);
+    expect(moved.error).toBe("This code has expired. Scan a new one.");
+  });
+
+  it("an upload carries the current item's own count, so the line keeps up", async () => {
+    const { f } = fetcher([res({ ok: true, photosTaken: 5, groupIndex: 2, photosInGroup: 2 })]);
+    const sent = await sendCapturePhoto(f, "tok", new File(["x"], "a.jpg"), "k");
+    expect(sent.photosInGroup).toBe(2);
+    // A server that said nothing must not be read as "no photos on this item".
+    const { f: f2 } = fetcher([res({ ok: true, photosTaken: 5 })]);
+    expect((await sendCapturePhoto(f2, "tok", new File(["x"], "a.jpg"), "k")).photosInGroup)
+      .toBeNull();
+  });
+
+  it("photos become one bucket per item, in item order", () => {
+    const grouped = groupPhotosByItem([
+      photo("c", 1),
+      photo("a", 0),
+      photo("d", 2),
+      photo("b", 0),
+    ]);
+    expect(grouped.map((g) => g.groupIndex)).toEqual([0, 1, 2]);
+    // Order WITHIN an item is the order the photos arrived in, which is the
+    // order they were shot: the first one is the cover the desktop picks.
+    expect(grouped[0]?.photos.map((p) => p.id)).toEqual(["a", "b"]);
+    expect(grouped[2]?.photos.map((p) => p.id)).toEqual(["d"]);
+  });
+
+  it("a gap in the indexes is a gap, not an empty item to tidy up", () => {
+    // A deleted photo can leave an index with nothing in it. Emitting an empty
+    // bucket would make the desktop create a group the seller has to remove.
+    const grouped = groupPhotosByItem([photo("a", 0), photo("b", 3)]);
+    expect(grouped.map((g) => g.groupIndex)).toEqual([0, 3]);
+    expect(grouped).toHaveLength(2);
+  });
+
+  it("a photo with a nonsense index lands on the first item rather than vanishing", () => {
+    const grouped = groupPhotosByItem([
+      { ...photo("a", 0), groupIndex: -1 },
+      { ...photo("b", 0), groupIndex: Number.NaN },
+    ]);
+    expect(grouped).toHaveLength(1);
+    expect(grouped[0]?.groupIndex).toBe(0);
+    expect(grouped[0]?.photos).toHaveLength(2);
+  });
+
+  it("the phone's line counts items from one, because nobody says item zero", () => {
+    expect(captureItemLine(0, 0)).toBe("Item 1 - no photos yet");
+    expect(captureItemLine(0, 1)).toBe("Item 1 - 1 photo");
+    expect(captureItemLine(2, 3)).toBe("Item 3 - 3 photos");
   });
 });

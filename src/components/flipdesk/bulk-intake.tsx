@@ -39,6 +39,7 @@ import { SkuAutoHint } from "@/components/flipdesk/sku-auto-hint";
 import { useSources } from "@/hooks/use-sources";
 import { ITEM_CATEGORIES } from "@/lib/constants";
 import { todayLocalDate } from "@/lib/local-date";
+import { acquiredDateZoneFor } from "@/lib/acquired-date-zone";
 import type { InventoryItemInsert, ItemCategory } from "@/types/database";
 import { removeStored } from "@/lib/safe-storage";
 
@@ -246,6 +247,7 @@ export function BulkIntake() {
         sourced_by: trimOrNull(session.sourcedBy),
         source_id: sourceId,
         acquired_date: session.purchaseDate || null,
+        acquired_date_tz: acquiredDateZoneFor(session.purchaseDate),
         acquired_price: perItemCost,
         status: "cataloged",
       }));

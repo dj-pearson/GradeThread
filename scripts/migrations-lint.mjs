@@ -97,11 +97,6 @@ export const KNOWN_GAPS = new Map([
   // do. So "gap explained" and "gap filled" are both green and there is no
   // third state where this list can quietly go stale.
   [
-    "00793",
-    "held on held-v2/us-3387-00793 (retire 23 size charts a rename orphaned). "
-      + "That branch deletes this entry when it lands.",
-  ],
-  [
     "00794",
     "held on held-v2/us-3397-00794 (stop anon enumerating the storage "
       + "buckets). That branch deletes this entry when it lands.",
@@ -110,12 +105,6 @@ export const KNOWN_GAPS = new Map([
     "00795",
     "held on held-v2/us-3398-00795 (the deletion log stops claiming a purge it "
       + "never checked). That branch deletes this entry when it lands.",
-  ],
-  [
-    "00797",
-    "held on held-v3/us-3256-00797 (the seeded cogs_labor row says Labour). "
-      + "Rebuilt onto main at 00800 on 2026-09-13; the v2 branch is superseded. "
-      + "That branch deletes this entry when it lands.",
   ],
   [
     "00798",

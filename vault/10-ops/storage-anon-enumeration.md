@@ -5,9 +5,10 @@ status: current
 source_of_truth: vault
 code_refs:
   - services/edge-functions/src/tests/storage-anon-list_test.ts
-reviewed: 2026-09-11
+  - supabase/migrations/00807_scope_storage_public_read_policies.sql
+reviewed: 2026-09-19
 tags: [ops, security, storage, supabase, rls]
-summary: A public Supabase bucket is served on a superuser connection, so the SELECT policy on storage.objects controls only list, sign and metadata - which is why a TO-less policy let anon walk 7,057 objects and why tightening it cannot take a listing image dark.
+summary: A public Supabase bucket is served on a superuser connection, so the SELECT policy on storage.objects controls only list, sign and metadata - which is why a TO-less policy let anon walk 7,057 objects, why tightening it cannot take a listing image dark, and what 00807 narrowed each of the five buckets to.
 ---
 
 # A storage SELECT policy gates list, not the public read
@@ -94,21 +95,65 @@ and it was never needed: the public read does not consult the policy at all.
 Five of the ten were already harmless (`auth.uid()`-gated, so `anon` matched
 nothing) and five were unconditional `USING (bucket_id = '...')`.
 
-## What is still open after 00794
+## What 00807 settled (US-3403, 2026-09-19)
 
-Any **authenticated** user can still enumerate `avatars`, `cert-assets`,
-`content-images` and `content-videos`, because those four get the role change
-only. Signup is open, so that is a real if much smaller exposure. Scoping them
-needs a per-bucket decision about who legitimately reads them.
+00794 was going to leave any **authenticated** user able to enumerate
+`avatars`, `cert-assets`, `content-images` and `content-videos`, because those
+four got the role change only. Signup is open, so that was a real if much
+smaller exposure.
+
+`00807` closes all five instead, and **does not assume 00794 has run** - it is
+`DROP POLICY IF EXISTS` then `CREATE` for each, correct whether or not 00794
+ever lands. That matters: a file narrowing only the four smaller buckets would
+have tidied two EMPTY ones while leaving the 3.5 GB one open to anon.
+
+| Bucket | Who may list / sign | Why |
+|---|---|---|
+| `item-photos` | the owner folder, or a workspace member of that owner | enumeration exposes another seller's whole catalogue shape |
+| `avatars` | the owner folder | public display is unaffected; what goes is listing every user id that has one |
+| `cert-assets` | `public.is_admin()` | a certificate is meant to be SHAREABLE, not DISCOVERABLE IN BULK - a list is every certificate id ever issued |
+| `content-images` | `public.is_admin()` | already who its INSERT/UPDATE/DELETE policies name |
+| `content-videos` | `public.is_admin()` | same |
+
+**Nothing in the app lost a capability**, checked rather than assumed: the only
+`.list()` in the tree is `account-storage-purge.ts` on the service-role client,
+which bypasses RLS, and every client-side `createSignedUrl` targets
+`submission-images`. `src/test/storage-public-read-scope.test.ts` pins both.
+
+**Measured on Postgres 16 carrying all 799 migrations**, RLS on, one
+transaction per role with `set local role` and `request.jwt.claims` - which is
+what `POST /object/list` does:
+
+| Reader | before 00807 | after |
+|---|---|---|
+| `anon` | all 8 seeded objects across the five | **0** |
+| a signed-up stranger | all 8 | 2, both in their own folders |
+| the owner | all 8 | their own 3 |
+| an admin | all 8 | the 3 published-content objects |
+
+⚠ The **folder-shape guard** in the `item-photos` policy is load-bearing:
+`((storage.foldername(name))[1])::uuid` RAISES on a path whose first segment is
+not a uuid, and in a SELECT policy that is not row-local - it fails the whole
+list for everybody. The UPDATE and DELETE policies carry the same cast
+unguarded, which survives there because they run against one named object.
 
 ## The check that needs no credentials
 
 ```sql
--- expect 0 rows; anything here applies to anon
+-- Anything here applies to anon. Five rows are EXPECTED, not zero.
 select policyname, cmd, roles
 from pg_policies
 where schemaname = 'storage' and roles::text like '%public%';
 ```
+
+⚠ **This note used to say "expect 0 rows", and that was wrong** - it would have
+read as a live finding forever. Five `{public}` policies remain after 00807 and
+all five are `submission-images`, gated on `auth.uid()`, so `anon` matches
+nothing. Proved rather than argued: as `anon`, `select count(*) from
+storage.objects where bucket_id = 'submission-images'` returns 0 with two rows
+seeded, and an `anon` INSERT is refused by RLS. What the query is actually for
+is spotting a `{public}` policy whose USING tests **only** `bucket_id` - which
+is the rule `storage-anon-list_test.ts` enforces on the source.
 
 Read this off `pg_policies`, never off the migration that created it - see
 [[migrations-process]] for why that distinction has bitten this repo before.

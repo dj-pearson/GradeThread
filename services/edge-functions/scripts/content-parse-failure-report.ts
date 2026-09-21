@@ -38,6 +38,7 @@
 // READ-ONLY. It writes nothing.
 
 import { createClient } from "@supabase/supabase-js";
+import { supabaseErrorText } from "../src/lib/supabase-error-text.ts";
 
 // ── Windows ──────────────────────────────────────────────────────────────────
 
@@ -409,7 +410,7 @@ async function fetchWindow(
       .order("ran_at", { ascending: true })
       .range(offset, offset + PAGE - 1);
     if (error) {
-      throw new Error(`content_scheduler_runs read failed: ${error.message}`);
+      throw new Error(`content_scheduler_runs read failed: ${supabaseErrorText(error)}`);
     }
     const page = (data ?? []) as SchedulerRun[];
     rows.push(...page);

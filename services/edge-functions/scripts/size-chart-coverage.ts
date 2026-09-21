@@ -33,6 +33,7 @@
 import { createClient } from "@supabase/supabase-js";
 import { brandKey } from "../src/lib/brand-normalize.ts";
 import { normalizeDepartment } from "../src/lib/size-systems.ts";
+import { supabaseErrorText } from "../src/lib/supabase-error-text.ts";
 
 // Trimmed, because a key that arrives with a trailing newline or a stray space
 // is the normal outcome of copying it out of a dashboard or a file, and Deno
@@ -115,7 +116,7 @@ async function readItems(): Promise<ItemRow[]> {
       // (US-3396). A partial inventory read does not produce a smaller report,
       // it produces a DIFFERENT ranking, and the ranking is the whole point.
       console.error(
-        `! inventory_items unreadable at offset ${from}: ${error.message}\n` +
+        `! inventory_items unreadable at offset ${from}: ${supabaseErrorText(error)}\n` +
           `! ${out.length} row(s) were read first. A ranking built on part of the ` +
           `inventory is not a smaller answer, it is a different one, so nothing ` +
           `is printed.`,
@@ -203,7 +204,7 @@ async function readCharts(): Promise<ChartRow[]> {
       .range(from, from + page - 1);
     if (error) {
       const missingBasis = basisColumnExists &&
-        (error.code === "42703" || /measurement_basis/.test(error.message ?? ""));
+        (error.code === "42703" || /measurement_basis/.test(supabaseErrorText(error) ?? ""));
       if (missingBasis) {
         console.error(
           "! brand_size_charts.measurement_basis is absent - migration 00674 is " +
@@ -218,7 +219,7 @@ async function readCharts(): Promise<ChartRow[]> {
       // chart", which is a plausible-looking answer to exactly the question
       // being asked, and every line of the table below would print NONE.
       console.error(
-        `! brand_size_charts unreadable at offset ${from}: ${error.message}\n` +
+        `! brand_size_charts unreadable at offset ${from}: ${supabaseErrorText(error)}\n` +
           `! ${out.length} chart(s) were read first. Reporting them as the whole ` +
           `table would print NONE for brands that DO have a chart, so nothing ` +
           `is printed.`,

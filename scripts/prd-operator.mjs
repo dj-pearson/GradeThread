@@ -309,7 +309,7 @@ export function namedByCount(stories) {
  */
 export const SATISFIED_RE = /\bSATISFIED\s+\d{4}-\d{2}-\d{2}\b/i;
 
-export function collect(stories) {
+export function collect(stories, today = new Date().toISOString().slice(0, 10)) {
   const open = stories.filter((s) => !s.passes);
   const declared = [];
   const undeclared = [];
@@ -341,6 +341,22 @@ export function collect(stories) {
     for (const pattern of UNDECLARED_PATTERNS) {
       const m = pattern.exec(notes);
       if (m) hits.push(extractSentence(notes, m.index));
+    }
+    // ⚠ CRITERIA ARE SCANNED TOO, for one shape only: a measurement whose date
+    // has not arrived. Seven stories were invisible to this whole queue because
+    // their remaining work is an ordinary criterion like "Measured at 8 weeks,
+    // 2026-11-15" rather than an OPERATOR: one -- and nothing in the note
+    // patterns above reads criteria at all. That is the same defect as the
+    // unread sibling backlog recorded further down, one level in: a shape the
+    // heuristics never classify produces no signal of any kind. Five of the
+    // seven sit at priority 16-20, exactly where a reader looking for the next
+    // job lands, so they were re-read instead of skipped.
+    //
+    // Only FUTURE dates. Once the date arrives the story is ordinary work again
+    // and must stop being parked.
+    for (const ac of s.acceptanceCriteria ?? []) {
+      const when = followUpDate(ac);
+      if (when && when > today) hits.push(ac.trim());
     }
     if (hits.length === 0 && !titleTagged) continue;
     undeclared.push({
@@ -379,7 +395,46 @@ export function collect(stories) {
  * "unclassified" and is printed rather than dropped — a queue that silently
  * loses items is worse than one that admits it does not know.
  */
+/**
+ * The earliest follow-up date a story names, or null.
+ *
+ * A DATE IN A CRITERION IS NOT THE SAME AS A DATE IN PROSE. This reads only
+ * criteria and note sentences that pair a date with a measuring verb -- "read
+ * Search Console on 2026-11-15", "measured at 8 weeks" -- because backlog text
+ * is full of dates that are records of when something happened.
+ */
+export function followUpDate(text) {
+  const VERB = /\b(measur|re-?read|read|compare|record|follow-?up|check back|revisit)\w*/i;
+  const dates = [];
+  for (const m of text.matchAll(/\b20\d\d-\d\d-\d\d\b/g)) {
+    // BOTH SIDES. The first version looked only at the text before the date and
+    // missed "On 2026-10-17, 60 days after the pass, read Search Console",
+    // where the verb follows it -- which is US-9017's, the only one of these
+    // that is a declared OPERATOR criterion.
+    const at = m.index ?? 0;
+    const around = text.slice(Math.max(0, at - 140), at + 140);
+    if (VERB.test(around)) dates.push(m[0]);
+  }
+  return dates.length ? dates.sort()[0] : null;
+}
+
 export const SESSION_KINDS = [
+  {
+    key: "dated",
+    title: "0. Nothing to do yet — waiting on a date",
+    hint:
+      "Shipped, and the only thing left is a measurement that cannot be taken " +
+      "until its date arrives. Parked FIRST so a sitting is not planned around " +
+      "an item nobody can finish, and so these stop being re-read: five of them " +
+      "sit at priority 16-20, right where a reader looking for the next job lands.",
+    // Date-aware, so an item whose date has PASSED falls through to the normal
+    // matchers and stays actionable. A regex cannot express "in the future",
+    // which is why this kind carries a test instead of a match.
+    test: (text, today) => {
+      const when = followUpDate(text);
+      return when !== null && when > today;
+    },
+  },
   {
     key: "thirdparty",
     title: "1. Third-party consoles and partner conversations",
@@ -475,7 +530,7 @@ export const SESSION_KINDS = [
  * TIME (partner approval — a request to somebody else) is first, and the
  * cheapest, most-unblocking one (read-only SQL) is second.
  */
-export function groupBySession(declared, undeclared) {
+export function groupBySession(declared, undeclared, today = new Date().toISOString().slice(0, 10)) {
   const rows = [
     ...declared.map((d) => ({ id: d.id, priority: d.priority, title: d.title, text: d.items.join(" ") })),
     ...undeclared.map((u) => ({ id: u.id, priority: u.priority, title: u.title, text: u.evidence.join(" ") })),
@@ -488,7 +543,9 @@ export function groupBySession(declared, undeclared) {
   const out = new Map(SESSION_KINDS.map((k) => [k.key, []]));
   out.set("unclassified", []);
   for (const r of rows) {
-    const kind = SESSION_KINDS.find((k) => k.match.test(r.text));
+    const kind = SESSION_KINDS.find((k) =>
+      k.test ? k.test(r.text, today) : k.match.test(r.text),
+    );
     out.get(kind ? kind.key : "unclassified").push(r);
   }
   for (const list of out.values()) list.sort(comparePriority);
@@ -624,10 +681,11 @@ export function actionable(stories) {
 function main() {
   const argv = process.argv.slice(2);
   const { stories, read } = loadBacklogs();
-  const { declared, undeclared, openCount, satisfied } = collect(stories);
+  const today = new Date().toISOString().slice(0, 10);
+  const { declared, undeclared, openCount, satisfied } = collect(stories, today);
 
   if (argv.includes("--sessions")) {
-    const groups = groupBySession(declared, undeclared);
+    const groups = groupBySession(declared, undeclared, today);
     const total = declared.length + undeclared.length;
     console.log(
       `\nOperator work, grouped into sittings: ${total} items across ${openCount} open stories.\n` +

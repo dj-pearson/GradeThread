@@ -16,7 +16,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useParams } from "react-router";
-import { Camera, Check, Loader2 } from "lucide-react";
+import { ArrowRight, Camera, Check, Loader2 } from "lucide-react";
 import { SEO } from "@/components/seo";
 import { Button } from "@/components/ui/button";
 import { edgeFetch } from "@/lib/edge-fetch";
@@ -24,7 +24,9 @@ import {
   type CaptureFetch,
   type CapturePublicState,
   captureClientKey,
+  captureItemLine,
   missingSentence,
+  nextCaptureItem,
   readCapturePublic,
   sendCapturePhotoWithRetry,
   timeLeft,
@@ -51,6 +53,9 @@ export function CapturePage() {
   const [dead, setDead] = useState<string | null>(null);
   const [sent, setSent] = useState<Sent[]>([]);
   const [busy, setBusy] = useState(false);
+  // US-3185: a tap that changed nothing (no shots on this item yet) says so,
+  // rather than leaving the seller wondering whether the button worked.
+  const [boundaryNote, setBoundaryNote] = useState<string | null>(null);
   const [now, setNow] = useState(Date.now());
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -90,12 +95,16 @@ export function CapturePage() {
           prev.map((s) => (s.key === key ? { ...s, state: result.ok ? "sent" : "failed" } : s))
         );
         if (result.ok) {
+          setBoundaryNote(null);
           setState((prev) =>
             prev
               ? {
                 ...prev,
                 photosTaken: result.photosTaken ?? prev.photosTaken,
                 photosLeft: result.photosLeft ?? prev.photosLeft,
+                // US-3185: the current item's own count, so "Item 3 - 2 photos"
+                // moves with the upload rather than with the next full read.
+                photosInGroup: result.photosInGroup ?? prev.photosInGroup + 1,
                 // US-3162: the server recomputes this per upload, so the prompt
                 // updates as shots land without a second round trip.
                 missingTypes: result.missingTypes ?? prev.missingTypes,
@@ -113,6 +122,36 @@ export function CapturePage() {
     },
     [token],
   );
+
+  // US-3185: one code, a bin of garments. The boundary is marked here because
+  // walking back to the computer between every item is the thing this removes.
+  const startNextItem = useCallback(async () => {
+    setBusy(true);
+    const result = await nextCaptureItem(fetchEdge, token);
+    setBusy(false);
+    if (result.gone) {
+      setDead(result.error ?? "This code is finished. Scan a new one.");
+      return;
+    }
+    if (!result.ok) {
+      setBoundaryNote(result.error);
+      return;
+    }
+    if (!result.advanced) {
+      setBoundaryNote("Take a photo of this one first.");
+      return;
+    }
+    setBoundaryNote(null);
+    setState((prev) =>
+      prev
+        ? {
+          ...prev,
+          groupIndex: result.groupIndex ?? prev.groupIndex + 1,
+          photosInGroup: result.photosInGroup ?? 0,
+        }
+        : prev
+    );
+  }, [token]);
 
   const remaining = state ? timeLeft(state.expiresAt, now) : null;
   const stillNeeded = state ? missingSentence(state.missingTypes) : null;
@@ -143,6 +182,14 @@ export function CapturePage() {
               Take the photos here and they appear on the computer.
               {remaining ? ` This code works for another ${remaining}.` : ""}
             </p>
+            {/* US-3185: which garment of the bin this code is on. Shown only
+                for a multi-item code, because a composer capture has one item
+                and a counter reading "Item 1" forever is noise. */}
+            {state?.multiItem && (
+              <p className="pt-1 text-base font-semibold">
+                {captureItemLine(state.groupIndex, state.photosInGroup)}
+              </p>
+            )}
           </header>
 
           {/* US-3162: what is still missing, in the words the rest of FlipDesk
@@ -192,6 +239,28 @@ export function CapturePage() {
               </>
             )}
           </Button>
+
+          {/* US-3185: the group boundary. Below the camera, because the seller
+              taps it once per garment and taps the camera several times; above
+              it, the two would be confusable with a garment in one hand. */}
+          {state?.multiItem && (
+            <>
+              <Button
+                type="button"
+                size="lg"
+                variant="secondary"
+                className="h-16 w-full text-base"
+                disabled={busy || state.photosLeft <= 0}
+                onClick={() => void startNextItem()}
+              >
+                <ArrowRight className="mr-2 h-5 w-5" />
+                Next item
+              </Button>
+              {boundaryNote && (
+                <p className="text-center text-sm text-muted-foreground">{boundaryNote}</p>
+              )}
+            </>
+          )}
 
           <p className="text-center text-sm text-muted-foreground">
             {state ? `${state.photosTaken} sent` : ""}

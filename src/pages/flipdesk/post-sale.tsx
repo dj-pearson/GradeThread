@@ -986,7 +986,16 @@ function ReturnsCard() {
                     ) : null}
                     Send
                   </Button>
-                  {orderTotalError && <Button variant="outline" size="sm" onClick={() => void reloadOrderTotal()}>Retry order total</Button>}
+                  {orderTotalError && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      aria-label={`Retry loading the order total for ${r.reason?.replace(/_/g, " ") ?? "this return"}`}
+                      onClick={() => void reloadOrderTotal()}
+                    >
+                      Retry order total
+                    </Button>
+                  )}
                   {/* US-2932: a suggestion, with the arithmetic behind it and a
                       click to accept. Absent — not zeroed — when the item's cost
                       is unknown, because a number with nothing behind it reads

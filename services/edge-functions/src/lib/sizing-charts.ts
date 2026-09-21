@@ -12,6 +12,8 @@
 //
 // Pure data + pure helpers (no network) so they're unit-testable.
 
+import { narrowToFamily } from "./chart-families.ts";
+
 export interface SizingRow {
   /** The brand's own size label, e.g. "M", "8", "W32 L34". */
   size: string;
@@ -93,7 +95,7 @@ export const SIZING_CHARTS: SizingChart[] = [
     brandMatch: ["alo yoga", "aloyoga", "alo"],
     department: "Women",
     garment: "Tops",
-    categoryMatch: ["top", "tank", "tee", "shirt", "bra", "hoodie", "jacket", "long sleeve"],
+    categoryMatch: ["top", "tank", "tee", "shirt", "bra", "hoodie", "jacket", "long sleeve", "blouse", "sweater"],
     note: "Alo women's tops run alpha (XS–L published; XXS/XL extend ~2in); bust is the primary signal.",
     rows: [
       { size: "XS", measurements: { bust: "32-34" } },
@@ -107,7 +109,7 @@ export const SIZING_CHARTS: SizingChart[] = [
     brandMatch: ["alo yoga", "aloyoga", "alo"],
     department: "Men",
     garment: "Tops",
-    categoryMatch: ["top", "tee", "shirt", "polo", "hoodie", "jacket", "long sleeve"],
+    categoryMatch: ["top", "tee", "shirt", "polo", "hoodie", "jacket", "long sleeve", "sweater"],
     note:
       "Alo men's tops run alpha; chest is the primary signal. Standard US activewear-alpha " +
       "approximation (lower confidence) — refine with Alo-specific men's data.",
@@ -148,7 +150,7 @@ export const SIZING_CHARTS: SizingChart[] = [
     brandMatch: ["sweaty betty", "sweatybetty"],
     department: "Women",
     garment: "Tops",
-    categoryMatch: ["top", "tee", "tank", "vest", "sweatshirt", "hoodie", "jacket", "long sleeve"],
+    categoryMatch: ["top", "tee", "tank", "vest", "sweatshirt", "hoodie", "jacket", "long sleeve", "blouse", "shirt", "sweater"],
     note:
       "BODY measurements, brand-published inches. Same UK→US caveat as the bottoms chart " +
       "(offset -4 through UK 14, then it compresses). Letter sizes map to UK RANGES at the " +
@@ -190,7 +192,7 @@ export const SIZING_CHARTS: SizingChart[] = [
     brandMatch: ["gymshark", "gym shark"],
     department: "Women",
     garment: "Tops",
-    categoryMatch: ["top", "tee", "tank", "bra", "crop", "hoodie", "jacket", "long sleeve"],
+    categoryMatch: ["top", "tee", "tank", "bra", "crop", "hoodie", "jacket", "long sleeve", "blouse", "sweater"],
     note:
       "BODY measurement; Gymshark labels this dimension \"chest\" in its own guide. " +
       "International alpha sizing (XXS-XXL), not UK numerics.",
@@ -209,7 +211,7 @@ export const SIZING_CHARTS: SizingChart[] = [
     brandMatch: ["gymshark", "gym shark"],
     department: "Men",
     garment: "Tops",
-    categoryMatch: ["top", "tee", "shirt", "hoodie", "tank", "long sleeve"],
+    categoryMatch: ["top", "tee", "shirt", "hoodie", "tank", "long sleeve", "sweater"],
     note: "BODY measurement (chest ~1in below the underarm). No UK/US mapping is published for Gymshark menswear.",
     rows: [
       { size: "XS", measurements: { chest: "37" } },
@@ -226,7 +228,7 @@ export const SIZING_CHARTS: SizingChart[] = [
     brandMatch: ["under armour", "underarmour", "under armor"],
     department: "Men",
     garment: "Tops",
-    categoryMatch: ["top", "tee", "shirt", "hoodie", "polo", "compression", "jacket", "long sleeve"],
+    categoryMatch: ["top", "tee", "shirt", "hoodie", "polo", "compression", "jacket", "long sleeve", "sweater"],
     note:
       "BODY measurement (under the arms at the fullest part of the chest), from UA's " +
       "official guide. NOTE: widely-syndicated retailer charts show XS 30-32 / MD 38-40, " +
@@ -246,7 +248,7 @@ export const SIZING_CHARTS: SizingChart[] = [
     brandMatch: ["under armour", "underarmour", "under armor"],
     department: "Men",
     garment: "Bottoms",
-    categoryMatch: ["bottom", "pant", "short", "jogger", "legging", "tight"],
+    categoryMatch: ["bottom", "pant", "short", "jogger", "legging", "tight", "jean"],
     note: "BODY measurement (natural waistline, tape not squeezed). UA official guide.",
     rows: [
       { size: "XS", measurements: { waist: "28" } },
@@ -288,7 +290,7 @@ export const SIZING_CHARTS: SizingChart[] = [
     categoryMatch: [
       "top", "tank", "tee", "shirt", "bra", "hoodie", "sweatshirt", "dress",
       "long sleeve", "jacket", "coat", "outerwear", "vest", "cardigan",
-    ],
+    "blouse", "sweater"],
     sourceUrl: "https://beyondyoga.com/pages/size-guide",
     note:
       "US-3290 added the SOURCE URL and widened this to outerwear: the rows were " +
@@ -368,7 +370,7 @@ export const SIZING_CHARTS: SizingChart[] = [
     brandMatch: ["fabletics"],
     department: "Women",
     garment: "Tops",
-    categoryMatch: ["top", "tee", "tank", "shirt", "bra", "hoodie", "jacket", "dress", "long sleeve"],
+    categoryMatch: ["top", "tee", "tank", "shirt", "bra", "hoodie", "jacket", "dress", "long sleeve", "blouse", "sweater"],
     note:
       "BODY measurements, XXS-4X. Sports bras size alpha (XXS-4X), NOT band+cup. Same " +
       "XXL/1X numeric-map caveat as the bottoms chart.",
@@ -409,7 +411,7 @@ export const SIZING_CHARTS: SizingChart[] = [
     brandMatch: ["vuori"],
     department: "Men",
     garment: "Tops",
-    categoryMatch: ["top", "tee", "shirt", "hoodie", "crew", "jacket", "long sleeve"],
+    categoryMatch: ["top", "tee", "shirt", "hoodie", "crew", "jacket", "long sleeve", "sweater"],
     note:
       "BODY measurement — never compare to a flat-lay pit-to-pit. The retailer rendering " +
       "labels the basis ambiguously (range-style values are characteristic of a body " +
@@ -556,7 +558,7 @@ export const SIZING_CHARTS: SizingChart[] = [
     brandMatch: ["lululemon", "lulu"],
     department: "Women",
     garment: "Tops",
-    categoryMatch: ["top", "tank", "tee", "shirt", "bra", "hoodie", "jacket", "long sleeve"],
+    categoryMatch: ["top", "tank", "tee", "shirt", "bra", "hoodie", "jacket", "long sleeve", "blouse", "sweater"],
     note: "Lululemon women's tops run numeric 0–14. Bust is the primary signal.",
     rows: [
       { size: "0", measurements: { bust: "30-31" } },
@@ -574,7 +576,7 @@ export const SIZING_CHARTS: SizingChart[] = [
     brandMatch: ["lululemon", "lulu"],
     department: "Men",
     garment: "Tops",
-    categoryMatch: ["top", "tee", "shirt", "polo", "hoodie", "jacket", "long sleeve"],
+    categoryMatch: ["top", "tee", "shirt", "polo", "hoodie", "jacket", "long sleeve", "sweater"],
     note: "Lululemon men's tops run alpha XS–XXL; chest is the primary signal.",
     rows: [
       { size: "XS", measurements: { chest: "33-35" } },
@@ -607,7 +609,7 @@ export const SIZING_CHARTS: SizingChart[] = [
     brandMatch: ["nike"],
     department: "Men",
     garment: "Tops",
-    categoryMatch: ["top", "tee", "shirt", "polo", "hoodie", "jacket", "jersey"],
+    categoryMatch: ["top", "tee", "shirt", "polo", "hoodie", "jacket", "jersey", "sweater"],
     note: "Nike men's apparel runs alpha; chest is the primary signal.",
     rows: [
       { size: "S", measurements: { chest: "35-37.5" } },
@@ -622,7 +624,7 @@ export const SIZING_CHARTS: SizingChart[] = [
     brandMatch: ["nike"],
     department: "Women",
     garment: "Tops",
-    categoryMatch: ["top", "tee", "shirt", "tank", "sports bra", "hoodie", "jacket"],
+    categoryMatch: ["top", "tee", "shirt", "tank", "sports bra", "hoodie", "jacket", "blouse", "sweater"],
     note: "Nike women's apparel runs alpha; bust is the primary signal.",
     rows: [
       { size: "XS", measurements: { bust: "30-32" } },
@@ -637,7 +639,7 @@ export const SIZING_CHARTS: SizingChart[] = [
     brandMatch: ["athleta"],
     department: "Women",
     garment: "Tops",
-    categoryMatch: ["top", "tee", "shirt", "tank", "bra", "hoodie", "jacket"],
+    categoryMatch: ["top", "tee", "shirt", "tank", "bra", "hoodie", "jacket", "blouse", "sweater"],
     // US-1732: refined to the published Athleta guide + numeric map (mirrors 00448).
     note:
       "Athleta women's tops run alpha (XXS–3X) with a numeric map (XXS≈00, XS≈0-2, " +
@@ -1497,7 +1499,7 @@ export const SIZING_CHARTS: SizingChart[] = [
     brandMatch: ["columbia", "columbia sportswear"],
     department: "Men",
     garment: "Tops",
-    categoryMatch: ["top", "tee", "shirt", "polo", "hoodie", "fleece", "jacket", "coat", "shell", "parka", "vest", "long sleeve"],
+    categoryMatch: ["top", "tee", "shirt", "polo", "hoodie", "fleece", "jacket", "coat", "shell", "parka", "vest", "long sleeve", "sweater"],
     note:
       "BODY measurements — NOT flat-garment. An outdoor shell carries layering " +
       "room, so its flat chest measures well above the body chest listed here; " +
@@ -1517,7 +1519,7 @@ export const SIZING_CHARTS: SizingChart[] = [
     brandMatch: ["columbia", "columbia sportswear"],
     department: "Women",
     garment: "Tops",
-    categoryMatch: ["top", "tee", "shirt", "tank", "fleece", "hoodie", "jacket", "coat", "shell", "parka", "vest", "long sleeve"],
+    categoryMatch: ["top", "tee", "shirt", "tank", "fleece", "hoodie", "jacket", "coat", "shell", "parka", "vest", "long sleeve", "blouse", "sweater"],
     note:
       "BODY measurements — NOT flat-garment; outdoor cuts carry layering room. " +
       "Standard outdoor-alpha approximation, not Columbia-fetched figures.",
@@ -1535,7 +1537,7 @@ export const SIZING_CHARTS: SizingChart[] = [
     brandMatch: ["columbia", "columbia sportswear"],
     department: "Men",
     garment: "Bottoms",
-    categoryMatch: ["bottom", "pant", "short", "trouser", "hiking pant", "convertible"],
+    categoryMatch: ["bottom", "pant", "short", "trouser", "hiking pant", "convertible", "jean"],
     note:
       "BODY measurements (natural waistline) — NOT flat-garment. Columbia men's " +
       "hiking pants are labeled W (waist) x L (inseam) in inches, so the label IS " +
@@ -1555,7 +1557,7 @@ export const SIZING_CHARTS: SizingChart[] = [
     brandMatch: ["arc'teryx", "arcteryx", "arc teryx"],
     department: "Men",
     garment: "Tops",
-    categoryMatch: ["top", "jacket", "coat", "shell", "hoodie", "fleece", "vest", "hardshell", "softshell", "long sleeve"],
+    categoryMatch: ["top", "jacket", "coat", "shell", "hoodie", "fleece", "vest", "hardshell", "softshell", "long sleeve", "shirt", "sweater"],
     note:
       "BODY measurements — NOT flat-garment. The FIT varies by SUFFIX, not by " +
       "size: an Alpha/Beta hardshell is cut for layering while an Atom LT is trim, " +
@@ -1575,7 +1577,7 @@ export const SIZING_CHARTS: SizingChart[] = [
     brandMatch: ["arc'teryx", "arcteryx", "arc teryx"],
     department: "Women",
     garment: "Tops",
-    categoryMatch: ["top", "jacket", "coat", "shell", "hoodie", "fleece", "vest", "hardshell", "softshell", "long sleeve"],
+    categoryMatch: ["top", "jacket", "coat", "shell", "hoodie", "fleece", "vest", "hardshell", "softshell", "long sleeve", "blouse", "shirt", "sweater"],
     note:
       "BODY measurements — NOT flat-garment. Same suffix-drives-fit caveat as the " +
       "men's chart. Standard outdoor-alpha approximation.",
@@ -1592,7 +1594,7 @@ export const SIZING_CHARTS: SizingChart[] = [
     brandMatch: ["marmot"],
     department: "Men",
     garment: "Tops",
-    categoryMatch: ["top", "jacket", "coat", "shell", "hoodie", "fleece", "vest", "rain jacket", "long sleeve"],
+    categoryMatch: ["top", "jacket", "coat", "shell", "hoodie", "fleece", "vest", "rain jacket", "long sleeve", "shirt", "sweater"],
     note:
       "BODY measurements — NOT flat-garment; a rain shell is cut with layering " +
       "room over this. Standard outdoor-alpha approximation, not Marmot-fetched.",
@@ -1680,7 +1682,7 @@ export const SIZING_CHARTS: SizingChart[] = [
     brandMatch: ["mountain hardwear", "mountainhardwear", "mhw"],
     department: "Men",
     garment: "Tops",
-    categoryMatch: ["top", "jacket", "coat", "shell", "hoodie", "fleece", "vest", "down", "long sleeve"],
+    categoryMatch: ["top", "jacket", "coat", "shell", "hoodie", "fleece", "vest", "down", "long sleeve", "shirt", "sweater"],
     note:
       "BODY measurements — NOT flat-garment. NOTE the intra-brand fit spread: the " +
       "Ghost Whisperer is cut trim as an ultralight layer while the Kor shells " +
@@ -1742,7 +1744,7 @@ export const SIZING_CHARTS: SizingChart[] = [
     categoryMatch: [
       "dress", "top", "blouse", "skirt", "shirt", "knit", "sweater",
       "bottom", "pant", "trouser", "short", "jean", "denim", "capri",
-    ],
+    "hoodie"],
     note:
       "US-3297 widened this to BOTTOMS and changed nothing else. This is the " +
       "only Chanel chart in the corpus carrying a HIP column, which is what " +
@@ -1860,7 +1862,7 @@ export const SIZING_CHARTS: SizingChart[] = [
     brandMatch: ["michael kors", "michaelkors"],
     department: "Women",
     garment: "Tops & dresses (US sizing)",
-    categoryMatch: ["top", "dress", "blouse", "shirt", "knit", "sweater", "jacket", "blazer"],
+    categoryMatch: ["top", "dress", "blouse", "shirt", "knit", "sweater", "jacket", "blazer", "hoodie"],
     note:
       "Michael Kors is US sizing — NOT the FR/IT/UK systems the European half of " +
       "this brand group uses, so no cross-map applies. It runs true-to-large, the " +
@@ -1902,7 +1904,7 @@ export const SIZING_CHARTS: SizingChart[] = [
     brandMatch: ["tory burch", "toryburch"],
     department: "Women",
     garment: "Tops & dresses (US numeric)",
-    categoryMatch: ["top", "dress", "blouse", "shirt", "knit", "sweater", "jacket", "blazer", "tunic"],
+    categoryMatch: ["top", "dress", "blouse", "shirt", "knit", "sweater", "jacket", "blazer", "tunic", "hoodie"],
     note:
       "Tory Burch is US sizing — no national cross-map applies, unlike the " +
       "European half of this brand group — and it runs true-to-large. These are " +
@@ -2142,7 +2144,7 @@ export const SIZING_CHARTS: SizingChart[] = [
       "fleece", "hooded",
       "jacket", "coat", "outerwear", "vest", "puffer", "parka", "anorak",
       "work jacket", "varsity",
-    ],
+    "blouse", "sweater"],
     note:
       "Fear of God Essentials is cut DELIBERATELY OVERSIZED — dropped shoulders, " +
       "boxy body — so an Essentials L drapes like a US XL, roughly one size up. " +
@@ -2167,7 +2169,7 @@ export const SIZING_CHARTS: SizingChart[] = [
     brandMatch: ["fear of god essentials", "fearofgodessentials", "essentials by fear of god"],
     department: "Unisex",
     garment: "Bottoms (OVERSIZED, alpha)",
-    categoryMatch: ["bottom", "pant", "sweatpant", "jogger", "short", "trouser"],
+    categoryMatch: ["bottom", "pant", "sweatpant", "jogger", "short", "trouser", "jean", "skirt"],
     note:
       "Fear of God Essentials bottoms are cut DELIBERATELY OVERSIZED and the volume " +
       "is the design, not a fit error — do not grade it as wear. Elasticated waists " +
@@ -2221,7 +2223,7 @@ export const SIZING_CHARTS: SizingChart[] = [
     categoryMatch: [
       "top", "tee", "shirt", "blouse", "dress", "knit", "sweater", "cardigan",
       "jacket", "long sleeve",
-    ],
+    "hoodie"],
     note:
       "Anthropologie is US women's sizing and grades close to a general US " +
       "contemporary body — no national cross-map applies (contrast Sézane in this " +
@@ -2275,7 +2277,7 @@ export const SIZING_CHARTS: SizingChart[] = [
       "top", "tee", "shirt", "blouse", "dress", "knit", "sweater", "cardigan",
       "jacket", "long sleeve",
       "bottom", "pant", "trouser", "short", "skirt", "jean", "denim",
-    ],
+    "hoodie"],
     note:
       "US-3293 widened this to BOTTOMS and changed nothing else. ⚠ SEZANE " +
       "COULD NOT BE SOURCED and this is still an approximation. Its " +
@@ -2311,7 +2313,7 @@ export const SIZING_CHARTS: SizingChart[] = [
     categoryMatch: [
       "top", "tee", "shirt", "blouse", "dress", "knit", "sweater", "cardigan",
       "jacket", "long sleeve", "puffer",
-    ],
+    "hoodie"],
     note:
       "Aritzia RUNS SMALL against a general US contemporary body and its range " +
       "starts at 00/XXS — an Aritzia S sits near a US 2-4, roughly one size down. " +
@@ -2366,7 +2368,7 @@ export const SIZING_CHARTS: SizingChart[] = [
     categoryMatch: [
       "dress", "top", "tee", "shirt", "blouse", "knit", "sweater", "cardigan",
       "jacket", "long sleeve",
-    ],
+    "hoodie"],
     sourceUrl: "https://www.thereformation.com/fitting-and-sizes.html",
     note:
       "Reformation is US women's NUMERIC sizing (0-24) on a fitted, dress-led cut — " +
@@ -2408,7 +2410,7 @@ export const SIZING_CHARTS: SizingChart[] = [
     categoryMatch: [
       "top", "tee", "shirt", "blouse", "knit", "sweater", "cardigan", "blazer",
       "jacket", "suit", "long sleeve",
-    ],
+    "hoodie"],
     note:
       "Theory is US women's sizing on a TAILORED cut — no national cross-map applies " +
       "(contrast Sézane in this same group, whose FR 38 is a US 6). BUT: a THEORY " +
@@ -2456,7 +2458,7 @@ export const SIZING_CHARTS: SizingChart[] = [
     categoryMatch: [
       "top", "tee", "shirt", "blouse", "knit", "sweater", "cardigan", "dress",
       "jacket", "tunic", "long sleeve",
-    ],
+    "hoodie"],
     note:
       "Eileen Fisher RUNS LARGE: the cut is DELIBERATELY RELAXED and boxy across the " +
       "whole line — dropped shoulders, straight bodies, generous ease — so an Eileen " +
@@ -2483,7 +2485,7 @@ export const SIZING_CHARTS: SizingChart[] = [
     brandMatch: ["eileen fisher", "eileenfisher"],
     department: "Women",
     garment: "Bottoms (alpha, RUNS LARGE)",
-    categoryMatch: ["bottom", "pant", "trouser", "short", "skirt", "legging", "ankle pant"],
+    categoryMatch: ["bottom", "pant", "trouser", "short", "skirt", "legging", "ankle pant", "jean"],
     note:
       "Eileen Fisher bottoms are cut DELIBERATELY RELAXED and the volume is the " +
       "design, not a fit error — do not grade it as wear. Most are pull-on with an " +
@@ -2531,7 +2533,7 @@ export const SIZING_CHARTS: SizingChart[] = [
       "heattech",
       "airism",
       "long sleeve",
-    ],
+    "hoodie"],
     note:
       "Uniqlo RUNS SMALL: the grade is cut to a Japanese fit and sits roughly " +
       "one size below a general US body — a Uniqlo M is nearer a US 4-6. Old " +
@@ -2568,7 +2570,7 @@ export const SIZING_CHARTS: SizingChart[] = [
       "heattech",
       "airism",
       "long sleeve",
-    ],
+    "hoodie"],
     note:
       "Uniqlo menswear RUNS SMALL and SLIM against a US body — roughly one size " +
       "down, most pronounced across the SHOULDERS and chest rather than the " +
@@ -2674,7 +2676,7 @@ export const SIZING_CHARTS: SizingChart[] = [
       "cardigan",
       "merino",
       "long sleeve",
-    ],
+    "hoodie"],
     note:
       "Banana Republic is TRUE TO SIZE with a tailored workwear cut — alongside " +
       "Tommy Hilfiger the most conservative grade in this group, and a full step " +
@@ -2709,7 +2711,7 @@ export const SIZING_CHARTS: SizingChart[] = [
       "merino",
       "oxford",
       "long sleeve",
-    ],
+    "hoodie"],
     note:
       "Banana Republic menswear is TRUE TO SIZE and tailored. Dress shirts are " +
       "frequently graded by NECK and SLEEVE rather than an alpha, and where both " +
@@ -3707,7 +3709,7 @@ export const SIZING_CHARTS: SizingChart[] = [
       "pant",
       "trouser",
       "short",
-    ],
+    "hoodie"],
     sourceUrl: "https://woolrich.us/products/check-flannel-warren-shirt-grey-brown-check",
     note:
       "BODY measurement — NOT flat-garment. WATCH THE SIZE SYSTEM, IT FOLLOWS THE " +
@@ -3759,7 +3761,7 @@ export const SIZING_CHARTS: SizingChart[] = [
       "pant",
       "trouser",
       "short",
-    ],
+    "blouse", "hoodie", "skirt"],
     sourceUrl: "https://woolrich.us/products/12gg-cozy-wool-cash-crewneck-black",
     note:
       "BODY measurement — NOT flat-garment. WATCH THE SIZE SYSTEM, IT FOLLOWS THE " +
@@ -4272,7 +4274,7 @@ export const SIZING_CHARTS: SizingChart[] = [
       "sweater",
       "jacket",
       "outerwear",
-    ],
+    "blouse"],
     note:
       "Off-White's graphic tees and hoodies are ALPHA-sized and the brand publishes " +
       "no chart — this is the standard streetwear-alpha approximation, NOT " +
@@ -4331,7 +4333,7 @@ export const SIZING_CHARTS: SizingChart[] = [
       "sweater",
       "jacket",
       "outerwear",
-    ],
+    "blouse"],
     note:
       "Chrome Hearts is ALPHA-sized and the brand publishes no size chart at all " +
       "(it runs no e-commerce) — this is the standard streetwear-alpha " +
@@ -4369,7 +4371,7 @@ export const SIZING_CHARTS: SizingChart[] = [
       "polo",
       "jacket",
       "outerwear",
-    ],
+    "blouse"],
     note:
       "Aimé Leon Dore is ALPHA-sized — the standard streetwear-alpha " +
       "approximation, NOT brand-fetched. THE CUT IS BOXY AND WIDE BY DESIGN, " +
@@ -4401,7 +4403,7 @@ export const SIZING_CHARTS: SizingChart[] = [
       "knit",
       "jacket",
       "outerwear",
-    ],
+    "blouse", "sweater"],
     note:
       "Gallery Dept. is ALPHA-sized and publishes no chart — the standard " +
       "streetwear-alpha approximation, NOT brand-fetched. TWO WARNINGS THAT MATTER " +
@@ -4427,7 +4429,7 @@ export const SIZING_CHARTS: SizingChart[] = [
     brandMatch: ["denim tears", "denimtears"],
     department: "Unisex",
     garment: "Bottoms (LEVI'S WAIST-SIZED)",
-    categoryMatch: ["bottom", "jean", "jeans", "denim", "pant", "trouser"],
+    categoryMatch: ["bottom", "jean", "jeans", "denim", "pant", "trouser", "short", "skirt"],
     note:
       "THE ODD ONE OUT IN THIS PACK, AND IT IS THE COLLABORATION THAT DOES IT: the " +
       "signature Cotton Wreath jeans and trucker jackets are printed on ACTUAL " +
@@ -4464,7 +4466,7 @@ export const SIZING_CHARTS: SizingChart[] = [
       "knit",
       "jacket",
       "outerwear",
-    ],
+    "blouse", "sweater"],
     note:
       "Rhude is ALPHA-sized — the standard streetwear-alpha approximation, NOT " +
       "brand-fetched. The cut sits between the two poles of this pack: closer to " +
@@ -4498,7 +4500,7 @@ export const SIZING_CHARTS: SizingChart[] = [
       "sweatshirt",
       "jacket",
       "outerwear",
-    ],
+    "blouse", "sweater"],
     note:
       "Sp5der is ALPHA-sized and the brand publishes essentially nothing, including " +
       "no size chart — this is the standard streetwear-alpha approximation, NOT " +
@@ -4529,7 +4531,7 @@ export const SIZING_CHARTS: SizingChart[] = [
       "sweatshirt",
       "jacket",
       "outerwear",
-    ],
+    "blouse", "sweater"],
     note:
       "Hellstar is ALPHA-sized and the brand publishes essentially nothing, " +
       "including no size chart — the standard streetwear-alpha approximation, NOT " +
@@ -4563,7 +4565,7 @@ export const SIZING_CHARTS: SizingChart[] = [
       "sweatshirt",
       "jacket",
       "outerwear",
-    ],
+    "blouse", "sweater"],
     note:
       "Anti Social Social Club is ALPHA-sized and publishes no chart — the standard " +
       "streetwear-alpha approximation, NOT brand-fetched. The pieces are printed on " +
@@ -4828,7 +4830,7 @@ export const SIZING_CHARTS: SizingChart[] = [
       "hoodie",
       "jersey",
       "long sleeve",
-    ],
+    "blouse", "sweater"],
     note:
       "BODY measurement (chest) — an ESTIMATOR, unlike the Fila FOOTWEAR charts " +
       "on this same brand: measure the flat chest (armpit to armpit) and DOUBLE " +
@@ -5367,7 +5369,7 @@ export const SIZING_CHARTS: SizingChart[] = [
       "vest",
       "windbreaker",
       "anorak",
-    ],
+    "blouse", "jean", "skirt", "sweater"],
     note:
       "US-3293 widened this to OUTERWEAR and changed nothing else. The rows " +
       "are the same approximation and still carry NO source; a body chart that " +
@@ -5421,7 +5423,7 @@ export const SIZING_CHARTS: SizingChart[] = [
       "coat",
       "outerwear",
       "vest",
-    ],
+    "blouse", "jean", "shirt", "skirt", "sweater"],
     sourceUrl: "https://girlfriend.com/pages/size-guide-tops",
     note:
       "US-3291 REPLACED the old approximation with Girlfriend Collective's OWN " +
@@ -5598,7 +5600,7 @@ export const SIZING_CHARTS: SizingChart[] = [
     categoryMatch: [
       "top", "tee", "shirt", "blouse", "dress", "sweater", "tank", "bodysuit",
       "jacket", "coat", "outerwear", "blazer", "vest",
-    ],
+    "hoodie"],
     note:
       "US-3291 widened this to OUTERWEAR and nothing else changed. The rows are " +
       "the same approximation and still carry NO source: the brand's own " +
@@ -5699,7 +5701,7 @@ export const SIZING_CHARTS: SizingChart[] = [
     brandMatch: ["zara"],
     department: "Women",
     garment: "Tops & dresses (EU numeric 34-42 / alpha)",
-    categoryMatch: ["top", "tee", "shirt", "blouse", "dress", "sweater", "jacket", "coat", "tank"],
+    categoryMatch: ["top", "tee", "shirt", "blouse", "dress", "sweater", "jacket", "coat", "tank", "hoodie"],
     note:
       "Zara tops run the EU grade 34-42 and ALSO alpha (XS-XL); bust is the " +
       "primary signal. Zara Basic / Zara Woman / TRF (Trafaluc) / Zara Man are " +
@@ -5862,7 +5864,7 @@ export const SIZING_CHARTS: SizingChart[] = [
     brandMatch: ["ann taylor", "anntaylor", "loft"],
     department: "Women",
     garment: "Tops & dresses (US numeric 00-18 — shared Ann Taylor / LOFT grade)",
-    categoryMatch: ["top", "tee", "shirt", "blouse", "dress", "sweater", "jacket", "blazer", "tank"],
+    categoryMatch: ["top", "tee", "shirt", "blouse", "dress", "sweater", "jacket", "blazer", "tank", "hoodie"],
     note:
       "ANN TAYLOR AND LOFT PUBLISH THE SAME BODY CHART — identical through size " +
       "14, diverging only at 16/18 (Ann Taylor bust 42.5/44.5; LOFT 42/44). So " +
@@ -6388,7 +6390,7 @@ export const SIZING_CHARTS: SizingChart[] = [
       "trouser",
       "short",
       "jean",
-    ],
+    "hoodie", "skirt"],
     sourceUrl: "https://www.untuckit.com/pages/all-size-charts",
     note:
       "US-3290 added the SOURCE URL and widened this to bottoms and outerwear: " +
@@ -6540,7 +6542,7 @@ export const SIZING_CHARTS: SizingChart[] = [
       "coat",
       "outerwear",
       "vest",
-    ],
+    "hoodie"],
     note:
       "Vineyard Vines' own published men's chart. ⚠ FLAGGED FOR HUMAN VERIFICATION, " +
       "REPRODUCED AS PUBLISHED: the WAIST progression is DISCONTINUOUS — S is 30-32 " +
@@ -6630,7 +6632,7 @@ export const SIZING_CHARTS: SizingChart[] = [
       "shep shirt",
       "jacket",
       "skirt",
-    ],
+    "hoodie"],
     note:
       "Vineyard Vines publishes ONE unified women's chart (no separate tops/bottoms/" +
       "dresses), running US numeric 00-24 mapped to alpha XXS-3X. ⚠ THE ALPHA " +
@@ -6698,7 +6700,7 @@ export const SIZING_CHARTS: SizingChart[] = [
       "overshirt",
       "blazer",
       "jacket",
-    ],
+    "hoodie"],
     note:
       "Faherty's OWN published chart — but ⚠ THE PUBLISHED ASSETS ARE DATED 2019, " +
       "so the live fit may have drifted; the chart's own header says 'ALL SIZES ARE " +
@@ -6823,7 +6825,7 @@ export const SIZING_CHARTS: SizingChart[] = [
       "legend",
       "jacket",
       "skirt",
-    ],
+    "hoodie"],
     note:
       "Faherty women's runs a DUAL system: alpha XS-XL mapped to US numeric 0-16. " +
       "⚠ THIS CHART STOPS AT XL/16 AND IS A 2019 ASSET — if Faherty now sells " +
@@ -7927,7 +7929,7 @@ export const SIZING_CHARTS: SizingChart[] = [
       "mackinaw",
       "cruiser",
       "tin cloth",
-    ],
+    "hoodie", "sweater"],
     note:
       "Filson men's tops/outerwear run alpha S-XXL against a chest grid " +
       "(approximate — verify against the garment). ⚠ WOOL MACKINAW and heavy Tin " +
@@ -8010,7 +8012,7 @@ export const SIZING_CHARTS: SizingChart[] = [
     categoryMatch: [
       "shirt", "top", "board shirt", "wool shirt", "overshirt", "jacket",
       "tee", "sweater", "knit", "coat", "outerwear", "vest", "flannel",
-    ],
+    "hoodie"],
     sourceUrl: "https://www.pendleton-usa.com/product/mens-astoria-stretch-chinos/54360Z.html",
     note:
       "US-3293 REPLACED the approximation that stood here with Pendleton's " +
@@ -8067,7 +8069,7 @@ export const SIZING_CHARTS: SizingChart[] = [
     categoryMatch: [
       "top", "shirt", "jacket", "coat", "vest", "barn coat", "field coat",
       "tee", "polo", "sweater", "knit", "outerwear", "flannel",
-    ],
+    "hoodie"],
     sourceUrl: "https://www.orvis.com/mens-clothing-size-information.html",
     note:
       "US-3293 REPLACED the approximation that stood here with Orvis's OWN " +
@@ -8831,7 +8833,7 @@ export const SIZING_CHARTS: SizingChart[] = [
     brandMatch: ["kühl", "kuhl"],
     department: "Men",
     garment: "Apparel (US alpha tops; pants by WAIST inch)",
-    categoryMatch: ["jacket", "fleece", "pant", "pants", "softshell", "trouser", "top", "shirt", "hoodie", "renegade", "law", "rydr"],
+    categoryMatch: ["jacket", "fleece", "pant", "pants", "softshell", "trouser", "top", "shirt", "hoodie", "renegade", "law", "rydr", "bottom", "jean", "short", "sweater"],
     note:
       "Kühl men's tops size US alpha; ⚠ PANTS (Renegade / Law / Rydr) ARE SOLD BY " +
       "WAIST x INSEAM INCH — read the waist number off the tag, the alpha here is an " +
@@ -9566,7 +9568,7 @@ export const SIZING_CHARTS: SizingChart[] = [
     categoryMatch: [
       "top", "tee", "shirt", "sweater", "knit", "hoodie", "sweatshirt", "fleece",
       "bottom", "pant", "trouser", "legging", "short", "jogger", "sweatpant",
-    ],
+    "blouse", "jean", "skirt"],
     sourceUrl: "https://www.canadagoose.com/us/en/customer-service/support/sizing-charts-sizefit.html",
     note:
       "Canada Goose's Women's STANDARD chart, which is the brand's apparel chart " +
@@ -9593,7 +9595,7 @@ export const SIZING_CHARTS: SizingChart[] = [
     categoryMatch: [
       "top", "tee", "shirt", "sweater", "knit", "hoodie", "sweatshirt", "fleece",
       "bottom", "pant", "trouser", "short", "jogger", "sweatpant",
-    ],
+    "jean"],
     sourceUrl: "https://www.canadagoose.com/us/en/customer-service/support/sizing-charts-sizefit.html",
     note:
       "Canada Goose's Men's STANDARD chart — the brand's apparel chart, not an " +
@@ -9623,7 +9625,7 @@ export const SIZING_CHARTS: SizingChart[] = [
     garment: "Bottoms (alpha, body inches)",
     categoryMatch: [
       "bottom", "pant", "short", "jogger", "sweatpant", "trouser", "legging", "tight",
-    ],
+    "jean"],
     sourceUrl: "https://www.champion.com/pages/mens-clothing-size-guide",
     note: "Champion's published men's bottoms chart. Body measurements, not flat.",
     rows: [
@@ -9642,7 +9644,7 @@ export const SIZING_CHARTS: SizingChart[] = [
     garment: "Bottoms (alpha/numeric, body inches)",
     categoryMatch: [
       "bottom", "pant", "short", "jogger", "sweatpant", "trouser", "legging", "tight", "skirt",
-    ],
+    "jean"],
     sourceUrl: "https://www.champion.com/pages/womens-clothing-size-guide",
     note: "Champion's published women's bottoms chart. Body measurements, not flat.",
     rows: [
@@ -9757,7 +9759,7 @@ export const SIZING_CHARTS: SizingChart[] = [
     categoryMatch: [
       "top", "tee", "shirt", "hoodie", "sweatshirt", "sweater", "knit", "crewneck",
       "jacket", "coat", "outerwear", "vest",
-    ],
+    "blouse"],
     measurementBasis: "flat",
     sourceUrl: "https://denimtears.com/products/ss26-ao-adg-stamp-hoodie-grey",
     note:
@@ -10931,7 +10933,7 @@ export const SIZING_CHARTS: SizingChart[] = [
     brandMatch: ["uniqlo"],
     department: "Unisex",
     garment: "Bottoms (inch-sized — the number IS the waist)",
-    categoryMatch: ["bottom", "pant", "trouser", "short", "jean", "chino", "cargo"],
+    categoryMatch: ["bottom", "pant", "trouser", "short", "jean", "chino", "cargo", "skirt"],
     sourceUrl: "https://www.uniqlo.com/us/en/products/E482868-000/00",
     note:
       "Uniqlo labels most bottoms in inches and the number IS the waist — a " +
@@ -10968,7 +10970,7 @@ export const SIZING_CHARTS: SizingChart[] = [
     brandMatch: ["aimé leon dore", "aime leon dore", "aimeleondore"],
     department: "Unisex",
     garment: "Bottoms (system conversion only — no body measurements)",
-    categoryMatch: ["bottom", "pant", "trouser", "short", "jean", "chino", "sweatpant"],
+    categoryMatch: ["bottom", "pant", "trouser", "short", "jean", "chino", "sweatpant", "skirt"],
     sourceUrl: "https://www.aimeleondore.com/products/double-pleated-officer-pant-2",
     note:
       "ALD publishes NO body chart. Every product's Sizing panel carries garment " +
@@ -11053,7 +11055,7 @@ export const SIZING_CHARTS: SizingChart[] = [
     brandMatch: ["arc'teryx", "arcteryx", "arc teryx"],
     department: "Women",
     garment: "Bottoms, alpha (body inches)",
-    categoryMatch: ["bottom", "pant", "trouser", "short", "bib", "legging"],
+    categoryMatch: ["bottom", "pant", "trouser", "short", "bib", "legging", "skirt"],
     sourceUrl: "https://arcteryx.com/us/en/help/sizing/womens",
     note:
       "Arc'teryx has no per-group URL for womenswear — /womens/bottoms 404s and " +
@@ -11074,7 +11076,7 @@ export const SIZING_CHARTS: SizingChart[] = [
     brandMatch: ["arc'teryx", "arcteryx", "arc teryx"],
     department: "Women",
     garment: "Bottoms, US numeric (body inches)",
-    categoryMatch: ["bottom", "pant", "trouser", "short", "bib", "jean"],
+    categoryMatch: ["bottom", "pant", "trouser", "short", "bib", "jean", "skirt"],
     sourceUrl: "https://arcteryx.com/us/en/help/sizing/womens",
     note:
       "The US-numeric half of the same Arc'teryx women's page. Unlike the men's " +
@@ -11390,7 +11392,7 @@ export const SIZING_CHARTS: SizingChart[] = [
     brandMatch: ["nike", "nike sportswear", "nikelab"],
     department: "Men",
     garment: "Bottoms (body inches)",
-    categoryMatch: ["bottom", "pant", "trouser", "short", "jogger", "tight", "legging"],
+    categoryMatch: ["bottom", "pant", "trouser", "short", "jogger", "tight", "legging", "jean"],
     sourceUrl: "https://www.nike.com/size-fit/mens_bottoms_alpha",
     note:
       "Nike's men's bottoms chart. Every size also comes in TALL for a 6'0\"-6'5\" " +
@@ -11413,7 +11415,7 @@ export const SIZING_CHARTS: SizingChart[] = [
     brandMatch: ["nike", "nike sportswear", "nikelab"],
     department: "Women",
     garment: "Bottoms (body inches)",
-    categoryMatch: ["bottom", "pant", "trouser", "short", "jogger", "tight", "legging", "skirt"],
+    categoryMatch: ["bottom", "pant", "trouser", "short", "jogger", "tight", "legging", "skirt", "jean"],
     sourceUrl: "https://www.nike.com/size-fit/womens-bottoms-alpha",
     note:
       "Nike's women's bottoms chart. Waist and hip only — no inseam, because " +
@@ -11433,7 +11435,7 @@ export const SIZING_CHARTS: SizingChart[] = [
     brandMatch: ["nike", "nike sportswear", "nikelab"],
     department: "Women",
     garment: "Bottoms, plus (body inches)",
-    categoryMatch: ["bottom", "pant", "trouser", "short", "jogger", "tight", "legging"],
+    categoryMatch: ["bottom", "pant", "trouser", "short", "jogger", "tight", "legging", "jean"],
     sizeClass: "plus",
     sourceUrl: "https://www.nike.com/size-fit/womens-bottoms-alpha",
     note:
@@ -11631,7 +11633,7 @@ export const SIZING_CHARTS: SizingChart[] = [
     brandMatch: ["gallery dept", "gallery department", "gallerydept"],
     department: "Unisex",
     garment: "Bottoms (GARMENT waist — the tag is 2in under it)",
-    categoryMatch: ["bottom", "pant", "trouser", "short", "jean", "denim", "sweatpant"],
+    categoryMatch: ["bottom", "pant", "trouser", "short", "jean", "denim", "sweatpant", "skirt"],
     sourceUrl: "https://gallerydept.com/collections/bottoms/products/twisted-wide-leg-black",
     measurementBasis: "flat",
     note:
@@ -11707,7 +11709,7 @@ export const SIZING_CHARTS: SizingChart[] = [
     brandMatch: ["reebok"],
     department: "Unisex",
     garment: "Bottoms (body inches)",
-    categoryMatch: ["bottom", "pant", "trouser", "short", "jogger", "tight", "legging"],
+    categoryMatch: ["bottom", "pant", "trouser", "short", "jogger", "tight", "legging", "jean", "skirt"],
     sourceUrl: "https://www.reebok.com/pages/unisex-clothing-size-guide",
     note:
       "Reebok publishes tops and bottoms as two tables and they DISAGREE: its M " +
@@ -11846,7 +11848,7 @@ export const SIZING_CHARTS: SizingChart[] = [
     brandMatch: ["woolrich", "john rich"],
     department: "Women",
     garment: "Bottoms (INCH waist, not a body measurement)",
-    categoryMatch: ["bottom", "pant", "trouser", "short", "jean", "chino"],
+    categoryMatch: ["bottom", "pant", "trouser", "short", "jean", "chino", "skirt"],
     sourceUrl: "https://woolrich.us/products/pants-in-wool-blend-flannel-black",
     note:
       "Woolrich labels this one 'Inch Size' and it is the WAIST, unlike every " +
@@ -11954,7 +11956,7 @@ export const SIZING_CHARTS: SizingChart[] = [
     brandMatch: ["marmot"],
     department: "Women",
     garment: "Bottoms (alpha + US numeric)",
-    categoryMatch: ["bottom", "pant", "trouser", "short", "legging", "hiking pant", "snow pant", "jean"],
+    categoryMatch: ["bottom", "pant", "trouser", "short", "legging", "hiking pant", "snow pant", "jean", "skirt"],
     sourceUrl:
       "https://www.marmot.com/on/demandware.store/Sites-marmot-Site/default/Product-SizeChart?cid=size-chart-womens-bottoms",
     note:
@@ -11985,7 +11987,7 @@ export const SIZING_CHARTS: SizingChart[] = [
     brandMatch: ["marmot"],
     department: "Women",
     garment: "Bottoms, plus (1X-3X)",
-    categoryMatch: ["bottom", "pant", "trouser", "short", "legging", "hiking pant", "snow pant"],
+    categoryMatch: ["bottom", "pant", "trouser", "short", "legging", "hiking pant", "snow pant", "skirt"],
     sourceUrl:
       "https://www.marmot.com/on/demandware.store/Sites-marmot-Site/default/Product-SizeChart?cid=size-chart-womens-bottoms",
     note:
@@ -12005,7 +12007,7 @@ export const SIZING_CHARTS: SizingChart[] = [
     brandMatch: ["mountain hardwear", "mountainhardwear", "mhw"],
     department: "Men",
     garment: "Bottoms (alpha, with the pant-size tag in the label)",
-    categoryMatch: ["bottom", "pant", "trouser", "short", "hiking pant", "snow pant", "climbing pant"],
+    categoryMatch: ["bottom", "pant", "trouser", "short", "hiking pant", "snow pant", "climbing pant", "jean"],
     sourceUrl: "https://www.mountainhardwear.com/p/mens-hardwear-ap-pant-2122691.html",
     note:
       "Mountain Hardwear's own men's bottoms chart, BODY inches — its measuring " +
@@ -12028,7 +12030,7 @@ export const SIZING_CHARTS: SizingChart[] = [
     brandMatch: ["mountain hardwear", "mountainhardwear", "mhw"],
     department: "Women",
     garment: "Bottoms (alpha, with the US numeric tag in the label)",
-    categoryMatch: ["bottom", "pant", "trouser", "short", "legging", "hiking pant", "snow pant", "climbing pant"],
+    categoryMatch: ["bottom", "pant", "trouser", "short", "legging", "hiking pant", "snow pant", "climbing pant", "jean", "skirt"],
     sourceUrl: "https://www.mountainhardwear.com/p/mens-hardwear-ap-pant-2122691.html",
     note:
       "Mountain Hardwear's own women's bottoms chart, BODY inches, read from the " +
@@ -12255,7 +12257,7 @@ export const SIZING_CHARTS: SizingChart[] = [
     categoryMatch: [
       "top", "tee", "shirt", "blouse", "knit", "sweater", "cardigan", "dress",
       "jacket", "coat", "outerwear", "vest", "long sleeve",
-    ],
+    "hoodie"],
     sourceUrl: "https://www.orvis.com/womens-clothing-size-information.html",
     note:
       "Orvis's own women's tops chart, BODY inches, with the US numeric run " +
@@ -12483,7 +12485,7 @@ export const SIZING_CHARTS: SizingChart[] = [
     brandMatch: ["hellstar", "hell star"],
     department: "Unisex",
     garment: "Bottoms (alpha, waist + inseam)",
-    categoryMatch: ["bottom", "pant", "sweatpant", "short", "jean", "cargo", "trouser", "jogger"],
+    categoryMatch: ["bottom", "pant", "sweatpant", "short", "jean", "cargo", "trouser", "jogger", "skirt"],
     sourceUrl: "https://hellstar.com/products/hssp01sw1-gry-grey-no-guts-no-glory-sweatpant",
     note:
       "Hellstar's own bottoms chart, read off the size-guide image its product " +
@@ -12638,7 +12640,7 @@ export const SIZING_CHARTS: SizingChart[] = [
     brandMatch: ["sp5der", "spider worldwide"],
     department: "Unisex",
     garment: "Bottoms (FLAT garment specs, alpha)",
-    categoryMatch: ["bottom", "pant", "sweatpant", "short", "jean", "cargo", "jogger", "trouser"],
+    categoryMatch: ["bottom", "pant", "sweatpant", "short", "jean", "cargo", "jogger", "trouser", "skirt"],
     sourceUrl: "https://kingspider.co/products/dark-green-heavy-web-sweatpant",
     measurementBasis: "flat",
     note:
@@ -12675,7 +12677,7 @@ export const SIZING_CHARTS: SizingChart[] = [
     brandMatch: ["sp5der", "spider worldwide"],
     department: "Women",
     garment: "Bottoms (FLAT garment specs, alpha XS-L)",
-    categoryMatch: ["bottom", "pant", "sweatpant", "short", "legging", "jogger"],
+    categoryMatch: ["bottom", "pant", "sweatpant", "short", "legging", "jogger", "skirt"],
     sourceUrl: "https://kingspider.co/products/dark-green-heavy-web-sweatpant",
     measurementBasis: "flat",
     note:
@@ -12846,7 +12848,7 @@ export const SIZING_CHARTS: SizingChart[] = [
     categoryMatch: [
       "top", "tee", "shirt", "blouse", "knit", "sweater", "cardigan", "dress",
       "jacket", "coat", "outerwear", "blazer", "vest", "long sleeve",
-    ],
+    "hoodie"],
     sourceUrl: "https://frame-store.com/products/the-leather-runway-jacket-wf26lja016-blk",
     note:
       "FRAME's own women's chart, BODY inches, with the US numeric run written " +
@@ -12954,9 +12956,15 @@ export function findSizingCharts(
   const byCategory = pool.filter((c) =>
     c.categoryMatch.some((m) => cat.includes(m)),
   );
-  // If category narrows to something, use it; else return the whole pool so the
-  // model still gets a reference table to reason from.
-  return byCategory.length > 0 ? byCategory : pool;
+  if (byCategory.length > 0) return byCategory;
+  // US-3405: the whole pool used to come back here, so a shirt could reach the
+  // model with two bottoms charts out of three. `categoryMatch` is a
+  // hand-written word list and a brand's tops chart that never says "blouse"
+  // matches nothing, which is a data gap rather than a missing chart. Keep the
+  // charts in the asked FAMILY instead, which the garment scope states. The
+  // whole pool is still the answer when the brand has none in that family, so
+  // the model still gets a reference table to reason from.
+  return narrowToFamily(pool, cat);
 }
 
 /**

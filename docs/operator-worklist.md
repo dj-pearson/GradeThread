@@ -1,26 +1,34 @@
 # What the backlog is waiting on you for
 
-Regenerate with: node scripts/operator-worklist.mjs. Built from prd.json, where 154 of 251 open stories carry at least one OPERATOR criterion — a step only you can take.
+Regenerate with: node scripts/operator-worklist.mjs. Built from prd.json, where 160 of 276 open stories carry at least one OPERATOR criterion — a step only you can take.
 
 This is not a list of blocked work. Most of these stories have buildable criteria before the operator step, and several were finished this session right up to it. It is a list of the last mile.
+
+## Start here
+
+Computed from PENDING_MIGRATIONS.md and the criteria below, so it is right on the day you read it. Everything under this heading is two sittings, and it is the two that move the most stories.
+
+**1. Redeploy the edge on Coolify.** Its boot guard expects the schema version the migrations above just set, so this follows them rather than leading. That one deploy is the precondition for **5 stories** whose remaining step is a measurement taken afterwards, not separate work: US-3146, US-3149, US-3147, US-3148, US-3028.
+
+---
 
 ## Where the work happens
 
 Most of these are not separate sittings. Grouped by what you need open:
 
-- **Somewhere else (read the step)** — 56 steps
-- **Coolify, or a deploy + env change** — 30 steps
-- **Production database (psql or the Supabase SQL editor)** — 26 steps
-- **A marketplace account, logged in** — 21 steps
+- **Somewhere else (read the step)** — 63 steps
+- **Coolify, or a deploy + env change** — 25 steps
+- **Production database (psql or the Supabase SQL editor)** — 25 steps
+- **A marketplace account, logged in** — 23 steps
 - **A lawyer** — 11 steps
 - **A grading run that costs real money** — 8 steps
 - **A decision, with nothing to open** — 4 steps
+- **Cloudflare dashboard** — 3 steps
 - **Sentry or PostHog** — 3 steps
 - **Email or SES** — 3 steps
 - **A phone, in your hands** — 3 steps
-- **App Store Connect** — 2 steps
 - **eBay developer or seller account** — 2 steps
-- **Cloudflare dashboard** — 2 steps
+- **App Store Connect** — 1 step
 
 ---
 
@@ -32,23 +40,29 @@ priority 1
 
 run the call counter for two weeks and read ebay_api_call_daily before submitting the growth check. Do not submit on an estimated number.
 
-### US-3110 — Cut eBay API call volume before the Application Growth Check
-
-priority 1
-
-after 48 hours, re-read ebay_api_call_daily and confirm total daily calls and the Trading peak have both dropped; do not submit the growth check on the pre-fix numbers.
-
 ### US-3112 — eBay compliance: extension attribution, and stop calling APIs we cannot use
 
 priority 1
 
 read the next ebay-notification-reconcile run's log line and file the real cause of its 12 per-topic errors.
 
-### US-2736 — Every platform variant is priced from the eBay draft alone, so an item priced on the item generates a kit with no price at all
+### US-3340 — Android App Links are dead in production: assetlinks.json returns 503 for want of one env var
 
-priority 8
+priority 4
 
-the fix only affects newly generated variants. Existing drafts carry the stored 0 - press Regenerate on the Listing Kit to pick up the price.
+tap an app link on a real Android device with the Play build installed and confirm it opens the app rather than the browser, because domain verification is cached at install and cannot be tested by reloading a page
+
+### US-3399 — Which size chart reaches the model is decided by Postgres heap order
+
+priority 5
+
+run runEval against the golden set before this reaches origin/main. It changes the reference-size-chart block the grading prompt takes as trusted ground truth, with no shadow compare and nothing to attribute the era to afterwards. The code is on claude/prd-json-stories-loop-kx6oun, which deploys nothing.
+
+### US-3403 — Any signed-up user can still enumerate four storage buckets after 00794
+
+priority 6
+
+one migration, DROP POLICY IF EXISTS then CREATE, covering all five public-read policies on storage.objects. It must NOT assume held migration 00794 has run: 00794 is on no remote branch and the directory jumps 00793 to 00796, so a file that only narrows the four empty-ish buckets leaves item-photos (7,057 objects, 3.5 GB) open to anon. Read vault/10-ops/storage-anon-enumeration.md first, and read the result back off pg_policies rather than off the migration.
 
 ### US-3146 — Every Claude call outside grading runs at the default effort high, because 39 of 45 call sites send no output_config at all
 
@@ -61,6 +75,12 @@ after the edge deploy, run scripts/ai-token-profile.ts over a window starting at
 priority 9
 
 after the edge deploy, generate 3+ articles inside one 5-minute window, then run scripts/ai-token-profile.ts from the deploy day. The 'content' row must show hit% above zero and a lower median in/call than the 5,488 baseline. Social stays at 0% by design (1,908 tok prefix against Haiku's 2,048 minimum) and is not a failure.
+
+### US-3360 — An Android apply destroys every other client's provenance on that item
+
+priority 10
+
+needs a Mac or a Windows Android toolchain and a Gradle run; npm run verify:android mirrors the CI job
 
 ### US-3086 — Lululemon size-dot rim: decode a transcription that starts mid-circle, and re-run the backfill on undecoded codes
 
@@ -145,6 +165,24 @@ on the reference laptop without a discrete GPU, time the first and second remova
 priority 23
 
 run one revise and one relist on each of the four platforms from a test account after the store build is live and record the outcome per platform in the notes; a platform that fails goes back to enabled:false in the same session, not later
+
+### US-3328 — Sellers see when their grade will be ready, and tier copy promises a delivery time
+
+priority 33
+
+choose the SLA hours per tier in admin pricing config. Today Express 1h, Premium 12h, Standard 48h; the owner floated roughly 4h, 24h and 7 days.
+
+### US-3351 — iOS cleanup: retire the confirm-chip leftovers that a dropped screen left behind
+
+priority 34
+
+needs a Mac with a simulator. Swift does not compile on the Windows box and a screen edited blind is how something ships that compiles and looks wrong
+
+### US-3339 — Show a measured grade range, for example 7.6 (likely 7.3 to 7.9)
+
+priority 44
+
+set GRADING_SELF_CONSISTENCY_SAMPLE and run the job once.
 
 ### US-2328 — Add Shopify fulfillment: tracking numbers never reach Shopify
 
@@ -272,12 +310,6 @@ priority 1990
 
 umbrella only, and every open child already declares its own operator step, so there is nothing here to pick up. Three of the six ids this epic names are still open and all three are declared. This criterion exists so the epic appears in `npm run prd:operator` rather than in the actionable list, which is where it had been sitting while none of it could be started.
 
-### US-2791 — US-826 closed with AC1 unmet: the attribute confirm chips exist and no screen presents them
-
-priority 1990
-
-needs a macOS toolchain to compile and a device or simulator to judge. This is a screen, and a screen written blind is where an agent ships something that compiles and looks wrong. The iOS CI lane is the compile gate, not the design gate.
-
 ### US-2118 — In-place plan upgrade charges a prorated amount on a single click with no confirmation
 
 priority 1991
@@ -362,6 +394,24 @@ priority unranked
 
 read the EPN rate card and program terms at approval time and record in the same vault note the apparel commission rate, the per-item cap, and the click-to-purchase attribution window, dated, so the margin math is checkable and re-checkable
 
+### US-3212 — Switching from Vendoo, List Perfectly or Nifty in one afternoon: presets verified against real exports, a Nifty preset, and a full inventory export that proves nothing is held for ransom
+
+priority unranked
+
+obtain one real inventory export from each of Vendoo (free tier, 5 items), List Perfectly (100 free listings) and Nifty (7-day trial) using a dedicated comped or trial account, never a personal one, and store the files under scripts/fixtures/import-presets/ with all personal data replaced. The Vendoo and List Perfectly presets in src/lib/import-presets.ts get verified set to the date and row count of the file checked; a header the real file carries that the preset did not name is added in the same commit, and vault/30-platform/import-presets.md is updated in the same commit as the guard test requires.
+
+### US-3281 — iOS: end a listing from the phone, in a WebKit view the seller signs into and watches
+
+priority unranked
+
+publish the 'Ending a listing from your phone' support article, register it in src/lib/seo/public-routes.ts AND src/prerender/entry-server.tsx per the SEO guard, and link it from the consent sheet before the build is submitted
+
+### US-3281 — iOS: end a listing from the phone, in a WebKit view the seller signs into and watches
+
+priority unranked
+
+run the full flow on a real iPhone against a real listing on at least two marketplaces, record what happened in this story's notes, and capture a screen recording to attach if App Review asks a follow-up question. The story does not close on simulator runs
+
 ## Coolify, or a deploy + env change
 
 ### US-3042 — eBay Application Growth Check: close the compliance gaps before applying
@@ -370,47 +420,17 @@ priority 1
 
 apply migration 00711 to prod, NOTIFY pgrst, redeploy the edge, then schedule the two new Coolify crons (/api/jobs/ebay-rate-limits hourly, /api/jobs/ebay-retention daily).
 
-### US-3110 — Cut eBay API call volume before the Application Growth Check
-
-priority 1
-
-apply 00724 to prod, NOTIFY pgrst, then redeploy the edge (columns and RPC are read by name; the edge must not go first).
-
-### US-3110 — Cut eBay API call volume before the Application Growth Check
-
-priority 1
-
-read the next ebay-notification-reconcile failure from the container log now that it names itself, and file the real defect.
-
-### US-3111 — Stagger the per-SKU eBay offer read
-
-priority 1
-
-apply 00725 to prod, NOTIFY pgrst, then redeploy the edge (the column is read by name; the edge must not go first).
-
-### US-3111 — Stagger the per-SKU eBay offer read
-
-priority 1
-
-48 hours after deploy, confirm from ebay_api_call_daily that GET /sell/inventory/v1/offer has fallen to roughly one read per SKU per day, and that no listing sits in 'listed' with an ended eBay listing for more than 24 hours.
-
 ### US-3112 — eBay compliance: extension attribution, and stop calling APIs we cannot use
 
 priority 1
 
 apply 00725 to prod (it now carries disputes_access_denied too), NOTIFY pgrst, then redeploy the edge.
 
-### US-2659 — The storage mirror has no restore path, and its key lives on the host it protects against losing
+### US-3362 — The eBay pull matches SKUs on the wrong column, so an item's own listing arrives as an orphan and never detects as unsold
 
-priority 5
+priority 6
 
-move the rclone crypt password and salt off the DB host and take a second offline copy, then record where (never the value) in vault/10-ops/key-rotation.md. Nothing in this repository can do it, and until it is done the offsite photo mirror does not survive the loss of the host it is backing up.
-
-### US-2668 — Four scheduled jobs fail on every single run: trial-expiry 500 (cause proven) and three 502s
-
-priority 5
-
-after deploy, confirm trial-expiry answers 200 and report the first `downgraded` value. It is the size of the backlog, and it tells us how many accounts held Pro entitlements past their trial end.
+read one '[flipdesk-ebay] pull complete: ... offers_read=N offers_stamped=N offers_unstamped=N offers_unresolved=N' line from the Coolify container log, from a pass that ran AFTER the 5a3156dc URL-budget fix deployed. Lines from the 414 outage window are worthless: ended_to_draft read 0 on every pass because the detector was dead. Confirm offers_unstamped has fallen to roughly offers_unresolved, and that offers_unresolved/offers_read lands near the predicted 23 percent.
 
 ### US-2718 — Cross-posting is unreachable in production: the Listing Kit's extension button is compiled out of the live build
 
@@ -552,11 +572,11 @@ priority 1
 
 one prod eBay connection lacks sell.payment.dispute and one lacks nothing else of note; that seller must reconnect at /oauth/start before dispute notifications work for them.
 
-### US-2288 — Unlimited free trials: handle_new_user grants 14 days of Pro with no abuse check
+### US-3412 — Rewrite SERP titles and descriptions on the top-10 zero-click pages
 
-priority 5
+priority 2
 
-run §19 of scripts/prod-diagnostics-console.sql (AC4). Four read-only queries: trials started vs converted, addresses that normalise to the same mailbox once plus-tags and dots are stripped, what the trials cost in grading, and whether any came from an account since deleted. AC1 is deliberately gated on this - the right abuse control is a different control at two people than at two hundred.
+apply the blog_posts seo_title/seo_description update to prod (10 rows) - blog metadata lives in the DB, not the repo
 
 ### US-2347 — Run the production verification queries this audit could not run
 
@@ -564,35 +584,41 @@ priority 5
 
 this whole story is prod reads (AC1-AC8). Most of it is already written up as scripts/prod-diagnostics-console.sql, which is read-only and was executed against a real database with ON_ERROR_STOP=1 so it cannot fail your session on a wrong column name. Run it and paste the output back into this story.
 
-### US-2351 — Impersonation is unbounded, unmarked, non-revocable, and allows account deletion as the user
-
-priority 5
-
-confirm the GoTrue OTP TTL in prod (AC7). It sets the real lifetime of the impersonation and resume tokens, so the 30-minute cap enforced in code is only the shorter of the two. AC1-AC6 are done.
-
-### US-2403 — A denied function call from anon or authenticated SEGFAULTS Postgres and restarts the whole database
-
-priority 5
-
-run `show supautils.hint_roles;` over psql on the prod database (read-only, one line). If anon is absent, AC1 closes as does-not-reproduce and AC2 is already satisfied, which unblocks 00527 and US-2282. Do NOT confirm by calling a revoked function: that call is the outage.
-
 ### US-2727 — listings.listed_at is NOT NULL but the code writes null for a draft, so the extension writeback INSERT has never succeeded
 
 priority 5
 
 apply 00634 to prod, then NOTIFY pgrst, 'reload schema', then retry one Send to extension and confirm a 200.
 
-### US-2687 — Every paid plan is denied the Claude connector, including the two sold with it
+### US-3312 — Two brand_knowledge notes are wrong in prod: Zara's false auth-gate caveat and Urban Outfitters' CA-versus-RN trap
 
 priority 6
 
-apply 00625 to production and confirm with `select key, gate_flags->>'connectorAccess' from public.pricing_plans`. Until it is applied, every Pro and Business seller is still refused the connector. No NOTIFY needed - no table, column or RPC changed, only row data.
+the owner approves this migration before it is pushed, and the apply is confirmed against prod rather than assumed
 
-### US-2687 — Every paid plan is denied the Claude connector, including the two sold with it
+### US-3318 — Existing Poshmark and Vinted rows record prices those marketplaces cannot hold
 
 priority 6
 
-decide whether anyone was actually turned away. The connector is dark in production behind MCP_ENABLED, so the likely answer is nobody - but that is worth confirming rather than assuming, and the mcp audit rows record a `plan_required` denial reason.
+the owner approves before it is pushed, and the after-count is read back from prod rather than assumed
+
+### US-3406 — size_class exists on the chart table and nothing consults it, so a plus-size chart can lead for a regular garment
+
+priority 6
+
+apply 00809 after 00805-00808, then run the readback query in PENDING_MIGRATIONS.md and confirm two rows come back as plus and big_and_tall with source_url present
+
+### US-3355 — 88 of 142 service-role tables have never had a REVOKE, so RLS is their only layer
+
+priority 7
+
+apply 00810, then 00811, then 00812, off-peak, stopping after any batch; send NOTIFY pgrst, 'reload schema' after each; then re-fetch prod's PostgREST OpenAPI root with the anon key and confirm the path count has fallen from 449 toward 356
+
+### US-3443 — Size-chart category_match precision, and the 26-row drift between the seed and the table
+
+priority 8
+
+apply 00813 after 00812, then run the readback in PENDING_MIGRATIONS.md and confirm four rows come back keyed khl and fjllrven with a source_url on each
 
 ### US-3044 — [GATE] Measure what the 2026-09-02 AutoLister change did to specific fill rates and per-item cost before the next cut
 
@@ -600,23 +626,17 @@ priority 9
 
 run it against prod for the 200 drafts before 2026-09-02 and the first 200 after, and paste both tables into this story's note; the note names the one aspect whose fill rate moved least and the reason found for it.
 
+### US-3426 — Sweep the staged objects nothing references, once the orphan count exists
+
+priority 9
+
+FIRST: run scripts/diagnose-staged-orphans.ts against prod and put its whole output on this story. Nothing below starts until that number exists, and the script exits 2 rather than printing a total if any read was incomplete
+
 ### US-2842 — Calibration spike: prove a comp read is close enough to price with, and measure what one costs
 
 priority 11
 
 cannot run from the Windows dev box and is not a coding task. services/edge-functions/.env points SUPABASE_URL at prod but carries a 21-char SUPABASE_SERVICE_ROLE_KEY and a 22-char ANTHROPIC_API_KEY, both placeholders, and EBAY_ENV is sandbox, which has no real comp inventory. Needs a run with real prod service-role, real Anthropic and EBAY_ENV=production credentials, plus the ~100 reads of real AI spend.
-
-### US-2832 — The listings.draft_id prod repair exists only in a markdown file, so no audit can prove it was applied
-
-priority 12
-
-apply it to prod. It changes nothing there - the column exists - and the point is the applied_migrations row, so that a future audit, a restored backup or a staging stack can tell a repaired database from a broken one. Then NOTIFY pgrst, 'reload schema'.
-
-### US-2832 — The listings.draft_id prod repair exists only in a markdown file, so no audit can prove it was applied
-
-priority 12
-
-, SEPARATE AND BIGGER: run scripts/prod-schema-audit.sql against prod. 00134 was half-applied and nothing noticed for months; that script reports every missing table, column, index and function in one read-only pass, and it is the only way to know whether anything else below 00254 is missing too.
 
 ### US-2618 — The Help Center is live and empty: 83 articles are written and none are in the database
 
@@ -635,12 +655,6 @@ audit prod expense rows for dates that already drifted (AC4). Note the drift is 
 priority 25
 
 run the ALL-TIME half of section 12 of scripts/prod-diagnostics-console.sql (AC4) - the demand_board and guarantee_claim rows of its first query. The 30-day slice came back 0 twice, so nobody ACTIVE loses anything; what is unanswered is whether an account that used either feature months ago should be grandfathered before the gates deploy.
-
-### US-2670 — The disputes RLS insert policy never checks who owns the grade report
-
-priority 25
-
-apply the migration, then re-run AC4 query against prod. The count is expected to be zero - every client except iOS has always gone through the edge route, and iOS filed with its own user_id against reports it was displaying, so the realistic exposure is a crafted API call rather than anything a normal app produced.
 
 ### US-2922 — Top 100 brand size charts: verified, sourced and department-complete
 
@@ -670,9 +684,7 @@ run one real-eBay end to end - publish a Trading-API listing, migrate it with bu
 
 priority 1978
 
-on the prod DB host, install the backup cron and confirm a dump plus its .sha256 lands in the offsite bucket, then run restore-postgres.sh against a REAL offsite dump on a scratch host and record the measured timing (AC1, AC2, AC4). Until the cron is proven to run, the real RPO is not 24 hours, it is total loss.
-
-restore-postgres.sh refuses the first run on every target, including the scratch host (US-3394). That is expected: the refusal prints a credential-free RESTORE_CONFIRM_TARGET='<host>:<port>/<dbname>' line, and you re-run with it once you have read it and checked it names the scratch host. Nothing turns the gate off: ALLOW_PROD_RESTORE is no longer read, and setting it prints a note saying so while the restore still refuses. The full procedure is vault/10-ops/backups.md.
+on the prod DB host, install the backup cron and confirm a dump plus its .sha256 lands in the offsite bucket, then run restore-postgres.sh against a REAL offsite dump on a scratch host with RESTORE_CONFIRM_TARGET set to that host (the script refuses every target until it is, which is what stops a rehearsal restoring over prod) and record the measured timing (AC1, AC2, AC4). Until the cron is proven to run, the real RPO is not 24 hours, it is total loss.
 
 ### US-2434 — Email-keyed PII retained for accounts deleted BEFORE the US-2005 purge shipped is still queryable
 
@@ -705,6 +717,12 @@ priority unranked
 run scripts/aspect-value-coverage.ts against prod once the cache is warm, and fold any reported misses into the family tables
 
 ## A marketplace account, logged in
+
+### US-3367 — Cross-listing: List everywhere in one click through the paced queue, and delist every sibling when a sale is recorded
+
+priority 5
+
+set EXTENSION_ALLOWED_ORIGINS on the Coolify edge (US-2718 AC2), retry one Send to extension on Poshmark to close US-2727, and run one Record Sale with Sold on = Poshmark against a cross-listed test item and confirm the Mercari and Vinted delist rows appear in the extension queue and drain
 
 ### US-2738 — Photos are reported as attached when the page never took them, because the file list was shadowed rather than assigned
 
@@ -831,6 +849,12 @@ run a seller flow end to end in FIREFOX on a real Poshmark listing form. That is
 priority 2145
 
 needs Whatnot partner access and live docs. Their API is private with no public documentation, so unlike Etsy - which has real v3 docs - the endpoint and field shapes cannot be responsibly finalized from the outside. Building against a guessed shape here would produce an adapter that compiles, passes its own tests, and fails on first contact. Nothing starts until someone has the partner materials in hand.
+
+### US-3280 — [BLOCKED - no EU/UK entity, DEFERRED] Vinted Pro Integrations API: server-side delist for Pro sellers, extension for everyone else
+
+priority unranked
+
+, and the story cannot close without it: register the Pearson Media Vinted Pro business and ask the Vinted account management team for access to the Pro Integrations Portal, since the API is allowlisted and there is no self-serve signup. Record the application date, the contact used and the outcome in this story's notes
 
 ## A lawyer
 
@@ -976,6 +1000,26 @@ priority 1998
 
 read the Google Search Console Page-indexing report (US-2095, already declared) and decide whether to expand or consolidate. That is this story's own gate, set at filing: do not start until the diagnosis is read, and if the domain is crawl-constrained, consolidate before expanding. Nothing here can reach Search Console. The criteria themselves are largely met already - 16 comparison pages are registered against AC1's 3-5, AC3's interlink wiring and approved anchors are in place, and AC4's CollectionPage + ItemList on the hub was delivered by US-2072 and is guarded by the US-2044 parity test. So the decision is whether to write MORE, not whether to build anything.
 
+## Cloudflare dashboard
+
+### US-3340 — Android App Links are dead in production: assetlinks.json returns 503 for want of one env var
+
+priority 4
+
+set ANDROID_CERT_SHA256 on the Cloudflare Pages project to the colon-separated SHA-256 fingerprint of the release signing certificate, comma-separated if there is more than one, and confirm assetlinks.json returns 200 with application/json
+
+### US-2619 — Two OG image endpoints return 200 with an EMPTY body, so blog posts and social cards preview blank
+
+priority 20
+
+open the Cloudflare Pages real-time log and search for [og/social/card] render failed. Every failure now logs the actual exception with the endpoint named, and that one line is the cheapest path to the root cause by a wide margin - four hypotheses have been eliminated from the outside and the fifth cannot be tested without the Workers runtime.
+
+### US-2095 — GSC/Bing verification + Page-indexing diagnosis — the gate for all content work
+
+priority 1993
+
+this whole story needs Search Console access and DNS (AC1-AC5). It is the gate for all content work: seo-geo-strategy.md and seo-indexability.md deliberately contradict each other, and the argument cannot be settled without the Page-indexing numbers.
+
 ## Sentry or PostHog
 
 ### US-2337 — iOS: SyncEngine can prune the entire local database when the session lookup fails
@@ -1036,20 +1080,6 @@ priority 1989
 
 drive the FlipDesk listings table with a real screen reader (AC6) - NVDA on Windows, VoiceOver on macOS. This is the same gap as US-2335's AC4 and it is not a formality: distinguishing names are necessary and not sufficient, and fourteen controls per row is a lot of speech per item however well each is named.
 
-## App Store Connect
-
-### US-2286 — Apple sandbox purchases grant production plans
-
-priority 5
-
-audit existing appstore-sourced entitlements for sandbox-originated grants (AC5). Grants made before the environment marker are NULL, so they cannot be identified from the database alone; this needs App Store purchase history.
-
-### US-3138 — Action Credits: prepaid top-ups so a small shortfall does not force a tier upgrade
-
-priority 20
-
-create four Stripe prices and set STRIPE_PRICE_ACTION_CREDITS_50/150/400/1000; create four App Store Connect consumables; create four Play Console products. The checkout returns 503 until the Stripe prices exist
-
 ## eBay developer or seller account
 
 ### US-2790 — Predict the shipped parcel from the measurements we already took - the bulk margin floor prices postage at zero
@@ -1064,16 +1094,10 @@ priority 15
 
 apply for the Marketplace Insights API grant (buy.marketplace.insights scope) on the eBay developer account, after US-3042's compliance gaps are closed; record the application date and outcome in vault/10-ops/env-reference.md next to EBAY_MARKETPLACE_INSIGHTS
 
-## Cloudflare dashboard
+## App Store Connect
 
-### US-2619 — Two OG image endpoints return 200 with an EMPTY body, so blog posts and social cards preview blank
+### US-3138 — Action Credits: prepaid top-ups so a small shortfall does not force a tier upgrade
 
 priority 20
 
-open the Cloudflare Pages real-time log and search for [og/social/card] render failed. Every failure now logs the actual exception with the endpoint named, and that one line is the cheapest path to the root cause by a wide margin - four hypotheses have been eliminated from the outside and the fifth cannot be tested without the Workers runtime.
-
-### US-2095 — GSC/Bing verification + Page-indexing diagnosis — the gate for all content work
-
-priority 1993
-
-this whole story needs Search Console access and DNS (AC1-AC5). It is the gate for all content work: seo-geo-strategy.md and seo-indexability.md deliberately contradict each other, and the argument cannot be settled without the Page-indexing numbers.
+create four Stripe prices and set STRIPE_PRICE_ACTION_CREDITS_50/150/400/1000; create four App Store Connect consumables; create four Play Console products. The checkout returns 503 until the Stripe prices exist

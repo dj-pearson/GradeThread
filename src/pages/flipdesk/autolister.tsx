@@ -22,6 +22,8 @@ import { useTagOcrWiring } from "./autolister/tag-ocr";
 import { useGooglePhotosImport } from "@/hooks/use-google-photos-import";
 import { itemPhotoThumb } from "@/lib/images";
 import { PhotoEditorDialog } from "@/components/flipdesk/photo-editor-dialog";
+import { useAutolisterPhoneCapture } from "./autolister/use-phone-capture";
+import { uploadActions } from "./autolister/upload-actions";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card } from "@/components/ui/card";
@@ -94,6 +96,10 @@ import {
 import { tileLabel } from "@/lib/item-row-label";
 import { stagedSortName } from "./autolister/staged-sort-name";
 import { filesFromDataTransfer } from "./autolister/files-from-data-transfer";
+import {
+  GroupSuggestionChips,
+  ProposalReviewChips,
+} from "./autolister/suggestion-chips";
 import {
   type StagedPhoto,
   type StagedUploadResult,
@@ -893,23 +899,8 @@ export function FlipdeskAutolisterPage() {
   // compress -> validate -> paced upload) lives in the app-level store — see
   // src/stores/autolister-upload-store.ts. These are thin delegates so the
   // existing JSX call sites stay unchanged.
-  async function handleFiles(files: FileList | File[] | null) {
-    if (!files || !ownerId) return;
-    const list = Array.from(files);
-    if (list.length === 0) return;
-    await useAutolisterUploadStore
-      .getState()
-      .enqueueFiles(list, sessionId.current);
-  }
-
-  // US-539: re-run failed pipelines without re-picking files.
-  async function retryUploadTasks(taskIds: string[]) {
-    await useAutolisterUploadStore.getState().retryTasks(taskIds);
-  }
-
-  function dismissUploadTask(id: string) {
-    useAutolisterUploadStore.getState().dismissTask(id);
-  }
+  const { handleFiles, retryUploadTasks, dismissUploadTask } =
+    uploadActions(ownerId, sessionId.current);
 
 
   // US-3140: Google Photos import. The sequence — start, popup, poll until the
@@ -938,6 +929,10 @@ export function FlipdeskAutolisterPage() {
         })),
       ]),
   });
+
+  // US-3185: phone-as-camera for a whole bin, wired in ./autolister/use-phone-capture.
+  const phoneCapture = useAutolisterPhoneCapture(ownerId, sessionId.current, groups,
+    (add, next) => { setStaged((prev) => [...prev, ...add]); setGroups(next); });
 
   // US-1550: remember the chosen grid sort (see `ungroupedSorted`, which
   // renders it; unlike the pre-US-1540 sort buttons this never rewrites the
@@ -2557,6 +2552,7 @@ export function FlipdeskAutolisterPage() {
               }
             : null
         }
+        phoneCapture={phoneCapture}
       />
 
       <UploadProgressPanel
@@ -2646,49 +2642,17 @@ export function FlipdeskAutolisterPage() {
         />
         {/* US-1904: uncertain propose boundaries — created only on the seller's
             confirmation, never silently applied. */}
-        {proposalReviews.length > 0 && (
-          <div
-            role="region"
-            aria-label="Proposed items to review"
-            className="space-y-1.5 rounded-md border border-amber-500/40 bg-amber-500/5 p-2"
-          >
-            <p className="text-xs font-medium text-amber-800 dark:text-amber-200">
-              {proposalReviews.length} proposed item{proposalReviews.length === 1 ? "" : "s"} the AI
-              wasn't sure about — create the ones that look right:
-            </p>
-            <div className="flex flex-wrap gap-1.5">
-              {proposalReviews.map((r) => (
-                <span
-                  key={r.id}
-                  className="inline-flex items-center gap-1.5 rounded-full border border-amber-500/40 bg-amber-500/10 px-2 py-0.5 text-xs text-amber-800 dark:text-amber-200"
-                  title={r.reason || undefined}
-                >
-                  <Sparkles className="h-3 w-3 shrink-0" />
-                  <span className="max-w-56 truncate">
-                    {r.photoIds.length} photos · {Math.round(r.confidence * 100)}%
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => acceptProposalReview(r.id)}
-                    className="font-semibold underline-offset-2 hover:underline"
-                  >
-                    Create
-                  </button>
-                  <button
-                    type="button"
-                    aria-label={`Dismiss proposal of ${r.photoIds.length} photos, ${Math.round(r.confidence * 100)}% confident`}
-                    onClick={() =>
-                      setProposalReviews((prev) => prev.filter((x) => x.id !== r.id))
-                    }
-                    className="rounded-full p-0.5 hover:bg-amber-500/20"
-                  >
-                    <X className="h-3 w-3" />
-                  </button>
-                </span>
-              ))}
-            </div>
-          </div>
-        )}
+        <ProposalReviewChips
+          reviews={proposalReviews.map((r) => ({
+            id: r.id,
+            text: `${r.photoIds.length} photos`,
+            label: `${r.photoIds.length} photos, ${Math.round(r.confidence * 100)}% confident`,
+            confidence: r.confidence,
+            reason: r.reason,
+          }))}
+          onAccept={acceptProposalReview}
+          onDismiss={(id) => setProposalReviews((prev) => prev.filter((x) => x.id !== id))}
+        />
         <UngroupedDropZone>
         {ungrouped.length === 0 ? (
           <p className="rounded-md border border-dashed py-6 text-center text-sm text-muted-foreground">
@@ -3088,37 +3052,20 @@ export function FlipdeskAutolisterPage() {
               </div>
               {/* US-1544: AI grouping suggestions — dismissible, Apply is
                   undoable via the US-1543 toast Undo, never auto-applied. */}
-              {suggestionsFor(g.id).length > 0 && (
-                <div className="mb-2 flex flex-wrap gap-1.5">
-                  {suggestionsFor(g.id).map((s) => (
-                    <span
-                      key={s.id}
-                      className="inline-flex items-center gap-1.5 rounded-full border border-amber-500/40 bg-amber-500/10 px-2 py-0.5 text-xs text-amber-800 dark:text-amber-200"
-                      title={s.reason}
-                    >
-                      <Sparkles className="h-3 w-3 shrink-0" />
-                      <span className="max-w-64 truncate">
-                        {suggestionLabel(s, g.id)} · {Math.round(s.confidence * 100)}%
-                      </span>
-                      <button
-                        type="button"
-                        onClick={() => applySuggestion(s)}
-                        className="font-semibold underline-offset-2 hover:underline"
-                      >
-                        Apply
-                      </button>
-                      <button
-                        type="button"
-                        aria-label={`Dismiss suggestion: ${suggestionLabel(s, g.id)}`}
-                        onClick={() => dismissSuggestion(s.id)}
-                        className="rounded-full p-0.5 hover:bg-amber-500/20"
-                      >
-                        <X className="h-3 w-3" />
-                      </button>
-                    </span>
-                  ))}
-                </div>
-              )}
+              <GroupSuggestionChips
+                suggestions={suggestionsFor(g.id).map((s) => ({
+                  id: s.id,
+                  text: suggestionLabel(s, g.id),
+                  label: suggestionLabel(s, g.id),
+                  confidence: s.confidence,
+                  reason: s.reason,
+                }))}
+                onApply={(id) => {
+                  const s = suggestionsFor(g.id).find((x) => x.id === id);
+                  if (s) applySuggestion(s);
+                }}
+                onDismiss={dismissSuggestion}
+              />
               {!groupsCollapsed && (
               <div className="grid grid-cols-4 gap-2 sm:grid-cols-6 md:grid-cols-8">
                 {g.photoIds.map((pid, photoIndex) => {

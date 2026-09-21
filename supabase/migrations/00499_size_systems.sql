@@ -19,7 +19,7 @@
 -- chart of bare numbers stays NULL because a bare "6" could be US or UK and
 -- nothing in the row says which. NULL means "not recorded", never "US".
 --
--- Derived here: 170 charts with a readable system, 9 non-standard size class,
+-- Derived here: 170 charts with a readable system, 11 non-standard size class,
 -- 1 with an ambiguous class (a scope naming several — the Talbots case, whose
 -- scope reads "Misses / Petite / Plus" and which is exactly the folding the
 -- size_class column exists to end).
@@ -211,6 +211,7 @@ begin
   ('madewell', 'Women', 'Tops & outerwear, plus (body inches)', NULL, 'plus'),
   ('pacsun', 'Women', 'Tops & outerwear (body inches)', 'alpha', 'standard'),
   ('paige', 'Men', 'Tops & outerwear (body inches)', 'alpha', 'standard'),
+  ('tommyhilfiger', 'Women', 'Curve, tops & bottoms (body inches)', NULL, 'plus'),
   ('patagonia', 'Men', 'Tops & outerwear (body inches)', 'alpha', 'standard'),
   ('patagonia', 'Men', 'Bottoms (body inches)', 'alpha', 'standard'),
   ('thenorthface', 'Women', 'Jackets & tops, plus (body inches)', NULL, 'plus'),
@@ -222,6 +223,7 @@ begin
   ('barbour', 'Men', 'Tops & bottoms (body inches, CONVERTED from Barbour''s cm)', 'alpha', 'standard'),
   ('bonobos', 'Men', 'Shirts, standard fit (GARMENT inches)', 'alpha', 'standard'),
   ('bonobos', 'Men', 'Outerwear (GARMENT inches)', 'alpha', 'standard'),
+  ('brooksbrothers', 'Men', 'Bottoms, big (body inches)', NULL, 'big_and_tall'),
   ('diesel', 'Women', 'Tops (body inches)', 'alpha', 'standard'),
   ('nike', 'Women', 'Bottoms (body inches)', 'alpha', 'standard'),
   ('nike', 'Women', 'Bottoms, plus (body inches)', NULL, 'plus'),

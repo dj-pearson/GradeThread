@@ -15,6 +15,7 @@ import {
 import { runStyleCodeDiscovery } from "./jobs-style-code-discovery.ts";
 import { poolProgress } from "../lib/style-code-prospect.ts";
 import { validateTellsForWrite } from "../lib/brand-authenticity.ts";
+import { SIZE_CLASSES, SIZE_SYSTEMS } from "../lib/size-systems.ts";
 import {
   groupStyleCodeRows,
   keywordsForPromotedStyle,
@@ -81,6 +82,16 @@ const KB_TABLES: Record<string, readonly string[]> = {
     // specs must be recordable as "flat" here, or the band builder adds ease
     // on top of ease and flags every correctly sized item on that brand.
     "measurement_basis",
+    // US-3406: which population the chart is for (plus, big_and_tall, petite,
+    // maternity, tall, standard). The ranking demotes a non-standard chart so
+    // an unqualified garment does not lead with one, and the value is DERIVED
+    // from the garment scope when the column is NULL. A scope the patterns
+    // cannot read -- a brand's own name for its plus line, say -- is only
+    // fixable by writing the column, and until now an operator could not.
+    "size_class",
+    // Alongside it, because 00499 writes the pair and an operator correcting
+    // one and not the other leaves the row half right.
+    "size_system",
   ],
 };
 const CHILD_TABLES = [
@@ -215,6 +226,28 @@ export function buildPatch(
         return { error: "verified must be a boolean" };
       }
       patch.verified = value;
+      continue;
+    }
+    // US-3406: size_class and size_system have NO check constraint on the
+    // column, so an arbitrary string would be stored and the ranking would
+    // then read it as a specialised chart and demote a perfectly ordinary one.
+    // The enums live in size-systems.ts and are the same ones 00499 wrote from.
+    // null is allowed and means "not classified", which is what roughly 260 of
+    // the rows carry and what lets the derivation from the garment scope run.
+    if (key === "size_class" || key === "size_system") {
+      const valid: readonly string[] = key === "size_class"
+        ? SIZE_CLASSES
+        : SIZE_SYSTEMS;
+      if (value === null || value === "") {
+        patch[key] = null;
+        continue;
+      }
+      if (typeof value !== "string" || !valid.includes(value)) {
+        return {
+          error: `${key} must be null or one of: ${valid.join(", ")}`,
+        };
+      }
+      patch[key] = value;
       continue;
     }
     // US-1768: enforce STRUCTURED authentication tells on write. The generic

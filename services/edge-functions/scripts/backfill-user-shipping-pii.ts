@@ -24,6 +24,7 @@ import {
   encryptShipFrom,
   isEncrypted,
 } from "../src/lib/user-shipping-pii.ts";
+import { supabaseErrorText } from "../src/lib/supabase-error-text.ts";
 
 const url = Deno.env.get("SUPABASE_URL");
 const key = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
@@ -46,7 +47,7 @@ const { data, error } = await db
   .from("users")
   .select("id, business_phone, ship_from_address");
 if (error) {
-  console.error("read failed:", error.message);
+  console.error("read failed:", supabaseErrorText(error));
   Deno.exit(1);
 }
 

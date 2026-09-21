@@ -1,0 +1,70 @@
+#!/usr/bin/env bash
+# US-3408: the one gate --no-verify cannot skip.
+#
+# `git commit --no-verify` skips pre-commit, commit-msg and pre-push. It does
+# NOT skip reference-transaction, because that hook is part of how a ref is
+# written rather than part of the porcelain that writes it. Exiting non-zero
+# in the "prepared" state aborts the whole transaction, so the commit is never
+# created and there is nothing to push.
+#
+# That matters here because the failure this exists for went out under
+# --no-verify: 40e95fadc left record-sale-dialog.tsx half-resolved (one side's
+# bodies, the other side's imports) and listing-kit.tsx importing
+# useItemListings twice, tsc -b reported 11 errors, and origin/main was
+# un-buildable for about forty minutes.
+#
+# COST ON EVERY OTHER REF UPDATE: two tests and no subprocess. This hook fires
+# on fetch, checkout, reset, branch and every ordinary commit, so the first two
+# lines below are the whole design — everything expensive is behind a merge in
+# progress, which is rare.
+#
+# THERE IS NO --no-verify FOR THIS. If the checker itself is what is broken,
+# turn the hooks off deliberately and visibly:
+#   git -c core.hooksPath=/dev/null commit …
+# Reach for that and then say so, because a silent bypass is the thing that
+# filed this story.
+
+[ "$1" = "prepared" ] || exit 0
+
+git_dir="${GIT_DIR:-}"
+if [ -z "$git_dir" ]; then
+  git_dir="$(git rev-parse --git-dir 2>/dev/null)" || exit 0
+fi
+[ -f "$git_dir/MERGE_HEAD" ] || exit 0
+
+# Re-entrancy: the checker shells out to git. None of its calls write a ref, but
+# the guard costs nothing and a future `git stash` in there would hang without it.
+[ -n "${GT_MERGE_GATE_RUNNING:-}" ] && exit 0
+export GT_MERGE_GATE_RUNNING=1
+
+repo_root="$(git rev-parse --show-toplevel 2>/dev/null)" || exit 0
+checker="$repo_root/scripts/check-merge-resolution.mjs"
+
+# FAIL OPEN, LOUDLY, when the toolchain is absent — a fresh clone before
+# `npm install` has no typescript, and bricking `git commit` there would be a
+# worse bug than the one this prevents. Fail CLOSED on anything the checker
+# actually reports.
+if [ ! -f "$checker" ] || [ ! -d "$repo_root/node_modules/typescript" ]; then
+  echo "[merge-resolution] SKIPPED: no checker or no node_modules/typescript." >&2
+  echo "[merge-resolution] This merge commit was NOT checked. Run 'npm install'," >&2
+  echo "[merge-resolution] then 'node scripts/check-merge-resolution.mjs --range ORIG_HEAD..HEAD'." >&2
+  exit 0
+fi
+if ! command -v node >/dev/null 2>&1; then
+  echo "[merge-resolution] SKIPPED: node is not on PATH. This merge was NOT checked." >&2
+  exit 0
+fi
+
+echo "[merge-resolution] merge commit — checking the resolution…" >&2
+node "$checker" >&2
+status=$?
+if [ "$status" -eq 1 ]; then
+  echo "[merge-resolution] REFUSED: the ref update is aborted, so no commit exists." >&2
+  echo "[merge-resolution] Fix the files above and commit again; the merge is still in progress." >&2
+  exit 1
+fi
+if [ "$status" -ne 0 ]; then
+  echo "[merge-resolution] the checker itself failed (exit $status) — allowing the commit." >&2
+  echo "[merge-resolution] This merge was NOT checked. Fix the checker." >&2
+fi
+exit 0

@@ -34,6 +34,57 @@ export interface SeedListingRow {
   best_offer_auto_accept_cents?: number | null;
   best_offer_auto_decline_cents?: number | null;
   quantity?: number | null;
+  // US-2855: eBay business policies. The listing column is `shipping_`, the
+  // account default is `fulfillment_`, and they are the same thing -- eBay
+  // renamed it and this repo carries both spellings. Getting that backwards
+  // seeds the wrong control, so the mapping lives in one place below.
+  shipping_policy_id?: string | null;
+  payment_policy_id?: string | null;
+  return_policy_id?: string | null;
+}
+
+/** The three policy kinds, listing column paired with its account-default key. */
+export const POLICY_SEED_KEYS = {
+  shipping: { listing: "shipping_policy_id", account: "fulfillment_policy_id" },
+  payment: { listing: "payment_policy_id", account: "payment_policy_id" },
+  return: { listing: "return_policy_id", account: "return_policy_id" },
+} as const;
+
+export type PolicyKind = keyof typeof POLICY_SEED_KEYS;
+
+/** Just the account-default fields this needs, so the caller's type can be wider. */
+export interface AccountPolicyDefaults {
+  fulfillment_policy_id?: string | null;
+  payment_policy_id?: string | null;
+  return_policy_id?: string | null;
+}
+
+/**
+ * Which business policy a composer control should open on.
+ *
+ * US-2855 AC1's missing word was SEEDED. The default was already applied at
+ * PUBLISH time (assemblePublishContext reads it and a per-listing override
+ * wins), so the right value did reach eBay -- but the composer's three controls
+ * initialised to null, so the seller saw blank, could not tell which policy was
+ * about to be used, and could not change it before pressing publish. The
+ * preview line compensated by falling back to the default for DISPLAY only,
+ * which made the gap harder to see rather than smaller.
+ *
+ * THE SEED RULE IS THE SAME ONE AS EVERY OTHER RESOLVER HERE, and it matters
+ * more for these. A saved listing row owns its value INCLUDING NULL: null on a
+ * saved row means "no override, use whatever my account default is at publish
+ * time", and seeding the current default over it would freeze today's answer
+ * into the row. The seller changes their account default a month later and this
+ * listing silently keeps the old policy.
+ */
+export function resolveSeedPolicyId(
+  listing: SeedListingRow | null | undefined,
+  kind: PolicyKind,
+  defaults: AccountPolicyDefaults | null | undefined,
+): string | null {
+  const keys = POLICY_SEED_KEYS[kind];
+  if (listing) return listing[keys.listing] ?? null;
+  return defaults?.[keys.account] ?? null;
 }
 
 export function resolveSeedFormat(
