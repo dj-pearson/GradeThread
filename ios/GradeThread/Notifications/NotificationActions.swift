@@ -78,14 +78,29 @@ public extension NotificationActionID {
 public extension NotificationCategoryID {
     /// The `userInfo` keys the edge actually stamps on this category's pushes.
     ///
-    /// ⚠ EVERY SENDER IN `transactional-push.ts` SHIPS `data: { kind }` AND
-    /// NOTHING ELSE. No `best_offer_id`, no `inventory_item_id`, no `sale_id`.
+    /// ⚠ MIRRORED BY HAND FROM `transactional-push.ts`, WHICH IS
+    /// AUTHORITATIVE. The Deno service is not linked into this target, so a
+    /// case added here that the edge does not send re-enables a dead button —
+    /// which is the exact defect US-3274 found and US-3275 fixed.
+    /// `services/edge-functions/src/tests/push-payload-ids_test.ts` reads this
+    /// file and fails when the two disagree.
+    ///
+    /// Every sender ships `kind`. The three below also ship ids (US-3275).
     var payloadKeys: Set<String> {
-        // Deliberately one answer for every category rather than a per-case
-        // switch that would look like it had been checked case by case. When a
-        // sender starts stamping ids, give that category its own case here and
-        // its buttons come back on their own.
-        []
+        switch self {
+        case .offerReceived:
+            // best_offer_id is the offer Accept and Counter act on;
+            // inventory_item_id is the item a plain tap lands on.
+            return ["kind", "best_offer_id", "inventory_item_id"]
+        case .saleCreated:
+            // sale_id is what Mark shipped closes. There is no separate
+            // shipping push, so this notification IS the shipping prompt.
+            return ["kind", "sale_id", "inventory_item_id"]
+        case .delistNeeded:
+            return ["kind", "inventory_item_id"]
+        default:
+            return ["kind"]
+        }
     }
 
     /// The inline buttons US-1133 declares for this category, before the

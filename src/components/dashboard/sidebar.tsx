@@ -28,6 +28,7 @@ import {
   ShoppingBag,
   Trophy,
   Lock,
+  Timer,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { explainGate } from "@/lib/plan-gates";
@@ -108,6 +109,7 @@ const SURFACE_ICONS: Record<SurfaceId, typeof LayoutDashboard> = {
   rewards: Trophy,
   "flipdesk-overview": Gauge,
   "flipdesk-search": Search,
+  "worth-my-time": Timer,
   inventory: Boxes,
   autolister: Sparkles,
   "scheduled-drops": CalendarClock,

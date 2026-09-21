@@ -21,6 +21,7 @@ import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { Skeleton } from "@/components/ui/skeleton";
 import { LoadingRegion } from "@/components/ui/skeletons";
+import { sanitizeReturnTo } from "@/lib/return-to";
 import { supabase } from "@/lib/supabase";
 import { useItemFull } from "@/hooks/use-items-full";
 import {
@@ -84,9 +85,21 @@ export function FlipdeskItemPage() {
   // tab, filters and saved view intact. The inventory surfaces pass their own
   // location in `state.from`; the hardcoded fallback only applies to a cold deep
   // link, where there is no history to return to.
+  // US-3176: `?back=` outranks `state.from`, because router state does not
+  // survive a full page load and a work session's whole point is that the
+  // seller can close the laptop. It is sanitized like any other return
+  // destination -- it rides in the URL, so it is attacker-suppliable, and an
+  // unchecked one is an open redirect (lib/return-to.ts).
+  const backParam = sanitizeReturnTo(new URLSearchParams(location.search).get("back"));
   const backTo =
+    backParam ??
     (location.state as { from?: string } | null)?.from ??
     "/dashboard/flipdesk/items";
+  // What the control says it does. A button labelled "Back to items" that
+  // returns to a work session is a small lie the seller pays for every time.
+  const backLabel = backTo.startsWith("/dashboard/flipdesk/worth-my-time")
+    ? "your session"
+    : "items";
 
   // US-2188: one row, not the whole catalog. This page renders exactly one
   // item, so it reads exactly one — the shared list read stays projected and
@@ -171,7 +184,7 @@ export function FlipdeskItemPage() {
       <div className="space-y-3 py-12 text-center">
         <div className="text-sm text-muted-foreground">Item not found.</div>
         <Button variant="outline" onClick={goBack}>
-          Back to items
+          Back to {backLabel}
         </Button>
       </div>
     );
@@ -190,13 +203,13 @@ export function FlipdeskItemPage() {
           variant="ghost"
           size="icon"
           onClick={goBack}
-          aria-label="Back to items"
+          aria-label={`Back to ${backLabel}`}
         >
           <ArrowLeft className="h-5 w-5" />
         </Button>
         <nav className="flex items-center gap-1.5 text-sm text-muted-foreground">
           <Link to={backTo} className="hover:text-foreground">
-            Items
+            {backLabel === "items" ? "Items" : "Your session"}
           </Link>
           <span>/</span>
           <span className="truncate font-medium text-foreground">

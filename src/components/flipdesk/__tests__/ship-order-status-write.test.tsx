@@ -84,12 +84,26 @@ vi.mock("@/lib/toast-error", () => ({
 }));
 
 // -- the eBay hooks ----------------------------------------------------------
-// All five are network. Label buying is switched OFF so the dialog renders only
+// All six are network. Label buying is switched OFF so the dialog renders only
 // the carrier + tracking form and the footer.
+//
+// US-3015: `code: null` and `provider: null` matter. With EasyPost unconfigured
+// the capability answers feature_unavailable and the dialog hides the buy path
+// entirely -- but a mock that omitted `code` would leave the onboarding prompt
+// rendering, which is a surface these cases are not about.
 const shipMutate = vi.fn(() => Promise.resolve({ pushed_to_ebay: false }));
 vi.mock("@/hooks/use-ebay", () => ({
   useEbayShipOrder: () => ({ mutateAsync: shipMutate, isPending: false }),
-  useEbayLogisticsCapability: () => ({ data: { labelPurchaseAvailable: false } }),
+  useEbayLogisticsCapability: () => ({
+    data: {
+      labelPurchaseAvailable: false,
+      code: "feature_unavailable",
+      detail: null,
+      provider: null,
+      easypost: { configured: false, onboarded: false, ready: false },
+    },
+  }),
+  useEasyPostOnboard: () => ({ mutate: vi.fn(), isPending: false }),
   useEbayShippingRates: () => ({ mutateAsync: vi.fn(), isPending: false }),
   useEbayBuyLabel: () => ({ mutateAsync: vi.fn(), isPending: false }),
   useEbayReprintLabel: () => ({ mutateAsync: vi.fn(), isPending: false }),

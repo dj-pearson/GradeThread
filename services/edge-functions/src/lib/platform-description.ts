@@ -131,6 +131,21 @@ export function stripDerivedSections(text: string): string {
  * carry across to every channel — which is the whole point: they arrange the
  * description once.
  */
+/**
+ * The blocks a buyer can check, which come before any prose (US-3211).
+ *
+ * Mirrors the head of defaultBlocks() in description-blocks.ts. Kept as a set
+ * rather than an index so it still means the right thing on a listing whose
+ * blocks were reordered by hand.
+ */
+const FACT_FIRST_BLOCKS = new Set<string>([
+  "attributes",
+  "condition",
+  "measurements",
+  "disclosure",
+  "grade",
+]);
+
 export function platformDescriptionBlocks(
   blocks: DescriptionBlock[],
   prose: string | null | undefined,
@@ -148,10 +163,17 @@ export function platformDescriptionBlocks(
     if (SUPERSEDED_PROSE.has(b.key)) return { ...b, on: false };
     return b;
   });
-  // A listing whose intro block was deleted still has to show the prose. Put it
-  // at the top rather than dropping the platform's own words on the floor.
+  // A listing whose intro block was deleted still has to show the prose.
+  //
+  // ⚠ NOT AT THE TOP ANY MORE (US-3211 AC5). Unshifting put a platform's
+  // prose above the attributes, the condition line and the measurements --
+  // so a seller with a deleted intro got facts-first on eBay and prose-first
+  // on Poshmark, which is exactly the split AC5 names. It now lands after the
+  // derived fact blocks, where the intro would have been.
   if (!placed) {
-    out.unshift({ key: PROSE_BLOCK, on: true, src: "ai", text: words });
+    const afterFacts = out.findIndex((b) => !FACT_FIRST_BLOCKS.has(b.key));
+    const at = afterFacts === -1 ? out.length : afterFacts;
+    out.splice(at, 0, { key: PROSE_BLOCK, on: true, src: "ai", text: words });
   }
   return out;
 }

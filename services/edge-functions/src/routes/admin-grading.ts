@@ -3950,6 +3950,145 @@ adminGradingRoutes.post("/submissions/:id/mark-failed", async (c) => {
   return c.json({ ok: true });
 });
 
+// POST /submissions/:id/void — void a DUPLICATE submission and give back what
+// it consumed (US-3214 AC4/AC5).
+//
+// WHY IT IS NOT mark-failed. That action exists for a grade wedged in
+// `processing` and re-asserts that status in its UPDATE, so it cannot touch a
+// duplicate sitting in `pending` or in `pending_review` -- which is exactly
+// where the duplicates this story is about sit. 00821 stops new ones being
+// created; this is how the ones already in the database, and any created while
+// that migration was still held, are cleared without the seller paying for
+// them.
+//
+// ⚠ IT REFUSES A SUBMISSION WHOSE GRADE IS LIVE. A completed submission has a
+// certificate a buyer may already have opened, and voiding it here would
+// reverse the charge while leaving that certificate standing. Re-grading is
+// the action for a bad grade; this one is for a grade that should never have
+// been bought.
+//
+// ⚠ A REASON IS REQUIRED. An audit row that says only "an admin voided it"
+// answers none of the questions asked three months later, and this is an
+// operator surface that moves money.
+adminGradingRoutes.post("/submissions/:id/void", async (c) => {
+  const stepUp = requireStepUp(c);
+  if (stepUp) return stepUp;
+  const id = c.req.param("id");
+
+  let body: { reason?: unknown };
+  try {
+    body = await c.req.json();
+  } catch {
+    body = {};
+  }
+  const reason = typeof body.reason === "string" ? body.reason.trim().slice(0, 500) : "";
+  if (reason.length < 4) {
+    return c.json({ error: "Say why this submission is being voided." }, 400);
+  }
+
+  const { data: submission, error: lookupErr } = await supabaseAdmin
+    .from("submissions")
+    .select("id, user_id, status, payment_status, title")
+    .eq("id", id)
+    .maybeSingle();
+  if (lookupErr) {
+    return failSafe(c, 500, "Couldn't look up the submission.", lookupErr, "admin.grading.void.lookup");
+  }
+  if (!submission) return c.json({ error: "Submission not found" }, 404);
+  const row = submission as {
+    user_id: string;
+    status: string;
+    payment_status: string;
+    title: string | null;
+  };
+
+  if (row.status === "completed") {
+    return c.json(
+      {
+        error:
+          "This grade is finished and its certificate is live. Re-grade it or " +
+          "handle it as a dispute; voiding would reverse the charge and leave " +
+          "the certificate standing.",
+        status: row.status,
+      },
+      409,
+    );
+  }
+
+  // Claim the transition. The status is re-asserted in the UPDATE so a grade
+  // that finished between the operator opening the dialog and confirming it is
+  // left alone and reported back, never double-refunded.
+  const { data: claimed } = await supabaseAdmin
+    .from("submissions")
+    .update({ status: "failed", grading_lease_until: null })
+    .eq("id", id)
+    .eq("status", row.status)
+    .select("id")
+    .maybeSingle();
+  if (!claimed) {
+    return c.json(
+      { error: "The submission changed while you were looking at it — nothing was changed." },
+      409,
+    );
+  }
+
+  // refund_grade returns the money to the pocket the precedence spent: the
+  // monthly bundle if payment_status is 'included', the exact debit if it is
+  // 'credits'. It takes a row lock and is idempotent, so a second press is a
+  // no-op rather than a second refund.
+  let refund = "unknown";
+  try {
+    const { data: outcome, error: refundErr } = await supabaseAdmin.rpc("refund_grade", {
+      p_submission_id: id,
+    });
+    if (refundErr) throw new Error(refundErr.message);
+    refund = typeof outcome === "string" ? outcome : "refunded";
+  } catch (err) {
+    // The status flip already landed. Say so plainly rather than reporting a
+    // clean void: a seller left charged is the thing this route exists to
+    // prevent, and a silent failure here is how it would happen.
+    console.error("[admin-grading] void: refund failed —", err);
+    await auditLog(c, "grading.void_refund_failed", "submission", id, {
+      reason,
+      user_id: row.user_id,
+      payment_status: row.payment_status,
+    });
+    return c.json(
+      {
+        error:
+          "The submission was voided but the refund did not go through. " +
+          "It needs to be reversed by hand.",
+      },
+      500,
+    );
+  }
+
+  // Release the lock row so 00821 lets the seller grade this garment again.
+  await supabaseAdmin
+    .from("flipdesk_grading_submissions")
+    .update({ status: "failed", error: `voided by an admin: ${reason}`.slice(0, 500) })
+    .eq("submission_id", id);
+
+  // Put the item back where it was. Only when it still points AT this
+  // submission: a garment whose second grade is running must not be reset by
+  // voiding its first.
+  await supabaseAdmin
+    .from("inventory_items")
+    .update({ status: "photographed", submission_id: null })
+    .eq("submission_id", id)
+    .eq("status", "grading");
+
+  await auditLog(c, "grading.submission_voided", "submission", id, {
+    reason,
+    user_id: row.user_id,
+    previous_status: row.status,
+    payment_status: row.payment_status,
+    refund_outcome: refund,
+    title: row.title,
+  });
+  return c.json({ ok: true, refund });
+});
+
 // ── US-1533: garment expectation baselines ──────────────────────────────────
 //
 // GET  /baselines?brand=&category=&limit=   — browse/search cached briefs

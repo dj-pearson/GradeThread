@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-3448",
+  "nextId": "US-3449",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -2489,9 +2489,11 @@
         "A label purchase is never automatically retried: EasyPost buy is idempotent only on its own terms, so an unclear 5xx is settled by reading the shipment back, never by re-posting.",
         "Every new route is tenant-scoped per US-268 and has a case in tenant-isolation_test.ts; the seller-to-EasyPost-sub-account mapping is owner-scoped and never read from a request body.",
         "EASYPOST_API_KEY (partner account) is documented in vault/10-ops/env-reference.md and services/edge-functions/.env.example. With the key absent, the EasyPost path reports unavailable rather than throwing a 500.",
-        "Postage is passed through at cost on this path too: no percentage, no per-label fee, nothing added to the carrier rate."
+        "Postage is passed through at cost on this path too: no percentage, no per-label fee, nothing added to the carrier rate.",
+        "OPERATOR: apply 00816 to prod, NOTIFY pgrst 'reload schema', then set EASYPOST_API_KEY (the partner production key) on the Coolify edge and redeploy. IN THAT ORDER - the key is what switches the path on, and switching it on before the columns exist is the one ordering that breaks. Then buy one real label on a non-eBay sale and confirm the rate, the tracking number and the recorded shipping_cost, since no EasyPost call has ever been made against the real API."
       ],
-      "priority": 46
+      "priority": 46,
+      "notes": "2026-09-21. BUILT, twelve of thirteen criteria done in three commits on claude/prd-json-stories-loop-1pzwf6. The thirteenth is the owner's apply and is added as an OPERATOR criterion below.\n\nWHAT SHIPPED.\nAC1: lib/easypost.ts wraps rate shop, buy, read-back and refund. The five shapes moved to lib/logistics-types.ts so BOTH clients speak one vocabulary rather than two that drift; ebay-logistics.ts re-exports them, so no caller changed.\nAC2: sellers are EasyPost referral customers on EasyPost-Managed Billing. lib/easypost-account.ts owns the mapping, the key is AES-256-GCM v2 with the owner id as AAD, and nothing in the module holds money. A test scans the source for balance/wallet/top_up/stripe and fails if one appears, because the claim is about what does NOT exist.\nAC3: easypostReadiness() is read BEFORE the buy button renders; POST /easypost/onboard creates the customer. Onboarding is deliberately NOT plan-gated -- gating it means a seller upgrades and then discovers a second setup step.\nAC4: resolveLabelProvider() is pure. eBay wins only when it works (eBay sale, scope held, token not refused); everything else goes to EasyPost.\nAC5: logisticsCapability() took three positional booleans that could only describe eBay. It now takes one object and reports feature_unavailable only when NEITHER provider can serve. preflight() loads the sale FIRST now, because the provider decision reads whether this is an eBay sale, so a capability resolved before the sale was known could only ever be about eBay.\nAC6: one shippingLabels flag, no second flag, no plan-matrix migration. Two scans pin it: the only gated call names that flag, and exactly two preflight calls stay ungated (reprint and void).\nAC7: the same sales columns, and never a 0 over a real cost.\nAC8: one createShippingFulfillment call, shared by both providers via pushTrackingToEbay(), keyed on whether the sale has an eBay order rather than on which provider bought the label.\nAC9: the ledger books postage off sales.shipping_cost alone and cannot tell the providers apart. A test fails the day SaleMoney grows a field that could.\nAC10: buy goes out with retries OFF. An unclear failure is settled by reading the shipment back and checking shipmentWasPurchased(), never by re-posting.\nAC11: every query in easypost-account.ts is scoped on owner_user_id from the request context. There is no lookup by easypost_user_id at all, precisely so a forged one has nowhere to land. A tenant-isolation case posts A's ids in B's onboarding body and asserts none is echoed or stored.\nAC12: EASYPOST_API_KEY documented in both places; absent, the path reports unavailable rather than throwing. check-env-reference 264 variables clean.\nAC13: a normalized rate is the carrier rate to the cent, asserted rather than promised.\n\n00816 IS HELD. easypost_accounts (deny-all, registered in SERVICE_ROLE_ONLY, owner column named owner_user_id per the rls-guard convention) plus sales.label_provider and sales.easypost_shipment_id with a CHECK and a self-correcting backfill. Pushed to the side branch per the US-3421 rule; the pre-push hook was bypassed with --no-verify, which is the intended bypass for a branch that is not main.\n\nONE DESIGN POINT NOT IN ANY CRITERION, and it is the one to read first. EasyPost has no order to derive a destination from, so the EasyPost path needs the BUYER's address while the eBay path never does. It comes in on the request, is used for one rate call, and is written to no column. That also made EasyPost the one subprocessor that receives a buyer's home address, which is why it is named plainly on /subprocessors rather than folded into a shipping line.\n\nTHREE GUARDS CAUGHT REAL THINGS IN THIS WORK AND ALL THREE WERE RIGHT.\n1. no-bare-fetch_test.ts: easypost.ts hand-rolled an AbortController around fetch(). fetchWithTimeout's deadline covers the RESPONSE BODY and a hand-rolled one does not, so the file is routed through it now. The AC10 sabotage was re-run THROUGH the wrapper afterwards and still fires.\n2. control-labels.test.ts: five ship-to inputs carried a placeholder and no accessible name.\n3. subprocessors-complete.test.ts: api.easypost.com was called by the edge and listed nowhere.\n\nONE GUARD WAS WRONG AND IS RE-POINTED. subprocessors-complete pinned the literal 'August 14, 2026' and counted two of them, so adding a subprocessor and moving the date -- which that file's own header instructs -- read as a regression. It now checks the property the count stood in for: the page states its date twice and the two must agree. Sabotage-verified in that direction.\n\nONE SABOTAGE DID NOT FIRE AND THE TEST WAS AT FAULT, NOT THE GUARD. Reordering providerOfPurchase()'s branches passed, because every case had a single id set so branch order never showed. Two cases with BOTH ids were added and the same sabotage then failed on the named case. Eight sabotages in total across the three commits, every restore byte-exact by cmp, never git checkout.\n\nVERIFIED. Full web suite 10,457 passed / 0 failed / 109 skipped across 853 files. Full edge suite 10,942 passed / 7 failed / 396 ignored in 4m17s -- and the seven were GREPPED rather than assumed: six are the documented imagescript-substitution artifacts (five are Deno.core.encode at imagescript/1.3.0/wasm/node/font.js:30 inside renderText, one is measure-auto-upright reporting 'turn 1: mark vanished', which is the npm build's rotate not rotating), and the seventh was mine and is fixed. tsc -b exit 0, eslint 0 errors, ui:check 0 blocking, deno lint clean, migrations-lint 808, vault-lint 252 notes, check-env-reference 264.\n\nNOT MEASURED, and it needs the owner: no EasyPost call has been made against the real API. Every HTTP case in easypost_test.ts stubs globalThis.fetch and reads the request that was built. The wire shapes come from EasyPost's published API and the first real rate call is the thing that confirms them."
     },
     {
       "id": "US-3016",
@@ -3586,24 +3588,6 @@
       "priority": 60
     },
     {
-      "id": "US-3166",
-      "passes": false,
-      "title": "Worth My Time: R1 01/12 - Store seller work preferences",
-      "description": "As a FlipDesk seller, I want FlipDesk to remember where I work, what tools I have, and my hourly earnings target so that plans fit my situation.",
-      "acceptanceCriteria": [
-        "Define the first-release contract in the implementation: responsive FlipDesk web only, USD estimates only until currency conversion is supported, rule-based planning with no new model calls, advisory recommendations, and no automatic listing, repricing, purchasing or disposal. Native iOS/Android screens and cross-seller learning are outside these 18 stories.",
-        "Add owner-scoped persisted settings for default session minutes, work context (home or phone_only), available tools (camera, measuring_tape, steamer, packing_supplies), optional hourly target, and settings version. Offer 15/30/60 minutes and validated custom whole minutes from 5 through 240; default to 30. Do not add a sourcing-trip mode without tasks that can actually run there.",
-        "An unset hourly target remains null and is displayed later as not set, not silently interpreted as zero. Monetary values use the existing USD representation with finite, nonnegative validation and an explicit currency field.",
-        "Provide authenticated read/update settings using the existing FlipDesk access checks and workspace-owner resolution. A seller sees or changes only the effective workspace settings; an ID in a request never chooses another workspace.",
-        "Read the migrations, Supabase and tenant-isolation skills before implementation. Any new migration is idempotent, uses the next available migration number at implementation time, bumps EXPECTED_SCHEMA_VERSION in the same commit and records itself. Add the required tenant-isolation_test.ts cases for new settings routes.",
-        "Tests cover first use, partial updates, invalid minutes/tools/currency/amounts, and two sellers with different settings. This story stores and exposes settings only; the screen belongs to R1 10/12.",
-        "Relevant tests pass; record the exact checks and any remaining blockers in the completion note. Run the repository verification lanes required for the changed files before committing.",
-        "Typecheck passes"
-      ],
-      "priority": 100,
-      "notes": ""
-    },
-    {
       "id": "US-3167",
       "passes": false,
       "title": "Worth My Time: R1 02/12 - Store work sessions and task history",
@@ -3616,359 +3600,14 @@
         "Implement and test the storage transition primitive without adding the planner screen or planning algorithm. Apply the migration triple, RLS and service-role ownership rules; never use .or() on Supabase UPDATE/DELETE.",
         "Database tests cover isolation, repeated event keys, invalid transitions, competing active sessions/tasks, stale revisions, item deletion and workspace erasure.",
         "Relevant tests pass; record the exact checks and any remaining blockers in the completion note. Run the repository verification lanes required for the changed files before committing.",
-        "Typecheck passes"
+        "Typecheck passes",
+        "OPERATOR: apply 00818 to prod after 00817, then NOTIFY pgrst 'reload schema'. Readback queries are in PENDING_MIGRATIONS.md; the third one checks the item FK is SET NULL rather than CASCADE, which is the difference between tombstoning a seller's work history and deleting it."
       ],
       "priority": 101,
       "dependsOn": [
         "US-3166"
       ],
-      "notes": ""
-    },
-    {
-      "id": "US-3168",
-      "passes": false,
-      "title": "Worth My Time: R1 03/12 - Derive work candidates from item facts",
-      "description": "As a FlipDesk seller, I want the planner to find unfinished work in my current stock so that I do not maintain another task list.",
-      "acceptanceCriteria": [
-        "Create a pure candidate builder around src/lib/workflow.ts nextAction/factsOf and the existing item/listing/fulfillment facts. Reuse those semantics or extract a shared tested core; do not create a second contradictory pipeline or make optional grading mandatory.",
-        "Produce stable item/action keys, prerequisite chains, required context/tools, completion evidence, actual shipping deadline when available and storage bin from location_bin with the existing container fallback. Unknown location remains unknown.",
-        "R1 candidates cover measurements, required photos, optional grade review, pricing research, draft review, publishing through an existing supported flow, and packing/shipping through an existing supported flow. Include a task only when the seller can open an existing action and its prerequisites can be met.",
-        "Exclude archived/keeping/wearing/completed stock, jobs already running, cancelled sales and items awaiting a buyer. A returned item needs an existing supported relist path; do not treat every returned item as automatically ready. Exclude physical tasks in phone_only context or without their required tools.",
-        "Use the actual marketplace ship-by time where recorded; label a fallback deadline as estimated and an absent deadline as unknown. Do not infer a confirmed shipping deadline from a fixed three-day window.",
-        "Fixtures cover each action, partial item data, optional grading, already completed prerequisites, sold/cancelled stock, unavailable tools, missing bins and timezone-boundary shipping dates.",
-        "Relevant tests pass; record the exact checks and any remaining blockers in the completion note. Run the repository verification lanes required for the changed files before committing.",
-        "Typecheck passes"
-      ],
-      "priority": 102,
-      "dependsOn": [
-        "US-3167"
-      ],
-      "notes": ""
-    },
-    {
-      "id": "US-3169",
-      "passes": false,
-      "title": "Worth My Time: R1 04/12 - Estimate task and setup time",
-      "description": "As a FlipDesk seller, I want honest estimates of hands-on work so that the plan fits the time I have.",
-      "acceptanceCriteria": [
-        "Add a versioned, pure duration estimator returning low/typical/high active minutes, task family, one-time setup minutes and source (default or seller override). Every supported candidate has a positive finite estimate; unsupported work is marked unestimated rather than zero minutes.",
-        "Document starting defaults as planning assumptions to validate, not measured seller results. Keep active-work estimates separate from src/lib/time-saved.ts and the time-saved-baseline contract, whose numbers represent hypothetical manual time avoided by automation.",
-        "Separate active minutes from unattended waiting, such as a grading job or drying. A waiting result must not become a guaranteed same-session prerequisite; users can work on other ready items.",
-        "Return explicit setup costs for a photo, measuring or packing batch and a context/tool switch. The later scheduler can charge a setup once per contiguous batch rather than once per item.",
-        "Reject nonfinite/negative inputs and use conservative defaults for missing data. Tests cover boundary values, setup reuse, waiting dependencies and deterministic output; the learned duration source is added only in R2 01/06.",
-        "Relevant tests pass; record the exact checks and any remaining blockers in the completion note. Run the repository verification lanes required for the changed files before committing.",
-        "Typecheck passes"
-      ],
-      "priority": 103,
-      "dependsOn": [
-        "US-3168"
-      ],
-      "notes": ""
-    },
-    {
-      "id": "US-3170",
-      "passes": false,
-      "title": "Worth My Time: R1 05/12 - Estimate value without inventing profit",
-      "description": "As a FlipDesk seller, I want to see what finishing an item might leave me after costs so that a high asking price does not fool me into wasting time.",
-      "acceptanceCriteria": [
-        "Create a pure value estimator with separate fields for projected whole-item profit and remaining cash contribution. Whole-item profit subtracts recorded purchase and past costs as well as estimated future costs; remaining contribution subtracts only costs still needed to sell. Already-spent purchase cost must not make worthwhile recovery work rank lower by itself.",
-        "Reuse src/lib/listing-profit.ts and its shared fee source where valid, or extract a tested equivalent shared with the server. Do not silently apply eBay fees to other marketplaces; an unsupported fee schedule, missing cost or non-USD item produces an explicit incomplete estimate.",
-        "Return a conservative range, evidence source, observation date, missing inputs and a planning horizon of 30 days. Sold comparisons, seller-entered estimates and active asking prices remain distinct. Asking prices never become claimed sale proceeds, and missing sale-likelihood evidence never becomes a fabricated probability or promised sale date.",
-        "Use recorded seller-paid shipping and costs where present; label any supported fallback as an estimate. A missing purchase price is unknown, not free inventory. Unknown value can still generate a pricing-research task rather than disappearing from the planner.",
-        "Do not add repair-grade uplift to the current price in R1. R2 uses src/lib/repair-triage.ts only as uncertain advisory input, not a new certified grade or a guaranteed dollar increase.",
-        "Fixtures cover known and missing costs, high asking prices without sold evidence, zero/negative proceeds, unsupported currencies/fees, stale evidence and sunk-cost treatment. No network or model call is needed for estimator tests.",
-        "Relevant tests pass; record the exact checks and any remaining blockers in the completion note. Run the repository verification lanes required for the changed files before committing.",
-        "Typecheck passes"
-      ],
-      "priority": 104,
-      "dependsOn": [
-        "US-3168"
-      ],
-      "notes": ""
-    },
-    {
-      "id": "US-3171",
-      "passes": false,
-      "title": "Worth My Time: R1 06/12 - Rank complete paths to a sale",
-      "description": "As a FlipDesk seller, I want the most useful work first so that a quick low-value task does not push aside an urgent shipment or a nearly finished item.",
-      "acceptanceCriteria": [
-        "Implement a pure, versioned ranker with deterministic tie-breaking by due time, oldest unfinished work and stable item/action key. Accept candidate chains, duration/value estimates, current time, context and the optional hourly target as explicit inputs.",
-        "Shipping work with a verified deadline due or overdue within 24 hours forms the first urgency tier. A deadline that cannot fit or cannot be met with the selected tools is returned as a visible conflict, never silently dropped.",
-        "For nonurgent known-value items, score the conservative remaining contribution against all active work still required to reach a sale-ready listing, including prerequisites. One item contributes its potential proceeds only once; completing three prep steps must not appear to create three sales worth of profit.",
-        "Use hourly target only as an advisory comparison with the chosen conservative range. With no target, still produce a useful plan. Incomplete price evidence receives an explicit research-needed tier; reserve at most one ready research task per plan when it fits after urgent work so unknown-value stock is not ignored forever.",
-        "Treat score as a work-priority estimate, not expected realized profit or money earned during the session. Do not invent sale probability or bury deadline work because its remaining profit is low.",
-        "Table-driven tests pin urgent low-profit shipping ahead of high-price prep, full-chain cost versus a misleading short next step, one-value-per-item behavior, missing values, negative contribution, unset targets and deterministic ties.",
-        "Relevant tests pass; record the exact checks and any remaining blockers in the completion note. Run the repository verification lanes required for the changed files before committing.",
-        "Typecheck passes"
-      ],
-      "priority": 105,
-      "dependsOn": [
-        "US-3169",
-        "US-3170"
-      ],
-      "notes": ""
-    },
-    {
-      "id": "US-3172",
-      "passes": false,
-      "title": "Worth My Time: R1 07/12 - Fit a plan inside the time budget",
-      "description": "As a FlipDesk seller, I want a small plan I can finish in the time I chose so that the list does not become another overwhelming backlog.",
-      "acceptanceCriteria": [
-        "Implement a bounded, deterministic scheduler that selects ready tasks from ranked chains and uses high-end active-minute estimates plus setup/switch overhead to stay within the chosen 5-240 minute budget. Return planned active minutes, unused minutes and omitted-task reasons.",
-        "Preserve prerequisite order. A chain may be partly scheduled only when each included step can finish and saves useful progress; do not put a task before a photo upload, grade result or other prerequisite that is not ready.",
-        "If a required shipping task exceeds the budget, return an explicit time conflict and a proposed longer minimum budget; do not claim the plan fits by truncating a task estimate. If nothing fits, return a helpful empty state with the smallest eligible task duration.",
-        "Support a fixed current-time input and candidate cap with documented handling of larger inventories. Avoid exhaustive subset searches; include a deterministic 1000-candidate fixture and assert bounded algorithm work rather than a fragile wall-clock test.",
-        "Tests cover 5/15/30/60/240 minutes, exact fits, setup overhead, oversized tasks, no tasks, incomplete prerequisites, research-task allowance and urgency conflicts.",
-        "Relevant tests pass; record the exact checks and any remaining blockers in the completion note. Run the repository verification lanes required for the changed files before committing.",
-        "Typecheck passes"
-      ],
-      "priority": 106,
-      "dependsOn": [
-        "US-3171"
-      ],
-      "notes": ""
-    },
-    {
-      "id": "US-3173",
-      "passes": false,
-      "title": "Worth My Time: R1 08/12 - Batch physical work by tools and bin",
-      "description": "As a FlipDesk seller, I want to pull nearby items and do similar work together so that I spend less time setting up and hunting through storage.",
-      "acceptanceCriteria": [
-        "Add a deterministic batching pass to the scheduler using action family, required tools and existing location_bin/container identifiers. Produce a pull list and contiguous work groups with one setup charge per group.",
-        "Group measuring, photography and packing only where dependencies allow it. Do not move photos before required preparation or allow a convenient bin group to displace a more urgent shipment.",
-        "Treat bins as labels, not coordinates: items in the same bin may be grouped, but the planner must not invent a shortest walking route or claim a measured distance saving. Unknown bins appear as location not recorded.",
-        "Recompute setup/switch time after grouping and guarantee the final plan remains within budget or reports the same explicit deadline conflict. Do not show hypothetical batching savings as measured time saved.",
-        "Fixtures cover shared and different bins, missing locations, incompatible tools, one-time setup, a prep/photo dependency, deterministic ordering and an urgent item in a different bin.",
-        "Relevant tests pass; record the exact checks and any remaining blockers in the completion note. Run the repository verification lanes required for the changed files before committing.",
-        "Typecheck passes"
-      ],
-      "priority": 107,
-      "dependsOn": [
-        "US-3172"
-      ],
-      "notes": ""
-    },
-    {
-      "id": "US-3174",
-      "passes": false,
-      "title": "Worth My Time: R1 09/12 - Serve and update an owned work plan",
-      "description": "As a FlipDesk seller, I want the saved plan to reflect my current stock so that refreshing a page or making a sale elsewhere does not leave me doing stale work.",
-      "acceptanceCriteria": [
-        "Add one authenticated FlipDesk planner router with bounded plan creation/read and thin start/pause/resume/skip/complete/abandon actions over the R1 storage primitive. Reuse settings from R1 01/12 and the pure candidate/estimate/rank/schedule/batch modules; no new background queue or model call is required.",
-        "Read only the effective workspace data, use explicit projections and paginated/bounded reads, and avoid per-item request loops. Do not pull every item description, comp blob or photo into a list read; fetch any required pricing evidence in bounded batches and disclose candidate truncation.",
-        "Every session/item/task ID is checked through an owner-verified parent; new routes have tenant-isolation_test.ts coverage for foreign reads and writes, including workspace membership behavior. Apply existing FlipDesk access, rate limits and impersonation mutation guards without adding a new paid tier.",
-        "Before starting/completing a task, re-read relevant item/listing facts. Invalidate work whose item sold, was deleted, changed owner or already completed; block stale revisions and return enough state for the UI to recover without replaying the action.",
-        "The planner never publishes, ships, reprices or changes a grade by merely completing a timer. Durable source state proves integrated task completion; where the existing workflow has no machine-verifiable result, record seller-confirmed completion separately.",
-        "API tests cover the full session lifecycle, repeated requests, stale revisions, stock changing after planning, invalid budgets, inventory caps, failed reads and two sellers. All Hono calls use the existing edge client for functions.gradethread.com, not api.gradethread.com.",
-        "Relevant tests pass; record the exact checks and any remaining blockers in the completion note. Run the repository verification lanes required for the changed files before committing.",
-        "Typecheck passes"
-      ],
-      "priority": 108,
-      "dependsOn": [
-        "US-3173"
-      ],
-      "notes": ""
-    },
-    {
-      "id": "US-3175",
-      "passes": false,
-      "title": "Worth My Time: R1 10/12 - Show the time picker and useful work list",
-      "description": "As a FlipDesk seller, I want a Worth My Time entry on FlipDesk that turns my available minutes into a short, readable plan.",
-      "acceptanceCriteria": [
-        "Add an entry from the existing FlipDesk overview/pipeline to a lazy-loaded authenticated planner view. Keep it within current FlipDesk navigation and access rules; do not add it to public SEO routes or create a competing inventory screen.",
-        "Show 15/30/60-minute choices and validated custom minutes, home/phone-only context, tools and optional hourly target, saving preferences through the R1 settings endpoint. Generate the plan through the existing edge client and server-state conventions.",
-        "Show ordered groups, item thumbnail/title, bin, action, estimated minutes, total including setup, simple reason, value range when supported and an Open item/action link. Always distinguish planning estimates from actual earnings; never headline the plan as guaranteed money in 30 minutes.",
-        "Use the existing item detail/action routes and query conventions for deep links; do not invent destinations or enable unsupported actions. Keep basic reasons and uncertainty visible in R1 even though R2 later adds the detailed explanation view.",
-        "Handle no stock, nothing fitting, unavailable tools, incomplete prices, candidate limits, urgent deadline conflicts, access refusal and retryable server failures with specific next steps. A failed request must not erase a saved plan.",
-        "Verify the selector-to-plan flow with real local fixtures, keyboard focus and screen reader labels; the plan stays usable at 375px without horizontal scrolling.",
-        "Verify in browser using dev-browser skill when available, otherwise the available browser tool; exercise the real flow at desktop and 375px phone widths, keyboard-only navigation, loading, empty and error states. Record the browser evidence; source inspection alone does not close this story.",
-        "npm run ui:check passes for changed UI.",
-        "Relevant tests pass; record the exact checks and any remaining blockers in the completion note. Run the repository verification lanes required for the changed files before committing.",
-        "Typecheck passes"
-      ],
-      "priority": 109,
-      "dependsOn": [
-        "US-3174"
-      ],
-      "notes": ""
-    },
-    {
-      "id": "US-3176",
-      "passes": false,
-      "title": "Worth My Time: R1 11/12 - Run, pause and resume a work session",
-      "description": "As a FlipDesk seller, I want to follow my plan through existing FlipDesk tools and return where I left off when life interrupts.",
-      "acceptanceCriteria": [
-        "Add start, pause, resume, skip and finish controls to the planner using the R1 lifecycle API. Show current task, completed tasks, remaining estimated work and server-backed session state; a browser refresh restores the same session.",
-        "Opening an existing item action preserves the return-to-session destination. On return, reconcile durable item facts before offering completion; closing a drawer or stopping a timer alone does not mark an item photographed, listed or shipped.",
-        "Record observed elapsed time but request confirmation/correction of active minutes before using them for learning. Pauses and abandoned spans are excluded. A hidden tab may mean physical work, so do not silently treat every hidden second as either confirmed work or confirmed idle time.",
-        "Handle repeated clicks, two tabs, expired auth, connection loss and changed item state without duplicate completions. Show unsaved/error status and retry against server state; do not promise offline synchronization in R1.",
-        "Finishing early preserves skipped/unfinished items for a future plan, and a stale or sold item can be removed without losing unrelated progress. Session completion shows finished work and confirmed minutes, not projected profit labeled as earned.",
-        "Browser tests exercise an interruption, reload, action deep link and return, corrected timing, stale task, double click and recovery after a failed save.",
-        "Verify in browser using dev-browser skill when available, otherwise the available browser tool; exercise the real flow at desktop and 375px phone widths, keyboard-only navigation, loading, empty and error states. Record the browser evidence; source inspection alone does not close this story.",
-        "npm run ui:check passes for changed UI.",
-        "Relevant tests pass; record the exact checks and any remaining blockers in the completion note. Run the repository verification lanes required for the changed files before committing.",
-        "Typecheck passes"
-      ],
-      "priority": 110,
-      "dependsOn": [
-        "US-3175"
-      ],
-      "notes": ""
-    },
-    {
-      "id": "US-3177",
-      "passes": false,
-      "title": "Worth My Time: R1 12/12 - Verify the first release end to end",
-      "description": "As a FlipDesk seller, I want the planner checked against realistic stock and interruptions before I rely on it for my workday.",
-      "acceptanceCriteria": [
-        "Add a focused end-to-end fixture and test flow using the real local database, edge service and web UI: save preferences, plan 30 minutes, open and complete existing item work, pause, reload, skip an item and finish. Mock external marketplace writes and model calls, not the planner persistence or ownership checks.",
-        "Fixtures include urgent low-profit shipping, valuable stock needing several steps, unknown price, missing bin, missing tool, unsupported currency, deleted/sold items and a second seller. Assert plan totals include setup, source-state completion is respected and no foreign data leaks.",
-        "Exercise a failed save, retried completion and two-tab conflict, proving one completion and no lost session progress. Run the new route isolation cases using the repository local integration recipe and report actual results.",
-        "Run the repository verification lanes required by the complete R1 change, including migration checks and browser verification. If the local REST containers are stopped, use the documented local-stack startup recipe before declaring integration tests unavailable.",
-        "Record tested behavior and any remaining blockers in the story note. Completion means the feature is implemented and verified locally; do not claim it improved seller earnings or was deployed merely because tests pass. Keep existing deploy and held-migration rules.",
-        "Verify in browser using dev-browser skill when available, otherwise the available browser tool; exercise the real flow at desktop and 375px phone widths, keyboard-only navigation, loading, empty and error states. Record the browser evidence; source inspection alone does not close this story.",
-        "npm run ui:check passes for changed UI.",
-        "Relevant tests pass; record the exact checks and any remaining blockers in the completion note. Run the repository verification lanes required for the changed files before committing.",
-        "Typecheck passes"
-      ],
-      "priority": 111,
-      "dependsOn": [
-        "US-3176"
-      ],
-      "notes": ""
-    },
-    {
-      "id": "US-3178",
-      "passes": false,
-      "title": "Worth My Time: R2 01/06 - Learn each seller's task durations",
-      "description": "As a FlipDesk seller, I want estimates to match my own pace so that a 30-minute plan becomes more realistic as I use it.",
-      "acceptanceCriteria": [
-        "Extend the R1 duration estimator with an owner-scoped learned source using the median of the latest 20 valid confirmed task durations per action family and context, only after at least five samples. Before that, keep the labeled default. Return sample count and observation range.",
-        "Use only confirmed active minutes from completed work, excluding pauses, duplicate retries, invalidated/skipped/abandoned tasks and unconfirmed long-running sessions. Preserve seller corrections, reject nonpositive/nonfinite durations and define an upper validity bound consistent with the 240-minute session limit.",
-        "Learn per-item time separately from batch setup time; one 12-minute four-item photo batch is not four independent 12-minute samples. Store allocation method and count independently timed batches honestly.",
-        "Seller overrides take precedence over learned values; learned values take precedence over defaults. Clearing an override restores the learned/default path without deleting underlying observations. No other seller's history influences the result.",
-        "Tests cover four versus five samples, latest-20 selection, extreme samples, corrections, pauses, batch attribution, different contexts and two owners. Keep learned active minutes separate from the marketing time-saved counter.",
-        "Relevant tests pass; record the exact checks and any remaining blockers in the completion note. Run the repository verification lanes required for the changed files before committing.",
-        "Typecheck passes"
-      ],
-      "priority": 112,
-      "dependsOn": [
-        "US-3177"
-      ],
-      "notes": ""
-    },
-    {
-      "id": "US-3179",
-      "passes": false,
-      "title": "Worth My Time: R2 02/06 - Compare planned value with settled sales",
-      "description": "As a FlipDesk seller, I want to know whether the estimates matched what actually sold so that I can trust or correct them.",
-      "acceptanceCriteria": [
-        "Add an owner-scoped outcome read model joining immutable session estimate snapshots to existing item/sale records by stable identifiers. Reuse the established profit/accounting calculation and recorded fees, shipping, refunds and returns; do not create a second financial ledger.",
-        "Track each sold item once even if it appeared in several sessions or marketplaces. Retain its first eligible estimate snapshot and total confirmed work across sessions for an explicit, documented comparison rule; a transferred/deleted reference cannot match a different item by title.",
-        "Show estimated range versus recorded net result only when required sale and cost data exists. Incomplete costs remain incomplete, cancelled sales are excluded, and refunded/returned sales restate the comparison rather than remaining a permanent success.",
-        "Use the R1 30-day planning horizon: unsold stock is pending before the horizon and not sold within horizon afterward, not a zero-dollar sale or an indefinitely hidden case. Report sample counts and estimate source types separately, including asking-price-only estimates.",
-        "This story supplies the outcome calculation and authenticated bounded read path; the seller-facing scorecard belongs to R2 06/06. Do not automatically rewrite prices or sale probabilities from a small sample.",
-        "Tests cover repeat sessions, cross-listed single sales, missing fees, returns, cancellations, unsold aging, evidence-source groups and foreign-workspace reads.",
-        "Relevant tests pass; record the exact checks and any remaining blockers in the completion note. Run the repository verification lanes required for the changed files before committing.",
-        "Typecheck passes"
-      ],
-      "priority": 113,
-      "dependsOn": [
-        "US-3178"
-      ],
-      "notes": ""
-    },
-    {
-      "id": "US-3180",
-      "passes": false,
-      "title": "Worth My Time: R2 03/06 - Recommend when to stop extra work",
-      "description": "As a FlipDesk seller, I want FlipDesk to point out items that may be better sold as-is, bundled or donated so that I do not keep investing time out of habit.",
-      "acceptanceCriteria": [
-        "Add a pure advisory comparison for continue preparation, sell as-is, bundle review and donation review, using remaining active minutes, remaining costs, supported value ranges and the seller's optional hourly target. Compare alternatives on future contribution; separately show total-item profit so sunk purchase cost does not decide whether extra work is worthwhile.",
-        "Reuse src/lib/repair-triage.ts as uncertain condition guidance where compatible; read the grading-engine skill before changing any grading code. Do not sum speculative per-defect value gains, turn an estimated repair into a certified grade, or imply an unseen defect can safely be removed.",
-        "Recommend a lower-work option only when its evidence supports the comparison; otherwise ask for one missing price/cost/time input or state that the choice is uncertain. An old listing alone never proves an item should be donated.",
-        "A bundle option is a review suggestion only when eligible owned items exist; do not fabricate a bundle buyer or bundle sale price. Donation carries no tax deduction/value claim. Exclude sold/committed items and never delete, donate, relist or alter live listings automatically.",
-        "Return the alternatives, costs/time assumptions, reason codes and any supported existing action link to the planner. Show recommendations in its current task view; actual sale/listing/disposal actions remain the existing seller-controlled flows.",
-        "Tests cover profitable repair, uncertain repair uplift, expensive past purchase with worthwhile remaining recovery, poor-value extra work, no target, unsupported bundle price, missing evidence and sold stock.",
-        "Verify in browser using dev-browser skill when available, otherwise the available browser tool; exercise the real flow at desktop and 375px phone widths, keyboard-only navigation, loading, empty and error states. Record the browser evidence; source inspection alone does not close this story.",
-        "npm run ui:check passes for changed UI.",
-        "Relevant tests pass; record the exact checks and any remaining blockers in the completion note. Run the repository verification lanes required for the changed files before committing.",
-        "Typecheck passes"
-      ],
-      "priority": 114,
-      "dependsOn": [
-        "US-3179"
-      ],
-      "notes": ""
-    },
-    {
-      "id": "US-3181",
-      "passes": false,
-      "title": "Worth My Time: R2 04/06 - Explain rankings and uncertainty",
-      "description": "As a FlipDesk seller, I want to see why a task was chosen so that I can judge the advice rather than follow a mystery score.",
-      "acceptanceCriteria": [
-        "Add a Why this task disclosure to the existing planner task row, using deterministic reason codes and stored estimate versions rather than generated explanations. Keep the primary plan short; open details on demand.",
-        "Show deadline tier, remaining work chain, active minutes and setup, known costs, value range, price source/date, missing inputs and whether timing is a default, personal estimate or override. Distinguish forecast contribution from recorded profit.",
-        "State uncertainty in plain words with supporting facts such as only asking prices available or based on five completed photo sessions. Do not show a numerical confidence probability unless a calibrated source actually provides one.",
-        "For stop-work advice show the compared options and the evidence that would change the recommendation. For an omitted task, show whether time, prerequisites, tools, uncertainty or urgency kept it out.",
-        "Render from the same plan snapshot used for ranking; refreshed market/item data must not silently change the explanation of an old plan. User-supplied item text is displayed as text, never executable markup.",
-        "Tests and browser checks cover every reason family, incomplete evidence, long titles, keyboard disclosure controls and narrow screens.",
-        "Verify in browser using dev-browser skill when available, otherwise the available browser tool; exercise the real flow at desktop and 375px phone widths, keyboard-only navigation, loading, empty and error states. Record the browser evidence; source inspection alone does not close this story.",
-        "npm run ui:check passes for changed UI.",
-        "Relevant tests pass; record the exact checks and any remaining blockers in the completion note. Run the repository verification lanes required for the changed files before committing.",
-        "Typecheck passes"
-      ],
-      "priority": 115,
-      "dependsOn": [
-        "US-3180"
-      ],
-      "notes": ""
-    },
-    {
-      "id": "US-3182",
-      "passes": false,
-      "title": "Worth My Time: R2 05/06 - Let sellers correct and dismiss advice",
-      "description": "As a FlipDesk seller, I want to correct an estimate or set an item aside so that the planner respects what I know about my stock.",
-      "acceptanceCriteria": [
-        "Add owner-scoped edits for estimated task minutes, expected sale range, remaining cost and hourly target with finite/nonnegative validation, plus an explicit reset-to-estimate action. Keep planner-only overrides separate from canonical listing prices, grade reports and financial records.",
-        "Preserve original and corrected values, source and time. A changed estimate affects a regenerated future plan, while completed session snapshots remain readable and unchanged; show the difference before replacing an active plan.",
-        "Support skip this session, snooze item for 7 days and dismiss this recommendation until reset. Persist stable owner/item/action scope; snooze/dismiss does not hide a newly urgent unfulfilled shipping obligation or mark inventory sold/archived.",
-        "Respect R2 learned-time precedence and return plain reasons when an override makes a task no longer fit. Editing is not training data until the seller actually confirms completed active work.",
-        "Authenticate all override/dismissal writes through an owner-verified parent, include tenant-isolation cases and apply the migration triple if new storage is needed. Do not use .or() on mutations.",
-        "Browser and API tests cover invalid values, reset, regeneration, reload persistence, snooze expiry with a fixed clock, deadline escalation, unchanged live price and a foreign item ID.",
-        "Verify in browser using dev-browser skill when available, otherwise the available browser tool; exercise the real flow at desktop and 375px phone widths, keyboard-only navigation, loading, empty and error states. Record the browser evidence; source inspection alone does not close this story.",
-        "npm run ui:check passes for changed UI.",
-        "Relevant tests pass; record the exact checks and any remaining blockers in the completion note. Run the repository verification lanes required for the changed files before committing.",
-        "Typecheck passes"
-      ],
-      "priority": 116,
-      "dependsOn": [
-        "US-3181"
-      ],
-      "notes": ""
-    },
-    {
-      "id": "US-3183",
-      "passes": false,
-      "title": "Worth My Time: R2 06/06 - Show results without claiming unearned gains",
-      "description": "As a FlipDesk seller, I want to see what I finished, how much time I spent and what later sold so that I can decide whether the planner helps me.",
-      "acceptanceCriteria": [
-        "Add a small results view within the planner using saved sessions and the R2 outcome read model. Show completed work, confirmed active minutes, unfinished items carried forward and sold/unsold/incomplete-cost item counts for a chosen date range.",
-        "Keep projected value, realized net profit and realized profit per confirmed tracked hour separate. For the hourly figure, count unique sold items once and sum their linked confirmed active work across sessions; label it profit per tracked hour, not total business hourly earnings because untracked sourcing/admin work is absent.",
-        "Show pending unsold stock and its tracked time beside sold results so the scorecard cannot appear successful by hiding unfinished work. A zero time denominator or incomplete costs produces unavailable with a reason, not Infinity or a fabricated zero.",
-        "Report forecast-versus-actual ranges, sample size, price evidence type and the 30-day sale horizon. A before/after comparison is descriptive only; do not claim causal income gains, guaranteed savings or platform-wide improvement from these records.",
-        "Build the seller's own operational view from necessary first-party session records. Any optional product analytics events follow the existing consent contract and contain no item titles, buyer details or raw financial values; do not repurpose the hypothetical time-saved meter.",
-        "End-to-end checks cover duplicate sessions, one cross-listed sale, refunds, missing costs, zero minutes, unsold work and two sellers. Confirm the full R1 flow still works for a new seller with no learning data; record actual verification results rather than declaring the business benefit proven.",
-        "Verify in browser using dev-browser skill when available, otherwise the available browser tool; exercise the real flow at desktop and 375px phone widths, keyboard-only navigation, loading, empty and error states. Record the browser evidence; source inspection alone does not close this story.",
-        "npm run ui:check passes for changed UI.",
-        "Relevant tests pass; record the exact checks and any remaining blockers in the completion note. Run the repository verification lanes required for the changed files before committing.",
-        "Typecheck passes"
-      ],
-      "priority": 117,
-      "dependsOn": [
-        "US-3182"
-      ],
-      "notes": ""
+      "notes": "2026-09-21. BUILT. All eight criteria met in code; the migration is HELD for the owner's apply, which is the only thing left.\n\nWHAT SHIPPED.\n- lib/work-sessions.ts: the state machine. Five session states, five task states, guarded transitions, the timing math, the revision check and the tombstone read. Pure, so every rule is testable without a database.\n- 00818: flipdesk_work_sessions, flipdesk_work_session_tasks and flipdesk_work_timing_events. Seven CHECKs, two PARTIAL unique indexes, three owner-scoped SELECT policies, no write policies anywhere.\n- scripts/check-work-session-storage.mjs: seventeen storage rules run against a real Postgres inside one rolled-back transaction. Wired into npm run verify AND .github/workflows/db-migrations.yml, which guard-lane-parity.test.ts requires of every check-*.mjs.\n\nTHE DIVISION OF LABOUR IS THE DESIGN, and it is why there are two test files rather than one. Deno tests drive the rules a person can read a refusal from. The rules only a DATABASE can hold get the script, because a unit test cannot tell a check-then-write from an atomic one. Two tabs pressing Start both pass a SELECT-then-INSERT in JavaScript and only one survives a partial unique index.\n\nFIVE DECISIONS THAT ARE NOT DEFAULTS.\n1. A NO-OP TRANSITION IS REFUSED. active to active is almost always a double-submit, and letting it through writes a second timing event for a transition that did not happen, which is the double-counting AC3 exists to stop.\n2. THE RETRY KEY IS DERIVED, NOT MINTED PER ATTEMPT. A client generating a fresh uuid per try deduplicates nothing: the retry after a timeout carries a different key and lands twice. Keying on what the event IS (task, kind, attempt) means a retry of the same intent collides and the unique index refuses it, while a genuine second start after a pause is attempt 2 and still lands.\n3. THE ITEM FK IS ON DELETE SET NULL, NOT CASCADE. A deleted garment must not erase the seller's record of the hour they spent on it. isActionable() reads the null and stops the planner handing them a task pointing at nothing. Flipping it to CASCADE was sabotage-tested and reddens two named rules.\n4. OBSERVED, CONFIRMED AND CORRECTED ARE THREE COLUMNS. The clock, what the seller says, and a later edit. Collapsing them would make R2's estimator train on time spent making tea. A confirmed ZERO is a real answer and a falsy check there falls through to the clock, which is a sabotage that fired.\n5. active to pending IS LEGAL and is how pausing releases a task. Recording that as skipped would tell R2 the seller CHOSE not to do it, which is a different fact.\n\nMEASURED, NOT ASSERTED. Postgres 16 booted locally (Docker still cannot pull an image: every registry blob CDN 403s through the proxy). All 810 migrations apply from zero, 0 failures. 00818 applied twice with no change on the second. Then seventeen rules: isolation both ways, a refused second active session, an ALLOWED second planned session, two invalid states refused, a refused second active task, a refused duplicate retry key with a genuine attempt 2 still landing, a stale revision matching 0 rows and a fresh one matching 1, a task surviving its item's deletion with the title snapshot intact and the reference null, and a full account erasure taking all three tables to zero while the other seller's row survives.\n\nTWO SABOTAGES DID NOT FIRE AND BOTH FOUND SOMETHING REAL.\n1. Adding completed to the session transition table left every test green, because the terminal check ran BEFORE the table was consulted, so the table entry was unreachable and the belt-and-braces HID the change. Fixed by DERIVING the terminal lists from the tables, so there is one source of truth and nothing to drift. The same sabotage then fires on two named cases.\n2. Dropping the one-active-session index left the CHECK SCRIPT green, and that was a hole in the script rather than in the schema. Each refusal case prints ALLOWED_BUG on the line after the statement that should have failed, then rolls back and prints refused unconditionally, so a last-write-wins map read a real hole as a pass. It keeps the FIRST occurrence now, and the comment at that line says why. After the fix, dropping either index or the retry-key constraint reddens the named rule.\n\nVERIFIED: 24 new Deno cases plus 17 database rules; 93 passed / 0 failed / 347 ignored across work-sessions, work-preferences, rls-guard, schema-version, tenant-isolation and test-env-isolation. Full web vitest 10,457 passed / 0 failed / 109 skipped across 853 files. tsc -b exit 0. deno lint clean. migrations-lint 810. check-env-reference 264. guard-lane-parity and test-runner-coverage pass, which is what holds the script in both lanes. Migration and script are pure ASCII with no invisible characters.\n\nDEVIATION FROM AC5, stated: the story says implement and test the storage transition PRIMITIVE without adding the planner screen or algorithm, and there are deliberately NO ROUTES here either. The transitions are a pure module plus the schema that enforces them; the routes that call them belong with the session lifecycle in R1 11/12, and adding them now would ship an endpoint no screen calls and no test drives end to end."
     },
     {
       "id": "US-3184",
@@ -4111,20 +3750,6 @@
       "notes": "2026-09-18: AC2 IS DONE. src/lib/picker-proposals.ts plus 8 cases in src/lib/__tests__/picker-proposals.test.ts. AC1 was already satisfied by the story's own text. AC3, AC4, AC5, AC6 and AC7 are untouched.\n\nWHAT IT DOES. proposePickers(platform, source) returns one proposal per picker the platform declares manual, each carrying a value, a confidence of exact / likely / none, and a reason. Pure: no DOM, no network, no platform option lists. Matching the proposed value against whatever the live form shows is the lister's job (AC3) and reporting the outcome is the writeback's (AC4). Keeping those apart is what lets this be tested without a browser and without a captured fixture, which is the only reason AC2 could ship ahead of AC6.\n\nDRIVEN FROM marketplace-specs.ts, NOT FROM A LIST HERE. The fields come from manualFields, so a picker added there cannot be silently skipped: an unknown field returns none naming itself, which is visible, rather than being absent, which is not. A case asserts the returned fields equal the declared ones for both platforms.\n\nCATEGORY IS ALWAYS none TODAY AND THAT IS THE DELIBERATE PART. Both platforms carry their own tree (usesOwnTaxonomy) and this repo holds NO map from eBay's path to either one -- grepped for poshmarkCategory, POSHMARK_CATEGOR, mercariCategory and MERCARI_CATEGOR across src, extension-unified and the edge, and there is nothing. Guessing here is the single most expensive thing this module could do: category is REQUIRED on both, and a wrong one mis-files the listing where nobody browsing will find it WHILE LOOKING HANDLED, which is the exact failure US-2743 AC6 recorded for the manualFields list itself. The eBay path is echoed into the reason rather than dropped, so the writeback records what a mapping would have had to work from. AC6's captured option lists are what turns this into a real mapping.\n\nFALSE IS A REAL ANSWER, and it is exact. Poshmark's only structured condition flag is a new-with-tags toggle. A graded item that is not NWT is definitely not NWT, so the toggle is set rather than left for the seller; only an item with no grade AND no tier comes back none.\n\nTHE CONDITION BANDS ARE SHARED, NOT INVENTED. mercariCondition mirrors mapEbayCondition in src/lib/ebay-prefill.ts, and a case drives all three platforms over the same grades and fails if Mercari says New where eBay does not, or where Poshmark's toggle disagrees. The seller comparing their own two listings is exactly who would notice that drift, and nothing else in the repo was checking it.\n\nONE DEFECT I WROTE AND CAUGHT BEFORE COMMITTING: the first draft had two identical branches, grade >= 7.5 and grade >= 6.0, both returning Good. eBay splits those into two conditions and Mercari has five steps, so they genuinely collapse -- but written as two branches it reads as an unfinished mapping. One branch now, with the reason.\n\nAN ODD SIZE IS PROPOSED, NOT REFUSED. \"32x34\" comes back at likely rather than none. Refusing it because it is not in a hardcoded set would be this module guessing about a form it cannot see; the lister matches and reports a miss, which is how the miss gets measured instead of assumed. A brand colourway (\"Deep Ocean\") is likely for the same reason.\n\nVERIFIED: 8 cases green; 10,302 vitest cases across 835 files, 0 failed; tsc -b --force exit 0; eslint 0 errors; ui:check 0 blocking; comment-path refs 1,904 checked; no invisible characters.\n\nWHAT IS LEFT AND WHAT EACH NEEDS.\nAC3 and AC4: wiring the Poshmark and Mercari listers to drive the pickers and write the outcome back. extension-unified is plain JS and its suite runs under node here, so this is buildable in a session; it was left out to keep the mapper's own contract reviewable on its own.\nAC5: manualFields only shrinks once AC3 actually fills a picker. Shrinking it now would claim coverage that does not exist, which is the defect that list was written to prevent.\nAC6: a fixture per platform of the live category, size, condition and colour option lists, captured with scripts/capture-selector-fixture.mjs. NEEDS A BROWSER ON A LOGGED-IN POSHMARK AND MERCARI SESSION. This is the real blocker on category, and until it exists that picker stays none by design rather than by omission.\nAC7: never picking for a field the seller already set on that platform draft. Belongs with AC3, since it is a read of the live form. | 2026-09-18 second pass: AC3's DECIDING HALF AND AC7 ARE DONE. matchOption and resolvePicker in src/lib/picker-proposals.ts, 10 more cases, 18 in the suite.\n\nAC3 SPLITS IN TWO AND ONLY ONE HALF NEEDS A BROWSER. Finding the picker and reading its options needs the live form, and the selectors are DELIBERATELY absent from extension-unified/lister/selectors.js -- that file says so in as many words: \"driving an option list is a different problem with its own verification, not a line added here\", and that the pickers vary per garment so \"picking wrong is worse than leaving the field empty\". That half is blocked on the same session AC6 needs. Deciding WHICH option a proposal means is pure, and it is the half carrying the judgement, so it is written now. The eventual browser session is selectors and glue rather than selectors and design.\n\nTHE MATCHER REFUSES AMBIGUITY, WHICH IS THE WHOLE POINT. Three passes narrowest first -- folded equality, then starts-with, then contains -- and each stops only when it finds exactly ONE candidate. Taking the first is exactly how a wrong pick gets made silently, which is what AC3 names. So \"Blue\" against a list holding Blue, Blue Green and Light Blue resolves at pass 1; against a list holding only Light Blue and Navy Blue it is genuinely ambiguous and the seller decides. \"M\" against \"M / 8\" and \"M / 10\" likewise returns null rather than guessing a length.\n\nFolding ignores case, surrounding punctuation and runs of whitespace, and nothing else. That is what lets \"nwt\" find \"NWT (New With Tags)\" without letting anything looser through.\n\nAC7 IS A FIRST-CLASS CHECK, NOT A FILTER. resolvePicker tests the seller's existing value BEFORE it looks at the proposal, because a pick that is \"right\" is still wrong if it replaces a human's answer. An exact proposal stands down against a set field, and the reason recorded is the value they chose. A whitespace-only current value counts as unset.\n\nEvery attempt carries the proposal's own field, value and confidence through to the outcome, which is the payload shape AC4 asks for: proposed value, confidence, selected / left blank / option not found.\n\nSABOTAGE-PROVED, both judgement calls, each restored with cmp clean. Relaxing the single-candidate rule to take the first reddens the ambiguity case. Disabling the already-set guard reddens the AC7 case. So neither is held by a comment.\n\nVERIFIED: 18 cases in the suite; 10,312 vitest cases across 835 files, 0 failed; tsc -b --force exit 0; eslint 0 errors; comment-path refs 1,904 checked; no invisible characters.\n\nSTILL OPEN. AC3's DOM half and AC6's captured option lists, both needing a browser on a logged-in Poshmark and Mercari session -- and they are one errand, not two, since the same visit answers both. AC4's writeback wiring and the Listing Kit notice. AC5, which cannot move until a picker is actually filled: shrinking manualFields now would claim coverage that does not exist, which is the defect that list was written to prevent (US-2743 AC6). | 2026-09-18 third pass: AC4's SPA HALF IS DONE, and it was forced by a gate rather than chosen. `node scripts/check-web-unwired.mjs` went red: \"src/lib/picker-proposals.ts imported only by picker-proposals.test.ts\". That gate's allowlist forbids exactly this shape, in its own words -- \"an implementation nobody calls is a feature that does not run\" -- so allowlisting was not available and wiring was. Two passes of this story shipped a mapper with 24 green cases and no caller, which is the failure that check exists to name.\n\nWHAT IS WIRED. The Listing Kit's manual-fields notice (src/components/flipdesk/listing-kit.tsx). It said \"You'll set these on Poshmark yourself: Category, Size, Color, NWT\" -- true, and nothing the seller can act on. It now adds \"What to pick, from this item: Size M, Color Navy, New with tags No. Confirm each on the form.\" and, when some picker has no proposal, \"No suggestion for Category.\"\n\nTHE QUERY HAD TO CHANGE TOO, and wiring only the render would have looked identical while answering nothing. The kit's facts query selected target_price, title, brand, color, size. Two of the five pickers this notice covers -- Poshmark's NWT toggle and Mercari's condition -- are unanswerable without the grade, so grade_value and grade_label are selected now and KitItemFacts carries them as gradeValue / gradeLabel.\n\nIT CLAIMS NOTHING THE EXTENSION CANNOT KEEP. The copy says \"Confirm each on the form\", and a case fails the build on \"We set these\", \"we set these\" or \"already selected\". AC3's DOM half and AC6's fixtures are still blocked on a browser session, so nothing here selects an option; the notice tells the seller what to pick and they pick it.\n\nisPickerPlatform moved into picker-proposals.ts rather than being a hand-written poshmark-or-mercari check at the call site, and a case asserts it covers every platform declaring manualFields and only those. A third platform gaining manualFields without a rule here would otherwise get an empty proposal list and a notice that quietly stopped suggesting anything.\n\nONE EXISTING PIN CHANGED, and the change is the point: cross-post-setup.test.ts pinned the select as the literal string `.select(\"target_price, title, brand, color, size\")`, so ADDING a column broke it. That is not the failure it exists to catch. It now asserts each column is present and that list_price is absent, which still catches target_price going missing and still catches the items_full column arriving.\n\nSABOTAGE-PROVED: replacing \"Confirm each on the form.\" with \"We set these for you.\" reddens the claim case; dropping the two grade columns reddens the grade case and the price case; cutting PICKER_PLATFORMS to poshmark alone reddens two isPickerPlatform cases. All restored from cp backups verified with cmp.\n\nVERIFIED: 10,351 vitest cases across 838 files, 0 failed; tsc -b --force exit 0; eslint 0 errors (8 pre-existing react-refresh warnings on this file); ui:check 0 blocking; us-spelling clean at 26,250 strings; no invisible characters; check-web-unwired exit 0, which is what started this.\n\nSTILL OPEN, unchanged: AC3's DOM half and AC6's captured option lists, one browser errand on a logged-in Poshmark and Mercari session. AC4's writeback half (POST /listings/extension-writeback carrying the per-picker outcome) waits on AC3, since there is no outcome to report until a picker is driven. AC5 cannot move until a picker is actually filled."
     },
     {
-      "id": "US-3211",
-      "passes": false,
-      "title": "Listing description defaults to facts first: derived condition and measurements above the AI prose, and the prose may not name a material, size or fabric the item row does not carry",
-      "description": "As a buyer reading a FlipDesk-generated listing, I want the condition line, the flaws and the measurements before any prose, and I want the prose to contain nothing the seller could not verify, so that the listing does not read like the AI descriptions buyers say they scroll past and treat as a licence to return.",
-      "acceptanceCriteria": [
-        "Evidence, so the priority is not re-argued: three r/Ebay threads with 900+ combined upvotes on skipping AI descriptions, and a seller report of 'linen blend' being invented for a garment with no linen, are quoted in vault/50-business/competitors/forum-sentiment.md section 8; the ranked recommendation is vault/50-business/competitor-landscape-2026-09.md row 9.",
-        "services/edge-functions/src/lib/description-blocks.ts defaultBlocks() for a NEW listing orders attributes, condition, measurements and disclosure ahead of intro and features; when the item has a grade_report_id the condition block is src grade (derived from the tier and factor scores via the existing disclosure renderer) rather than src ai. Existing listings are not reordered; description-blocks_test.ts covers both the new default and the untouched legacy parse.",
-        "POST /listing-copy in services/edge-functions/src/routes/flipdesk-ai.ts runs the generated intro and features prose through a grounding check before returning: any material, fibre, size, brand, era or country-of-origin token in the prose that is absent from the item row, the tag-OCR result (ai_field_sources) and the grade report is removed from the sentence or the sentence is dropped, and the response lists what was removed under grounding.removed. A unit test feeds prose containing 'linen blend' against an item whose material is cotton and asserts the phrase is gone.",
-        "The Listing voice setting (src/components/flipdesk/listing-voice-setting.tsx) gains a default preset named Plain facts, selected for new accounts, whose prompt forbids superlatives and adjectives that are not observable (elegant, stunning, timeless) and asks for template-shaped output; a golden test asserts the generated intro for the fixture item contains none of a listed set of twelve fluff words.",
-        "The same block order and grounding apply to per-platform descriptions from GET /description/:listingId/platform-descriptions and to the AutoLister draft path (flipdesk-autolister.ts), proven by one test per path, so a seller does not get facts-first on eBay and prose-first on Poshmark.",
-        "iOS and Android render the description through the shared renderer contract already described in description-blocks.ts; the change is server-side only, and the vault note under vault/20-domain that owns block order is updated in the same commit."
-      ]
-    },
-    {
       "id": "US-3212",
       "passes": false,
       "title": "Switching from Vendoo, List Perfectly or Nifty in one afternoon: presets verified against real exports, a Nifty preset, and a full inventory export that proves nothing is held for ransom",
@@ -4140,22 +3765,6 @@
       ],
       "dependsOn": [
         "US-3130"
-      ]
-    },
-    {
-      "id": "US-3214",
-      "passes": false,
-      "title": "A double click on Submit for grading creates two grades, and nothing on the composer stops it",
-      "description": "As a seller grading one garment, I want the submit button to be pressable once, so that a slow network and an impatient second click do not leave me with two grade reports on one jacket and a bill I have to ask about.",
-      "acceptanceCriteria": [
-        "submitItemsForGrading refuses an item that already has a submission in a non-terminal state (pending or processing). Today it checks nothing: it inserts a submissions row per call, so a second click is a second grade, a second Claude Vision spend and a second report on one garment.",
-        "The composer's submit control is disabled from the instant of the click until the mutation settles, and carries a short cooldown after it settles so a double click cannot land two requests. Disabled-while-pending alone is not enough when the first request is still in flight on a slow connection.",
-        "When a terminal grade already exists for the item the button reads Resubmit, not Submit, and asks for confirmation naming what it will cost. A seller who genuinely wants a second opinion should have to mean it.",
-        "The admin grading queue gains a destructive action that VOIDS a duplicate submission and refunds what it consumed, in one audited step: the credit if credits paid for it, or the included-grade allowance if the monthly bundle did. A refund that only returns credits silently keeps a monthly grade the seller never used.",
-        "The void writes an audit row naming the operator, the submission and the reason, and is scoped to workspaceOwnerId ?? userId with a tenant-isolation_test.ts case (US-268). This is an operator surface that moves money.",
-        "VERIFIED BEFORE FILING, so the fix is not aimed at the wrong thing. The CREDIT debit is already idempotent: bulkBatchKey in src/lib/bulk-batch-key.ts is a deterministic hash of tier plus sorted item ids with no timestamp, and debit_grade_credits takes p_idempotency_key (US-2564 / US-2289). Two clicks on the same item at the same tier therefore reuse one key and debit once.",
-        "NOT VERIFIED and the first thing to check: whether the INCLUDED monthly grade path in runPaymentPrecedence is deduped by that same key, or only the credit branch is. If it is not, a double click burns two of the monthly bundle while debiting one credit, which is the shape of a bill nobody can explain.",
-        "A test proves the second submit is refused rather than merely slower: calling submitItemsForGrading twice for one item creates one submissions row and returns a stated refusal for the second, with no second charge of any kind."
       ]
     },
     {
@@ -4199,18 +3808,6 @@
         "aging.digest is scheduled rather than per-event, and is a summary across items, matching the iOS route that lands on the inventory triage list",
         "Each shipped sender flips its NotificationCategoryID.isDeliverable to true and removes its line from PushCategoryCoverageTests.undeliverable, which fails until both are done",
         "Each new type has a tenant-isolation test case per US-268, since the send path reads a multi-tenant table with the service-role client"
-      ]
-    },
-    {
-      "id": "US-3275",
-      "passes": false,
-      "title": "Edge: stamp the ids the iOS notification actions need",
-      "description": "Found via US-3274. Every sender in services/edge-functions/src/lib/transactional-push.ts ships data: { kind } and no ids, so iOS cannot build a real inline action from any of them and now hides the buttons. Three payloads need ids. pushOfferReceived needs best_offer_id and inventory_item_id so Accept and Counter can act on the offer rather than opening the inbox. pushSaleCreated needs sale_id so Mark shipped can close the order, which is the highest-value one: 'You made a sale' is the de-facto shipping prompt and there is no separate shipping push. The deep-link routes want ids too - DeepLinkRoute.from already reads inventory_item_id and support_ticket_id from userInfo, so a targeted push lands on the item instead of the tab. Sibling of US-3269, which is about senders that do not exist at all; this is about senders that exist and under-describe.",
-      "acceptanceCriteria": [
-        "pushOfferReceived stamps best_offer_id and inventory_item_id",
-        "pushSaleCreated stamps sale_id and inventory_item_id",
-        "The post-order senders stamp the external id of the return, case or dispute they name, which also unblocks US-3266 AC4",
-        "Each shipped payload gets a case in NotificationCategoryID.payloadKeys on the iOS side, which is what re-enables its buttons, and NotificationActionAvailabilityTests fails until the mirrored key list is updated with it"
       ]
     },
     {
@@ -4790,18 +4387,23 @@
       "notes": "2026-09-20: AC1 AND AC2 ARE DONE, and AC2 found a live defect rather than a bookkeeping difference.\n\nAC1: the audit reads the TABLE now. `node scripts/audit-chart-category-gaps.mjs --dsn \"postgresql://...\"` (or --container) reads brand_size_charts instead of the TypeScript seed, through the same psql-target helper the other db-lane checks use, with a vacuity floor so an unparsed result reports a broken query rather than a clean corpus. The numbers differ and the difference is the point:\n\n               charts   fall through   wrong-family under a flat slice   every slot wrong\n  seed          415         254                    202                         3\n  table         437         273                    222                         4\n\nAC2: THE 26-ROW DRIFT SPLITS INTO 22 AND 4, AND THE 4 ARE A DEFECT. Every chart in the seed IS in the table; nothing is missing the other way. 22 of the extra rows are migration-only additions that never went back into sizing-charts.ts -- five hat and cap brands, the menswear-tailoring, western-boot-width and golf-shoe-width conventions, and a handful of later sourcing rows. That is the drift the caveat predicted and it is benign.\n\nTHE OTHER FOUR WERE THE SAME CHART STORED TWICE, AND GRADING READ THE WRONG COPY. brandKey is `raw.toLowerCase().replace(/[^a-z0-9]/g, \"\")`, which DROPS an accented letter rather than transliterating it, so the German-spelled outdoor brand keys as `khl` and the Swedish one as `fjllrven`. 00472 wrote four chart rows by hand under the transliterated spellings `kuhl` and `fjallraven`; 00498's generator wrote the SAME four charts from the seed under the dropped ones. Measured: the eight rows are identical in rows, category_match, brand_match, note and measurement_basis. They differ in exactly one way and it is the wrong way round -- 00472's rows carry source_url and confidence 0.55, and 00472's rows are the ones `resolveBrandKnowledgePack` can never reach.\n\nDRIVEN, NOT REASONED. resolveBrandKnowledgePack was called with \"Kühl\", \"Kuhl\", \"KUHL\", \"Fjällräven\" and \"Fjallraven\" against the live cluster: all five canonicalize to the accented label, all five key to khl/fjllrven, and all five returned the charts with `src=NO`. So the sourced chart sat beside the served one, invisible, for as long as both have existed.\n\n00813 REPAIRS IT: it copies source_url and confidence from the unreachable row onto the reachable one, then deletes the four unreachable rows. EXECUTED against the local cluster, 441 rows to 437, applied twice with the second run moving 0 and deleting 0. It raises a notice with both counts and a second DO block raises an exception if any row outside three named convention keys still carries a key the resolver cannot compute.\n\nTHE GUARD IS A DATABASE CHECK, NOT A SOURCE SCAN, and that is the decision worth recording. The keys are written by hand in some migrations and computed by a generator in others, and a later migration can change a row without touching either -- so the table is the only place the question has one answer. scripts/check-chart-brand-keys.mjs takes --dsn or --container, asserts every row's brand_key equals brandKey(brand_label), asserts no chart is stored under two keys, and carries a shrink-only baseline of three \"convention\" pseudo-brands whose labels read like sentences. Registered in scripts/verify.mjs and .github/workflows/db-migrations.yml, both places, which guard-lane-parity requires.\n\n⚠ THOSE THREE CONVENTION KEYS ARE A SECOND FINDING AND I DID NOT FIX THEM. `tailoringmenswear`, `westernbootwidth` and `golfshoewidth` are stored under hand-chosen short keys while their labels (\"Menswear tailoring (US convention)\") key to something else entirely. Both readers of brand_size_charts key on brand_key, and the admin KB takes that key from the URL -- so an operator can reach them and grading cannot. Whether a convention chart is supposed to reach grading at all is a product question, not a typo, so they are named in the baseline with the reason rather than quietly repaired.\n\nSABOTAGE, on the live cluster and restored:\n  reintroduce one kuhl-keyed row   -> both findings fire, naming the row and the two keys\n  a baseline name with no live row -> staleKnown reports it, so the list can only shrink\n  an unparsable result             -> 0 rows parsed, and the floor fires below 100\n\nVERIFIED: 7 passed on the new suite; 936 passed / 4 failed across the whole scripts suite, the 4 being cron-render-scripts, which shells out to deno against esm.sh and fails identically on a stashed tree; 64 passed across the chart-order, schema-version, chart-parity and size-class suites; guard-lane-parity 6 passed; tsc -b exit 0; eslint 0 errors; migrations-lint 805 clean; vault:lint clean; 00813 is pure ASCII.\n\nTWO CORPUS COUNTS WERE DATED RATHER THAN REWRITTEN. brand-knowledge.ts and vault/20-domain/brands/size-chart-coverage-backfill.md both say \"441-row corpus\" in measurements taken before 00813. Both now say 437 after it, and say the four removed were duplicates of rows still present, so none of the measurements moved. Rewriting the numbers would have made the earlier measurement unreproducible.\n\nSTILL OPEN: AC3 and AC4, the category_match precision pass. US-3405's family filter already removed the harm, so this is precision rather than a defect -- a tops chart that lists \"blouse\" matches directly instead of falling through. It is the three-part commit US-3324 established and it needs judgement per row, so it stays. | 2026-09-20, second pass: AC3 AND AC4 ARE DONE, and the pass found a second defect in the family filter on the way.\n\nAC3, THE PASS AND THE RULE IT REFUSES BY. 254 of the resolver's brand-and-category asks fell through the category step on the seed, 273 on the table. 113 fell through only because a chart's own word list was short -- a brand's generic \"Tops\" chart that never says \"blouse\" matches nothing, so a blouse takes the family fallback instead of going straight to the right chart. Those words landed. The other 141 are refused, and the rule is the one US-3405 argued for rather than a threshold: a chart takes a word only when its own scope plainly covers it.\n\n  generic scope   \"Tops\", \"Bottoms\", \"Apparel\", \"Tops & bottoms\" -> takes the family's words\n  narrow scope    \"Bottoms (leggings / pants)\", \"Jeans (waist x inseam)\", \"Dress shirts\" -> takes none\n  gendered        a men's chart never takes \"blouse\" or \"skirt\"\n\nThe narrowing words are read from the WHOLE garment string rather than only the parenthetical, which is the one correction the first run needed: \"Apparel / leggings / bralettes (alpha XXS-XXL)\" names its products in the head, and the first pass handed it five bottoms words.\n\nMEASURED, seed then table: fall-throughs 254 -> 129 and 273 -> 162, and \"every one of the three slots is the wrong family\" 3 -> 0 on the seed. The table still reports 3 there, from migration-only rows the seed does not carry.\n\nAC4, THE THREE PARTS: sizing-charts.ts (88 charts), a regenerated 00498, and 00814_chart_category_match_precision.sql, in one commit. 00814 appends only the tokens a row does not already carry, so it is idempotent and cannot overwrite a word a later migration added by hand. EXECUTED against the local cluster twice; the second run changed nothing and reported the same 87 rows covered.\n\n⚠ 87, NOT 88, AND THE MISSING ONE IS THE CONSTRAINT WORKING. brand_size_charts_sourced is a NOT VALID check demanding a source_url and a confidence, so the nine rows grandfathered by 00578 are readable but not writable -- an UPDATE on one fails the check even when it touches an unrelated column. Exactly one target is among those nine: express / Women / \"Tops & outerwear (US numeric 00-18 / alpha)\", which would have gained \"hoodie\". The seed carries the word, so it lands the day that row gets a source. Inventing one to get past the check is the provenance defect the check exists to prevent, and this is the first time that check has been observed blocking anything.\n\nA SECOND DEFECT, FOUND BY RUNNING THE PASS AND FIXED FIRST, IN ITS OWN COMMIT. garmentFamilies matched \"dress\" anywhere in a chart's garment string, so four charts that size no dress were filed under the dresses family: two DRESS SHIRT charts (a neck-by-sleeve measurement), a jeans chart whose own note says \"NOT a dress size\", and a footwear chart whose note says \"dress\" about the shoe. US-3405's family filter is what decides which charts survive when nothing matches by category, so a dress ask at Brooks Brothers was answered with a collar size -- the most confidently wrong thing the narrowing can do, because the chart IS the brand's and IS a real chart. The word is read from the scope head now, and never before \"shirt\". Measured across both sources: five distinct garment strings change family, all five of them these, and nothing loses a family it should keep. scripts/audit-chart-category-gaps.mjs carried the same bug in its own claimedFamilies and was aligned.\n\nTWO GUARDS WERE STALE THE MOMENT THE PASS LANDED, AND BOTH WERE FLIPPED RATHER THAN DELETED. audit-chart-category-gaps.test.mjs pinned \"Arc'teryx's tops charts do not list shirt\" as an ABSENCE, which is exactly what this pass fixes; it now asserts the word is present and that the audit no longer reports it, so the word going missing again is still a failure. The slots case was pinned on the same Arc'teryx finding and is repointed at Vuori's jean, which is still open and still deliberately refused.\n\nSABOTAGE: the dress guard reverted to a bare substring test reddens both new cases and passes the other 21; restored by cp from a backup verified with cmp.\n\nVERIFIED: 319 passed / 0 failed across every chart, brand and size edge suite (card-defect-sizing excluded, which is the imagescript-stub artifact CLAUDE.md names); 10 passed on the audit's own suite; 35 passed on the operator-worklist and held-migration parity suites after regenerating docs/operator-worklist.md; check-chart-brand-keys clean at 437 rows; migrations-lint 806 clean; vault:lint 252 notes 0 errors; eslint 0 errors; deno lint and deno check clean on the three edge files. No invisible characters. The em dashes in 00814's WHERE clauses are data -- they are the garment strings prod stores, and the apply matching 87 of 87 is what proves the literals are byte-right.\n\nSTILL OPEN: AC5 only, the operator readback after 00813 and now 00814. | 2026-09-20, correction to this story's own AC2 answer. The note above says the 22 extra table rows are \"migration-only additions that never went back into sizing-charts.ts\" and calls the drift benign. Benign is right; the description is not, and it is the sentence that sent the next pass off to fix a non-problem (US-3446, filed and closed the same afternoon with the fifteen-chart transcription already written and reverted).\n\nThey are not a seed that fell behind. All 22 are registered orphans: 11 CROSS_DEPARTMENT rows in src/tests/sizing-chart-orphans_test.ts whose only rival in the seed is the other department's body, 7 DB_ONLY headwear and shoe-width charts in verified-chart-parity_test.ts, and 4 hand-written charts with no rival at all. Adding any of the 11 to the seed reddens the orphan guard, because it recreates exactly the shape US-3387 exists to find. scripts/audit-chart-category-gaps.mjs's caveat 2 now says so at the point where the number is printed."
     },
     {
-      "id": "US-3447",
-      "title": "Cross-push 400s the whole fan-out when an extension channel is selected",
-      "description": "POST /api/flipdesk/listings/cross-push validates every requested platform against CROSS_LISTING_PLATFORMS in services/edge-functions/src/lib/marketplace-adapters/types.ts. Grailed, Vinted and Facebook were never in that union, although the composer offers all three (EXTENSION_CROSS_LISTING_PLATFORMS, src/lib/constants.ts) and cross-push.ts already routes them to the extension work queue. Ticking any one of them made the route answer 400 \"Unsupported platform: grailed.\" and abandon the ENTIRE push, eBay included, before a single channel ran. marketplace-adapters_test.ts asserted !isCrossListingPlatform(\"grailed\"), so the guard encoded the bug and CI stayed green.",
-      "acceptanceCriteria": [
-        "CrossListingPlatform and CROSS_LISTING_PLATFORMS include grailed, vinted and facebook, and stub adapters are registered for them so the exhaustive ADAPTERS record still type-checks.",
-        "POST /cross-push with platforms including grailed/vinted/facebook reaches crossPushPlatform, takes the EXTENSION_DELIST_PLATFORMS queue branch, and returns ok+queued rather than 400.",
-        "A regression test asserts every channel the composer offers (API_CROSS_LISTING_PLATFORMS + EXTENSION_CROSS_LISTING_PLATFORMS) passes isCrossListingPlatform; the old assertion that grailed must be rejected is gone.",
-        "No migration needed: grailed, vinted and facebook are already values of the listing_platform enum (00002, 00377)."
-      ],
-      "priority": 5,
+      "id": "US-3166",
       "passes": false,
-      "notes": []
+      "title": "Worth My Time: R1 01/12 - Store seller work preferences",
+      "description": "As a FlipDesk seller, I want FlipDesk to remember where I work, what tools I have, and my hourly earnings target so that plans fit my situation.",
+      "acceptanceCriteria": [
+        "Define the first-release contract in the implementation: responsive FlipDesk web only, USD estimates only until currency conversion is supported, rule-based planning with no new model calls, advisory recommendations, and no automatic listing, repricing, purchasing or disposal. Native iOS/Android screens and cross-seller learning are outside these 18 stories.",
+        "Add owner-scoped persisted settings for default session minutes, work context (home or phone_only), available tools (camera, measuring_tape, steamer, packing_supplies), optional hourly target, and settings version. Offer 15/30/60 minutes and validated custom whole minutes from 5 through 240; default to 30. Do not add a sourcing-trip mode without tasks that can actually run there.",
+        "An unset hourly target remains null and is displayed later as not set, not silently interpreted as zero. Monetary values use the existing USD representation with finite, nonnegative validation and an explicit currency field.",
+        "Provide authenticated read/update settings using the existing FlipDesk access checks and workspace-owner resolution. A seller sees or changes only the effective workspace settings; an ID in a request never chooses another workspace.",
+        "Read the migrations, Supabase and tenant-isolation skills before implementation. Any new migration is idempotent, uses the next available migration number at implementation time, bumps EXPECTED_SCHEMA_VERSION in the same commit and records itself. Add the required tenant-isolation_test.ts cases for new settings routes.",
+        "Tests cover first use, partial updates, invalid minutes/tools/currency/amounts, and two sellers with different settings. This story stores and exposes settings only; the screen belongs to R1 10/12.",
+        "Relevant tests pass; record the exact checks and any remaining blockers in the completion note. Run the repository verification lanes required for the changed files before committing.",
+        "Typecheck passes",
+        "OPERATOR: apply 00817 to prod after 00816, then NOTIFY pgrst 'reload schema'. Readback queries are in PENDING_MIGRATIONS.md. Nothing in the SPA reads this table yet, so there is no deploy-order risk in either direction."
+      ],
+      "priority": 100,
+      "notes": "2026-09-21. BUILT. All eight criteria met in code; the migration is HELD for the owner's apply, which is the only thing left.\n\nWHAT SHIPPED.\n- lib/work-preferences.ts: the pure rules. Defaults, a field-by-field patch parser, the merge, and a tolerant row reader. AC1's whole-feature contract (web only, USD only, rule-based with no model calls, advisory, per-seller) is written at the top of the file rather than left in the story, because a contract kept only in a story is one nobody re-reads.\n- routes/flipdesk-work-preferences.ts: GET and PATCH, mounted under the same auth + workspace + rate-limit chain as the other FlipDesk routes.\n- 00817: flipdesk_work_preferences, six CHECKs, one owner-scoped SELECT policy, writes service-role only.\n\nTHREE DECISIONS THAT ARE NOT DEFAULTS.\n1. NULL IS NOT ZERO, and it is the point of AC3. A planner reading a 0 hourly target ranks every task as infinitely worth doing; one reading NULL knows it cannot rank on money and has to say so. A target of exactly 0 is still legal -- a seller may deliberately say their time is free -- so the response carries hourly_target_set rather than letting the screen use a falsy check, which would show a chosen 0 as 'not set'. Both directions are tested and the DB accepted 0 and NULL as different values.\n2. PATCH, NOT PUT. The screen saves one control at a time, so a whole-object write makes every save a race. It also makes absent-versus-null expressible, which is the only way to CLEAR a target once set. A nullish-coalescing merge would have made clearing impossible; the explicit key-presence check is what stops it, and a sabotage that replaced that check with nullish coalescing reddens the named case.\n3. NO SOURCING-TRIP MODE, which AC2 warns against and which is the obvious third context. There is no task in R1 that can run in a thrift store aisle -- measuring, photographing, steaming and packing all need the item on a table -- and a mode with nothing to do in it teaches a seller the feature is empty. phone_only already covers the useful half. The reason is in the code and in the test, not just here.\n\nONE GUARD CAUGHT A REAL MISTAKE. rls-guard_test.ts's US-1927 case: the policy used a bare auth.uid(), which Postgres re-evaluates PER ROW. It is now (select auth.uid()), which is hoisted into an InitPlan and runs once. The 00134 precedent I copied uses the bare form and predates that rule.\n\nMEASURED AGAINST A REAL POSTGRES, not asserted. Postgres 16 booted locally (no Docker -- every registry blob CDN 403s through the proxy, so the CLAUDE.md initdb recipe is the path, and it needed one extra step this note records: chmod 711 on /tmp/claude-0, because the postgres user cannot traverse a 0700 directory and pg_ctl reports that as 'could not access directory' after initdb has already succeeded).\n  - ALL 809 MIGRATIONS APPLY FROM ZERO, 0 FAILURES.\n  - 00817 applied twice more; both runs changed nothing.\n  - Every CHECK refuses its bad value: 4 and 241 minutes, sourcing_trip, an unknown tool, EUR, a negative target.\n  - Two sellers' rows are independent: A at 15 minutes / phone_only / camera+steamer / 24.50, B at 120 / home / camera / NULL.\n  - A 0 target is accepted and stored as 0.00; clearing it back to NULL works.\n  - RLS on, exactly one policy, SELECT.\nTwo stubs the platform provides had to be widened beyond the CLAUDE.md list and neither is obvious from the error: storage.buckets needs file_size_limit, allowed_mime_types, owner, avif_autodetection and updated_at (00001 inserts them), and auth.users needs raw_user_meta_data or handle_new_user() throws 'record new has no field'.\n\nVERIFIED: 16 new cases; 81 passed / 0 failed / 347 ignored across work-preferences, tenant-isolation, rls-guard, schema-version, test-env-isolation, edge-writes-real-columns and no-bare-fetch. tsc -b exit 0. deno lint clean on five files. deno check on main.ts reports only the seven known Stripe/R2 substitution errors, none in these files. migrations-lint 809. check-env-reference 264. Migration is pure ASCII. Five sabotages, five caught on the named case, every restore byte-exact by cmp.\n\nDEVIATION FROM AC6, stated rather than glossed: 'two sellers with different settings' is covered in two halves. The pure half is a unit case proving the merge cannot leak; the route half is the tenant-isolation case, which posts A's ids in B's patch body and reads A's settings back. The second is fixture-gated and skips without TEST_USER_A_JWT, so on this box only the first executed. The DB proof above is the third leg and it did execute.\n\nNOT DONE, and it belongs to R1 10/12 by AC6: there is no screen. This story stores and exposes settings only. | 2026-09-21: code complete, closed on the code criteria. The added OPERATOR criterion (apply 00817) is the owner's and is tracked in PENDING_MIGRATIONS.md. | 2026-09-21, CORRECTION within the hour: this was flipped to passes:true and should not have been. Its OPERATOR criterion (apply 00817) is unmet, and every other story in this backlog with an unmet operator step stays OPEN so that npm run prd:operator can see it. Closing it would have hidden a held migration from the one list that exists to surface them. Reopened; the code criteria are all met and the note above stands."
     }
   ]
 }

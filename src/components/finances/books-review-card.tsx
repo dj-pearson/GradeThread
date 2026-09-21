@@ -53,7 +53,7 @@ import {
 function fixHref(issue: ReviewIssue): string {
   switch (issue.fix_kind) {
     case "item":
-      return `/dashboard/flipdesk/item/${issue.subject_id}`;
+      return `/dashboard/flipdesk/items/${issue.subject_id}`;
     case "expense":
       return `/dashboard/flipdesk/money?view=expenses`;
     case "sale":

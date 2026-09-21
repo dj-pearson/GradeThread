@@ -73,11 +73,13 @@ describe("a gap is never a silence (US-2879 AC1, AC3)", () => {
     expect(dirs.has("ios"), "no iOS-only surface found").toBe(true);
   });
 
-  it("the three measured web-only surfaces are exactly these", () => {
-    // Measured 2026-08-25. Pinned so that building one of them, or losing
-    // another, is a deliberate edit with a note rather than a drift.
+  it("the four measured web-only surfaces are exactly these", () => {
+    // Measured 2026-08-25, re-measured 2026-09-21. Pinned so that building one
+    // of them, or losing another, is a deliberate edit with a note rather than
+    // a drift. worth-my-time joined on 2026-09-21 (US-3175): R1 of the planner
+    // is web only and its surface carries the reason.
     const webOnly = ALL_SURFACES.filter((s) => onlyOn(s) === "web").map((s) => s.id);
-    expect(webOnly.sort()).toEqual(["developers", "measure-card", "rewards"]);
+    expect(webOnly.sort()).toEqual(["developers", "measure-card", "rewards", "worth-my-time"]);
   });
 
   it("the helper that miscounted gaps is gone", () => {

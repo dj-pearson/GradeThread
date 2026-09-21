@@ -232,7 +232,7 @@ const ROUTE_LAST_MODIFIED: Record<string, string> = {
   "/account-deletion": "2026-08-21",
   "/imprint": "2026-07-02",
   "/dpa": "2026-06-12",
-  "/subprocessors": "2026-08-14",
+  "/subprocessors": "2026-09-21",
   "/dmca": "2026-04-01",
   "/trademarks": "2026-08-10",
   "/accessibility": "2026-04-01",

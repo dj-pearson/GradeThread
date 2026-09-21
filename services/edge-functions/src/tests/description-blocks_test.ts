@@ -360,10 +360,58 @@ Deno.test("the grade block renders empty when the item is not graded", () => {
   assertEquals(renderDescription(blocks, ctx()), "");
 });
 
-Deno.test("defaultBlocks is a sane starting order and ends with facts", () => {
+Deno.test("US-3211: defaultBlocks puts the checkable facts before the prose", () => {
+  // This case used to assert keys[0] === "intro". The order is reversed on
+  // purpose: buyers skip AI prose and treat it as grounds for a return, so
+  // the half a seller can point at now comes first.
   const keys = defaultBlocks().map((b) => b.key);
-  assertEquals(keys[0], "intro");
+  assertEquals(keys[0], "attributes");
   assertEquals(keys[keys.length - 1], "facts");
-  assert(keys.includes("attributes"));
-  assert(keys.includes("measurements"));
+  const intro = keys.indexOf("intro");
+  for (const fact of ["attributes", "condition", "measurements", "disclosure"]) {
+    assert(keys.indexOf(fact) < intro, `${fact} must come before intro`);
+  }
+  assert(keys.indexOf("features") > intro);
+});
+
+Deno.test("US-3211: a graded item derives its condition block", () => {
+  const plain = defaultBlocks().find((b) => b.key === "condition")!;
+  assertEquals(plain.src, "ai");
+  const graded = defaultBlocks({ graded: true }).find((b) => b.key === "condition")!;
+  assertEquals(graded.src, "grade");
+  // And it renders the tier and the factor scores, not a second flaw list.
+  const c = ctx({
+    grade: {
+      overall_score: 8.3,
+      factors: [{ label: "Fabric", score: 8.5 }, { label: "Cosmetic", score: 8.0 }],
+      disclosure: { overall_score: 8.3, grade_tier: "excellent", defects_found: [] },
+    },
+  });
+  const out = renderDescription([graded], c);
+  assertStringIncludes(out, "Condition: excellent — 8.3 / 10");
+  assertStringIncludes(out, "- Fabric 8.5");
+  assertStringIncludes(out, "- Cosmetic 8.0");
+  // ⚠ THE DISCLOSURE BLOCK SITS TWO ROWS BELOW THIS ONE. Rendering its body
+  // here as well would print the flaw list twice in one description, which is
+  // what calling buildDisclosure() from the condition block would have done.
+  assert(!out.includes("CONDITION & FLAWS"), "the disclosure block's body was duplicated");
+});
+
+Deno.test("US-3211: a derived condition block renders nothing without a grade", () => {
+  const blocks: DescriptionBlock[] = [{ key: "condition", on: true, src: "grade" }];
+  assertEquals(renderDescription(blocks, ctx()), "");
+});
+
+Deno.test("US-3211: prose after a marker keeps its blank line on a round trip", () => {
+  // The defect the reorder found. Before the fix in pushText, the leading
+  // separator landed inside the text body, renderBlock trimmed it, and the
+  // prose came back glued to the measurements end marker.
+  const c = ctx();
+  const blocks: DescriptionBlock[] = [
+    { key: "measurements", on: true, src: "item" },
+    { key: "text", on: true, src: "user", text: "Ships next day." },
+  ];
+  const once = renderDescription(blocks, c);
+  assertStringIncludes(once, "-->\n\nShips next day.");
+  assertEquals(renderDescription(parseLegacyDescription(once, c), c), once);
 });

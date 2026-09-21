@@ -55,6 +55,17 @@ const PARENT_SCOPED = [
 // service-role (which bypasses RLS) reads/writes them. This is the most
 // restrictive configuration, not a gap.
 const SERVICE_ROLE_ONLY = new Set([
+  // US-3182: the seller's planner corrections and set-asides. Deny-all in
+  // both directions, and the WRITE side is the one that costs. A writable
+  // table would let a caller dismiss another seller's pack-and-ship: the
+  // parcel disappears from that seller's own planner, nothing on their screen
+  // says why, and they find out from a late-shipment metric. Readable, it is
+  // a list of which garments somebody has given up on and what they privately
+  // think each is worth. Both are reached through owner-verified edge routes
+  // (ownsItem() in flipdesk-planner.ts). Owner column is deliberately
+  // `owner_user_id`, so the discovery below does not read them as tenant data.
+  "flipdesk_work_overrides",
+  "flipdesk_work_suppressions",
   // US-3197: the cross-channel matches a human still has to decide. A row
   // names two of the seller's own listings and a similarity score, which is
   // theirs -- but a WRITABLE row would let a caller manufacture a merge
@@ -63,6 +74,12 @@ const SERVICE_ROLE_ONLY = new Set([
   // garments with no unmerge button. Deny-all in both directions; the seller
   // reads and answers through an owner-scoped edge route.
   "flipdesk_cross_channel_link_reviews",
+  // US-3015: one EasyPost referral customer per seller. Deny-all in both
+  // directions. Readable, the row is an API key that spends the seller's own
+  // postage money; writable, a caller could repoint another seller's labels
+  // at an account they control. The seller sees only a boolean, through an
+  // owner-scoped edge route.
+  "easypost_accounts",
   // US-9212: creator tax identities (the W-9 equivalent). Deny-all in both
   // directions. Readable, it is a list of legal names, addresses and the last
   // four digits of a taxpayer id; writable, a caller could certify a form for

@@ -49,6 +49,12 @@ const SUBPROCESSORS: Subprocessor[] = [
   // pick, which is squarely a subprocessor relationship.
   { name: "Dropbox — only when connected", purpose: "Importing garment photos from a folder the seller chooses", data: "An OAuth token for their Dropbox, and the image files in the folder they select. We do not browse outside it.", location: "United States" },
   { name: "Microsoft (OneDrive) — only when connected", purpose: "Importing garment photos from a folder the seller chooses", data: "An OAuth token for their OneDrive, and the image files in the folder they select. We do not browse outside it.", location: "United States" },
+  // US-3015: EasyPost buys the postage for a sale that did not come from eBay.
+  // It is the one subprocessor that receives a BUYER's home address, because a
+  // carrier cannot print a label without one — so it is named plainly rather
+  // than folded into a shipping line. The seller's card is held by EasyPost,
+  // not by us: we never see a card number and never hold postage money.
+  { name: "EasyPost — only when the seller buys a label here", purpose: "Rate-shopping and buying shipping labels for a sale, and billing the seller for that postage directly", data: "The seller's name, email and ship-from address; the buyer's shipping address and the parcel's weight and size. We send the buyer's address for the label and store it in no column of ours.", location: "United States" },
   { name: "Sentry", purpose: "Error monitoring", data: "Redacted error context, request metadata", location: "United States" },
   { name: "PostHog", purpose: "Product analytics (consent-gated)", data: "Usage events, pseudonymous identifiers", location: "United States" },
   { name: "Email/SMTP provider (e.g. Amazon SES)", purpose: "Transactional & lifecycle email", data: "Email address, message content", location: "United States" },
@@ -61,7 +67,7 @@ export function SubprocessorsPage() {
       title="Subprocessors"
       description="The third-party subprocessors GradeThread (Pearson Media LLC) uses to process personal data."
       canonicalPath="/subprocessors"
-      effectiveDate="August 14, 2026"
+      effectiveDate="September 21, 2026"
     >
       <p>
         GradeThread (Pearson Media LLC) engages the third-party subprocessors
@@ -72,7 +78,7 @@ export function SubprocessorsPage() {
       </p>
 
       <h2 id="list">1. Current subprocessors</h2>
-      <p>Last updated: August 14, 2026.</p>
+      <p>Last updated: September 21, 2026.</p>
       <table>
         <thead>
           <tr>

@@ -72,6 +72,394 @@ stronger claim for one of them, `check-prod-migration.ts` is the tool.
 Nothing below 00786 was touched, and the six genuinely-held branches in the next
 section are unchanged and still waiting.
 
+## 🔴 HELD: 00821_one_open_grade_per_item.sql (US-3214 - double-click grading)
+
+**EXECUTED 2026-09-21 against a local Postgres 16** carrying all 813
+migrations from zero, with `ON_ERROR_STOP=1`. Applied twice; the second run
+logged `relation "uq_grading_submission_one_open_per_item" already exists,
+skipping` and changed nothing.
+
+**What it does.** One partial unique index on
+`flipdesk_grading_submissions (inventory_item_id)` where the status is
+`pending`, `processing` or `pending_review`, plus a backfill that closes any
+duplicates already in the table.
+
+**What it fixes, and it is money.** `submitItemsForGrading` checked nothing: a
+second click on Submit inserted a second submission, ran Claude a second time
+and charged a second time. US-2564's batch key already made the CREDIT debit
+idempotent; `claimIncluded()` in `grade-billing.ts` is a compare-and-swap
+increment with no key at all, so the monthly included bundle really did burn
+twice. Checked rather than assumed, and
+`src/tests/one-open-grade_test.ts` asserts that claim is still keyless so the
+note cannot quietly stop being true.
+
+**⚠ DEPLOY ORDER MATTERS MORE THAN USUAL HERE.** The edge in the same commit
+MOVES the `flipdesk_grading_submissions` insert from step 4 (after the charge
+and the photo copy) to step 1b (immediately after the submissions row, before
+`runPaymentPrecedence`). That reorder is what lets the index refuse the loser
+of a race while the money is still untouched. Apply this migration BEFORE
+deploying that edge; with the edge deployed and the index missing, the second
+press still charges, exactly as it does today.
+
+**Risk: LOW on a clean table, MEDIUM where sellers have double-clicked.**
+The rows the defect produced are exactly the rows the index refuses, so a bare
+`CREATE UNIQUE INDEX` would fail on any database where it happened. The `DO`
+block closes the duplicates first, keeping the OLDEST per item (the one the
+pipeline actually ran) and marking the rest `failed` with a reason. Nothing is
+deleted, so the record that they existed and were charged survives for the
+void-and-refund action US-3214 adds to the admin queue.
+
+**Read the count first if you want to know what it will touch:**
+
+```sql
+-- how many open grading submissions the backfill would close, and on how many
+-- garments
+select count(*) - count(distinct inventory_item_id) as would_close,
+       count(distinct inventory_item_id) as items
+  from public.flipdesk_grading_submissions
+ where status in ('pending', 'processing', 'pending_review');
+```
+
+**Apply order:** after 00820. Then `NOTIFY pgrst, 'reload schema';` is NOT
+required (no new relation or column), but it is harmless.
+
+**Readback after applying:**
+
+```sql
+-- the index exists, is unique, and covers exactly the three non-terminal states
+select indisunique, pg_get_expr(indpred, indrelid) as predicate
+  from pg_index
+ where indexrelid = 'public.uq_grading_submission_one_open_per_item'::regclass;
+-- expect indisunique = t and a predicate naming pending, processing,
+-- pending_review and nothing else
+
+-- and nothing is left doubled up
+select inventory_item_id, count(*)
+  from public.flipdesk_grading_submissions
+ where status in ('pending', 'processing', 'pending_review')
+ group by 1 having count(*) > 1;
+-- expect zero rows
+```
+
+## 🔴 HELD: 00820_work_overrides.sql (US-3182 - Worth My Time R2 05/06)
+
+**EXECUTED 2026-09-21 against a local Postgres 16** carrying all 812
+migrations from zero, with `ON_ERROR_STOP=1`. Applied twice; the second run
+logged `already exists, skipping` and changed nothing.
+
+**What it does.** Two new tables, `flipdesk_work_overrides` and
+`flipdesk_work_suppressions`, holding what a seller corrects about the
+planner's estimates and what they set aside. Deny-all RLS on both, owner
+column `owner_user_id`, FK to `inventory_items` with `ON DELETE CASCADE`, and
+a CHECK per table fixing the shape each `kind` may take.
+
+**Risk: LOW.** Nothing existing is read, written, dropped or altered. The only
+reference to an existing table is the FK, which adds nothing to that table's
+own deletes beyond removing rows in the new ones.
+
+**⚠ IT NEEDS POSTGRES 15 OR NEWER, and that is the one thing to check before
+applying.** Both unique indexes are declared `NULLS NOT DISTINCT`:
+
+```sql
+CREATE UNIQUE INDEX IF NOT EXISTS uq_work_overrides_scope
+  ON public.flipdesk_work_overrides
+    (owner_user_id, inventory_item_id, action_key, kind)
+  NULLS NOT DISTINCT;
+```
+
+`action_key` is NULL for an item-wide correction, and on Postgres 14 or below
+every NULL is distinct, so the index would not collide and a seller could
+accumulate a new row on every save. Prod is Postgres 17, so this applies; the
+version is named here because the failure is silent rather than loud.
+
+**The first draft used an expression index and had to be rewritten.** It
+spelled the same rule as `coalesce(action_key, '')`, which works as a
+constraint and cannot be named by PostgREST's `on_conflict`, so every upsert
+answered `42P10 there is no unique or exclusion constraint matching the ON
+CONFLICT specification`. Found by running the routes against a real stack, not
+by any test.
+
+**Code in the same commit READS these tables from the edge**
+(`/api/flipdesk/planner/overrides` and `/planner/suppressions`, five routes).
+The frontend calls them from the Worth My Time screen. Until this applies,
+those routes answer a 500 and the correction panel shows its error state; the
+plan itself still builds, because a failed read leaves an empty book rather
+than blocking.
+
+**Apply order:** after 00819. Then `NOTIFY pgrst, 'reload schema';` - the new
+tables are unreachable through PostgREST until it reloads.
+
+**Readback after applying:**
+
+```sql
+-- both tables exist, deny-all, with the two NULLS NOT DISTINCT indexes
+select relname, relrowsecurity
+  from pg_class
+ where relname in ('flipdesk_work_overrides', 'flipdesk_work_suppressions');
+-- expect two rows, relrowsecurity = t for both
+
+select indexrelid::regclass as index, indnullsnotdistinct
+  from pg_index
+ where indexrelid::regclass::text in
+       ('uq_work_overrides_scope', 'uq_work_suppressions_scope');
+-- expect two rows, indnullsnotdistinct = t for both
+
+select count(*) from pg_policies
+ where tablename in ('flipdesk_work_overrides', 'flipdesk_work_suppressions');
+-- expect 0: deny-all means no policy at all, and the edge reaches them
+-- service-role through owner-verified routes
+```
+
+## 🔴 HELD: 00819_one_open_work_session.sql (US-3177 - Worth My Time R1 12/12)
+
+**Fixes a defect in 00818, which is also still held — so the two land
+together and 00819 goes second.**
+
+**What it does.** 00818 created `uq_work_sessions_one_active_per_user` with
+the predicate `state = 'active'`. A work session is CREATED in state
+`planned` and only becomes `active` when its first task starts, so the rule
+did not bind at the moment it was needed. `paused` was uncovered for the same
+reason. This drops that index and creates
+`uq_work_sessions_one_open_per_user` over `state IN ('planned','active',
+'paused')`.
+
+**Why it matters, measured rather than reasoned about.** A seller could pause
+a session, build a second plan, and have the first drop off the screen while
+staying open in the database: `GET /sessions/current` reads the newest of the
+three open states and returns one row, so the paused evening became
+unreachable through the UI with no error anywhere. Found by the end-to-end
+run in `scripts/check-planner-e2e.mjs`, not by any unit test.
+
+**It carries a BACKFILL and that is the risky half.** The rows the bug
+produces are exactly the rows the new index refuses, so a bare
+`CREATE UNIQUE INDEX` fails on any database where a seller made two plans —
+it failed on the first machine it was tried on. The `DO` block closes the
+duplicates first, keeping the session with the most COMPLETED tasks and only
+then the newest, and sets the rest to `abandoned`. Nothing is deleted:
+`abandoned` is terminal, the tasks and timing events stay, and what changes
+is only which session `current` can reach.
+
+**Risk: LOW on a fresh table, MEDIUM if sellers have already used the
+planner.** Read the count first if you want to know what it will touch:
+
+```sql
+-- how many sessions the backfill would close, and for how many sellers
+select count(*) - count(distinct user_id) as would_close,
+       count(distinct user_id) as sellers
+  from public.flipdesk_work_sessions
+ where state in ('planned', 'active', 'paused');
+```
+
+Expect `0` on a prod that has never run the planner, which is the case today
+(00818 is itself still held, so the table does not exist yet). If 00816-00818
+are applied in the same sitting, this is a no-op by construction.
+
+**Readback after applying:**
+
+```sql
+-- exactly one uq_ index, over the three open states
+select indexname, indexdef
+  from pg_indexes
+ where tablename = 'flipdesk_work_sessions' and indexname like 'uq_%';
+-- expect: uq_work_sessions_one_open_per_user ... WHERE state = ANY (...)
+-- and NO uq_work_sessions_one_active_per_user
+
+-- no seller left with two open sessions
+select user_id, count(*)
+  from public.flipdesk_work_sessions
+ where state in ('planned', 'active', 'paused')
+ group by user_id having count(*) > 1;
+-- expect: 0 rows
+```
+
+**Apply order:** after 00818. Then `NOTIFY pgrst, 'reload schema';`.
+
+**Client-side read in the same commit?** No. The route change that travels
+with it (`flipdesk-planner.ts` reading `OPEN_SESSION_STATES`) queries only
+columns 00818 already creates, so the edge is correct either side of this
+index. The index is the concurrency backstop, not the mechanism.
+
+**EXECUTED 2026-09-21 against a local Postgres 16** carrying all 811
+migrations from zero, with `ON_ERROR_STOP=1`. Applied twice: the second run
+logged `relation "uq_work_sessions_one_open_per_user" already exists,
+skipping` and changed nothing. The backfill was exercised for real — the
+database had three duplicate open sessions from the end-to-end run at the
+time, and it closed two of them. The edge then booted against it and its
+schema guard reported `DB at 00819 matches expected 00819`.
+
+## 🔴 HELD: 00818_work_sessions.sql (US-3167 - Worth My Time R1 02/12)
+
+**EXECUTED 2026-09-21 against a local Postgres 16** carrying all 810
+migrations from zero. Applied twice; the second run logged nine
+`already exists, skipping` notices and changed nothing.
+
+**Risk: LOW.** Three new tables, seven CHECKs, two partial unique indexes,
+four supporting indexes, three triggers, three SELECT policies, three REVOKEs.
+Nothing existing is read, written, dropped or altered. The only reference to an
+existing table is an FK to `inventory_items` declared `ON DELETE SET NULL`,
+which adds no behaviour to that table's own deletes beyond nulling a column in
+the new one.
+
+**Why it exists.** It holds a seller's work session, its tasks, and the timing
+events recording when each one ran, so an interruption does not erase their
+work. The planner that fills these is R1 06/12 onward.
+
+**Two indexes are the point, and they are not optimizations.**
+`uq_work_sessions_one_active_per_user` and `uq_work_session_tasks_one_active`
+are partial unique indexes enforcing "one active session per seller" and "one
+active task per session" under CONCURRENCY. A SELECT-then-INSERT in the route
+passes twice when two tabs press Start together; an index does not. Dropping
+either was sabotage-tested and reddens the check script by name.
+
+**Client-side read risk: NONE.** Nothing in `src/` reads these tables as of
+this commit - the screen is R1 10/12 and there are no routes yet. A frontend
+that auto-deploys before this applies loses nothing.
+
+**Apply order:** after 00817. Then `NOTIFY pgrst, 'reload schema';`.
+
+**Readback after applying:**
+
+```sql
+-- 1. The three tables, RLS on, one SELECT policy each, no write policies.
+select tablename, count(*) as policies, string_agg(cmd, ',') as cmds
+from pg_policies where schemaname = 'public'
+  and tablename like 'flipdesk_work_%'
+group by tablename order by tablename;
+-- expect three rows, each policies=1 and cmds=SELECT
+
+-- 2. The two concurrency indexes exist and are PARTIAL. A non-partial one
+--    would refuse a seller's SECOND session outright, which is wrong.
+select indexname, indexdef from pg_indexes
+where schemaname = 'public'
+  and indexname in ('uq_work_sessions_one_active_per_user',
+                    'uq_work_session_tasks_one_active');
+-- expect two rows, each indexdef ending in WHERE (state = 'active'::text)
+
+-- 3. The item FK is SET NULL, not CASCADE. CASCADE would erase a seller's
+--    record of the hour they spent whenever the garment is deleted.
+select confdeltype from pg_constraint
+where conname = 'flipdesk_work_session_tasks_inventory_item_id_fkey';
+-- expect n   (n = SET NULL; c would be CASCADE and is the bug)
+```
+
+**Proved locally rather than asserted:** `node scripts/check-work-session-storage.mjs --dsn "postgresql://..."` runs seventeen rules inside one rolled-back transaction - isolation, repeated retry keys, invalid states, two competing sessions, two competing tasks, a stale revision, an item tombstone and a full account erasure that leaves the other seller alone. It is wired into `npm run verify` and into `.github/workflows/db-migrations.yml`.
+
+**Not applied yet, so the story stays open on its operator step.**
+
+## 🔴 HELD: 00817_work_preferences.sql (US-3166 - Worth My Time R1 01/12)
+
+**EXECUTED 2026-09-21 against a local Postgres 16** carrying all 809
+migrations from zero, 0 failures. Applied twice more; both runs changed
+nothing and only logged `relation already exists, skipping`.
+
+**Risk: LOW.** One new table, six CHECK constraints, one trigger, one SELECT
+policy, one REVOKE. Nothing existing is read, written, dropped or altered.
+
+**Why it exists.** It stores where a seller works, what tools they have and
+what their time is worth, so the planner in R1 06/12 can fit a plan to their
+situation. One row per seller, created lazily; an absent row is every default,
+which is why every column is NOT NULL with one.
+
+**Client-side read risk: NONE.** Nothing in `src/` reads this table as of this
+commit - the screen is R1 10/12. The edge routes fall back to defaults when
+the read errors, so a frontend that auto-deploys before this applies loses
+nothing: `GET /api/flipdesk/work-preferences` answers with defaults and a
+PATCH fails with a 500 the seller can retry after the apply.
+
+**Apply order:** after 00816. Then `NOTIFY pgrst, 'reload schema';` - the
+table is exposed through PostgREST for the owner's own SELECT and is invisible
+to the API without the reload.
+
+**Readback after applying:**
+
+```sql
+-- 1. The table, RLS, and exactly one policy (SELECT, owner-scoped).
+select relrowsecurity from pg_class where relname = 'flipdesk_work_preferences';
+-- expect t
+
+select cmd, qual from pg_policies
+where schemaname = 'public' and tablename = 'flipdesk_work_preferences';
+-- expect ONE row: SELECT, qual mentioning (select auth.uid()) = user_id.
+-- Writes are service-role only on purpose -- a direct write would bypass the
+-- validation the route performs.
+
+-- 2. All six CHECKs are there and named.
+select conname from pg_constraint
+where conrelid = 'public.flipdesk_work_preferences'::regclass and contype = 'c'
+order by conname;
+-- expect: context, currency, minutes, target, tools
+
+-- 3. Nothing was created with rows.
+select count(*) from public.flipdesk_work_preferences;
+-- expect 0
+```
+
+**Proved locally rather than asserted:** every CHECK refuses its bad value (4
+and 241 minutes, `sourcing_trip`, an unknown tool, `EUR`, a negative target); a
+target of exactly `0` is ACCEPTED, because a seller may deliberately say their
+time is free; and clearing one back to NULL works, which is what an explicit
+null in the PATCH body does.
+
+**Not applied yet, so the story stays open on its operator step.**
+
+## 🔴 HELD: 00816_easypost_label_provider.sql (US-3015 - EasyPost as the second label provider)
+
+**Risk: LOW-MEDIUM.** One new deny-all table, two nullable columns on `sales`,
+one CHECK constraint, one backfill UPDATE, two indexes, one trigger. Nothing
+existing is dropped or rewritten. The one line that touches data is scoped to
+rows that already have an eBay label and no provider recorded, so it can only
+fill a hole it created.
+
+**Why it exists.** The eBay label path can only price postage for an eBay order
+on a connection holding the limited-release `sell.logistics` grant. Every other
+sale - Shopify, extension-listed Poshmark, anything on a deployment eBay never
+granted the scope to - had no way to buy a label in FlipDesk at all.
+`easypost_accounts` maps a seller to their EasyPost REFERRAL CUSTOMER, so the
+seller's own card is charged by EasyPost and GradeThread holds no postage float
+and carries no reweigh liability. The row holds a pointer and an encrypted API
+key; there is no balance column and there should never be one.
+
+**Client-side read risk: NONE.** Nothing in `src/` reads `sales.label_provider`,
+`sales.easypost_shipment_id` or `easypost_accounts` as of this commit; the whole
+EasyPost path is edge-side and gated on `EASYPOST_API_KEY`, which is unset. A
+frontend that auto-deploys before this applies loses nothing, because there is
+nothing to lose yet.
+
+**Write risk before the apply: NONE, for the same reason.** With the env var
+unset the EasyPost routes report `feature_unavailable` and never reach a column
+that does not exist. **Do not set `EASYPOST_API_KEY` on Coolify until this
+migration is applied** - that is the one ordering that matters here.
+
+**Apply order:** after 00815. Then `NOTIFY pgrst, 'reload schema';` - PostgREST
+caches the column list, so without the reload the two new `sales` columns are
+invisible to the API even after the ALTER succeeds.
+
+**Readback after applying:**
+
+```sql
+-- 1. The table exists, RLS is on, and no policy grants a way in.
+select relrowsecurity from pg_class where relname = 'easypost_accounts';
+-- expect one row, t
+
+select count(*) from pg_policies
+where schemaname = 'public' and tablename = 'easypost_accounts';
+-- expect 0 -- deny-all is the absence of a policy plus the REVOKE
+
+-- 2. The two sales columns and the constraint.
+select column_name from information_schema.columns
+where table_name = 'sales'
+  and column_name in ('label_provider', 'easypost_shipment_id')
+order by column_name;
+-- expect two rows
+
+-- 3. The backfill named every pre-existing eBay label and nothing else.
+select label_provider, count(*) from public.sales
+where ebay_shipment_id is not null group by 1;
+-- expect a single row: ebay | <however many labels were bought>
+```
+
+**Not applied yet, so the story stays open on its operator criterion.**
+
 ## ✅ APPLIED 2026-09-20 (owner, confirmed applied and merged): 00815_acquired_date_timezone.sql (US-3314 - record the zone that named an acquisition day)
 
 **EXECUTED 2026-09-20 against the local cluster** carrying all 815 migrations.

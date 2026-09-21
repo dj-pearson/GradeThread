@@ -3264,8 +3264,25 @@ export interface EbayLogisticsCapability {
    * button" — it gets an upgrade prompt instead. The other two are dead ends
    * for this seller today.
    */
-  code: "feature_unavailable" | "plan_locked" | "reconnect_required" | null;
+  code:
+    | "feature_unavailable"
+    | "plan_locked"
+    | "reconnect_required"
+    | "easypost_onboarding_required"
+    | null;
   detail: string | null;
+  /**
+   * US-3015: which provider would buy this label, or null when none can. The
+   * UI needs it because the two providers ask for different things -- eBay
+   * derives the buyer's address from the order, EasyPost has to be told it.
+   */
+  provider: "ebay" | "easypost" | null;
+  /**
+   * US-3015: `easypost_onboarding_required` is the second state the seller can
+   * fix themselves, and the fix is at EasyPost rather than here. Hiding the
+   * button on it would leave a working feature permanently switched off.
+   */
+  easypost: { configured: boolean; onboarded: boolean; ready: boolean };
 }
 
 export function useEbayLogisticsCapability(enabled = true) {
@@ -3289,13 +3306,58 @@ export function useEbayLogisticsCapability(enabled = true) {
           labelPurchaseAvailable: false,
           code: "feature_unavailable",
           detail: null,
+          provider: null,
+          easypost: { configured: false, onboarded: false, ready: false },
         };
       }
       return {
         labelPurchaseAvailable: json.label_purchase_available === true,
         code: json.code ?? null,
         detail: json.detail ?? null,
+        provider: json.provider ?? null,
+        easypost: {
+          configured: json.easypost?.configured === true,
+          onboarded: json.easypost?.onboarded === true,
+          ready: json.easypost?.ready === true,
+        },
       };
+    },
+  });
+}
+
+/**
+ * US-3015 AC3: create this seller's EasyPost account so they can add a card.
+ *
+ * Onboarding spends nothing and is not plan-gated, on purpose: gating it means
+ * a seller upgrades and THEN discovers a second setup step.
+ */
+export function useEasyPostOnboard() {
+  const qc = useQueryClient();
+  return useMutation<
+    { easypostUserId: string; ready: boolean },
+    Error & { status?: number; code?: string }
+  >({
+    mutationFn: async () => {
+      const res = await fetch(
+        `${edgeApiUrl()}/api/flipdesk/logistics/easypost/onboard`,
+        { method: "POST", headers: await ebayHeaders(), body: "{}" }
+      );
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        const err: Error & { status?: number; code?: string } = new Error(
+          json.detail || json.error || "Couldn't set up your EasyPost account."
+        );
+        err.status = res.status;
+        err.code = json.code;
+        throw err;
+      }
+      return {
+        easypostUserId: json.easypost_user_id ?? "",
+        ready: json.ready === true,
+      };
+    },
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["ebay_logistics_capability"] });
     },
   });
 }
@@ -3315,6 +3377,8 @@ export interface EbayShippingQuote {
   shippingQuoteId: string;
   expiresAt: string | null;
   rates: EbayShippingRate[];
+  /** US-3015: which provider priced it. */
+  provider?: "ebay" | "easypost" | null;
 }
 
 export interface ParcelInput {
@@ -3325,13 +3389,47 @@ export interface ParcelInput {
   heightValue?: number | null;
 }
 
-function parcelBody(parcel: ParcelInput): Record<string, unknown> {
+/**
+ * US-3015: where the parcel is going, for the EasyPost path only.
+ *
+ * The eBay path never sends this and never will: eBay derives the destination
+ * from the order id, so the buyer's address stays on eBay's side. EasyPost has
+ * no order to derive from, so the seller supplies it — and the server uses it
+ * for the one rate call and writes it to no column.
+ */
+export interface ShipToInput {
+  name?: string | null;
+  line1: string;
+  line2?: string | null;
+  city: string;
+  state: string;
+  postalCode: string;
+  country?: string | null;
+}
+
+function parcelBody(
+  parcel: ParcelInput,
+  shipTo?: ShipToInput | null
+): Record<string, unknown> {
   return {
     weight_value: parcel.weightValue,
     weight_unit: parcel.weightUnit ?? "POUND",
     length_value: parcel.lengthValue ?? undefined,
     width_value: parcel.widthValue ?? undefined,
     height_value: parcel.heightValue ?? undefined,
+    ...(shipTo
+      ? {
+          ship_to_name: shipTo.name ?? undefined,
+          ship_to: {
+            line1: shipTo.line1,
+            line2: shipTo.line2 ?? undefined,
+            city: shipTo.city,
+            state: shipTo.state,
+            postal_code: shipTo.postalCode,
+            country: shipTo.country ?? "US",
+          },
+        }
+      : {}),
   };
 }
 
@@ -3340,9 +3438,9 @@ export function useEbayShippingRates() {
   return useMutation<
     EbayShippingQuote,
     Error & { status?: number; code?: string },
-    { saleId: string; parcel: ParcelInput }
+    { saleId: string; parcel: ParcelInput; shipTo?: ShipToInput | null }
   >({
-    mutationFn: async ({ saleId, parcel }) => {
+    mutationFn: async ({ saleId, parcel, shipTo }) => {
       const res = await fetch(
         `${edgeApiUrl()}/api/flipdesk/logistics/sales/${encodeURIComponent(
           saleId
@@ -3350,7 +3448,7 @@ export function useEbayShippingRates() {
         {
           method: "POST",
           headers: await ebayHeaders(),
-          body: JSON.stringify(parcelBody(parcel)),
+          body: JSON.stringify(parcelBody(parcel, shipTo)),
         }
       );
       const json = await res.json().catch(() => ({}));
@@ -3366,6 +3464,7 @@ export function useEbayShippingRates() {
         shippingQuoteId: json.shipping_quote_id ?? "",
         expiresAt: json.expires_at ?? null,
         rates: (json.rates ?? []) as EbayShippingRate[],
+        provider: json.provider ?? null,
       };
     },
   });

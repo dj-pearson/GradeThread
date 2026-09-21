@@ -401,7 +401,7 @@ export function ResellerProfitCalculatorPage() {
           </p>
           <div className="mt-5">
             <Link
-              to="/dashboard/grade"
+              to="/dashboard/submissions/new"
               onClick={() =>
                 track("calculator_grading_cta_click", {
                   source: "reseller-profit-calculator",

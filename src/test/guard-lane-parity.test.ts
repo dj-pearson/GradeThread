@@ -37,6 +37,53 @@ const WORKFLOWS = resolve(ROOT, ".github/workflows");
  * that filename.
  */
 const NOT_A_LANE_CHECK: Record<string, string> = {
+  "check-scorecard-e2e.mjs":
+    "NEEDS A RUNNING EDGE SERVICE, A FULL DATABASE AND TWO SIGNED-IN SELLERS " +
+    "(US-3183), for the same reason check-planner-e2e.mjs below is exempt. " +
+    "It SEEDS AND COMMITS the seven shapes AC6 names -- one garment planned " +
+    "in two sessions, a cross-listed garment with two sale rows, a refund, a " +
+    "sale with no recorded acquisition basis, a sale with no tracked " +
+    "minutes, work on something unsold, and a second seller -- then reads " +
+    "/api/flipdesk/planner/outcomes over HTTP as each of them and removes " +
+    "the rows again. A stub database proves none of that: every one of the " +
+    "seven is about which rows the read finds. Executed for real: 25 checks, " +
+    "0 failures, twice in a row to prove it is repeatable, against Postgres " +
+    "16 with all 812 migrations, PostgREST 12.2.3 and the edge on 8787. It " +
+    "found one defect in its own first run -- a check asserting the second " +
+    "seller had no sales at all, which was a claim about the fixture rather " +
+    "than about the code. " +
+    "WHAT DOES GATE: the arithmetic on top of these rows is " +
+    "src/lib/work-scorecard.test.ts and the rendering is " +
+    "src/components/flipdesk/__tests__/results-panel.test.tsx, both of which " +
+    "run in verify and in CI. " +
+    "WHAT WOULD LANE IT: the same missing piece as check-planner-e2e.mjs -- " +
+    "a seed step creating two users through GoTrue's admin API. " +
+    "Run it with: `node scripts/check-scorecard-e2e.mjs --token-a <jwt> " +
+    "--token-b <jwt> --user-a <uuid> --user-b <uuid> --dsn postgres://...`.",
+  "check-planner-e2e.mjs":
+    "NEEDS A RUNNING EDGE SERVICE AND A FULL DATABASE (US-3177), which is the " +
+    "same reason the Tenant Isolation and Money & Certificate lanes are not " +
+    "in verify either -- it drives real HTTP against /api/flipdesk/planner " +
+    "with two signed-in sellers and asserts on rows, so a stub proves nothing " +
+    "it is written to prove. It is a verification harness run by hand during " +
+    "development, not a gate on a push. It was executed for real: 43 checks, " +
+    "0 failures, against Postgres 16 with all 811 migrations applied, " +
+    "PostgREST 12.2.3 and the edge on 8787, and it found three defects that " +
+    "the unit and route suites could not (a session stuck in `planned` so " +
+    "every pause was refused, a uniqueness index that did not cover the " +
+    "state sessions are created in, and an unowned item id producing a " +
+    "task row that looked like a deleted item). What each of those three " +
+    "cost is now held by a named case in " +
+    "services/edge-functions/src/tests/flipdesk-planner_test.ts, which DOES " +
+    "run in both places. " +
+    "WHAT WOULD LANE IT: the money-cert workflow already boots this exact " +
+    "stack, so the missing piece is a seed step that creates two users " +
+    "through GoTrue's admin API and passes their tokens in. That is not " +
+    "written here because it cannot be run from this environment -- GoTrue " +
+    "is the one Supabase service the agent proxy cannot fetch -- and a CI " +
+    "step nobody has executed is worse than an honest exemption. " +
+    "Run it with: `node scripts/check-planner-e2e.mjs --token-a <jwt> " +
+    "--token-b <jwt> --user-a <uuid>`.",
   "check-copy-reading-level.mjs":
     "REPORT-ONLY BY DESIGN (US-2868 AC3, which asked for exactly that). It " +
     "scores reading level with Flesch-Kincaid over a SYLLABLE GUESS -- the " +

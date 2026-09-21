@@ -71,7 +71,36 @@ export type SubmitResult =
     ok: false;
     inventory_item_id: string;
     error: string;
+    /**
+     * A machine-readable reason, where there is one worth branching on.
+     *
+     * Only `already_submitted` today (US-3214). The screen needs to tell "we
+     * refused because a grade is already running" apart from "the payment
+     * failed", and matching on the sentence is how a copy edit silently turns
+     * one into the other.
+     */
+    code?: "already_submitted";
   };
+
+/**
+ * Submission states that mean a grade for this garment is not finished.
+ *
+ * `pending_review` is in the list and the story's AC1 named only the first
+ * two. It belongs here for the same reason they do: the AI grade exists but
+ * is withheld until a human finalises it, so a second submission is a second
+ * Claude run and a second charge against a garment that is already being
+ * graded. The card has always treated it that way too -- it renders
+ * "Submitted for human review" and offers no tier picker.
+ */
+export const NON_TERMINAL_SUBMISSION_STATES = [
+  "pending",
+  "processing",
+  "pending_review",
+] as const;
+
+/** What a seller reads when a second press lands on a garment already in hand. */
+export const ALREADY_SUBMITTED_MESSAGE =
+  "This item is already being graded. You'll see the result as soon as it's ready.";
 
 export interface SubmitItemInput {
   inventory_item_id: string;
@@ -746,6 +775,44 @@ export async function submitItemsForGrading(
     storage_path: string | null;
     sort_order: number | null;
   };
+  // US-3214 AC1: WHICH GARMENTS ALREADY HAVE A GRADE UNDERWAY.
+  //
+  // ⚠ THE CHARGE IS THE POINT. Before this, submitItemsForGrading checked
+  // nothing: it inserted a submissions row per call, so a second click on a
+  // slow network was a second submission, a second Claude run and a second
+  // debit. US-2564's batch key makes the CREDIT debit idempotent, and that is
+  // only half the money -- claimIncluded() in grade-billing.ts is a
+  // compare-and-swap increment with no key at all, so the included monthly
+  // bundle really did burn twice (US-3214 AC7, checked rather than assumed).
+  // Refusing the second submission outright is what covers both.
+  //
+  // ⚠ SCOPED BY CONSTRUCTION (US-268). flipdesk_grading_submissions carries no
+  // user_id; ownership is the item's. The ids below come from `itemById`,
+  // which is the batch read already filtered `.eq("user_id", ownerId)`, so a
+  // foreign id cannot reach this query even if one survived validation.
+  const ownedIds = [...itemById.keys()];
+  const activeByItem = new Map<string, string>();
+  if (ownedIds.length > 0) {
+    const { data: activeRows, error: activeErr } = await supabaseAdmin
+      .from("flipdesk_grading_submissions")
+      .select("inventory_item_id, status")
+      .in("inventory_item_id", ownedIds)
+      .in("status", NON_TERMINAL_SUBMISSION_STATES);
+    if (activeErr) {
+      // FAIL CLOSED. An unreadable answer here means we cannot tell whether a
+      // grade is already running, and the cost of guessing wrong is a second
+      // charge on a seller's account.
+      return {
+        ok: false,
+        status: 503,
+        body: { error: "Couldn't check your grades in progress. Try again in a moment." },
+      };
+    }
+    for (const row of (activeRows ?? []) as { inventory_item_id: string; status: string }[]) {
+      activeByItem.set(row.inventory_item_id, row.status);
+    }
+  }
+
   const photosByItem = new Map<string, BatchPhoto[]>();
   // The query is ordered by sort_order, and pushing in iteration order
   // preserves that per item — the loop below relies on it (detail_1/2/3 must
@@ -762,6 +829,7 @@ export async function submitItemsForGrading(
     // Tracked across the try so the catch can compensate a charge if a later
     // step (photo copy, link insert) fails after the grade was already paid.
     let submissionId = "";
+    let linkId = "";
     let charged = false;
     try {
       // US-2024: from the batch map (was a per-item query). buildValidation
@@ -772,6 +840,21 @@ export async function submitItemsForGrading(
         throw new Error("Item lookup failed");
       }
       if (it.user_id !== ownerId) throw new Error("Item ownership mismatch");
+
+      // US-3214 AC1: refused BEFORE the submissions insert and before any
+      // charge. Reported as a per-item result rather than failing the batch,
+      // because one already-running garment in a selection of twenty must not
+      // stop the other nineteen.
+      const alreadyRunning = activeByItem.get(item.inventory_item_id);
+      if (alreadyRunning) {
+        results.push({
+          ok: false,
+          inventory_item_id: item.inventory_item_id,
+          error: ALREADY_SUBMITTED_MESSAGE,
+          code: "already_submitted",
+        });
+        continue;
+      }
 
       // 1. Create submissions row (keyed on workspace owner so all members see it).
       const { data: subInsert, error: subErr } = await supabaseAdmin
@@ -793,7 +876,51 @@ export async function submitItemsForGrading(
       }
       submissionId = (subInsert as { id: string }).id;
 
-      // 1b. Charge through the shared payment precedence (included → credits).
+      // 1b. TAKE THE LOCK, BEFORE ANY MONEY MOVES (US-3214 AC1).
+      //
+      // ⚠ THIS INSERT USED TO BE STEP 4, AFTER the charge and the photo copy,
+      // and that ordering is what made a double click cost twice. The read
+      // above cannot close the race on its own: two clicks land in two
+      // isolates, both read "nothing running", and both charge. A partial
+      // unique index does close it -- the same answer 00819 reached for one
+      // open work session per seller, for the same reason.
+      //
+      // 00821 puts that index on (inventory_item_id) WHERE status is
+      // non-terminal. The loser of the race gets 23505 here, which is BEFORE
+      // runPaymentPrecedence, so the second press buys nothing.
+      const { data: fdInsert, error: fdErr } = await supabaseAdmin
+        .from("flipdesk_grading_submissions")
+        .insert({
+          inventory_item_id: it.id,
+          submission_id: submissionId,
+          tier,
+          status: "pending",
+          cost,
+          submitted_at: new Date().toISOString(),
+        })
+        .select("id")
+        .single();
+      if (fdErr || !fdInsert) {
+        // 23505 is the index refusing a second open grade for this garment.
+        // Anything else is a real failure and reads as one.
+        const duplicate = (fdErr?.code ?? "") === "23505";
+        await supabaseAdmin.from("submissions").delete().eq("id", submissionId);
+        submissionId = "";
+        if (duplicate) {
+          results.push({
+            ok: false,
+            inventory_item_id: item.inventory_item_id,
+            error: ALREADY_SUBMITTED_MESSAGE,
+            code: "already_submitted",
+          });
+          continue;
+        }
+        throw new Error(`Link create failed: ${fdErr?.message}`);
+      }
+      const fdId = (fdInsert as { id: string }).id;
+      linkId = fdId;
+
+      // 1c. Charge through the shared payment precedence (included → credits).
       //     Batch validation already confirmed the owner can afford this, but
       //     a concurrent submission could have drained credits in between, so
       //     handle the checkout-required case per item.
@@ -807,7 +934,10 @@ export async function submitItemsForGrading(
         bulkChargeKey(batchKey, item.inventory_item_id),
       );
       if (!precedence.paid) {
-        // Nothing was charged — drop the empty submission and report it.
+        // Nothing was charged — drop the empty submission AND the lock row it
+        // took a moment ago, or the garment stays un-gradeable forever.
+        await supabaseAdmin.from("flipdesk_grading_submissions").delete().eq("id", fdId);
+        linkId = "";
         await supabaseAdmin.from("submissions").delete().eq("id", submissionId);
         submissionId = "";
         results.push({
@@ -896,24 +1026,6 @@ export async function submitItemsForGrading(
         );
       }
 
-      // 4. Link via flipdesk_grading_submissions
-      const { data: fdInsert, error: fdErr } = await supabaseAdmin
-        .from("flipdesk_grading_submissions")
-        .insert({
-          inventory_item_id: it.id,
-          submission_id: submissionId,
-          tier,
-          status: "pending",
-          cost,
-          submitted_at: new Date().toISOString(),
-        })
-        .select("id")
-        .single();
-      if (fdErr || !fdInsert) {
-        throw new Error(`Link create failed: ${fdErr?.message}`);
-      }
-      const fdId = (fdInsert as { id: string }).id;
-
       // 5. Mark the item as in-grading + link it to the submission so the
       //    grading-pipeline's inventory_items sync (see grading-pipeline.ts
       //    step 7b) writes back grade_value/grade_label/grade_report_id
@@ -934,6 +1046,13 @@ export async function submitItemsForGrading(
           err instanceof Error ? err.message : String(err),
         );
       });
+
+      // US-3214: seal it in the map as well. `activeByItem` was read before
+      // the loop, so the same id sent TWICE in one request body would not
+      // find the row this iteration just created. The index would refuse the
+      // second anyway; this makes it a clean refusal rather than a caught
+      // 23505, and it is the cheaper of the two.
+      activeByItem.set(it.id, "pending");
 
       successfullySubmitted++;
       results.push({
@@ -959,6 +1078,17 @@ export async function submitItemsForGrading(
             refundErr instanceof Error ? refundErr.message : String(refundErr),
           );
         }
+      }
+      // US-3214: the lock row is released too. Left behind in a non-terminal
+      // state it would refuse every future submission for this garment, so a
+      // transient photo-copy failure would lock a seller out of grading it
+      // until somebody noticed.
+      if (linkId) {
+        await supabaseAdmin
+          .from("flipdesk_grading_submissions")
+          .update({ status: "failed", error: err instanceof Error ? err.message : String(err) })
+          .eq("id", linkId)
+          .then(undefined, () => {});
       }
       results.push({
         ok: false,

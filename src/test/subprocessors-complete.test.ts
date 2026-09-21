@@ -157,6 +157,7 @@ const HOST_OWNER: [RegExp, string][] = [
   // token exchange and the file read. Microsoft is likewise two:
   // login.microsoftonline.com for the token and graph.microsoft.com for the
   // files.
+  [/(^|\.)easypost\.com$/, "EasyPost"],
   [/(^|\.)dropbox\.com$|(^|\.)dropboxapi\.com$/, "Dropbox"],
   [/(^|\.)microsoft\.com$|(^|\.)microsoftonline\.com$/, "Microsoft"],
 ];
@@ -204,10 +205,22 @@ describe("the subprocessor list matches what the code calls (US-2527)", () => {
 
   it("the date moved when the list did", () => {
     const src = page();
+    // The original April list named neither Google nor Apple while both were
+    // processing personal data. It must never come back.
     expect(src).not.toContain("April 1, 2026");
-    // Stated twice on the page — the header and the table caption must agree.
-    const dates = src.match(/August 14, 2026/g) ?? [];
-    expect(dates.length).toBe(2);
+
+    // US-3015: this used to pin the literal "August 14, 2026" and count two of
+    // them, which made a CORRECT edit fail -- adding EasyPost moved the date,
+    // as the file's own header instructs, and the guard read that as a
+    // regression. It now checks the PROPERTY the count was standing in for:
+    // the page states its date twice, in the header and the table caption, and
+    // the two must agree. A stale one is the failure worth catching, because a
+    // customer reading the caption is told the list is older than it is.
+    const dates = [...src.matchAll(/(\w+ \d{1,2}, 20\d{2})/g)].map((m) => m[1]!);
+    expect(dates.length, "the page must state its date twice").toBe(2);
+    expect(dates[0], "the header and the caption state different dates").toBe(
+      dates[1],
+    );
   });
 
   it("the DPA still points at a page that exists", () => {

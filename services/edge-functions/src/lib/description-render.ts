@@ -218,7 +218,10 @@ export function blocksForListing(
   if (listing.listing_description?.trim()) {
     return parseLegacyDescription(listing.listing_description, ctx);
   }
-  return defaultBlocks();
+  // US-3211: a graded garment's condition block is derived rather than
+  // prose. `ctx.grade` is already loaded here, so the caller does not have to
+  // learn a second way to ask.
+  return defaultBlocks({ graded: ctx.grade?.overall_score != null });
 }
 
 export interface PersistResult {

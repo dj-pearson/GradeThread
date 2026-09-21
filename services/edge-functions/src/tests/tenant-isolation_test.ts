@@ -5457,6 +5457,436 @@ Deno.test({
 });
 
 Deno.test({
+  // US-3174 (AC3): the planner router takes ids in the PATH -- a session id
+  // and a task id -- which is the shape US-268 exists for. Every one of them
+  // is resolved through an owner-verified parent before anything is read or
+  // written.
+  //
+  // A cross-tenant hit here is not a leak of a listing price. B would be
+  // driving A's work session: starting A's tasks, marking A's work complete,
+  // and abandoning A's evening. The history is the seller's record of their
+  // own hours, and a foreign write corrupts it silently.
+  name: "US-3174: B cannot read or drive A's work session",
+  ignore: !CONFIGURED,
+  fn: async () => {
+    const A_SESSION = Deno.env.get("TEST_USER_A_WORK_SESSION_ID") ??
+      "00000000-0000-4000-8000-0000000000a1";
+    const A_TASK = Deno.env.get("TEST_USER_A_WORK_TASK_ID") ??
+      "00000000-0000-4000-8000-0000000000a2";
+    const BASE_PATH = `${BASE}/api/flipdesk/planner`;
+
+    // Every session action, as B, against A's session.
+    for (const action of ["start", "pause", "resume", "complete", "abandon"]) {
+      const res = await fetch(`${BASE_PATH}/sessions/${A_SESSION}/${action}`, {
+        method: "POST",
+        headers: authHeaders(B_JWT!),
+        body: JSON.stringify({ revision: 1 }),
+      });
+      const body = (await res.json().catch(() => ({}))) as {
+        session?: { id?: string };
+        tasks?: unknown[];
+      };
+      assert(
+        [401, 403, 404, 409].includes(res.status),
+        `session ${action} on A's session should be refused, got ${res.status}`,
+      );
+      // Belt and braces: even a 409 must not carry A's session back. The
+      // stale-revision path deliberately returns state for the UI to recover
+      // from, and that path must never be reachable across a tenant.
+      assert(
+        body.session?.id !== A_SESSION,
+        `session ${action} leaked A's session to B`,
+      );
+      assertEquals(body.tasks ?? [], [], `session ${action} leaked A's tasks`);
+    }
+
+    // Every task action, as B, against A's task.
+    for (const action of ["start", "pause", "complete", "skip"]) {
+      const res = await fetch(`${BASE_PATH}/tasks/${A_TASK}/${action}`, {
+        method: "POST",
+        headers: authHeaders(B_JWT!),
+        body: JSON.stringify({ revision: 1, confirmed_minutes: 5 }),
+      });
+      const body = (await res.json().catch(() => ({}))) as { tasks?: unknown[] };
+      assert(
+        [401, 403, 404, 409].includes(res.status),
+        `task ${action} on A's task should be refused, got ${res.status}`,
+      );
+      assertEquals(body.tasks ?? [], [], `task ${action} leaked A's tasks`);
+    }
+
+    // B's own current session is B's, whatever they ask for.
+    const current = await fetch(`${BASE_PATH}/sessions/current`, {
+      headers: authHeaders(B_JWT!),
+    });
+    const currentBody = (await current.json().catch(() => ({}))) as {
+      session?: { id?: string } | null;
+    };
+    if (current.status === 200) {
+      assert(
+        currentBody.session === null || currentBody.session?.id !== A_SESSION,
+        "GET /sessions/current returned A's session to B",
+      );
+    }
+  },
+});
+
+Deno.test({
+  // US-3174 (AC3): creating a plan is the write that takes FOREIGN IDS in a
+  // list. B planning against A's inventory must not produce a session whose
+  // tasks point at A's garments -- that would put A's items on B's screen,
+  // with A's bin labels, which is a map of somebody else's storage.
+  //
+  // The route nulls an unowned id rather than 403ing the whole plan, so the
+  // assertion is that the id does not SURVIVE, not that the call fails.
+  name: "US-3174: B's plan cannot name A's items",
+  ignore: !CONFIGURED,
+  fn: async () => {
+    const A_ITEM = Deno.env.get("TEST_USER_A_ITEM_ID") ??
+      "00000000-0000-4000-8000-0000000000a3";
+    const res = await fetch(`${BASE}/api/flipdesk/planner/sessions`, {
+      method: "POST",
+      headers: authHeaders(B_JWT!),
+      body: JSON.stringify({
+        budget_minutes: 30,
+        work_context: "home",
+        available_tools: ["camera"],
+        // user_id and owner_user_id are named the way the columns are named on
+        // purpose: a handler reading either from the body would pass a lazier
+        // test than this one.
+        user_id: Deno.env.get("TEST_USER_A_ID") ?? null,
+        owner_user_id: Deno.env.get("TEST_USER_A_ID") ?? null,
+        tasks: [{ action_key: "measure", inventory_item_id: A_ITEM, item_title: "A's jacket" }],
+      }),
+    });
+    const body = (await res.json().catch(() => ({}))) as {
+      tasks?: { inventory_item_id?: string | null }[];
+      dropped_item_ids?: string[];
+    };
+    assert(
+      [200, 201, 400, 401, 403, 409, 500].includes(res.status),
+      `planner create should answer a known status, got ${res.status}`,
+    );
+    for (const task of body.tasks ?? []) {
+      assert(
+        task.inventory_item_id !== A_ITEM,
+        "B's plan stored a task pointing at A's item",
+      );
+    }
+    if (res.status === 201 && (body.dropped_item_ids ?? []).length > 0) {
+      assert(
+        body.dropped_item_ids!.includes(A_ITEM),
+        "the foreign id should be reported as dropped rather than silently gone",
+      );
+    }
+  },
+});
+
+Deno.test({
+  // US-3179 (AC1): the outcome read joins a seller's planning history to their
+  // SALES, which makes it the widest read in the planner router by some way.
+  //
+  // A hit here leaks money. Not an estimate or a task count: what another
+  // seller's garments sold for, what they paid, what the marketplace took and
+  // when each one settled. It is the books, reached through a planning route,
+  // and it would be a quiet read with nothing on either screen to show it
+  // happened.
+  //
+  // The route runs FOUR queries -- tasks, sessions, items and sales -- and each
+  // carries its own owner predicate, so like the observations case above this
+  // one cannot see a single predicate go. `AC3: every read and write is scoped
+  // on the owner` in flipdesk-planner_test.ts is the guard that can. What this
+  // asks is the question only real rows answer: can B's answer ever contain
+  // A's sale.
+  name: "US-3179: B's outcome read cannot reach A's sales",
+  ignore: !CONFIGURED,
+  fn: async () => {
+    const A_ID = Deno.env.get("TEST_USER_A_ID") ??
+      "00000000-0000-4000-8000-000000000001";
+    const PATH = `${BASE}/api/flipdesk/planner/outcomes`;
+
+    const shapes: { label: string; url: string; headers: HeadersInit }[] = [
+      { label: "plain", url: PATH, headers: authHeaders(B_JWT!) },
+      { label: "user_id filter", url: `${PATH}?user_id=eq.${A_ID}`, headers: authHeaders(B_JWT!) },
+      {
+        label: "workspace-owner header",
+        url: PATH,
+        headers: { ...authHeaders(B_JWT!), "X-Workspace-Owner": A_ID },
+      },
+    ];
+
+    const theirs: { sales: string[]; items: string[] }[] = [];
+    for (const shape of shapes) {
+      const res = await fetch(shape.url, { headers: shape.headers });
+      assert(
+        [200, 401, 403].includes(res.status),
+        `outcomes (${shape.label}) should answer a known status, got ${res.status}`,
+      );
+      if (res.status !== 200) continue;
+      const body = (await res.json().catch(() => ({}))) as {
+        sales?: { sale_id?: string; inventory_item_id?: string }[];
+        items?: { inventory_item_id?: string }[];
+      };
+      theirs.push({
+        sales: (body.sales ?? []).map((x) => String(x.sale_id)),
+        items: (body.items ?? []).map((x) => String(x.inventory_item_id)),
+      });
+    }
+
+    const aRes = await fetch(PATH, { headers: authHeaders(A_JWT!) });
+    if (aRes.status !== 200) return;
+    const aBody = (await aRes.json().catch(() => ({}))) as {
+      sales?: { sale_id?: string }[];
+      items?: { inventory_item_id?: string }[];
+    };
+    const aSales = new Set((aBody.sales ?? []).map((x) => String(x.sale_id)));
+    const aItems = new Set((aBody.items ?? []).map((x) => String(x.inventory_item_id)));
+
+    for (const [i, got] of theirs.entries()) {
+      assertEquals(
+        got.sales.filter((id) => aSales.has(id)),
+        [],
+        `B's outcomes (${shapes[i]!.label}) contained A's sale ids`,
+      );
+      assertEquals(
+        got.items.filter((id) => aItems.has(id)),
+        [],
+        `B's outcomes (${shapes[i]!.label}) contained A's item ids`,
+      );
+    }
+  },
+});
+
+Deno.test({
+  // US-3178 (AC4): the duration-learning read takes NO id and must never be
+  // steerable into another seller's history.
+  //
+  // WHAT A HIT HERE WOULD COST is not a leak of one row. Every future estimate
+  // B sees would be fitted to A's pace -- a median over A's confirmed minutes,
+  // presented to B as "your own" -- and nothing on the screen would say why
+  // their five-minute job now reads twelve. It would also be a durable read of
+  // how many hours another seller worked and when, which is their record
+  // rather than a listing price.
+  //
+  // The route answers a list with no id in it, so the falsifiable claim is
+  // that nothing in a query string, a header or a body can widen it. Every
+  // shape that could is tried, and then the two sellers' answers are compared
+  // for a shared task id, which is the only way a cross-tenant row could
+  // actually arrive.
+  //
+  // WHAT THIS CASE CANNOT CATCH, measured rather than assumed. The route runs
+  // TWO queries, and each carries its own owner predicate. Deleting ONE of
+  // them leaves this case green, because the other still filters the result.
+  // That is belt-and-braces working, and it is also why this case is not the
+  // only guard: `AC3: every read and write is scoped on the owner` in
+  // flipdesk-planner_test.ts reads the source and fails on a single missing
+  // predicate, where this one needs both gone before a row can actually
+  // cross. Neither is sufficient alone and the pair was checked both ways --
+  // one predicate removed: source guard red, this green; both removed: both
+  // red.
+  name: "US-3178: B's observation read cannot reach A's work history",
+  ignore: !CONFIGURED,
+  fn: async () => {
+    const A_ID = Deno.env.get("TEST_USER_A_ID") ??
+      "00000000-0000-4000-8000-000000000001";
+    const PATH = `${BASE}/api/flipdesk/planner/observations`;
+
+    const shapes: { label: string; url: string; headers: HeadersInit }[] = [
+      { label: "plain", url: PATH, headers: authHeaders(B_JWT!) },
+      {
+        label: "user_id filter",
+        url: `${PATH}?user_id=eq.${A_ID}`,
+        headers: authHeaders(B_JWT!),
+      },
+      {
+        label: "owner query param",
+        url: `${PATH}?owner_user_id=${A_ID}`,
+        headers: authHeaders(B_JWT!),
+      },
+      {
+        label: "workspace-owner header",
+        url: PATH,
+        headers: { ...authHeaders(B_JWT!), "X-Workspace-Owner": A_ID },
+      },
+    ];
+
+    const seen: string[][] = [];
+    for (const shape of shapes) {
+      const res = await fetch(shape.url, { headers: shape.headers });
+      assert(
+        [200, 401, 403].includes(res.status),
+        `observations (${shape.label}) should answer a known status, got ${res.status}`,
+      );
+      if (res.status !== 200) continue;
+      const body = (await res.json().catch(() => ({}))) as {
+        observations?: { task_id?: string; session_state?: string }[];
+      };
+      const rows = body.observations ?? [];
+      // Whatever comes back, it is completed work: the route filters both the
+      // task and the session state, and a row that is neither means the query
+      // widened.
+      for (const row of rows) {
+        assert(
+          row.session_state === undefined || row.session_state === "completed",
+          `observations (${shape.label}) returned a non-completed session`,
+        );
+      }
+      seen.push(rows.map((r) => String(r.task_id)));
+    }
+
+    // And A's own answer shares no task with any of B's.
+    const aRes = await fetch(PATH, { headers: authHeaders(A_JWT!) });
+    if (aRes.status === 200) {
+      const aBody = (await aRes.json().catch(() => ({}))) as {
+        observations?: { task_id?: string }[];
+      };
+      const aIds = new Set((aBody.observations ?? []).map((r) => String(r.task_id)));
+      for (const [i, ids] of seen.entries()) {
+        const shared = ids.filter((id) => aIds.has(id));
+        assertEquals(
+          shared,
+          [],
+          `B's observations (${shapes[i]!.label}) contained A's task ids`,
+        );
+      }
+    }
+  },
+});
+
+Deno.test({
+  // US-3166 (AC4): the Worth My Time settings routes take NO id at all -- the
+  // owner comes from the request context and nothing in a body or a query can
+  // choose whose row is read or written.
+  //
+  // That is the claim this case exists to falsify. It sends A's ids in B's
+  // patch body and then reads B's settings back: if any of them had steered
+  // the write, B's row would carry the values or A's row would have moved.
+  // A cross-tenant hit here is quiet and lasting -- the planner would fit
+  // every future plan to somebody else's tools, table and hourly target, and
+  // nothing on the screen would say why.
+  name: "US-3166: B's work-preferences patch cannot name A's workspace",
+  ignore: !CONFIGURED,
+  fn: async () => {
+    const A_ID = Deno.env.get("TEST_USER_A_ID") ??
+      "00000000-0000-4000-8000-000000000001";
+    const PATH = `${BASE}/api/flipdesk/work-preferences`;
+
+    const patch = await fetch(PATH, {
+      method: "PATCH",
+      headers: authHeaders(B_JWT!),
+      body: JSON.stringify({
+        // Every one of these is a field the route must ignore, named the way
+        // the column is named on purpose: a handler reading any of them from
+        // the body would pass a lazier test.
+        user_id: A_ID,
+        owner_user_id: A_ID,
+        workspace_owner_id: A_ID,
+        default_session_minutes: 45,
+        work_context: "phone_only",
+      }),
+    });
+    const patched = (await patch.json().catch(() => ({}))) as {
+      default_session_minutes?: number;
+      work_context?: string;
+    };
+    assert(
+      [200, 400, 401, 403, 500].includes(patch.status),
+      `work-preferences PATCH should answer 200/400/401/403/500, got ${patch.status}`,
+    );
+    if (patch.status === 200) {
+      // The write landed on B, so B sees it. The point is the read-back below.
+      assertEquals(patched.default_session_minutes, 45);
+      assertEquals(patched.work_context, "phone_only");
+    }
+
+    // And A is untouched. A reads their own settings with their own token; if
+    // B's body had steered the write, this is where it shows.
+    const aRead = await fetch(PATH, { headers: authHeaders(A_JWT!) });
+    const aPrefs = (await aRead.json().catch(() => ({}))) as {
+      default_session_minutes?: number;
+      work_context?: string;
+    };
+    if (aRead.status === 200 && patch.status === 200) {
+      assert(
+        aPrefs.work_context !== "phone_only" ||
+          aPrefs.default_session_minutes !== 45,
+        "A's settings carry exactly what B just wrote: the body chose the workspace",
+      );
+    }
+
+    // A GET takes no id either, so there is nothing to forge on the read side.
+    // Sending one anyway must not change the answer.
+    const forged = await fetch(`${PATH}?user_id=${encodeURIComponent(A_ID)}`, {
+      headers: authHeaders(B_JWT!),
+    });
+    const forgedBody = (await forged.json().catch(() => ({}))) as {
+      default_session_minutes?: number;
+    };
+    if (forged.status === 200 && patch.status === 200) {
+      assertEquals(
+        forgedBody.default_session_minutes,
+        45,
+        "a user_id in the query must be ignored; B still sees B's own settings",
+      );
+    }
+  },
+});
+
+Deno.test({
+  // US-3015 (AC11): the EasyPost onboarding route creates a referral customer
+  // and stores an API KEY that spends real postage money. It takes no sale id,
+  // so the only thing that decides whose account is touched is the owner id
+  // from the request context -- and this case exists to prove that a body
+  // claiming to be somebody else changes nothing.
+  //
+  // A cross-tenant hit here would be worse than a leaked read: B would either
+  // learn A's EasyPost customer id, or overwrite A's stored key with one B
+  // controls, and every label A buys afterwards would run on B's account.
+  name: "US-3015: B's EasyPost onboarding cannot touch A's account",
+  ignore: !CONFIGURED,
+  fn: async () => {
+    // A real id when the fixture supplies one; a well-formed uuid otherwise.
+    // Either way the route must ignore it -- the point is that a body cannot
+    // name the owner, not that this particular owner exists.
+    const A_ID = Deno.env.get("TEST_USER_A_ID") ??
+      "00000000-0000-4000-8000-000000000001";
+    const res = await fetch(`${BASE}/api/flipdesk/logistics/easypost/onboard`, {
+      method: "POST",
+      headers: authHeaders(B_JWT!),
+      // Every one of these is a field the route must ignore. They are named
+      // the way the columns are named on purpose: a handler that read any of
+      // them from the body would pass a lazier test.
+      body: JSON.stringify({
+        owner_user_id: A_ID,
+        user_id: A_ID,
+        easypost_user_id: "user_A_referral",
+        email: "a@example.test",
+      }),
+    });
+    const body = (await res.json().catch(() => ({}))) as {
+      easypost_user_id?: string;
+      api_key?: string;
+      error?: string;
+    };
+    // 501 when EASYPOST_API_KEY is unset on the deployment, which is every
+    // deployment until the owner sets it -- the handler returns before it
+    // touches any row. 409 when B's own account has no email. 200 when B is
+    // onboarded. None of those may carry A's id.
+    assert(
+      [200, 409, 501, 502].includes(res.status),
+      `easypost onboarding should answer 200/409/501/502, got ${res.status}`,
+    );
+    assert(
+      body.easypost_user_id !== "user_A_referral",
+      "a referral id from the request body must never be stored or returned",
+    );
+    // The API key never leaves the edge. A client that could read it could
+    // spend that seller's postage money from anywhere.
+    assertEquals(body.api_key ?? "", "", "the EasyPost API key must never be returned");
+  },
+});
+
+Deno.test({
   // US-2160 (AC4): the label routes are the highest-stakes writes in FlipDesk —
   // buying a label SPENDS the seller's money and voiding one changes what a
   // sale records as its shipping cost. A cross-tenant hit would let B charge A's
@@ -9684,5 +10114,201 @@ Deno.test({
     );
     await res.body?.cancel();
     assertDenied(res.status, "POST /api/flipdesk/listings/:id/not-listed");
+  },
+});
+
+Deno.test({
+  // US-3182 (AC5): every override and every suppression names an inventory
+  // item id that came out of a REQUEST BODY, which is the shape this file
+  // exists for.
+  //
+  // WHAT A HIT HERE WOULD COST is worse than a read. A suppression written
+  // against A's garment would hide A's own work from A's own planner -- and
+  // the one row it could hide is the pack-and-ship on a parcel somebody has
+  // already paid for. B would not see anything; A would find out from a
+  // late-shipment metric. An override is the quieter half: a planner minute
+  // or a planning value on a garment B has never seen.
+  //
+  // Every write goes through ownsItem(), so the falsifiable claim is that a
+  // foreign id is refused on ALL FOUR write routes rather than on the ones
+  // that were easy to remember. The reset routes are included deliberately:
+  // a delete that skipped the check would let B clear A's corrections, which
+  // leaves no row behind to notice.
+  name: "US-3182: B cannot correct or set aside A's item",
+  ignore: !CONFIGURED || !Deno.env.get("TEST_USER_A_ITEM_ID"),
+  fn: async () => {
+    const itemId = Deno.env.get("TEST_USER_A_ITEM_ID")!;
+    const A_ID = Deno.env.get("TEST_USER_A_ID") ??
+      "00000000-0000-4000-8000-000000000001";
+
+    const writes: { label: string; path: string; body: Record<string, unknown> }[] = [
+      {
+        label: "PUT /overrides (minutes)",
+        path: "/api/flipdesk/planner/overrides",
+        body: { inventory_item_id: itemId, kind: "task_minutes", amount_minutes: 5 },
+      },
+      {
+        label: "PUT /overrides (planning value)",
+        path: "/api/flipdesk/planner/overrides",
+        body: {
+          inventory_item_id: itemId,
+          kind: "value_range",
+          low_cents: 1,
+          high_cents: 2,
+          // owner_user_id in the body must be ignored: the route reads the
+          // owner from the request context and nothing else.
+          owner_user_id: A_ID,
+        },
+      },
+      {
+        label: "POST /overrides/reset",
+        path: "/api/flipdesk/planner/overrides/reset",
+        body: { inventory_item_id: itemId, kind: "task_minutes" },
+      },
+      {
+        label: "POST /suppressions (dismiss)",
+        path: "/api/flipdesk/planner/suppressions",
+        body: { inventory_item_id: itemId, kind: "dismiss" },
+      },
+      {
+        label: "POST /suppressions (snooze)",
+        path: "/api/flipdesk/planner/suppressions",
+        body: { inventory_item_id: itemId, kind: "snooze", owner_user_id: A_ID },
+      },
+      {
+        label: "POST /suppressions/reset",
+        path: "/api/flipdesk/planner/suppressions/reset",
+        body: { inventory_item_id: itemId },
+      },
+    ];
+
+    for (const w of writes) {
+      for (const headers of [
+        authHeaders(B_JWT!),
+        // And with A named in the workspace header, which is the other way a
+        // caller could try to borrow an owner.
+        { ...authHeaders(B_JWT!), "X-Workspace-Owner": A_ID },
+      ]) {
+        const res = await fetch(`${BASE}${w.path}`, {
+          method: w.path.endsWith("/overrides") ? "PUT" : "POST",
+          headers,
+          body: JSON.stringify(w.body),
+        });
+        await res.body?.cancel();
+        assertDenied(res.status, w.label);
+      }
+    }
+  },
+});
+
+Deno.test({
+  // US-3182 (AC5): the read side. GET /overrides takes no id, so the claim is
+  // that nothing in a query string or a header can widen it -- and then that
+  // the two sellers' answers share no item.
+  name: "US-3182: B's corrections read cannot reach A's",
+  ignore: !CONFIGURED,
+  fn: async () => {
+    const A_ID = Deno.env.get("TEST_USER_A_ID") ??
+      "00000000-0000-4000-8000-000000000001";
+    const PATH = `${BASE}/api/flipdesk/planner/overrides`;
+
+    const shapes: { label: string; url: string; headers: HeadersInit }[] = [
+      { label: "plain", url: PATH, headers: authHeaders(B_JWT!) },
+      {
+        label: "owner query param",
+        url: `${PATH}?owner_user_id=eq.${A_ID}`,
+        headers: authHeaders(B_JWT!),
+      },
+      {
+        label: "workspace-owner header",
+        url: PATH,
+        headers: { ...authHeaders(B_JWT!), "X-Workspace-Owner": A_ID },
+      },
+    ];
+
+    interface Book {
+      overrides?: { inventory_item_id?: string }[];
+      suppressions?: { inventory_item_id?: string }[];
+    }
+    const idsOf = (b: Book): string[] => [
+      ...(b.overrides ?? []).map((x) => String(x.inventory_item_id)),
+      ...(b.suppressions ?? []).map((x) => String(x.inventory_item_id)),
+    ];
+
+    const theirs: string[][] = [];
+    for (const shape of shapes) {
+      const res = await fetch(shape.url, { headers: shape.headers });
+      assert(
+        [200, 401, 403].includes(res.status),
+        `overrides (${shape.label}) should answer a known status, got ${res.status}`,
+      );
+      if (res.status !== 200) continue;
+      theirs.push(idsOf((await res.json().catch(() => ({}))) as Book));
+    }
+
+    const aRes = await fetch(PATH, { headers: authHeaders(A_JWT!) });
+    if (aRes.status !== 200) return;
+    const aIds = new Set(idsOf((await aRes.json().catch(() => ({}))) as Book));
+    for (const [i, ids] of theirs.entries()) {
+      assertEquals(
+        ids.filter((id) => aIds.has(id)),
+        [],
+        `B's corrections (${shapes[i]!.label}) contained A's item ids`,
+      );
+    }
+  },
+});
+
+Deno.test({
+  // US-3214 (AC5): the void is an operator surface that MOVES MONEY, so a
+  // seller must not be able to reach it at all.
+  //
+  // WHAT A HIT HERE WOULD COST. The route reverses a charge and releases the
+  // grading lock on a garment. Reachable by a seller, it is a way to have a
+  // grade run and then take the payment back; reachable by ONE seller against
+  // ANOTHER's submission id, it is a way to cancel a stranger's grade and
+  // return their credits to them at a moment of the caller's choosing.
+  //
+  // The route lives on the /api/admin/* group, which carries the admin gate,
+  // the standing AAL2 requirement and the grading scope. That is three
+  // separate reasons a seller's token should bounce, and this asks the
+  // question the only way that proves it: with a real seller token.
+  name: "US-3214: a seller cannot void a grading submission",
+  ignore: !CONFIGURED,
+  fn: async () => {
+    const A_ID = Deno.env.get("TEST_USER_A_ID") ??
+      "00000000-0000-4000-8000-000000000001";
+    const paths = [
+      `${BASE}/api/admin/grading/submissions/${A_ID}/void`,
+      // And the sibling that also reverses a charge, for the same reason.
+      `${BASE}/api/admin/grading/submissions/${A_ID}/mark-failed`,
+    ];
+    for (const path of paths) {
+      for (const headers of [
+        authHeaders(B_JWT!),
+        { ...authHeaders(B_JWT!), "X-Workspace-Owner": A_ID },
+      ]) {
+        const res = await fetch(path, {
+          method: "POST",
+          headers,
+          body: JSON.stringify({ reason: "not mine to void" }),
+        });
+        await res.body?.cancel();
+        assertDenied(res.status, `POST ${path}`);
+      }
+    }
+
+    // Unauthenticated too, since an operator route that answers a bare POST is
+    // worse than one that answers a seller's.
+    const bare = await fetch(paths[0]!, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ reason: "nobody" }),
+    });
+    await bare.body?.cancel();
+    assert(
+      [401, 403, 404].includes(bare.status),
+      `an unauthenticated void returned ${bare.status}; expected 401/403/404`,
+    );
   },
 });

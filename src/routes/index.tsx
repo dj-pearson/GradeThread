@@ -191,6 +191,7 @@ const ResellerGlossaryHubPage = lazy(() => import("@/pages/marketing/reseller-gl
 const ResellerGlossaryTermPage = lazy(() => import("@/pages/marketing/reseller-glossary").then(m => ({ default: m.ResellerGlossaryTermPage })));
 const FlipdeskOverviewPage = lazy(() => import("@/pages/flipdesk/overview").then(m => ({ default: m.FlipdeskOverviewPage })));
 const FlipdeskSearchPage = lazy(() => import("@/pages/flipdesk/search").then(m => ({ default: m.FlipdeskSearchPage })));
+const WorthMyTimePage = lazy(() => import("@/pages/flipdesk/worth-my-time").then(m => ({ default: m.WorthMyTimePage })));
 // US-958: unified Inventory surface — hosts the table/grid/kanban/prep views as
 // `?mode=` toggles on one route. The individual view page components
 // (listings/grid/pipeline/prep) are imported lazily by this container — they
@@ -610,6 +611,9 @@ export const router = createBrowserRouter([
               { path: "/dashboard/flipdesk", element: <SuspenseWrapper><FlipdeskOverviewPage /></SuspenseWrapper> },
               { path: "/dashboard/flipdesk/overview", element: <SuspenseWrapper><FlipdeskOverviewPage /></SuspenseWrapper> },
               { path: "/dashboard/flipdesk/search", element: <SuspenseWrapper><FlipdeskSearchPage /></SuspenseWrapper> },
+              // US-3175: Worth My Time. Authenticated, lazy, inside the existing
+              // FlipDesk shell -- never a public route.
+              { path: "/dashboard/flipdesk/worth-my-time", element: <SuspenseWrapper><WorthMyTimePage /></SuspenseWrapper> },
               // ── Consolidated Inventory surface ──────────────────────────
               // /inventory is the new canonical home (table view); /grid and
               // /kanban host the photo-card + pipeline shapes of the same data.

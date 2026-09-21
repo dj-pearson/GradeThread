@@ -1,6 +1,6 @@
 // US-2966: the ready-made description snippets a new seller can start from.
 //
-// `/dashboard/flipdesk/description-snippets` used to open on an empty page and
+// `/dashboard/flipdesk/settings/blocks` used to open on an empty page and
 // a button that said "Write your first snippet", which asks the seller to know
 // what a snippet is for before they have seen one. These nine are the lines
 // resellers actually repeat, written out, so the first click produces something

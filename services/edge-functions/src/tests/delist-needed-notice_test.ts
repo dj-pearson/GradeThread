@@ -110,10 +110,19 @@ Deno.test("US-3144: the push carries the one key both clients already parse", ()
       "(iOS) and PushCategory.DELIST_NEEDED (Android) byte for byte, or the tap " +
       "routes nowhere and the push is a dead end.",
   );
+  // US-3275 routed every sender's ids through idFields(), so this reads the
+  // PROPERTY rather than the old literal `inventory_item_id: opts.itemId`.
+  // The key's spelling is pinned in push-payload-ids_test.ts, against the
+  // Swift that parses it.
   assert(
-    /inventory_item_id: opts\.itemId/.test(fn),
+    /idFields\(\{ inventoryItemId: opts\.itemId \}\)/.test(fn) ||
+      /inventory_item_id: opts\.itemId/.test(fn),
     "the item id no longer rides in data.inventory_item_id — the ONE key both " +
       "DeepLinkRoute.from (iOS) and PushCategory.route (Android) read",
+  );
+  assert(
+    /out\.inventory_item_id = ids\.inventoryItemId/.test(PUSH),
+    "idFields no longer maps inventoryItemId to the inventory_item_id key",
   );
   assert(
     /collapseId: `delist-\$\{opts\.itemId\}`/.test(fn),

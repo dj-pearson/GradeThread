@@ -40,6 +40,50 @@ async function safePush(
   }
 }
 
+
+/**
+ * US-3275: the ids a notification ACTION needs, stamped into `data`.
+ *
+ * ⚠ WHY THIS EXISTS AND WHAT IT COST. Every sender here shipped
+ * `data: { kind }` and nothing else, so iOS could not build a real inline
+ * action from any of them. US-3274 found what a seller actually saw: an offer
+ * notification with an Accept button, a Face ID prompt (accept and counter are
+ * `.authenticationRequired` because they move money), and then the app opening
+ * on the inbox with nothing accepted. They authenticated for nothing. iOS now
+ * HIDES a button whose payload cannot serve it, which is why stamping the ids
+ * is what brings them back.
+ *
+ * ⚠ THE KEY NAMES ARE A WIRE CONTRACT. `best_offer_id`, `inventory_item_id`
+ * and `sale_id` are matched by name in
+ * NotificationActionID.requiredPayloadKeys and in DeepLinkRoute.from on iOS,
+ * and by PushCategory.route on Android. Renaming one here silently disables
+ * the button on every installed app.
+ *
+ * Absent ids are OMITTED rather than sent as null: iOS tests membership of the
+ * key, so a null would read as present and re-enable a button that still
+ * cannot work.
+ */
+export interface PushIds {
+  /** The marketplace's own offer id. Accept and Counter act on it. */
+  bestOfferId?: string | null;
+  /** The local inventory item, for a targeted deep link. */
+  inventoryItemId?: string | null;
+  /** The local sale row. Mark shipped closes it. */
+  saleId?: string | null;
+  /** The external id of the return, inquiry, case, cancellation or dispute. */
+  caseId?: string | null;
+}
+
+/** The `data` entries for whichever ids are present. */
+function idFields(ids: PushIds | undefined): Record<string, string> {
+  const out: Record<string, string> = {};
+  if (ids?.bestOfferId) out.best_offer_id = ids.bestOfferId;
+  if (ids?.inventoryItemId) out.inventory_item_id = ids.inventoryItemId;
+  if (ids?.saleId) out.sale_id = ids.saleId;
+  if (ids?.caseId) out.case_id = ids.caseId;
+  return out;
+}
+
 /** A submission was flagged for human review (low confidence / partial failure). */
 export function pushReviewNeeded(userId: string, title?: string | null): Promise<void> {
   return safePush(userId, {
@@ -62,12 +106,18 @@ export function pushTokenExpiring(userId: string): Promise<void> {
 }
 
 /** A new sale was recorded from a marketplace sync. */
-export function pushSaleCreated(userId: string, title?: string | null): Promise<void> {
+export function pushSaleCreated(
+  userId: string,
+  title?: string | null,
+  ids?: PushIds,
+): Promise<void> {
   return safePush(userId, {
     title: "You made a sale 🎉",
     body: title ? `"${title}" just sold.` : "An item just sold.",
     category: "sale.created",
-    data: { kind: "sale_created" },
+    // US-3275 AC2: sale_id is what Mark shipped acts on, and there is no
+    // separate shipping push -- this notification IS the shipping prompt.
+    data: { kind: "sale_created", ...idFields(ids) },
   });
 }
 
@@ -101,12 +151,18 @@ export function pushPayoutCleared(userId: string, count: number): Promise<void> 
 // contract as the helpers above.
 
 /** A buyer sent an offer on one of the seller's listings. */
-export function pushOfferReceived(userId: string, itemTitle?: string | null): Promise<void> {
+export function pushOfferReceived(
+  userId: string,
+  itemTitle?: string | null,
+  ids?: PushIds,
+): Promise<void> {
   return safePush(userId, {
     title: "New offer",
     body: itemTitle ? `A buyer sent an offer on "${itemTitle}".` : "You received a new offer.",
     category: "offer.received",
-    data: { kind: "offer_received" },
+    // US-3275 AC1: Accept and Counter need both ids -- the offer to act on and
+    // the item to land on if the seller opens it instead.
+    data: { kind: "offer_received", ...idFields(ids) },
   });
 }
 
@@ -125,12 +181,12 @@ export function pushOfferResponded(
 }
 
 /** A buyer opened a return. */
-export function pushReturnOpened(userId: string, itemLabel?: string | null): Promise<void> {
+export function pushReturnOpened(userId: string, itemLabel?: string | null, ids?: PushIds): Promise<void> {
   return safePush(userId, {
     title: "Return opened",
     body: itemLabel ? `A buyer opened a return on ${itemLabel}.` : "A buyer opened a return.",
     category: "return.opened",
-    data: { kind: "return_opened" },
+    data: { kind: "return_opened", ...idFields(ids) },
   });
 }
 
@@ -142,26 +198,26 @@ export function pushReturnOpened(userId: string, itemLabel?: string | null): Pro
  * an INR inquiry wants tracking supplied. A seller who reads "return opened"
  * goes to the wrong screen.
  */
-export function pushInquiryOpened(userId: string, orderLabel?: string | null): Promise<void> {
+export function pushInquiryOpened(userId: string, orderLabel?: string | null, ids?: PushIds): Promise<void> {
   return safePush(userId, {
     title: "Item not received",
     body: orderLabel
       ? `A buyer says ${orderLabel} never arrived. Add tracking before it escalates.`
       : "A buyer says their order never arrived. Add tracking before it escalates.",
     category: "inquiry.opened",
-    data: { kind: "inquiry_opened" },
+    data: { kind: "inquiry_opened", ...idFields(ids) },
   });
 }
 
 /** US-2929: an inquiry or return the buyer escalated to eBay. This one carries a defect. */
-export function pushCaseOpened(userId: string, orderLabel?: string | null): Promise<void> {
+export function pushCaseOpened(userId: string, orderLabel?: string | null, ids?: PushIds): Promise<void> {
   return safePush(userId, {
     title: "eBay case opened",
     body: orderLabel
       ? `A buyer escalated ${orderLabel} to eBay. Losing a case counts against your account.`
       : "A buyer escalated an order to eBay. Losing a case counts against your account.",
     category: "case.opened",
-    data: { kind: "case_opened" },
+    data: { kind: "case_opened", ...idFields(ids) },
   });
 }
 
@@ -169,6 +225,7 @@ export function pushCaseOpened(userId: string, orderLabel?: string | null): Prom
 export function pushPostSaleDeadline(
   userId: string,
   orderLabel?: string | null,
+  ids?: PushIds,
 ): Promise<void> {
   return safePush(userId, {
     title: "eBay deadline is close",
@@ -176,7 +233,7 @@ export function pushPostSaleDeadline(
       ? `An open case on ${orderLabel} needs your answer before eBay decides it.`
       : "An open eBay case needs your answer before eBay decides it.",
     category: "case.deadline",
-    data: { kind: "case_deadline" },
+    data: { kind: "case_deadline", ...idFields(ids) },
   });
 }
 
@@ -184,6 +241,7 @@ export function pushPostSaleDeadline(
 export function pushCancellationRequested(
   userId: string,
   orderLabel?: string | null,
+  ids?: PushIds,
 ): Promise<void> {
   return safePush(userId, {
     title: "Cancellation requested",
@@ -191,19 +249,19 @@ export function pushCancellationRequested(
       ? `A buyer asked to cancel ${orderLabel}. Approve or reject before eBay does.`
       : "A buyer asked to cancel an order. Approve or reject before eBay does.",
     category: "cancellation.requested",
-    data: { kind: "cancellation_requested" },
+    data: { kind: "cancellation_requested", ...idFields(ids) },
   });
 }
 
 /** A payment dispute / chargeback was opened — deadline-bearing. */
-export function pushDisputeOpened(userId: string, orderLabel?: string | null): Promise<void> {
+export function pushDisputeOpened(userId: string, orderLabel?: string | null, ids?: PushIds): Promise<void> {
   return safePush(userId, {
     title: "Payment dispute opened",
     body: orderLabel
       ? `A payment dispute was opened on ${orderLabel} — respond before the deadline.`
       : "A payment dispute was opened — respond before the deadline.",
     category: "dispute.opened",
-    data: { kind: "dispute_opened" },
+    data: { kind: "dispute_opened", ...idFields(ids) },
   });
 }
 
@@ -238,10 +296,9 @@ export function pushDelistNeeded(
       ? `${what} sold — ${opts.count} other listings are still live. End them before it sells twice.`
       : `${what} sold — one other listing is still live. End it before it sells twice.`,
     category: "delist.needed",
-    data: {
-      kind: "delist_needed",
-      ...(opts.itemId ? { inventory_item_id: opts.itemId } : {}),
-    },
+    // US-3275: through idFields like every other sender, so there is one
+    // mechanism for "which ids ride in the payload" rather than two.
+    data: { kind: "delist_needed", ...idFields({ inventoryItemId: opts.itemId }) },
     // Keyed on the item so a re-send replaces the last one instead of stacking.
     ...(opts.itemId ? { collapseId: `delist-${opts.itemId}` } : {}),
   });
