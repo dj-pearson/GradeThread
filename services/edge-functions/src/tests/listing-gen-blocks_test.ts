@@ -141,7 +141,10 @@ Deno.test("AC3: the three fields come from ONE tool call, so cost is unchanged",
 // ─── AC4: the concatenation chain is gone ──────────────────────────
 
 Deno.test("AC4: generation builds blocks and no longer concatenates a description", () => {
-  assertStringIncludes(aiListingSrc, "const descriptionBlocks = defaultBlocks().map(");
+  // US-3211: defaultBlocks now takes the graded flag, so the call is
+  // `defaultBlocks({ graded }).map(`. Matched loosely on the argument so a
+  // later option cannot break this while the invariant below still holds.
+  assertStringIncludes(aiListingSrc, "const descriptionBlocks = defaultBlocks(");
   // US-2967 put a second array between the AI blocks and the render, so this
   // pins the INVARIANT rather than the name: exactly one renderDescription
   // call, and whatever array it renders is the array the upsert stores. That is

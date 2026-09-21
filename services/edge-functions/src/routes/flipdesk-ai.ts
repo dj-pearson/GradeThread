@@ -1,3 +1,4 @@
+import { groundProse, ocrTextFrom } from "../lib/listing-grounding.ts";
 import { Hono } from "hono";
 import { supabaseAdmin } from "../lib/supabase.ts";
 import {
@@ -1408,7 +1409,10 @@ flipdeskAiRoutes.post("/listing-copy", async (c) => {
   const { data: item } = await supabaseAdmin
     .from("inventory_items")
     .select(
-      "id, user_id, title, brand, style, size, color, material, item_category, condition_notes, measurements"
+      // US-3211: ai_field_sources and grade_report_id join the select so the
+      // grounding check can tell an invented fibre from one the tag actually
+      // said. Both are already on the row; this costs no extra query.
+      "id, user_id, title, brand, style, size, color, material, item_category, condition_notes, measurements, ai_field_sources, grade_report_id"
     )
     .eq("id", itemId)
     .single();
@@ -1477,14 +1481,77 @@ flipdeskAiRoutes.post("/listing-copy", async (c) => {
 
   const actionsRemaining =
     quota.limit === -1 ? -1 : Math.max(0, quota.limit - quota.used - 1);
+
+  // ── US-3211 AC3: the prose may not claim a fact the row cannot back ──
+  //
+  // A seller reported an AI writing "linen blend" for garments with no linen
+  // in them, and buyers treat an invented fibre content as grounds for a
+  // return. So the generated description is checked against the item row, the
+  // tag OCR in ai_field_sources and the grade report before it is returned,
+  // and what went is reported rather than quietly removed -- a seller who is
+  // not told will paste the missing sentence back.
+  const grounding = groundProse(result.description ?? "", {
+    brand: item.brand,
+    size: item.size,
+    material: item.material,
+    color: item.color,
+    style: item.style,
+    title: item.title,
+    conditionNotes: item.condition_notes,
+    ocrText: ocrTextFrom(item.ai_field_sources),
+    gradeText: await gradeTextFor(item.grade_report_id as string | null),
+  });
+  if (grounding.removed.length > 0) {
+    console.warn(
+      `[flipdesk-ai] grounding removed ${grounding.removed.length} claim(s) ` +
+        `from listing copy (item ${itemId}): ` +
+        grounding.removed.map((r) => `${r.kind}:${r.token}`).join(", "),
+    );
+  }
+
   return c.json({
     title: result.title,
-    description: result.description,
+    description: grounding.text,
     model: result.model,
     log_id: logRow?.id ?? null,
     actions_remaining: actionsRemaining,
+    grounding: {
+      removed: grounding.removed,
+      version: grounding.version,
+    },
   });
 });
+
+/**
+ * The grade report's own words, for the grounding check (US-3211 AC3).
+ *
+ * Owner-scoped (US-268) and best-effort: a report that cannot be read leaves
+ * the facts narrower, which makes the check STRICTER rather than looser. That
+ * is the safe direction -- the failure it produces is a true sentence removed,
+ * not an invented one kept.
+ */
+async function gradeTextFor(reportId: string | null): Promise<string[]> {
+  if (!reportId) return [];
+  // ⚠ US-268, BY PARENT. grade_reports carries no user_id -- ownership runs
+  // through submissions -- and the report id reaching this function came off
+  // an inventory_items row this route already proved the caller owns. That is
+  // the ownership check; a `.eq("user_id", ...)` here would name a column the
+  // table does not have, which PostgREST refuses with a 400 that reads like
+  // an empty result. (The first draft did exactly that, and
+  // edge-writes-real-columns_test.ts caught it.)
+  const { data } = await supabaseAdmin
+    .from("grade_reports")
+    .select("ai_summary, detailed_notes, defects_found")
+    .eq("id", reportId)
+    .maybeSingle();
+  if (!data) return [];
+  const row = data as Record<string, unknown>;
+  return [
+    typeof row.ai_summary === "string" ? row.ai_summary : "",
+    JSON.stringify(row.detailed_notes ?? ""),
+    JSON.stringify(row.defects_found ?? ""),
+  ].filter((v) => v.trim() !== "");
+}
 
 /**
  * POST /rewrite

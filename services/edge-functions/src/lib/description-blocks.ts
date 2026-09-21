@@ -192,6 +192,27 @@ function renderGrade(ctx: RenderContext): string {
   return `Graded by GradeThread — Condition Grade ${score.toFixed(1)}`;
 }
 
+/**
+ * The condition line for a graded garment (US-3211 AC2).
+ *
+ * Returns "" when there is no grade, which is what makes the block safe to
+ * carry src "grade" on an item whose grade was later removed: it contributes
+ * nothing rather than rendering a sentence about a score that is gone.
+ */
+function renderDerivedCondition(ctx: RenderContext): string {
+  const score = ctx.grade?.overall_score;
+  if (score == null || !Number.isFinite(score)) return "";
+  const tier = ctx.grade?.disclosure?.grade_tier?.trim();
+  const head = tier
+    ? `Condition: ${tier} — ${score.toFixed(1)} / 10`
+    : `Condition: ${score.toFixed(1)} / 10`;
+  const factors = (ctx.grade?.factors ?? [])
+    .filter((f) => typeof f.score === "number" && Number.isFinite(f.score))
+    .map((f) => `${String(f.label ?? "").trim()} ${Number(f.score).toFixed(1)}`)
+    .filter((l) => l.trim() !== "");
+  return factors.length > 0 ? `${head}\n- ${factors.join("\n- ")}` : head;
+}
+
 function renderFacts(ctx: RenderContext): string {
   const { html } = buildListingFactsBlock({
     grade: ctx.grade?.overall_score ?? null,
@@ -208,9 +229,21 @@ function renderFacts(ctx: RenderContext): string {
 /** One block's content, with no separator. "" means it contributes nothing. */
 export function renderBlock(block: DescriptionBlock, ctx: RenderContext): string {
   switch (block.key) {
+    case "condition":
+      // US-3211: a graded garment's condition line is DERIVED. The tier and
+      // the factor scores are the grade report's own numbers, so the line
+      // cannot drift from the certificate beside it.
+      //
+      // ⚠ NOT buildDisclosure(). The disclosure block below already emits its
+      // full output -- the heading, the score, and every documented flaw --
+      // and calling it here as well would print the flaw list twice in one
+      // description. What AC2 asks for is the tier and the factors, and this
+      // is them, on one line, above the prose.
+      if (block.src === "grade") return renderDerivedCondition(ctx);
+      return (block.text ?? "").trim();
+
     case "intro":
     case "features":
-    case "condition":
     case "text":
       return (block.text ?? "").trim();
 
@@ -408,16 +441,48 @@ export function renderSegments(
   return out;
 }
 
-/** The starting order for a newly generated listing. */
-export function defaultBlocks(): DescriptionBlock[] {
+export interface DefaultBlockOptions {
+  /**
+   * True when the item carries a grade_report_id.
+   *
+   * It decides ONE thing: whether the condition block is derived from the
+   * grade or holds AI prose. A graded garment has a condition answer nobody
+   * has to take on trust, and prose about it is a second opinion that can
+   * disagree with the certificate on the same page.
+   */
+  graded?: boolean;
+}
+
+/**
+ * The starting order for a newly generated listing (US-3211 AC2).
+ *
+ * ⚠ FACTS FIRST, PROSE LAST, AND THAT IS THE WHOLE STORY. Buyers on r/Ebay
+ * say they skip a listing the moment it reads as AI, and treat an AI
+ * description as grounds for a return -- three threads, 900+ combined
+ * upvotes, quoted in vault/50-business/competitors/forum-sentiment.md section
+ * 8. Attributes, condition, measurements and the flaw disclosure are things
+ * the seller can point at; intro and features are the part a buyer scrolls
+ * past. So the checkable half now comes first and the prose follows it.
+ *
+ * ⚠ EXISTING LISTINGS ARE NOT REORDERED. This function is the default for a
+ * NEW description. A listing already in the wild keeps the order its blocks
+ * are stored in, because reordering on open would rewrite the description of
+ * every listing a seller merely LOOKED at -- the same rule the `sep` field
+ * exists to protect.
+ */
+export function defaultBlocks(opts: DefaultBlockOptions = {}): DescriptionBlock[] {
   return [
+    { key: "attributes", on: true, src: "item", fields: [...DEFAULT_ATTRIBUTE_FIELDS] },
+    // Derived from the grade when there is one. `src` is what renderBlock
+    // switches on, so this is the whole of that rule.
+    opts.graded
+      ? { key: "condition", on: true, src: "grade" as const }
+      : { key: "condition", on: true, src: "ai" as const, text: "" },
+    { key: "measurements", on: true, src: "item" },
+    { key: "disclosure", on: true, src: "grade" },
     { key: "intro", on: true, src: "ai", text: "" },
     { key: "features", on: true, src: "ai", text: "" },
-    { key: "attributes", on: true, src: "item", fields: [...DEFAULT_ATTRIBUTE_FIELDS] },
-    { key: "condition", on: true, src: "ai", text: "" },
-    { key: "measurements", on: true, src: "item" },
     { key: "grade", on: false, src: "grade" },
-    { key: "disclosure", on: true, src: "grade" },
     { key: "credentials", on: true, src: "seller" },
     { key: "facts", on: true, src: "system" },
   ];
@@ -552,12 +617,37 @@ export function parseLegacyDescription(
 
   const pushText = (raw: string) => {
     if (!raw) return;
-    const body = raw.replace(/\s+$/, "");
+    // ⚠ LEADING WHITESPACE BELONGS IN `sep`, NOT IN THE BODY (US-3211).
+    //
+    // renderBlock trims a `text` block, so whitespace left at the front of
+    // the body is thrown away on the way out while `sep` stays empty -- and
+    // the re-render glues the prose to whatever marker preceded it, with no
+    // blank line between them.
+    //
+    // It could not happen before the block order changed: every free-text
+    // block sat BEFORE the first marker region, where the slice starts at
+    // zero and has nothing in front of it. Facts-first puts prose AFTER the
+    // measurements block, which is the first time this path is walked with a
+    // leading separator, and the round-trip case in description-blocks_test.ts
+    // caught it immediately. It is a live defect for any listing already in
+    // that shape, not only for the new default.
+    const lead = /^\s+/.exec(raw)?.[0] ?? "";
+    const rest = raw.slice(lead.length);
+    const body = rest.replace(/\s+$/, "");
     if (body) {
-      blocks.push({ key: "text", on: true, src: "user", text: body, sep: carry });
+      blocks.push({
+        key: "text",
+        on: true,
+        src: "user",
+        text: body,
+        sep: carry + lead,
+      });
       carry = "";
+    } else {
+      // The whole slice was whitespace: all of it carries forward.
+      carry += lead;
     }
-    carry += raw.slice(body.length);
+    carry += rest.slice(body.length);
   };
 
   for (const region of regions) {

@@ -12,6 +12,7 @@
 //      "usually clean" title is the failure this surface cannot have;
 //   3. the response shape, because the narrowing is what keeps a price or a
 //      category id from reaching an anonymous caller by being added upstream.
+import { defaultBlocks } from "../lib/description-blocks.ts";
 import assert from "node:assert/strict";
 
 import {
@@ -282,18 +283,18 @@ Deno.test("US-3088: the render context carries the caller's hints and NO grade",
 });
 
 Deno.test("US-3088: blocks keep the paid default order", () => {
+  // The point of this case is PARITY with the paid path, not a particular
+  // order, so it reads the paid default rather than restating it. US-3211
+  // reversed that order (facts before prose) and this case restated the old
+  // one, which is how a parity test stops testing parity.
   const ctx = freeDraftRenderContext(INPUT);
   const keys = freeDraftBlocks(
     { intro: "a", features: "b", condition: "c" },
     ctx,
   ).map((b) => b.key);
-  assert.deepEqual(keys.slice(0, 5), [
-    "intro",
-    "features",
-    "attributes",
-    "condition",
-    "measurements",
-  ]);
+  assert.deepEqual(keys.slice(0, 5), defaultBlocks().map((b) => b.key).slice(0, 5));
+  // And the property that order exists for.
+  assert.ok(keys.indexOf("attributes") < keys.indexOf("intro"));
 });
 
 // ── The log line ─────────────────────────────────────────────────────

@@ -11,6 +11,14 @@ import {
   useListingVoice,
   useSetListingVoice,
 } from "@/hooks/use-listing-voice";
+import {
+  LISTING_VOICE_PRESET_BLURBS,
+  LISTING_VOICE_PRESET_LABELS,
+  LISTING_VOICE_PRESETS,
+  presetFor,
+  STANDARD_SENTINEL,
+  type ListingVoicePreset,
+} from "@/lib/listing-voice-presets";
 
 // US-3201: how the seller wants their listing copy to sound.
 //
@@ -34,6 +42,30 @@ export function ListingVoiceSetting() {
   const { data: stored, isLoading } = useListingVoice();
   const save = useSetListingVoice();
   const [draft, setDraft] = useState("");
+  // US-3211 AC4: which of the three the seller is on. Derived from the stored
+  // value rather than held separately, so two tabs cannot disagree about it.
+  const preset: ListingVoicePreset = presetFor(stored);
+
+  async function choose(next: ListingVoicePreset) {
+    if (next === preset) return;
+    // "Your own words" is not a value: it is the state of having typed one,
+    // so picking it only opens the box.
+    if (next === "custom") {
+      setDraft(stored?.trim() === STANDARD_SENTINEL ? "" : (stored ?? ""));
+      return;
+    }
+    try {
+      await save.mutateAsync(next === "standard" ? STANDARD_SENTINEL : "");
+      setDraft("");
+      toast.success(
+        next === "standard"
+          ? "Back to the standard voice."
+          : "Descriptions will lead with the facts.",
+      );
+    } catch (err) {
+      toastError(err, "That was not saved.");
+    }
+  }
 
   // Seed from the stored value once it arrives, and re-seed if it changes
   // under us (another tab, another device).
@@ -69,6 +101,29 @@ export function ListingVoiceSetting() {
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">
+        <div
+          role="radiogroup"
+          aria-label="Listing voice"
+          className="flex flex-wrap gap-2"
+        >
+          {LISTING_VOICE_PRESETS.map((p) => (
+            <Button
+              key={p}
+              type="button"
+              role="radio"
+              aria-checked={preset === p}
+              variant={preset === p ? "default" : "outline"}
+              size="sm"
+              disabled={isLoading || save.isPending}
+              onClick={() => void choose(p)}
+            >
+              {LISTING_VOICE_PRESET_LABELS[p]}
+            </Button>
+          ))}
+        </div>
+        <p className="text-xs text-muted-foreground">
+          {LISTING_VOICE_PRESET_BLURBS[preset]}
+        </p>
         <Label htmlFor="listing-voice" className="sr-only">
           Your listing voice
         </Label>
@@ -78,7 +133,7 @@ export function ListingVoiceSetting() {
           onChange={(e) => setDraft(e.target.value)}
           placeholder={PLACEHOLDER}
           rows={4}
-          disabled={isLoading}
+          disabled={isLoading || preset === "standard"}
           aria-describedby="listing-voice-count"
         />
         <div className="flex flex-wrap items-center justify-between gap-2">

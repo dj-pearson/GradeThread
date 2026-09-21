@@ -13,6 +13,8 @@
 // write. Activation of a DB override is gated by the eval harness + the
 // listing_gen seed row in migration 00053.
 
+import { groundProse, type GroundingFacts } from "./listing-grounding.ts";
+import { resolveVoicePrompt } from "./listing-voice-presets.ts";
 import Anthropic from "@anthropic-ai/sdk";
 import {
   ASPECT_REGISTRY,
@@ -1001,10 +1003,12 @@ export async function loadListingVoice(ownerId: string): Promise<string | null> 
     .select("listing_voice_prompt")
     .eq("user_id", ownerId) // US-268
     .maybeSingle();
+  // US-3211 AC4: an untouched row resolves to the Plain facts preset rather
+  // than to nothing. A read that FAILED still resolves to null, because a
+  // preference we could not load must not change the copy.
   if (error) return null;
   const raw = (data as { listing_voice_prompt: string | null } | null)?.listing_voice_prompt;
-  const text = (raw ?? "").trim();
-  return text === "" ? null : text;
+  return resolveVoicePrompt(raw);
 }
 
 /** Hard cap, mirroring the CHECK on flipdesk_settings.listing_voice_prompt. */
@@ -3319,7 +3323,23 @@ export async function generateListing(
     features: listing.description_features,
     condition: listing.description_condition,
   };
-  const descriptionBlocks = defaultBlocks().map((block) => {
+  // US-3211: facts first, and a graded garment's condition comes from the
+  // grade rather than from the model. A derived condition block carries no
+  // text, so the model's condition prose is dropped on that path rather than
+  // stored where nothing renders it.
+  const graded = descriptionCtx.grade?.overall_score != null;
+  const groundingFacts: GroundingFacts = {
+    brand: descriptionCtx.item.brand,
+    size: descriptionCtx.item.size,
+    material: descriptionCtx.item.material,
+    color: descriptionCtx.item.color,
+    style: descriptionCtx.item.style,
+    title: listing.title,
+    conditionNotes: descriptionCtx.conditionDescription,
+    gradeText: (descriptionCtx.grade?.factors ?? []).map((f) => String(f.label ?? "")),
+  };
+  const descriptionBlocks = defaultBlocks({ graded }).map((block) => {
+    if (block.src !== "ai") return block;
     const raw = aiText[block.key];
     if (raw === undefined) return block;
     const cleaned = scrubRestatedFacts(raw, descriptionCtx);
@@ -3328,7 +3348,20 @@ export async function generateListing(
         `[AI Listing] scrubbed restated facts from description_${block.key} (item ${itemId})`,
       );
     }
-    return { ...block, text: cleaned };
+    // US-3211 AC5: the same grounding the /listing-copy route applies, so the
+    // AutoLister draft cannot carry a fibre the tag never said while the
+    // composer's copy is checked. scrubRestatedFacts is a different job -- it
+    // removes facts a derived block ALREADY shows; this removes facts nothing
+    // can show, because they are not true of the garment.
+    const g = groundProse(cleaned, groundingFacts);
+    if (g.removed.length > 0) {
+      console.warn(
+        `[AI Listing] grounding removed ${g.removed.length} claim(s) from ` +
+          `description_${block.key} (item ${itemId}): ` +
+          g.removed.map((r) => `${r.kind}:${r.token}`).join(", "),
+      );
+    }
+    return { ...block, text: g.text };
   });
 
   // US-2967: the seller's saved template adds its boilerplate as a block, in

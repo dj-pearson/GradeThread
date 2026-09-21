@@ -134,12 +134,32 @@ Deno.test("features and condition switch off so the eBay copy cannot double up",
 });
 
 Deno.test("a listing whose intro block was deleted still carries the prose", () => {
+  // US-3211 AC5: it used to be unshifted to the TOP, which gave a seller with
+  // a deleted intro facts-first on eBay and prose-first on every channel that
+  // falls back to this path. It now lands where the intro would have been --
+  // after the blocks a buyer can check.
   const blocks: DescriptionBlock[] = [
     { key: "attributes", on: true, src: "item" },
   ];
   const out = renderPlatformDescription(blocks, ctx(), { prose: PROSE });
-  assert(out.startsWith(PROSE), out);
   assertStringIncludes(out, "- Brand: Veronica Beard");
+  assertStringIncludes(out, PROSE);
+  assert(
+    out.indexOf("- Brand: Veronica Beard") < out.indexOf(PROSE),
+    `the prose came before the attributes:\n${out}`,
+  );
+});
+
+Deno.test("US-3211 AC5: a platform description is facts-first, like eBay's", () => {
+  // The whole of AC5's first half: the same block order reaches every
+  // channel, so a seller does not get one shape on eBay and another on
+  // Poshmark.
+  const blocks = defaultBlocks();
+  const out = renderPlatformDescription(blocks, ctx(), { prose: null });
+  const attrs = out.indexOf("- Brand: Veronica Beard");
+  const prose = out.indexOf("eBay intro");
+  assert(attrs >= 0, out);
+  if (prose >= 0) assert(attrs < prose, `prose came first:\n${out}`);
 });
 
 Deno.test("no prose leaves the block array alone", () => {

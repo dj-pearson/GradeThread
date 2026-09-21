@@ -428,13 +428,16 @@ export type { DescriptionBlock, DescriptionBlockKey, DescriptionBlockSource };
  * ask the server about. Frozen because the hook holds it by identity.
  */
 export const DEFAULT_DESCRIPTION_BLOCKS: readonly DescriptionBlock[] = Object.freeze([
-  { key: "intro", on: true, src: "ai", text: "" },
-  { key: "features", on: true, src: "ai", text: "" },
+  // US-3211: facts first, prose last. The order below is the server's
+  // ungraded default, key for key; src/test/description-block-parity.test.ts
+  // fails if the two drift.
   { key: "attributes", on: true, src: "item", fields: ["brand", "size", "color", "material"] },
   { key: "condition", on: true, src: "ai", text: "" },
   { key: "measurements", on: true, src: "item" },
-  { key: "grade", on: false, src: "grade" },
   { key: "disclosure", on: true, src: "grade" },
+  { key: "intro", on: true, src: "ai", text: "" },
+  { key: "features", on: true, src: "ai", text: "" },
+  { key: "grade", on: false, src: "grade" },
   { key: "credentials", on: true, src: "seller" },
   { key: "facts", on: true, src: "system" },
 ] as DescriptionBlock[]);

@@ -76,13 +76,18 @@ describe("setBlockTextAt (US-2960)", () => {
 
 describe("moveBlock (US-2960)", () => {
   it("reorders two movable rows", () => {
-    const before = blocks(); // intro, features, attributes, condition, …
+    // Written against the ORDER rather than against four literal names, which
+    // is what broke when US-3211 reversed the default (facts before prose).
+    // What moveBlock promises is that the row at `from` lands at `to` and the
+    // rest close up behind it; the specific keys are the default's business.
+    const before = blocks();
+    const names = keys(before);
     const after = moveBlock(before, 0, 2);
     expect(keys(after).slice(0, 4)).toEqual([
-      "features",
-      "attributes",
-      "intro",
-      "condition",
+      names[1],
+      names[2],
+      names[0],
+      names[3],
     ]);
   });
 
@@ -270,9 +275,18 @@ describe("appendTextBlock (US-2967)", () => {
   const footer = "Ships in 1 business day. Smoke-free home.";
 
   it("leaves the three prose blocks exactly as they were", () => {
+    // By KEY, not by index. The indices were 0, 1 and 3 against the old
+    // prose-first default; US-3211 reversed the order and they silently
+    // became attributes, condition and disclosure.
+    const base = blocks();
+    const at = (key: string) => base.findIndex((b) => b.key === key);
     const before = setBlockTextAt(
-      setBlockTextAt(setBlockTextAt(blocks(), 0, "Intro copy."), 1, "Features copy."),
-      3,
+      setBlockTextAt(
+        setBlockTextAt(base, at("intro"), "Intro copy."),
+        at("features"),
+        "Features copy.",
+      ),
+      at("condition"),
       "Condition copy.",
     );
     const after = appendTextBlock(before, footer);
