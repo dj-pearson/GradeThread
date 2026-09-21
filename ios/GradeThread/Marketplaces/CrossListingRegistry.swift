@@ -68,8 +68,23 @@ enum CrossListingRegistry {
         let tier: Tier
         let mechanism: Mechanism
 
-        var isSelectable: Bool { tier.isSelectable }
+        /// US-3454: an extension channel whose LIST flow is still being
+        /// verified against its live form is offered disabled with the words
+        /// the web uses ("You list it"), never ticked into a queue that would
+        /// report "list manually".
+        var isSelectable: Bool { tier.isSelectable && !CrossListingRegistry.listFlowVerifying.contains(id) }
+
+        /// Why the row cannot be ticked, in the seller's words, or nil.
+        var blockedReason: String? {
+            if CrossListingRegistry.listFlowVerifying.contains(id) { return String(localized: "You list it") }
+            return tier.isSelectable ? nil : tier.label
+        }
     }
+
+    /// Extension channels whose list flow is not `live` in
+    /// `MARKETPLACE_EXTENSION_FLOW` (src/lib/constants.ts). Pinned by the same
+    /// parity test as `channels`.
+    static let listFlowVerifying: Set<String> = ["facebook"]
 
     /// The cross-listing channels, in the order `CROSS_LISTING_PLATFORMS`
     /// declares them, MINUS eBay.
@@ -85,7 +100,21 @@ enum CrossListingRegistry {
         Channel(id: "depop", label: "Depop", tier: .apiPending, mechanism: .api),
         Channel(id: "etsy", label: "Etsy", tier: .apiPending, mechanism: .api),
         Channel(id: "whatnot", label: "Whatnot", tier: .comingSoon, mechanism: .none),
+        // US-3454: the extension-only channels, from EXTENSION_CROSS_LISTING_PLATFORMS.
+        // They were missing here while MarketplacesView kept its own list that
+        // named Grailed and not Vinted, so the phone described the same
+        // channels two ways. One list now.
+        Channel(id: "grailed", label: "Grailed", tier: .extensionLister, mechanism: .extensionLister),
+        Channel(id: "vinted", label: "Vinted", tier: .extensionLister, mechanism: .extensionLister),
+        Channel(id: "facebook", label: "Facebook Marketplace", tier: .extensionLister, mechanism: .extensionLister),
     ]
+
+    /// The seller-facing name for any platform id, cross-list channel or not.
+    static func label(for platform: String) -> String {
+        if let channel = channel(id: platform) { return channel.label }
+        if platform == "ebay" { return "eBay" }
+        return ExtensionLifecycle.platformLabel(platform)
+    }
 
     static func channel(id: String) -> Channel? {
         channels.first { $0.id == id }

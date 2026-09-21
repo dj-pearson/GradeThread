@@ -42,6 +42,23 @@ export type ChannelRowLike = Pick<
   | "updated_at"
 >;
 
+/**
+ * Most urgent first: the order deriveChannelState answers in. Exported so the
+ * iOS port (ios/GradeThread/Marketplaces/ChannelState.swift) can be pinned to
+ * it by src/test/ios-channel-state-parity.test.ts.
+ */
+export const CHANNEL_STATE_PRECEDENCE: readonly ChannelState[] = [
+  "delist_queued",
+  "queued",
+  "live",
+  "unconfirmed",
+  "failed",
+  "sold",
+  "ended",
+  "prefilled",
+  "none",
+];
+
 export interface ChannelStatus {
   state: ChannelState;
   row: ChannelRowLike | null;

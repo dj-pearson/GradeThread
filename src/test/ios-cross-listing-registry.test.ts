@@ -3,6 +3,8 @@ import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   CROSS_LISTING_PLATFORMS,
+  EXTENSION_CROSS_LISTING_PLATFORMS,
+  MARKETPLACE_EXTENSION_FLOW,
   MARKETPLACE_MECHANISM,
   MARKETPLACE_TIER,
 } from "@/lib/constants";
@@ -83,13 +85,29 @@ describe("US-3103: the iOS cross-listing registry mirrors src/lib/constants.ts",
     expect(channels.length).toBeGreaterThan(3);
   });
 
-  it("covers every cross-listing platform except eBay", () => {
+  it("covers every cross-listing platform except eBay, then the extension-only channels", () => {
     // eBay is excluded deliberately: it has its own publish path with its own
     // policies, specifics and format, which is the composer this sheet opens
     // from. Two ways to publish to eBay carrying different fields is worse than
     // one.
-    const expected = CROSS_LISTING_PLATFORMS.filter((p) => p !== "ebay");
-    expect(channels.map((c) => c.id)).toEqual([...expected]);
+    //
+    // US-3454: EXTENSION_CROSS_LISTING_PLATFORMS carries three channels
+    // (grailed, vinted, facebook) that CROSS_LISTING_PLATFORMS never grew, and
+    // the phone described them in a second list of its own. They follow here,
+    // in the extension list's order.
+    const base = CROSS_LISTING_PLATFORMS.filter((p) => p !== "ebay");
+    const extras = EXTENSION_CROSS_LISTING_PLATFORMS.filter((p) => !(base as readonly string[]).includes(p));
+    expect(channels.map((c) => c.id)).toEqual([...base, ...extras]);
+  });
+
+  it("names exactly the extension channels whose list flow is not live (US-3454)", () => {
+    const m = source.match(/static let listFlowVerifying: Set<String> = \[([^\]]*)\]/);
+    expect(m, "CrossListingRegistry.listFlowVerifying is missing").not.toBeNull();
+    const swift = [...m![1]!.matchAll(/"([a-z]+)"/g)].map((x) => x[1]).sort();
+    const ts = EXTENSION_CROSS_LISTING_PLATFORMS.filter(
+      (p) => MARKETPLACE_EXTENSION_FLOW[p] !== "live",
+    ).sort();
+    expect(swift).toEqual(ts);
   });
 
   it("gives every channel the tier the TypeScript gives it", () => {
