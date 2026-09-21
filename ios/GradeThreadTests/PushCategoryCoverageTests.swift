@@ -6,37 +6,26 @@ import XCTest
 /// whether it presents in the foreground. A category iOS does not know loses
 /// the first two silently.
 ///
-/// Seven of them had been shipping that way. `transactional-push.ts` sends
-/// fourteen categories; `NotificationCategoryID` knew seven of them plus five
-/// nobody sends. The unknown seven are the post-order family (returns,
-/// inquiries, cases, case deadlines, cancellations, payment disputes) and the
-/// offer reply, which is to say the pushes that carry a deadline.
+/// Seven of them had been shipping that way (US-3266): the post-order family
+/// (returns, inquiries, cases, case deadlines, cancellations, payment
+/// disputes) and the offer reply, which is to say the pushes that carry a
+/// deadline.
 ///
-/// This mirrors the sent list by hand for the same reason `ShareInboxTests`
-/// mirrors the slot constants: the Deno service is not linked into this target.
-/// A category added on the server without a line here is not caught, but a
-/// category added here or removed from the enum is, and the mirror is the
-/// place a reviewer will look.
+/// ⚠ THIS USED TO MIRROR THE SENT LIST BY HAND, and the mirror could only see
+/// the file it was compiled with: a category added on the server was invisible
+/// here. US-3279 made the edge generate `contracts/push-contract.json` from
+/// its own senders, with a Deno test that fails when it is stale, and this
+/// suite reads that. A change on either side now fails the other.
 final class PushCategoryCoverageTests: XCTestCase {
 
-    /// Every `category:` literal in
-    /// `services/edge-functions/src/lib/transactional-push.ts`.
-    private static let sentByEdge: [String] = [
-        "item.review_needed",
-        "token.expiring",
-        "sale.created",
-        "listing.ended",
-        "payout.cleared",
-        "offer.received",
-        "offer.responded",
-        "return.opened",
-        "inquiry.opened",
-        "case.opened",
-        "case.deadline",
-        "cancellation.requested",
-        "dispute.opened",
-        "delist.needed",
-    ]
+    /// Every category the edge sends, read from `contracts/push-contract.json`.
+    ///
+    /// ⚠ THIS USED TO BE A LIST TYPED OUT BY HAND, and it could only catch
+    /// drift on the iOS side: a category added on the server without a line
+    /// here was invisible. US-3279 made the edge generate the artefact from
+    /// `transactional-push.ts`, with a Deno test that fails when it is stale,
+    /// so a change on either side now fails the other.
+    private static var sentByEdge: [String] { PushContract.sentByEdge }
 
     func test_everyCategoryTheEdgeSendsIsKnownToTheApp() {
         let known = Set(NotificationCategoryID.allCases.map(\.rawValue))
@@ -47,8 +36,15 @@ final class PushCategoryCoverageTests: XCTestCase {
         )
     }
 
+    /// Categories whose tap deliberately just opens the app.
+    ///
+    /// A growth campaign is news about the product, not about a row: there is
+    /// no screen it means. Naming it here rather than inventing a destination
+    /// keeps the guard honest about the one case it does not cover.
+    private static let noDestination: Set<String> = ["marketing"]
+
     func test_everyCategoryTheEdgeSendsRoutesSomewhere() {
-        for category in Self.sentByEdge {
+        for category in Self.sentByEdge where !Self.noDestination.contains(category) {
             XCTAssertNotNil(
                 DeepLinkRoute.from(category: category, userInfo: [:]),
                 "\(category) has no route, so tapping the push leaves the user wherever the app already was"
@@ -110,20 +106,19 @@ final class PushCategoryCoverageTests: XCTestCase {
 
     // MARK: - Toggles that govern something (US-3268)
 
-    /// The three the app declared, routed, described in Settings, and had no
-    /// way to receive. Shrink-only by construction: a name added to the enum's
-    /// undeliverable list without a line here fails, and a sender shipping
-    /// without the flag being flipped fails too.
-    private static let undeliverable: Set<String> = [
-        // Buyer messages are FETCHED (ebay-trading.ts, US-673) and shown in the
-        // negotiation inbox. Nothing pushes when one arrives.
-        "message.received",
-        // No aging digest exists in notify.ts's type union or anywhere else.
-        "aging.digest",
-        // payout.cleared has a sender (pushPayoutCleared); the earlier
-        // "posted, before it clears" half never got one.
-        "payout.posted",
-    ]
+    /// The categories iOS declares that the edge has no sender for.
+    ///
+    /// ⚠ DERIVED, NOT LISTED. US-3268 hid three toggles (message.received,
+    /// aging.digest, payout.posted) for notifications nothing could send, and
+    /// the list of them was written by hand beside the enum -- so the day a
+    /// sender shipped, nothing said the flag was now wrong. It is now the
+    /// difference between what iOS knows and what the artefact says is sent,
+    /// which means shipping a sender is the only thing needed to shrink it.
+    private static var undeliverable: Set<String> {
+        let sent = Set(PushContract.sentByEdge)
+            .union(NotificationCategoryID.locallyDelivered.map(\.rawValue))
+        return Set(NotificationCategoryID.allCases.map(\.rawValue)).subtracting(sent)
+    }
 
     func test_theOnlyCategoriesWithoutASenderAreTheOnesWeSayHaveNoSender() {
         let flagged = Set(
@@ -159,6 +154,30 @@ final class PushCategoryCoverageTests: XCTestCase {
             DeepLinkRoute.from(category: "message.received", userInfo: ["inventory_item_id": "z"]),
             .negotiationInbox(filterItemId: "z")
         )
+        // US-3279 found a fourth: support.reply routes into the ticket thread
+        // and nothing has ever sent it. The routing stays, the toggle goes.
+        XCTAssertEqual(
+            DeepLinkRoute.from(category: "support.reply", userInfo: ["support_ticket_id": "t1"]),
+            .supportTickets(ticketId: "t1")
+        )
+    }
+
+    func test_aLocallyDeliveredCategoryKeepsItsToggleWithoutAnEdgeSender() {
+        // grade.ready is scheduled on-device by NewGradeNotifier. Deriving the
+        // undeliverable set from the artefact alone would demand its toggle be
+        // hidden, taking away a switch over a notification users do receive.
+        XCTAssertFalse(PushContract.sentByEdge.contains("grade.ready"))
+        XCTAssertTrue(NotificationCategoryID.gradeReady.isDeliverable)
+        XCTAssertTrue(NotificationCategoryID.locallyDelivered.contains(.gradeReady))
+    }
+
+    func test_theGrowthCampaignPushIsKnownAndMutable() {
+        // US-3279: routes/admin-growth.ts has pushed this category all along,
+        // outside transactional-push.ts, so every audit that read that one file
+        // missed it. Knowing it is what gives the user a way to turn it off.
+        XCTAssertTrue(PushContract.sentByEdge.contains("marketing"))
+        XCTAssertNotNil(NotificationCategoryID(rawValue: "marketing"))
+        XCTAssertTrue(NotificationCategoryID.marketing.isDeliverable)
     }
 
     func test_everyKnownCategoryHasCopyForItsSettingsToggle() {

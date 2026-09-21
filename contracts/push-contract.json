@@ -1,0 +1,140 @@
+{
+  "generatedBy": "services/edge-functions/scripts/generate-push-contract.ts",
+  "source": "services/edge-functions/src/lib/transactional-push.ts",
+  "note": "GENERATED - do not hand-edit. iOS (PushCategoryCoverageTests, NotificationActionAvailabilityTests) and Android read this file, so a hand edit here re-enables exactly the dead buttons and dead toggles it exists to prevent. Regenerate with the script named in generatedBy.",
+  "categories": [
+    {
+      "id": "cancellation.requested",
+      "kind": "cancellation_requested",
+      "sender": "pushCancellationRequested",
+      "payloadKeys": [
+        "case_id",
+        "kind"
+      ]
+    },
+    {
+      "id": "case.deadline",
+      "kind": "case_deadline",
+      "sender": "pushPostSaleDeadline",
+      "payloadKeys": [
+        "case_id",
+        "kind"
+      ]
+    },
+    {
+      "id": "case.opened",
+      "kind": "case_opened",
+      "sender": "pushCaseOpened",
+      "payloadKeys": [
+        "case_id",
+        "kind"
+      ]
+    },
+    {
+      "id": "delist.needed",
+      "kind": "delist_needed",
+      "sender": "pushDelistNeeded",
+      "payloadKeys": [
+        "inventory_item_id",
+        "kind"
+      ]
+    },
+    {
+      "id": "dispute.opened",
+      "kind": "dispute_opened",
+      "sender": "pushDisputeOpened",
+      "payloadKeys": [
+        "case_id",
+        "kind"
+      ]
+    },
+    {
+      "id": "inquiry.opened",
+      "kind": "inquiry_opened",
+      "sender": "pushInquiryOpened",
+      "payloadKeys": [
+        "case_id",
+        "kind"
+      ]
+    },
+    {
+      "id": "item.review_needed",
+      "kind": "review_needed",
+      "sender": "pushReviewNeeded",
+      "payloadKeys": [
+        "kind"
+      ]
+    },
+    {
+      "id": "listing.ended",
+      "kind": "listing_ended",
+      "sender": "pushListingEnded",
+      "payloadKeys": [
+        "kind"
+      ]
+    },
+    {
+      "id": "marketing",
+      "kind": null,
+      "sender": "src/routes/admin-growth.ts",
+      "payloadKeys": [
+        "campaign_id",
+        "url"
+      ]
+    },
+    {
+      "id": "offer.received",
+      "kind": "offer_received",
+      "sender": "pushOfferReceived",
+      "payloadKeys": [
+        "best_offer_id",
+        "inventory_item_id",
+        "kind"
+      ]
+    },
+    {
+      "id": "offer.responded",
+      "kind": "offer_responded",
+      "sender": "pushOfferResponded",
+      "payloadKeys": [
+        "action",
+        "kind"
+      ]
+    },
+    {
+      "id": "payout.cleared",
+      "kind": "payout_cleared",
+      "sender": "pushPayoutCleared",
+      "payloadKeys": [
+        "kind"
+      ]
+    },
+    {
+      "id": "return.opened",
+      "kind": "return_opened",
+      "sender": "pushReturnOpened",
+      "payloadKeys": [
+        "case_id",
+        "kind"
+      ]
+    },
+    {
+      "id": "sale.created",
+      "kind": "sale_created",
+      "sender": "pushSaleCreated",
+      "payloadKeys": [
+        "inventory_item_id",
+        "kind",
+        "sale_id"
+      ]
+    },
+    {
+      "id": "token.expiring",
+      "kind": "token_expiring",
+      "sender": "pushTokenExpiring",
+      "payloadKeys": [
+        "kind"
+      ]
+    }
+  ]
+}

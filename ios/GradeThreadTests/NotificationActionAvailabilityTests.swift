@@ -18,21 +18,15 @@ import XCTest
 /// in `actions` now lets those three through on their own.
 final class NotificationActionAvailabilityTests: XCTestCase {
 
-    /// What the edge stamps per category, mirrored by hand because the Deno
-    /// service is not linked into this target.
+    /// What the edge stamps per category, READ FROM `contracts/push-contract.json`.
     ///
-    /// ⚠ A KEY ADDED HERE THAT THE EDGE DOES NOT SEND RE-ENABLES A DEAD
-    /// BUTTON, which is the whole defect. The mirror is checked from the other
-    /// side too: services/edge-functions/src/tests/push-payload-ids_test.ts
-    /// reads NotificationActions.swift and fails when the two disagree.
-    private static let keysSentByEdge: [NotificationCategoryID: Set<String>] = [
-        .offerReceived: ["kind", "best_offer_id", "inventory_item_id"],
-        .saleCreated: ["kind", "sale_id", "inventory_item_id"],
-        .delistNeeded: ["kind", "inventory_item_id"],
-    ]
-
+    /// ⚠ THIS USED TO BE A HAND-WRITTEN TABLE, and a key added here that the
+    /// edge does not send re-enables a dead button -- which is the whole
+    /// defect. US-3279 replaced it with the generated artefact, so the two
+    /// sides cannot disagree without a Deno test
+    /// (`push-contract_test.ts`) failing as well.
     private static func keys(for category: NotificationCategoryID) -> Set<String> {
-        keysSentByEdge[category] ?? ["kind"]
+        PushContract.payloadKeys(for: category.rawValue)
     }
 
     func test_noRegisteredActionAsksForSomethingThePayloadDoesNotCarry() {
@@ -48,8 +42,11 @@ final class NotificationActionAvailabilityTests: XCTestCase {
     }
 
     func test_payloadKeysMatchesWhatTheEdgeSends() {
-        // The mirror itself. Drift here is what would silently re-enable a
-        // button, so it is asserted rather than assumed.
+        // US-3279: the app target cannot read a repo file at runtime, so
+        // `payloadKeys` stays written out in NotificationActions.swift and
+        // this is what checks it against the generated artefact. Drift here is
+        // what would silently re-enable a button, so it is asserted rather
+        // than assumed.
         for category in NotificationCategoryID.allCases {
             XCTAssertEqual(
                 category.payloadKeys,

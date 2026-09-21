@@ -52,17 +52,13 @@ async function safePush(
  * on the inbox with nothing accepted. They authenticated for nothing. iOS now
  * HIDES a button whose payload cannot serve it, which is why stamping the ids
  * is what brings them back.
- *
- * ⚠ THE KEY NAMES ARE A WIRE CONTRACT. `best_offer_id`, `inventory_item_id`
- * and `sale_id` are matched by name in
- * NotificationActionID.requiredPayloadKeys and in DeepLinkRoute.from on iOS,
- * and by PushCategory.route on Android. Renaming one here silently disables
- * the button on every installed app.
- *
- * Absent ids are OMITTED rather than sent as null: iOS tests membership of the
- * key, so a null would read as present and re-enable a button that still
- * cannot work.
  */
+export type PushIdKey =
+  | "best_offer_id"
+  | "inventory_item_id"
+  | "sale_id"
+  | "case_id";
+
 export interface PushIds {
   /** The marketplace's own offer id. Accept and Counter act on it. */
   bestOfferId?: string | null;
@@ -74,14 +70,141 @@ export interface PushIds {
   caseId?: string | null;
 }
 
-/** The `data` entries for whichever ids are present. */
-function idFields(ids: PushIds | undefined): Record<string, string> {
+/** Which `PushIds` field supplies each wire key. */
+const ID_FIELD: Record<PushIdKey, keyof PushIds> = {
+  best_offer_id: "bestOfferId",
+  inventory_item_id: "inventoryItemId",
+  sale_id: "saleId",
+  case_id: "caseId",
+};
+
+/**
+ * US-3279: THE PUSH CONTRACT, DECLARED ONCE.
+ *
+ * Every category this service sends, the `kind` its payload carries, and the
+ * id keys that category MAY carry. `contracts/push-contract.json` is generated
+ * from this table, and iOS reads that artefact instead of a hand-written copy
+ * of it.
+ *
+ * ⚠ WHY A TABLE RATHER THAN A LIST INSIDE EACH SENDER. Three bugs in one
+ * session came from the clients and the edge each describing this contract in
+ * their own file with nothing comparing them: US-3266 (the edge sent seven
+ * categories iOS had never heard of, so every tap went nowhere), US-3268
+ * (three Settings toggles for notifications nothing can send) and US-3274
+ * (five inline buttons the payload could not serve, one of which asked for
+ * Face ID before doing nothing). Each had a nearby comment asserting the
+ * opposite, written when it was true.
+ *
+ * ⚠ `ids` IS A CEILING, NOT A PROMISE. `idFields` drops anything not listed
+ * here, so an id a caller passes to the wrong category never reaches the wire.
+ * That is the fail-safe direction: a missing key hides a button, an unexpected
+ * one re-enables a dead one.
+ *
+ * ⚠ THE KEY NAMES ARE A WIRE CONTRACT. They are matched by name in
+ * NotificationActionID.requiredPayloadKeys and DeepLinkRoute.from on iOS, and
+ * by PushCategory.route on Android. Renaming one here silently disables the
+ * button on every installed app.
+ */
+export const PUSH_CONTRACT = {
+  "item.review_needed": { kind: "review_needed", ids: [] },
+  "token.expiring": { kind: "token_expiring", ids: [] },
+  "sale.created": { kind: "sale_created", ids: ["sale_id", "inventory_item_id"] },
+  "listing.ended": { kind: "listing_ended", ids: [] },
+  "payout.cleared": { kind: "payout_cleared", ids: [] },
+  "offer.received": {
+    kind: "offer_received",
+    ids: ["best_offer_id", "inventory_item_id"],
+  },
+  // `action` is not an id: it is the verb ("accepted" / "declined" /
+  // "countered") and it is always present, so it is declared as an extra key
+  // rather than routed through idFields.
+  "offer.responded": { kind: "offer_responded", ids: [], extra: ["action"] },
+  "return.opened": { kind: "return_opened", ids: ["case_id"] },
+  "inquiry.opened": { kind: "inquiry_opened", ids: ["case_id"] },
+  "case.opened": { kind: "case_opened", ids: ["case_id"] },
+  "case.deadline": { kind: "case_deadline", ids: ["case_id"] },
+  "cancellation.requested": { kind: "cancellation_requested", ids: ["case_id"] },
+  "dispute.opened": { kind: "dispute_opened", ids: ["case_id"] },
+  "delist.needed": { kind: "delist_needed", ids: ["inventory_item_id"] },
+  // ⚠ NOT SENT FROM THIS FILE, AND DECLARED HERE ANYWAY.
+  // routes/admin-growth.ts pushes growth campaigns straight through
+  // sendPushToUser, because it reads the result for its per-recipient stats
+  // and safePush returns void. Leaving it out of the table would leave it out
+  // of the artefact, and a category the clients do not know is a tap that goes
+  // nowhere and a push nobody can mute -- US-3266 word for word. It carries no
+  // `kind`: the campaign's own url and id are the whole payload.
+  "marketing": {
+    kind: null,
+    ids: [],
+    extra: ["url", "campaign_id"],
+    sentBy: "src/routes/admin-growth.ts",
+  },
+} as const satisfies Record<
+  string,
+  {
+    kind: string | null;
+    ids: readonly PushIdKey[];
+    extra?: readonly string[];
+    /** Set when the sender lives outside this file; the path is checked. */
+    sentBy?: string;
+  }
+>;
+
+export type PushCategoryId = keyof typeof PUSH_CONTRACT;
+
+/** Every key a category's payload can carry, `kind` included. */
+export function payloadKeysFor(category: PushCategoryId): string[] {
+  const entry = PUSH_CONTRACT[category] as {
+    kind: string | null;
+    ids: readonly PushIdKey[];
+    extra?: readonly string[];
+  };
+  return [
+    ...(entry.kind === null ? [] : ["kind"]),
+    ...entry.ids,
+    ...(entry.extra ?? []),
+  ];
+}
+
+/**
+ * The `data` entries for whichever of this category's declared ids are present.
+ *
+ * Absent ids are OMITTED rather than sent as null: iOS tests membership of the
+ * key, so a null would read as present and re-enable a button that still
+ * cannot work.
+ */
+function idFields(
+  ids: PushIds | undefined,
+  allowed: readonly PushIdKey[],
+): Record<string, string> {
   const out: Record<string, string> = {};
-  if (ids?.bestOfferId) out.best_offer_id = ids.bestOfferId;
-  if (ids?.inventoryItemId) out.inventory_item_id = ids.inventoryItemId;
-  if (ids?.saleId) out.sale_id = ids.saleId;
-  if (ids?.caseId) out.case_id = ids.caseId;
+  for (const key of allowed) {
+    const value = ids?.[ID_FIELD[key]];
+    if (value) out[key] = value;
+  }
   return out;
+}
+
+/**
+ * The `category` + `data` half of a payload, built from the contract so a
+ * sender cannot spell either of them itself.
+ */
+function describe(
+  category: PushCategoryId,
+  ids?: PushIds,
+  extra?: Record<string, string>,
+): { category: PushCategoryId; data: Record<string, string> } {
+  const entry = PUSH_CONTRACT[category] as {
+    kind: string | null;
+    ids: readonly PushIdKey[];
+  };
+  if (entry.kind === null) {
+    throw new Error(`${category} is not sent from this file; see its sentBy`);
+  }
+  return {
+    category,
+    data: { kind: entry.kind, ...idFields(ids, entry.ids), ...(extra ?? {}) },
+  };
 }
 
 /** A submission was flagged for human review (low confidence / partial failure). */
@@ -89,8 +212,7 @@ export function pushReviewNeeded(userId: string, title?: string | null): Promise
   return safePush(userId, {
     title: "We're double-checking your grade",
     body: title ? `"${title}" needs a quick human review.` : "One of your items needs a quick human review.",
-    category: "item.review_needed",
-    data: { kind: "review_needed" },
+    ...describe("item.review_needed"),
   });
 }
 
@@ -99,8 +221,7 @@ export function pushTokenExpiring(userId: string): Promise<void> {
   return safePush(userId, {
     title: "Reconnect eBay",
     body: "Your eBay connection is expiring — reconnect to keep listings and sales syncing.",
-    category: "token.expiring",
-    data: { kind: "token_expiring" },
+    ...describe("token.expiring"),
     collapseId: "token-expiring",
   });
 }
@@ -114,10 +235,9 @@ export function pushSaleCreated(
   return safePush(userId, {
     title: "You made a sale 🎉",
     body: title ? `"${title}" just sold.` : "An item just sold.",
-    category: "sale.created",
     // US-3275 AC2: sale_id is what Mark shipped acts on, and there is no
     // separate shipping push -- this notification IS the shipping prompt.
-    data: { kind: "sale_created", ...idFields(ids) },
+    ...describe("sale.created", ids),
   });
 }
 
@@ -132,8 +252,7 @@ export function pushListingEnded(userId: string, title?: string | null): Promise
     body: title
       ? `"${title}" ended on eBay without selling — it's back in Drafts to relist.`
       : "A listing ended on eBay without selling — it's back in Drafts to relist.",
-    category: "listing.ended",
-    data: { kind: "listing_ended" },
+    ...describe("listing.ended"),
   });
 }
 
@@ -142,8 +261,7 @@ export function pushPayoutCleared(userId: string, count: number): Promise<void> 
   return safePush(userId, {
     title: "Payout cleared",
     body: count > 1 ? `${count} payouts just cleared.` : "A payout just cleared.",
-    category: "payout.cleared",
-    data: { kind: "payout_cleared" },
+    ...describe("payout.cleared"),
   });
 }
 
@@ -159,10 +277,9 @@ export function pushOfferReceived(
   return safePush(userId, {
     title: "New offer",
     body: itemTitle ? `A buyer sent an offer on "${itemTitle}".` : "You received a new offer.",
-    category: "offer.received",
     // US-3275 AC1: Accept and Counter need both ids -- the offer to act on and
     // the item to land on if the seller opens it instead.
-    data: { kind: "offer_received", ...idFields(ids) },
+    ...describe("offer.received", ids),
   });
 }
 
@@ -175,8 +292,7 @@ export function pushOfferResponded(
   return safePush(userId, {
     title: `Offer ${action}`,
     body: itemTitle ? `The offer on "${itemTitle}" was ${action}.` : `An offer was ${action}.`,
-    category: "offer.responded",
-    data: { kind: "offer_responded", action },
+    ...describe("offer.responded", undefined, { action }),
   });
 }
 
@@ -185,8 +301,7 @@ export function pushReturnOpened(userId: string, itemLabel?: string | null, ids?
   return safePush(userId, {
     title: "Return opened",
     body: itemLabel ? `A buyer opened a return on ${itemLabel}.` : "A buyer opened a return.",
-    category: "return.opened",
-    data: { kind: "return_opened", ...idFields(ids) },
+    ...describe("return.opened", ids),
   });
 }
 
@@ -204,8 +319,7 @@ export function pushInquiryOpened(userId: string, orderLabel?: string | null, id
     body: orderLabel
       ? `A buyer says ${orderLabel} never arrived. Add tracking before it escalates.`
       : "A buyer says their order never arrived. Add tracking before it escalates.",
-    category: "inquiry.opened",
-    data: { kind: "inquiry_opened", ...idFields(ids) },
+    ...describe("inquiry.opened", ids),
   });
 }
 
@@ -216,8 +330,7 @@ export function pushCaseOpened(userId: string, orderLabel?: string | null, ids?:
     body: orderLabel
       ? `A buyer escalated ${orderLabel} to eBay. Losing a case counts against your account.`
       : "A buyer escalated an order to eBay. Losing a case counts against your account.",
-    category: "case.opened",
-    data: { kind: "case_opened", ...idFields(ids) },
+    ...describe("case.opened", ids),
   });
 }
 
@@ -232,8 +345,7 @@ export function pushPostSaleDeadline(
     body: orderLabel
       ? `An open case on ${orderLabel} needs your answer before eBay decides it.`
       : "An open eBay case needs your answer before eBay decides it.",
-    category: "case.deadline",
-    data: { kind: "case_deadline", ...idFields(ids) },
+    ...describe("case.deadline", ids),
   });
 }
 
@@ -248,8 +360,7 @@ export function pushCancellationRequested(
     body: orderLabel
       ? `A buyer asked to cancel ${orderLabel}. Approve or reject before eBay does.`
       : "A buyer asked to cancel an order. Approve or reject before eBay does.",
-    category: "cancellation.requested",
-    data: { kind: "cancellation_requested", ...idFields(ids) },
+    ...describe("cancellation.requested", ids),
   });
 }
 
@@ -260,8 +371,7 @@ export function pushDisputeOpened(userId: string, orderLabel?: string | null, id
     body: orderLabel
       ? `A payment dispute was opened on ${orderLabel} — respond before the deadline.`
       : "A payment dispute was opened — respond before the deadline.",
-    category: "dispute.opened",
-    data: { kind: "dispute_opened", ...idFields(ids) },
+    ...describe("dispute.opened", ids),
   });
 }
 
@@ -295,10 +405,9 @@ export function pushDelistNeeded(
     body: many
       ? `${what} sold — ${opts.count} other listings are still live. End them before it sells twice.`
       : `${what} sold — one other listing is still live. End it before it sells twice.`,
-    category: "delist.needed",
-    // US-3275: through idFields like every other sender, so there is one
+    // US-3275: through the contract like every other sender, so there is one
     // mechanism for "which ids ride in the payload" rather than two.
-    data: { kind: "delist_needed", ...idFields({ inventoryItemId: opts.itemId }) },
+    ...describe("delist.needed", { inventoryItemId: opts.itemId }),
     // Keyed on the item so a re-send replaces the last one instead of stacking.
     ...(opts.itemId ? { collapseId: `delist-${opts.itemId}` } : {}),
   });

@@ -11,6 +11,7 @@
 // sufficient alone, because each can only see the file it is compiled with.
 
 import { assert, assertEquals } from "@std/assert";
+import { PUSH_CONTRACT, payloadKeysFor } from "../lib/transactional-push.ts";
 
 const PUSH = await Deno.readTextFile(
   new URL("../lib/transactional-push.ts", import.meta.url),
@@ -50,27 +51,17 @@ function swiftKeysFor(swiftCase: string): Set<string> {
   return new Set([...list[1]!.matchAll(/"([a-z_]+)"/g)].map((m) => m[1]!));
 }
 
-/** The `data` keys one sender ships, read out of the TypeScript. */
-function senderKeys(fnName: string): Set<string> {
-  const at = PUSH_CODE.indexOf(`export function ${fnName}(`);
-  assert(at > 0, `${fnName} not found in transactional-push.ts`);
-  const body = PUSH_CODE.slice(at, at + 1400);
-  const data = /data: \{([^}]*)\}/.exec(body);
-  assert(data, `${fnName} has no data block`);
-  const keys = new Set<string>(["kind"]);
-  // idFields() expands to the four id keys; which of them actually arrive is
-  // decided by the caller, so the contract this file holds is "may carry".
-  if (data[1]!.includes("idFields(")) {
-    for (const k of ["best_offer_id", "inventory_item_id", "sale_id", "case_id"]) {
-      keys.add(k);
-    }
-  }
-  // And any key written literally into the block, so a sender that stops
-  // using idFields is still read rather than silently reported as bare.
-  for (const m of data[1]!.matchAll(/\b([a-z][a-z_]*_id|kind|action)\s*:/g)) {
-    keys.add(m[1]!);
-  }
-  return keys;
+/**
+ * The `data` keys one sender ships.
+ *
+ * ⚠ THIS USED TO PARSE A `data: { ... }` BLOCK OUT OF EACH SENDER, and it
+ * answered "may carry" rather than "carries": every sender that called
+ * idFields() reported all four id keys whatever it actually passed, so the
+ * check below could only be a subset test. US-3279 moved the answer into
+ * PUSH_CONTRACT, where it is exact, and this now reads that.
+ */
+function senderKeys(category: keyof typeof PUSH_CONTRACT): Set<string> {
+  return new Set(payloadKeysFor(category));
 }
 
 Deno.test("US-3275 AC1: the offer push carries the ids Accept and Counter need", () => {
@@ -158,21 +149,22 @@ Deno.test("US-3275 AC3: every post-order sender names its case", () => {
 });
 
 Deno.test("US-3275 AC4: iOS and the edge agree about every category", () => {
-  // ⚠ THE MIRROR, FROM THE EDGE'S SIDE. The Swift test checks the same thing
-  // against its own hand-written table; this one checks the Swift against the
-  // senders. A key claimed on one side and not sent on the other is a button
-  // that asks for a fingerprint and then does nothing.
-  const offer = senderKeys("pushOfferReceived");
-  for (const k of swiftKeysFor("offerReceived")) {
-    assert(offer.has(k), `iOS expects "${k}" on offer.received and the edge cannot send it`);
-  }
-  const sale = senderKeys("pushSaleCreated");
-  for (const k of swiftKeysFor("saleCreated")) {
-    assert(sale.has(k), `iOS expects "${k}" on sale.created and the edge cannot send it`);
-  }
-  const delist = senderKeys("pushDelistNeeded");
-  for (const k of swiftKeysFor("delistNeeded")) {
-    assert(delist.has(k), `iOS expects "${k}" on delist.needed and the edge cannot send it`);
+  // ⚠ THE MIRROR, FROM THE EDGE'S SIDE, AND IT IS AN EQUALITY NOW.
+  // It used to be a subset check, because the sender parse could only say
+  // which keys a category MIGHT carry -- so iOS claiming `sale_id` on
+  // offer.received would have passed. US-3279's PUSH_CONTRACT answers exactly,
+  // so the two lists have to match.
+  const pairs: Array<[string, keyof typeof PUSH_CONTRACT]> = [
+    ["offerReceived", "offer.received"],
+    ["saleCreated", "sale.created"],
+    ["delistNeeded", "delist.needed"],
+  ];
+  for (const [swiftCase, category] of pairs) {
+    assertEquals(
+      [...swiftKeysFor(swiftCase)].sort(),
+      [...senderKeys(category)].sort(),
+      `iOS and the edge disagree about ${category}`,
+    );
   }
 });
 
@@ -182,13 +174,14 @@ Deno.test("US-3275: an absent id is OMITTED, never sent as null", () => {
   const at = PUSH_CODE.indexOf("function idFields(");
   assert(at > 0, "idFields is gone");
   const body = PUSH_CODE.slice(at, PUSH_CODE.indexOf("\n}", at));
-  for (const key of ["best_offer_id", "inventory_item_id", "sale_id", "case_id"]) {
-    assert(
-      new RegExp(`if \\(ids\\?\\.[a-zA-Z]+\\) out\\.${key} =`).test(body),
-      `${key} is not guarded by a truthiness check`,
-    );
-  }
+  assert(
+    /if \(value\) out\[key\] = value;/.test(body),
+    "idFields no longer gates each key on the value being present",
+  );
   assert(!/\?\?\s*null/.test(body), "idFields writes a null into the payload");
+  // And the behaviour, not only its shape: a category's declared ids are the
+  // ceiling, so nothing else can reach the wire however a caller is written.
+  assertEquals(payloadKeysFor("listing.ended"), ["kind"]);
 });
 
 Deno.test("US-3275: the key names are the wire contract, spelled the same", () => {

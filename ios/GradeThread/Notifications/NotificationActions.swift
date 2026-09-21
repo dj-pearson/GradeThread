@@ -78,14 +78,16 @@ public extension NotificationActionID {
 public extension NotificationCategoryID {
     /// The `userInfo` keys the edge actually stamps on this category's pushes.
     ///
-    /// ⚠ MIRRORED BY HAND FROM `transactional-push.ts`, WHICH IS
-    /// AUTHORITATIVE. The Deno service is not linked into this target, so a
-    /// case added here that the edge does not send re-enables a dead button —
-    /// which is the exact defect US-3274 found and US-3275 fixed.
-    /// `services/edge-functions/src/tests/push-payload-ids_test.ts` reads this
-    /// file and fails when the two disagree.
+    /// ⚠ THIS IS A MIRROR OF `contracts/push-contract.json`, WHICH IS
+    /// GENERATED FROM `transactional-push.ts` AND IS AUTHORITATIVE. The app
+    /// target cannot read a repo file at runtime, so the values are written
+    /// here and CHECKED against the artefact by
+    /// `NotificationActionAvailabilityTests` (US-3279). A case added here that
+    /// the edge does not send re-enables a dead button, which is the exact
+    /// defect US-3274 found and US-3275 fixed; the artefact is what stops the
+    /// mirror drifting again.
     ///
-    /// Every sender ships `kind`. The three below also ship ids (US-3275).
+    /// Every sender ships `kind`. The rest are per category.
     var payloadKeys: Set<String> {
         switch self {
         case .offerReceived:
@@ -98,6 +100,17 @@ public extension NotificationCategoryID {
             return ["kind", "sale_id", "inventory_item_id"]
         case .delistNeeded:
             return ["kind", "inventory_item_id"]
+        case .offerResponded:
+            // The verb, not an id: "accepted" / "declined" / "countered".
+            return ["kind", "action"]
+        // US-3279: the post-order family has carried the case's external id
+        // since US-3275 and iOS did not know. No action needs it today, so
+        // nothing changes on screen -- but a mirror that under-reports is the
+        // same class of defect as one that over-reports, and the artefact is
+        // now what decides.
+        case .returnOpened, .inquiryOpened, .caseOpened, .caseDeadline,
+             .cancellationRequested, .disputeOpened:
+            return ["kind", "case_id"]
         default:
             return ["kind"]
         }

@@ -2482,9 +2482,11 @@ struct SettingsView: View {
     /// so the web reads the same prefs.
     private var notificationPreferencesSection: some View {
         Section {
-            // US-3268: `togglable`, not `allCases`. Three categories are
+            // US-3268: `togglable`, not `allCases`. Four categories are
             // declared and routed but have no sender anywhere, and a switch
             // that governs nothing reads as a feature that is turned on.
+            // (US-3279 found the fourth, support.reply, off the generated
+            // push contract rather than by reading the app.)
             ForEach(NotificationCategoryID.togglable, id: \.self) { id in
                 NotificationCategoryToggle(category: id)
             }

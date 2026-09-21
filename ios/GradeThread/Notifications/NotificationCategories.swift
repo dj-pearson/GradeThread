@@ -106,31 +106,51 @@ public enum NotificationCategoryID: String, CaseIterable {
         }
     }
 
+    /// Categories delivered by the APP ITSELF rather than by a push from the
+    /// edge, so they are absent from `contracts/push-contract.json` and are
+    /// still perfectly receivable.
+    ///
+    /// Without this the artefact-derived check in `PushCategoryCoverageTests`
+    /// would read "the edge does not send grade.ready" as "nothing sends
+    /// grade.ready" and demand its toggle be hidden, which would take away a
+    /// switch that governs a notification users do get.
+    public static let locallyDelivered: Set<NotificationCategoryID> = [
+        // NewGradeNotifier schedules this on-device when a background refresh
+        // finds a finished grade.
+        .gradeReady,
+    ]
+
     /// Whether anything can actually send this category today (US-3268).
     ///
-    /// ⚠ THREE OF THESE HAD A SETTINGS TOGGLE AND NO SENDER. "Buyer messages",
-    /// "Aging stock digest" and "Payouts posted" each promised a push in their
-    /// own help text, and nothing in the edge, the Pages functions or the app
-    /// itself has ever emitted them: `transactional-push.ts` sends fourteen
-    /// categories and none is these, and `notify.ts`'s type union has no
-    /// message, aging or payout-posted member either. A seller could turn
-    /// "Buyer messages" on and wait forever.
+    /// ⚠ FOUR OF THESE HAVE A SETTINGS TOGGLE AND NO SENDER. "Buyer messages",
+    /// "Aging stock digest", "Payouts posted" and "Support replies" each
+    /// promise a push in their own help text, and nothing in the edge, the
+    /// Pages functions or the app itself has ever emitted them.
+    ///
+    /// ⚠ THE FOURTH WAS FOUND BY THE ARTEFACT, NOT BY READING THE APP
+    /// (US-3279). US-3268 named three, from a hand comparison against
+    /// `transactional-push.ts`, and support.reply looked live because
+    /// `DeepLinkRoute.from` routes it into the ticket thread and US-1136's
+    /// comment says the send "ships separately". It never did. A generated
+    /// list is what noticed, which is the whole argument for having one.
     ///
     /// This is the cost of the declare-ahead convention the `gradeReady`
     /// comment above describes, which is a GOOD convention — grade.ready is
     /// declared here and delivered locally by ``NewGradeNotifier``, and the
-    /// routing for these three is wired and ready for the day a sender lands.
+    /// routing for these four is wired and ready for the day a sender lands.
     /// What was missing is the other half: something that notices when "later"
     /// never came. The toggle is hidden until then rather than the case being
     /// deleted, so flipping this flag is all it takes.
     ///
-    /// `PushCategoryCoverageTests` pins the undeliverable list, so a sender
-    /// shipping without this flag being flipped fails, and a flag flipped
-    /// without a sender fails too.
+    /// `PushCategoryCoverageTests` derives the undeliverable set from the
+    /// generated artefact, so a sender shipping without this flag being
+    /// flipped fails, and a flag flipped without a sender fails too.
     public var isDeliverable: Bool {
         switch self {
-        case .messageReceived, .agingDigest, .payoutPosted: return false
-        default: return true
+        case .messageReceived, .agingDigest, .payoutPosted, .supportReply:
+            return false
+        default:
+            return true
         }
     }
 
