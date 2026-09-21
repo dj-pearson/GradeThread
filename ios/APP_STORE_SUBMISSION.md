@@ -80,19 +80,47 @@ request disallowed`. The web app sends a Turnstile token; iOS sent none.
 All of this lives in `ios/fastlane/metadata/en-US/` and is pushed by `deliver`.
 Current copy is good — kept below with character counts and alternates.
 
+### App name (30 chars max)
+Current: **"GradeThread: Reseller Toolkit"** (29) ✓
+
+⚠ CHANGED 2026-09-21, and this is the field that was costing the most. It was
+just **"GradeThread"** (11 of 30), which is the single most heavily weighted
+field Apple indexes, left 19 characters short. Worse, Apple does not split
+compound words, so "GradeThread" is ONE token: the app did not rank for
+"grade", for "thread", or for anything but its own brand name. With 15
+downloads in three months, nobody was searching that.
+
+Apple indexes the app name, the subtitle and the keyword field. It does NOT
+index the description or the promotional text. Copy in those two fields is a
+conversion asset and has no effect on ranking, which is worth knowing before
+spending an afternoon rewriting one.
+
 ### Subtitle (30 chars max)
-Current: **"Resell smarter, list faster"** (27) ✓
+Current: **"Crosslist, grade, track sales"** (29) ✓
+
+⚠ CHANGED 2026-09-21 from "Resell smarter, list faster" (27). Nobody searches
+"smarter" or "faster", so roughly half of an indexed field was doing nothing.
+Every word in the replacement is a term someone types.
 
 Alternates if A/B testing later:
-- "AI listings + eBay selling" (26)
-- "Snap, grade, list, get paid" (27)
+- "Reseller inventory and profit" (29)
+- "AI listings for clothing flips" (30)
 
 ### Promotional text (170 chars max — editable anytime WITHOUT a new review)
-Current (145):
-> Snap a photo, let AI fill the details, and list to eBay in seconds. Track sales, payouts, and profit from one tidy workspace built for resellers.
+Current (155):
+> Photograph an item and AI writes the listing. Publish to eBay in seconds, queue your other channels, grade the condition, and see real profit in one place.
 
-Use this field for seasonal pushes post-launch (it's the only copy you can change
-without submitting a build): launch promos, new-feature callouts, sale events.
+⚠ CHANGED 2026-09-21, and the previous wording was INACCURATE about the phone.
+It said the app pushes to "eBay and more in seconds". On iOS only eBay
+publishes; every other channel is QUEUED for the desktop extension to run
+(`CrossListingRegistry.swift:24`, "The phone can only QUEUE these; the desktop
+runs them"). That file's own header records what overstating a channel cost
+last time: Mercari, Grailed and Vinted rendered "Connect via browser extension"
+for months while every attempt reported "list manually for now".
+
+This field is the only listing copy that can change without submitting a build,
+so it is the right place for seasonal pushes, new-feature callouts and sale
+events. It is NOT a ranking lever — see the app name section above.
 
 ### Description (4,000 chars max)
 Current `description.txt` (≈2,190 chars) is solid and accurate to the feature set.
@@ -115,18 +143,25 @@ Privacy Policy: https://gradethread.com/privacy
 > Also paste the Terms URL into ASC → App Information → "Terms of Use (EULA)" link field.
 
 ### Keywords (100 chars max, comma-separated, no spaces needed)
-Current (94): `reseller,resell,ebay,poshmark,thrift,flipping,inventory,clothing,listing,crosslist,consignment`
+Current (96): `poshmark,ebay,thrift,flip,flipping,inventory,clothing,consignment,secondhand,vintage,closet,sell`
+
+⚠ CHANGED 2026-09-21. Two things were wrong with the previous set
+(`reseller,resell,ebay,thrift,flipping,inventory,clothing,listing,consignment,secondhand,preowned`).
+It spent characters on `reseller` and `resell` while the subtitle already said
+"Resell", and it had dropped `poshmark` and `crosslist` at some point — the two
+highest-volume terms this app could plausibly win. `reseller` now lives in the
+APP NAME, where it counts for more, which is what freed the room.
+
+`crosslist` is in the subtitle rather than here, for the same reason.
 
 ⚠️ Trademark risk: `ebay` and `poshmark` are third-party marks (Guideline 2.3.7).
 Many apps survive with them; some get metadata-rejected. If rejected, swap to this
-safe set (98 chars):
-`reseller,resell,thrift,flipping,inventory,clothing,listing,consignment,depop,closet,seller,grade`
-(Better: drop `depop` too if the rejection cites trademarks generally:
-`reseller,resell,thrift,flip,flipping,inventory,clothing,listing,consignment,closet,seller,grading`)
+safe set (97 chars):
+`thrift,flip,flipping,inventory,clothing,consignment,secondhand,vintage,closet,sell,grading,sneaker`
 
-Do NOT repeat words already in the name/subtitle (FlipDesk, GradeThread, resell
-appears in subtitle — "resell"/"reseller" in keywords is borderline duplication;
-keep "reseller" since the subtitle has "Resell").
+Do NOT repeat words already in the name or subtitle. Apple pools all three
+indexed fields, so a term in two of them is a wasted slot rather than a boost.
+Already covered and therefore absent here: reseller, crosslist, grade, sales.
 
 ### What's New (release notes)
 Current `release_notes.txt` is fine for 1.0.
