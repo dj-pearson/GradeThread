@@ -359,11 +359,11 @@ Deno.test("US-3324: the parsers found both corpora (guards the guard)", () => {
 
 Deno.test("US-3324: no truncation token under the floor is unregistered", () => {
   const offenders: string[] = [];
-  // SCOPED TO CODE. The DB half is the case below, because 00792 -- the
-  // migration that removes the bare token from the live table -- is HELD on
-  // branch held/us-3324-00792 and is deliberately not on main. Merging both
-  // halves here would make main red for a migration main does not carry.
-  for (const chart of codeCharts) {
+  // BACK TO THE FULL SET, code AND table. The DB half was split out while the
+  // migration that clears the live row was held; it landed as 00791 (renumbered
+  // from 00792 when a parallel session took that number) and is applied to prod,
+  // so the separate held-case below is gone and this covers both halves again.
+  for (const chart of allCharts) {
     for (const token of chart.tokens) {
       if (token.length >= TRUNCATION_FLOOR) continue;
       const tk = brandKey(token);
@@ -447,42 +447,3 @@ Deno.test("US-3324: the bare 'duluth' token is gone from the in-code chart", () 
   }
 });
 
-// THE DB HALF IS HELD, AND THIS CASE IS WHAT MAKES THAT VISIBLE RATHER THAN
-// FORGOTTEN. 00792 removes the bare token from the live table and is parked on
-// branch held/us-3324-00792 awaiting the owner, so the model built from main's
-// migrations still carries it. The assertion is deliberately inverted: it fails
-// the moment that branch lands, which is the signal to DELETE this case and
-// restore the DB half of the truncation check above. It also fails if any OTHER
-// unregistered truncation appears in the table, so holding one fix does not
-// buy silence for the next one.
-//
-// The code half alone was the trap: brand-knowledge.ts reads brand_size_charts
-// in preference to the constant, so a green code check with a stale table is
-// still a wrong answer to a seller.
-Deno.test("US-3324: the DB model still carries duluth, and ONLY duluth, until 00792 lands", () => {
-  const offenders: string[] = [];
-  for (const chart of dbCharts.values()) {
-    for (const token of chart.tokens) {
-      if (token.length >= TRUNCATION_FLOOR) continue;
-      const tk = brandKey(token);
-      if (!(chart.brandKey.startsWith(tk) && chart.brandKey.length > tk.length)) continue;
-      if (token in KNOWN_TRUNCATIONS) continue;
-      offenders.push(token);
-    }
-  }
-  assertEquals(
-    [...new Set(offenders)].sort(),
-    ["duluth"],
-    "Expected exactly the held one. If this says [] then 00792 has landed: "+
-      "delete this case and change codeCharts back to allCharts in the "+
-      "truncation-registry case above. If it names anything else, that is a "+
-      "new unregistered truncation in the live table and it is not held by "+
-      "anything.",
-  );
-  const dbDuluth = [...dbCharts.values()].filter((c) => c.brandKey === "duluthtradingco");
-  assert(dbDuluth.length > 0, "expected Duluth Trading charts in the migrations");
-  assert(
-    dbDuluth.some((c) => c.tokens.includes("duluth trading")),
-    "no Duluth Trading row matches on 'duluth trading' any more",
-  );
-});

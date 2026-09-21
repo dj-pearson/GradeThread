@@ -36,7 +36,6 @@ const BuyerPortfolioPage = lazy(() => import("@/pages/buyer/portfolio").then(m =
 const BuyerBillingPage = lazy(() => import("@/pages/buyer/billing").then(m => ({ default: m.BuyerBillingPage })));
 
 // Lazy-loaded pages for code splitting
-const LandingPage = lazy(() => import("@/pages/landing").then(m => ({ default: m.LandingPage })));
 const LoginPage = lazy(() => import("@/pages/login").then(m => ({ default: m.LoginPage })));
 const SignupPage = lazy(() => import("@/pages/signup").then(m => ({ default: m.SignupPage })));
 const AuthCallbackPage = lazy(() => import("@/pages/auth-callback").then(m => ({ default: m.AuthCallbackPage })));
@@ -304,7 +303,15 @@ export const router = createBrowserRouter([
     errorElement: <RouteErrorFallback />,
     children: [
       // Public routes
-      { path: "/", element: <SuspenseWrapper><LandingPage /></SuspenseWrapper> },
+      // Resolve the homepage before mounting over its prerendered HTML.
+      // React.lazy here briefly replaced the visible headline with a spinner.
+      {
+        path: "/",
+        lazy: async () => {
+          const { LandingPage } = await import("@/pages/landing");
+          return { Component: LandingPage };
+        },
+      },
       { path: "/cert/:id", element: <SuspenseWrapper><CertificatePage /></SuspenseWrapper> },
       // Garment Passport — public, confidence-scored provenance timeline (US-1093).
       // Dynamic (like /cert/:id): served by the SSR Pages Function in prod; this

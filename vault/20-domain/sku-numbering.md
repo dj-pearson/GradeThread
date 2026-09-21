@@ -11,6 +11,7 @@ code_refs:
   - scripts/check-sku-sequences.mjs
   - src/lib/sku-presets.ts
   - src/hooks/use-sku-sequence.ts
+  - src/components/flipdesk/sku-auto-hint.tsx
 reviewed: 2026-09-15
 tags: [flipdesk, sku, inventory, contract]
 summary: How a blank SKU is filled from a per-tenant odometer, what counters means, and the five invariants that keep SKUs unique inside a tenant.
@@ -64,7 +65,10 @@ unnumbered one for a seller mid photo session, who cannot diagnose a 23505. The
 price is that blank SKUs appear in silence, and it is paid by two banners with
 identical wording, on the settings screen and in the inventory shell
 (`SkuExhaustedBanner`). **If you ever remove one of those banners, this trade
-stops being honest.**
+stops being honest.** The inventory one can be dismissed, but only for the
+browser session, and it asks about the OWNER's row rather than the acting
+member's -- a dismissal that outlived the session, or a banner keyed on the
+actor, would quietly re-open the silence this pays for.
 
 ### 5. The tenant is `inventory_items.user_id`, which is the workspace OWNER
 

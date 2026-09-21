@@ -624,7 +624,7 @@ export function LandingPage() {
   const waitlistGating = useWaitlistGating();
   return (
     <ScrollExperience>
-    <div className="flex min-h-screen flex-col">
+    <div className="gt-landing-page flex min-h-screen flex-col">
       <SEO
         canonicalUrl="https://gradethread.com/"
         jsonLd={[

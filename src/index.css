@@ -574,6 +574,23 @@ html.lenis body {
   animation-delay: 0.34s;
 }
 
+/* The first screen should paint in its final state on phones. Replaying the
+   entrance when the live page replaces its static HTML delayed visible copy. */
+@media (max-width: 1023px) {
+  .gt-hero-lift,
+  .gt-hero-rise {
+    animation: none;
+  }
+
+  /* Keep all content in the document, but lay out distant homepage sections
+     only as they approach the viewport. The first (hero) section stays eager.
+     Desktop scroll scenes need full measurements, so this is mobile-only. */
+  .gt-landing-page > section ~ section {
+    content-visibility: auto;
+    contain-intrinsic-size: auto 800px;
+  }
+}
+
 /* US-1960: native CSS scroll-driven parallax on decorative background glows —
    zero JS, per-element progress via animation-timeline: view(). Guarded by
    @supports (so unsupported browsers show a static glow) and reduced-motion.

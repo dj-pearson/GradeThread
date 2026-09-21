@@ -1,6 +1,7 @@
 import { act, createElement as h } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { createMemoryRouter, RouterProvider, useSearchParams } from "react-router";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { inventoryViewKey, inventoryViewSearch, readInventoryView, writeInventoryView } from "../inventory-last-view";
 
@@ -21,7 +22,12 @@ afterEach(() => { act(() => root.unmount()); host.remove(); });
 async function settle() { for (let i = 0; i < 8; i++) await act(async () => { await new Promise(resolve => setTimeout(resolve, 0)); }); }
 async function mount(path: string) {
   const router = createMemoryRouter([{ path: "/dashboard/flipdesk/inventory", element: h(FlipdeskInventoryPage) }, { path: "/away", element: h("p", null, "Away") }], { initialEntries: [path] });
-  await act(async () => root.render(h(RouterProvider, { router })));
+  // US-3418 put SkuExhaustedBanner in the inventory shell, and it reads its row
+  // through TanStack Query. The real app always has a provider above this; a
+  // bare router here does not, and the banner threw before the route assertions
+  // below ever ran. Retry off so a failed fetch settles instead of looping.
+  const queries = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  await act(async () => root.render(h(QueryClientProvider, { client: queries }, h(RouterProvider, { router }))));
   await settle();
   return router;
 }

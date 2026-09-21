@@ -581,7 +581,7 @@ function ReturnsCard() {
     () => returns.find((r) => r.returnId === partialFor)?.orderId ?? null,
     [returns, partialFor],
   );
-  const { data: orderTotal } = useEbayOrderTotal(partialOrderId);
+  const { data: orderTotal, isError: orderTotalError, isLoading: orderTotalLoading, refetch: reloadOrderTotal } = useEbayOrderTotal(partialOrderId);
 
   // US-2930. Confirmed, because telling eBay an item is back stops a clock and
   // is a statement of fact the seller is on record for.
@@ -686,6 +686,10 @@ function ReturnsCard() {
   // amount-carrying route is POST /orders/:orderId/refund (US-1978), which
   // shipped with no frontend caller at all. See src/lib/refund-amount.ts.
   async function issuePartialRefund(r: EbayReturn) {
+    if (orderTotalError || orderTotalLoading) {
+      toast.error("Wait for the order total to load before sending a refund.");
+      return;
+    }
     if (!r.orderId) {
       toast.error("This return has no order id, so we can't refund against it.");
       return;
@@ -968,13 +972,13 @@ function ReturnsCard() {
                     onChange={(e) => setPartialAmount(e.target.value)}
                   />
                   <span className="text-xs text-muted-foreground">
-                    {orderTotal != null
+                    {orderTotalError ? "Couldn't load the order total" : orderTotalLoading ? "Loading order total..." : orderTotal != null
                       ? `of ${orderTotal.toFixed(2)}`
                       : "order total unavailable"}
                   </span>
                   <Button
                     size="sm"
-                    disabled={!!busy}
+                    disabled={!!busy || orderTotalError || orderTotalLoading}
                     onClick={() => issuePartialRefund(r)}
                   >
                     {busy === `${r.returnId}:partial` ? (
@@ -982,6 +986,7 @@ function ReturnsCard() {
                     ) : null}
                     Send
                   </Button>
+                  {orderTotalError && <Button variant="outline" size="sm" onClick={() => void reloadOrderTotal()}>Retry order total</Button>}
                   {/* US-2932: a suggestion, with the arithmetic behind it and a
                       click to accept. Absent — not zeroed — when the item's cost
                       is unknown, because a number with nothing behind it reads

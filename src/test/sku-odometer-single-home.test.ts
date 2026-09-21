@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { readdirSync, readFileSync, statSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
+import type { Dirent } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -39,28 +40,31 @@ const BANNED: readonly { re: RegExp; what: string }[] = [
   { re: /\bfun\s+advanceSku\b/, what: "advanceSku (Kotlin)" },
 ];
 
+/**
+ * `withFileTypes` rather than a statSync per entry, and a Buffer prefilter
+ * rather than a utf8 decode per file: this walks ~5,700 sources across four
+ * roots, and the decode-everything shape took 12s alone and blew the 90s
+ * timeout when the suite ran it beside other files.
+ */
 function walk(dir: string, out: string[] = []): string[] {
-  let entries: string[];
+  let entries: Dirent[];
   try {
-    entries = readdirSync(dir);
+    entries = readdirSync(dir, { withFileTypes: true });
   } catch {
     // ios/ and android/ are not present in every checkout or CI image.
     return out;
   }
-  for (const name of entries) {
-    if (SKIP_DIRS.has(name)) continue;
-    const full = join(dir, name);
-    let isDir = false;
-    try {
-      isDir = statSync(full).isDirectory();
-    } catch {
-      continue;
-    }
-    if (isDir) walk(full, out);
-    else if (EXTS.some((e) => name.endsWith(e))) out.push(full);
+  for (const entry of entries) {
+    if (SKIP_DIRS.has(entry.name)) continue;
+    const full = join(dir, entry.name);
+    if (entry.isDirectory()) walk(full, out);
+    else if (EXTS.some((e) => entry.name.endsWith(e))) out.push(full);
   }
   return out;
 }
+
+/** Cheap gate: a file without one of these names cannot match any BANNED rule. */
+const NEEDLES = [Buffer.from("advanceSku"), Buffer.from("renderSku")];
 
 describe("the SKU odometer has exactly one home", () => {
   it("is not reimplemented outside Postgres", () => {
@@ -68,7 +72,9 @@ describe("the SKU odometer has exactly one home", () => {
     for (const r of ROOTS) {
       for (const file of walk(join(ROOT, r))) {
         if (file.endsWith("sku-odometer-single-home.test.ts")) continue;
-        const text = readFileSync(file, "utf8");
+        const bytes = readFileSync(file);
+        if (!NEEDLES.some((n) => bytes.includes(n))) continue;
+        const text = bytes.toString("utf8");
         for (const { re, what } of BANNED) {
           if (re.test(text)) {
             offenders.push(`${file.slice(ROOT.length + 1).replace(/\\/g, "/")} (${what})`);

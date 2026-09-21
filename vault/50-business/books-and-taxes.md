@@ -891,6 +891,9 @@ describes above.
 
 ## The filing walkthrough (US-3137)
 
+Failed record checks withhold completion and filing advice until a retry
+succeeds. They never count as zero outstanding work. See [[read-failure-contract]].
+
 `src/lib/filing-walkthrough.ts`. Also pure, also stores nothing.
 
 ### The order IS the product

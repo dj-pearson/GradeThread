@@ -437,7 +437,13 @@ function MessageDetail({
   // drafter reads the local inventory row, so resolve one to the other first.
   async function draftReply() {
     if (!message.itemId) return;
-    const itemId = await resolveInventoryItemIdForEbayItem(message.itemId);
+    let itemId: string | null;
+    try {
+      itemId = await resolveInventoryItemIdForEbayItem(message.itemId);
+    } catch (error) {
+      toastError(error, "Couldn't load the linked inventory item. Try again.");
+      return;
+    }
     if (!itemId) {
       toast.error(NO_LOCAL_ITEM);
       return;

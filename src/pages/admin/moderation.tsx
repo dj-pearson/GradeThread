@@ -182,10 +182,11 @@ function SubmissionsTab() {
       if (submissions.length === 0) return [];
 
       const userIds = [...new Set(submissions.map((s) => s.user_id))];
-      const { data: usersRaw } = await supabase
+      const { data: usersRaw, error: usersRawReadError } = await supabase
         .from("users")
         .select("*")
         .in("id", userIds);
+      if (usersRawReadError) throw usersRawReadError;
       const usersById = new Map<string, UserRow>();
       for (const u of (usersRaw ?? []) as UserRow[]) {
         usersById.set(u.id, u);
@@ -195,20 +196,22 @@ function SubmissionsTab() {
 
       // Grade reports carry the structured fraud signals (authenticity, reuse
       // notes, confidence) we surface for each flagged item.
-      const { data: reportsRaw } = await supabase
+      const { data: reportsRaw, error: reportsRawReadError } = await supabase
         .from("grade_reports")
         .select("*")
         .in("submission_id", submissionIds)
-        .is("superseded_at", null); // US-479: active report per submission
+        .is("superseded_at", null);
+      if (reportsRawReadError) throw reportsRawReadError; // US-479: active report per submission
       const reportBySubmission = new Map<string, GradeReportRow>();
       for (const r of (reportsRaw ?? []) as GradeReportRow[]) {
         reportBySubmission.set(r.submission_id, r);
       }
 
-      const { data: imagesRaw } = await supabase
+      const { data: imagesRaw, error: imagesRawReadError } = await supabase
         .from("submission_images")
         .select("*")
         .in("submission_id", submissionIds);
+      if (imagesRawReadError) throw imagesRawReadError;
       const imagesBySubmission = new Map<string, SubmissionImageRow[]>();
       for (const img of (imagesRaw ?? []) as SubmissionImageRow[]) {
         const list = imagesBySubmission.get(img.submission_id) ?? [];

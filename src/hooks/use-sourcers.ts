@@ -105,12 +105,13 @@ export function useAddSourcer() {
         // spelling is already on the roster, including an archived one, and
         // un-archive it so the picker shows it again.
         if (error.code === "23505") {
-          const { data: existing } = await supabase
+          const { data: existing, error: existingReadError } = await supabase
             .from("sourcers")
             .select("id, name, archived_at")
             .eq("user_id", workspaceOwnerId)
             .ilike("name", name)
             .maybeSingle();
+          if (existingReadError) throw existingReadError;
           const row = existing as
             | { id: string; name: string; archived_at: string | null }
             | null;

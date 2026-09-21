@@ -9,6 +9,11 @@ code_refs:
   - wrangler.toml
   - lighthouserc.json
   - functions/_shared/sitemap.ts
+  - index.html
+  - src/main.tsx
+  - src/routes/index.tsx
+  - src/lib/mount-when-router-ready.ts
+  - src/index.css
 reviewed: 2026-09-05
 tags: [seo, performance, images, cwv]
 summary: The shipped performance levers, how responsive images are gated (ON since US-2333), and how the edge SSR cache and its purges actually work.
@@ -39,9 +44,14 @@ Thresholds live in `lighthouserc.json` at `warn` level, non-blocking.
 
 ## What ships in code
 
-**Layout stability (CLS).** Inter is self-hosted with `font-display: swap`
-(`src/index.css`) and preloaded from `index.html`, so the hero H1 paints in the
-system fallback and swaps without shifting. Every public image carries explicit
+**Layout stability (CLS).** Inter and the headline font, Outfit, are self-hosted
+with `font-display: swap` (`src/index.css`) and preloaded from `index.html`.
+The headline no longer waits for CSS to discover its font. Hero entrance
+animations are disabled below 1024px so mobile copy starts in its final state.
+Mobile homepage sections after the hero use `content-visibility: auto`, keeping
+their content in the document while deferring distant section layout until it
+approaches the viewport. Desktop scroll scenes retain full layout measurements.
+Every public image carries explicit
 `width`/`height` or an `aspect-ratio` — but by **two different mechanisms**, and
 the note used to blur them:
 
@@ -81,11 +91,14 @@ original ships and nothing degrades.
 > second, and why the `curl` check below is the gate rather than a
 > formality.
 
-**Bundle and interaction (INP).** Marketing routes are `React.lazy()` in
-`src/routes/index.tsx`, keeping the auth/dashboard/Supabase/Radix graph out of the
-eager entry chunk — marketing pages do not ship the ~80 KB gz they never use.
-Prerendered pages render as static HTML and `createRoot`-mount over the shell
-rather than hydrating heavily. `/assets/*` and `/fonts/*` get an immutable
+**Bundle and interaction (INP).** Most marketing routes use `React.lazy()` in
+`src/routes/index.tsx`. The homepage uses the router's lazy route module instead.
+`mountWhenRouterReady` waits for initial route resolution before `createRoot`
+replaces the static HTML, so the homepage no longer disappears into a loading
+spinner while its module arrives. An import failure still mounts the error
+boundary. Other pages keep their existing loading behavior. Shared dependencies,
+including Supabase, can still load on public pages that import them.
+`/assets/*` and `/fonts/*` get an immutable
 year-long cache (`public/_headers`).
 
 **TTFB.** Edge-SSR'd blog and certificate HTML is cached stale-while-revalidate:
@@ -98,8 +111,11 @@ rel=preload` header on `/*`, which Cloudflare converts into a 103 Early Hints
 response once the toggle below is on.
 
 **The one inline `<head>` script, and the hash that keeps it alive.**
-`index.html` carries a single inline script — Consent Mode v2 defaults, the Inter
-font injection, and an idle-deferred `gtag.js`. It was inlined from a former
+`index.html` carries a single inline script with Consent Mode v2 defaults and
+`gtag.js` scheduled at idle after the window load event. Scheduling idle work
+directly in the head could start tracking while fonts and page modules were
+still downloading. Consent settings and events stay queued until Google loads.
+Fonts use HTML preload links and CSS, not script injection. It was inlined from a former
 `/head-init.js` to remove a render-blocking round trip, which was the largest
 mobile PageSpeed blocker at roughly 490ms.
 

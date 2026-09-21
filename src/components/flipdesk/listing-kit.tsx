@@ -1667,25 +1667,26 @@ export function ListingKit({ itemId, baseName }: { itemId: string; baseName?: st
   // costs lives on that channel's own row and this component used to send the
   // eBay number to all of them. RLS scopes `listings` to the owner, so this is
   // the seller's own rows and nobody else's.
-  const { data } = useQuery({
+  const { data, isError: listingsError, isPending: listingsPending, refetch: reloadListings } = useQuery({
     queryKey: ["platform-fields", itemId],
     queryFn: async () => {
-      const { data: rows } = await supabase
+      const { data: rows, error: rowsReadError } = await supabase
         .from("listings")
         // listing_title: the eBay title every channel copies (channel-copy.ts).
         .select("id, platform, platform_fields, primary_photo_id, listing_price, listing_title")
         .eq("inventory_item_id", itemId)
         .order("created_at", { ascending: false });
+      if (rowsReadError) throw rowsReadError;
       return readKitListings((rows ?? []) as KitListingRow[]);
     },
   });
   const draft = data?.draft ?? null;
 
   // Listing photos (RLS scopes to the owner) for the per-platform export.
-  const { data: photos = [] } = useQuery({
+  const { data: photos = [], isError: photosError, isPending: photosPending, refetch: reloadPhotos } = useQuery({
     queryKey: ["item-photos-export", itemId],
     queryFn: async () => {
-      const { data: rows } = await supabase
+      const { data: rows, error: rowsReadError } = await supabase
         .from("item_photos")
         // photo_role is what tells the MeasureCard frame apart from a tape
         // close-up (US-2462); without it every 'measurement' photo reads as the
@@ -1693,6 +1694,7 @@ export function ListingKit({ itemId, baseName }: { itemId: string; baseName?: st
         .select("id, photo_url, photo_type, photo_role, sort_order")
         .eq("inventory_item_id", itemId)
         .order("sort_order", { ascending: true });
+      if (rowsReadError) throw rowsReadError;
       return (rows ?? []) as ExportablePhoto[];
     },
   });
@@ -1807,10 +1809,10 @@ export function ListingKit({ itemId, baseName }: { itemId: string; baseName?: st
   // read on 2026-09-11 (channel-copy.ts): the title is the last-resort source
   // for a channel's title, and brand, colour and size beat the kit variant's
   // snapshot of them. The composer's save invalidates this key.
-  const { data: itemPrice } = useQuery({
+  const { data: itemPrice, isError: factsError, isPending: factsPending, refetch: reloadFacts } = useQuery({
     queryKey: ["kit-item-facts", itemId],
     queryFn: async () => {
-      const [{ data: row }, { data: priced }] = await Promise.all([
+      const [{ data: row, error: itemError }, { data: priced, error: priceError }] = await Promise.all([
         supabase
           .from("inventory_items")
           .select("target_price, title, brand, color, size")
@@ -1831,6 +1833,8 @@ export function ListingKit({ itemId, baseName }: { itemId: string; baseName?: st
           .limit(1)
           .maybeSingle(),
       ]);
+      if (itemError) throw itemError;
+      if (priceError) throw priceError;
       const item = row as
         | (KitItemFacts & { target_price: number | null })
         | null;
@@ -1909,6 +1913,18 @@ export function ListingKit({ itemId, baseName }: { itemId: string; baseName?: st
   // a seller who never pressed the button is otherwise left wondering where
   // the copy came from.
   const generatedWithDraft = Object.values(variants).some((v) => v.generatedWithDraft);
+
+  if (listingsError || photosError || factsError) {
+    return (
+      <div role="alert" className="space-y-2">
+        <p>Couldn't load the listing kit. Copying and posting are unavailable until your listings, prices, and photos load.</p>
+        <Button variant="outline" onClick={() => void Promise.all([reloadListings(), reloadPhotos(), reloadFacts()])}>Try again</Button>
+      </div>
+    );
+  }
+  if (listingsPending || photosPending || factsPending) {
+    return <p role="status">Loading listing kit...</p>;
+  }
 
   return (
     <Card>

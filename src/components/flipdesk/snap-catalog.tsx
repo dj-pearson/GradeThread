@@ -115,10 +115,14 @@ export function SnapCatalog() {
 
   async function handleCatalogWithAi() {
     if (!draftId) return;
-    const { data: photoRows } = await supabase
+    const { data: photoRows, error: photoError } = await supabase
       .from("item_photos")
       .select("photo_type, storage_path")
       .eq("inventory_item_id", draftId);
+    if (photoError) {
+      toastError(photoError, "Couldn't load your photos. Try again before starting the catalog step.");
+      return;
+    }
     const photos = ((photoRows ?? []) as {
       photo_type: string;
       storage_path: string;

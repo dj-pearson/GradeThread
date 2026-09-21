@@ -116,6 +116,25 @@ describe("SkuExhaustedBanner", () => {
     expect(html).toContain(`href="${SKU_NUMBERING_HREF}"`);
   });
 
+  it("offers a way out, and honours it on the next render", () => {
+    // The banner is not an error the seller can fix in one click -- widening the
+    // pattern is a trip to another screen -- so it has to be dismissible, or it
+    // sits across every inventory view until they get to it.
+    expect(render(SkuExhaustedBanner, { isExhausted: true })).toContain(
+      'aria-label="Dismiss"',
+    );
+
+    // Session-scoped on purpose: gone for today, back tomorrow while the
+    // pattern is still full, because items are still saving without a SKU.
+    try {
+      sessionStorage.setItem("sku-exhausted-dismissed", "1");
+      expect(render(SkuExhaustedBanner, { isExhausted: true })).toBe("");
+    } finally {
+      sessionStorage.removeItem("sku-exhausted-dismissed");
+    }
+    expect(render(SkuExhaustedBanner, { isExhausted: true })).not.toBe("");
+  });
+
   it("uses the settings screen's wording word for word", () => {
     // A seller who sees both should not have to work out whether they are being
     // told about one problem or two. If the settings copy changes, this fails

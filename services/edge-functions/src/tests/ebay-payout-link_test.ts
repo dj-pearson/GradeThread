@@ -5,6 +5,10 @@
 // whole defect this story fixes is a null payout id being written over nothing
 // and never revisited, so a map that carries nulls is the same bug one layer up.
 
+// US-2379: first import. cron-runs.ts reaches lib/supabase.ts, which reads its
+// env at module load, so without this the file only passes when some other test
+// happened to run before it.
+import "./_env.ts";
 import { assertEquals } from "@std/assert";
 import { payoutIdsByOrder } from "../lib/ebay-payout-link.ts";
 import { CRON_REGISTRY } from "../lib/cron-runs.ts";

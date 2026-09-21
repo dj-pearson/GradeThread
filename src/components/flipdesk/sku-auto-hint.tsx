@@ -1,4 +1,5 @@
-import { TriangleAlert } from "lucide-react";
+import { useState } from "react";
+import { TriangleAlert, X } from "lucide-react";
 import { Link } from "react-router";
 import { cn } from "@/lib/utils";
 import { SKU_NUMBERING_HREF } from "@/lib/sku-presets";
@@ -76,10 +77,34 @@ export function SkuAutoHint({ ownerId, className }: SkuAutoHintProps) {
  * seller who sees both should not have to work out whether they are being told
  * about one problem or two.
  */
+/** Session-scoped, so a dismissal clears the banner today and it is back
+ *  tomorrow if the pattern is still full. sessionStorage throws in a private
+ *  window, which must not take the page with it. */
+const DISMISS_KEY = "sku-exhausted-dismissed";
+
+function readDismissed(): boolean {
+  try {
+    return sessionStorage.getItem(DISMISS_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
 export function SkuExhaustedBanner({ ownerId, className }: SkuAutoHintProps) {
   const { isExhausted, isLoading } = useSkuSequence(ownerId);
+  const [dismissed, setDismissed] = useState(readDismissed);
 
-  if (isLoading || !isExhausted) return null;
+  if (isLoading || !isExhausted || dismissed) return null;
+
+  const dismiss = () => {
+    try {
+      sessionStorage.setItem(DISMISS_KEY, "1");
+    } catch {
+      // A private window refuses the write. Hiding it for this view is still
+      // the thing the seller asked for.
+    }
+    setDismissed(true);
+  };
 
   return (
     <div
@@ -90,7 +115,7 @@ export function SkuExhaustedBanner({ ownerId, className }: SkuAutoHintProps) {
       )}
     >
       <TriangleAlert className="mt-0.5 h-4 w-4 shrink-0 text-destructive" />
-      <p className="text-sm">
+      <p className="text-sm flex-1">
         <span className="font-medium">
           Every number in this pattern has been used.
         </span>{" "}
@@ -100,6 +125,14 @@ export function SkuExhaustedBanner({ ownerId, className }: SkuAutoHintProps) {
         </Link>
         , then save.
       </p>
+      <button
+        type="button"
+        onClick={dismiss}
+        aria-label="Dismiss"
+        className="mt-0.5 shrink-0 rounded-md p-1 text-destructive hover:bg-destructive/10"
+      >
+        <X className="h-4 w-4" />
+      </button>
     </div>
   );
 }

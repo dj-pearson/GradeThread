@@ -98,10 +98,11 @@ export function TeamPage() {
       const members = (rawMembers ?? []) as unknown as WorkspaceMemberRow[];
       if (members.length === 0) return [];
       const ids = members.map((m) => m.member_id);
-      const { data: rawProfiles } = await supabase
+      const { data: rawProfiles, error: rawProfilesReadError } = await supabase
         .from("users")
         .select("id, email, full_name")
         .in("id", ids);
+      if (rawProfilesReadError) throw rawProfilesReadError;
       const profiles = (rawProfiles ?? []) as unknown as Array<{
         id: string;
         email: string;

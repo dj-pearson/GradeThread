@@ -119,7 +119,7 @@ export function FlipdeskScheduledDropsPage() {
   // Key on the id CONTENTS, not the count — a length-only key serves the stale
   // title map when the set turns over without changing size.
   const itemIdsKey = useMemo(() => [...itemIds].sort().join(","), [itemIds]);
-  const { data: titles = {} } = useQuery<Record<string, string>>({
+  const { data: titles = {}, isError: titlesError, isLoading: titlesLoading, refetch: reloadTitles } = useQuery<Record<string, string>>({
     queryKey: ["scheduled_drops_titles", user?.id, itemIdsKey],
     enabled: itemIds.length > 0,
     queryFn: async () => {
@@ -129,10 +129,11 @@ export function FlipdeskScheduledDropsPage() {
       const map: Record<string, string> = {};
       const CHUNK = 100;
       for (let i = 0; i < itemIds.length; i += CHUNK) {
-        const { data } = await supabase
+        const { data, error: dataReadError } = await supabase
           .from("inventory_items")
           .select("id, title")
           .in("id", itemIds.slice(i, i + CHUNK));
+        if (dataReadError) throw dataReadError;
         for (const row of (data ?? []) as { id: string; title: string | null }[]) {
           if (row.title) map[row.id] = row.title;
         }
@@ -350,13 +351,13 @@ export function FlipdeskScheduledDropsPage() {
           </div>
         </CardHeader>
         <CardContent>
-          {isError ? (
+          {isError || titlesError ? (
             <ErrorState
               title="Couldn't load scheduled drops"
-              onRetry={() => refetch()}
+              onRetry={() => Promise.all([refetch(), reloadTitles()])}
               retrying={isFetching}
             />
-          ) : isLoading ? (
+          ) : isLoading || titlesLoading ? (
             <div className="flex h-64 items-center justify-center">
               <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent" />
             </div>

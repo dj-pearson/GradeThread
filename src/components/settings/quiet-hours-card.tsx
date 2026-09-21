@@ -10,6 +10,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
+import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { Separator } from "@/components/ui/separator";
 import {
@@ -53,16 +54,17 @@ export function QuietHoursCard() {
   const userId = useAuthStore((s) => s.user?.id);
   const qc = useQueryClient();
 
-  const { data: saved, isLoading } = useQuery({
+  const { data: saved, isLoading, isError, refetch } = useQuery({
     queryKey: [QUIET_HOURS_KEY, userId],
     enabled: !!userId,
     staleTime: 5 * 60_000,
     queryFn: async (): Promise<QuietHours | null> => {
-      const { data } = await supabase
+      const { data, error: dataReadError } = await supabase
         .from("users")
         .select("notification_quiet_hours")
         .eq("id", userId!)
         .maybeSingle();
+      if (dataReadError) throw dataReadError;
       return parseQuietHours(
         (data as { notification_quiet_hours?: unknown } | null)
           ?.notification_quiet_hours,
@@ -117,8 +119,12 @@ export function QuietHoursCard() {
     }
   }
 
-  const busy = isLoading || update.isPending;
+  const busy = isLoading || isError || update.isPending;
   const sameHour = startHour === endHour;
+
+  if (isError) {
+    return <div role="alert" className="space-y-2"><p>Couldn't load quiet hours. Your saved settings have not changed.</p><Button variant="outline" onClick={() => void refetch()}>Try again</Button></div>;
+  }
 
   return (
     <Card>

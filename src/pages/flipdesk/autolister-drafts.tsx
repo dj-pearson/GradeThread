@@ -171,14 +171,10 @@ export function FlipdeskAutolisterDraftsPage() {
 
   // US-1897: the persisted Listing Quality Score per draft.
   //
-  // Fetched SEPARATELY and FAIL-SOFT on purpose. quality_score lands in
-  // migration 00476, which is held — adding it to the drafts query above would
-  // make that query 42703 and take the WHOLE PAGE down the moment the frontend
-  // deploys ahead of the SQL (the hazard CLAUDE.md's held-migration rule calls
-  // out). Here a missing column just means no chips: every draft reads as
-  // "not scored", which is exactly what it is.
+  // A failed score read is unavailable, not evidence that drafts are unscored.
+  // Keep it separate so a retry can refresh just the supporting reads.
   const listingIds = useMemo(() => drafts.map((d) => d.id), [drafts]);
-  const { data: scoreByListing = {} } = useQuery({
+  const { data: scoreByListing = {}, isError: scoresError, refetch: reloadScores } = useQuery({
     queryKey: ["draft-quality-scores", listingIds],
     enabled: listingIds.length > 0,
     staleTime: 30_000,
@@ -187,9 +183,7 @@ export function FlipdeskAutolisterDraftsPage() {
         .from("listings")
         .select("id, quality_score, quality_blocked")
         .in("id", listingIds);
-      // A missing column (00476 not applied yet) lands here as an error; an
-      // empty map means "nothing scored", which is the honest answer.
-      if (error) return {};
+      if (error) throw error;
       return scoreMapFromRows(
         (data ?? []) as Array<{
           id: string;
@@ -211,16 +205,17 @@ export function FlipdeskAutolisterDraftsPage() {
   // item (inventory_items.acquired_price — surfaced as purchase_price by the
   // items_full view the Inventory table reads). Pull it alongside the title so
   // a draft can show cost + estimated return without a second round trip.
-  const { data: itemMeta = {} } = useQuery<
+  const { data: itemMeta = {}, isError: itemMetaError, isLoading: itemMetaLoading, refetch: reloadItemMeta } = useQuery<
     Record<string, { title: string; cost: number | null }>
   >({
-    queryKey: ["autolister_drafts_items", user?.id, itemIds.length],
+    queryKey: ["autolister_drafts_items", user?.id, itemIds],
     enabled: itemIds.length > 0,
     queryFn: async () => {
-      const { data: rows } = await supabase
+      const { data: rows, error: rowsReadError } = await supabase
         .from("inventory_items")
         .select("id, title, acquired_price")
         .in("id", itemIds);
+      if (rowsReadError) throw rowsReadError;
       const map: Record<string, { title: string; cost: number | null }> = {};
       for (const r of (rows ?? []) as Array<{
         id: string;
@@ -802,15 +797,15 @@ export function FlipdeskAutolisterDraftsPage() {
           </div>
         </CardHeader>
         <CardContent className="px-0">
-          {isLoading ? (
+          {isLoading || itemMetaLoading ? (
             <LoadingRegion label="Loading drafts" className="px-4">
               <SkeletonRows rows={5} />
             </LoadingRegion>
-          ) : draftsError ? (
+          ) : draftsError || itemMetaError || scoresError ? (
             <ErrorState
               title="Couldn't load your drafts"
-              description={(draftsError as Error).message}
-              onRetry={() => refetchDrafts()}
+              description={scoresError ? "Couldn't load quality scores. Retry before reviewing which drafts are ready." : itemMetaError ? "Couldn't load item costs. Profit estimates are unavailable until this read succeeds." : (draftsError as Error).message}
+              onRetry={() => Promise.all([refetchDrafts(), reloadItemMeta(), reloadScores()])}
               retrying={draftsFetching}
             />
           ) : drafts.length === 0 ? (

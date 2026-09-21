@@ -1,3 +1,10 @@
+// @vitest-environment node
+//
+// It walks the filesystem and parses TypeScript. It touches no DOM, and the
+// jsdom setup is what pushed it over the cap: the scan is 5s in plain node, and
+// this file still blew the 90s timeout under full-suite load while passing in
+// isolation. A red that says nothing about spelling is worse than no guard.
+
 import { describe, expect, it } from "vitest";
 
 // US-3233. The guard itself lives in scripts/check-us-spelling.mjs; this is what

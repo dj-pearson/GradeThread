@@ -29,6 +29,12 @@ const EXT = new Set([".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".json", ".sq
 const SKIP = new Set([
   "node_modules", ".git", "dist", "dist-ext", "build", ".vite", "coverage",
   "ios-screenshots", ".next", "playwright-report", "test-results",
+  // Lighthouse and trace output written by the browser tooling. Gitignored, so
+  // it never reaches CI and never reaches review -- but it is full of U+00A0
+  // from rendered page text, and it reddened this guard on every local run for
+  // whoever last profiled the site. A guard that only fails on one machine is a
+  // guard people learn to skip.
+  ".playwright-mcp",
 ]);
 
 /**

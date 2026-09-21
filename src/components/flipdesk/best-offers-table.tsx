@@ -637,7 +637,13 @@ function OfferDetail({
   // US-2494: one AI action per press, so this only ever runs from the button.
   // The offer carries eBay's item id; the drafter needs the local row's UUID.
   async function draftCounter() {
-    const itemId = await resolveInventoryItemIdForEbayItem(offer.itemId);
+    let itemId: string | null;
+    try {
+      itemId = await resolveInventoryItemIdForEbayItem(offer.itemId);
+    } catch (error) {
+      toastError(error, "Couldn't load the linked inventory item. Try again.");
+      return;
+    }
     if (!itemId) {
       toast.error(NO_LOCAL_ITEM);
       return;
