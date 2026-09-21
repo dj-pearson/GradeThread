@@ -5583,6 +5583,81 @@ Deno.test({
 });
 
 Deno.test({
+  // US-3179 (AC1): the outcome read joins a seller's planning history to their
+  // SALES, which makes it the widest read in the planner router by some way.
+  //
+  // A hit here leaks money. Not an estimate or a task count: what another
+  // seller's garments sold for, what they paid, what the marketplace took and
+  // when each one settled. It is the books, reached through a planning route,
+  // and it would be a quiet read with nothing on either screen to show it
+  // happened.
+  //
+  // The route runs FOUR queries -- tasks, sessions, items and sales -- and each
+  // carries its own owner predicate, so like the observations case above this
+  // one cannot see a single predicate go. `AC3: every read and write is scoped
+  // on the owner` in flipdesk-planner_test.ts is the guard that can. What this
+  // asks is the question only real rows answer: can B's answer ever contain
+  // A's sale.
+  name: "US-3179: B's outcome read cannot reach A's sales",
+  ignore: !CONFIGURED,
+  fn: async () => {
+    const A_ID = Deno.env.get("TEST_USER_A_ID") ??
+      "00000000-0000-4000-8000-000000000001";
+    const PATH = `${BASE}/api/flipdesk/planner/outcomes`;
+
+    const shapes: { label: string; url: string; headers: HeadersInit }[] = [
+      { label: "plain", url: PATH, headers: authHeaders(B_JWT!) },
+      { label: "user_id filter", url: `${PATH}?user_id=eq.${A_ID}`, headers: authHeaders(B_JWT!) },
+      {
+        label: "workspace-owner header",
+        url: PATH,
+        headers: { ...authHeaders(B_JWT!), "X-Workspace-Owner": A_ID },
+      },
+    ];
+
+    const theirs: { sales: string[]; items: string[] }[] = [];
+    for (const shape of shapes) {
+      const res = await fetch(shape.url, { headers: shape.headers });
+      assert(
+        [200, 401, 403].includes(res.status),
+        `outcomes (${shape.label}) should answer a known status, got ${res.status}`,
+      );
+      if (res.status !== 200) continue;
+      const body = (await res.json().catch(() => ({}))) as {
+        sales?: { sale_id?: string; inventory_item_id?: string }[];
+        items?: { inventory_item_id?: string }[];
+      };
+      theirs.push({
+        sales: (body.sales ?? []).map((x) => String(x.sale_id)),
+        items: (body.items ?? []).map((x) => String(x.inventory_item_id)),
+      });
+    }
+
+    const aRes = await fetch(PATH, { headers: authHeaders(A_JWT!) });
+    if (aRes.status !== 200) return;
+    const aBody = (await aRes.json().catch(() => ({}))) as {
+      sales?: { sale_id?: string }[];
+      items?: { inventory_item_id?: string }[];
+    };
+    const aSales = new Set((aBody.sales ?? []).map((x) => String(x.sale_id)));
+    const aItems = new Set((aBody.items ?? []).map((x) => String(x.inventory_item_id)));
+
+    for (const [i, got] of theirs.entries()) {
+      assertEquals(
+        got.sales.filter((id) => aSales.has(id)),
+        [],
+        `B's outcomes (${shapes[i]!.label}) contained A's sale ids`,
+      );
+      assertEquals(
+        got.items.filter((id) => aItems.has(id)),
+        [],
+        `B's outcomes (${shapes[i]!.label}) contained A's item ids`,
+      );
+    }
+  },
+});
+
+Deno.test({
   // US-3178 (AC4): the duration-learning read takes NO id and must never be
   // steerable into another seller's history.
   //

@@ -503,6 +503,173 @@ flipdeskPlannerRoutes.post("/sessions", async (c) => {
 
 // ── GET /sessions/current ─────────────────────────────────────────
 
+// ── GET /outcomes ─────────────────────────────────────────────────
+
+/** Bounded like every other list read here (US-3179 AC5). */
+const MAX_OUTCOME_ITEMS = 300;
+
+// Declared as constants the way TASK_COLUMNS above is. A select built by
+// concatenation inside the call loses PostgREST's row typing entirely and the
+// cast then has to go through `unknown`, which is a cast that checks nothing.
+const OUTCOME_TASK_COLUMNS =
+  "id, session_id, inventory_item_id, item_title_snapshot, action_key, state, estimate_value_cents, estimate_source, estimate_taken_at, confirmed_minutes, correction_minutes";
+const OUTCOME_SALE_COLUMNS =
+  "id, inventory_item_id, listing_id, status, cancelled_at, sold_at, sale_date, sale_price, shipping_collected, platform_fees, payment_processing_fees, shipping_cost, grading_cost, other_costs, tax";
+
+/**
+ * What the planner estimated, and what the books recorded (US-3179).
+ *
+ * THREE READS AND NO ARITHMETIC. The comparison itself is
+ * src/lib/work-outcomes.ts, which reuses saleNetCents -- the same term-for-term
+ * pnl_net the finances dashboard uses. Computing a net here would be the
+ * second financial ledger AC1 forbids, and it would drift from the books
+ * within a quarter with nothing to say which number is the real one.
+ *
+ * What the SERVER owns is the owner predicate, on every one of the three.
+ */
+flipdeskPlannerRoutes.get("/outcomes", async (c) => {
+  const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
+
+  // Only tasks that carry an estimate snapshot: a task with none was never a
+  // prediction and there is nothing to score it against.
+  const { data: taskData, error: taskErr } = await supabaseAdmin
+    .from("flipdesk_work_session_tasks")
+    .select(OUTCOME_TASK_COLUMNS)
+    .eq("user_id", ownerId) // US-268
+    .not("estimate_value_cents", "is", null)
+    .order("estimate_taken_at", { ascending: false })
+    .limit(MAX_OUTCOME_ITEMS);
+  if (taskErr) {
+    return failSafe(c, 500, "Couldn't read your planning history.", taskErr, "planner.outcomes");
+  }
+  const tasks = (taskData ?? []) as {
+    id: string;
+    session_id: string;
+    inventory_item_id: string | null;
+    item_title_snapshot: string | null;
+    action_key: string;
+    state: string;
+    estimate_value_cents: number | null;
+    estimate_source: string | null;
+    estimate_taken_at: string | null;
+    confirmed_minutes: number | null;
+    correction_minutes: number | null;
+  }[];
+
+  // The session states the tasks belong to, so the pure layer can exclude an
+  // abandoned plan without a second round trip.
+  const sessionIds = [...new Set(tasks.map((t) => t.session_id))];
+  const sessionState = new Map<string, string>();
+  if (sessionIds.length > 0) {
+    const { data: sessionData } = await supabaseAdmin
+      .from("flipdesk_work_sessions")
+      .select("id, state")
+      .eq("user_id", ownerId) // US-268
+      .in("id", sessionIds);
+    for (const row of (sessionData ?? []) as { id: string; state: string }[]) {
+      sessionState.set(row.id, row.state);
+    }
+  }
+
+  const itemIds = [...new Set(
+    tasks.map((t) => t.inventory_item_id).filter((id): id is string => id !== null),
+  )];
+  if (itemIds.length === 0) {
+    return c.json({ tasks: [], sales: [], items: [], now: new Date().toISOString() });
+  }
+
+  const [itemRes, saleRes] = await Promise.all([
+    supabaseAdmin
+      .from("inventory_items")
+      .select("id, created_at, acquired_price")
+      .eq("user_id", ownerId) // US-268
+      .in("id", itemIds),
+    supabaseAdmin
+      .from("sales")
+      .select(OUTCOME_SALE_COLUMNS)
+      .eq("user_id", ownerId) // US-268
+      .in("inventory_item_id", itemIds),
+  ]);
+  if (itemRes.error || saleRes.error) {
+    return failSafe(
+      c,
+      500,
+      "Couldn't read your sales.",
+      itemRes.error ?? saleRes.error,
+      "planner.outcomes",
+    );
+  }
+  const items = (itemRes.data ?? []) as {
+    id: string;
+    created_at: string | null;
+    acquired_price: number | string | null;
+  }[];
+  const sales = (saleRes.data ?? []) as Record<string, unknown>[];
+  const basisById = new Map(items.map((i) => [i.id, i.acquired_price]));
+
+  // The marketplace comes off the LISTING, because a sale row does not carry
+  // one. Absent is absent: it is reported as null rather than guessed at from
+  // an order reference.
+  const listingIds = [...new Set(
+    sales.map((s) => s.listing_id).filter((id): id is string => typeof id === "string"),
+  )];
+  const platformByListing = new Map<string, string | null>();
+  if (listingIds.length > 0) {
+    const { data: listingData } = await supabaseAdmin
+      .from("listings")
+      .select("id, platform")
+      .eq("user_id", ownerId) // US-268
+      .in("id", listingIds);
+    for (const row of (listingData ?? []) as { id: string; platform: string | null }[]) {
+      platformByListing.set(row.id, row.platform);
+    }
+  }
+
+  return c.json({
+    tasks: tasks.map((t) => ({
+      task_id: t.id,
+      session_id: t.session_id,
+      inventory_item_id: t.inventory_item_id,
+      item_title_snapshot: t.item_title_snapshot,
+      action_key: t.action_key,
+      task_state: t.state,
+      session_state: sessionState.get(t.session_id) ?? "unknown",
+      estimate_value_cents: t.estimate_value_cents,
+      estimate_source: t.estimate_source,
+      estimate_taken_at: t.estimate_taken_at,
+      confirmed_minutes: t.confirmed_minutes,
+      correction_minutes: t.correction_minutes,
+    })),
+    sales: sales.map((s) => ({
+      sale_id: s.id,
+      inventory_item_id: s.inventory_item_id,
+      status: s.status,
+      cancelled_at: s.cancelled_at,
+      sold_at: s.sold_at ?? s.sale_date ?? null,
+      marketplace: typeof s.listing_id === "string"
+        ? platformByListing.get(s.listing_id) ?? null
+        : null,
+      acquired_price: typeof s.inventory_item_id === "string"
+        ? basisById.get(s.inventory_item_id) ?? null
+        : null,
+      money: {
+        sale_price: s.sale_price,
+        shipping_collected: s.shipping_collected,
+        platform_fees: s.platform_fees,
+        payment_processing_fees: s.payment_processing_fees,
+        shipping_cost: s.shipping_cost,
+        grading_cost: s.grading_cost,
+        other_costs: s.other_costs,
+        tax: s.tax,
+      },
+    })),
+    items: items.map((i) => ({ inventory_item_id: i.id, created_at: i.created_at })),
+    // SERVER TIME, so the horizon call is not made against a client clock a
+    // seller could be wrong about by a day.
+    now: new Date().toISOString(),
+  });
+});
+
 // ── GET /observations ─────────────────────────────────────────────
 
 /**
