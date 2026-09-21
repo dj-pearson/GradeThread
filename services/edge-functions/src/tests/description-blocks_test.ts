@@ -9,6 +9,7 @@
 import { assert, assertEquals, assertStringIncludes } from "@std/assert";
 import {
   type DescriptionBlock,
+  type DescriptionBlockKey,
   defaultBlocks,
   parseLegacyDescription,
   type RenderContext,
@@ -368,7 +369,16 @@ Deno.test("US-3211: defaultBlocks puts the checkable facts before the prose", ()
   assertEquals(keys[0], "attributes");
   assertEquals(keys[keys.length - 1], "facts");
   const intro = keys.indexOf("intro");
-  for (const fact of ["attributes", "condition", "measurements", "disclosure"]) {
+  // Typed, because `keys` is DescriptionBlockKey[] and a bare string array
+  // makes indexOf a TS2345. `deno test --no-check` does not see it and CI's
+  // `deno check src/main.ts src/tests/` does.
+  const facts: DescriptionBlockKey[] = [
+    "attributes",
+    "condition",
+    "measurements",
+    "disclosure",
+  ];
+  for (const fact of facts) {
     assert(keys.indexOf(fact) < intro, `${fact} must come before intro`);
   }
   assert(keys.indexOf("features") > intro);
