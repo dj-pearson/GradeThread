@@ -219,19 +219,28 @@ export function SessionRunner({ fallback = null }: RunnerProps) {
     // AC5: a finished session shows what was FINISHED and the minutes the
     // seller confirmed. Not a projected profit, and not a clock reading they
     // never agreed to.
-    if (session && progress.done.length > 0) {
+    // US-3177: shown whenever the session HAD work, not only when something
+    // was finished. Pressing "Finish for now" having completed nothing used to
+    // make the whole panel vanish with no acknowledgement -- the seller gets
+    // no confirmation that the jobs they did not get to were kept, which is
+    // exactly the reassurance AC5 is about. Found in the browser against a
+    // real session; no unit test asked what an empty finish looks like.
+    if (session && (progress.done.length > 0 || progress.leftOverCount > 0)) {
       return (
         <section aria-labelledby="wmt-done" className="space-y-3 rounded-xl border p-4">
           <h2 id="wmt-done" className="text-sm font-medium">
             {session.state === "completed" ? "Session finished" : "Session stopped"}
           </h2>
           <p className="text-sm text-muted-foreground">
-            {progress.done.length}{" "}
-            {progress.done.length === 1 ? "job" : "jobs"} done
-            {progress.confirmedMinutes > 0
-              ? `, ${progress.confirmedMinutes} minutes you confirmed`
-              : ""}
-            .
+            {progress.done.length === 0
+              ? "No jobs finished this time."
+              : `${progress.done.length} ${
+                progress.done.length === 1 ? "job" : "jobs"
+              } done${
+                progress.confirmedMinutes > 0
+                  ? `, ${progress.confirmedMinutes} minutes you confirmed`
+                  : ""
+              }.`}
           </p>
           {progress.leftOverCount > 0 && (
             <p className="text-sm text-muted-foreground">

@@ -417,6 +417,21 @@ describe("finishing (AC5)", () => {
     expect(body()).toContain("Nothing was lost");
   });
 
+  it("says so when a session ended with nothing finished", async () => {
+    // US-3177: this used to render NOTHING. The seller pressed "Finish for
+    // now", the panel vanished, and they were never told the jobs they did
+    // not get to had been kept.
+    sessionState = session({ state: "completed" }, [
+      task({ id: "a", state: "pending" }),
+      task({ id: "b", position: 2, state: "skipped" }),
+    ]);
+    render();
+    await settle();
+    expect(body()).toContain("No jobs finished this time");
+    expect(body()).toContain("2 left for next time");
+    expect(body()).toContain("Nothing was lost");
+  });
+
   it("renders nothing at all when there is no session", async () => {
     sessionState = { data: { session: null, tasks: [] }, isLoading: false, isError: false };
     render();

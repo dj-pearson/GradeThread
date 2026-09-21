@@ -9,7 +9,12 @@ import { defineConfig, devices } from "@playwright/test";
 // a Pages preview): no local web server is started and baseURL is the remote
 // URL. The page.route mocks still apply (they intercept in-browser), so specs
 // stay deterministic against a live frontend. Used by staging-smoke.yml.
-const PORT = 4173;
+// US-3177: overridable, because the LIVE spec (worth-my-time-live.spec.ts)
+// needs an origin the edge service trusts. `allowed-origins.ts` permits
+// `http://localhost:5173` off-production and nothing else on loopback, so a
+// run against a real edge sets E2E_PORT=5173 rather than widening the edge's
+// CORS list for a test.
+const PORT = Number(process.env.E2E_PORT ?? 4173);
 const REMOTE_BASE_URL = process.env.E2E_BASE_URL?.replace(/\/+$/, "");
 
 export default defineConfig({

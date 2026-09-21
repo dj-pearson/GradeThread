@@ -573,7 +573,11 @@ flipdeskPlannerRoutes.post("/sessions/:id/:action", async (c) => {
 
   const move = canTransitionSession(session.state, target);
   if (!move.ok) {
-    return c.json({ error: move.refusal.message, code: move.refusal.code }, 409);
+    // OUR sentence, not a database one: every TransitionRefusal.message is
+    // built in canTransitionSession / canTransitionTask from our own state
+    // names ("A session can't go from planned to paused."), and nothing
+    // from PostgREST or Postgres reaches this line.
+    return c.json({ error: move.refusal.message, code: move.refusal.code }, 409); // safe-raw-error: our own transition copy, never a DB message
   }
 
   const patch: Record<string, unknown> = { state: target, revision: session.revision + 1 };
@@ -651,7 +655,11 @@ flipdeskPlannerRoutes.post("/tasks/:id/:action", async (c) => {
 
   const move = canTransitionTask(task.state, spec.state);
   if (!move.ok) {
-    return c.json({ error: move.refusal.message, code: move.refusal.code }, 409);
+    // OUR sentence, not a database one: every TransitionRefusal.message is
+    // built in canTransitionSession / canTransitionTask from our own state
+    // names ("A session can't go from planned to paused."), and nothing
+    // from PostgREST or Postgres reaches this line.
+    return c.json({ error: move.refusal.message, code: move.refusal.code }, 409); // safe-raw-error: our own transition copy, never a DB message
   }
 
   // AC4: re-read the item on START and on COMPLETE. Not only on start -- a
