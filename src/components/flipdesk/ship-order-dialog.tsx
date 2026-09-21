@@ -19,6 +19,7 @@ import { supabase } from "@/lib/supabase";
 import {
   type EbayShippingRate,
   useEbayBuyLabel,
+  useEasyPostOnboard,
   useEbayLogisticsCapability,
   useEbayReprintLabel,
   useEbayShipOrder,
@@ -81,6 +82,30 @@ export function ShipOrderDialog({
   // `reconnect_required` are not things an upgrade fixes, and offering to sell
   // Pro for either would be a lie.
   const labelsPlanLocked = capability.data?.code === "plan_locked";
+  // US-3015: the second state a seller can fix themselves, and the fix is at
+  // EasyPost rather than here. Hiding on it would leave a working feature
+  // permanently switched off for every non-eBay sale -- the same mistake
+  // plan_locked's exception exists to avoid.
+  const easypostOnboarding =
+    capability.data?.code === "easypost_onboarding_required";
+  const usesEasyPost = capability.data?.provider === "easypost";
+  const onboardEasyPost = useEasyPostOnboard();
+  const [shipTo, setShipTo] = useState({
+    name: "",
+    line1: "",
+    line2: "",
+    city: "",
+    state: "",
+    postalCode: "",
+  });
+  // Line 2 and the name are genuinely optional; the other four are what any
+  // carrier needs to quote at all, and a partial address comes back from
+  // EasyPost as an opaque 422.
+  const shipToComplete =
+    shipTo.line1.trim() !== "" &&
+    shipTo.city.trim() !== "" &&
+    shipTo.state.trim() !== "" &&
+    shipTo.postalCode.trim() !== "";
   const rates = useEbayShippingRates();
   const buyLabel = useEbayBuyLabel();
   const reprint = useEbayReprintLabel();
@@ -141,13 +166,35 @@ export function ShipOrderDialog({
     const run = quoteRuns.begin();
     try {
       const sale = await loadSale();
-      if (!sale?.platform_order_id) {
+      if (!sale) {
+        toast.error("Couldn't find the sale for this item.");
+        return;
+      }
+      // US-3015: an eBay order is required only on the eBay path. EasyPost
+      // prices any sale at all, which is the whole reason it is here -- so
+      // refusing on a missing eBay order would keep the fallback unreachable
+      // for exactly the sales it was added to serve.
+      if (!usesEasyPost && !sale.platform_order_id) {
         toast.error("This sale has no eBay order, so there's no label to buy.");
+        return;
+      }
+      if (usesEasyPost && !shipToComplete) {
+        toast.error("Add the buyer's shipping address to price this label.");
         return;
       }
       const quote = await rates.mutateAsync({
         saleId: sale.id,
         parcel: { weightValue: w },
+        shipTo: usesEasyPost
+          ? {
+              name: shipTo.name.trim() || null,
+              line1: shipTo.line1.trim(),
+              line2: shipTo.line2.trim() || null,
+              city: shipTo.city.trim(),
+              state: shipTo.state.trim(),
+              postalCode: shipTo.postalCode.trim(),
+            }
+          : null,
       });
       const patch = acceptRateQuote(run, quote);
       if (!patch) return;
@@ -155,14 +202,15 @@ export function ShipOrderDialog({
       setRateOptions(patch.rateOptions);
       setSelectedRateId(patch.selectedRateId);
       if (quote.rates.length === 0) {
-        toast.error("eBay returned no rates for this parcel.");
+        toast.error("No rates came back for this parcel.");
       }
     } catch (err) {
       if (run.superseded) return;
       const e = err as Error & { code?: string };
       toastError(
         e,
-        e.code === "ship_from_missing"
+        e.code === "ship_from_missing" || e.code === "ship_to_missing" ||
+          e.code === "easypost_onboarding_required"
           ? e.message
           : "Couldn't get shipping rates.",
         { duration: 10_000 },
@@ -328,10 +376,47 @@ export function ShipOrderDialog({
               <p className="text-sm text-muted-foreground">
                 {capability.data?.detail ??
                   "Buying shipping labels here is part of Pro."}{" "}
-                Postage is eBay's own rate. We don't add anything to it.
+                Postage is the carrier's own rate. We don't add anything to
+                it.
               </p>
               <Button variant="outline" size="sm" asChild>
                 <Link to="/pricing">See plans</Link>
+              </Button>
+            </div>
+          )}
+          {easypostOnboarding && (
+            <div className="space-y-2 rounded-lg bg-muted/50 p-3">
+              <div className="flex items-center gap-2 text-sm font-medium">
+                <Tag className="h-4 w-4" />
+                Set up postage
+              </div>
+              <p className="text-sm text-muted-foreground">
+                {capability.data?.detail ??
+                  "Add a card with EasyPost to buy postage here."}{" "}
+                You pay EasyPost at the carrier's rate. We never handle the
+                postage money, and we add nothing to it.
+              </p>
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={onboardEasyPost.isPending}
+                onClick={() => {
+                  onboardEasyPost.mutate(undefined, {
+                    onSuccess: (r) =>
+                      toast.success(
+                        r.ready
+                          ? "EasyPost is ready. You can buy a label now."
+                          : "EasyPost account created. Add your card with EasyPost to finish."
+                      ),
+                    onError: (e) => toastError(e, "Couldn't set up EasyPost."),
+                  });
+                }}
+              >
+                {onboardEasyPost.isPending
+                  ? "Setting up…"
+                  : capability.data?.easypost.onboarded
+                    ? "Check again"
+                    : "Set up EasyPost"}
               </Button>
             </div>
           )}
@@ -341,6 +426,77 @@ export function ShipOrderDialog({
                 <Tag className="h-4 w-4" />
                 Buy a label
               </div>
+              {usesEasyPost && (
+                <div className="space-y-2">
+                  {/* US-3015: eBay derives the destination from the order, so
+                      that path never asks. EasyPost has no order to derive
+                      from. This address is sent for the rate call and stored
+                      nowhere -- it is the buyer's home. */}
+                  <Label htmlFor="ship-to-line1">Ship to</Label>
+                  <Input
+                    id="ship-to-name"
+                    aria-label="Ship to name"
+                    placeholder="Name (optional)"
+                    value={shipTo.name}
+                    onChange={(e) =>
+                      setShipTo((p) => ({ ...p, name: e.target.value }))
+                    }
+                  />
+                  <Input
+                    id="ship-to-line1"
+                    aria-label="Ship to street address"
+                    placeholder="Street address"
+                    value={shipTo.line1}
+                    onChange={(e) =>
+                      setShipTo((p) => ({ ...p, line1: e.target.value }))
+                    }
+                  />
+                  <Input
+                    id="ship-to-line2"
+                    aria-label="Ship to apartment or suite"
+                    placeholder="Apt, suite (optional)"
+                    value={shipTo.line2}
+                    onChange={(e) =>
+                      setShipTo((p) => ({ ...p, line2: e.target.value }))
+                    }
+                  />
+                  <div className="flex gap-2">
+                    <Input
+                      id="ship-to-city"
+                      aria-label="Ship to city"
+                      placeholder="City"
+                      value={shipTo.city}
+                      onChange={(e) =>
+                        setShipTo((p) => ({ ...p, city: e.target.value }))
+                      }
+                    />
+                    <Input
+                      id="ship-to-state"
+                      aria-label="Ship to state"
+                      className="w-20"
+                      placeholder="State"
+                      value={shipTo.state}
+                      onChange={(e) =>
+                        setShipTo((p) => ({ ...p, state: e.target.value }))
+                      }
+                    />
+                    <Input
+                      id="ship-to-postal"
+                      aria-label="Ship to ZIP code"
+                      className="w-28"
+                      placeholder="ZIP"
+                      value={shipTo.postalCode}
+                      onChange={(e) =>
+                        setShipTo((p) => ({ ...p, postalCode: e.target.value }))
+                      }
+                    />
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    We send this to the carrier to price and print the label. We
+                    don't keep it.
+                  </p>
+                </div>
+              )}
               <div className="flex items-end gap-2">
                 <div className="flex-1 space-y-1">
                   <Label htmlFor="ship-weight">Parcel weight (lb)</Label>
@@ -356,7 +512,14 @@ export function ShipOrderDialog({
                 <Button
                   variant="secondary"
                   onClick={fetchRates}
-                  disabled={rates.isPending || buyLabel.isPending}
+                  disabled={
+                    rates.isPending ||
+                    buyLabel.isPending ||
+                    // US-3015: on the EasyPost path there is nowhere to
+                    // ship to until the seller types one, and a rate call
+                    // without it comes back as a 409 they have to read.
+                    (usesEasyPost && !shipToComplete)
+                  }
                 >
                   {rates.isPending && (
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />

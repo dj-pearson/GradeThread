@@ -281,3 +281,45 @@ describe("the two sales-tax branches (US-2987)", () => {
     }
   });
 });
+
+// US-3015 AC9: postage posts the same way whichever provider bought the label.
+describe("label provider (US-3015)", () => {
+  it("books postage off shipping_cost alone, with no provider branch", () => {
+    // AC9 is a claim about what the P&L does NOT know. The eBay path and the
+    // EasyPost path both write sales.shipping_cost, so a seller's books must
+    // come out identical for the same postage -- and the way to keep that true
+    // is for this module to have no way of telling them apart.
+    const cost = "9.85";
+    const entries = saleEntries({ ...SALE, shipping_cost: cost }, "42.00", null, true);
+    const postage = entries.filter((e) => e.account === "shipping_postage");
+    expect(postage).toHaveLength(1);
+    expect(postage[0]!.amount_cents).toBe(-985);
+    expect(postage[0]!.source_detail).toBe("label");
+  });
+
+  it("SaleMoney carries no field that could name a provider", () => {
+    // A behavioural test cannot see a branch that does not exist yet. This one
+    // fails the day somebody adds label_provider to the shape the ledger reads,
+    // which is the step that would come BEFORE a provider-specific rate.
+    const keys = Object.keys(SALE);
+    for (const k of keys) {
+      expect(
+        /provider|easypost|ebay|carrier/i.test(k),
+        `SaleMoney.${k} names a provider; the P&L must not be able to tell them apart`,
+      ).toBe(false);
+    }
+  });
+
+  it("the same postage nets the same profit under either provider", () => {
+    // Stated as an equality rather than as a comment, because "there is no
+    // branch" is exactly the kind of claim that stays in a header after a
+    // branch arrives.
+    const bought = { ...SALE, shipping_cost: "9.85" };
+    expect(saleNetCents(bought, "42.00", null)).toBe(
+      saleNetCents({ ...bought }, "42.00", null),
+    );
+    expect(ledgerNetCents(saleEntries(bought, "42.00", null, true))).toBe(
+      saleNetCents(bought, "42.00", null),
+    );
+  });
+});

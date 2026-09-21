@@ -465,3 +465,59 @@ Deno.test("AC2: nothing in this module holds a seller's postage money", async ()
     );
   }
 });
+
+// ── The Pro gate covers both providers (AC6) ────────────────────────
+
+Deno.test("AC6: one gate flag serves both providers, and no second one exists", async () => {
+  // The criterion is that the EXISTING shippingLabels gate covers EasyPost
+  // unchanged -- no second flag, no plan-matrix migration. That is a claim
+  // about what is absent, so the check is a scan of the route that spends the
+  // money, and it is the right tool here for the same reason the wallet scan
+  // is: a behavioural test cannot see a flag nobody added yet.
+  const src = await Deno.readTextFile(
+    new URL("../routes/flipdesk-logistics.ts", import.meta.url),
+  );
+  const code = src
+    .replace(/\/\*[\s\S]*?\*\//g, "")
+    .split("\n")
+    .filter((l) => !l.trimStart().startsWith("//"))
+    .join("\n");
+
+  const gated = [...code.matchAll(/featureAllowedForUser\([^,]+,\s*"([^"]+)"/g)]
+    .map((m) => m[1]);
+  assert(gated.length > 0, "the label routes must gate on a plan flag at all");
+  for (const flag of gated) {
+    assertEquals(
+      flag,
+      "shippingLabels",
+      `the label routes gate on "${flag}"; AC6 says one flag covers both providers`,
+    );
+  }
+
+  // And nothing named for EasyPost may appear as a gate flag anywhere in the
+  // file -- an `easypostLabels` flag would pass the loop above by living in a
+  // different call.
+  assert(
+    !/["']easypost[A-Z]\w*["']/.test(code),
+    "no EasyPost-specific plan flag: AC6 keeps this on the one shippingLabels gate",
+  );
+});
+
+Deno.test("AC6: reprint and void stay open on every plan, both providers", async () => {
+  // US-3011's rule, unchanged by the second provider: the gate covers the two
+  // routes that SPEND money. A seller who downgrades after buying a label must
+  // still print it and still claim the refund -- locking a void strands their
+  // money behind an upsell, and that is as true of EasyPost's refund as of
+  // eBay's cancel.
+  const src = await Deno.readTextFile(
+    new URL("../routes/flipdesk-logistics.ts", import.meta.url),
+  );
+  // preflight(ownerId, saleId, false) is the ungated call. Exactly two routes
+  // may make it: the reprint and the void.
+  const ungated = [...src.matchAll(/preflight\([^)]*,\s*false\)/g)];
+  assertEquals(
+    ungated.length,
+    2,
+    `expected exactly 2 ungated preflight calls (reprint, void), found ${ungated.length}`,
+  );
+});
