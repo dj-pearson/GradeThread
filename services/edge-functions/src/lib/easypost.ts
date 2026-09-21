@@ -46,6 +46,7 @@
 // owner, and loads that owner's referral-customer key. An EasyPost id off a
 // request body is never enough on its own.
 
+import { fetchWithTimeout } from "./circuit-breaker.ts";
 import type {
   LogisticsAddress,
   ParcelSpec,
@@ -149,13 +150,16 @@ async function easypostFetch<T>(
   path: string,
   opts: FetchOptions = {},
 ): Promise<T> {
+  // US-2321: fetchWithTimeout, not a bare fetch. Its deadline covers the
+  // RESPONSE BODY rather than just the headers, which a hand-rolled
+  // AbortController around fetch() does not -- and a call with no deadline can
+  // hang the whole container. no-bare-fetch_test.ts is what caught this file
+  // doing it by hand.
   const attempts = opts.retry ? 3 : 1;
   let lastErr: unknown;
   for (let attempt = 1; attempt <= attempts; attempt++) {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), EASYPOST_TIMEOUT_MS);
     try {
-      const res = await fetch(`${EASYPOST_BASE}${path}`, {
+      const res = await fetchWithTimeout(`${EASYPOST_BASE}${path}`, {
         method: opts.method ?? "GET",
         headers: {
           Authorization: authHeader(apiKey),
@@ -163,8 +167,7 @@ async function easypostFetch<T>(
           Accept: "application/json",
         },
         body: opts.body,
-        signal: controller.signal,
-      });
+      }, EASYPOST_TIMEOUT_MS);
       const text = await res.text();
       if (!res.ok) {
         const err = easypostError(res.status, text);
@@ -177,8 +180,6 @@ async function easypostFetch<T>(
     } catch (err) {
       if (attempt === attempts) throw err;
       lastErr = err;
-    } finally {
-      clearTimeout(timer);
     }
     // Linear backoff; the read paths are not latency-critical.
     await new Promise((r) => setTimeout(r, 400 * attempt));
