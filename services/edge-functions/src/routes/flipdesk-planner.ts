@@ -1,0 +1,681 @@
+// Worth My Time, R1 09/12 (US-3174): serve and update a seller's work plan.
+//
+//   POST /api/flipdesk/planner/sessions             start a session from a plan
+//   GET  /api/flipdesk/planner/sessions/current     the live one, with its tasks
+//   POST /api/flipdesk/planner/sessions/:id/:action pause | resume | complete | abandon
+//   POST /api/flipdesk/planner/tasks/:id/:action    start | pause | complete | skip
+//
+// ── WHERE THE PLANNING HAPPENS, AND WHY IT IS NOT HERE ──────────────────────
+// The pure pipeline -- candidates, durations, values, ranking, batching,
+// scheduling -- lives in src/lib and runs in the SPA. That is not an accident
+// and it is worth stating, because "the planner router" sounds like it should
+// contain the planner.
+//
+// Two reasons. First, R1 is responsive FlipDesk web only (US-3166 AC1), and
+// the candidate builder is built on src/lib/workflow.ts, whose nextAction the
+// item grid already renders -- moving it would either duplicate that ladder or
+// put the grid and the plan into disagreement, which US-3168 AC1 forbids.
+// Second, the edge runs on Deno with its own import map and the SPA on Vite
+// with the @/ alias; neither can import the other's modules, so "reuse" across
+// the boundary means a second copy plus a parity test, per module.
+//
+// So this router owns what only a server can own: the session lifecycle, the
+// ownership checks, and the staleness re-read. The plan itself arrives as
+// data, and everything in it that MATTERS is verified here rather than
+// trusted.
+//
+// ── A TIMER NEVER SHIPS ANYTHING (AC5) ──────────────────────────────────────
+// Completing a task records that the seller says they did it. It does not
+// publish, ship, reprice or change a grade, and it never will: those have
+// their own routes, their own confirmations and their own failure modes.
+// Where the workflow leaves durable proof -- a tracking number, a live listing
+// -- that proof is read back and recorded separately from the seller's word.
+//
+// ── SECURITY (US-268) ───────────────────────────────────────────────────────
+// The edge uses the service-role client, which BYPASSES RLS. Every id in a
+// path or a body is resolved through an owner-verified parent before anything
+// is read or written. A session id is matched against the workspace owner; a
+// task id is matched through its session; an inventory item is matched through
+// inventory_items.user_id.
+
+import { Hono } from "hono";
+import { supabaseAdmin } from "../lib/supabase.ts";
+import { failSafe, jsonError } from "../lib/http-errors.ts";
+import { refuseWhileImpersonating } from "../lib/destructive-guard.ts";
+import {
+  canTransitionSession,
+  canTransitionTask,
+  checkRevision,
+  timingRetryKey,
+  type SessionState,
+  type TaskState,
+  type TimingEventKind,
+} from "../lib/work-sessions.ts";
+
+export const flipdeskPlannerRoutes = new Hono<{
+  Variables: { userId: string; workspaceOwnerId: string };
+}>();
+
+/**
+ * How many tasks one plan may carry.
+ *
+ * A 240-minute session cannot hold 50 tasks at any believable estimate, so a
+ * body claiming to is either a bug or someone probing. Refused with a number
+ * rather than truncated, because a silently shortened plan is one the seller
+ * cannot reconcile with what they saw.
+ */
+export const MAX_PLAN_TASKS = 40;
+
+export const MIN_BUDGET_MINUTES = 5;
+export const MAX_BUDGET_MINUTES = 240;
+
+interface PlanTaskBody {
+  inventory_item_id?: unknown;
+  item_title?: unknown;
+  action_key?: unknown;
+  prerequisite_keys?: unknown;
+  bin?: unknown;
+  estimate_minutes?: unknown;
+  estimate_value_cents?: unknown;
+  estimate_source?: unknown;
+}
+
+export interface ParsedPlanTask {
+  inventoryItemId: string | null;
+  itemTitle: string | null;
+  actionKey: string;
+  prerequisiteKeys: string[];
+  bin: string | null;
+  estimateMinutes: number | null;
+  estimateValueCents: number | null;
+  estimateSource: string | null;
+}
+
+function str(v: unknown): string | null {
+  return typeof v === "string" && v.trim() !== "" ? v.trim() : null;
+}
+
+function nonNegativeInt(v: unknown): number | null {
+  if (typeof v !== "number" || !Number.isFinite(v) || v < 0) return null;
+  return Math.round(v);
+}
+
+/**
+ * Validate a plan off a request body. Pure, so the shape rules are testable
+ * without a database.
+ *
+ * NOTHING HERE TRUSTS THE CLIENT'S ARITHMETIC. The estimates are snapshots for
+ * the record -- what the plan was built on -- and are never used to decide
+ * anything. What IS enforced is the shape, the budget window and the cap, plus
+ * every item id being owned, which happens against the database below.
+ */
+export function parsePlanTasks(
+  raw: unknown,
+): { ok: true; tasks: ParsedPlanTask[] } | { ok: false; error: string } {
+  if (!Array.isArray(raw)) return { ok: false, error: "tasks must be a list." };
+  if (raw.length === 0) return { ok: false, error: "A plan needs at least one task." };
+  if (raw.length > MAX_PLAN_TASKS) {
+    return {
+      ok: false,
+      error: `A plan can hold at most ${MAX_PLAN_TASKS} tasks; this one had ${raw.length}.`,
+    };
+  }
+  const tasks: ParsedPlanTask[] = [];
+  for (const [i, entry] of (raw as PlanTaskBody[]).entries()) {
+    if (typeof entry !== "object" || entry === null) {
+      return { ok: false, error: `Task ${i + 1} isn't an object.` };
+    }
+    const actionKey = str(entry.action_key);
+    if (!actionKey) {
+      return { ok: false, error: `Task ${i + 1} has no action.` };
+    }
+    const prereqs = Array.isArray(entry.prerequisite_keys)
+      ? entry.prerequisite_keys.filter((k): k is string => typeof k === "string")
+      : [];
+    tasks.push({
+      inventoryItemId: str(entry.inventory_item_id),
+      // A snapshot of the title AS PLANNED. Never refreshed, so the seller's
+      // record still names the garment after it is deleted.
+      itemTitle: str(entry.item_title),
+      actionKey,
+      prerequisiteKeys: prereqs,
+      bin: str(entry.bin),
+      estimateMinutes: nonNegativeInt(entry.estimate_minutes),
+      estimateValueCents: nonNegativeInt(entry.estimate_value_cents),
+      estimateSource: str(entry.estimate_source),
+    });
+  }
+  return { ok: true, tasks };
+}
+
+interface SessionRow {
+  id: string;
+  user_id: string;
+  state: string;
+  work_context: string;
+  available_tools: string[] | null;
+  budget_minutes: number;
+  revision: number;
+  started_at: string | null;
+  ended_at: string | null;
+}
+
+interface TaskRow {
+  id: string;
+  session_id: string;
+  user_id: string;
+  inventory_item_id: string | null;
+  item_title_snapshot: string | null;
+  position: number;
+  state: string;
+  action_key: string;
+  prerequisite_keys: string[] | null;
+  bin_snapshot: string | null;
+  estimate_minutes: number | null;
+  estimate_value_cents: number | null;
+  estimate_source: string | null;
+  observed_minutes: number | null;
+  confirmed_minutes: number | null;
+  correction_minutes: number | null;
+}
+
+const SESSION_COLUMNS =
+  "id, user_id, state, work_context, available_tools, budget_minutes, revision, started_at, ended_at";
+const TASK_COLUMNS =
+  "id, session_id, user_id, inventory_item_id, item_title_snapshot, position, state, action_key, prerequisite_keys, bin_snapshot, estimate_minutes, estimate_value_cents, estimate_source, observed_minutes, confirmed_minutes, correction_minutes";
+
+/** A session the caller actually owns, or null. Never fetched by id alone. */
+async function loadOwnedSession(
+  ownerId: string,
+  sessionId: string,
+): Promise<SessionRow | null> {
+  const { data } = await supabaseAdmin
+    .from("flipdesk_work_sessions")
+    .select(SESSION_COLUMNS)
+    .eq("id", sessionId)
+    .eq("user_id", ownerId) // US-268
+    .maybeSingle();
+  return (data as SessionRow | null) ?? null;
+}
+
+/**
+ * A task the caller owns, WITH its session.
+ *
+ * Both predicates are applied. user_id alone would be enough today because the
+ * column is denormalized, but a task is only meaningful inside its session and
+ * a check that reads one without the other is a check somebody will later
+ * relax.
+ */
+async function loadOwnedTask(
+  ownerId: string,
+  taskId: string,
+): Promise<{ task: TaskRow; session: SessionRow } | null> {
+  const { data } = await supabaseAdmin
+    .from("flipdesk_work_session_tasks")
+    .select(TASK_COLUMNS)
+    .eq("id", taskId)
+    .eq("user_id", ownerId) // US-268
+    .maybeSingle();
+  const task = (data as TaskRow | null) ?? null;
+  if (!task) return null;
+  const session = await loadOwnedSession(ownerId, task.session_id);
+  if (!session) return null;
+  return { task, session };
+}
+
+/**
+ * The item facts a task depends on, re-read at the moment it matters (AC4).
+ *
+ * THE CASE THIS EXISTS FOR: a seller plans an evening, then sells a jacket on
+ * their phone, then presses Start on measuring it. Nothing about the stored
+ * plan knows. This reads the item back and says whether the work is still
+ * real, and the answer is checked on START and on COMPLETE -- not only on
+ * start, because a session can sit paused for an hour in between.
+ */
+async function itemStillWorkable(
+  ownerId: string,
+  itemId: string | null,
+): Promise<{ workable: boolean; reason: string | null }> {
+  // A task with no item is workable: the tombstone case is handled by the
+  // caller, which knows whether the id was ever set.
+  if (!itemId) return { workable: true, reason: null };
+  const { data, error } = await supabaseAdmin
+    .from("inventory_items")
+    .select("id, status, user_id")
+    .eq("id", itemId)
+    .eq("user_id", ownerId) // US-268: and it proves the owner has not changed
+    .maybeSingle();
+  if (error) {
+    // Fail CLOSED on a read failure. Letting the task through would record
+    // work against an item nobody could confirm exists.
+    return { workable: false, reason: "We couldn't check this item just now." };
+  }
+  const row = data as { status: string | null } | null;
+  if (!row) {
+    return { workable: false, reason: "This item is gone, or is no longer yours." };
+  }
+  const status = String(row.status ?? "");
+  if (["sold", "shipped", "completed", "archived"].includes(status)) {
+    return { workable: false, reason: `This item is already ${status}.` };
+  }
+  return { workable: true, reason: null };
+}
+
+/** Bump the session's revision as part of every write that changes it. */
+async function bumpRevision(session: SessionRow): Promise<number> {
+  const next = session.revision + 1;
+  await supabaseAdmin
+    .from("flipdesk_work_sessions")
+    .update({ revision: next })
+    .eq("id", session.id)
+    .eq("user_id", session.user_id) // US-268 belt and braces
+    .eq("revision", session.revision);
+  return next;
+}
+
+function sessionBody(session: SessionRow, tasks: TaskRow[]) {
+  return {
+    session: {
+      id: session.id,
+      state: session.state,
+      work_context: session.work_context,
+      available_tools: session.available_tools ?? [],
+      budget_minutes: session.budget_minutes,
+      revision: session.revision,
+      started_at: session.started_at,
+      ended_at: session.ended_at,
+    },
+    tasks: tasks
+      .slice()
+      .sort((a, b) => a.position - b.position)
+      .map((t) => ({
+        id: t.id,
+        position: t.position,
+        state: t.state,
+        action_key: t.action_key,
+        inventory_item_id: t.inventory_item_id,
+        item_title: t.item_title_snapshot,
+        prerequisite_keys: t.prerequisite_keys ?? [],
+        bin: t.bin_snapshot,
+        estimate_minutes: t.estimate_minutes,
+        estimate_value_cents: t.estimate_value_cents,
+        estimate_source: t.estimate_source,
+        observed_minutes: t.observed_minutes,
+        confirmed_minutes: t.confirmed_minutes,
+        correction_minutes: t.correction_minutes,
+        // A task whose item was deleted keeps its history and stops being
+        // work. The null id is what says so (US-3167 AC4).
+        actionable: t.inventory_item_id !== null &&
+          !["completed", "skipped", "invalidated"].includes(t.state),
+      })),
+  };
+}
+
+async function loadTasks(sessionId: string, ownerId: string): Promise<TaskRow[]> {
+  const { data } = await supabaseAdmin
+    .from("flipdesk_work_session_tasks")
+    .select(TASK_COLUMNS)
+    .eq("session_id", sessionId)
+    .eq("user_id", ownerId) // US-268
+    .order("position", { ascending: true })
+    .limit(MAX_PLAN_TASKS);
+  return (data as TaskRow[] | null) ?? [];
+}
+
+// ── POST /sessions ────────────────────────────────────────────────
+
+flipdeskPlannerRoutes.post("/sessions", async (c) => {
+  const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
+  let body: Record<string, unknown>;
+  try {
+    body = (await c.req.json()) as Record<string, unknown>;
+  } catch {
+    return jsonError(c, 400, "Invalid JSON body");
+  }
+
+  const budget = nonNegativeInt(body.budget_minutes);
+  if (budget === null || budget < MIN_BUDGET_MINUTES || budget > MAX_BUDGET_MINUTES) {
+    return jsonError(
+      c,
+      400,
+      `budget_minutes must be between ${MIN_BUDGET_MINUTES} and ${MAX_BUDGET_MINUTES}.`,
+    );
+  }
+  const workContext = str(body.work_context);
+  if (workContext !== "home" && workContext !== "phone_only") {
+    return jsonError(c, 400, "work_context must be home or phone_only.");
+  }
+  const tools = Array.isArray(body.available_tools)
+    ? body.available_tools.filter((t): t is string => typeof t === "string")
+    : [];
+
+  const parsed = parsePlanTasks(body.tasks);
+  if (!parsed.ok) return jsonError(c, 400, parsed.error);
+
+  // EVERY ITEM ID IS OWNER-VERIFIED BEFORE ANYTHING IS WRITTEN (AC3), in ONE
+  // bounded query rather than a loop (AC2). A foreign id does not 403 the
+  // whole plan -- it is nulled, so the task lands as a tombstone and the plan
+  // a seller built is not thrown away over one stale row.
+  const itemIds = [...new Set(parsed.tasks.map((t) => t.inventoryItemId).filter(
+    (id): id is string => id !== null,
+  ))];
+  const ownedIds = new Set<string>();
+  if (itemIds.length > 0) {
+    const { data, error } = await supabaseAdmin
+      .from("inventory_items")
+      .select("id")
+      .eq("user_id", ownerId) // US-268
+      .in("id", itemIds)
+      .limit(MAX_PLAN_TASKS);
+    if (error) {
+      return failSafe(c, 500, "Couldn't check your items.", error, "planner.items");
+    }
+    for (const row of (data as { id: string }[] | null) ?? []) ownedIds.add(row.id);
+  }
+
+  // ONE ACTIVE SESSION PER WORKSPACE is the database's rule (00818's partial
+  // unique index), not this route's. The insert below is what enforces it
+  // under two concurrent requests; this read only produces a better message.
+  const { data: existing } = await supabaseAdmin
+    .from("flipdesk_work_sessions")
+    .select("id")
+    .eq("user_id", ownerId)
+    .eq("state", "active")
+    .maybeSingle();
+  if (existing) {
+    return c.json({
+      error: "You already have a session running. Finish or abandon it first.",
+      code: "session_already_active",
+      session_id: (existing as { id: string }).id,
+    }, 409);
+  }
+
+  const { data: created, error: insertErr } = await supabaseAdmin
+    .from("flipdesk_work_sessions")
+    .insert({
+      user_id: ownerId, // US-268: from the context, never from the body
+      state: "planned",
+      work_context: workContext,
+      available_tools: tools,
+      budget_minutes: budget,
+    })
+    .select(SESSION_COLUMNS)
+    .single();
+  if (insertErr || !created) {
+    return failSafe(
+      c,
+      500,
+      "Couldn't start that session.",
+      insertErr,
+      "planner.session.insert",
+    );
+  }
+  const session = created as SessionRow;
+
+  const rows = parsed.tasks.map((t, i) => ({
+    session_id: session.id,
+    user_id: ownerId, // US-268
+    inventory_item_id: t.inventoryItemId && ownedIds.has(t.inventoryItemId)
+      ? t.inventoryItemId
+      : null,
+    item_title_snapshot: t.itemTitle,
+    position: i + 1,
+    state: "pending",
+    action_key: t.actionKey,
+    prerequisite_keys: t.prerequisiteKeys,
+    bin_snapshot: t.bin,
+    estimate_minutes: t.estimateMinutes,
+    estimate_value_cents: t.estimateValueCents,
+    estimate_source: t.estimateSource,
+    estimate_taken_at: new Date().toISOString(),
+  }));
+  const { error: taskErr } = await supabaseAdmin
+    .from("flipdesk_work_session_tasks")
+    .insert(rows);
+  if (taskErr) {
+    // The session exists with no tasks, which is useless. Abandon it rather
+    // than leaving a shell the seller has to clear by hand.
+    await supabaseAdmin
+      .from("flipdesk_work_sessions")
+      .update({ state: "abandoned", ended_at: new Date().toISOString() })
+      .eq("id", session.id)
+      .eq("user_id", ownerId);
+    return failSafe(c, 500, "Couldn't save that plan.", taskErr, "planner.tasks.insert");
+  }
+
+  const tasks = await loadTasks(session.id, ownerId);
+  return c.json({
+    ...sessionBody(session, tasks),
+    // AC2: say so when a task's item did not survive the ownership check,
+    // rather than letting the seller wonder why a row is greyed out.
+    dropped_item_ids: itemIds.filter((id) => !ownedIds.has(id)),
+  }, 201);
+});
+
+// ── GET /sessions/current ─────────────────────────────────────────
+
+flipdeskPlannerRoutes.get("/sessions/current", async (c) => {
+  const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
+  const { data, error } = await supabaseAdmin
+    .from("flipdesk_work_sessions")
+    .select(SESSION_COLUMNS)
+    .eq("user_id", ownerId) // US-268
+    .in("state", ["planned", "active", "paused"])
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (error) {
+    return failSafe(c, 500, "Couldn't read your session.", error, "planner.current");
+  }
+  const session = (data as SessionRow | null) ?? null;
+  if (!session) return c.json({ session: null, tasks: [] });
+  const tasks = await loadTasks(session.id, ownerId);
+  return c.json(sessionBody(session, tasks));
+});
+
+// ── POST /sessions/:id/:action ────────────────────────────────────
+
+const SESSION_ACTIONS: Record<string, SessionState> = {
+  start: "active",
+  pause: "paused",
+  resume: "active",
+  complete: "completed",
+  abandon: "abandoned",
+};
+
+flipdeskPlannerRoutes.post("/sessions/:id/:action", async (c) => {
+  const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
+  const sessionId = c.req.param("id");
+  const action = c.req.param("action");
+  const target = SESSION_ACTIONS[action];
+  if (!target) return jsonError(c, 404, `Unknown session action: ${action}.`);
+
+  // US-2351: an admin acting as a customer may not abandon their work. The
+  // other four are recoverable; abandoning is not.
+  if (action === "abandon") {
+    const refusal = await refuseWhileImpersonating(c, "abandon a work session");
+    if (refusal) return refusal;
+  }
+
+  let body: Record<string, unknown> = {};
+  try {
+    body = (await c.req.json()) as Record<string, unknown>;
+  } catch {
+    // A lifecycle action with no body is fine; only the revision is optional
+    // and its absence is caught below.
+  }
+
+  const session = await loadOwnedSession(ownerId, sessionId);
+  if (!session) return jsonError(c, 404, "Session not found.");
+
+  const rev = checkRevision(body.revision, session.revision);
+  if (!rev.ok) {
+    // AC4: return enough state for the UI to recover WITHOUT replaying the
+    // action. A client that had to re-POST to find out what happened would
+    // double-apply whichever action did land.
+    const tasks = await loadTasks(session.id, ownerId);
+    return c.json({
+      error: rev.refusal.message,
+      code: rev.refusal.code,
+      ...sessionBody(session, tasks),
+    }, 409);
+  }
+
+  const move = canTransitionSession(session.state, target);
+  if (!move.ok) {
+    return c.json({ error: move.refusal.message, code: move.refusal.code }, 409);
+  }
+
+  const patch: Record<string, unknown> = { state: target, revision: session.revision + 1 };
+  if (target === "active" && !session.started_at) {
+    patch.started_at = new Date().toISOString();
+  }
+  if (target === "completed" || target === "abandoned") {
+    patch.ended_at = new Date().toISOString();
+    // A session that ends releases its active task rather than leaving one
+    // running forever. `pending` and not `skipped`: the seller did not choose
+    // to skip it, they stopped working.
+    await supabaseAdmin
+      .from("flipdesk_work_session_tasks")
+      .update({ state: "pending" })
+      .eq("session_id", session.id)
+      .eq("user_id", ownerId) // US-268
+      .eq("state", "active");
+  }
+
+  const { error } = await supabaseAdmin
+    .from("flipdesk_work_sessions")
+    .update(patch)
+    .eq("id", session.id)
+    .eq("user_id", ownerId) // US-268
+    // THE REVISION IS IN THE PREDICATE, not only in the check above. A check
+    // followed by an unguarded write is two tabs both passing and the second
+    // one winning silently.
+    .eq("revision", session.revision);
+  if (error) {
+    return failSafe(c, 500, "Couldn't update that session.", error, "planner.session");
+  }
+
+  const fresh = await loadOwnedSession(ownerId, sessionId);
+  const tasks = await loadTasks(sessionId, ownerId);
+  return c.json(sessionBody(fresh ?? session, tasks));
+});
+
+// ── POST /tasks/:id/:action ───────────────────────────────────────
+
+const TASK_ACTIONS: Record<string, { state: TaskState; event: TimingEventKind | null }> = {
+  start: { state: "active", event: "task_started" },
+  pause: { state: "pending", event: "task_paused" },
+  complete: { state: "completed", event: "task_completed" },
+  skip: { state: "skipped", event: null },
+};
+
+flipdeskPlannerRoutes.post("/tasks/:id/:action", async (c) => {
+  const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
+  const taskId = c.req.param("id");
+  const action = c.req.param("action");
+  const spec = TASK_ACTIONS[action];
+  if (!spec) return jsonError(c, 404, `Unknown task action: ${action}.`);
+
+  let body: Record<string, unknown> = {};
+  try {
+    body = (await c.req.json()) as Record<string, unknown>;
+  } catch {
+    // Same as the session actions: an absent body is caught by the revision
+    // check below rather than here.
+  }
+
+  const owned = await loadOwnedTask(ownerId, taskId);
+  if (!owned) return jsonError(c, 404, "Task not found.");
+  const { task, session } = owned;
+
+  const rev = checkRevision(body.revision, session.revision);
+  if (!rev.ok) {
+    const tasks = await loadTasks(session.id, ownerId);
+    return c.json({
+      error: rev.refusal.message,
+      code: rev.refusal.code,
+      ...sessionBody(session, tasks),
+    }, 409);
+  }
+
+  const move = canTransitionTask(task.state, spec.state);
+  if (!move.ok) {
+    return c.json({ error: move.refusal.message, code: move.refusal.code }, 409);
+  }
+
+  // AC4: re-read the item on START and on COMPLETE. Not only on start -- a
+  // session can sit paused for an hour in between, and the jacket can sell on
+  // a phone while it does.
+  if (action === "start" || action === "complete") {
+    if (task.inventory_item_id === null && task.item_title_snapshot !== null) {
+      // The item was deleted after planning. The row stays as history and
+      // stops being work (US-3167 AC4).
+      await invalidate(task, ownerId);
+      const tasks = await loadTasks(session.id, ownerId);
+      return c.json({
+        error: "That item has been deleted, so this task has been closed.",
+        code: "task_invalidated",
+        ...sessionBody(session, tasks),
+      }, 409);
+    }
+    const check = await itemStillWorkable(ownerId, task.inventory_item_id);
+    if (!check.workable) {
+      await invalidate(task, ownerId);
+      const tasks = await loadTasks(session.id, ownerId);
+      return c.json({
+        error: check.reason,
+        code: "task_invalidated",
+        ...sessionBody(session, tasks),
+      }, 409);
+    }
+  }
+
+  const patch: Record<string, unknown> = { state: spec.state };
+  if (action === "complete") {
+    // AC5: this records that the SELLER says they did it. It publishes
+    // nothing, ships nothing, reprices nothing and changes no grade. Those
+    // have their own routes, their own confirmations and their own failures.
+    const confirmed = nonNegativeInt(body.confirmed_minutes);
+    if (confirmed !== null) patch.confirmed_minutes = confirmed;
+  }
+
+  const { error } = await supabaseAdmin
+    .from("flipdesk_work_session_tasks")
+    .update(patch)
+    .eq("id", task.id)
+    .eq("user_id", ownerId) // US-268
+    .eq("state", task.state); // and the state we read, so a race loses
+  if (error) {
+    return failSafe(c, 500, "Couldn't update that task.", error, "planner.task");
+  }
+
+  if (spec.event) {
+    // The retry key makes a repeated request a no-op rather than double-
+    // counted time (US-3167 AC3). The attempt number comes from the client's
+    // count of how many times this task has entered this state; absent, it is
+    // 1, so a retry of a first start still collides.
+    const attempt = nonNegativeInt(body.attempt) ?? 1;
+    await supabaseAdmin
+      .from("flipdesk_work_timing_events")
+      .upsert({
+        task_id: task.id,
+        user_id: ownerId, // US-268
+        kind: spec.event,
+        retry_key: timingRetryKey(task.id, spec.event, Math.max(1, attempt)),
+      }, { onConflict: "task_id,retry_key", ignoreDuplicates: true });
+  }
+
+  const nextRevision = await bumpRevision(session);
+  const tasks = await loadTasks(session.id, ownerId);
+  return c.json(sessionBody({ ...session, revision: nextRevision }, tasks));
+});
+
+async function invalidate(task: TaskRow, ownerId: string): Promise<void> {
+  await supabaseAdmin
+    .from("flipdesk_work_session_tasks")
+    .update({ state: "invalidated" })
+    .eq("id", task.id)
+    .eq("user_id", ownerId) // US-268
+    .eq("state", task.state);
+}

@@ -5457,6 +5457,132 @@ Deno.test({
 });
 
 Deno.test({
+  // US-3174 (AC3): the planner router takes ids in the PATH -- a session id
+  // and a task id -- which is the shape US-268 exists for. Every one of them
+  // is resolved through an owner-verified parent before anything is read or
+  // written.
+  //
+  // A cross-tenant hit here is not a leak of a listing price. B would be
+  // driving A's work session: starting A's tasks, marking A's work complete,
+  // and abandoning A's evening. The history is the seller's record of their
+  // own hours, and a foreign write corrupts it silently.
+  name: "US-3174: B cannot read or drive A's work session",
+  ignore: !CONFIGURED,
+  fn: async () => {
+    const A_SESSION = Deno.env.get("TEST_USER_A_WORK_SESSION_ID") ??
+      "00000000-0000-4000-8000-0000000000a1";
+    const A_TASK = Deno.env.get("TEST_USER_A_WORK_TASK_ID") ??
+      "00000000-0000-4000-8000-0000000000a2";
+    const BASE_PATH = `${BASE}/api/flipdesk/planner`;
+
+    // Every session action, as B, against A's session.
+    for (const action of ["start", "pause", "resume", "complete", "abandon"]) {
+      const res = await fetch(`${BASE_PATH}/sessions/${A_SESSION}/${action}`, {
+        method: "POST",
+        headers: authHeaders(B_JWT!),
+        body: JSON.stringify({ revision: 1 }),
+      });
+      const body = (await res.json().catch(() => ({}))) as {
+        session?: { id?: string };
+        tasks?: unknown[];
+      };
+      assert(
+        [401, 403, 404, 409].includes(res.status),
+        `session ${action} on A's session should be refused, got ${res.status}`,
+      );
+      // Belt and braces: even a 409 must not carry A's session back. The
+      // stale-revision path deliberately returns state for the UI to recover
+      // from, and that path must never be reachable across a tenant.
+      assert(
+        body.session?.id !== A_SESSION,
+        `session ${action} leaked A's session to B`,
+      );
+      assertEquals(body.tasks ?? [], [], `session ${action} leaked A's tasks`);
+    }
+
+    // Every task action, as B, against A's task.
+    for (const action of ["start", "pause", "complete", "skip"]) {
+      const res = await fetch(`${BASE_PATH}/tasks/${A_TASK}/${action}`, {
+        method: "POST",
+        headers: authHeaders(B_JWT!),
+        body: JSON.stringify({ revision: 1, confirmed_minutes: 5 }),
+      });
+      const body = (await res.json().catch(() => ({}))) as { tasks?: unknown[] };
+      assert(
+        [401, 403, 404, 409].includes(res.status),
+        `task ${action} on A's task should be refused, got ${res.status}`,
+      );
+      assertEquals(body.tasks ?? [], [], `task ${action} leaked A's tasks`);
+    }
+
+    // B's own current session is B's, whatever they ask for.
+    const current = await fetch(`${BASE_PATH}/sessions/current`, {
+      headers: authHeaders(B_JWT!),
+    });
+    const currentBody = (await current.json().catch(() => ({}))) as {
+      session?: { id?: string } | null;
+    };
+    if (current.status === 200) {
+      assert(
+        currentBody.session === null || currentBody.session?.id !== A_SESSION,
+        "GET /sessions/current returned A's session to B",
+      );
+    }
+  },
+});
+
+Deno.test({
+  // US-3174 (AC3): creating a plan is the write that takes FOREIGN IDS in a
+  // list. B planning against A's inventory must not produce a session whose
+  // tasks point at A's garments -- that would put A's items on B's screen,
+  // with A's bin labels, which is a map of somebody else's storage.
+  //
+  // The route nulls an unowned id rather than 403ing the whole plan, so the
+  // assertion is that the id does not SURVIVE, not that the call fails.
+  name: "US-3174: B's plan cannot name A's items",
+  ignore: !CONFIGURED,
+  fn: async () => {
+    const A_ITEM = Deno.env.get("TEST_USER_A_ITEM_ID") ??
+      "00000000-0000-4000-8000-0000000000a3";
+    const res = await fetch(`${BASE}/api/flipdesk/planner/sessions`, {
+      method: "POST",
+      headers: authHeaders(B_JWT!),
+      body: JSON.stringify({
+        budget_minutes: 30,
+        work_context: "home",
+        available_tools: ["camera"],
+        // user_id and owner_user_id are named the way the columns are named on
+        // purpose: a handler reading either from the body would pass a lazier
+        // test than this one.
+        user_id: Deno.env.get("TEST_USER_A_ID") ?? null,
+        owner_user_id: Deno.env.get("TEST_USER_A_ID") ?? null,
+        tasks: [{ action_key: "measure", inventory_item_id: A_ITEM, item_title: "A's jacket" }],
+      }),
+    });
+    const body = (await res.json().catch(() => ({}))) as {
+      tasks?: { inventory_item_id?: string | null }[];
+      dropped_item_ids?: string[];
+    };
+    assert(
+      [200, 201, 400, 401, 403, 409, 500].includes(res.status),
+      `planner create should answer a known status, got ${res.status}`,
+    );
+    for (const task of body.tasks ?? []) {
+      assert(
+        task.inventory_item_id !== A_ITEM,
+        "B's plan stored a task pointing at A's item",
+      );
+    }
+    if (res.status === 201 && (body.dropped_item_ids ?? []).length > 0) {
+      assert(
+        body.dropped_item_ids!.includes(A_ITEM),
+        "the foreign id should be reported as dropped rather than silently gone",
+      );
+    }
+  },
+});
+
+Deno.test({
   // US-3166 (AC4): the Worth My Time settings routes take NO id at all -- the
   // owner comes from the request context and nothing in a body or a query can
   // choose whose row is read or written.
