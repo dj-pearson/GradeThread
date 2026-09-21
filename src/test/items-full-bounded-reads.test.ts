@@ -64,6 +64,19 @@ const DECLARED: readonly DeclaredRead[] = [
       "returns ONE page; the only direct from-call left is the US-2172 undo, " +
       "bounded by the ids it is putting back",
   },
+  {
+    // US-3175: Worth My Time plans over the seller's stock client-side, so it
+    // issues the one read the whole pipeline runs on. It is bounded by
+    // PLAN_ITEM_LIMIT, and -- this is the part that matters for the
+    // CORRECTNESS half above -- it does not pretend a capped read was
+    // complete: buildPlan sets `truncated` when it comes back full, and the
+    // page says so on screen rather than planning a short list in silence.
+    file: "src/hooks/use-planner.ts",
+    bounds: [".limit(PLAN_ITEM_LIMIT)", "truncated:"],
+    why:
+      "the planner reads at most PLAN_ITEM_LIMIT rows and reports a full " +
+      "page as truncated instead of treating it as the whole catalog",
+  },
 ];
 
 function sourceFiles(): string[] {

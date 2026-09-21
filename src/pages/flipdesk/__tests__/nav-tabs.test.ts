@@ -317,7 +317,7 @@ describe("the ?view= hosts (US-2161 second pass)", () => {
     expect(offenders).toEqual([]);
   });
 
-  it("FlipDesk is at 17 sidebar entries", () => {
+  it("FlipDesk is at 18 sidebar entries", () => {
     // AC6's number, asserted rather than described. The story predicted ~14;
     // reaching that needed merges no criterion specified, so the owner approved
     // these two and amended the target to 16. Pinning it means the next entry
@@ -330,14 +330,17 @@ describe("the ?view= hosts (US-2161 second pass)", () => {
     // 16 -> 17 on 2026-08-25: US-2877 gave Listing templates a web page. It is
     // the mechanism working rather than failing -- the entry is a decision with
     // a story behind it, which is exactly what this assertion exists to force.
+    //
+    // 17 -> 18 on 2026-09-21: US-3175 gave Worth My Time a page under Today.
+    // Same mechanism, same kind of decision.
     const flipdesk = ALL_SURFACES.filter((s) => s.nav?.group === "FlipDesk");
-    expect(flipdesk.length).toBe(17);
-    // US-3206 regrouped these by frequency and moved nothing in or out, so the
-    // total is unchanged and only the buckets moved: Today 5 + Sell 4 +
-    // Sourcing 3 + Money 2 + Setup 3.
+    expect(flipdesk.length).toBe(18);
+    // US-3206 regrouped these by frequency and moved nothing in or out: Today
+    // 5 + Sell 4 + Sourcing 3 + Money 2 + Setup 3. US-3175 then added one, to
+    // Today, which is the only bucket that moved.
     const perSubgroup = (title: string) =>
       flipdesk.filter((s) => s.nav?.subgroup === title).length;
-    expect(perSubgroup("Today")).toBe(5);
+    expect(perSubgroup("Today")).toBe(6);
     expect(perSubgroup("Sell")).toBe(4);
     expect(perSubgroup("Sourcing")).toBe(3);
     expect(perSubgroup("Money")).toBe(2);

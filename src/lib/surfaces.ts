@@ -162,6 +162,19 @@ export const SURFACES = [
     iosElsewhere: "ios/GradeThread/Inventory/GlobalSearchView.swift",
   },
   {
+    // US-3175: the plan surface. It deliberately does NOT list inventory --
+    // every row links out to the item and its real action -- so it sits beside
+    // Inventory rather than competing with it.
+    id: "worth-my-time",
+    label: "Worth My Time",
+    description: "Turn the minutes you have into a short list of the most useful work.",
+    web: "/dashboard/flipdesk/worth-my-time",
+    nav: { group: "FlipDesk", subgroup: "Today" },
+    ios: null,
+    onlyReason:
+      "R1 is responsive FlipDesk web only by design (US-3166 AC1). The planning pipeline is built on the same nextAction the web item grid renders, so a native screen would need either a second copy of that ladder or a server round trip that does not exist yet.",
+  },
+  {
     // One surface. Its in-page tabs switch Table / Grid / Kanban / Prep.
     id: "inventory",
     label: "Inventory",
