@@ -4423,20 +4423,6 @@
       "notes": "2026-09-21 AC1-AC5 DONE, AC6 (operator) open. New src/components/flipdesk/composer/list-on-panel.tsx renders above the kit with one row per channel from listOnRows (src/lib/list-on-channels.ts: API list then extension list, narrowed by the seller's selection, blocked for api_pending / a verifying list flow / live / queued / ending), deriveChannelState per row, the per-channel price input, View link, End listing (live) and Cancel (queued only). Ticks are the composer's pushPlatforms, widened to the new CrossPushPlatform type (constants.ts) so grailed, vinted and facebook can be ticked beside eBay; a tick the panel finds blocked is pruned through removePushPlatforms so the rail's count and the fan-out agree. Draft mode: the rail's Publish stays the one button (eBay alone opens PublishToEbayDialog, otherwise cross-push). Live mode: the panel carries 'List on N marketplaces' through the same cross-push. summarizeCrossPush is the one reading of the result on both paths, with QUEUED_NOTICE and requestDrainNow. Removed push-to-card.tsx and the kit's checklist and List everywhere block. Tests: src/lib/__tests__/list-on-channels.test.ts (union of the two old lists, narrowing, the three block reasons, the summary), listing-kit-list-everywhere.test.ts rewritten to pin the panel, cross-post-channels.test.ts and composer-anchors.test.ts repointed. VERIFIED: tsc -b clean, eslint 0 errors, vitest full run 10962 passed with 3 failed of which 2 are src/test/delist-needed-parity.test.ts failing identically on the untouched tree (transactional-push.ts no longer contains the pinned category and idFields strings; pre-existing, not this story) and 1 was a British spelling in this panel, fixed. ui:check 0 blocking. vault:lint clean after updating flipdesk-inventory.md's Push-to row."
     },
     {
-      "id": "US-3451",
-      "passes": false,
-      "title": "Channel strip on the listings table: per-marketplace state dots on every row",
-      "description": "As a FlipDesk seller, I want each row of the Listings page to show where that garment is live, queued, ended or sold across marketplaces, so that I answer 'where is this jacket listed' from the table instead of opening every item.",
-      "acceptanceCriteria": [
-        "src/pages/flipdesk/listings-table.tsx gains a Channels column rendering one dot per platform that has a listings row for the same inventory_item_id or a pending extension_work_queue row, coloured by deriveChannelState (src/lib/channel-state.ts) with the state word as the accessible label and a tooltip naming the marketplace and the since time",
-        "The dots are derived from rows the page already fetches (src/pages/flipdesk/listings-page-queries.ts) plus useExtensionQueue; a vitest case proves the column makes no request beyond those two",
-        "Clicking a dot opens the same link or End verb the item page card offers (cross-listings-card.tsx), reusing its hooks rather than copying them; a sold or ended dot has no verb",
-        "The column is hidden below the md breakpoint and the row's existing platform badge is unchanged, so the table's mobile layout does not grow; npm run ui:check stays at zero blocking findings",
-        "src/pages/flipdesk/__tests__ gains a case rendering a row with an eBay live listing, a Poshmark queued job and a Mercari ended row and asserting three dots with those three labels"
-      ],
-      "priority": 6
-    },
-    {
       "id": "US-3452",
       "passes": false,
       "title": "The delist log: a per-item timeline of what a sale ended, where and when",
