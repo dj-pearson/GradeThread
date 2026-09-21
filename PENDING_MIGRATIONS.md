@@ -72,6 +72,62 @@ stronger claim for one of them, `check-prod-migration.ts` is the tool.
 Nothing below 00786 was touched, and the six genuinely-held branches in the next
 section are unchanged and still waiting.
 
+## 🔴 HELD: 00817_work_preferences.sql (US-3166 - Worth My Time R1 01/12)
+
+**EXECUTED 2026-09-21 against a local Postgres 16** carrying all 809
+migrations from zero, 0 failures. Applied twice more; both runs changed
+nothing and only logged `relation already exists, skipping`.
+
+**Risk: LOW.** One new table, six CHECK constraints, one trigger, one SELECT
+policy, one REVOKE. Nothing existing is read, written, dropped or altered.
+
+**Why it exists.** It stores where a seller works, what tools they have and
+what their time is worth, so the planner in R1 06/12 can fit a plan to their
+situation. One row per seller, created lazily; an absent row is every default,
+which is why every column is NOT NULL with one.
+
+**Client-side read risk: NONE.** Nothing in `src/` reads this table as of this
+commit - the screen is R1 10/12. The edge routes fall back to defaults when
+the read errors, so a frontend that auto-deploys before this applies loses
+nothing: `GET /api/flipdesk/work-preferences` answers with defaults and a
+PATCH fails with a 500 the seller can retry after the apply.
+
+**Apply order:** after 00816. Then `NOTIFY pgrst, 'reload schema';` - the
+table is exposed through PostgREST for the owner's own SELECT and is invisible
+to the API without the reload.
+
+**Readback after applying:**
+
+```sql
+-- 1. The table, RLS, and exactly one policy (SELECT, owner-scoped).
+select relrowsecurity from pg_class where relname = 'flipdesk_work_preferences';
+-- expect t
+
+select cmd, qual from pg_policies
+where schemaname = 'public' and tablename = 'flipdesk_work_preferences';
+-- expect ONE row: SELECT, qual mentioning (select auth.uid()) = user_id.
+-- Writes are service-role only on purpose -- a direct write would bypass the
+-- validation the route performs.
+
+-- 2. All six CHECKs are there and named.
+select conname from pg_constraint
+where conrelid = 'public.flipdesk_work_preferences'::regclass and contype = 'c'
+order by conname;
+-- expect: context, currency, minutes, target, tools
+
+-- 3. Nothing was created with rows.
+select count(*) from public.flipdesk_work_preferences;
+-- expect 0
+```
+
+**Proved locally rather than asserted:** every CHECK refuses its bad value (4
+and 241 minutes, `sourcing_trip`, an unknown tool, `EUR`, a negative target); a
+target of exactly `0` is ACCEPTED, because a seller may deliberately say their
+time is free; and clearing one back to NULL works, which is what an explicit
+null in the PATCH body does.
+
+**Not applied yet, so the story stays open on its operator step.**
+
 ## 🔴 HELD: 00816_easypost_label_provider.sql (US-3015 - EasyPost as the second label provider)
 
 **Risk: LOW-MEDIUM.** One new deny-all table, two nullable columns on `sales`,

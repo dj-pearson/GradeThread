@@ -96,6 +96,7 @@ import {
   handleAutomationRulesCron,
 } from "./routes/flipdesk-automations.ts";
 import { flipdeskLogisticsRoutes } from "./routes/flipdesk-logistics.ts";
+import { flipdeskWorkPreferencesRoutes } from "./routes/flipdesk-work-preferences.ts";
 import { handleCredentialsRefreshCron } from "./routes/jobs-credentials-refresh.ts";
 import { adminBillingRoutes } from "./routes/admin-billing.ts";
 import { adminFlagsRoutes } from "./routes/admin-flags.ts";
@@ -602,6 +603,8 @@ app.use("/api/flipdesk/qbo/*", qboAuthMiddleware);
 app.use("/api/flipdesk/consignment/*", authMiddleware);
 app.use("/api/flipdesk/pricing/*", authMiddleware);
 app.use("/api/flipdesk/automations/*", authMiddleware);
+app.use("/api/flipdesk/work-preferences/*", authMiddleware);
+app.use("/api/flipdesk/work-preferences", authMiddleware);
 app.use("/api/flipdesk/logistics/*", authMiddleware);
 // US-268 hardening: these two routers were mounted (below) but were missing
 // from this per-path auth whitelist, so they were silently reachable
@@ -785,6 +788,8 @@ app.use("/api/flipdesk/expenses/*", workspaceMiddleware);
 app.use("/api/flipdesk/consignment/*", workspaceMiddleware);
 app.use("/api/flipdesk/pricing/*", workspaceMiddleware);
 app.use("/api/flipdesk/automations/*", workspaceMiddleware);
+app.use("/api/flipdesk/work-preferences/*", workspaceMiddleware);
+app.use("/api/flipdesk/work-preferences", workspaceMiddleware);
 app.use("/api/flipdesk/logistics/*", workspaceMiddleware);
 app.use("/api/flipdesk/forecast/*", workspaceMiddleware);
 app.use("/api/flipdesk/equity/*", workspaceMiddleware);
@@ -1144,6 +1149,8 @@ app.use("/api/flipdesk/pricing/*", rateLimiter(60, 60_000, "flipdesk-pricing"));
 // An automation run/dry-run scans every active listing — keep CRUD snappy but
 // cap the whole surface.
 app.use("/api/flipdesk/automations/*", rateLimiter(60, 60_000, "flipdesk-automations"));
+app.use("/api/flipdesk/work-preferences/*", rateLimiter(60, 60_000, "flipdesk-work-preferences"));
+app.use("/api/flipdesk/work-preferences", rateLimiter(60, 60_000, "flipdesk-work-preferences"));
 // US-2160: tighter than its neighbours on purpose — every call here reaches
 // eBay and one of them spends the seller's money.
 app.use("/api/flipdesk/logistics/*", rateLimiter(20, 60_000, "flipdesk-logistics"));
@@ -1500,6 +1507,7 @@ app.route("/api/flipdesk/qbo", qboRoutes);
 app.route("/api/flipdesk/consignment", flipdeskConsignmentRoutes);
 app.route("/api/flipdesk/pricing", flipdeskPricingRoutes);
 app.route("/api/flipdesk/automations", flipdeskAutomationsRoutes);
+app.route("/api/flipdesk/work-preferences", flipdeskWorkPreferencesRoutes);
 app.route("/api/flipdesk/logistics", flipdeskLogisticsRoutes);
 // US-834: AI Support Assistant (streaming chat + conversation history).
 app.route("/api/support/assistant", supportAssistantRoutes);

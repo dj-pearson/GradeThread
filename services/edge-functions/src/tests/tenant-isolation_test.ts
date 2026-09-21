@@ -5457,6 +5457,85 @@ Deno.test({
 });
 
 Deno.test({
+  // US-3166 (AC4): the Worth My Time settings routes take NO id at all -- the
+  // owner comes from the request context and nothing in a body or a query can
+  // choose whose row is read or written.
+  //
+  // That is the claim this case exists to falsify. It sends A's ids in B's
+  // patch body and then reads B's settings back: if any of them had steered
+  // the write, B's row would carry the values or A's row would have moved.
+  // A cross-tenant hit here is quiet and lasting -- the planner would fit
+  // every future plan to somebody else's tools, table and hourly target, and
+  // nothing on the screen would say why.
+  name: "US-3166: B's work-preferences patch cannot name A's workspace",
+  ignore: !CONFIGURED,
+  fn: async () => {
+    const A_ID = Deno.env.get("TEST_USER_A_ID") ??
+      "00000000-0000-4000-8000-000000000001";
+    const PATH = `${BASE}/api/flipdesk/work-preferences`;
+
+    const patch = await fetch(PATH, {
+      method: "PATCH",
+      headers: authHeaders(B_JWT!),
+      body: JSON.stringify({
+        // Every one of these is a field the route must ignore, named the way
+        // the column is named on purpose: a handler reading any of them from
+        // the body would pass a lazier test.
+        user_id: A_ID,
+        owner_user_id: A_ID,
+        workspace_owner_id: A_ID,
+        default_session_minutes: 45,
+        work_context: "phone_only",
+      }),
+    });
+    const patched = (await patch.json().catch(() => ({}))) as {
+      default_session_minutes?: number;
+      work_context?: string;
+    };
+    assert(
+      [200, 400, 401, 403, 500].includes(patch.status),
+      `work-preferences PATCH should answer 200/400/401/403/500, got ${patch.status}`,
+    );
+    if (patch.status === 200) {
+      // The write landed on B, so B sees it. The point is the read-back below.
+      assertEquals(patched.default_session_minutes, 45);
+      assertEquals(patched.work_context, "phone_only");
+    }
+
+    // And A is untouched. A reads their own settings with their own token; if
+    // B's body had steered the write, this is where it shows.
+    const aRead = await fetch(PATH, { headers: authHeaders(A_JWT!) });
+    const aPrefs = (await aRead.json().catch(() => ({}))) as {
+      default_session_minutes?: number;
+      work_context?: string;
+    };
+    if (aRead.status === 200 && patch.status === 200) {
+      assert(
+        aPrefs.work_context !== "phone_only" ||
+          aPrefs.default_session_minutes !== 45,
+        "A's settings carry exactly what B just wrote: the body chose the workspace",
+      );
+    }
+
+    // A GET takes no id either, so there is nothing to forge on the read side.
+    // Sending one anyway must not change the answer.
+    const forged = await fetch(`${PATH}?user_id=${encodeURIComponent(A_ID)}`, {
+      headers: authHeaders(B_JWT!),
+    });
+    const forgedBody = (await forged.json().catch(() => ({}))) as {
+      default_session_minutes?: number;
+    };
+    if (forged.status === 200 && patch.status === 200) {
+      assertEquals(
+        forgedBody.default_session_minutes,
+        45,
+        "a user_id in the query must be ignored; B still sees B's own settings",
+      );
+    }
+  },
+});
+
+Deno.test({
   // US-3015 (AC11): the EasyPost onboarding route creates a referral customer
   // and stores an API KEY that spends real postage money. It takes no sale id,
   // so the only thing that decides whose account is touched is the owner id
