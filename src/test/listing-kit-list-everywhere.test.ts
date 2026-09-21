@@ -1,41 +1,57 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
-// US-3367: the Listing Kit lists to every extension channel through the paced
-// queue, and shows each channel's state with its marketplace link. Source
+// US-3367 put "List everywhere" in the Listing Kit; US-3450 moved the
+// checklist and the button into the composer's List on panel, which offers
+// every channel (API and extension) with the same per-channel state. Source
 // scans, because they pin WHERE the wiring is; the rules themselves are
-// called in src/lib/__tests__/channel-state.test.ts.
+// called in src/lib/__tests__/channel-state.test.ts and
+// src/lib/__tests__/list-on-channels.test.ts.
 
-const src = readFileSync("src/components/flipdesk/listing-kit.tsx", "utf8");
+const kit = readFileSync("src/components/flipdesk/listing-kit.tsx", "utf8");
+const panel = readFileSync("src/components/flipdesk/composer/list-on-panel.tsx", "utf8");
+const composer = readFileSync("src/pages/flipdesk/composer.tsx", "utf8");
 
-describe("Listing Kit: List everywhere (US-3367)", () => {
+describe("List on panel: one picker, one button (US-3450)", () => {
   it("queues through cross-push, never through N direct sends", () => {
-    expect(src).toContain("useCrossPush()");
-    expect(src).toContain("List everywhere");
-    // The one interactive send stays: "Fill {Platform} now" for one channel.
-    expect(src.match(/sendToLister\(/g)?.length ?? 0).toBe(1);
+    expect(panel).toContain("useCrossPush()");
+    expect(composer).toContain("useCrossPush()");
+    // The one interactive send stays in the kit: "Fill {Platform} now".
+    expect(kit.match(/sendToLister\(/g)?.length ?? 0).toBe(1);
+    expect(panel).not.toContain("sendToLister(");
   });
 
-  it("says the queued sentence and nudges the drain after queueing", () => {
-    expect(src).toContain("${QUEUED_NOTICE}");
-    expect(src).toContain("requestDrainNow()");
+  it("says the queued sentence and nudges the drain after queueing, on both paths", () => {
+    for (const src of [panel, composer]) {
+      expect(src).toContain("${QUEUED_NOTICE}");
+      expect(src).toContain("requestDrainNow()");
+    }
   });
 
-  it("reads the channel state from one derivation", () => {
-    expect(src).toContain("deriveChannelState(");
-    expect(src).toContain("planListEverywhere(");
+  it("reads the channel state and the rows from one derivation", () => {
+    expect(panel).toContain("deriveChannelState(");
+    expect(panel).toContain("listOnRows(");
+    expect(kit).toContain("deriveChannelState(");
+  });
+
+  it("the kit no longer carries its own checklist", () => {
+    expect(kit).not.toContain("planListEverywhere(");
+    expect(kit).not.toContain("List everywhere");
+    expect(composer).not.toContain("<PushToCard");
   });
 
   it("links to the marketplace for any platform, not only eBay", () => {
-    expect(src).toContain("View on {label}");
+    expect(kit).toContain("View on {label}");
+    expect(panel).toContain("View on {r.label}");
   });
 
   it("offers Cancel only on a queued row, never a claimed one (US-3048)", () => {
-    expect(src).toContain('status.queueItem?.status === "queued"');
+    expect(kit).toContain('status.queueItem?.status === "queued"');
+    expect(panel).toContain('r.status?.queueItem?.status === "queued"');
   });
 
-  it("never offers List everywhere for a verifying flow or Depop", () => {
-    expect(src).toContain('MARKETPLACE_EXTENSION_FLOW[p] !== "verifying"');
-    expect(src).toContain("isListerPlatform(p)");
+  it("reads one summary of the cross-push result on both paths", () => {
+    expect(panel).toContain("summarizeCrossPush(");
+    expect(composer).toContain("summarizeCrossPush(");
   });
 });

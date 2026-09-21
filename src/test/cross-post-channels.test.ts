@@ -124,7 +124,7 @@ describe("US-2721 AC5: turning a channel off never hides an existing listing", (
   // what is already listed. A seller who turns Depop off and finds their live
   // Depop listing gone from the item would reasonably think we deleted it.
   const OFFERS = [
-    "src/components/flipdesk/composer/push-to-card.tsx",
+    "src/components/flipdesk/composer/list-on-panel.tsx",
     "src/components/flipdesk/listing-kit.tsx",
   ];
   const RENDERS_EXISTING = [
@@ -157,8 +157,13 @@ describe("US-2721 AC5: turning a channel off never hides an existing listing", (
       // kit-platforms.ts), which is filterChannels plus the never-empty
       // fallback; kit-platforms.test.ts pins that it narrows. Either call is
       // the narrowing call. The bare hook name is still not.
+      // US-3450: the List on panel narrows through listOnRows (src/lib/
+      // list-on-channels.ts), which is filterChannels over both channel
+      // lists; list-on-channels.test.ts pins that it narrows.
       expect(
-        src!.includes("filterChannels(") || src!.includes("kitPlatformsFor("),
+        src!.includes("filterChannels(") ||
+          src!.includes("kitPlatformsFor(") ||
+          src!.includes("listOnRows("),
         `${rel} reads the selection and then offers every channel anyway`,
       ).toBe(true);
     }

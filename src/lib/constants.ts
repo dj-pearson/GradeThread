@@ -1931,6 +1931,11 @@ export const EXTENSION_CROSS_LISTING_PLATFORMS = [
 ] as const satisfies readonly (typeof LISTING_PLATFORMS)[number][];
 export type ExtensionCrossListingPlatform =
   (typeof EXTENSION_CROSS_LISTING_PLATFORMS)[number];
+// US-3450: every channel POST /cross-push accepts. CrossListingPlatform is the
+// composer's historic API-shaped list and never grew grailed / vinted /
+// facebook; the fan-out has taken them since US-3447, and the List on panel
+// ticks them beside eBay, so the tick, the request and the result share this.
+export type CrossPushPlatform = CrossListingPlatform | ExtensionCrossListingPlatform;
 
 // THE BROWSER DOES NOT KNOW ANY STRIPE PRICE ID, and it must not learn one.
 //

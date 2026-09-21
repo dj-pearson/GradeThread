@@ -1,6 +1,6 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { edgeFetch } from "@/lib/edge-fetch";
-import type { CrossListingPlatform } from "@/lib/constants";
+import type { CrossPushPlatform } from "@/lib/constants";
 
 // Multi-marketplace cross-listing dispatch (US-149). One call fans the saved
 // draft out into a listings row per platform; eBay publishes live, the rest
@@ -31,13 +31,13 @@ export interface CrossPushPlatformResult {
 export interface CrossPushResponse {
   ok: boolean;
   draft_id: string;
-  results: Partial<Record<CrossListingPlatform, CrossPushPlatformResult>>;
+  results: Partial<Record<CrossPushPlatform, CrossPushPlatformResult>>;
 }
 
 export interface CrossPushInput {
   listingId: string;
-  platforms: CrossListingPlatform[];
-  prices?: Partial<Record<CrossListingPlatform, number>>;
+  platforms: CrossPushPlatform[];
+  prices?: Partial<Record<CrossPushPlatform, number>>;
 }
 
 export function useCrossPush() {

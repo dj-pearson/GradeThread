@@ -187,11 +187,11 @@ describe("the publish rail: actions reachable, config still with the form (US-22
   it("keeps the publish config editable and in the editor column", () => {
     // Still present, still after the last editor card, and now BEFORE the rail —
     // i.e. inside the column with everything else the seller can change.
-    const pushTo = src.indexOf("<PushToCard");
+    const pushTo = src.indexOf("<ListOnPanel");
     const schedule = src.indexOf("<ScheduleCard");
     const kit = src.indexOf("<ListingKit");
     for (const [name, at] of [
-      ["<PushToCard", pushTo],
+      ["<ListOnPanel", pushTo],
       ["<ScheduleCard", schedule],
       ["<ListingKit", kit],
     ] as [string, number][]) {
@@ -226,6 +226,6 @@ describe("the publish rail: actions reachable, config still with the form (US-22
       expect(rail, `${marker} rendered in the action rail`).not.toContain(marker);
     }
     expect(rail).not.toContain("<ListingKit");
-    expect(rail).not.toContain("<PushToCard");
+    expect(rail).not.toContain("<ListOnPanel");
   });
 });
