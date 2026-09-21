@@ -35,7 +35,16 @@ import {
 import { SessionRunner } from "@/components/flipdesk/session-runner";
 import { itemHref } from "@/lib/session-links";
 import { estimateDuration, isUnestimated } from "@/lib/work-duration";
+import type { RankedTask } from "@/lib/work-ranker";
+import type { WorkCandidate } from "@/lib/work-candidates";
 import { UNKNOWN_BIN_LABEL } from "@/lib/work-batching";
+import { explainOmission, explainTask, whatWouldChangeIt } from "@/lib/work-explain";
+import {
+  EXPLAIN_FACT_COPY,
+  OMISSION_COPY,
+  WOULD_CHANGE_COPY,
+} from "@/lib/work-explain-copy";
+import { estimateWorkValue } from "@/lib/work-value";
 
 const ACTION_LABELS: Record<string, string> = {
   measure: "Measure",
@@ -58,6 +67,109 @@ const TIER_REASONS: Record<string, string> = {
 function money(cents: number | null): string | null {
   if (cents == null) return null;
   return `$${(cents / 100).toFixed(2)}`;
+}
+
+/**
+ * "Why this task", on demand (US-3181).
+ *
+ * A <details> rather than a modal or a tooltip, and that is the accessibility
+ * answer as much as the design one: it is a native disclosure, reachable and
+ * operable from the keyboard with no handler of ours, it degrades to open
+ * markup when styles fail, and a screen reader announces its state without
+ * being told to.
+ *
+ * EVERYTHING IT SHOWS COMES FROM THE SNAPSHOT (AC5). It is handed the ranked
+ * task and the candidate the plan was built from, never the item. Re-reading
+ * the item here would explain a plan that was never made.
+ */
+function WhyThisTask({
+  task,
+  candidate,
+  takenAt,
+  hourlyTargetSet,
+}: {
+  task: RankedTask;
+  candidate: WorkCandidate | null;
+  takenAt: string;
+  hourlyTargetSet: boolean;
+}) {
+  const explanation = explainTask({
+    task,
+    duration: estimateDuration({ action: task.action }),
+    // The same estimator call the plan made, from the snapshot's own numbers.
+    // It is rebuilt rather than stored because ValueResult is not carried on
+    // the ranked task; the INPUTS are the snapshot's, which is what AC5 asks.
+    value: estimateWorkValue({
+      marketplace: null,
+      evidence: task.conservativeCents != null
+        ? {
+          amountCents: task.conservativeCents,
+          source: "seller_estimate",
+          observedAt: takenAt,
+        }
+        : null,
+    }),
+    shipBy: candidate?.shipBy
+      ? { at: candidate.shipBy.at, confidence: candidate.shipBy.confidence }
+      : undefined,
+    takenAt,
+    now: new Date().toISOString(),
+    hourlyTargetSet,
+  });
+  const change = whatWouldChangeIt(explanation);
+
+  return (
+    <details className="text-xs">
+      <summary className="cursor-pointer underline">Why this one?</summary>
+      <div className="mt-2 w-64 space-y-2 rounded-lg bg-muted/50 p-3 text-left">
+        <ul className="space-y-1">
+          {explanation.facts.map((f) => (
+            <li key={f}>{EXPLAIN_FACT_COPY[f]}</li>
+          ))}
+        </ul>
+        <dl className="space-y-0.5 text-muted-foreground">
+          {explanation.timing.activeMinutes != null && (
+            <div>
+              <dt className="inline">Hands-on: </dt>
+              <dd className="inline">
+                about {explanation.timing.activeMinutes} min
+                {explanation.timing.setupMinutes
+                  ? `, plus ${explanation.timing.setupMinutes} to set up`
+                  : ""}
+              </dd>
+            </div>
+          )}
+          <div>
+            <dt className="inline">Left on this item: </dt>
+            <dd className="inline">about {explanation.timing.chainMinutes} min</dd>
+          </div>
+          {explanation.value.lowCents != null && explanation.value.highCents != null && (
+            <div>
+              <dt className="inline">Worth: </dt>
+              <dd className="inline">
+                {money(explanation.value.lowCents)} to{" "}
+                {money(explanation.value.highCents)}, if it sells
+              </dd>
+            </div>
+          )}
+          {explanation.timing.sampleCount != null && (
+            <div>
+              <dt className="inline">Based on: </dt>
+              <dd className="inline">
+                {explanation.timing.sampleCount} of your finished jobs
+              </dd>
+            </div>
+          )}
+        </dl>
+        {explanation.conflict && (
+          <p role="alert">{explanation.conflict.message}</p>
+        )}
+        {change && WOULD_CHANGE_COPY[change] && (
+          <p className="font-medium">{WOULD_CHANGE_COPY[change]}</p>
+        )}
+      </div>
+    </details>
+  );
 }
 
 export function WorthMyTimePage() {
@@ -313,11 +425,21 @@ export function WorthMyTimePage() {
                       </p>
                     )}
                   </div>
-                  <Button variant="outline" size="sm" asChild>
-                    <Link to={itemHref(task.itemId)}>
-                      Open item <ArrowRight className="ml-1 h-3 w-3" />
-                    </Link>
-                  </Button>
+                  <div className="flex items-center gap-2">
+                    {r && (
+                      <WhyThisTask
+                        task={r}
+                        candidate={plan.candidates.find((c) => c.key === r.key) ?? null}
+                        takenAt={plan.takenAt}
+                        hourlyTargetSet={prefs.data?.hourlyTargetSet === true}
+                      />
+                    )}
+                    <Button variant="outline" size="sm" asChild>
+                      <Link to={itemHref(task.itemId)}>
+                        Open item <ArrowRight className="ml-1 h-3 w-3" />
+                      </Link>
+                    </Button>
+                  </div>
                 </li>
               );
             })}
@@ -327,6 +449,31 @@ export function WorthMyTimePage() {
             <p className="text-xs text-muted-foreground">
               We looked at your {plan.itemsRead} most recently updated items.
             </p>
+          )}
+
+          {plan.plan.omitted.length > 0 && (
+            <details className="rounded-lg border p-3 text-sm">
+              <summary className="cursor-pointer font-medium">
+                {plan.plan.omitted.length} job
+                {plan.plan.omitted.length === 1 ? "" : "s"} didn't make the list
+              </summary>
+              <ul className="mt-2 space-y-1 text-muted-foreground">
+                {plan.plan.omitted.slice(0, 12).map((o) => {
+                  const e = explainOmission(o);
+                  const title = plan.candidates.find((c) => c.key === o.key)?.itemTitle;
+                  return (
+                    <li key={o.key}>
+                      {/* User-supplied text, rendered as TEXT (AC5). React
+                          escapes it and this file has no dangerouslySetInnerHTML. */}
+                      <span className="break-words">{title ?? "Untitled item"}</span>
+                      {" — "}
+                      {OMISSION_COPY[e.reason]}
+                      {e.minutes != null ? ` (about ${e.minutes} min)` : ""}
+                    </li>
+                  );
+                })}
+              </ul>
+            </details>
           )}
         </section>
       )}

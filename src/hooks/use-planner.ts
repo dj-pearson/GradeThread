@@ -198,6 +198,15 @@ export interface PreparedPlan {
   budgetMinutes: number;
   itemsRead: number;
   truncated: boolean;
+  /**
+   * When this plan was built (US-3181 AC5).
+   *
+   * The explanation panel renders from THIS snapshot, so it has to be able to
+   * say what the numbers are from. Without it a plan reopened the next day
+   * would explain a world that had moved on -- the price changed, the photos
+   * landed, the garment sold -- under yesterday's ranking.
+   */
+  takenAt: string;
 }
 
 export interface BuildPlanArgs {
@@ -284,6 +293,7 @@ export async function buildPlan(args: BuildPlanArgs): Promise<PreparedPlan> {
     groups: batched.groups,
     pullList: batched.pullList,
     budgetMinutes: args.budgetMinutes,
+    takenAt: args.now ?? new Date().toISOString(),
     itemsRead: items.length,
     truncated: items.length >= PLAN_ITEM_LIMIT,
   };

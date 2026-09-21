@@ -3,6 +3,8 @@ import { createElement as h, act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { MemoryRouter } from "react-router";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 
 // Worth My Time, R1 10/12 (US-3175).
 //
@@ -101,6 +103,8 @@ function plan(over: Record<string, unknown> = {}) {
     pullList: [{ bin: "A-14", label: "A-14", itemIds: ["item-1"] }],
     itemsRead: 1,
     truncated: false,
+    budgetMinutes: 30,
+    takenAt: "2026-09-21T11:00:00.000Z",
     ...over,
   };
 }
@@ -232,6 +236,115 @@ describe("the time picker (AC2)", () => {
     await click("15 minutes");
     expect(has(/1 job/)).toBe(true);
     expect(toastError).not.toHaveBeenCalled();
+  });
+});
+
+describe("why this task (US-3181)", () => {
+  it("every row can be opened, and it is a native disclosure", async () => {
+    buildMock.mockResolvedValue(plan());
+    renderPage();
+    await click("30 minutes");
+    const details = Array.from(document.querySelectorAll("details"))
+      .find((d) => d.textContent?.includes("Why this one?"))!;
+    expect(details).toBeTruthy();
+    // A <details> is keyboard-operable and screen-reader-announced with no
+    // handler of ours. A div with onClick would need both written and tested.
+    expect(details.tagName).toBe("DETAILS");
+    expect(details.querySelector("summary")?.textContent).toBe("Why this one?");
+  });
+
+  it("the primary row stays short: the detail is closed until asked for", async () => {
+    buildMock.mockResolvedValue(plan());
+    renderPage();
+    await click("30 minutes");
+    const details = Array.from(document.querySelectorAll("details"))
+      .find((d) => d.textContent?.includes("Why this one?"))!;
+    expect(details.hasAttribute("open")).toBe(false);
+  });
+
+  it("states where the minutes and the value came from", async () => {
+    buildMock.mockResolvedValue(plan());
+    renderPage();
+    await click("30 minutes");
+    const t = text();
+    expect(t).toContain("Left on this item");
+    // The R1 default is a guess and says so, rather than reading as measured.
+    expect(t).toContain("starting guess");
+  });
+
+  it("shows NO confidence percentage anywhere", async () => {
+    buildMock.mockResolvedValue(plan());
+    renderPage();
+    await click("30 minutes");
+    // There is no calibrated source for one, and a number invented from a
+    // sort key would be the most believable wrong thing on the screen.
+    expect(text()).not.toMatch(/\d+\s*% (sure|confident|likely)/i);
+    expect(text()).not.toMatch(/confidence/i);
+  });
+
+  it("renders item text as TEXT, never as markup", async () => {
+    const p = plan();
+    (p.candidates[0] as { itemTitle: string }).itemTitle =
+      '<img src=x onerror="alert(1)">Carhartt';
+    buildMock.mockResolvedValue(p);
+    renderPage();
+    await click("30 minutes");
+    // The string is visible as characters and produced no element.
+    expect(text()).toContain("<img src=x");
+    expect(container?.querySelector("img")).toBeNull();
+  });
+
+  it("the page never reaches for dangerouslySetInnerHTML", () => {
+    // COMMENTS STRIPPED FIRST. The page carries a comment saying it does not
+    // use this, so a naive scan finds the banned name inside the sentence
+    // forbidding it and fails on correct code -- which is exactly what
+    // happened on the first run. Block comments go as BLOCKS, because
+    // dropping lines that start with // leaves the opening /** in place.
+    const raw = readFileSync(
+      resolve(process.cwd(), "src/pages/flipdesk/worth-my-time.tsx"),
+      "utf8",
+    );
+    const code = raw
+      .replace(/\/\*[\s\S]*?\*\//g, "")
+      .split("\n")
+      .filter((l) => !l.trim().startsWith("//") && !l.trim().startsWith("*"))
+      .join("\n");
+    expect(code).not.toContain("dangerouslySetInnerHTML");
+    // Guards the guard: the stripper must not have eaten the file.
+    expect(code).toContain("export function WorthMyTimePage");
+  });
+
+  it("says why a job did not make the list", async () => {
+    const p = plan();
+    (p.plan as { omitted: unknown[] }).omitted = [
+      { key: "item-9:photograph", reason: "no_time_left", minutes: 14 },
+    ];
+    (p.candidates as unknown[]).push({
+      key: "item-9:photograph",
+      itemId: "item-9",
+      itemTitle: "Levi 501 jeans",
+      action: "photograph",
+      prerequisiteKeys: [],
+      requiredContext: ["home"],
+      requiredTools: ["camera"],
+      completionEvidence: "",
+      bin: { value: null, source: "none" },
+      shipBy: { at: null, confidence: "unknown" },
+    });
+    buildMock.mockResolvedValue(p);
+    renderPage();
+    await click("30 minutes");
+    expect(has("didn't make the list")).toBe(true);
+    expect(has("Levi 501 jeans")).toBe(true);
+    expect(has("It didn't fit the time you had.")).toBe(true);
+    expect(has("about 14 min")).toBe(true);
+  });
+
+  it("says nothing about omissions when there are none", async () => {
+    buildMock.mockResolvedValue(plan());
+    renderPage();
+    await click("30 minutes");
+    expect(has("didn't make the list")).toBe(false);
   });
 });
 

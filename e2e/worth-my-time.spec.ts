@@ -535,6 +535,93 @@ test("session: keyboard alone runs it", async ({ page }) => {
   expect(name.length).toBeGreaterThan(0);
 });
 
+// ── "Why this task" (R2 04/06, US-3181 AC7) ─────────────────────────────────
+
+test("why: every row opens on demand and stays closed until asked", async ({ page }) => {
+  await mockBackend(page);
+  await login(page);
+  await page.goto("/dashboard/flipdesk/worth-my-time");
+  await dismissOverlays(page);
+  await page.getByRole("button", { name: "30 minutes" }).click();
+
+  const why = page.getByRole("group").filter({ hasText: "Why this one?" }).first();
+  await expect(why).toBeVisible({ timeout: 15_000 });
+  // The primary plan stays short: the detail is closed until asked for.
+  // .first(): there is one disclosure per row, and a bare locator matching
+  // three is a strict-mode error rather than an assertion.
+  await expect(page.getByText("Left on this item").first()).toBeHidden();
+  await page.getByText("Why this one?").first().click();
+  await expect(page.getByText("Left on this item").first()).toBeVisible();
+});
+
+test("why: keyboard alone opens it", async ({ page }) => {
+  await mockBackend(page);
+  await login(page);
+  await page.goto("/dashboard/flipdesk/worth-my-time");
+  await dismissOverlays(page);
+  await page.getByRole("button", { name: "30 minutes" }).click();
+
+  const summary = page.getByText("Why this one?").first();
+  await expect(summary).toBeVisible({ timeout: 15_000 });
+  await summary.focus();
+  await expect(summary).toBeFocused();
+  // A native <details> opens on Enter with no handler of ours.
+  await page.keyboard.press("Enter");
+  await expect(page.getByText("Left on this item").first()).toBeVisible();
+});
+
+test("why: no confidence percentage anywhere on the page", async ({ page }) => {
+  await mockBackend(page);
+  await login(page);
+  await page.goto("/dashboard/flipdesk/worth-my-time");
+  await dismissOverlays(page);
+  await page.getByRole("button", { name: "30 minutes" }).click();
+  await page.getByText("Why this one?").first().click();
+
+  const body = await page.locator("body").innerText();
+  expect(body).not.toMatch(/\d+\s*% (sure|confident|likely)/i);
+  expect(body.toLowerCase()).not.toContain("confidence");
+});
+
+test("why: a long item title wraps rather than breaking the layout", async ({ page }) => {
+  const long = item({
+    id: "w1",
+    item_title:
+      "Carhartt Detroit Blanket-Lined Duck Chore Coat In Hickory With Corduroy Collar And Triple-Stitched Seams Size Large Vintage 1990s",
+    location_bin: "A-14",
+  });
+  await page.setViewportSize({ width: 375, height: 812 });
+  await mockBackend(page, { items: [long] });
+  await login(page);
+  await page.goto("/dashboard/flipdesk/worth-my-time");
+  await dismissOverlays(page);
+  await page.getByRole("button", { name: "30 minutes" }).click();
+  await page.getByText("Why this one?").first().click();
+
+  const overflow = await page.evaluate(() =>
+    document.documentElement.scrollWidth - document.documentElement.clientWidth);
+  expect(overflow).toBeLessThanOrEqual(1);
+});
+
+test("why: item text is rendered as text, never as markup", async ({ page }) => {
+  const nasty = item({
+    id: "w1",
+    item_title: '<img src=x onerror="window.__x=1">Carhartt',
+    location_bin: "A-14",
+  });
+  await mockBackend(page, { items: [nasty] });
+  await login(page);
+  await page.goto("/dashboard/flipdesk/worth-my-time");
+  await dismissOverlays(page);
+  await page.getByRole("button", { name: "30 minutes" }).click();
+
+  // Visible as characters, and no element was created from it.
+  await expect(page.getByText(/<img src=x/).first()).toBeVisible({ timeout: 15_000 });
+  const injected = await page.evaluate(() =>
+    (window as unknown as { __x?: number }).__x ?? null);
+  expect(injected).toBeNull();
+});
+
 // ── The stop-working advice (R2 03/06, US-3180 AC7) ─────────────────────────
 
 /** An item with everything done and almost nothing left in it. */
@@ -639,6 +726,7 @@ test("session: usable at 375px with no horizontal scroll", async ({ page }) => {
     document.documentElement.scrollWidth - document.documentElement.clientWidth);
   expect(overflow).toBeLessThanOrEqual(1);
 });
+
 
 
 
