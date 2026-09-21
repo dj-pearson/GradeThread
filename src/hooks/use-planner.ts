@@ -26,6 +26,13 @@ import { supabase } from "@/lib/supabase";
 import { ITEM_LIST_SELECT, type ItemListRow } from "@/lib/item-list-columns";
 import { candidatesFor, type WorkCandidate } from "@/lib/work-candidates";
 import { estimateDuration, isUnestimated } from "@/lib/work-duration";
+import {
+  learnDurations,
+  learnedFor,
+  type LearningResult,
+  type RawObservation,
+  type WorkContext,
+} from "@/lib/work-duration-learning";
 import { estimateWorkValue, type ValueResult } from "@/lib/work-value";
 import { rankWork, remainingActionsFrom, type RankedTask } from "@/lib/work-ranker";
 import { batchWork } from "@/lib/work-batching";
@@ -278,6 +285,94 @@ export async function buildPlan(args: BuildPlanArgs): Promise<PreparedPlan> {
     budgetMinutes: args.budgetMinutes,
     itemsRead: items.length,
     truncated: items.length >= PLAN_ITEM_LIMIT,
+  };
+}
+
+// ── Learned durations (R2 01/06, US-3178) ───────────────────────────
+
+interface ObservationRow {
+  task_id: string;
+  session_id: string;
+  position: number;
+  action_key: string;
+  task_state: string;
+  session_state: string;
+  work_context: string;
+  confirmed_minutes: number | null;
+  correction_minutes: number | null;
+  ended_at: string | null;
+}
+
+/**
+ * The seller's own history, turned into what the learner reads.
+ *
+ * The FAMILY is derived through estimateDuration rather than stored, so the
+ * learner and the scheduler can never disagree about which tasks batch
+ * together -- the run detection in work-duration-learning.ts only means
+ * anything if its idea of a family is the same one the scheduler charges setup
+ * for. An action with no duration model has no family and is dropped.
+ */
+function toObservations(rows: readonly ObservationRow[]): RawObservation[] {
+  const out: RawObservation[] = [];
+  for (const r of rows) {
+    const d = estimateDuration({ action: r.action_key });
+    if (isUnestimated(d)) continue;
+    out.push({
+      taskId: r.task_id,
+      sessionId: r.session_id,
+      position: r.position,
+      family: d.family,
+      context: r.work_context === "phone_only" ? "phone_only" : "home",
+      taskState: r.task_state,
+      sessionState: r.session_state,
+      confirmedMinutes: r.confirmed_minutes,
+      correctionMinutes: r.correction_minutes,
+      endedAt: r.ended_at,
+    });
+  }
+  return out;
+}
+
+export function useLearnedDurations(enabled = true) {
+  return useQuery<LearningResult>({
+    queryKey: ["planner_learned_durations"],
+    enabled,
+    // Longer than the session read: a median over twenty samples does not
+    // move between two clicks of the picker, and re-reading the whole history
+    // on every plan would be paying for an answer that cannot have changed.
+    staleTime: 10 * 60 * 1000,
+    queryFn: async () => {
+      const body = await edgeJson<{ observations: ObservationRow[] }>(
+        "/api/flipdesk/planner/observations",
+      );
+      return learnDurations(toObservations(body.observations ?? []));
+    },
+  });
+}
+
+/**
+ * What the estimator should be told for one action, given what the seller's
+ * history says.
+ *
+ * Returns undefined rather than null when there is nothing, so a caller can
+ * spread it into EstimateInput and get the default path unchanged.
+ */
+export function learnedTypicalFor(
+  result: LearningResult | undefined,
+  action: string,
+  context: WorkContext,
+) {
+  if (!result) return undefined;
+  const d = estimateDuration({ action });
+  if (isUnestimated(d)) return undefined;
+  const learned = learnedFor(result, d.family, context);
+  if (!learned) return undefined;
+  return {
+    typicalMinutes: learned.typicalMinutes,
+    sampleCount: learned.sampleCount,
+    observedLowMinutes: learned.observedLowMinutes,
+    observedHighMinutes: learned.observedHighMinutes,
+    allocation: learned.allocation,
   };
 }
 

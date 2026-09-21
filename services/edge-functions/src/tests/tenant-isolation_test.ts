@@ -5583,6 +5583,102 @@ Deno.test({
 });
 
 Deno.test({
+  // US-3178 (AC4): the duration-learning read takes NO id and must never be
+  // steerable into another seller's history.
+  //
+  // WHAT A HIT HERE WOULD COST is not a leak of one row. Every future estimate
+  // B sees would be fitted to A's pace -- a median over A's confirmed minutes,
+  // presented to B as "your own" -- and nothing on the screen would say why
+  // their five-minute job now reads twelve. It would also be a durable read of
+  // how many hours another seller worked and when, which is their record
+  // rather than a listing price.
+  //
+  // The route answers a list with no id in it, so the falsifiable claim is
+  // that nothing in a query string, a header or a body can widen it. Every
+  // shape that could is tried, and then the two sellers' answers are compared
+  // for a shared task id, which is the only way a cross-tenant row could
+  // actually arrive.
+  //
+  // WHAT THIS CASE CANNOT CATCH, measured rather than assumed. The route runs
+  // TWO queries, and each carries its own owner predicate. Deleting ONE of
+  // them leaves this case green, because the other still filters the result.
+  // That is belt-and-braces working, and it is also why this case is not the
+  // only guard: `AC3: every read and write is scoped on the owner` in
+  // flipdesk-planner_test.ts reads the source and fails on a single missing
+  // predicate, where this one needs both gone before a row can actually
+  // cross. Neither is sufficient alone and the pair was checked both ways --
+  // one predicate removed: source guard red, this green; both removed: both
+  // red.
+  name: "US-3178: B's observation read cannot reach A's work history",
+  ignore: !CONFIGURED,
+  fn: async () => {
+    const A_ID = Deno.env.get("TEST_USER_A_ID") ??
+      "00000000-0000-4000-8000-000000000001";
+    const PATH = `${BASE}/api/flipdesk/planner/observations`;
+
+    const shapes: { label: string; url: string; headers: HeadersInit }[] = [
+      { label: "plain", url: PATH, headers: authHeaders(B_JWT!) },
+      {
+        label: "user_id filter",
+        url: `${PATH}?user_id=eq.${A_ID}`,
+        headers: authHeaders(B_JWT!),
+      },
+      {
+        label: "owner query param",
+        url: `${PATH}?owner_user_id=${A_ID}`,
+        headers: authHeaders(B_JWT!),
+      },
+      {
+        label: "workspace-owner header",
+        url: PATH,
+        headers: { ...authHeaders(B_JWT!), "X-Workspace-Owner": A_ID },
+      },
+    ];
+
+    const seen: string[][] = [];
+    for (const shape of shapes) {
+      const res = await fetch(shape.url, { headers: shape.headers });
+      assert(
+        [200, 401, 403].includes(res.status),
+        `observations (${shape.label}) should answer a known status, got ${res.status}`,
+      );
+      if (res.status !== 200) continue;
+      const body = (await res.json().catch(() => ({}))) as {
+        observations?: { task_id?: string; session_state?: string }[];
+      };
+      const rows = body.observations ?? [];
+      // Whatever comes back, it is completed work: the route filters both the
+      // task and the session state, and a row that is neither means the query
+      // widened.
+      for (const row of rows) {
+        assert(
+          row.session_state === undefined || row.session_state === "completed",
+          `observations (${shape.label}) returned a non-completed session`,
+        );
+      }
+      seen.push(rows.map((r) => String(r.task_id)));
+    }
+
+    // And A's own answer shares no task with any of B's.
+    const aRes = await fetch(PATH, { headers: authHeaders(A_JWT!) });
+    if (aRes.status === 200) {
+      const aBody = (await aRes.json().catch(() => ({}))) as {
+        observations?: { task_id?: string }[];
+      };
+      const aIds = new Set((aBody.observations ?? []).map((r) => String(r.task_id)));
+      for (const [i, ids] of seen.entries()) {
+        const shared = ids.filter((id) => aIds.has(id));
+        assertEquals(
+          shared,
+          [],
+          `B's observations (${shapes[i]!.label}) contained A's task ids`,
+        );
+      }
+    }
+  },
+});
+
+Deno.test({
   // US-3166 (AC4): the Worth My Time settings routes take NO id at all -- the
   // owner comes from the request context and nothing in a body or a query can
   // choose whose row is read or written.

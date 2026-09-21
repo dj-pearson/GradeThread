@@ -63,10 +63,26 @@ export interface DurationEstimate {
    */
   unattendedMinutes: number;
   /**
-   * `default` today, always. `seller` arrives in R2 01/06 when there is enough
-   * of the seller's own history to beat an assumption.
+   * Where the number came from, and the precedence is exactly this order
+   * (US-3178 AC4): `seller` is an explicit override and always wins,
+   * `learned` is the median of the seller's own confirmed minutes, `default`
+   * is the labeled assumption. Nothing blends them.
    */
-  source: "default" | "seller";
+  source: "default" | "seller" | "learned";
+  /**
+   * Present only on a `learned` estimate. How many of the seller's own
+   * observations the median was taken over, and the range they actually
+   * spanned -- so a surface can say "5 jobs, 4 to 11 minutes" rather than
+   * presenting a median of five as a fact.
+   */
+  learnedFrom?: {
+    sampleCount: number;
+    observedLowMinutes: number;
+    observedHighMinutes: number;
+    /** Which pool answered. `solo` means the setup is counted twice; see
+     *  learnedFor() in work-duration-learning.ts. */
+    allocation: "per_item" | "batch_first" | "solo";
+  };
   version: number;
 }
 
@@ -174,11 +190,34 @@ function finitePositive(n: unknown): n is number {
 export interface EstimateInput {
   action: CandidateAction | string;
   /**
-   * A seller override in minutes, when one exists. R1 has no UI for it; the
-   * parameter is here so R2 01/06 has somewhere to put a learned duration
-   * without changing every caller.
+   * A seller override in minutes, when one exists. It OUTRANKS a learned
+   * value, and clearing it (passing null or leaving it out) restores the
+   * learned-then-default path without touching any observation -- that is
+   * US-3178 AC4, and it is why this is a parameter rather than a stored
+   * override baked into the learning.
    */
   overrideTypicalMinutes?: number | null;
+  /**
+   * What the seller's own history says for this task's family and context,
+   * when there is enough of it (US-3178 AC1). Null or absent keeps the
+   * labeled default, which is what a seller sees for their first five jobs.
+   */
+  learned?: LearnedTypical | null;
+}
+
+/**
+ * The shape work-duration-learning.ts hands over.
+ *
+ * Declared here rather than imported so this module keeps no dependency on
+ * the learning code: the estimator must stay runnable, and testable, with
+ * nothing but its own defaults.
+ */
+export interface LearnedTypical {
+  typicalMinutes: number;
+  sampleCount: number;
+  observedLowMinutes: number;
+  observedHighMinutes: number;
+  allocation: "per_item" | "batch_first" | "solo";
 }
 
 /**
@@ -223,6 +262,44 @@ export function estimateDuration(input: EstimateInput): DurationResult {
       setupMinutes: SETUP_MINUTES[spec.family],
       unattendedMinutes: spec.unattended,
       source: "seller",
+      version: DURATION_MODEL_VERSION,
+    };
+  }
+
+  // US-3178 AC4: learned beats default, and only after the override above has
+  // declined. The order is override, learned, default, top to bottom in this
+  // function, and it is the whole of the precedence rule.
+  const learned = input.learned;
+  if (learned) {
+    if (!finitePositive(learned.typicalMinutes)) {
+      // Same refusal as a bad override, for the same reason. A median that is
+      // not a usable number means the observations behind it are not either,
+      // and quietly falling back to the default would hide that.
+      return {
+        unestimated: true,
+        reason: "The learned duration for this task isn't a usable number.",
+      };
+    }
+    // The RANGE IS THE SELLER'S OWN, not the default's proportions rebuilt
+    // around their median. It is a measurement and there is no reason to
+    // replace it with a ratio -- but it is widened to contain the median,
+    // because a low above it or a high below it would render as a range that
+    // excludes the number printed inside it.
+    const typical = Math.round(learned.typicalMinutes);
+    return {
+      low: Math.max(1, Math.min(Math.round(learned.observedLowMinutes), typical)),
+      typical,
+      high: Math.max(typical, Math.round(learned.observedHighMinutes)),
+      family: spec.family,
+      setupMinutes: SETUP_MINUTES[spec.family],
+      unattendedMinutes: spec.unattended,
+      source: "learned",
+      learnedFrom: {
+        sampleCount: learned.sampleCount,
+        observedLowMinutes: learned.observedLowMinutes,
+        observedHighMinutes: learned.observedHighMinutes,
+        allocation: learned.allocation,
+      },
       version: DURATION_MODEL_VERSION,
     };
   }

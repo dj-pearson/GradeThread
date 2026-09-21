@@ -503,6 +503,101 @@ flipdeskPlannerRoutes.post("/sessions", async (c) => {
 
 // ── GET /sessions/current ─────────────────────────────────────────
 
+// ── GET /observations ─────────────────────────────────────────────
+
+/**
+ * How far back the learning read looks.
+ *
+ * Bounded like every other list read here. The window that matters is 20
+ * samples per pool (US-3178), and eight pools times twenty is 160 -- so 400
+ * rows covers a seller who works every pool, while a seller with one busy
+ * family is covered many times over. A seller past this simply learns from
+ * their most recent work, which is what the window wants anyway.
+ */
+const MAX_OBSERVATION_ROWS = 400;
+
+/**
+ * The seller's own completed work, for R2's duration learning (US-3178).
+ *
+ * RAW ROWS, NOT A COMPUTED ANSWER, and that is deliberate. The learning maths
+ * lives in src/lib/work-duration-learning.ts beside the rest of the pipeline,
+ * because the estimator it feeds is the one the item grid and the planner both
+ * use, and the two runtimes cannot import each other. Computing the median
+ * here would mean a second copy of the rules in Deno, which is the drift this
+ * repo keeps paying for. What the SERVER owns is the thing only a server can:
+ * the owner predicate. No other seller's history can reach the caller because
+ * no other seller's row leaves this query.
+ */
+flipdeskPlannerRoutes.get("/observations", async (c) => {
+  const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
+
+  // Only COMPLETED sessions. An abandoned one is excluded in the pure layer
+  // too, and it is filtered here as well so the wire carries less rather than
+  // relying on the client to throw it away.
+  const { data: sessions, error: sessionErr } = await supabaseAdmin
+    .from("flipdesk_work_sessions")
+    .select("id, work_context, state, ended_at")
+    .eq("user_id", ownerId) // US-268
+    .eq("state", "completed")
+    .order("ended_at", { ascending: false })
+    .limit(MAX_OBSERVATION_ROWS);
+  if (sessionErr) {
+    return failSafe(c, 500, "Couldn't read your work history.", sessionErr, "planner.observations");
+  }
+  const rows = (sessions ?? []) as {
+    id: string;
+    work_context: string;
+    state: string;
+    ended_at: string | null;
+  }[];
+  if (rows.length === 0) return c.json({ observations: [], truncated: false });
+
+  const byId = new Map(rows.map((r) => [r.id, r]));
+  const { data: tasks, error: taskErr } = await supabaseAdmin
+    .from("flipdesk_work_session_tasks")
+    .select(
+      "id, session_id, position, state, action_key, confirmed_minutes, correction_minutes",
+    )
+    .eq("user_id", ownerId) // US-268
+    .in("session_id", [...byId.keys()])
+    .eq("state", "completed")
+    .limit(MAX_OBSERVATION_ROWS);
+  if (taskErr) {
+    return failSafe(c, 500, "Couldn't read your work history.", taskErr, "planner.observations");
+  }
+  const taskRows = (tasks ?? []) as {
+    id: string;
+    session_id: string;
+    position: number;
+    state: string;
+    action_key: string;
+    confirmed_minutes: number | null;
+    correction_minutes: number | null;
+  }[];
+
+  return c.json({
+    observations: taskRows.map((t) => {
+      const session = byId.get(t.session_id)!;
+      return {
+        task_id: t.id,
+        session_id: t.session_id,
+        position: t.position,
+        action_key: t.action_key,
+        task_state: t.state,
+        session_state: session.state,
+        work_context: session.work_context,
+        confirmed_minutes: t.confirmed_minutes,
+        correction_minutes: t.correction_minutes,
+        ended_at: session.ended_at,
+      };
+    }),
+    // Said rather than hidden, the same way the plan read reports a capped
+    // catalog: a learner that quietly saw only part of the history would be
+    // wrong with nothing to point at.
+    truncated: taskRows.length >= MAX_OBSERVATION_ROWS,
+  });
+});
+
 flipdeskPlannerRoutes.get("/sessions/current", async (c) => {
   const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
   const { data, error } = await supabaseAdmin
