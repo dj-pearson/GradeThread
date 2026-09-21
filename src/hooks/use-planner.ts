@@ -34,6 +34,7 @@ import {
   type WorkContext,
 } from "@/lib/work-duration-learning";
 import { estimateWorkValue, type ValueResult } from "@/lib/work-value";
+import { adviseOnItem, type AdviceResult } from "@/lib/work-advice";
 import { rankWork, remainingActionsFrom, type RankedTask } from "@/lib/work-ranker";
 import { batchWork } from "@/lib/work-batching";
 import { schedulePlan, type WorkPlan } from "@/lib/work-scheduler";
@@ -518,6 +519,77 @@ export function planToSessionTasks(plan: PreparedPlan): Record<string, unknown>[
       estimate_value_cents: r?.conservativeCents ?? null,
       estimate_source: r?.tier ?? null,
     };
+  });
+}
+
+// ── Advice for the task in hand (R2 03/06, US-3180) ─────────────────
+
+/**
+ * Should the seller keep working on this garment?
+ *
+ * Built from the item ROW the runner already has, so the advice costs no
+ * extra read. The value estimate is the same estimateWorkValue call the plan
+ * pipeline makes, from the same columns -- restating those inputs differently
+ * here would give the runner a different answer from the plan the seller was
+ * shown, for the same garment, on the same screen.
+ */
+export function adviseOnCurrentItem(args: {
+  item: ItemListRow | null | undefined;
+  action: string;
+  hourlyTargetCents: number | null;
+  eligibleBundleItemCount?: number;
+}): AdviceResult | null {
+  if (!args.item) return null;
+  const item = args.item;
+
+  // AC4: a sold or committed garment is not the seller's to reconsider.
+  const soldOrCommitted = ["sold", "shipped", "completed", "archived"].includes(
+    String(item.status ?? ""),
+  );
+
+  const value = estimateWorkValue({
+    marketplace: item.listing_platform ?? null,
+    evidence: item.target_price != null
+      ? {
+        amountCents: Math.round(item.target_price * 100),
+        source: "seller_estimate",
+        observedAt: item.updated_at ?? null,
+      }
+      : null,
+    purchaseCents: item.purchase_price != null
+      ? Math.round(item.purchase_price * 100)
+      : null,
+  });
+
+  // The minutes still ahead on the prep ladder, from the same candidate
+  // builder the plan uses.
+  // Every tool assumed available, because this is NOT the planner deciding
+  // what fits an evening -- it is asking what work the garment still needs at
+  // all. Filtering by tools here would report a tool-gated step as finished.
+  const candidates = candidatesFor([item], {
+    workContext: "home",
+    availableTools: ["camera", "measuring_tape", "steamer", "packing_supplies"],
+  });
+  const mine = candidates.find((c) => c.itemId === item.id) ?? null;
+  const remaining = mine ? remainingActionsFrom(mine) : [];
+  const remainingMinutes = remaining.reduce((sum, a) => {
+    const d = estimateDuration({ action: a });
+    return sum + (isUnestimated(d) ? 0 : d.typical);
+  }, 0);
+
+  return adviseOnItem({
+    value,
+    remainingMinutes,
+    // Prep itself costs nothing beyond time today. Postage and supplies are
+    // already inside the value estimate, so charging them again here would
+    // deduct them twice.
+    remainingCostCents: 0,
+    hourlyTargetCents: args.hourlyTargetCents,
+    eligibleBundleItemCount: args.eligibleBundleItemCount ?? 0,
+    soldOrCommitted,
+    listAsIsHref: `/dashboard/flipdesk/items/${item.id}`,
+    bundleHref: "/dashboard/flipdesk/inventory",
+    donationHref: `/dashboard/flipdesk/items/${item.id}`,
   });
 }
 

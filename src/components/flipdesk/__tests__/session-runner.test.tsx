@@ -22,6 +22,7 @@ const refetch = vi.fn();
 const toastErrorMock = vi.fn();
 let sessionState: Record<string, unknown> = { data: undefined, isLoading: true, isError: false };
 let itemData: Record<string, unknown> | null = null;
+let workPrefs: Record<string, unknown> | undefined = undefined;
 
 vi.mock("@/lib/toast-error", () => ({ toastError: toastErrorMock }));
 vi.mock("@/hooks/use-items-full", () => ({
@@ -32,6 +33,7 @@ vi.mock("@/hooks/use-planner", async () => {
   return {
     ...actual,
     useCurrentSession: () => ({ ...sessionState, refetch }),
+    useWorkPreferences: () => ({ data: workPrefs, isError: false }),
     useSessionAction: () => ({ mutateAsync: sessionMutate, isPending: false }),
     useTaskAction: () => ({ mutateAsync: taskMutate, isPending: false }),
   };
@@ -130,6 +132,7 @@ beforeEach(() => {
   refetch.mockReset();
   toastErrorMock.mockReset();
   itemData = { measurements: { chest: 22 } };
+  workPrefs = undefined;
   sessionState = session();
 });
 
@@ -437,6 +440,90 @@ describe("finishing (AC5)", () => {
     render();
     await settle();
     expect(body()).toBe("");
+  });
+});
+
+describe("the stop-working advice (US-3180)", () => {
+  /** An item with everything done and almost nothing left in it. */
+  const poorItem = {
+    id: "item-1",
+    status: "cataloged",
+    measurements: { chest: 22 },
+    has_required_photos: true,
+    target_price: 4,
+    purchase_price: 3,
+    listing_platform: "ebay",
+    listing_id: "l1",
+    updated_at: "2026-09-01T00:00:00.000Z",
+  };
+
+  it("stays out of the way when finishing is clearly worth it", async () => {
+    itemData = {
+      ...poorItem,
+      target_price: 120,
+      purchase_price: 10,
+      has_required_photos: false,
+      measurements: null,
+    };
+    sessionState = session({}, [task({ state: "active" })]);
+    render();
+    await settle();
+    // A seller already doing the right thing does not need a panel telling
+    // them so.
+    expect(body()).not.toContain("List it as it is");
+  });
+
+  it("offers the alternatives when there is little left in it", async () => {
+    itemData = poorItem;
+    sessionState = session({}, [task({ state: "active" })]);
+    render();
+    await settle();
+    expect(body()).toContain("List it as it is");
+    expect(body()).toContain("Suggestions only. Nothing here changes a listing.");
+  });
+
+  it("never states a bundle or as-is price", async () => {
+    itemData = poorItem;
+    sessionState = session({}, [task({ state: "active" })]);
+    render();
+    await settle();
+    const t = body();
+    if (t.includes("Put it in a bundle")) {
+      expect(t).toMatch(/can't say what a bundle would fetch|nothing else that would go with it/);
+    }
+    if (t.includes("List it as it is")) {
+      expect(t).toContain("haven't measured what a half-ready listing makes");
+    }
+  });
+
+  it("makes no tax or value claim when it suggests giving one away", async () => {
+    itemData = poorItem;
+    sessionState = session({}, [task({ state: "active" })]);
+    render();
+    await settle();
+    const t = body().toLowerCase();
+    for (const banned of ["deduction", "tax write", "write-off", "fair market"]) {
+      expect(t, `the advice panel says "${banned}"`).not.toContain(banned);
+    }
+  });
+
+  it("says the past purchase is already spent, rather than folding it in", async () => {
+    itemData = { ...poorItem, purchase_price: 80, target_price: 4 };
+    sessionState = session({}, [task({ state: "active" })]);
+    render();
+    await settle();
+    if (body().includes("Across its whole life")) {
+      expect(body()).toContain("already spent either way");
+      expect(body()).toContain("isn't part of the choice");
+    }
+  });
+
+  it("says nothing at all when the item has not loaded", async () => {
+    itemData = null;
+    sessionState = session({}, [task({ state: "active" })]);
+    render();
+    await settle();
+    expect(body()).not.toContain("Suggestions only");
   });
 });
 

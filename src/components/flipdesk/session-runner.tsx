@@ -52,11 +52,14 @@ import { Label } from "@/components/ui/label";
 import { toastError } from "@/lib/toast-error";
 import { useItemFull } from "@/hooks/use-items-full";
 import {
+  adviseOnCurrentItem,
   useCurrentSession,
   useSessionAction,
   useTaskAction,
+  useWorkPreferences,
   type PlannerSession,
 } from "@/hooks/use-planner";
+import { ADVICE_COPY, ADVICE_REASON_COPY } from "@/lib/work-advice-copy";
 import {
   reconcile,
   sessionProgress,
@@ -65,6 +68,7 @@ import {
   type SessionTaskView,
 } from "@/lib/session-timing";
 import { itemHref } from "@/lib/session-links";
+import type { AdviceResult } from "@/lib/work-advice";
 import type { ItemListRow } from "@/lib/item-list-columns";
 
 const ACTION_LABELS: Record<string, string> = {
@@ -136,6 +140,21 @@ export function SessionRunner({ fallback = null }: RunnerProps) {
   const check = useMemo(
     () => reconcile(current?.action_key ?? "", item.data as ItemListRow | null),
     [current, item.data],
+  );
+
+  // US-3180: should the seller keep going on this one? Computed from the item
+  // row the runner already holds, so it costs no extra read.
+  const prefs = useWorkPreferences();
+  const advice = useMemo(
+    () =>
+      adviseOnCurrentItem({
+        item: item.data as ItemListRow | null,
+        action: current?.action_key ?? "",
+        hourlyTargetCents: prefs.data?.hourlyTargetAmount != null
+          ? Math.round(prefs.data.hourlyTargetAmount * 100)
+          : null,
+      }),
+    [item.data, current, prefs.data],
   );
 
   const busy = sessionAction.isPending || taskAction.isPending;
@@ -313,6 +332,8 @@ export function SessionRunner({ fallback = null }: RunnerProps) {
             </p>
           )}
 
+          {advice && <AdvicePanel advice={advice} />}
+
           <div className="flex flex-wrap gap-2">
             <Button variant="outline" size="sm" asChild>
               <Link to={itemHref(current.inventory_item_id)}>
@@ -446,6 +467,69 @@ export function SessionRunner({ fallback = null }: RunnerProps) {
         Everything is saved as you go. Closing this page won't lose it.
       </p>
     </section>
+  );
+}
+
+/**
+ * What else the seller could do with this garment (US-3180).
+ *
+ * EVERY LINE IS A SUGGESTION TO REVIEW. Nothing here lists, delists, donates
+ * or deletes; the links go to the seller's own existing screens. It renders
+ * only what the model could actually support: an option with no number says
+ * so rather than showing a blank, and when the model refused to choose the
+ * panel says that too.
+ */
+/** Cents to dollars. Negative reads as a loss rather than a minus sign. */
+function money(cents: number): string {
+  const abs = Math.abs(cents) / 100;
+  return cents < 0 ? `$${abs.toFixed(2)} down` : `$${abs.toFixed(2)}`;
+}
+
+function AdvicePanel({ advice }: { advice: AdviceResult }) {
+  // Nothing worth saying: a clear recommendation to carry on is what the
+  // seller is already doing, so the panel stays out of the way.
+  if (advice.recommended === "continue_prep" && !advice.uncertain) return null;
+  const worth = advice.alternatives.filter((a) => a.option !== "continue_prep");
+  if (worth.length === 0) return null;
+
+  const why = advice.alternatives.find((a) => a.option === "continue_prep")?.reasons ?? [];
+  const headline = advice.uncertain
+    ? "We can't tell whether finishing this one pays."
+    : why.length > 0
+    ? ADVICE_REASON_COPY[why[0]!]
+    : "Worth a look before you carry on.";
+
+  return (
+    <div className="space-y-2 rounded-lg bg-muted/50 p-3 text-sm">
+      <p className="font-medium">{headline}</p>
+      {advice.wholeItemProfitCents != null && (
+        <p className="text-xs text-muted-foreground">
+          Across its whole life this item is at{" "}
+          {money(advice.wholeItemProfitCents)}. That's already spent either
+          way, so it isn't part of the choice.
+        </p>
+      )}
+      <ul className="space-y-1">
+        {worth.map((a) => (
+          <li key={a.option} className="flex flex-wrap items-center gap-x-2">
+            <span>{ADVICE_COPY[a.option]}</span>
+            {a.reasons.map((r) => (
+              <span key={r} className="text-xs text-muted-foreground">
+                {ADVICE_REASON_COPY[r]}
+              </span>
+            ))}
+            {a.actionHref && (
+              <Link className="text-xs underline" to={a.actionHref}>
+                Open
+              </Link>
+            )}
+          </li>
+        ))}
+      </ul>
+      <p className="text-xs text-muted-foreground">
+        Suggestions only. Nothing here changes a listing.
+      </p>
+    </div>
   );
 }
 

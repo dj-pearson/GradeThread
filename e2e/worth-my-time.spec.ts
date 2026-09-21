@@ -535,6 +535,96 @@ test("session: keyboard alone runs it", async ({ page }) => {
   expect(name.length).toBeGreaterThan(0);
 });
 
+// ── The stop-working advice (R2 03/06, US-3180 AC7) ─────────────────────────
+
+/** An item with everything done and almost nothing left in it. */
+const POOR_ITEM = item({
+  id: "w1",
+  item_title: "Carhartt Detroit jacket",
+  location_bin: "A-14",
+  status: "cataloged",
+  measurements: { chest: 22 },
+  has_required_photos: true,
+  target_price: 4,
+  purchase_price: 3,
+  listing_platform: "ebay",
+  listing_id: "l1",
+});
+
+/** The same garment, worth finishing: no photos, no measurements, priced high. */
+const RICH_ITEM = item({
+  id: "w1",
+  item_title: "Carhartt Detroit jacket",
+  location_bin: "A-14",
+  status: "cataloged",
+  measurements: null,
+  has_required_photos: false,
+  target_price: 180,
+  purchase_price: 10,
+  listing_platform: "ebay",
+});
+
+test("advice: offers the alternatives when there is little left in it", async ({ page }) => {
+  await mockBackend(page, { items: [POOR_ITEM] });
+  await mockPlanner(page, { state: "active", tasks: [fakeTask({ state: "active" })] });
+  await login(page);
+  await page.goto("/dashboard/flipdesk/worth-my-time");
+  await dismissOverlays(page);
+
+  await expect(page.getByText("List it as it is")).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByText("Suggestions only. Nothing here changes a listing."))
+    .toBeVisible();
+  // NO INVENTED PRICE for the options that have none.
+  await expect(page.getByText(/haven't measured what a half-ready listing makes/))
+    .toBeVisible();
+});
+
+test("advice: stays out of the way when finishing is worth it", async ({ page }) => {
+  await mockBackend(page, { items: [RICH_ITEM] });
+  await mockPlanner(page, { state: "active", tasks: [fakeTask({ state: "active" })] });
+  await login(page);
+  await page.goto("/dashboard/flipdesk/worth-my-time");
+  await dismissOverlays(page);
+
+  await expect(page.getByRole("heading", { name: "Working through your plan" }))
+    .toBeVisible({ timeout: 15_000 });
+  await expect(page.getByText("Suggestions only. Nothing here changes a listing."))
+    .toBeHidden();
+});
+
+test("advice: makes no tax or value claim, and no bundle price", async ({ page }) => {
+  await mockBackend(page, { items: [POOR_ITEM] });
+  await mockPlanner(page, { state: "active", tasks: [fakeTask({ state: "active" })] });
+  await login(page);
+  await page.goto("/dashboard/flipdesk/worth-my-time");
+  await dismissOverlays(page);
+  await expect(page.getByText("List it as it is")).toBeVisible({ timeout: 15_000 });
+
+  const body = (await page.locator("body").innerText()).toLowerCase();
+  for (const banned of ["deduction", "tax write", "write-off", "fair market"]) {
+    expect(body, `the advice panel says "${banned}"`).not.toContain(banned);
+  }
+});
+
+test("advice: keyboard reaches its links, and it fits 375px", async ({ page }) => {
+  await page.setViewportSize({ width: 375, height: 812 });
+  await mockBackend(page, { items: [POOR_ITEM] });
+  await mockPlanner(page, { state: "active", tasks: [fakeTask({ state: "active" })] });
+  await login(page);
+  await page.goto("/dashboard/flipdesk/worth-my-time");
+  await dismissOverlays(page);
+
+  await expect(page.getByText("List it as it is")).toBeVisible({ timeout: 15_000 });
+  const open = page.getByRole("link", { name: /^Open$/ }).first();
+  if (await open.count()) {
+    await open.focus();
+    await expect(open).toBeFocused();
+  }
+  const overflow = await page.evaluate(() =>
+    document.documentElement.scrollWidth - document.documentElement.clientWidth);
+  expect(overflow).toBeLessThanOrEqual(1);
+});
+
 test("session: usable at 375px with no horizontal scroll", async ({ page }) => {
   await page.setViewportSize({ width: 375, height: 812 });
   await mockBackend(page);
@@ -549,6 +639,7 @@ test("session: usable at 375px with no horizontal scroll", async ({ page }) => {
     document.documentElement.scrollWidth - document.documentElement.clientWidth);
   expect(overflow).toBeLessThanOrEqual(1);
 });
+
 
 
 
