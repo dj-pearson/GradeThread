@@ -287,3 +287,96 @@ Deno.test("the budget window matches the preferences from R1 01/12", () => {
   assertEquals(MIN_BUDGET_MINUTES, 5);
   assertEquals(MAX_BUDGET_MINUTES, 240);
 });
+
+// ── US-3177: what the end-to-end run found ──────────────────────────
+
+Deno.test("US-3177: starting a task starts the session", () => {
+  // THE BUG THIS EXISTS FOR, found only by running the real thing. A session
+  // is created `planned`, and the state machine allows `planned -> active`
+  // but not `planned -> paused`. The client never sent a session `start`, so
+  // a seller who began working still had a PLANNED session, and the first
+  // Pause came back "a session can't go from planned to paused" -- a refusal
+  // about an internal state they had never seen and could do nothing about.
+  //
+  // Every route test above set the session up in whatever state it wanted, so
+  // none of them could see it. The end-to-end script is what caught it, and
+  // this is what stops it coming back.
+  const code = routeCode();
+  const start = code.indexOf('if (action === "start" && session.state === "planned")');
+  assert(start > 0, "the planned -> active promotion is gone");
+  const block = code.slice(start, start + 600);
+  assert(block.includes('state: "active"'), "the promotion must set active");
+  assert(
+    block.includes('.eq("state", "planned")'),
+    "the promotion must be scoped to planned, so a race cannot resurrect a " +
+      "paused or completed session",
+  );
+  assert(block.includes('.eq("user_id", ownerId)'), "US-268: and to the owner");
+});
+
+Deno.test("US-3177: the task response re-reads the session it may have moved", () => {
+  // The second half of the same bug. The handler used to answer
+  // `{ ...session, revision: nextRevision }` from the row it loaded BEFORE
+  // the promotion, so a client that had just started work was told the
+  // session was still `planned` -- and went on offering a Pause the server
+  // would refuse. Patching a stale row is the whole failure mode.
+  const code = routeCode();
+  const tail = code.slice(code.lastIndexOf("await bumpRevision(session);"));
+  assert(
+    !tail.includes("{ ...session, revision: nextRevision }"),
+    "the task response is patching a stale session row again",
+  );
+  assert(
+    tail.includes("await loadOwnedSession(ownerId, session.id)"),
+    "the task response must re-read the session before answering",
+  );
+});
+
+Deno.test("US-3177: the create guard and the current read share ONE state list", () => {
+  // THE BUG: the guard checked `active` alone while GET /sessions/current read
+  // planned, active and paused. A seller could pause a session, build a second
+  // plan, and have the first drop off the screen while staying open in the
+  // database -- two sessions, one of them unreachable, and no error anywhere.
+  //
+  // Asserted as one shared constant rather than as two matching literals,
+  // because two matching literals are what it was.
+  const code = routeCode();
+  assert(
+    code.includes('const OPEN_SESSION_STATES = ["planned", "active", "paused"]'),
+    "the shared open-state list is gone",
+  );
+  const uses = [...code.matchAll(/\.in\("state", OPEN_SESSION_STATES\)/g)];
+  assertEquals(
+    uses.length,
+    2,
+    "both the create guard and the current read must use the shared list",
+  );
+  assert(
+    !/\.in\("state", \["planned"/.test(code),
+    "a literal state list is back beside the shared one",
+  );
+});
+
+Deno.test("US-3177: an unowned item drops its whole task, id and title", () => {
+  // The earlier code nulled `inventory_item_id` and kept the row, so a session
+  // ended up holding a task with a CALLER-CHOSEN title pointing at nothing.
+  // Nothing leaked -- the title was the caller's own string -- but a null id
+  // is how a DELETED item is recorded (the FK is ON DELETE SET NULL), so it
+  // manufactured a "your item was deleted" row for an item that was never
+  // theirs. Two different facts sharing one representation.
+  const code = routeCode();
+  assert(code.includes("const keptTasks = parsed.tasks.filter("),
+    "unowned tasks are no longer filtered out");
+  assert(
+    !code.includes("inventory_item_id: t.inventoryItemId && ownedIds.has(t.inventoryItemId)"),
+    "the null-the-id-and-keep-the-row behaviour is back",
+  );
+  // A plan of nothing but unowned items must not leave a session behind.
+  assert(code.includes('code: "no_owned_tasks"'), "the all-unowned refusal is gone");
+  const refusal = code.slice(code.indexOf("if (keptTasks.length === 0)"), code.indexOf("const rows = keptTasks"));
+  assert(
+    refusal.includes('state: "abandoned"'),
+    "a refused plan must close the session row it already created",
+  );
+  assert(refusal.includes('.eq("user_id", ownerId)'), "US-268: and scope that close");
+});

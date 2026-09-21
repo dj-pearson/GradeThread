@@ -72,6 +72,83 @@ stronger claim for one of them, `check-prod-migration.ts` is the tool.
 Nothing below 00786 was touched, and the six genuinely-held branches in the next
 section are unchanged and still waiting.
 
+## 🔴 HELD: 00819_one_open_work_session.sql (US-3177 - Worth My Time R1 12/12)
+
+**Fixes a defect in 00818, which is also still held — so the two land
+together and 00819 goes second.**
+
+**What it does.** 00818 created `uq_work_sessions_one_active_per_user` with
+the predicate `state = 'active'`. A work session is CREATED in state
+`planned` and only becomes `active` when its first task starts, so the rule
+did not bind at the moment it was needed. `paused` was uncovered for the same
+reason. This drops that index and creates
+`uq_work_sessions_one_open_per_user` over `state IN ('planned','active',
+'paused')`.
+
+**Why it matters, measured rather than reasoned about.** A seller could pause
+a session, build a second plan, and have the first drop off the screen while
+staying open in the database: `GET /sessions/current` reads the newest of the
+three open states and returns one row, so the paused evening became
+unreachable through the UI with no error anywhere. Found by the end-to-end
+run in `scripts/check-planner-e2e.mjs`, not by any unit test.
+
+**It carries a BACKFILL and that is the risky half.** The rows the bug
+produces are exactly the rows the new index refuses, so a bare
+`CREATE UNIQUE INDEX` fails on any database where a seller made two plans —
+it failed on the first machine it was tried on. The `DO` block closes the
+duplicates first, keeping the session with the most COMPLETED tasks and only
+then the newest, and sets the rest to `abandoned`. Nothing is deleted:
+`abandoned` is terminal, the tasks and timing events stay, and what changes
+is only which session `current` can reach.
+
+**Risk: LOW on a fresh table, MEDIUM if sellers have already used the
+planner.** Read the count first if you want to know what it will touch:
+
+```sql
+-- how many sessions the backfill would close, and for how many sellers
+select count(*) - count(distinct user_id) as would_close,
+       count(distinct user_id) as sellers
+  from public.flipdesk_work_sessions
+ where state in ('planned', 'active', 'paused');
+```
+
+Expect `0` on a prod that has never run the planner, which is the case today
+(00818 is itself still held, so the table does not exist yet). If 00816-00818
+are applied in the same sitting, this is a no-op by construction.
+
+**Readback after applying:**
+
+```sql
+-- exactly one uq_ index, over the three open states
+select indexname, indexdef
+  from pg_indexes
+ where tablename = 'flipdesk_work_sessions' and indexname like 'uq_%';
+-- expect: uq_work_sessions_one_open_per_user ... WHERE state = ANY (...)
+-- and NO uq_work_sessions_one_active_per_user
+
+-- no seller left with two open sessions
+select user_id, count(*)
+  from public.flipdesk_work_sessions
+ where state in ('planned', 'active', 'paused')
+ group by user_id having count(*) > 1;
+-- expect: 0 rows
+```
+
+**Apply order:** after 00818. Then `NOTIFY pgrst, 'reload schema';`.
+
+**Client-side read in the same commit?** No. The route change that travels
+with it (`flipdesk-planner.ts` reading `OPEN_SESSION_STATES`) queries only
+columns 00818 already creates, so the edge is correct either side of this
+index. The index is the concurrency backstop, not the mechanism.
+
+**EXECUTED 2026-09-21 against a local Postgres 16** carrying all 811
+migrations from zero, with `ON_ERROR_STOP=1`. Applied twice: the second run
+logged `relation "uq_work_sessions_one_open_per_user" already exists,
+skipping` and changed nothing. The backfill was exercised for real — the
+database had three duplicate open sessions from the end-to-end run at the
+time, and it closed two of them. The edge then booted against it and its
+schema guard reported `DB at 00819 matches expected 00819`.
+
 ## 🔴 HELD: 00818_work_sessions.sql (US-3167 - Worth My Time R1 02/12)
 
 **EXECUTED 2026-09-21 against a local Postgres 16** carrying all 810

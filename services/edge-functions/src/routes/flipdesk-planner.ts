@@ -324,6 +324,18 @@ async function loadTasks(sessionId: string, ownerId: string): Promise<TaskRow[]>
 
 // ── POST /sessions ────────────────────────────────────────────────
 
+/**
+ * The states a session is still the seller's to come back to.
+ *
+ * ONE LIST, READ BY BOTH the create guard and GET /sessions/current, because
+ * US-3177 found what happens when they disagree. The guard checked `active`
+ * alone while `current` read all three: a seller could pause, build a new
+ * plan, and have their paused evening silently drop off the screen while
+ * staying open in the database. Two sessions, one of them invisible, and no
+ * error anywhere.
+ */
+const OPEN_SESSION_STATES = ["planned", "active", "paused"] as const;
+
 flipdeskPlannerRoutes.post("/sessions", async (c) => {
   const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
   let body: Record<string, unknown>;
@@ -373,20 +385,29 @@ flipdeskPlannerRoutes.post("/sessions", async (c) => {
     for (const row of (data as { id: string }[] | null) ?? []) ownedIds.add(row.id);
   }
 
-  // ONE ACTIVE SESSION PER WORKSPACE is the database's rule (00818's partial
-  // unique index), not this route's. The insert below is what enforces it
-  // under two concurrent requests; this read only produces a better message.
+  // ONE OPEN SESSION PER WORKSPACE. 00819's partial unique index is what
+  // enforces it under two concurrent requests; this read only produces a
+  // better message than a constraint violation.
+  //
+  // 00818's index covered `active` alone, which left `planned` and `paused`
+  // unguarded -- and a session is CREATED planned, so the rule did not bind
+  // until the seller started a task.
   const { data: existing } = await supabaseAdmin
     .from("flipdesk_work_sessions")
-    .select("id")
-    .eq("user_id", ownerId)
-    .eq("state", "active")
+    .select("id, state")
+    .eq("user_id", ownerId) // US-268
+    .in("state", OPEN_SESSION_STATES)
+    .order("created_at", { ascending: false })
+    .limit(1)
     .maybeSingle();
   if (existing) {
+    const open = existing as { id: string; state: string };
     return c.json({
-      error: "You already have a session running. Finish or abandon it first.",
+      error: open.state === "paused"
+        ? "You have a paused session waiting. Pick it up or finish it first."
+        : "You already have a session running. Finish or abandon it first.",
       code: "session_already_active",
-      session_id: (existing as { id: string }).id,
+      session_id: open.id,
     }, 409);
   }
 
@@ -412,12 +433,40 @@ flipdeskPlannerRoutes.post("/sessions", async (c) => {
   }
   const session = created as SessionRow;
 
-  const rows = parsed.tasks.map((t, i) => ({
+  // AN UNOWNED ID DROPS ITS WHOLE TASK, rather than keeping the task with a
+  // null item (US-3177).
+  //
+  // Nulling the id alone left a row in the seller's session carrying a title
+  // THE CALLER CHOSE, pointing at nothing, and `actionable: false`. Nothing
+  // of the other tenant's row leaked -- the title is the caller's own string
+  // and the id never survived -- but the null is not free: it is how a
+  // DELETED item is recorded (the FK is ON DELETE SET NULL, and isActionable
+  // reads the null that way), so this manufactured a "your item was deleted"
+  // row for an item that was never theirs. Two very different facts sharing
+  // one representation is how a screen ends up explaining the wrong thing.
+  //
+  // A task with no item id at all is still allowed through: the planner can
+  // legitimately schedule work that is not about one garment.
+  const keptTasks = parsed.tasks.filter(
+    (t) => t.inventoryItemId === null || ownedIds.has(t.inventoryItemId),
+  );
+  if (keptTasks.length === 0) {
+    await supabaseAdmin
+      .from("flipdesk_work_sessions")
+      .update({ state: "abandoned", ended_at: new Date().toISOString() })
+      .eq("id", session.id)
+      .eq("user_id", ownerId); // US-268
+    return c.json({
+      error: "None of those items are yours to work on.",
+      code: "no_owned_tasks",
+      dropped_item_ids: itemIds.filter((id) => !ownedIds.has(id)),
+    }, 400);
+  }
+
+  const rows = keptTasks.map((t, i) => ({
     session_id: session.id,
     user_id: ownerId, // US-268
-    inventory_item_id: t.inventoryItemId && ownedIds.has(t.inventoryItemId)
-      ? t.inventoryItemId
-      : null,
+    inventory_item_id: t.inventoryItemId,
     item_title_snapshot: t.itemTitle,
     position: i + 1,
     state: "pending",
@@ -460,7 +509,8 @@ flipdeskPlannerRoutes.get("/sessions/current", async (c) => {
     .from("flipdesk_work_sessions")
     .select(SESSION_COLUMNS)
     .eq("user_id", ownerId) // US-268
-    .in("state", ["planned", "active", "paused"])
+    // THE SAME LIST the create guard uses. See OPEN_SESSION_STATES.
+    .in("state", OPEN_SESSION_STATES)
     .order("created_at", { ascending: false })
     .limit(1)
     .maybeSingle();
@@ -650,6 +700,24 @@ flipdeskPlannerRoutes.post("/tasks/:id/:action", async (c) => {
     return failSafe(c, 500, "Couldn't update that task.", error, "planner.task");
   }
 
+  // US-3177: STARTING A TASK STARTS THE SESSION. A session is created
+  // `planned` and only `planned -> active` is legal, so without this a seller
+  // who began working still had a planned session and every pause was refused
+  // with "a session can't go from planned to paused" -- a refusal about an
+  // internal state they never saw and could do nothing about. The server owns
+  // the invariant because the server is what knows a task started; making the
+  // client send a second POST would be asking it to maintain a state machine
+  // it does not own. Found by the end-to-end run, not by any unit test: every
+  // route test set the session up in the state it wanted.
+  if (action === "start" && session.state === "planned") {
+    await supabaseAdmin
+      .from("flipdesk_work_sessions")
+      .update({ state: "active", started_at: session.started_at ?? new Date().toISOString() })
+      .eq("id", session.id)
+      .eq("user_id", ownerId) // US-268
+      .eq("state", "planned"); // and only from planned, so a race loses
+  }
+
   if (spec.event) {
     // The retry key makes a repeated request a no-op rather than double-
     // counted time (US-3167 AC3). The attempt number comes from the client's
@@ -666,9 +734,14 @@ flipdeskPlannerRoutes.post("/tasks/:id/:action", async (c) => {
       }, { onConflict: "task_id,retry_key", ignoreDuplicates: true });
   }
 
-  const nextRevision = await bumpRevision(session);
+  await bumpRevision(session);
+  // RE-READ rather than patching the row we loaded. The start above can have
+  // moved the session from planned to active, and a spread of the stale row
+  // would answer `planned` to a client that just started work -- which is how
+  // the UI ended up offering a Pause the server then refused.
+  const fresh = await loadOwnedSession(ownerId, session.id);
   const tasks = await loadTasks(session.id, ownerId);
-  return c.json(sessionBody({ ...session, revision: nextRevision }, tasks));
+  return c.json(sessionBody(fresh ?? session, tasks));
 });
 
 async function invalidate(task: TaskRow, ownerId: string): Promise<void> {
