@@ -72,7 +72,7 @@ stronger claim for one of them, `check-prod-migration.ts` is the tool.
 Nothing below 00786 was touched, and the six genuinely-held branches in the next
 section are unchanged and still waiting.
 
-## ⏳ HELD: 00815_acquired_date_timezone.sql (US-3314 - record the zone that named an acquisition day)
+## ✅ APPLIED 2026-09-20 (owner, confirmed applied and merged): 00815_acquired_date_timezone.sql (US-3314 - record the zone that named an acquisition day)
 
 **EXECUTED 2026-09-20 against the local cluster** carrying all 815 migrations.
 One `add column if not exists` plus a `comment on column`. Applied twice; the
