@@ -544,7 +544,7 @@ The first three are a **feature group** (`quickbooks`) on `/health/ready`, so an
 | `WHATNOT_REDIRECT_URI` / `WHATNOT_SCOPES` / `WHATNOT_AUTH_URL` / `WHATNOT_TOKEN_URL` / `WHATNOT_API_BASE` | ⬜ Coolify edge | Whatnot OAuth callback, scopes, auth/token/API URLs (all modeled — verify vs live). |
 | `SHOPIFY_API_KEY` / `SHOPIFY_API_SECRET` 🔒 / `SHOPIFY_REDIRECT_URI` | ⬜ Coolify edge | Shopify app OAuth (the `shopify` boot feature). |
 | `SHOPIFY_SCOPES` / `SHOPIFY_WEBHOOK_CALLBACK_URL` | ⬜ Coolify edge | Shopify scope list and the URL Shopify posts webhooks to (both default to built-in values). |
-
+| `EASYPOST_API_KEY` 🔒 | ⬜ Coolify edge | US-3015: our PARTNER production key, used ONLY to create referral customers. A postage purchase always runs on the seller's own referral key, so EasyPost charges the seller's card and we hold no float. Unset ⇒ the EasyPost label path reports `feature_unavailable` instead of throwing. |
 #### Marketplace Insights grant — application record (US-3107)
 
 `buy.marketplace.insights` is a RESTRICTED eBay scope: it is applied for, not
@@ -579,7 +579,6 @@ this row still reads "not applied".
 |---|---|---|---|
 | `SCOUT_EBAY_IMAGE_SEARCH_ENABLED=true` on Coolify edge | ⬜ not set | — | Needs no eBay approval; it is our own flag over the Browse `search_by_image` call. |
 | Verified from a phone | ⬜ | — | Run ONE garment-only Prospect (no tag photo). Expect `item.identitySource == "visual"` and NO `ai_actions` ledger row for the scan. Both together: a `visual` source with a ledger row means the identify call ran anyway and the flag bought nothing. |
-
 ### 3j. Images / storage
 
 | Variable | Where it goes | What it is |

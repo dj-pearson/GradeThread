@@ -41,6 +41,13 @@ import {
   getUserAccessToken,
   localeForMarketplace,
 } from "./ebay-client.ts";
+import type {
+  LogisticsAddress,
+  ParcelSpec,
+  PurchasedShipment,
+  ShippingQuote,
+  ShippingRate,
+} from "./logistics-types.ts";
 
 const LOGISTICS_TIMEOUT_MS = 25_000;
 
@@ -117,58 +124,18 @@ async function logisticsFetch<T>(
 
 // ── Wire shapes ─────────────────────────────────────────────────────
 
-export interface LogisticsAddress {
-  fullName?: string | null;
-  addressLine1: string;
-  addressLine2?: string | null;
-  city: string;
-  stateOrProvince: string;
-  postalCode: string;
-  countryCode: string;
-  phoneNumber?: string | null;
-}
-
-export interface ParcelSpec {
-  /** Weight in the unit eBay expects for the marketplace (POUND for US). */
-  weightValue: number;
-  weightUnit: "POUND" | "KILOGRAM" | "OUNCE" | "GRAM";
-  lengthValue?: number | null;
-  widthValue?: number | null;
-  heightValue?: number | null;
-  dimensionUnit?: "INCH" | "CENTIMETER";
-}
-
-/** One purchasable rate off a quote, normalized to what the UI needs. */
-export interface ShippingRate {
-  rateId: string;
-  carrier: string | null;
-  serviceName: string | null;
-  /** Total the seller pays, in whole cents. */
-  totalCostCents: number | null;
-  currency: string | null;
-  /** eBay's min/max delivery estimate, ISO dates, when supplied. */
-  minDeliveryDate: string | null;
-  maxDeliveryDate: string | null;
-  /** True when eBay flags the rate as requiring extra seller action. */
-  additionalOptions: string[];
-}
-
-export interface ShippingQuote {
-  shippingQuoteId: string;
-  /** ISO expiry — a rate cannot be bought after this. */
-  expiresAt: string | null;
-  rates: ShippingRate[];
-}
-
-export interface PurchasedShipment {
-  shipmentId: string;
-  trackingNumber: string | null;
-  carrier: string | null;
-  labelDownloadUrl: string | null;
-  /** What eBay actually charged, in whole cents. */
-  totalCostCents: number | null;
-  currency: string | null;
-}
+// US-3015: these five shapes moved to logistics-types.ts when EasyPost
+// became a second provider, so both clients speak one vocabulary rather
+// than two that drift. Re-exported here because callers import them from
+// this module.
+export type {
+  LabelProvider,
+  LogisticsAddress,
+  ParcelSpec,
+  PurchasedShipment,
+  ShippingQuote,
+  ShippingRate,
+} from "./logistics-types.ts";
 
 // ── Pure normalizers (unit-tested without a network) ────────────────
 

@@ -72,6 +72,64 @@ stronger claim for one of them, `check-prod-migration.ts` is the tool.
 Nothing below 00786 was touched, and the six genuinely-held branches in the next
 section are unchanged and still waiting.
 
+## 🔴 HELD: 00816_easypost_label_provider.sql (US-3015 - EasyPost as the second label provider)
+
+**Risk: LOW-MEDIUM.** One new deny-all table, two nullable columns on `sales`,
+one CHECK constraint, one backfill UPDATE, two indexes, one trigger. Nothing
+existing is dropped or rewritten. The one line that touches data is scoped to
+rows that already have an eBay label and no provider recorded, so it can only
+fill a hole it created.
+
+**Why it exists.** The eBay label path can only price postage for an eBay order
+on a connection holding the limited-release `sell.logistics` grant. Every other
+sale - Shopify, extension-listed Poshmark, anything on a deployment eBay never
+granted the scope to - had no way to buy a label in FlipDesk at all.
+`easypost_accounts` maps a seller to their EasyPost REFERRAL CUSTOMER, so the
+seller's own card is charged by EasyPost and GradeThread holds no postage float
+and carries no reweigh liability. The row holds a pointer and an encrypted API
+key; there is no balance column and there should never be one.
+
+**Client-side read risk: NONE.** Nothing in `src/` reads `sales.label_provider`,
+`sales.easypost_shipment_id` or `easypost_accounts` as of this commit; the whole
+EasyPost path is edge-side and gated on `EASYPOST_API_KEY`, which is unset. A
+frontend that auto-deploys before this applies loses nothing, because there is
+nothing to lose yet.
+
+**Write risk before the apply: NONE, for the same reason.** With the env var
+unset the EasyPost routes report `feature_unavailable` and never reach a column
+that does not exist. **Do not set `EASYPOST_API_KEY` on Coolify until this
+migration is applied** - that is the one ordering that matters here.
+
+**Apply order:** after 00815. Then `NOTIFY pgrst, 'reload schema';` - PostgREST
+caches the column list, so without the reload the two new `sales` columns are
+invisible to the API even after the ALTER succeeds.
+
+**Readback after applying:**
+
+```sql
+-- 1. The table exists, RLS is on, and no policy grants a way in.
+select relrowsecurity from pg_class where relname = 'easypost_accounts';
+-- expect one row, t
+
+select count(*) from pg_policies
+where schemaname = 'public' and tablename = 'easypost_accounts';
+-- expect 0 -- deny-all is the absence of a policy plus the REVOKE
+
+-- 2. The two sales columns and the constraint.
+select column_name from information_schema.columns
+where table_name = 'sales'
+  and column_name in ('label_provider', 'easypost_shipment_id')
+order by column_name;
+-- expect two rows
+
+-- 3. The backfill named every pre-existing eBay label and nothing else.
+select label_provider, count(*) from public.sales
+where ebay_shipment_id is not null group by 1;
+-- expect a single row: ebay | <however many labels were bought>
+```
+
+**Not applied yet, so the story stays open on its operator criterion.**
+
 ## ✅ APPLIED 2026-09-20 (owner, confirmed applied and merged): 00815_acquired_date_timezone.sql (US-3314 - record the zone that named an acquisition day)
 
 **EXECUTED 2026-09-20 against the local cluster** carrying all 815 migrations.

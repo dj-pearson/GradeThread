@@ -63,6 +63,12 @@ const SERVICE_ROLE_ONLY = new Set([
   // garments with no unmerge button. Deny-all in both directions; the seller
   // reads and answers through an owner-scoped edge route.
   "flipdesk_cross_channel_link_reviews",
+  // US-3015: one EasyPost referral customer per seller. Deny-all in both
+  // directions. Readable, the row is an API key that spends the seller's own
+  // postage money; writable, a caller could repoint another seller's labels
+  // at an account they control. The seller sees only a boolean, through an
+  // owner-scoped edge route.
+  "easypost_accounts",
   // US-9212: creator tax identities (the W-9 equivalent). Deny-all in both
   // directions. Readable, it is a list of legal names, addresses and the last
   // four digits of a taxpayer id; writable, a caller could certify a form for
