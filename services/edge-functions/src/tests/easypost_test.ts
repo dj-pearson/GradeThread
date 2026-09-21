@@ -21,6 +21,7 @@ import {
   normalizeEasyPostRates,
   normalizeEasyPostShipment,
   productionKeyOf,
+  quoteCoversSale,
   rateToCents,
   shipmentWasPurchased,
   toEasyPostAddress,
@@ -200,6 +201,25 @@ Deno.test("shipmentWasPurchased keys off the label, not the status", () => {
   assert(!shipmentWasPurchased(unbought));
   assertEquals(unbought.totalCostCents, null);
   assertEquals(unbought.shipmentId, "shp_2");
+});
+
+Deno.test("quoteCoversSale binds a shipment to the sale it was quoted for", () => {
+  const saleId = "11111111-2222-3333-4444-555555555555";
+  assert(quoteCoversSale(saleId, saleId));
+
+  // The attack this stops: both ids on the buy come straight off the request,
+  // and EasyPost will happily sell a label on a shipment the seller owns. So
+  // without this, a seller could buy against a shipment quoted for a DIFFERENT
+  // one of their own sales and the postage would land on whichever sale is in
+  // the URL -- the exact mis-attribution the label work exists to remove.
+  assert(!quoteCoversSale("66666666-7777-8888-9999-000000000000", saleId));
+
+  // FAILS CLOSED on an empty reference, the way quoteCoversOrder does on an
+  // empty order list. That also covers a shipment created before the reference
+  // was stamped: re-quoting costs a second, buying the wrong one does not.
+  assert(!quoteCoversSale(null, saleId));
+  assert(!quoteCoversSale("", saleId));
+  assert(!quoteCoversSale(saleId, ""));
 });
 
 // ── Referral customers (AC2) ────────────────────────────────────────

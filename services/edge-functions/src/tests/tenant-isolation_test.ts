@@ -5457,6 +5457,60 @@ Deno.test({
 });
 
 Deno.test({
+  // US-3015 (AC11): the EasyPost onboarding route creates a referral customer
+  // and stores an API KEY that spends real postage money. It takes no sale id,
+  // so the only thing that decides whose account is touched is the owner id
+  // from the request context -- and this case exists to prove that a body
+  // claiming to be somebody else changes nothing.
+  //
+  // A cross-tenant hit here would be worse than a leaked read: B would either
+  // learn A's EasyPost customer id, or overwrite A's stored key with one B
+  // controls, and every label A buys afterwards would run on B's account.
+  name: "US-3015: B's EasyPost onboarding cannot touch A's account",
+  ignore: !CONFIGURED,
+  fn: async () => {
+    // A real id when the fixture supplies one; a well-formed uuid otherwise.
+    // Either way the route must ignore it -- the point is that a body cannot
+    // name the owner, not that this particular owner exists.
+    const A_ID = Deno.env.get("TEST_USER_A_ID") ??
+      "00000000-0000-4000-8000-000000000001";
+    const res = await fetch(`${BASE}/api/flipdesk/logistics/easypost/onboard`, {
+      method: "POST",
+      headers: authHeaders(B_JWT!),
+      // Every one of these is a field the route must ignore. They are named
+      // the way the columns are named on purpose: a handler that read any of
+      // them from the body would pass a lazier test.
+      body: JSON.stringify({
+        owner_user_id: A_ID,
+        user_id: A_ID,
+        easypost_user_id: "user_A_referral",
+        email: "a@example.test",
+      }),
+    });
+    const body = (await res.json().catch(() => ({}))) as {
+      easypost_user_id?: string;
+      api_key?: string;
+      error?: string;
+    };
+    // 501 when EASYPOST_API_KEY is unset on the deployment, which is every
+    // deployment until the owner sets it -- the handler returns before it
+    // touches any row. 409 when B's own account has no email. 200 when B is
+    // onboarded. None of those may carry A's id.
+    assert(
+      [200, 409, 501, 502].includes(res.status),
+      `easypost onboarding should answer 200/409/501/502, got ${res.status}`,
+    );
+    assert(
+      body.easypost_user_id !== "user_A_referral",
+      "a referral id from the request body must never be stored or returned",
+    );
+    // The API key never leaves the edge. A client that could read it could
+    // spend that seller's postage money from anywhere.
+    assertEquals(body.api_key ?? "", "", "the EasyPost API key must never be returned");
+  },
+});
+
+Deno.test({
   // US-2160 (AC4): the label routes are the highest-stakes writes in FlipDesk —
   // buying a label SPENDS the seller's money and voiding one changes what a
   // sale records as its shipping cost. A cross-tenant hit would let B charge A's

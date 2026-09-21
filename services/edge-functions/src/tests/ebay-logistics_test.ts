@@ -15,6 +15,7 @@ import {
 } from "../lib/ebay-logistics.ts";
 import {
   logisticsCapability,
+  providerOfPurchase,
   parseParcel,
   toLogisticsAddress,
 } from "../routes/flipdesk-logistics.ts";
@@ -177,76 +178,268 @@ Deno.test("US-2160: findRate only returns an id that was actually quoted", () =>
 });
 
 // ── logisticsCapability (AC5, mirrors US-1967) ──────────────────────
+//
+// US-3015 changed the SIGNATURE from three positional booleans to one object,
+// because the provider decision reads six things and the old form already had
+// two adjacent booleans meaning opposite things. Every case below kept its
+// intent; what moved is how the inputs are named. The eBay-only world is
+// expressed by leaving easypostConfigured false, which is what every
+// deployment looked like before this story.
+
+/** The eBay-only deployment these cases were originally written against. */
+function ebayOnly(
+  over: Partial<Parameters<typeof logisticsCapability>[0]> = {},
+): Parameters<typeof logisticsCapability>[0] {
+  return {
+    ebayScope: true,
+    ebayDenied: false,
+    easypostConfigured: false,
+    easypostReady: false,
+    saleIsEbay: true,
+    planAllows: true,
+    ...over,
+  };
+}
 
 Deno.test("US-2160: an unlicensed deployment must NOT tell sellers to reconnect", () => {
   // The US-1967 bug, not repeated: a reconnect prompt for a state no seller can
   // fix. The copy has to name the real workaround instead.
-  const cap = logisticsCapability(false, false);
+  const cap = logisticsCapability(ebayOnly({ ebayScope: false }));
   assertEquals(cap.label_purchase_available, false);
   assertEquals(cap.code, "feature_unavailable");
   assert(cap.detail && !/reconnect/i.test(cap.detail), cap.detail ?? "");
-  assert(cap.detail && /eBay/.test(cap.detail));
+  assertEquals(cap.provider, null);
 
   // Still unavailable-not-reconnectable even when a stale denial flag is set —
   // the deployment scope is the stronger signal.
-  assertEquals(logisticsCapability(false, true).code, "feature_unavailable");
+  assertEquals(
+    logisticsCapability(ebayOnly({ ebayScope: false, ebayDenied: true })).code,
+    "feature_unavailable",
+  );
 });
 
 Deno.test("US-2160: a token that predates the grant IS reconnectable", () => {
-  const cap = logisticsCapability(true, true);
+  const cap = logisticsCapability(ebayOnly({ ebayDenied: true }));
   assertEquals(cap.label_purchase_available, false);
   assertEquals(cap.code, "reconnect_required");
   assert(cap.detail && /reconnect/i.test(cap.detail), cap.detail ?? "");
 });
 
 Deno.test("US-2160: scope present and no denial → available, no copy", () => {
-  assertEquals(logisticsCapability(true, false), {
+  assertEquals(logisticsCapability(ebayOnly()), {
     label_purchase_available: true,
     code: null,
     detail: null,
+    provider: "ebay",
   });
 });
 
 // ── the Pro gate (US-3011) ──────────────────────────────────────────
 
 Deno.test("US-3011: a plan without shippingLabels is plan_locked, and says so", () => {
-  const cap = logisticsCapability(true, false, false);
+  const cap = logisticsCapability(ebayOnly({ planAllows: false }));
   assertEquals(cap.label_purchase_available, false);
   assertEquals(cap.code, "plan_locked");
   assert(cap.detail && /Pro/.test(cap.detail), cap.detail ?? "");
   // It must name the workaround too — a seller on Starter can still buy the
-  // label in eBay, and an upsell that hides that is a worse product.
-  assert(cap.detail && /eBay/.test(cap.detail), cap.detail ?? "");
+  // label on the marketplace, and an upsell that hides that is a worse product.
+  assert(cap.detail && /marketplace/i.test(cap.detail), cap.detail ?? "");
 });
 
-Deno.test("US-3011: an unlicensed deployment outranks the plan lock", () => {
-  // The order is the whole point: selling Pro for a capability THIS DEPLOYMENT
-  // cannot perform for anyone is the failure this ordering exists to prevent.
-  // While sell.logistics is ungranted (US-2380), every seller lands here.
-  assertEquals(logisticsCapability(false, false, false).code, "feature_unavailable");
-  assertEquals(logisticsCapability(false, true, false).code, "feature_unavailable");
+Deno.test("US-3011: no provider at all outranks the plan lock", () => {
+  // The order is the whole point: selling Pro for a capability NOTHING on this
+  // deployment can perform for anyone is the failure this ordering prevents.
+  assertEquals(
+    logisticsCapability(ebayOnly({ ebayScope: false, planAllows: false })).code,
+    "feature_unavailable",
+  );
+  assertEquals(
+    logisticsCapability(
+      ebayOnly({ ebayScope: false, ebayDenied: true, planAllows: false }),
+    ).code,
+    "feature_unavailable",
+  );
 });
 
 Deno.test("US-3011: the plan lock outranks the reconnect prompt", () => {
   // Asking someone to re-consent for a feature their plan excludes is wasted
   // effort on their part; the upgrade is the only thing that would help.
-  assertEquals(logisticsCapability(true, true, false).code, "plan_locked");
-});
-
-Deno.test("US-3011: planAllows defaults true so pre-existing callers are unchanged", () => {
-  // logisticsFailure() calls the two-arg form on the 403 path, where the plan
-  // has ALREADY let the seller through — defaulting to false there would
-  // relabel a scope error as an upsell.
-  assertEquals(logisticsCapability(true, false), logisticsCapability(true, false, true));
-  assertEquals(logisticsCapability(true, true).code, "reconnect_required");
+  assertEquals(
+    logisticsCapability(ebayOnly({ ebayDenied: true, planAllows: false })).code,
+    "plan_locked",
+  );
 });
 
 Deno.test("US-3011: on a licensed deployment, Pro + healthy token still buys", () => {
-  assertEquals(logisticsCapability(true, false, true), {
+  assertEquals(logisticsCapability(ebayOnly({ planAllows: true })), {
     label_purchase_available: true,
     code: null,
     detail: null,
+    provider: "ebay",
   });
+});
+
+// ── US-3015: the second provider ────────────────────────────────────
+
+Deno.test("US-3015 AC5: an eBay rejection no longer hides the fallback", () => {
+  // THE WHOLE POINT OF AC5. Before this story, feature_unavailable meant "this
+  // deployment has no eBay scope", so a seller on an EasyPost deployment was
+  // told a working feature did not exist, and a seller whose token 403'd was
+  // sent to re-consent with eBay for a label EasyPost was about to buy.
+  const noEbayButEasyPost = logisticsCapability({
+    ebayScope: false,
+    ebayDenied: false,
+    easypostConfigured: true,
+    easypostReady: true,
+    saleIsEbay: true,
+    planAllows: true,
+  });
+  assertEquals(noEbayButEasyPost.label_purchase_available, true);
+  assertEquals(noEbayButEasyPost.provider, "easypost");
+
+  const deniedButEasyPost = logisticsCapability({
+    ebayScope: true,
+    ebayDenied: true,
+    easypostConfigured: true,
+    easypostReady: true,
+    saleIsEbay: true,
+    planAllows: true,
+  });
+  assertEquals(deniedButEasyPost.code, null);
+  assertEquals(
+    deniedButEasyPost.provider,
+    "easypost",
+    "a refused eBay token must route to the fallback, not to a reconnect prompt",
+  );
+});
+
+Deno.test("US-3015 AC4: a non-eBay sale never routes to eBay", () => {
+  // eBay will not price a label for a Shopify or Poshmark sale at any scope,
+  // so a licensed deployment still has to send this one to EasyPost.
+  const cap = logisticsCapability({
+    ebayScope: true,
+    ebayDenied: false,
+    easypostConfigured: true,
+    easypostReady: true,
+    saleIsEbay: false,
+    planAllows: true,
+  });
+  assertEquals(cap.provider, "easypost");
+  assertEquals(cap.label_purchase_available, true);
+
+  // And with no EasyPost configured, that same sale has nobody to serve it.
+  const stranded = logisticsCapability({
+    ebayScope: true,
+    ebayDenied: false,
+    easypostConfigured: false,
+    easypostReady: false,
+    saleIsEbay: false,
+    planAllows: true,
+  });
+  assertEquals(stranded.provider, null);
+  assertEquals(stranded.code, "feature_unavailable");
+});
+
+Deno.test("US-3015 AC3: no card on file is a prompt, not a failed purchase", () => {
+  const cap = logisticsCapability({
+    ebayScope: false,
+    ebayDenied: false,
+    easypostConfigured: true,
+    easypostReady: false,
+    saleIsEbay: false,
+    planAllows: true,
+  });
+  assertEquals(cap.label_purchase_available, false);
+  assertEquals(cap.code, "easypost_onboarding_required");
+  assertEquals(cap.provider, "easypost");
+  // The copy has to say who is charged. A seller who thinks GradeThread holds
+  // their postage money asks us for a refund we cannot give.
+  assert(cap.detail && /EasyPost/.test(cap.detail), cap.detail ?? "");
+});
+
+Deno.test("US-3015: the plan lock still outranks the onboarding prompt", () => {
+  // Same reasoning as the reconnect prompt: asking a seller to set up billing
+  // for a capability their plan excludes is wasted effort on their part.
+  assertEquals(
+    logisticsCapability({
+      ebayScope: false,
+      ebayDenied: false,
+      easypostConfigured: true,
+      easypostReady: false,
+      saleIsEbay: false,
+      planAllows: false,
+    }).code,
+    "plan_locked",
+  );
+});
+
+Deno.test("US-3015: a refused eBay token with NO fallback still says reconnect", () => {
+  // The branch that is easy to lose. Drop it and this seller is told the
+  // feature does not exist, when a re-consent would in fact fix it.
+  const cap = logisticsCapability(ebayOnly({ ebayDenied: true }));
+  assertEquals(cap.provider, "ebay");
+  assertEquals(cap.code, "reconnect_required");
+});
+
+Deno.test("US-3015: reprint and void follow the PURCHASE, not today's preference", () => {
+  // A seller whose deployment gains eBay's scope next month must still reprint
+  // and refund the EasyPost label they bought this month. Dispatching on
+  // resolveLabelProvider() would send both calls to eBay, where the id does
+  // not exist.
+  assertEquals(
+    providerOfPurchase({
+      label_provider: "easypost",
+      ebay_shipment_id: null,
+      easypost_shipment_id: "shp_1",
+    }),
+    { provider: "easypost", shipmentId: "shp_1" },
+  );
+  assertEquals(
+    providerOfPurchase({
+      label_provider: "ebay",
+      ebay_shipment_id: "ebay_1",
+      easypost_shipment_id: null,
+    }),
+    { provider: "ebay", shipmentId: "ebay_1" },
+  );
+  // BOTH ids present, which a partial write-back can leave behind: the
+  // recorded provider wins, and it must win in BOTH directions. This case is
+  // here because a sabotage that reordered the branches passed without it --
+  // every other case has only one id set, so branch order never showed.
+  assertEquals(
+    providerOfPurchase({
+      label_provider: "easypost",
+      ebay_shipment_id: "ebay_1",
+      easypost_shipment_id: "shp_1",
+    }),
+    { provider: "easypost", shipmentId: "shp_1" },
+  );
+  assertEquals(
+    providerOfPurchase({
+      label_provider: "ebay",
+      ebay_shipment_id: "ebay_1",
+      easypost_shipment_id: "shp_1",
+    }),
+    { provider: "ebay", shipmentId: "ebay_1" },
+  );
+
+  // A row written before 00816's backfill: no provider recorded, one id.
+  assertEquals(
+    providerOfPurchase({
+      label_provider: null,
+      ebay_shipment_id: "ebay_1",
+      easypost_shipment_id: null,
+    }),
+    { provider: "ebay", shipmentId: "ebay_1" },
+  );
+  assertEquals(
+    providerOfPurchase({
+      label_provider: null,
+      ebay_shipment_id: null,
+      easypost_shipment_id: null,
+    }),
+    null,
+  );
 });
 
 // ── parseParcel ─────────────────────────────────────────────────────

@@ -308,6 +308,7 @@ export function normalizeEasyPostRates(raw: unknown): ShippingRate[] {
 
 interface RawEasyPostShipment {
   id?: string;
+  reference?: string | null;
   rates?: unknown;
   tracking_code?: string | null;
   selected_rate?: RawEasyPostRate | null;
@@ -390,11 +391,21 @@ export async function createEasyPostQuote(
   };
 }
 
-/** Re-read a shipment's rates before buying off it — the binding check's input. */
+/**
+ * Re-read a shipment before buying off it, with the reference we stamped on it.
+ *
+ * THE REFERENCE IS THE BINDING. The shipment id and the rate id both come
+ * straight off the request, and nothing else ties either to the sale being
+ * charged -- so without this a seller could buy against a shipment they created
+ * for a DIFFERENT one of their own sales, and the postage would land on
+ * whichever sale is in the URL. EasyPost would not stop it: the shipment is
+ * theirs. This is the same guard quoteCoversOrder() is on the eBay side, built
+ * on the one field we control.
+ */
 export async function getEasyPostQuote(
   apiKey: string,
   shipmentId: string,
-): Promise<ShippingQuote> {
+): Promise<ShippingQuote & { reference: string | null }> {
   const raw = await easypostFetch<RawEasyPostShipment>(
     apiKey,
     `/shipments/${encodeURIComponent(shipmentId)}`,
@@ -403,8 +414,28 @@ export async function getEasyPostQuote(
   return {
     shippingQuoteId: raw.id ?? shipmentId,
     expiresAt: null,
+    reference: raw.reference ?? null,
     rates: normalizeEasyPostRates(raw.rates),
   };
+}
+
+/**
+ * Is this shipment actually for this sale? Pure, so the binding rule is
+ * testable without a network.
+ *
+ * An EMPTY reference fails closed, exactly as quoteCoversOrder() does with an
+ * empty order list: a shipment we cannot tie to a sale must not be chargeable
+ * against one. That also covers a shipment created before this reference was
+ * stamped -- re-quoting costs a second and buying the wrong one does not.
+ */
+export function quoteCoversSale(
+  reference: string | null,
+  saleId: string,
+): boolean {
+  if (!saleId || !reference) return false;
+  // createEasyPostQuote truncates to 50 characters, so compare on the prefix
+  // the wire can actually carry rather than on the full uuid.
+  return reference === saleId.slice(0, 50);
 }
 
 /**

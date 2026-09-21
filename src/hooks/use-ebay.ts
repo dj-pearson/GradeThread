@@ -3264,8 +3264,25 @@ export interface EbayLogisticsCapability {
    * button" — it gets an upgrade prompt instead. The other two are dead ends
    * for this seller today.
    */
-  code: "feature_unavailable" | "plan_locked" | "reconnect_required" | null;
+  code:
+    | "feature_unavailable"
+    | "plan_locked"
+    | "reconnect_required"
+    | "easypost_onboarding_required"
+    | null;
   detail: string | null;
+  /**
+   * US-3015: which provider would buy this label, or null when none can. The
+   * UI needs it because the two providers ask for different things -- eBay
+   * derives the buyer's address from the order, EasyPost has to be told it.
+   */
+  provider: "ebay" | "easypost" | null;
+  /**
+   * US-3015: `easypost_onboarding_required` is the second state the seller can
+   * fix themselves, and the fix is at EasyPost rather than here. Hiding the
+   * button on it would leave a working feature permanently switched off.
+   */
+  easypost: { configured: boolean; onboarded: boolean; ready: boolean };
 }
 
 export function useEbayLogisticsCapability(enabled = true) {
@@ -3289,12 +3306,20 @@ export function useEbayLogisticsCapability(enabled = true) {
           labelPurchaseAvailable: false,
           code: "feature_unavailable",
           detail: null,
+          provider: null,
+          easypost: { configured: false, onboarded: false, ready: false },
         };
       }
       return {
         labelPurchaseAvailable: json.label_purchase_available === true,
         code: json.code ?? null,
         detail: json.detail ?? null,
+        provider: json.provider ?? null,
+        easypost: {
+          configured: json.easypost?.configured === true,
+          onboarded: json.easypost?.onboarded === true,
+          ready: json.easypost?.ready === true,
+        },
       };
     },
   });
