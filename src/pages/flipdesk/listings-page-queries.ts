@@ -84,6 +84,11 @@ export interface PlatformChip {
   platform: ListingPlatform;
   status: string;
   origin: "ebay" | "gradethread";
+  /** US-3451: what the channel strip needs to derive the row's state. */
+  listing_url: string | null;
+  delist_requested_at: string | null;
+  listed_unconfirmed: boolean;
+  updated_at: string | null;
 }
 
 export interface PageRowDetailsInput {
@@ -109,6 +114,14 @@ export function usePageRowDetails({
     enabled: !!userId && pageRowIds.length > 0,
     staleTime: 5 * 60 * 1000,
     queryFn: async (): Promise<Map<string, PlatformChip[]>> => {
+      // US-3451: the strip derives each channel's state (channel-state.ts)
+      // from these rows, so the four columns it reads ride the same request
+      // rather than a second one per row. `listed_unconfirmed` is one JSON
+      // key rather than the whole platform_fields blob, which carries every
+      // channel's AI copy and would multiply the page read by the kit.
+      // Ended rows are read too: an ended row with a delist stamp is a
+      // listing still live on the marketplace, which is the one state a
+      // seller most needs to see on the table.
       const rows = await fetchInChunks<{
         id: string;
         inventory_item_id: string;
@@ -118,14 +131,19 @@ export function usePageRowDetails({
         platform_listing_id: string | null;
         batch_id: string | null;
         synced_to_ebay_at: string | null;
+        listing_url: string | null;
+        delist_requested_at: string | null;
+        listed_unconfirmed: string | null;
+        updated_at: string | null;
       }>(pageRowIds, async (chunk) => {
         const { data, error } = await supabase
           .from("listings")
           .select(
-            "id, inventory_item_id, platform, listing_status, listing_origin, platform_listing_id, batch_id, synced_to_ebay_at",
+            "id, inventory_item_id, platform, listing_status, listing_origin, platform_listing_id, batch_id, synced_to_ebay_at, " +
+              "listing_url, delist_requested_at, listed_unconfirmed:platform_fields->>listed_unconfirmed, updated_at",
           )
           .in("inventory_item_id", chunk)
-          .in("listing_status", ["draft", "active", "sold"]);
+          .in("listing_status", ["draft", "active", "sold", "ended"]);
         return { data: data as unknown[] | null, error };
       });
       const map = new Map<string, PlatformChip[]>();
@@ -136,6 +154,10 @@ export function usePageRowDetails({
           platform: row.platform,
           status: row.listing_status,
           origin: deriveListingOrigin(row),
+          listing_url: row.listing_url,
+          delist_requested_at: row.delist_requested_at,
+          listed_unconfirmed: row.listed_unconfirmed === "true",
+          updated_at: row.updated_at,
         });
         map.set(row.inventory_item_id, arr);
       }
