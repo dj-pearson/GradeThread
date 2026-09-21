@@ -165,6 +165,12 @@ export const CRON_REGISTRY: CronDef[] = [
   // 16:50 UTC is late morning in the US, which is where the sellers are. Quiet
   // hours are still enforced per seller inside deliverPreferencePush.
   { name: "extension-queue-stale", label: "Extension queue stale notice", schedule: "50 16 * * *", category: "flipdesk", endpoint: "/api/jobs/extension-queue-stale", recorded: true, healthy: "200 with {ok:true, scanned, candidates, notified, suppressed, skipped{...}}; notified is 0 on most days and `capped:true` means the scan hit its row ceiling and under-reported" },
+  // US-3453: a delist queued half an hour ago with no browser having drained
+  // since, and no delist notice inside the hour. Every half hour because the
+  // threshold is half an hour; the repeat floor is the seller's own notices
+  // rows, not the schedule, so the cadence can change without changing the
+  // wording or the floor (lib/delist-nudge.ts).
+  { name: "delist-nudge", label: "Delist still waiting nudge", schedule: "*/30 * * * *", category: "flipdesk", endpoint: "/api/jobs/delist-nudge", recorded: true, healthy: "200 with {ok:true, scanned, notified, skipped{nothing_old_enough, drained_since, told_recently}}; notified is 0 on most runs and `capped:true` means the scan hit its row ceiling" },
   // US-1295: affiliate auto-payout sweep — accrue affiliate conversions + pay eligible balances over Stripe Connect.
   { name: "affiliate-payouts", label: "Affiliate auto-payouts", schedule: "15 */6 * * *", category: "growth", endpoint: "/api/jobs/affiliate-payouts", recorded: true },
   { name: "agent-tick", label: "Agentic OS agent tick", schedule: "*/10 * * * *", category: "agents", endpoint: "/api/jobs/agent-tick", recorded: true },

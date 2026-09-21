@@ -1660,6 +1660,36 @@ Deno.test({
   },
 });
 
+// US-3453: the delist nudge is a fleet sweep behind the same secret. A user
+// JWT, or no secret, must not start a run that reads every seller's queue.
+Deno.test({
+  name: "delist-nudge job rejects a user JWT (must use job secret)",
+  ignore: !CONFIGURED,
+  fn: async () => {
+    const res = await fetch(`${BASE}/api/jobs/delist-nudge`, {
+      method: "POST",
+      headers: authHeaders(A_JWT!),
+    });
+    const status = res.status;
+    await res.body?.cancel();
+    assert(status === 401, `POST /api/jobs/delist-nudge with a user JWT should 401, got ${status}`);
+  },
+});
+
+Deno.test({
+  name: "delist-nudge job rejects a bogus X-Internal-Job-Secret",
+  ignore: !BASE,
+  fn: async () => {
+    const res = await fetch(`${BASE}/api/jobs/delist-nudge`, {
+      method: "POST",
+      headers: { "X-Internal-Job-Secret": "wrong-secret-value" },
+    });
+    const status = res.status;
+    await res.body?.cancel();
+    assert(status === 401, `POST /api/jobs/delist-nudge with a wrong secret should 401, got ${status}`);
+  },
+});
+
 // Negative companion: an explicit wrong secret must also be rejected. (Run even
 // without a victim id so we always exercise this gate in CI.)
 Deno.test({

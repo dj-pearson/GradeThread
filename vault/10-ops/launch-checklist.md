@@ -161,6 +161,7 @@ A healthy run returns `{"ok":true,...}`. Reference: `services/edge-functions/COO
 | credentials-refresh | `40 5 * * *` | `/api/jobs/credentials-refresh` | `$FLIPDESK_INTERNAL_JOB_SECRET` | 200 with {ok:true, revised, up_to_date, capped:false}; revised is 0 on a steady-state run, and unparseable + blocks_disagree must be 0 (US-3028: above zero means live stale badges this job cannot reach) |
 | cron-fleet-health | `17 * * * *` | `/api/jobs/cron-fleet-health` | `$FLIPDESK_INTERNAL_JOB_SECRET` |  |
 | data-retention | `0 4 * * *` | `/api/jobs/data-retention` | `$FLIPDESK_INTERNAL_JOB_SECRET` |  |
+| delist-nudge | `*/30 * * * *` | `/api/jobs/delist-nudge` | `$FLIPDESK_INTERNAL_JOB_SECRET` | 200 with {ok:true, scanned, notified, skipped{nothing_old_enough, drained_since, told_recently}}; notified is 0 on most runs and `capped:true` means the scan hit its row ceiling |
 | demand-matches | `30 */6 * * *` | `/api/jobs/demand-matches` | `$FLIPDESK_INTERNAL_JOB_SECRET` |  |
 | drip-tick | `0 * * * *` | `/api/drip/tick` | `$DRIP_INTERNAL_JOB_SECRET` |  |
 | durability-aggregate | `0 2 * * *` | `/api/jobs/durability-aggregate` | `$FLIPDESK_INTERNAL_JOB_SECRET` |  |
@@ -226,7 +227,7 @@ A healthy run returns `{"ok":true,...}`. Reference: `services/edge-functions/COO
 | thumbnail-backfill | `*/5 * * * *` | `/api/jobs/thumbnail-backfill` | `$FLIPDESK_INTERNAL_JOB_SECRET` |  |
 | trial-expiry | `15 0 * * *` | `/api/jobs/trial-expiry` | `$FLIPDESK_INTERNAL_JOB_SECRET` |  |
 
-_92 scheduled jobs. Default healthy response: 200 `{"ok":true,...}` (idle runs report skipped/zero counts). Generated from `src/lib/cron-runs.ts` CRON_REGISTRY — do not hand-edit._
+_93 scheduled jobs. Default healthy response: 200 `{"ok":true,...}` (idle runs report skipped/zero counts). Generated from `src/lib/cron-runs.ts` CRON_REGISTRY — do not hand-edit._
 <!-- cron-registry:end -->
 
 **One-off at launch (not scheduled):** POST `/api/jobs/cert-integrity-backfill`
