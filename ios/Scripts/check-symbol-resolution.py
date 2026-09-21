@@ -53,6 +53,18 @@ OWNED = {
     # hid every other file in the build behind it.
     "PhotoSlotType": "GradeThread/Capture/PhotoSlotType.swift",
     "FlipdeskPhotoType": "GradeThread/Capture/PhotoSlotType.swift",
+    # US-3279. Added because it broke iOS CI on the day it was written:
+    # `PushCategoryCoverageTests` used `NotificationCategoryID.marketing` while
+    # the case itself never landed in the enum, and the whole `Build + test`
+    # job died on "Type 'NotificationCategoryID' has no member 'marketing'".
+    # Every local guard was green, because this list did not cover the type.
+    #
+    # It is exactly the shape the comment above describes: a hand-edited enum
+    # read from several screens AND from several test files. The test files are
+    # the part that matters here -- they are compiled on a macOS runner and
+    # nowhere else, so a wrong member in one of them is invisible on Windows
+    # until CI says so twenty minutes later.
+    "NotificationCategoryID": "GradeThread/Notifications/NotificationCategories.swift",
 }
 
 DECL = re.compile(
@@ -83,6 +95,51 @@ SYNTHESIZED = {
 
 # A raw-value enum (`enum Foo: String`) is RawRepresentable without saying so.
 RAW_VALUE_KINDS = ("String", "Int", "Int8", "Int16", "Int32", "Int64", "Double", "Character")
+
+
+def _in_comment(source: str, pos: int) -> bool:
+    """Whether `pos` sits inside a // line comment or a /* block comment.
+
+    Deliberately simple: it walks from the start of the file rather than
+    guessing from the line, so a `//` inside a string literal (a URL, say)
+    does not make the rest of the line read as a comment.
+    """
+    i, depth, line_comment = 0, 0, False
+    in_string = False
+    while i < pos:
+        two = source[i : i + 2]
+        if line_comment:
+            if source[i] == "\n":
+                line_comment = False
+            i += 1
+        elif depth:
+            if two == "*/":
+                depth -= 1
+                i += 2
+            elif two == "/*":
+                depth += 1
+                i += 2
+            else:
+                i += 1
+        elif in_string:
+            if source[i] == "\\":
+                i += 2
+            else:
+                if source[i] == '"':
+                    in_string = False
+                i += 1
+        elif two == "//":
+            line_comment = True
+            i += 2
+        elif two == "/*":
+            depth += 1
+            i += 2
+        elif source[i] == '"':
+            in_string = True
+            i += 1
+        else:
+            i += 1
+    return line_comment or depth > 0
 
 
 def _synthesized_for(source: str, type_name: str) -> set[str]:
@@ -195,6 +252,15 @@ def main() -> int:
         for swift in IOS.rglob("*.swift"):
             text = swift.read_text(encoding="utf-8", errors="replace")
             for m in re.finditer(rf"\b{type_name}\.([A-Za-z_][A-Za-z0-9_]*)", text):
+                # A SENTENCE ABOUT A MEMBER IS NOT A USE. Doc comments in this
+                # repo name members constantly ("which is what
+                # `NotificationCategoryID.payloadKeys` must say too"), and
+                # reporting those as unresolved is how a guard earns a
+                # reputation for crying wolf. Blanked rather than deleted so
+                # every offset stays valid and the line numbers above stay
+                # right.
+                if _in_comment(text, m.start()):
+                    continue
                 used.setdefault(m.group(1), []).append(
                     f"{swift.relative_to(REPO).as_posix()}:{text[: m.start()].count(chr(10)) + 1}"
                 )

@@ -49,6 +49,12 @@ public enum NotificationCategoryID: String, CaseIterable {
     case caseDeadline          = "case.deadline"
     case cancellationRequested = "cancellation.requested"
     case disputeOpened         = "dispute.opened"
+    // US-3279: found by the generated push contract, not by reading the app.
+    // routes/admin-growth.ts has been pushing growth campaigns under this
+    // category all along, OUTSIDE transactional-push.ts, so every audit that
+    // read that one file missed it. An unrecognised category taps nowhere and
+    // cannot be muted, which is what made US-3266 expensive.
+    case marketing             = "marketing"
 
     /// User-facing label for the Settings UI toggle.
     public var label: String {
@@ -72,6 +78,7 @@ public enum NotificationCategoryID: String, CaseIterable {
         case .caseDeadline:          return "Case deadlines"
         case .cancellationRequested: return "Cancellation requests"
         case .disputeOpened:         return "Payment disputes"
+        case .marketing:             return "News and offers"
         }
     }
 
@@ -103,6 +110,8 @@ public enum NotificationCategoryID: String, CaseIterable {
             return "Pushes when a buyer asks to cancel an order before it ships."
         case .disputeOpened:
             return "Pushes when a buyer opens a payment dispute or chargeback with their bank."
+        case .marketing:
+            return "Occasional news about GradeThread features and offers."
         }
     }
 
