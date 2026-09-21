@@ -1,0 +1,353 @@
+// Worth My Time, R1 06/12 (US-3171): put the most useful work first.
+//
+// This is where duration (R1 04/12) and value (R1 05/12) finally meet. It is
+// also the file with the most ways to be quietly wrong, so most of what
+// follows is about the four mistakes it exists to avoid.
+//
+// ── A SCORE IS A PRIORITY, NOT A PAYDAY (AC5) ───────────────────────────────
+// The number this produces is cents of conservative contribution per minute of
+// remaining work. It is a way of ORDERING tasks. It is not expected profit, it
+// is not money the seller will earn this session, and nothing here multiplies
+// it by a likelihood of selling, because nothing in R1 measures one.
+//
+// ── ONE ITEM IS ONE SALE (AC3) ──────────────────────────────────────────────
+// The dangerous arithmetic. A jacket worth $50 needs measuring, photographing,
+// pricing and drafting. Scoring each step against the item's value would make
+// that jacket look like $200 of opportunity and would beat four separate
+// garments that really are worth $50 each. So the value is divided by the
+// WHOLE remaining chain, and every step of one item therefore scores the same
+// rate. Finishing three prep steps never creates three sales worth of profit.
+//
+// ── A SHORT NEXT STEP IS NOT A CHEAP ITEM (AC3) ─────────────────────────────
+// The same division fixes the other half. An item two minutes from publishing
+// and an item forty minutes from it are not equally close to money, and
+// scoring on the NEXT step alone would rank them identically. The chain is
+// what separates them.
+//
+// ── A DEADLINE IS NEVER BURIED BY A SMALL NUMBER (AC5) ──────────────────────
+// Urgent shipping is its own tier and is not scored against anything. A parcel
+// that has to go today goes first even when the item barely cleared its costs,
+// because missing it costs a defect rather than a margin.
+
+import type { CandidateAction, WorkCandidate, WorkContext, WorkTool } from "@/lib/work-candidates";
+import { estimateDuration, isUnestimated, type DurationResult } from "@/lib/work-duration";
+import { isComplete, type ValueResult } from "@/lib/work-value";
+
+/** Bumped when the ORDERING changes, so two plans can be told apart. */
+export const RANKER_VERSION = 1;
+
+/**
+ * How close a shipping deadline has to be to jump the queue.
+ *
+ * Twenty-four hours, and only for a CONFIRMED deadline (AC2). An estimated one
+ * derived from handling days counts calendar days rather than business days,
+ * so it can be a day early; promoting on it would push real work aside for a
+ * date nobody promised.
+ */
+export const URGENT_WINDOW_HOURS = 24;
+
+export const RANK_TIERS = [
+  "urgent_shipping",
+  "valued_work",
+  "research",
+  "unvalued",
+] as const;
+export type RankTier = (typeof RANK_TIERS)[number];
+
+const TIER_ORDER: Record<RankTier, number> = {
+  urgent_shipping: 0,
+  valued_work: 1,
+  research: 2,
+  unvalued: 3,
+};
+
+export interface RankConflict {
+  kind: "cannot_fit" | "tools_missing" | "wrong_context";
+  message: string;
+}
+
+export interface RankedTask {
+  key: string;
+  itemId: string;
+  action: CandidateAction;
+  tier: RankTier;
+  /**
+   * Conservative cents per minute of REMAINING work on this item, or null in
+   * every tier but `valued_work`. Ordering only -- see the header.
+   */
+  score: number | null;
+  /** Active minutes for everything this item still needs to be sale-ready. */
+  chainMinutes: number;
+  /** The conservative (low) end of the contribution, or null. */
+  conservativeCents: number | null;
+  dueAt: string | null;
+  /**
+   * Set when the task cannot be done as planned. A conflicted task is RETURNED
+   * rather than dropped (AC2): a deadline the seller cannot meet is the single
+   * most important thing to tell them, and a planner that hid it would let
+   * them find out from the marketplace.
+   */
+  conflict: RankConflict | null;
+  /**
+   * Advisory only (AC4). True when the conservative rate clears the seller's
+   * hourly target, null when they have not set one. It never changes the
+   * order: a target is a comparison a seller asked for, not a filter they did.
+   */
+  meetsHourlyTarget: boolean | null;
+  version: number;
+}
+
+export interface RankTaskInput {
+  candidate: WorkCandidate;
+  value: ValueResult;
+  /**
+   * Every step this ITEM still needs to reach a sale-ready listing, including
+   * the candidate's own action and anything before it.
+   *
+   * SUPPLIED RATHER THAN DERIVED, because the candidate builder returns only
+   * the NEXT action and the chain is a fact about the item's remaining ladder.
+   * The ranker sums the durations itself so AC3's "including prerequisites" is
+   * a property of this file and can be tested here.
+   */
+  remainingActions: readonly CandidateAction[];
+  /** When this work became available, ISO. The oldest-first tie-break. */
+  unfinishedSince?: string | null;
+}
+
+export interface RankInput {
+  /** Explicit, never a clock read: the same plan must rank the same twice. */
+  now: string;
+  budgetMinutes: number;
+  workContext: WorkContext;
+  availableTools: WorkTool[];
+  /** Advisory. Null when the seller has not said (AC4). */
+  hourlyTargetCents: number | null;
+  tasks: readonly RankTaskInput[];
+}
+
+function parseInstant(v: string | null | undefined): number | null {
+  if (typeof v !== "string" || v.trim() === "") return null;
+  const t = Date.parse(v);
+  return Number.isFinite(t) ? t : null;
+}
+
+/**
+ * Active minutes for the whole remaining chain.
+ *
+ * An UNESTIMATED step makes the whole chain unestimated rather than being
+ * skipped. Skipping it would understate the chain and inflate the rate, which
+ * is the direction that wastes an evening.
+ */
+export function chainMinutesFor(
+  actions: readonly CandidateAction[],
+): number | null {
+  let total = 0;
+  for (const action of actions) {
+    const d: DurationResult = estimateDuration({ action });
+    if (isUnestimated(d)) return null;
+    total += d.typical;
+  }
+  return total;
+}
+
+/** Is this a confirmed shipping deadline inside the urgent window? (AC2) */
+function isUrgentShipping(task: RankTaskInput, nowMs: number): boolean {
+  if (task.candidate.action !== "pack_ship") return false;
+  // ESTIMATED IS NOT VERIFIED. A derived deadline counts calendar days rather
+  // than business days and can be a day early; promoting on it would push real
+  // work aside for a date nobody promised.
+  if (task.candidate.shipBy.confidence !== "confirmed") return false;
+  const due = parseInstant(task.candidate.shipBy.at);
+  if (due === null) return false;
+  return due - nowMs <= URGENT_WINDOW_HOURS * 3_600_000;
+}
+
+/**
+ * Why this task cannot be done as planned, or null.
+ *
+ * The candidate builder already drops work the seller cannot do, so these fire
+ * only when a task reaches the ranker anyway -- which is exactly the urgent
+ * shipment whose tools are missing, and which must be SEEN rather than
+ * dropped.
+ */
+function conflictFor(
+  task: RankTaskInput,
+  input: RankInput,
+  ownMinutes: number,
+): RankConflict | null {
+  const c = task.candidate;
+  if (!c.requiredContext.includes(input.workContext)) {
+    return {
+      kind: "wrong_context",
+      message: `This needs to be done at home, and you're set to ${input.workContext.replace("_", " ")}.`,
+    };
+  }
+  const missing = c.requiredTools.filter((t) => !input.availableTools.includes(t));
+  if (missing.length > 0) {
+    return {
+      kind: "tools_missing",
+      message: `You'd need ${missing.join(" and ").replace(/_/g, " ")} for this.`,
+    };
+  }
+  if (ownMinutes > input.budgetMinutes) {
+    return {
+      kind: "cannot_fit",
+      message:
+        `This takes about ${ownMinutes} minutes and you have ${input.budgetMinutes}.`,
+    };
+  }
+  return null;
+}
+
+/**
+ * Rank one seller's available work.
+ *
+ * Pure and deterministic (AC1). `now` is an argument rather than a clock read,
+ * so the same inputs rank the same way every time -- a plan that reordered
+ * itself between two readings is a plan a seller stops trusting.
+ */
+export function rankWork(input: RankInput): RankedTask[] {
+  const nowMs = parseInstant(input.now) ?? 0;
+  const ranked: RankedTask[] = [];
+
+  // AC4: at most ONE research task per plan. Unknown-value stock must not be
+  // ignored forever, and it must not flood a plan either -- a seller whose
+  // whole evening became price research would have been better off without us.
+  let researchTaken = false;
+
+  // Sorted first so "the one research task" is the best candidate for it
+  // rather than whichever happened to be first in the input.
+  const ordered = [...input.tasks].sort((a, b) =>
+    compareForResearchPick(a, b, nowMs)
+  );
+
+  for (const task of ordered) {
+    const own = estimateDuration({ action: task.candidate.action });
+    const ownMinutes = isUnestimated(own) ? null : own.typical;
+    const chain = chainMinutesFor(task.remainingActions);
+    const conflict = ownMinutes === null
+      ? null
+      : conflictFor(task, input, ownMinutes);
+
+    const urgent = isUrgentShipping(task, nowMs);
+    const estimate = isComplete(task.value) ? task.value : null;
+
+    let tier: RankTier;
+    if (urgent) {
+      tier = "urgent_shipping";
+    } else if (estimate === null && !isComplete(task.value) && task.value.researchable) {
+      // The pricing-research task that would make this item rankable.
+      tier = researchTaken ? "unvalued" : "research";
+      if (tier === "research") researchTaken = true;
+    } else if (estimate !== null && chain !== null && chain > 0) {
+      tier = "valued_work";
+    } else {
+      // Known to be unrankable: an unsupported fee schedule, a non-USD item,
+      // or a chain with a step nobody has estimated. Kept in the plan at the
+      // bottom rather than hidden, because a seller who cannot see it cannot
+      // fix it.
+      tier = "unvalued";
+    }
+
+    const conservativeCents = estimate?.lowCents ?? null;
+    const score = tier === "valued_work" && conservativeCents !== null &&
+        chain !== null && chain > 0
+      ? conservativeCents / chain
+      : null;
+
+    ranked.push({
+      key: task.candidate.key,
+      itemId: task.candidate.itemId,
+      action: task.candidate.action,
+      tier,
+      score,
+      chainMinutes: chain ?? 0,
+      conservativeCents,
+      dueAt: task.candidate.shipBy.at,
+      conflict,
+      meetsHourlyTarget: meetsTarget(score, input.hourlyTargetCents),
+      version: RANKER_VERSION,
+    });
+  }
+
+  return ranked.sort((a, b) => compareRanked(a, b, input.tasks));
+}
+
+/**
+ * Advisory comparison against the seller's hourly target (AC4).
+ *
+ * Null when they have not set one, and NULL IS NOT FALSE: a seller with no
+ * target has not failed to meet it. Nothing about the ordering reads this.
+ */
+function meetsTarget(
+  score: number | null,
+  hourlyTargetCents: number | null,
+): boolean | null {
+  if (hourlyTargetCents === null || score === null) return null;
+  return score * 60 >= hourlyTargetCents;
+}
+
+/** Earliest confirmed deadline first, for picking which research task to keep. */
+function compareForResearchPick(
+  a: RankTaskInput,
+  b: RankTaskInput,
+  nowMs: number,
+): number {
+  const ua = isUrgentShipping(a, nowMs) ? 0 : 1;
+  const ub = isUrgentShipping(b, nowMs) ? 0 : 1;
+  if (ua !== ub) return ua - ub;
+  const sa = a.unfinishedSince ?? "";
+  const sb = b.unfinishedSince ?? "";
+  if (sa !== sb) return sa < sb ? -1 : 1;
+  return a.candidate.key < b.candidate.key ? -1 : 1;
+}
+
+/**
+ * The full order (AC1).
+ *
+ * Tier, then the tier's own rule, then a deterministic chain of tie-breaks:
+ * due time, oldest unfinished work, then the stable key. The last one can
+ * never tie, so the sort is total and two runs cannot disagree.
+ */
+function compareRanked(
+  a: RankedTask,
+  b: RankedTask,
+  tasks: readonly RankTaskInput[],
+): number {
+  if (TIER_ORDER[a.tier] !== TIER_ORDER[b.tier]) {
+    return TIER_ORDER[a.tier] - TIER_ORDER[b.tier];
+  }
+  if (a.tier === "urgent_shipping") {
+    // Soonest deadline first. A conflict does not demote it: the seller most
+    // needs to see the parcel they cannot ship.
+    const da = parseInstant(a.dueAt);
+    const db = parseInstant(b.dueAt);
+    if (da !== db) return (da ?? Number.MAX_SAFE_INTEGER) - (db ?? Number.MAX_SAFE_INTEGER);
+  } else if (a.tier === "valued_work") {
+    if (a.score !== b.score) return (b.score ?? 0) - (a.score ?? 0);
+  }
+  const da = parseInstant(a.dueAt);
+  const db = parseInstant(b.dueAt);
+  if (da !== db) {
+    return (da ?? Number.MAX_SAFE_INTEGER) - (db ?? Number.MAX_SAFE_INTEGER);
+  }
+  const sa = sinceOf(a.key, tasks);
+  const sb = sinceOf(b.key, tasks);
+  if (sa !== sb) return sa < sb ? -1 : 1;
+  return a.key < b.key ? -1 : a.key > b.key ? 1 : 0;
+}
+
+function sinceOf(key: string, tasks: readonly RankTaskInput[]): string {
+  const t = tasks.find((x) => x.candidate.key === key);
+  // An absent timestamp sorts LAST among ties rather than first: work whose
+  // age nobody recorded should not jump ahead of work that is provably old.
+  return t?.unfinishedSince ?? "￿";
+}
+
+/** Convenience for callers that only have candidates. */
+export function remainingActionsFrom(c: WorkCandidate): CandidateAction[] {
+  const prereqs = c.prerequisiteKeys
+    .map((k) => k.split(":").slice(1).join(":"))
+    .filter((a): a is CandidateAction => a.length > 0);
+  return [...prereqs, c.action];
+}
