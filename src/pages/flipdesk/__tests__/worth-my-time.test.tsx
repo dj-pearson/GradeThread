@@ -12,6 +12,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 const buildMock = vi.fn();
 const savePrefsMock = vi.fn(() => Promise.resolve({}));
+const startSessionMock = vi.fn(() => Promise.resolve({}));
 const toastError = vi.fn();
 
 vi.mock("sonner", () => ({ toast: { error: toastError, success: vi.fn() } }));
@@ -36,6 +37,17 @@ vi.mock("@/hooks/use-planner", async () => {
     }),
     useSaveWorkPreferences: () => ({ mutateAsync: savePrefsMock }),
     useBuildPlan: () => ({ mutateAsync: buildMock, isPending: false }),
+    // US-3176 put a session runner at the top of this page. These cases are
+    // about the PICKER and the PLAN, so the runner is held at "no session" --
+    // its own behaviour has its own suite (session-runner.test.tsx) rather
+    // than being re-asserted through every case here.
+    useCurrentSession: () => ({
+      data: { session: null, tasks: [] },
+      isLoading: false,
+      isError: false,
+      refetch: vi.fn(),
+    }),
+    useStartSession: () => ({ mutateAsync: startSessionMock, isPending: false }),
   };
 });
 
@@ -178,6 +190,8 @@ beforeEach(() => {
   savePrefsMock.mockReset();
   savePrefsMock.mockResolvedValue({});
   toastError.mockReset();
+  startSessionMock.mockReset();
+  startSessionMock.mockResolvedValue({});
 });
 
 describe("the time picker (AC2)", () => {
@@ -277,7 +291,12 @@ describe("what the plan says (AC3)", () => {
     await click("30 minutes");
     const link = Array.from(document.querySelectorAll("a"))
       .find((a) => a.textContent?.includes("Open item"))!;
-    expect(link.getAttribute("href")).toBe("/dashboard/flipdesk/items/item-1");
+    const href = link.getAttribute("href")!;
+    expect(href.split("?")[0]).toBe("/dashboard/flipdesk/items/item-1");
+    // US-3176: and it carries where to come back to, so a seller who opens
+    // the item mid-session is not dropped on the inventory list afterwards.
+    expect(new URLSearchParams(href.split("?")[1]).get("back"))
+      .toBe("/dashboard/flipdesk/worth-my-time");
   });
 
   it("names the bins to bring over", async () => {

@@ -57,14 +57,43 @@ async function edgeJson<T>(
   });
   const json = await res.json().catch(() => ({}));
   if (!res.ok) {
-    const err: Error & { status?: number; code?: string } = new Error(
+    const err: PlannerError = new Error(
       json.error || json.detail || "That didn't work. Try again.",
     );
     err.status = res.status;
     err.code = json.code;
+    // US-3176 AC4: a 409 from the planner carries the session as the SERVER
+    // sees it, precisely so the client can recover without re-POSTing to find
+    // out what happened. Replaying the action to learn the outcome is how one
+    // of the two attempts gets applied twice.
+    if (json && typeof json === "object" && "session" in json) {
+      err.payload = json as PlannerSession;
+    }
     throw err;
   }
   return json as T;
+}
+
+export interface PlannerError extends Error {
+  status?: number;
+  code?: string;
+  /** The server's view of the session, when it sent one with the refusal. */
+  payload?: PlannerSession;
+}
+
+/**
+ * Take the server at its word after a refusal.
+ *
+ * Every conflict path writes the returned session straight into the cache, so
+ * a seller who hit Done in two tabs sees the truth immediately rather than the
+ * stale revision that was refused. It is NOT an error handler that hides the
+ * error: the mutation still rejects and the caller still says what happened.
+ */
+function adoptConflictState(
+  qc: ReturnType<typeof useQueryClient>,
+  err: PlannerError,
+): void {
+  if (err.payload) qc.setQueryData(["planner_session"], err.payload);
 }
 
 // ── Preferences (R1 01/12) ──────────────────────────────────────────
@@ -152,6 +181,13 @@ export interface PreparedPlan {
   candidates: WorkCandidate[];
   groups: ReturnType<typeof batchWork>["groups"];
   pullList: ReturnType<typeof batchWork>["pullList"];
+  /**
+   * The window this plan was built for. Carried so a session records what the
+   * seller agreed to, not what the plan happened to fill -- a 60-minute
+   * session that only found 29 minutes of work is still a 60-minute session,
+   * and reading the budget off plannedMinutes would lose that every time.
+   */
+  budgetMinutes: number;
   itemsRead: number;
   truncated: boolean;
 }
@@ -239,6 +275,7 @@ export async function buildPlan(args: BuildPlanArgs): Promise<PreparedPlan> {
     candidates,
     groups: batched.groups,
     pullList: batched.pullList,
+    budgetMinutes: args.budgetMinutes,
     itemsRead: items.length,
     truncated: items.length >= PLAN_ITEM_LIMIT,
   };
@@ -262,6 +299,12 @@ export interface PlannerSessionTask {
   bin: string | null;
   estimate_minutes: number | null;
   estimate_value_cents: number | null;
+  // The three timings are separate fields on purpose and are never collapsed:
+  // observed is the clock, confirmed is what the seller said, correction is a
+  // later edit. lib/work-sessions.ts owns the precedence.
+  observed_minutes?: number | null;
+  confirmed_minutes?: number | null;
+  correction_minutes?: number | null;
   actionable: boolean;
 }
 
@@ -271,6 +314,8 @@ export interface PlannerSession {
     state: string;
     budget_minutes: number;
     revision: number;
+    started_at?: string | null;
+    ended_at?: string | null;
   } | null;
   tasks: PlannerSessionTask[];
 }
@@ -303,7 +348,7 @@ export function useSessionAction() {
   const qc = useQueryClient();
   return useMutation<
     PlannerSession,
-    Error & { code?: string },
+    PlannerError,
     { sessionId: string; action: string; revision: number }
   >({
     mutationFn: ({ sessionId, action, revision }) =>
@@ -312,6 +357,7 @@ export function useSessionAction() {
         { method: "POST", body: JSON.stringify({ revision }) },
       ),
     onSuccess: (next) => qc.setQueryData(["planner_session"], next),
+    onError: (err) => adoptConflictState(qc, err),
   });
 }
 
@@ -319,10 +365,22 @@ export function useTaskAction() {
   const qc = useQueryClient();
   return useMutation<
     PlannerSession,
-    Error & { code?: string },
-    { taskId: string; action: string; revision: number; confirmedMinutes?: number }
+    PlannerError,
+    {
+      taskId: string;
+      action: string;
+      revision: number;
+      confirmedMinutes?: number;
+      /**
+       * How many times this task has entered this state, NOT how many times
+       * the request has been retried. The server derives its dedup key from
+       * it, so a retry of the same intent must carry the SAME number or it
+       * lands as a second timing event (lib/work-sessions.ts timingRetryKey).
+       */
+      attempt?: number;
+    }
   >({
-    mutationFn: ({ taskId, action, revision, confirmedMinutes }) =>
+    mutationFn: ({ taskId, action, revision, confirmedMinutes, attempt }) =>
       edgeJson<PlannerSession>(
         `/api/flipdesk/planner/tasks/${encodeURIComponent(taskId)}/${action}`,
         {
@@ -330,10 +388,41 @@ export function useTaskAction() {
           body: JSON.stringify({
             revision,
             ...(confirmedMinutes != null ? { confirmed_minutes: confirmedMinutes } : {}),
+            ...(attempt != null ? { attempt } : {}),
           }),
         },
       ),
     onSuccess: (next) => qc.setQueryData(["planner_session"], next),
+    onError: (err) => adoptConflictState(qc, err),
+  });
+}
+
+/**
+ * Turn a built plan into the body POST /sessions expects (US-3176 AC1).
+ *
+ * The estimates travel as SNAPSHOTS of what the plan was built on, and the
+ * server says plainly that it does not trust the client's arithmetic -- it
+ * re-checks ownership and keeps these only for the record. Sending them anyway
+ * is what makes a session still readable after the item's price changes: the
+ * row says what the seller was told when they agreed to the work.
+ */
+export function planToSessionTasks(plan: PreparedPlan): Record<string, unknown>[] {
+  const ranked = new Map(plan.ranked.map((r) => [r.key, r]));
+  const candidates = new Map(plan.candidates.map((c) => [c.itemId, c]));
+  return plan.plan.tasks.map((t) => {
+    const r = ranked.get(t.key);
+    const c = r ? candidates.get(r.itemId) : undefined;
+    const d = r ? estimateDuration({ action: r.action as never }) : null;
+    return {
+      inventory_item_id: r?.itemId ?? null,
+      item_title: c?.itemTitle ?? null,
+      action_key: r?.action ?? null,
+      prerequisite_keys: r?.prerequisiteKeys ?? [],
+      bin: c?.bin?.value ?? null,
+      estimate_minutes: d && !isUnestimated(d) ? d.typical : null,
+      estimate_value_cents: r?.conservativeCents ?? null,
+      estimate_source: r?.tier ?? null,
+    };
   });
 }
 

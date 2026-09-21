@@ -140,8 +140,20 @@ async function mockBackend(page: Page, opts: { items?: unknown[] } = {}) {
 
   const rows = opts.items ?? ITEMS;
   await page.route("**/rest/v1/items_full**", (r) => {
-    const offset = new URL(r.request().url()).searchParams.get("offset");
-    const start = Number.parseInt(offset ?? "0", 10) || 0;
+    const url = new URL(r.request().url());
+    // HONOUR `id=eq.<id>`. Without it every single-row read got all three
+    // items back, `.maybeSingle()` refused the multi-row answer, and the item
+    // page rendered its connection-error state -- which reads as a routing bug
+    // and is a mock that answers the wrong question.
+    const idFilter = url.searchParams.get("id");
+    if (idFilter?.startsWith("eq.")) {
+      const id = idFilter.slice(3);
+      const match = rows.filter((x) => (x as { id?: string }).id === id);
+      return r.fulfill({
+        status: 200, contentType: "application/json", body: JSON.stringify(match),
+      });
+    }
+    const start = Number.parseInt(url.searchParams.get("offset") ?? "0", 10) || 0;
     return r.fulfill({
       status: 200, contentType: "application/json",
       body: JSON.stringify(start === 0 ? rows : []),
@@ -163,7 +175,14 @@ async function dismissOverlays(page: Page) {
     await accept.click();
     await expect(accept).toBeHidden();
   }
-  await page.getByRole("button", { name: /^skip$/i }).click({ timeout: 8_000 }).catch(() => {});
+  // "Skip tour", not /^skip$/i. The loose pattern (copied from
+  // flipdesk-lifecycle.spec.ts) matched the session runner's own Skip button
+  // and silently skipped the seller's first job before every session test --
+  // which reads on screen as an empty plan rather than as a click. The tour's
+  // button has said "Skip tour" all along (onboarding-flow.tsx:555), so the
+  // loose pattern was never matching the thing it was written for.
+  await page.getByRole("button", { name: /skip tour/i })
+    .click({ timeout: 8_000 }).catch(() => {});
 }
 
 test("worth my time: the picker turns minutes into a readable plan", async ({ page }) => {
@@ -188,7 +207,7 @@ test("worth my time: the picker turns minutes into a readable plan", async ({ pa
     .toBeVisible();
   await expect(page.getByText("Carhartt Detroit jacket").first()).toBeVisible();
   await expect(page.getByRole("link", { name: /Open item/ }).first())
-    .toHaveAttribute("href", /\/dashboard\/flipdesk\/item\//);
+    .toHaveAttribute("href", /\/dashboard\/flipdesk\/items\//);
 
   // The pull list names the bin, never a route or a distance.
   await expect(page.getByText("Bring these over")).toBeVisible();
@@ -274,3 +293,262 @@ test("worth my time: usable at 375px with no horizontal scroll", async ({ page }
   await expect(page.getByText("Carhartt Detroit jacket").first()).toBeVisible();
   await expect(page.getByRole("button", { name: "30 minutes" })).toBeVisible();
 });
+
+// ── The session (R1 11/12, US-3176 AC7) ─────────────────────────────────────
+//
+// Everything below runs against a FAKE SERVER that holds state between
+// requests, rather than a per-call stub. That is the point: the story is about
+// pausing, reloading and coming back, and a stub that answers the same thing
+// every time cannot tell a restored session from a re-rendered one.
+
+interface FakeTask {
+  id: string;
+  position: number;
+  state: string;
+  action_key: string;
+  inventory_item_id: string | null;
+  item_title: string | null;
+  bin: string | null;
+  estimate_minutes: number | null;
+  estimate_value_cents: number | null;
+  confirmed_minutes: number | null;
+  actionable: boolean;
+}
+
+function fakeTask(over: Partial<FakeTask> = {}): FakeTask {
+  return {
+    id: "task-1",
+    position: 1,
+    state: "pending",
+    action_key: "measure",
+    inventory_item_id: "w1",
+    item_title: "Carhartt Detroit jacket",
+    bin: "A-14",
+    estimate_minutes: 5,
+    estimate_value_cents: 4800,
+    confirmed_minutes: null,
+    actionable: true,
+    ...over,
+  };
+}
+
+/**
+ * A planner server that remembers.
+ *
+ * `conflictOnce` makes the next task action answer 409 WITH the true session,
+ * which is how the real router reports a stale revision. The client must adopt
+ * that state rather than re-POSTing to discover what happened.
+ */
+async function mockPlanner(
+  page: Page,
+  opts: {
+    state?: string;
+    tasks?: FakeTask[];
+    conflictOnce?: boolean;
+    failRead?: boolean;
+  } = {},
+) {
+  const world = {
+    session: { id: "s1", state: opts.state ?? "active", budget_minutes: 30, revision: 4 },
+    tasks: opts.tasks ?? [fakeTask()],
+    conflictOnce: opts.conflictOnce ?? false,
+  };
+  const body = () => JSON.stringify({ session: world.session, tasks: world.tasks });
+
+  await page.route("**/api/flipdesk/planner/**", async (route) => {
+    const url = new URL(route.request().url());
+    const path = url.pathname;
+
+    if (path.endsWith("/sessions/current")) {
+      if (opts.failRead) {
+        return route.fulfill({
+          status: 500,
+          contentType: "application/json",
+          body: JSON.stringify({ error: "upstream" }),
+        });
+      }
+      return route.fulfill({ status: 200, contentType: "application/json", body: body() });
+    }
+
+    const sessionAction = /\/sessions\/[^/]+\/([a-z]+)$/.exec(path);
+    if (sessionAction) {
+      const action = sessionAction[1]!;
+      world.session.state = action === "pause"
+        ? "paused"
+        : action === "resume"
+        ? "active"
+        : action === "complete"
+        ? "completed"
+        : world.session.state;
+      if (world.session.state !== "active") {
+        for (const t of world.tasks) if (t.state === "active") t.state = "pending";
+      }
+      world.session.revision += 1;
+      return route.fulfill({ status: 200, contentType: "application/json", body: body() });
+    }
+
+    const taskAction = /\/tasks\/([^/]+)\/([a-z]+)$/.exec(path);
+    if (taskAction) {
+      if (world.conflictOnce) {
+        world.conflictOnce = false;
+        world.session.revision = 99;
+        return route.fulfill({
+          status: 409,
+          contentType: "application/json",
+          body: JSON.stringify({
+            error: "Someone else changed this session while you were working.",
+            code: "stale_revision",
+            session: world.session,
+            tasks: world.tasks,
+          }),
+        });
+      }
+      const [, taskId, action] = taskAction as unknown as [string, string, string];
+      const t = world.tasks.find((x) => x.id === taskId);
+      if (t) {
+        if (action === "start") t.state = "active";
+        if (action === "skip") t.state = "skipped";
+        if (action === "complete") {
+          t.state = "completed";
+          const payload = route.request().postDataJSON() as { confirmed_minutes?: number };
+          t.confirmed_minutes = payload?.confirmed_minutes ?? null;
+        }
+      }
+      world.session.revision += 1;
+      return route.fulfill({ status: 200, contentType: "application/json", body: body() });
+    }
+
+    return route.fulfill({ status: 200, contentType: "application/json", body: "{}" });
+  });
+}
+
+test("session: start a job, then say how long it really took", async ({ page }) => {
+  await mockBackend(page);
+  await mockPlanner(page);
+  await login(page);
+  await page.goto("/dashboard/flipdesk/worth-my-time");
+  await dismissOverlays(page);
+
+  const runner = page.locator("section", { has: page.getByRole("heading", { name: "Working through your plan" }) });
+  await expect(runner).toBeVisible();
+  await expect(runner).toContainText("Carhartt Detroit jacket");
+
+  await page.getByRole("button", { name: /Start this one/ }).click();
+  await page.getByRole("button", { name: /^Done$/ }).click();
+
+  // Done opens the question rather than banking the clock.
+  await expect(page.getByText("How long did that actually take?")).toBeVisible();
+  const minutes = page.locator("#wmt-minutes");
+  await minutes.fill("12");
+  await page.getByRole("button", { name: /Save and move on/ }).click();
+
+  // The server took the seller's number, and the screen shows its answer.
+  await expect(page.getByText("Nothing left to do in this session.")).toBeVisible();
+});
+
+test("session: a pause survives a full page reload", async ({ page }) => {
+  await mockBackend(page);
+  await mockPlanner(page);
+  await login(page);
+  await page.goto("/dashboard/flipdesk/worth-my-time");
+  await dismissOverlays(page);
+
+  await page.getByRole("button", { name: /^Pause$/ }).click();
+  await expect(page.getByRole("heading", { name: "Paused" })).toBeVisible();
+
+  // A REAL reload, not a re-render. The screen keeps nothing of its own, so
+  // this is the whole test of durability.
+  await page.reload();
+  await dismissOverlays(page);
+  await expect(page.getByRole("heading", { name: "Paused" })).toBeVisible();
+  await expect(page.getByRole("button", { name: /Pick up where I left off/ })).toBeVisible();
+});
+
+test("session: opening the item carries the way back", async ({ page }) => {
+  await mockBackend(page);
+  await mockPlanner(page);
+  await login(page);
+  await page.goto("/dashboard/flipdesk/worth-my-time");
+  await dismissOverlays(page);
+
+  const open = page.getByRole("link", { name: /Open item/ }).first();
+  await expect(open).toHaveAttribute(
+    "href",
+    "/dashboard/flipdesk/items/w1?back=%2Fdashboard%2Fflipdesk%2Fworth-my-time",
+  );
+  await open.click();
+  // The item page reads the param and says where it goes.
+  await expect(page.getByRole("button", { name: /Back to your session/ })).toBeVisible();
+});
+
+test("session: a stale revision corrects the screen instead of re-sending", async ({ page }) => {
+  await mockBackend(page);
+  await mockPlanner(page, { conflictOnce: true });
+  const posts: string[] = [];
+  page.on("request", (r) => {
+    if (r.method() === "POST" && r.url().includes("/planner/tasks/")) posts.push(r.url());
+  });
+  await login(page);
+  await page.goto("/dashboard/flipdesk/worth-my-time");
+  await dismissOverlays(page);
+
+  await page.getByRole("button", { name: /Start this one/ }).click();
+  await expect(page.getByRole("alert")).toContainText("Someone else changed this session");
+  await expect(page.getByRole("alert")).toContainText("up to date now");
+  // Exactly one. Replaying to find out what happened is how one attempt lands
+  // twice.
+  expect(posts).toHaveLength(1);
+});
+
+test("session: a failed read says nothing is lost", async ({ page }) => {
+  await mockBackend(page);
+  await mockPlanner(page, { failRead: true });
+  await login(page);
+  await page.goto("/dashboard/flipdesk/worth-my-time");
+  await dismissOverlays(page);
+
+  await expect(page.getByText(/Nothing is lost/)).toBeVisible();
+  await expect(page.getByRole("button", { name: /Try again/ })).toBeVisible();
+});
+
+test("session: keyboard alone runs it", async ({ page }) => {
+  await mockBackend(page);
+  await mockPlanner(page);
+  await login(page);
+  await page.goto("/dashboard/flipdesk/worth-my-time");
+  await dismissOverlays(page);
+
+  const start = page.getByRole("button", { name: /Start this one/ });
+  await expect(start).toBeVisible();
+  await start.focus();
+  await expect(start).toBeFocused();
+  await page.keyboard.press("Enter");
+  await expect(page.getByRole("button", { name: /^Done$/ })).toBeVisible();
+
+  await page.keyboard.press("Tab");
+  await page.keyboard.press("Tab");
+  // Whatever holds focus after tabbing is a real, named control.
+  const name = await page.evaluate(() => {
+    const el = document.activeElement as HTMLElement | null;
+    return (el?.textContent?.trim() || el?.getAttribute("aria-label") || "").slice(0, 40);
+  });
+  expect(name.length).toBeGreaterThan(0);
+});
+
+test("session: usable at 375px with no horizontal scroll", async ({ page }) => {
+  await page.setViewportSize({ width: 375, height: 812 });
+  await mockBackend(page);
+  await mockPlanner(page);
+  await login(page);
+  await page.goto("/dashboard/flipdesk/worth-my-time");
+  await dismissOverlays(page);
+
+  await expect(page.getByRole("heading", { name: "Working through your plan" })).toBeVisible();
+  await expect(page.getByRole("button", { name: /Start this one/ })).toBeVisible();
+  const overflow = await page.evaluate(() =>
+    document.documentElement.scrollWidth - document.documentElement.clientWidth);
+  expect(overflow).toBeLessThanOrEqual(1);
+});
+
+
+

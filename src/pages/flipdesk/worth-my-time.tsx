@@ -24,11 +24,16 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { SEO } from "@/components/seo";
 import {
+  planToSessionTasks,
   useBuildPlan,
+  useCurrentSession,
   useSaveWorkPreferences,
+  useStartSession,
   useWorkPreferences,
   type PreparedPlan,
 } from "@/hooks/use-planner";
+import { SessionRunner } from "@/components/flipdesk/session-runner";
+import { itemHref } from "@/lib/session-links";
 import { estimateDuration, isUnestimated } from "@/lib/work-duration";
 import { UNKNOWN_BIN_LABEL } from "@/lib/work-batching";
 
@@ -55,16 +60,12 @@ function money(cents: number | null): string | null {
   return `$${(cents / 100).toFixed(2)}`;
 }
 
-function actionHref(itemId: string | null): string {
-  // The EXISTING item route. No destination is invented here, and an action
-  // this screen cannot open is simply not linked (AC4).
-  return itemId ? `/dashboard/flipdesk/items/${itemId}` : "/dashboard/flipdesk/inventory";
-}
-
 export function WorthMyTimePage() {
   const prefs = useWorkPreferences();
   const savePrefs = useSaveWorkPreferences();
   const build = useBuildPlan();
+  const currentSession = useCurrentSession();
+  const startSession = useStartSession();
   const [custom, setCustom] = useState("");
   const [plan, setPlan] = useState<PreparedPlan | null>(null);
 
@@ -104,6 +105,27 @@ export function WorthMyTimePage() {
       toastError(err, "Couldn't build a plan just now.");
     }
   }
+
+  async function beginSession() {
+    if (!plan || plan.plan.tasks.length === 0) return;
+    try {
+      await startSession.mutateAsync({
+        budget_minutes: plan.budgetMinutes,
+        work_context: context,
+        available_tools: tools,
+        tasks: planToSessionTasks(plan),
+      });
+    } catch (err) {
+      toastError(err, "Couldn't start that session just now.");
+    }
+  }
+
+  // One session at a time, which is the server's rule too (00818 has a partial
+  // unique index for it). Offering Start while one is open would produce a
+  // refusal the seller could do nothing useful with.
+  const sessionOpen = ["planned", "active", "paused"].includes(
+    currentSession.data?.session?.state ?? "",
+  );
 
   const scheduled = plan?.plan.tasks ?? [];
   const rankedByKey = useMemo(
@@ -175,6 +197,8 @@ export function WorthMyTimePage() {
         </p>
       </section>
 
+      <SessionRunner />
+
       {prefs.isError && (
         <p role="alert" className="text-sm text-destructive">
           We couldn't load your setup. The planner will use sensible defaults
@@ -196,6 +220,18 @@ export function WorthMyTimePage() {
               Times and values are estimates, not earnings.
             </p>
           </div>
+
+          {scheduled.length > 0 && !sessionOpen && (
+            <Button
+              disabled={startSession.isPending}
+              onClick={() => void beginSession()}
+            >
+              {startSession.isPending
+                ? <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                : null}
+              Start working through this
+            </Button>
+          )}
 
           {plan.plan.conflicts.map((c) => (
             <p
@@ -278,7 +314,7 @@ export function WorthMyTimePage() {
                     )}
                   </div>
                   <Button variant="outline" size="sm" asChild>
-                    <Link to={actionHref(task.itemId)}>
+                    <Link to={itemHref(task.itemId)}>
                       Open item <ArrowRight className="ml-1 h-3 w-3" />
                     </Link>
                   </Button>
