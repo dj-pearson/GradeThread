@@ -87,7 +87,29 @@ for (const platform of Object.keys(SEL)) {
   const a = SEL[platform];
   assert.ok(a.closet && a.closet.urlPattern && a.closet.ownClosetTell && a.closet.tile, `${platform}: closet flow incomplete`);
   assert.ok(a.detail && a.detail.urlPattern && a.detail.ownListingTell && a.detail.title, `${platform}: detail flow incomplete`);
-  assert.ok(a.urlUpgrade && a.urlUpgrade.pattern, `${platform}: no photo URL-upgrade rule; thumbnails would pass as photos`);
+  // An adapter either rewrites a thumbnail URL into the full render, or it
+  // says in a sentence why no rewrite is possible and then does not read the
+  // tile's cover photo at all.
+  //
+  // US-3460. This used to require a urlUpgrade rule from everyone, and Vinted
+  // cannot have one: its CDN signs the render size INTO the path
+  // (/t/<token>/310x430/<n>.webp?s=<sig>), so swapping the segment produces a
+  // URL the server refuses to serve -- measured, along with the tile having no
+  // srcset and no larger render anywhere. A rule invented to satisfy this line
+  // would have shipped broken URLs while reading as compliant, which is worse
+  // than the thumbnails it is written to prevent.
+  const upgrades = Boolean(a.urlUpgrade && a.urlUpgrade.pattern);
+  assert.ok(
+    upgrades || typeof a.photosAlreadyFullSize === "string",
+    `${platform}: no photo URL-upgrade rule and no photosAlreadyFullSize sentence; thumbnails would pass as photos`,
+  );
+  if (!upgrades) {
+    assert.ok(
+      !(a.closet && a.closet.fields && a.closet.fields.image),
+      `${platform}: cannot upgrade a photo URL, so it must not read the closet tile's cover ` +
+        "photo. A tile render that is under the server's 500px floor is refused on every row.",
+    );
+  }
   assert.strictEqual(a.verified, false, `${platform}: verified must stay false until a human runs vault/10-ops/extension-adapter-verification.md`);
 }
 

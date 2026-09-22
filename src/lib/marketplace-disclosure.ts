@@ -113,7 +113,10 @@ export function marketplaceDisclosureFor(
 // host allowlist) and this list did not, so the web card never offered it and
 // the only way to reach a Grailed import was the extension popup. The two lists
 // are checked against each other in src/test/closet-import-platform-parity.test.ts.
-export const CLOSET_IMPORT_PLATFORMS = ["poshmark", "mercari", "grailed"] as const;
+// US-3460: vinted joins in the same commit as the edge list, the origin CHECK
+// widening (00822) and the extension adapter, which is what US-3261 says the
+// cost of doing otherwise is.
+export const CLOSET_IMPORT_PLATFORMS = ["poshmark", "mercari", "grailed", "vinted"] as const;
 export type ClosetImportPlatform = (typeof CLOSET_IMPORT_PLATFORMS)[number];
 
 /**

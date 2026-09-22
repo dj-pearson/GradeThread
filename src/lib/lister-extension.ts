@@ -1060,7 +1060,7 @@ export interface ClosetImportResponse extends ExtensionResponse {
 }
 
 export function sendClosetImport(
-  platform: "poshmark" | "mercari" | "grailed",
+  platform: ClosetImportPlatform,
 ): Promise<ClosetImportResponse> {
   return sendExtensionMessage<ClosetImportResponse>({ type: "GT_CLOSET_IMPORT", platform });
 }

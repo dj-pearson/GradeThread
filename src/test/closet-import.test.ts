@@ -16,7 +16,7 @@ const ROOT = join(__dirname, "..", "..");
 const read = (p: string) => readFileSync(join(ROOT, p), "utf8");
 
 describe("closet import disclosure", () => {
-  it("covers the three closets the extension can read, and nothing else", () => {
+  it("covers the four closets the extension can read, and nothing else", () => {
     // US-3261 added grailed, which the edge had accepted since US-3155 while
     // this list did not offer it. Parity with the edge list is asserted in
     // src/test/closet-import-platform-parity.test.ts; this one holds the
@@ -25,6 +25,7 @@ describe("closet import disclosure", () => {
       "poshmark",
       "mercari",
       "grailed",
+      "vinted",
     ]);
   });
 

@@ -72,7 +72,35 @@ stronger claim for one of them, `check-prod-migration.ts` is the tool.
 Nothing below 00786 was touched, and the six genuinely-held branches in the next
 section are unchanged and still waiting.
 
-## 🔴 HELD: 00821_one_open_grade_per_item.sql (US-3214 - double-click grading)
+## ✅ APPLIED 2026-09-22 (owner, reported applied in session): 00822_closet_import_vinted_origin.sql (US-3460 - Vinted closet import)
+
+**What it does.** Drops and re-adds `flipdesk_import_runs_origin_check` with
+`'vinted'` added to the seven permitted values. Nothing else. No table, no
+column, no backfill.
+
+**Why it is first and not last.** The closet-import route writes
+`origin: platform` into `flipdesk_import_runs`. Grailed shipped the other way
+round: US-3155 added it to the platform list, the CHECK still listed five
+values, and every Grailed import failed at the INSERT with 23514 while the
+seller read "Could not start the import." That ran for months (US-3261). The
+rule out of it, written into `vault/30-platform/import-sources.md`, is widen
+the CHECK FIRST on any new import origin.
+
+**Idempotent.** The constraint is named, so `DROP CONSTRAINT IF EXISTS` then
+`ADD CONSTRAINT`. Re-running it rewrites the same definition.
+
+**Risk: LOW.** The constraint only widens. Every value it permitted before it
+still permits, which `closet-import-origin_test.ts` asserts for
+`csv`/`sheet`/`paste` specifically. The re-add revalidates existing rows, and
+they all hold one of the old six values.
+
+**Apply BEFORE the edge deploy that carries this commit.** The edge in the
+same commit adds `vinted` to `CLOSET_IMPORT_PLATFORMS`, so with the code
+deployed and the constraint unwidened, a Vinted import starts and dies at the
+insert. With the constraint widened and the code not yet deployed, nothing
+happens at all, which is the safe direction.
+
+## ✅ APPLIED 2026-09-22 (owner, reported applied in session): 00821_one_open_grade_per_item.sql (US-3214 - double-click grading)
 
 **EXECUTED 2026-09-21 against a local Postgres 16** carrying all 813
 migrations from zero, with `ON_ERROR_STOP=1`. Applied twice; the second run
@@ -141,7 +169,7 @@ select inventory_item_id, count(*)
 -- expect zero rows
 ```
 
-## 🔴 HELD: 00820_work_overrides.sql (US-3182 - Worth My Time R2 05/06)
+## ✅ APPLIED 2026-09-22 (owner, reported applied in session): 00820_work_overrides.sql (US-3182 - Worth My Time R2 05/06)
 
 **EXECUTED 2026-09-21 against a local Postgres 16** carrying all 812
 migrations from zero, with `ON_ERROR_STOP=1`. Applied twice; the second run
@@ -210,7 +238,7 @@ select count(*) from pg_policies
 -- service-role through owner-verified routes
 ```
 
-## 🔴 HELD: 00819_one_open_work_session.sql (US-3177 - Worth My Time R1 12/12)
+## ✅ APPLIED 2026-09-22 (owner, reported applied in session): 00819_one_open_work_session.sql (US-3177 - Worth My Time R1 12/12)
 
 **Fixes a defect in 00818, which is also still held — so the two land
 together and 00819 goes second.**
@@ -287,7 +315,7 @@ database had three duplicate open sessions from the end-to-end run at the
 time, and it closed two of them. The edge then booted against it and its
 schema guard reported `DB at 00819 matches expected 00819`.
 
-## 🔴 HELD: 00818_work_sessions.sql (US-3167 - Worth My Time R1 02/12)
+## ✅ APPLIED 2026-09-22 (owner, reported applied in session): 00818_work_sessions.sql (US-3167 - Worth My Time R1 02/12)
 
 **EXECUTED 2026-09-21 against a local Postgres 16** carrying all 810
 migrations from zero. Applied twice; the second run logged nine
@@ -346,7 +374,7 @@ where conname = 'flipdesk_work_session_tasks_inventory_item_id_fkey';
 
 **Not applied yet, so the story stays open on its operator step.**
 
-## 🔴 HELD: 00817_work_preferences.sql (US-3166 - Worth My Time R1 01/12)
+## ✅ APPLIED 2026-09-22 (owner, reported applied in session): 00817_work_preferences.sql (US-3166 - Worth My Time R1 01/12)
 
 **EXECUTED 2026-09-21 against a local Postgres 16** carrying all 809
 migrations from zero, 0 failures. Applied twice more; both runs changed
@@ -402,7 +430,7 @@ null in the PATCH body does.
 
 **Not applied yet, so the story stays open on its operator step.**
 
-## 🔴 HELD: 00816_easypost_label_provider.sql (US-3015 - EasyPost as the second label provider)
+## ✅ APPLIED 2026-09-22 (owner, reported applied in session): 00816_easypost_label_provider.sql (US-3015 - EasyPost as the second label provider)
 
 **Risk: LOW-MEDIUM.** One new deny-all table, two nullable columns on `sales`,
 one CHECK constraint, one backfill UPDATE, two indexes, one trigger. Nothing

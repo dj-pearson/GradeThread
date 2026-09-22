@@ -11,14 +11,14 @@ code_refs:
   - services/edge-functions/src/lib/closet-import.ts
   - services/edge-functions/src/lib/closet-import-run.ts
   - services/edge-functions/src/tests/import-sources-note_test.ts
-reviewed: 2026-09-11
+reviewed: 2026-09-22
 tags: [flipdesk, import, photos, oauth, storage, contract]
 summary: Every shipped import source with its route, its auth model, what it can and cannot carry and which bucket it writes to; which paths converge on the shared photo core and which deliberately do not; and what blocks Depop, Etsy and Google Drive.
 ---
 
 # Import sources
 
-Eleven ways a seller's inventory or photos get in, four auth models between
+Twelve ways a seller's inventory or photos get in, four auth models between
 them, one storage bucket. This note is the list, and it carries two rules:
 
 1. **A new import source lands a row in the table below in the same commit.**
@@ -46,6 +46,7 @@ or a `CloudProviderId`. Routes are relative to `https://functions.gradethread.co
 | `poshmark` | closet read by the browser extension | `POST /api/flipdesk/closet-import/runs` | extension token, minted on the seller's own machine, plus the seller's own logged-in marketplace tab | title, description, brand, size, listed condition text, price, listing URL, up to 8 photos per listing; no cost basis | `item-photos` |
 | `mercari` | closet read by the browser extension | `POST /api/flipdesk/closet-import/runs` | extension token plus the seller's own logged-in tab | same as `poshmark` | `item-photos` |
 | `grailed` | closet read by the browser extension | `POST /api/flipdesk/closet-import/runs` | extension token plus the seller's own logged-in tab | same as `poshmark` | `item-photos` |
+| `vinted` | wardrobe read by the browser extension | `POST /api/flipdesk/closet-import/runs` | extension token plus the seller's own logged-in tab | title, price and listing URL from the wardrobe tile; brand, size, listed condition text, description and up to 8 photos from the seller's own item page; no cost basis | `item-photos` |
 | `sheet-sync` | the seller's own mapped spreadsheet, pulled | `POST /api/flipdesk/google/sync/now` | Google OAuth grant we hold, scopes `drive.file` and `spreadsheets`, refresh token AES-GCM encrypted in `google_connections` | whatever the seller's column map names; see [[google-sheets-sync]] | none (no photos) |
 | `google-photos` | Google Photos picker | `GET /api/flipdesk/google/photos/oauth/start`, `POST /api/flipdesk/google/photos/import` | Google OAuth grant we hold (`photospicker.mediaitems.readonly`) plus a 30-minute picker session the seller drives in a Google-hosted page | photos and capture time, nothing else | `item-photos` staging |
 | `dropbox` | a Dropbox folder | `GET /api/flipdesk/cloud/dropbox/oauth/start`, `POST /api/flipdesk/cloud/dropbox/import` | Dropbox OAuth grant we hold (`files.metadata.read`, `files.content.read`), encrypted in `cloud_storage_connections` | photos and capture time, nothing else | `item-photos` staging |
@@ -56,7 +57,7 @@ or a `CloudProviderId`. Routes are relative to `https://functions.gradethread.co
 
 ## The four auth models, which are the part worth knowing
 
-Deciding how to add source twelve is a question about this column, not about
+Deciding how to add source thirteen is a question about this column, not about
 the list.
 
 - **A grant we hold.** Google Photos, Dropbox, OneDrive, Sheets sync. The
@@ -69,8 +70,8 @@ the list.
   blocked on whether we adopt it (below). It is the Picker shape: the page gets
   a narrow access token and the server never sees the folder.
 - **An extension session on the seller's own machine.** Poshmark, Mercari,
-  Grailed. We hold no marketplace credential at all. The extension reads a page
-  the seller already has open and posts with its own signed token, so the mount
+  Grailed, Vinted. We hold no marketplace credential at all. The extension
+  reads a page the seller already has open and posts with its own token, so the mount
   takes `extensionOrUserAuthMiddleware` rather than the ordinary session
   middleware. The refusal that matters here is the owner-only check: an
   adapter reads a shop page only when it can prove the page is the seller's
@@ -83,6 +84,19 @@ the list.
   once a day per marketplace, switchable off in the extension's Options
   (`closet-import/auto-plan.js` holds the decision). Still no tab opened for
   them, still nothing on a timer, still the owner tell deciding the read.
+  **What Vinted added to this model (US-3460, 2026-09-22): a closet tile is not
+  guaranteed to carry a usable photo, and an upgrade rule is not always
+  possible.** Vinted signs the render size into the photo path
+  (`images1.vinted.net/t/<token>/310x430/<n>.webp?s=<sig>`), and the signature
+  covers the path, so swapping `310x430` for `f800` returns a URL the CDN
+  refuses. Measured: the item page's `f800` loads at 600x800; every rewrite of
+  it, and the URL with `?s=` removed, fails. The tile's one render is 310x430,
+  under the server's 500px floor, with no `srcset` and no `data-src` beside it.
+  So the Vinted adapter carries no `urlUpgrade`, does not read the tile photo
+  at all, and states why in `photosAlreadyFullSize`, which
+  `closet-import-manifest.test.cjs` accepts in place of a rule. A Vinted
+  wardrobe read therefore brings titles, prices and links; the photos arrive
+  when the seller's own item page is read.
 - **No third-party auth.** CSV, paste, and the phone capture token. The
   spreadsheet ones carry nothing to steal. The capture token is the whole
   credential on a public route, so it is 32 random bytes, stored hashed, bound
@@ -167,7 +181,7 @@ on something no code change reaches.
 
 | would-be source | blocker |
 |---|---|
-| Depop closet import (US-3154) | Two. The `flipdesk_import_runs_origin_check` constraint permits six values and `depop` is not one, so a run would fail at the insert with 23514 and the build blocks it first; widening it is a migration with the US-1108 triple. And the owner-only tell for a seller's own Depop shop page is still unknown, and it must be read off a live signed-in account, never guessed, or the adapter reads a stranger's shop into the seller's catalogue. The verified tile and JSON-LD selectors are already recorded on the story. |
+| Depop closet import (US-3154) | Two. The `flipdesk_import_runs_origin_check` constraint permits seven values and `depop` is not one, so a run would fail at the insert with 23514 and the build blocks it first; widening it is a migration with the US-1108 triple. And the owner-only tell for a seller's own Depop shop page is still unknown, and it must be read off a live signed-in account, never guessed, or the adapter reads a stranger's shop into the seller's catalogue. The verified tile and JSON-LD selectors are already recorded on the story. |
 | Etsy listing import (US-3156) | External approval. `ETSY_KEYSTRING` is unset, `isEtsyEnabled()` returns false, and `MARKETPLACE_TIER.etsy` reads `api_pending`. It also needs the same origin widening, and the listing-image field name cannot be written honestly from this repo: nothing here ever reads a listing resource back. The unblocked substitute is the `etsy` CSV preset, which needs no approval. |
 | Google Drive folder import (US-3158) | An owner decision. `drive.readonly` is a Google RESTRICTED scope, so the non-restricted path is the browser-side Picker, and that costs a new `google_drive_connections` table, three CSP widenings in `public/_headers` and a Picker API key. Dropbox and OneDrive went first precisely because neither has this problem. |
 

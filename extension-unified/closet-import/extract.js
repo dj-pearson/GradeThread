@@ -83,6 +83,14 @@
       const m = path.match(/\/listings\/(\d{5,})(?:-|\/|$)/i);
       return m ? m[1] : null;
     }
+    if (platform === "vinted") {
+      // /items/9967483973-toadco-womens-size-10-gray-corduroy-stretch-pants-low
+      // The numeric id leads the slug, like Grailed's. Read off a live listing
+      // 2026-09-22. Must stay identical to the edge's copy in
+      // lib/closet-import.ts.
+      const m = path.match(/\/items\/(\d{5,})(?:-|\/|$)/i);
+      return m ? m[1] : null;
+    }
     return null;
   }
 
@@ -118,6 +126,43 @@
     } catch (_e) {
       return url;
     }
+  }
+
+  /**
+   * Everything before the first match of `pattern`, or the text unchanged.
+   *
+   * US-3460. Vinted's own wardrobe renders no title text at all: the tile's
+   * two text lines are the view and favourite counts, and the title lives only
+   * in the overlay link's `title` attribute, joined to the rest of the card as
+   * "<title>, brand: X, condition: Y, size: Z, $28.00". The LABELS are
+   * localised across Vinted's 22 hosts; the shape ", <label>: " is not, so the
+   * adapter cuts on the shape.
+   *
+   * Lives here rather than in the content script for the reason the whole file
+   * exists: it is a parsing decision, and a parsing decision has to be
+   * provable without a browser. A bad pattern returns the text unchanged
+   * rather than throwing into the read loop, the same posture applyUrlUpgrade
+   * takes.
+   */
+  function cutBefore(text, pattern) {
+    if (typeof text !== "string" || !text) return text;
+    if (typeof pattern !== "string" || !pattern) return text;
+    let re;
+    try {
+      re = new RegExp(pattern);
+    } catch (_e) {
+      return text;
+    }
+    let m;
+    try {
+      m = re.exec(text);
+    } catch (_e) {
+      return text;
+    }
+    // A match at index 0 would cut the whole string away; that is a broken
+    // pattern, not an empty title, and an empty title drops the row silently.
+    if (!m || m.index <= 0) return text;
+    return text.slice(0, m.index).trim();
   }
 
   /** Largest candidate of a srcset, or null. */
@@ -268,6 +313,7 @@
     listingIdFromUrl: listingIdFromUrl,
     parsePriceCents: parsePriceCents,
     applyUrlUpgrade: applyUrlUpgrade,
+    cutBefore: cutBefore,
     srcsetLargest: srcsetLargest,
     pickImageUrl: pickImageUrl,
     dedupeUrls: dedupeUrls,

@@ -81,17 +81,41 @@
     }
   }
 
-  /** Text of the first match, or null. Never an element, never its HTML. */
-  function textOf(scope, selector) {
-    if (!selector) return null;
+  /**
+   * Text of the first match, or null. Never an element, never its HTML.
+   *
+   * A field is either a CSS selector, or `{ selector, attr, cut }` when the
+   * value is in an ATTRIBUTE rather than in text (US-3460: Vinted's own
+   * wardrobe tile prints view and favourite counts, and carries the listing
+   * title only in the overlay link's `title`). `cut` trims a suffix off that
+   * attribute through extract.js, which is where the parsing rule is tested.
+   *
+   * Still text out, always: an attribute value is a string, and nothing here
+   * can return an element or its markup.
+   */
+  function textOf(scope, field) {
+    if (!field) return null;
+    const spec = typeof field === "string" ? { selector: field } : field;
+    if (!spec.selector) return null;
     let el;
     try {
-      el = scope.querySelector(selector);
+      el = scope.querySelector(spec.selector);
     } catch (_e) {
       return null;
     }
     if (!el) return null;
-    const t = (el.textContent || "").trim();
+    let raw;
+    if (spec.attr) {
+      try {
+        raw = el.getAttribute ? el.getAttribute(spec.attr) : null;
+      } catch (_e) {
+        raw = null;
+      }
+    } else {
+      raw = el.textContent;
+    }
+    let t = (raw || "").trim();
+    if (t && spec.cut) t = (EXTRACT.cutBefore(t, spec.cut) || "").trim();
     return t || null;
   }
 

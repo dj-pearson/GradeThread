@@ -144,6 +144,60 @@ const POSH_ID = "5f1e2d3c4b5a69788796a5b4";
   assert.deepStrictEqual(X.dedupeUrls(["https://x/a", "https://x/a"], 5, "("), ["https://x/a"]);
 }
 
+// ── cutBefore, and the Vinted id shape (US-3460) ──────────────────────────
+{
+  const CUT = SEL.vinted.closet.fields.title.cut;
+  const cut = (s) => X.cutBefore(s, CUT);
+
+  assert.strictEqual(
+    cut("Toad&Co Women's Size 10 Gray Corduroy Stretch Pants Low, brand: Toad & co, condition: Good, size: M, $28.00"),
+    "Toad&Co Women's Size 10 Gray Corduroy Stretch Pants Low",
+    "the English tile attribute",
+  );
+  assert.strictEqual(
+    cut("Nike USA Soccer Jersey 3XL Blue Tie-Dye, brand: Nike, condition: Good, size: XXXL, $40.00"),
+    "Nike USA Soccer Jersey 3XL Blue Tie-Dye",
+  );
+  // The labels are localised across the 22 hosts; the ", label: " shape is not.
+  assert.strictEqual(cut("Pantalon corduroy, marque: Toad & co, état: Bon, $28.00"), "Pantalon corduroy");
+  assert.strictEqual(cut("Hose, Marke: Nike, Zustand: Gut"), "Hose");
+  // A title with no labelled tail survives whole.
+  assert.strictEqual(cut("Plain title with no tail"), "Plain title with no tail");
+  // A comma with no colon after it is not a cut point.
+  assert.strictEqual(cut("Blue, green and red tee"), "Blue, green and red tee");
+  // Refusals: a match at index 0 would cut the title to nothing, which reads
+  // downstream as "no title" and drops the row silently.
+  assert.strictEqual(X.cutBefore(", brand: Nike", CUT), ", brand: Nike", "a match at 0 leaves the text alone");
+  assert.strictEqual(X.cutBefore("x", "(("), "x", "a malformed pattern leaves the text alone");
+  assert.strictEqual(X.cutBefore("x", ""), "x");
+  assert.strictEqual(X.cutBefore(null, CUT), null);
+
+  // /items/<digits>-<slug>, the numeric id leading like Grailed's, and the
+  // bare /items/<digits> the wardrobe tile links to.
+  assert.strictEqual(
+    X.listingIdFromUrl("vinted", "https://www.vinted.com/items/9967483973-toadco-womens-size-10"),
+    "9967483973",
+  );
+  assert.strictEqual(X.listingIdFromUrl("vinted", "https://www.vinted.fr/items/9967483973"), "9967483973");
+  assert.strictEqual(X.listingIdFromUrl("vinted", "https://www.vinted.com/items/9967483973/"), "9967483973");
+  assert.strictEqual(X.listingIdFromUrl("vinted", "https://www.vinted.com/member/3175192152"), null);
+  assert.strictEqual(X.listingIdFromUrl("vinted", "https://www.vinted.com/catalog?search_text=nike"), null);
+
+  // No urlUpgrade on the adapter, so a Vinted photo URL is passed through
+  // untouched. Rewriting the size segment breaks the signature: measured on a
+  // real photo 2026-09-22, /f800/ loads at 600x800 and every other segment
+  // with the same ?s= fails to load.
+  const photo = "https://images1.vinted.net/t/02_01e23_2vgsfk2J5NBoXm8xt6yMSbsv/f800/1789153408.webp?s=sig";
+  assert.deepStrictEqual(X.preparePhotoUrls([photo], SEL.vinted), [photo]);
+  // Two renders of ONE asset collapse, because assetIdPattern keys on the
+  // token after /t/ rather than on the whole URL.
+  assert.deepStrictEqual(
+    X.preparePhotoUrls([photo, photo.replace("/f800/", "/310x430/")], SEL.vinted),
+    [photo],
+    "one asset, one photo",
+  );
+}
+
 console.log("closet-import-extract.test.cjs: allowlist holds, ids/prices/photos parse, batch dedupes");
 
 // ── 8. Grailed (US-3155) ─────────────────────────────────────────────────

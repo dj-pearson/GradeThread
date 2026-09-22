@@ -219,6 +219,41 @@ Deno.test("grailed is a known platform with a label, and an unknown one still is
   assert(!isClosetImportPlatform("etsy"));
 });
 
+// US-3460: Vinted. Read off the founder's own live wardrobe 2026-09-22.
+Deno.test("vinted listing ids lead the slug, and only vinted.net serves its photos", () => {
+  assertEquals(
+    listingIdFromUrl("vinted", "https://www.vinted.com/items/9967483973-toadco-womens-size-10-gray-corduroy-stretch-pants-low"),
+    "9967483973",
+  );
+  // The wardrobe tile links to the bare form; the page then redirects to the
+  // slug. Both have to key to the same id or a re-read duplicates every row.
+  assertEquals(listingIdFromUrl("vinted", "https://www.vinted.com/items/9967483973"), "9967483973");
+  // All 22 locale hosts, same shape.
+  assertEquals(listingIdFromUrl("vinted", "https://www.vinted.fr/items/9967483973-pantalon"), "9967483973");
+  assertEquals(listingIdFromUrl("vinted", "https://www.vinted.co.uk/items/9967483973/"), "9967483973");
+  // /member/<id> is a wardrobe, not a listing, and /member/notifications is
+  // neither. Both are real paths on a signed-in account.
+  assertEquals(listingIdFromUrl("vinted", "https://www.vinted.com/member/3175192152"), null);
+  assertEquals(listingIdFromUrl("vinted", "https://www.vinted.com/member/notifications"), null);
+  assertEquals(listingIdFromUrl("vinted", "https://www.vinted.com/catalog?search_text=nike"), null);
+
+  // Photos come from images<n>.vinted.net, never from the marketplace domain.
+  assert(photoHostAllowed("vinted", "https://images1.vinted.net/t/02_01e23_abc/f800/1789153408.webp?s=sig"));
+  assert(photoHostAllowed("vinted", "https://images9.vinted.net/t/02_01e23_abc/f800/1.webp"));
+  // The marketplace hosts serve no imagery, so they are deliberately absent.
+  assert(!photoHostAllowed("vinted", "https://www.vinted.com/t/02_01e23_abc/f800/1.webp"));
+  // The look-alikes a naive `includes` or a dotless suffix check would admit.
+  assert(!photoHostAllowed("vinted", "https://evilvinted.net/x.jpg"));
+  assert(!photoHostAllowed("vinted", "https://vinted.net.attacker.test/x.jpg"));
+  assert(!photoHostAllowed("vinted", "https://media-assets.grailed.com/x.jpg"));
+  assert(!photoHostAllowed("vinted", "http://images1.vinted.net/x.jpg"));
+});
+
+Deno.test("vinted is a known platform with a label", () => {
+  assert(isClosetImportPlatform("vinted"));
+  assertEquals(platformLabel("vinted"), "Vinted");
+});
+
 // US-3154. The route's 400 used to spell the supported list out in prose, and so
 // did the web bundle and the extension background — three hand-written copies of
 // a list that already drifted once (US-3261, where the constant gained Grailed
@@ -233,7 +268,7 @@ Deno.test("the supported-marketplace sentence is built from the platform list", 
     );
   }
   // Serial comma-free "A, B and C", which is the wording the route already used.
-  assertEquals(sentence, "Poshmark, Mercari and Grailed");
+  assertEquals(sentence, "Poshmark, Mercari, Grailed and Vinted");
   assert(!sentence.includes("Depop"), "depop is not accepted until the origin CHECK permits it");
 });
 

@@ -14,7 +14,7 @@
 // away.
 
 /** The marketplaces the extension can read a closet from. */
-export const CLOSET_IMPORT_PLATFORMS = ["poshmark", "mercari", "grailed"] as const;
+export const CLOSET_IMPORT_PLATFORMS = ["poshmark", "mercari", "grailed", "vinted"] as const;
 export type ClosetImportPlatform = (typeof CLOSET_IMPORT_PLATFORMS)[number];
 
 export function isClosetImportPlatform(v: unknown): v is ClosetImportPlatform {
@@ -136,6 +136,11 @@ export const CLOSET_IMPORT_PHOTO_HOSTS: Record<ClosetImportPlatform, readonly st
   // The bare apex is listed too so a future host under it still resolves, and
   // nothing else on grailed.com serves photos.
   grailed: ["grailed.com"],
+  // US-3460: every Vinted render, on every one of the 22 locale sites, comes
+  // from images<n>.vinted.net -- images1 is the one this was read off, and the
+  // bare apex covers the rest of the pool. Nothing on a vinted.<tld> host
+  // serves photos, so the marketplace domains are deliberately NOT listed.
+  vinted: ["vinted.net"],
 };
 
 export function photoHostAllowed(platform: ClosetImportPlatform, url: string): boolean {
@@ -176,6 +181,14 @@ export function listingIdFromUrl(platform: ClosetImportPlatform, url: unknown): 
     // id LEADS the slug, unlike Poshmark's, where it trails it. Read off a live
     // listing 2026-09-08.
     const m = path.match(/\/listings\/(\d{5,})(?:-|\/|$)/i);
+    return m ? m[1]! : null;
+  }
+  if (platform === "vinted") {
+    // US-3460: /items/9967483973-toadco-womens-size-10-gray-corduroy-stretch-
+    // pants-low. Numeric id leading the slug, like Grailed's. The bare
+    // /items/<id> form (no slug) is what the wardrobe tile links to and is
+    // covered by the same pattern. Read off a live listing 2026-09-22.
+    const m = path.match(/\/items\/(\d{5,})(?:-|\/|$)/i);
     return m ? m[1]! : null;
   }
   const m = path.match(/\/(?:us\/)?item\/(m\d{6,})(?:\/|$)/i);
@@ -382,6 +395,7 @@ export function platformLabel(platform: ClosetImportPlatform): string {
     poshmark: "Poshmark",
     mercari: "Mercari",
     grailed: "Grailed",
+    vinted: "Vinted",
   };
   return labels[platform];
 }
