@@ -387,12 +387,14 @@ import {
   type LegacyEbayListing,
 } from "../lib/ebay-trading.ts";
 import {
+  ADOPTION_DEFAULT_ITEM_CATEGORY,
   buildCatalogPatch,
   type CatalogPatch,
   FILL_IF_BLANK_FIELDS,
   flattenAspects,
   type LocalCatalog,
 } from "../lib/ebay-catalog-merge.ts";
+import { itemCategoryFromEbayPath } from "../lib/ebay-item-category.ts";
 import {
   adoptOrphans,
   type OrphanCandidate,
@@ -3147,7 +3149,7 @@ async function doListingsPull(
       // US-3468: ebay_aspects + ebay_category_id ride along so the pull can
       // mirror the FULL specifics map fill-if-blank per name, not just the
       // five clothing columns.
-      "id, sku, title, brand, size, color, style, material, ebay_aspects, ebay_category_id, ebay_specifics_checked_at, ebay_offer_checked_at",
+      "id, sku, title, brand, size, color, style, material, ebay_aspects, ebay_category_id, item_category, ebay_specifics_checked_at, ebay_offer_checked_at",
     )
     .eq("user_id", userId);
   if (itemRowsError) {
@@ -3468,6 +3470,29 @@ async function doListingsPull(
   // needsSpecifics is true again on the next sync and the same item is re-read
   // forever — measured at ~3,300 Trading calls a day against a 5,000 ceiling.
   const specificsCheckedItemIds: string[] = [];
+
+  // US-3468: eBay category id -> breadcrumb path, memoized for the run. Read
+  // only for items still on the adoption default ("clothing"), whose vertical
+  // the pull may correct (buildCatalogPatch), and only for eBay-originated
+  // listings: a GradeThread-originated listing's item_category was chosen.
+  const categoryPathById = new Map<string, Promise<string | null>>();
+  const resolveCategoryPath = (categoryId: string): Promise<string | null> => {
+    let p = categoryPathById.get(categoryId);
+    if (!p) {
+      p = getCategoryName(categoryId)
+        .then((r) => r?.path ?? null)
+        .catch(() => null);
+      categoryPathById.set(categoryId, p);
+    }
+    return p;
+  };
+  const wantsCategoryCorrection = (
+    row: ItemRow,
+    origin: string | null | undefined,
+  ): boolean =>
+    origin !== "gradethread" &&
+    (!row.item_category ||
+      row.item_category === ADOPTION_DEFAULT_ITEM_CATEGORY);
 
   // Apply an eBay-sourced catalog patch to a matched inventory_item, keeping
   // our in-memory ItemRow in sync so the orders pass below sees fresh values.
@@ -3848,6 +3873,14 @@ async function doListingsPull(
         // Minted or Renamed SKU has no `inventory_items.sku` entry to find.
         const localRow = itemById.get(itemId);
         if (localRow) {
+          // US-3468: the vertical, from the breadcrumb, for items still on
+          // the adoption default. One lookup per distinct category per run.
+          const itemCategory =
+            o.categoryId && wantsCategoryCorrection(localRow, origin)
+              ? itemCategoryFromEbayPath(
+                await resolveCategoryPath(o.categoryId),
+              )
+              : null;
           await applyCatalogPatch(
             itemId,
             localRow,
@@ -3859,6 +3892,7 @@ async function doListingsPull(
               // and not only Brand/Size/Color/Style/Material.
               aspects: o.aspects,
               categoryId: o.categoryId,
+              itemCategory,
             }),
           );
         }
@@ -4075,6 +4109,10 @@ async function doListingsPull(
             let specifics: Record<string, string> = {};
             let aspects: Record<string, string[]> | null = null;
             let categoryId: string | null = l.primaryCategoryId ?? null;
+            // US-3468: GetItem answers the breadcrumb outright; without that
+            // call it is resolved by id, memoized per run, and only for an
+            // item still on the adoption default.
+            let categoryPath: string | null = null;
             if (needsGetItem) {
               if (specificsFetched < MAX_SPECIFICS_FETCH_PER_SYNC) {
                 specificsFetched += 1;
@@ -4085,6 +4123,7 @@ async function doListingsPull(
                 specifics = details.specifics;
                 aspects = details.aspects;
                 categoryId = details.primaryCategoryId ?? categoryId;
+                categoryPath = details.primaryCategoryPath;
                 addPhotoUrls(itemId, details.pictureUrls);
                 specificsCheckedItemIds.push(localRow.id);
                 // Keep the in-memory row honest so a second listing pointing at
@@ -4105,6 +4144,14 @@ async function doListingsPull(
                 // US-3468: full map + leaf category, see the modern pass.
                 aspects,
                 categoryId,
+                itemCategory: wantsCategoryCorrection(localRow, origin)
+                  ? itemCategoryFromEbayPath(
+                    categoryPath ??
+                      (categoryId
+                        ? await resolveCategoryPath(categoryId)
+                        : null),
+                  )
+                  : null,
               }),
             );
           }
@@ -4128,6 +4175,9 @@ async function doListingsPull(
               source: "trading_api",
               watchCount: l.watchCount,
               endTime: l.endTime,
+              // US-3468: so adoption can file the item under the right
+              // vertical (and set ebay_category_id) from the breadcrumb.
+              categoryId: l.primaryCategoryId,
             },
             // ActiveList gives the gallery thumbnail only, upgraded to full
             // size. An orphan earns no GetItem call (that fill is gated on a
@@ -4339,7 +4389,12 @@ async function doListingsPull(
       orphansHeld = plan.held.length;
       orphansDeferred = plan.deferred;
       if (plan.adopt.length > 0) {
-        const adoption = await adoptOrphans(userId, plan.adopt);
+        const adoption = await adoptOrphans(
+          userId,
+          plan.adopt,
+          undefined,
+          resolveCategoryPath,
+        );
         orphansAdopted = adoption.adopted;
         orphansLinked = adoption.linked;
         photosMirrored += adoption.photos;

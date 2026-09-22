@@ -42,6 +42,10 @@ const CARD_XML = `<?xml version="1.0" encoding="UTF-8"?>
 Deno.test("US-3468: GetItem keeps every specific, every value, and the leaf category", () => {
   const parsed = parseGetItemDetails(CARD_XML);
   assertEquals(parsed?.primaryCategoryId, "261328");
+  assertEquals(
+    parsed?.primaryCategoryPath,
+    "Sports Mem, Cards & Fan Shop:Sports Trading Cards:Trading Card Singles",
+  );
   assertEquals(parsed?.aspects, {
     Sport: ["Baseball"],
     "Player/Athlete": ["Ken Griffey Jr."],
@@ -68,6 +72,7 @@ Deno.test("US-3468: a single specific with a single value still parses (not an o
   assertEquals(parsed?.aspects, { Brand: ["Topps"] });
   assertEquals(parsed?.specifics, { Brand: "Topps" });
   assertEquals(parsed?.primaryCategoryId, null);
+  assertEquals(parsed?.primaryCategoryPath, null);
   assertEquals(parsed?.pictureUrls, []);
 });
 

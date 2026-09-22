@@ -30,6 +30,7 @@ import {
   EBAY_OWNED_ITEM_SPECIFIC_FIELDS,
   isBlank,
 } from "./sync-precedence.ts";
+import type { ItemCategory } from "./ebay-item-category.ts";
 
 // The inventory_items catalog fields this sync may write. `title` is handled
 // separately (overwrite); the rest are fill-if-blank. Sourced from the shared
@@ -53,6 +54,8 @@ export interface LocalCatalog {
    */
   ebay_aspects?: Record<string, string[]> | null;
   ebay_category_id?: string | null;
+  /** US-3468: the item's vertical, for the adoption-default correction. */
+  item_category?: string | null;
 }
 
 export type CatalogPatch = Partial<{
@@ -64,6 +67,7 @@ export type CatalogPatch = Partial<{
   material: string;
   ebay_aspects: Record<string, string[]>;
   ebay_category_id: string;
+  item_category: ItemCategory;
 }>;
 
 export interface EbayCatalog {
@@ -80,7 +84,22 @@ export interface EbayCatalog {
   aspects?: Record<string, string[]> | null;
   /** eBay's leaf category id for the listing, when the pull has it. */
   categoryId?: string | null;
+  /**
+   * US-3468: the vertical eBay's category breadcrumb implies
+   * (itemCategoryFromEbayPath), when the pull resolved it. Only ever
+   * REPLACES the adoption default: see buildCatalogPatch.
+   */
+  itemCategory?: ItemCategory | null;
 }
+
+/**
+ * US-3468: the one item_category value a pull may overwrite. Every item
+ * adopted from eBay was created as "clothing" whatever eBay filed it under,
+ * so "clothing" on an eBay-originated item is a default, not a decision. Any
+ * other value was chosen (by the seller, the AI pass, or an earlier
+ * correction) and stays.
+ */
+export const ADOPTION_DEFAULT_ITEM_CATEGORY = "clothing";
 
 // eBay's getInventoryItem `product.aspects` is Record<name, string[]>. Take the
 // first non-empty value per name so it matches the GetItem (Trading) shape.
@@ -248,6 +267,22 @@ export function buildCatalogPatch(
   const categoryId = (ebay.categoryId ?? "").trim();
   if (categoryId && isBlank(local.ebay_category_id ?? null)) {
     patch.ebay_category_id = categoryId;
+  }
+
+  // Vertical: replace the adoption default with what eBay's breadcrumb says,
+  // but only with a SPECIFIC vertical. "other" means the path names something
+  // GradeThread does not model, which is not a reason to move a row a seller
+  // may have filed as clothing on purpose. Blank never happens (NOT NULL
+  // DEFAULT 'clothing') but is treated the same as the default.
+  const impliedCategory = ebay.itemCategory ?? null;
+  const localCategory = (local.item_category ?? "").trim();
+  if (
+    impliedCategory &&
+    impliedCategory !== ADOPTION_DEFAULT_ITEM_CATEGORY &&
+    impliedCategory !== "other" &&
+    (localCategory === "" || localCategory === ADOPTION_DEFAULT_ITEM_CATEGORY)
+  ) {
+    patch.item_category = impliedCategory;
   }
 
   // Title: eBay is source of truth — overwrite when it differs and is non-empty.

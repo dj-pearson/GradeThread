@@ -18,6 +18,7 @@ import {
   normalizeTitle,
   type OrphanCandidate,
   planOrphanAdoption,
+  resolveItemCategories,
 } from "../lib/ebay-orphan-adopt.ts";
 
 function orphan(
@@ -359,4 +360,61 @@ Deno.test("US-3468: a legacy orphan (no aspects in raw) is created without the c
   // sync's GetItem fills both.
   assertEquals("ebay_category_id" in rows.item, false);
   assertEquals("ebay_aspects" in rows.item, false);
+});
+
+Deno.test("US-3468: an adopted card is filed as sports_cards when the breadcrumb says so", () => {
+  const rows = buildAdoptionRows(
+    orphan({
+      ebay_item_id: "44",
+      title: "1989 Upper Deck Ken Griffey Jr. #1 PSA 9",
+      raw: { categoryId: "261328" },
+    }),
+    "owner-1",
+    "2026-09-22T00:00:00.000Z",
+    new Set(),
+    undefined,
+    "sports_cards",
+  );
+  assertEquals(rows.item.item_category, "sports_cards");
+  assertEquals(rows.item.ebay_category_id, "261328");
+  // No answer keeps the default.
+  const plain = buildAdoptionRows(
+    orphan({ ebay_item_id: "45", raw: {} }),
+    "owner-1",
+    "2026-09-22T00:00:00.000Z",
+    new Set(),
+  );
+  assertEquals(plain.item.item_category, "clothing");
+});
+
+Deno.test("US-3468: resolveItemCategories asks once per distinct category and maps only what resolves", async () => {
+  const asked: string[] = [];
+  const map = await resolveItemCategories(
+    [
+      orphan({ ebay_item_id: "1", raw: { categoryId: "261328" } }),
+      orphan({ ebay_item_id: "2", raw: { categoryId: "261328" } }),
+      orphan({ ebay_item_id: "3", raw: { categoryId: "93427" } }),
+      orphan({ ebay_item_id: "4", raw: { categoryId: "999" } }),
+      orphan({ ebay_item_id: "5", raw: {} }),
+      orphan({ ebay_item_id: "6", raw: { categoryId: "  " } }),
+    ],
+    (id) => {
+      asked.push(id);
+      if (id === "261328") {
+        return Promise.resolve(
+          "Sports Mem, Cards & Fan Shop › Sports Trading Cards › Trading Card Singles",
+        );
+      }
+      if (id === "93427") {
+        return Promise.resolve(
+          "Clothing, Shoes & Accessories › Men › Men's Shoes › Athletic Shoes",
+        );
+      }
+      return Promise.resolve(null);
+    },
+  );
+  assertEquals(asked, ["261328", "93427", "999"]);
+  assertEquals(map.get("261328"), "sports_cards");
+  assertEquals(map.get("93427"), "shoes");
+  assertEquals(map.has("999"), false);
 });

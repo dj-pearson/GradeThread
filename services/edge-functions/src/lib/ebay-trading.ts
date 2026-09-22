@@ -388,6 +388,7 @@ interface GetItemResponse {
       };
       PrimaryCategory?: {
         CategoryID?: unknown;
+        CategoryName?: unknown;
       };
     };
   };
@@ -406,6 +407,13 @@ export interface EbayItemDetails {
   aspects: Record<string, string[]>;
   /** US-3468: the listing's leaf category id, for ebay_category_id. */
   primaryCategoryId: string | null;
+  /**
+   * US-3468: the category breadcrumb as Trading renders it
+   * ("Sports Mem, Cards & Fan Shop:Sports Trading Cards:Trading Card Singles"),
+   * which is what decides the item's vertical (ebay-item-category.ts). Free
+   * on the same call; the modern pass has to resolve it by id instead.
+   */
+  primaryCategoryPath: string | null;
   /** US-3196: every eBay-hosted picture on the listing, largest render first. */
   pictureUrls: string[];
 }
@@ -437,6 +445,8 @@ export function parseGetItemDetails(text: string): EbayItemDetails | null {
     aspects,
     primaryCategoryId: asString(root.Item?.PrimaryCategory?.CategoryID) ||
       null,
+    primaryCategoryPath:
+      asString(root.Item?.PrimaryCategory?.CategoryName) || null,
     pictureUrls: normalizeEbayPictureUrls([
       root.Item?.PictureDetails?.PictureURL,
       root.Item?.PictureDetails?.GalleryURL,
@@ -464,6 +474,7 @@ export async function getItemDetails(
     specifics: {},
     aspects: {},
     primaryCategoryId: null,
+    primaryCategoryPath: null,
     pictureUrls: [],
   };
   try {

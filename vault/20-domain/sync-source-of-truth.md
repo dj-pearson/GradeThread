@@ -308,6 +308,16 @@ The rule now:
   `raw.categoryId` from the modern pass). A legacy-adopted item has neither at
   creation; an empty `ebay_aspects` now counts as a blank worth one GetItem call,
   bounded by the same 14-day `ebay_specifics_checked_at` stamp as the columns.
+- **The vertical follows eBay's breadcrumb** (`item_category`, via
+  `itemCategoryFromEbayPath` in `services/edge-functions/src/lib/ebay-item-category.ts`).
+  An adopted orphan is filed under what the breadcrumb implies (a Trading Card
+  Singles listing is `sports_cards`, Men's Shoes is `shoes`), "clothing" only when
+  there is no breadcrumb to read. On a matched eBay-originated item the pull
+  replaces `item_category` only when it still holds the adoption default
+  "clothing" AND the breadcrumb implies a specific vertical: any other value was
+  chosen and stays, and "other" is never written over a default. The breadcrumb
+  comes free from GetItem (`PrimaryCategory.CategoryName`) and is otherwise
+  resolved by id through `getCategoryName`'s shared cache, once per category per run.
 - **Provenance is left unset** for pulled aspects. `ebay_aspect_sources` has no
   value for "the seller's own live listing", and stamping them `manual` would let
   the reverse column pass overwrite a differing local column, which the

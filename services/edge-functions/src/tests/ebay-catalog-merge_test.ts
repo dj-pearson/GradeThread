@@ -262,3 +262,43 @@ Deno.test("US-3468: a filled column that disagrees with eBay keeps its aspect ou
   assertEquals(patch.ebay_aspects, { Size: ["M"], Sport: ["Running"] });
   assertEquals("brand" in patch, false);
 });
+
+Deno.test("US-3468: the adoption default 'clothing' is replaced by what eBay's breadcrumb implies", () => {
+  const card = buildCatalogPatch(
+    { ...EMPTY, item_category: "clothing" },
+    { title: null, specifics: {}, itemCategory: "sports_cards" },
+  );
+  assertEquals(card.item_category, "sports_cards");
+  const blank = buildCatalogPatch(
+    { ...EMPTY, item_category: null },
+    { title: null, specifics: {}, itemCategory: "shoes" },
+  );
+  assertEquals(blank.item_category, "shoes");
+});
+
+Deno.test("US-3468: a chosen vertical, an 'other' answer, or no answer never moves the row", () => {
+  // Chosen (anything but the default) stays.
+  const chosen = buildCatalogPatch(
+    { ...EMPTY, item_category: "collectibles" },
+    { title: null, specifics: {}, itemCategory: "sports_cards" },
+  );
+  assertEquals("item_category" in chosen, false);
+  // "other" is not specific enough to overwrite a default.
+  const other = buildCatalogPatch(
+    { ...EMPTY, item_category: "clothing" },
+    { title: null, specifics: {}, itemCategory: "other" },
+  );
+  assertEquals("item_category" in other, false);
+  // Same as the default: nothing to write.
+  const same = buildCatalogPatch(
+    { ...EMPTY, item_category: "clothing" },
+    { title: null, specifics: {}, itemCategory: "clothing" },
+  );
+  assertEquals("item_category" in same, false);
+  // Unknown: keep what it had.
+  const none = buildCatalogPatch(
+    { ...EMPTY, item_category: "clothing" },
+    { title: null, specifics: {}, itemCategory: null },
+  );
+  assertEquals("item_category" in none, false);
+});

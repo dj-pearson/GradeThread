@@ -4629,7 +4629,8 @@
         "ebay_category_id is filled from the offer's categoryId (modern) or GetItem's PrimaryCategory (legacy) when blank, so the composer loads the right aspect spec.",
         "GetItem keeps every value of a multi-value specific (Features, Card Attributes) for ebay_aspects while the five columns still take the first value.",
         "An orphan adopted from the modern pass is created with ebay_category_id and ebay_aspects; a legacy-adopted one is filled by GetItem on the next sync (empty ebay_aspects counts as a blank worth one call, bounded by the 14-day stamp).",
-        "Pure tests cover mergeEbayAspects, buildCatalogPatch's aspect/category arms, parseGetItemDetails and buildAdoptionRows; vault sync-source-of-truth note updated in the same commit."
+        "Pure tests cover mergeEbayAspects, buildCatalogPatch's aspect/category arms, parseGetItemDetails and buildAdoptionRows; vault sync-source-of-truth note updated in the same commit.",
+        "An item adopted from an eBay listing is filed under the vertical its category breadcrumb implies (Trading Card Singles -> sports_cards, Men's Shoes -> shoes, ...), 'clothing' only when no breadcrumb resolves; a matched eBay-originated item still on the adoption default 'clothing' is corrected on the next pull when the breadcrumb implies a specific vertical, never to 'other' and never over a chosen value."
       ],
       "priority": 20
     }
