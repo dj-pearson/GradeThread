@@ -4616,7 +4616,8 @@
         "Listed price goes through updateListingPrice, status through updateItemStatus, the rest in one inventory_items update",
         "Up/Down/J/K saves then moves to the neighbouring row on the page"
       ],
-      "priority": 50
+      "priority": 50,
+      "notes": "2026-09-22 part B, bulk actions. (1) BUG FIXED: the selection store survives page changes but every bulk handler resolved ids against the current page's rows only, so rows ticked on page 1 were silently dropped when acting from page 2. The page now passes actionItems (page rows plus remembered selected rows from other pages) to makeListingsActions. (2) Select all N matching: once the whole page is ticked a banner offers every matching row across pages, fetched through fetchMatchingRows (the paged RPC loop the CSV export used, now shared), capped at 2000. (3) Selection is on for every tab (All, Shipped, Returned, Archived joined). Tab-specific bulk buttons stay on their own tab; the Sold-only Prepare shipment used to be the bar's catch-all else branch and is now gated on isSold. (4) Bin / brand bulk dialog on every tab: blank leaves items alone, clearing needs an explicit tick (planBulkFields, bulk-fields.test.ts); writes in chunks of 200 ids through the RLS client. Not verified in a browser: no signed-in session here. Pre-existing reds untouched by this work: cross-post-setup.test.ts (US-2741) and reselling-guide-links.test.ts (Vinted import copy), both red on the parent commit."
     }
   ]
 }

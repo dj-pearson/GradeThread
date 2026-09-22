@@ -227,15 +227,12 @@ describe("tab definitions are well-formed", () => {
     expect(tabSupportsSelection("aged")).toBe(true);
   });
 
-  it("keeps selection off the tabs that never had it", () => {
-    expect(tabSupportsSelection("shipped")).toBe(false);
-    expect(tabSupportsSelection("returned")).toBe(false);
-    expect(tabSupportsSelection("archived")).toBe(false);
-    expect(tabSupportsSelection("all")).toBe(false);
-    // And on the three that did.
-    expect(tabSupportsSelection("unlisted")).toBe(true);
-    expect(tabSupportsSelection("sold")).toBe(true);
-    expect(tabSupportsSelection("active")).toBe(true);
+  // US-3467: every tab takes a selection now. Set status and Bin / brand fit
+  // any row; the tab-specific buttons stay on their own tabs.
+  it("every tab can be selected", () => {
+    for (const t of ["all", "unlisted", "active", "aged", "sold", "shipped", "returned", "archived"] as const) {
+      expect(tabSupportsSelection(t)).toBe(true);
+    }
   });
 
   it("sorts every tab by a real column", () => {
