@@ -2058,6 +2058,12 @@ export interface EbayReturn {
    * buyer has not posted the item — a real answer, not a missing one.
    */
   label?: EbayReturnShipment | null;
+  /**
+   * US-3466: eBay's `sellerAvailableOptions` action codes. Null or absent when
+   * eBay sent no list (or the row predates the edge reading it), which the page
+   * treats as "offer everything"; an empty array means nothing is the seller's.
+   */
+  sellerActions?: string[] | null;
 }
 
 export function useEbayReturns(enabled = true) {

@@ -243,3 +243,52 @@ export function isNotAsDescribed(reason: string | null | undefined): boolean {
   if (!raw) return false;
   return SNAD_MARKERS.some((m) => raw.includes(m));
 }
+
+// ── US-3466: which return buttons eBay actually allows ─────────────────────
+//
+// eBay sends `sellerAvailableOptions` on every return: the exact list of things
+// the seller may do next. The page ignored it and drew all six action buttons
+// on every open return, so a return eBay had finished with still offered
+// Refund, and one waiting on the buyer offered Approve.
+//
+// NULL LIST MEANS UNKNOWN, NOT NOTHING. A row cached before the edge learned to
+// read the list has no list at all, and hiding every button on it would strand
+// a seller who has a real deadline. So null falls back to the old behaviour
+// (everything offered, eBay refuses what it will not take), while an EMPTY list
+// is eBay saying the next move is the buyer's, and gets no buttons.
+
+export type ReturnAction =
+  | "approve"
+  | "decline"
+  | "refund"
+  | "partial"
+  | "received"
+  | "message";
+
+const RETURN_ACTION_CODES: Record<ReturnAction, readonly string[]> = {
+  approve: ["SELLER_APPROVE_REQUEST"],
+  decline: ["SELLER_DECLINE_REQUEST"],
+  refund: ["SELLER_ISSUE_REFUND", "SELLER_RETRY_REFUND"],
+  partial: ["SELLER_OFFER_PARTIAL_REFUND"],
+  received: ["SELLER_MARK_AS_RECEIVED"],
+  message: ["SELLER_SEND_MESSAGE"],
+};
+
+export function returnAllows(
+  sellerActions: readonly string[] | null | undefined,
+  action: ReturnAction,
+): boolean {
+  if (sellerActions == null) return true;
+  const have = new Set(sellerActions.map((a) => a.toUpperCase()));
+  return RETURN_ACTION_CODES[action].some((code) => have.has(code));
+}
+
+/** eBay sent a list and nothing on it is the seller's to do. */
+export function returnWaitingOnBuyer(
+  sellerActions: readonly string[] | null | undefined,
+): boolean {
+  if (sellerActions == null) return false;
+  return !(Object.keys(RETURN_ACTION_CODES) as ReturnAction[]).some((a) =>
+    returnAllows(sellerActions, a),
+  );
+}

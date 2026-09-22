@@ -24,6 +24,7 @@ import {
   getMarketplaceId,
   getUserAccessToken,
 } from "./ebay-client.ts";
+import { isClosedCase } from "./post-sale-state.ts";
 
 const POST_ORDER_TIMEOUT_MS = 20_000;
 
@@ -110,26 +111,45 @@ export interface ReturnSummary {
    */
   respondBy: string | null;
   buyerUsername: string | null;
+  /**
+   * US-3466: what eBay says the SELLER may do next, straight from
+   * `sellerAvailableOptions` (SELLER_APPROVE_REQUEST, SELLER_ISSUE_REFUND, ...).
+   * The page offered every button on every return, so a closed return still
+   * showed Refund. Null when eBay sent no list at all, which the page reads as
+   * "unknown" and falls back to its old rules; an EMPTY list means eBay is
+   * waiting on nobody but the buyer, and gets no buttons.
+   */
+  sellerActions: string[] | null;
 }
 
 interface RawReturn {
   returnId?: string;
-  status?: { state?: string };
+  // Documented search shape: `state` (ReturnStateEnum) and `status`
+  // (ReturnStatusEnum) are both top-level strings. The object form of `status`
+  // is kept for any older payload that used it.
+  status?: string | { state?: string };
   state?: string;
+  sellerAvailableOptions?: Array<{ actionType?: string }>;
   sellerLatestRefundInfo?: unknown;
   legacyOrderId?: string;
   orderId?: string;
   buyerLoginName?: string;
   buyerUsername?: string;
   respondByDate?: { value?: string } | string;
-  sellerResponseDue?: { value?: string } | string;
+  sellerResponseDue?:
+    | { value?: string; respondByDate?: { value?: string } }
+    | string;
   detail?: {
     buyerSelectedReturnReason?: string;
     item?: { itemId?: string };
     respondByDate?: { value?: string } | string;
   };
   buyerSelectedReturnReason?: string;
-  creationInfo?: { creationDate?: { value?: string } };
+  creationInfo?: {
+    creationDate?: { value?: string };
+    item?: { itemId?: string | number };
+    reason?: string;
+  };
 }
 
 function returnDateValue(v: { value?: string } | string | undefined): string | null {
@@ -140,22 +160,53 @@ function returnDateValue(v: { value?: string } | string | undefined): string | n
 // Normalize the (deeply nested, version-variant) Post-Order return shape into a
 // flat summary the UI/local-state code can rely on. Pure — unit-tested.
 export function normalizeReturn(raw: RawReturn): ReturnSummary {
+  const status = typeof raw.status === "string" ? raw.status : raw.status?.state;
+  const due = raw.sellerResponseDue;
+  const dueDate = typeof due === "object" && due?.respondByDate
+    ? returnDateValue(due.respondByDate)
+    : returnDateValue(due as { value?: string } | string | undefined);
   return {
     returnId: raw.returnId ?? "",
-    state: raw.status?.state ?? raw.state ?? null,
+    state: returnState(raw.state, status),
     // US-2933: this was hard-coded null. Reading it can only improve on that —
     // every caller already handles a null order id, and a real one links the
     // return to the sale and the graded item.
     orderId: ebayId(raw.legacyOrderId) ?? ebayId(raw.orderId),
-    itemId: ebayId(raw.detail?.item?.itemId),
-    reason: raw.detail?.buyerSelectedReturnReason ??
+    // US-3466: the documented search shape nests these under creationInfo.
+    // Only the `detail` depth was read, so every live return had a null item
+    // and a null reason.
+    itemId: ebayId(raw.creationInfo?.item?.itemId) ?? ebayId(raw.detail?.item?.itemId),
+    reason: raw.creationInfo?.reason ?? raw.detail?.buyerSelectedReturnReason ??
       raw.buyerSelectedReturnReason ?? null,
     creationDate: raw.creationInfo?.creationDate?.value ?? null,
-    respondBy: returnDateValue(raw.respondByDate) ??
-      returnDateValue(raw.sellerResponseDue) ??
+    respondBy: returnDateValue(raw.respondByDate) ?? dueDate ??
       returnDateValue(raw.detail?.respondByDate),
     buyerUsername: raw.buyerLoginName ?? raw.buyerUsername ?? null,
+    sellerActions: Array.isArray(raw.sellerAvailableOptions)
+      ? raw.sellerAvailableOptions
+        .map((o) => (typeof o?.actionType === "string" ? o.actionType : ""))
+        .filter((a) => a !== "")
+      : null,
   };
+}
+
+/**
+ * US-3466: one state out of eBay's two.
+ *
+ * A return carries `state` (where the process is) and `status` (the last thing
+ * that happened), and they disagree at the end: a return the seller has closed
+ * out can still read `state: ITEM_DELIVERED` while `status` says CLOSED. Only
+ * `state` was read, so that return sat under Open with a Refund button on it.
+ * Whichever field says finished wins; otherwise `state`, which is the finer one.
+ */
+export function returnState(
+  state: string | null | undefined,
+  status: string | null | undefined,
+): string | null {
+  const s = state?.trim() || null;
+  const t = status?.trim() || null;
+  if (t && isClosedCase(t) && !(s && isClosedCase(s))) return t;
+  return s ?? t;
 }
 
 export async function searchReturns(
@@ -465,22 +516,33 @@ export interface CancellationSummary {
 
 interface RawCancellation {
   cancelId?: string;
-  cancelStatus?: { state?: string };
+  // Documented search shape: `cancelState` (CancelStateEnum: CLOSED,
+  // APPROVAL_PENDING, REFUND_PENDING, ...) and `cancelStatus` (the last action
+  // taken) are both top-level strings. The object form is an older guess kept
+  // for compatibility.
+  cancelState?: string;
+  cancelStatus?: string | { state?: string };
   legacyOrderId?: string;
   cancelReason?: string;
   requestorType?: string;
+  requestorRole?: string;
   cancelRequestDate?: { value?: string };
 }
 
 export function normalizeCancellation(
   raw: RawCancellation,
 ): CancellationSummary {
+  const status = typeof raw.cancelStatus === "string"
+    ? raw.cancelStatus
+    : raw.cancelStatus?.state;
   return {
     cancelId: raw.cancelId ?? "",
-    state: raw.cancelStatus?.state ?? null,
+    // US-3466: only `cancelStatus.state` was read, which eBay never sends, so
+    // every stored cancellation had a null state and read as still open.
+    state: returnState(raw.cancelState, status),
     orderId: ebayId(raw.legacyOrderId),
     reason: raw.cancelReason ?? null,
-    requestorType: raw.requestorType ?? null,
+    requestorType: raw.requestorType ?? raw.requestorRole ?? null,
     creationDate: raw.cancelRequestDate?.value ?? null,
   };
 }

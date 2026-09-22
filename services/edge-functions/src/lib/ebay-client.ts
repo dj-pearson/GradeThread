@@ -4230,6 +4230,71 @@ export async function createShippingFulfillment(
   );
 }
 
+export interface OrderTracking {
+  trackingNumber: string;
+  /** eBay's carrier code as sent (USPS, UPS, FEDEX, ...). Null when absent. */
+  carrier: string | null;
+  /** When the seller marked it shipped on eBay. Null when absent. */
+  shippedDate: string | null;
+}
+
+/**
+ * US-3466: the tracking an order was shipped with, from eBay's own record.
+ *
+ * Pure half of getOrderTracking. A seller who buys the label on eBay never
+ * types the number into GradeThread, so the sale row had a ship date (US-3209)
+ * and no tracking. When an order has more than one fulfillment the EARLIEST
+ * with a tracking number wins: it is the parcel the buyer was first told about,
+ * and a later one is usually a replacement for part of the order.
+ */
+export function parseOrderTracking(body: unknown): OrderTracking | null {
+  const list = (body as { fulfillments?: unknown } | null)?.fulfillments;
+  if (!Array.isArray(list)) return null;
+  const rows = list
+    .map((f) => {
+      const x = f as {
+        shipmentTrackingNumber?: unknown;
+        shippingCarrierCode?: unknown;
+        shippedDate?: unknown;
+      };
+      const tracking = typeof x.shipmentTrackingNumber === "string"
+        ? x.shipmentTrackingNumber.trim()
+        : "";
+      return {
+        trackingNumber: tracking,
+        carrier: typeof x.shippingCarrierCode === "string" && x.shippingCarrierCode.trim() !== ""
+          ? x.shippingCarrierCode.trim()
+          : null,
+        shippedDate: typeof x.shippedDate === "string" && x.shippedDate.trim() !== ""
+          ? x.shippedDate.trim()
+          : null,
+      };
+    })
+    .filter((r) => r.trackingNumber !== "");
+  if (rows.length === 0) return null;
+  rows.sort((a, b) =>
+    (a.shippedDate ? Date.parse(a.shippedDate) : Infinity) -
+    (b.shippedDate ? Date.parse(b.shippedDate) : Infinity)
+  );
+  return rows[0];
+}
+
+/**
+ * One GET per order. Callers must ask only once per order (the sync asks only
+ * while the sale row has no tracking_number), because this is exactly the
+ * per-order fan-out US-3110 cut from the ordinary sync.
+ */
+export async function getOrderTracking(
+  userId: string,
+  orderId: string,
+): Promise<OrderTracking | null> {
+  const body = await fetchAuthed<unknown>(
+    userId,
+    `/sell/fulfillment/v1/order/${encodeURIComponent(orderId)}/shipping_fulfillment`,
+  );
+  return parseOrderTracking(body);
+}
+
 // US-1978 (AC3): order-level refund — a PROACTIVE or PARTIAL refund issued
 // OUTSIDE a return case.
 //

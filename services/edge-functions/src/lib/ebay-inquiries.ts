@@ -41,13 +41,18 @@ export interface InquirySummary {
 // between versions. Every accessor below is optional for that reason; the
 // normalizer is the one place that knows about it.
 interface RawInquiry {
-  inquiryId?: string;
+  inquiryId?: string | number;
+  // US-3466: the documented search field. The three spellings below it are
+  // guesses that eBay never sends, which is why a closed inquiry kept its
+  // Overdue badge for weeks.
+  inquiryStatusEnum?: string;
+  buyer?: string;
   status?: { state?: string };
   inquiryStatus?: string;
   state?: string;
   legacyOrderId?: string;
   orderId?: string;
-  itemId?: string;
+  itemId?: string | number;
   buyerLoginName?: string;
   buyerUsername?: string;
   buyerSelectedReason?: string;
@@ -73,12 +78,12 @@ function dateValue(v: { value?: string } | string | undefined): string | null {
  */
 export function normalizeInquiry(raw: RawInquiry): InquirySummary {
   return {
-    inquiryId: raw.inquiryId ?? "",
-    state: raw.status?.state ?? raw.inquiryStatus ?? raw.state ?? null,
+    inquiryId: ebayId(raw.inquiryId) ?? "",
+    state: raw.inquiryStatusEnum ?? raw.status?.state ?? raw.inquiryStatus ?? raw.state ?? null,
     orderId: ebayId(raw.legacyOrderId) ?? ebayId(raw.orderId),
     itemId: ebayId(raw.itemId) ?? ebayId(raw.detail?.item?.itemId),
     reason: raw.buyerSelectedReason ?? raw.detail?.buyerSelectedReason ?? raw.reason ?? null,
-    buyerUsername: raw.buyerLoginName ?? raw.buyerUsername ?? null,
+    buyerUsername: raw.buyerLoginName ?? raw.buyerUsername ?? raw.buyer ?? null,
     respondBy: dateValue(raw.respondByDate) ?? dateValue(raw.sellerResponseDue),
     creationDate: dateValue(raw.creationDate),
   };

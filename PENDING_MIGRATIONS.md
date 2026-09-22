@@ -72,6 +72,29 @@ stronger claim for one of them, `check-prod-migration.ts` is the tool.
 Nothing below 00786 was touched, and the six genuinely-held branches in the next
 section are unchanged and still waiting.
 
+## HELD: 00823_imported_sales_shipped.sql (US-3465 - old imported sales out of the Ship queue)
+
+**What it does.** One UPDATE on `public.sales`: sets `shipped_at` to the sale
+date for rows that are `completed`, have no `shipped_at`, have no
+`platform_order_id`, and sold more than 30 days ago. No schema change.
+
+**Why.** The Ship tab is "completed and not shipped". Spreadsheet-imported
+sales carry no marketplace order id, so no sync can ever mark them shipped, and
+the owner confirms they all shipped. Sale date rather than a guessed later date,
+because nothing computes ship speed from `shipped_at` (grepped 2026-09-22).
+
+**Dry run on prod, 2026-09-22, inside BEGIN ... ROLLBACK:** `UPDATE 51`. After
+it, 161 completed sales still waiting: 160 are eBay orders the full history
+sync will mark (US-3209 path), 1 is a no-order sale from 2026-09-11, inside the
+30 days.
+
+**Idempotent.** Only `shipped_at IS NULL` rows match, so a re-run updates 0.
+**Risk: LOW.** Touches only rows with no ship date; never moves an existing one.
+
+**Order.** Apply any time. No code reads anything new; the edge boot guard
+expects 00823 once this commit is deployed, so apply BEFORE the edge redeploy.
+Then `NOTIFY pgrst, 'reload schema';` (migrate:prod sends it).
+
 ## ✅ APPLIED 2026-09-22 (owner, reported applied in session): 00822_closet_import_vinted_origin.sql (US-3460 - Vinted closet import)
 
 **What it does.** Drops and re-adds `flipdesk_import_runs_origin_check` with

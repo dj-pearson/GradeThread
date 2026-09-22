@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-3465",
+  "nextId": "US-3467",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -4578,6 +4578,30 @@
         "isArray forces MemberMessageExchange, not MemberMessage",
         "ebay-member-messages_test.ts covers one, several, empty and Failure responses, and fails 2 of 4 with the old rule",
         "OPERATOR: after edge redeploy, the Messages tab on /dashboard/flipdesk/offers lists real eBay buyer questions from the last 30 days"
+      ]
+    },
+    {
+      "id": "US-3465",
+      "passes": false,
+      "title": "Ship tab: take old imported sales (no marketplace order) out of the queue",
+      "description": "The Ship tab lists every completed sale with no shipped_at. Spreadsheet-imported sales have no platform_order_id, so the US-3209 sync can never mark them shipped. On prod 2026-09-22, 47 Jan-Jun imported sales plus 4 older no-order rows sat in the queue. Migration 00823 sets shipped_at = sale date for completed, no-order, >30-day-old sales. Owner chose the sale date (option A).",
+      "acceptanceCriteria": [
+        "00823_imported_sales_shipped.sql is idempotent, forward-only and self-records",
+        "Dry run on prod inside a rolled-back transaction updates 51 rows and leaves 1 no-order sale waiting",
+        "OPERATOR: apply 00823 with npm run migrate:prod, then run the eBay full history sync; the Ship tab count drops from 208"
+      ]
+    },
+    {
+      "id": "US-3466",
+      "passes": false,
+      "title": "Sold & Shipping: read eBay's real status fields, return buttons follow eBay, tracking import",
+      "description": "Post-Order normalizers read guessed field names: inquiries never read inquiryStatusEnum, cancellations never read top-level cancelState, returns read only state (status says CLOSED). So closed cases showed as open/overdue and a closed return offered Refund. Returns now carry sellerActions from sellerAvailableOptions and the page shows only those buttons; the return row is stacked so buttons wrap on desktop. getOrderTracking/parseOrderTracking added to ebay-client but NOT yet wired into the sync.",
+      "acceptanceCriteria": [
+        "normalizeInquiry/normalizeReturn/normalizeCancellation read the documented fields; post-order-documented-shapes_test.ts passes 7/7 and fails 4 with the old reads",
+        "Return buttons gated by returnAllows(sellerActions); return-actions.test.ts passes",
+        "OPEN: wire getOrderTracking into the orders sync (once per order while tracking_number is null) with a test for parseOrderTracking",
+        "OPEN: closed-history view for Cases, Disputes and Cancellations; Insights rework",
+        "OPERATOR: after edge redeploy, the old INR case and closed return leave the open lists"
       ]
     }
   ]

@@ -7,6 +7,8 @@ import {
   deadlineBucket,
   deadlineLabel,
   isNotAsDescribed,
+  returnAllows,
+  returnWaitingOnBuyer,
   splitByOpenState,
 } from "@/pages/flipdesk/post-sale-state";
 import { toast } from "sonner";
@@ -784,9 +786,12 @@ function ReturnsCard() {
           />
         ) : (
           visible.map((r) => (
+            // US-3466: always stacked. Side by side, eight buttons in a
+            // shrink-0 row could not wrap, so on desktop they ran past the
+            // card edge and squeezed the details into a one-word column.
             <div
               key={r.returnId}
-              className="flex flex-col gap-2 rounded-md border p-3 sm:flex-row sm:items-center sm:justify-between"
+              className="flex flex-col gap-3 rounded-md border p-3"
             >
               <div className="min-w-0 space-y-2">
                 <div className="flex items-center gap-2">
@@ -831,8 +836,13 @@ function ReturnsCard() {
               {/* US-2227: no actions on a closed case. Offering Refund on a
                   case eBay has already resolved is an invitation to a
                   destructive no-op, and its confirm text promises otherwise. */}
+              {!showClosed && returnWaitingOnBuyer(r.sellerActions) && (
+                <p className="text-xs text-muted-foreground">
+                  Nothing for you to do right now. eBay is waiting on the buyer.
+                </p>
+              )}
               {!showClosed && (
-              <div className="flex shrink-0 flex-wrap gap-2">
+              <div className="flex flex-wrap gap-2">
                 <Button
                   aria-label={`Check the return shipment for ${r.reason?.replace(/_/g, " ") ?? "this return"}`}
                   size="sm"
@@ -850,7 +860,8 @@ function ReturnsCard() {
                 {/* US-2930: only once the item is actually moving. Offering it
                     on a return the buyer has not posted invites the seller to
                     tell eBay a parcel arrived that was never sent. */}
-                {canMarkReceived(r.state, !!r.label?.trackingNumber) && (
+                {canMarkReceived(r.state, !!r.label?.trackingNumber) &&
+                  returnAllows(r.sellerActions, "received") && (
                   <Button
                     aria-label={`Mark received: ${r.reason?.replace(/_/g, " ") ?? "this return"}`}
                     size="sm"
@@ -866,6 +877,7 @@ function ReturnsCard() {
                     Mark received
                   </Button>
                 )}
+                {returnAllows(r.sellerActions, "decline") && (
                 <Button
                   size="sm"
                   variant="outline"
@@ -879,6 +891,8 @@ function ReturnsCard() {
                   )}
                   {evidenceFor === r.returnId ? "Decline anyway" : "Decline"}
                 </Button>
+                )}
+                {returnAllows(r.sellerActions, "approve") && (
                 <Button
                   size="sm"
                   variant="outline"
@@ -892,6 +906,8 @@ function ReturnsCard() {
                   )}
                   Approve
                 </Button>
+                )}
+                {returnAllows(r.sellerActions, "refund") && (
                 <Button
                   size="sm"
                   disabled={!!busy}
@@ -904,9 +920,11 @@ function ReturnsCard() {
                   )}
                   Refund
                 </Button>
+                )}
                 {/* US-2932: message the buyer inside the RETURN. eBay reads
                     this thread when it decides a case; the Offers inbox is a
                     different conversation it cannot see. */}
+                {returnAllows(r.sellerActions, "message") && (
                 <Button
                   aria-label={`Message the buyer about ${r.reason?.replace(/_/g, " ") ?? "this return"}`}
                   size="sm"
@@ -919,9 +937,11 @@ function ReturnsCard() {
                 >
                   Message…
                 </Button>
+                )}
                 {/* US-2227: the keep-it discount. Separate from Refund because
                     it is a different eBay call with a different outcome — this
                     one leaves the return open. */}
+                {returnAllows(r.sellerActions, "partial") && (
                 <Button
                 aria-label={`Partial refund for ${r.reason?.replace(/_/g, " ") ?? "the return"}`}
                   size="sm"
@@ -934,6 +954,7 @@ function ReturnsCard() {
                 >
                   Partial…
                 </Button>
+                )}
                 {/* US-2706: the grade evidence. Opens a review panel and sends
                     nothing until the seller reads the verdict and clicks — the
                     useful outcome of this feature is often "do not fight". */}
