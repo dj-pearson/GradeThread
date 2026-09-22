@@ -189,7 +189,6 @@ const EmbedGradePage = lazy(() => import("@/pages/embed-grade").then(m => ({ def
 const GradingGlossaryPage = lazy(() => import("@/pages/marketing/grading-glossary").then(m => ({ default: m.GradingGlossaryPage })));
 const ResellerGlossaryHubPage = lazy(() => import("@/pages/marketing/reseller-glossary").then(m => ({ default: m.ResellerGlossaryHubPage })));
 const ResellerGlossaryTermPage = lazy(() => import("@/pages/marketing/reseller-glossary").then(m => ({ default: m.ResellerGlossaryTermPage })));
-const FlipdeskOverviewPage = lazy(() => import("@/pages/flipdesk/overview").then(m => ({ default: m.FlipdeskOverviewPage })));
 const FlipdeskSearchPage = lazy(() => import("@/pages/flipdesk/search").then(m => ({ default: m.FlipdeskSearchPage })));
 const WorthMyTimePage = lazy(() => import("@/pages/flipdesk/worth-my-time").then(m => ({ default: m.WorthMyTimePage })));
 // US-958: unified Inventory surface — hosts the table/grid/kanban/prep views as
@@ -608,8 +607,14 @@ export const router = createBrowserRouter([
               // US-1777: buyer body-profile store (measurements for fit checks).
               { path: "/dashboard/measurements", element: <SuspenseWrapper><BodyProfilesPage /></SuspenseWrapper> },
               { path: "/dashboard/analytics/suggestions", element: <TabRedirect to="/dashboard/flipdesk/pricing" tab="suggestions" /> },
-              { path: "/dashboard/flipdesk", element: <SuspenseWrapper><FlipdeskOverviewPage /></SuspenseWrapper> },
-              { path: "/dashboard/flipdesk/overview", element: <SuspenseWrapper><FlipdeskOverviewPage /></SuspenseWrapper> },
+              // US-3469: the two overviews are one page. Both old FlipDesk
+              // overview URLs are kept alive as redirects rather than deleted —
+              // they are in bookmarks, in cross-surface nudge CTAs, in the
+              // command palette and in the onboarding flow's destination. The
+              // redirect MERGES the query string (ViewRedirect), so
+              // /dashboard/flipdesk?range=30d keeps its window.
+              { path: "/dashboard/flipdesk", element: <ViewRedirect to="/dashboard" view="flipdesk" /> },
+              { path: "/dashboard/flipdesk/overview", element: <ViewRedirect to="/dashboard" view="flipdesk" /> },
               { path: "/dashboard/flipdesk/search", element: <SuspenseWrapper><FlipdeskSearchPage /></SuspenseWrapper> },
               // US-3175: Worth My Time. Authenticated, lazy, inside the existing
               // FlipDesk shell -- never a public route.

@@ -70,7 +70,7 @@ export interface NeedsYouState {
 /**
  * Where each queue lives, as an ABSOLUTE path.
  *
- * Absolute because the widget renders on /dashboard/flipdesk/overview, where a
+ * Absolute because the widget renders on the Overview (/dashboard), where a
  * bare "#returns" scrolls to nothing. NeedsYouCard keeps its own relative map:
  * it renders ON post-sale, beside the cards these anchors name, and an absolute
  * link there would reload the page the seller is already looking at.

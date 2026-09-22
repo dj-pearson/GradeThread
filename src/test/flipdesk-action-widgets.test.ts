@@ -289,8 +289,12 @@ describe("the boundary AC10 draws", () => {
   it("leaves the overview page a header and a board", () => {
     // Eight more widgets must not put a single line of card markup back on the
     // page: the whole point of US-3076 was that the page stopped placing cards.
-    const page = read("src/pages/flipdesk/overview.tsx");
-    expect(page.split("\n").length).toBeLessThan(120);
+    // US-3469: src/pages/dashboard.tsx is the Overview, and the FlipDesk
+    // board is one of its two views. It carries both views' header actions
+    // and the view switcher, so the line budget moved with it -- still a
+    // header and a board, still no card markup.
+    const page = read("src/pages/dashboard.tsx");
+    expect(page.split("\n").length).toBeLessThan(200);
     expect(page).toContain("<CustomizableWidgetBoard");
     for (const id of ACTION_IDS) {
       expect(page, `${id} is drawn by the page`).not.toContain(id);

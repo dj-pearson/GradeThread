@@ -31,9 +31,13 @@ describe("each signed-in surface gets its own tab title (US-3229)", () => {
   it("falls back to the nearest parent surface for a detail route", () => {
     // Detail routes are most of what a working seller has open, and they are
     // not surfaces, so without the prefix step they would all read "GradeThread".
+    //
+    // US-3469: "FlipDesk" rather than "FlipDesk Overview". The FlipDesk
+    // Overview is a view of /dashboard now, so nothing in the registry sits at
+    // the root of this subtree; SUBTREE_ENTRIES names it instead.
     expect(
       surfaceLabelFor("/dashboard/flipdesk/items/8f1c2b7e-0000-4000-8000-000000000000", ""),
-    ).toBe("FlipDesk Overview");
+    ).toBe("FlipDesk");
   });
 
   it("says just the product name when nothing matches", () => {
@@ -45,13 +49,20 @@ describe("each signed-in surface gets its own tab title (US-3229)", () => {
   });
 
   it("qualifies a label two surfaces share, so the tabs still differ", () => {
-    // "Overview" is both /dashboard (Grading) and /dashboard/flipdesk
-    // (FlipDesk). Left alone, those two tabs would read identically -- the
-    // exact thing this hook exists to stop.
-    const grading = surfaceLabelFor("/dashboard", "");
-    const flipdesk = surfaceLabelFor("/dashboard/flipdesk", "");
-    expect(grading).not.toBe(flipdesk);
+    // "Overview" is both views of /dashboard. US-3469 made them one PAGE, which
+    // makes this MORE load-bearing rather than less: the two tabs now differ by
+    // nothing but `?view=`, so a hook that ignored the param would title them
+    // identically, which is the exact thing it exists to stop.
+    const grading = surfaceLabelFor("/dashboard", "?view=grading");
+    const flipdesk = surfaceLabelFor("/dashboard", "?view=flipdesk");
+    expect(grading).toBe("Grading Overview");
     expect(flipdesk).toBe("FlipDesk Overview");
+  });
+
+  it("titles the bare /dashboard as the view it opens on", () => {
+    // Every registry entry for /dashboard names a `?view=`, so without the
+    // default-view step the one URL a seller types has no title at all.
+    expect(surfaceLabelFor("/dashboard", "")).toBe("Grading Overview");
   });
 
   it("formats a matched title as '<label> - GradeThread'", () => {

@@ -28,7 +28,10 @@ import type { OverviewMetrics } from "@/hooks/use-flipdesk-overview";
 // showing, and that a nudge a seller waved away stays away.
 
 const registry = widgetsForSurface("flipdesk");
-const OVERVIEW = "src/pages/flipdesk/overview.tsx";
+// US-3469 folded the two overviews into one page. The FlipDesk board is a
+// VIEW of src/pages/dashboard.tsx now, so that is the file these
+// source-reading claims are about; src/pages/flipdesk/overview.tsx is gone.
+const OVERVIEW = "src/pages/dashboard.tsx";
 
 function page(): string {
   return readFileSync(resolve(process.cwd(), OVERVIEW), "utf8");
@@ -38,7 +41,14 @@ describe("the page is a header and a board (US-3076 AC1)", () => {
   it("renders the customizable board and no second header", () => {
     const src = page();
     expect(src).toContain('<CustomizableWidgetBoard');
-    expect(src).toContain('surface="flipdesk"');
+    // US-3469: one board, whose surface comes from the selected view. The
+    // mapping lives in src/lib/overview-view.ts, so THAT is what has to name
+    // the flipdesk surface -- a literal `surface="flipdesk"` here would mean
+    // the page had stopped switching.
+    expect(src).toContain("surface={def.surface}");
+    expect(
+      readFileSync(resolve(process.cwd(), "src/lib/overview-view.ts"), "utf8"),
+    ).toContain('surface: "flipdesk"');
     // CustomizableWidgetBoard renders PageHeader itself, so the range picker,
     // Import and Add item go through it as `actions` and the Customize button
     // is appended there. A PageHeader here would be two headers on one page.

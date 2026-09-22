@@ -25,7 +25,8 @@ import type { ItemFullRow, ItemStatus } from "@/types/database";
 // browser, offered no date range at all, and previewed five of N stuck items
 // with no way to see the rest.
 
-const OVERVIEW = "src/pages/flipdesk/overview.tsx";
+// US-3469: the FlipDesk Overview is a view of the one Overview page now.
+const OVERVIEW = "src/pages/dashboard.tsx";
 const LISTINGS = "src/pages/flipdesk/listings.tsx";
 const MIGRATION = "supabase/migrations/00594_flipdesk_overview_metrics.sql";
 

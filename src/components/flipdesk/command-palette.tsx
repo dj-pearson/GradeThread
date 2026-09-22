@@ -311,11 +311,14 @@ export function CommandPalette() {
         requires: "manage_inventory",
       },
       {
+        // US-3469: one Overview with two views, so the palette names the view
+        // rather than offering "Dashboard" and "Overview" as if they were two
+        // places.
         kind: "action",
         id: "dashboard",
-        label: "Go to Dashboard",
+        label: "Go to Overview (Grading)",
         icon: <LayoutDashboard className="h-4 w-4" />,
-        run: () => go("/dashboard"),
+        run: () => go("/dashboard?view=grading"),
       },
       {
         kind: "action",
@@ -405,9 +408,9 @@ export function CommandPalette() {
       {
         kind: "action",
         id: "overview",
-        label: "Go to Overview",
+        label: "Go to Overview (FlipDesk)",
         icon: <Gauge className="h-4 w-4" />,
-        run: () => go("/dashboard/flipdesk"),
+        run: () => go("/dashboard?view=flipdesk"),
       },
       {
         kind: "action",

@@ -98,7 +98,7 @@ export const SURFACES = [
     id: "overview",
     label: "Overview",
     description: "Your grades, your plan usage, and what needs you today.",
-    web: "/dashboard",
+    web: "/dashboard?view=grading",
     nav: { group: "Grading", end: true },
     ios: null,
     iosElsewhere: "ios/GradeThread/Dashboard/DashboardView.swift",
@@ -144,10 +144,17 @@ export const SURFACES = [
 
   // ── FlipDesk / Catalog ──────────────────────────────────────────────────
   {
+    // US-3469: the same page as `overview`, opened on its FlipDesk view.
+    //
+    // Two entries for one route is deliberate and is not drift. The Overview is
+    // one page with two views now, and both nav groups need a way in: a seller
+    // reading the FlipDesk group should not have to know the day's numbers live
+    // under "Grading". `web` carries the `?view=` that names the view inside the
+    // host, which is exactly what the field is for.
     id: "flipdesk-overview",
     label: "Overview",
     description: "The day's numbers for buying, listing and selling.",
-    web: "/dashboard/flipdesk",
+    web: "/dashboard?view=flipdesk",
     nav: { group: "FlipDesk", subgroup: "Today", end: true },
     ios: null,
     iosElsewhere: "ios/GradeThread/Dashboard/DashboardView.swift",
@@ -519,10 +526,6 @@ export const CONTEXTUAL_ROUTES: readonly { path: string; why: string }[] = [
   { path: "/dashboard/team", why: "Folded into the Account hub (US-741); the route stays for deep links." },
   { path: "/dashboard/api-keys", why: "Account hub tab (US-741); Developers is the nav entry." },
   { path: "/dashboard/support", why: "Account hub tab (US-741); Help is the nav entry." },
-  {
-    path: "/dashboard/flipdesk/overview",
-    why: "Renders the SAME page as /dashboard/flipdesk. An alias, not a redirect -- see the note in surface-registry.test.ts.",
-  },
   {
     path: "/dashboard/flipdesk/autolister/queue",
     why: "Batch-scoped (?batch=). A nav link with no batch id is meaningless.",

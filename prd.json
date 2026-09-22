@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-3469",
+  "nextId": "US-3470",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -4631,6 +4631,20 @@
         "An orphan adopted from the modern pass is created with ebay_category_id and ebay_aspects; a legacy-adopted one is filled by GetItem on the next sync (empty ebay_aspects counts as a blank worth one call, bounded by the 14-day stamp).",
         "Pure tests cover mergeEbayAspects, buildCatalogPatch's aspect/category arms, parseGetItemDetails and buildAdoptionRows; vault sync-source-of-truth note updated in the same commit.",
         "An item adopted from an eBay listing is filed under the vertical its category breadcrumb implies (Trading Card Singles -> sports_cards, Men's Shoes -> shoes, ...), 'clothing' only when no breadcrumb resolves; a matched eBay-originated item still on the adoption default 'clothing' is corrected on the next pull when the breadcrumb implies a specific vertical, never to 'other' and never over a chosen value."
+      ],
+      "priority": 20
+    },
+    {
+      "id": "US-3469",
+      "passes": false,
+      "title": "One Overview, split into a Grading view and a FlipDesk view",
+      "description": "The product had two overviews: /dashboard (grading widget board) and /dashboard/flipdesk (FlipDesk widget board). A seller who does both had two places to check every morning, two Customize buttons and two boards to keep in their head. Fold them into ONE page at /dashboard with a view switcher. Each view keeps its own saved widget layout (the dashboard_layouts row is keyed by surface, so nothing is migrated and nobody loses an arrangement), and the view a seller last used is the one the page opens on next time. The old FlipDesk overview URLs redirect so every existing link, bookmark, nudge CTA and command-palette entry still lands somewhere real.",
+      "acceptanceCriteria": [
+        "/dashboard renders a single Overview page with a Grading / FlipDesk view switcher in its header; ?view=flipdesk selects the FlipDesk board and ?view=grading (or no param) selects the grading one.",
+        "The view a seller picks is remembered per user and is the view /dashboard opens on next visit, with the URL param always winning over the remembered one.",
+        "Each view keeps its own layout, its own Customize mode and its own header actions: the grading view keeps New Submission and the PWA install banner, the FlipDesk view keeps the reporting-period picker, Import and Add item.",
+        "/dashboard/flipdesk and /dashboard/flipdesk/overview redirect to /dashboard?view=flipdesk, and src/pages/flipdesk/overview.tsx is gone rather than left unreferenced.",
+        "A buyer persona, which has no FlipDesk board at all, is not offered the FlipDesk view."
       ],
       "priority": 20
     }

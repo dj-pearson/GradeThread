@@ -352,6 +352,16 @@ export interface CustomizableWidgetBoardProps {
   subtitle?: ReactNode;
   actions?: ReactNode;
   /**
+   * A strip between the header and the board (US-3469: the Overview's
+   * Grading / FlipDesk switcher).
+   *
+   * Hidden while customizing, like the attention rail and for the same reason
+   * plus one of its own: the draft layout belongs to ONE surface, and a control
+   * that swaps the surface out from under an unsaved draft would throw the
+   * draft away with no dialog and no undo. Press Done or Cancel first.
+   */
+  lead?: ReactNode;
+  /**
    * The reporting window this board is showing (US-3076). Passed straight to
    * WidgetBoard: the page owns the picker because the picker is one of its
    * header actions, and the board owns what the widgets are told about it.
@@ -373,6 +383,7 @@ export function CustomizableWidgetBoard({
   title,
   subtitle,
   actions,
+  lead,
   range,
   className,
 }: CustomizableWidgetBoardProps) {
@@ -523,6 +534,8 @@ export function CustomizableWidgetBoard({
           </>
         }
       />
+
+      {editing ? null : lead}
 
       {/* US-3079: directly under the header, above the board, on both surfaces.
           Hidden while editing — customize mode is about the board's shape, and a

@@ -76,6 +76,23 @@ const ADMIN_ENTRIES: Entry[] = ADMIN_NAV_ITEMS.map((item) => ({
   label: item.label,
 }));
 
+/**
+ * Route subtrees whose ROOT is not a surface (US-3469).
+ *
+ * `/dashboard/flipdesk` used to be the FlipDesk Overview. It is a redirect onto
+ * `/dashboard?view=flipdesk` now, so nothing in the registry sits at the root of
+ * the FlipDesk tree -- and the prefix step is what titles the detail routes
+ * under it. Without this, `/dashboard/flipdesk/items/<id>`, which is most of
+ * what a working seller has open, reads "GradeThread" again.
+ *
+ * Deliberately a short hand-written list rather than something derived: a
+ * subtree with no surface at its root is a thing worth naming out loud, and
+ * there is exactly one.
+ */
+const SUBTREE_ENTRIES: Entry[] = [
+  { path: "/dashboard/flipdesk", param: null, label: "FlipDesk" },
+];
+
 /** Built once: the registry is a module-level constant. */
 const ENTRIES: Entry[] = ALL_SURFACES.flatMap((s) => {
   if (s.web === null) return [];
@@ -89,7 +106,7 @@ const ENTRIES: Entry[] = ALL_SURFACES.flatMap((s) => {
     label:
       DUPLICATE_LABELS.has(s.label) && group ? `${group} ${s.label}` : s.label,
   }];
-}).concat(BUYER_ENTRIES, ADMIN_ENTRIES);
+}).concat(BUYER_ENTRIES, ADMIN_ENTRIES, SUBTREE_ENTRIES);
 
 /**
  * The label for a location, or null when nothing in the registry covers it.
@@ -97,7 +114,9 @@ const ENTRIES: Entry[] = ALL_SURFACES.flatMap((s) => {
  * Precedence, and each step earns its place:
  *  1. exact path + the matching tab/view param, so Repricing does not read
  *     as Pricing;
- *  2. exact path with no param, for the tabbed host's own default tab;
+ *  2. exact path with no param, for a host that names no view in the registry;
+ * 2b. exact path whose registry entries ALL name a param, none of which the URL
+ *     carries -- the first entry is the host's default view;
  *  3. longest path PREFIX, so /dashboard/flipdesk/items/<id> answers with
  *     FlipDesk rather than the bare product name. Detail routes are most of
  *     what a working seller actually has open. `/dashboard` is excluded here
@@ -112,6 +131,14 @@ export function surfaceLabelFor(pathname: string, search: string): string | null
   }
   for (const e of ENTRIES) {
     if (e.path === pathname && !e.param) return e.label;
+  }
+  // 2b. A tabbed host opened with no ?tab= / ?view= at all: its FIRST entry is
+  // its default view. `/dashboard` is why this exists -- US-3469 folded the two
+  // overviews into one page whose two views are BOTH named with a `?view=`, so
+  // every registry entry for that path carries a param and the bare URL a
+  // seller types would otherwise have no title.
+  for (const e of ENTRIES) {
+    if (e.path === pathname && e.param && !params.has(e.param.key)) return e.label;
   }
 
   let best: Entry | null = null;

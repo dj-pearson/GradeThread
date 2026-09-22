@@ -214,7 +214,7 @@ function SidebarNav({
   const flipdeskFlags =
     FLIPDESK_PLANS[(billing?.subscription.plan as FlipdeskPlanKey) ?? "free"]
       .gateFlags;
-  const { pathname } = useLocation();
+  const { pathname, search } = useLocation();
   // Per-section collapse state, persisted so the user's layout sticks.
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>(
     loadCollapsed,
@@ -264,8 +264,25 @@ function SidebarNav({
     );
   }
 
+  // US-3469: a registry link may name a view INSIDE a host, not just a path --
+  // `/dashboard?view=flipdesk`, `/dashboard/flipdesk/pricing?tab=repricing`.
+  // This used to compare the whole string against `pathname`, so every one of
+  // those entries was permanently inactive: no pathname ever contains a "?".
+  // Scout, Sources, Repricing, Automations and Reconcile have all been that way
+  // since US-2161, and the Overview would have joined them.
+  //
+  // So: the path decides whether the row is in play, and every param the entry
+  // names has to match the URL for it to win. An entry with no params is
+  // unaffected, which is all but six of them.
   function isRouteActive(item: Pick<NavItem, "to" | "end">): boolean {
-    return item.end ? pathname === item.to : pathname.startsWith(item.to);
+    const [to = "", query] = item.to.split("?");
+    const onPath = item.end ? pathname === to : pathname.startsWith(to);
+    if (!onPath || !query) return onPath;
+    const here = new URLSearchParams(search);
+    for (const [key, value] of new URLSearchParams(query)) {
+      if (here.get(key) !== value) return false;
+    }
+    return true;
   }
 
   function groupHasActiveRoute(items: NavItem[]): boolean {
