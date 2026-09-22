@@ -21,6 +21,8 @@ import {
   useBillingSummary,
   useFlipdeskSubscribe,
   useBillingPortal,
+  isOnSignupTrial,
+  trialDaysLeft,
 } from "@/hooks/use-billing-summary";
 import { useRedirectStore } from "@/stores/redirect-store";
 import { DowngradePreviewDialog } from "@/components/billing/downgrade-preview-dialog";
@@ -109,6 +111,17 @@ export function FlipdeskPlanPickerDialog({
   const currentPlan = (summary?.subscription.plan ?? "free") as FlipdeskPlanKey;
   const currentInterval: BillingInterval =
     summary?.subscription.interval ?? "monthly";
+  // US-3457: the signup trial is not a subscription. The summary says 'pro'
+  // because handle_new_user stamped it, but there is no Stripe subscription to
+  // be "current" on, to switch the interval of, or to downgrade. Every CTA
+  // decision below is made against `ctaPlan`, which is free for a trialist, so
+  // each paid tile is a fresh Checkout. `currentPlan` still says which plan
+  // the trial is, for the badge and the button label.
+  const onSignupTrial = !!summary && isOnSignupTrial(summary.subscription);
+  const ctaPlan: FlipdeskPlanKey = onSignupTrial ? "free" : currentPlan;
+  const daysLeft = onSignupTrial
+    ? trialDaysLeft(summary.subscription.trial_ends_at)
+    : 0;
 
   const [interval, setInterval] = useState<BillingInterval>(currentInterval);
   const [downgradeTarget, setDowngradeTarget] = useState<
@@ -129,11 +142,18 @@ export function FlipdeskPlanPickerDialog({
   }, [open]);
 
   // Show trial CTAs only when the user hasn't used their one-trial-ever yet.
-  const trialEligible =
-    !!summary &&
-    !summary.subscription.stripe_customer_id &&
-    !!summary.subscription.trial_ends_at &&
-    new Date(summary.subscription.trial_ends_at).getTime() > Date.now();
+  // US-3457: for a signup trialist the days a Checkout will carry forward are
+  // the days LEFT, so the chip and the disclosure say that number, never 14.
+  // A signup trialist is eligible by definition (Checkout carries the days
+  // forward), even when a credit-pack purchase has already made them a Stripe
+  // customer.
+  const trialEligible = onSignupTrial
+    ? daysLeft > 0
+    : !!summary &&
+      !summary.subscription.stripe_customer_id &&
+      !!summary.subscription.trial_ends_at &&
+      new Date(summary.subscription.trial_ends_at).getTime() > Date.now();
+  const trialDaysToDisclose = onSignupTrial ? daysLeft : TRIAL_DAYS;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -210,16 +230,27 @@ export function FlipdeskPlanPickerDialog({
               interval === "monthly" ? plan.priceMonthlyCents : plan.priceYearlyCents;
             const sale = priceFor({ kind: "flipdesk_plan", key: planKey, interval }, listCents);
             const payCents = sale ? sale.finalCents : listCents;
+            // Free has no interval, so the Free tile is current on either
+            // toggle; before US-3457 the yearly toggle turned it into a
+            // "Switch interval" button that opened a portal call with no
+            // subscription behind it.
             const isCurrent =
-              planKey === currentPlan && interval === currentInterval;
+              planKey === ctaPlan && (planKey === "free" || interval === currentInterval);
             const sameTierDiffInterval =
-              planKey === currentPlan && interval !== currentInterval;
+              planKey === ctaPlan && planKey !== "free" && interval !== currentInterval;
             const direction =
-              PLAN_RANK[planKey] - PLAN_RANK[currentPlan];
+              PLAN_RANK[planKey] - PLAN_RANK[ctaPlan];
             const isUpgrade = direction > 0;
             const isDowngrade = direction < 0 && planKey !== "free";
             const isCancelToFree = direction < 0 && planKey === "free";
-            const showTrialChip = trialEligible && (planKey === "pro" || planKey === "business");
+            // US-3457: the plan the signup trial is running on. Badged "Your
+            // trial" and sold as "keep it", never marked current.
+            const isTrialPlan = onSignupTrial && planKey === currentPlan;
+            // The tile drawn as "yours": the trial plan during the trial, the
+            // current plan otherwise.
+            const isOwnTile = onSignupTrial ? isTrialPlan : isCurrent;
+            const showTrialChip = trialEligible && (planKey === "pro" || planKey === "business")
+              && trialDaysToDisclose > 0;
             const isHighlighted = highlightPlan === planKey;
             const isPopular = planKey === "pro";
             const savings = annualSavingsPct(plan);
@@ -234,12 +265,12 @@ export function FlipdeskPlanPickerDialog({
                 key={planKey}
                 className={cn(
                   "relative flex flex-col",
-                  isCurrent && "border-brand-navy border-2",
-                  !isCurrent && isHighlighted && "border-brand-red border-2",
-                  !isCurrent && !isHighlighted && isPopular && "border-brand-navy/60 border-2",
+                  isOwnTile && "border-brand-navy border-2",
+                  !isOwnTile && isHighlighted && "border-brand-red border-2",
+                  !isOwnTile && !isHighlighted && isPopular && "border-brand-navy/60 border-2",
                 )}
               >
-                {isPopular && !isCurrent && (
+                {isPopular && !isOwnTile && (
                   <Badge
                     variant="secondary"
                     className="absolute -top-2 right-3 z-10"
@@ -248,12 +279,20 @@ export function FlipdeskPlanPickerDialog({
                     Popular
                   </Badge>
                 )}
-                {isCurrent && (
+                {isCurrent && !onSignupTrial && (
                   <Badge
                     variant="default"
                     className="bg-brand-navy absolute -top-2 right-3 z-10"
                   >
                     Current
+                  </Badge>
+                )}
+                {isTrialPlan && (
+                  <Badge
+                    variant="default"
+                    className="bg-brand-navy absolute -top-2 right-3 z-10"
+                  >
+                    Your trial
                   </Badge>
                 )}
 
@@ -286,7 +325,9 @@ export function FlipdeskPlanPickerDialog({
                   {showTrialChip && (
                     <Badge variant="secondary" className="self-start">
                       <Sparkles className="mr-1 h-3 w-3" />
-                      {TRIAL_DAYS}-day free trial
+                      {onSignupTrial
+                        ? `${trialDaysToDisclose} day${trialDaysToDisclose === 1 ? "" : "s"} left free`
+                        : `${TRIAL_DAYS}-day free trial`}
                     </Badge>
                   )}
                 </CardHeader>
@@ -340,7 +381,10 @@ export function FlipdeskPlanPickerDialog({
                 <CardFooter className="flex-col items-stretch gap-2">
                   {renderCta({
                     planKey,
+                    planName: plan.name,
                     isCurrent,
+                    isTrialPlan,
+                    onSignupTrial,
                     sameTierDiffInterval,
                     isUpgrade,
                     isDowngrade,
@@ -357,7 +401,10 @@ export function FlipdeskPlanPickerDialog({
                       // charges immediately. Disclose + confirm first. From free
                       // (no subscription) it's a fresh Checkout that discloses on
                       // Stripe's page, so go straight there.
-                      if (currentPlan === "free") {
+                      // US-3457: a signup trialist has no subscription to
+                      // change in place; ctaPlan is free for them, so this is
+                      // Checkout and the trial carries forward server-side.
+                      if (ctaPlan === "free") {
                         subscribe.mutate({ plan: planKey, interval });
                       } else {
                         setUpgradeTarget(planKey);
@@ -412,7 +459,7 @@ export function FlipdeskPlanPickerDialog({
                     <AutoRenewalDisclosure
                       amountCents={listCents}
                       interval={interval}
-                      trialDays={showTrialChip ? TRIAL_DAYS : null}
+                      trialDays={showTrialChip ? trialDaysToDisclose : null}
                     />
                   )}
                 </CardFooter>
@@ -436,7 +483,12 @@ function Stat({ label, value }: { label: string; value: string }) {
 
 function renderCta(args: {
   planKey: FlipdeskPlanKey;
+  planName: string;
   isCurrent: boolean;
+  /** US-3457: the tile of the plan the signup trial is running on. */
+  isTrialPlan: boolean;
+  /** US-3457: the viewer is on the signup trial (no subscription yet). */
+  onSignupTrial: boolean;
   sameTierDiffInterval: boolean;
   isUpgrade: boolean;
   isDowngrade: boolean;
@@ -447,7 +499,18 @@ function renderCta(args: {
   onOpenPortal: () => void;
   onCancel: () => void;
 }) {
-  const { isCurrent, sameTierDiffInterval, isUpgrade, isDowngrade, isCancelToFree, isLoading, planKey, onSubscribe, onDowngrade, onOpenPortal, onCancel } = args;
+  const { isCurrent, isTrialPlan, onSignupTrial, planName, sameTierDiffInterval, isUpgrade, isDowngrade, isCancelToFree, isLoading, planKey, onSubscribe, onDowngrade, onOpenPortal, onCancel } = args;
+
+  // US-3457: on the signup trial the Free tile is where the account lands when
+  // the trial runs out, not a plan to pick. Said as that, and not "Current
+  // plan", which would be false on the tile above and untrue here too.
+  if (onSignupTrial && planKey === "free") {
+    return (
+      <Button variant="outline" className="w-full" disabled>
+        Free after your trial
+      </Button>
+    );
+  }
 
   if (isCurrent) {
     return (
@@ -472,10 +535,18 @@ function renderCta(args: {
   }
 
   if (isUpgrade && planKey !== "free") {
+    // US-3457: a trialist is not upgrading to the plan they already have; they
+    // are keeping it. The other paid tiles are a choice, not an upgrade from
+    // free, because the account is on Pro today.
+    const label = isTrialPlan
+      ? `Keep ${planName}, add a card`
+      : onSignupTrial
+        ? `Choose ${planName}`
+        : `Upgrade to ${planKey}`;
     return (
       <Button className="w-full" onClick={onSubscribe} disabled={isLoading}>
         {isLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-        Upgrade to {planKey}
+        {label}
       </Button>
     );
   }

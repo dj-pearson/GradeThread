@@ -6,6 +6,8 @@ status: current
 source_of_truth: code
 code_refs:
   - src/lib/constants.ts
+  - src/components/billing/flipdesk-plan-picker-dialog.tsx
+  - services/edge-functions/src/lib/trial-carry-forward.ts
   - scripts/setup-stripe-pricing.mjs
   - src/pages/legal/refund.tsx
   - src/pages/legal/terms.tsx
@@ -346,6 +348,17 @@ do **not** reset while paused.
 - No card is collected upfront; a daily job flips un-converted trials to **Free**
   when `trial_ends_at` passes. A Stripe subscription is only created when the
   user explicitly upgrades.
+- **Converting during the trial is a fresh Stripe Checkout, not an in-place
+  change** (US-3457). The signup trial has no subscription behind it, so the
+  plan picker treats a trialist (`subscription_status = 'trialing'` with
+  `billing_source` null) as Free for CTA purposes: the trialed tile reads
+  "Keep Pro, add a card", the other paid tiles are "Choose", and nothing on the
+  trial is ever "Current plan". Before this, every trial CTA landed on a
+  disabled button and 43 trials converted 0 (US-2288).
+- Checkout carries the remaining trial into `subscription_data.trial_end`,
+  **floored at now + 48 hours** (`lib/trial-carry-forward.ts`), because Stripe
+  refuses a shorter `trial_end` and the transactional notice sends people to the
+  billing page inside that window. The first charge moves later, never earlier.
 
 ---
 

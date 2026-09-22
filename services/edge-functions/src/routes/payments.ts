@@ -8,6 +8,7 @@ import { captureServer } from "../lib/posthog.ts";
 import { emitEvent } from "../lib/user-events.ts";
 import { customerCreateIdempotencyKey } from "../lib/stripe-customer.ts";
 import { getBuyerPriceIds, getFlipdeskPriceIds } from "../lib/pricing-config.ts";
+import { carriedForwardTrialEnd } from "../lib/trial-carry-forward.ts";
 import { effectiveAiActionsUsed } from "../lib/ai-metering.ts";
 import { API_OVERAGE_PACKS, isApiOveragePackKey } from "../lib/api-overage-packs.ts";
 import {
@@ -455,14 +456,9 @@ paymentRoutes.post("/flipdesk/subscribe", async (c) => {
   // Carry trial forward if the user still has time left and hasn't used a
   // paid subscription yet. flipdesk_subscription_id present = trial was
   // already converted, so we don't grant a second trial.
-  let trialEndUnix: number | undefined;
-  if (
-    user.trial_ends_at &&
-    !user.flipdesk_subscription_id &&
-    new Date(user.trial_ends_at).getTime() > Date.now()
-  ) {
-    trialEndUnix = Math.floor(new Date(user.trial_ends_at).getTime() / 1000);
-  }
+  // US-3457: floored at now + 48h, because Stripe refuses a shorter trial_end
+  // and the trial notice sends people here inside that window.
+  const trialEndUnix = carriedForwardTrialEnd(user);
 
   try {
     const sessionParams: Stripe.Checkout.SessionCreateParams = {
