@@ -3,6 +3,9 @@
 // event, because the sentence "Poshmark ended 14:06 (your browser)" is the
 // product and a wrong actor or a missing row is a wrong sentence.
 
+// US-2379: the static import graph reaches src/lib/supabase.ts, so the env
+// stub loads first. Kept as the first import on purpose.
+import "./_env.ts";
 import { assertEquals } from "@std/assert";
 import {
   buildDelistLog,
@@ -16,7 +19,6 @@ function row(over: Partial<DelistLogListingRow> & { id: string; platform: string
     listing_url: null,
     delist_requested_at: null,
     platform_fields: null,
-    sold_at: null,
     updated_at: "2026-09-21T14:00:00Z",
     ...over,
   };
@@ -37,7 +39,7 @@ function job(over: Partial<DelistLogJobRow> & { id: string; platform: string }):
 
 Deno.test("a Poshmark sale: eBay ended by the server, Mercari by the browser, Grailed unresolved, Vinted still queued", () => {
   const rows = [
-    row({ id: "p", platform: "poshmark", listing_status: "sold", sold_at: "2026-09-21T14:02:00Z" }),
+    row({ id: "p", platform: "poshmark", listing_status: "sold", updated_at: "2026-09-21T14:02:00Z" }),
     row({ id: "e", platform: "ebay", listing_status: "ended", updated_at: "2026-09-21T14:02:30Z" }),
     row({ id: "m", platform: "mercari", listing_status: "ended", listing_url: "https://www.mercari.com/us/item/m1/" }),
     row({
@@ -83,7 +85,7 @@ Deno.test("a Poshmark sale: eBay ended by the server, Mercari by the browser, Gr
 Deno.test("a sale on eBay is the server's; an extension row ended with no job and no stamp was ended by hand", () => {
   const events = buildDelistLog(
     [
-      row({ id: "e", platform: "ebay", listing_status: "sold", sold_at: "2026-09-21T10:00:00Z" }),
+      row({ id: "e", platform: "ebay", listing_status: "sold", updated_at: "2026-09-21T10:00:00Z" }),
       row({ id: "p", platform: "poshmark", listing_status: "ended", updated_at: "2026-09-21T10:20:00Z" }),
     ],
     [],
@@ -97,7 +99,7 @@ Deno.test("a sale on eBay is the server's; an extension row ended with no job an
 Deno.test("a stamped row with no job is waiting on the seller; an unstamped live row after a sale is waiting too", () => {
   const events = buildDelistLog(
     [
-      row({ id: "e", platform: "ebay", listing_status: "sold", sold_at: "2026-09-21T10:00:00Z" }),
+      row({ id: "e", platform: "ebay", listing_status: "sold", updated_at: "2026-09-21T10:00:00Z" }),
       row({ id: "p", platform: "poshmark", listing_status: "ended", delist_requested_at: "2026-09-21T10:00:05Z" }),
       row({ id: "m", platform: "mercari", listing_status: "active" }),
     ],
@@ -114,7 +116,7 @@ Deno.test("a stamped row with no job is waiting on the seller; an unstamped live
 Deno.test("the US-2165 marker on an unsupported channel reads as unresolved with its reason", () => {
   const events = buildDelistLog(
     [
-      row({ id: "e", platform: "ebay", listing_status: "sold", sold_at: "2026-09-21T10:00:00Z" }),
+      row({ id: "e", platform: "ebay", listing_status: "sold", updated_at: "2026-09-21T10:00:00Z" }),
       row({
         id: "w",
         platform: "whatnot",

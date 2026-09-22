@@ -11,7 +11,7 @@
 // PURE BUILDER + ONE LOADER. buildDelistLog takes the item's listings rows
 // and its delist queue rows and returns events; loadDelistLog owner-checks
 // the item and reads the two tables. No new column: every event is derived
-// from listing_status, sold_at, delist_requested_at, the
+// from listing_status, updated_at, delist_requested_at, the
 // platform_fields.delist_unresolved marker (US-2165) and the queue's own
 // timestamps.
 
@@ -49,7 +49,6 @@ export interface DelistLogListingRow {
   listing_url: string | null;
   delist_requested_at: string | null;
   platform_fields: Record<string, unknown> | null;
-  sold_at: string | null;
   updated_at: string | null;
 }
 
@@ -108,7 +107,8 @@ export function buildDelistLog(
       // from their own sales page, and "seller" is the honest word for both.
       events.push({
         ...base,
-        at: row.sold_at ?? row.updated_at ?? "",
+        // listings carries no sale instant; the row's last write is the sale.
+        at: row.updated_at ?? "",
         event: "sold",
         actor: isApi ? "server" : "seller",
       });
@@ -182,7 +182,7 @@ export function buildDelistLog(
         // to end. That is still a listing waiting on the seller.
         events.push({
           ...base,
-          at: sold.sold_at ?? sold.updated_at ?? row.updated_at ?? "",
+          at: sold.updated_at ?? row.updated_at ?? "",
           event: "waiting",
           actor: "seller",
           note: "Nothing has asked for this listing to end.",
@@ -216,7 +216,7 @@ export async function loadDelistLog(ownerId: string, itemId: string): Promise<De
     supabaseAdmin
       .from("listings")
       .select(
-        "id, platform, listing_status, listing_url, delist_requested_at, platform_fields, sold_at, updated_at",
+        "id, platform, listing_status, listing_url, delist_requested_at, platform_fields, updated_at",
       )
       .eq("inventory_item_id", itemId),
     supabaseAdmin

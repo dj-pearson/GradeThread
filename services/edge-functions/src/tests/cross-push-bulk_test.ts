@@ -4,6 +4,9 @@
 // channels plan to exactly one hundred and twenty calls, that a duplicate id
 // plans once, and that eBay is refused rather than fanned out.
 
+// US-2379: the static import graph reaches src/lib/supabase.ts, so the env
+// stub loads first. Kept as the first import on purpose.
+import "./_env.ts";
 import { assert, assertEquals } from "@std/assert";
 import {
   batchLabelFor,

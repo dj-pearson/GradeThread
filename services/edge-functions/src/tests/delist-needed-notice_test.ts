@@ -104,8 +104,11 @@ Deno.test("US-3144: the notice reaches the phone, not only the dashboard", () =>
 Deno.test("US-3144: the push carries the one key both clients already parse", () => {
   const fn = PUSH.slice(PUSH.indexOf("export function pushDelistNeeded("));
   assert(fn.length > 200, "pushDelistNeeded is gone");
+  // US-3279 routed the category through describe("delist.needed", ...), which
+  // reads the generated contract; the literal `category:` form is the older
+  // spelling and still accepted.
   assert(
-    /category: "delist\.needed"/.test(fn),
+    /category: "delist\.needed"/.test(fn) || /describe\("delist\.needed"/.test(fn),
     "the push category changed. It must match NotificationCategoryID.delistNeeded " +
       "(iOS) and PushCategory.DELIST_NEEDED (Android) byte for byte, or the tap " +
       "routes nowhere and the push is a dead end.",
@@ -116,6 +119,7 @@ Deno.test("US-3144: the push carries the one key both clients already parse", ()
   // Swift that parses it.
   assert(
     /idFields\(\{ inventoryItemId: opts\.itemId \}\)/.test(fn) ||
+      /describe\("delist\.needed", \{ inventoryItemId: opts\.itemId \}\)/.test(fn) ||
       /inventory_item_id: opts\.itemId/.test(fn),
     "the item id no longer rides in data.inventory_item_id — the ONE key both " +
       "DeepLinkRoute.from (iOS) and PushCategory.route (Android) read",
