@@ -315,6 +315,51 @@ different browser. Keep it.
 
 ---
 
+## 7. The listing flow (US-3455)
+
+The same case, for the create form. `ios/GradeThread/Marketplaces/WebList/`
+opens a marketplace's own create-listing page in the same per-marketplace
+`WKWebsiteDataStore` the delist uses, types the item's title, description,
+price and brand into it while the seller watches, and stops. The seller adds
+the photos through the marketplace's own picker, sets the pickers and presses
+the marketplace's own Post button.
+
+What is different from the delist, and why each difference keeps the case:
+
+- **The app never submits.** The submit selector is carried in
+  `ListFlows.generated.swift` so the run can probe that it is on the real
+  form, and `ios/Scripts/check-web-delist.py` §8 fails the build on any call
+  that clicks it. A listing goes live because the seller pressed the button.
+  This is what makes "help in a browser" true of a create form, where the
+  delist could rely on a verify step instead.
+- **Nothing is filled until everything is found.** Every `required` selector
+  is probed first; one miss stops the run with the selector version in the
+  message and no field touched. A half-filled form that looks finished is the
+  failure US-2165 names, on a third runtime.
+- **Photos are the seller's.** iOS has no `runOpenPanel` delegate; the
+  marketplace's file input opens the system photo picker when the seller
+  taps it, and the consent screen says so in its own bullet. Nothing in the
+  app uploads a photo to a marketplace.
+- **The words come in as data, before the sheet opens.** `WebListService`
+  (outside the `WebList` directory, so the guard's no-fetch rule still holds
+  for the code that drives the page) asks the edge for the same title,
+  description, price and brand a queued desktop job would type
+  (`POST /api/flipdesk/extension-queue/fill`), and the listing is recorded
+  through the same `extension-writeback` the desktop reports through, only
+  when the web view lands on a URL matching the platform's
+  `liveListingUrlPattern`. A seller who takes over and posts by hand still
+  gets it recorded; a seller who closes the sheet without posting gets
+  nothing recorded, which is the truth.
+- **Consent is per marketplace and per selector version.** A new selector
+  set means the form GradeThread fills has changed, and the seller reads the
+  screen again. The fourth bullet is still the shared
+  `MECHANISM_DISCLOSURE.extension` sentence, rendered from
+  `WebDelistModel.riskDisclosure` so there is one copy.
+
+The review notes carry a LISTING paragraph in the same words as the ENDING
+one (`ios/fastlane/metadata/review_information/notes.txt`). App Review
+outcome: not yet submitted with this flow; record it here when it is.
+
 ## Related
 
 - [[adr-no-server-side-marketplace-automation]] the bright line this feature sits inside, and §4's stated cost

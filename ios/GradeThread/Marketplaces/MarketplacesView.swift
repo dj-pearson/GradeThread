@@ -98,12 +98,16 @@ struct MarketplacesView: View {
         /// seller signs into and watches. Rides this same slot rather than a
         /// second `.sheet` modifier.
         case webDelist(PendingDelistService.PendingDelist)
+        /// US-3452: what the sale ended, where, when and by whom, for one
+        /// garment. Same slot, same reason.
+        case delistLog(itemId: String, title: String)
 
         var id: String {
             switch self {
             case .webChannel(let channel): return "web-\(channel.id)"
             case .sync:                    return "sync"
             case .webDelist(let row):      return "delist-\(row.listingId)"
+            case .delistLog(let itemId, _): return "delist-log-\(itemId)"
             }
         }
     }
@@ -233,6 +237,8 @@ struct MarketplacesView: View {
                 WebDelistView(row: row) { ended in
                     Task { await settleInAppDelist(ended) }
                 }
+            case .delistLog(let itemId, let title):
+                DelistLogView(itemId: itemId, title: title)
             }
         }
         // US-1189: surface a failed disconnect (the store restores .connected).
@@ -249,37 +255,27 @@ struct MarketplacesView: View {
         }
     }
 
-    // US-668 / US-718: phased channel abstraction. Each channel carries its REAL
-    // capability tier (mirrors web MARKETPLACE_TIER) so the app never advertises a
-    // channel above what actually ships. Adding a second *live in-app* channel
-    // means adding a `.api` connection card here; the rest of the surface
-    // (and cross-listing entry points) iterate over this list.
-    private enum ChannelTier {
-        // Live API connector. eBay is managed in-app (connectionCard above);
-        // Shopify is web-only, and is the sole `.api` entry in `phasedChannels`
-        // — hence the "manage on web" badge. A future in-app channel listed here
-        // would need its own tier rather than reusing this badge.
-        case api
-        // US-745: no-API marketplaces now cross-list in-app via the copy/paste
-        // Listing Kit (open a drafted item → Listing Kit), replacing the prior
-        // "Coming soon" / browser-extension-only treatment for these platforms.
-        case listingKit
-        case comingSoon   // no integration yet
+    // US-668 / US-718 / US-3454: the channels this screen describes are the
+    // ONE registry (CrossListingRegistry.swift), the hand-mirror of
+    // CROSS_LISTING_PLATFORMS, MARKETPLACE_TIER and MARKETPLACE_MECHANISM in
+    // src/lib/constants.ts, pinned by src/test/ios-cross-listing-registry.test.ts.
+    // This file kept a second list until US-3454, which named Grailed and not
+    // Vinted and called Depop a copy-and-paste kit while the registry said
+    // "awaiting approval": two screens describing the same channels two ways.
 
-        var badge: String {
-            switch self {
-            case .api: return "Live · manage on web"
-            case .listingKit: return "Copy & paste kit"
-            case .comingSoon: return "Coming soon"
-            }
+    /// The glyph for a channel row. Presentation only; nothing reads it back.
+    private static func systemImage(for channelId: String) -> String {
+        switch channelId {
+        case "shopify": return "cart"
+        case "poshmark": return "bag"
+        case "mercari": return "shippingbox"
+        case "grailed": return "tag"
+        case "depop": return "tshirt"
+        case "etsy": return "storefront"
+        case "vinted": return "hanger"
+        case "facebook": return "person.2"
+        default: return "square.grid.2x2"
         }
-    }
-
-    private struct MarketplaceChannel: Identifiable {
-        let id: String
-        let label: String
-        let systemImage: String
-        let tier: ChannelTier
     }
 
     /// US-2531: a channel that is real, paid for, and connected somewhere this
@@ -304,8 +300,8 @@ struct MarketplacesView: View {
     // US-2475: per-channel automation risk disclosure.
     //
     // MIRRORS `marketplaceDisclosureFor` in src/lib/constants.ts — the web copy
-    // is the source, this is the hand-mirror (same pattern as ChannelTier.badge
-    // mirroring MARKETPLACE_TIER_LABEL). Change the TypeScript first; a
+    // is the source, this is the hand-mirror (same pattern as the registry's
+    // tier labels mirroring MARKETPLACE_TIER_LABEL). Change the TypeScript first; a
     // difference in wording between the two clients is the bug this exists to
     // prevent, because a seller who reads one and acts on the other has been
     // told two different things about who is responsible for their account.
@@ -313,27 +309,30 @@ struct MarketplacesView: View {
     // Bright lines behind the extension wording:
     // vault/60-decisions/adr-no-server-side-marketplace-automation.md.
     private enum ChannelDisclosure {
-        static func facts(for channel: MarketplaceChannel) -> [String] {
+        static func facts(for channel: CrossListingRegistry.Channel) -> [String] {
             let label = channel.label
             var facts: [String]
-            switch channel.tier {
+            switch channel.mechanism {
             case .api:
                 facts = [
                     "GradeThread connects to \(label) through its authorized developer API, under \(label)'s own developer terms.",
                     "You grant access by signing in on \(label) itself. GradeThread holds a revocable access token, never your password.",
                     "\(label) sees GradeThread as the registered application it approved, so this is a sanctioned integration rather than automation of your session.",
                 ]
-            case .listingKit:
+            case .extensionLister:
                 facts = [
                     "\(label)'s terms restrict third-party automation. Plenty of sellers use tools like this one, and \(label) can still limit an account it decides is automated.",
                     "The actions run in your own browser, in the \(label) tab you are already signed in to. Nothing about \(label) runs on GradeThread's servers.",
                     "GradeThread's servers never receive your \(label) password or session cookie.",
                     "Your account, your responsibility. If \(label) limits it, GradeThread cannot appeal on your behalf.",
                 ]
-            case .comingSoon:
+            case .none:
                 facts = [
                     "GradeThread does not connect to \(label). Nothing is automated and nothing about your \(label) account is linked.",
                 ]
+            }
+            if channel.tier == .apiPending {
+                facts.append("The connector is built and waiting on \(label)'s approval. Until it lands, nothing is sent.")
             }
             if let note = note(for: channel.id) { facts.append(note) }
             return facts
@@ -361,17 +360,6 @@ struct MarketplacesView: View {
         }
     }
 
-    private static let phasedChannels: [MarketplaceChannel] = [
-        .init(id: "shopify", label: "Shopify", systemImage: "cart", tier: .api),
-        .init(id: "poshmark", label: "Poshmark", systemImage: "bag", tier: .listingKit),
-        .init(id: "mercari", label: "Mercari", systemImage: "shippingbox", tier: .listingKit),
-        .init(id: "grailed", label: "Grailed", systemImage: "tag", tier: .listingKit),
-        .init(id: "depop", label: "Depop", systemImage: "tshirt", tier: .listingKit),
-        // Whatnot was previously shown with a "Coming soon" badge. App Review
-        // reads such copy literally and can flag a non-shipping feature, so it's
-        // omitted until it has a real integration. The `.comingSoon` tier is kept
-        // for when a future channel needs to be staged again.
-    ]
 
     // US-2481: queued extension work, and what never ran.
     //
@@ -489,8 +477,7 @@ struct MarketplacesView: View {
 
     @ViewBuilder
     private func pendingDelistRow(_ row: PendingDelistService.PendingDelist) -> some View {
-        let label = Self.phasedChannels.first { $0.id == row.platform }?.label
-            ?? row.platform.capitalized
+        let label = CrossListingRegistry.label(for: row.platform)
         let blocked = PendingDelistService.blockedReason(row)
         let busy = delistBusyId == row.listingId
 
@@ -566,6 +553,14 @@ struct MarketplacesView: View {
                 .buttonStyle(.plain)
                 .foregroundStyle(.secondary)
                 .disabled(busy)
+                // US-3452: the log for this garment, so "did the others end?"
+                // is answered here rather than by opening each marketplace.
+                Button("What happened") {
+                    sheet = .delistLog(itemId: row.itemId, title: row.itemTitle ?? "After the sale")
+                }
+                .font(.caption.weight(.semibold))
+                .buttonStyle(.plain)
+                .foregroundStyle(.secondary)
                 Spacer()
                 if busy {
                     ProgressView().controlSize(.small)
@@ -630,8 +625,7 @@ struct MarketplacesView: View {
     }
 
     private static func describe(_ job: ExtensionQueueService.QueueItem) -> String {
-        let label = phasedChannels.first { $0.id == job.platform }?.label
-            ?? job.platform.capitalized
+        let label = CrossListingRegistry.label(for: job.platform)
         // No `share` case: US-2497 removed the kind and deleted its rows, because
         // a share run needs a human at the browser and a queue cannot supply one.
         switch job.kind {
@@ -664,14 +658,14 @@ struct MarketplacesView: View {
             Text("More channels")
                 .font(.subheadline.weight(.semibold))
                 .frame(maxWidth: .infinity, alignment: .leading)
-            Text("eBay connects right here in the app — use the card above to link a seller account. Shopify connects via API on the web dashboard. For Poshmark, Mercari, Grailed & Depop, open a drafted item and tap Listing Kit to copy each platform's tailored fields — title, description, tags, condition & category — straight into the app.")
+            Text("eBay connects right here in the app. Shopify connects on the web dashboard. For the rest, open an item and tap List on more marketplaces: an API channel publishes now, a browser-extension channel queues for your desktop, and each row says what the item is doing there.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .frame(maxWidth: .infinity, alignment: .leading)
-            ForEach(Self.phasedChannels) { channel in
+            ForEach(CrossListingRegistry.channels) { channel in
                 VStack(alignment: .leading, spacing: 8) {
                     HStack(spacing: 12) {
-                        Image(systemName: channel.systemImage)
+                        Image(systemName: Self.systemImage(for: channel.id))
                             .scaledIconFont(size: 18, maxSize: 28)  // US-1411
                             .foregroundStyle(.secondary)
                             .frame(width: 36, height: 36)
@@ -681,7 +675,7 @@ struct MarketplacesView: View {
                             .font(.subheadline.weight(.medium))
                             .foregroundStyle(.primary)
                         Spacer()
-                        Text(channel.tier.badge)
+                        Text(channel.blockedReason ?? channel.tier.label)
                             .font(.caption2.weight(.semibold))
                             .foregroundStyle(Color.brandNavy)
                             .padding(.horizontal, 8)
@@ -693,7 +687,7 @@ struct MarketplacesView: View {
                     // just a badge saying it lives elsewhere. Only .api
                     // channels render it, so a Listing Kit row cannot pick up
                     // a link to a connection page it has no place on.
-                    if case .api = channel.tier, let url = Self.webMarketplacesURL {
+                    if channel.tier == .api, let url = Self.webMarketplacesURL {
                         Button {
                             sheet = .webChannel(
                                 WebManagedChannel(
@@ -734,7 +728,7 @@ struct MarketplacesView: View {
                 }
                 .padding(12)
                 .cardStyle(.flush)
-                .accessibilityHint("\(channel.label), \(channel.tier.badge)")
+                .accessibilityHint("\(channel.label), \(channel.blockedReason ?? channel.tier.label)")
             }
         }
     }

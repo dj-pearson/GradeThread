@@ -12,6 +12,9 @@
 //
 // A checked-in artefact only helps if a stale one fails. That is this file.
 
+// US-2379: the static import graph reaches src/lib/supabase.ts, so the env
+// stub loads first. Kept as the first import on purpose.
+import "./_env.ts";
 import { assert, assertEquals, assertThrows } from "@std/assert";
 import {
   buildPushContractArtifact,

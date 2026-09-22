@@ -1640,6 +1640,8 @@ async function renderQueue(caps) {
   if (counts.attention) {
     noteBits.push("The ones under Needs you never reached the marketplace. Retry or clear them.");
   }
+  // US-3456: a bulk cross-list reads as one thing, by the name the seller gave it.
+  for (const line of QUEUE_VIEW.batchLines(rows)) noteBits.push(line);
   if (counts.review) {
     noteBits.push(
       "The ones under Ran, check the listing did reach it. Fix those on the " +

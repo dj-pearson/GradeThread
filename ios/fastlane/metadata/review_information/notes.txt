@@ -35,6 +35,16 @@ What the app does not do:
 
 The seller is the account holder operating their own account in a WebKit view, which is why the marketplace's own site and sign-in are shown rather than proxied. Settings has "Clear marketplace sign-ins", and signing out or deleting the account clears them too.
 
+LISTING ON A MARKETPLACE WITHOUT AN API
+The same approach, for creating a listing. From an item, "List on more marketplaces" -> tick Poshmark or Mercari -> "List now on your phone". A web view opens the marketplace's own create-listing page. The seller signs in on the marketplace's own page inside the web view, the first time; GradeThread never sees or stores those credentials. The app then types the item's title, description, price and brand into the marketplace's form while the seller watches, and stops. The seller adds the photos through the marketplace's own picker, sets the category and other options, and presses the marketplace's own Post button. The app never presses it: there is no code path in the app that submits the form.
+
+What the app does not do, exactly as above:
+- It does not hold, store, transmit or type a marketplace password. There is no field in this app for one. Nothing about the marketplace session leaves the device.
+- It does not act on a schedule, in the background, or while the app is closed. Every run is one tap by the seller on one specific item, with the web view on screen for the whole run.
+- It does not answer a CAPTCHA or any other human verification. If the marketplace asks, the app stops and hands the seller the screen.
+- It does not download or execute remote code. All page scripts are in the app binary.
+- It does not post the listing. The seller does.
+
 COMMERCE NOTE
 The app supports listing items for resale (commercial activity by the seller). Selling on eBay happens on the seller's connected eBay account through eBay's API. On marketplaces with no seller API, nothing is automated on our servers at all - see the section above.
 

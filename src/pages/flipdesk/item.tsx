@@ -68,6 +68,7 @@ import { PendingReviseBanner } from "@/components/flipdesk/pending-revise-banner
 import { ItemDelistPanel, ListedOnCard } from "@/components/flipdesk/delist-panel";
 import { PendingDelistBanner } from "@/components/flipdesk/pending-delist-banner";
 import { CrossListingsCard } from "@/components/flipdesk/cross-listings-card";
+import { DelistLog } from "@/components/flipdesk/delist-log";
 
 // US-1075: dollar floor for the "grade this to boost trust" cross-surface nudge.
 // Below this, the extra grading cost is rarely worth it, so we stay quiet.
@@ -311,6 +312,9 @@ export function FlipdeskItemPage() {
               are eBay-only; this is where the other marketplaces live. */}
           <PendingDelistBanner itemId={item.id} />
           <CrossListingsCard itemId={item.id} />
+          {/* US-3452: what the sale ended, where, when and by whom. Renders
+              nothing until the garment has sold somewhere. */}
+          <DelistLog itemId={item.id} />
 
           {/* US-9202: this item's copies on Poshmark/Mercari/Vinted/Grailed that
               an edit here has made stale, until the marketplace confirms. */}

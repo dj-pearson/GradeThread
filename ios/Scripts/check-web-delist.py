@@ -21,6 +21,10 @@ and can never be fabricated, so this is not a cost anyone gets to pay later.
 
 So the sentences are checked, here, on every verify.
 
+US-3455 widened the scope to ``Marketplaces/WebList``, the sibling that FILLS
+a create form and stops. Same seven properties, one more that is the list
+flow's own: nothing in it clicks the marketplace's submit control.
+
 WHAT IT CHECKS
 --------------
 1. No marketplace credential field anywhere in the delist sources.
@@ -30,6 +34,8 @@ WHAT IT CHECKS
 5. Sign-out erases those stores.
 6. The consent screen carries the same risk sentence as the web.
 7. The generated flow table is generated, not hand-edited.
+8. The list flow never clicks the marketplace's submit control, and the web
+   view is never hidden, shrunk to nothing or faded out.
 
 Mirrors the exit contract of the other guards: non-zero with the offending
 locations, one line of OK otherwise.
@@ -47,9 +53,11 @@ if hasattr(sys.stdout, "reconfigure"):
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 REPO = os.path.dirname(ROOT)
 DELIST_DIR = os.path.join(ROOT, "GradeThread", "Marketplaces", "WebDelist")
+LIST_DIR = os.path.join(ROOT, "GradeThread", "Marketplaces", "WebList")
 CONTENT_VIEW = os.path.join(ROOT, "GradeThread", "ContentView.swift")
 BACKGROUND_DIR = os.path.join(ROOT, "GradeThread", "Background")
 GENERATED = os.path.join(DELIST_DIR, "DelistFlows.generated.swift")
+LIST_GENERATED = os.path.join(LIST_DIR, "ListFlows.generated.swift")
 WEB_DISCLOSURE = os.path.join(REPO, "src", "lib", "marketplace-disclosure.ts")
 
 problems: list[str] = []
@@ -62,9 +70,12 @@ def read(path: str) -> str:
 
 def sources() -> list[tuple[str, str]]:
     out = []
-    for name in sorted(os.listdir(DELIST_DIR)):
-        if name.endswith(".swift"):
-            out.append((name, read(os.path.join(DELIST_DIR, name))))
+    for directory in (DELIST_DIR, LIST_DIR):
+        if not os.path.isdir(directory):
+            continue
+        for name in sorted(os.listdir(directory)):
+            if name.endswith(".swift"):
+                out.append((name, read(os.path.join(directory, name))))
     return out
 
 
@@ -72,9 +83,10 @@ def fail(message: str) -> None:
     problems.append(message)
 
 
-if not os.path.isdir(DELIST_DIR):
-    print(f"check-web-delist: {DELIST_DIR} is missing", file=sys.stderr)
-    sys.exit(1)
+for required_dir in (DELIST_DIR, LIST_DIR):
+    if not os.path.isdir(required_dir):
+        print(f"check-web-delist: {required_dir} is missing", file=sys.stderr)
+        sys.exit(1)
 
 files = sources()
 joined = "\n".join(src for _, src in files)
@@ -115,7 +127,10 @@ if os.path.isdir(BACKGROUND_DIR):
         if not name.endswith(".swift"):
             continue
         src = read(os.path.join(BACKGROUND_DIR, name))
-        for symbol in ("WebDelistRunner", "WebDelistModel", "WebDelistView"):
+        for symbol in (
+            "WebDelistRunner", "WebDelistModel", "WebDelistView",
+            "WebListRunner", "WebListModel", "WebListView",
+        ):
             if symbol in src:
                 fail(
                     f"Background/{name}: references {symbol}. The delist run is reachable only "
@@ -138,12 +153,38 @@ for name, src in files:
             )
 
 # A URL literal that is not a marketplace is the same problem wearing a
-# different hat. The generated table's hosts are bare domains, not URLs.
+# different hat. The delist table's hosts are bare domains, not URLs. The
+# list table (US-3455) carries each marketplace's create-listing page, which
+# is the one URL the list flow opens on its own; it is allowed only when its
+# host is one of the hosts declared in that same generated file, so a
+# selectors.js edit pointing the create page anywhere else fails here.
+HOST_LIST_RE = re.compile(r'hosts:\s*\[([^\]]*)\]')
+
+
+def declared_hosts(src: str) -> set[str]:
+    hosts: set[str] = set()
+    for group in HOST_LIST_RE.findall(src):
+        hosts.update(re.findall(r'"([^"]+)"', group))
+    return hosts
+
+
+def on_declared_host(url: str, hosts: set[str]) -> bool:
+    match = re.match(r'https://([^/]+)', url)
+    if not match:
+        return False
+    host = match.group(1).lower()
+    return any(host == h or host.endswith("." + h) for h in hosts)
+
+
 for name, src in files:
+    allowed_hosts = declared_hosts(src) if name == "ListFlows.generated.swift" else set()
     for match in re.finditer(r'"(https?://[^"]+)"', src):
+        if allowed_hosts and on_declared_host(match.group(1), allowed_hosts):
+            continue
         fail(
-            f"{name}: hardcodes {match.group(1)}. The only URL this feature opens is the "
-            "seller's own listing, which arrives on the row and is host-checked."
+            f"{name}: hardcodes {match.group(1)}. The only URLs this feature opens are the "
+            "seller's own listing (arrives on the row, host-checked) and the generated "
+            "table's create page on its own declared host."
         )
 
 # ── 4. the per-marketplace store ──────────────────────────────────────────
@@ -153,11 +194,13 @@ if "WKWebsiteDataStore.default()" in joined:
         "live in its own per-marketplace store, or one marketplace's page can read another's "
         "cookies (WebDelistDataStore)."
     )
-if "config.websiteDataStore = WebDelistDataStore.store(for: platform)" not in joined:
-    fail(
-        "the delist web view no longer assigns WebDelistDataStore.store(for:). Without it the "
-        "session lands in whatever store WebKit picks."
-    )
+for runner_name in ("WebDelistRunner.swift", "WebListRunner.swift"):
+    runner_src = next((src for n, src in files if n == runner_name), "")
+    if "config.websiteDataStore = WebDelistDataStore.store(for: platform)" not in runner_src:
+        fail(
+            f"{runner_name} no longer assigns WebDelistDataStore.store(for:). Without it the "
+            "session lands in whatever store WebKit picks."
+        )
 
 # ── 5. sign-out erases them ───────────────────────────────────────────────
 content_view = read(CONTENT_VIEW)
@@ -182,14 +225,18 @@ flattened = re.sub(r'"\s*\+\s*"', "", joined)
 # And the consent screen must actually RENDER it. Without this the sentence can
 # sit unused in the model while the screen shows something friendlier, which is
 # exactly the failure and is invisible to a whole-directory search.
-view_path = os.path.join(DELIST_DIR, "WebDelistView.swift")
-if os.path.exists(view_path):
-    view_src = read(view_path)
-    if "WebDelistModel.riskDisclosure(" not in view_src:
-        fail(
-            "WebDelistView no longer renders WebDelistModel.riskDisclosure(). The shared risk "
-            "sentence existing in the model is not the same as the seller reading it."
-        )
+for view_path in (
+    os.path.join(DELIST_DIR, "WebDelistView.swift"),
+    os.path.join(LIST_DIR, "WebListView.swift"),
+):
+    if os.path.exists(view_path):
+        view_src = read(view_path)
+        if "WebDelistModel.riskDisclosure(" not in view_src:
+            fail(
+                f"{os.path.basename(view_path)} no longer renders WebDelistModel.riskDisclosure(). "
+                "The shared risk sentence existing in the model is not the same as the seller "
+                "reading it."
+            )
 
 if SHARED_RISK not in flattened:
     fail(
@@ -206,17 +253,46 @@ if os.path.exists(WEB_DISCLOSURE):
             "guard pins. Update both copies together, or neither."
         )
 
-# ── 7. the generated table is generated ───────────────────────────────────
-if not os.path.exists(GENERATED):
-    fail("DelistFlows.generated.swift is missing. Run: node scripts/gen-ios-delist-selectors.mjs")
-else:
-    header = read(GENERATED)[:400]
-    if "GENERATED FILE. DO NOT EDIT." not in header:
-        fail(
-            "DelistFlows.generated.swift lost its generated header. It is derived from "
-            "extension-unified/lister/selectors.js so the phone and the desktop click the same "
-            "selectors; a hand-kept copy goes stale the day the other one is fixed."
-        )
+# ── 7. the generated tables are generated ─────────────────────────────────
+for generated, generator in (
+    (GENERATED, "scripts/gen-ios-delist-selectors.mjs"),
+    (LIST_GENERATED, "scripts/gen-ios-list-selectors.mjs"),
+):
+    if not os.path.exists(generated):
+        fail(f"{os.path.basename(generated)} is missing. Run: node {generator}")
+    else:
+        header = read(generated)[:400]
+        if "GENERATED FILE. DO NOT EDIT." not in header:
+            fail(
+                f"{os.path.basename(generated)} lost its generated header. It is derived from "
+                "extension-unified/lister/selectors.js so the phone and the desktop use the same "
+                "selectors; a hand-kept copy goes stale the day the other one is fixed."
+            )
+
+# ── 8. the list flow never posts, and the page is never hidden ────────────
+#
+# US-3455. The whole case for filling a form in the app is that the SELLER
+# presses the marketplace's button. The submit selector is carried so the run
+# can probe that it is on the real form; a call site that clicks it turns the
+# feature into the bot the review notes say it is not. And a web view that is
+# hidden, zero-sized or faded is a run the seller cannot watch, which is §3.4.
+list_runner = next((src for n, src in files if n == "WebListRunner.swift"), "")
+if list_runner and re.search(r'click\(\s*(flow\.)?submit', list_runner):
+    fail(
+        "WebListRunner clicks the submit selector. The seller posts; GradeThread never "
+        "does (review notes; vault §3)."
+    )
+if list_runner and re.search(r'querySelector\([^)]*submit[^)]*\)\.click', list_runner):
+    fail("WebListRunner clicks a submit control from page script. The seller posts.")
+for name, src in files:
+    if not name.endswith("View.swift"):
+        continue
+    for tell in (".hidden()", ".opacity(0)", "frame(width: 0", "frame(height: 0"):
+        if tell in src:
+            fail(
+                f"{name}: uses {tell}. The web view is visible the whole run; a hidden or "
+                "zero-sized page is a run the seller cannot watch."
+            )
 
 if problems:
     for problem in problems:
@@ -227,5 +303,5 @@ if problems:
 print(
     f"check-web-delist: {len(files)} source(s) - no credential field, nothing scheduled, "
     "nothing fetched, per-marketplace session erased on sign-out, risk sentence shared with "
-    "the web, flow table generated"
+    "the web, flow tables generated, list flow never posts"
 )

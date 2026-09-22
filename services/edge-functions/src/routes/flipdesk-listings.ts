@@ -24,6 +24,13 @@ import {
 } from "../lib/cross-push.ts";
 import { delistMethodFor } from "../lib/cross-listing-sale.ts";
 import { loadPendingDelists } from "../lib/pending-delists.ts";
+import { loadDelistLog } from "../lib/delist-log.ts";
+import {
+  batchLabelFor,
+  type BulkRow,
+  planBulkCrossPush,
+  summarizeBulkRows,
+} from "../lib/cross-push-bulk.ts";
 import { endOtherListings } from "../lib/cross-listings.ts";
 import { optionalUuid } from "../lib/extension-enqueue.ts";
 import {
@@ -383,6 +390,154 @@ flipdeskListingsRoutes.post("/cross-push", async (c) => {
   return c.json({ ok: true, draft_id: groupId, results });
 });
 
+// ── US-3456: bulk cross-list ─────────────────────────────────────────────
+//
+// N items, M platforms, one request: each item's eBay row is the source and
+// crossPushPlatform runs once per item per platform with its own already-live
+// and already-queued skips, so pressing this twice mints nothing twice. eBay
+// itself is refused here (lib/cross-push-bulk.ts says why); the web sends it
+// to the publish batch it already has.
+//
+// TENANCY (US-268). The source rows are read through inventory_items scoped
+// to the caller, so an item the caller does not own simply never comes back
+// and is reported as not_found, exactly like a missing one. The cap is
+// checked ONCE for the whole batch, counting only items not yet live.
+flipdeskListingsRoutes.post("/cross-push-bulk", async (c) => {
+  const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
+
+  let body: { item_ids?: unknown; platforms?: unknown; prices?: unknown; batch_label?: unknown };
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: "Invalid JSON body." }, 400);
+  }
+  const plan = planBulkCrossPush(body.item_ids, body.platforms);
+  if (plan.refused) return c.json({ error: plan.refused }, 400);
+  const batchLabel = batchLabelFor(body.batch_label);
+  const rawPrices = body.prices && typeof body.prices === "object"
+    ? (body.prices as Record<string, unknown>)
+    : {};
+  const explicitPriceFor = (platform: CrossListingPlatform): number | null => {
+    const raw = rawPrices[platform];
+    return typeof raw === "number" && isFinite(raw) && raw > 0 ? raw : null;
+  };
+
+  // Every eBay row of every named item, owner-scoped. One item can hold a
+  // draft and an ended listing; the draft is the source when there is one,
+  // else the newest row, which is the same rule the composer's kit applies.
+  const { data, error } = await supabaseAdmin
+    .from("listings")
+    .select(
+      "id, inventory_item_id, platform, draft_id, listing_price, listing_title, " +
+        "listing_description, primary_photo_id, listing_status, created_at, " +
+        "inventory_items!inner(user_id, target_price, status)",
+    )
+    .eq("platform", "ebay")
+    .eq("inventory_items.user_id", ownerId) // US-268
+    .in("inventory_item_id", plan.itemIds)
+    .order("created_at", { ascending: false });
+  if (error) {
+    return failSafe(c, 500, "Could not load the listings.", error, "flipdesk.cross-push-bulk");
+  }
+  // Which of the named items the caller owns at all, so an owned item with no
+  // eBay row (never drafted) reads as no_source and a foreign or unknown id as
+  // not_found. Both are honest; only one is something the seller can fix.
+  const { data: ownedRows } = await supabaseAdmin
+    .from("inventory_items")
+    .select("id")
+    .eq("user_id", ownerId) // US-268
+    .in("id", plan.itemIds);
+  const owned = new Set(((ownedRows ?? []) as { id: string }[]).map((r) => r.id));
+
+  type BulkSourceRow = SourceDraftRow & { listing_status: string | null; created_at: string };
+  const sourceByItem = new Map<string, BulkSourceRow>();
+  for (const row of (data ?? []) as unknown as BulkSourceRow[]) {
+    if (row.inventory_items.user_id !== ownerId) continue; // belt and braces
+    const current = sourceByItem.get(row.inventory_item_id);
+    if (!current || (current.listing_status !== "draft" && row.listing_status === "draft")) {
+      sourceByItem.set(row.inventory_item_id, row);
+    }
+  }
+
+  // The cap, once. Only an item not yet live can consume a slot, and only an
+  // API channel can make it live on this request; a queued extension job is
+  // not a live listing (US-3213).
+  const apiPlatforms = plan.platforms.filter((p) => delistMethodFor(p) !== "extension");
+  const newlyLive = apiPlatforms.length === 0
+    ? 0
+    : [...sourceByItem.values()].filter((r) => r.inventory_items.status !== "listed").length;
+  const capGate = await requireFlipdesk(c, {
+    capacity: { kind: "activeListings", delta: newlyLive },
+    userId: ownerId,
+  });
+  if (capGate) return capGate;
+
+  const rows: BulkRow[] = [];
+  for (const itemId of plan.itemIds) {
+    const draft = sourceByItem.get(itemId);
+    if (!draft) {
+      const outcome: BulkRow["outcome"] = owned.has(itemId) ? "no_source" : "not_found";
+      const why = owned.has(itemId) ? "No eBay draft to copy from. Create the draft first." : null;
+      for (const platform of plan.platforms) {
+        rows.push({ item_id: itemId, platform, outcome, listing_row_id: null, listing_url: null, error: why });
+      }
+      continue;
+    }
+    const groupId = await ensureCrossListingGroup(ownerId, draft.id, draft.draft_id);
+    if (!groupId) {
+      for (const platform of plan.platforms) {
+        rows.push({ item_id: itemId, platform, outcome: "blocked", listing_row_id: null, listing_url: null, error: "Could not start the cross-listing group." });
+      }
+      continue;
+    }
+    const sharedPrice = draft.listing_price > 0
+      ? draft.listing_price
+      : draft.inventory_items.target_price != null && draft.inventory_items.target_price > 0
+      ? draft.inventory_items.target_price
+      : 0;
+    // No lazy AI variant fill on a bulk run: forty items would be forty
+    // billed actions on one click. Every channel copies the eBay words
+    // (channel-copy.ts), and a kit the seller already generated is read off
+    // the row by crossPushPlatform's own sibling lookup.
+    let anyLive = false;
+    for (const platform of plan.platforms) {
+      const { result, listingRowId, queued, skipped } = await crossPushPlatform({
+        ownerId,
+        draft,
+        groupId,
+        platform,
+        price: sharedPrice,
+        explicitPrice: explicitPriceFor(platform),
+        batchLabel,
+      });
+      let outcome: BulkRow["outcome"];
+      if (skipped) outcome = skipped;
+      else if (!result.ok) outcome = "blocked";
+      else if (queued) outcome = "queued";
+      else {
+        outcome = "published";
+        anyLive = true;
+      }
+      rows.push({
+        item_id: itemId,
+        platform,
+        outcome,
+        listing_row_id: listingRowId || null,
+        listing_url: result.ok ? result.listingUrl ?? null : null,
+        error: result.ok ? null : result.blockers?.[0] ?? result.error ?? "failed",
+      });
+    }
+    if (anyLive) await markItemListed(itemId, ownerId);
+  }
+  return c.json({
+    ok: true,
+    batch_label: batchLabel,
+    dropped_items: plan.droppedItems,
+    summary: summarizeBulkRows(rows),
+    rows,
+  });
+});
+
 // ── US-716: GradeThread Lister browser-extension writeback ────────────────
 //
 // The companion extension (extension/) lists Poshmark/Mercari/Grailed from the
@@ -505,6 +660,22 @@ flipdeskListingsRoutes.get("/pending-delists", async (c) => {
     return failSafe(c, 500, "Could not load pending delists.", error, "flipdesk.pending-delists");
   }
   return c.json({ ok: true, pending });
+});
+
+// GET /delist-log/:itemId — US-3452: what a sale ended, where, when and by
+// whom, for one item. Owner-checked on inventory_items.user_id before either
+// table is read (US-268); a foreign or unknown item is a 404, never an empty
+// list, so a leaked item id cannot be probed for existence.
+flipdeskListingsRoutes.get("/delist-log/:itemId", async (c) => {
+  const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
+  const itemId = optionalUuid(c.req.param("itemId"));
+  if (!itemId) return c.json({ error: "Item not found." }, 404);
+  const loaded = await loadDelistLog(ownerId, itemId);
+  if (!loaded.ok) {
+    if (loaded.status === 404) return c.json({ error: loaded.error }, 404);
+    return failSafe(c, 500, "Could not load the delist log.", new Error(loaded.error), "flipdesk.delist-log");
+  }
+  return c.json({ ok: true, events: loaded.events });
 });
 
 // POST /delist-confirm — the extension ended the listing on the marketplace (or

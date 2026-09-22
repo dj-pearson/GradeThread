@@ -17,6 +17,10 @@ import { MARKETPLACE_MECHANISM } from "@/lib/constants";
 // web suite, so a Windows checkout can still enforce a cross-client contract.
 
 const MARKETPLACES = "ios/GradeThread/Marketplaces/MarketplacesView.swift";
+// US-3454 moved the channel rows out of the view and into the registry the
+// item screen and the List on sheet read too, so there is one list of
+// channels on iOS. The row lives here; the screen that renders it is above.
+const REGISTRY = "ios/GradeThread/Marketplaces/CrossListingRegistry.swift";
 
 function read(rel: string): string {
   return readFileSync(resolve(process.cwd(), rel), "utf8");
@@ -24,60 +28,59 @@ function read(rel: string): string {
 
 describe("iOS never claims a marketplace it cannot connect (US-2531 AC3)", () => {
   const swift = () => read(MARKETPLACES);
+  const registry = () => read(REGISTRY);
 
-  it("Shopify is present, and marked as managed on the web", () => {
+  it("Shopify is present, as an API channel the app does not connect itself", () => {
     // AC2's second branch. Silently dropping Shopify from the list would also
     // satisfy "never implies a capability", by hiding a product the seller pays
-    // for — so the presence is asserted too, not just the honesty.
-    const s = swift();
-    expect(s).toContain('id: "shopify"');
-    expect(s).toContain("Live · manage on web");
-    expect(s).toMatch(/Shopify connects via API on the web dashboard/);
-  });
-
-  it("no in-app Shopify connect affordance exists", () => {
-    // The `.api` tier's badge is the ONLY treatment Shopify gets. A connect
-    // button would be the regression this guard is for.
-    const s = swift();
-    const shopifyLine = s
+    // for -- so the presence is asserted too, not just the honesty.
+    const shopifyLine = registry()
       .split("\n")
       .find((l) => l.includes('id: "shopify"'));
     expect(shopifyLine, "the shopify channel row vanished").toBeTruthy();
     expect(shopifyLine!).toContain("tier: .api");
-    // connectionCard is eBay's in-app OAuth surface; Shopify must not reach it.
-    const connectShopify = /connect(Shopify|_shopify)|shopifyOAuth|startShopify/i;
-    expect(
-      connectShopify.test(s),
-      "an in-app Shopify connect flow appeared — if it now EXISTS, this guard " +
-        "should be updated to assert it works, not deleted",
-    ).toBe(false);
+    expect(shopifyLine!).toContain("mechanism: .api");
   });
 
-  it("the badge wording tells the seller where to go", () => {
-    // "Live" alone would read as connected-in-app. The location is the whole
-    // point of the badge.
+  it("no in-app Shopify connect affordance exists", () => {
+    // The web-managed link (below) is the ONLY treatment Shopify gets. A
+    // connect button would be the regression this guard is for.
+    const connectShopify = /connect(Shopify|_shopify)|shopifyOAuth|startShopify/i;
+    for (const src of [swift(), registry()]) {
+      expect(
+        connectShopify.test(src),
+        "an in-app Shopify connect flow appeared -- if it now EXISTS, this guard " +
+          "should be updated to assert it works, not deleted",
+      ).toBe(false);
+    }
+  });
+
+  it("the row tells the seller where to go", () => {
+    // "API" alone would read as connected-in-app. The location is the whole
+    // point, and it is the link's own words rather than a badge now.
     const s = swift();
-    const badge = /case \.api: return "([^"]+)"/.exec(s)?.[1] ?? "";
-    expect(badge).toMatch(/web/i);
+    expect(s).toMatch(/Connect \\\(channel\.label\) on the web/);
+    expect(s).toMatch(/Opens the GradeThread dashboard, where \\\(channel\.label\) is connected/);
   });
 });
 
 describe("the iOS channel list matches the web's mechanism table (US-2531)", () => {
   it("Shopify really is an API channel on the web side", () => {
-    // The Swift comment claims it "mirrors web MARKETPLACE_TIER". If the web
-    // ever moved Shopify to another mechanism, the iOS `.api` tier — and its
-    // "manage on web" badge — would be describing something that no longer
-    // exists.
+    // The Swift comment claims it mirrors the web's tier table. If the web
+    // ever moved Shopify to another mechanism, the iOS `.api` tier -- and its
+    // "connect on the web" link -- would be describing something that no
+    // longer exists.
     expect(MARKETPLACE_MECHANISM.shopify).toBe("api");
   });
 
   it("eBay is the in-app one, and stays distinguishable from Shopify", () => {
     const s = read(MARKETPLACES);
     expect(MARKETPLACE_MECHANISM.ebay).toBe("api");
-    // Both are `api` on the web, but only eBay is connectable in the app, which
-    // is exactly why the Swift needs its own tier note rather than deriving the
-    // badge from the mechanism alone.
-    expect(s).toMatch(/eBay is managed in-app \(connectionCard above\)/);
+    // Both are `api` on the web, but only eBay is connectable in the app: it
+    // has its own OAuth card on this screen and is not a registry row, which
+    // is exactly why the link below cannot be derived from the mechanism alone.
+    expect(s).toContain("connectionCard(userId: userId)");
+    expect(read(REGISTRY)).not.toMatch(/Channel\(id: "ebay"/);
   });
 });
 
@@ -103,8 +106,8 @@ describe("the screen now LINKS to where the connection happens (US-2531 AC2)", (
     const s = read(MARKETPLACES);
     // Anchored on the tier test rather than on the label: a link offered to
     // every row would point Poshmark at a connection page it has no place on.
-    expect(s).toContain("if case .api = channel.tier");
-    const start = s.indexOf("if case .api = channel.tier");
+    expect(s).toContain("if channel.tier == .api, let url = Self.webMarketplacesURL");
+    const start = s.indexOf("if channel.tier == .api, let url = Self.webMarketplacesURL");
     const block = s.slice(start, start + 900);
     expect(block).toContain("WebManagedChannel(");
     expect(block).toMatch(/Connect .*on the web/);

@@ -25,6 +25,7 @@ import {
   SlidersHorizontal,
   Archive,
   Trash2,
+  Send,
 } from "lucide-react";
 import { SearchInput } from "@/components/search-input";
 import {
@@ -88,6 +89,8 @@ import { RecordSaleDialog } from "@/components/flipdesk/record-sale-dialog";
 import { ShipOrderDialog } from "@/components/flipdesk/ship-order-dialog";
 import { InventoryViewSwitcher } from "@/components/flipdesk/inventory-view-switcher";
 import { BulkAiEnrichDialog } from "@/components/flipdesk/bulk-ai-enrich-dialog";
+import { BulkCrossListDialog } from "@/components/flipdesk/bulk-cross-list-dialog";
+import { useCrossPushBulk } from "@/hooks/use-cross-listing";
 import { BulkRepriceDialog } from "@/components/flipdesk/bulk-reprice-dialog";
 import { BulkPromoteDialog } from "@/components/flipdesk/bulk-promote-dialog";
 import { BulkEditDialog } from "@/components/flipdesk/bulk-edit-dialog";
@@ -399,6 +402,9 @@ export function FlipdeskListingsPage() {
   });
   const [saveViewOpen, setSaveViewOpen] = useState(false);
   const [aiEnrichOpen, setAiEnrichOpen] = useState(false);
+  // US-3456: the selection to every ticked marketplace, in one dialog.
+  const [bulkCrossListOpen, setBulkCrossListOpen] = useState(false);
+  const crossPushBulk = useCrossPushBulk();
   // US-962: bulk match-to-comp reprice of the selected active listings.
   const [repriceOpen, setRepriceOpen] = useState(false);
   // US-2948: bulk Promoted Listings, in the bulk bar rather than on a screen of
@@ -868,6 +874,7 @@ export function FlipdeskListingsPage() {
     bulkPriceDrop,
     bulkRelist,
     bulkPublishToEbay,
+    bulkCrossList,
     bulkDeleteItems,
     bulkEndListings,
     bulkResubmitToEbay,
@@ -904,6 +911,8 @@ export function FlipdeskListingsPage() {
     bulkRelistApi: bulkRelistMut,
     deleteItemApi,
     publishApi,
+    crossPushBulk,
+    setBulkCrossListOpen,
   });
 
 
@@ -1632,6 +1641,18 @@ export function FlipdeskListingsPage() {
                       {selectedNeedingDraft === 1 ? "" : "s"}
                     </Button>
                   )}
+                  {/* US-3456: the same drafts to every marketplace at once. */}
+                  {selectedDrafted > 0 && (
+                    <Button
+                      variant="outline"
+                      onClick={() => setBulkCrossListOpen(true)}
+                      disabled={busy}
+                      title="List the selected drafts on the marketplaces you pick, in one go."
+                    >
+                      <Send className="mr-2 h-4 w-4" />
+                      Cross-list {selectedDrafted}
+                    </Button>
+                  )}
                   {selectedDrafted > 0 &&
                     (ebayConnection ? (
                       <Button onClick={bulkPublishToEbay} disabled={busy}>
@@ -2143,6 +2164,14 @@ export function FlipdeskListingsPage() {
         onApplied={() => setSelected(new Set())}
       />
 
+      <BulkCrossListDialog
+        open={bulkCrossListOpen}
+        onOpenChange={setBulkCrossListOpen}
+        itemCount={selectedDrafted}
+        ebayConnected={!!ebayConnection}
+        running={busy || crossPushBulk.isPending}
+        onConfirm={(choice) => void bulkCrossList(choice)}
+      />
       <BulkAiEnrichDialog
         open={aiEnrichOpen}
         onOpenChange={setAiEnrichOpen}

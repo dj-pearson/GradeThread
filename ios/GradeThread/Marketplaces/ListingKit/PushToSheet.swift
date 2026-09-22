@@ -18,6 +18,10 @@ struct PushToSheet: View {
     let itemId: String
     /// The draft's own price, shown as the placeholder each field falls back to.
     let listingPrice: Double?
+    /// US-3454: the item's listing rows, so each channel row says what the
+    /// item is already doing there (the same word the web shows) and a
+    /// channel the item is already on cannot be ticked again.
+    let rows: [ChannelRow]
 
     @Environment(\.dismiss) private var dismiss
 
@@ -26,6 +30,20 @@ struct PushToSheet: View {
     @State private var outcomes: [CrossPushOutcome] = []
     @State private var isPushing = false
     @State private var pushError: String?
+    /// US-3454: this item's jobs, read once when the sheet opens.
+    @State private var queue: [ExtensionQueueService.QueueItem] = []
+    @State private var queueMessage: String?
+    @State private var queueBusy = false
+    /// US-3455: the marketplace whose create form the phone is about to fill,
+    /// with the words already fetched. Set only after the edge answered, so a
+    /// sheet with a web view in it always has something to type.
+    @State private var phoneList: PhoneListTarget?
+
+    struct PhoneListTarget: Identifiable {
+        let platform: String
+        let fill: WebListFill
+        var id: String { platform }
+    }
 
     private let service: CrossPushProviding
 
@@ -37,12 +55,19 @@ struct PushToSheet: View {
         listingId: String,
         itemId: String,
         listingPrice: Double?,
+        rows: [ChannelRow] = [],
         service: CrossPushProviding? = nil
     ) {
         self.listingId = listingId
         self.itemId = itemId
         self.listingPrice = listingPrice
+        self.rows = rows
         self.service = service ?? CrossPushService()
+    }
+
+    /// What the item is doing on `channel`, from the rows and this item's jobs.
+    func status(for channel: CrossListingRegistry.Channel) -> ChannelStatus {
+        ChannelStateDerivation.derive(rows: rows, queue: queue, platform: channel.id)
     }
 
     var body: some View {
@@ -76,8 +101,23 @@ struct PushToSheet: View {
                             .fixedSize(horizontal: false, vertical: true)
                     }
                 }
+
+                if let queueMessage {
+                    Section {
+                        Text(queueMessage)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
             }
-            .navigationTitle("Push to")
+            .task { await loadQueue() }
+            .sheet(item: $phoneList) { target in
+                WebListView(platform: target.platform, fill: target.fill) { url in
+                    Task { await recordListed(platform: target.platform, url: url) }
+                }
+            }
+            .navigationTitle("List on")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
@@ -103,6 +143,8 @@ struct PushToSheet: View {
 
     @ViewBuilder
     private func channelRow(_ channel: CrossListingRegistry.Channel) -> some View {
+        let status = status(for: channel)
+        let blocked = status.state.blocksPush || !channel.isSelectable
         VStack(alignment: .leading, spacing: 6) {
             HStack {
                 Button {
@@ -116,17 +158,59 @@ struct PushToSheet: View {
                                 ? Color.brandEmerald
                                 : Color.secondary)
                         Text(channel.label)
-                            .foregroundStyle(channel.isSelectable ? .primary : .secondary)
+                            .foregroundStyle(blocked ? .secondary : .primary)
                     }
                 }
                 .buttonStyle(.plain)
-                .disabled(!channel.isSelectable)
+                .disabled(blocked)
 
                 Spacer()
 
-                Text(channel.tier.label)
+                // US-3454: the state word first, when the item is already on
+                // or on its way to this channel; the tier word otherwise.
+                Text(status.state.blocksPush
+                    ? status.state.word
+                    : (channel.blockedReason ?? channel.tier.label))
                     .font(.caption2)
                     .foregroundStyle(.secondary)
+            }
+
+            if status.state == .failed, let error = queue.first(where: { $0.id == status.queueItemId })?.result?.error {
+                Text(error)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            if let urlString = status.url, let url = URL(string: urlString) {
+                Link("View on \(channel.label)", destination: url)
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(Color.brandNavy)
+            }
+
+            // US-3454: a live extension-channel row can take an edit or a
+            // relist from the phone. Both queue for the desktop, so both say so.
+            if status.state == .live, channel.mechanism == .extensionLister, let rowId = status.rowId {
+                HStack(spacing: 12) {
+                    Menu {
+                        ForEach(ExtensionQueueService.ReviseField.allCases, id: \.self) { field in
+                            Button(Self.reviseLabel(field)) {
+                                Task { await revise(rowId: rowId, channel: channel, field: field) }
+                            }
+                        }
+                    } label: {
+                        Text("Revise")
+                            .font(.caption.weight(.semibold))
+                    }
+                    .disabled(queueBusy)
+                    Button("Relist") {
+                        Task { await relist(rowId: rowId, channel: channel) }
+                    }
+                    .font(.caption.weight(.semibold))
+                    .buttonStyle(.plain)
+                    .foregroundStyle(Color.brandNavy)
+                    .disabled(queueBusy)
+                }
             }
 
             // The price field appears only once the channel is picked. Six
@@ -151,10 +235,25 @@ struct PushToSheet: View {
                 if channel.mechanism == .extensionLister {
                     // Said on the row, not once at the bottom: this is the fact
                     // that decides whether the seller can walk away.
-                    Text("Queued for your desktop browser. It runs the next time you open it.")
+                    Text("Push queues it for your desktop browser. It runs the next time you open it.")
                         .font(.caption2)
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
+                    // US-3455: Poshmark and Mercari can be filled right here,
+                    // in a web view the seller is signed into. Other extension
+                    // channels queue only, until their list flow is verified
+                    // in the generated table.
+                    if ListFlows.flow(for: channel.id)?.enabled == true {
+                        Button {
+                            Task { await listNow(channel) }
+                        } label: {
+                            Label("List now on your phone", systemImage: "iphone")
+                                .font(.caption.weight(.semibold))
+                        }
+                        .buttonStyle(.plain)
+                        .foregroundStyle(Color.brandNavy)
+                        .disabled(queueBusy || isPushing)
+                    }
                 }
             }
         }
@@ -203,8 +302,90 @@ struct PushToSheet: View {
 
     // MARK: - Actions
 
+    private static func reviseLabel(_ field: ExtensionQueueService.ReviseField) -> String {
+        switch field {
+        case .price: return String(localized: "Price changed")
+        case .title: return String(localized: "Title changed")
+        case .description: return String(localized: "Description changed")
+        case .photos: return String(localized: "Photos changed")
+        }
+    }
+
+    private func loadQueue() async {
+        guard let snapshot = try? await ExtensionQueueService.shared.snapshot() else { return }
+        queue = (snapshot.pending + snapshot.needsAttention).filter { $0.inventoryItemId == itemId }
+    }
+
+    /// Queue a field edit for a live extension-channel listing. The seller
+    /// names the field that changed; the values are read off the row when the
+    /// desktop applies it.
+    private func revise(rowId: String, channel: CrossListingRegistry.Channel, field: ExtensionQueueService.ReviseField) async {
+        queueBusy = true
+        defer { queueBusy = false }
+        do {
+            _ = try await ExtensionQueueService.shared.enqueueRevise(
+                listingId: rowId,
+                platform: channel.id,
+                fields: [field]
+            )
+            queueMessage = "Edit queued for \(channel.label). \(ExtensionQueueService.queuedNotice)"
+            await loadQueue()
+        } catch {
+            queueMessage = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+        }
+    }
+
+    private func relist(rowId: String, channel: CrossListingRegistry.Channel) async {
+        queueBusy = true
+        defer { queueBusy = false }
+        do {
+            _ = try await ExtensionQueueService.shared.enqueueRelist(listingId: rowId, platform: channel.id)
+            queueMessage = "Relist queued for \(channel.label). \(ExtensionQueueService.queuedNotice)"
+            await loadQueue()
+        } catch {
+            queueMessage = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+        }
+    }
+
+    // MARK: - US-3455: list now, on the phone
+
+    /// Fetch the words, then open the marketplace's form in the app. The
+    /// fetch happens HERE, before the sheet exists: the code that drives the
+    /// page may not fetch (`ios/Scripts/check-web-delist.py`).
+    private func listNow(_ channel: CrossListingRegistry.Channel) async {
+        queueBusy = true
+        defer { queueBusy = false }
+        do {
+            let fill = try await WebListService.shared.fill(
+                itemId: itemId,
+                platform: channel.id,
+                price: CrossPush.priceEntry(priceTexts[channel.id] ?? "")
+            )
+            phoneList = PhoneListTarget(platform: channel.id, fill: fill)
+        } catch {
+            queueMessage = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+        }
+    }
+
+    /// The web view landed on a live listing. Record it the way the desktop
+    /// extension does, and show the link where the API results show theirs.
+    private func recordListed(platform: String, url: URL) async {
+        do {
+            try await WebListService.shared.recordListed(itemId: itemId, platform: platform, url: url)
+            outcomes.append(CrossPushOutcome(platform: platform, state: .listed(url: url.absoluteString)))
+            selected.remove(platform)
+            priceTexts[platform] = nil
+        } catch {
+            let reason = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+            outcomes.append(CrossPushOutcome(
+                platform: platform,
+                state: .failed("Posted on \(CrossListingRegistry.channel(id: platform)?.label ?? platform), but GradeThread could not record it: \(reason)")
+            ))
+        }
+    }
+
     private func toggle(_ channel: CrossListingRegistry.Channel) {
-        guard channel.isSelectable else { return }
+        guard channel.isSelectable, !status(for: channel).state.blocksPush else { return }
         AppRouter.haptic()
         if selected.contains(channel.id) {
             selected.remove(channel.id)

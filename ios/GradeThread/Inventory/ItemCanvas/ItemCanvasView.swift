@@ -131,10 +131,15 @@ struct ItemCanvasView: View {
         /// The ONLY path to a sold item (web parity, US-2260). The status
         /// picker no longer offers the word.
         case recordSale
+        /// US-3454: list this item on the other marketplaces, from its own
+        /// screen. The sheet used to be reachable only from the AutoLister
+        /// drafts library, through the Listing Kit.
+        case pushTo
 
         var id: String {
             switch self {
             case .publish:                return "publish"
+            case .pushTo:                 return "pushTo"
             case .photoManager:           return "photoManager"
             case .aiReview:               return "aiReview"
             case .addPhotos:              return "addPhotos"
@@ -746,6 +751,22 @@ struct ItemCanvasView: View {
                     NotificationCenter.default.post(name: .inventoryPullRequested, object: nil)
                     _ = response  // listing_id + url are tracked server-side
                 }
+            case .pushTo:
+                if let source = crossPushSource {
+                    PushToSheet(
+                        listingId: source.id,
+                        itemId: item.id,
+                        listingPrice: source.listingPrice,
+                        rows: itemListings.map { row in
+                            ChannelRow(
+                                id: row.id,
+                                platform: row.platform,
+                                status: row.listingStatus,
+                                url: row.externalURL
+                            )
+                        }
+                    )
+                }
             case .photoManager:
                 PhotoManagerView(item: item, photos: allPhotos, liveListing: gtLiveListing)
             case .aiReview:
@@ -1317,6 +1338,14 @@ struct ItemCanvasView: View {
         )
     }
 
+    /// US-3454: the row the cross-listing fan-out starts from: the eBay draft
+    /// the seller is preparing, else the live eBay listing. Nil means there is
+    /// nothing to push yet, and the button says so rather than opening a sheet
+    /// that can only fail.
+    private var crossPushSource: LocalListing? {
+        itemListings.first { $0.platform == "ebay" && $0.listingStatus == "draft" } ?? activeEbayListing
+    }
+
     /// Label for the canvas publish button, relist-aware so an ended draft
     /// reads "Relist" instead of "Publish".
     private var publishButtonLabel: String {
@@ -1376,8 +1405,29 @@ struct ItemCanvasView: View {
             .disabled(state?.savePhase == .saving)
             .listRowBackground(Color.clear)
             .listRowInsets(.init(top: 4, leading: 0, bottom: 4, trailing: 0))
+            // US-3454: the other marketplaces, from the item's own screen.
+            Button {
+                AppRouter.haptic()
+                sheet = .pushTo
+            } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: "square.stack.3d.up")
+                    Text("List on more marketplaces")
+                        .font(.subheadline.weight(.semibold))
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 10)
+            }
+            .buttonStyle(.bordered)
+            .tint(Color.brandNavy)
+            .disabled(crossPushSource == nil || state?.savePhase == .saving)
+            .accessibilityHint(crossPushSource == nil
+                ? "Save an eBay draft first; the other marketplaces copy its words."
+                : "Poshmark, Mercari and the rest, with what this item is doing on each.")
+            .listRowBackground(Color.clear)
+            .listRowInsets(.init(top: 0, leading: 0, bottom: 4, trailing: 0))
         } footer: {
-            Text("Unsaved edits are saved first, then validated against eBay's metadata rules — you'll see any blockers before the push.")
+            Text("Unsaved edits are saved first, then validated against eBay's metadata rules — you'll see any blockers before the push. The other marketplaces copy the eBay draft's words.")
                 .font(.caption)
         }
     }

@@ -368,7 +368,7 @@ Deno.test("US-3211: defaultBlocks puts the checkable facts before the prose", ()
   assertEquals(keys[0], "attributes");
   assertEquals(keys[keys.length - 1], "facts");
   const intro = keys.indexOf("intro");
-  for (const fact of ["attributes", "condition", "measurements", "disclosure"]) {
+  for (const fact of ["attributes", "condition", "measurements", "disclosure"] as const) {
     assert(keys.indexOf(fact) < intro, `${fact} must come before intro`);
   }
   assert(keys.indexOf("features") > intro);

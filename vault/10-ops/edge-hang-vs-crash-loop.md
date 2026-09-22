@@ -11,12 +11,16 @@ code_refs:
   - scripts/ops/edge-watchdog.sh
   - scripts/ops/host-schedules.json
   - services/edge-functions/src/routes/jobs-watchdog-heartbeat.ts
-reviewed: 2026-09-05
+reviewed: 2026-09-22
 tags: [edge, incident, outage, ops]
 summary: Two edge failure modes with opposite signatures — a dying process that restarts itself, and a live process that never will. Telling them apart is the whole job; the hang recurred 2026-08-09 and ran far longer than the watchdog is meant to allow.
 ---
 
 # Edge hang versus edge crash-loop
+
+> **Re-reviewed 2026-09-22.** Drift flagged `main.ts` on 3ec56ed3 (US-3453):
+> a new `/api/jobs/delist-nudge` mount. It adds a route, not a boot step or a
+> long-lived task, so nothing in the hang-versus-crash reading below moves.
 
 > **Re-reviewed 2026-09-05, no change.** Drift flagged `main.ts` for the
 > return-id evidence-pack mount (US-3068). Checked the one claim this note

@@ -27,9 +27,14 @@ const CATEGORY = "delist.needed";
 
 describe("US-3144: the push category is the same string everywhere", () => {
   it("the edge stamps it", () => {
-    expect(read("services/edge-functions/src/lib/transactional-push.ts")).toContain(
-      `category: "${CATEGORY}"`,
-    );
+    // US-3279 routes the category through describe("delist.needed", ...),
+    // which reads the generated contract; the literal `category:` form is
+    // the older spelling and still accepted.
+    const push = read("services/edge-functions/src/lib/transactional-push.ts");
+    expect(
+      push.includes(`category: "${CATEGORY}"`) || push.includes(`describe("${CATEGORY}"`),
+      `transactional-push.ts no longer stamps ${CATEGORY}`,
+    ).toBe(true);
   });
 
   it("iOS declares it and routes it", () => {
@@ -62,9 +67,20 @@ describe("US-3144: the push category is the same string everywhere", () => {
     // written once there rather than inline per sender. Both halves are
     // asserted: the sender passes the item id in, and idFields maps it to the
     // key the two clients parse.
+    // US-3279: the sender passes the item id to describe(), and the key is
+    // declared once in the contract table (read through ID_FIELD) rather than
+    // in a hand-written idFields assignment. Either spelling satisfies.
     const push = read("services/edge-functions/src/lib/transactional-push.ts");
-    expect(push).toContain("idFields({ inventoryItemId: opts.itemId })");
-    expect(push).toContain("out.inventory_item_id = ids.inventoryItemId");
+    expect(
+      push.includes("idFields({ inventoryItemId: opts.itemId })") ||
+        push.includes(`describe("${CATEGORY}", { inventoryItemId: opts.itemId })`),
+      "the sender no longer passes the item id",
+    ).toBe(true);
+    expect(
+      push.includes("out.inventory_item_id = ids.inventoryItemId") ||
+        push.includes(`"${CATEGORY}": { kind: "delist_needed", ids: ["inventory_item_id"] }`),
+      "the inventory_item_id key is no longer declared for the category",
+    ).toBe(true);
     expect(read("ios/GradeThread/Notifications/NotificationDelegate.swift")).toContain(
       'userInfo["inventory_item_id"]',
     );

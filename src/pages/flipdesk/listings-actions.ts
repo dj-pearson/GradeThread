@@ -71,6 +71,10 @@ import {
 import { ITEM_STATUS_LABELS } from "@/lib/constants";
 import { itemRowLabel } from "@/lib/item-row-label";
 import type { ItemFullRow, ItemStatus, ListingInsert } from "@/types/database";
+import type { BulkCrossPushInput, BulkCrossPushResponse } from "@/hooks/use-cross-listing";
+import type { CrossPushPlatform } from "@/lib/constants";
+import { describeBulkCrossPush } from "@/lib/bulk-cross-list-report";
+import { requestDrainNow } from "@/lib/lister-extension";
 
 /** A mutation hook's call surface, narrowed to what a handler actually uses. */
 interface MutationLike<TVars, TResult> {
@@ -188,6 +192,9 @@ export interface ListingsActionDeps {
   >;
   deleteItemApi: MutationLike<{ itemId: string }, unknown>;
   publishApi: MutationLike<{ itemId: string }, unknown>;
+  /** US-3456: N items to M non-eBay channels in one request. */
+  crossPushBulk: MutationLike<BulkCrossPushInput, BulkCrossPushResponse>;
+  setBulkCrossListOpen: (v: boolean) => void;
 }
 
 export function makeListingsActions(d: ListingsActionDeps) {
@@ -223,6 +230,8 @@ export function makeListingsActions(d: ListingsActionDeps) {
     bulkRelistApi,
     deleteItemApi,
     publishApi,
+    crossPushBulk,
+    setBulkCrossListOpen,
   } = d;
 
   // Keep the listing row consistent when an item moves back to a draft-like
@@ -841,6 +850,58 @@ export function makeListingsActions(d: ListingsActionDeps) {
     }
   }
 
+  // US-3456: the selection to every ticked marketplace. eBay goes through
+  // the per-item publish this page already runs (it validates against eBay's
+  // metadata per item and reports per row); the other channels go to
+  // POST /cross-push-bulk in one request, where the server skips a channel
+  // an item is already on. The ids are captured first because the eBay
+  // pass clears the selection when it finishes.
+  async function bulkCrossList(choice: { platforms: CrossPushPlatform[]; batchLabel: string }) {
+    if (selected.size === 0) return;
+    const ids = Array.from(selected).filter((id) => {
+      const it = items.find((x) => x.id === id);
+      return !!it && !TO_LIST_STATUSES.has(it.status);
+    });
+    if (ids.length === 0) {
+      toast.error("None of the selected items has a draft yet. Create drafts first.");
+      return;
+    }
+    const wantsEbay = choice.platforms.includes("ebay");
+    const others = choice.platforms.filter((p) => p !== "ebay");
+    let ebayPublished: number | null = null;
+    if (wantsEbay && ebayConnection) {
+      // bulkPublishToEbay toasts its own per-item result and clears the
+      // selection; the count reported here is what the batch attempted.
+      await bulkPublishToEbay();
+      ebayPublished = ids.length;
+    }
+    if (others.length === 0) {
+      setBulkCrossListOpen(false);
+      return;
+    }
+    setBusy(true);
+    try {
+      const res = await crossPushBulk.mutateAsync({
+        itemIds: ids,
+        platforms: others,
+        batchLabel: choice.batchLabel || null,
+      });
+      const report = describeBulkCrossPush(res.summary, res.batch_label, ebayPublished);
+      const opts = { description: report.description ?? undefined, duration: 12_000 };
+      if (report.tone === "success") toast.success(report.title, opts);
+      else if (report.tone === "warning") toast.warning(report.title, opts);
+      else toast.error(report.title, opts);
+      if (res.summary.queued > 0) void requestDrainNow();
+      setSelected(new Set());
+      setBulkCrossListOpen(false);
+      await qc.invalidateQueries({ queryKey: ["items_full"] });
+    } catch (err) {
+      toastError(err, "Bulk cross-listing failed.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   // Hard-delete every selected item (for clearing out drafts/dupes in bulk).
   // The server guards items with a live listing or any sale (409) — those are
   // reported and skipped, the rest still delete.
@@ -1178,6 +1239,7 @@ export function makeListingsActions(d: ListingsActionDeps) {
     bulkPublishToEbay,
     bulkDeleteItems,
     bulkEndListings,
+    bulkCrossList,
     bulkResubmitToEbay,
     undoBulkStatus,
     bulkSetStatus,

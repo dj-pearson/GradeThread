@@ -66,6 +66,10 @@ import { useCrossPostChannels } from "@/hooks/use-cross-post-channels";
 import { kitPlatformsFor } from "@/lib/kit-platforms";
 import { useBulkAspectCoverage, useEbayConnection } from "@/hooks/use-ebay";
 import { BulkAiEnrichDialog } from "@/components/flipdesk/bulk-ai-enrich-dialog";
+import { BulkCrossListDialog, type BulkCrossListChoice } from "@/components/flipdesk/bulk-cross-list-dialog";
+import { useCrossPushBulk } from "@/hooks/use-cross-listing";
+import { describeBulkCrossPush } from "@/lib/bulk-cross-list-report";
+import { requestDrainNow } from "@/lib/lister-extension";
 import {
   QualityScoreChip,
   type QualityScoreSummary,
@@ -138,6 +142,9 @@ export function FlipdeskAutolisterDraftsPage() {
   const [search, setSearch] = useState("");
   const [sortKey, setSortKey] = useState<SortKey>("created_desc");
   const bulkPublish = useBulkPublish();
+  // US-3456: the selected drafts to every ticked marketplace, in one go.
+  const crossPushBulk = useCrossPushBulk();
+  const [crossListOpen, setCrossListOpen] = useState(false);
   const { data: chosenChannels } = useCrossPostChannels();
   const fillKit = useGeneratePlatformFields();
   const [kitFilling, setKitFilling] = useState<{ done: number; total: number } | null>(null);
@@ -524,6 +531,49 @@ export function FlipdeskAutolisterDraftsPage() {
     }
   }
 
+  // US-3456: eBay through the durable publish batch this page already runs,
+  // everything else through one cross-push-bulk request. The server skips a
+  // channel a draft is already on, so a second press mints nothing twice.
+  async function crossListSelected(choice: BulkCrossListChoice) {
+    const chosen = sorted.filter((d) => selectedIds.has(d.id));
+    if (chosen.length === 0) {
+      toast.error("Select drafts first (press x on a row).");
+      return;
+    }
+    let ebayPublished: number | null = null;
+    if (choice.platforms.includes("ebay")) {
+      if (!ebayConnection) {
+        toast.error("Connect eBay first on the Marketplaces page.");
+        return;
+      }
+      await bulkPublish.run(
+        chosen.map((d) => ({ itemId: d.inventory_item_id, listingId: d.id })),
+      );
+      ebayPublished = chosen.length;
+    }
+    const others = choice.platforms.filter((p) => p !== "ebay");
+    if (others.length === 0) {
+      setCrossListOpen(false);
+      return;
+    }
+    try {
+      const res = await crossPushBulk.mutateAsync({
+        itemIds: chosen.map((d) => d.inventory_item_id),
+        platforms: others,
+        batchLabel: choice.batchLabel || null,
+      });
+      const report = describeBulkCrossPush(res.summary, res.batch_label, ebayPublished);
+      const opts = { description: report.description ?? undefined, duration: 12_000 };
+      if (report.tone === "success") toast.success(report.title, opts);
+      else if (report.tone === "warning") toast.warning(report.title, opts);
+      else toast.error(report.title, opts);
+      if (res.summary.queued > 0) void requestDrainNow();
+      setCrossListOpen(false);
+    } catch (err) {
+      toastError(err, "Bulk cross-listing failed.");
+    }
+  }
+
   async function publishSelected() {
     const chosen = sorted.filter((d) => selectedIds.has(d.id));
     if (chosen.length === 0) {
@@ -751,6 +801,18 @@ export function FlipdeskAutolisterDraftsPage() {
                   {kitFilling
                     ? `Filling kit ${kitFilling.done}/${kitFilling.total}`
                     : `Fill copy kit for ${selectedIds.size}`}
+                </Button>
+              )}
+              {/* US-3456: the selected drafts to every marketplace at once. */}
+              {selectedIds.size > 0 && (
+                <Button
+                  variant="outline"
+                  onClick={() => setCrossListOpen(true)}
+                  disabled={bulkPublish.running || crossPushBulk.isPending}
+                  title="List the selected drafts on the marketplaces you pick, in one go."
+                >
+                  <Layers className="mr-2 h-4 w-4" />
+                  Cross-list {selectedIds.size}
                 </Button>
               )}
               {/* US-549: publish the keyboard-selected subset. */}
@@ -1268,6 +1330,14 @@ export function FlipdeskAutolisterDraftsPage() {
           listings, but the AI writes to the parent inventory item — so the
           refetch has to invalidate the item read too, not just the draft list,
           or a corrected brand would sit in the DB behind a stale title. */}
+      <BulkCrossListDialog
+        open={crossListOpen}
+        onOpenChange={setCrossListOpen}
+        itemCount={selectedIds.size}
+        ebayConnected={!!ebayConnection}
+        running={bulkPublish.running || crossPushBulk.isPending}
+        onConfirm={(choice) => void crossListSelected(choice)}
+      />
       <BulkAiEnrichDialog
         open={reidentifyOpen}
         onOpenChange={setReidentifyOpen}

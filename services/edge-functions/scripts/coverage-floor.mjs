@@ -140,6 +140,13 @@ if (slack >= 5) {
 // that earned it, or the gain can be given straight back.
 const MONEY_FLOORS = {
   "lib/affiliate-payout.ts": 11,
+  // ~1,400 lines. The charge/refund path; AC1 of US-2345 still owns the
+  // request-context + Stripe-double harness that would exercise it. It left
+  // MONEY_DEBT on 2026-09-22 because impersonation-destructive-drive_test.ts
+  // (US-3316) imports the module, which puts its load-time lines in the table
+  // at 10.8%. Floored just below that, so the first regression that stops
+  // importing it, or the harness landing and then rotting, fails here.
+  "routes/grade.ts": 10,
   "lib/quick-grade.ts": 12,
   // US-2345 AC1: the admin manual-refund SEQUENCE, extracted from
   // admin-billing.ts so its failure branches could be reached without Stripe.
@@ -176,9 +183,6 @@ const MONEY_FLOORS = {
   "lib/grade-pricing.ts": 98,
 };
 const MONEY_DEBT = new Set([
-  // ~1,400 lines. The charge/refund path. AC1 of US-2345 owns this; the work is
-  // a request-context + Stripe-double harness, not a test file.
-  "routes/grade.ts",
   // ~1,750 lines. Refunds, credits and plan changes, same harness problem.
   "routes/admin-billing.ts",
 ]);

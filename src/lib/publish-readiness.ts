@@ -23,6 +23,7 @@ import {
   MARKETPLACE_LABELS,
   MARKETPLACE_MECHANISM,
   type CrossListingPlatform,
+  type CrossPushPlatform,
   type MarketplaceMechanism,
 } from "./constants";
 import {
@@ -88,8 +89,12 @@ export interface EbayPreflight {
 }
 
 export interface ReadinessInput {
-  /** The channels the seller has actually ticked. */
-  platforms: readonly CrossListingPlatform[];
+  /**
+   * The channels the seller has actually ticked. Wider than the rows this
+   * returns (US-3450): the List on panel ticks the extension channels beside
+   * eBay, and readiness is computed for the ones CROSS_LISTING_PLATFORMS specs.
+   */
+  platforms: readonly CrossPushPlatform[];
   draft: CrossListDraft;
   /** Photos that will be attached, checked against each spec's cap. */
   photoCount?: number;
@@ -221,7 +226,7 @@ export function readinessForChannel(
 
 /** Readiness for every selected channel, in CROSS_LISTING_PLATFORMS order. */
 export function readinessForChannels(input: ReadinessInput): ChannelReadiness[] {
-  const selected = new Set<CrossListingPlatform>(input.platforms);
+  const selected = new Set<string>(input.platforms);
   return CROSS_LISTING_PLATFORMS.filter((p) => selected.has(p)).map((p) =>
     readinessForChannel(p, input),
   );

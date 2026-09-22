@@ -79,9 +79,8 @@ import {
   EBAY_CONDITION_OPTIONS,
   ITEM_CATEGORIES,
   ITEM_STATUS_LABELS,
-  MARKETPLACE_LABELS,
   MARKETPLACE_TIER,
-  type CrossListingPlatform,
+  type CrossPushPlatform,
   isNonListablePhotoType,
 } from "@/lib/constants";
 import { resolveStatus, factsOf, nextAction } from "@/lib/workflow";
@@ -219,7 +218,10 @@ import { CostMarginCard } from "@/components/flipdesk/composer/cost-margin-card"
 import { PoliciesCard } from "@/components/flipdesk/composer/policies-card";
 import { PromoteCard } from "@/components/flipdesk/composer/promote-card";
 import { DescriptionCard } from "@/components/flipdesk/composer/description-card";
-import { PushToCard } from "@/components/flipdesk/composer/push-to-card";
+import { ListOnPanel } from "@/components/flipdesk/composer/list-on-panel";
+import { summarizeCrossPush } from "@/lib/list-on-channels";
+import { requestDrainNow } from "@/lib/lister-extension";
+import { QUEUED_NOTICE } from "@/hooks/use-extension-queue";
 import { PublishReadinessCard } from "@/components/flipdesk/composer/publish-readiness-card";
 import { readinessForChannels } from "@/lib/publish-readiness";
 import { ScheduleCard } from "@/components/flipdesk/composer/schedule-card";
@@ -528,13 +530,13 @@ export function FlipdeskComposerPage({
   const [aiCopyPanelOpen, setAiCopyPanelOpen] = useState(false);
   const aiRewrite = useAiRewrite();
   const listingCopy = useListingCopy();
-  // US-149: multi-marketplace "Push to" picks + per-platform price overrides
+  // US-149: multi-marketplace "List on" picks + per-platform price overrides
   // (string-typed like the main price input; blank = use the main price).
-  const [pushPlatforms, setPushPlatforms] = useState<Set<CrossListingPlatform>>(
-    () => new Set<CrossListingPlatform>(["ebay"]),
+  const [pushPlatforms, setPushPlatforms] = useState<Set<CrossPushPlatform>>(
+    () => new Set<CrossPushPlatform>(["ebay"]),
   );
   const [platformPrices, setPlatformPrices] = useState<
-    Partial<Record<CrossListingPlatform, string>>
+    Partial<Record<CrossPushPlatform, string>>
   >({});
   const { data: ebayConnection } = useEbayConnection();
   // US-558: the seller's business policies feed the preview's shipping/returns
@@ -2837,7 +2839,7 @@ export function FlipdeskComposerPage({
     }
   }
 
-  function togglePushPlatform(platform: CrossListingPlatform) {
+  function togglePushPlatform(platform: CrossPushPlatform) {
     // US-1114: never select a channel awaiting platform approval — publishing it
     // would 503. The UI disables it too; this guards persisted/programmatic state.
     if (MARKETPLACE_TIER[platform] === "api_pending") return;
@@ -2845,6 +2847,18 @@ export function FlipdeskComposerPage({
       const next = new Set(prev);
       if (next.has(platform)) next.delete(platform);
       else next.add(platform);
+      return next;
+    });
+  }
+
+  // US-3450: the List on panel knows which channels are already live, queued
+  // or ending for this item; a tick left on one of those is dropped here so the
+  // Publish button's count and the fan-out agree with what the panel shows.
+  function removePushPlatforms(platforms: CrossPushPlatform[]) {
+    setPushPlatforms((prev) => {
+      if (!platforms.some((p) => prev.has(p))) return prev;
+      const next = new Set(prev);
+      for (const p of platforms) next.delete(p);
       return next;
     });
   }
@@ -3027,7 +3041,7 @@ export function FlipdeskComposerPage({
       return;
     }
 
-    const prices: Partial<Record<CrossListingPlatform, number>> = {};
+    const prices: Partial<Record<CrossPushPlatform, number>> = {};
     for (const p of platforms) {
       const raw = platformPrices[p];
       const parsed = raw != null ? Number.parseFloat(raw) : NaN;
@@ -3036,41 +3050,29 @@ export function FlipdeskComposerPage({
 
     try {
       const res = await crossPush.mutateAsync({ listingId, platforms, prices });
-      const stubbed: string[] = [];
-      const failed: string[] = [];
-      const queued: string[] = [];
-      for (const p of platforms) {
-        const r = res.results[p];
-        if (!r) continue;
-        if (r.ok && r.queued) {
-          // US-3213: never call this published. Poshmark, Mercari, Grailed,
-          // Vinted and Facebook are listed BY the seller's own browser, so the
-          // job is waiting for their desktop and nothing is live yet. Wording
-          // that blurs the two is how a seller believes something is up.
-          queued.push(MARKETPLACE_LABELS[p]);
-        } else if (r.ok) {
-          toast.success(`Published to ${MARKETPLACE_LABELS[p]}.`);
-        } else if (r.status === 501) {
-          stubbed.push(MARKETPLACE_LABELS[p]);
-        } else {
-          failed.push(
-            `${MARKETPLACE_LABELS[p]}: ${r.blockers?.[0] ?? r.error ?? "failed"}`,
-          );
-        }
+      // US-3450: one reading of the result, shared with the List on panel.
+      // US-3213: a queued channel is never called published. Poshmark,
+      // Mercari, Grailed, Vinted and Facebook are listed BY the seller's own
+      // browser, so the job is waiting for their desktop and nothing is live
+      // yet; QUEUED_NOTICE is the sentence every surface uses for that.
+      const s = summarizeCrossPush(res.results, platforms);
+      for (const name of s.published) toast.success(`Published to ${name}.`);
+      if (s.queued.length > 0) {
+        toast.success(`Queued for your desktop: ${s.queued.join(", ")}. ${QUEUED_NOTICE}`, {
+          duration: 10_000,
+        });
+        void requestDrainNow();
       }
-      if (queued.length > 0) {
-        toast.success(
-          `Queued for your desktop: ${queued.join(", ")}. Open the extension ` +
-            `to finish listing there.`,
-          { duration: 10_000 },
-        );
+      if (s.live.length > 0) toast.info(`Already live: ${s.live.join(", ")}.`);
+      if (s.waiting.length > 0) {
+        toast.info(`Already waiting for your desktop: ${s.waiting.join(", ")}.`);
       }
-      if (stubbed.length > 0) {
+      if (s.stubbed.length > 0) {
         toast.info(
-          `${stubbed.join(", ")} listing${stubbed.length === 1 ? "" : "s"} saved locally — publishing there ships soon.`,
+          `${s.stubbed.join(", ")} listing${s.stubbed.length === 1 ? "" : "s"} saved locally; publishing there ships soon.`,
         );
       }
-      for (const f of failed) toast.error(f, { duration: 12_000 });
+      for (const f of s.blocked) toast.error(f, { duration: 12_000 });
     } catch (err) {
       toast.error(`Cross-listing push failed: ${errorMessage(err)}`);
     }
@@ -3349,7 +3351,7 @@ export function FlipdeskComposerPage({
               pushPlatforms.has("ebay") && !ebayConnection
                 ? "Connect eBay first on the Marketplaces page."
                 : pushPlatforms.size === 0
-                  ? "Pick at least one marketplace in the Push to card."
+                  ? "Pick at least one marketplace in the List on card."
                   : (publishBlocker ??
                     (scheduledAt
                       ? "Saves the draft; it publishes itself at your drop time."
@@ -3983,9 +3985,13 @@ export function FlipdeskComposerPage({
               decision before the button: which channels, and when. The button
               still can't outrun them: it names the channels in its own label
               and disables itself with a reason when none are picked. */}
-          <PushToCard
+          <ListOnPanel
+            itemId={item.id}
+            draftListingId={listing?.id ?? null}
+            editorMode={editorMode}
             pushPlatforms={pushPlatforms}
             togglePushPlatform={togglePushPlatform}
+            removePushPlatforms={removePushPlatforms}
             platformPrices={platformPrices}
             setPlatformPrices={setPlatformPrices}
             price={price}

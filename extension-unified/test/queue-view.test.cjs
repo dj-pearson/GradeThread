@@ -548,8 +548,40 @@ function row(over) {
   assert.strictEqual(attention.rows.length, 2);
 }
 
+// US-3456: a bulk cross-list rides one label on every row's payload, and the
+// popup reads it back as one line per batch. Rows with no label are not a
+// batch: a single push must not be announced as "Batch: 1 waiting".
+{
+  const views = V.buildList(
+    {
+      pending: [
+        row({ id: "11111111-1111-4111-8111-111111111111", payload: { batch: "Sunday drop" } }),
+        row({ id: "22222222-2222-4222-8222-222222222222", payload: { batch: "Sunday drop" }, platform: "mercari" }),
+        row({ id: "33333333-3333-4333-8333-333333333333", payload: { batch: "Sunday drop" }, status: "claimed", claimed_at: new Date(NOW - 60000).toISOString() }),
+        row({ id: "44444444-4444-4444-8444-444444444444" }),
+      ],
+      needsAttention: [
+        row({ id: "55555555-5555-4555-8555-555555555555", payload: { batch: "Sunday drop" }, status: "failed", completed_at: new Date(NOW - HOUR).toISOString(), result: { error: "x" } }),
+      ],
+    },
+    { now: NOW },
+  );
+  assert.strictEqual(views.filter((v) => v.batch === "Sunday drop").length, 4);
+  assert.strictEqual(views.find((v) => v.id === "44444444-4444-4444-8444-444444444444").batch, null);
+  const lines = V.batchLines(views);
+  assert.strictEqual(lines.length, 1, "one line per label, none for unlabelled rows");
+  assert.match(lines[0], /Sunday drop/);
+  assert.match(lines[0], /2 waiting/);
+  assert.match(lines[0], /1 running/);
+  assert.match(lines[0], /1 needs you/);
+  assert.deepStrictEqual(V.batchLines([]), []);
+  // The popup prints the lines.
+  const popup = fs.readFileSync(path.resolve(__dirname, "..", "popup.js"), "utf8");
+  assert.ok(popup.includes("QUEUE_VIEW.batchLines(rows)"), "popup.js must print the batch lines");
+}
+
 console.log(
-  "queue-view.test.cjs: 17 groups — cancel is queued-only, failures count " +
+  "queue-view.test.cjs: 18 groups — cancel is queued-only, failures count " +
     "toward the badge, every dead row carries a reason, kinds match the edge, " +
     "the popup wires all of it, timeAgo takes ISO, retry re-queues only dead known rows, grouping omits empties, and a claimed row carries its stage, and a server-refused cross-post reads as an inventory fact",
 );

@@ -10,6 +10,9 @@
 // disagree. The Swift test asserts the same thing from its side; neither is
 // sufficient alone, because each can only see the file it is compiled with.
 
+// US-2379: the static import graph reaches src/lib/supabase.ts, so the env
+// stub loads first. Kept as the first import on purpose.
+import "./_env.ts";
 import { assert, assertEquals } from "@std/assert";
 import { PUSH_CONTRACT, payloadKeysFor } from "../lib/transactional-push.ts";
 

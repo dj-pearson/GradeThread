@@ -70,11 +70,18 @@ public final class ExtensionQueueService {
         public let createdAt: String
         public let expiresAt: String
         public let result: QueueResult?
+        /// US-3454: which garment and which row the job is about, so a screen
+        /// for one item can pick its own jobs out of the queue. Both are
+        /// nullable on the row and optional here.
+        public let inventoryItemId: String?
+        public let listingId: String?
 
         enum CodingKeys: String, CodingKey {
             case id, kind, platform, status, source, result
             case createdAt = "created_at"
             case expiresAt = "expires_at"
+            case inventoryItemId = "inventory_item_id"
+            case listingId = "listing_id"
         }
     }
 

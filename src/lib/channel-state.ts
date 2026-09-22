@@ -25,9 +25,43 @@ export type ChannelState =
   | "sold"
   | "none";
 
+/**
+ * The columns a channel's state is read from. A structural subset of the
+ * item page's full row so the listings table (US-3451), which reads a
+ * narrower page-scoped projection, can derive the same state without a
+ * second request.
+ */
+export type ChannelRowLike = Pick<
+  ItemListingRow,
+  | "id"
+  | "platform"
+  | "listing_status"
+  | "listing_url"
+  | "delist_requested_at"
+  | "platform_fields"
+  | "updated_at"
+>;
+
+/**
+ * Most urgent first: the order deriveChannelState answers in. Exported so the
+ * iOS port (ios/GradeThread/Marketplaces/ChannelState.swift) can be pinned to
+ * it by src/test/ios-channel-state-parity.test.ts.
+ */
+export const CHANNEL_STATE_PRECEDENCE: readonly ChannelState[] = [
+  "delist_queued",
+  "queued",
+  "live",
+  "unconfirmed",
+  "failed",
+  "sold",
+  "ended",
+  "prefilled",
+  "none",
+];
+
 export interface ChannelStatus {
   state: ChannelState;
-  row: ItemListingRow | null;
+  row: ChannelRowLike | null;
   queueItem: ExtensionQueueItem | null;
   /** The marketplace page, only when the row carries a usable https URL. */
   url: string | null;
@@ -43,7 +77,7 @@ function newest<T extends { created_at: string }>(items: T[]): T | null {
 }
 
 export function deriveChannelState(
-  rows: readonly ItemListingRow[],
+  rows: readonly ChannelRowLike[],
   queueItems: readonly ExtensionQueueItem[],
   platform: string,
 ): ChannelStatus {

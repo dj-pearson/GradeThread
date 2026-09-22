@@ -32,6 +32,7 @@ import { computeNetProfit } from "@/lib/sale-math";
 import { MARKETPLACE_LABELS } from "@/lib/constants";
 import { useItemListings, type ItemListingRow } from "@/hooks/use-item-listings";
 import { ItemDelistPanel } from "@/components/flipdesk/delist-panel";
+import { DelistLog } from "@/components/flipdesk/delist-log";
 import { defaultSoldListing, SOLD_ELSEWHERE as ELSEWHERE } from "@/lib/delist-links";
 import type { ItemFullRow, ListingPlatform } from "@/types/database";
 
@@ -254,6 +255,7 @@ export function RecordSaleDialog({
         });
       }
       void qc.invalidateQueries({ queryKey: ["pending_delists"] });
+      void qc.invalidateQueries({ queryKey: ["delist_log"] });
       void qc.invalidateQueries({ queryKey: ["extension_queue"] });
       void qc.invalidateQueries({ queryKey: ["item_listing_platforms"] });
 
@@ -290,6 +292,9 @@ export function RecordSaleDialog({
           <>
             {/* US-3369: the delist, right where the sale was recorded. */}
             <ItemDelistPanel itemId={delistStepFor} itemStatus="sold" />
+            {/* US-3452: and what has already happened, in the same words the
+                item page uses, so the seller reads the log before Done. */}
+            <DelistLog itemId={delistStepFor} bare />
             <DialogFooter>
               <Button onClick={onClose}>Done</Button>
             </DialogFooter>

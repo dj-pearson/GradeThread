@@ -1660,6 +1660,36 @@ Deno.test({
   },
 });
 
+// US-3453: the delist nudge is a fleet sweep behind the same secret. A user
+// JWT, or no secret, must not start a run that reads every seller's queue.
+Deno.test({
+  name: "delist-nudge job rejects a user JWT (must use job secret)",
+  ignore: !CONFIGURED,
+  fn: async () => {
+    const res = await fetch(`${BASE}/api/jobs/delist-nudge`, {
+      method: "POST",
+      headers: authHeaders(A_JWT!),
+    });
+    const status = res.status;
+    await res.body?.cancel();
+    assert(status === 401, `POST /api/jobs/delist-nudge with a user JWT should 401, got ${status}`);
+  },
+});
+
+Deno.test({
+  name: "delist-nudge job rejects a bogus X-Internal-Job-Secret",
+  ignore: !BASE,
+  fn: async () => {
+    const res = await fetch(`${BASE}/api/jobs/delist-nudge`, {
+      method: "POST",
+      headers: { "X-Internal-Job-Secret": "wrong-secret-value" },
+    });
+    const status = res.status;
+    await res.body?.cancel();
+    assert(status === 401, `POST /api/jobs/delist-nudge with a wrong secret should 401, got ${status}`);
+  },
+});
+
 // Negative companion: an explicit wrong secret must also be rejected. (Run even
 // without a victim id so we always exercise this gate in CI.)
 Deno.test({
@@ -4933,6 +4963,72 @@ Deno.test({
       0,
       `pending-delists?item=${aItemId} returned ${pending.length} of A's rows to B`,
     );
+  },
+});
+
+// US-3456: bulk cross-list names items in the body. The source rows are read
+// through inventory_items scoped to the caller, so A's item never comes back
+// to B: it is reported not_found, the same as an item that does not exist,
+// and no listings row, group stamp or queue row is written for it.
+Deno.test({
+  name: "B cannot bulk cross-list A's items",
+  ignore: !CONFIGURED || !Deno.env.get("TEST_USER_A_ITEM_ID"),
+  fn: async () => {
+    const aItemId = Deno.env.get("TEST_USER_A_ITEM_ID")!;
+    const res = await fetch(`${BASE}/api/flipdesk/listings/cross-push-bulk`, {
+      method: "POST",
+      headers: authHeaders(B_JWT!),
+      body: JSON.stringify({ item_ids: [aItemId], platforms: ["poshmark"] }),
+    });
+    if (res.status !== 200) {
+      await res.body?.cancel();
+      assertDenied(res.status, "POST cross-push-bulk naming A's item as B");
+      return;
+    }
+    const body = (await res.json()) as { rows?: Array<{ item_id: string; outcome: string }> };
+    for (const row of body.rows ?? []) {
+      assertEquals(
+        row.outcome,
+        "not_found",
+        `cross-push-bulk acted on A's item ${row.item_id} for B: ${row.outcome}`,
+      );
+    }
+  },
+});
+
+// US-3455: the phone's create-form fill takes an item id in the body and
+// answers 404 for an item the caller does not own. Not a 200 with empty
+// words: the payload carries the item's title, brand and photo URLs, which is
+// exactly what a foreign id must never read.
+Deno.test({
+  name: "B cannot fetch a phone list fill for A's item",
+  ignore: !CONFIGURED || !Deno.env.get("TEST_USER_A_ITEM_ID"),
+  fn: async () => {
+    const aItemId = Deno.env.get("TEST_USER_A_ITEM_ID")!;
+    const res = await fetch(`${BASE}/api/flipdesk/extension-queue/fill`, {
+      method: "POST",
+      headers: authHeaders(B_JWT!),
+      body: JSON.stringify({ inventory_item_id: aItemId, platform: "poshmark" }),
+    });
+    await res.body?.cancel();
+    assertDenied(res.status, "POST extension-queue/fill naming A's item as B");
+  },
+});
+
+// US-3452: the delist log takes an item id in the path and answers 404 for an
+// item the caller does not own. Not an empty list: a 200 with no events would
+// confirm the id exists, and item ids travel in push payloads and links.
+Deno.test({
+  name: "B cannot read A's delist log by naming A's item",
+  ignore: !CONFIGURED || !Deno.env.get("TEST_USER_A_ITEM_ID"),
+  fn: async () => {
+    const aItemId = Deno.env.get("TEST_USER_A_ITEM_ID")!;
+    const res = await fetch(
+      `${BASE}/api/flipdesk/listings/delist-log/${encodeURIComponent(aItemId)}`,
+      { headers: authHeaders(B_JWT!) },
+    );
+    await res.body?.cancel();
+    assertDenied(res.status, "GET delist-log/:itemId as B");
   },
 });
 

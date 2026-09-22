@@ -12,7 +12,6 @@ import {
   HelpCircle,
   Loader2,
   Puzzle,
-  Send,
   Wand2,
   XCircle,
 } from "lucide-react";
@@ -28,7 +27,6 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
-import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { supabase } from "@/lib/supabase";
@@ -74,19 +72,9 @@ import {
   proposePickers,
   type PickerProposal,
 } from "@/lib/picker-proposals";
-import {
-  type CrossListingPlatform,
-  MARKETPLACE_EXTENSION_FLOW,
-  MARKETPLACE_LABELS,
-} from "@/lib/constants";
-import type { ListingPlatform } from "@/types/database";
-import {
-  type ChannelStatus,
-  deriveChannelState,
-  planListEverywhere,
-} from "@/lib/channel-state";
+import { MARKETPLACE_EXTENSION_FLOW } from "@/lib/constants";
+import { type ChannelStatus, deriveChannelState } from "@/lib/channel-state";
 import { useItemListings } from "@/hooks/use-item-listings";
-import { useCrossPush } from "@/hooks/use-cross-listing";
 import { useEndListing, useNotListed } from "@/hooks/use-listing-lifecycle";
 import { useMarkDelistDone } from "@/hooks/use-pending-delists";
 import { useCrossPostChannels } from "@/hooks/use-cross-post-channels";
@@ -1171,8 +1159,8 @@ function PlatformPanel({
               <Puzzle className="mr-1.5 h-3.5 w-3.5" />
             )}
             {/* US-3367: renamed from "Send to extension" so it reads as a
-                different verb from "List everywhere" above the tabs: this
-                one fills THIS channel's form now, in a tab you watch. */}
+                different verb from the composer's List on button: this one
+                fills THIS channel's form now, in a tab you watch. */}
             Fill {spec.label} now
           </Button>
         )}
@@ -1780,8 +1768,9 @@ export function ListingKit({ itemId, baseName }: { itemId: string; baseName?: st
   const kitPlatforms = useMemo(() => kitPlatformsFor(chosenChannels), [chosenChannels]);
 
   // US-3367: what each channel is doing, from the item's listing rows and the
-  // seller's queue. One derivation (channel-state.ts) feeds the tab markers,
-  // the per-panel status row and the checklist below.
+  // seller's queue. One derivation (channel-state.ts) feeds the tab markers
+  // and the per-panel status row; the composer's List on panel (US-3450)
+  // derives the same states for its checklist.
   const { data: listingRows = [] } = useItemListings(itemId);
   const { data: queue } = useExtensionQueue();
   const queueForItem = useMemo(
@@ -1795,76 +1784,6 @@ export function ListingKit({ itemId, baseName }: { itemId: string; baseName?: st
     for (const p of kitPlatforms) out[p] = deriveChannelState(listingRows, queueForItem, p);
     return out;
   }, [kitPlatforms, listingRows, queueForItem]);
-
-  // The channels the one button can queue. Depop has no form-filler (its API
-  // is pending) and a `verifying` flow would only report "list manually", so
-  // neither is offered here; their tabs stay as copy kits.
-  const queueable = useMemo(
-    () =>
-      kitPlatforms.filter(
-        (p) => isListerPlatform(p) && MARKETPLACE_EXTENSION_FLOW[p] !== "verifying",
-      ),
-    [kitPlatforms],
-  );
-  const plan = useMemo(() => planListEverywhere(queueable, statuses), [queueable, statuses]);
-  // The seller's ticks. Follows the plan's defaults until they touch a box,
-  // then holds their choice until a send resets it.
-  const [checked, setChecked] = useState<Set<string>>(new Set());
-  const [touched, setTouched] = useState(false);
-  useEffect(() => {
-    if (!touched) setChecked(new Set(plan.checked));
-  }, [plan.checked, touched]);
-  const crossPush = useCrossPush();
-
-  const listEverywhere = async () => {
-    if (!draft?.id) {
-      toast.error("Save the eBay draft first.");
-      return;
-    }
-    const platforms = queueable.filter((p) => checked.has(p) && !plan.disabled[p]);
-    if (platforms.length === 0) {
-      toast.error("Pick at least one marketplace.");
-      return;
-    }
-    try {
-      // The same fan-out the composer's Publish uses: one sibling row per
-      // channel, pre-flighted, then a queue row for the desktop. The server
-      // skips a channel that is already live or already waiting (US-3367), so
-      // pressing this twice cannot mint a duplicate listing.
-      const res = await crossPush.mutateAsync({
-        listingId: draft.id,
-        platforms: platforms as CrossListingPlatform[],
-      });
-      const queued: string[] = [];
-      const live: string[] = [];
-      const waiting: string[] = [];
-      const blocked: string[] = [];
-      for (const p of platforms) {
-        const r = res.results[p as CrossListingPlatform];
-        if (!r) continue;
-        const name = MARKETPLACE_LABELS[p as ListingPlatform] ?? p;
-        if (r.skipped === "already_live") live.push(name);
-        else if (r.skipped === "already_queued") waiting.push(name);
-        else if (r.ok && r.queued) queued.push(name);
-        else if (!r.ok) blocked.push(`${name}: ${r.blockers?.[0] ?? r.error ?? "blocked"}`);
-      }
-      if (queued.length > 0) {
-        // The shared sentence. A queued job is not a listed job.
-        toast.success(`Queued for your desktop: ${queued.join(", ")}. ${QUEUED_NOTICE}`, {
-          duration: 10_000,
-        });
-        void requestDrainNow();
-      }
-      if (live.length > 0) toast.info(`Already live: ${live.join(", ")}.`);
-      if (waiting.length > 0) toast.info(`Already waiting for your desktop: ${waiting.join(", ")}.`);
-      for (const b of blocked) toast.error(b, { duration: 12_000 });
-      setTouched(false);
-      void qc.invalidateQueries({ queryKey: ["extension_queue"] });
-      void qc.invalidateQueries({ queryKey: ["item_listings", itemId] });
-    } catch (err) {
-      toastError(err, "Could not queue the cross-posts.");
-    }
-  };
 
   // The item's price candidates AND its current facts. The facts joined this
   // read on 2026-09-11 (channel-copy.ts): the title is the last-resort source
@@ -2043,68 +1962,11 @@ export function ListingKit({ itemId, baseName }: { itemId: string; baseName?: st
         </div>
       </CardHeader>
       <CardContent>
-        {/* US-3367: one button for every extension channel, through the paced
-            queue. A live or queued channel is shown and disabled with the
-            reason, so the list reads as the truth about the item rather than
-            as a form. */}
-        {queueable.length > 0 && (
-          <div className="mb-4 space-y-2 rounded-md border p-3">
-            <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
-              <span className="text-sm font-medium">List on:</span>
-              {queueable.map((p) => {
-                const reason = plan.disabled[p];
-                const id = `list-on-${p}`;
-                return (
-                  <label
-                    key={p}
-                    htmlFor={id}
-                    className={cn(
-                      "flex items-center gap-1.5 text-sm",
-                      reason && "text-muted-foreground",
-                    )}
-                  >
-                    <Checkbox
-                      id={id}
-                      checked={!reason && checked.has(p)}
-                      disabled={Boolean(reason) || crossPush.isPending}
-                      onCheckedChange={(v) => {
-                        setTouched(true);
-                        setChecked((prev) => {
-                          const next = new Set(prev);
-                          if (v === true) next.add(p);
-                          else next.delete(p);
-                          return next;
-                        });
-                      }}
-                    />
-                    {MARKETPLACE_LABELS[p as ListingPlatform] ?? p}
-                    {reason ? ` (${reason})` : ""}
-                  </label>
-                );
-              })}
-            </div>
-            <div className="flex flex-wrap items-center gap-3">
-              <Button
-                type="button"
-                size="sm"
-                disabled={crossPush.isPending}
-                onClick={() => void listEverywhere()}
-              >
-                {crossPush.isPending ? (
-                  <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
-                ) : (
-                  <Send className="mr-1.5 h-4 w-4" />
-                )}
-                List everywhere
-              </Button>
-              <p className="text-xs text-muted-foreground">
-                Runs one at a time in your own browser, about 30 seconds apart.{" "}
-                {QUEUED_NOTICE}
-              </p>
-            </div>
-          </div>
-        )}
-
+        {/* US-3450: the channel checklist and its one button moved out of the
+            kit into the composer's List on panel, which offers every channel
+            (API and extension) with the same per-channel state. The kit keeps
+            the per-channel copy, the attended "Fill X now" send and each
+            channel's status row. */}
         <Tabs defaultValue={kitPlatforms[0]}>
           <TabsList className="flex-wrap">
             {kitPlatforms.map((p) => {

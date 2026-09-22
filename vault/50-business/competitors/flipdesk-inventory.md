@@ -180,7 +180,7 @@ Status legend: shipped / partial (what is missing) / open US-id (not built).
 See section 1. Additional UI:
 | Feature | Where | Status |
 |---|---|---|
-| Push-to picker (API channels as checkboxes, extension channels with mechanism badge) | push-to-card.tsx; cross-post-channel-picker.tsx; cross-post-setup.tsx | shipped |
+| List on panel: every channel (API and extension) with its state, per-channel price, End / Cancel verbs; replaced the API-only Push-to card and the kit checklist (US-3450) | composer/list-on-panel.tsx; src/lib/list-on-channels.ts; cross-post-channel-picker.tsx; cross-post-setup.tsx | shipped |
 | Marketplaces page: connect, per-flow capability words, risk disclosure, share-jail statement | marketplaces.tsx; src/lib/marketplace-disclosure.ts | shipped |
 | Pending delist / pending revise banners + queues | pending-delist-banner.tsx, pending-revise-banner.tsx; GET /listings/pending-delists, /pending-revises | shipped |
 | Delist everywhere on sale (API channels automatic; extension channels via queue) | flipdesk-listings.ts /:id/end, /bulk-end; extension GT_LISTER_DELIST | shipped for eBay/Shopify/Poshmark/Mercari; Grailed never; Vinted/FB verifying |

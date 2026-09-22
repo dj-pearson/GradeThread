@@ -11,7 +11,7 @@
 // every render and this component is not always mounted (mobile renders
 // ItemCardList instead).
 
-import type { ReactNode, RefObject } from "react";
+import { useMemo, type ReactNode, type RefObject } from "react";
 import { Link, useLocation, type NavigateFunction } from "react-router";
 import type { Virtualizer, VirtualItem } from "@tanstack/react-virtual";
 import {
@@ -68,6 +68,8 @@ import type { ItemFullRow, ItemStatus } from "@/types/database";
 import type { ListingPlatform } from "@/types/database";
 import { staleSinceLabel, usePendingRevises } from "@/hooks/use-pending-revises";
 import { useRelistExtension } from "@/hooks/use-relist-extension";
+import { useExtensionQueue, type ExtensionQueueItem } from "@/hooks/use-extension-queue";
+import { ChannelStrip } from "@/components/flipdesk/channel-strip";
 import { MARKETPLACE_MECHANISM } from "@/lib/constants";
 import { toast } from "sonner";
 import { toastError } from "@/lib/toast-error";
@@ -268,6 +270,20 @@ export function ListingsTable({
   // US-9203: relist a Poshmark/Mercari/Vinted row by copying it through the
   // extension (or the desktop queue). eBay rows keep their publish dialog.
   const relistExt = useRelistExtension();
+  // US-3451: the seller's queue, grouped by item, for the channel strip. Read
+  // only on the tabs that render the column, and once for the page rather
+  // than once per row.
+  const { data: queue } = useExtensionQueue(isUnlisted || isActive);
+  const queueByItem = useMemo(() => {
+    const map = new Map<string, ExtensionQueueItem[]>();
+    for (const it of [...(queue?.pending ?? []), ...(queue?.needsAttention ?? [])]) {
+      if (!it.inventory_item_id) continue;
+      const arr = map.get(it.inventory_item_id) ?? [];
+      arr.push(it);
+      map.set(it.inventory_item_id, arr);
+    }
+    return map;
+  }, [queue]);
   const isExtensionRow = (row: ItemFullRow) =>
     !!row.listing_platform &&
     MARKETPLACE_MECHANISM[row.listing_platform] === "extension" &&
@@ -662,8 +678,11 @@ export function ListingsTable({
                   Notes
                 </SortHeader>
               </TableHead>
+              {/* US-3451: the channel strip. Hidden below md so the phone
+                  layout does not grow; the row's own platform column and
+                  badges are unchanged. */}
               {(isUnlisted || isActive) && (
-                <TableHead className="w-28">Platforms</TableHead>
+                <TableHead className="hidden w-36 md:table-cell">Channels</TableHead>
               )}
               {/* US-2170: the Listing Quality Score, next to the other
                   listing-health columns. Sortable now that items_full
@@ -1230,50 +1249,41 @@ export function ListingsTable({
                     />
                   </TableCell>
                   {(isUnlisted || isActive) && (
-                    <TableCell>
-                      <div className="flex flex-wrap gap-1">
-                        {(platformsByItem?.get(it.id) ?? []).map(
-                          (l) => (
+                    <TableCell className="hidden md:table-cell" onClick={(e) => e.stopPropagation()}>
+                      {/* US-3451: one dot per channel, coloured by the same
+                          state the item page card derives, with the link or
+                          the End / Cancel verb on the dot. Replaces the
+                          status-coloured platform chips (US-149). */}
+                      <div className="flex flex-wrap items-center gap-1">
+                        <ChannelStrip
+                          itemId={it.id}
+                          chips={platformsByItem?.get(it.id) ?? []}
+                          queueItems={queueByItem.get(it.id) ?? []}
+                        />
+                        {/* Provenance tag (US-1077/US-1081): only eBay
+                            listings have a meaningful origin, who owns the
+                            fields and which way sync flows. */}
+                        {(platformsByItem?.get(it.id) ?? [])
+                          .filter((l) => l.platform === "ebay" && l.status !== "ended")
+                          .slice(0, 1)
+                          .map((l) => (
                             <span
                               key={l.id}
-                              className="inline-flex items-center gap-0.5"
-                            >
-                              <span
-                                title={`${MARKETPLACE_LABELS[l.platform]} — ${l.status}`}
-                                className={cn(
-                                  "rounded border px-1 py-0.5 text-[9px] font-semibold uppercase tracking-wide",
-                                  l.status === "active"
-                                    ? "border-emerald-400/60 text-emerald-600 dark:text-emerald-400"
-                                    : l.status === "sold"
-                                      ? "border-brand-navy/40 text-brand-navy dark:text-foreground"
-                                      : "text-muted-foreground",
-                                )}
-                              >
-                                {MARKETPLACE_LABELS[l.platform]}
-                              </span>
-                              {/* Provenance tag (US-1077/US-1081): only eBay
-                                  listings have a meaningful origin — who owns
-                                  the fields and which way sync flows. */}
-                              {l.platform === "ebay" && (
-                                <span
-                                  title={
-                                    l.origin === "ebay"
-                                      ? "Created on eBay — eBay owns the fields; edit on eBay"
-                                      : "Created in GradeThread — source of truth; edit here"
-                                  }
-                                  className={cn(
-                                    "rounded border px-1 py-0.5 text-[9px] font-semibold uppercase tracking-wide",
-                                    l.origin === "ebay"
-                                      ? "border-amber-400/60 text-amber-600 dark:text-amber-400"
-                                      : "border-brand-navy/40 text-brand-navy dark:text-foreground",
-                                  )}
-                                >
-                                  {l.origin === "ebay" ? "eBay-made" : "GT"}
-                                </span>
+                              title={
+                                l.origin === "ebay"
+                                  ? "Created on eBay; eBay owns the fields; edit on eBay"
+                                  : "Created in GradeThread; source of truth; edit here"
+                              }
+                              className={cn(
+                                "rounded border px-1 py-0.5 text-[9px] font-semibold uppercase tracking-wide",
+                                l.origin === "ebay"
+                                  ? "border-amber-400/60 text-amber-600 dark:text-amber-400"
+                                  : "border-brand-navy/40 text-brand-navy dark:text-foreground",
                               )}
+                            >
+                              {l.origin === "ebay" ? "eBay-made" : "GT"}
                             </span>
-                          ),
-                        )}
+                          ))}
                       </div>
                     </TableCell>
                   )}
