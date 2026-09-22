@@ -942,6 +942,22 @@
     return pickerIsBlank(dd) ? "not-found" : "selected";
   }
 
+  /** Poshmark's optional sub-category: named, or the one the hints point to. */
+  async function pickSubFromHints(dd, cfg, named, hints, itemSel) {
+    if (!dd) return "not-found";
+    if (!pickerIsBlank(dd)) return "already-set";
+    openPicker(dd);
+    await GT.pickerWait(cfg.settleMs);
+    const rows = Array.prototype.slice.call(dd.querySelectorAll(itemSel));
+    const labels = rows.map(nodeText);
+    let i = named ? GT.matchOption(named, labels) : -1;
+    if (i === -1) i = GT.pickSubcategory(labels, named ? [named].concat(hints) : hints);
+    if (i === -1) { closePicker(); return "not-found"; }
+    rows[i].click();
+    await GT.pickerWait(cfg.settleMs);
+    return pickerIsBlank(dd) ? "not-found" : "selected";
+  }
+
   async function pickCondition(cfg, label) {
     const dd = document.querySelector(cfg.condition);
     if (!dd) return "not-found";
@@ -1030,6 +1046,7 @@
     const out = { set: [], missed: [] };
     if (!cfg) return out;
     if (cfg.kind === "mercari") return GT.fillMercariPickers(cfg, payload);
+    if (cfg.kind === "grailed") return GT.fillGrailedPickers(cfg, payload);
     const c = Object.assign({ settleMs: 400 }, cfg);
     const path = GT.splitCategoryPath(payload.category);
     const want = {
@@ -1045,9 +1062,10 @@
     try {
       const cat = await pickCategory(c, want);
       record("category", cat, true);
-      if (cat === "selected" && want.subcategory) {
-        record("subcategory", await pickFromList(
-          document.querySelector(c.subcategory), c, want.subcategory, c.subcategoryItem,
+      const hints = Array.isArray(payload.subcategoryHints) ? payload.subcategoryHints : [];
+      if (cat === "selected" && (want.subcategory || hints.length > 0)) {
+        record("subcategory", await pickSubFromHints(
+          document.querySelector(c.subcategory), c, want.subcategory, hints, c.subcategoryItem,
         ), false);
       }
       record("size", await pickSize(c, payload.size), true);
@@ -1059,6 +1077,83 @@
     }
     closePicker();
     return out;
+  };
+
+  // ── Sub-category from hints (2026-09-22) ───────────────────────────────────
+  //
+  // The kit rarely names a sub-category, but the item usually says what it is:
+  // the eBay Type/Style ("Button-Down Shirt"), product type, sleeve length,
+  // the eBay category phrase ("men's jeans") and the title. The payload sends
+  // those as `subcategoryHints`, most specific first.
+  //
+  // Words are turned into shared tokens on BOTH sides (option and hint), so
+  // "Button Ups", "Button-front" and "button down shirt" all read "buttonup",
+  // and "Tees", "T-Shirts" and "tee" all read "tshirt". Sleeve length is kept
+  // apart: "Short Sleeve T-Shirts" needs a t-shirt hint, and is then told from
+  // "Long Sleeve T-Shirts" by any hint that names a sleeve.
+  //
+  // The FIRST hint that points at exactly one option decides. A hint that
+  // points at two decides nothing and stops the search: "denim shorts" under
+  // Bottoms is Denim or Shorts, and the seller picks.
+
+  const SUBCAT_CANON = [
+    [/\bshort[\s-]*sleeved?\b|\bs\/s\b/g, " sleeveshort "],
+    [/\blong[\s-]*sleeved?\b|\bl\/s\b/g, " sleevelong "],
+    [/\bsleeveless\b/g, " tank "],
+    [/\bt[\s-]?shirts?\b|\btees?\b/g, " tshirt "],
+    [/\bbutton[\s-]*(ups?|downs?|fronts?)\b/g, " buttonup "],
+    [/\bjeans?\b/g, " denim "],
+    [/\bhood(y|ie|ies|ed sweatshirts?)\b/g, " hoodie "],
+    [/\btank[\s-]*tops?\b/g, " tank "],
+    [/\bcamis?\b/g, " camisole "],
+  ];
+
+  function subcatTokens(s) {
+    let t = " " + String(s || "").toLowerCase().replace(/&amp;/g, "&") + " ";
+    for (const [re, to] of SUBCAT_CANON) t = t.replace(re, to);
+    return t.replace(/[^a-z0-9]+/g, " ").trim().split(" ").filter(Boolean)
+      .map(function (w) {
+        // Plural to singular, leaving "dress"-type words and the tokens alone.
+        return /^(sleeve|tshirt|buttonup|denim)/.test(w) || /ss$/.test(w) || w.length <= 3
+          ? w : w.replace(/sses$/, "ss").replace(/ies$/, "y").replace(/([^s])s$/, "$1");
+      });
+  }
+
+  /** Index of the one option the hints point to, or -1. */
+  GT.pickSubcategory = function (options, hints) {
+    const opts = (options || []).map(function (label) {
+      // An option can name several things ("Sweatpants & Joggers"); any one
+      // of its parts is enough. Sleeve tokens are a requirement, not a part.
+      const parts = String(label).split(/\s*(?:&|,|\/|\band\b|\s-\s)\s*/i).map(function (p) {
+        const toks = subcatTokens(p);
+        return {
+          words: toks.filter(function (w) { return !/^sleeve/.test(w); }),
+          sleeve: toks.filter(function (w) { return /^sleeve/.test(w); }),
+        };
+      });
+      const sleeve = [].concat.apply([], parts.map(function (p) { return p.sleeve; }));
+      return {
+        phrases: parts.map(function (p) { return p.words.join(" "); })
+          .filter(function (p) { return p && p !== "none" && p !== "other"; }),
+        sleeve: sleeve[0] || null,
+      };
+    });
+    const hintToks = (hints || []).map(subcatTokens);
+    const sleeveSaid = [].concat.apply([], hintToks)
+      .find(function (w) { return /^sleeve/.test(w); }) || null;
+    for (const toks of hintToks) {
+      const hay = " " + toks.join(" ") + " ";
+      let hits = [];
+      opts.forEach(function (o, i) {
+        if (o.phrases.some(function (p) { return hay.indexOf(" " + p + " ") !== -1; })) hits.push(i);
+      });
+      if (hits.length > 1 && sleeveSaid) {
+        hits = hits.filter(function (i) { return !opts[i].sleeve || opts[i].sleeve === sleeveSaid; });
+      }
+      if (hits.length === 1) return hits[0];
+      if (hits.length > 1) return -1;
+    }
+    return -1;
   };
 
   // ── Mercari's pickers (mapped on the live sell form 2026-09-22) ───────────
@@ -1145,7 +1240,18 @@
     if (!(await clickRow(want.category))) { closeDialog(); return "not-found"; }
     // Still open means a third level. The type if we have one, else "All X".
     if (document.querySelector(cfg.categoryDialog)) {
-      const leaf = want.subcategory && (await clickRow(want.subcategory));
+      let leaf = want.subcategory && (await clickRow(want.subcategory));
+      if (!leaf && want.hints && want.hints.length) {
+        // The type the item's own words point to, before falling back to
+        // "All <category>".
+        const list = rows();
+        const i = GT.pickSubcategory(list.map(nodeText), want.hints);
+        if (i !== -1 && !/^all\b/i.test(nodeText(list[i]))) {
+          list[i].click();
+          await GT.pickerWait(cfg.settleMs);
+          leaf = true;
+        }
+      }
       if (!leaf && !(await clickRow("All " + want.category, 1))) {
         closeDialog();
         return "not-found";
@@ -1197,6 +1303,7 @@
       department: payload.department || path.department,
       category: path.category,
       subcategory: payload.subcategory || path.subcategory,
+      hints: Array.isArray(payload.subcategoryHints) ? payload.subcategoryHints : [],
     };
     const record = function (name, outcome, required) {
       if (outcome === "selected") out.set.push(name);
@@ -1217,6 +1324,224 @@
     return out;
   };
 
+  // ── Grailed's pickers (mapped on the live sell form 2026-09-22) ───────────
+  //
+  // Every picker is a Radix dropdown menu: a `button[aria-haspopup="menu"]`
+  // whose text is either its prompt ("Select Size") or the choice, opening a
+  // `[role="menu"]` of `[role="menuitem"]`. Radix opens on POINTERDOWN, not on
+  // click (a plain .click() does nothing, measured), and an item selects on
+  // click. The triggers carry only generated ids (radix-:rq:), so each is found
+  // by its prompt text, which also answers "is it still blank".
+  //   Department / Category  two levels: Menswear | Womenswear, then Tops...
+  //   Sub-category           Blouses, Polos, ... (after category)
+  //   Size                   groups labelled S/M/L, US, IT, UK, FR; the same
+  //                          numbers repeat across the number systems, so
+  //                          only S/M/L and US are matched
+  //   Color, Item Condition  flat lists
+  //   Style                  an aesthetic (Luxury, Streetwear...) we hold no
+  //                          source for, so it is left to the seller
+  // Kids has no department on Grailed; a kids item leaves category blank.
+
+  GT.grailedDepartment = function (dept) {
+    const d = GT.poshmarkDepartment(dept);
+    return d === "women" ? "Womenswear" : d === "men" ? "Menswear" : null;
+  };
+
+  /** Grailed's four conditions, from either the kit's or Poshmark-style labels. */
+  GT.grailedCondition = function (label) {
+    const c = GT.foldOption(label);
+    if (!c) return null;
+    if (/very worn|^play\b|^poor\b|heavily/.test(c)) return "Very Worn";
+    if (/^nwt\b|^nwot\b|^new\b|never worn|new with|new without|^like new/.test(c)) return "New/Never Worn";
+    if (/gently used|^euc\b|^vguc\b|excellent|very good/.test(c)) return "Gently Used";
+    if (/^guc\b|^good\b|^used\b|^fair\b/.test(c)) return "Used";
+    return null;
+  };
+
+  /** One Grailed colour. Two colours become "Multi"; tan-family goes to Beige. */
+  GT.grailedColor = function (color, tiles) {
+    const parts = String(color || "").split(/\s*(?:\/|,|&|\band\b|\+)\s*/i).filter(Boolean);
+    if (parts.length === 0) return null;
+    if (parts.length > 1) return tiles.indexOf("Multi") !== -1 ? "Multi" : null;
+    const one = GT.poshmarkColors(parts[0], tiles);
+    if (one && one.length === 1) return one[0];
+    const beige = /\b(tan|khaki|camel|taupe|cream|ivory|oatmeal|sand)\b/i.test(parts[0]);
+    return beige && tiles.indexOf("Beige") !== -1 ? "Beige" : null;
+  };
+
+  GT.grailedSizeCandidates = function (size) {
+    const out = GT.poshmarkSizeCandidates(size).filter(function (s) {
+      return !/^(Waist|Neck) /.test(s);
+    });
+    if (out.indexOf("OS") !== -1) out.push("ONE SIZE");
+    // Menswear bottoms and shoes spell sizes "US 32 / EU 48"; matched as
+    // "starts with US 32" by grailedPickSize.
+    out.slice().forEach(function (s) { if (/^\d+(\.5)?$/.test(s)) out.push("US " + s); });
+    return out.filter(function (v, i, a) { return a.indexOf(v) === i; });
+  };
+
+  function grailedPress(el) {
+    el.dispatchEvent(new PointerEvent("pointerdown", {
+      bubbles: true, cancelable: true, button: 0, pointerType: "mouse",
+    }));
+  }
+
+  function grailedTrigger(cfg, prompt) {
+    return Array.prototype.slice.call(document.querySelectorAll(cfg.trigger))
+      .find(function (b) { return prompt.test(nodeText(b)); }) || null;
+  }
+
+  async function grailedOpen(cfg, trigger) {
+    grailedPress(trigger);
+    await GT.pickerWait(cfg.settleMs);
+    return document.querySelector(cfg.menu);
+  }
+
+  function grailedClose(cfg) {
+    const m = document.querySelector(cfg.menu);
+    if (m) m.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+  }
+
+  async function grailedChoose(cfg, menu, value, maxPass) {
+    const items = Array.prototype.slice.call(menu.querySelectorAll(cfg.item));
+    const i = GT.matchOption(value, items.map(nodeText), maxPass);
+    if (i === -1) return false;
+    items[i].click();
+    await GT.pickerWait(cfg.settleMs);
+    return true;
+  }
+
+  /** Pick `value` from a flat Grailed menu behind the trigger showing `prompt`. */
+  async function grailedPickFlat(cfg, prompt, value, maxPass) {
+    const trigger = grailedTrigger(cfg, prompt);
+    if (!trigger) return "already-set";
+    if (!value) return "no-value";
+    const menu = await grailedOpen(cfg, trigger);
+    if (!menu) return "not-found";
+    if (!(await grailedChoose(cfg, menu, value, maxPass))) { grailedClose(cfg); return "not-found"; }
+    return prompt.test(nodeText(trigger)) ? "not-found" : "selected";
+  }
+
+  async function grailedPickCategory(cfg, want) {
+    const trigger = grailedTrigger(cfg, cfg.prompts.category);
+    if (!trigger) return "already-set";
+    const dept = GT.grailedDepartment(want.department);
+    if (!dept || !want.category) return "no-value";
+    const menu = await grailedOpen(cfg, trigger);
+    if (!menu) return "not-found";
+    if (!(await grailedChoose(cfg, menu, dept, 1))) { grailedClose(cfg); return "not-found"; }
+    const next = document.querySelector(cfg.menu);
+    if (!next || !(await grailedChoose(cfg, next, want.category))) {
+      grailedClose(cfg);
+      return "not-found";
+    }
+    return cfg.prompts.category.test(nodeText(trigger)) ? "not-found" : "selected";
+  }
+
+  /** Sub-category: the named one if we have it, else the one the hints point to. */
+  async function grailedPickSubcategory(cfg, named, hints) {
+    const trigger = grailedTrigger(cfg, cfg.prompts.subcategory);
+    if (!trigger) return "already-set";
+    const hintList = Array.isArray(hints) ? hints : [];
+    if (!named && hintList.length === 0) return "no-value";
+    const menu = await grailedOpen(cfg, trigger);
+    if (!menu) return "not-found";
+    const items = Array.prototype.slice.call(menu.querySelectorAll(cfg.item));
+    const labels = items.map(nodeText);
+    let i = named ? GT.matchOption(named, labels) : -1;
+    if (i === -1) i = GT.pickSubcategory(labels, named ? [named].concat(hintList) : hintList);
+    if (i === -1) { grailedClose(cfg); return "not-found"; }
+    items[i].click();
+    await GT.pickerWait(cfg.settleMs);
+    return cfg.prompts.subcategory.test(nodeText(trigger)) ? "not-found" : "selected";
+  }
+
+  async function grailedPickSize(cfg, size) {
+    const trigger = grailedTrigger(cfg, cfg.prompts.size);
+    if (!trigger) return "already-set";
+    const candidates = GT.grailedSizeCandidates(size);
+    if (candidates.length === 0) return "no-value";
+    const menu = await grailedOpen(cfg, trigger);
+    if (!menu) return "not-found";
+    const groups = Array.prototype.slice.call(menu.querySelectorAll(cfg.group));
+    const allowed = groups.filter(function (g) {
+      // The group's own label is its first child that is not an item.
+      const label = Array.prototype.slice.call(g.children).find(function (ch) {
+        return !ch.matches(cfg.item) && !ch.querySelector(cfg.item);
+      });
+      return !/^(IT|UK|FR|EU|JP|AU)\b/i.test(nodeText(label));
+    });
+    const scopes = allowed.length ? allowed : [menu];
+    for (const c of candidates) {
+      for (const scope of scopes) {
+        const items = Array.prototype.slice.call(scope.querySelectorAll(cfg.item));
+        // Exact first, then "starts with" ("US 32" -> "US 32 / EU 48"); never
+        // "contains", which would put 2 inside 32.
+        const i = GT.matchOption(c, items.map(nodeText), 2);
+        if (i === -1) continue;
+        items[i].click();
+        await GT.pickerWait(cfg.settleMs);
+        return cfg.prompts.size.test(nodeText(trigger)) ? "not-found" : "selected";
+      }
+    }
+    grailedClose(cfg);
+    return "not-found";
+  }
+
+  async function grailedPickColor(cfg, color) {
+    const trigger = grailedTrigger(cfg, cfg.prompts.color);
+    if (!trigger) return "already-set";
+    if (!String(color || "").trim()) return "no-value";
+    const menu = await grailedOpen(cfg, trigger);
+    if (!menu) return "not-found";
+    const names = Array.prototype.slice.call(menu.querySelectorAll(cfg.item)).map(nodeText);
+    const name = GT.grailedColor(color, names);
+    if (!name || !(await grailedChoose(cfg, menu, name, 1))) { grailedClose(cfg); return "not-found"; }
+    return cfg.prompts.color.test(nodeText(trigger)) ? "not-found" : "selected";
+  }
+
+  GT.fillGrailedPickers = async function (cfg, payload) {
+    const out = { set: [], missed: [] };
+    const c = Object.assign({ settleMs: 500 }, cfg);
+    // The config holds each prompt as its leading text, so it stays plain
+    // data; it becomes a "starts with" pattern here.
+    c.prompts = {};
+    Object.keys(cfg.prompts || {}).forEach(function (k) {
+      const text = String(cfg.prompts[k]).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      c.prompts[k] = new RegExp("^" + text, "i");
+    });
+    const path = GT.splitCategoryPath(payload.category);
+    const want = {
+      department: payload.department || path.department,
+      category: path.category,
+      subcategory: payload.subcategory || path.subcategory,
+    };
+    const record = function (name, outcome, required) {
+      if (outcome === "selected") out.set.push(name);
+      else if (outcome === "not-found" || (outcome === "no-value" && required)) out.missed.push(name);
+      GT.log("picker " + name + ": " + outcome);
+    };
+    try {
+      // Category first: Grailed disables sub-category, size and designer
+      // until it is set ("Select category first").
+      const cat = await grailedPickCategory(c, want);
+      record("category", cat, true);
+      if (cat === "selected" || cat === "already-set") {
+        record("subcategory", await grailedPickSubcategory(
+          c, want.subcategory, payload.subcategoryHints,
+        ), true);
+      }
+      record("size", await grailedPickSize(c, payload.size), true);
+      record("color", await grailedPickColor(c, payload.color), false);
+      record("condition", await grailedPickFlat(
+        c, c.prompts.condition, GT.grailedCondition(payload.condition), 1,
+      ), true);
+    } catch (e) {
+      GT.log("picker fill stopped: " + (e && e.message));
+    }
+    return out;
+  };
+
   /**
    * After typing a brand, click Poshmark's own suggestion when one matches it
    * exactly, so the listing files under the canonical brand rather than as
@@ -1225,7 +1550,7 @@
   // `option`: where the suggestions render. Omitted (Poshmark) means the
   // `.dropdown__menu` links inside the brand box's own dropdown; Mercari
   // renders `[data-testid="Brand-option"]` in a listbox elsewhere in the page.
-  GT.pickBrandSuggestion = async function (selector, brand, option, settleMs) {
+  GT.pickBrandSuggestion = async function (selector, brand, option, settleMs, how) {
     const input = document.querySelector(selector);
     if (!input || !brand) return false;
     const dd = option ? document : input.closest('[data-test="dropdown"]');
@@ -1234,7 +1559,19 @@
     const rows = Array.prototype.slice.call(dd.querySelectorAll(option || ".dropdown__menu li a"));
     const i = GT.matchOption(brand, rows.map(nodeText), 1);
     if (i === -1) return false;
-    rows[i].click();
+    if (how && how.press === "mousedown") {
+      // Grailed's designer list selects on mousedown, and a real click also
+      // moves focus off the input. Without that blur the selection is undone
+      // a moment later (measured: value set, then cleared within 400ms).
+      rows[i].dispatchEvent(new MouseEvent("mousedown", {
+        bubbles: true, cancelable: true, button: 0, buttons: 1,
+      }));
+      if (typeof input.blur === "function") input.blur();
+      input.dispatchEvent(new FocusEvent("blur"));
+      input.dispatchEvent(new FocusEvent("focusout", { bubbles: true }));
+    } else {
+      rows[i].click();
+    }
     await GT.pickerWait(200);
     return true;
   };
@@ -1362,9 +1699,9 @@
     // Poshmark's brand box is a typeahead: typed text stays, but clicking the
     // matching suggestion files the listing under the site's own brand.
     if (brandFilled && flow.brandSuggestion) {
+      const bs = typeof flow.brandSuggestion === "object" ? flow.brandSuggestion : null;
       await GT.pickBrandSuggestion(
-        f.brand, payload.brand,
-        typeof flow.brandSuggestion === "object" ? flow.brandSuggestion.option : null,
+        f.brand, payload.brand, bs ? bs.option : null, bs ? bs.settleMs : null, bs,
       );
     }
 

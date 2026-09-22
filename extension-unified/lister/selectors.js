@@ -827,7 +827,42 @@ const GT_LISTER_SELECTORS = {
       description: 'textarea[name="description"], textarea#description',
       price: 'input[name="price"], input#price',
       photoInput: 'input[type="file"][accept*="image"]',
+      // 2026-09-22: Grailed's Designer box. A real id, and Grailed only takes
+      // a designer chosen from its list, so brandSuggestion below picks one.
+      brand: 'input#designer-autocomplete',
     },
+    // ── US-3210 AC3: the pickers (mapped on the live sell form 2026-09-22) ──
+    //
+    // Radix dropdown menus, driven by GT.fillGrailedPickers in common.js; the
+    // shapes are described there. The prompts are English text because the
+    // triggers carry only generated ids; a localized page misses them and the
+    // seller picks by hand, which is the safe direction.
+    pickers: {
+      kind: "grailed",
+      trigger: 'button[aria-haspopup="menu"]',
+      menu: '[role="menu"]',
+      item: '[role^="menuitem"]',
+      group: '[role="group"]',
+      // Each trigger's text while it is still blank (matched as "starts with").
+      prompts: {
+        category: "Department / Category",
+        subcategory: "Sub-category",
+        size: "Select Size",
+        color: "Select a Color",
+        condition: "Item Condition",
+      },
+      settleMs: 500,
+    },
+    // The designer list selects on mousedown and needs the input to lose
+    // focus afterwards, or the choice is undone (measured on the live form).
+    brandSuggestion: {
+      option: 'li[class*="DesignersAndCollabs-module__option"]',
+      press: "mousedown",
+      settleMs: 1200,
+    },
+    // Photos upload to Grailed as soon as they are chosen and appear in the
+    // grid with https URLs; no crop window, no Apply.
+    photoConfirm: ".photos-grid img",
     // 2026-08-11: `.listItem` no longer exists, so this fell through to the bare
     // `button[type="submit"]` — whose first match in document order is the SITE
     // HEADER'S SEARCH BUTTON, not Publish. The probe reported `ok` for a control

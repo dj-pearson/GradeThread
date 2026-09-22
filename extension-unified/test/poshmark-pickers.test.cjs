@@ -148,5 +148,69 @@ function loadGT(document) {
   assert.strictEqual(pick("M", mBlock), "M (38-40)", "standard M, never the tall M");
   assert.strictEqual(pick("2XL", mBlock), "XXL (50-52)", "men's 2XL is spelled XXL");
 
-  console.log("poshmark-pickers.test.cjs: Poshmark and Mercari picker mapping and the never-overwrite rule");
+  // ── Grailed (mapped on the live sell form 2026-09-22) ────────────────────
+  assert.strictEqual(GT.grailedDepartment("Women"), "Womenswear");
+  assert.strictEqual(GT.grailedDepartment("Men's"), "Menswear");
+  assert.strictEqual(GT.grailedDepartment("Girls"), null, "Grailed has no kids department");
+
+  assert.strictEqual(GT.grailedCondition("New / New with tags"), "New/Never Worn");
+  assert.strictEqual(GT.grailedCondition("NWOT (New Without Tags)"), "New/Never Worn");
+  assert.strictEqual(GT.grailedCondition("Gently used"), "Gently Used");
+  assert.strictEqual(GT.grailedCondition("EUC (Excellent Used Condition)"), "Gently Used");
+  assert.strictEqual(GT.grailedCondition("GUC (Good Used Condition)"), "Used");
+  assert.strictEqual(GT.grailedCondition("Very worn"), "Very Worn",
+    "very worn must not fall through to Used");
+
+  const gColors = ["Black", "White", "Gray", "Brown", "Beige", "Yellow", "Red", "Orange",
+    "Pink", "Purple", "Blue", "Green", "Multi", "Silver", "Gold"];
+  assert.strictEqual(GT.grailedColor("Navy", gColors), "Blue");
+  assert.strictEqual(GT.grailedColor("Khaki", gColors), "Beige", "tan family is Beige on Grailed");
+  assert.strictEqual(GT.grailedColor("Red/White", gColors), "Multi");
+  assert.strictEqual(GT.grailedColor("Deep Ocean", gColors), null);
+
+  // Menswear bottoms spell waist sizes "US 32 / EU 48".
+  const waists = ["US 26 / EU 42", "US 27", "US 28 / EU 44", "US 31", "US 32 / EU 48", "US 33"];
+  const gPick = (size, list) => {
+    for (const c of GT.grailedSizeCandidates(size)) {
+      const i = GT.matchOption(c, list, 2);
+      if (i !== -1) return list[i];
+    }
+    return null;
+  };
+  assert.strictEqual(gPick("32x30", waists), "US 32 / EU 48");
+  assert.strictEqual(gPick("33", waists), "US 33");
+  const letters = ["XXS", "XS", "S", "M", "L", "XL", "XXL", "3XL", "4XL", "ONE SIZE"];
+  assert.strictEqual(gPick("Medium", letters), "M");
+  assert.strictEqual(gPick("One Size", letters), "ONE SIZE");
+
+  // ── Sub-category from the item's own words (option lists read live) ──────
+  const sub = (opts, hints) => {
+    const i = GT.pickSubcategory(opts, hints);
+    return i === -1 ? null : opts[i];
+  };
+  const gWomenTops = ["Blouses", "Bodysuits", "Button Ups", "Crop Tops", "Hoodies",
+    "Long Sleeve T-Shirts", "Polos", "Short Sleeve T-Shirts", "Sweaters", "Sweatshirts", "Tank Tops"];
+  const gMenBottoms = ["Casual Pants", "Cropped Pants", "Denim", "Leggings",
+    "Overalls & Jumpsuits", "Shorts", "Sweatpants & Joggers", "Swimwear"];
+  const pWomenTops = ["Blouses", "Bodysuits", "Button Down Shirts", "Camisoles", "Crop Tops",
+    "Jerseys", "Muscle Tees", "Sweatshirts & Hoodies", "Tank Tops", "Tees - Long Sleeve",
+    "Tees - Short Sleeve", "Tunics", "None"];
+  const mMenTops = ["Button-front", "Dress shirts", "Hawaiian", "Henley", "Tank", "T-shirts",
+    "Turtleneck", "Polos", "Rugby Shirts", "Other", "All Tops"];
+  assert.strictEqual(sub(gWomenTops, ["Button-Down Shirt"]), "Button Ups");
+  assert.strictEqual(sub(gWomenTops, ["T-Shirt", "Long Sleeve"]), "Long Sleeve T-Shirts");
+  assert.strictEqual(sub(gWomenTops, ["Graphic Tee", "Short Sleeve"]), "Short Sleeve T-Shirts");
+  assert.strictEqual(sub(gWomenTops, ["tee"]), null, "a tee with no sleeve length is two options");
+  assert.strictEqual(sub(gMenBottoms, ["Levis 501 jeans 32x30"]), "Denim", "jeans read as Denim");
+  assert.strictEqual(sub(gMenBottoms, ["Jogger"]), "Sweatpants & Joggers");
+  assert.strictEqual(sub(gMenBottoms, ["Denim Shorts"]), null, "Denim or Shorts: the seller picks");
+  assert.strictEqual(sub(gMenBottoms, ["Chino"]), null);
+  assert.strictEqual(sub(pWomenTops, ["T-Shirt", "Short Sleeve"]), "Tees - Short Sleeve");
+  assert.strictEqual(sub(pWomenTops, ["Hoodie"]), "Sweatshirts & Hoodies");
+  assert.strictEqual(sub(mMenTops, ["Button-Down Shirt"]), "Button-front");
+  assert.strictEqual(sub(mMenTops, ["Patagonia short sleeve polo shirt"]), "Polos",
+    "'short sleeve' is a sleeve, not Shorts");
+  assert.strictEqual(sub(mMenTops, [null, "", "Polo"]), "Polos", "empty hints are skipped");
+
+  console.log("poshmark-pickers.test.cjs: Poshmark, Mercari and Grailed picker mapping, sub-category hints and the never-overwrite rule");
 })().catch((e) => { console.error(e); process.exit(1); });

@@ -391,19 +391,26 @@ async function hydrateListRows(
   // photo query is then restricted to ids this workspace was proved to own.
   const { data: itemRows } = await supabaseAdmin
     .from("inventory_items")
-    .select("id, title, brand, color, size, attributes")
+    .select("id, title, brand, color, size, style, ebay_category_query, attributes")
     .eq("user_id", ownerId) // US-268
     .in("id", requestedIds);
 
-  type ItemRow = { id: string; title: string | null; brand: string | null; color: string | null; size: string | null; attributes?: Record<string, unknown> | null };
+  type ItemRow = {
+    id: string; title: string | null; brand: string | null; color: string | null; size: string | null;
+    style?: string | null; ebay_category_query?: string | null; attributes?: Record<string, unknown> | null;
+  };
   const items = new Map<string, ListPayloadItem>();
   for (const r of (itemRows ?? []) as ItemRow[]) {
-    // US-3210: eBay's Department aspect lands in attributes.department, and
-    // Poshmark's category picker cannot start without a department.
-    const dept = r.attributes && typeof r.attributes.department === "string"
-      ? r.attributes.department
-      : null;
-    items.set(r.id, { id: r.id, title: r.title, brand: r.brand, color: r.color, size: r.size, department: dept });
+    const attr = (k: string) =>
+      r.attributes && typeof r.attributes[k] === "string" ? r.attributes[k] as string : null;
+    items.set(r.id, {
+      id: r.id, title: r.title, brand: r.brand, color: r.color, size: r.size,
+      // US-3210: eBay's Department aspect lands in attributes.department, and
+      // Poshmark's category picker cannot start without a department.
+      department: attr("department"),
+      // The sub-category pickers match these words against their options.
+      subcategoryHints: [r.style, attr("product_type"), attr("sleeve_length"), r.ebay_category_query],
+    });
   }
 
   const ownedIds = [...items.keys()];

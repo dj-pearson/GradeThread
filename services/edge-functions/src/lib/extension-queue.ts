@@ -271,6 +271,26 @@ export interface ListPayloadItem {
    * Optional so a caller that predates it still compiles; absent reads as none.
    */
   department?: string | null;
+  /**
+   * 2026-09-22: words that can name a marketplace SUB-category: the eBay
+   * Type/Style (`style` column), product type and sleeve length attributes,
+   * and the eBay category phrase. The extension matches them against the
+   * live option list and picks only a single clear winner. Optional; absent
+   * means no hints beyond the title.
+   */
+  subcategoryHints?: readonly (string | null | undefined)[];
+}
+
+/** Trimmed, non-empty, de-duplicated (case-insensitively), capped. */
+export function cleanSubcategoryHints(
+  hints: readonly (string | null | undefined)[],
+): string[] {
+  const out: string[] = [];
+  for (const h of hints) {
+    const s = typeof h === "string" ? h.trim().slice(0, 120) : "";
+    if (s && !out.some((o) => o.toLowerCase() === s.toLowerCase())) out.push(s);
+  }
+  return out.slice(0, 8);
 }
 
 /** One listing photo, as the builder needs it. */
@@ -493,6 +513,12 @@ export function buildListPayload(
     // item's own Department aspect first; the kit's category resolver guesses
     // one too (category_department) and is the fallback.
     department: str(input.item.department) || str(v.category_department),
+    // Most specific first; the title last, as the broadest.
+    subcategoryHints: cleanSubcategoryHints([
+      ...(input.item.subcategoryHints ?? []),
+      str(v.style),
+      input.item.title,
+    ]),
     condition: conditionLabel,
     tags: Array.isArray(v.tags) ? v.tags.filter((t) => typeof t === "string") : [],
     photoUrls: photos.map((p) => p.photo_url),

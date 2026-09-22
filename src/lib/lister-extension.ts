@@ -79,6 +79,8 @@ export interface ListerPayload {
   category: string;
   /** US-3210: Women / Men / Kids for Poshmark's category picker. Empty when unknown. */
   department: string;
+  /** 2026-09-22: words that can name a sub-category (Type/Style, title). */
+  subcategoryHints: string[];
   condition: string;
   tags: string[];
   photoUrls: string[];
@@ -432,6 +434,12 @@ export function buildListerPayload(opts: {
     category: v.category ?? "",
     // US-3210: the department Poshmark's category picker opens on.
     department: v.categoryDepartment ?? "",
+    // Words the extension matches against a sub-category list. The desk path
+    // holds only the variant, so its style and title; the queue path adds the
+    // item's own facts (extension-queue.ts buildListPayload).
+    subcategoryHints: [v.style, v.title]
+      .filter((h): h is string => typeof h === "string" && h.trim() !== "")
+      .map((h) => h.trim()),
     condition: v.condition?.label ?? "",
     tags: v.tags ?? [],
     photoUrls: ordered.map((p) => p.photo_url),
