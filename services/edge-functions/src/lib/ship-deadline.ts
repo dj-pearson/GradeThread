@@ -131,8 +131,8 @@ export interface ShippedAtInput {
  * `/order/{id}/shipping_fulfillment`, one call per order, which is precisely the
  * per-order fan-out US-3110 is cutting before the Application Growth Check. The
  * status is free — it is already in the payload — and it is what the queue is
- * wrong about. A tracking number the seller can read on eBay is worth less than
- * a queue that stops showing them work they have finished.
+ * wrong about. US-3466 fetches tracking separately, and only once per order:
+ * see needsTrackingLookup below.
  */
 export function resolveShippedAt(input: ShippedAtInput): string | null {
   const existing = (input.existingShippedAt ?? "").trim();
@@ -144,4 +144,38 @@ export function resolveShippedAt(input: ShippedAtInput): string | null {
   const modified = parseInstant(input.orderModifiedAt); // rule 3
   const at = modified ?? (input.now ?? Date.now)();
   return new Date(at).toISOString();
+}
+
+/**
+ * US-3466: should the sync spend one GET on this order's shipping fulfillment?
+ *
+ * Only when eBay says the order is FULFILLED (before that there is nothing to
+ * read) and our row has no tracking yet. The second condition is what keeps
+ * this from becoming the per-order fan-out US-3110 removed: once a number is
+ * stored, every later sync of the same order skips the call.
+ */
+export function needsTrackingLookup(input: {
+  fulfillmentStatus: string | null | undefined;
+  existingTracking: string | null | undefined;
+}): boolean {
+  if ((input.fulfillmentStatus ?? "").trim().toUpperCase() !== "FULFILLED") return false;
+  return (input.existingTracking ?? "").trim() === "";
+}
+
+/**
+ * US-3466: the columns to write from eBay's tracking record. Forward only, like
+ * resolveShippedAt: a carrier the seller already has on the row is kept.
+ */
+export function trackingPatch(
+  tracking: { trackingNumber: string; carrier: string | null } | null,
+  existingCarrier: string | null | undefined,
+): { tracking_number?: string; carrier?: string } {
+  if (!tracking || tracking.trackingNumber.trim() === "") return {};
+  const patch: { tracking_number: string; carrier?: string } = {
+    tracking_number: tracking.trackingNumber.trim(),
+  };
+  if ((existingCarrier ?? "").trim() === "" && tracking.carrier) {
+    patch.carrier = tracking.carrier;
+  }
+  return patch;
 }

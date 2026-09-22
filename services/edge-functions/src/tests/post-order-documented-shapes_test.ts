@@ -19,6 +19,7 @@ import {
   returnState,
 } from "../lib/ebay-postorder.ts";
 import { normalizeInquiry } from "../lib/ebay-inquiries.ts";
+import { normalizeCase } from "../lib/ebay-cases.ts";
 import { isClosedCase } from "../lib/post-sale-state.ts";
 
 Deno.test("US-3466: inquiry state comes from inquiryStatusEnum", () => {
@@ -124,4 +125,26 @@ Deno.test("US-3466: cancellation state comes from the top-level cancelState", ()
   const pending = normalizeCancellation({ cancelId: "1", cancelState: "APPROVAL_PENDING" });
   assertEquals(pending.state, "APPROVAL_PENDING");
   assertEquals(isClosedCase(pending.state), false);
+});
+
+Deno.test("US-3466: case state comes from caseStatusEnum, numeric ids survive", () => {
+  const closed = normalizeCase({
+    buyer: "buyer_two",
+    caseId: 5123456789,
+    caseStatusEnum: "CLOSED",
+    itemId: 227393291770,
+    creationDate: { value: "2026-07-01T00:00:00.000Z" },
+  });
+  assertEquals(closed.caseId, "5123456789");
+  assertEquals(closed.state, "CLOSED");
+  assertEquals(closed.itemId, "227393291770");
+  assertEquals(closed.buyerUsername, "buyer_two");
+  assertEquals(isClosedCase(closed.state), true);
+
+  const open = normalizeCase({ caseId: "5", caseStatusEnum: "WAITING_SELLER_RESPONSE" });
+  assertEquals(open.state, "WAITING_SELLER_RESPONSE");
+  assertEquals(isClosedCase(open.state), false);
+
+  // The nested id shape older fixtures used still reads.
+  assertEquals(normalizeCase({ caseId: { caseId: "7" } }).caseId, "7");
 });

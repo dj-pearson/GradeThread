@@ -291,6 +291,8 @@ import {
   type RemoteOrder,
   type RemoteOrderLineItem,
   type RemoteTransaction,
+  getOrderTracking,
+  type OrderTracking,
 } from "../lib/ebay-client.ts";
 import {
   absentListingState,
@@ -360,7 +362,12 @@ import {
   computeListingQualityScore,
   type ListingQualityScore,
 } from "../lib/listing-quality-score.ts";
-import { resolveShipBy, resolveShippedAt } from "../lib/ship-deadline.ts";
+import {
+  needsTrackingLookup,
+  resolveShipBy,
+  resolveShippedAt,
+  trackingPatch,
+} from "../lib/ship-deadline.ts";
 import { sourcingCosts } from "../lib/sourcing-target.ts";
 import {
   DEFAULT_SOURCING_GRADING_CENTS,
@@ -4407,6 +4414,9 @@ async function doListingsPull(
   let salesUpdated = 0;
   let salesSkipped = 0;
   let salesReversed = 0; // US-459: cancelled/refunded line items handled.
+  // US-3466: one shipping_fulfillment GET per order, shared by its line items.
+  // A failed lookup is stored as null so a second line item does not retry it.
+  const trackingByOrder = new Map<string, OrderTracking | null>();
   // US-2320: what the cursor is allowed to move to depends on these two.
   // `ordersFetchComplete` false means we do not know what we did not see;
   // `failedOrders` are orders we DID see and did not fully persist, so the
@@ -4606,7 +4616,10 @@ async function doListingsPull(
             // US-3209: shipped_at rides along so resolveShippedAt can hold its
             // forward-only rule. Without it every sync would restamp a date the
             // seller set by hand.
-            .select("id, line_item_id, shipped_at")
+            // US-3466: tracking_number and carrier ride along so the tracking
+            // lookup runs only while the row has none, and never overwrites a
+            // carrier the seller chose.
+            .select("id, line_item_id, shipped_at, tracking_number, carrier")
             .eq("inventory_item_id", itemId)
             .eq("platform_order_id", order.orderId);
           const existing = pickSaleRowForLine(
@@ -4669,6 +4682,45 @@ async function doListingsPull(
             return at ? { shipped_at: at } : {};
           })();
           Object.assign(salePayload, shippedPatch);
+
+          // US-3466: a seller who buys the label on eBay never types the
+          // tracking number into GradeThread. Read it from eBay once, while the
+          // row has none. Best-effort: a failed lookup never fails the sale.
+          const existingTracking = existing as
+            | { tracking_number?: string | null; carrier?: string | null }
+            | null;
+          if (
+            needsTrackingLookup({
+              fulfillmentStatus: order.orderFulfillmentStatus,
+              existingTracking: existingTracking?.tracking_number,
+            })
+          ) {
+            if (!trackingByOrder.has(order.orderId)) {
+              let found: OrderTracking | null = null;
+              try {
+                found = await getOrderTracking(userId, order.orderId);
+              } catch (err) {
+                console.warn(
+                  "[ebay.sync] tracking lookup failed:",
+                  err instanceof Error ? err.message : String(err),
+                );
+              }
+              trackingByOrder.set(order.orderId, found);
+            }
+            const tracking = trackingByOrder.get(order.orderId) ?? null;
+            Object.assign(
+              salePayload,
+              trackingPatch(tracking, existingTracking?.carrier),
+            );
+            // eBay's own ship date beats lastModifiedDate when we are the
+            // ones stamping shipped_at for the first time.
+            if (tracking?.shippedDate && "shipped_at" in shippedPatch) {
+              const t = Date.parse(tracking.shippedDate);
+              if (!Number.isNaN(t)) {
+                Object.assign(salePayload, { shipped_at: new Date(t).toISOString() });
+              }
+            }
+          }
 
           if (existing) {
             const existingSaleId = (existing as { id: string }).id;
