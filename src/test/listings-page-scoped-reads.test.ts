@@ -253,12 +253,13 @@ describe("optimistic writes target this page's own cache (US-2372)", () => {
     for (const arg of calls) {
       expect(arg).toContain("listingsPageKey");
     }
-    // And the four handlers must still route through it, or the assertion above
+    // And the five handlers must still route through it (US-3467 added the
+    // quick-edit panel's patchItemColumns), or the assertion above
     // passes while the edits write somewhere else. The definition stays in the
     // page (it owns the key); the uses moved with the handlers.
     expect(src).toContain("function patchRow(");
     const uses = [...actions.matchAll(/const rollback = patchRow\(/g)];
-    expect(uses.length).toBe(4);
+    expect(uses.length).toBe(5);
   });
 
   it("each inline edit reconciles with the server on success", () => {

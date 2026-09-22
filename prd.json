@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-3467",
+  "nextId": "US-3468",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -4602,7 +4602,22 @@
         "OPEN: wire getOrderTracking into the orders sync (once per order while tracking_number is null) with a test for parseOrderTracking",
         "OPEN: closed-history view for Cases, Disputes and Cancellations; Insights rework",
         "OPERATOR: after edge redeploy, the old INR case and closed return leave the open lists"
-      ]
+      ],
+      "notes": "2026-09-22 part 2. TRACKING WIRED: the orders sync now calls getOrderTracking once per order (Map trackingByOrder beside salesReversed) only when orderFulfillmentStatus is FULFILLED and the sale row has no tracking_number (needsTrackingLookup in lib/ship-deadline.ts). trackingPatch writes tracking_number and fills carrier only when the row has none. When the sync is the one stamping shipped_at for the first time, eBay's fulfillment shippedDate replaces lastModifiedDate. A failed lookup is logged and never fails the sale. Tests in ship-deadline_test.ts cover needsTrackingLookup, trackingPatch and parseOrderTracking. CLOSED HISTORY: the previous note was wrong, Show closed toggles already existed on Disputes, Returns, Cancellations, Inquiries and Cases. The real gap was Cases: normalizeCase never read caseStatusEnum (the same defect inquiries had), so every case state was null and read as OPEN, which is why no Show closed button appeared. Fixed, and numeric caseId is no longer dropped by the id filter. Test added in post-order-documented-shapes_test.ts. Field names for casemanagement/search are from memory of eBay's CaseSummaryType; developer.ebay.com is blocked from the cloud session, so confirm against a live payload. Still OPEN: Insights scope (owner decision); rerun Import full sales history after the edge redeploy to backfill tracking."
+    },
+    {
+      "id": "US-3467",
+      "passes": false,
+      "title": "Inventory: quick-edit panel on row click",
+      "description": "Clicking an Inventory row used to leave the list for the full composer, so changing a price, bin or status cost a page load and a trip back. A row click now opens a side panel with title, status, bin, listed price, asking price, cost and notes. Each field saves through the same path as the table's inline cells (planQuickEdit decides which), Up/Down or J/K saves and steps to the next row, Ctrl/Cmd+Enter saves, and the pencil still opens the full editor.",
+      "acceptanceCriteria": [
+        "Row click on desktop opens the quick-edit panel; pencil opens the full editor",
+        "Only changed fields are written; an unchanged listed price is never re-pushed (quick-edit-plan.test.ts)",
+        "Listed price goes through updateListingPrice, status through updateItemStatus, the rest in one inventory_items update",
+        "Up/Down/J/K saves then moves to the neighbouring row on the page"
+      ],
+      "priority": 50,
+      "notes": "2026-09-22 part B, bulk actions. (1) BUG FIXED: the selection store survives page changes but every bulk handler resolved ids against the current page's rows only, so rows ticked on page 1 were silently dropped when acting from page 2. The page now passes actionItems (page rows plus remembered selected rows from other pages) to makeListingsActions. (2) Select all N matching: once the whole page is ticked a banner offers every matching row across pages, fetched through fetchMatchingRows (the paged RPC loop the CSV export used, now shared), capped at 2000. (3) Selection is on for every tab (All, Shipped, Returned, Archived joined). Tab-specific bulk buttons stay on their own tab; the Sold-only Prepare shipment used to be the bar's catch-all else branch and is now gated on isSold. (4) Bin / brand bulk dialog on every tab: blank leaves items alone, clearing needs an explicit tick (planBulkFields, bulk-fields.test.ts); writes in chunks of 200 ids through the RLS client. Not verified in a browser: no signed-in session here. Pre-existing reds untouched by this work: cross-post-setup.test.ts (US-2741) and reselling-guide-links.test.ts (Vinted import copy), both red on the parent commit."
     }
   ]
 }

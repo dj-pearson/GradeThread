@@ -1,11 +1,15 @@
 // US-3189: the ship-by deadline, and the two ways it is allowed to be absent.
+import "./_env.ts";
 import { assertEquals } from "@std/assert";
 import {
   MAX_HANDLING_DAYS,
+  needsTrackingLookup,
   normalizeHandlingDays,
   resolveShipBy,
   resolveShippedAt,
+  trackingPatch,
 } from "../lib/ship-deadline.ts";
+import { parseOrderTracking } from "../lib/ebay-client.ts";
 
 Deno.test("resolveShipBy: eBay's own date wins over the derived one", () => {
   // A handling time that would derive a LATER date is deliberately supplied:
@@ -189,5 +193,67 @@ Deno.test("US-3209: an unusable eBay timestamp falls back to now, not to null", 
       now: () => Date.parse("2026-09-09T00:00:00.000Z"),
     }),
     "2026-09-09T00:00:00.000Z",
+  );
+});
+
+// US-3466: tracking import, once per order.
+
+Deno.test("needsTrackingLookup: only FULFILLED orders with no stored tracking", () => {
+  assertEquals(needsTrackingLookup({ fulfillmentStatus: "FULFILLED", existingTracking: null }), true);
+  assertEquals(needsTrackingLookup({ fulfillmentStatus: "fulfilled", existingTracking: "  " }), true);
+  assertEquals(needsTrackingLookup({ fulfillmentStatus: "FULFILLED", existingTracking: "9400" }), false);
+  assertEquals(needsTrackingLookup({ fulfillmentStatus: "IN_PROGRESS", existingTracking: null }), false);
+  assertEquals(needsTrackingLookup({ fulfillmentStatus: "NOT_STARTED", existingTracking: null }), false);
+  assertEquals(needsTrackingLookup({ fulfillmentStatus: null, existingTracking: null }), false);
+});
+
+Deno.test("trackingPatch: writes the number, keeps a carrier the seller set", () => {
+  const t = { trackingNumber: " 9400111 ", carrier: "USPS" };
+  assertEquals(trackingPatch(t, null), { tracking_number: "9400111", carrier: "USPS" });
+  assertEquals(trackingPatch(t, "UPS"), { tracking_number: "9400111" });
+  assertEquals(trackingPatch({ trackingNumber: "9400111", carrier: null }, null), {
+    tracking_number: "9400111",
+  });
+  assertEquals(trackingPatch(null, null), {});
+  assertEquals(trackingPatch({ trackingNumber: "  ", carrier: "USPS" }, null), {});
+});
+
+Deno.test("parseOrderTracking: the documented getShippingFulfillments shape", () => {
+  const body = {
+    total: 2,
+    fulfillments: [
+      {
+        fulfillmentId: "B",
+        shipmentTrackingNumber: "1Z999",
+        shippingCarrierCode: "UPS",
+        shippedDate: "2026-09-05T15:00:00.000Z",
+      },
+      {
+        fulfillmentId: "A",
+        shipmentTrackingNumber: "9400111899",
+        shippingCarrierCode: "USPS",
+        shippedDate: "2026-09-03T15:00:00.000Z",
+      },
+    ],
+  };
+  // Earliest shipment wins: it is the parcel the buyer was first told about.
+  assertEquals(parseOrderTracking(body), {
+    trackingNumber: "9400111899",
+    carrier: "USPS",
+    shippedDate: "2026-09-03T15:00:00.000Z",
+  });
+});
+
+Deno.test("parseOrderTracking: no usable tracking is null, not a guess", () => {
+  assertEquals(parseOrderTracking(null), null);
+  assertEquals(parseOrderTracking({}), null);
+  assertEquals(parseOrderTracking({ fulfillments: [] }), null);
+  assertEquals(
+    parseOrderTracking({ fulfillments: [{ shipmentTrackingNumber: " ", shippingCarrierCode: "USPS" }] }),
+    null,
+  );
+  assertEquals(
+    parseOrderTracking({ fulfillments: [{ shipmentTrackingNumber: "X1" }] }),
+    { trackingNumber: "X1", carrier: null, shippedDate: null },
   );
 });

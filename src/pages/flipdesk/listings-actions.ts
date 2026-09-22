@@ -254,33 +254,43 @@ export function makeListingsActions(d: ListingsActionDeps) {
     return false;
   }
 
+  // Every row matching the current tab, search, filter and sort, paged the
+  // same way the table is. US-3467 shares it between the CSV export and
+  // "Select all matching". `cap` stops a select-all from pulling a whole
+  // account into the browser; the export passes none.
+  async function fetchMatchingRows(cap?: number): Promise<ItemFullRow[]> {
+    const PAGE = 500;
+    const all: ItemFullRow[] = [];
+    for (let offset = 0; ; offset += PAGE) {
+      const { data, error } = await supabase.rpc("flipdesk_listing_page", {
+        p_tab: tab,
+        p_search: search,
+        p_sold_filter: soldFilter,
+        p_filter: filterQuery,
+        p_column_sort: columnSort,
+        p_sort_preset: sortPreset,
+        p_ytd_start: new Date(new Date().getFullYear(), 0, 1).toISOString(),
+        p_limit: PAGE,
+        p_offset: offset,
+        p_columns: LISTINGS_COLUMN_LIST,
+      } as never);
+      if (error) throw error;
+      const batch = ((data ?? {}) as ListingPageResult).rows ?? [];
+      all.push(...batch);
+      // Stop on an EMPTY page, not a short one — the same rule paged-read.ts
+      // spells out, for the same reason.
+      if (batch.length === 0 || all.length >= (((data ?? {}) as ListingPageResult).total ?? 0)) {
+        break;
+      }
+      if (cap != null && all.length >= cap) break;
+    }
+    return cap != null ? all.slice(0, cap) : all;
+  }
+
   async function exportCsv() {
     setExporting(true);
     try {
-      const PAGE = 500;
-      const all: ItemFullRow[] = [];
-      for (let offset = 0; ; offset += PAGE) {
-        const { data, error } = await supabase.rpc("flipdesk_listing_page", {
-          p_tab: tab,
-          p_search: search,
-          p_sold_filter: soldFilter,
-          p_filter: filterQuery,
-          p_column_sort: columnSort,
-          p_sort_preset: sortPreset,
-          p_ytd_start: new Date(new Date().getFullYear(), 0, 1).toISOString(),
-          p_limit: PAGE,
-          p_offset: offset,
-          p_columns: LISTINGS_COLUMN_LIST,
-        } as never);
-        if (error) throw error;
-        const batch = ((data ?? {}) as ListingPageResult).rows ?? [];
-        all.push(...batch);
-        // Stop on an EMPTY page, not a short one — the same rule paged-read.ts
-        // spells out, for the same reason.
-        if (batch.length === 0 || all.length >= (((data ?? {}) as ListingPageResult).total ?? 0)) {
-          break;
-        }
-      }
+      const all = await fetchMatchingRows();
       downloadItemsCsv(all);
     } catch (e) {
       toastError(e, "Export failed.");
@@ -480,6 +490,68 @@ export function makeListingsActions(d: ListingsActionDeps) {
     } catch (err) {
       rollback();
       toastError(err, `Couldn't update ${label.toLowerCase()}.`);
+    }
+  }
+
+  // US-3467: several base columns in one write, for the quick-edit panel. Same
+  // optimistic patch and rollback as patchItemColumn, one toast instead of five.
+  async function patchItemColumns(
+    it: ItemFullRow,
+    base: Record<string, string | number | null>,
+    viewPatch: Partial<ItemFullRow>,
+  ): Promise<boolean> {
+    if (Object.keys(base).length === 0) return true;
+    const rollback = patchRow(it.id, viewPatch);
+    try {
+      const { error } = await supabase
+        .from("inventory_items")
+        .update(base as never)
+        .eq("id", it.id);
+      if (error) throw error;
+      await qc.invalidateQueries({ queryKey: ["items_full"] });
+      toast.success("Saved.");
+      return true;
+    } catch (err) {
+      rollback();
+      toastError(err, "Couldn't save your changes.");
+      return false;
+    }
+  }
+
+  // US-3467: set bin and/or brand on every selected item. Written in chunks of
+  // ids through the RLS client, so it covers a select-all across pages and is
+  // tenant-scoped the same way every other write on this page is.
+  async function bulkSetFields(
+    patch: { location_bin?: string | null; brand?: string | null },
+  ): Promise<boolean> {
+    const ids = Array.from(selected);
+    if (ids.length === 0 || Object.keys(patch).length === 0) return false;
+    setBusy(true);
+    let done = 0;
+    try {
+      const CHUNK = 200;
+      for (let i = 0; i < ids.length; i += CHUNK) {
+        const chunk = ids.slice(i, i + CHUNK);
+        const { error } = await supabase
+          .from("inventory_items")
+          .update(patch as never)
+          .in("id", chunk);
+        if (error) throw error;
+        done += chunk.length;
+      }
+      toast.success(`Updated ${done} item${done === 1 ? "" : "s"}.`);
+      return true;
+    } catch (err) {
+      toastError(
+        err,
+        done > 0
+          ? `Updated ${done} of ${ids.length}, then the save failed.`
+          : "Couldn't update the selected items.",
+      );
+      return false;
+    } finally {
+      await qc.invalidateQueries({ queryKey: ["items_full"] });
+      setBusy(false);
     }
   }
 
@@ -1225,11 +1297,14 @@ export function makeListingsActions(d: ListingsActionDeps) {
   }
   return {
     exportCsv,
+    fetchMatchingRows,
+    bulkSetFields,
     bulkCreateDrafts,
     updateTracking,
     markDelivered,
     updateListingPrice,
     patchItemColumn,
+    patchItemColumns,
     updateItemStatus,
     updateItemMoney,
     updateItemNotes,

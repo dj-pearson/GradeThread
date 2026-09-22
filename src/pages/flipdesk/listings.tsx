@@ -3,6 +3,7 @@ import { Link, useSearchParams, useNavigate } from "react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { toast } from "sonner";
+import { toastError } from "@/lib/toast-error";
 import {
   ChevronLeft,
   ChevronRight,
@@ -94,6 +95,7 @@ import { useCrossPushBulk } from "@/hooks/use-cross-listing";
 import { BulkRepriceDialog } from "@/components/flipdesk/bulk-reprice-dialog";
 import { BulkPromoteDialog } from "@/components/flipdesk/bulk-promote-dialog";
 import { BulkEditDialog } from "@/components/flipdesk/bulk-edit-dialog";
+import { BulkFieldsDialog } from "@/components/flipdesk/bulk-fields-dialog";
 import { PrepareShipmentDialog } from "@/components/flipdesk/prepare-shipment-dialog";
 import { FilterBuilder } from "@/components/flipdesk/filter-builder";
 import { SaveViewDialog } from "@/components/flipdesk/save-view-dialog";
@@ -414,6 +416,9 @@ export function FlipdeskListingsPage() {
   // US-1292: bulk-edit shared fields (price/condition/policy) across selected
   // live listings via marketplace adapters.
   const [bulkEditOpen, setBulkEditOpen] = useState(false);
+  // US-3467: bulk bin/brand, on every tab.
+  const [bulkFieldsOpen, setBulkFieldsOpen] = useState(false);
+  const [selectingAll, setSelectingAll] = useState(false);
   // US-960: bulk "Prepare shipment" — fill carrier + tracking across the
   // selected sold items and advance them to shipped.
   const [prepareShipOpen, setPrepareShipOpen] = useState(false);
@@ -847,6 +852,17 @@ export function FlipdeskListingsPage() {
   const safePage = Math.min(page, totalPages);
   const pageStart = (safePage - 1) * pageSize;
   const pageRows = items;
+  // US-3467: rows the seller selected on OTHER pages (or through "Select all
+  // matching"), remembered so bulk actions can still see them. Pruned to the
+  // live selection on every render.
+  const rememberedRows = useRef(new Map<string, ItemFullRow>());
+  const actionItems = useMemo(() => {
+    const mem = rememberedRows.current;
+    for (const r of pageRows) if (selected.has(r.id)) mem.set(r.id, r);
+    for (const id of [...mem.keys()]) if (!selected.has(id)) mem.delete(id);
+    const onPage = new Set(pageRows.map((r) => r.id));
+    return [...pageRows, ...[...mem.values()].filter((r) => !onPage.has(r.id))];
+  }, [pageRows, selected]);
 
   // CSV export is the one thing here that legitimately wants every row of the
   // current filter, so it asks for them explicitly instead of the table quietly
@@ -863,6 +879,8 @@ export function FlipdeskListingsPage() {
   // churns the same as it always did.
   const {
     exportCsv,
+    fetchMatchingRows,
+    bulkSetFields,
     bulkCreateDrafts,
     updateTracking,
     markDelivered,
@@ -870,6 +888,7 @@ export function FlipdeskListingsPage() {
     updateItemStatus,
     updateItemMoney,
     updateItemNotes,
+    patchItemColumns,
     endListing,
     bulkPriceDrop,
     bulkRelist,
@@ -882,7 +901,10 @@ export function FlipdeskListingsPage() {
   } = makeListingsActions({
     qc,
     patchRow,
-    items,
+    // US-3467: the page's rows plus every selected row from other pages, so a
+    // bulk action covers the whole selection. Before this, ticking rows on
+    // page 1 and acting from page 2 silently dropped page 1's rows.
+    items: actionItems,
     selected,
     setSelected,
     tab,
@@ -947,13 +969,13 @@ export function FlipdeskListingsPage() {
   const { selectedNeedingDraft, selectedDrafted } = useMemo(() => {
     let needing = 0;
     let drafted = 0;
-    for (const it of items) {
+    for (const it of actionItems) {
       if (!selected.has(it.id)) continue;
       if (it.status === "drafted") drafted++;
       else if (TO_LIST_STATUSES.has(it.status)) needing++;
     }
     return { selectedNeedingDraft: needing, selectedDrafted: drafted };
-  }, [items, selected]);
+  }, [actionItems, selected]);
 
   // US-733: virtualize the (desktop) listings table only once a page renders
   // more rows than the threshold. At or below it, the table renders exactly as
@@ -987,6 +1009,28 @@ export function FlipdeskListingsPage() {
       else next.add(id);
       return next;
     });
+  }
+
+  // US-3467: Gmail-style "select all N matching", across every page of the
+  // current tab, search and filter. Capped so one click cannot pull a whole
+  // account into the browser.
+  const SELECT_ALL_CAP = 2000;
+  const allMatchingSelected =
+    totalRows > 0 && selected.size >= Math.min(totalRows, SELECT_ALL_CAP) && allOnPageSelected;
+  async function selectAllMatching() {
+    setSelectingAll(true);
+    try {
+      const rows = await fetchMatchingRows(SELECT_ALL_CAP);
+      for (const r of rows) rememberedRows.current.set(r.id, r);
+      setSelected(new Set(rows.map((r) => r.id)));
+      if (totalRows > SELECT_ALL_CAP) {
+        toast.info(`Selected the first ${SELECT_ALL_CAP.toLocaleString()}. Narrow the filter to reach the rest.`);
+      }
+    } catch (e) {
+      toastError(e, "Couldn't select every matching item.");
+    } finally {
+      setSelectingAll(false);
+    }
   }
 
   function toggleSelectAll() {
@@ -1461,6 +1505,46 @@ export function FlipdeskListingsPage() {
             />
           ) : (
             <>
+              {/* US-3467: the page is ticked, and there is more than one page.
+                  Offer the rest, the way a mail client does. */}
+              {selectable && allOnPageSelected && totalRows > pageRows.length && (
+                <div
+                  role="status"
+                  className="flex flex-wrap items-center justify-center gap-x-2 gap-y-1 border-b bg-muted/40 px-4 py-2 text-sm"
+                >
+                  {allMatchingSelected ? (
+                    <>
+                      <span>
+                        All {selected.size.toLocaleString()} matching items are selected.
+                      </span>
+                      <Button
+                        variant="link"
+                        size="sm"
+                        className="h-auto p-0"
+                        onClick={() => setSelected(new Set())}
+                      >
+                        Clear selection
+                      </Button>
+                    </>
+                  ) : (
+                    <>
+                      <span>
+                        All {pageRows.length} on this page are selected.
+                      </span>
+                      <Button
+                        variant="link"
+                        size="sm"
+                        className="h-auto p-0"
+                        onClick={() => void selectAllMatching()}
+                        disabled={selectingAll}
+                      >
+                        {selectingAll && <Loader2 className="mr-1 h-3 w-3 animate-spin" />}
+                        Select all {totalRows.toLocaleString()} matching
+                      </Button>
+                    </>
+                  )}
+                </div>
+              )}
               {/* Mobile: card list (the wide table is unusable on a phone). */}
               <div className="md:hidden">
                 {selectable && (
@@ -1530,6 +1614,7 @@ export function FlipdeskListingsPage() {
                 updateItemStatus={updateItemStatus}
                 updateItemMoney={updateItemMoney}
                 updateItemNotes={updateItemNotes}
+                onQuickEdit={setQuickEditItem}
                 markDelivered={markDelivered}
                 setPublishItem={setPublishItem}
                 setMarkListedItem={setMarkListedItem}
@@ -1599,7 +1684,7 @@ export function FlipdeskListingsPage() {
             <div className="text-sm font-semibold text-brand-navy dark:text-foreground">
               {selected.size} selected
             </div>
-            <div className="flex gap-2">
+            <div className="flex flex-wrap gap-2">
               <Button
                 variant="outline"
                 onClick={() => setSelected(new Set())}
@@ -1619,6 +1704,14 @@ export function FlipdeskListingsPage() {
               >
                 <Archive className="mr-2 h-4 w-4" />
                 Set status…
+              </Button>
+              <Button
+                variant="outline"
+                onClick={() => setBulkFieldsOpen(true)}
+                disabled={busy}
+              >
+                <Pencil className="mr-2 h-4 w-4" />
+                Bin / brand…
               </Button>
               {isUnlisted ? (
                 <>
@@ -1860,7 +1953,7 @@ export function FlipdeskListingsPage() {
                     End {selected.size}
                   </Button>
                 </>
-              ) : (
+              ) : isSold ? (
                 <Button
                   onClick={() => setPrepareShipOpen(true)}
                   disabled={busy}
@@ -1868,7 +1961,7 @@ export function FlipdeskListingsPage() {
                   <Truck className="mr-2 h-4 w-4" />
                   Prepare shipment
                 </Button>
-              )}
+              ) : null}
             </div>
           </div>
         </div>
@@ -2076,9 +2169,25 @@ export function FlipdeskListingsPage() {
 
       <ItemDetailDialog item={detailItem} onClose={() => setDetailItem(null)} />
 
+      {/* US-3467: the row click on desktop and the edit button on phone both
+          open this panel. It reads the row from the live page, so a save that
+          refetches shows the new values; the snapshot is only a fallback for
+          an item that just left this tab. */}
       <ItemQuickEditSheet
-        item={quickEditItem}
+        item={
+          quickEditItem
+            ? (pageRows.find((r) => r.id === quickEditItem.id) ?? quickEditItem)
+            : null
+        }
+        items={pageRows}
+        onSelect={setQuickEditItem}
         onClose={() => setQuickEditItem(null)}
+        onOpenFull={(it) =>
+          navigate(`/dashboard/flipdesk/items/${it.id}/draft`, {
+            state: { from: `${window.location.pathname}${window.location.search}` },
+          })
+        }
+        actions={{ patchItemColumns, updateItemStatus, updateListingPrice }}
       />
 
       <MarkListedDialog
@@ -2141,6 +2250,13 @@ export function FlipdeskListingsPage() {
           if (rows.length === 0 || rows.some((r) => r.list_price == null)) return null;
           return rows.reduce((sum, r) => sum + Math.round(Number(r.list_price) * 100), 0);
         })()}
+      />
+
+      <BulkFieldsDialog
+        open={bulkFieldsOpen}
+        count={selected.size}
+        onOpenChange={setBulkFieldsOpen}
+        onApply={bulkSetFields}
       />
 
       <BulkEditDialog

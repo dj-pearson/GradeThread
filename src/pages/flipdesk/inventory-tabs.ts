@@ -190,15 +190,22 @@ export const UNLISTED_FILTER_LABELS: Readonly<Record<UnlistedFilter, string>> = 
  * three tab ids and adding a fourth tab does not edit that line. Selection is a
  * property of what a tab is FOR, so it lives next to the tab list.
  *
- * The four that stay off: 'all' mixes every status, so a batch action on it
- * means something different per row; Shipped, Returned and Archived are
- * histories, and there is nothing left to do to their rows in bulk.
+ * US-3467: every tab now. The four that used to stay off ('all', Shipped,
+ * Returned, Archived) were left out because the tab-specific actions mean
+ * nothing there. That was true of those actions and wrong about the tabs: a
+ * seller re-binning a shelf or archiving dead stock wants to do it from All.
+ * The bulk bar shows the tab-specific buttons only on their own tab, and
+ * every tab gets the two that fit any row: Set status and Bin / brand.
  */
 const SELECTABLE_TABS: ReadonlySet<TabId> = new Set<TabId>([
+  "all",
   "unlisted",
   "active",
   "aged",
   "sold",
+  "shipped",
+  "returned",
+  "archived",
 ]);
 
 export function tabSupportsSelection(tab: TabId): boolean {

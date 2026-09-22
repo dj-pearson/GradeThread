@@ -45,13 +45,18 @@ export interface CaseSummary {
 }
 
 interface RawCase {
-  caseId?: string | { caseId?: string };
+  caseId?: string | number | { caseId?: string | number };
+  // US-3466: the documented casemanagement/search field, the same pattern as
+  // inquiryStatusEnum. Without it every case state was null, and null reads as
+  // OPEN, so a case eBay closed months ago still showed as work.
+  caseStatusEnum?: string;
+  buyer?: string;
   caseStatus?: string;
   status?: { state?: string };
   state?: string;
   legacyOrderId?: string;
   orderId?: string;
-  itemId?: string;
+  itemId?: string | number;
   buyerLoginName?: string;
   buyerUsername?: string;
   reason?: string;
@@ -85,12 +90,13 @@ function dateValue(v: { value?: string } | string | undefined): string | null {
 export function normalizeCase(raw: RawCase): CaseSummary {
   const rawAmount = raw.claimAmount?.value != null ? Number(raw.claimAmount.value) : null;
   return {
-    caseId: typeof raw.caseId === "string" ? raw.caseId : (raw.caseId?.caseId ?? ""),
-    state: raw.caseStatus ?? raw.status?.state ?? raw.state ?? null,
+    caseId: ebayId(raw.caseId) ??
+      ebayId(typeof raw.caseId === "object" ? raw.caseId?.caseId : undefined) ?? "",
+    state: raw.caseStatusEnum ?? raw.caseStatus ?? raw.status?.state ?? raw.state ?? null,
     orderId: ebayId(raw.legacyOrderId) ?? ebayId(raw.orderId),
     itemId: ebayId(raw.itemId) ?? ebayId(raw.detail?.item?.itemId),
     reason: raw.reason ?? raw.buyerSelectedReason ?? raw.detail?.reason ?? null,
-    buyerUsername: raw.buyerLoginName ?? raw.buyerUsername ?? null,
+    buyerUsername: raw.buyerLoginName ?? raw.buyerUsername ?? raw.buyer ?? null,
     respondBy: dateValue(raw.respondByDate) ?? dateValue(raw.sellerResponseDue),
     creationDate: dateValue(raw.creationDate),
     escalatedFrom: raw.returnId ?? raw.inquiryId ?? raw.detail?.returnId ??
