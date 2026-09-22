@@ -636,6 +636,36 @@ export function isTrialing(s: BillingSummary["subscription"]): boolean {
     || (!!s.trial_ends_at && new Date(s.trial_ends_at).getTime() > Date.now() && !s.stripe_customer_id);
 }
 
+/**
+ * US-3457: the SIGNUP trial, as distinct from a Stripe-managed one.
+ *
+ * handle_new_user stamps every seller signup flipdesk_plan='pro' and
+ * subscription_status='trialing' with no Stripe subscription behind it. The
+ * summary therefore reports plan 'pro', and the plan picker read that as "you
+ * already have Pro" and disabled the Pro tile, which is the tile every trial
+ * CTA lands on: the billing banner's Add card, the pricing page's ?upgrade=pro,
+ * the drip emails and the three-day notice. US-2288 measured 43 trials and 0
+ * conversions and this is the mechanical reason.
+ *
+ * For anything that SELLS, a signup trialist is on free: there is nothing to
+ * change in place, and every paid tile is a fresh Checkout (the edge carries
+ * the remaining trial forward as subscription_data.trial_end).
+ *
+ * billing_source is the signal because it stays null until a processor owns a
+ * subscription. stripe_customer_id is not: a credit-pack purchase creates a
+ * customer with no subscription and would put the trialist back in the trap.
+ */
+export function isOnSignupTrial(s: BillingSummary["subscription"]): boolean {
+  return s.status === "trialing" && !s.billing_source;
+}
+
+/** Whole days left on a trial, rounded up; 0 once it has ended or is unset. */
+export function trialDaysLeft(trialEndsAt: string | null, now = Date.now()): number {
+  if (!trialEndsAt) return 0;
+  const ms = new Date(trialEndsAt).getTime() - now;
+  return ms > 0 ? Math.ceil(ms / 86_400_000) : 0;
+}
+
 // US-807: true when the subscription is owned by Apple's App Store (purchased in
 // the iOS app) and currently entitling. The web UI then surfaces an
 // "managed in the iOS app" card and hides Stripe subscription CTAs — credit
