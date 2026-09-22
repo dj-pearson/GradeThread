@@ -12,10 +12,19 @@ code_refs:
   - ios/GradeThread/Money/TripDraft.swift
   - services/edge-functions/src/lib/expense-recurrence.ts
   - scripts/audit-expense-date-drift.mjs
-reviewed: 2026-09-10
+reviewed: 2026-09-22
 tags: [money, flipdesk, timezone, contract]
 summary: flipdesk_expenses.spent_on is a date-only column, so every client anchors it at UTC midnight while the device calendar names which day or month a moment falls in — anchoring any one surface in the device zone walks the date backwards one day per save, and it has shipped that way on both mobile platforms.
 ---
+
+> [!note] Re-reviewed 2026-09-22, no change. Drift from US-3458, which touches
+> `flipdesk-ebay.ts`. Read the diff rather than the dates: it is confined to
+> the eBay OAuth callback (now fires the first full pull on connect) and to
+> `doListingsPull`, where unmatched orphans in `flipdesk_ebay_listings` become
+> `inventory_items` plus eBay-originated `listings` rows (`lib/ebay-orphan-adopt.ts`)
+> and both active-listing passes fall back to `platform_listing_id` after the SKU
+> index. Nothing this note owns is in either hunk.
+
 # An expense date is a calendar date
 
 `flipdesk_expenses.spent_on` is a **`date`** column. It answers "which day did

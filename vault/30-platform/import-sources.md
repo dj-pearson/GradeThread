@@ -172,10 +172,22 @@ for months (US-3261), with the seller reading "Could not start the import."
 
 Named so nobody goes looking for them in the table.
 
-- **Marketplace sync** updates listings that already exist and never creates an
-  item from a marketplace. eBay has no "pull my existing listings" path; a
-  switching eBay seller uses the `ebay-file-exchange` CSV preset. The
-  provenance model is [[sync-source-of-truth]].
+- **Marketplace sync** updates listings that already exist. Until US-3458
+  (2026-09-22) this line also said eBay has no "pull my existing listings"
+  path, and that was true in effect: the eBay pull snapshotted every listing it
+  could not resolve into `flipdesk_ebay_listings` and waited for a click on
+  Reconciliation that new sellers never made. Now connecting eBay fires the
+  first full pull from the OAuth callback, and every catalog pass turns each
+  unmatched orphan into an `inventory_items` row plus an eBay-originated
+  `listings` row plus reference `item_photos` (`lib/ebay-orphan-adopt.ts`),
+  unless an item with the same title already exists, in which case it stays on
+  Reconciliation for the seller to decide. It is not a row in the table above
+  because it writes no `flipdesk_import_runs` row: the orphan table's
+  `match_status` is its record, and Undo is the item's own delete. The
+  `ebay-file-exchange` CSV preset remains for ended and unsold listings, which
+  the pull never sees (it reads active listings only). The provenance model is
+  [[sync-source-of-truth]]; the lifecycle the adopted listing then follows is
+  [[ebay-listing-lifecycle-reconciliation]].
 - **Scout** writes an `inventory_items` row with `acquired_source: "scout"`
   when a seller saves a sourcing candidate. That is sourcing, not importing a
   catalogue the seller already has.

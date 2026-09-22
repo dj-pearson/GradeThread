@@ -6,11 +6,18 @@ status: current
 source_of_truth: code
 code_refs:
   - services/edge-functions/src/lib/ebay-client.ts
-reviewed: 2026-09-20
+reviewed: 2026-09-22
 tags: [ebay, publishing, gotcha]
 summary: eBay rejects aspect values over 65 chars at publish, not at upload - which is why the error surfaces as an unrelated "already has active offer".
 ---
 
+> [!note] Re-reviewed 2026-09-22, no change. Drift from US-3458, which touches
+> `flipdesk-ebay.ts`. Read the diff rather than the dates: it is confined to
+> the eBay OAuth callback (now fires the first full pull on connect) and to
+> `doListingsPull`, where unmatched orphans in `flipdesk_ebay_listings` become
+> `inventory_items` plus eBay-originated `listings` rows (`lib/ebay-orphan-adopt.ts`)
+> and both active-listing passes fall back to `platform_listing_id` after the SKU
+> index. Nothing this note owns is in either hunk.
 
 > [!note] Re-reviewed 2026-09-20. Drift from `e7d84ab3a`, which touches
 > ``ebay-client.ts``. Read the diff rather than the dates: it is confined to

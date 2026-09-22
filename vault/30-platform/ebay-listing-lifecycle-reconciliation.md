@@ -17,11 +17,32 @@ code_refs:
   - services/edge-functions/src/lib/ebay-notification-subscriptions.ts
   - services/edge-functions/src/routes/flipdesk-webhooks.ts
   - services/edge-functions/src/routes/jobs-ebay-notification-reconcile.ts
-reviewed: 2026-09-20
+reviewed: 2026-09-22
 tags: [ebay, listings, sync, gotcha]
 summary: A listing eBay ended or removed used to stay "active" locally with End and Relist as silent no-ops; the fix is to treat "already not live" as success, not as an error - and to keep WHICH of those it was, since ended and removed-by-eBay need opposite actions.
 ---
 
+
+> [!note] Re-reviewed 2026-09-22, and one rule this note owns GREW (US-3458).
+> Two hunks in `flipdesk-ebay.ts`. (1) `GET /oauth/callback` now fires
+> `triggerEbaySyncForUser(userId, "full")` after `upsertConnection`, so the
+> first catalog pass happens on connect rather than on a Sync click. (2) Inside
+> `doListingsPull`, after the orphan flush, every `unmatched` orphan with no
+> `matched_item_id` whose normalized title matches no local item becomes an
+> `inventory_items` row (`status: listed`) plus a `listing_origin: "ebay"`
+> `listings` row plus reference `item_photos`, and the orphan flips to
+> `matched` (`lib/ebay-orphan-adopt.ts`, capped at 1,000 per pass; a title
+> match is held for the seller). The part that touches THIS note: both
+> active-listing passes now resolve a listing through `platform_listing_id`
+> when the SKU index cannot (`listedEbayItemToItemId`, built from the same
+> listings preload). Until now an adopted or hand-linked orphan carried no SKU
+> the index could resolve, so it was re-filed as an orphan on every pass and
+> never refreshed; from this commit it is a matched listing, which means the
+> price/quantity/status observations, the provenance merge and the
+> **ended-without-sale sweep** all apply to it. That is the intended
+> consequence: a listing that ended on eBay now drops its adopted item back to
+> draft like any other. The Foreign class in the SKU section below shrinks to
+> orphans the seller has ignored. Everything else here is unchanged.
 
 > [!note] Re-reviewed 2026-09-20. Drift from `e7d84ab3a`, which touches
 > ``ebay-client.ts` and `flipdesk-ebay.ts``. Read the diff rather than the dates: it is confined to
