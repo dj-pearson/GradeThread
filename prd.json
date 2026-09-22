@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-3458",
+  "nextId": "US-3462",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -4519,6 +4519,40 @@
       ],
       "priority": 1,
       "notes": "2026-09-22 BUILT, AC1-AC4. Web: flipdesk-plan-picker-dialog.tsx makes every CTA decision against ctaPlan, which is free for a signup trialist (isOnSignupTrial in use-billing-summary.ts = status trialing AND billing_source null; stripe_customer_id deliberately NOT the signal because a credit pack creates a customer with no subscription). Trialed tile: 'Your trial' badge + 'Keep Pro, add a card' -> subscribe.mutate -> Checkout; other paid tiles 'Choose X' -> Checkout; Free tile 'Free after your trial' disabled. Chip and AutoRenewalDisclosure state trialDaysLeft, never 14. Also fixed in passing: the Free tile on the yearly toggle rendered 'Switch interval' (portal 400) for genuine free users. Edge: new lib/trial-carry-forward.ts carriedForwardTrialEnd() floors subscription_data.trial_end at now+48h+5min; payments.ts /flipdesk/subscribe calls it. Vault: pricing.md section 7 carries the two facts, code_refs extended. VERIFIED: new vitest flipdesk-plan-picker-trial.test.tsx 8/8; SABOTAGE: same file against the pre-change picker 6/8 red (the 2 green are the paying-subscriber controls). tsc -b clean, eslint clean, ui:check 0/0, billing+hooks vitest 257/257 incl. in-place-upgrade-confirmation and subscription-disclosure-coverage guards. Deno 2.8.0 in a cloud session per CLAUDE.md: trial-carry-forward_test.ts 5/5, deno lint clean, and the 25 edge tests reading payments.ts 271 passed / 3 failed, where the 3 (connector-allowance, support-assistant-redteam, webhook-event-coverage) fail identically on the UNTOUCHED tree with ERR_MODULE_NOT_FOUND @anthropic-ai/sdk 0.104.1_1 under the scratchpad npm: import map, an environment artefact and not this change. deno check of payments.ts under the map reports only the 5 known Stripe SessionCreateParams substitution errors and none at the new call. STILL passes:false on AC5 (operator: prod sign-up, Billing > Add card, confirm Checkout opens with the remaining days)."
+    },
+    {
+      "id": "US-3460",
+      "passes": false,
+      "title": "Vinted closet import through the unified extension",
+      "description": "As a Vinted seller, I want my live Vinted wardrobe to import into FlipDesk through the extension the way Poshmark, Mercari and Grailed do, so that my listings are in FlipDesk without retyping them.",
+      "acceptanceCriteria": [
+        "BLOCKER, and it is the same one as US-3154 (Depop): the owner-only tell for a seller's OWN Vinted wardrobe page, and the URL shape of that page, must be read off a live signed-in Vinted account and recorded on this story before an adapter is written. /member/<id> matches ANY member, so an adapter without a verified ownClosetTell would read a stranger's wardrobe into the seller's catalogue. Never guess it. What IS known and reusable: the 22 locale hosts and the login pattern vinted\\.[a-z.]+/(member/general/login|signup) in extension-unified/lister/selectors.js, the live item URL shape ^https://[^/]*vinted\\.[a-z.]+/items/\\d+ (liveListingUrlPattern), and the item-page title/brand/gallery/seller selectors in extension-unified/research/selectors.js vinted.",
+        "Widen the origin CHECK first (the rule import-sources.md states from US-3261): a migration drops and re-adds flipdesk_import_runs_origin_check with 'vinted' added, carrying the US-1108 triple (idempotent SQL, EXPECTED_SCHEMA_VERSION bumped in the same commit, self-record footer), listed in PENDING_MIGRATIONS.md and applied to prod BEFORE the code that inserts a vinted run is pushed (the held-migration gate).",
+        "extension-unified/closet-import/selectors.js gains a vinted adapter with enabled: true only once AC1 is recorded, verified: false, the 22 hosts, closet.urlPattern and ownClosetTell from AC1, tile/fields/soldBadge, detail.urlPattern ^/items/\\d+ with ownListingTell, and a urlUpgrade rule proven on one real Vinted photo URL (the server refuses anything under 500px on the long side); test/closet-import-manifest.test.cjs passes, which means manifest content_scripts matches for every host are narrow (closet and item paths only) and covered by host_permissions.",
+        "CLOSET_IMPORT_PLATFORMS gains 'vinted' in BOTH services/edge-functions/src/lib/closet-import.ts and src/lib/marketplace-disclosure.ts in the same commit, with a disclosure entry; src/test/closet-import-platform-parity.test.ts and the extension's closetImportSupportedSentence (built from the adapters) agree, and vault/30-platform/import-sources.md gains the vinted row in the marked table (services/edge-functions/src/tests/import-sources-note_test.ts holds it).",
+        "The US-3459 behaviour applies unchanged: the reader scrolls the wardrobe to its end before reading, and background.js auto-imports it when the seller opens it (once a day, switchable off). No new server route; POST /api/flipdesk/closet-import/runs keeps its tenant scoping and caps.",
+        "lib/closet-import-run.ts photo fetch allowlists Vinted's CDN host(s) (read from the same live page as AC1) so photos are copied rather than refused; a refused host shows up in the run's effect errors, never as a hot-linked URL."
+      ],
+      "dependsOn": [
+        "US-3459"
+      ]
+    },
+    {
+      "id": "US-3461",
+      "passes": false,
+      "title": "Facebook Marketplace closet import through the unified extension",
+      "description": "As a seller with items on Facebook Marketplace, I want my active Marketplace listings to import into FlipDesk through the extension, so that the channel I cross-list to is also a channel I can start from.",
+      "acceptanceCriteria": [
+        "BLOCKER, stated first: the Facebook Marketplace lister itself is still awaiting live verification (US-2480, extension-unified/lister/selectors.js facebook: lastVerified null, verify-lister-selectors reports it as awaiting), and Facebook's DOM carries no stable data-testid or class names, so every selector must be read off a live signed-in account and recorded on this story before any adapter is written. The seller's own-listings page (facebook.com/marketplace/you/selling) URL and its owner-only tell are the two facts that gate this, per the US-3154 rule: never guessed.",
+        "Widen flipdesk_import_runs_origin_check to include 'facebook' in a migration carrying the US-1108 triple, listed in PENDING_MIGRATIONS.md and applied to prod before the code that inserts a facebook run is pushed.",
+        "extension-unified/closet-import/selectors.js gains a facebook adapter (hosts facebook.com, fb.com; closet.urlPattern for /marketplace/you/selling; ownClosetTell from AC1; tile/fields/soldBadge; detail /marketplace/item/<id> with ownListingTell; urlUpgrade proven on one real scontent photo URL), verified: false, and test/closet-import-manifest.test.cjs passes with narrow matches covered by host_permissions.",
+        "CLOSET_IMPORT_PLATFORMS gains 'facebook' in services/edge-functions/src/lib/closet-import.ts and src/lib/marketplace-disclosure.ts in the same commit with a disclosure entry; the parity test and import-sources.md's marked table (held by import-sources-note_test.ts) agree; lib/closet-import-run.ts allowlists Facebook's photo CDN hosts.",
+        "US-3459's full-closet scroll and auto-import on open apply unchanged; no new server route; the tenant scoping and caps of POST /api/flipdesk/closet-import/runs are unchanged."
+      ],
+      "dependsOn": [
+        "US-2480",
+        "US-3459"
+      ]
     }
   ]
 }

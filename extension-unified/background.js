@@ -60,6 +60,7 @@ if (typeof importScripts === "function") {
     // The DRIVER is in this file; these two only decide and describe.
     "sync/selectors.js",
     "closet-import/selectors.js",
+    "closet-import/auto-plan.js",
     "sync/poll-plan.js",
     // US-3048: the cross-listing queue's view model. Shared with the popup so
     // the count on the Selling tab and the rows under it are shaped by one
@@ -1603,6 +1604,24 @@ async function runClosetImport(msg) {
     return { ok: false, reason: last.reason || "nothing_read", error: closetImportReasonText(last.reason) };
   }
 
+  const posted = await postClosetBatch(last.batch, gtBuyerToken);
+  if (posted.reason === "offline") return posted;
+  return {
+    ok: posted.ok,
+    status: posted.status,
+    reason: posted.ok ? null : "server",
+    result: posted.result,
+    page: last.batch.page,
+    listingsRead: last.batch.listings.length,
+    coverage: last.batch.coverage,
+    // Local only until now; the web page uses it for one number, the time
+    // from install to the first imported item, and never sends it elsewhere.
+    installedAt: typeof installedAt === "string" ? installedAt : null,
+  };
+}
+
+/** POST one closet batch with the seller token. Shared by the button and the auto path. */
+async function postClosetBatch(batch, gtBuyerToken) {
   const instanceId = await getInstanceId();
   let resp;
   try {
@@ -1613,25 +1632,95 @@ async function runClosetImport(msg) {
         "X-GT-Extension-Id": instanceId,
         Authorization: "Bearer " + gtBuyerToken,
       },
-      body: JSON.stringify(last.batch),
+      body: JSON.stringify(batch),
     });
   } catch (_e) {
     return { ok: false, status: 0, reason: "offline", error: "Couldn't reach GradeThread." };
   }
   let json = null;
   try { json = await resp.json(); } catch (_e) { /* empty body */ }
-  return {
-    ok: resp.ok,
-    status: resp.status,
-    reason: resp.ok ? null : "server",
-    result: json,
-    page: last.batch.page,
-    listingsRead: last.batch.listings.length,
-    coverage: last.batch.coverage,
-    // Local only until now; the web page uses it for one number, the time
-    // from install to the first imported item, and never sends it elsewhere.
-    installedAt: typeof installedAt === "string" ? installedAt : null,
-  };
+  return { ok: resp.ok, status: resp.status, reason: resp.ok ? null : "server", result: json };
+}
+
+// ── US-3459: the closet imports itself when the seller opens it ────────────
+//
+// The button above needs the seller to know it exists, and the ones who most
+// needed it (a full closet, a fresh install) never found it. So the background
+// now watches for the seller landing on their OWN closet page and runs the
+// same read-and-post the button runs, against that tab.
+//
+// What did NOT change, because it is the posture a store reviewer is shown:
+// no tab is opened (tabs.onUpdated is a read, and the tab is one the seller
+// navigated to themselves), nothing runs on a timer, and the content script is
+// still asked rather than acting on its own. A closet that is not the seller's,
+// a login wall, a human check or a page with nothing on it all answer with a
+// refusal, and a refusal here is SILENT: no notification, no stamp, nothing.
+//
+// Bounded three ways: the seller can switch it off (closetAutoImport, default
+// on), a platform is imported at most once a day on its own (the button is
+// always available for a re-read), and one import per platform runs at a time.
+/** Let the closet page render its first tiles before the reader is asked. */
+const CLOSET_AUTO_IMPORT_SETTLE_MS = 1500;
+/** Platforms with an auto-import in flight right now. */
+const closetAutoInFlight = new Set();
+/** tabId -> last URL this listener acted on, so a load + a pushState count once. */
+const closetAutoSeen = new Map();
+
+async function maybeAutoClosetImport(tabId, url) {
+  const AUTO = self.GT_CLOSET_IMPORT_AUTO;
+  if (!AUTO) return;
+  const platform = AUTO.platformForClosetUrl(self.GT_CLOSET_IMPORT_SELECTORS, url);
+  if (!platform) return;
+  if (closetAutoSeen.get(tabId) === url) return;
+  closetAutoSeen.set(tabId, url);
+  if (closetAutoInFlight.has(platform)) return;
+
+  const state = await ext.storage.local.get(["gtBuyerToken", "closetAutoImport", "closetAutoImportLast"]);
+  const decision = AUTO.decide(state, platform, Date.now());
+  if (!decision.run) return;
+
+  closetAutoInFlight.add(platform);
+  try {
+    await new Promise((resolve) => setTimeout(resolve, CLOSET_AUTO_IMPORT_SETTLE_MS));
+    let answered = null;
+    try {
+      answered = await ext.tabs.sendMessage(tabId, { type: "GT_CLOSET_IMPORT_READ" });
+    } catch (_e) {
+      return; // no reader on that page, or the tab is gone
+    }
+    // Only a CLOSET read counts here: a detail page is one listing, and the
+    // seller opening one of their listings is not "opening their closet".
+    if (!answered || !answered.ok || !answered.batch || answered.batch.page !== "closet") return;
+
+    const posted = await postClosetBatch(answered.batch, state.gtBuyerToken);
+    if (!posted.ok) return;
+
+    // No notification: the worker shows a badge count and nothing more (the
+    // notifications permission exists only so a push can wake it, US-3142).
+    // The Import page on gradethread.com shows the run, like a pressed one.
+    await ext.storage.local.set({
+      closetAutoImportLast: AUTO.stamp(state.closetAutoImportLast, platform, Date.now()),
+    });
+  } finally {
+    closetAutoInFlight.delete(platform);
+  }
+}
+
+if (ext.tabs && ext.tabs.onUpdated && ext.tabs.onUpdated.addListener) {
+  ext.tabs.onUpdated.addListener(function (tabId, changeInfo, tab) {
+    // A full load reports status "complete" with the URL on the tab; a
+    // client-side route change reports only a new url. Either can land the
+    // seller on their closet, and closetAutoSeen makes the pair count once.
+    const AUTO = self.GT_CLOSET_IMPORT_AUTO;
+    const url = AUTO ? AUTO.urlFromTabUpdate(changeInfo, tab) : null;
+    if (!url) return;
+    maybeAutoClosetImport(tabId, url).catch(function () { /* never lets a closet read take the worker down */ });
+  });
+}
+if (ext.tabs && ext.tabs.onRemoved && ext.tabs.onRemoved.addListener) {
+  ext.tabs.onRemoved.addListener(function (tabId) {
+    closetAutoSeen.delete(tabId);
+  });
 }
 
 function closetImportReasonText(reason) {

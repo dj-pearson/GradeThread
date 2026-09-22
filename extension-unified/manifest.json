@@ -76,6 +76,7 @@
       "research/label-card.js",
       "sync/selectors.js",
       "closet-import/selectors.js",
+      "closet-import/auto-plan.js",
       "sync/poll-plan.js",
       "queue/queue-view.js",
       "queue/worker-state.js",

@@ -386,6 +386,11 @@ import {
   flattenAspects,
   type LocalCatalog,
 } from "../lib/ebay-catalog-merge.ts";
+import {
+  adoptOrphans,
+  type OrphanCandidate,
+  planOrphanAdoption,
+} from "../lib/ebay-orphan-adopt.ts";
 import { parseEbayPayoutsCsv } from "../lib/ebay-payouts-csv.ts";
 import { ingestPayoutsForUser } from "../lib/ebay-payout-dedup.ts";
 import { requireJobSecret } from "../lib/job-auth.ts";
@@ -711,6 +716,20 @@ flipdeskEbayRoutes.get("/oauth/callback", async (c) => {
     console.error("[flipdesk-ebay] OAuth exchange failed:", err);
     return finish("exchange_failed");
   }
+
+  // US-3458: the seller's listings arrive on their own. Until this line the
+  // connect stored tokens and stopped, and the first pull waited for a Sync
+  // click nobody was told to make (or for the order backstop to reach the
+  // account). Detached and best-effort: the connection is saved and the
+  // redirect is the same whether or not the pull starts, and the lock in
+  // triggerEbaySyncForUser refuses a duplicate if one is already running.
+  void triggerEbaySyncForUser(stateUserId, "full")
+    .then((status) => {
+      console.log(`[flipdesk-ebay] first pull after connect: ${status}`);
+    })
+    .catch((err) => {
+      console.error("[flipdesk-ebay] first pull after connect failed to start:", err);
+    });
 
   return finish("connected");
 });
@@ -3195,6 +3214,31 @@ async function doListingsPull(
   // US-3362: the pass used to consult `inventory_items.sku` and nothing else.
   const skuToItemId = buildEbaySkuIndex(allItems, allListings);
 
+  // US-3458: the listing id is the other key eBay hands us, and it is the ONLY
+  // key for a listing that was adopted from the orphan table or linked by hand
+  // on the Reconciliation page, because those carry no Custom Label the SKU
+  // index could resolve. Without this both passes filed such a listing as an
+  // orphan again on every pull (harmless, the flip is preserved) and never
+  // refreshed its price, quantity or status, so an adopted listing was a
+  // snapshot from the day it was adopted. Consulted only after the SKU index,
+  // which stays the authority when both answer.
+  const listedEbayItemToItemId = new Map<string, string>();
+  for (const r of allListings) {
+    if (
+      r.platform_listing_id && r.inventory_item_id &&
+      !listedEbayItemToItemId.has(r.platform_listing_id)
+    ) {
+      listedEbayItemToItemId.set(r.platform_listing_id, r.inventory_item_id);
+    }
+  }
+  const resolveListedItemId = (
+    sku: string | null | undefined,
+    ebayItemId: string | null | undefined,
+  ): string | null =>
+    (sku ? skuToItemId.get(sku) : undefined) ??
+      (ebayItemId ? listedEbayItemToItemId.get(ebayItemId) : undefined) ??
+      null;
+
   // US-3111: the SKUs whose offer we read recently enough to skip this pass.
   // Empty on any failure, so the worst case is the old behaviour of reading
   // every SKU - a wasted call beats a catalog that silently stops reconciling.
@@ -3596,7 +3640,7 @@ async function doListingsPull(
       // under, not just `inventory_items.sku`. The routing below - and with it
       // both ended-without-sale branches - sits behind this one lookup, which
       // is why a wrong answer here reads as an orphan rather than as a bug.
-      const resolvedItemId = sku ? skuToItemId.get(sku) ?? null : null;
+      const resolvedItemId = resolveListedItemId(sku, o.listingId);
       const routed = routeRemoteOffer(
         o,
         resolvedItemId,
@@ -3872,7 +3916,7 @@ async function doListingsPull(
           continue;
         }
         const sku = l.sku;
-        const itemId = sku ? skuToItemId.get(sku) ?? null : null;
+        const itemId = resolveListedItemId(sku, l.ebayItemId);
 
         if (itemId) {
           // Same write path as the modern flow — but no platform_offer_id
@@ -4228,6 +4272,48 @@ async function doListingsPull(
     const mirror = await mirrorEbayPhotos(userId, photoUrlsByItem);
     photosMirrored = mirror.inserted;
     errors.push(...mirror.errors);
+  }
+  // US-3458: orphans with no likely local item become items now, in the same
+  // pass that snapshotted them, so a seller who connected eBay to get their
+  // listings in has them without opening Reconciliation. Orphans that look
+  // like an existing item (same title) are held there for the seller instead.
+  // After the orphan flush so this pass's new orphans are candidates, and
+  // before the ebayItemIdToItemId rebuild below so this pass's orders can
+  // already resolve to the items created here. Reads the WHOLE unmatched set,
+  // not just this pass's, because the backlog left by every earlier pull is
+  // the thing this exists to clear.
+  let orphansAdopted = 0;
+  let orphansLinked = 0;
+  let orphansHeld = 0;
+  let orphansDeferred = 0;
+  if (catalogPass) {
+    const { data: orphanRows, error: orphanReadError } = await supabaseAdmin
+      .from("flipdesk_ebay_listings")
+      .select(
+        "id, ebay_item_id, custom_label, title, current_price, available_quantity, listing_url, start_date, match_status, matched_item_id, photo_urls, raw",
+      )
+      .eq("user_id", userId)
+      .eq("match_status", "unmatched")
+      .is("matched_item_id", null)
+      .order("imported_at", { ascending: true })
+      .limit(5000);
+    if (orphanReadError) {
+      errors.push(`orphan adopt (read): ${orphanReadError.message.slice(0, 160)}`);
+    } else {
+      const plan = planOrphanAdoption(
+        (orphanRows ?? []) as unknown as OrphanCandidate[],
+        allItems,
+      );
+      orphansHeld = plan.held.length;
+      orphansDeferred = plan.deferred;
+      if (plan.adopt.length > 0) {
+        const adoption = await adoptOrphans(userId, plan.adopt);
+        orphansAdopted = adoption.adopted;
+        orphansLinked = adoption.linked;
+        photosMirrored += adoption.photos;
+        errors.push(...adoption.errors);
+      }
+    }
   }
   // Status flips — one .in('id',[...]) update per transition. The prep-status
   // filter keeps the flip forward-only; .select() returns only the rows that
@@ -5070,6 +5156,12 @@ async function doListingsPull(
       `catalog_updated=${catalogUpdated} specifics_fetched=${specificsFetched}` +
       `${specificsCapped ? ` (capped at ${MAX_SPECIFICS_FETCH_PER_SYNC}; remaining items backfill next sync)` : ""} ` +
       `ended_to_draft=${endedToDraft} photos_mirrored=${photosMirrored} ` +
+      // US-3458: adopted = new items from orphans this pass; linked = orphans
+      // that already had a listing row (crash recovery or a manual link);
+      // held = orphans left for the seller because an item with the same title
+      // exists; deferred = adoptable orphans past the per-pass cap.
+      `orphans_adopted=${orphansAdopted} orphans_linked=${orphansLinked} ` +
+      `orphans_held=${orphansHeld} orphans_deferred=${orphansDeferred} ` +
       `conflicts_recorded=${conflictsRecorded} conflicts_resolved=${conflictsResolved} ` +
       // US-3110: the per-SKU offer fan-out is the largest remaining block of
       // eBay call volume, and "how many of those reads can never be cached"

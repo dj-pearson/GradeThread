@@ -2005,6 +2005,18 @@ export function FlipdeskMarketplacesPage() {
       else toast.error(entry.message);
     };
     if (ebayCode && CALLBACK_MESSAGES[ebayCode]) show(CALLBACK_MESSAGES[ebayCode]);
+    // US-3458: the callback started the first pull server-side, so watch for
+    // it the same way a Sync click does. `before` is whatever this page last
+    // saw; a reconnect resets the server's cursor to null, so the first stamp
+    // after connect always reads as a change and the completion toast fires.
+    if (ebayCode === "connected" && !syncBaseline) {
+      setSyncBaseline({ before: connection?.last_synced_at ?? null });
+      syncToastId.current = toast.loading("Importing your eBay listings…", {
+        description:
+          "Live listings become FlipDesk items automatically. Ones that look like an item you already have wait on Reconciliation.",
+        duration: Infinity,
+      });
+    }
     if (shopifyCode && SHOPIFY_CALLBACK_MESSAGES[shopifyCode]) {
       show(SHOPIFY_CALLBACK_MESSAGES[shopifyCode]);
     }
@@ -2012,7 +2024,9 @@ export function FlipdeskMarketplacesPage() {
     next.delete("ebay");
     next.delete("shopify");
     setParams(next, { replace: true });
-  }, [params, setParams]);
+    // The two extra deps are read only on the `connected` branch above; once
+    // the params are stripped the early return makes every re-run a no-op.
+  }, [params, setParams, connection?.last_synced_at, syncBaseline]);
 
   const syncing = syncListings.isPending || syncBaseline != null;
 

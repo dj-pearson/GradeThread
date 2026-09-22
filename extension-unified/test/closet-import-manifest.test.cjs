@@ -97,7 +97,7 @@ const files = fs
   .readdirSync(path.join(dir, "closet-import"))
   .filter((f) => f.endsWith(".js"))
   .map((f) => path.join("closet-import", f));
-assert.strictEqual(files.length, 3, "expected exactly selectors, extract and content in closet-import/");
+assert.strictEqual(files.length, 4, "expected exactly selectors, extract, content and auto-plan in closet-import/");
 
 // Regexes anchored the way sync-manifest.test.cjs explains: a single `=` for
 // the assignment cases, and no \b anywhere.

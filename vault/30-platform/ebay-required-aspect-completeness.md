@@ -13,11 +13,18 @@ code_refs:
   - src/lib/aspect-provenance.ts
   - src/test/fixtures/required-aspects-cases.json
   - scripts/aspect-demand-cut.mjs
-reviewed: 2026-09-20
+reviewed: 2026-09-22
 tags: [ebay, publishing, aspects, gotcha]
 summary: Publish fills required item specifics the stored override lacks; revise did not, so listings published fine and then failed every later revise.
 ---
 
+> [!note] Re-reviewed 2026-09-22, no change. Drift from US-3458, which touches
+> `flipdesk-ebay.ts`. Read the diff rather than the dates: it is confined to
+> the eBay OAuth callback (now fires the first full pull on connect) and to
+> `doListingsPull`, where unmatched orphans in `flipdesk_ebay_listings` become
+> `inventory_items` plus eBay-originated `listings` rows (`lib/ebay-orphan-adopt.ts`)
+> and both active-listing passes fall back to `platform_listing_id` after the SKU
+> index. Nothing this note owns is in either hunk.
 
 > [!note] Re-reviewed 2026-09-20. Drift from `e7d84ab3a`, which touches
 > ``flipdesk-ebay.ts``. Read the diff rather than the dates: it is confined to

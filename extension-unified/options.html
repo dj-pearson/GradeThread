@@ -96,6 +96,22 @@
 
         <button type="button" class="opt-btn" id="workerOpen">Open the worker tab now</button>
 
+        <!-- US-3459: the closet imports itself. On by default because it only
+             ever reads a closet page the seller navigated to, and only their own. -->
+        <label class="opt-toggle">
+          <input type="checkbox" id="closetAutoImport" />
+          <span>
+            Import my closet automatically when I open it
+            <small>
+              On by default. When you open your own Poshmark, Mercari or
+              Grailed closet while signed in to GradeThread, the extension
+              reads the whole closet and sends your listings to FlipDesk, at
+              most once a day per marketplace. No tab is opened for you, and
+              another seller’s closet is never read.
+            </small>
+          </span>
+        </label>
+
         <label class="opt-field" for="pacingGap">
           <span>
             Gap between cross-posts

@@ -130,7 +130,7 @@ const POSH_ID = "5f1e2d3c4b5a69788796a5b4";
   assert.strictEqual(batch.page, "closet");
   assert.strictEqual(batch.listings.length, 1);
   assert.strictEqual(batch.listings[0].title, "Tee");
-  assert.deepStrictEqual(batch.coverage, { tilesRead: 3, reachedEnd: false }, "a non-boolean reachedEnd under-claims");
+  assert.deepStrictEqual(batch.coverage, { tilesRead: 3, reachedEnd: false, scrollRounds: 0, stoppedBecause: "unknown" }, "a non-boolean reachedEnd under-claims, and an unstated drive reads as unknown");
   assert.deepStrictEqual(Object.keys(batch).sort(), ["coverage", "listings", "page", "platform"]);
   const other = X.buildBatch({ platform: "mercari", page: "weird", rawListings: "nope" });
   assert.strictEqual(other.page, "closet");

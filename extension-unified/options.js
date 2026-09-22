@@ -22,11 +22,23 @@ function flash() {
 
 // ── toggles ─────────────────────────────────────────────────────────────────
 async function initToggles() {
-  const { autoRun, scanMode, selectorTelemetry } = await ext.storage.local.get([
+  const { autoRun, scanMode, selectorTelemetry, closetAutoImport } = await ext.storage.local.get([
     "autoRun",
     "scanMode",
     "selectorTelemetry",
+    "closetAutoImport",
   ]);
+
+  // US-3459. Defaults ON and reads `!== false`, the scanMode rule: switching
+  // it back on removes the key so "default" and "explicitly on" stay one state.
+  const closet = document.getElementById("closetAutoImport");
+  if (closet) {
+    closet.checked = closetAutoImport !== false;
+    closet.addEventListener("change", async () => {
+      if (closet.checked) await ext.storage.local.remove("closetAutoImport");
+      else await ext.storage.local.set({ closetAutoImport: false });
+    });
+  }
 
   const auto = document.getElementById("autoRun");
   auto.checked = Boolean(autoRun);
