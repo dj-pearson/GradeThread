@@ -4,11 +4,10 @@ import { ExternalLink, Loader2, Send } from "lucide-react";
 import { toast } from "sonner";
 import { useQueryClient } from "@tanstack/react-query";
 
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
+import { ChannelPickHead } from "@/components/flipdesk/composer/channel-pick-head";
 import { cn } from "@/lib/utils";
 import { toastError } from "@/lib/toast-error";
 import { type CrossPushPlatform } from "@/lib/constants";
@@ -181,23 +180,16 @@ export function ListOnPanel({
                 r.blocked && "text-muted-foreground",
               )}
             >
-              <label htmlFor={id} className="flex min-w-0 items-center gap-2 text-sm">
-                <Checkbox
-                  id={id}
-                  checked={checked}
-                  disabled={Boolean(r.blocked) || busy}
-                  onCheckedChange={() => togglePushPlatform(r.platform)}
-                />
-                <span className="font-medium whitespace-nowrap">{r.label}</span>
-                <Badge variant="outline" className="text-[10px] whitespace-nowrap">
-                  {r.mechanism === "api" ? "Connected via API" : "Via browser extension"}
-                </Badge>
-                {r.blocked ? (
-                  <span className="text-xs">({r.blocked})</span>
-                ) : word ? (
-                  <span className="text-xs text-muted-foreground">{word}</span>
-                ) : null}
-              </label>
+              <ChannelPickHead
+                id={id}
+                label={r.label}
+                mechanism={r.mechanism}
+                blocked={r.blocked}
+                word={word}
+                checked={checked}
+                disabled={busy}
+                onToggle={() => togglePushPlatform(r.platform)}
+              />
               <span className="flex shrink-0 items-center gap-1.5">
                 {r.status?.url && (
                   <Button variant="outline" size="sm" className="h-7" asChild>

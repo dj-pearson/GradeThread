@@ -442,9 +442,44 @@
       // one a finished row offers (`listingUrl`).
       canRetry: attention && Object.prototype.hasOwnProperty.call(KIND_LABELS, row.kind),
       source: typeof row.source === "string" ? row.source : "",
+      // US-3456: the bulk run this row belongs to, from the payload the server
+      // stamped. A label only; the drain never reads it.
+      batch: row.payload && typeof row.payload.batch === "string" && row.payload.batch.trim()
+        ? row.payload.batch.trim()
+        : null,
       // Kept for retryBody; never rendered.
       _row: row,
     };
+  }
+
+  /**
+   * US-3456: one line per batch label, for the popup's note. "Batch
+   * "Sunday drop": 12 waiting, 1 running, 2 need you." Rows with no label
+   * are not a batch and get no line. Pure.
+   */
+  function batchLines(views) {
+    var by = {};
+    var order = [];
+    for (var i = 0; i < (views || []).length; i++) {
+      var v = views[i];
+      if (!v || !v.batch) continue;
+      if (!by[v.batch]) {
+        by[v.batch] = { waiting: 0, running: 0, attention: 0, review: 0 };
+        order.push(v.batch);
+      }
+      by[v.batch][groupOf(v)]++;
+    }
+    var lines = [];
+    for (var j = 0; j < order.length; j++) {
+      var c = by[order[j]];
+      var parts = [];
+      if (c.waiting) parts.push(c.waiting + " waiting");
+      if (c.running) parts.push(c.running + " running");
+      if (c.attention) parts.push(c.attention + (c.attention === 1 ? " needs you" : " need you"));
+      if (c.review) parts.push(c.review + " ran");
+      lines.push("Batch \u201C" + order[j] + "\u201D: " + parts.join(", ") + ".");
+    }
+    return lines;
   }
 
   /**
@@ -647,6 +682,7 @@
     STAGE_LABELS: STAGE_LABELS,
     stageLabel: stageLabel,
     groupRows: groupRows,
+    batchLines: batchLines,
     retryBody: retryBody,
     PLATFORM_LABELS: PLATFORM_LABELS,
     STATE_LABELS: STATE_LABELS,

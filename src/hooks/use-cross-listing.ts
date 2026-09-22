@@ -65,3 +65,71 @@ export function useCrossPush() {
     },
   });
 }
+
+// US-3456: N items, M channels, one request. eBay goes to the publish batch
+// the page already has (useBulkPublish); this takes the rest.
+export type BulkCrossPushOutcome =
+  | "published"
+  | "queued"
+  | "already_live"
+  | "already_queued"
+  | "no_source"
+  | "not_found"
+  | "blocked";
+
+export interface BulkCrossPushRow {
+  item_id: string;
+  platform: CrossPushPlatform;
+  outcome: BulkCrossPushOutcome;
+  listing_row_id: string | null;
+  listing_url: string | null;
+  error: string | null;
+}
+
+export interface BulkCrossPushSummary {
+  rows: number;
+  published: number;
+  queued: number;
+  skipped: number;
+  noSource: number;
+  notFound: number;
+  blocked: number;
+}
+
+export interface BulkCrossPushResponse {
+  ok: boolean;
+  batch_label: string | null;
+  dropped_items: number;
+  summary: BulkCrossPushSummary;
+  rows: BulkCrossPushRow[];
+}
+
+export interface BulkCrossPushInput {
+  itemIds: string[];
+  platforms: CrossPushPlatform[];
+  prices?: Partial<Record<CrossPushPlatform, number>>;
+  batchLabel?: string | null;
+}
+
+export function useCrossPushBulk() {
+  const qc = useQueryClient();
+  return useMutation<BulkCrossPushResponse, Error, BulkCrossPushInput>({
+    mutationFn: async ({ itemIds, platforms, prices, batchLabel }) => {
+      const res = await edgeFetch("/api/flipdesk/listings/cross-push-bulk", {
+        method: "POST",
+        json: { item_ids: itemIds, platforms, prices, batch_label: batchLabel ?? null },
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error((json as { error?: string }).error || "Bulk cross-listing failed.");
+      }
+      return json as BulkCrossPushResponse;
+    },
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["items_full"] });
+      void qc.invalidateQueries({ queryKey: ["item_listing_platforms"] });
+      void qc.invalidateQueries({ queryKey: ["extension_queue"] });
+      void qc.invalidateQueries({ queryKey: ["listing"] });
+    },
+  });
+}

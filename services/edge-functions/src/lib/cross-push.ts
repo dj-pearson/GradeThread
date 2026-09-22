@@ -69,6 +69,12 @@ export interface CrossPushInput {
   explicitPrice?: number | null;
   /** Per-marketplace AI variant (US-721), or undefined to copy the draft. */
   variant?: StoredPlatformVariant;
+  /**
+   * US-3456: the bulk run this push belongs to, carried on the queue row's
+   * payload so the extension can show forty jobs as one batch. Never a
+   * credential and never read by the drain; a label only.
+   */
+  batchLabel?: string | null;
 }
 
 export interface CrossPushOutcome {
@@ -166,7 +172,7 @@ export async function ensureCrossListingGroup(
 export async function crossPushPlatform(
   input: CrossPushInput,
 ): Promise<CrossPushOutcome> {
-  const { ownerId, draft, groupId, platform, price, explicitPrice, variant } = input;
+  const { ownerId, draft, groupId, platform, price, explicitPrice, variant, batchLabel } = input;
 
   // US-708: resolve the adapter from the platform via the registry. An unknown
   // platform yields a typed 501 rather than silently falling through to eBay.
@@ -402,7 +408,9 @@ export async function crossPushPlatform(
       platform,
       inventory_item_id: draft.inventory_item_id,
       listing_id: rowId,
-      payload: {},
+      // US-3456: the batch label rides the payload so the queue can group
+      // the run. An empty payload is what a single push sends.
+      payload: batchLabel ? { batch: batchLabel } : {},
       source: "cross_push",
     });
     if (!enqueued.ok) {
