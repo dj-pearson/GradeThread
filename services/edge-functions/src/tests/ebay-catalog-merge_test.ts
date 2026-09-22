@@ -276,19 +276,19 @@ Deno.test("US-3468: the adoption default 'clothing' is replaced by what eBay's b
   assertEquals(blank.item_category, "shoes");
 });
 
-Deno.test("US-3468: a chosen vertical, an 'other' answer, or no answer never moves the row", () => {
+Deno.test("US-3468: a chosen vertical or no answer never moves the row; 'other' moves a default", () => {
   // Chosen (anything but the default) stays.
   const chosen = buildCatalogPatch(
     { ...EMPTY, item_category: "collectibles" },
     { title: null, specifics: {}, itemCategory: "sports_cards" },
   );
   assertEquals("item_category" in chosen, false);
-  // "other" is not specific enough to overwrite a default.
+  // "other" is a read breadcrumb naming a non-garment root: the default moves.
   const other = buildCatalogPatch(
     { ...EMPTY, item_category: "clothing" },
     { title: null, specifics: {}, itemCategory: "other" },
   );
-  assertEquals("item_category" in other, false);
+  assertEquals(other.item_category, "other");
   // Same as the default: nothing to write.
   const same = buildCatalogPatch(
     { ...EMPTY, item_category: "clothing" },

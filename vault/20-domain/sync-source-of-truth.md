@@ -310,12 +310,16 @@ The rule now:
   bounded by the same 14-day `ebay_specifics_checked_at` stamp as the columns.
 - **The vertical follows eBay's breadcrumb** (`item_category`, via
   `itemCategoryFromEbayPath` in `services/edge-functions/src/lib/ebay-item-category.ts`).
-  An adopted orphan is filed under what the breadcrumb implies (a Trading Card
-  Singles listing is `sports_cards`, Men's Shoes is `shoes`), "clothing" only when
-  there is no breadcrumb to read. On a matched eBay-originated item the pull
-  replaces `item_category` only when it still holds the adoption default
-  "clothing" AND the breadcrumb implies a specific vertical: any other value was
-  chosen and stays, and "other" is never written over a default. The breadcrumb
+  Every eBay US top-level category has a home (`EBAY_ROOT_CATEGORIES`, 35 roots):
+  the ones that are a GradeThread vertical map to it, the ones that split across
+  several (Clothing, Shoes & Accessories; Jewelry & Watches; Sporting Goods; Sports
+  Mem; Baby; Travel; eBay Motors) are read by segment, and the ones GradeThread does
+  not model (Home & Garden, Health & Beauty, Music, Pet Supplies, ...) map to
+  "other". An adopted orphan is filed under that answer, "clothing" only when there
+  is no breadcrumb to read. On a matched eBay-originated item the pull replaces
+  `item_category` only when it still holds the adoption default "clothing": any
+  other value was chosen and stays. "other" does move a default, because a read
+  breadcrumb naming a non-garment root is still not a garment. The breadcrumb
   comes free from GetItem (`PrimaryCategory.CategoryName`) and is otherwise
   resolved by id through `getCategoryName`'s shared cache, once per category per run.
 - **Provenance is left unset** for pulled aspects. `ebay_aspect_sources` has no

@@ -269,17 +269,16 @@ export function buildCatalogPatch(
     patch.ebay_category_id = categoryId;
   }
 
-  // Vertical: replace the adoption default with what eBay's breadcrumb says,
-  // but only with a SPECIFIC vertical. "other" means the path names something
-  // GradeThread does not model, which is not a reason to move a row a seller
-  // may have filed as clothing on purpose. Blank never happens (NOT NULL
-  // DEFAULT 'clothing') but is treated the same as the default.
+  // Vertical: replace the adoption default with what eBay's breadcrumb says.
+  // "other" counts: it means the breadcrumb was read and names something
+  // GradeThread does not model (Home & Garden, Music), which is still not a
+  // garment, and the default was never a decision. Blank never happens
+  // (NOT NULL DEFAULT 'clothing') but is treated the same as the default.
   const impliedCategory = ebay.itemCategory ?? null;
   const localCategory = (local.item_category ?? "").trim();
   if (
     impliedCategory &&
     impliedCategory !== ADOPTION_DEFAULT_ITEM_CATEGORY &&
-    impliedCategory !== "other" &&
     (localCategory === "" || localCategory === ADOPTION_DEFAULT_ITEM_CATEGORY)
   ) {
     patch.item_category = impliedCategory;
