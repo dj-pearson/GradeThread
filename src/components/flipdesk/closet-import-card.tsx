@@ -184,8 +184,9 @@ export function ClosetImportCard({ disabled, onStarted }: Props) {
         </CardTitle>
         <CardDescription>
           Bring the listings you already have on {platformNames} into FlipDesk
-          without retyping them. Open your own closet in another tab, scroll so
-          your listings are on screen, then press Import here. Without a
+          without retyping them. Open your own closet in another tab: the
+          extension reads the whole closet on its own the first time you open it
+          each day, and the button below reads it again right now. Without a
           FlipDesk plan the first {FREE_CLOSET_IMPORT_ROWS} listings of a read
           come in, up to what your plan has room for; a FlipDesk plan takes the
           rest.

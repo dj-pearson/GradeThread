@@ -135,15 +135,109 @@
     return out;
   }
 
+  // ── US-3459: read the WHOLE closet, not the part on screen ─────────────
+  //
+  // Poshmark and Grailed closets are infinite scroll: the page holds ~48 tiles
+  // until the seller scrolls, and the first cut of this reader read exactly
+  // those. "Scroll to the bottom first" was in the card's copy and nobody did
+  // it, so a 300-listing closet came in as 48. The reader now drives the page
+  // to its end itself, on request, before it reads.
+  //
+  // Still passive in the sense the manifest guard holds: no tab is opened, no
+  // navigation happens, nothing polls (setTimeout between rounds, never
+  // setInterval) and nothing observes the page on its own. Scrolling a page the
+  // seller opened, in answer to a read they asked for, is the reader doing its
+  // one job properly. Bounded four ways so a broken page cannot hold the tab.
+  const TUNING = (self.GT_CLOSET_IMPORT_TUNING && typeof self.GT_CLOSET_IMPORT_TUNING === "object")
+    ? self.GT_CLOSET_IMPORT_TUNING
+    : {};
+  /** Rounds of scroll-then-wait before giving up on growth. */
+  const SCROLL_MAX_ROUNDS = Number(TUNING.maxRounds) > 0 ? Number(TUNING.maxRounds) : 80;
+  /** Consecutive rounds that added no tile before the closet counts as settled. */
+  const SCROLL_QUIET_ROUNDS = Number(TUNING.quietRounds) > 0 ? Number(TUNING.quietRounds) : 3;
+  /** How long a round waits for the page to append tiles. */
+  const SCROLL_SETTLE_MS = Number(TUNING.settleMs) > 0 ? Number(TUNING.settleMs) : 700;
+  /** Hard wall-clock cap on the whole drive. */
+  const SCROLL_TIME_CAP_MS = Number(TUNING.timeCapMs) > 0 ? Number(TUNING.timeCapMs) : 60 * 1000;
+  /** Mirrors the server's MAX_CLOSET_IMPORT_ROWS; tiles past it are not sent. */
+  const SCROLL_ROW_CAP = Number(TUNING.rowCap) > 0 ? Number(TUNING.rowCap) : 2000;
+
+  function countTiles(flow) {
+    try {
+      return document.querySelectorAll(flow.tile).length;
+    } catch (_e) {
+      return 0;
+    }
+  }
+
+  function endMarkerPresent(flow) {
+    try {
+      const marker = flow.pagination && flow.pagination.endMarker;
+      return Boolean(marker && document.querySelector(marker));
+    } catch (_e) {
+      return false;
+    }
+  }
+
+  function scrollToBottom() {
+    try {
+      const w = typeof window !== "undefined" ? window : null;
+      if (!w || typeof w.scrollTo !== "function") return;
+      const de = document.documentElement;
+      const height = Math.max(
+        (de && de.scrollHeight) || 0,
+        (document.body && document.body.scrollHeight) || 0,
+      );
+      w.scrollTo(0, height);
+    } catch (_e) { /* a page that refuses to scroll simply settles */ }
+  }
+
+  function wait(ms) {
+    return new Promise(function (resolve) { setTimeout(resolve, ms); });
+  }
+
+  /**
+   * Scroll until the closet stops growing. Returns how the drive ended so the
+   * batch can say whether "reachedEnd" means the marker was seen or the page
+   * simply stopped producing tiles.
+   */
+  async function driveToEnd(flow) {
+    const startedAt = Date.now();
+    let rounds = 0;
+    let quiet = 0;
+    let last = countTiles(flow);
+    while (rounds < SCROLL_MAX_ROUNDS) {
+      if (endMarkerPresent(flow)) return { rounds: rounds, stoppedBecause: "end_marker" };
+      if (last >= SCROLL_ROW_CAP) return { rounds: rounds, stoppedBecause: "row_cap" };
+      if (Date.now() - startedAt > SCROLL_TIME_CAP_MS) return { rounds: rounds, stoppedBecause: "time_cap" };
+      scrollToBottom();
+      rounds += 1;
+      await wait(SCROLL_SETTLE_MS);
+      const now = countTiles(flow);
+      if (now > last) {
+        last = now;
+        quiet = 0;
+      } else {
+        quiet += 1;
+        if (quiet >= SCROLL_QUIET_ROUNDS) {
+          return { rounds: rounds, stoppedBecause: endMarkerPresent(flow) ? "end_marker" : "settled" };
+        }
+      }
+    }
+    return { rounds: rounds, stoppedBecause: endMarkerPresent(flow) ? "end_marker" : "round_cap" };
+  }
+
   /**
    * Read the closet, tile by tile. RAW CELLS only; extract.js parses them.
    *
    * Sold tiles are skipped: a sold listing is not live and would count against
    * the seller's active-listing cap as if it were.
    */
-  function readCloset() {
+  async function readCloset() {
     const flow = cfg.closet;
     if (!present(flow.ownClosetTell)) return { ok: false, reason: "not_own_closet" };
+
+    const drive = await driveToEnd(flow);
 
     let tiles = [];
     try {
@@ -174,18 +268,19 @@
     }
     if (rows.length === 0 && sold === 0) return { ok: false, reason: "nothing_read" };
 
-    let reachedEnd = false;
-    try {
-      const marker = flow.pagination && flow.pagination.endMarker;
-      reachedEnd = Boolean(marker && document.querySelector(marker));
-    } catch (_e) {
-      reachedEnd = false;
-    }
+    // The end was reached when the marker showed OR the page stopped producing
+    // tiles. A cap (rows, rounds, time) is NOT the end, and says so.
+    const reachedEnd = drive.stoppedBecause === "end_marker" || drive.stoppedBecause === "settled";
     return {
       ok: true,
       page: "closet",
-      rows: rows,
-      coverage: { tilesRead: tiles.length, reachedEnd: reachedEnd },
+      rows: rows.slice(0, SCROLL_ROW_CAP),
+      coverage: {
+        tilesRead: tiles.length,
+        reachedEnd: reachedEnd,
+        scrollRounds: drive.rounds,
+        stoppedBecause: drive.stoppedBecause,
+      },
     };
   }
 
@@ -209,14 +304,14 @@
   }
 
   /** The read, as the background asked for it. Decides nothing; reports honestly. */
-  function read() {
+  async function read() {
     if (isHumanCheck()) return { ok: false, reason: "human_check" };
     const onCloset = matches(cfg.closet && cfg.closet.urlPattern);
     const onDetail = !onCloset && matches(cfg.detail && cfg.detail.urlPattern);
     if (!onCloset && !onDetail) return { ok: false, reason: "wrong_page" };
     if (isLoginWall()) return { ok: false, reason: "not_signed_in" };
 
-    const got = onCloset ? readCloset() : readDetail();
+    const got = onCloset ? await readCloset() : readDetail();
     if (!got.ok) return got;
     const batch = EXTRACT.buildBatch({
       platform: PLATFORM,
@@ -232,12 +327,13 @@
   try {
     ext.runtime.onMessage.addListener(function (msg, _sender, sendResponse) {
       if (!msg || msg.type !== "GT_CLOSET_IMPORT_READ") return undefined;
-      try {
-        sendResponse(read());
-      } catch (_e) {
-        sendResponse({ ok: false, reason: "nothing_read" });
-      }
-      return undefined;
+      // US-3459: the closet read scrolls first, so the answer is asynchronous.
+      // Returning true keeps the channel open until sendResponse is called.
+      read().then(
+        function (out) { sendResponse(out); },
+        function () { sendResponse({ ok: false, reason: "nothing_read" }); },
+      );
+      return true;
     });
   } catch (_e) { /* no runtime messaging in this context */ }
 })();

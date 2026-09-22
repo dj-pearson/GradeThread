@@ -173,7 +173,7 @@ export function closetImportDisclosureFor(
   return {
     title: `Reads your ${label} closet in your own tab`,
     facts: [
-      `Open your own ${label} closet in another tab first. The extension reads the listings on that page when you press Import, and only then. Nothing runs on a schedule and no tab is opened for you.`,
+      `Open your own ${label} closet in your browser. The extension scrolls to the end of the closet and reads every listing, on its own when you open the closet (at most once a day) or when you press Import here. Nothing runs on a schedule and no tab is opened for you.`,
       `It runs in the ${label} tab you are already signed in to. GradeThread's servers never receive your ${label} password or session, and the extension has no permission to read a cookie.`,
       `Per listing it reads the title, description, price, size, brand, your stated condition, the photos and the listing address. It cannot read a buyer's name or address; the field list is fixed in code and the server refuses anything else.`,
       `Photos are copied into your GradeThread storage, never linked from ${label}. Every imported listing counts as a live listing on your plan, the same as a pulled eBay listing.`,

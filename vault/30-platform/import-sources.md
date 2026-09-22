@@ -74,7 +74,15 @@ the list.
   takes `extensionOrUserAuthMiddleware` rather than the ordinary session
   middleware. The refusal that matters here is the owner-only check: an
   adapter reads a shop page only when it can prove the page is the seller's
-  own.
+  own. Since US-3459 (2026-09-22) the read is the WHOLE closet, not the tiles
+  on screen: `closet-import/content.js` scrolls the page to its end in bounded
+  rounds before reading, and `coverage.stoppedBecause` says whether it saw the
+  end marker, the page settled, or a cap (rows, rounds, time) cut it short. And
+  it runs on its own: `background.js` watches `tabs.onUpdated` for the seller
+  landing on their own closet URL and runs the same read-and-post, at most
+  once a day per marketplace, switchable off in the extension's Options
+  (`closet-import/auto-plan.js` holds the decision). Still no tab opened for
+  them, still nothing on a timer, still the owner tell deciding the read.
 - **No third-party auth.** CSV, paste, and the phone capture token. The
   spreadsheet ones carry nothing to steal. The capture token is the whole
   credential on a public route, so it is 32 random bytes, stored hashed, bound

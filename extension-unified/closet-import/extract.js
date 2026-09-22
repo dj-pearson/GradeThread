@@ -250,6 +250,13 @@
       coverage: {
         tilesRead: typeof cov.tilesRead === "number" && cov.tilesRead >= 0 ? Math.floor(cov.tilesRead) : listings.length,
         reachedEnd: cov.reachedEnd === true,
+        // US-3459: how the scroll drive ended, so "reachedEnd: false" can be
+        // told apart by cause (a cap, not the seller's closet). Coerced to the
+        // closed set the reader emits; anything else reads as unknown.
+        scrollRounds: typeof cov.scrollRounds === "number" && cov.scrollRounds >= 0 ? Math.floor(cov.scrollRounds) : 0,
+        stoppedBecause: ["end_marker", "settled", "row_cap", "time_cap", "round_cap"].indexOf(cov.stoppedBecause) >= 0
+          ? cov.stoppedBecause
+          : "unknown",
       },
     };
   }
