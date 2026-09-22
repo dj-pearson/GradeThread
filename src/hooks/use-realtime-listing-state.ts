@@ -1,5 +1,6 @@
 import { useEffect } from "react";
 import { useQueryClient } from "@tanstack/react-query";
+import { toast } from "sonner";
 import { supabase } from "@/lib/supabase";
 import { useWorkspace } from "@/hooks/use-workspace";
 
@@ -33,15 +34,20 @@ import { useWorkspace } from "@/hooks/use-workspace";
  *
  * WHAT ACTUALLY FIRES TODAY — checked, not assumed:
  *
- *   • `low_stock` is the ONLY live signal. inventory-monitor's notifyStockLevel
+ *   • `low_stock` is one live signal. inventory-monitor's notifyStockLevel
  *     runs during the eBay sync pull as quantities cross DOWN, so a
  *     one-of-a-kind garment selling goes quantity 1 → 0 → stockout → notify.
  *     That is precisely the case this story is about, and it lands at the same
  *     moment the synced listing data does.
  *
- *   • `sale_recorded`, `listing_live`, `item_status_change` and
- *     `return_requested` are declared in the edge's NotificationType union but
- *     NOTHING EMITS THEM as notifications. `sale_recorded` in particular is
+ *   • `listing_live` IS emitted, corrected 2026-09-22: notifyExtensionListed
+ *     (selling-activity-notify.ts) sends it when an extension cross-post is
+ *     recorded as listed, including the listed-confirm the extension posts once
+ *     the marketplace tab reaches the live listing page.
+ *
+ *   • `sale_recorded`, `item_status_change` and `return_requested` are
+ *     declared in the edge's NotificationType union but NOTHING EMITS THEM as
+ *     notifications. `sale_recorded` in particular is
  *     emitted via emitEvent(), which writes to `user_events` — a different
  *     table that is not in the supabase_realtime publication and never reaches
  *     this subscription.
@@ -54,15 +60,17 @@ import { useWorkspace } from "@/hooks/use-workspace";
 const LISTING_STATE_TYPES: ReadonlySet<string> = new Set([
   // Live today.
   "low_stock",
+  "listing_live",
   // Declared but unemitted — see above.
   "sale_recorded",
-  "listing_live",
   "item_status_change",
   "return_requested",
 ]);
 
 interface NotificationRow {
   type?: string | null;
+  title?: string | null;
+  message?: string | null;
 }
 
 /**
@@ -104,6 +112,19 @@ export function useRealtimeListingState() {
           queryClient.invalidateQueries({ queryKey: ["item_listing_platforms"] });
           queryClient.invalidateQueries({ queryKey: ["item_listing_metrics"] });
           queryClient.invalidateQueries({ queryKey: ["item_listing_quality"] });
+          // 2026-09-22: the item's OWN listing rows and the extension queue.
+          // A cross-post the extension saw go live (listed-confirm, which emits
+          // listing_live) changed exactly these, and without them the item page
+          // kept showing Poshmark as unlisted until a reload. Prefix keys, so
+          // every item's entry is covered without knowing which item it was.
+          queryClient.invalidateQueries({ queryKey: ["item_listings"] });
+          queryClient.invalidateQueries({ queryKey: ["extension_queue"] });
+
+          // Say it on screen, too. "Listed on Poshmark" otherwise waits in the
+          // bell, and the seller who just pressed List is looking at the page.
+          if (row.type === "listing_live" && row.title) {
+            toast.success(row.title, row.message ? { description: row.message } : undefined);
+          }
         },
       )
       .subscribe();

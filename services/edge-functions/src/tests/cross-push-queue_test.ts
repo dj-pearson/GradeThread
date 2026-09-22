@@ -41,7 +41,7 @@ Deno.test("US-3213: the web's extension channels are all covered", () => {
   // The composer offers these five in its Push to card. Each one must reach the
   // queue branch, or selecting it does nothing a seller can see.
   for (
-    const platform of ["poshmark", "mercari", "grailed", "vinted", "facebook"]
+    const platform of ["poshmark", "mercari", "grailed", "vinted", "facebook", "depop"]
   ) {
     assert(
       EXTENSION_DELIST_PLATFORMS.has(platform),

@@ -83,6 +83,10 @@ const MARKETPLACE_DISCLOSURE_NOTE: Partial<
   // that BEFORE they cross-list rather than after something sells.
   vinted:
     "Vinted is EU-first. The flow runs on the country domains the extension covers and reports “list manually” on any other rather than guessing at a form it has not seen. Crosslist does not serve EU customers at all. Vinted listings have to be ended by hand for now — when an item sells somewhere else GradeThread flags the Vinted copy and reminds you, but it cannot close it for you yet.",
+  // US-3462: same shape as Vinted. Listing is on, delisting is not yet, and
+  // Depop has no title field, which changes what the seller sees on the form.
+  depop:
+    "Depop has no title field, so the extension puts your title on the first line of the description. You pick the category, brand, condition and size yourself. Depop listings have to be ended by hand for now: when an item sells somewhere else GradeThread flags the Depop copy and reminds you, but it cannot close it for you yet.",
   // US-2480: Meta's terms are stricter than the generic case and Marketplace
   // form churn is the highest of any channel we support.
   facebook:

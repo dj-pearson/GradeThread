@@ -51,8 +51,12 @@ function fail(text: string): McpToolResult {
  */
 export const QUEUE_TOOL_PLATFORMS = [...EXTENSION_DELIST_PLATFORMS].sort();
 
-/** Items a single call may queue. Deliberately well under MAX_QUEUE_DEPTH. */
-export const MAX_QUEUE_TOOL_ITEMS = 12;
+/**
+ * Items a single call may queue. Items times channels must fit MAX_QUEUE_DEPTH
+ * (60), or one legal call is refused row by row halfway through. Was 12 with
+ * five channels; Depop made six (US-3462), and 12 x 6 = 72.
+ */
+export const MAX_QUEUE_TOOL_ITEMS = 10;
 
 export interface QueueToolRequest {
   kind: string;
@@ -328,7 +332,7 @@ export const queueExtensionWorkTool: McpToolDefinition = {
     "Queue listing, delisting, revising or relisting work for the marketplaces that have no write " +
     "API, so the seller's own browser runs it next time they open it with the GradeThread " +
     "extension installed. Call this when a seller asks to list, delist, revise or relist " +
-    "specific items on Poshmark, Mercari, Grailed, Vinted or Facebook. It does NOT put anything " +
+    "specific items on Poshmark, Mercari, Grailed, Vinted, Depop or Facebook. It does NOT put anything " +
     "live: the work waits for their desktop. It takes two calls — preview names every item and " +
     "channel and returns a confirm_token, confirm queues them. Never confirm without showing the " +
     "seller the preview and getting a yes.",

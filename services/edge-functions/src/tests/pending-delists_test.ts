@@ -135,11 +135,12 @@ Deno.test("a null item_title survives as null, not the string 'null'", () => {
 });
 
 Deno.test("only the API-less platforms are in the extension delist set", async () => {
-  // eBay/Shopify/Depop/Etsy are ended via their own APIs by autoEndCrossListings
+  // eBay/Shopify/Etsy are ended via their own APIs by autoEndCrossListings
   // (Etsy as of US-2164) — if one leaked into this list the popup would ask the
-  // seller to hand-end a listing the server already closed.
+  // seller to hand-end a listing the server already closed. Depop left this
+  // list in US-3462: its API never opened, so the extension ends it.
   const { API_DELIST_PLATFORMS } = await import("./_fixtures/api-delist.ts")
-    .catch(() => ({ API_DELIST_PLATFORMS: ["ebay", "shopify", "depop", "etsy"] }));
+    .catch(() => ({ API_DELIST_PLATFORMS: ["ebay", "shopify", "etsy"] }));
   for (const p of API_DELIST_PLATFORMS) {
     assertEquals(
       EXTENSION_DELIST_PLATFORMS.includes(p),

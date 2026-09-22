@@ -21,8 +21,9 @@ import {
   closetImportPlatformSentence,
 } from "@/lib/marketplace-disclosure";
 
-// Platforms the extension automates (no write API). Depop is excluded — it has
-// a partner API path (US-712..714), not the extension path.
+// Platforms the extension automates (no write API we can use). Depop joined in
+// US-3462: its partner API is real and the connector is built (US-712..714),
+// but Depop never granted access, so the extension is how it is reached.
 export const LISTER_EXTENSION_PLATFORMS = [
   "poshmark",
   "mercari",
@@ -35,6 +36,7 @@ export const LISTER_EXTENSION_PLATFORMS = [
   // cross-listing-sale.ts; lister-extension.test.ts asserts the pair.
   "vinted",
   "facebook",
+  "depop",
 ] as const satisfies readonly MarketplacePlatform[];
 
 export type ListerPlatform = (typeof LISTER_EXTENSION_PLATFORMS)[number];
@@ -59,6 +61,7 @@ const NEW_LISTING_URL: Record<ListerPlatform, string> = {
   // looks the real URL up in its own map.
   vinted: "https://www.vinted.com/items/new",
   facebook: "https://www.facebook.com/marketplace/create/item",
+  depop: "https://www.depop.com/products/create/",
 };
 
 export interface ListerPayload {
@@ -74,6 +77,8 @@ export interface ListerPayload {
   color: string;
   size: string;
   category: string;
+  /** US-3210: Women / Men / Kids for Poshmark's category picker. Empty when unknown. */
+  department: string;
   condition: string;
   tags: string[];
   photoUrls: string[];
@@ -425,6 +430,8 @@ export function buildListerPayload(opts: {
     color: v.color ?? "",
     size: v.size ?? "",
     category: v.category ?? "",
+    // US-3210: the department Poshmark's category picker opens on.
+    department: v.categoryDepartment ?? "",
     condition: v.condition?.label ?? "",
     tags: v.tags ?? [],
     photoUrls: ordered.map((p) => p.photo_url),

@@ -109,8 +109,9 @@ export interface ExtensionWritebackBody {
 // been recorded, leaving the seller with a live Vinted listing FlipDesk did not
 // know about. That is the same class of silent gap as an unrecorded delist.
 //
-// Facebook stays out until its selectors flow is enabled.
-const EXTENSION_PLATFORMS = ["poshmark", "mercari", "grailed", "vinted"] as const;
+// Facebook stays out until its selectors flow is enabled. Depop joined with its
+// go-live (US-3462), for the same reason Vinted did.
+const EXTENSION_PLATFORMS = ["poshmark", "mercari", "grailed", "vinted", "depop"] as const;
 type ExtensionPlatform = (typeof EXTENSION_PLATFORMS)[number];
 function isExtensionPlatform(p: string): p is ExtensionPlatform {
   return (EXTENSION_PLATFORMS as readonly string[]).includes(p);

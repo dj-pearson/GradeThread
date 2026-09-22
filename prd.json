@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-3462",
+  "nextId": "US-3464",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -4535,6 +4535,37 @@
       "dependsOn": [
         "US-2480",
         "US-3459"
+      ]
+    },
+    {
+      "id": "US-3462",
+      "passes": false,
+      "title": "Depop cross-listing through the browser extension",
+      "description": "Depop's partner API never granted access (two applications, no reply; eBay bought Depop 2026-07-30). Reach Depop the way Vinted and Grailed are reached: the Lister extension fills the seller's own sell form. The API connector (US-713/714) stays dormant behind DEPOP_ENABLED.",
+      "acceptanceCriteria": [
+        "extension-unified/lister/depop.js + a depop block in selectors.js, list flow enabled and verified against the live form (description, price, photos)",
+        "Depop has no title field: the title leads the description, cut to 1000 chars on a word boundary",
+        "MARKETPLACE_MECHANISM and MARKETPLACE_TIER say extension for depop; removed from API_CROSS_LISTING_PLATFORMS; added to EXTENSION_CROSS_LISTING_PLATFORMS and LISTER_EXTENSION_PLATFORMS",
+        "Edge: depop in EXTENSION_DELIST_PLATFORMS and removed from API_DELIST, so a sale elsewhere queues a Depop delist instead of calling a dead API; writeback accepts depop",
+        "iOS and Android extension-channel lists include depop",
+        "Delist and revise flows declared but OFF until checked on an owned live Depop listing"
+      ],
+      "priority": 20
+    },
+    {
+      "id": "US-3463",
+      "passes": false,
+      "title": "[OPERATOR] Verify Depop delist on a real owned listing, then switch it on",
+      "description": "US-3462 shipped Depop listing through the extension with delist and revise OFF: the account used to verify had no live Depop listing, so the owner's controls could not be seen. Until delist is on, an item that sells elsewhere leaves a Depop pending-delist reminder the seller ends by hand. Also check whether Depop confirms a delete with a native browser dialog (the Grailed wall) before writing the flow.",
+      "acceptanceCriteria": [
+        "With one live Depop listing on the account, run the popup's Check selectors on that listing page and paste the delist report",
+        "Click Delete by hand once and record whether the confirm is an in-page modal or a native browser dialog; a native dialog means delist stays off permanently, as with Grailed",
+        "If in-page: fix menu/remove/confirm selectors, set delist.enabled true + lastVerified, and MARKETPLACE_EXTENSION_FLOWS.depop.delist to live in the same commit",
+        "Optional in the same pass: drive the Category, Condition and Size comboboxes (Downshift, #<name>-menu listbox) so the seller does not pick them by hand"
+      ],
+      "priority": 21,
+      "dependsOn": [
+        "US-3462"
       ]
     }
   ]

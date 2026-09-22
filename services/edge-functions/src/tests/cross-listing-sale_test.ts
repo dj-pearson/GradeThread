@@ -31,7 +31,7 @@ Deno.test("a sale on eBay delists the Shopify mirror (AC4)", () => {
   assertEquals(oversold, []);
 });
 
-Deno.test("delists live siblings across all three API marketplaces", () => {
+Deno.test("delists live siblings across API and extension marketplaces", () => {
   const siblings: Sib[] = [
     { id: "sold", platform: "ebay", listing_status: "sold" },
     { id: "shop", platform: "shopify", listing_status: "active" },
@@ -72,7 +72,10 @@ Deno.test("the just-sold listing and already-ended siblings are ignored", () => 
 Deno.test("delistMethodFor maps each platform to its delist channel", () => {
   assertEquals(delistMethodFor("ebay"), "ebay_api");
   assertEquals(delistMethodFor("shopify"), "shopify_api");
-  assertEquals(delistMethodFor("depop"), "depop_api");
+  // US-3462: Depop's partner API never opened, so its listings come from the
+  // extension and are ended by it. "depop_api" stays a DelistMethod for the
+  // day the API opens, but nothing routes to it.
+  assertEquals(delistMethodFor("depop"), "extension");
   // US-2164: Etsy has a real delist API (setEtsyListingState → 'inactive'). It
   // used to resolve to 'unsupported', which meant a sibling sale marked the
   // local row ended while the Etsy listing stayed live and purchasable.

@@ -363,7 +363,7 @@ export const TRIAL_DAYS = 14;
 // Human label for a plan's marketplace cap (number of live API connections a
 // tier may open). The Free tier is capped at 1, which is eBay-only, so a cap of
 // 1 reads as "eBay" rather than an ambiguous bare "1". Paid tiers use -1 → "All"
-// (eBay + Shopify today, Depop once approved; the Lister extension channels
+// (eBay + Shopify today, Etsy once approved; the Lister extension channels
 // don't consume a cap). See MARKETPLACE_TIER for the per-channel capability.
 export function formatMarketplacesCap(cap: number): string {
   if (cap === -1) return "All";
@@ -1710,9 +1710,10 @@ export type CrossListingPlatform = (typeof CROSS_LISTING_PLATFORMS)[number];
 
 // US-717: how each marketplace is actually reached. The composer + Marketplaces
 // UI read this so a channel is never advertised as a clean API when it isn't.
-//   "api"       — server-side connector (OAuth + write API): eBay/Shopify/Depop.
+//   "api"       — server-side connector (OAuth + write API): eBay/Shopify/Etsy.
 //   "extension" — the GradeThread Lister browser extension (US-716), which lists
-//                 from the seller's OWN logged-in tab: Poshmark/Mercari/Grailed.
+//                 from the seller's OWN logged-in tab: Poshmark/Mercari/Grailed/
+//                 Vinted/Facebook/Depop.
 //   "none"      — no integration yet (manual only).
 export type MarketplaceMechanism = "api" | "extension" | "none";
 export const MARKETPLACE_MECHANISM: Record<
@@ -1721,7 +1722,12 @@ export const MARKETPLACE_MECHANISM: Record<
 > = {
   ebay: "api",
   shopify: "api",
-  depop: "api",
+  // US-3462: was "api". The partner API is real and the connector is built,
+  // but Depop never granted access (two applications, no reply; eBay bought
+  // Depop on 2026-07-30 and has said nothing about outside access). The
+  // connector stays behind DEPOP_ENABLED; sellers reach Depop through the
+  // extension like every competitor does.
+  depop: "extension",
   etsy: "api",
   // US-2327: was "api", which was the boldest claim in this file and the least
   // supported. Every method on the Whatnot adapter is notImplemented, and
@@ -1748,13 +1754,14 @@ export const MARKETPLACE_MECHANISM: Record<
 // the integration that actually ships at launch.
 //   "api"         — live server-side connector you can connect today: eBay, Shopify.
 //   "api_pending" — a real API connector is built but the channel is awaiting
-//                   platform approval, so there's NO connect flow yet: Depop
-//                   (US-713/714, gated behind DEPOP_ENABLED until approved).
+//                   platform approval, so there's NO connect flow yet: Etsy.
+//                   (Depop sat here until US-3462 moved it to the extension.)
 //   "extension"   — lists from the seller's own logged-in tab via the GradeThread
-//                   Lister browser extension (US-716): Poshmark/Mercari/Grailed.
+//                   Lister browser extension (US-716): Poshmark/Mercari/Grailed/
+//                   Vinted/Facebook/Depop.
 //   "coming_soon" — no integration of any kind yet.
 // Mechanism (api vs extension) answers "how is it reached"; tier answers
-// "what can the seller honestly do right now". Depop is mechanism=api but
+// "what can the seller honestly do right now". Etsy is mechanism=api but
 // tier=api_pending until approved.
 export type MarketplaceTier = "api" | "api_pending" | "extension" | "coming_soon";
 export const MARKETPLACE_TIER: Record<
@@ -1763,7 +1770,8 @@ export const MARKETPLACE_TIER: Record<
 > = {
   ebay: "api",
   shopify: "api",
-  depop: "api_pending",
+  // US-3462: moved from api_pending with MARKETPLACE_MECHANISM above.
+  depop: "extension",
   etsy: "api_pending",
   // US-2327: demoted from api_pending. "Pending" implies an integration
   // awaiting approval; Whatnot's is entirely unimplemented against an API
@@ -1823,6 +1831,10 @@ export const MARKETPLACE_EXTENSION_FLOW: Record<
   // so — same honest badge as Grailed, for a different reason (Grailed's wall is
   // permanent, Vinted's is an unfinished check).
   vinted: "live",
+  // US-3462: the list flow was read and tried on the live Depop form on
+  // 2026-09-22 (description, price, photos). Delist is not verified: the
+  // account had no live listing to check it on.
+  depop: "live",
   facebook: "verifying",
 };
 
@@ -1872,6 +1884,7 @@ export const MARKETPLACE_EXTENSION_FLOWS: Record<
   // end the old listing would leave two live listings for one garment.
   grailed: { list: "live", delist: "verifying", revise: "verifying", relist: "verifying" },
   vinted: { list: "live", delist: "verifying", revise: "verifying", relist: "verifying" },
+  depop: { list: "live", delist: "verifying", revise: "verifying", relist: "verifying" },
   facebook: { list: "verifying", delist: "verifying", revise: "verifying", relist: "verifying" },
 };
 
@@ -1917,7 +1930,6 @@ export const MARKETPLACE_TIER_LABEL: Record<MarketplaceTier, string> = {
 export const API_CROSS_LISTING_PLATFORMS = [
   "ebay",
   "shopify",
-  "depop",
   "etsy",
 ] as const satisfies readonly CrossListingPlatform[];
 
@@ -1928,6 +1940,7 @@ export const EXTENSION_CROSS_LISTING_PLATFORMS = [
   "grailed",
   "vinted",
   "facebook", // US-2480
+  "depop", // US-3462
 ] as const satisfies readonly (typeof LISTING_PLATFORMS)[number][];
 export type ExtensionCrossListingPlatform =
   (typeof EXTENSION_CROSS_LISTING_PLATFORMS)[number];

@@ -2084,7 +2084,7 @@ export const DOWNLOAD_FAQS = [
   },
   {
     q: "Which marketplaces does the extension list to?",
-    a: "Poshmark, Mercari, Grailed, Vinted and Facebook Marketplace, which have no public listing API. eBay and Depop are connected directly through their own APIs instead, so those two need no extension at all.",
+    a: "Poshmark, Mercari, Grailed, Vinted, Depop and Facebook Marketplace, which offer no listing API a tool like ours can use. eBay and Shopify are connected directly through their own APIs instead, so those two need no extension at all.",
   },
   {
     q: "What about Android and Safari?",

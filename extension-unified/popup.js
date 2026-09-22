@@ -62,7 +62,7 @@ const MARKETPLACE_HOST_RE =
 // The ORDER below drives the rows. It is derived against the real config, so a
 // key with no entry in selectors.js is skipped rather than rendering an empty row.
 const PLATFORM_LABELS = (self.GT_QUEUE_VIEW && self.GT_QUEUE_VIEW.PLATFORM_LABELS) || {};
-const PLATFORM_ORDER = ["poshmark", "mercari", "grailed", "vinted", "facebook"];
+const PLATFORM_ORDER = ["poshmark", "mercari", "grailed", "vinted", "depop", "facebook"];
 
 const PLAN_LABELS = {
   free: "Free",
@@ -104,14 +104,14 @@ function scoreRing(score) {
   return ring;
 }
 
-// The research half reads listings on two sites the Lister has no flow for, so
-// this map is the Lister vocabulary PLUS those two, never a second spelling of
-// a name the Lister already has. US-3373: it used to hold its own "Facebook",
+// The research half reads listings on a site the Lister has no flow for, so
+// this map is the Lister vocabulary PLUS that one, never a second spelling of
+// a name the Lister already has. (Depop was the second until US-3462 gave it a
+// Lister flow; its name now comes from queue-view.js like the rest.) US-3373: it used to hold its own "Facebook",
 // which put the split inside a single popup, where a research chip and a queue
 // row three sections apart named the same site differently.
 const MARKETPLACE_LABELS = Object.assign({
   ebay: "eBay",
-  depop: "Depop",
 }, PLATFORM_LABELS);
 
 /** One letter on the marketplace's own hue; popup.css maps data-platform. */
@@ -2254,6 +2254,7 @@ const PROBE_HOSTS = {
   mercari: /(^|\.)mercari\.com$/i,
   grailed: /(^|\.)grailed\.com$/i,
   vinted: /(^|\.)vinted\.[a-z.]+$/i,
+  depop: /(^|\.)depop\.com$/i,
   facebook: /(^|\.)facebook\.com$/i,
 };
 

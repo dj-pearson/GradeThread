@@ -70,7 +70,7 @@ public final class PendingDelistService {
     /// The channels the desktop extension can actually end a listing on.
     /// Mirrors `LISTER_EXTENSION_PLATFORMS` in `src/lib/lister-extension.ts`.
     public static let queueablePlatforms: Set<String> = [
-        "poshmark", "mercari", "grailed", "vinted", "facebook",
+        "poshmark", "mercari", "grailed", "vinted", "facebook", "depop",
     ]
 
     /// Why a row cannot be queued for the desktop, in the seller's words.

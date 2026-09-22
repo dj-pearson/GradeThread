@@ -78,7 +78,7 @@ describe("channels (AC2)", () => {
     expect(by.shopify).toBe("now");
     expect(by.poshmark).toBe("queued");
     expect(by.mercari).toBe("queued");
-    expect(by.depop).toBe("later");
+    expect(by.depop).toBe("queued"); // US-3462: an extension channel now
     expect(by.etsy).toBe("later");
     expect(by.whatnot).toBeUndefined();
   });
@@ -89,9 +89,9 @@ describe("channels (AC2)", () => {
   it("the plan splits a selection and the sentence never says listed about a queue", () => {
     const plan = planApprove(new Set(["ebay", "poshmark", "mercari", "depop"]));
     expect(plan.now).toEqual(["ebay"]);
-    expect(plan.queued).toEqual(["poshmark", "mercari"]);
+    expect(plan.queued).toEqual(["poshmark", "mercari", "depop"]);
     const s = approveSummary(plan);
-    expect(s).toBe("eBay goes live now. Poshmark and Mercari wait for your desktop browser.");
+    expect(s).toBe("eBay goes live now. Poshmark, Mercari and Depop wait for your desktop browser.");
     expect(approveSummary({ now: [], queued: [] })).toBe("Pick at least one channel.");
   });
   it("the page uses the US-2481 queue sentence", () => {

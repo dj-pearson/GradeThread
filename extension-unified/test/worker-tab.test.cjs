@@ -248,7 +248,7 @@ const NOW = Date.UTC(2026, 8, 9, 12, 0, 0);
   const SEL = fs.readFileSync(path.join(dir, "lister", "selectors.js"), "utf8");
   assert.strictEqual(
     (SEL.match(/mobile: \{ enabled: /g) || []).length,
-    5,
+    6,
     "every listed platform states whether its form works on a phone",
   );
 

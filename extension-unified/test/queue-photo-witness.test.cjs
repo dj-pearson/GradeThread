@@ -285,7 +285,7 @@ function view(result, over) {
   // A platform this build has no label for falls back to the same words the
   // rest of the row uses, never to a blank or to "undefined".
   const alien = V.viewRow(
-    row({ photosWitness: "none", photosTotal: 2, photosFailed: 2 }, { platform: "depop" }),
+    row({ photosWitness: "none", photosTotal: 2, photosFailed: 2 }, { platform: "offerup" }),
     { now: NOW },
   );
   assert.ok(alien.photoNote && alien.photoNote.indexOf("undefined") === -1, alien.photoNote);
@@ -426,7 +426,7 @@ function view(result, over) {
     [null, "unknown", false],
     [true, "unknown", false],
   ];
-  for (const platform of ["poshmark", "mercari", "grailed", "vinted", "facebook"]) {
+  for (const platform of ["poshmark", "mercari", "grailed", "vinted", "depop", "facebook"]) {
     for (const [witness, state, alarm] of cases) {
       const result = { photosTotal: 3 };
       if (witness !== undefined) result.photosWitness = witness;

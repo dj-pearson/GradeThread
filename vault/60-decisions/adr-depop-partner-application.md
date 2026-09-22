@@ -181,8 +181,19 @@ ever needs to.
 | Flow granted | n/a |
 | Sandbox key issued | ☐ Yes ☑ No |
 | Commercial terms | n/a |
-| Follow-up sent | _pending — draft in §2b_ |
-| Notes | US-713/US-714 are BUILT and flag-off, so approval is the only remaining step. |
+| Follow-up sent | yes; still no reply as of 2026-09-22 |
+| Notes | US-713/US-714 are BUILT and flag-off. Closed as "no response" 2026-09-22 and Depop moved to the extension (US-3462). |
+
+**2026-09-22, the fallback was taken.** Two emails, no reply, and eBay closed
+its purchase of Depop on 2026-07-30 without a word about outside access. Per
+the rule in §2b, no third email. Depop is now an extension channel:
+`extension-unified/lister/depop.js`, tier and mechanism `extension`, and the
+edge ends Depop listings through the extension queue rather than
+`depop_api`. The list flow was checked on the live form; delist is off until
+checked on an owned listing (US-3463). **Reopen condition:** eBay or Depop
+announces partner access. Then flip `DEPOP_ENABLED`, put `depop: "depop_api"`
+back in `API_DELIST` (`cross-listing-sale.ts`), and move tier and mechanism
+back to `api` in one commit.
 
 **Unblock logic:**
 - **Approved (multi-seller + sandbox)** → confirm OpenAPI spec access at

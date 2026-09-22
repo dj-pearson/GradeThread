@@ -112,6 +112,19 @@
       ? HTMLTextAreaElement.prototype
       : HTMLInputElement.prototype;
     const setter = Object.getOwnPropertyDescriptor(proto, "value");
+    // 2026-09-22: say FOCUS out loud before typing. A queue drain runs in a tab
+    // that is not in front, and a background tab gets no focus event from
+    // el.focus(). Mercari's brand box drops any typed value it did not see
+    // focus first, measured on the live form: the value cleared the instant it
+    // was set, and a dispatched focus made it stick. That is why brand "only
+    // sometimes" filled: it worked when the seller had the tab in front.
+    try {
+      if (typeof el.focus === "function") el.focus();
+      if (typeof FocusEvent === "function" && typeof el.dispatchEvent === "function") {
+        el.dispatchEvent(new FocusEvent("focus", { bubbles: false }));
+        el.dispatchEvent(new FocusEvent("focusin", { bubbles: true }));
+      }
+    } catch (_e) { /* a host without FocusEvent just types as before */ }
     if (setter && setter.set) {
       setter.set.call(el, value);
     } else {
@@ -634,6 +647,598 @@
     } catch (_e) { /* banner is best-effort — never block the fill */ }
   };
 
+  // ── 2026-09-22: wait for the seller to confirm the photos ──────────────────
+  //
+  // Poshmark answers a photo selection with a "Select a Covershot" window
+  // (Cancel / Apply). Measured on the live form: Apply removes the window and
+  // the photos appear in the photo section; Cancel removes it and leaves NONE.
+  // So the window closing says the seller is done, and the photo count after
+  // it says which button they pressed.
+  //
+  // We never press Apply for them. Choosing the cover photo is the seller's
+  // call, and it is the one step on this form that is visibly theirs.
+  //
+  // The job's deadline is 2 minutes, which a seller cropping a cover photo can
+  // easily pass, so GT_LISTER_EXTEND asks the background for more time while we
+  // wait. After `maxWaitMs` the fill carries on regardless: the seller gets
+  // every other field rather than nothing.
+  GT.awaitPhotoApply = async function (cfg, photos, payload) {
+    const c = Object.assign({ appearMs: 4000, maxWaitMs: 240000, pollMs: 500 }, cfg);
+    const shown = await GT.waitFor(c.modal, c.appearMs);
+    if (!shown) return photos;
+    const label = payload.platformLabel || payload.platform;
+    GT.showBanner(
+      "Pick your cover photo on " + label + " and press Apply. " +
+        "GradeThread fills in the rest right after.",
+    );
+    const extend = function () { GT.tell({ type: "GT_LISTER_EXTEND", jobId: payload.jobId }); };
+    extend();
+    const started = Date.now();
+    let lastExtend = started;
+    const isOpen = function () {
+      const el = document.querySelector(c.modal);
+      return Boolean(el && el.isConnected !== false && el.offsetParent !== null);
+    };
+    while (isOpen()) {
+      if (Date.now() - started >= c.maxWaitMs) {
+        GT.log("photo Apply not pressed in time on " + payload.platform + "; filling the rest");
+        return photos;
+      }
+      if (Date.now() - lastExtend >= 60000) { extend(); lastExtend = Date.now(); }
+      await GT.pickerWait(c.pollMs);
+    }
+    await GT.pickerWait(800);
+    const onForm = c.thumbs ? document.querySelectorAll(c.thumbs).length : 0;
+    GT.showBanner("GradeThread is filling in the rest of this " + label + " listing...");
+    if (c.thumbs && onForm === 0) {
+      // Cancel. Nothing is on the form, whatever the file input accepted.
+      GT.log("photo window closed with no photos on " + payload.platform + " (Cancel)");
+      return Object.assign({}, photos, {
+        attached: 0, failed: photos.total, unverified: 0, confirmed: false, asked: true,
+      });
+    }
+    // The page itself now shows the photos, which is the strongest witness
+    // this flow has, so its count replaces ours.
+    if (!c.thumbs) return Object.assign({}, photos, { confirmed: true, asked: true });
+    const landed = Math.min(photos.total, onForm);
+    return Object.assign({}, photos, {
+      attached: landed, failed: photos.total - landed, unverified: 0, confirmed: true, asked: true,
+    });
+  };
+
+  // ── US-3210 AC3: drive Poshmark's option pickers ──────────────────────────
+  //
+  // Category, subcategory, size, condition and colour are dropdowns, not text
+  // boxes, so GT.fill cannot set them. Mapped 2026-09-22 against the live
+  // create-listing page (Vue): each picker is a `[data-test="dropdown"]` whose
+  // `.dropdown__selector` shows the current choice or a "Select ..." prompt,
+  // and a programmatic click on the right element commits a choice the same
+  // way a real one does. Which element takes the click differs per picker and
+  // is recorded in selectors.js next to each one.
+  //
+  // THREE RULES, the same ones the price dialog lives by:
+  //   1. A picker the seller already set is never touched (US-3210 AC7).
+  //   2. Only a single unambiguous option match is clicked. Two candidates, or
+  //      none, and the picker is left for the seller and reported by name.
+  //   3. Every choice is read back off the selector. A click that did not
+  //      change what the picker shows is reported as a miss, not a success.
+  // Nothing here submits. The Done/apply buttons clicked below close a picker;
+  // the listing is still posted by the seller.
+
+  GT.pickerWait = function (ms) {
+    return new Promise(function (r) { setTimeout(r, ms); });
+  };
+
+  GT.foldOption = function (s) {
+    return String(s == null ? "" : s)
+      .toLowerCase()
+      .replace(/&amp;/g, "&")
+      .replace(/[()[\]{}.,;:!?'"`]/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+  };
+
+  /**
+   * Which of `options` means `value`, or null. Same contract as matchOption in
+   * src/lib/picker-proposals.ts: narrowest pass first, and a pass only answers
+   * when it finds exactly ONE option. `maxPass` 2 turns off the contains pass,
+   * which sizes need ("S" is inside "XS" and "XXS").
+   */
+  GT.matchOption = function (value, options, maxPass) {
+    const want = GT.foldOption(value);
+    if (!want) return -1;
+    const folded = (options || []).map(GT.foldOption);
+    const passes = [
+      function (o) { return o === want; },
+      function (o) { return o.indexOf(want + " ") === 0; },
+      function (o) { return o.indexOf(want) !== -1; },
+    ].slice(0, maxPass || 3);
+    for (const pass of passes) {
+      const hits = [];
+      folded.forEach(function (o, i) { if (pass(o)) hits.push(i); });
+      if (hits.length === 1) return hits[0];
+    }
+    return -1;
+  };
+
+  function pickerText(dd) {
+    const sel = dd && dd.querySelector(".dropdown__selector");
+    return sel ? String(sel.innerText || sel.textContent || "").replace(/\s+/g, " ").trim() : "";
+  }
+
+  function pickerIsBlank(dd, prompt) {
+    const t = pickerText(dd);
+    return t === "" || new RegExp(prompt || "^Select", "i").test(t);
+  }
+
+  function openPicker(dd) {
+    const sel = dd.querySelector(".dropdown__selector");
+    if (sel) sel.click();
+  }
+
+  function closePicker() {
+    if (document.body) document.body.click();
+  }
+
+  function nodeText(el) {
+    return String((el && (el.innerText || el.textContent)) || "").replace(/\s+/g, " ").trim();
+  }
+
+  /**
+   * Poshmark's three departments that hold clothing. eBay's Department aspect
+   * (inventory_items.attributes.department) is the usual source, so its values
+   * are mapped here. "Unisex Adult" has no Poshmark answer and returns null:
+   * filing a unisex jacket under Men or Women is a guess.
+   */
+  GT.poshmarkDepartment = function (dept) {
+    const d = GT.foldOption(dept);
+    if (!d) return null;
+    if (/^(women|womens|women s|ladies)$/.test(d)) return "women";
+    if (/^(men|mens|men s)$/.test(d)) return "men";
+    if (/^(kids|boys|girls|unisex kids|baby|toddler|baby toddler|kids s)$/.test(d) ||
+      /\b(boys|girls|kids|baby|toddler|infant)\b/.test(d)) return "kids";
+    return null;
+  };
+
+  /**
+   * Split a kit category ("Tops", "Women > Tops > Blouses") into the parts a
+   * department-first picker wants. A leading department in the path is used
+   * only when the payload carried none.
+   */
+  GT.splitCategoryPath = function (category) {
+    const parts = String(category || "").split(/\s*[>\/|]\s*/).map(function (p) {
+      return p.trim();
+    }).filter(Boolean);
+    let department = null;
+    if (parts.length > 1 && GT.poshmarkDepartment(parts[0])) {
+      department = GT.poshmarkDepartment(parts.shift());
+    }
+    return { department: department, category: parts[0] || "", subcategory: parts[1] || "" };
+  };
+
+  /**
+   * Poshmark's condition picker, keyed by the code its options carry in
+   * data-et-prop-content (read off the live form 2026-09-22):
+   *   nwt  New With Tags (NWT)   uln  Like New   ug  Good   uf  Fair
+   * The kit may still hold the older seven-step labels, so both are mapped.
+   * EUC maps to Good, not Like New: Poshmark's Like New reads "New without
+   * tags or like new", and an item with any wear does not meet it.
+   */
+  GT.poshmarkConditionCode = function (label) {
+    const c = GT.foldOption(label);
+    if (!c) return null;
+    if (/^nwt\b|new with tags/.test(c)) return "nwt";
+    if (/^nwot\b|new without tags|^like new/.test(c)) return "uln";
+    if (/^(euc|vguc|guc)\b|^good\b|excellent|very good|gently used/.test(c)) return "ug";
+    if (/^(fair|play|poor)\b/.test(c)) return "uf";
+    return null;
+  };
+
+  /**
+   * Every spelling of `size` a Poshmark size button might carry, most literal
+   * first. The grid spells letters as S/M/L, waist sizes as "Waist 32" and
+   * neck sizes as "Neck 15.5".
+   */
+  GT.poshmarkSizeCandidates = function (size) {
+    const raw = String(size || "").trim();
+    if (!raw) return [];
+    const out = [raw];
+    const f = GT.foldOption(raw).replace(/-/g, " ");
+    const words = {
+      "xx small": "XXS", "extra extra small": "XXS", "x small": "XS", "extra small": "XS",
+      "small": "S", "medium": "M", "med": "M", "large": "L", "x large": "XL",
+      "extra large": "XL", "xx large": "XXL", "2xl": "XXL", "xxl": "XXL",
+      "extra extra large": "XXL", "xxx large": "3XL", "xxxl": "3XL", "3x": "3XL",
+      "4x": "4XL", "xxxxl": "4XL", "one size": "OS", "os": "OS", "one size fits all": "OS",
+    };
+    if (words[f]) out.push(words[f]);
+    if (words[f] === "OS") out.push("One Size");
+    const waist = /^(?:w\s*)?(\d{2})\s*(?:x|w\s*x|\/)\s*(?:l\s*)?\d{2}$/i.exec(raw);
+    if (waist) out.push("Waist " + waist[1], waist[1]);
+    if (/^\d{2}$/.test(raw)) out.push("Waist " + raw);
+    const neck = /^(1[3-9](?:\.5)?)$/.exec(raw);
+    if (neck) out.push("Neck " + neck[1]);
+    return out.filter(function (v, i, a) { return a.indexOf(v) === i; });
+  };
+
+  /** Poshmark's colour tiles, and the common names that mean one of them. */
+  GT.POSHMARK_COLOR_ALIASES = {
+    navy: "Blue", indigo: "Blue", denim: "Blue", teal: "Blue", turquoise: "Blue",
+    grey: "Gray", charcoal: "Gray", heather: "Gray",
+    ivory: "Cream", beige: "Tan", khaki: "Tan", camel: "Tan", taupe: "Tan",
+    burgundy: "Red", maroon: "Red", wine: "Red", rust: "Orange", coral: "Pink",
+    olive: "Green", sage: "Green", mint: "Green", lavender: "Purple", violet: "Purple",
+    mustard: "Yellow", chocolate: "Brown",
+  };
+
+  /**
+   * Up to two tile names for an item colour ("Navy/White" -> Blue, White).
+   * Each part must resolve to exactly one tile, or the whole colour is left
+   * for the seller: a half-right pair is still a wrong listing.
+   */
+  GT.poshmarkColors = function (color, tiles) {
+    const parts = String(color || "").split(/\s*(?:\/|,|&|\band\b|\+)\s*/i)
+      .map(function (p) { return p.trim(); }).filter(Boolean);
+    if (parts.length === 0 || parts.length > 2) return null;
+    const out = [];
+    for (const part of parts) {
+      const words = GT.foldOption(part).split(" ");
+      const found = [];
+      for (const w of words) {
+        const direct = GT.matchOption(w, tiles, 1);
+        if (direct !== -1) found.push(tiles[direct]);
+        else if (GT.POSHMARK_COLOR_ALIASES[w]) {
+          const alias = GT.matchOption(GT.POSHMARK_COLOR_ALIASES[w], tiles, 1);
+          if (alias !== -1) found.push(tiles[alias]);
+        }
+      }
+      const distinct = found.filter(function (v, i, a) { return a.indexOf(v) === i; });
+      if (distinct.length !== 1) return null;
+      if (out.indexOf(distinct[0]) === -1) out.push(distinct[0]);
+    }
+    return out;
+  };
+
+  // Each driver returns "selected", "already-set", "no-value" or "not-found".
+
+  async function pickCategory(cfg, want) {
+    const dd = document.querySelector(cfg.category);
+    if (!dd) return "not-found";
+    if (!pickerIsBlank(dd)) return "already-set";
+    if (!want.department || !want.category) return "no-value";
+    openPicker(dd);
+    await GT.pickerWait(cfg.settleMs);
+    let dept = dd.querySelector('a[data-et-name="' + want.department + '"]');
+    if (!dept) {
+      const all = dd.querySelector('a[data-et-name="all"]');
+      if (all) { all.click(); await GT.pickerWait(cfg.settleMs); }
+      dept = dd.querySelector('a[data-et-name="' + want.department + '"]');
+    }
+    if (!dept) { closePicker(); return "not-found"; }
+    dept.click();
+    await GT.pickerWait(cfg.settleMs);
+    // Department rows carry an `a[data-et-name]`; category rows do not.
+    const rows = Array.prototype.slice.call(dd.querySelectorAll(cfg.categoryItem))
+      .filter(function (li) { return !li.querySelector("a[data-et-name]"); });
+    const i = GT.matchOption(want.category, rows.map(nodeText));
+    if (i === -1) { closePicker(); return "not-found"; }
+    rows[i].click();
+    await GT.pickerWait(cfg.settleMs);
+    return GT.foldOption(pickerText(dd)).indexOf(GT.foldOption(nodeText(rows[i]))) !== -1
+      ? "selected" : "not-found";
+  }
+
+  async function pickFromList(dd, cfg, value, itemSel, maxPass) {
+    if (!dd) return "not-found";
+    if (!pickerIsBlank(dd)) return "already-set";
+    if (!value) return "no-value";
+    openPicker(dd);
+    await GT.pickerWait(cfg.settleMs);
+    const rows = Array.prototype.slice.call(dd.querySelectorAll(itemSel));
+    const i = GT.matchOption(value, rows.map(nodeText), maxPass);
+    if (i === -1) { closePicker(); return "not-found"; }
+    rows[i].click();
+    await GT.pickerWait(cfg.settleMs);
+    return pickerIsBlank(dd) ? "not-found" : "selected";
+  }
+
+  async function pickCondition(cfg, label) {
+    const dd = document.querySelector(cfg.condition);
+    if (!dd) return "not-found";
+    if (!pickerIsBlank(dd)) return "already-set";
+    const code = GT.poshmarkConditionCode(label);
+    if (!code) return "no-value";
+    openPicker(dd);
+    await GT.pickerWait(cfg.settleMs);
+    const opt = dd.querySelector(cfg.conditionItem + '[data-et-prop-content="' + code + '"]');
+    if (!opt) { closePicker(); return "not-found"; }
+    opt.click();
+    await GT.pickerWait(cfg.settleMs);
+    return pickerIsBlank(dd) ? "not-found" : "selected";
+  }
+
+  async function pickSize(cfg, size) {
+    const btn = document.querySelector(cfg.sizeButton);
+    const dd = btn && btn.closest('[data-test="dropdown"]');
+    if (!dd) return "not-found";
+    if (!pickerIsBlank(dd)) return "already-set";
+    const candidates = GT.poshmarkSizeCandidates(size);
+    if (candidates.length === 0) return "no-value";
+    openPicker(dd);
+    await GT.pickerWait(cfg.settleMs);
+    // The grid is split into tabs (Standard, Plus, Petite, Big & Tall...).
+    // Custom is skipped: it is a free-text size, which is the seller's call.
+    const tabs = Array.prototype.slice.call(dd.querySelectorAll(cfg.sizeTab))
+      .filter(function (t) { return !/^custom$/i.test(nodeText(t)); });
+    const visits = tabs.length ? tabs : [null];
+    for (const tab of visits) {
+      if (tab) {
+        (tab.querySelector("a") || tab).click();
+        await GT.pickerWait(cfg.settleMs);
+      }
+      const buttons = Array.prototype.slice.call(dd.querySelectorAll(cfg.sizeButton))
+        .filter(function (b) { return b.offsetParent !== null || !tab; });
+      const labels = buttons.map(nodeText);
+      for (const c of candidates) {
+        const i = GT.matchOption(c, labels, 2);
+        if (i === -1) continue;
+        buttons[i].click();
+        await GT.pickerWait(cfg.settleMs);
+        const apply = dd.querySelector(cfg.apply);
+        if (apply) apply.click();
+        await GT.pickerWait(cfg.settleMs);
+        return pickerIsBlank(dd) ? "not-found" : "selected";
+      }
+    }
+    closePicker();
+    return "not-found";
+  }
+
+  async function pickColors(cfg, color) {
+    const tile = document.querySelector(cfg.colorTile);
+    const dd = tile && tile.closest('[data-test="dropdown"]');
+    if (!dd) return "not-found";
+    if (!pickerIsBlank(dd)) return "already-set";
+    if (!String(color || "").trim()) return "no-value";
+    openPicker(dd);
+    await GT.pickerWait(cfg.settleMs);
+    const tiles = Array.prototype.slice.call(dd.querySelectorAll(cfg.colorTile));
+    const names = GT.poshmarkColors(color, tiles.map(nodeText));
+    if (!names || names.length === 0) { closePicker(); return "not-found"; }
+    for (const name of names) {
+      const t = tiles.find(function (el) { return nodeText(el) === name; });
+      if (t) t.click();
+      await GT.pickerWait(cfg.settleMs);
+    }
+    const apply = dd.querySelector(cfg.apply);
+    if (apply) apply.click();
+    await GT.pickerWait(cfg.settleMs);
+    return pickerIsBlank(dd) ? "not-found" : "selected";
+  }
+
+  /**
+   * Fill every picker a flow declares. Returns { set: [names], missed: [names] }.
+   * `missed` holds pickers we had a value for and could not set, plus the two
+   * Poshmark requires (category, size) when we had nothing to set them from,
+   * since those block posting. A picker the seller already filled is in neither.
+   *
+   * ORDER MATTERS. Changing the category resets subcategory and size on
+   * Poshmark (measured 2026-09-22), so category goes first and size after it.
+   * Condition and colour survive a category change.
+   */
+  GT.fillPickers = async function (cfg, payload) {
+    const out = { set: [], missed: [] };
+    if (!cfg) return out;
+    if (cfg.kind === "mercari") return GT.fillMercariPickers(cfg, payload);
+    const c = Object.assign({ settleMs: 400 }, cfg);
+    const path = GT.splitCategoryPath(payload.category);
+    const want = {
+      department: GT.poshmarkDepartment(payload.department) || path.department,
+      category: path.category,
+      subcategory: payload.subcategory || path.subcategory,
+    };
+    const record = function (name, outcome, required) {
+      if (outcome === "selected") out.set.push(name);
+      else if (outcome === "not-found" || (outcome === "no-value" && required)) out.missed.push(name);
+      GT.log("picker " + name + ": " + outcome);
+    };
+    try {
+      const cat = await pickCategory(c, want);
+      record("category", cat, true);
+      if (cat === "selected" && want.subcategory) {
+        record("subcategory", await pickFromList(
+          document.querySelector(c.subcategory), c, want.subcategory, c.subcategoryItem,
+        ), false);
+      }
+      record("size", await pickSize(c, payload.size), true);
+      record("condition", await pickCondition(c, payload.condition), false);
+      record("color", await pickColors(c, payload.color), false);
+    } catch (e) {
+      // A throw is a page we do not understand; what was set stays set.
+      GT.log("picker fill stopped: " + (e && e.message));
+    }
+    closePicker();
+    return out;
+  };
+
+  // ── Mercari's pickers (mapped on the live sell form 2026-09-22) ───────────
+  //
+  // Mercari is React and its three pickers are three different shapes:
+  //   category   a button opening a dialog of `CategoryRow` buttons, three
+  //              levels deep (Women > Tops & blouses > Blouse). The last level
+  //              carries an "All <category>" row for a category with no type.
+  //   condition  five radio LABELS, ConditionNew ... ConditionPoor.
+  //   size       `[data-testid="Size"]` opens a listbox of `Size-option`. It
+  //              only exists once a category is chosen, so it goes after.
+  // The size list is several size systems concatenated with nothing between
+  // them: standard first, then petite / plus / tall / juniors, repeating the
+  // same letters with different numbers ("M (8-10)" then "M (7-9)"). Only the
+  // first block, which ends at "One Size", is matched.
+  // Mercari's sell form has no colour picker and no tag box.
+
+  GT.mercariConditionTestId = function (label) {
+    const c = GT.foldOption(label);
+    if (!c) return null;
+    if (/nwot|new without tags|^like new/.test(c)) return "ConditionLikeNew";
+    if (/^nwt\b|new with tags|^new\b/.test(c)) return "ConditionNew";
+    if (/^(euc|vguc|guc)\b|^good\b|excellent|very good|gently used/.test(c)) return "ConditionGood";
+    if (/^(fair|play)\b/.test(c)) return "ConditionFair";
+    if (/^poor\b/.test(c)) return "ConditionPoor";
+    return null;
+  };
+
+  /** Size spellings for Mercari's list: "M (8-10)", "2XL (20-22)", "XXL (50-52)". */
+  GT.mercariSizeCandidates = function (size) {
+    const out = GT.poshmarkSizeCandidates(size).filter(function (s) {
+      return !/^(Waist|Neck) /.test(s);
+    });
+    if (out.indexOf("XXL") !== -1) out.push("2XL");
+    if (out.indexOf("2XL") !== -1) out.push("XXL");
+    if (out.indexOf("3XL") !== -1) out.push("XXXL");
+    if (out.indexOf("OS") !== -1) out.push("One Size");
+    return out.filter(function (v, i, a) { return a.indexOf(v) === i; });
+  };
+
+  /** The standard block of a concatenated Mercari size list: up to "One Size". */
+  GT.mercariStandardBlock = function (labels) {
+    const end = labels.findIndex(function (l) { return /^one size$/i.test(String(l).trim()); });
+    if (end !== -1) return labels.slice(0, end + 1);
+    // No "One Size": stop at the first label seen twice.
+    const seen = [];
+    for (let i = 0; i < labels.length; i++) {
+      const f = GT.foldOption(labels[i]);
+      if (seen.indexOf(f) !== -1) return labels.slice(0, i);
+      seen.push(f);
+    }
+    return labels.slice();
+  };
+
+  function mercariDepartmentLabel(dept) {
+    const d = GT.poshmarkDepartment(dept);
+    return d ? d.charAt(0).toUpperCase() + d.slice(1) : null;
+  }
+
+  async function pickMercariCategory(cfg, want) {
+    const btn = document.querySelector(cfg.categoryButton);
+    if (!btn) return "not-found";
+    if (!/^select/i.test(nodeText(btn)) && nodeText(btn) !== "") return "already-set";
+    const dept = mercariDepartmentLabel(want.department);
+    if (!dept || !want.category) return "no-value";
+    const rows = function () {
+      return Array.prototype.slice.call(document.querySelectorAll(cfg.categoryRow));
+    };
+    const closeDialog = function () {
+      const x = document.querySelector(cfg.categoryClose);
+      if (x) x.click();
+    };
+    const clickRow = async function (value, maxPass) {
+      const list = rows();
+      const i = GT.matchOption(value, list.map(nodeText), maxPass);
+      if (i === -1) return false;
+      list[i].click();
+      await GT.pickerWait(cfg.settleMs);
+      return true;
+    };
+    btn.click();
+    await GT.pickerWait(cfg.settleMs);
+    if (!(await clickRow(dept, 1))) { closeDialog(); return "not-found"; }
+    if (!(await clickRow(want.category))) { closeDialog(); return "not-found"; }
+    // Still open means a third level. The type if we have one, else "All X".
+    if (document.querySelector(cfg.categoryDialog)) {
+      const leaf = want.subcategory && (await clickRow(want.subcategory));
+      if (!leaf && !(await clickRow("All " + want.category, 1))) {
+        closeDialog();
+        return "not-found";
+      }
+    }
+    if (document.querySelector(cfg.categoryDialog)) { closeDialog(); return "not-found"; }
+    return /^select/i.test(nodeText(btn)) ? "not-found" : "selected";
+  }
+
+  async function pickMercariCondition(cfg, label) {
+    const radios = Array.prototype.slice.call(document.querySelectorAll(cfg.conditionRadio));
+    if (radios.some(function (r) { return r.checked; })) return "already-set";
+    const id = GT.mercariConditionTestId(label);
+    if (!id) return "no-value";
+    const el = document.querySelector('[data-testid="' + id + '"]');
+    if (!el) return "not-found";
+    el.click();
+    await GT.pickerWait(cfg.settleMs);
+    const after = Array.prototype.slice.call(document.querySelectorAll(cfg.conditionRadio));
+    return after.some(function (r) { return r.checked; }) ? "selected" : "not-found";
+  }
+
+  async function pickMercariSize(cfg, size) {
+    const box = document.querySelector(cfg.size);
+    if (!box) return "not-found";
+    if (!/^select/i.test(nodeText(box))) return "already-set";
+    const candidates = GT.mercariSizeCandidates(size);
+    if (candidates.length === 0) return "no-value";
+    box.click();
+    await GT.pickerWait(cfg.settleMs);
+    const all = Array.prototype.slice.call(document.querySelectorAll(cfg.sizeOption));
+    const block = GT.mercariStandardBlock(all.map(nodeText));
+    for (const c of candidates) {
+      const i = GT.matchOption(c, block, 2);
+      if (i === -1) continue;
+      all[i].click();
+      await GT.pickerWait(cfg.settleMs);
+      return /^select/i.test(nodeText(box)) ? "not-found" : "selected";
+    }
+    closePicker();
+    return "not-found";
+  }
+
+  GT.fillMercariPickers = async function (cfg, payload) {
+    const out = { set: [], missed: [] };
+    const c = Object.assign({ settleMs: 500 }, cfg);
+    const path = GT.splitCategoryPath(payload.category);
+    const want = {
+      department: payload.department || path.department,
+      category: path.category,
+      subcategory: payload.subcategory || path.subcategory,
+    };
+    const record = function (name, outcome, required) {
+      if (outcome === "selected") out.set.push(name);
+      else if (outcome === "not-found" || (outcome === "no-value" && required)) out.missed.push(name);
+      GT.log("picker " + name + ": " + outcome);
+    };
+    try {
+      record("category", await pickMercariCategory(c, want), true);
+      record("condition", await pickMercariCondition(c, payload.condition), true);
+      // Size only appears once a category is set; a category with no size
+      // (a bag, a belt) leaves nothing to report.
+      if (document.querySelector(c.size)) {
+        record("size", await pickMercariSize(c, payload.size), false);
+      }
+    } catch (e) {
+      GT.log("picker fill stopped: " + (e && e.message));
+    }
+    return out;
+  };
+
+  /**
+   * After typing a brand, click Poshmark's own suggestion when one matches it
+   * exactly, so the listing files under the canonical brand rather than as
+   * free text. The typed text is left alone when nothing matches.
+   */
+  // `option`: where the suggestions render. Omitted (Poshmark) means the
+  // `.dropdown__menu` links inside the brand box's own dropdown; Mercari
+  // renders `[data-testid="Brand-option"]` in a listbox elsewhere in the page.
+  GT.pickBrandSuggestion = async function (selector, brand, option, settleMs) {
+    const input = document.querySelector(selector);
+    if (!input || !brand) return false;
+    const dd = option ? document : input.closest('[data-test="dropdown"]');
+    if (!dd) return false;
+    await GT.pickerWait(settleMs || 800);
+    const rows = Array.prototype.slice.call(dd.querySelectorAll(option || ".dropdown__menu li a"));
+    const i = GT.matchOption(brand, rows.map(nodeText), 1);
+    if (i === -1) return false;
+    rows[i].click();
+    await GT.pickerWait(200);
+    return true;
+  };
+
   // Generic fill flow shared by every platform. Returns a result `partial`:
   //   { ok:true, listingUrl }                 — filled (+ submitted if asked)
   //   { ok:false, manual:true, error, version } — degraded; user lists manually
@@ -700,6 +1305,42 @@
     GT.fill(f.title, payload.title);
     GT.fill(f.description, payload.description);
 
+    // US-1877 (AC4): carry the real counts, not a boolean. Wrapped so a flow
+    // with a photo Apply step can run it FIRST (below) and every other flow
+    // keeps running it last, exactly as before.
+    const attachPhotosNow = async function () {
+      if (f.photoInput) void GT.reportStage(payload.jobId, "photos"); // US-3050
+      return f.photoInput
+        // US-2738 AC7: `flow.photoConfirm` is the flow saying its uploader
+        // renders a preview, which turns "the input took the list" into "the
+        // page took the photos". A flow that says nothing behaves as before.
+        ? await GT.attachPhotos(
+          f.photoInput, payload.photoUrls, payload.maxPhotos, flow.photoConfirm,
+        )
+        : { attached: 0, failed: 0, total: 0 };
+    };
+
+    // 2026-09-22: PHOTOS FIRST where the marketplace makes the seller confirm
+    // them. Poshmark opens a "Select a Covershot" window the moment photos
+    // land, and only the seller's Apply closes it. Everything else waits for
+    // that click, because the window's backdrop is what swallowed the price
+    // dialog when photos ran in the middle of the fill (see the price note
+    // below). Filling behind an open window also hides the work from the
+    // seller, who is looking at the cover photo at that moment.
+    let photos = null;
+    if (flow.photoApply) {
+      photos = await attachPhotosNow();
+      if (photos.total > 0 && photos.attached > 0) {
+        photos = await GT.awaitPhotoApply(flow.photoApply, photos, payload);
+      }
+    }
+
+    // US-3210 AC3: the option pickers, first, because a category change resets
+    // size on Poshmark. Only where the flow declares them.
+    const pickers = flow.pickers
+      ? await GT.fillPickers(flow.pickers, payload)
+      : { set: [], missed: [] };
+
     // US-2730: brand. WITNESSED, like price, and for the same reason — a field
     // we tried and failed to set has to leave a mark rather than quietly not
     // happening. This is the first field beyond title/description the Lister has
@@ -717,6 +1358,14 @@
       : false;
     if (f.brand && payload.brand && !brandFilled) {
       GT.log("brand NOT filled on " + payload.platform + " (selector matched nothing)");
+    }
+    // Poshmark's brand box is a typeahead: typed text stays, but clicking the
+    // matching suggestion files the listing under the site's own brand.
+    if (brandFilled && flow.brandSuggestion) {
+      await GT.pickBrandSuggestion(
+        f.brand, payload.brand,
+        typeof flow.brandSuggestion === "object" ? flow.brandSuggestion.option : null,
+      );
     }
 
     // US-2737: tags, committed as chips rather than typed and abandoned.
@@ -819,18 +1468,9 @@
       GT.log("price dialog fill failed on " + payload.platform);
     }
 
-    // US-1877 (AC4): carry the real counts, not a boolean. photosAttached stays for
-    // the existing consumers, but it is now only true when EVERY photo landed —
-    // "some of them" must never read as "attached".
-    if (f.photoInput) void GT.reportStage(payload.jobId, "photos"); // US-3050
-    const photos = f.photoInput
-      // US-2738 AC7: `flow.photoConfirm` is the flow saying its uploader renders
-      // a preview, which turns "the input took the list" into "the page took the
-      // photos". A flow that says nothing behaves exactly as it did before.
-      ? await GT.attachPhotos(
-        f.photoInput, payload.photoUrls, payload.maxPhotos, flow.photoConfirm,
-      )
-      : { attached: 0, failed: 0, total: 0 };
+    // photosAttached stays for the existing consumers, but it is only true when
+    // EVERY photo landed — "some of them" must never read as "attached".
+    if (!photos) photos = await attachPhotosNow();
     const photosAttached = photos.total > 0 && photos.failed === 0;
     const photosWitness = GT.photoWitness(photos);
 
@@ -855,10 +1495,20 @@
       );
     }
 
-    // We NEVER auto-submit, and there is no option to: category/size/condition
-    // pickers vary too much to set safely, and the seller is responsible for a
-    // final review (clickwrap). We mark the title field so it's obvious the
-    // form was prefilled, then report a "filled" result.
+    // US-3210: name the pickers the seller still has to set, on the form, added
+    // to whatever the banner already says rather than replacing a price or
+    // photo warning.
+    if (pickers.missed.length > 0) {
+      const bar = document.getElementById(GT.BANNER_ID);
+      const said = bar ? String(bar.textContent || "").replace(/×\s*$/, "").trim() : "";
+      GT.showBanner(
+        (said ? said + " " : "") + "Pick these yourself: " + pickers.missed.join(", ") + ".",
+      );
+    }
+
+    // We NEVER auto-submit, and there is no option to: the seller is
+    // responsible for a final review (clickwrap), including every picker we
+    // set. We report a "filled" result.
     return {
       ok: true,
       filled: true,
@@ -876,6 +1526,10 @@
       // is the difference between a seller fixing it now and finding out later.
       tagsCommitted: tagResult.total > 0 ? tagResult.committed : undefined,
       tagsTotal: tagResult.total > 0 ? tagResult.total : undefined,
+      // US-3210 AC4: picker NAMES, never values. Absent on a channel with no
+      // pickers declared, so every other flow reports exactly what it did.
+      pickersSet: flow.pickers ? pickers.set : undefined,
+      pickersMissed: flow.pickers ? pickers.missed : undefined,
       photosAttached: photosAttached,
       // AC4: the counts the SaaS renders as "attached 6 of 8 — drag the rest in".
       photosTotal: photos.total,

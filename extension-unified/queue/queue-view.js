@@ -56,6 +56,7 @@
     mercari: "Mercari",
     grailed: "Grailed",
     vinted: "Vinted",
+    depop: "Depop",
     facebook: "Facebook Marketplace",
   };
 

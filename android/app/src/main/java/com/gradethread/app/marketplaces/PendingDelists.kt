@@ -59,7 +59,7 @@ private data class DelistConfirmBody(@SerialName("listing_id") val listingId: St
  * `LISTER_EXTENSION_PLATFORMS` in `src/lib/lister-extension.ts`.
  */
 val EXTENSION_DELIST_PLATFORMS: Set<String> =
-    setOf("poshmark", "mercari", "grailed", "vinted", "facebook")
+    setOf("poshmark", "mercari", "grailed", "vinted", "facebook", "depop")
 
 /**
  * Why a row cannot be queued for the desktop, in the seller's words. Null means
@@ -96,6 +96,7 @@ internal val EXTENSION_CHANNEL_LABELS = mapOf(
     "grailed" to "Grailed",
     "vinted" to "Vinted",
     "facebook" to "Facebook Marketplace",
+    "depop" to "Depop",
 )
 
 @Singleton

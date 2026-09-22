@@ -21,9 +21,10 @@
 export type DelistMethod =
   | "ebay_api" // withdrawOffer (Sell Inventory API)
   | "shopify_api" // productDelete (Admin GraphQL)
-  | "depop_api" // deleteDepopProduct (SKU-addressed)
+  | "depop_api" // deleteDepopProduct (SKU-addressed); dormant since US-3462
+  // routes Depop through the extension, kept for the day the partner API opens
   | "etsy_api" // setEtsyListingState → 'inactive' (US-2164; 404 = already gone)
-  | "extension" // Poshmark/Mercari/Grailed/Vinted/Facebook — no server write
+  | "extension" // Poshmark/Mercari/Grailed/Vinted/Facebook/Depop — no usable write
   // API; queued for the GradeThread Lister browser extension
   // (delist_requested_at)
   //
@@ -38,7 +39,11 @@ export type DelistMethod =
 const API_DELIST: Record<string, DelistMethod> = {
   ebay: "ebay_api",
   shopify: "shopify_api",
-  depop: "depop_api",
+  // US-3462: depop is deliberately ABSENT now. Its API delist is real code, but
+  // DEPOP_ENABLED is off because Depop never issued a key, so "depop_api" was a
+  // delist that could not run. Depop listings are made by the extension and are
+  // ended by it (or flagged to the seller) like every other extension channel.
+  // Put it back here the day the partner API opens.
   // US-2164: Etsy has a real delist API and the adapter already used it for a
   // manual end — auto-end was the one path that skipped it, so an Etsy sibling
   // stayed live and purchasable after the garment sold elsewhere.
@@ -62,6 +67,10 @@ export const EXTENSION_DELIST_PLATFORMS = new Set([
   // exists to prevent, arriving through the one door nobody had closed.
   "vinted",
   "facebook",
+  // US-3462: Depop's partner API never opened, so it is listed by the extension
+  // and has to be ended the same way. Delist is not verified yet, which means
+  // a sale elsewhere leaves the seller a pending-delist reminder for Depop.
+  "depop",
 ]);
 
 // Pure: how the given platform is delisted on a sibling sale.

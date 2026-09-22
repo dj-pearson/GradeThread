@@ -2003,10 +2003,10 @@ export function ListingKit({ itemId, baseName }: { itemId: string; baseName?: st
               panels for channels the seller had switched off. */}
           {kitPlatforms.map((p) => (
             <TabsContent key={p} value={p} className="mt-4">
-              {getMarketplaceSpec(p)?.pushMechanism === "manual" || p === "depop" ? (
+              {getMarketplaceSpec(p)?.pushMechanism === "manual" ? (
                 <div className="mb-3">
                   <Badge variant="outline" className="text-[11px]">
-                    {p === "depop" ? "API pending — copy-paste for now" : "No API — copy-paste / extension"}
+                    No API — copy-paste / extension
                   </Badge>
                 </div>
               ) : null}

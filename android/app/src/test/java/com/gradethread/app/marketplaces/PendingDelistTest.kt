@@ -60,11 +60,11 @@ class PendingDelistTest {
 
     @Test
     fun `a channel the extension does not handle is refused`() {
-        // eBay, Shopify and Depop are ended server-side and never reach this
-        // list. If one somehow does, queueing it would produce a job the drain
-        // rejects — which reads, from the phone, exactly like a job about to run.
+        // eBay and Shopify are ended server-side and never reach this list. If
+        // one somehow does, queueing it would produce a job the drain rejects —
+        // which reads, from the phone, exactly like a job about to run.
         assertNotNull(pendingDelistBlockedReason(row(platform = "ebay")))
-        assertNotNull(pendingDelistBlockedReason(row(platform = "depop")))
+        assertNotNull(pendingDelistBlockedReason(row(platform = "shopify")))
     }
 
     @Test
@@ -72,7 +72,7 @@ class PendingDelistTest {
         // Mirrors LISTER_EXTENSION_PLATFORMS in src/lib/lister-extension.ts.
         // A channel that drops out of this set silently loses its phone path.
         assertEquals(
-            setOf("poshmark", "mercari", "grailed", "vinted", "facebook"),
+            setOf("poshmark", "mercari", "grailed", "vinted", "facebook", "depop"),
             EXTENSION_DELIST_PLATFORMS,
         )
         for (platform in EXTENSION_DELIST_PLATFORMS) {

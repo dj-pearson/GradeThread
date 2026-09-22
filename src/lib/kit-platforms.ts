@@ -12,8 +12,8 @@ import {
 } from "@/lib/marketplace-specs";
 import { filterChannels } from "@/lib/cross-post-channels";
 
-// Copy-paste targets: the no-API platforms (Poshmark/Mercari/Grailed/Vinted)
-// plus Depop until its partner API is live (US-712/713/714). Shopify + eBay
+// Copy-paste targets: the no-API platforms (Poshmark/Mercari/Grailed/Vinted/
+// Depop; Depop joined through the extension in US-3462). Shopify + eBay
 // push via their adapters, so they're not copy-paste targets. Facebook is
 // deliberately absent: its lister flow is still `verifying` in selectors.js,
 // so a tab here would offer a send that reports "list manually".
@@ -24,7 +24,7 @@ export const KIT_PLATFORMS: MarketplacePlatform[] = [
   "grailed",
   "vinted",
 ].filter((p) =>
-  p === "depop" ? true : manualKitPlatforms().includes(p as MarketplacePlatform)
+  manualKitPlatforms().includes(p as MarketplacePlatform)
 ) as MarketplacePlatform[];
 
 /**

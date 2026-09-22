@@ -15,6 +15,7 @@ import {
   buildListPayload,
   mergeHydratedPayload,
   LIST_REFUSAL_REASON,
+  type ListPayloadItem,
   type ListPayloadPhoto,
   type ListPayloadRefusal,
 } from "../lib/extension-queue.ts";
@@ -390,13 +391,19 @@ async function hydrateListRows(
   // photo query is then restricted to ids this workspace was proved to own.
   const { data: itemRows } = await supabaseAdmin
     .from("inventory_items")
-    .select("id, title, brand, color, size")
+    .select("id, title, brand, color, size, attributes")
     .eq("user_id", ownerId) // US-268
     .in("id", requestedIds);
 
-  const items = new Map<string, { id: string; title: string | null; brand: string | null; color: string | null; size: string | null }>();
-  for (const r of (itemRows ?? []) as { id: string; title: string | null; brand: string | null; color: string | null; size: string | null }[]) {
-    items.set(r.id, r);
+  type ItemRow = { id: string; title: string | null; brand: string | null; color: string | null; size: string | null; attributes?: Record<string, unknown> | null };
+  const items = new Map<string, ListPayloadItem>();
+  for (const r of (itemRows ?? []) as ItemRow[]) {
+    // US-3210: eBay's Department aspect lands in attributes.department, and
+    // Poshmark's category picker cannot start without a department.
+    const dept = r.attributes && typeof r.attributes.department === "string"
+      ? r.attributes.department
+      : null;
+    items.set(r.id, { id: r.id, title: r.title, brand: r.brand, color: r.color, size: r.size, department: dept });
   }
 
   const ownedIds = [...items.keys()];

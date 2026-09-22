@@ -20,6 +20,7 @@
     "https://*.poshmark.com/*",
     "https://*.mercari.com/*",
     "https://*.grailed.com/*",
+    "https://*.depop.com/*",
     "https://*.vinted.com/*",
     "https://*.vinted.co.uk/*",
     "https://*.vinted.fr/*",
@@ -342,6 +343,19 @@
         "lister/common.js",
         "lister/selector-probe.js",
         "lister/grailed.js"
+      ],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://www.depop.com/*",
+        "https://*.depop.com/*"
+      ],
+      "js": [
+        "lister/selectors.js",
+        "lister/common.js",
+        "lister/selector-probe.js",
+        "lister/depop.js"
       ],
       "run_at": "document_idle"
     },

@@ -221,6 +221,45 @@ const GT_LISTER_SELECTORS = {
     // Poshmark's own cap: the tag box says "Add up to 3 tags". Ours to respect,
     // not to exceed — a fourth entry is a rejected keystroke at best.
     tagsMax: 3,
+    // ── US-3210 AC3: the option pickers (2026-09-22) ─────────────────────
+    //
+    // The 2026-08-20 note above said driving these was "a different problem
+    // with its own verification". This is that verification: every entry was
+    // read off the live create-listing page and each click was tried there
+    // (GT.fillPickers in common.js). What takes the click differs per picker:
+    //   category     department `a[data-et-name="women|men|kids"]`, then the
+    //                category `li` (it has no link of its own)
+    //   subcategory  the inner `a` (a click on the `li` does nothing)
+    //   size         a `button.multi-size-selector__button`, then Done; the
+    //                grid is split into tabs and a size may be on any of them
+    //   condition    `[data-et-name="listing_condition"]`, keyed by
+    //                data-et-prop-content: nwt / uln / ug / uf
+    //   colour       the tile `li`, up to two, then Done
+    // Changing the category resets subcategory and size; condition, colour,
+    // brand and tags survive it. Nothing here submits the listing.
+    pickers: {
+      category: ".listing-editor__category-container",
+      categoryItem: ".dropdown__menu li.dropdown__menu__item",
+      subcategory: ".listing-editor__subcategory-container",
+      subcategoryItem: ".dropdown__menu li a",
+      condition: ".listing-editor__condition-container",
+      conditionItem: '[data-et-name="listing_condition"]',
+      sizeButton: "button.multi-size-selector__button",
+      sizeTab: "li.navigation--horizontal__tab",
+      colorTile: "li.listing-editor__tile--color",
+      apply: 'button[data-et-name="apply"]',
+      settleMs: 400,
+    },
+    // Click Poshmark's own brand suggestion when it matches the typed brand.
+    brandSuggestion: true,
+    // 2026-09-22: photos go FIRST on Poshmark. Attaching them opens a "Select a
+    // Covershot" window (Cancel / Apply) that only the seller closes; the fill
+    // waits for it (GT.awaitPhotoApply), then does everything else. `thumbs`
+    // counts the photos on the form afterwards: 0 means they pressed Cancel.
+    photoApply: {
+      modal: ".listing-editor__image-modal",
+      thumbs: '[data-et-name="listingEditorImageSection"] img',
+    },
     priceDialog: {
       open: 'input.ff--no-increment-input:not([id^="listing-price-modal"])',
       price: '#listing-price-modal-listing-price-input, input[aria-label="Listing Price"]',
@@ -590,12 +629,29 @@ const GT_LISTER_SELECTORS = {
         'input[name="brand"], input#brand',
       photoInput: 'input[type="file"][accept*="image"]',
     },
-    // CONDITION AND SIZE ARE PICKERS on Mercari - condition is a selection and
-    // size a dropdown, reported from the live form 2026-08-20. Same class as
-    // Poshmark's four: option lists whose choices vary per category, where a
-    // wrong pick is worse than an empty field. Deliberately absent from
-    // `fields` rather than declared and left permanently missing, because a
-    // selector that can never match reads as a broken channel.
+    // ── US-3210 AC3: the pickers (mapped on the live sell form 2026-09-22) ──
+    //
+    // Category, condition and size are driven by GT.fillMercariPickers in
+    // common.js; the shapes are described there. Every click below was tried
+    // on the live form and read back. Mercari has no colour picker and no tag
+    // box on this form, so neither is declared.
+    pickers: {
+      kind: "mercari",
+      categoryButton: 'button[data-testid="SellCategoryFieldButton"]',
+      categoryDialog: '[data-testid="CategoryDialogBody"]',
+      categoryRow: '[data-testid="CategoryDialogBody"] [data-testid="CategoryRow"]',
+      categoryClose: '[data-testid="DialogWrapper"] button[aria-label="Close"]',
+      conditionRadio: 'input[type="radio"][name="sellCondition"]',
+      size: '[data-testid="Size"]',
+      sizeOption: '#itemSizeId [data-testid="Size-option"]',
+      settleMs: 500,
+    },
+    // Brand is a pick-from-list box: typed text only counts once a suggestion
+    // is chosen, and the suggestions render as `Brand-option` in a listbox.
+    brandSuggestion: { option: '[data-testid="Brand-option"]' },
+    // Photos land straight on the form as `UploadedPhoto` tiles (no crop
+    // window, no Apply), so a tile appearing is the page confirming it.
+    photoConfirm: '[data-testid="UploadedPhoto"]',
     submit: 'button[data-testid="ListButton"], button[type="submit"]',
     delist: {
       // US-3369: see Poshmark's `locate`. Mercari's own listings page is
@@ -980,6 +1036,114 @@ const GT_LISTER_SELECTORS = {
       verify: {
         urlChanged: true,
         toast: '[data-testid="notification"], [role="alert"]',
+      },
+      timeouts: { control: 6000, verify: 8000 },
+    },
+  },
+
+  // ── Depop — PHASE 6 (US-3462, LIST enabled; delist not yet) ───────────
+  //
+  // Depop was an API channel on paper. The partner API is real, the connector
+  // is built (US-713/714), and Depop never answered two applications, so the
+  // connector sits behind DEPOP_ENABLED with no key. eBay bought Depop on
+  // 2026-07-30 and has said nothing about outside access. This is the same
+  // extension path every competitor uses for Depop, and it needs nobody's
+  // permission because it runs in the seller's own tab.
+  //
+  // Read off the live form on 2026-09-22, signed in, on
+  // www.depop.com/products/create/first/ (a seller with no listings yet is
+  // redirected there from /products/create/; it is the same form plus a
+  // shipping-address block). Tried on the page, not only read: the description
+  // and price took through GT.setValue (the character counter moved and the
+  // value survived a blur), and a JPEG assigned to the file input became a
+  // Cover tile served from media-photos.depop.com. Nothing was submitted.
+  //
+  // What is NOT filled, deliberately: category, brand, condition, size,
+  // colour, source, age, style. Every one is a Downshift combobox
+  // (role=combobox, a listbox under `#<name>-menu`), and a value typed into one
+  // is not a selection. Size, Quantity and SKU do not even exist until a
+  // category is picked. The seller picks those, which is what the banner says.
+  //
+  // Depop has NO title field. The first line of the description is what a
+  // buyer reads as the title, so depop.js leads the description with the
+  // title before the shared runner fills it.
+  depop: {
+    enabled: true,
+    // US-3061: verified against the mobile web DOM? Not assumed.
+    mobile: { enabled: false, lastVerified: null },
+    version: "2026.09.0",
+    lastVerified: "2026-09-22",
+    newListingUrl: "https://www.depop.com/products/create/",
+    hosts: ["depop.com"],
+    login: { urlPattern: "depop\\.com/(login|signup)" },
+    // A live listing is /products/<slug>/. The form we open is
+    // /products/create/ (or /create/first/) and the editor is
+    // /products/edit/<slug>/, so both are excluded by name: an unanchored
+    // /products/ would record the create form as the live listing.
+    liveListingUrlPattern: "^https://[^/]*depop\\.com/products/(?!create(/|$)|edit/)[^/?#]+",
+    // Photos stay out of `required` the way every other channel's do: a form
+    // whose uploader moved should still get its description and price.
+    required: ["description", "price", "submit"],
+    fields: {
+      description: 'textarea#description, textarea[name="description"]',
+      price: 'input#priceAmount__input, input[data-testid="priceAmount__input"]',
+      // accept="image/jpeg, image/png". The page says "JPEG or PNG" and means
+      // it, so a WebP photo is refused by Depop, not by us.
+      photoInput: 'input#upload-input__input, input[data-testid="upload-input__input"]',
+    },
+    // Depop uploads each photo before it previews it, so the preview is a
+    // media-photos.depop.com URL rather than a blob: the generic witness would
+    // never see it. The sortable tile is what appeared on the live form.
+    photoConfirm: 'form[aria-label="List an item"] [aria-roledescription="sortable"] img',
+    // Scoped to the form: the header carries its own buttons. There is one
+    // submit on the form ("Continue" on the first-listing variant). Nothing
+    // clicks it; runFlow never auto-submits.
+    submit: 'form[aria-label="List an item"] button[type="submit"]',
+    delist: {
+      // OFF, and the selectors below are UNCHECKED. The account used for the
+      // 2026-09-22 check had no live listings, so there was no page on which
+      // the owner's controls could exist. Depop stays in
+      // EXTENSION_DELIST_PLATFORMS, so a Depop copy of something that sells
+      // elsewhere gets a pending-delist reminder instead of being left live.
+      enabled: false,
+      version: "2026.09.0-draft",
+      lastVerified: null,
+      required: ["menu"],
+      menu: 'button[aria-label*="More"], button[data-testid*="product-actions"]',
+      remove: 'button[data-testid*="delete"], [role="menuitem"][aria-label*="Delete"]',
+      confirm: '[role="dialog"] button[data-testid*="confirm"], [role="dialog"] button[type="submit"]',
+      verify: {
+        urlChanged: true,
+        gone: 'button[data-testid*="product-actions"]',
+        toast: '[role="alert"], [aria-live="assertive"]',
+      },
+    },
+    // ── US-9202: revise (edit sync) ──────────────────────────────────────
+    //
+    // OFF; unchecked, for the same reason as delist: no owned listing to open
+    // the editor from. The editor is /products/edit/<slug>/ and is expected to
+    // be the create form, so its fields reuse the create ids. There is no
+    // `title` here because Depop has none: a title edit reaches Depop as the
+    // first line of the description.
+    revise: {
+      enabled: false,
+      version: "2026.09.0-draft",
+      lastVerified: null,
+      // No title field on Depop. verify-lister-selectors refuses to let this
+      // flow be enabled until runReviseFlow can fold a title change into the
+      // description's first line.
+      titleless: true,
+      required: ["edit"],
+      edit: 'a[href*="/products/edit/"]',
+      navigatesTo: "^https://[^/]*depop\\.com/products/edit/",
+      fields: {
+        description: 'textarea#description, textarea[name="description"]',
+        price: 'input#priceAmount__input, input[data-testid="priceAmount__input"]',
+      },
+      save: 'form[aria-label] button[type="submit"]',
+      verify: {
+        urlChanged: true,
+        toast: '[role="alert"], [aria-live="assertive"]',
       },
       timeouts: { control: 6000, verify: 8000 },
     },

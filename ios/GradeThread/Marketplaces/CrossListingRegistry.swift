@@ -97,7 +97,8 @@ enum CrossListingRegistry {
         Channel(id: "shopify", label: "Shopify", tier: .api, mechanism: .api),
         Channel(id: "poshmark", label: "Poshmark", tier: .extensionLister, mechanism: .extensionLister),
         Channel(id: "mercari", label: "Mercari", tier: .extensionLister, mechanism: .extensionLister),
-        Channel(id: "depop", label: "Depop", tier: .apiPending, mechanism: .api),
+        // US-3462: the extension, since Depop's partner API never opened.
+        Channel(id: "depop", label: "Depop", tier: .extensionLister, mechanism: .extensionLister),
         Channel(id: "etsy", label: "Etsy", tier: .apiPending, mechanism: .api),
         Channel(id: "whatnot", label: "Whatnot", tier: .comingSoon, mechanism: .none),
         // US-3454: the extension-only channels, from EXTENSION_CROSS_LISTING_PLATFORMS.

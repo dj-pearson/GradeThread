@@ -37,7 +37,10 @@ const JOBS = loadGlobal("lister/job-store.js", "GT_LISTER_JOBS");
     assert.ok(/draft/.test(r.version), `${platform}.revise: version should say draft while unverified`);
     assert.deepStrictEqual(r.required, ["edit"], `${platform}.revise: only edit exists pre-interaction`);
     assert.ok(r.edit && r.save && r.navigatesTo, `${platform}.revise: edit, save and navigatesTo`);
-    for (const key of ["title", "description", "price"]) {
+    // Depop's form has no title field (the description's first line is the
+    // title), so its revise declares `titleless` and carries no title selector.
+    const keys = r.titleless ? ["description", "price"] : ["title", "description", "price"];
+    for (const key of keys) {
       assert.ok(r.fields && r.fields[key], `${platform}.revise.fields.${key}`);
     }
     assert.ok(r.verify && (r.verify.urlChanged || r.verify.toast), `${platform}.revise: verify evidence`);

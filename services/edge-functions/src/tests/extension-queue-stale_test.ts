@@ -46,9 +46,9 @@ function verdict(over: Partial<Parameters<typeof shouldNotifyStaleQueue>[0]> = {
 
 Deno.test("US-3198: the threshold is one more than a single garment can produce", () => {
   // Pinned so a change is a visible diff rather than a silent product decision.
-  // Five extension channels (poshmark, mercari, grailed, vinted, facebook), so
-  // six is the smallest count that needs two garments.
-  assertEquals(STALE_QUEUE_THRESHOLD, 6);
+  // Six extension channels (poshmark, mercari, grailed, vinted, facebook,
+  // depop), so seven is the smallest count that needs two garments.
+  assertEquals(STALE_QUEUE_THRESHOLD, 7);
 });
 
 Deno.test("US-3198: a single garment's worth of queued work is not a backlog", () => {

@@ -204,6 +204,8 @@ const SUPPORTED_LISTER = {
   // was told their own request was malformed.
   vinted: "Vinted",
   facebook: "Facebook Marketplace",
+  // US-3462: the extension path for Depop, since the partner API never opened.
+  depop: "Depop",
 };
 
 // ── per-install instance id (research quota key) ──────────────────────────
@@ -2198,6 +2200,9 @@ const QUEUE_RESULT_FIELDS = {
   brandFilled: { type: "flag" },
   tagsCommitted: { type: "count" },
   tagsTotal: { type: "count" },
+  // US-3210: which pickers the fill set, and which it left for the seller.
+  pickersSet: { type: "words", max: 16, maxLength: 8 },
+  pickersMissed: { type: "words", max: 16, maxLength: 8 },
   photosAttached: { type: "flag" },
   photosTotal: { type: "count" },
   photosFailed: { type: "count" },
@@ -4246,6 +4251,29 @@ ext.runtime.onMessage.addListener(function (msg, sender, sendResponse) {
       // quietly. pauseWorker ignores a notice that is not a pause, so the other
       // GT_LISTER_NOTICE shapes fall through untouched.
       await pauseWorker(msg.notice, job.tabId);
+      sendResponse({ ok: true });
+    })();
+    return true;
+  }
+
+  // 2026-09-22: the fill is waiting on the SELLER (Poshmark's cover-photo
+  // Apply). Only the deadline moves: nothing is pushed to the SaaS and the
+  // worker is not paused, because nothing is wrong. The content script sends
+  // this again every minute it keeps waiting, so a seller who walks away still
+  // times the job out a few minutes later rather than never.
+  if (msg.type === "GT_LISTER_EXTEND") {
+    (async () => {
+      const extended = await withJobs(async (jobs) => {
+        const job = self.GT_LISTER_JOBS.findById(jobs, msg.jobId);
+        if (!job || !self.GT_LISTER_JOBS.isPending(job)) return { value: null };
+        const r = self.GT_LISTER_JOBS.extendDeadline(
+          jobs,
+          msg.jobId,
+          Date.now() + self.GT_LISTER_JOBS.SELLER_WAIT_GRACE_MS,
+        );
+        return { jobs: r.jobs, value: r.job };
+      });
+      if (extended) await scheduleJobAlarm(extended);
       sendResponse({ ok: true });
     })();
     return true;

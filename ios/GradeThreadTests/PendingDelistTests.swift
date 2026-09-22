@@ -57,11 +57,11 @@ final class PendingDelistTests: XCTestCase {
     }
 
     func test_aChannelTheExtensionDoesNotHandleIsRefused() {
-        // eBay, Shopify and Depop are ended server-side and never reach this
-        // list. If one somehow does, queueing it would produce a job the drain
-        // rejects — which reads, from the phone, exactly like one about to run.
+        // eBay and Shopify are ended server-side and never reach this list. If
+        // one somehow does, queueing it would produce a job the drain rejects —
+        // which reads, from the phone, exactly like one about to run.
         XCTAssertNotNil(PendingDelistService.blockedReason(row(platform: "ebay")))
-        XCTAssertNotNil(PendingDelistService.blockedReason(row(platform: "depop")))
+        XCTAssertNotNil(PendingDelistService.blockedReason(row(platform: "shopify")))
     }
 
     func test_everyChannelTheWebCanDelistIsOneThisPhoneCanQueue() {
@@ -70,7 +70,7 @@ final class PendingDelistTests: XCTestCase {
         // this set silently loses its phone path.
         XCTAssertEqual(
             PendingDelistService.queueablePlatforms,
-            ["poshmark", "mercari", "grailed", "vinted", "facebook"]
+            ["poshmark", "mercari", "grailed", "vinted", "facebook", "depop"]
         )
         for platform in PendingDelistService.queueablePlatforms {
             XCTAssertNil(PendingDelistService.blockedReason(row(platform: platform)), platform)

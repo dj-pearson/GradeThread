@@ -191,4 +191,5 @@ private val MARKETPLACE_LABELS = mapOf(
     "grailed" to "Grailed",
     "vinted" to "Vinted",
     "facebook" to "Facebook Marketplace",
+    "depop" to "Depop",
 )

@@ -196,6 +196,10 @@ export const MARKETPLACE_SPECS: Record<MarketplacePlatform, MarketplaceSpec> = {
     manualFields: ["category", "size", "color", "nwt"],
     // Poshmark rejects cents — see priceStep on MarketplaceSpec.
     priceStep: 1,
+    // US-3210: the create form's STYLE TAGS box ("Add up to 3 tags"). Absent
+    // until 2026-09-22, which made the kit generate no Poshmark tags at all, so
+    // the extension's tag fill had nothing to commit on every cross-post.
+    tags: { max: 3, required: false, help: "Poshmark style tags, one or two words each (e.g. vintage, boho, workwear)" },
     usesOwnTaxonomy: true, // Department → Category → Subcategory
     brandAllowList: false,
     fields: [
@@ -205,6 +209,7 @@ export const MARKETPLACE_SPECS: Record<MarketplacePlatform, MarketplaceSpec> = {
       { key: "size", label: "Size", required: true },
       { key: "brand", label: "Brand", required: false },
       { key: "color", label: "Color (up to 2)", required: false },
+      { key: "tags", label: "Style tags (up to 3)", required: false },
       { key: "nwt", label: "New With Tags?", required: false, help: "Poshmark's only structured condition flag — otherwise describe in the listing" },
       { key: "originalPrice", label: "Original price", required: false },
       { key: "price", label: "Listing price", required: true },
@@ -267,7 +272,9 @@ export const MARKETPLACE_SPECS: Record<MarketplacePlatform, MarketplaceSpec> = {
   depop: {
     platform: "depop",
     label: "Depop",
-    pushMechanism: "api", // private partner API (US-712/713/714); manual until approved
+    // US-3462: the Lister extension. The partner-API connector (US-712/713/714)
+    // is built and stays dormant behind DEPOP_ENABLED; Depop never granted access.
+    pushMechanism: "extension",
     titleMaxLength: null, // Depop has no separate title — the description is the listing text
     descriptionMaxLength: 1000,
     maxPhotos: 8,
@@ -303,7 +310,7 @@ export const MARKETPLACE_SPECS: Record<MarketplacePlatform, MarketplaceSpec> = {
       { key: "price", label: "Price", required: true },
     ],
     sourceNote:
-      "Depop seller UI + partner API (2026-06): no title field (description-led), ~1000 char description, ~8 photos, up to 5 hashtags. Private API via partnerapi.depop.com. VERIFY.",
+      "Depop seller UI, read on the live form 2026-09-22: no title field (description-led), 1000 char description, 8 photos (JPEG or PNG only), conditions Brand new / Like new / Used - Excellent / Good / Fair. Category, brand, condition, size and colour are pickers the seller sets. Reached through the Lister extension. VERIFY.",
   },
 
   grailed: {

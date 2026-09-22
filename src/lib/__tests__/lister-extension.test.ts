@@ -33,10 +33,11 @@ describe("isListerPlatform", () => {
     expect(isListerPlatform("poshmark")).toBe(true);
     expect(isListerPlatform("mercari")).toBe(true);
     expect(isListerPlatform("grailed")).toBe(true);
-    // eBay/Shopify push via API, Depop has its own partner API path.
+    // eBay/Shopify push via API. Depop's partner API never opened, so it is
+    // an extension channel (US-3462).
     expect(isListerPlatform("ebay")).toBe(false);
     expect(isListerPlatform("shopify")).toBe(false);
-    expect(isListerPlatform("depop")).toBe(false);
+    expect(isListerPlatform("depop")).toBe(true);
   });
 
   it("LISTER_EXTENSION_PLATFORMS is exactly the no-API channels", () => {
@@ -51,6 +52,7 @@ describe("isListerPlatform", () => {
       "grailed",
       "vinted",
       "facebook",
+      "depop",
     ]);
   });
 });

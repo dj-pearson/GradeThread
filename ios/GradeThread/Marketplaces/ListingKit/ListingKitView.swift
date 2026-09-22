@@ -159,11 +159,10 @@ private struct PlatformVariantCard: View {
     /// Channels the desktop extension can actually run.
     ///
     /// Mirrors `LISTER_EXTENSION_PLATFORMS` in src/lib/lister-extension.ts. Depop
-    /// is deliberately absent: it has a real partner API, so a seller never needs
-    /// their browser for it and offering the queue there would be a worse path
-    /// than the one that already exists.
+    /// joined in US-3462: its partner API never opened, so the desktop
+    /// extension is the only way to list there.
     private static let queueablePlatforms: Set<String> = [
-        "poshmark", "mercari", "grailed", "vinted", "facebook",
+        "poshmark", "mercari", "grailed", "vinted", "facebook", "depop",
     ]
 
     private var isQueueable: Bool {

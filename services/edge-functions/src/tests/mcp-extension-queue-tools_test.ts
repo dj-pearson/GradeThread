@@ -42,7 +42,7 @@ Deno.test("US-3065: a well-formed request parses and counts one row per item per
 Deno.test("US-3065: an invented channel is refused and the real ones are named", () => {
   // A model asked for "everywhere" will guess. The refusal has to say which
   // channels exist, or the next attempt is another guess.
-  for (const bad of ["ebay", "etsy", "shopify", "everywhere", "depop"]) {
+  for (const bad of ["ebay", "etsy", "shopify", "everywhere", "offerup"]) {
     const out = parseQueueRequest({ ...OK, platforms: [bad] });
     assert.equal(out.ok, false, `${bad} was accepted`);
     if (out.ok) return;

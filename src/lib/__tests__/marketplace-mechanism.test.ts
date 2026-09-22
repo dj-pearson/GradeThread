@@ -30,14 +30,16 @@ describe("MARKETPLACE_MECHANISM", () => {
     }
   });
 
-  it("routes eBay/Shopify/Depop through the API", () => {
-    // Depop stays mechanism=api on purpose: the mechanism says HOW a channel
-    // would be reached, and Depop's adapter really is a server-side API
-    // connector. Whether it is switched on is MARKETPLACE_TIER's job, and that
-    // still reads api_pending. Conflating the two is what US-2327 unpicked.
+  it("routes eBay/Shopify through the API", () => {
     expect(MARKETPLACE_MECHANISM.ebay).toBe("api");
     expect(MARKETPLACE_MECHANISM.shopify).toBe("api");
-    expect(MARKETPLACE_MECHANISM.depop).toBe("api");
+  });
+
+  it("routes Depop through the extension (US-3462)", () => {
+    // Depop was mechanism=api because its adapter really is a server-side
+    // connector. It still is, and it is dormant: Depop never granted access,
+    // so the way a seller actually reaches Depop is the extension.
+    expect(MARKETPLACE_MECHANISM.depop).toBe("extension");
   });
 
   it("routes Poshmark/Mercari/Grailed through the extension", () => {
@@ -155,8 +157,8 @@ describe("MARKETPLACE_TIER (US-718)", () => {
     expect(apiTier.sort()).toEqual(["ebay", "shopify"]);
   });
 
-  it("Depop is api_pending — built but not advertised as live (US-713/714)", () => {
-    expect(MARKETPLACE_TIER.depop).toBe("api_pending");
+  it("Depop is the extension tier, not api_pending (US-3462)", () => {
+    expect(MARKETPLACE_TIER.depop).toBe("extension");
   });
 
   it("Poshmark/Mercari/Grailed are the extension tier (US-716)", () => {

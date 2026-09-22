@@ -191,9 +191,9 @@ function row(over) {
 // A row rendered as nothing is a row the seller cannot cancel. An unknown name
 // falls back to itself rather than being dropped or turned into "Job".
 {
-  const v = V.viewRow(row({ kind: "teleport", platform: "depop" }), { now: NOW });
+  const v = V.viewRow(row({ kind: "teleport", platform: "offerup" }), { now: NOW });
   assert.strictEqual(v.kindLabel, "teleport");
-  assert.strictEqual(v.platformLabel, "depop");
+  assert.strictEqual(v.platformLabel, "offerup");
   assert.strictEqual(V.buildList({ pending: [row({ kind: "teleport" })] }, { now: NOW }).length, 1);
 }
 

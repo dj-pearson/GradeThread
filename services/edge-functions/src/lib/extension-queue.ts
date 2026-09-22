@@ -266,6 +266,11 @@ export interface ListPayloadItem {
   brand: string | null;
   color: string | null;
   size: string | null;
+  /**
+   * US-3210: eBay's Department aspect (inventory_items.attributes.department).
+   * Optional so a caller that predates it still compiles; absent reads as none.
+   */
+  department?: string | null;
 }
 
 /** One listing photo, as the builder needs it. */
@@ -484,6 +489,10 @@ export function buildListPayload(
     color: str(input.item.color) || str(v.color),
     size: str(input.item.size) || str(v.size),
     category: str(v.category),
+    // US-3210: Poshmark's category picker starts with Women / Men / Kids. The
+    // item's own Department aspect first; the kit's category resolver guesses
+    // one too (category_department) and is the fallback.
+    department: str(input.item.department) || str(v.category_department),
     condition: conditionLabel,
     tags: Array.isArray(v.tags) ? v.tags.filter((t) => typeof t === "string") : [],
     photoUrls: photos.map((p) => p.photo_url),

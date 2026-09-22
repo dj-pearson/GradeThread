@@ -98,7 +98,16 @@ function checkFlow(platform, flow, kind) {
     if (!flow.edit) fail(`${where}: no \`edit\` selector.`);
     if (!flow.save) fail(`${where}: no \`save\` selector — a fill nobody submits is a form the seller has to find and finish.`);
     const f = flow.fields || {};
-    for (const key of ["title", "description", "price"]) {
+    // A form with no title field (Depop: the description's first line is the
+    // title) declares `titleless: true` and carries no title selector. That is
+    // only safe while the flow is OFF: runReviseFlow reports an unwritable
+    // title as missed, so an enabled titleless revise would never apply until
+    // it learns to write a title change into the description.
+    if (flow.titleless && flow.enabled) {
+      fail(`${where}: \`titleless\` with \`enabled: true\`. runReviseFlow has no way to write a title change into the description yet, so every title edit would report not applied.`);
+    }
+    const reviseKeys = flow.titleless ? ["description", "price"] : ["title", "description", "price"];
+    for (const key of reviseKeys) {
       if (!f[key]) fail(`${where}: no \`fields.${key}\` selector. A revise that cannot write a field reports it as not applied rather than skipping it, so every revisable field needs a selector.`);
     }
     if (!flow.verify || (!flow.verify.urlChanged && !flow.verify.toast && !flow.verify.saved)) {

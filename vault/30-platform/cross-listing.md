@@ -76,6 +76,13 @@ For GradeThread specifically: Shopify is the only marketplace in your list where
 
 ### 2. Depop — the surprise win, but private
 
+> [!warning] Superseded 2026-09-22 (US-3462): Depop is an EXTENSION channel now
+> Two applications to business@depop.com got no reply, and eBay bought Depop on
+> 2026-07-30 without saying anything about outside API access. The connector
+> below is built and stays dormant behind `DEPOP_ENABLED`; sellers reach Depop
+> through the Lister extension, the same way Vendoo, List Perfectly and
+> Crosslist do. Outcome and the reopen condition: [[adr-depop-partner-application]].
+
 Depop has quietly launched a **Selling API at `partnerapi.depop.com`**. Per Depop's own 2025 impact-goals newsroom post, they "Launched the Depop Selling API built for professional sellers to sync stock, manage orders, and integrate their inventory on the platform." (LinkedIn announcement title: "Depop Launches Selling API for Pro Sellers.") It is not public — but it is real, RESTful, and gives you the full lifecycle.
 
 - **Status (verbatim from the docs):** *"This API is currently private and is not available to the general public. If you are interested in integrating with Depop, please contact us at business@depop.com, and we'll get back to you with the next steps."*

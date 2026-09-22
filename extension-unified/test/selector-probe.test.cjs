@@ -114,7 +114,7 @@ const matchNone = () => false;
 
 // ── 4. Every shipped platform can be probed ────────────────────────────────
 {
-  for (const platform of ["poshmark", "mercari", "grailed", "vinted", "facebook"]) {
+  for (const platform of ["poshmark", "mercari", "grailed", "vinted", "depop", "facebook"]) {
     const report = P.buildProbeReport(SELECTORS, platform, matchAll, { host: "x.test" });
     assert.ok(!report.error, `${platform}: ${report.error}`);
     assert.ok(report.flows.length >= 2, `${platform} should probe list + delist at minimum`);
@@ -835,7 +835,7 @@ const matchNone = () => false;
   );
 
   // Every other platform is unaffected: no groups, no new keys.
-  for (const plat of ["mercari", "grailed", "vinted", "facebook"]) {
+  for (const plat of ["mercari", "grailed", "vinted", "depop", "facebook"]) {
     const other = P.selectorsFor(SELECTORS[plat], "list").map((e) => e.key);
     assert.deepStrictEqual(
       other.filter((k) => k.includes(".")),

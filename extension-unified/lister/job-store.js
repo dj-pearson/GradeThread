@@ -41,6 +41,11 @@
   // it covers finding the password, a 2FA code, and the redirect back.
   var LOGIN_WALL_GRACE_MS = 5 * 60 * 1000;
 
+  // 2026-09-22: how far one "still waiting on the seller" ping pushes the
+  // deadline (Poshmark's cover-photo Apply). The content script re-sends it each
+  // minute it keeps waiting, so this only has to outlast one gap between pings.
+  var SELLER_WAIT_GRACE_MS = 3 * 60 * 1000;
+
   var PENDING = "pending";
 
   function isPending(job) {
@@ -613,6 +618,7 @@
     lastJobRecord: lastJobRecord,
     JOB_TIMEOUT_MS: JOB_TIMEOUT_MS,
     LOGIN_WALL_GRACE_MS: LOGIN_WALL_GRACE_MS,
+    SELLER_WAIT_GRACE_MS: SELLER_WAIT_GRACE_MS,
     TERMINAL_GRACE_MS: TERMINAL_GRACE_MS,
     makeJob: makeJob,
     put: put,

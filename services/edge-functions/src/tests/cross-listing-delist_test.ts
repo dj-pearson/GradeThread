@@ -232,19 +232,31 @@ Deno.test("US-2165: a Shopify delete failure is unresolved", () => {
   });
 });
 
-Deno.test("US-2165: a Depop row with no SKU is nothing_live, not unresolved", () => {
-  // Depop is SKU-addressed, so no SKU means nothing was ever live there.
+Deno.test("US-3462: a Depop row is queued for the extension, never sent to the API", () => {
+  // Depop's partner API never opened (DEPOP_ENABLED is off), so a Depop
+  // listing was made by the extension and is ended by it. Calling the API
+  // delete here would fail against a connection that cannot exist.
+  let apiCalled = false;
   return attemptUpstreamDelist(
     "owner-1",
-    row({
-      platform: "depop",
-      inventory_items: { user_id: "owner-1", sku: null },
+    row({ platform: "depop" }),
+    deps({
+      getDepopConnection: () => {
+        apiCalled = true;
+        return Promise.resolve({ token: "t" });
+      },
+      deleteDepopProduct: () => {
+        apiCalled = true;
+        return Promise.resolve();
+      },
     }),
-    deps(),
-  ).then((outcome) => assertEquals(outcome.kind, "nothing_live"));
+  ).then((outcome) => {
+    assertEquals(outcome.kind, "queued");
+    assertEquals(apiCalled, false);
+  });
 });
 
-Deno.test("US-2165: a successful Shopify and Depop delete is ended", async () => {
+Deno.test("US-2165: a successful Shopify delete is ended", async () => {
   const shopify = attemptUpstreamDelist(
     "owner-1",
     row({ platform: "shopify", platform_listing_id: "gid://p/1" }),
@@ -253,17 +265,7 @@ Deno.test("US-2165: a successful Shopify and Depop delete is ended", async () =>
       deleteProductGraphql: () => Promise.resolve(),
     }),
   ).then((o) => assertEquals(o.kind, "ended"));
-  const depop = attemptUpstreamDelist(
-    "owner-1",
-    row({ platform: "depop" }),
-    deps({
-      getDepopConnection: () => Promise.resolve({ token: "t" }),
-      deleteDepopProduct: () => Promise.resolve(),
-    }),
-  ).then((o) => assertEquals(o.kind, "ended"));
-  // await, not return: Deno.test wants Promise<void>, and returning
-  // Promise.all's tuple fails the type check.
-  await Promise.all([shopify, depop]);
+  await shopify;
 });
 
 // ── US-3141: the sale hands the delist to the extension's background drain ──
