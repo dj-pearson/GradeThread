@@ -43,6 +43,8 @@ enum AccountScopedDefaults {
         // marketplace's automation terms. The next seller on this handset has
         // not read it, and must not skip the screen that says so.
         "com.gradethread.app.pref.webDelistConsented.v1",
+        // US-3455: the listing-form consent, per marketplace and version.
+        "com.gradethread.app.pref.webListConsented.v1",
         // Onboarding + activation: answers about one seller's business.
         "com.gradethread.app.onboarding.completed.v1",
         "com.gradethread.app.onboarding.useCase.v1",

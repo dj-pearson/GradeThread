@@ -34,6 +34,16 @@ struct PushToSheet: View {
     @State private var queue: [ExtensionQueueService.QueueItem] = []
     @State private var queueMessage: String?
     @State private var queueBusy = false
+    /// US-3455: the marketplace whose create form the phone is about to fill,
+    /// with the words already fetched. Set only after the edge answered, so a
+    /// sheet with a web view in it always has something to type.
+    @State private var phoneList: PhoneListTarget?
+
+    struct PhoneListTarget: Identifiable {
+        let platform: String
+        let fill: WebListFill
+        var id: String { platform }
+    }
 
     private let service: CrossPushProviding
 
@@ -102,6 +112,11 @@ struct PushToSheet: View {
                 }
             }
             .task { await loadQueue() }
+            .sheet(item: $phoneList) { target in
+                WebListView(platform: target.platform, fill: target.fill) { url in
+                    Task { await recordListed(platform: target.platform, url: url) }
+                }
+            }
             .navigationTitle("List on")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -220,10 +235,25 @@ struct PushToSheet: View {
                 if channel.mechanism == .extensionLister {
                     // Said on the row, not once at the bottom: this is the fact
                     // that decides whether the seller can walk away.
-                    Text("Queued for your desktop browser. It runs the next time you open it.")
+                    Text("Push queues it for your desktop browser. It runs the next time you open it.")
                         .font(.caption2)
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
+                    // US-3455: Poshmark and Mercari can be filled right here,
+                    // in a web view the seller is signed into. Other extension
+                    // channels queue only, until their list flow is verified
+                    // in the generated table.
+                    if ListFlows.flow(for: channel.id)?.enabled == true {
+                        Button {
+                            Task { await listNow(channel) }
+                        } label: {
+                            Label("List now on your phone", systemImage: "iphone")
+                                .font(.caption.weight(.semibold))
+                        }
+                        .buttonStyle(.plain)
+                        .foregroundStyle(Color.brandNavy)
+                        .disabled(queueBusy || isPushing)
+                    }
                 }
             }
         }
@@ -314,6 +344,43 @@ struct PushToSheet: View {
             await loadQueue()
         } catch {
             queueMessage = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+        }
+    }
+
+    // MARK: - US-3455: list now, on the phone
+
+    /// Fetch the words, then open the marketplace's form in the app. The
+    /// fetch happens HERE, before the sheet exists: the code that drives the
+    /// page may not fetch (`ios/Scripts/check-web-delist.py`).
+    private func listNow(_ channel: CrossListingRegistry.Channel) async {
+        queueBusy = true
+        defer { queueBusy = false }
+        do {
+            let fill = try await WebListService.shared.fill(
+                itemId: itemId,
+                platform: channel.id,
+                price: CrossPush.priceEntry(priceTexts[channel.id] ?? "")
+            )
+            phoneList = PhoneListTarget(platform: channel.id, fill: fill)
+        } catch {
+            queueMessage = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+        }
+    }
+
+    /// The web view landed on a live listing. Record it the way the desktop
+    /// extension does, and show the link where the API results show theirs.
+    private func recordListed(platform: String, url: URL) async {
+        do {
+            try await WebListService.shared.recordListed(itemId: itemId, platform: platform, url: url)
+            outcomes.append(CrossPushOutcome(platform: platform, state: .listed(url: url.absoluteString)))
+            selected.remove(platform)
+            priceTexts[platform] = nil
+        } catch {
+            let reason = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+            outcomes.append(CrossPushOutcome(
+                platform: platform,
+                state: .failed("Posted on \(CrossListingRegistry.channel(id: platform)?.label ?? platform), but GradeThread could not record it: \(reason)")
+            ))
         }
     }
 

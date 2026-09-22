@@ -36,6 +36,11 @@ enum AppPreferences {
     /// belongs to the person who read it, and the next person to sign in on
     /// this handset has not. Registered in ``AccountScopedDefaults``.
     static let webDelistConsentedKey = "com.gradethread.app.pref.webDelistConsented.v1"
+    /// US-3455: the same consent for FILLING a listing form in the web view,
+    /// recorded per marketplace and selector version ("poshmark@2026.08.2 ...")
+    /// so a changed form shows the screen again. Account-scoped for the same
+    /// reason. Registered in ``AccountScopedDefaults``.
+    static let webListConsentedKey = "com.gradethread.app.pref.webListConsented.v1"
 
     /// US-805: at what cap-usage percentage the soft warning banner appears
     /// (mirrors web US-209: 50 / 80 / 95). The edge only emits the warning header

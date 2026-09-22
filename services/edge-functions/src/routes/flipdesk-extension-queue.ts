@@ -24,6 +24,7 @@ import {
   QUEUE_SELECT_COLS,
 } from "../lib/extension-enqueue.ts";
 import { getMarketplaceSpec } from "../lib/marketplace-specs.ts";
+import { parseFillRequest } from "../lib/extension-queue-fill.ts";
 import { getVapidConfig } from "../lib/web-push.ts";
 import { renderPlatformDescriptionsForListing } from "../lib/platform-description.ts";
 
@@ -579,6 +580,52 @@ async function hydrateListRows(
 // /api/push/vapid-public-key), but the extension cannot reach that route, and
 // baking a key into a shipped extension build means a key rotation needs a
 // store review. So it asks.
+// POST /fill -- US-3455: the words for a create form the PHONE is about to
+// fill itself, in a web view the seller is signed into and watching.
+//
+// The same hydration a claimed `list` row gets, on a row that is never
+// written: the phone is the browser here, so there is nothing for a desktop
+// to drain, and the listing row is minted by extension-writeback once the
+// seller actually posts. A refused hydration is the same two refusals the
+// desktop gets, in the same words -- 404 for an item this owner does not
+// have (US-268: a foreign id reads as missing, never as someone else's) and
+// 409 for an item with no photos, which every marketplace requires.
+flipdeskExtensionQueueRoutes.post("/fill", async (c) => {
+  const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
+  const body = await c.req.json().catch(() => ({}));
+  const parsed = parseFillRequest(body);
+  if (!parsed.ok) return c.json({ error: parsed.error }, 400);
+
+  const nowIso = new Date().toISOString();
+  const row: QueueRow = {
+    id: "phone-fill",
+    kind: "list",
+    platform: parsed.platform,
+    inventory_item_id: parsed.itemId,
+    listing_id: null,
+    payload: parsed.payload,
+    status: "queued",
+    attempts: 0,
+    source: "ios",
+    claimed_at: null,
+    completed_at: null,
+    result: null,
+    expires_at: nowIso,
+    created_at: nowIso,
+  };
+  const hydrated = await hydrateListRows(ownerId, [row]);
+  const refusal = hydrated.refused[0]?.reason;
+  if (refusal) {
+    return c.json(
+      { error: LIST_REFUSAL_REASON[refusal], reason: refusal },
+      refusal === "item_missing" ? 404 : 409,
+    );
+  }
+  const filled = hydrated.rows[0];
+  if (!filled) return c.json({ error: LIST_REFUSAL_REASON.item_missing, reason: "item_missing" }, 404);
+  return c.json({ payload: filled.payload }, 200, { "Cache-Control": "no-store" });
+});
+
 flipdeskExtensionQueueRoutes.get("/push-key", (c) => {
   const vapid = getVapidConfig();
   if (!vapid) return c.json({ key: null, enabled: false });

@@ -4996,6 +4996,25 @@ Deno.test({
   },
 });
 
+// US-3455: the phone's create-form fill takes an item id in the body and
+// answers 404 for an item the caller does not own. Not a 200 with empty
+// words: the payload carries the item's title, brand and photo URLs, which is
+// exactly what a foreign id must never read.
+Deno.test({
+  name: "B cannot fetch a phone list fill for A's item",
+  ignore: !CONFIGURED || !Deno.env.get("TEST_USER_A_ITEM_ID"),
+  fn: async () => {
+    const aItemId = Deno.env.get("TEST_USER_A_ITEM_ID")!;
+    const res = await fetch(`${BASE}/api/flipdesk/extension-queue/fill`, {
+      method: "POST",
+      headers: authHeaders(B_JWT!),
+      body: JSON.stringify({ inventory_item_id: aItemId, platform: "poshmark" }),
+    });
+    await res.body?.cancel();
+    assertDenied(res.status, "POST extension-queue/fill naming A's item as B");
+  },
+});
+
 // US-3452: the delist log takes an item id in the path and answers 404 for an
 // item the caller does not own. Not an empty list: a 200 with no events would
 // confirm the id exists, and item ids travel in push payloads and links.
