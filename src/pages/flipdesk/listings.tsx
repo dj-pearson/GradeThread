@@ -870,6 +870,7 @@ export function FlipdeskListingsPage() {
     updateItemStatus,
     updateItemMoney,
     updateItemNotes,
+    patchItemColumns,
     endListing,
     bulkPriceDrop,
     bulkRelist,
@@ -1530,6 +1531,7 @@ export function FlipdeskListingsPage() {
                 updateItemStatus={updateItemStatus}
                 updateItemMoney={updateItemMoney}
                 updateItemNotes={updateItemNotes}
+                onQuickEdit={setQuickEditItem}
                 markDelivered={markDelivered}
                 setPublishItem={setPublishItem}
                 setMarkListedItem={setMarkListedItem}
@@ -2076,9 +2078,25 @@ export function FlipdeskListingsPage() {
 
       <ItemDetailDialog item={detailItem} onClose={() => setDetailItem(null)} />
 
+      {/* US-3467: the row click on desktop and the edit button on phone both
+          open this panel. It reads the row from the live page, so a save that
+          refetches shows the new values; the snapshot is only a fallback for
+          an item that just left this tab. */}
       <ItemQuickEditSheet
-        item={quickEditItem}
+        item={
+          quickEditItem
+            ? (pageRows.find((r) => r.id === quickEditItem.id) ?? quickEditItem)
+            : null
+        }
+        items={pageRows}
+        onSelect={setQuickEditItem}
         onClose={() => setQuickEditItem(null)}
+        onOpenFull={(it) =>
+          navigate(`/dashboard/flipdesk/items/${it.id}/draft`, {
+            state: { from: `${window.location.pathname}${window.location.search}` },
+          })
+        }
+        actions={{ patchItemColumns, updateItemStatus, updateListingPrice }}
       />
 
       <MarkListedDialog

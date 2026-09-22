@@ -145,6 +145,12 @@ interface Props {
     label: string,
   ) => Promise<void>;
   updateItemNotes: (it: ItemFullRow, raw: string) => Promise<void>;
+  /**
+   * US-3467: what a row click does. The page passes the quick-edit panel; with
+   * none, a click opens the full editor as before. The pencil button always
+   * opens the full editor.
+   */
+  onQuickEdit?: (it: ItemFullRow) => void;
   markDelivered: (it: ItemFullRow) => Promise<void>;
 
   // ── row actions that open a dialog on the page ──────────────────────────
@@ -244,6 +250,7 @@ export function ListingsTable({
   updateItemStatus,
   updateItemMoney,
   updateItemNotes,
+  onQuickEdit,
   markDelivered,
   setPublishItem,
   setMarkListedItem,
@@ -786,12 +793,15 @@ export function ListingsTable({
                   // how a listed item ended up unable to save (eBay
                   // rejecting the revision for a missing required
                   // specific the seller had no way to fill).
-                  onActivate={() => openItem(it.id)}
+                  //
+                  // US-3467: a row click now opens the quick-edit panel
+                  // beside the list. The pencil still opens that one editor.
+                  onActivate={() => (onQuickEdit ? onQuickEdit(it) : openItem(it.id))}
                   // Was `it.item_title ?? it.listing_title`, which SKIPPED the
                   // US-1569 placeholder fallback the title cell below applies —
                   // so a row displaying "Nike Windbreaker" announced itself as
                   // "Open Item 42". Same derivation for both now.
-                  activateLabel={`Open ${rowLabel}`}
+                  activateLabel={onQuickEdit ? `Quick edit ${rowLabel}` : `Open ${rowLabel}`}
                 >
                   {selectable && (
                     <TableCell

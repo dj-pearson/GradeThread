@@ -194,7 +194,11 @@ describe("the listings table names every per-row control (US-2450)", () => {
     // ClickableRow takes activateLabel, not aria-label, so the fixed-label scan
     // above cannot see it — and it was the one that had drifted, announcing
     // "Open Item 42" for a row displaying "Nike Windbreaker".
-    expect(TABLE_SRC).toContain("activateLabel={`Open ${rowLabel}`}");
+    // US-3467: a row click opens the quick-edit panel when the page supplies
+    // one, so the label says so; both forms still name the row by rowLabel.
+    expect(TABLE_SRC).toContain(
+      "activateLabel={onQuickEdit ? `Quick edit ${rowLabel}` : `Open ${rowLabel}`}",
+    );
   });
 
   it("the visible title and the spoken label share one rule", () => {

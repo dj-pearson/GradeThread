@@ -483,6 +483,31 @@ export function makeListingsActions(d: ListingsActionDeps) {
     }
   }
 
+  // US-3467: several base columns in one write, for the quick-edit panel. Same
+  // optimistic patch and rollback as patchItemColumn, one toast instead of five.
+  async function patchItemColumns(
+    it: ItemFullRow,
+    base: Record<string, string | number | null>,
+    viewPatch: Partial<ItemFullRow>,
+  ): Promise<boolean> {
+    if (Object.keys(base).length === 0) return true;
+    const rollback = patchRow(it.id, viewPatch);
+    try {
+      const { error } = await supabase
+        .from("inventory_items")
+        .update(base as never)
+        .eq("id", it.id);
+      if (error) throw error;
+      await qc.invalidateQueries({ queryKey: ["items_full"] });
+      toast.success("Saved.");
+      return true;
+    } catch (err) {
+      rollback();
+      toastError(err, "Couldn't save your changes.");
+      return false;
+    }
+  }
+
   // Inline status change. Honors the explicit pick (forward or back, incl.
   // side-track statuses) — same direct write the mobile quick-edit sheet uses.
   async function updateItemStatus(it: ItemFullRow, next: ItemStatus) {
@@ -1230,6 +1255,7 @@ export function makeListingsActions(d: ListingsActionDeps) {
     markDelivered,
     updateListingPrice,
     patchItemColumn,
+    patchItemColumns,
     updateItemStatus,
     updateItemMoney,
     updateItemNotes,
