@@ -6,6 +6,7 @@ status: current
 source_of_truth: code
 code_refs:
   - services/edge-functions/src/lib/sync-precedence.ts
+  - services/edge-functions/src/lib/ebay-catalog-merge.ts
   - services/edge-functions/src/routes/flipdesk-google-sync.ts
   - services/edge-functions/src/lib/sheet-map.ts
 reviewed: 2026-09-02
@@ -276,6 +277,55 @@ what goes to eBay.
 This composes with the ownership table above: on inbound pull `brand/size/color/style/material`
 remain fill-if-blank (`EBAY_OWNED_ITEM_SPECIFIC_FIELDS`); the reverse write-back only runs on
 GradeThread editing surfaces and the GT-side publish path.
+
+## Inbound pull: the FULL specifics map is mirrored, fill-if-blank per name (US-3468)
+
+The five columns above are what the pull has always filled. They are not what an
+imported listing needs to be crosslistable, and until US-3468 (2026-09-22) they
+were all it got: both passes read the whole specifics map (the modern pass has
+`product.aspects` on the offer for free; the legacy pass answers `GetItem`) and
+then `buildCatalogPatch` in `services/edge-functions/src/lib/ebay-catalog-merge.ts`
+kept only Brand/Size/Color/Style/Material and dropped the rest. A baseball card's
+Sport, Player, Season, Set, Card Number and Graded specifics were fetched every
+sync and never stored, so the item page showed a title and photos and the
+specifics editor opened empty with no category.
+
+The rule now:
+
+- **`inventory_items.ebay_aspects` is filled per aspect NAME.** Every specific eBay
+  holds that the item does not yet carry is added; a name the item already has
+  (compared case-insensitively, so "Colour" does not sit beside "colour") keeps
+  its local value. This is `mergeEbayAspects()`. Fill-if-blank rather than
+  overwrite for the same reason the columns are: the specifics editor and the AI
+  pass write the same map, and a pull must not clobber what the seller set here.
+- **`inventory_items.ebay_category_id` fills only when blank**, from the offer's
+  `categoryId` or GetItem's `PrimaryCategory`. The composer loads the aspect spec
+  from this id; specifics with no category are values with no editor around them.
+- **Multi-value specifics keep every value** in `ebay_aspects` (GetItem's
+  `parseGetItemDetails` returns both the flat first-value map the columns use and
+  the full `Record<name, string[]>`).
+- **Adoption seeds both** when the orphan snapshot carried them (`raw.aspects`,
+  `raw.categoryId` from the modern pass). A legacy-adopted item has neither at
+  creation; an empty `ebay_aspects` now counts as a blank worth one GetItem call,
+  bounded by the same 14-day `ebay_specifics_checked_at` stamp as the columns.
+- **The vertical follows eBay's breadcrumb** (`item_category`, via
+  `itemCategoryFromEbayPath` in `services/edge-functions/src/lib/ebay-item-category.ts`).
+  Every eBay US top-level category has a home (`EBAY_ROOT_CATEGORIES`, 35 roots):
+  the ones that are a GradeThread vertical map to it, the ones that split across
+  several (Clothing, Shoes & Accessories; Jewelry & Watches; Sporting Goods; Sports
+  Mem; Baby; Travel; eBay Motors) are read by segment, and the ones GradeThread does
+  not model (Home & Garden, Health & Beauty, Music, Pet Supplies, ...) map to
+  "other". An adopted orphan is filed under that answer, "clothing" only when there
+  is no breadcrumb to read. On a matched eBay-originated item the pull replaces
+  `item_category` only when it still holds the adoption default "clothing": any
+  other value was chosen and stays. "other" does move a default, because a read
+  breadcrumb naming a non-garment root is still not a garment. The breadcrumb
+  comes free from GetItem (`PrimaryCategory.CategoryName`) and is otherwise
+  resolved by id through `getCategoryName`'s shared cache, once per category per run.
+- **Provenance is left unset** for pulled aspects. `ebay_aspect_sources` has no
+  value for "the seller's own live listing", and stamping them `manual` would let
+  the reverse column pass overwrite a differing local column, which the
+  fill-if-blank contract forbids. A missing key already reads as "source unknown".
 
 ## Measurements ↔ eBay measurement aspects (live mirror)
 

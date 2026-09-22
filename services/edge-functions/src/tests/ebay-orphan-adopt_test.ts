@@ -18,6 +18,7 @@ import {
   normalizeTitle,
   type OrphanCandidate,
   planOrphanAdoption,
+  resolveItemCategories,
 } from "../lib/ebay-orphan-adopt.ts";
 
 function orphan(
@@ -162,7 +163,10 @@ Deno.test("buildAdoptionRows mirrors the client's Create-from-listing shape", ()
       available_quantity: 2,
       listing_url: "https://www.ebay.com/itm/42",
       start_date: "2026-09-01",
-      raw: { categoryId: "57988" },
+      raw: {
+        categoryId: "57988",
+        aspects: { Brand: ["Carhartt"], Size: ["XL"], Features: ["Lined", ""] },
+      },
     }),
     "owner-1",
     "2026-09-22T00:00:00.000Z",
@@ -177,6 +181,10 @@ Deno.test("buildAdoptionRows mirrors the client's Create-from-listing shape", ()
     status: "listed",
     target_price: 89.5,
     item_category: "clothing",
+    // US-3468: the offer's category + specifics are seeded at creation, so the
+    // new item is crosslistable without waiting a sync.
+    ebay_category_id: "57988",
+    ebay_aspects: { Brand: ["Carhartt"], Size: ["XL"], Features: ["Lined"] },
   });
   assertEquals(rows.listing, {
     id: "listing-1",
@@ -335,4 +343,78 @@ Deno.test("both active-listing passes fall back to the listing id, after the SKU
     route.includes("const itemId = resolveListedItemId(sku, l.ebayItemId);"),
     "the Trading pass must resolve through resolveListedItemId",
   );
+});
+
+Deno.test("US-3468: a legacy orphan (no aspects in raw) is created without the columns, not with nulls", () => {
+  const rows = buildAdoptionRows(
+    orphan({
+      ebay_item_id: "43",
+      title: "1989 Upper Deck Ken Griffey Jr. #1",
+      raw: { source: "trading_api" },
+    }),
+    "owner-1",
+    "2026-09-22T00:00:00.000Z",
+    new Set(),
+  );
+  // Omitted, so the insert leaves the column default alone and the next
+  // sync's GetItem fills both.
+  assertEquals("ebay_category_id" in rows.item, false);
+  assertEquals("ebay_aspects" in rows.item, false);
+});
+
+Deno.test("US-3468: an adopted card is filed as sports_cards when the breadcrumb says so", () => {
+  const rows = buildAdoptionRows(
+    orphan({
+      ebay_item_id: "44",
+      title: "1989 Upper Deck Ken Griffey Jr. #1 PSA 9",
+      raw: { categoryId: "261328" },
+    }),
+    "owner-1",
+    "2026-09-22T00:00:00.000Z",
+    new Set(),
+    undefined,
+    "sports_cards",
+  );
+  assertEquals(rows.item.item_category, "sports_cards");
+  assertEquals(rows.item.ebay_category_id, "261328");
+  // No answer keeps the default.
+  const plain = buildAdoptionRows(
+    orphan({ ebay_item_id: "45", raw: {} }),
+    "owner-1",
+    "2026-09-22T00:00:00.000Z",
+    new Set(),
+  );
+  assertEquals(plain.item.item_category, "clothing");
+});
+
+Deno.test("US-3468: resolveItemCategories asks once per distinct category and maps only what resolves", async () => {
+  const asked: string[] = [];
+  const map = await resolveItemCategories(
+    [
+      orphan({ ebay_item_id: "1", raw: { categoryId: "261328" } }),
+      orphan({ ebay_item_id: "2", raw: { categoryId: "261328" } }),
+      orphan({ ebay_item_id: "3", raw: { categoryId: "93427" } }),
+      orphan({ ebay_item_id: "4", raw: { categoryId: "999" } }),
+      orphan({ ebay_item_id: "5", raw: {} }),
+      orphan({ ebay_item_id: "6", raw: { categoryId: "  " } }),
+    ],
+    (id) => {
+      asked.push(id);
+      if (id === "261328") {
+        return Promise.resolve(
+          "Sports Mem, Cards & Fan Shop › Sports Trading Cards › Trading Card Singles",
+        );
+      }
+      if (id === "93427") {
+        return Promise.resolve(
+          "Clothing, Shoes & Accessories › Men › Men's Shoes › Athletic Shoes",
+        );
+      }
+      return Promise.resolve(null);
+    },
+  );
+  assertEquals(asked, ["261328", "93427", "999"]);
+  assertEquals(map.get("261328"), "sports_cards");
+  assertEquals(map.get("93427"), "shoes");
+  assertEquals(map.has("999"), false);
 });

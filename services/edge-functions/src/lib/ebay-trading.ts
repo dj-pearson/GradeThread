@@ -386,16 +386,72 @@ interface GetItemResponse {
         GalleryURL?: unknown;
         PictureURL?: unknown;
       };
+      PrimaryCategory?: {
+        CategoryID?: unknown;
+        CategoryName?: unknown;
+      };
     };
   };
 }
 
-/** What one GetItem call yields. Both halves are best-effort and may be empty. */
+/** What one GetItem call yields. Every half is best-effort and may be empty. */
 export interface EbayItemDetails {
   /** Item specifics flattened to { [Name]: firstValue }. */
   specifics: Record<string, string>;
+  /**
+   * US-3468: the same specifics with EVERY value per name, in the shape
+   * inventory_items.ebay_aspects stores. The flat map above keeps the first
+   * value only, which is right for the five columns and wrong for a
+   * multi-value specific like Features or Card Attributes.
+   */
+  aspects: Record<string, string[]>;
+  /** US-3468: the listing's leaf category id, for ebay_category_id. */
+  primaryCategoryId: string | null;
+  /**
+   * US-3468: the category breadcrumb as Trading renders it
+   * ("Sports Mem, Cards & Fan Shop:Sports Trading Cards:Trading Card Singles"),
+   * which is what decides the item's vertical (ebay-item-category.ts). Free
+   * on the same call; the modern pass has to resolve it by id instead.
+   */
+  primaryCategoryPath: string | null;
   /** US-3196: every eBay-hosted picture on the listing, largest render first. */
   pictureUrls: string[];
+}
+
+/**
+ * US-3468: the pure half of getItemDetails. Split out so the specifics
+ * parsing can be asserted from a fixture without an eBay token.
+ */
+export function parseGetItemDetails(text: string): EbayItemDetails | null {
+  const root = (getItemParser.parse(text) as GetItemResponse).GetItemResponse;
+  if (!root || root.Ack === "Failure") return null;
+  const nvl = root.Item?.ItemSpecifics?.NameValueList ?? [];
+  const specifics: Record<string, string> = {};
+  const aspects: Record<string, string[]> = {};
+  for (const nv of nvl) {
+    const name = asString(nv.Name);
+    if (!name) continue;
+    // Value may be a single string or an array (multi-value specific).
+    const values = (Array.isArray(nv.Value) ? nv.Value : [nv.Value])
+      .map(asString)
+      .filter((v): v is string => !!v && !!v.trim())
+      .map((v) => v.trim());
+    if (values.length === 0) continue;
+    specifics[name] = values[0];
+    aspects[name] = values;
+  }
+  return {
+    specifics,
+    aspects,
+    primaryCategoryId: asString(root.Item?.PrimaryCategory?.CategoryID) ||
+      null,
+    primaryCategoryPath:
+      asString(root.Item?.PrimaryCategory?.CategoryName) || null,
+    pictureUrls: normalizeEbayPictureUrls([
+      root.Item?.PictureDetails?.PictureURL,
+      root.Item?.PictureDetails?.GalleryURL,
+    ]),
+  };
 }
 
 /**
@@ -414,7 +470,13 @@ export async function getItemDetails(
   userId: string,
   itemId: string,
 ): Promise<EbayItemDetails> {
-  const empty: EbayItemDetails = { specifics: {}, pictureUrls: [] };
+  const empty: EbayItemDetails = {
+    specifics: {},
+    aspects: {},
+    primaryCategoryId: null,
+    primaryCategoryPath: null,
+    pictureUrls: [],
+  };
   try {
     const token = await getUserAccessToken(userId);
     const { appId, certId, devId } = devEnv();
@@ -452,31 +514,16 @@ export async function getItemDetails(
       return empty;
     }
 
-    const root = (getItemParser.parse(text) as GetItemResponse).GetItemResponse;
-    if (!root || root.Ack === "Failure") {
+    const parsed = parseGetItemDetails(text);
+    if (!parsed) {
+      const root = (getItemParser.parse(text) as GetItemResponse)
+        .GetItemResponse;
       console.warn(
         `[ebay-trading] GetItem(${itemId}) failed: ${root?.Errors?.[0]?.LongMessage ?? "no message"}`,
       );
       return empty;
     }
-
-    const nvl = root.Item?.ItemSpecifics?.NameValueList ?? [];
-    const out: Record<string, string> = {};
-    for (const nv of nvl) {
-      const name = asString(nv.Name);
-      if (!name) continue;
-      // Value may be a single string or an array (multi-value specific).
-      const values = Array.isArray(nv.Value) ? nv.Value : [nv.Value];
-      const first = values.map(asString).find((v) => v && v.trim());
-      if (first) out[name] = first;
-    }
-    return {
-      specifics: out,
-      pictureUrls: normalizeEbayPictureUrls([
-        root.Item?.PictureDetails?.PictureURL,
-        root.Item?.PictureDetails?.GalleryURL,
-      ]),
-    };
+    return parsed;
   } catch (err) {
     console.warn(
       `[ebay-trading] GetItem(${itemId}) threw:`,

@@ -13,9 +13,14 @@
 // match, and a likely match is a question for the seller, never a merge and
 // never a duplicate. Everything else becomes an item.
 
+import { sanitizePulledAspects } from "./ebay-catalog-merge.ts";
+import {
+  type ItemCategory,
+  itemCategoryFromEbayPath,
+} from "./ebay-item-category.ts";
 import { supabaseAdmin } from "./supabase.ts";
 import { mirrorEbayPhotos } from "./ebay-photo-sync.ts";
-import { ebayListingUrl } from "./ebay-client.ts";
+import { ebayListingUrl, getCategoryName } from "./ebay-client.ts";
 
 /**
  * Orphans adopted in one catalog pass. A pass with more waits for the next one
@@ -121,7 +126,22 @@ export interface AdoptionItemRow {
   sku: string | null;
   status: "listed";
   target_price: number | null;
-  item_category: "clothing";
+  /**
+   * US-3468: the vertical eBay's category breadcrumb implies, "clothing" when
+   * there is no breadcrumb to read. Until this every adopted item was a
+   * garment, and a graded card came in with the clothing photo profile and
+   * the garment measurement template around it.
+   */
+  item_category: ItemCategory;
+  /**
+   * US-3468: the listing's leaf category and full specifics, when the orphan
+   * snapshot carried them (the modern pass puts product.aspects in `raw`).
+   * Without these the new item had a title and photos and nothing a crosslist
+   * draft could be built from. Omitted, not null, when absent, so the insert
+   * leaves the column default alone and the next sync's GetItem fills it.
+   */
+  ebay_category_id?: string;
+  ebay_aspects?: Record<string, string[]>;
 }
 
 export interface AdoptionListingRow {
@@ -157,6 +177,7 @@ export function buildAdoptionRows(
   now: string,
   usedSkus: Set<string>,
   mintId: () => string = () => crypto.randomUUID(),
+  itemCategory: ItemCategory | null = null,
 ): { item: AdoptionItemRow; listing: AdoptionListingRow } {
   const itemId = mintId();
   const title = (orphan.title ?? "").trim() ||
@@ -171,16 +192,24 @@ export function buildAdoptionRows(
     }
   }
   const categoryId = orphan.raw?.categoryId;
+  const item: AdoptionItemRow = {
+    id: itemId,
+    user_id: ownerId,
+    title,
+    sku,
+    status: "listed",
+    target_price: orphan.current_price,
+    item_category: itemCategory ?? "clothing",
+  };
+  if (typeof categoryId === "string" && categoryId.trim()) {
+    item.ebay_category_id = categoryId.trim();
+  }
+  const aspects = sanitizePulledAspects(
+    orphan.raw?.aspects as Record<string, unknown> | null | undefined,
+  );
+  if (Object.keys(aspects).length > 0) item.ebay_aspects = aspects;
   return {
-    item: {
-      id: itemId,
-      user_id: ownerId,
-      title,
-      sku,
-      status: "listed",
-      target_price: orphan.current_price,
-      item_category: "clothing",
-    },
+    item,
     listing: {
       id: mintId(),
       inventory_item_id: itemId,
@@ -226,10 +255,57 @@ export interface AdoptionResult {
  * orphan flip leaves behind, and it is also what a manual link from the
  * Reconciliation page looks like, so the same branch covers both.
  */
+/**
+ * US-3468: eBay category id -> breadcrumb path, or null. The default reads
+ * through the shared ebay_category_aspects cache (getCategoryName) and
+ * resolves a miss live once, so a seller with 40 categories costs 40 lookups
+ * on the first pass and none after. Injectable so the planner tests need no
+ * eBay.
+ */
+export type CategoryPathResolver = (
+  categoryId: string,
+) => Promise<string | null>;
+
+export const defaultCategoryPathResolver: CategoryPathResolver = async (id) => {
+  try {
+    return (await getCategoryName(id))?.path ?? null;
+  } catch {
+    return null;
+  }
+};
+
+/**
+ * The vertical for each distinct eBay category id among the orphans, resolved
+ * once per id. A missing or unresolvable id maps to nothing, and the row then
+ * takes the adoption default.
+ */
+export async function resolveItemCategories(
+  orphans: OrphanCandidate[],
+  resolve: CategoryPathResolver,
+): Promise<Map<string, ItemCategory>> {
+  const ids = new Set<string>();
+  for (const o of orphans) {
+    const id = o.raw?.categoryId;
+    if (typeof id === "string" && id.trim()) ids.add(id.trim());
+  }
+  const out = new Map<string, ItemCategory>();
+  for (const id of ids) {
+    const category = itemCategoryFromEbayPath(await resolve(id));
+    if (category) out.set(id, category);
+  }
+  return out;
+}
+
+function categoryIdOf(o: OrphanCandidate): string | null {
+  const id = o.raw?.categoryId;
+  return typeof id === "string" && id.trim() ? id.trim() : null;
+}
+
 export async function adoptOrphans(
   ownerId: string,
   adopt: OrphanCandidate[],
   now: string = new Date().toISOString(),
+  resolveCategoryPath: CategoryPathResolver = defaultCategoryPathResolver,
 ): Promise<AdoptionResult> {
   const result: AdoptionResult = {
     adopted: 0,
@@ -296,9 +372,21 @@ export async function adoptOrphans(
   //    its orphans still 'unmatched', so the next pass retries them and step 1
   //    links whatever half-landed instead of duplicating it.
   const usedSkus = new Set<string>();
+  // US-3468: one breadcrumb lookup per distinct category, before any write.
+  const categoryByEbayId = await resolveItemCategories(fresh, resolveCategoryPath);
   for (let i = 0; i < fresh.length; i += CHUNK) {
     const slice = fresh.slice(i, i + CHUNK);
-    const rows = slice.map((o) => buildAdoptionRows(o, ownerId, now, usedSkus));
+    const rows = slice.map((o) => {
+      const id = categoryIdOf(o);
+      return buildAdoptionRows(
+        o,
+        ownerId,
+        now,
+        usedSkus,
+        undefined,
+        id ? categoryByEbayId.get(id) ?? null : null,
+      );
+    });
 
     const { error: itemErr } = await supabaseAdmin
       .from("inventory_items")
