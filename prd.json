@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-3468",
+  "nextId": "US-3469",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -4618,6 +4618,20 @@
       ],
       "priority": 50,
       "notes": "2026-09-22 part B, bulk actions. (1) BUG FIXED: the selection store survives page changes but every bulk handler resolved ids against the current page's rows only, so rows ticked on page 1 were silently dropped when acting from page 2. The page now passes actionItems (page rows plus remembered selected rows from other pages) to makeListingsActions. (2) Select all N matching: once the whole page is ticked a banner offers every matching row across pages, fetched through fetchMatchingRows (the paged RPC loop the CSV export used, now shared), capped at 2000. (3) Selection is on for every tab (All, Shipped, Returned, Archived joined). Tab-specific bulk buttons stay on their own tab; the Sold-only Prepare shipment used to be the bar's catch-all else branch and is now gated on isSold. (4) Bin / brand bulk dialog on every tab: blank leaves items alone, clearing needs an explicit tick (planBulkFields, bulk-fields.test.ts); writes in chunks of 200 ids through the RLS client. Not verified in a browser: no signed-in session here. Pre-existing reds untouched by this work: cross-post-setup.test.ts (US-2741) and reselling-guide-links.test.ts (Vinted import copy), both red on the parent commit."
+    },
+    {
+      "id": "US-3468",
+      "passes": false,
+      "title": "eBay pull keeps every item specific, not just the five clothing columns",
+      "description": "Listings imported from eBay arrive with a title and photos and almost none of their item specifics. The pull already reads the full specifics map (modern offers carry product.aspects; legacy listings answer GetItem) and then buildCatalogPatch keeps only brand/size/color/style/material. A baseball card's Sport, Player, Season, Set, Card Number and Graded specifics are fetched and dropped, so the item cannot be crosslisted and the composer's specifics editor opens empty with no category. Fix: mirror the whole map into inventory_items.ebay_aspects fill-if-blank per aspect name, fill ebay_category_id when blank, and seed both at orphan adoption when the offer carries them.",
+      "acceptanceCriteria": [
+        "A matched eBay listing's full specifics map lands in inventory_items.ebay_aspects on the next pull; names the item already holds keep their local value (fill-if-blank per name, case-insensitive).",
+        "ebay_category_id is filled from the offer's categoryId (modern) or GetItem's PrimaryCategory (legacy) when blank, so the composer loads the right aspect spec.",
+        "GetItem keeps every value of a multi-value specific (Features, Card Attributes) for ebay_aspects while the five columns still take the first value.",
+        "An orphan adopted from the modern pass is created with ebay_category_id and ebay_aspects; a legacy-adopted one is filled by GetItem on the next sync (empty ebay_aspects counts as a blank worth one call, bounded by the 14-day stamp).",
+        "Pure tests cover mergeEbayAspects, buildCatalogPatch's aspect/category arms, parseGetItemDetails and buildAdoptionRows; vault sync-source-of-truth note updated in the same commit."
+      ],
+      "priority": 20
     }
   ]
 }

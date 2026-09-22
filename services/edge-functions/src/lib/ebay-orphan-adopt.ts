@@ -13,6 +13,7 @@
 // match, and a likely match is a question for the seller, never a merge and
 // never a duplicate. Everything else becomes an item.
 
+import { sanitizePulledAspects } from "./ebay-catalog-merge.ts";
 import { supabaseAdmin } from "./supabase.ts";
 import { mirrorEbayPhotos } from "./ebay-photo-sync.ts";
 import { ebayListingUrl } from "./ebay-client.ts";
@@ -122,6 +123,15 @@ export interface AdoptionItemRow {
   status: "listed";
   target_price: number | null;
   item_category: "clothing";
+  /**
+   * US-3468: the listing's leaf category and full specifics, when the orphan
+   * snapshot carried them (the modern pass puts product.aspects in `raw`).
+   * Without these the new item had a title and photos and nothing a crosslist
+   * draft could be built from. Omitted, not null, when absent, so the insert
+   * leaves the column default alone and the next sync's GetItem fills it.
+   */
+  ebay_category_id?: string;
+  ebay_aspects?: Record<string, string[]>;
 }
 
 export interface AdoptionListingRow {
@@ -171,16 +181,24 @@ export function buildAdoptionRows(
     }
   }
   const categoryId = orphan.raw?.categoryId;
+  const item: AdoptionItemRow = {
+    id: itemId,
+    user_id: ownerId,
+    title,
+    sku,
+    status: "listed",
+    target_price: orphan.current_price,
+    item_category: "clothing",
+  };
+  if (typeof categoryId === "string" && categoryId.trim()) {
+    item.ebay_category_id = categoryId.trim();
+  }
+  const aspects = sanitizePulledAspects(
+    orphan.raw?.aspects as Record<string, unknown> | null | undefined,
+  );
+  if (Object.keys(aspects).length > 0) item.ebay_aspects = aspects;
   return {
-    item: {
-      id: itemId,
-      user_id: ownerId,
-      title,
-      sku,
-      status: "listed",
-      target_price: orphan.current_price,
-      item_category: "clothing",
-    },
+    item,
     listing: {
       id: mintId(),
       inventory_item_id: itemId,

@@ -3144,7 +3144,10 @@ async function doListingsPull(
   const { data: itemRows, error: itemRowsError } = await supabaseAdmin
     .from("inventory_items")
     .select(
-      "id, sku, title, brand, size, color, style, material, ebay_specifics_checked_at, ebay_offer_checked_at",
+      // US-3468: ebay_aspects + ebay_category_id ride along so the pull can
+      // mirror the FULL specifics map fill-if-blank per name, not just the
+      // five clothing columns.
+      "id, sku, title, brand, size, color, style, material, ebay_aspects, ebay_category_id, ebay_specifics_checked_at, ebay_offer_checked_at",
     )
     .eq("user_id", userId);
   if (itemRowsError) {
@@ -3851,6 +3854,11 @@ async function doListingsPull(
             buildCatalogPatch(localRow, {
               title: origin === "gradethread" ? null : o.title,
               specifics: flattenAspects(o.aspects),
+              // US-3468: the whole map and the leaf category, so a card's
+              // Sport/Player/Set or a shoe's US Shoe Size land on the item
+              // and not only Brand/Size/Color/Style/Material.
+              aspects: o.aspects,
+              categoryId: o.categoryId,
             }),
           );
         }
@@ -3885,6 +3893,11 @@ async function doListingsPull(
             listingStatus: o.listingStatus,
             categoryId: o.categoryId,
             price: o.price,
+            // US-3468: carried so an adopted orphan is created WITH its
+            // specifics (buildAdoptionRows) instead of waiting a sync for
+            // them. Legacy orphans have none here; GetItem fills those on
+            // the first sync after adoption.
+            aspects: o.aspects,
           },
           photo_urls: o.imageUrls,
           // US-465 AC2: do NOT write match_status here. Omitting it means a
@@ -4034,10 +4047,15 @@ async function doListingsPull(
             const askedAt = localRow.ebay_specifics_checked_at;
             const askedRecently = !!askedAt &&
               Date.now() - Date.parse(askedAt) < SPECIFICS_RECHECK_MS;
+            // US-3468: an empty ebay_aspects map is also a blank worth one
+            // call. Same 14-day stamp bounds it: an item eBay holds with no
+            // specifics at all is asked again a fortnight later, not every
+            // sync.
             const needsSpecifics = !askedRecently &&
-              FILL_IF_BLANK_FIELDS.some(
+              (FILL_IF_BLANK_FIELDS.some(
                 (f) => !localRow[f] || !localRow[f]!.trim(),
-              );
+              ) ||
+                Object.keys(localRow.ebay_aspects ?? {}).length === 0);
             // US-3196: GetItem is also the ONLY source of a legacy listing's
             // full picture set — ActiveList carries one gallery thumbnail and
             // nothing else. Gating the call on blank specifics therefore gated
@@ -4055,6 +4073,8 @@ async function doListingsPull(
             const neverAskedGetItem = !askedAt;
             const needsGetItem = needsSpecifics || neverAskedGetItem;
             let specifics: Record<string, string> = {};
+            let aspects: Record<string, string[]> | null = null;
+            let categoryId: string | null = l.primaryCategoryId ?? null;
             if (needsGetItem) {
               if (specificsFetched < MAX_SPECIFICS_FETCH_PER_SYNC) {
                 specificsFetched += 1;
@@ -4063,6 +4083,8 @@ async function doListingsPull(
                 // spending Trading quota of its own.
                 const details = await getItemDetails(userId, l.ebayItemId);
                 specifics = details.specifics;
+                aspects = details.aspects;
+                categoryId = details.primaryCategoryId ?? categoryId;
                 addPhotoUrls(itemId, details.pictureUrls);
                 specificsCheckedItemIds.push(localRow.id);
                 // Keep the in-memory row honest so a second listing pointing at
@@ -4080,6 +4102,9 @@ async function doListingsPull(
               buildCatalogPatch(localRow, {
                 title: origin === "gradethread" ? null : l.title,
                 specifics,
+                // US-3468: full map + leaf category, see the modern pass.
+                aspects,
+                categoryId,
               }),
             );
           }
