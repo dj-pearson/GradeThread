@@ -124,8 +124,12 @@ Deno.test("US-3144: the push carries the one key both clients already parse", ()
     "the item id no longer rides in data.inventory_item_id — the ONE key both " +
       "DeepLinkRoute.from (iOS) and PushCategory.route (Android) read",
   );
+  // US-3279: the key is declared once in the contract table and idFields reads
+  // it through ID_FIELD, so the pin is on the table entry rather than on a
+  // hand-written assignment that no longer exists.
   assert(
-    /out\.inventory_item_id = ids\.inventoryItemId/.test(PUSH),
+    /out\.inventory_item_id = ids\.inventoryItemId/.test(PUSH) ||
+      /"delist\.needed": \{ kind: "delist_needed", ids: \["inventory_item_id"\] \}/.test(PUSH),
     "idFields no longer maps inventoryItemId to the inventory_item_id key",
   );
   assert(
