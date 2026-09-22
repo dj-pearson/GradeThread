@@ -8,12 +8,21 @@ code_refs:
   - services/edge-functions/src/lib/cron-fleet-governance.ts
   - services/edge-functions/src/routes/jobs-cron-fleet.ts
   - services/edge-functions/src/tests/cron-registry-drift_test.ts
-reviewed: 2026-09-02
+reviewed: 2026-09-22
 tags: [ops, cron, jobs, decision]
 summary: The 77 production schedules live in Coolify and are governed by a manifest in the repo plus a drift check, rather than being created from code.
 ---
 
 # Cron schedule governance (US-2313 AC1)
+
+> **Re-reviewed 2026-09-22.** Drift flagged `cron-runs.ts` on 3ec56ed3
+> (US-3453). `CRON_REGISTRY` gained `delist-nudge` (`*/30 * * * *`,
+> `/api/jobs/delist-nudge`, recorded), the half-hourly "a delist is still
+> waiting and no browser has run" notice. It went in through the registry,
+> the drift test and the rendered tables in `COOLIFY.md`, `CRON_SETUP.md` and
+> [[launch-checklist]] in the same commit, which is the contract below
+> holding. The cadence equals the threshold; the repeat floor is the seller's
+> own notifications rows, not the schedule (`lib/delist-nudge.ts`).
 
 > **Re-reviewed 2026-09-02.** Drift flagged `cron-runs.ts` and the registry
 > drift test for two additions from outside this batch: the measurement jobs

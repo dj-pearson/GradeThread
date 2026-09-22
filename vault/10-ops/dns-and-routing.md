@@ -6,7 +6,7 @@ source_of_truth: code
 code_refs:
   - services/edge-functions/src/main.ts
   - scripts/ops/edge-watchdog.sh
-reviewed: 2026-09-20
+reviewed: 2026-09-22
 tags: [ops, dns, edge, routing]
 summary: Two hostnames serve two different systems; calling an app route on the Supabase host 404s silently.
 ---
@@ -26,6 +26,12 @@ summary: Two hostnames serve two different systems; calling an app route on the 
 > it as a claim about every mount would make it false.
 
 # DNS and routing
+
+> **Re-reviewed 2026-09-22.** Drift flagged `main.ts` on 3ec56ed3 (US-3453):
+> `app.post("/api/jobs/delist-nudge", ...)`, one import and one line, the
+> same shape as the other `/api/jobs/*` routes below. It is called over
+> `functions.gradethread.com` by a Coolify scheduled task with the job
+> secret. Nothing about which host serves what moved.
 
 > **Re-reviewed 2026-09-14.** Drift flagged `main.ts` for US-3413. The diff
 > is two lines plus an import: `app.post("/api/jobs/ebay-payout-link", ...)`,

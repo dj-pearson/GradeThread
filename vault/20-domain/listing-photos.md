@@ -20,7 +20,7 @@ code_refs:
   - supabase/migrations/00587_item_photo_role_qualifier.sql
   - supabase/migrations/00589_submission_image_role.sql
   - services/edge-functions/src/routes/flipdesk-grading.ts
-reviewed: 2026-09-11
+reviewed: 2026-09-22
 tags: [flipdesk, photos, listings, ebay, contract]
 summary: Two independent levers (canonical order and required set) duplicated across ~7 surfaces, plus the separate path photo edits take to reach eBay.
 ---
@@ -28,6 +28,12 @@ summary: Two independent levers (canonical order and required set) duplicated ac
 > [!note] Re-reviewed 2026-09-11 (US-3329). The only change to this note's code refs since its last review renames the fifth grading factor's LABEL from "Odor & Cleanliness" to "Cleanliness" (and in ai-grading.ts adds the flag-gated GRADING_CLEANLINESS_V2 wording). Checked: nothing this note states depends on that label, the factor key, or its weight.
 
 # Listing photos — order, required set, and how edits reach eBay
+
+> **Re-reviewed 2026-09-22.** Drift flagged `src/lib/constants.ts` on
+> 3b252aa1 (US-3450). The change is one exported type alias,
+> `CrossPushPlatform = CrossListingPlatform | ExtensionCrossListingPlatform`,
+> so the composer's List on panel can tick Grailed, Vinted and Facebook beside
+> the API channels. No constant this note cites moved.
 
 > **Re-reviewed 2026-09-05, no change.** Drift flagged `src/lib/constants.ts`
 > for US-3071, which added `relist` to `MARKETPLACE_EXTENSION_FLOWS` and a

@@ -10,7 +10,7 @@ code_refs:
   - services/edge-functions/src/lib/connector-allowance.ts
   - services/edge-functions/src/middleware/mcp-auth.ts
   - services/edge-functions/src/lib/mcp-budget.ts
-reviewed: 2026-09-11
+reviewed: 2026-09-22
 tags: [pricing, connector, plan-gating, contract]
 summary: connectorAccess opens at pro; connector write actions have their own monthly counter derived from the audit log, not a share of aiActionsPerMonth.
 ---
@@ -18,6 +18,12 @@ summary: connectorAccess opens at pro; connector write actions have their own mo
 > [!note] Re-reviewed 2026-09-11 (US-3329). The only change to this note's code refs since its last review renames the fifth grading factor's LABEL from "Odor & Cleanliness" to "Cleanliness" (and in ai-grading.ts adds the flag-gated GRADING_CLEANLINESS_V2 wording). Checked: nothing this note states depends on that label, the factor key, or its weight.
 
 # The connector's gate and its allowance
+
+> **Re-reviewed 2026-09-22.** Drift flagged `src/lib/constants.ts` on
+> 3b252aa1 (US-3450). The change is one exported type alias,
+> `CrossPushPlatform = CrossListingPlatform | ExtensionCrossListingPlatform`,
+> so the composer's List on panel can tick Grailed, Vinted and Facebook beside
+> the API channels. No constant this note cites moved.
 
 > **Re-reviewed 2026-09-10.** Drift flagged `pricing-config.ts` for US-3299,
 > which teaches it LIST PRICES: a `prices` field on `LoadedPricing`, a

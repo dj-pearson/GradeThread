@@ -12,7 +12,7 @@ code_refs:
   - src/pages/flipdesk/use-grid-listings.ts
   - src/lib/title-sync-patch.ts
   - services/edge-functions/src/routes/flipdesk-ebay.ts
-reviewed: 2026-09-20
+reviewed: 2026-09-22
 tags: [flipdesk, listings, publishing, contract]
 summary: Publish prefers the listings-row snapshot over the item, so any surface writing the item's title, description or price must reach the draft row too.
 ---
@@ -64,6 +64,12 @@ the dated reviews record the older nine-column grid.
 > snapshot path moved. Re-read against the diff: still accurate.
 
 # The draft snapshot shadows the item
+
+> **Re-reviewed 2026-09-22.** Drift flagged `composer.tsx` on 3b252aa1
+> (US-3450): the Push to card became the List on panel, one tick per channel
+> including the extension ones, and the publish toast reads the fan-out's
+> per-channel result. It changes where a channel is chosen, not what a save
+> writes or which snapshot wins. The precedence below is unchanged.
 
 > **Re-reviewed 2026-09-06, no change to the rule.** Drift flagged `grid.tsx`
 > for US-3123's sourcer sort. Checked against this note's actual claim - that any

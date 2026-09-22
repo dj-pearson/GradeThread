@@ -14,7 +14,7 @@ code_refs:
   - src/components/flipdesk/delist-panel.tsx
   - src/components/flipdesk/record-sale-dialog.tsx
   - src/lib/delist-links.ts
-reviewed: 2026-09-15
+reviewed: 2026-09-22
 tags: [flipdesk, delist, extension, cross-listing]
 summary: A sale on any marketplace ends every other live listing of the same item; API channels end on the server, extension channels in the seller's browser from a link or by searching their active listings, and every listing keeps a link to that marketplace's own active-listings page as the fallback.
 ---
@@ -36,6 +36,12 @@ summary: A sale on any marketplace ends every other live listing of the same ite
 > ref was read and what was looked for.
 
 # What a sale ends, and how
+
+> **Re-reviewed 2026-09-22.** Drift flagged three code refs on this branch:
+> `flipdesk-listings.ts` (371e8523, US-3456; e53cb718, US-3452),
+> `flipdesk-extension-queue.ts` (941ff434, US-3455) and
+> `record-sale-dialog.tsx` (e53cb718, US-3452). None of the six rules below
+> moved; section 7 records what was added around them.
 
 US-3369. A seller sold on Poshmark and then ended every other listing by hand.
 Four separate faults produced that, and each rule below closes one of them.
@@ -105,6 +111,30 @@ to that marketplace's own active-listings page (`activeListingsLink` in
 `src/lib/delist-links.ts`). The web links and the extension's locate pages are
 the same pages; `delist-links.test.ts` fails if they drift apart. Vinted has
 no handle-free wardrobe page, so its link is the site's front door and says so.
+
+## 7. What a seller can see and hear about a pending delist (US-3452, US-3453)
+
+Two additions sit beside the engine rather than inside it.
+
+`GET /api/flipdesk/listings/delist-log/:itemId` (`lib/delist-log.ts`) reads
+the item's listing rows and its `delist` queue jobs and tells the story of one
+sale as dated events with an actor: sold, ended by the server, ended by the
+browser, ended by hand, still waiting, or unresolved with the US-2165 reason.
+The Record sale dialog, the item page and the iOS Marketplaces screen render
+the same events. The listings row carries no sale instant, so the sold
+event's time is the row's `updated_at`.
+
+`POST /api/jobs/delist-nudge` (`lib/delist-nudge.ts`, half-hourly, see
+[[cron-schedule-governance]]) sends the second sentence after the sale-time
+notice: a delist stamped thirty minutes ago with no browser having drained
+since, and no delist notice inside the hour. The repeat floor is the seller's
+own `notifications` rows, so the cadence can change without changing the
+wording.
+
+Two other routes on these files are about listing, not ending, and are owned
+elsewhere: `POST /api/flipdesk/listings/cross-push-bulk` (US-3456) and
+`POST /api/flipdesk/extension-queue/fill` (US-3455, the phone's create-form
+words; see [[ios-webview-delist-app-review]] section 7).
 
 ## Related
 
