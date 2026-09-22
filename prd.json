@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-3464",
+  "nextId": "US-3465",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -4566,6 +4566,18 @@
       "priority": 21,
       "dependsOn": [
         "US-3462"
+      ]
+    },
+    {
+      "id": "US-3464",
+      "passes": false,
+      "title": "Buyer-message inbox reads eBay messages (parser dropped every one)",
+      "description": "GET /api/flipdesk/ebay/messages returned an empty list for every seller since US-673. messagesParser forced MemberMessage (the single container) to an array, so root.MemberMessage.MemberMessageExchange read undefined. Confirmed on prod 2026-09-22: 200 {messages:[]} after a 6.4s eBay round trip.",
+      "acceptanceCriteria": [
+        "parseMemberMessages is a pure export and GET /messages uses it",
+        "isArray forces MemberMessageExchange, not MemberMessage",
+        "ebay-member-messages_test.ts covers one, several, empty and Failure responses, and fails 2 of 4 with the old rule",
+        "OPERATOR: after edge redeploy, the Messages tab on /dashboard/flipdesk/offers lists real eBay buyer questions from the last 30 days"
       ]
     }
   ]

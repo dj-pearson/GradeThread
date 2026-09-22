@@ -768,7 +768,11 @@ const messagesParser = new XMLParser({
   ignoreAttributes: false,
   attributeNamePrefix: "_",
   textNodeName: "#text",
-  isArray: (name) => name === "Errors" || name === "MemberMessage",
+  // The repeating node is MemberMessageExchange. MemberMessage is its single
+  // container, and forcing THAT to an array turned `root.MemberMessage` into
+  // `[{...}]`, so `.MemberMessageExchange` read undefined and every inbox came
+  // back empty from US-673 until US-3464. ebay-member-messages_test.ts pins it.
+  isArray: (name) => name === "Errors" || name === "MemberMessageExchange",
 });
 
 export interface BuyerMessage {
@@ -801,6 +805,11 @@ export async function getMemberMessages(
   if (!ok) {
     throw new Error(`eBay GetMemberMessages failed (${status}): ${text.slice(0, 300)}`);
   }
+  return parseMemberMessages(text);
+}
+
+/** Parse a GetMemberMessages response. Pure, so a recorded reply can test it. */
+export function parseMemberMessages(text: string): BuyerMessage[] {
   const root = (messagesParser.parse(text) as {
     GetMemberMessagesResponse?: {
       Ack?: string;
@@ -813,8 +822,7 @@ export async function getMemberMessages(
       `eBay GetMemberMessages (Failure): ${root?.Errors?.[0]?.LongMessage ?? "no message"}`,
     );
   }
-  let exchanges = root.MemberMessage?.MemberMessageExchange ?? [];
-  if (!Array.isArray(exchanges)) exchanges = [exchanges];
+  const exchanges = root.MemberMessage?.MemberMessageExchange ?? [];
   const out: BuyerMessage[] = [];
   for (const ex of exchanges) {
     const q = ex.Question;
