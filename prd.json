@@ -4620,20 +4620,6 @@
       "priority": 20
     },
     {
-      "id": "US-3471",
-      "passes": false,
-      "title": "Aspect matcher: a loose exact-match step so 'T Shirt', 'Tshirt' and 'Boot Cut' land on eBay's 'T-Shirt', 'T-Shirt' and 'Bootcut'",
-      "description": "As a seller, I want an AI value that differs from eBay's only in spacing, hyphens, case, accents or curly quotes to be sent as eBay's exact value, so that my listing lands in the buyer filter for that value. Plan: eBay Item Specifics Action Plan (2026-09-23). Measured on prod read-only that day: 403 GradeThread drafts vs 458 eBay-imported listings; free-text values on eBay's list 61% vs 86%, Style 30% vs 83%, Type 50% vs 92%, recommended fill 42% vs 63%. Full 457-leaf value capture of category 11450 (EBAY_US) pulled the same day.",
-      "acceptanceCriteria": [
-        "normalizeAspectValue in services/edge-functions/src/lib/aspect-normalize.ts gains a step right after the case-insensitive exact match that compares a folded form of both strings: lowercase, NFKD with combining marks removed, curly quotes to straight, U+200B-U+200F and U+FEFF removed, and all spaces, hyphens and punctuation removed",
-        "The folded step never runs on a size or numeric aspect (isSizeAspect, or an aspect whose allowed values are mostly numeric), so '3-4' does not match '34', '1.5' does not match '15', and '2.5 in' does not match '25 in'; a test asserts each of those pairs stays unmatched",
-        "The folded step only returns a value when exactly one allowed value folds to the same string",
-        "Test cases pass against real lists: 'T Shirt' and 'Tshirt' -> 'T-Shirt' on 15687 Type, 'Boot Cut' -> 'Bootcut', 'Extra Slim' -> 'Extra-Slim', 'Off White' -> 'Off-White', 'Boucle' -> 'Boucle' with the accent eBay ships",
-        "src/lib/aspect-normalize.ts carries the identical change and src/test/aspect-normalize-mirror-parity.test.ts stays green"
-      ],
-      "priority": 21
-    },
-    {
       "id": "US-3472",
       "passes": false,
       "title": "ebay_category_aspects: getCategoryName writes an empty aspect list with a fresh fetched_at, so 7 prod categories show no fields for a week",

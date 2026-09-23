@@ -534,3 +534,42 @@ Deno.test("Occasion: prod's 25 values, and the short lists that lack the dressy 
   assertEquals(normalizeAspectValue("Formal", open("Occasion", dressy)), "Special Occasion");
   assertEquals(normalizeAspectValue("Prom", open("Occasion", dressy)), "Special Occasion");
 });
+
+// ── US-3471: folded match (spacing, hyphens, accents, quote marks) ─────────
+// Lists copied from eBay's live Taxonomy answer for EBAY_US on 2026-09-23.
+const TEE_TYPE = ["T-Shirt"]; // 15687 Men's T-Shirts, SELECTION_ONLY
+const JEANS_STYLE = [
+  "Ankle", "Bootcut", "Capri", "Cropped", "Flared", "Khakis", "Paperbag",
+  "Skinny", "Straight", "Tapered", "Wide-Leg",
+]; // 11483 Men's Jeans, FREE_TEXT
+const FIT = ["Athletic", "Classic", "Extra-Slim", "Regular", "Relaxed", "Slim"];
+const FABRIC = ["Bouclé", "Denim", "Fleece", "French Terry", "Jersey"];
+
+Deno.test("US-3471: spacing and hyphen variants land on eBay's spelling", () => {
+  assertEquals(normalizeAspectValue("T Shirt", sel("Type", TEE_TYPE)), "T-Shirt");
+  assertEquals(normalizeAspectValue("Tshirt", sel("Type", TEE_TYPE)), "T-Shirt");
+  assertEquals(normalizeAspectValue("tee-shirt", sel("Type", TEE_TYPE)), null);
+  const open = (name: string, allowedValues: string[]) => ({ name, mode: "FREE_TEXT", allowedValues });
+  assertEquals(normalizeAspectValue("Boot Cut", open("Style", JEANS_STYLE)), "Bootcut");
+  assertEquals(normalizeAspectValue("Wide Leg", open("Style", JEANS_STYLE)), "Wide-Leg");
+  assertEquals(normalizeAspectValue("Extra Slim", open("Fit", FIT)), "Extra-Slim");
+  assertEquals(normalizeAspectValue("Boucle", open("Fabric Type", FABRIC)), "Bouclé");
+});
+
+Deno.test("US-3471: curly quotes and zero-width characters in eBay's own values still match", () => {
+  const bowTie = ["Kids’ Bow Tie", "Bow Tie"];
+  assertEquals(normalizeAspectValue("Kids' Bow Tie", sel("Type", bowTie)), "Kids’ Bow Tie");
+  const brush = ["Cleaning​ Brush", "Shoe Horn"];
+  assertEquals(normalizeAspectValue("Cleaning Brush", sel("Type", brush)), "Cleaning​ Brush");
+});
+
+Deno.test("US-3471: a value holding a digit is never folded, so sizes cannot collide", () => {
+  assertEquals(normalizeAspectValue("3-4", sel("Size", ["34", "5-6"])), null);
+  assertEquals(normalizeAspectValue("34", sel("Size", ["3-4", "5-6"])), null);
+  assertEquals(normalizeAspectValue("1.5", sel("Size", ["15", "2"])), null);
+  assertEquals(normalizeAspectValue("2.5 in", sel("Inseam", ["25 in", "3 in"])), null);
+});
+
+Deno.test("US-3471: two values that fold alike are ambiguous and match neither", () => {
+  assertEquals(normalizeAspectValue("One Piece", sel("Type", ["OnePiece", "One-Piece"])), null);
+});

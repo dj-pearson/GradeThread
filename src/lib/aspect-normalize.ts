@@ -1107,6 +1107,24 @@ export function normalizeAspectValue(
   const pluralHit = allowed.find((a) => plural(a) === pv);
   if (pluralHit) return pluralHit;
 
+  // 2b. folded match (US-3471): the same word with different spacing,
+  // hyphens, accents or quote marks. "T Shirt" and "Tshirt" are eBay's
+  // "T-Shirt"; "Boot Cut" is "Bootcut". Measured 2026-09-23 on prod, these
+  // near-misses were part of why only 61% of our free-text values sat on
+  // eBay's list against 86% for listings built on eBay itself.
+  //
+  // NEVER WHEN THE VALUE HOLDS A DIGIT. Folding drops punctuation, and in a
+  // number the punctuation is the value: "3-4" would become "34", "1.5" would
+  // become "15", "2.5 in" would become "25 in". All of those are separate
+  // values on real eBay size and inseam lists.
+  if (!/\d/.test(raw)) {
+    const key = loose(raw);
+    if (key) {
+      const foldHits = allowed.filter((a) => loose(a) === key);
+      if (foldHits.length === 1) return foldHits[0]!;
+    }
+  }
+
   // 3. curated synonyms
   const kind = aspectKind(spec.name);
   if (kind) {

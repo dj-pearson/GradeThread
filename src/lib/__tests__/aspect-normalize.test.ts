@@ -221,3 +221,29 @@ describe("deriveAspectsFromItem rewrite reporting", () => {
     expect(rewrites).toEqual({});
   });
 });
+
+// US-3471: web mirror of the folded-match step. Lists from eBay's live
+// Taxonomy answer for EBAY_US on 2026-09-23.
+describe("normalizeAspectValue folded match (US-3471)", () => {
+  const open = (name: string, allowedValues: string[]) => ({ name, mode: "FREE_TEXT", allowedValues });
+  const JEANS_STYLE = ["Bootcut", "Skinny", "Straight", "Wide-Leg"];
+
+  it("lands spacing and hyphen variants on eBay's spelling", () => {
+    expect(normalizeAspectValue("T Shirt", sel("Type", ["T-Shirt"]))).toBe("T-Shirt");
+    expect(normalizeAspectValue("Tshirt", sel("Type", ["T-Shirt"]))).toBe("T-Shirt");
+    expect(normalizeAspectValue("Boot Cut", open("Style", JEANS_STYLE))).toBe("Bootcut");
+    expect(normalizeAspectValue("Wide Leg", open("Style", JEANS_STYLE))).toBe("Wide-Leg");
+    expect(normalizeAspectValue("Boucle", open("Fabric Type", ["Bouclé", "Jersey"]))).toBe("Bouclé");
+    expect(normalizeAspectValue("Kids' Bow Tie", sel("Type", ["Kids’ Bow Tie", "Bow Tie"]))).toBe("Kids’ Bow Tie");
+  });
+
+  it("never folds a value holding a digit, so sizes cannot collide", () => {
+    expect(normalizeAspectValue("3-4", sel("Size", ["34", "5-6"]))).toBeNull();
+    expect(normalizeAspectValue("1.5", sel("Size", ["15", "2"]))).toBeNull();
+    expect(normalizeAspectValue("2.5 in", sel("Inseam", ["25 in", "3 in"]))).toBeNull();
+  });
+
+  it("refuses when two allowed values fold alike", () => {
+    expect(normalizeAspectValue("One Piece", sel("Type", ["OnePiece", "One-Piece"]))).toBeNull();
+  });
+});
