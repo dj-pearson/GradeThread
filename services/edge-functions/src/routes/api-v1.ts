@@ -31,6 +31,7 @@ import {
 import { MAX_BATCH_ITEMS } from "../lib/grading-batch.ts";
 import { processGradeBatch } from "../lib/grading-batch-worker.ts";
 import { markChargeMayHaveHappened } from "../middleware/api-idempotency.ts";
+import { refundAmbiguousDebit } from "../lib/ambiguous-debit-refund.ts";
 import type { ApiKeyScope } from "../lib/api-key.ts";
 import { logEvent, recordMetric } from "../lib/observability.ts";
 import { redactError } from "../lib/log-redact.ts";
@@ -460,14 +461,30 @@ apiV1Routes.post("/grades", async (c) => {
     precedence = await runPaymentPrecedence(userId, submissionId, tier);
   } catch (err) {
     console.error(`[API v1] Payment precedence failed for ${submissionId}:`, redactError(err));
-    for (const record of imageRecords) {
-      await supabaseAdmin.storage.from("submission-images").remove([record.storage_path]);
+    // The error does not say whether the debit committed. The ledger does:
+    // refund it if it landed, and only delete the submission if it did not
+    // (deleting it would unlink the ledger rows support reads).
+    const debit = await refundAmbiguousDebit(userId, submissionId, "api-v1.grades");
+    if (debit.kind === "not_charged") {
+      for (const record of imageRecords) {
+        await supabaseAdmin.storage.from("submission-images").remove([record.storage_path]);
+      }
+      await supabaseAdmin.from("submissions").delete().eq("id", submissionId);
     }
-    await supabaseAdmin.from("submissions").delete().eq("id", submissionId);
     return c.json({
       data: null,
-      error: { message: "Payment processing error", details: [] },
-      meta: null,
+      error: {
+        message: debit.kind === "refunded"
+          ? `Payment processing error. The ${debit.credits} credit${
+            debit.credits === 1 ? "" : "s"
+          } taken for this request were returned.`
+          : "Payment processing error",
+        details: [],
+      },
+      meta: debit.kind === "not_charged" ? null : {
+        submission_id: submissionId,
+        credits_refunded: debit.kind === "refunded" ? debit.credits : null,
+      },
     }, 500);
   }
 

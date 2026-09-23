@@ -61,6 +61,7 @@ import { valueAtGrade } from "../lib/condition-value.ts";
 import { suggestCategories } from "../lib/ebay-client.ts";
 import { effectivePlanFor } from "../lib/grade-pricing.ts";
 import { refundReservedSnap } from "../lib/grade-refund.ts";
+import { paymentErrorBody, refundAmbiguousDebit } from "../lib/ambiguous-debit-refund.ts";
 import {
   GRADE_RELEASE_HOLD_DEFAULT,
   GRADE_RELEASE_HOLD_SETTING,
@@ -1353,7 +1354,11 @@ gradeRoutes.post("/submit", async (c) => {
     );
   } catch (err) {
     console.error(`Payment precedence failed for ${submissionId}:`, err);
-    return c.json({ error: "Payment processing error" }, 500);
+    // The error does not say the debit did not commit. If the ledger shows it
+    // did, the credits go back and the submission is parked as failed, so a
+    // later /pay cannot mark it paid on money that was returned.
+    const debit = await refundAmbiguousDebit(ownerId, submissionId, "grade.submit");
+    return c.json(paymentErrorBody(debit, submissionId), 500);
   }
 
   if (precedence.paid) {
@@ -1432,13 +1437,21 @@ gradeRoutes.post("/pay/:id", async (c) => {
 
   const { data: submission, error } = await supabaseAdmin
     .from("submissions")
-    .select("id, user_id, status, payment_status")
+    .select("id, user_id, status, payment_status, refunded_at")
     .eq("id", submissionId)
     .eq("user_id", ownerId)
     .single();
 
   if (error || !submission) {
     return c.json({ error: "Submission not found" }, 404);
+  }
+  // A refunded submission reads 'credits' but has no money behind it. Saying
+  // "paid" here would send the seller to a grade that never runs.
+  if (submission.refunded_at) {
+    return c.json({
+      error: "This grade was refunded. Submit the garment again to grade it.",
+      code: "SUBMISSION_REFUNDED",
+    }, 409);
   }
   if (submission.payment_status !== "unpaid") {
     return c.json({
@@ -1480,7 +1493,8 @@ gradeRoutes.post("/pay/:id", async (c) => {
     );
   } catch (err) {
     console.error(`Retry precedence failed for ${submissionId}:`, err);
-    return c.json({ error: "Payment processing error" }, 500);
+    const debit = await refundAmbiguousDebit(ownerId, submissionId, "grade.pay");
+    return c.json(paymentErrorBody(debit, submissionId), 500);
   }
 
   if (precedence.paid) {

@@ -16,6 +16,7 @@ import type { Context } from "hono";
 import { supabaseAdmin } from "./supabase.ts";
 import { redactError } from "./log-redact.ts";
 import { isPaidSubmissionStatus } from "./paid-submission.ts";
+import { refundAmbiguousDebit } from "./ambiguous-debit-refund.ts";
 import { requireJobSecret } from "./job-auth.ts";
 import { acquireJobLock } from "./job-lock.ts";
 import { recordApiUsage } from "./api-usage-log.ts";
@@ -166,8 +167,17 @@ async function gradeBatchItem(
     );
     paid = precedence.paid;
   } catch (err) {
-    await supabaseAdmin.from("submissions").delete().eq("id", submissionId);
-    throw new Error(`payment error: ${err instanceof Error ? err.message : String(err)}`);
+    // The error does not say whether the debit committed; the ledger does. A
+    // landed debit is refunded and the submission kept (failed, refunded_at
+    // set) so resumePaidSubmission refuses it and the ledger rows stay linked.
+    const debit = await refundAmbiguousDebit(userId, submissionId, "grading-batch.job");
+    if (debit.kind === "not_charged") {
+      await supabaseAdmin.from("submissions").delete().eq("id", submissionId);
+    }
+    const note = debit.kind === "refunded"
+      ? ` (${debit.credits} credit${debit.credits === 1 ? "" : "s"} returned)`
+      : "";
+    throw new Error(`payment error: ${err instanceof Error ? err.message : String(err)}${note}`);
   }
   if (!paid) {
     await supabaseAdmin.from("submissions").delete().eq("id", submissionId);
@@ -195,13 +205,16 @@ async function gradeBatchItem(
 /**
  * Can this job's existing submission be picked back up instead of re-created?
  *
- * Three conditions, and all three are about not charging twice or acting on
- * something that isn't ours:
+ * Four conditions, and all four are about not charging twice, grading for
+ * free, or acting on something that isn't ours:
  *   • the submission exists;
  *   • it belongs to the job's owner (the service-role client bypasses RLS, so
  *     this is checked explicitly — US-268); and
  *   • it was actually PAID. An unpaid submission cost nothing, so re-creating
  *     it is free; a paid one must never be paid for again.
+ *   • it was not REFUNDED since. A payment error whose debit had landed is
+ *     refunded and the submission kept (lib/ambiguous-debit-refund.ts); it
+ *     still reads 'credits' but no money stands behind it any more.
  *
  * A terminal submission (already graded) is also resumable: processSubmission is
  * the idempotent step, and re-running it beats leaving a paid grade unfinished.
@@ -212,12 +225,16 @@ async function resumePaidSubmission(
 ): Promise<boolean> {
   const { data, error } = await supabaseAdmin
     .from("submissions")
-    .select("id, user_id, payment_status")
+    .select("id, user_id, payment_status, refunded_at")
     .eq("id", submissionId)
     .eq("user_id", userId)
     .maybeSingle();
   if (error || !data) return false;
-  return isPaidSubmissionStatus((data as { payment_status: string | null }).payment_status);
+  const row = data as { payment_status: string | null; refunded_at: string | null };
+  // A REFUNDED submission is not paid for any more. Resuming it would grade on
+  // money that was handed back.
+  if (row.refunded_at) return false;
+  return isPaidSubmissionStatus(row.payment_status);
 }
 
 /**

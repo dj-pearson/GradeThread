@@ -35,6 +35,7 @@ import {
   type GradeTier,
 } from "./grade-billing.ts";
 import { includedAllowance } from "./grade-pricing.ts";
+import { refundAmbiguousDebit, refundChargedGrade } from "./ambiguous-debit-refund.ts";
 import { type FlipdeskPlan, getPlanMatrix } from "./pricing-config.ts";
 
 // Local alias keeps the existing interface names readable.
@@ -859,6 +860,9 @@ export async function submitItemsForGrading(
     let submissionId = "";
     let linkId = "";
     let charged = false;
+    // True from the moment the charge call starts. A throw after this and
+    // before `charged` is AMBIGUOUS: the debit may have committed.
+    let chargeAttempted = false;
     try {
       // US-2024: from the batch map (was a per-item query). buildValidation
       // only selected readiness fields, so the full row is still needed for
@@ -999,6 +1003,7 @@ export async function submitItemsForGrading(
       // US-2564: keyed on the CLIENT's batch token plus the item, so a retried
       // batch charges once per garment instead of once per attempt. Null when no
       // batch_key was sent, which is the pre-US-2564 behaviour exactly.
+      chargeAttempted = true;
       const precedence = await runPaymentPrecedence(
         ownerId,
         submissionId,
@@ -1116,16 +1121,25 @@ export async function submitItemsForGrading(
       // so the customer isn't billed for a submission that never ran. The
       // refund_grade RPC is idempotent.
       if (charged && submissionId) {
-        try {
-          await supabaseAdmin.rpc("refund_grade", {
-            p_submission_id: submissionId,
-          });
-        } catch (refundErr) {
+        // refund_grade answers a refusal as `{ error }`, not a throw, so the
+        // helper reads the answer and reports anything that is not a refund.
+        const refund = await refundChargedGrade(
+          ownerId,
+          submissionId,
+          "flipdesk-grading.bulk",
+        );
+        if (!refund.ok) {
           console.error(
-            `[flipdesk-grading] refund failed for ${submissionId} — manual review needed:`,
-            refundErr instanceof Error ? refundErr.message : String(refundErr),
+            `[flipdesk-grading] refund failed for ${submissionId}, manual review needed:`,
+            refund.error ?? refund.result,
           );
         }
+      } else if (chargeAttempted && submissionId) {
+        // The charge call itself failed, which does not say the debit did not
+        // commit. The ledger says: a landed debit is refunded, the submission
+        // is parked as failed (kept, so the ledger rows stay linked). Never
+        // throws.
+        await refundAmbiguousDebit(ownerId, submissionId, "flipdesk-grading.bulk");
       }
       // US-3214: the lock row is released too. Left behind in a non-terminal
       // state it would refuse every future submission for this garment, so a
