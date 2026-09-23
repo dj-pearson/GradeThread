@@ -187,6 +187,20 @@ const COLLAPSE_KEY = "gt-sidebar-collapsed";
  */
 const DEFAULT_COLLAPSED_SUBGROUPS = new Set<string>(["FlipDesk:Setup"]);
 
+/**
+ * Sections that own a whole path prefix, so any page under it counts as being
+ * "in" the section even when no nav row matches it.
+ *
+ * An item's draft page (`/dashboard/flipdesk/items/<id>/draft`) matches no
+ * row, so a FlipDesk section the seller had folded shut stayed shut while they
+ * worked inside it, and all seventeen FlipDesk rows, Inventory included, read
+ * as gone. Only FlipDesk has a prefix of its own; Grading shares `/dashboard`
+ * with Account, Help and the rest.
+ */
+const SECTION_PATH_PREFIX: Record<string, string> = {
+  FlipDesk: "/dashboard/flipdesk",
+};
+
 function loadCollapsed(): Record<string, boolean> {
   try {
     return JSON.parse(localStorage.getItem(COLLAPSE_KEY) || "{}");
@@ -467,7 +481,14 @@ function SidebarNav({
         if (allItems.length === 0) return null;
         // A collapsed section is force-opened while it contains the active
         // route, so the current page's nav item is never hidden.
-        const hasActive = groupHasActiveRoute(allItems);
+        const sectionPrefix = group.title
+          ? SECTION_PATH_PREFIX[group.title]
+          : undefined;
+        const hasActive =
+          groupHasActiveRoute(allItems) ||
+          (sectionPrefix !== undefined &&
+            (pathname === sectionPrefix ||
+              pathname.startsWith(`${sectionPrefix}/`)));
         const isCollapsed =
           !!group.title && (collapsed[group.title] ?? false) && !hasActive;
         return (
