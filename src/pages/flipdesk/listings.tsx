@@ -2215,6 +2215,7 @@ export function FlipdeskListingsPage() {
             state: { from: `${window.location.pathname}${window.location.search}` },
           })
         }
+        onRecordSale={setRecordSaleItem}
         actions={{ patchItemColumns, updateItemStatus, updateListingPrice }}
       />
 

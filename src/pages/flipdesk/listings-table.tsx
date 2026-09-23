@@ -132,8 +132,8 @@ interface Props {
 
   // ── inline edits ────────────────────────────────────────────────────────
   updateTracking: (it: ItemFullRow, raw: string) => Promise<void>;
-  updateListingPrice: (it: ItemFullRow, raw: string) => Promise<void>;
-  updateItemStatus: (it: ItemFullRow, next: ItemStatus) => Promise<void>;
+  updateListingPrice: (it: ItemFullRow, raw: string) => Promise<unknown>;
+  updateItemStatus: (it: ItemFullRow, next: ItemStatus) => Promise<unknown>;
   // The base column and the view alias differ (acquired_price vs
   // purchase_price), so both travel — that mismatch is why the optimistic
   // patch needs a separate key from the write.

@@ -95,3 +95,34 @@ describe("planQuickEdit", () => {
     expect(plan.listPrice).toBeNull();
   });
 });
+
+describe("INV-9: price guards and sale statuses", () => {
+  it("refuses a listed price below the seller's floor", () => {
+    const it0 = item({ floor_price: 30, listing_status: "active" } as Partial<ItemFullRow>);
+    const plan = planQuickEdit(it0, { ...formFromItem(it0), listPrice: "4.99" });
+    expect(plan.errors[0]).toContain("below your floor of $30.00");
+  });
+
+  it("warns on a live price cut over 40% or below cost, without blocking", () => {
+    const it0 = item({ listing_status: "active", purchase_price: 20 } as Partial<ItemFullRow>);
+    const plan = planQuickEdit(it0, { ...formFromItem(it0), listPrice: "15" });
+    expect(plan.errors).toEqual([]);
+    expect(plan.warnings.join(" ")).toContain("63%");
+    expect(plan.warnings.join(" ")).toContain("below what you paid");
+  });
+
+  it("a changed LIVE price needs an explicit save; a draft price does not", () => {
+    const live = item({ listing_status: "active" } as Partial<ItemFullRow>);
+    expect(planQuickEdit(live, { ...formFromItem(live), listPrice: "38" }).needsExplicitSave).toBe(true);
+    const draft = item({ listing_status: "draft" } as Partial<ItemFullRow>);
+    expect(planQuickEdit(draft, { ...formFromItem(draft), listPrice: "38" }).needsExplicitSave).toBe(false);
+  });
+
+  it("Sold, Shipped and Completed are sale statuses", () => {
+    const it0 = item();
+    for (const s of ["sold", "shipped", "completed"] as const) {
+      expect(planQuickEdit(it0, { ...formFromItem(it0), status: s }).recordsSale).toBe(true);
+    }
+    expect(planQuickEdit(it0, { ...formFromItem(it0), status: "archived" }).recordsSale).toBe(false);
+  });
+});

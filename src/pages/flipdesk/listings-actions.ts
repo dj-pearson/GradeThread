@@ -601,15 +601,23 @@ export function makeListingsActions(d: ListingsActionDeps) {
   // here now: the server writes the row itself when (and only when) the
   // marketplace accepted the change, and reports `pushed:false` for a draft that
   // was never live. A failure is a failure.
-  async function updateListingPrice(it: ItemFullRow, raw: string) {
+  //
+  // INV-9: resolves true only when the price was saved, so the quick-edit panel
+  // can stay on an item whose push failed instead of stepping past it. The
+  // seller's floor is refused here too, not only in the panel's plan.
+  async function updateListingPrice(it: ItemFullRow, raw: string): Promise<boolean> {
     if (!it.listing_id) {
       toast.error("No listing record for this item.");
-      return;
+      return false;
     }
     const next = Number(raw);
     if (!Number.isFinite(next) || next < 0) {
       toast.error("Enter a valid price.");
-      return;
+      return false;
+    }
+    if (it.floor_price != null && next < it.floor_price) {
+      toast.error(`That is below your floor of $${Number(it.floor_price).toFixed(2)}.`);
+      return false;
     }
     const rollback = patchRow(it.id, { list_price: next });
     try {
@@ -631,9 +639,11 @@ export function makeListingsActions(d: ListingsActionDeps) {
       } else {
         toast.success(res.pushed ? "Price updated on the marketplace." : "Price updated.");
       }
+      return true;
     } catch (err) {
       rollback();
       toastError(err, "Price update failed.");
+      return false;
     }
   }
 
@@ -649,7 +659,8 @@ export function makeListingsActions(d: ListingsActionDeps) {
     value: string | number | null,
     viewPatch: Partial<ItemFullRow>,
     label: string,
-  ) {
+    opts: { silent?: boolean } = {},
+  ): Promise<boolean> {
     const rollback = patchRow(it.id, viewPatch);
     try {
       const { error } = await supabase
@@ -658,10 +669,12 @@ export function makeListingsActions(d: ListingsActionDeps) {
         .eq("id", it.id);
       if (error) throw error;
       await qc.invalidateQueries({ queryKey: ["items_full"] });
-      toast.success(`${label} updated.`);
+      if (!opts.silent) toast.success(`${label} updated.`);
+      return true;
     } catch (err) {
       rollback();
       toastError(err, `Couldn't update ${label.toLowerCase()}.`);
+      return false;
     }
   }
 
@@ -671,6 +684,7 @@ export function makeListingsActions(d: ListingsActionDeps) {
     it: ItemFullRow,
     base: Record<string, string | number | null>,
     viewPatch: Partial<ItemFullRow>,
+    opts: { silent?: boolean } = {},
   ): Promise<boolean> {
     if (Object.keys(base).length === 0) return true;
     const rollback = patchRow(it.id, viewPatch);
@@ -681,7 +695,7 @@ export function makeListingsActions(d: ListingsActionDeps) {
         .eq("id", it.id);
       if (error) throw error;
       await qc.invalidateQueries({ queryKey: ["items_full"] });
-      toast.success("Saved.");
+      if (!opts.silent) toast.success("Saved.");
       return true;
     } catch (err) {
       rollback();
@@ -744,9 +758,16 @@ export function makeListingsActions(d: ListingsActionDeps) {
 
   // Inline status change. Honors the explicit pick (forward or back, incl.
   // side-track statuses) — same direct write the mobile quick-edit sheet uses.
-  async function updateItemStatus(it: ItemFullRow, next: ItemStatus) {
-    if (next === it.status) return;
-    await patchItemColumn(it, "status", next, { status: next }, "Status");
+  // INV-9: resolves false when the status write failed, so a caller that steps
+  // on to the next item can stop instead.
+  async function updateItemStatus(
+    it: ItemFullRow,
+    next: ItemStatus,
+    opts: { silent?: boolean } = {},
+  ): Promise<boolean> {
+    if (next === it.status) return true;
+    const ok = await patchItemColumn(it, "status", next, { status: next }, "Status", opts);
+    if (!ok) return false;
     // Keep the listing row in lockstep so a re-drafted item doesn't keep showing
     // as a live listing in the composer.
     if (DRAFT_LIKE_STATUSES.has(next)) {
@@ -769,6 +790,7 @@ export function makeListingsActions(d: ListingsActionDeps) {
         });
       }
     }
+    return true;
   }
 
   // Inline numeric edit (cost → acquired_price, target → target_price). Empty
