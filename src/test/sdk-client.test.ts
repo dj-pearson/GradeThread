@@ -153,6 +153,17 @@ describe("retries", () => {
     expect(calls).toHaveLength(2);
   });
 
+  it("does not retry a replayed 5xx: the API stored it because the charge may have happened", async () => {
+    const { calls, fetchImpl } = scripted([
+      envelope(500, null, { message: "Payment processing error" }, { "Idempotent-Replay": "true" }),
+      envelope(202, { id: "sub_2", status: "pending", tier: "standard", payment_method: "credits" }),
+    ]);
+    const err = await client(fetchImpl).grades.create(GARMENT).catch((e) => e);
+    expect(err).toBeInstanceOf(GradeThreadError);
+    expect(err.status).toBe(500);
+    expect(calls).toHaveLength(1);
+  });
+
   it("does not retry a 4xx", async () => {
     const { calls, fetchImpl } = scripted([
       envelope(400, null, { message: "Validation failed", details: [{ index: 0, errors: ["title"] }] }),

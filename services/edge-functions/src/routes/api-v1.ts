@@ -30,6 +30,7 @@ import {
 } from "../lib/api-grade-ingest.ts";
 import { MAX_BATCH_ITEMS } from "../lib/grading-batch.ts";
 import { processGradeBatch } from "../lib/grading-batch-worker.ts";
+import { markChargeMayHaveHappened } from "../middleware/api-idempotency.ts";
 import type { ApiKeyScope } from "../lib/api-key.ts";
 import { logEvent, recordMetric } from "../lib/observability.ts";
 import { redactError } from "../lib/log-redact.ts";
@@ -451,6 +452,10 @@ apiV1Routes.post("/grades", async (c) => {
   // neither an included grade nor credits cover it, we reject with 402 and
   // clean up the uploaded submission rather than leave it unpaid.
   let precedence: PrecedenceResult;
+  // From here a 5xx is ambiguous: the debit RPC can commit and still come back
+  // as an error, so the Idempotency-Key claim must hold rather than let an
+  // automatic retry charge a second time.
+  markChargeMayHaveHappened(c);
   try {
     precedence = await runPaymentPrecedence(userId, submissionId, tier);
   } catch (err) {
@@ -605,6 +610,10 @@ apiV1Routes.post("/grades/batch", async (c) => {
     payload: g,
     status: "pending",
   }));
+  // Job rows on a 'running' batch are what the reclaim cron picks up and
+  // charges, and an insert can land even when its response is an error. From
+  // here a 5xx keeps the Idempotency-Key claim instead of releasing it.
+  markChargeMayHaveHappened(c);
   const { error: jobsErr } = await supabaseAdmin.from("grading_batch_jobs").insert(jobRows);
   if (jobsErr) {
     console.error("[API v1] Failed to enqueue grading batch jobs:", redactError(jobsErr));

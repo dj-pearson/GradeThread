@@ -198,13 +198,11 @@ const PRICE_GUIDE_EXAMPLE = `curl https://functions.gradethread.com/api/v1/price
 #                    "valueHighCents": 9800, "sellThrough": 0.78 }, ... ] } }`;
 
 // The package is not published yet (registry.npmjs.org answers 404 for the
-// name), so the docs give the build-from-source path rather than an install
-// that fails. Swap this for `npm install @gradethread/sdk` once it is.
-const SDK_INSTALL = `git clone https://github.com/dj-pearson/GradeThread
-cd GradeThread/sdk/gradethread-js && npm install && npm pack
-# then, in your project:
-npm install /path/to/GradeThread/sdk/gradethread-js/gradethread-sdk-0.1.0.tgz`;
-
+// name). This page used to give a `git clone` of the GradeThread repository
+// as the install path, but the repository is private, so that command fails
+// for every outside customer. Until the package is on npm the page says so and
+// points at the REST API and support. Add `npm install @gradethread/sdk` back
+// here once it is published.
 const SDK_EXAMPLE = `import { GradeThread } from "@gradethread/sdk";
 
 const gt = new GradeThread({ apiKey: process.env.GRADETHREAD_API_KEY });
@@ -481,12 +479,20 @@ export function DevelopersPage() {
         <p>
           A zero-dependency, typed client for Node 20+ and the browser. It
           sends an Idempotency-Key on every grade submission and retries rate
-          limits and outages without charging twice. It isn't on the npm
-          registry yet, so build it from the repository:
+          limits and outages without charging twice.
         </p>
-        <pre className="overflow-x-auto rounded-lg bg-slate-900 p-4 text-xs text-slate-100">
-          <code>{SDK_INSTALL}</code>
-        </pre>
+        <p>
+          <strong>The SDK is not published yet.</strong> Until it is, call the
+          REST API directly with the examples above, or email{" "}
+          <a
+            href="mailto:support@gradethread.com?subject=JavaScript%20SDK%20access"
+            className="font-medium text-brand-navy hover:underline dark:text-foreground"
+          >
+            support@gradethread.com
+          </a>{" "}
+          and we'll let you know when it's available. Once it is, usage looks
+          like this:
+        </p>
         <pre className="overflow-x-auto rounded-lg bg-slate-900 p-4 text-xs text-slate-100">
           <code>{SDK_EXAMPLE}</code>
         </pre>

@@ -266,6 +266,13 @@ targets:
       # sources — safe to add.
       - package: Supabase
         product: Supabase
+      # Sixteen test files `import GradeThreadCore` (MoneyDate, PayoutDateFormat
+      # and the other logic moved out by mobile plan action 6). They compiled
+      # only because the app host already links the package, which is the same
+      # accident the Supabase line above fixes. Link it here explicitly so the
+      # tests do not depend on how the host happens to be built.
+      - package: GradeThreadCore
+        product: GradeThreadCore
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.gradethread.app.tests

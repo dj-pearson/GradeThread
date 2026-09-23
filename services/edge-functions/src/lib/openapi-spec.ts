@@ -96,8 +96,11 @@ export const OPENAPI_SPEC = {
       "- Same key, same body, still running → `409` (`IDEMPOTENCY_IN_PROGRESS`) with `Retry-After`.\n" +
       "- Same key, same body, finished → the original status and body, plus `Idempotent-Replay: true`.\n" +
       "- Same key, **different** body → `422` (`IDEMPOTENCY_KEY_REUSED`). Mint a new key per request.\n" +
-      "- Only successful (2xx) responses are stored. A `4xx`/`5xx` releases the key so your retry " +
-      "is a real attempt.\n\n" +
+      "- Successful (2xx) responses are stored. A `4xx`, or a `5xx` before grading reached the " +
+      "charge, releases the key so your retry is a real attempt.\n" +
+      "- A `5xx` after grading reached the charge is stored and replayed, because the charge may " +
+      "already have happened. Check `GET /api/v1/grades` and your credit balance before " +
+      "resubmitting with a new key.\n\n" +
       "Keys are retained for 24 hours. Beyond that, reconcile with `GET /api/v1/grades` rather " +
       "than resubmitting. Human docs: https://gradethread.com/developers",
     contact: { name: "GradeThread Developer Support", url: "https://gradethread.com/developers" },
