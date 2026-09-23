@@ -1,9 +1,10 @@
-import { lazy, Suspense, useEffect, useRef } from "react";
+import { lazy, Suspense, useEffect, useLayoutEffect, useRef } from "react";
 import { Navigate, useLocation, useSearchParams } from "react-router";
 import type { InventoryView } from "@/components/flipdesk/inventory-view-switcher";
 import { delistRedirectTarget } from "@/lib/delist-links";
 import { LoadingRegion, TableLoadingSkeleton } from "@/components/ui/skeletons";
 import { useAuthStore } from "@/stores/auth-store";
+import { useInventorySelection } from "@/stores/inventory-selection";
 import { inventoryViewKey, readInventoryView, writeInventoryView } from "./inventory-last-view";
 import { SkuExhaustedBanner } from "@/components/flipdesk/sku-auto-hint";
 
@@ -48,6 +49,11 @@ function resolveMode(raw: string | null): InventoryView {
 export function FlipdeskInventoryPage() {
   const userId = useAuthStore(state => state.user?.id);
   const ownerId = useAuthStore(state => state.activeWorkspaceOwnerId) ?? userId;
+  // INV-2: the shared selection is only valid for the workspace it was made
+  // in. Layout effect so a switch clears it before the next paint.
+  useLayoutEffect(() => {
+    useInventorySelection.getState().bindOwner(ownerId ?? null);
+  }, [ownerId]);
   return <InventoryWorkspace key={`${userId}:${ownerId}`} storageKey={userId && ownerId ? inventoryViewKey(userId, ownerId) : null} />;
 }
 

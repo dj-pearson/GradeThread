@@ -4,6 +4,7 @@ import { queryClient } from "@/lib/query-client";
 import { captureException } from "@/lib/sentry";
 import { useAuthStore } from "@/stores/auth-store";
 import { useAccountExportStore } from "@/stores/account-export-store";
+import { useInventorySelection } from "@/stores/inventory-selection";
 import { redeemStoredAffiliateRef } from "@/lib/affiliate";
 import { sendWelcomeEmailOnce } from "@/lib/welcome-email";
 import { confirmSignupConsentOnce } from "@/lib/signup-consent";
@@ -253,6 +254,9 @@ function initAuth() {
       // The previous user's in-flight ZIP export must not disable the button
       // for whoever signs in next.
       useAccountExportStore.getState().clear();
+      // INV-2: nor may their inventory selection, which a bulk action would
+      // otherwise send straight to an UPDATE.
+      useInventorySelection.getState().clear();
       s.reset();
     }
   });

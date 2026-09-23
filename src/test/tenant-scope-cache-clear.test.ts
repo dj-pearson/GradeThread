@@ -74,3 +74,20 @@ describe("US-2089: tenant-scope changes clear the query cache", () => {
     }
   });
 });
+
+// INV-2: the inventory multi-select is tenant state too. Its ids go straight
+// into a bulk `.in("id", selected)` UPDATE, and RLS admits a member of both
+// workspaces, so a selection that survived a scope change could write to the
+// tenant the user just left. Every path above must drop it as well.
+describe("INV-2: tenant-scope changes clear the inventory selection", () => {
+  const CLEAR = /useInventorySelection\.getState\(\)\.clear\(\)/g;
+  it("sign-out clears it", () => {
+    expect(read("src/hooks/use-auth.ts")).toMatch(CLEAR);
+  });
+  it("a workspace switch clears it", () => {
+    expect(read("src/hooks/use-workspace.ts")).toMatch(CLEAR);
+  });
+  it("impersonation clears it on BOTH entry and exit", () => {
+    expect(read("src/lib/impersonation.ts").match(CLEAR) ?? []).toHaveLength(2);
+  });
+});

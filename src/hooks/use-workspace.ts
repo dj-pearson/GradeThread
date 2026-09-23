@@ -3,6 +3,7 @@ import { toast } from "sonner";
 import { supabase } from "@/lib/supabase";
 import { queryClient } from "@/lib/query-client";
 import { useAuthStore, deriveActiveRole } from "@/stores/auth-store";
+import { useInventorySelection } from "@/stores/inventory-selection";
 import { canDo, type WorkspaceCapability } from "@/lib/workspace-permissions";
 import type { WorkspaceRole, WorkspaceSummary } from "@/types/database";
 
@@ -44,6 +45,10 @@ export function useWorkspace() {
       // prior workspace's data until it went stale. Drop all cached server data
       // so the new workspace refetches cleanly (mirrors the sign-out clear).
       queryClient.clear();
+      // INV-2: a bulk action sends the selected ids straight to an UPDATE, and
+      // RLS admits a member of both workspaces, so the old selection must not
+      // survive into the new one.
+      useInventorySelection.getState().clear();
       setActiveOwnerId(ownerId);
       if (user?.id) {
         // US-1636: the switch already applied client-side (cache cleared +
