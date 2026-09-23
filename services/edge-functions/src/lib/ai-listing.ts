@@ -2207,7 +2207,7 @@ const supabaseDraftStore: EbayDraftStore = {
 
 /**
  * Write the one eBay draft for an item: update it if it exists, insert it if
- * not. 00833's unique index allows one eBay draft per item, so when two
+ * not. 00832's unique index allows one eBay draft per item, so when two
  * generations race and both find nothing, the second insert fails with 23505
  * and is turned into an update of the row the first one wrote.
  *

@@ -200,13 +200,13 @@ Deno.test("withTimeout: rejects with a labeled error when too slow", async () =>
 // withTimeout used to be a bare Promise.race: the job was marked failed and
 // its AI action refunded while generateListing kept running and then wrote a
 // draft anyway. And the draft write was select-then-insert, so an orphan and a
-// retry could both see no draft and both insert one (00833 is the index).
+// retry could both see no draft and both insert one (00832 is the index).
 
 const { DraftWriteAbandonedError, writeEbayDraft } = await import("../lib/ai-listing.ts");
 type EbayDraftStore = import("../lib/ai-listing.ts").EbayDraftStore;
 
 /**
- * An in-memory listings table with 00833's rule: at most one eBay draft per
+ * An in-memory listings table with 00832's rule: at most one eBay draft per
  * item, a second insert answers 23505. Every call yields first, so two
  * concurrent writers interleave the way two workers on two replicas do.
  */

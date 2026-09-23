@@ -72,7 +72,7 @@ stronger claim for one of them, `check-prod-migration.ts` is the tool.
 Nothing below 00786 was touched, and the six genuinely-held branches in the next
 section are unchanged and still waiting.
 
-## HELD: 00833_one_ebay_draft_per_item.sql (marketplaces plan action 3 - one AutoLister eBay draft per item)
+## HELD: 00832_one_ebay_draft_per_item.sql (marketplaces plan action 3 - one AutoLister eBay draft per item)
 
 **What it does.** Demotes duplicate eBay drafts, then adds
 `uq_listings_one_ebay_draft_per_item`, a partial unique index on
@@ -89,7 +89,7 @@ surviving draft.
 an eBay listing id, else an offer id, else a publish schedule, else the most
 recently updated. Every other eBay draft for that item becomes `ended`
 (`is_active` follows via trigger), loses `scheduled_publish_at`, and gets
-`platform_fields.dedupe_00833 = {kept_listing_id, demoted_at}`. Before
+`platform_fields.dedupe_00832 = {kept_listing_id, demoted_at}`. Before
 applying, the owner can count what will move:
 
 ```sql
@@ -97,7 +97,7 @@ select count(*) - count(distinct inventory_item_id) as rows_to_demote
 from public.listings where platform = 'ebay' and listing_status = 'draft';
 ```
 
-After, `select id from public.listings where platform_fields ? 'dedupe_00833'`
+After, `select id from public.listings where platform_fields ? 'dedupe_00832'`
 finds exactly the demoted rows (to delete, or to restore by hand).
 
 **Proved on a local Postgres 16 clone at 00830:** seeded three items (three
@@ -115,12 +115,12 @@ skips drafted items and would report the error per item. Relist, cross-push
 and extension writeback create drafts only for extension channels, so the
 eBay-only predicate leaves them alone.
 
-**Order.** Apply before the edge redeploy (boot guard expects 00833). The edge
+**Order.** Apply before the edge redeploy (boot guard expects 00832). The edge
 code works without the index (it just loses the race protection), so a
 deploy that lands first does not break. Then `NOTIFY pgrst, 'reload schema';`
-(migrate:prod sends it). 00831 and 00832 are claimed by sibling branches of
-the same plan round; if either does not land, the gap is safe (see the
-00793-00795 note in schema-version.ts).
+(migrate:prod sends it). 00831 is claimed by a sibling branch of the same
+plan round; if it does not land first, the gap is safe (see the 00793-00795
+note in schema-version.ts).
 
 ## HELD: 00830_account_webhooks.sql (extensions-api plan actions 2+3 - customer webhook secret, one delivery per account, durable retries)
 

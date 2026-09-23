@@ -119,12 +119,7 @@ export const KNOWN_GAPS = new Map([
   [
     "00831",
     "claimed by a sibling branch of the 2026-09-23 module-plan round while "
-      + "00833 was written. The branch that lands it deletes this entry.",
-  ],
-  [
-    "00832",
-    "claimed by a sibling branch of the 2026-09-23 module-plan round while "
-      + "00833 was written. The branch that lands it deletes this entry.",
+      + "00832 was written. The branch that lands it deletes this entry.",
   ],
   [
     "00527",

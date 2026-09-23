@@ -19,7 +19,7 @@
 -- then scheduled to publish, then the most recently updated. Every other eBay
 -- draft for that item becomes 'ended' (the is_active trigger turns it off),
 -- loses its publish schedule so the publish-due tick cannot pick it up, and is
--- stamped platform_fields.dedupe_00833 = {kept_listing_id, demoted_at} so the
+-- stamped platform_fields.dedupe_00832 = {kept_listing_id, demoted_at} so the
 -- owner can find, restore or delete exactly these rows later.
 --
 -- Idempotent: on a second run there are no duplicates left, the UPDATE matches
@@ -50,7 +50,7 @@ SET
   scheduled_publish_at = NULL,
   platform_fields = coalesce(t.platform_fields, '{}'::jsonb)
     || jsonb_build_object(
-      'dedupe_00833',
+      'dedupe_00832',
       jsonb_build_object('kept_listing_id', r.keeper_id, 'demoted_at', now())
     )
 FROM ranked r
@@ -62,6 +62,6 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_listings_one_ebay_draft_per_item
   WHERE platform = 'ebay' AND listing_status = 'draft';
 
 COMMENT ON INDEX public.uq_listings_one_ebay_draft_per_item IS
-  'At most one eBay draft per inventory item. generateListing relies on the 23505 to turn a racing insert into an update (00833).';
+  'At most one eBay draft per inventory item. generateListing relies on the 23505 to turn a racing insert into an update (00832).';
 
-insert into public.applied_migrations (version) values ('00833') on conflict do nothing;
+insert into public.applied_migrations (version) values ('00832') on conflict do nothing;
