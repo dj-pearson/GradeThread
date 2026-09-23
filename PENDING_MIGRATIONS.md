@@ -72,6 +72,32 @@ stronger claim for one of them, `check-prod-migration.ts` is the tool.
 Nothing below 00786 was touched, and the six genuinely-held branches in the next
 section are unchanged and still waiting.
 
+## HELD: 00826_close_period_rebuilds_ledger.sql (money - closing a period froze stale ledger figures)
+
+**What it does.** `CREATE OR REPLACE` of `public.close_period`, same signature,
+same body as 00702 plus one line: `PERFORM public.rebuild_ledger_for_user(v_uid)`
+before the inventory snapshot and the closing figures. The 00702 grants are
+restated unchanged. No REVOKE (US-3002 / US-2403 pattern).
+
+**Why.** `closing_figures` comes from `ledger_reconciliation()`, which reads
+`ledger_entries`, and those rows only change when something calls
+`rebuild_ledger_for_user`. Nothing on the close path did, so a seller could
+freeze a year missing every sale since the ledger was last built.
+
+**Proved on a local Postgres 16 with all migrations applied:**
+`node scripts/check-period-close.mjs --dsn ...` now adds a sale after the first
+build. Before 00826 both new checks are red (the sale has no ledger entries
+and the frozen figure did not move); after, all 19 checks pass. Applied twice
+with no error.
+
+**Risk: LOW.** A close now does one rebuild of the seller's own ledger, the
+same call the Money pages already make. Known and NOT changed here: a rebuild
+rewrites entries dated inside an earlier closed period too (money plan,
+action 3).
+
+**Order.** Apply any time, BEFORE the edge redeploy (the boot guard expects
+00826). Then `NOTIFY pgrst, 'reload schema';` (migrate:prod sends it).
+
 ## HELD: 00825_api_keys_no_client_writes.sql (security - a key owner could raise their own API tier and clear their quota)
 
 **What it does.** Drops three RLS policies on `public.api_keys`: "Users can

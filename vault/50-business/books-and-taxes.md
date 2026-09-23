@@ -54,6 +54,7 @@ code_refs:
   - src/lib/statement-import.ts
   - scripts/check-statement-import.mjs
   - supabase/migrations/00702_period_close.sql
+  - supabase/migrations/00826_close_period_rebuilds_ledger.sql
   - src/lib/period-close.ts
   - scripts/check-period-close.mjs
   - supabase/migrations/00690_inventory_writeoffs.sql
@@ -1191,9 +1192,15 @@ that move a filed number are frozen:
 - an item's `acquired_price` **if it sold in a closed period** -- an unsold
   item's cost has reached no return yet
 
-### Closing takes the snapshot, in that order
+### Closing rebuilds the ledger, then takes the snapshot, in that order
 
-`close_period` calls `take_inventory_snapshot` **first**, while writes are still
+`close_period` calls `rebuild_ledger_for_user` **first** (00826). The ledger is
+rebuilt on demand, never by a trigger on sales or expenses, and until 00826
+nothing on the close path asked for a rebuild, so a close could freeze figures
+missing every sale recorded since the last build. `check-period-close.mjs`
+adds a sale after the first build and asserts it is in `closing_figures`.
+
+It then calls `take_inventory_snapshot`, while writes are still
 allowed. Closing before snapshotting would lock the very table the snapshot
 reads and leave the period closed with no Part III figures -- the exact state
 US-2986 exists to prevent.
