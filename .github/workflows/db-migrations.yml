@@ -30,6 +30,7 @@ on:
       - "scripts/check-sku-sequences.mjs"
       - "scripts/check-dispute-report-ownership.mjs"
       - "scripts/check-source-tenant-scope.mjs"
+      - "scripts/check-source-item-counts.mjs"
       - "scripts/check-api-key-self-upgrade.mjs"
       - "scripts/check-service-role-grants.mjs"
       - "services/edge-functions/src/tests/rls-guard_test.ts"
@@ -73,6 +74,7 @@ on:
       - "scripts/check-sku-sequences.mjs"
       - "scripts/check-dispute-report-ownership.mjs"
       - "scripts/check-source-tenant-scope.mjs"
+      - "scripts/check-source-item-counts.mjs"
       - "scripts/check-api-key-self-upgrade.mjs"
       - "scripts/check-service-role-grants.mjs"
       - "services/edge-functions/src/tests/rls-guard_test.ts"
@@ -206,6 +208,11 @@ jobs:
       # listing_manager member and the service role still get through.
       - name: get_or_create_source is tenant-scoped (00824)
         run: node scripts/check-source-tenant-scope.mjs
+      # 00831: source_item_counts is SECURITY INVOKER, so inventory_items RLS
+      # decides what the Sources page counts. A stranger naming another
+      # workspace gets no rows; the owner and a viewer member get the counts.
+      - name: Source item counts are tenant-scoped (00831)
+        run: node scripts/check-source-item-counts.mjs
       # 00825: api-key-auth trusts api_keys.rate_tier and monthly_quota, so a
       # client must not be able to write either. The owner can still read and
       # delete, and the service role still mints (POST /api/keys).

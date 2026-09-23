@@ -623,6 +623,13 @@ if (on("db")) {
       "db: get_or_create_source is tenant-scoped (00824)",
       "node scripts/check-source-tenant-scope.mjs",
     );
+    // 00831: source_item_counts is SECURITY INVOKER and takes p_user_id from
+    // the browser, so RLS is the boundary. A stranger naming another workspace
+    // gets no rows; the owner and a viewer member get the real counts.
+    run(
+      "db: source item counts are tenant-scoped (00831)",
+      "node scripts/check-source-item-counts.mjs",
+    );
     // 00825: api-key-auth trusts rate_tier and monthly_quota off the row, so
     // no client UPDATE or INSERT policy may exist on api_keys. The owner still
     // reads and deletes; the service role still mints.

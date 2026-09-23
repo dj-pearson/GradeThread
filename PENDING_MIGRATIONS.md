@@ -72,6 +72,40 @@ stronger claim for one of them, `check-prod-migration.ts` is the tool.
 Nothing below 00786 was touched, and the six genuinely-held branches in the next
 section are unchanged and still waiting.
 
+## HELD: 00831_source_item_counts.sql (flipdesk-inventory plan action 7 - Sources page counts items in SQL)
+
+**What it does.** Adds one function, `public.source_item_counts(p_user_id uuid)`,
+returning `(source_id, item_count)` for one workspace. SECURITY INVOKER, so
+inventory_items RLS decides what is counted; `p_user_id` narrows to one
+workspace and is not the tenant boundary. EXECUTE granted to `authenticated`
+and `service_role`; deliberately NO revoke from `anon` (US-2403: a denied call
+segfaults this image), and an anon call returns no rows because anon matches no
+inventory_items SELECT policy. No table, index or policy change.
+
+**Why.** The Sources page selected `source_id` for every inventory row the
+caller could see, with no paging, and counted in the browser. That pulls one
+row per item to print a number, and under a row cap the delete dialog would
+under-report how many items get unlinked.
+
+**⚠ THE BROWSER CALLS IT.** `src/pages/flipdesk/sources.tsx` calls
+`supabase.rpc("source_item_counts")` in the same commit. If Pages deploys
+before this is applied, the Items column shows 0 for every source and the
+delete dialog names no linked items (the page itself still loads). Apply
+first.
+
+**Proved on a local Postgres 16** (clone of the test database, 00828-00831
+applied): applies twice with no error, and
+`node scripts/check-source-item-counts.mjs --dsn ...` passes: the owner and a
+viewer member get the real count, a stranger naming the owner's workspace gets
+no rows, anon gets no rows, the function is not a definer. Re-marking it
+SECURITY DEFINER turns the stranger and anon cases red.
+
+**Risk: LOW.** New read-only function.
+
+**Order.** Apply any time, BEFORE the edge redeploy (the boot guard expects
+00831) and before the frontend deploy. Then `NOTIFY pgrst, 'reload schema';`
+(migrate:prod sends it).
+
 ## HELD: 00830_account_webhooks.sql (extensions-api plan actions 2+3 - customer webhook secret, one delivery per account, durable retries)
 
 **What it does.** Creates three deny-all tables (RLS on, no policies, revoked
