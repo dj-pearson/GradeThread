@@ -29,6 +29,8 @@ on:
       - "scripts/check-created-by.mjs"
       - "scripts/check-sku-sequences.mjs"
       - "scripts/check-dispute-report-ownership.mjs"
+      - "scripts/check-service-role-grants.mjs"
+      - "services/edge-functions/src/tests/rls-guard_test.ts"
       - "scripts/check-work-session-storage.mjs"
       - "scripts/check-work-override-storage.mjs"
       - "scripts/check-one-open-grade.mjs"
@@ -68,6 +70,8 @@ on:
       - "scripts/check-created-by.mjs"
       - "scripts/check-sku-sequences.mjs"
       - "scripts/check-dispute-report-ownership.mjs"
+      - "scripts/check-service-role-grants.mjs"
+      - "services/edge-functions/src/tests/rls-guard_test.ts"
       - "scripts/check-work-session-storage.mjs"
       - "scripts/check-work-override-storage.mjs"
       - "scripts/check-one-open-grade.mjs"
@@ -193,6 +197,13 @@ jobs:
       # real dispute.
       - name: A dispute cannot name another seller's report (US-2670)
         run: node scripts/check-dispute-report-ownership.mjs
+      # US-3355: every SERVICE_ROLE_ONLY table (rls-guard_test.ts) must be
+      # closed to anon and authenticated in the database the migrations BUILD,
+      # not just in their text. This lane never runs the integration lanes'
+      # GRANT ALL, so the grant state here is real. The script opens one table
+      # inside a rolled-back transaction first and fails if it cannot see that.
+      - name: Service-role-only tables keep their REVOKE (US-3355)
+        run: node scripts/check-service-role-grants.mjs
       # US-3167: the work-session rules that only a database can hold. Two tabs
       # pressing Start, a retried timing event, a revision-scoped write, a
       # deleted item, an erased account -- every one passes a check-then-write

@@ -616,6 +616,13 @@ if (on("db")) {
       "db: a dispute cannot name another seller's report (US-2670)",
       "node scripts/check-dispute-report-ownership.mjs",
     );
+    // US-3355: the SERVICE_ROLE_ONLY tables must be closed to anon and
+    // authenticated in the migrated database itself; the posture test in the
+    // edge suite only scores the migration text.
+    run(
+      "db: service-role-only tables keep their REVOKE (US-3355)",
+      "node scripts/check-service-role-grants.mjs",
+    );
     // US-3318: 00806 is the one held migration that rewrites seller data. This
     // runs its six worked examples against real rows and checks that
     // listing_price and platform_fields move together -- the composer reads the

@@ -87,6 +87,19 @@ jobs:
           GRANT ALL ON ALL FUNCTIONS IN SCHEMA public TO anon, authenticated, service_role;
           SQL
 
+      # The grant above also undoes every REVOKE the migrations made (US-3350),
+      # which left this security lane running against a privilege model prod
+      # does not have. Replay every migration GRANT/REVOKE in file order, then
+      # prove the service-role-only tables are closed again. Measured on a
+      # local Postgres 16: after this replay the anon/authenticated/service_role
+      # privilege map matches a never-granted build exactly (0 of 1,905 rows
+      # differ); a revokes-only replay missed 16, one of them the EXECUTE
+      # US-2403 says must stay granted.
+      - name: Restore the migrations' privileges (US-3350)
+        run: |
+          node scripts/replay-migration-privileges.mjs --dsn "$SUPABASE_DB_URL"
+          node scripts/check-service-role-grants.mjs --dsn "$SUPABASE_DB_URL"
+
       # Seed the two-tenant fixture. Emits TEST_* KEY=VALUE lines on stdout for
       # $GITHUB_ENV; any failure (incl. schema drift) exits non-zero → job fails.
       # pipefail is REQUIRED: without it the `| tee` pipeline reports tee's exit
