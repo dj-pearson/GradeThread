@@ -443,7 +443,7 @@ async function main(): Promise<void> {
   });
   out.TEST_USER_B_API_KEY = bKey.fullKey;
 
-  // 00832: A's account webhook and one recorded delivery. The endpoint has NO
+  // 00830: A's account webhook and one recorded delivery. The endpoint has NO
   // secret on purpose, so "B rotated, and A still has no secret" is a readable
   // assertion. B gets neither, which is what makes B's reads able to leak.
   // The URL is never called: nothing in the suite finalizes a grade.

@@ -115,4 +115,4 @@ WHERE k.webhook_url IS NOT NULL AND length(trim(k.webhook_url)) > 0
 ORDER BY k.user_id, k.created_at DESC
 ON CONFLICT (user_id) DO NOTHING;
 
-insert into public.applied_migrations (version) values ('00832') on conflict do nothing;
+insert into public.applied_migrations (version) values ('00830') on conflict do nothing;

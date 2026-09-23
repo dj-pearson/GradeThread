@@ -1,4 +1,4 @@
-// Customer webhook retry sweep (extensions-api plan, action 3; migration 00832).
+// Customer webhook retry sweep (extensions-api plan, action 3; migration 00830).
 //
 // The first attempt of every event runs in-process right after the grade is
 // final. Everything after that is this cron: it returns rows a dead worker left

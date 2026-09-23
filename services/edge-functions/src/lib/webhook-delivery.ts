@@ -1,4 +1,4 @@
-// Customer webhooks (extensions-api plan, actions 2 and 3; migration 00832).
+// Customer webhooks (extensions-api plan, actions 2 and 3; migration 00830).
 //
 // THREE THINGS CHANGED FROM THE ORIGINAL, AND EACH WAS A CUSTOMER-VISIBLE DEFECT.
 //
@@ -116,7 +116,7 @@ export async function signWebhook(
   return `v1,${bytesToBase64(sig)}`;
 }
 
-/** The pre-00832 signature: hex HMAC of the body alone. Legacy endpoints only. */
+/** The pre-00830 signature: hex HMAC of the body alone. Legacy endpoints only. */
 export async function legacyBodySignature(keyHash: string, body: string): Promise<string> {
   const sig = await hmac(new Uint8Array(encoder.encode(keyHash)), body);
   return Array.from(sig, (b) => b.toString(16).padStart(2, "0")).join("");

@@ -7123,7 +7123,7 @@ Deno.test({
   },
 });
 
-// ── Public API v1: account webhooks (00832) ──────────────────────────
+// ── Public API v1: account webhooks (00830) ──────────────────────────
 //
 // The webhook is one row per ACCOUNT now, keyed by the API key owner, and the
 // routes take no id at all. So the cross-tenant question is not "can B name A's

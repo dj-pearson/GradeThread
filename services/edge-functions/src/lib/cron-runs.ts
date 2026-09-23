@@ -129,7 +129,7 @@ export const CRON_REGISTRY: CronDef[] = [
   { name: "push-token-prune", label: "Push-token prune", schedule: "0 3 * * *", category: "maintenance", endpoint: "/api/jobs/push-token-prune", recorded: true },
   { name: "sync-reaper", label: "eBay sync reaper", schedule: "*/15 * * * *", category: "sync", endpoint: "/api/jobs/sync-reaper", recorded: true },
   { name: "email-retry", label: "Email outbox retry", schedule: "*/5 * * * *", category: "email", endpoint: "/api/jobs/email-retry", recorded: true },
-  // Customer webhook retries (00832). The first attempt runs in-process when a
+  // Customer webhook retries (00830). The first attempt runs in-process when a
   // grade finalizes; this sweep makes every retry and returns rows a dead worker
   // left running. RETRY_BACKOFF_MS in lib/webhook-delivery.ts starts at 5 min,
   // so keep this at */5 or tighter.

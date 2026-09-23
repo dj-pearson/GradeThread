@@ -1,4 +1,4 @@
-// Customer webhooks (extensions-api plan, actions 2 and 3; migration 00832).
+// Customer webhooks (extensions-api plan, actions 2 and 3; migration 00830).
 //
 // Two families of guarantee, both of which were broken before this file existed
 // and neither of which any test covered:
@@ -13,7 +13,7 @@
 // The delivery loop runs against an in-memory store that implements the same
 // compare-and-set semantics as the real PostgREST calls in webhook-delivery.ts.
 // The database half of "once per grade" (the UNIQUE index) was proved against
-// Postgres when 00832 was written; see PENDING_MIGRATIONS.md.
+// Postgres when 00830 was written; see PENDING_MIGRATIONS.md.
 //
 // Pure: no network, no DB.
 

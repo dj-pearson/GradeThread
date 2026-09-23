@@ -65,10 +65,10 @@ import { EXPECTED_MIGRATIONS, FOOTER_ERA_START } from "./migration-manifest.ts";
 // unrecoverable, a gap is not. The manifest lists what THIS tree ships, so a
 // prod row for 00794 reads as "ahead", which is the safe direction.
 //
-// 00824 THROUGH 00831 are the same situation: numbers handed to parallel
-// branches of the module-plans work, which had not merged when 00832 (account
+// 00824 THROUGH 00829 are the same situation: numbers handed to parallel
+// branches of the module-plans work, which had not merged when 00830 (account
 // webhooks) was written. Whichever merges last re-checks this line.
-export const EXPECTED_SCHEMA_VERSION = "00832";
+export const EXPECTED_SCHEMA_VERSION = "00830";
 
 export type SchemaVersionComparison = "match" | "behind" | "ahead" | "unknown";
 

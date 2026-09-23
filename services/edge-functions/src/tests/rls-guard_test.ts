@@ -55,7 +55,7 @@ const PARENT_SCOPED = [
 // service-role (which bypasses RLS) reads/writes them. This is the most
 // restrictive configuration, not a gap.
 const SERVICE_ROLE_ONLY = new Set([
-  // 00832: customer webhooks. Deny-all in both directions. The endpoint row
+  // 00830: customer webhooks. Deny-all in both directions. The endpoint row
   // holds the account's signing secret (as ciphertext, but still not something
   // a browser needs), and a WRITABLE endpoint or delivery row would let a
   // caller point another account's grade events at a URL they control. The

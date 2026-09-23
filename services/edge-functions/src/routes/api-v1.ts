@@ -1129,7 +1129,7 @@ apiV1Routes.patch("/webhook", async (c) => {
     }
   }
 
-  // The webhook belongs to the ACCOUNT now (00832): one endpoint row, one
+  // The webhook belongs to the ACCOUNT now (00830): one endpoint row, one
   // delivery per event, however many API keys exist. api_keys.webhook_url is
   // still written so a rolled-back edge keeps delivering; nothing new reads it.
   const { data: keys, error: fetchError } = await supabaseAdmin

@@ -72,7 +72,7 @@ stronger claim for one of them, `check-prod-migration.ts` is the tool.
 Nothing below 00786 was touched, and the six genuinely-held branches in the next
 section are unchanged and still waiting.
 
-## HELD: 00832_account_webhooks.sql (extensions-api plan actions 2+3 - customer webhook secret, one delivery per account, durable retries)
+## HELD: 00830_account_webhooks.sql (extensions-api plan actions 2+3 - customer webhook secret, one delivery per account, durable retries)
 
 **What it does.** Creates three deny-all tables (RLS on, no policies, revoked
 from anon/authenticated): `api_webhook_endpoints` (one row per account: url +
@@ -93,7 +93,7 @@ only; `api_keys` is read, never changed.
 
 **Order.** Apply BEFORE the edge redeploy: the new edge writes and reads these
 tables on every finalized grade and on PATCH /api/v1/webhook, and its boot
-guard expects 00832. Then `NOTIFY pgrst, 'reload schema';` (migrate:prod sends
+guard expects 00830. Then `NOTIFY pgrst, 'reload schema';` (migrate:prod sends
 it). No client-side (browser) code reads the new tables.
 
 **Also needed on the host:** a Coolify scheduled task `webhook-retry`,
