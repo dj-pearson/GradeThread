@@ -43,30 +43,45 @@ Each line names the plan file and action number.
 
 ## Round 3: later
 
-- [~] Golden set eval in CI (grading 3); [owner] prod reads and real cases
-- [~] Shadow runs startable from admin, per-image too (grading 6)
-- [~] Unreadable-label handling (grading 7)
-- [~] Grading prompt cache (grading 8)
-- [~] Stale references to the required-photo list (grading 9)
-- [~] Offline intake fixes (flipdesk-inventory 4)
-- [~] Board Photographed rule matches auto-advance (flipdesk-inventory 5)
-- [~] Behavior tests for board, intake, sources (flipdesk-inventory 6)
-- [~] Sources page counts in SQL (flipdesk-inventory 7)
-- [~] Board batch advance and filters (flipdesk-inventory 8)
-- [~] AutoLister timeout stops work, no duplicate eBay drafts (marketplaces 3)
-- [ ] Split flipdesk-ebay.ts by concern (marketplaces 5), last, after round 3 merges
-- [~] Marketplaces page render test (marketplaces 6)
-- [~] Show ledger-vs-dashboard disagreement to the seller (money 6)
-- [~] Nested cards on the homepage (web-growth 3)
-- [~] Lighthouse on the SSR pages (web-growth 4)
-- [~] Accessibility and phone-width checks in a real browser (web-growth 5)
-- [~] Break up SettingsPage (web-growth 6)
-- [~] iOS coverage floor, grow GradeThreadCore (mobile 6)
-- [~] Android strings and plurals (mobile 7)
-- [~] Android screenshot lane (mobile 8)
-- [~] SDK builds and is tested (extensions-api 4); [owner] npm publish
-- [~] Webhook settings in the dashboard (extensions-api 5)
-- [~] Less DB work in API key auth (extensions-api 6)
-- [~] Machine-readable held-migration state (platform 6)
-- [~] Archive applied PENDING_MIGRATIONS entries (platform 7)
-- [~] db-rls-initplan-check accepts Postgres 16 plans (platform 9)
+- [x] Golden set eval in CI (grading 3); [owner] set EDGE_JOB_SECRET repo secret, run prod reads, promote real cases (job stays red until then)
+- [x] Shadow runs startable from admin, per-image too (grading 6)
+- [x] Unreadable-label handling (grading 7)
+- [x] Grading prompt cache (grading 8)
+- [x] Stale references to the required-photo list (grading 9)
+- [x] Offline intake fixes (flipdesk-inventory 4)
+- [x] Board Photographed rule matches auto-advance (flipdesk-inventory 5)
+- [x] Behavior tests for board, intake, sources (flipdesk-inventory 6)
+- [x] Sources page counts in SQL (flipdesk-inventory 7), migration 00831
+- [x] Board batch advance and filters (flipdesk-inventory 8)
+- [x] AutoLister timeout stops work, no duplicate eBay drafts (marketplaces 3), migration 00832
+- [~] Split flipdesk-ebay.ts by concern (marketplaces 5), round 4
+- [x] Marketplaces page render test (marketplaces 6)
+- [x] Show ledger-vs-dashboard disagreement to the seller (money 6)
+- [x] Nested cards on the homepage (web-growth 3)
+- [x] Lighthouse on the SSR pages (web-growth 4)
+- [x] Accessibility and phone-width checks in a real browser (web-growth 5)
+- [x] Break up SettingsPage (web-growth 6)
+- [x] iOS coverage floor, grow GradeThreadCore (mobile 6), partly: floor is a 5% placeholder until the first Mac CI run; EdgeAPI DTOs not moved; nothing compiled here
+- [x] Android strings and plurals (mobile 7); not compiled here, first Android CI run is the check
+- [x] Android screenshot lane (mobile 8)
+- [x] SDK builds and is tested (extensions-api 4); [owner] npm publish
+- [x] Webhook settings in the dashboard (extensions-api 5)
+- [x] Less DB work in API key auth (extensions-api 6); 30s key cache dropped on purpose (a revoked key could keep working)
+- [x] Machine-readable held-migration state (platform 6)
+- [x] Archive applied PENDING_MIGRATIONS entries (platform 7)
+- [x] db-rls-initplan-check accepts Postgres 16 plans (platform 9)
+
+## Round 4: follow-ups found while fixing
+
+- [x] Guard test held a literal backspace instead of \b, so it never matched (grading-cache-premium_test)
+- [x] ensureLedgerBuilt dropped a getSession error (unchecked-read baseline)
+- [~] Offline intake: photo failures, idempotent photo retries, attempt counting; board facet case
+- [~] AutoLister: abandoned-draft test, read retry, friendly duplicate-draft errors, 00832 made race-safe
+- [~] Grading: shadow refusal on active rows, vault note, eval workflow hints, streamed-call context
+- [~] Web: export state across tabs, elevation test, Lighthouse report matching, 2 contrast failures, drift banner on past ranges
+- [~] Platform: worklist and session hook read held-migrations.json, restore 12 lost lines
+- [~] iOS test target links Core, symbol guards; SDK 5xx retry vs idempotency; developers page install copy
+- [owner] Publish the SDK to npm (the developers page will say it is not published yet)
+- [owner] Native speaker review of the flagged Spanish Android strings
+- [owner] Raise the iOS coverage floor to the first green Mac CI number
+- [owner] Decide whether to reseal certificates graded with the old rounding (US-3470)
