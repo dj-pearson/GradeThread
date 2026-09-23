@@ -13,7 +13,12 @@ import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 
 import { PUBLIC_ROUTES } from "@/lib/seo/public-routes";
-import { locs, pickProdUrls } from "../../scripts/lighthouse-prod-urls.mjs";
+import {
+  lhUrlKey,
+  locs,
+  matchManifest,
+  pickProdUrls,
+} from "../../scripts/lighthouse-prod-urls.mjs";
 
 type Assertion = string | [string, Record<string, number>];
 interface LhConfig {
@@ -105,6 +110,69 @@ describe("lighthouse.yml", () => {
     expect(prod).toContain("configPath: ./lighthouserc.prod.json");
     expect(prod).toContain("node scripts/lighthouse-prod-urls.mjs");
     expect(prod).toContain("github.rest.issues.createComment");
+  });
+
+  it("matches the prod manifest through matchManifest, not by exact URL", () => {
+    const prod = wf.slice(wf.indexOf("\n  prod-ssr:"));
+    expect(prod).toContain("scripts/lighthouse-prod-urls.mjs`)");
+    expect(prod).toMatch(/matchManifest\(wanted, manifest, links\)/);
+    // The old exact-key lookups; either one coming back reintroduces the bug.
+    expect(prod).not.toMatch(/measured\.get\(u\)|links\[u\]/);
+  });
+
+  it("does not say the weekly results only land in the Job Summary", () => {
+    const schedule = wf.slice(wf.indexOf("workflow_dispatch"), wf.indexOf("schedule:"));
+    expect(schedule).toContain("Lighthouse weekly: live SSR pages");
+  });
+});
+
+describe("matchManifest (prod-ssr report)", () => {
+  const B = "https://gradethread.com";
+  const run = (url: string, performance: number) => ({
+    url,
+    isRepresentativeRun: true,
+    summary: { performance, seo: 1, accessibility: 0.9, "best-practices": 1 },
+  });
+
+  it("finds a page Lighthouse measured after a trailing-slash redirect", () => {
+    const [row] = matchManifest(
+      [`${B}/help`],
+      [run(`${B}/help/`, 0.8)],
+      { [`${B}/help/`]: "https://storage.example/r1" },
+    );
+    expect(row?.summary?.performance).toBe(0.8);
+    expect(row?.measuredUrl).toBe(`${B}/help/`);
+    expect(row?.report).toBe("https://storage.example/r1");
+  });
+
+  it("finds a page measured after an apex-to-www redirect", () => {
+    const [row] = matchManifest(
+      [`${B}/blog/how-to-grade`],
+      [run("https://www.gradethread.com/blog/how-to-grade", 0.7)],
+    );
+    expect(row?.summary?.performance).toBe(0.7);
+  });
+
+  it("still reports a page that was not measured as not measured", () => {
+    const rows = matchManifest(
+      [`${B}/help`, `${B}/cert/abc`],
+      [run(`${B}/help`, 0.9)],
+    );
+    expect(rows.map((r) => r.summary === null)).toEqual([false, true]);
+  });
+
+  it("uses the representative run and ignores the others", () => {
+    const [row] = matchManifest(
+      [`${B}/help`],
+      [{ ...run(`${B}/help`, 0.1), isRepresentativeRun: false }, run(`${B}/help`, 0.95)],
+    );
+    expect(row?.summary?.performance).toBe(0.95);
+  });
+
+  it("keeps the query string and the root path distinct", () => {
+    expect(lhUrlKey(`${B}/x?a=1`)).not.toBe(lhUrlKey(`${B}/x?a=2`));
+    expect(lhUrlKey(`${B}/`)).toBe(lhUrlKey(B));
+    expect(lhUrlKey(`${B}/`)).not.toBe(lhUrlKey(`${B}/help`));
   });
 });
 

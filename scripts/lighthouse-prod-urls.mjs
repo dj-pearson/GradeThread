@@ -75,6 +75,56 @@ export function pickProdUrls({ condition, blog, certs }, base = DEFAULT_BASE) {
   return urls;
 }
 
+/**
+ * The comparison key for a measured URL. LHCI keys its manifest and links by
+ * the URL Lighthouse ended on, not the one it was asked for, so a page that
+ * redirects /help to /help/ (or apex to www) came back under a key the report
+ * never looked up and printed "not measured" beside a real score. The key
+ * ignores the scheme, a leading "www.", host case, trailing slashes and the
+ * fragment; the query string still counts.
+ */
+export function lhUrlKey(u) {
+  let parsed;
+  try {
+    parsed = new URL(u);
+  } catch {
+    return String(u);
+  }
+  const host = parsed.host.toLowerCase().replace(/^www\./, "");
+  const path = parsed.pathname.replace(/\/+$/, "") || "/";
+  return `${host}${path}${parsed.search}`;
+}
+
+/**
+ * Pair each wanted URL with its representative manifest run and report link,
+ * matching on lhUrlKey. `measuredUrl` is the URL Lighthouse reported, so the
+ * caller can show it when it differs from what was asked for; a row with no
+ * run has `summary: null`. Pure, so the weekly report is testable.
+ */
+export function matchManifest(wanted, manifest, links = {}) {
+  const runs = new Map();
+  for (const r of Array.isArray(manifest) ? manifest : []) {
+    if (!r || r.isRepresentativeRun === false) continue;
+    const key = lhUrlKey(r.url);
+    if (!runs.has(key)) runs.set(key, r);
+  }
+  const linkByKey = new Map();
+  for (const [u, href] of Object.entries(links || {})) {
+    const key = lhUrlKey(u);
+    if (!linkByKey.has(key)) linkByKey.set(key, href);
+  }
+  return wanted.map((url) => {
+    const key = lhUrlKey(url);
+    const run = runs.get(key);
+    return {
+      url,
+      measuredUrl: run ? run.url : null,
+      summary: run ? run.summary || {} : null,
+      report: linkByKey.get(key) ?? null,
+    };
+  });
+}
+
 async function fetchText(url) {
   try {
     const res = await fetch(url, { signal: AbortSignal.timeout(20_000) });
