@@ -132,6 +132,16 @@ class DeepLinkTest {
     }
 
     @Test
+    fun ebayCases_roundTripsThroughTheAppLink() {
+        // US-3449: a post-order push tap travels as this link, and MainActivity
+        // parses it back. A path fromAppLink does not know is a tap that opens
+        // the app and goes nowhere.
+        val link = DeepLinkRoute.EbayCases.toDeepLinkUri()
+        assertEquals("https://gradethread.com/app/cases", link)
+        assertEquals(DeepLinkRoute.EbayCases, DeepLinkRoute.fromUri(Uri.parse(link)))
+    }
+
+    @Test
     fun foreignUris_fallThrough() {
         assertNull(DeepLinkRoute.fromUri(null))
         assertNull(DeepLinkRoute.fromUri(Uri.parse("https://evil.com/app/item/x")))
@@ -152,6 +162,8 @@ class DeepLinkTest {
             // "support" below, just invisible because an ABSENT route cannot
             // fail an exhaustiveness check that iterates a hand-written list.
             DeepLinkRoute.Shipping,
+            // US-3449: where every post-order push lands.
+            DeepLinkRoute.EbayCases,
         )
         // The registered graph today (shell roots + capture + add + settings).
         //
@@ -174,6 +186,8 @@ class DeepLinkTest {
             "support",
             // US-1377: shipping / fulfillment.
             "fulfillment",
+            // US-2409: eBay returns, cancellations and disputes.
+            "ebay-cases",
         )
         for (route in routes) {
             // Compared on the PATH: an optional query argument (the inbox's

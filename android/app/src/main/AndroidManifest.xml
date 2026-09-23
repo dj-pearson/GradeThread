@@ -182,6 +182,10 @@
                      DeepLinkRoute in BOTH directions, so the two cannot drift
                      again. -->
                 <data android:pathPrefix="/app/shipping" />
+                <!-- US-3449: the after-sale push taps (return, inquiry, case,
+                     cancellation, dispute) resolve to /app/cases, and an
+                     emailed link to it has to open the app too. -->
+                <data android:pathPrefix="/app/cases" />
                 <!-- US-1350: the eBay consent bounce-back. Claimed via
                      assetlinks.json so no other app can intercept it. -->
                 <data android:pathPrefix="/app/oauth/ebay" />
