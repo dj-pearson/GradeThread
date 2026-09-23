@@ -3,8 +3,9 @@ name: SDK publish
 # Publishes sdk/gradethread-js to npm as @gradethread/sdk.
 #
 # Real publish: push a tag sdk-vX.Y.Z whose X.Y.Z equals the version in
-# sdk/gradethread-js/package.json. Rehearsal: run this workflow by hand with
-# dry_run left on, which builds, tests and runs `npm publish --dry-run`.
+# sdk/gradethread-js/package.json, or run this workflow by hand on main with
+# dry_run unticked. Rehearsal: run it by hand with dry_run left on, which
+# builds, tests and runs `npm publish --dry-run`.
 # Runbook: vault/10-ops/publishing-the-sdk.md.
 #
 # NPM_ACCESS_TOKEN is a granular npm access token with publish rights on the
@@ -67,10 +68,11 @@ jobs:
           if [ "$DRY_RUN" = "true" ]; then
             echo "Dry run: will build, test and run npm publish --dry-run."
             echo "go=true" >> "$GITHUB_OUTPUT"
-          elif [ "$GITHUB_REF_TYPE" != "tag" ]; then
-            echo "::error::A real publish runs from an sdk-v* tag, not from Run workflow. Run it with dry_run ticked to rehearse, or push a tag (git tag sdk-v0.1.0 && git push origin sdk-v0.1.0) to publish."
+          elif [ "$GITHUB_REF_TYPE" != "tag" ] && [ "$GITHUB_REF_NAME" != "main" ]; then
+            echo "::error::A real publish runs from main or an sdk-v* tag, not from $GITHUB_REF_NAME. Pick main in the Run workflow branch list."
             exit 1
           else
+            echo "Real publish from $GITHUB_REF_TYPE $GITHUB_REF_NAME."
             echo "go=true" >> "$GITHUB_OUTPUT"
           fi
 

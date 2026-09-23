@@ -58,8 +58,10 @@ read that from `SDK_PUBLISHED` in `src/lib/sdk-release.ts`.
    builds, runs the dist smoke test and prints the exact tarball contents
    (LICENSE, README, `dist/index.js`, `dist/index.d.ts`, `package.json`).
 2. Bump `version` in `sdk/gradethread-js/package.json` and commit.
-3. Tag and push: `git tag sdk-v0.1.0 && git push origin sdk-v0.1.0`. The
-   workflow refuses a tag whose version differs from `package.json`, and a
+3. Publish, either way: tag and push (`git tag sdk-v0.1.0 && git push origin
+   sdk-v0.1.0`), or Actions > SDK publish > Run workflow on `main` with
+   `dry_run` unticked. A manual run from any other branch is refused. The
+   workflow refuses a tag whose version differs from `package.json`, and any
    version already on npm.
 4. Check: `npm view @gradethread/sdk version` prints the new version.
 
