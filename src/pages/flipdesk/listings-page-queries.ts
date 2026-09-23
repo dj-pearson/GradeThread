@@ -103,6 +103,13 @@ export function listingPageArgs(c: ListingPageCriteria) {
   };
 }
 
+/** The page's cover photo per item, plus whether it has the required photos. */
+export interface PageCover {
+  thumbnail_url: string | null;
+  photo_url: string | null;
+  hasRequiredPhotos: boolean;
+}
+
 export interface ListingPageResult {
   total: number;
   rows: ItemFullRow[];
@@ -289,35 +296,47 @@ export function usePageRowDetails({
     queryKey: ["items_full", "listings", "covers", userId, pageRowIds],
     enabled: !!userId && pageRowIds.length > 0,
     staleTime: 5 * 60 * 1000,
-    queryFn: async (): Promise<
-      Map<string, { thumbnail_url: string | null; photo_url: string | null }>
-    > => {
+    queryFn: async (): Promise<Map<string, PageCover>> => {
       const rows = await fetchInChunks<{
         inventory_item_id: string | null;
         thumbnail_url: string | null;
         photo_url: string | null;
+        photo_type: string | null;
       }>(pageRowIds, async (chunk) => {
         const { data, error } = await supabase
           .from("item_photos")
-          .select("inventory_item_id, thumbnail_url, photo_url, sort_order")
+          .select("inventory_item_id, thumbnail_url, photo_url, sort_order, photo_type")
           .in("inventory_item_id", chunk)
           .order("sort_order", { ascending: true });
         return { data: data as unknown[] | null, error };
       });
-      const map = new Map<
-        string,
-        { thumbnail_url: string | null; photo_url: string | null }
-      >();
+      const map = new Map<string, PageCover>();
+      const types = new Map<string, Set<string>>();
       for (const row of rows) {
+        if (!row.inventory_item_id) continue;
         // First (lowest sort_order) row per item is the cover. Chunking preserves
         // this: each chunk is ordered, and an item's photos never span chunks
         // because chunking is BY ITEM ID.
-        if (row.inventory_item_id && !map.has(row.inventory_item_id)) {
+        if (!map.has(row.inventory_item_id)) {
           map.set(row.inventory_item_id, {
             thumbnail_url: row.thumbnail_url,
             photo_url: row.photo_url,
+            hasRequiredPhotos: false,
           });
         }
+        if (row.photo_type) {
+          const set = types.get(row.inventory_item_id) ?? new Set<string>();
+          set.add(row.photo_type);
+          types.set(row.inventory_item_id, set);
+        }
+      }
+      // INV-14: the same rule as items_full.has_required_photos (a front AND
+      // a back), which the listings projection leaves out because it is a
+      // per-row subquery. The page's own photo read answers it for free, and
+      // the Next column needs it to say "Add photos" only when that is true.
+      for (const [id, cover] of map) {
+        const t = types.get(id);
+        cover.hasRequiredPhotos = !!t && t.has("front") && t.has("back");
       }
       return map;
     },

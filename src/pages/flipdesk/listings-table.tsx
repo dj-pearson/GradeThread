@@ -68,6 +68,10 @@ import type { ItemFullRow, ItemStatus } from "@/types/database";
 import type { ListingPlatform } from "@/types/database";
 import { staleSinceLabel, usePendingRevises } from "@/hooks/use-pending-revises";
 import { safeHref } from "@/lib/safe-url";
+import { GradeChip } from "@/components/flipdesk/grade-chip";
+import { NextActionBadge } from "@/components/flipdesk/next-action-badge";
+import { nextActionTarget } from "@/pages/flipdesk/next-action-target";
+import { nextAction } from "@/lib/workflow";
 import { useRelistExtension } from "@/hooks/use-relist-extension";
 import { useExtensionQueue, type ExtensionQueueItem } from "@/hooks/use-extension-queue";
 import { ChannelStrip } from "@/components/flipdesk/channel-strip";
@@ -284,6 +288,8 @@ export function ListingsTable({
   // US-9203: relist a Poshmark/Mercari/Vinted row by copying it through the
   // extension (or the desktop queue). eBay rows keep their publish dialog.
   const relistExt = useRelistExtension();
+  // INV-14: the Next column, on every tab before the sale.
+  const showNext = !isSold && !isShipped;
   // US-3451: the seller's queue, grouped by item, for the channel strip. Read
   // only on the tabs that render the column, and once for the page rather
   // than once per row.
@@ -748,6 +754,8 @@ export function ListingsTable({
               {isUnlisted && (
                 <TableHead className="w-32 text-right" />
               )}
+              {/* INV-14: the one step that moves each row toward a sale. */}
+              {showNext && <TableHead className="w-36">Next</TableHead>}
               <TableHead className="w-8" />
             </TableRow>
           </TableHeader>
@@ -892,19 +900,35 @@ export function ListingsTable({
                           </Badge>
                         );
                       })()}
+                      {/* INV-14: tier-tinted, certificate-linked grade. */}
                       {it.grade_value != null && (
-                        <Badge
-                          variant="secondary"
-                          className="shrink-0 px-1.5 py-0 text-[10px]"
-                          title={
-                            it.grade_label
-                              ? `Graded ${it.grade_label}`
-                              : "GradeThread grade"
-                          }
-                        >
-                          {Number(it.grade_value).toFixed(1)}
-                        </Badge>
+                        <GradeChip
+                          grade={Number(it.grade_value)}
+                          certificateUrl={it.certificate_url}
+                        />
                       )}
+                      {/* INV-14: an ungraded, photographed garment on its way
+                          to a sale gets a quiet way to grade it. */}
+                      {it.grade_value == null &&
+                        showNext &&
+                        it.status !== "grading" &&
+                        coverByItem?.get(it.id)?.hasRequiredPhotos &&
+                        // The Next column already says "Grade it" there.
+                        nextAction({ ...it, has_required_photos: true }).kind !== "grade" && (
+                          <button
+                            type="button"
+                            className="shrink-0 text-[11px] font-medium text-brand-red-text hover:underline"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              navigate(`/dashboard/flipdesk/items/${encodeURIComponent(it.id)}`, {
+                                state: { from: `${window.location.pathname}${window.location.search}` },
+                              });
+                            }}
+                            aria-label={`Grade ${rowLabel}`}
+                          >
+                            Grade it
+                          </button>
+                        )}
                       {/* US-9202: never "applied" before the marketplace confirms. */}
                       {(staleByItem.get(it.id) ?? []).map((stale) => (
                         <Badge
@@ -1292,13 +1316,15 @@ export function ListingsTable({
                                   : "Created in GradeThread; source of truth; edit here"
                               }
                               className={cn(
-                                "rounded border px-1 py-0.5 text-[9px] font-semibold uppercase tracking-wide",
+                                // INV-14: sentence case at 11px; a tracked
+                                // uppercase 9px tag was unreadable at a glance.
+                                "rounded border px-1 py-0.5 text-[11px] font-medium",
                                 l.origin === "ebay"
                                   ? "border-amber-400/60 text-amber-600 dark:text-amber-400"
                                   : "border-brand-navy/40 text-brand-navy dark:text-foreground",
                               )}
                             >
-                              {l.origin === "ebay" ? "eBay-made" : "GT"}
+                              {l.origin === "ebay" ? "Made on eBay" : "Made here"}
                             </span>
                           ))}
                       </div>
@@ -1527,6 +1553,46 @@ export function ListingsTable({
                           );
                         })()}
                       </div>
+                    </TableCell>
+                  )}
+                  {showNext && (
+                    <TableCell onClick={(e) => e.stopPropagation()}>
+                      {(() => {
+                        // has_required_photos is not in the listings
+                        // projection; the page's own photo read answers it.
+                        // Until that read lands, show nothing rather than
+                        // telling every row to "Add photos".
+                        if (!coverByItem) return null;
+                        const facts = {
+                          ...it,
+                          has_required_photos:
+                            coverByItem.get(it.id)?.hasRequiredPhotos ?? false,
+                        };
+                        return (
+                          <NextActionBadge
+                            item={facts}
+                            label={rowLabel}
+                            onActivate={(kind) => {
+                              const target = nextActionTarget(kind, it.id);
+                              if (!target) return;
+                              if ("publish" in target) {
+                                if (
+                                  ebayConnection &&
+                                  (!it.listing_platform || it.listing_platform === "ebay")
+                                ) {
+                                  setPublishItem(it);
+                                } else {
+                                  setMarkListedItem(it);
+                                }
+                              } else {
+                                navigate(target.to, {
+                                  state: { from: `${window.location.pathname}${window.location.search}` },
+                                });
+                              }
+                            }}
+                          />
+                        );
+                      })()}
                     </TableCell>
                   )}
                   <TableCell onClick={(e) => e.stopPropagation()}>

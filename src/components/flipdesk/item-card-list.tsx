@@ -1,7 +1,7 @@
 import { Pencil } from "lucide-react";
-import { Badge } from "@/components/ui/badge";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { NextActionBadge } from "@/components/flipdesk/next-action-badge";
+import { GradeChip } from "@/components/flipdesk/grade-chip";
 import { cn } from "@/lib/utils";
 import { itemDisplayTitle, itemRowLabel } from "@/lib/item-row-label";
 import { estimateListingProfit } from "@/lib/listing-profit";
@@ -34,6 +34,7 @@ export function ItemCardList({
   onToggleSelect,
   onQuickEdit,
   showSourcer = false,
+  hasRequiredPhotos,
 }: {
   items: ItemFullRow[];
   onOpen: (item: ItemFullRow) => void;
@@ -47,6 +48,12 @@ export function ItemCardList({
    * too; off, the card carries the same fields it always did.
    */
   showSourcer?: boolean;
+  /**
+   * INV-14: whether each item has its required photos. The listings projection
+   * leaves has_required_photos out, so without this the next-step badge would
+   * say "Add photos" on every card; with no answer yet it is not shown.
+   */
+  hasRequiredPhotos?: (id: string) => boolean | undefined;
 }) {
   return (
     <ul className="divide-y">
@@ -171,11 +178,21 @@ export function ItemCardList({
                 </div>
               )}
               <div className="flex items-center justify-between gap-2">
-                <NextActionBadge item={it} />
+                {(() => {
+                  const photos = hasRequiredPhotos
+                    ? hasRequiredPhotos(it.id)
+                    : it.has_required_photos;
+                  return photos === undefined ? (
+                    <span />
+                  ) : (
+                    <NextActionBadge item={{ ...it, has_required_photos: photos }} />
+                  );
+                })()}
                 {it.grade_value != null && (
-                  <Badge variant="secondary" className="text-[10px]">
-                    {Number(it.grade_value).toFixed(1)}
-                  </Badge>
+                  <GradeChip
+                    grade={Number(it.grade_value)}
+                    certificateUrl={it.certificate_url}
+                  />
                 )}
               </div>
             </button>

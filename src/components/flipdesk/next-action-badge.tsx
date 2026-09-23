@@ -45,20 +45,44 @@ const TONE: Record<string, string> = {
 export function NextActionBadge({
   item,
   className,
+  onActivate,
+  label,
 }: {
   item: ItemListRow;
   className?: string;
+  /**
+   * INV-14: when set, the badge is a button that takes the seller to the step.
+   * Receives the action kind so the caller can route it.
+   */
+  onActivate?: (kind: NextActionKind) => void;
+  /** Accessible name for the button form; names the row. */
+  label?: string;
 }) {
   const action = nextAction(item);
   const Icon = ICONS[action.kind];
+  const cls = cn(
+    "inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium",
+    TONE[action.tone],
+    className,
+  );
+  if (onActivate) {
+    return (
+      <button
+        type="button"
+        className={cn(cls, "hover:brightness-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring")}
+        onClick={(e) => {
+          e.stopPropagation();
+          onActivate(action.kind);
+        }}
+        aria-label={label ? `${action.label}: ${label}` : action.label}
+      >
+        <Icon className="h-3 w-3" />
+        {action.label}
+      </button>
+    );
+  }
   return (
-    <span
-      className={cn(
-        "inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-medium",
-        TONE[action.tone],
-        className,
-      )}
-    >
+    <span className={cls}>
       <Icon className="h-3 w-3" />
       {action.label}
     </span>

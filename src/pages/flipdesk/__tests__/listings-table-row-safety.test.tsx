@@ -188,6 +188,8 @@ describe("INV-10: every row field the table, cards and format read is projected"
   // or, like garment_category did, silently changes an estimate.
   const NOT_ROW_FIELDS: Record<string, string> = {
     inventory_item_id: "listings-table reads it off extension-queue rows, not item rows",
+    has_required_photos:
+      "item-card-list's fallback when no hasRequiredPhotos is passed; the listings page always passes one, from its page photo read",
   };
   const known = new Set<string>(LISTINGS_COLUMN_LIST);
   it.each([
@@ -199,5 +201,66 @@ describe("INV-10: every row field the table, cards and format read is projected"
     const read = new Set([...src.matchAll(/\b(?:it|row|item)\.([a-z_]+)\b/g)].map((m) => m[1]!));
     const missing = [...read].filter((f) => !known.has(f) && !(f in NOT_ROW_FIELDS));
     expect(missing).toEqual([]);
+  });
+});
+
+describe("INV-14: grade chip and Next column", () => {
+  it("a graded row shows a tier chip that links to its certificate", () => {
+    const html = render({
+      pageRows: [row({ grade_value: 8.5, certificate_url: "https://gradethread.com/cert/GT-1" } as Partial<ItemFullRow>)],
+    });
+    expect(html).toContain("8.5 Excellent");
+    expect(html).toContain('href="https://gradethread.com/cert/GT-1"');
+  });
+
+  it("a graded row with an unsafe certificate URL gets no link", () => {
+    const html = render({
+      pageRows: [row({ grade_value: 6, certificate_url: "javascript:alert(1)" } as Partial<ItemFullRow>)],
+    });
+    expect(html).toContain("6.0 Good");
+    expect(html).not.toContain("javascript:");
+  });
+
+  it("each pre-sale row shows its Next step as a button", () => {
+    const html = render({
+      tab: "unlisted",
+      isUnlisted: true,
+      isAged: false,
+      coverByItem: new Map([["i1", { thumbnail_url: null, photo_url: null, hasRequiredPhotos: true }]]),
+      pageRows: [
+        row({
+          status: "photographed",
+          measurements: { chest: 20 },
+          target_price: null,
+          listing_id: null,
+          listing_status: null,
+          grade_value: null,
+        } as Partial<ItemFullRow>),
+      ],
+    });
+    expect(html).toContain(">Next<");
+    expect(html).toMatch(/<button[^>]*aria-label="Grade it: Nike Windbreaker"/);
+  });
+
+  it("does not say 'Add photos' before the page's photo read has answered", () => {
+    const html = render({ tab: "unlisted", isUnlisted: true, isAged: false });
+    expect(html).toContain(">Next<");
+    expect(html).not.toContain("Add photos");
+  });
+
+  it("has no Next column on Sold", () => {
+    const html = render({ tab: "sold", isSold: true, isAged: false });
+    expect(html).not.toContain(">Next<");
+  });
+
+  it("keeps header and cell counts equal with the new column", () => {
+    for (const over of [
+      { tab: "unlisted", isUnlisted: true, isAged: false },
+      { tab: "active", isActive: true, isAged: false },
+      { tab: "sold", isSold: true, isAged: false },
+    ]) {
+      const html = render(over as Partial<TableProps>);
+      expect((html.match(/<td[ >]/g) ?? []).length).toBe((html.match(/<th[ >]/g) ?? []).length);
+    }
   });
 });
