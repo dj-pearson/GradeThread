@@ -359,7 +359,8 @@ export function makeListingsActions(d: ListingsActionDeps) {
   // screen, in chunks. What comes back is what a bulk write may touch; the
   // difference is reported as "not found or no permission".
   async function resolveSelection(ids: string[]): Promise<ResolvedRow[]> {
-    const CHUNK = 200;
+    // 100, the repo-wide `.in()` size (supabase-batch.ts): the ids ride in the URL.
+    const CHUNK = 100;
     const out: ResolvedRow[] = [];
     for (let i = 0; i < ids.length; i += CHUNK) {
       const chunk = ids.slice(i, i + CHUNK);
@@ -720,7 +721,7 @@ export function makeListingsActions(d: ListingsActionDeps) {
       // `done` counts the rows the server says it changed.
       const resolved = await resolveSelection(ids);
       resolvedCount = resolved.length;
-      const CHUNK = 200;
+      const CHUNK = 100;
       for (let i = 0; i < resolved.length; i += CHUNK) {
         const chunk = resolved.slice(i, i + CHUNK).map((r) => r.id);
         const { data, error } = await supabase
