@@ -66,6 +66,9 @@ const REPO = path.resolve(HERE, "..");
 /** Ops documents that are allowed to carry SQL at all. */
 export const DEFAULT_CORPUS = [
   "PENDING_MIGRATIONS.md",
+  // Applied entries move here after ~30 days, fenced SQL and all. Scanned so
+  // archiving a section cannot take its repair SQL out of the guard's sight.
+  "PENDING_MIGRATIONS.archive.md",
   "vault/10-ops/migrations-process.md",
   "vault/10-ops/deploy.md",
   "vault/10-ops/staging.md",

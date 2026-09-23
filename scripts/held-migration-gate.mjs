@@ -37,6 +37,15 @@
 // Otherwise every push after a migration is legitimately applied and flipped to
 // APPLIED would be blocked.
 //
+// THE INPUT IS A REGISTRY NOW, NOT THE HEADINGS (2026-09-23, platform plan
+// action 6). Seven bypasses, recorded below, were all the same bug: a regex
+// over hand-written prose headings that matched nothing and printed "OK". The
+// gate now reads supabase/held-migrations.json and nothing else. The heading
+// parser below is kept for one job only: held-migrations-registry.test.mjs
+// runs it over PENDING_MIGRATIONS.md and fails if a HELD heading and the
+// registry disagree, so the prose and the list cannot drift apart silently.
+// A registry that is missing or will not parse BLOCKS; it never reads as empty.
+//
 // Usage:  node scripts/held-migration-gate.mjs [--upstream origin/main] [--ci]
 // Exit 0 = clean, exit 1 = a held migration has reached (or is on) origin.
 
@@ -44,7 +53,7 @@ import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { pathToFileURL } from "node:url";
 
-const DOC = "PENDING_MIGRATIONS.md";
+export const REGISTRY = "supabase/held-migrations.json";
 // Headings look like:  ## ⏳ HELD: 00512_job_lock_holder_release.sql (US-2311 …)
 // Deliberately tolerant of the emoji so a copy-paste that loses it still matches.
 //
@@ -197,28 +206,79 @@ export function heldMigrations(docText, readdir = defaultReaddir) {
   return out;
 }
 
+/**
+ * The held list from supabase/held-migrations.json.
+ *
+ * Returns `{ held, errors }`. Any error is a reason to BLOCK, not to skip: a
+ * registry that silently reads as empty is the same "no HELD migrations - OK"
+ * this file has recorded seven times. `file` is the repo path, or null when
+ * nothing on disk carries that name (reported by the caller, as before).
+ */
+export function heldFromRegistry(text, exists = existsSync) {
+  const errors = [];
+  let data;
+  try {
+    data = JSON.parse(text);
+  } catch (e) {
+    return { held: [], errors: [`${REGISTRY} is not valid JSON: ${e.message}`] };
+  }
+  if (!data || !Array.isArray(data.held)) {
+    return { held: [], errors: [`${REGISTRY} has no "held" array`] };
+  }
+  const held = [];
+  const seen = new Set();
+  for (const [i, e] of data.held.entries()) {
+    const version = e?.version;
+    const name = e?.file;
+    if (typeof version !== "string" || !/^\d{5}$/.test(version)) {
+      errors.push(`held[${i}] has no five-digit "version"`);
+      continue;
+    }
+    if (typeof name !== "string" || !name.startsWith(version + "_") || !name.endsWith(".sql")) {
+      errors.push(`held[${i}] (${version}) needs "file": "${version}_<name>.sql"`);
+      continue;
+    }
+    if (seen.has(version)) {
+      errors.push(`held[${i}] lists ${version} a second time`);
+      continue;
+    }
+    seen.add(version);
+    const file = `${MIGRATIONS_DIR}/${name}`;
+    held.push({ version, file: exists(file) ? file : null, named: file });
+  }
+  return { held, errors };
+}
+
 function main() {
   const ciMode = process.argv.includes("--ci");
 
-  let doc;
+  let registryText;
   try {
-    doc = readFileSync(DOC, "utf8");
+    registryText = readFileSync(REGISTRY, "utf8");
   } catch {
-    console.log(`[held-migration-gate] no ${DOC} — nothing to check.`);
-    return 0;
+    // Fail CLOSED. The old input's missing-file branch printed "nothing to
+    // check" and exited 0; a deleted registry must not be a way to disarm this.
+    console.error(`[held-migration-gate] BLOCKED — ${REGISTRY} is missing.`);
+    console.error("  It is the gate's only input. Restore it; an empty list is");
+    console.error('  written as { "held": [] }, never as no file.');
+    return 1;
   }
 
-  const held = heldMigrations(doc);
+  const { held, errors } = heldFromRegistry(registryText);
+  if (errors.length > 0) {
+    console.error(`[held-migration-gate] BLOCKED — ${REGISTRY} cannot be trusted:`);
+    for (const e of errors) console.error(`  • ${e}`);
+    return 1;
+  }
 
-  // A heading naming a version with no file on disk is SAID OUT LOUD and then
-  // set aside. It cannot be "in this push" - there is nothing to push - but
+  // An entry naming a file that is not on disk is SAID OUT LOUD and then set
+  // aside. It cannot be "in this push" - there is nothing to push - but
   // silently dropping it is the habit that let a mis-formatted heading disarm
   // this gate in the first place.
   for (const h of held.filter((h) => !h.file)) {
     console.warn(
-      `[held-migration-gate] ${DOC} marks ${h.version} HELD, but no ` +
-        `${MIGRATIONS_DIR}/${h.version}_*.sql exists. Renamed, or a typo in ` +
-        `the heading.`,
+      `[held-migration-gate] ${REGISTRY} marks ${h.version} held, but ` +
+        `${h.named} does not exist. Renamed, or a typo in the entry.`,
     );
   }
   // Everything below asks a question about a PATH, so an orphan is dropped
@@ -245,14 +305,15 @@ function main() {
     }
     console.error("");
     console.error(
-      "[held-migration-gate] BLOCKED — these migrations are marked HELD in " +
-        "PENDING_MIGRATIONS.md and are present on the pushed commit:",
+      `[held-migration-gate] BLOCKED — these migrations are held in ${REGISTRY} ` +
+        "and are present on the pushed commit:",
     );
     for (const h of present) console.error(`  • ${h.file}`);
     console.error("");
     console.error("  A held migration must not reach origin before its SQL is applied.");
-    console.error("  If it HAS been applied, flip its heading to '## ✅ APPLIED:' and");
-    console.error("  date it — that is the fix, not bypassing this.");
+    console.error(`  If it HAS been applied, delete its entry from ${REGISTRY} and flip`);
+    console.error("  its PENDING_MIGRATIONS.md heading to '## ✅ APPLIED:' with a date,");
+    console.error("  in one commit. That is the fix, not bypassing this.");
     console.error("");
     return 1;
   }
@@ -325,12 +386,12 @@ function main() {
     console.error("");
     console.error(
       "[held-migration-gate] BLOCKED — this push would send a migration that " +
-        "PENDING_MIGRATIONS.md still marks HELD:",
+        `${REGISTRY} still marks held:`,
     );
     for (const h of incoming) console.error(`  • ${h.file}`);
     console.error("");
-    console.error("  Apply the SQL to prod first, then flip its heading to");
-    console.error("  '## ✅ APPLIED:' and date it. That is the rule this enforces:");
+    console.error("  Apply the SQL to prod first, then delete its registry entry and flip");
+    console.error("  its heading to '## ✅ APPLIED:' with a date. That is the rule this enforces:");
     console.error("  the SQL lands before the code that expects it.");
     console.error("");
     return 1;
@@ -353,8 +414,8 @@ function main() {
   console.error("  ALREADY ON ORIGIN — the rule was broken earlier:");
   for (const h of already) console.error(`  • ${h.file}  (on ${refOf(h)})`);
   console.error("");
-  console.error("  Either the SQL was applied to prod and PENDING_MIGRATIONS.md was");
-  console.error("  never updated (flip the heading to '## ✅ APPLIED:' and date it),");
+  console.error("  Either the SQL was applied to prod and the registry was never");
+  console.error(`  updated (delete the entry from ${REGISTRY} and flip the heading),`);
   console.error("  or code shipped ahead of the schema and the migration needs");
   console.error("  applying now. Do not bypass this to make it quiet.");
   console.error("");
@@ -366,8 +427,8 @@ function main() {
     console.error("  IN THIS PUSH — still preventable:");
     for (const h of incoming) console.error(`  • ${h.file}`);
     console.error("");
-    console.error("  Apply the SQL to prod first, then flip its heading to");
-    console.error("  '## ✅ APPLIED:' and date it.");
+    console.error("  Apply the SQL to prod first, then delete its registry entry and");
+    console.error("  flip its heading to '## ✅ APPLIED:' with a date.");
     console.error("");
   }
   return 1;

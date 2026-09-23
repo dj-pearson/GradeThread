@@ -439,7 +439,13 @@ Two concrete reasons it would make the vault worse:
   nobody can action, which is how a review queue loses credibility.
 
 The *process* for handling pending migrations belongs here. The *queue* stays
-where the work is. Do not revisit this without a reason that addresses both
+where the work is.
+
+Since 2026-09-23 the queue has two machine-facing companions.
+`supabase/held-migrations.json` is the held list the held-migration gate reads
+(it used to regex the headings, and was bypassed seven times by their wording),
+and `PENDING_MIGRATIONS.archive.md` takes APPLIED sections once they are about
+30 days old. Do not revisit this without a reason that addresses both
 points above.
 
 ## Related

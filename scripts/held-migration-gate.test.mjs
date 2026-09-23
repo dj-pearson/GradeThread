@@ -187,16 +187,20 @@ describe("US-2346: the CI half of the gate", () => {
     expect(ci).toContain("existsSync");
   });
 
-  it("both modes key on the HELD marker, never on the file's existence alone", () => {
+  it("both modes key on the held list, never on the file's existence alone", () => {
     // The design decision that makes it usable. Keying on the migration being
     // present would block every push after one is legitimately applied and its
-    // heading flipped to APPLIED.
+    // entry removed. The list is supabase/held-migrations.json since
+    // 2026-09-23 (platform plan action 6), not a regex over the headings; the
+    // headings are cross-checked against it in held-migrations-registry.test.mjs.
     const src = readFileSync(resolve(process.cwd(), "scripts/held-migration-gate.mjs"), "utf8");
-    expect(src).toContain("HELD_HEADING");
     expect(
-      /const held = heldMigrations\(doc\)/.test(src),
-      "the gate no longer derives its list from the HELD headings",
+      /const \{ held, errors \} = heldFromRegistry\(registryText\)/.test(src),
+      "the gate no longer derives its list from the registry",
     ).toBe(true);
+    expect(src, "the gate went back to reading the prose headings").not.toMatch(
+      /heldMigrations\(doc\)/,
+    );
   });
 });
 
