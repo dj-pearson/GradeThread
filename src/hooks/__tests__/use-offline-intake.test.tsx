@@ -60,6 +60,8 @@ const base = {
   photosDropped: 0,
   photosPending: 0,
   firstPhotoError: null,
+  photosUnprocessable: 0,
+  firstUnprocessableError: null,
 };
 
 beforeEach(() => {
@@ -98,6 +100,20 @@ describe("offline sync toast", () => {
     expect(mocks.toast.error).toHaveBeenCalledWith(
       expect.stringContaining("1 still queued"),
       expect.objectContaining({ description: "RLS refused" }),
+    );
+  });
+
+  it("names a photo this device could not prepare, with the reason", async () => {
+    mocks.flush.mockResolvedValue({
+      ...base,
+      synced: 1,
+      photosUnprocessable: 1,
+      firstUnprocessableError: "HEIC conversion failed.",
+    });
+    await mountAndSync();
+    expect(mocks.toast.warning).toHaveBeenCalledWith(
+      "1 offline photo could not be prepared on this device. Add a different one from the item page.",
+      expect.objectContaining({ description: "HEIC conversion failed." }),
     );
   });
 

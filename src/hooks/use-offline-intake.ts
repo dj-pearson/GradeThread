@@ -54,6 +54,8 @@ export function useOfflineIntakeSync() {
         photosDropped,
         photosPending,
         firstPhotoError,
+        photosUnprocessable,
+        firstUnprocessableError,
       } = await flushIntakeQueue();
       // A flush with synced === 0 can still have uploaded the photos of an item
       // saved on an earlier flush, so this does not wait for a new item.
@@ -65,6 +67,12 @@ export function useOfflineIntakeSync() {
         toast.warning(
           `${photosDropped} offline photo${photosDropped === 1 ? "" : "s"} could not be uploaded. Add ${photosDropped === 1 ? "it" : "them"} from the item page.`,
           { duration: 10_000 },
+        );
+      }
+      if (photosUnprocessable > 0) {
+        toast.warning(
+          `${photosUnprocessable} offline photo${photosUnprocessable === 1 ? "" : "s"} could not be prepared on this device. Add ${photosUnprocessable === 1 ? "a different one" : "different ones"} from the item page.`,
+          { description: firstUnprocessableError ?? undefined, duration: 10_000 },
         );
       }
       if (failed > 0) {
