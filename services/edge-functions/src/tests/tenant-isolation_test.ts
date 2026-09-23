@@ -3890,6 +3890,47 @@ Deno.test({
   },
 });
 
+// DASH-2: the extension queue now runs workspaceMiddleware. Before it did, a
+// member's X-Workspace-Owner was ignored (they saw their own queue on the
+// owner's board) and the viewer floor could not see the role at all.
+Deno.test({
+  name: "extension-queue: a viewer member reads the OWNER's queue via X-Workspace-Owner",
+  ignore: !VIEWER_READY,
+  fn: async () => {
+    const res = await fetch(`${BASE}/api/flipdesk/extension-queue`, {
+      headers: viewerHeaders(),
+    });
+    const body = await res.text();
+    assertEquals(res.status, 200, `GET extension-queue as a viewer member: ${body}`);
+  },
+});
+
+Deno.test({
+  name: "extension-queue: a stranger naming A as workspace owner is refused",
+  ignore: !CONFIGURED || !WS_OWNER,
+  fn: async () => {
+    const res = await fetch(`${BASE}/api/flipdesk/extension-queue`, {
+      headers: { ...authHeaders(B_JWT!), "X-Workspace-Owner": WS_OWNER! },
+    });
+    await res.body?.cancel();
+    assertEquals(res.status, 403, "B is not a member of A's workspace");
+  },
+});
+
+Deno.test({
+  name: "extension-queue: a viewer cannot enqueue a job in the owner's queue",
+  ignore: !VIEWER_READY,
+  fn: async () => {
+    const res = await fetch(`${BASE}/api/flipdesk/extension-queue`, {
+      method: "POST",
+      headers: viewerHeaders(),
+      body: JSON.stringify({ kind: "list", platform: "poshmark" }),
+    });
+    await res.body?.cancel();
+    assertEquals(res.status, 403, "POST extension-queue as viewer");
+  },
+});
+
 // ── US-1639: workspace.ts role-authz coverage (was ZERO cases) ────────────────
 //
 // The workspace-management writes are admin-gated (roleAtLeast(role,"admin")).
