@@ -34,7 +34,9 @@ interface Op {
 }
 const ops: Op[] = [];
 /** `${table}:${kind}` -> the error that call should return. */
-let failures: Record<string, { message: string }> = {};
+let failures: Record<string, { message: string; code?: string }> = {};
+/** `${table}:${kind}` -> per-call errors, consumed in order before `failures`. */
+let failQueue: Record<string, ({ message: string; code?: string } | null)[]> = {};
 /** `${table}` -> rows a select should hand back. */
 let selectRows: Record<string, unknown[]> = {};
 let rpcPages: unknown[] = [];
@@ -43,7 +45,8 @@ const rpcCalls: { fn: string; args: Record<string, unknown> }[] = [];
 function builder(table: string, kind: Op["kind"], payload?: unknown) {
   const op: Op = { table, kind, payload };
   ops.push(op);
-  const err = failures[`${table}:${kind}`] ?? null;
+  const queued = failQueue[`${table}:${kind}`]?.shift();
+  const err = queued !== undefined ? queued : failures[`${table}:${kind}`] ?? null;
   const result = { data: null as unknown, error: err };
   const chain = {
     eq(col: string, val: string) {
@@ -187,6 +190,7 @@ beforeEach(() => {
   rpcCalls.length = 0;
   rpcPages = [];
   failures = {};
+  failQueue = {};
   selectRows = {};
   invalidations = 0;
   rpcError = null;
@@ -668,6 +672,44 @@ describe("US-2173: bulk actions", () => {
 });
 
 // ── the CSV export ─────────────────────────────────────────────────────────
+
+describe("bulkCreateDrafts: an item that already has its eBay draft", () => {
+  const DUP = {
+    message: 'duplicate key value violates unique constraint "uq_listings_one_ebay_draft_per_item"',
+    code: "23505",
+  };
+  const undrafted = [
+    item({ id: "a", item_title: "Levi 501", status: "photographed", listing_id: null }),
+    item({ id: "b", item_title: "Pendleton Board Shirt", status: "photographed", listing_id: null }),
+  ];
+
+  it("keeps the existing draft and says so by name instead of reporting a failure", async () => {
+    failQueue["listings:insert"] = [null, DUP];
+    const a = makeListingsActions(
+      deps({ items: undrafted, selected: new Set(["a", "b"]) } as Partial<Deps>),
+    );
+    await a.bulkCreateDrafts();
+    expect(last().level).toBe("success");
+    expect(last().msg).toBe(
+      "Created 1 draft. 1 already had an eBay draft, so no second one was made: Pendleton Board Shirt.",
+    );
+    expect(last().msg).not.toContain("duplicate key");
+    // The item does have a draft, so it moves to drafted like the created one.
+    const moved = ops.filter((o) => o.table === "inventory_items" && o.kind === "update");
+    expect(moved.map((o) => o.eq)).toEqual([["id", "a"], ["id", "b"]]);
+  });
+
+  it("still reports any other insert error as a failure", async () => {
+    failQueue["listings:insert"] = [DUP, { message: "permission denied for table listings" }];
+    const a = makeListingsActions(
+      deps({ items: undrafted, selected: new Set(["a", "b"]) } as Partial<Deps>),
+    );
+    await a.bulkCreateDrafts();
+    expect(last().level).toBe("warning");
+    const moved = ops.filter((o) => o.table === "inventory_items" && o.kind === "update");
+    expect(moved.map((o) => o.eq)).toEqual([["id", "a"]]);
+  });
+});
 
 describe("US-2173: exportCsv", () => {
   it("keeps paging until a page comes back EMPTY, not merely short", async () => {

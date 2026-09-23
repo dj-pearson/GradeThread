@@ -2190,20 +2190,48 @@ const supabaseDraftStore: EbayDraftStore = {
       .eq("id", listingId);
     return error ? { message: error.message } : null;
   },
-  async jobStillRunning(jobId, attempt, batchId) {
-    let q = supabaseAdmin
-      .from("listing_generation_jobs")
-      .select("status, attempts")
-      .eq("id", jobId);
-    if (batchId) q = q.eq("batch_id", batchId);
-    const { data, error } = await q.maybeSingle();
-    // Fail closed: if we cannot tell, do not write. The job is left for the
-    // reclaim sweeper, which is the same outcome as a crash here.
-    if (error || !data) return false;
-    const row = data as { status?: string; attempts?: number | null };
-    return row.status === "running" && (row.attempts ?? 0) === attempt;
+  jobStillRunning(jobId, attempt, batchId) {
+    return readJobStillRunning(async () => {
+      let q = supabaseAdmin
+        .from("listing_generation_jobs")
+        .select("status, attempts")
+        .eq("id", jobId);
+      if (batchId) q = q.eq("batch_id", batchId);
+      return await q.maybeSingle();
+    }, attempt);
   },
 };
+
+/**
+ * Is the job still 'running' on `attempt`? A read ERROR is retried once before
+ * failing closed: one network blip at the end of a paid-for generation used to
+ * throw the whole draft away. A read that succeeds and finds no row, or finds
+ * the job in another state, is an answer and is not retried. If both reads
+ * fail we still do not write; the job is left for the reclaim sweeper, which
+ * is the same outcome as a crash here.
+ */
+export async function readJobStillRunning(
+  read: () => Promise<{ data: unknown; error: { message?: string } | null }>,
+  attempt: number,
+): Promise<boolean> {
+  let res: { data: unknown; error: { message?: string } | null };
+  try {
+    res = await read();
+  } catch (err) {
+    res = { data: null, error: { message: err instanceof Error ? err.message : String(err) } };
+  }
+  if (res.error) {
+    console.warn(`[ai-listing] job status read failed, retrying once: ${res.error.message}`);
+    try {
+      res = await read();
+    } catch (err) {
+      res = { data: null, error: { message: err instanceof Error ? err.message : String(err) } };
+    }
+  }
+  if (res.error || !res.data) return false;
+  const row = res.data as { status?: string; attempts?: number | null };
+  return row.status === "running" && (row.attempts ?? 0) === attempt;
+}
 
 /**
  * Write the one eBay draft for an item: update it if it exists, insert it if
