@@ -192,6 +192,21 @@ describe("LEDGER_QUERY_KEYS covers every ledger reader", () => {
     }
   });
 
+  it("the tax packet always rebuilds before it reads the ledger", () => {
+    // It is the export a seller hands an accountant, so it does not trust the
+    // freshness check: a deletion is invisible to that check.
+    const src = readFileSync(
+      join(SRC, "components", "finances", "tax-packet-card.tsx"),
+      "utf8",
+    );
+    const gather = src.slice(src.indexOf("async function gather("));
+    const rebuild = gather.indexOf("await rebuildMyLedger()");
+    const read = gather.indexOf("fetchLedgerEntries(");
+    expect(rebuild).toBeGreaterThan(-1);
+    expect(read).toBeGreaterThan(rebuild);
+    expect(gather.slice(0, read)).not.toContain("ensureLedgerBuilt(");
+  });
+
   it("rebuild callers invalidate through the shared helper", () => {
     for (const f of files(SRC)) {
       if (f.endsWith(join("lib", "ledger.ts"))) continue;
