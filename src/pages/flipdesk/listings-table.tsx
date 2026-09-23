@@ -67,6 +67,7 @@ import { needsSignedDisplayUrl } from "@/lib/item-photo-url";
 import type { ItemFullRow, ItemStatus } from "@/types/database";
 import type { ListingPlatform } from "@/types/database";
 import { staleSinceLabel, usePendingRevises } from "@/hooks/use-pending-revises";
+import { safeHref } from "@/lib/safe-url";
 import { useRelistExtension } from "@/hooks/use-relist-extension";
 import { useExtensionQueue, type ExtensionQueueItem } from "@/hooks/use-extension-queue";
 import { ChannelStrip } from "@/components/flipdesk/channel-strip";
@@ -1345,7 +1346,10 @@ export function ListingsTable({
                       onClick={(e) => e.stopPropagation()}
                     >
                       <div className="flex items-center justify-end gap-1">
-                        {ebayConnection && (
+                        {/* INV-10: the eBay relist dialog is for eBay rows only. On a
+                            Poshmark or Shopify row it would publish a second copy
+                            to eBay while the original stays live. */}
+                        {ebayConnection && it.listing_platform === "ebay" && (
                           <Button
                             variant="ghost"
                             size="icon"
@@ -1527,9 +1531,11 @@ export function ListingsTable({
                   )}
                   <TableCell onClick={(e) => e.stopPropagation()}>
                     <div className="flex items-center justify-end gap-1">
-                      {it.link && (
+                      {/* INV-10: listing_url is imported and seller-editable; a
+                          javascript: or data: value must never become a link. */}
+                      {safeHref(it.link) && (
                         <a
-                          href={it.link}
+                          href={safeHref(it.link) ?? undefined}
                           target="_blank"
                           rel="noopener noreferrer"
                           className="inline-flex text-brand-red-text"

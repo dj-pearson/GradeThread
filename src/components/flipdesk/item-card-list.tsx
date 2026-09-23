@@ -3,15 +3,17 @@ import { Badge } from "@/components/ui/badge";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { NextActionBadge } from "@/components/flipdesk/next-action-badge";
 import { cn } from "@/lib/utils";
-import { itemRowLabel } from "@/lib/item-row-label";
+import { itemDisplayTitle, itemRowLabel } from "@/lib/item-row-label";
 import { estimateListingProfit } from "@/lib/listing-profit";
 import { estimateParcel } from "@/lib/parcel-estimate";
 import { estimatePostage } from "@/lib/shipping-rates";
 import type { ItemFullRow } from "@/types/database";
 
+// INV-10: to the cent. A live $24.99 read as "$25" on a phone and as $24.99
+// on the marketplace, and the card is where a seller checks the price.
 function money(n: number | null | undefined): string | null {
   if (n == null || Number.isNaN(n)) return null;
-  return `$${n.toFixed(0)}`;
+  return `$${n.toFixed(2)}`;
 }
 
 // Mobile-friendly card list for the inventory/listings tables — rendered
@@ -52,10 +54,17 @@ export function ItemCardList({
         // Cost is NOT a price fallback here (it used to be): showing what you
         // paid in the slot where the asking price goes reads as the asking
         // price. It gets its own labelled line below instead.
-        const rowLabel = itemRowLabel({ item_title: it.item_title, id: it.id });
-        const price = money(it.target_price) ?? money(it.list_price);
+        // INV-10: the whole row, so an untitled draft is named by its listing
+        // title or SKU rather than by a slice of its UUID.
+        const rowLabel = itemRowLabel(it);
+        // INV-10: a LIVE listing shows the price buyers see; anything else
+        // shows the asking price. Each is labelled so the two never blur.
+        const live = it.listing_status === "active" && it.list_price != null;
+        const shownPrice = live ? it.list_price : (it.target_price ?? it.list_price);
+        const price = money(shownPrice);
+        const priceLabel = live ? "Listed" : "Asking";
         const cost = it.purchase_price;
-        const askingPrice = it.target_price ?? it.list_price;
+        const askingPrice = shownPrice;
         // US-2790: postage was absent here too, so the profit shown per card
         // read higher than the sale would. The prediction comes from the
         // garment's own record via items_full (migration 00650).
@@ -111,7 +120,7 @@ export function ItemCardList({
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0 flex-1">
                   <div className="truncate text-sm font-medium">
-                    {it.item_title || "Untitled item"}
+                    {itemDisplayTitle(it) || "Untitled item"}
                   </div>
                   {sub && (
                     <div className="truncate text-xs text-muted-foreground">
@@ -127,8 +136,9 @@ export function ItemCardList({
                 <div className="flex shrink-0 flex-col items-end gap-1">
                   <StatusBadge status={it.status} />
                   {price && (
-                    <span className="font-mono text-sm tabular-nums">
-                      {price}
+                    <span className="text-sm tabular-nums">
+                      <span className="font-mono">{price}</span>{" "}
+                      <span className="text-[11px] text-muted-foreground">{priceLabel}</span>
                     </span>
                   )}
                 </div>
