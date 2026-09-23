@@ -10,8 +10,9 @@
 // node as `InitPlan 1 (returns $0)` and reference it as `$0` in the filter.
 // The CI stack prints the 17 form (this check passed there matching nothing
 // else), the cloud-session cluster is 16, and until 2026-09-23 this matched only
-// the 17 form, so on 16 it called a correctly hoisted policy a regression. Both forms still require the FILTER to reference the
-// InitPlan's output, which the bare-form probe never does.
+// the 17 form, so on 16 it called a correctly hoisted policy a regression.
+// Both forms still require the FILTER to reference the InitPlan's output,
+// which the bare-form probe never does.
 export function usesInitPlan(plan) {
   if (!/InitPlan/.test(plan)) return false;
   // PG17+: the filter names the InitPlan directly.
