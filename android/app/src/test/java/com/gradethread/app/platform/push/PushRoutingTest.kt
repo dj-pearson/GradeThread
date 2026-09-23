@@ -37,6 +37,15 @@ class PushRoutingTest {
                 // US-3144, added to the enum by 2c399dfe5 and not to this
                 // list, which is why the whole unit lane was red.
                 "delist.needed",
+                // US-3449: sent by the edge and unknown to Android until then.
+                "offer.responded",
+                "return.opened",
+                "inquiry.opened",
+                "case.opened",
+                "case.deadline",
+                "cancellation.requested",
+                "dispute.opened",
+                "marketing",
             ),
             PushCategory.entries.map { it.id },
         )
@@ -180,6 +189,7 @@ class PushRoutingTest {
             DeepLinkRoute.SupportTickets(null),
             DeepLinkRoute.CaptureItem,
             DeepLinkRoute.AddItem,
+            DeepLinkRoute.EbayCases,
         )
         routes.forEach { route ->
             assertTrue(route.toString(), route.toDeepLinkUri().startsWith("https://gradethread.com/app/"))

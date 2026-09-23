@@ -35,10 +35,23 @@ enum class PushCategory(val id: String) {
     LISTING_ENDED("listing.ended"),
     AGING_DIGEST("aging.digest"),
     SUPPORT_REPLY("support.reply"),
+
     // US-3144: a sold item still has listings live on marketplaces only the
     // seller's own browser can end. Mirrors NotificationCategoryID.delistNeeded
     // on iOS and the `category` the edge stamps in pushDelistNeeded.
     DELIST_NEEDED("delist.needed"),
+
+    // US-3449: sent by the edge (contracts/push-contract.json) and unknown to
+    // Android until now, so each one fell back to the muted UPDATES channel
+    // with no tap route. iOS learned them in US-3266.
+    OFFER_RESPONDED("offer.responded"),
+    RETURN_OPENED("return.opened"),
+    INQUIRY_OPENED("inquiry.opened"),
+    CASE_OPENED("case.opened"),
+    CASE_DEADLINE("case.deadline"),
+    CANCELLATION_REQUESTED("cancellation.requested"),
+    DISPUTE_OPENED("dispute.opened"),
+    MARKETING("marketing"),
     ;
 
     /**
@@ -50,19 +63,27 @@ enum class PushCategory(val id: String) {
      */
     val channel: PushChannel
         get() = when (this) {
-            SALE_CREATED, OFFER_RECEIVED, MESSAGE_RECEIVED -> PushChannel.SELLING
+            SALE_CREATED, OFFER_RECEIVED, MESSAGE_RECEIVED, OFFER_RESPONDED,
+            INQUIRY_OPENED, CASE_OPENED, CANCELLATION_REQUESTED,
+            -> PushChannel.SELLING
             PAYOUT_CLEARED, PAYOUT_POSTED -> PushChannel.MONEY
             GRADE_READY, ITEM_REVIEW_NEEDED -> PushChannel.GRADING
             // Losing the eBay connection stops sync, listings and orders dead,
             // and the seller has days to fix it. It gets its own urgent channel
             // rather than being buried with the digest.
             TOKEN_EXPIRING -> PushChannel.URGENT
-            LISTING_ENDED, AGING_DIGEST, SUPPORT_REPLY -> PushChannel.UPDATES
+            LISTING_ENDED, AGING_DIGEST, SUPPORT_REPLY, MARKETING -> PushChannel.UPDATES
             // URGENT, not SELLING. Every other selling notification is news the
             // seller can read later; this one is a window in which the same
             // garment can be bought a second time, and the cost of missing it is
             // a cancelled order and a defect on their account.
             DELIST_NEEDED -> PushChannel.URGENT
+            // US-3449: URGENT for the same reason as DELIST_NEEDED. A return, a
+            // payment dispute and a case deadline each run on an eBay clock,
+            // and missing one costs a defect or a lost case. The rest of the
+            // post-order family (inquiry, case opened, cancellation request)
+            // sits with SELLING, where the seller reads it later.
+            CASE_DEADLINE, DISPUTE_OPENED, RETURN_OPENED -> PushChannel.URGENT
         }
 
     /**
@@ -209,14 +230,20 @@ enum class PushAction(
     }
 }
 
-/** Where a tap on this category should land. */
-fun PushCategory.route(data: Map<String, String>): DeepLinkRoute {
+/**
+ * Where a tap on this category should land.
+ *
+ * Null only for [PushCategory.MARKETING]: a growth campaign is news about the
+ * product, not about a row, so the tap just opens the app (iOS makes the same
+ * call in PushCategoryCoverageTests.noDestination).
+ */
+fun PushCategory.route(data: Map<String, String>): DeepLinkRoute? {
     val itemId = data["inventory_item_id"]?.takeIf { it.isNotBlank() }
     return when (this) {
         PushCategory.SALE_CREATED -> DeepLinkRoute.Shipping
         PushCategory.PAYOUT_CLEARED, PushCategory.PAYOUT_POSTED ->
             DeepLinkRoute.SalesTab(inventoryItemId = null)
-        PushCategory.OFFER_RECEIVED, PushCategory.MESSAGE_RECEIVED ->
+        PushCategory.OFFER_RECEIVED, PushCategory.MESSAGE_RECEIVED, PushCategory.OFFER_RESPONDED ->
             DeepLinkRoute.NegotiationInbox(filterItemId = itemId)
         PushCategory.GRADE_READY, PushCategory.ITEM_REVIEW_NEEDED ->
             itemId?.let { DeepLinkRoute.InventoryItem(it) } ?: DeepLinkRoute.GradesList
@@ -229,5 +256,12 @@ fun PushCategory.route(data: Map<String, String>): DeepLinkRoute {
         // still lands on the full pending list, which is right — there is
         // nothing else this push could have meant.
         PushCategory.DELIST_NEEDED -> DeepLinkRoute.PendingDelists(itemId)
+        // US-3449: the whole post-order family opens the eBay cases screen,
+        // which holds returns, cancellations and payment disputes. The deadline
+        // reminder names no case, so it lands there too.
+        PushCategory.RETURN_OPENED, PushCategory.INQUIRY_OPENED, PushCategory.CASE_OPENED,
+        PushCategory.CASE_DEADLINE, PushCategory.CANCELLATION_REQUESTED, PushCategory.DISPUTE_OPENED,
+        -> DeepLinkRoute.EbayCases
+        PushCategory.MARKETING -> null
     }
 }
