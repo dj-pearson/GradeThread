@@ -9,13 +9,20 @@ code_refs:
   - android/app/src/main/java/com/gradethread/app/money/ExpenseDraft.kt
   - ios/GradeThread/Money/ExpenseStore.swift
   - ios/GradeThread/Money/MoneyDate.swift
+  - ios/Packages/GradeThreadCore/Sources/GradeThreadCore/MoneyDate.swift
   - ios/GradeThread/Money/TripDraft.swift
   - services/edge-functions/src/lib/expense-recurrence.ts
   - scripts/audit-expense-date-drift.mjs
-reviewed: 2026-09-22
+reviewed: 2026-09-23
 tags: [money, flipdesk, timezone, contract]
 summary: flipdesk_expenses.spent_on is a date-only column, so every client anchors it at UTC midnight while the device calendar names which day or month a moment falls in — anchoring any one surface in the device zone walks the date backwards one day per save, and it has shipped that way on both mobile platforms.
 ---
+
+> [!note] Re-reviewed 2026-09-23 for mobile plan action 6. `MoneyDate` moved
+> into the GradeThreadCore package unchanged apart from `public` and a
+> `Date()` default in place of `.now`; the rule it encodes is the same. Only
+> the SwiftUI `dayPicker` stays in the app file. `TripDraft.swift` gained
+> `import GradeThreadCore` and nothing else; `ExpenseStore.swift` is untouched.
 
 > [!note] Re-reviewed 2026-09-22, no change. Drift from US-3458, which touches
 > `flipdesk-ebay.ts`. Read the diff rather than the dates: it is confined to
@@ -47,7 +54,7 @@ it:
 | Platform | The one place the zone is decided |
 |---|---|
 | Android | `CalendarDateField.ZONE = ZoneOffset.UTC` (`ExpenseDraft.EXPENSE_ZONE` is an alias) |
-| iOS | `MoneyDate`: the calendar, the wire formatter, `parse`, `iso`, `startOfDay`, `anchor` |
+| iOS | `MoneyDate` in the GradeThreadCore package (so `swift test` runs it on Linux): the calendar, the wire formatter, `parse`, `iso`, `startOfDay`, `anchor`. Only the SwiftUI `dayPicker` adapter stays in the app's `Money/MoneyDate.swift` |
 
 ⚠ **UTC anchors the value; it does not name the day** (US-3230, US-3302). Which
 calendar day or month a *moment* falls in is a question about the seller's wall

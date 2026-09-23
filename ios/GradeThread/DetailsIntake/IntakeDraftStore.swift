@@ -1,4 +1,5 @@
 import Foundation
+import GradeThreadCore
 import UIKit
 
 /// US-646 — autosave / draft recovery for in-progress intake.

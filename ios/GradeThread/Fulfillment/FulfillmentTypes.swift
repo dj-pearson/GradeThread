@@ -1,4 +1,5 @@
 import Foundation
+import GradeThreadCore
 
 /// Wire shape for a `sales` row surfaced in the shipping/fulfillment queue
 /// (US-669). A sale "needs shipping" when `shipped_at` is null. Decimal

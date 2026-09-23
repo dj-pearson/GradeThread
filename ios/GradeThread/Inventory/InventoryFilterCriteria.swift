@@ -1,4 +1,5 @@
 import Foundation
+import GradeThreadCore
 
 /// Multi-facet filter state for the inventory list. Distinct from
 /// ``InventoryStage`` (the top-level status tabs) and ``SortOption`` — this
