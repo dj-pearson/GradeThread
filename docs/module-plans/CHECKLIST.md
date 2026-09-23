@@ -10,19 +10,21 @@ Each line names the plan file and action number.
 - [owner] Install the backup cron, encrypt offsite dumps, set the ops alert channel (platform 8)
 - [owner] Seed the 83 help articles on prod (web-growth 1, seed half)
 - [owner] Set ANDROID_CERT_SHA256 so app links work (mobile 4, secret half)
-- [~] Tenant-scope get_or_create_source, migration 00824 (flipdesk-inventory 1)
-- [~] Close the api_keys self-upgrade policy, migration 00825 (extensions-api 1)
-- [~] close_period rebuilds the ledger first, migration 00826 (money 2)
-- [~] publish-due attempt cap, migration 00827 plus edge code (marketplaces 1)
-- [~] Never upload the camera original to the public bucket (flipdesk-inventory 2)
-- [~] Remove legacy /api/payments/subscribe (money 4)
-- [~] ensureLedgerBuilt rebuilds a stale ledger (money 1)
-- [~] Clear eval_passed when prompt text changes (grading 2)
-- [~] Android: every push category, contract test (mobile 1)
-- [~] Android: AiFieldWriter keeps untouched JSONB (mobile 2)
+- [x] Tenant-scope get_or_create_source, migration 00824 (flipdesk-inventory 1)
+- [x] Close the api_keys self-upgrade policy, migration 00825 (extensions-api 1)
+- [x] close_period rebuilds the ledger first, migration 00826 (money 2)
+- [x] publish-due attempt cap, migration 00827 plus edge code (marketplaces 1)
+- [x] Never upload the camera original to the public bucket (flipdesk-inventory 2)
+- [x] Remove legacy /api/payments/subscribe (money 4)
+- [x] ensureLedgerBuilt rebuilds a stale ledger (money 1)
+- [x] Clear eval_passed when prompt text changes (grading 2)
+- [x] Android: every push category, contract test (mobile 1)
+- [x] Android: AiFieldWriter keeps untouched JSONB (mobile 2)
 
 ## Round 2: next
 
+- [~] Round 2 is running: every unchecked line below is assigned to an agent except where marked [owner]
+- [ ] NEW: close_period closing_figures include other sellers' ledgers (found in round 1), migration 00829
 - [ ] Weighted overall rounding at .x5 midpoints, all three sites (grading 1) [owner decides on resealing old certificates]
 - [ ] Extension queue stale-claim reclaim (marketplaces 2)
 - [ ] Harden public phone-capture upload (flipdesk-inventory 3)
