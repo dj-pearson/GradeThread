@@ -125,6 +125,8 @@ export function CommandPalette() {
   const navigate = useNavigate();
   const qc = useQueryClient();
   const user = useAuthStore((s) => s.user);
+  // INV-1: the list read is keyed by workspace owner, so the peek must be too.
+  const ownerId = useAuthStore((s) => s.activeWorkspaceOwnerId) ?? user?.id;
   const profile = useAuthStore((s) => s.profile);
   const { can } = useWorkspace();
   // Platform admin (not the same as workspace 'admin' role) — gates the
@@ -279,8 +281,8 @@ export function CommandPalette() {
   // search box — silently had nothing to show. Typed searches still worked,
   // via the FTS RPC below, which is why it read as fine.
   const items = useMemo(
-    () => qc.getQueryData<ItemListRow[]>(itemsListQueryKey(user?.id)) ?? [],
-    [qc, user?.id],
+    () => qc.getQueryData<ItemListRow[]>(itemsListQueryKey(ownerId)) ?? [],
+    [qc, ownerId],
   );
   const sources = useMemo(
     () => qc.getQueryData<SourceRow[]>(["sources", user?.id]) ?? [],

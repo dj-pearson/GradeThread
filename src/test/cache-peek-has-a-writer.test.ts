@@ -50,9 +50,9 @@ interface DeclaredPeek {
 const DECLARED: readonly DeclaredPeek[] = [
   {
     file: "src/components/flipdesk/command-palette.tsx",
-    key: "itemsListQueryKey(user?.id)",
+    key: "itemsListQueryKey(ownerId)",
     writer: "src/hooks/use-items-full.ts",
-    writes: "queryKey: itemsListQueryKey(user?.id)",
+    writes: "queryKey: itemsListQueryKey(ownerId)",
     why:
       "instant item matches + the Recent section, off whatever the projected " +
       "list read already cached. This is the read that broke.",

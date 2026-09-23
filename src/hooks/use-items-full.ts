@@ -38,8 +38,13 @@ export function itemsFullQueryKey(userId: string | undefined) {
 // called out above (first mounter wins), so the projected read gets its own
 // key. It still sits UNDER the ["items_full"] prefix, so every existing
 // `invalidateQueries({ queryKey: ["items_full"] })` refreshes both.
-export function itemsListQueryKey(userId: string | undefined) {
-  return ["items_full", "list", userId] as const;
+//
+// INV-1: keyed by the WORKSPACE OWNER, not the signed-in user. items_full is
+// security_invoker and its policy admits own rows OR member rows, so a user who
+// owns items and also belongs to another workspace would otherwise get both
+// tenants in one list. The read filters by this owner and the key names it.
+export function itemsListQueryKey(ownerId: string | undefined) {
+  return ["items_full", "list", ownerId] as const;
 }
 
 // US-2188: page through the read instead of issuing one unbounded request.
@@ -78,7 +83,10 @@ const ITEMS_FULL_PAGE = READ_PAGE_SIZE;
  * whole set, which is the right shape for the surfaces that genuinely need it
  * (the kanban, the prep queue, reconciliation matching).
  */
-export async function fetchItemsPaged<T>(columns: string): Promise<T[]> {
+export async function fetchItemsPaged<T>(
+  columns: string,
+  ownerId?: string,
+): Promise<T[]> {
   // `.bind(supabase)` is LOAD-BEARING. supabase-js implements `from()` as
   // `return this.rest.from(relation)`, so the method only works while it is
   // still attached to the client. Hoisting it into a bare local
@@ -93,21 +101,23 @@ export async function fetchItemsPaged<T>(columns: string): Promise<T[]> {
   // which reads like the same cast but is not: parenthesising a member
   // expression preserves the `this` binding, so that form worked. Binding
   // explicitly removes the trap instead of re-hiding it.
+  type Ordered = {
+    order: (
+      col: string,
+      opts?: { ascending?: boolean },
+    ) => {
+      range: (
+        start: number,
+        end: number,
+      ) => Promise<{ data: T[] | null; error: Error | null }>;
+    };
+  };
+  type Selected = Ordered & { eq: (col: string, val: string) => Ordered };
   const from = (
     supabase.from as unknown as (
       name: "items_full",
     ) => {
-      select: (cols: string) => {
-        order: (
-          col: string,
-          opts?: { ascending?: boolean },
-        ) => {
-          range: (
-            start: number,
-            end: number,
-          ) => Promise<{ data: T[] | null; error: Error | null }>;
-        };
-      };
+      select: (cols: string) => Selected;
     }
   ).bind(supabase);
 
@@ -118,8 +128,11 @@ export async function fetchItemsPaged<T>(columns: string): Promise<T[]> {
   // only while the server's `db-max-rows` is at least ITEMS_FULL_PAGE — an
   // assumption nothing in this repo sets or asserts.
   return fetchAllPages<T>(async (start, end) => {
-    const { data, error } = await from("items_full")
-      .select(columns)
+    const selected = from("items_full").select(columns);
+    // INV-1: scope to the workspace on screen. RLS alone admits every tenant
+    // the caller belongs to.
+    const scoped: Ordered = ownerId ? selected.eq("user_id", ownerId) : selected;
+    const { data, error } = await scoped
       .order("created_at", { ascending: false })
       .range(start, end);
     if (error) throw error;
@@ -158,14 +171,16 @@ export function useItemsFull() {
  * order, same paging, minus the four detail-only columns no list surface
  * reads. Prefer this everywhere that groups, filters, counts or charts items.
  */
-export function useItemsList() {
+export function useItemsList(ownerOverride?: string) {
   const user = useAuthStore((s) => s.user);
+  const activeOwnerId = useAuthStore((s) => s.activeWorkspaceOwnerId);
+  const ownerId = ownerOverride ?? activeOwnerId ?? user?.id;
   return useQuery({
-    queryKey: itemsListQueryKey(user?.id),
-    enabled: !!user,
+    queryKey: itemsListQueryKey(ownerId),
+    enabled: !!user && !!ownerId,
     staleTime: ITEMS_FULL_STALE_TIME,
     gcTime: ITEMS_FULL_GC_TIME,
-    queryFn: () => fetchItemsPaged<ItemListRow>(ITEM_LIST_SELECT),
+    queryFn: () => fetchItemsPaged<ItemListRow>(ITEM_LIST_SELECT, ownerId),
   });
 }
 

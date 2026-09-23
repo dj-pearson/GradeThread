@@ -158,6 +158,9 @@ function csvCell(v: unknown): string {
 
 export function FlipdeskPipelinePage() {
   const user = useAuthStore((s) => s.user);
+  // INV-1: the list read and its cache key are scoped to the workspace on
+  // screen, so the optimistic move has to patch that same key.
+  const ownerId = useAuthStore((s) => s.activeWorkspaceOwnerId) ?? user?.id;
   const qc = useQueryClient();
   // US-2972: this read is the trigger, not the data. GET /api/rewards/state runs
   // the pipeline-XP sweep for the caller (throttled server-side to one sweep per
@@ -393,7 +396,7 @@ export function FlipdeskPipelinePage() {
     // failure only the dragged card is rolled back (US-1633, pipeline-plan.ts).
     const err = await moveCardOptimistically({
       qc,
-      listKey: itemsListQueryKey(user?.id),
+      listKey: itemsListQueryKey(ownerId),
       itemId,
       from: item.status,
       to: targetStatus,

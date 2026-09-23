@@ -27,7 +27,7 @@ vi.mock("@/pages/flipdesk/use-grid-listings", () => ({
 
 // -- supabase ----------------------------------------------------------------
 // Three shapes are needed, and they must be told apart:
-//   items_full   select().order().range()      -> the page of rows
+//   items_full   select().eq().order().range() -> the page of rows
 //   listings     select().in()                 -> the title-sync read
 //   inventory_items update().eq()              -> the row save
 //   listings     update().eq()                 -> the title write
@@ -78,8 +78,13 @@ vi.mock("@/lib/supabase", () => ({
             error: listingsReadError,
           });
         },
+        // INV-1: the page read is owner-scoped, select().eq().order().range().
         eq: () => ({
           maybeSingle: () => Promise.resolve({ data: null, error: null }),
+          order: () => ({
+            range: () =>
+              Promise.resolve({ data: pageRows, error: null, count: pageRows.length }),
+          }),
         }),
       }),
       update: (patch: Record<string, unknown>) => ({

@@ -43,7 +43,7 @@ const DECLARED: readonly DeclaredRead[] = [
     why: "the shared list read pages with .range(); useItemFull reads one row",
   },
   {
-    file: "src/pages/flipdesk/grid.tsx",
+    file: "src/pages/flipdesk/grid-page-query.ts",
     bounds: [".range(", 'count: "exact"'],
     why: "the grid renders one server-side page and gets its total from the count",
   },

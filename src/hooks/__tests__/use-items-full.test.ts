@@ -31,25 +31,28 @@ let rangeError: Error | null = null;
 const fromCalls: string[] = [];
 const eqCalls: { col: string; val: string }[] = [];
 let singleRow: unknown = null;
+let activeOwner: string | null = null;
+const order = (col: string, opts?: { ascending?: boolean }) => {
+  orderCalls.push({ col, opts });
+  return {
+    range: (start: number, end: number) => {
+      rangeCalls.push({ start, end });
+      if (rangeError) return Promise.resolve({ data: null, error: rangeError });
+      return Promise.resolve({ data: pages[start] ?? [], error: null });
+    },
+  };
+};
 const from = vi.fn((name: string) => {
   fromCalls.push(name);
   return {
     select: (cols: string) => {
       selectCalls.push(cols);
       return {
-        order: (col: string, opts?: { ascending?: boolean }) => {
-          orderCalls.push({ col, opts });
-          return {
-            range: (start: number, end: number) => {
-              rangeCalls.push({ start, end });
-              if (rangeError) return Promise.resolve({ data: null, error: rangeError });
-              return Promise.resolve({ data: pages[start] ?? [], error: null });
-            },
-          };
-        },
+        order,
         eq: (col: string, val: string) => {
           eqCalls.push({ col, val });
           return {
+            order,
             maybeSingle: () => {
               if (rangeError) {
                 return Promise.resolve({ data: null, error: rangeError });
@@ -79,7 +82,8 @@ vi.mock("@/lib/supabase", () => ({
   },
 }));
 vi.mock("@/stores/auth-store", () => ({
-  useAuthStore: (sel: (s: unknown) => unknown) => sel({ user: { id: "u1" } }),
+  useAuthStore: (sel: (s: unknown) => unknown) =>
+    sel({ user: { id: "u1" }, activeWorkspaceOwnerId: activeOwner }),
 }));
 vi.mock("@tanstack/react-query", () => ({
   useQuery: (opts: unknown) => opts,
@@ -132,6 +136,7 @@ beforeEach(() => {
   pages = {};
   rangeError = null;
   singleRow = null;
+  activeOwner = null;
 });
 
 describe("the read is bounded", () => {
@@ -331,6 +336,38 @@ describe("the list read is projected", () => {
     // first-mounter-wins foot-gun this hook exists to avoid.
     expect(itemsListQueryKey("u1")).not.toEqual(itemsFullQueryKey("u1"));
     expect(itemsListQueryKey("u1")[0]).toBe("items_full");
+  });
+});
+
+describe("the list read is scoped to the workspace on screen (INV-1)", () => {
+  it("filters by the signed-in user when no workspace is active", async () => {
+    pages[0] = rows("a", 1);
+    const opts = useItemsListOptions();
+    await opts.queryFn();
+    expect(eqCalls.length).toBeGreaterThan(0);
+    expect(eqCalls.every((c) => c.col === "user_id" && c.val === "u1")).toBe(true);
+    expect(opts.queryKey).toEqual(["items_full", "list", "u1"]);
+  });
+
+  it("filters by the active workspace owner, not the member's own id", async () => {
+    // items_full's policy admits own rows OR member rows; without the filter
+    // a member who also owns items would see both tenants in one board.
+    activeOwner = "owner-b";
+    pages[0] = rows("a", 1);
+    const opts = useItemsListOptions();
+    await opts.queryFn();
+    expect(eqCalls.length).toBeGreaterThan(0);
+    expect(eqCalls.every((c) => c.col === "user_id" && c.val === "owner-b")).toBe(true);
+    expect(opts.queryKey).toEqual(["items_full", "list", "owner-b"]);
+  });
+
+  it("scopes every page of a multi-page read", async () => {
+    activeOwner = "owner-b";
+    pages[0] = rows("p1", PAGE);
+    pages[PAGE] = rows("p2", 2);
+    await useItemsListOptions().queryFn();
+    expect(eqCalls).toHaveLength(3);
+    expect(eqCalls.every((c) => c.col === "user_id" && c.val === "owner-b")).toBe(true);
   });
 });
 
