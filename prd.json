@@ -4617,19 +4617,6 @@
         "A buyer persona, which has no FlipDesk board at all, is not offered the FlipDesk view."
       ],
       "priority": 20
-    },
-    {
-      "id": "US-3470",
-      "passes": false,
-      "title": "Owner decision: reseal the certificates issued under the old midpoint rounding, or fix new grades only",
-      "description": "As the owner, I want to decide whether grade_reports whose weighted overall landed on an exact .x5 midpoint and was stored 0.1 low get resealed through the human-review reseal path, so that the rounding fix (module plan grading 1) either corrects the certificates already issued or explicitly leaves them as issued, and the choice is recorded rather than implied. Background: ai-grading.ts roundToTenth, human-review.ts and src/lib/weighted-grade.ts computed sum(factor*weight) in floats then Math.round(x*10)/10, so an exact .x5 stored as .x4999 rounded DOWN (example: factors 9,6,8,9,8 = exactly 7.95 was stored as 7.9 Very Good instead of 8.0 Excellent). 72,858 of 2,476,099 factor combinations hit a midpoint; in 6.0-10.0, 4,011 of 161,051 are wrong and 5 cross a tier line.",
-      "acceptanceCriteria": [
-        "A read-only prod query counts grade_reports whose exact integer weighted sum (factors in 0.5 steps, weights 30/25/20/15/10) ends in .x5 and whose stored overall is 0.1 below round-half-up, split into total rows, rows with a certificate_id, and rows whose tier would change; the three numbers are recorded in this story's notes before any decision",
-        "The owner records one of: (a) reseal every affected certificate through resealCertificate (services/edge-functions/src/lib/human-review.ts:112) so the public certificate shows the corrected grade with revision provenance; (b) reseal only rows whose tier changes; (c) change only new grades and leave issued certificates as issued",
-        "If (a) or (b): the reseal runs as an idempotent operator script with a dry-run mode that prints the affected certificate ids and old/new overall, and a second run changes nothing; each resealed certificate carries a revision reason naming the rounding fix (vault/20-domain/certificate-revision-provenance.md)",
-        "If (c): vault/20-domain/weighted-overall-lockstep.md states that certificates issued before the fix commit keep their stored overall, and names the fix commit, so a support question about a 7.9 that recomputes as 8.0 has a written answer",
-        "No reseal runs before the rounding fix itself has shipped in all three sites (ai-grading.ts, human-review.ts, src/lib/weighted-grade.ts) with the midpoint cases in src/test/fixtures/weighted-grade-cases.json"
-      ]
     }
   ]
 }

@@ -156,9 +156,13 @@ What runs through the helper:
 
 **Already-issued grades are unchanged.** The fix affects new grades and new
 human adjustments only. A stored overall that was rounded down at a midpoint
-stays as stored, and so does its certificate hash, until the owner decides
-whether to reseal those rows through the human-review reseal path. That
-decision is open.
+stays as stored, and so does its certificate hash. **Decided by the owner
+2026-09-23 (US-3470, option c): certificates issued before commit `9c53872`
+keep their stored overall and are not resealed.** So a support question
+about a certificate that shows 7.9 but recomputes as 8.0 from its factors has
+this answer: it was issued under the old float rounding, which could round an
+exact midpoint down by 0.1, and issued certificates are left as issued. A
+human adjustment made after the fix recomputes with the new rounding.
 
 ## Why this note exists: it has shipped wrong twice
 
