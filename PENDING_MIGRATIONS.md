@@ -72,6 +72,35 @@ stronger claim for one of them, `check-prod-migration.ts` is the tool.
 Nothing below 00786 was touched, and the six genuinely-held branches in the next
 section are unchanged and still waiting.
 
+## HELD: 00830_account_webhooks.sql (extensions-api plan actions 2+3 - customer webhook secret, one delivery per account, durable retries)
+
+**What it does.** Creates three deny-all tables (RLS on, no policies, revoked
+from anon/authenticated): `api_webhook_endpoints` (one row per account: url +
+AES-GCM-encrypted `whsec_` signing secret), `webhook_deliveries` (the outbox,
+UNIQUE on `(user_id, event_type, subject_id)` so a grade is one event), and
+`webhook_delivery_attempts` (one row per HTTP attempt). Then copies each
+account's most recent `api_keys.webhook_url` into `api_webhook_endpoints` with
+NO secret, so existing customers keep receiving events.
+
+**Proved locally** on a clone of the 00827 test database: applies twice with no
+error; the backfill picks the newest key's URL and skips keys with none; the
+unique index turns a second insert for the same grade into `INSERT 0 0`; the
+status CHECK rejects an unknown status.
+
+**Idempotent.** IF NOT EXISTS on every create, constraint and triggers dropped
+before re-adding, backfill is ON CONFLICT DO NOTHING. **Risk: LOW.** New tables
+only; `api_keys` is read, never changed.
+
+**Order.** Apply BEFORE the edge redeploy: the new edge writes and reads these
+tables on every finalized grade and on PATCH /api/v1/webhook, and its boot
+guard expects 00830. Then `NOTIFY pgrst, 'reload schema';` (migrate:prod sends
+it). No client-side (browser) code reads the new tables.
+
+**Also needed on the host:** a Coolify scheduled task `webhook-retry`,
+`*/5 * * * *`, `POST /api/jobs/webhook-retry` with `$FLIPDESK_INTERNAL_JOB_SECRET`
+(it is in the generated COOLIFY.md table). Without it, the first attempt still
+happens but no retry ever does. Uses the existing `EDGE_ENCRYPTION_KEY`.
+
 ## HELD: 00829_close_period_figures_caller_only.sql (SECURITY - closing figures covered every seller)
 
 **What it does.** `CREATE OR REPLACE` of `close_period`, same signature. The

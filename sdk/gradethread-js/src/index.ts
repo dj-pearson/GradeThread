@@ -205,15 +205,147 @@ export class GradeThread {
     },
   };
 
-  /** Manage the completion webhook (requires the `webhook_manage` scope). */
+  /**
+   * Manage the completion webhook (requires the `webhook_manage` scope).
+   * One webhook per account; each grade is delivered once.
+   */
   readonly webhook = {
-    set: async (url: string | null): Promise<{ webhook_url: string | null; keys_updated: number }> =>
-      (await this.request<{ webhook_url: string | null; keys_updated: number }>(
-        "PATCH",
-        "/api/v1/webhook",
-        { webhook_url: url },
+    /**
+     * Set or clear the URL. The call that CREATES the webhook returns
+     * `signing_secret` (`whsec_...`) once; store it for `verifyWebhook`.
+     */
+    set: async (url: string | null): Promise<WebhookSetResult> =>
+      (await this.request<WebhookSetResult>("PATCH", "/api/v1/webhook", { webhook_url: url })).data,
+
+    get: async (): Promise<WebhookConfig> =>
+      (await this.request<WebhookConfig>("GET", "/api/v1/webhook")).data,
+
+    /** Mint a new signing secret, returned once. API key rotation does not change it. */
+    rotateSecret: async (): Promise<{ signing_secret: string; secret_created_at: string }> =>
+      (await this.request<{ signing_secret: string; secret_created_at: string }>(
+        "POST",
+        "/api/v1/webhook/secret/rotate",
+      )).data,
+
+    deliveries: async (params: { limit?: number } = {}): Promise<WebhookDelivery[]> =>
+      (await this.request<WebhookDelivery[]>(
+        "GET",
+        `/api/v1/webhook/deliveries${params.limit ? `?limit=${params.limit}` : ""}`,
       )).data,
   };
+}
+
+export interface WebhookSetResult {
+  webhook_url: string | null;
+  keys_updated: number;
+  /** Present only when this call created the webhook. Shown once. */
+  signing_secret: string | null;
+}
+
+export interface WebhookConfig {
+  webhook_url: string | null;
+  has_signing_secret: boolean;
+  secret_created_at: string | null;
+  updated_at: string | null;
+}
+
+export interface WebhookDelivery {
+  event_id: string;
+  event_type: string;
+  subject_id: string;
+  status: "pending" | "running" | "delivered" | "failed" | "cancelled";
+  attempts: number;
+  max_attempts: number;
+  next_attempt_at: string;
+  last_attempt_at: string | null;
+  last_status_code: number | null;
+  last_error: string | null;
+  delivered_at: string | null;
+  created_at: string;
+}
+
+/** Header lookup that accepts a Fetch `Headers` or a plain (Node) object. */
+type HeaderSource = Headers | Record<string, string | string[] | undefined>;
+
+function readHeader(headers: HeaderSource, name: string): string | null {
+  if (typeof (headers as Headers).get === "function") return (headers as Headers).get(name);
+  const rec = headers as Record<string, string | string[] | undefined>;
+  const key = Object.keys(rec).find((k) => k.toLowerCase() === name);
+  const v = key ? rec[key] : undefined;
+  return Array.isArray(v) ? (v[0] ?? null) : (v ?? null);
+}
+
+function b64decode(b64: string): Uint8Array {
+  const bin = atob(b64);
+  const out = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+  return out;
+}
+
+function b64encode(bytes: Uint8Array): string {
+  let bin = "";
+  for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]!);
+  return btoa(bin);
+}
+
+function constantTimeEqual(a: string, b: string): boolean {
+  if (a.length !== b.length) return false;
+  let diff = 0;
+  for (let i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  return diff === 0;
+}
+
+/**
+ * Verify a GradeThread webhook (Standard Webhooks format). Pass the RAW
+ * request body exactly as received, the request headers, and your `whsec_`
+ * secret. Returns false for a bad signature, a missing header, or a timestamp
+ * more than `toleranceSeconds` (default 300) from now.
+ *
+ * ```ts
+ * const ok = await verifyWebhook(rawBody, req.headers, process.env.GT_WEBHOOK_SECRET!);
+ * if (!ok) return res.status(400).end();
+ * ```
+ */
+export async function verifyWebhook(
+  rawBody: string,
+  headers: HeaderSource,
+  secret: string,
+  opts: { toleranceSeconds?: number; nowSeconds?: number } = {},
+): Promise<boolean> {
+  const id = readHeader(headers, "webhook-id");
+  const timestamp = readHeader(headers, "webhook-timestamp");
+  const signature = readHeader(headers, "webhook-signature");
+  if (!id || !timestamp || !signature || !secret.startsWith("whsec_")) return false;
+
+  const ts = Number(timestamp);
+  if (!Number.isFinite(ts)) return false;
+  const now = opts.nowSeconds ?? Math.floor(Date.now() / 1000);
+  if (Math.abs(now - ts) > (opts.toleranceSeconds ?? 300)) return false;
+
+  let keyBytes: Uint8Array;
+  try {
+    keyBytes = b64decode(secret.slice("whsec_".length));
+  } catch {
+    return false;
+  }
+  const key = await globalThis.crypto.subtle.importKey(
+    "raw",
+    new Uint8Array(keyBytes),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"],
+  );
+  const mac = await globalThis.crypto.subtle.sign(
+    "HMAC",
+    key,
+    new TextEncoder().encode(`${id}.${timestamp}.${rawBody}`),
+  );
+  const expected = b64encode(new Uint8Array(mac));
+  // The header may carry several space-separated `v1,<sig>` entries.
+  return signature
+    .split(" ")
+    .map((part) => (part.startsWith("v1,") ? part.slice(3) : ""))
+    .some((sig) => sig !== "" && constantTimeEqual(sig, expected));
 }
 
 export default GradeThread;

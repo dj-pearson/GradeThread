@@ -409,10 +409,16 @@ export const OPENAPI_SPEC = {
         tags: ["Account"],
         summary: "Set or clear the grade-completion webhook URL",
         description:
-          "Applies to ALL of your API keys. The URL must be https + publicly routable. GradeThread " +
-          "POSTs a `grade.completed` event when a grade finalizes, signed with " +
-          "`X-GradeThread-Signature` (HMAC-SHA256 of the body, using that key's hash as the secret). " +
-          "See the GradeCompletedEvent schema.",
+          "One webhook per account, whichever API key sets it; each event is delivered once. " +
+          "The URL must be https + publicly routable. The FIRST time you set a URL the response " +
+          "carries `signing_secret` (`whsec_...`): store it, it is never shown again. Changing the " +
+          "URL later keeps the secret; clearing it (null) deletes the webhook and its secret. " +
+          "Deliveries follow Standard Webhooks (standardwebhooks.com): headers `webhook-id` (the " +
+          "event id, stable across retries), `webhook-timestamp` (unix seconds) and " +
+          "`webhook-signature` (`v1,` + base64 HMAC-SHA256 of `{webhook-id}.{webhook-timestamp}.{raw body}`, " +
+          "keyed by the base64-decoded part of the secret after `whsec_`). Reject timestamps more " +
+          "than 5 minutes from now. Failed deliveries retry for about 12 hours. See the " +
+          "GradeCompletedEvent schema.",
         security: [{ ApiKeyAuth: ["webhook_manage"] }],
         requestBody: {
           required: true,
@@ -438,6 +444,11 @@ export const OPENAPI_SPEC = {
                   properties: {
                     webhook_url: { type: "string", nullable: true },
                     keys_updated: { type: "integer" },
+                    signing_secret: {
+                      type: "string",
+                      nullable: true,
+                      description: "Only when this call created the webhook. Shown once.",
+                    },
                   },
                 }),
               },
@@ -445,6 +456,101 @@ export const OPENAPI_SPEC = {
           },
           "400": errorResponse,
           "404": errorResponse,
+        },
+      },
+      get: {
+        tags: ["Account"],
+        summary: "Read the webhook configuration (never the secret)",
+        security: [{ ApiKeyAuth: ["webhook_manage"] }],
+        responses: {
+          "200": {
+            description: "Current webhook",
+            content: {
+              "application/json": {
+                schema: envelope({
+                  type: "object",
+                  properties: {
+                    webhook_url: { type: "string", nullable: true },
+                    has_signing_secret: {
+                      type: "boolean",
+                      description:
+                        "false for a webhook set before signing secrets existed; call " +
+                        "POST /api/v1/webhook/secret/rotate to get one.",
+                    },
+                    secret_created_at: { type: "string", format: "date-time", nullable: true },
+                    updated_at: { type: "string", format: "date-time", nullable: true },
+                  },
+                }),
+              },
+            },
+          },
+        },
+      },
+    },
+    "/api/v1/webhook/secret/rotate": {
+      post: {
+        tags: ["Account"],
+        summary: "Mint a new webhook signing secret",
+        description:
+          "Returns the new `whsec_` secret once. It signs every delivery attempt from now on, " +
+          "including retries of older events, so deploy it to your receiver first (a receiver " +
+          "can accept both secrets during the switch). Rotating an API key does NOT change it.",
+        security: [{ ApiKeyAuth: ["webhook_manage"] }],
+        responses: {
+          "200": {
+            description: "New secret",
+            content: {
+              "application/json": {
+                schema: envelope({
+                  type: "object",
+                  properties: {
+                    signing_secret: { type: "string" },
+                    secret_created_at: { type: "string", format: "date-time" },
+                  },
+                }),
+              },
+            },
+          },
+          "404": errorResponse,
+        },
+      },
+    },
+    "/api/v1/webhook/deliveries": {
+      get: {
+        tags: ["Account"],
+        summary: "Recent webhook deliveries for your account",
+        security: [{ ApiKeyAuth: ["webhook_manage"] }],
+        parameters: [
+          { name: "limit", in: "query", schema: { type: "integer", minimum: 1, maximum: 100, default: 20 } },
+        ],
+        responses: {
+          "200": {
+            description: "Newest first",
+            content: {
+              "application/json": {
+                schema: envelope({
+                  type: "array",
+                  items: {
+                    type: "object",
+                    properties: {
+                      event_id: { type: "string", format: "uuid", description: "Same as the webhook-id header." },
+                      event_type: { type: "string" },
+                      subject_id: { type: "string", description: "The submission id for grade.completed." },
+                      status: { type: "string", enum: ["pending", "running", "delivered", "failed", "cancelled"] },
+                      attempts: { type: "integer" },
+                      max_attempts: { type: "integer" },
+                      next_attempt_at: { type: "string", format: "date-time" },
+                      last_attempt_at: { type: "string", format: "date-time", nullable: true },
+                      last_status_code: { type: "integer", nullable: true },
+                      last_error: { type: "string", nullable: true },
+                      delivered_at: { type: "string", format: "date-time", nullable: true },
+                      created_at: { type: "string", format: "date-time" },
+                    },
+                  },
+                }),
+              },
+            },
+          },
         },
       },
     },
@@ -862,9 +968,12 @@ export const OPENAPI_SPEC = {
       GradeCompletedEvent: {
         type: "object",
         description:
-          "Delivered to your webhook_url when a grade finalizes. Verify X-GradeThread-Signature " +
-          "(HMAC-SHA256 hex of the raw body, secret = the delivering key's hash).",
+          "Delivered once per grade to your account's webhook when the grade finalizes. Verify " +
+          "the Standard Webhooks `webhook-signature` header with your `whsec_` secret (see PATCH " +
+          "/api/v1/webhook). Webhooks set before signing secrets existed carry only the legacy " +
+          "`X-GradeThread-Signature` until you rotate.",
         properties: {
+          id: { type: "string", format: "uuid", description: "Event id; equals the webhook-id header." },
           event: { type: "string", enum: ["grade.completed"] },
           data: {
             type: "object",

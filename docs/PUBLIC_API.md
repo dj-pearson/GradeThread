@@ -41,7 +41,7 @@ scopes returns **403** with `error.message` naming the missing scope.
 |---|---|
 | `read` | Every `GET`: grades, batch status, items, listings, sales, usage, price guide, and the sandbox reads |
 | `submit` | `POST /grades`, `POST /grades/batch`, `POST /sandbox/grades` |
-| `webhook_manage` | `PATCH /webhook` |
+| `webhook_manage` | `PATCH /webhook`, `GET /webhook`, `POST /webhook/secret/rotate`, `GET /webhook/deliveries` |
 
 A read-only integration needs `read` alone. Note that the **sandbox obeys the
 same scopes as production**. That is deliberate: a key that works against the
@@ -99,10 +99,61 @@ Returns the submission and, once complete, its `grade_report`.
 Query: `page` (default 1), `limit` (default 20, max 100), optional `status`.
 `meta` carries `page`, `limit`, `total`, `total_pages`, `has_next`, `has_prev`.
 
-### `PATCH /webhook` — set/clear the result webhook (scope: `webhook_manage`)
+### `PATCH /webhook` - set/clear the result webhook (scope: `webhook_manage`)
 
-Body `{ "webhook_url": "https://…" | null }`. The URL is validated for SSRF
-safety at set-time and again at delivery-time. `null` clears it.
+Body `{ "webhook_url": "https://..." | null }`. The URL is validated for SSRF
+safety at set-time and again at delivery-time. `null` removes the webhook and
+its secret.
+
+There is **one webhook per account**. Any of your keys with `webhook_manage`
+sets it, and each grade is delivered once however many keys you hold. The first
+call that creates the webhook returns `signing_secret` (`whsec_...`). It is
+shown once and never again, so store it then. Changing the URL later keeps the
+same secret.
+
+### `GET /webhook` - read the webhook (scope: `webhook_manage`)
+
+Returns `webhook_url`, `has_signing_secret` and `secret_created_at`. Never the
+secret itself. `has_signing_secret: false` means the webhook predates signing
+secrets; rotate once to get one.
+
+### `POST /webhook/secret/rotate` - new signing secret (scope: `webhook_manage`)
+
+Returns a new `signing_secret`, once. It signs every attempt from that moment,
+including retries of events created earlier, so put it in your receiver first
+(accepting both secrets for a few minutes is the safe switch). Rotating an API
+key does **not** change it.
+
+### `GET /webhook/deliveries` - delivery log (scope: `webhook_manage`)
+
+The newest deliveries first (`limit`, default 20, max 100): `event_id`,
+`event_type`, `subject_id` (the submission id), `status` (`pending`, `running`,
+`delivered`, `failed`, `cancelled`), `attempts`, `next_attempt_at`,
+`last_status_code` and `last_error`.
+
+### Verifying a webhook
+
+Deliveries follow [Standard Webhooks](https://www.standardwebhooks.com/), so
+its libraries (and Svix's) verify them with your `whsec_` secret as-is. Three
+headers come with every POST:
+
+| Header | Value |
+|---|---|
+| `webhook-id` | The event id. The same on every retry, and equal to `id` in the body; use it to drop repeats. |
+| `webhook-timestamp` | Unix seconds when this attempt was signed. |
+| `webhook-signature` | `v1,` then base64 of HMAC-SHA256 over `{webhook-id}.{webhook-timestamp}.{raw body}`, keyed by the base64-DECODED part of the secret after `whsec_`. |
+
+Compare in constant time and reject a timestamp more than five minutes from
+your clock; that is what stops a captured request being replayed. Hash the raw
+bytes you received, not a re-serialised JSON object.
+
+A delivery counts as received on any 2xx within 10 seconds. Otherwise it is
+retried after 5 min, 15 min, 1 h, 3 h and 8 h (six attempts, about 12 hours),
+then marked `failed`. Retries survive our deploys.
+
+Webhooks set before signing secrets existed have no `whsec_` secret. Until you
+call `POST /webhook/secret/rotate` they carry only the old
+`X-GradeThread-Signature` header (hex HMAC of the body), which is deprecated.
 
 ### Sandbox
 

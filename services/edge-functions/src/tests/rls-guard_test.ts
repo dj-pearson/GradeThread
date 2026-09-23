@@ -55,6 +55,15 @@ const PARENT_SCOPED = [
 // service-role (which bypasses RLS) reads/writes them. This is the most
 // restrictive configuration, not a gap.
 const SERVICE_ROLE_ONLY = new Set([
+  // 00830: customer webhooks. Deny-all in both directions. The endpoint row
+  // holds the account's signing secret (as ciphertext, but still not something
+  // a browser needs), and a WRITABLE endpoint or delivery row would let a
+  // caller point another account's grade events at a URL they control. The
+  // customer reaches all three only through API-key routes in api-v1.ts, each
+  // scoped by the key owner's user_id.
+  "api_webhook_endpoints",
+  "webhook_deliveries",
+  "webhook_delivery_attempts",
   // US-3182: the seller's planner corrections and set-asides. Deny-all in
   // both directions, and the WRITE side is the one that costs. A writable
   // table would let a caller dismiss another seller's pack-and-ship: the

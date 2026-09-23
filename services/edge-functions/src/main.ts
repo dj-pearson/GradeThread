@@ -235,6 +235,7 @@ import { handleEbayRateLimitsCron } from "./routes/jobs-ebay-rate-limits.ts";
 import { handleEbayRetentionCron } from "./routes/jobs-ebay-retention.ts";
 import { handleSupplySampleCron } from "./routes/jobs-supply-sample.ts";
 import { handleExtensionQueueStaleCron } from "./routes/jobs-extension-queue-stale.ts";
+import { handleWebhookRetryCron } from "./routes/jobs-webhook-retry.ts";
 import { handleDelistNudgeCron } from "./routes/jobs-delist-nudge.ts";
 import { adminSeoRoutes, handleGscSyncCron } from "./routes/admin-seo.ts";
 import { adminGrowthRoutes, handleGrowthDispatchCron } from "./routes/admin-growth.ts";
@@ -1938,6 +1939,7 @@ app.post("/api/jobs/ebay-retention", (c) => handleEbayRetentionCron(c));
 app.post("/api/jobs/supply-sample", (c) => handleSupplySampleCron(c));
 // US-3198 AC4: the daily "your extension queue is still waiting" push.
 app.post("/api/jobs/extension-queue-stale", (c) => handleExtensionQueueStaleCron(c));
+app.post("/api/jobs/webhook-retry", (c) => handleWebhookRetryCron(c));
 // US-3453: the half-hourly "a delist is still waiting and no browser has run"
 // nudge, the second sentence after the sale-time notice.
 app.post("/api/jobs/delist-nudge", (c) => handleDelistNudgeCron(c));

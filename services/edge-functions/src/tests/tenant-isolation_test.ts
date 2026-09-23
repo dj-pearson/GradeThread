@@ -7232,6 +7232,68 @@ Deno.test({
   },
 });
 
+// ── Public API v1: account webhooks (00830) ──────────────────────────
+//
+// The webhook is one row per ACCOUNT now, keyed by the API key owner, and the
+// routes take no id at all. So the cross-tenant question is not "can B name A's
+// row" but "does anything B's key reaches resolve to A's row": the delivery
+// log, the configured URL, and the secret rotation. A holds an endpoint with
+// no secret and one delivery; B holds neither.
+
+Deno.test({
+  name: "B's API key cannot see A's webhook deliveries (GET /api/v1/webhook/deliveries)",
+  ignore: !CONFIGURED || !B_API_KEY || !Deno.env.get("TEST_USER_A_WEBHOOK_EVENT_ID"),
+  fn: async () => {
+    const eventId = Deno.env.get("TEST_USER_A_WEBHOOK_EVENT_ID")!;
+    const res = await fetch(`${BASE}/api/v1/webhook/deliveries?limit=100`, {
+      headers: apiKeyHeaders(B_API_KEY!),
+    });
+    const body = await res.text();
+    assert(!body.includes(eventId), "B's delivery log returned A's event id");
+  },
+});
+
+Deno.test({
+  name: "A's own API key CAN see A's webhook delivery — not a blanket denial",
+  ignore: !CONFIGURED || !A_API_KEY || !Deno.env.get("TEST_USER_A_WEBHOOK_EVENT_ID"),
+  fn: async () => {
+    const eventId = Deno.env.get("TEST_USER_A_WEBHOOK_EVENT_ID")!;
+    const res = await fetch(`${BASE}/api/v1/webhook/deliveries?limit=100`, {
+      headers: apiKeyHeaders(A_API_KEY!),
+    });
+    const body = await res.text();
+    assertEquals(res.status, 200, `owner read failed: ${body.slice(0, 200)}`);
+    assert(body.includes(eventId), "the owner's delivery log did not include the event");
+  },
+});
+
+Deno.test({
+  name: "B's API key does not read A's webhook URL, and B's rotate cannot mint A a secret",
+  ignore: !CONFIGURED || !A_API_KEY || !B_API_KEY || !Deno.env.get("TEST_USER_A_WEBHOOK_EVENT_ID"),
+  fn: async () => {
+    const got = await fetch(`${BASE}/api/v1/webhook`, { headers: apiKeyHeaders(B_API_KEY!) });
+    const gotBody = await got.text();
+    assert(
+      !gotBody.includes("tenant-a-fixture.example.com"),
+      "GET /api/v1/webhook as B returned A's URL",
+    );
+
+    const rotated = await fetch(`${BASE}/api/v1/webhook/secret/rotate`, {
+      method: "POST",
+      headers: apiKeyHeaders(B_API_KEY!),
+    });
+    await rotated.body?.cancel();
+    assertDenied(rotated.status, "POST /api/v1/webhook/secret/rotate as B (B has no webhook)");
+
+    // The write side: A's endpoint must still be secretless after B's call.
+    const mine = await fetch(`${BASE}/api/v1/webhook`, { headers: apiKeyHeaders(A_API_KEY!) });
+    const mineBody = await mine.json();
+    assertEquals(mine.status, 200);
+    assertEquals(mineBody.data.webhook_url, "https://tenant-a-fixture.example.com/hook");
+    assertEquals(mineBody.data.has_signing_secret, false, "B's rotate gave A's webhook a secret");
+  },
+});
+
 // ── MCP connector tools (US-9112) ──────────────────────────────────
 //
 // Every tool in the registry is exercised here as tenant B against tenant A's
