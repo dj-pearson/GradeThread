@@ -392,7 +392,7 @@ Deno.test("US-3345 AC3: both per-image fan-outs stagger ONLY the first call, beh
   );
   for (const region of regions) {
     assert(
-      !/await\s+analyzeImage\s*\(/.test(region),
+      !/\bawait\s+analyzeImage\s*\(/.test(region),
       "a per-image call inside the fan-out is now awaited. That serialises a " +
         "WHOLE vision call per photo; the stagger releases 2..N at photo 1's " +
         "first token, and only when GRADING_CACHE_STAGGER is on.",

@@ -251,7 +251,8 @@ async function ensureLedgerBuiltOnce(): Promise<number> {
   if (error) throw error;
   if ((count ?? 0) === 0) return rebuildMyLedger();
 
-  const { data: auth } = await supabase.auth.getSession();
+  const { data: auth, error: authError } = await supabase.auth.getSession();
+  if (authError) throw authError;
   const userId = auth.session?.user.id;
   if (!userId) return count ?? 0;
 
