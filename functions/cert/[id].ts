@@ -262,12 +262,23 @@ export async function renderCertificate(context: Ctx): Promise<Response> {
     : "";
 
   // US-1413: the full photo gallery (was returned by the endpoint but ignored).
+  //
+  // The src/href are the stable /cert-photo/<id>/<n> paths, NOT img.url. The
+  // upstream url is a storage URL signed for 15 minutes (CERT_IMAGE_TTL in
+  // content-public.ts), and this HTML is cached for up to a day
+  // (SSR_CACHE_CONTROL + withEdgeCache), so any render older than 15 minutes
+  // showed crawlers, no-JS viewers and the pre-hydration paint a grid of 403s.
+  // /cert-photo signs per request behind the same publicity gate, and n is the
+  // position in this same ordering (the JSON-LD below uses the same urls).
+  // Relative, like the slab img above, so a preview deploy loads its own
+  // origin's photos.
+  const galleryUrls = certGalleryImageUrls("", cert.id, cert.images?.length ?? 0);
   const galleryHtml = cert.images && cert.images.length > 0
     ? `<h2>Garment Photos</h2><div class="cert-gallery">${
       cert.images
         .map(
           (img, i) =>
-            `<a href="${escape(img.url)}" target="_blank" rel="noopener"><img src="${escape(img.url)}" loading="${i === 0 ? "eager" : "lazy"}" alt="${escape(formatLabel(img.image_type) ?? "Garment photo")}"></a>`,
+            `<a href="${escape(galleryUrls[i])}" target="_blank" rel="noopener"><img src="${escape(galleryUrls[i])}" loading="${i === 0 ? "eager" : "lazy"}" alt="${escape(formatLabel(img.image_type) ?? "Garment photo")}"></a>`,
         )
         .join("")
     }</div>`
@@ -463,8 +474,8 @@ export async function renderCertificate(context: Ctx): Promise<Response> {
     category: cert.garment_category,
     brand: cert.brand,
     // US-2206: the FULL ordered gallery, as stable /cert-photo urls. The
-    // signed `cert.images[].url` values render the grid above but expire in 15
-    // minutes, so they could never go in structured data — a crawler fetching
+    // signed `cert.images[].url` values expire in 15 minutes, so they could
+    // never go in structured data (or, since grading.md action 5, the grid) — a crawler fetching
     // one later gets a 403. Falls back to nothing (not the signed hero) when
     // the cert has no photos: an expiring URL in JSON-LD is worse than no
     // image field, which the builder omits gracefully.
