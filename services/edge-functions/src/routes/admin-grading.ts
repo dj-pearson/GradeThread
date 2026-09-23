@@ -2059,7 +2059,7 @@ adminGradingRoutes.patch("/prompts/:id/shadow", async (c) => {
 
   const { data: row, error: loadErr } = await supabaseAdmin
     .from("ai_prompt_versions")
-    .select("id, stage, prompt_text, is_shadow, shadow_sample_rate, shadow_daily_cap")
+    .select("id, stage, prompt_text, is_shadow, is_active, shadow_sample_rate, shadow_daily_cap")
     .eq("id", id)
     .maybeSingle();
   if (loadErr) return failSafe(c, 500, "Couldn't load the prompt.", loadErr, "admin.grading.shadow.load");
