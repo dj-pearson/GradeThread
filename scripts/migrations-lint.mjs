@@ -117,6 +117,16 @@ export const KNOWN_GAPS = new Map([
       + "That branch deletes this entry when it lands.",
   ],
   [
+    "00831",
+    "claimed by a sibling branch of the 2026-09-23 module-plan round while "
+      + "00833 was written. The branch that lands it deletes this entry.",
+  ],
+  [
+    "00832",
+    "claimed by a sibling branch of the 2026-09-23 module-plan round while "
+      + "00833 was written. The branch that lands it deletes this entry.",
+  ],
+  [
     "00527",
     "held on purpose: 00527_revoke_public_function_execute.sql.BLOCKED. The " +
       "suffix is the safety mechanism (US-2403 — a denied function call " +

@@ -72,6 +72,56 @@ stronger claim for one of them, `check-prod-migration.ts` is the tool.
 Nothing below 00786 was touched, and the six genuinely-held branches in the next
 section are unchanged and still waiting.
 
+## HELD: 00833_one_ebay_draft_per_item.sql (marketplaces plan action 3 - one AutoLister eBay draft per item)
+
+**What it does.** Demotes duplicate eBay drafts, then adds
+`uq_listings_one_ebay_draft_per_item`, a partial unique index on
+`listings(inventory_item_id) WHERE platform = 'ebay' AND listing_status = 'draft'`.
+
+**Why.** `generateListing` wrote the draft as select-then-insert with nothing
+behind it, so a generation that outlived its batch timeout and the retry of
+the same job could both insert. The edge half (same commit) aborts the
+generation on timeout, re-checks the job is still `running` on its attempt
+before writing, and turns a 23505 from this index into an update of the
+surviving draft.
+
+**Duplicates are DEMOTED, not deleted.** Per item the keeper is the draft with
+an eBay listing id, else an offer id, else a publish schedule, else the most
+recently updated. Every other eBay draft for that item becomes `ended`
+(`is_active` follows via trigger), loses `scheduled_publish_at`, and gets
+`platform_fields.dedupe_00833 = {kept_listing_id, demoted_at}`. Before
+applying, the owner can count what will move:
+
+```sql
+select count(*) - count(distinct inventory_item_id) as rows_to_demote
+from public.listings where platform = 'ebay' and listing_status = 'draft';
+```
+
+After, `select id from public.listings where platform_fields ? 'dedupe_00833'`
+finds exactly the demoted rows (to delete, or to restore by hand).
+
+**Proved on a local Postgres 16 clone at 00830:** seeded three items (three
+eBay drafts, one with a schedule; one lone draft; two drafts where the older
+holds an offer id) plus a Poshmark draft pair and an active eBay row. First
+apply: `UPDATE 3`, the scheduled draft and the offer-holding draft kept, the
+Poshmark pair and the active row untouched. Second apply: `UPDATE 0`, index
+skipped with a NOTICE. A third eBay draft insert then fails with 23505; an
+`ended` one inserts fine.
+
+**Risk: LOW-MEDIUM.** Writes existing rows (the demotion). Any path that
+inserts a SECOND eBay draft for an item now gets 23505 instead: the web
+"create drafts" bulk action (`src/pages/flipdesk/listings-actions.ts`) already
+skips drafted items and would report the error per item. Relist, cross-push
+and extension writeback create drafts only for extension channels, so the
+eBay-only predicate leaves them alone.
+
+**Order.** Apply before the edge redeploy (boot guard expects 00833). The edge
+code works without the index (it just loses the race protection), so a
+deploy that lands first does not break. Then `NOTIFY pgrst, 'reload schema';`
+(migrate:prod sends it). 00831 and 00832 are claimed by sibling branches of
+the same plan round; if either does not land, the gap is safe (see the
+00793-00795 note in schema-version.ts).
+
 ## HELD: 00830_account_webhooks.sql (extensions-api plan actions 2+3 - customer webhook secret, one delivery per account, durable retries)
 
 **What it does.** Creates three deny-all tables (RLS on, no policies, revoked
