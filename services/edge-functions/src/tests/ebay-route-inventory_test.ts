@@ -8,7 +8,11 @@
 //   1. the mounted router serves exactly the method + path set below, which was
 //      read off the router BEFORE the split (124 routes);
 //   2. Hono runs the first matching handler, so any two routes that can match
-//      the same request must stay in the order they were registered in then;
+//      the same request must stay in the order listed below, and in that order
+//      the more literal route comes first. The pre-split order had
+//      GET /promotions/:promotionId ahead of /promotions/performance and
+//      /promotions/stack-check, which swallowed both; this file pinned that
+//      bug until ebay-promotions-route-order_test.ts caught it;
 //   3. every flipdesk-ebay-*.ts router is mounted, and each route is declared in
 //      exactly one file (route-shadowing_test.ts checks one file at a time, so a
 //      duplicate across two of these files would get past it).
@@ -22,8 +26,10 @@ import "./_env.ts";
 import { assert, assertEquals } from "@std/assert";
 import { flipdeskEbayRoutes } from "../routes/flipdesk-ebay.ts";
 
-// Registration order as it was before the split. Only the order of pairs that
-// can match the same request matters (test 2); the rest is kept for reading.
+// Registration order as it was before the split, except that
+// GET /promotions/:promotionId now follows the two literal GETs it used to
+// shadow. Only the order of pairs that can match the same request matters
+// (test 2); the rest is kept for reading.
 const EXPECTED_ROUTES = [
   "GET /oauth/debug",
   "GET /oauth/start",
@@ -42,7 +48,6 @@ const EXPECTED_ROUTES = [
   "GET /catalog/match",
   "POST /catalog/adopt",
   "GET /promotions",
-  "GET /promotions/:promotionId",
   "POST /promotions",
   "PUT /promotions/:promotionId",
   "DELETE /promotions/:promotionId",
@@ -79,6 +84,7 @@ const EXPECTED_ROUTES = [
   "GET /promotions/performance",
   "POST /promotions/sync",
   "GET /promotions/stack-check",
+  "GET /promotions/:promotionId",
   "GET /marketing/suggestions",
   "POST /marketing/campaign/:action",
   "POST /marketing/ads/bulk",
@@ -195,16 +201,25 @@ Deno.test("eBay router serves exactly the pre-split method + path set", () => {
   );
 });
 
-Deno.test("routes that can match the same request keep their pre-split order", () => {
+/** Number of `:param` segments; fewer means more literal. */
+const paramCount = (route: string) =>
+  segments(route.split(" ")[1]!).filter((s) => s.startsWith(":")).length;
+
+Deno.test("routes that can match the same request keep their order, literal first", () => {
   const got = mounted();
   const pairs = overlappingPairs(EXPECTED_ROUTES);
   // Guards the guard: an overlap detector that stopped matching would pass
   // with nothing to check. These two are the ones the table has today.
   assertEquals(pairs, [
-    ["GET /promotions/:promotionId", "GET /promotions/performance"],
-    ["GET /promotions/:promotionId", "GET /promotions/stack-check"],
+    ["GET /promotions/performance", "GET /promotions/:promotionId"],
+    ["GET /promotions/stack-check", "GET /promotions/:promotionId"],
   ]);
   for (const [first, second] of pairs) {
+    assert(
+      paramCount(first) < paramCount(second),
+      `${first} is listed before ${second} but is not more literal: a :param ` +
+        "route ahead of a literal one serves the literal path as a param value",
+    );
     assert(
       got.indexOf(first) < got.indexOf(second),
       `${first} must stay registered before ${second}: both match one request and ` +
