@@ -72,6 +72,39 @@ stronger claim for one of them, `check-prod-migration.ts` is the tool.
 Nothing below 00786 was touched, and the six genuinely-held branches in the next
 section are unchanged and still waiting.
 
+## HELD: 00825_api_keys_no_client_writes.sql (security - a key owner could raise their own API tier and clear their quota)
+
+**What it does.** Drops three RLS policies on `public.api_keys`: "Users can
+update own API keys" (00005/00322), "Users can create API keys" (00001) and
+"Workspace admins can create api keys" (00042). SELECT and DELETE policies stay.
+No table change, no grant change.
+
+**Why.** `api-key-auth.ts` trusts `rate_tier` ('enterprise' is the top
+per-minute tier) and reads a NULL `monthly_quota` as unlimited. The UPDATE
+policy had no column limit, so any key owner could PATCH both through
+PostgREST. The INSERT policies let a client write both on a new row. Every
+write to `api_keys` in the code goes through the edge's service-role client
+(`routes/api-keys.ts`, `api-v1.ts` webhook, `admin-compliance.ts`); `src/`,
+`ios/` and `android/` never write the table.
+
+**Proved on a local Postgres 16 with all migrations applied:**
+`node scripts/check-api-key-self-upgrade.mjs --dsn ...` goes red before 00825
+(owner UPDATE changes 1 row, owner and admin INSERT allowed, key ends
+`enterprise/null`) and green after (0 rows, both inserts REFUSED_42501, key
+stays `null/100`; owner still reads and deletes, service role still inserts).
+Applied twice with no error.
+
+**Risk: LOW.** Nothing in the client writes the table. Not covered here:
+POST /api/keys still mints keys with no quota, so deleting a capped key and
+minting a new one escapes the cap (extensions-api plan, account-level quota).
+
+**After applying, confirm on prod** that the three policies are gone
+(`select polname from pg_policy where polrelid = 'public.api_keys'::regclass`).
+A local cluster cannot answer that.
+
+**Order.** Apply any time, BEFORE the edge redeploy (the boot guard expects
+00825). Then `NOTIFY pgrst, 'reload schema';` (migrate:prod sends it).
+
 ## HELD: 00824_get_or_create_source_tenant_scope.sql (security - a signed-in user could write another seller's sources)
 
 **What it does.** `CREATE OR REPLACE` of `public.get_or_create_source`, same

@@ -623,6 +623,13 @@ if (on("db")) {
       "db: get_or_create_source is tenant-scoped (00824)",
       "node scripts/check-source-tenant-scope.mjs",
     );
+    // 00825: api-key-auth trusts rate_tier and monthly_quota off the row, so
+    // no client UPDATE or INSERT policy may exist on api_keys. The owner still
+    // reads and deletes; the service role still mints.
+    run(
+      "db: an API key owner cannot raise their own tier or quota (00825)",
+      "node scripts/check-api-key-self-upgrade.mjs",
+    );
     // US-3318: 00806 is the one held migration that rewrites seller data. This
     // runs its six worked examples against real rows and checks that
     // listing_price and platform_fields move together -- the composer reads the
