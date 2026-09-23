@@ -1,13 +1,25 @@
 name: Lighthouse CI
 
-# Core Web Vitals performance budget (US-305, mobile profile US-974). Runs
-# Lighthouse against the PRERENDERED static build (dist/, produced by
-# `npm run build`) under BOTH a desktop (lighthouserc.json) and a MOBILE
-# (lighthouserc.mobile.json) profile, then posts the results side by side as a
-# NON-BLOCKING PR comment + Job Summary. Mobile-first indexing makes the mobile
-# profile the one that drives ranking. Budgets are configured at "warn" level in
-# each config, and both collect steps are continue-on-error, so this workflow
-# never blocks a merge — it's a report, not a gate (the merge gate is ci.yml).
+# Core Web Vitals, SEO and accessibility for the public site (US-305, mobile
+# profile US-974). Two jobs:
+#
+# `lighthouse` measures the PRERENDERED static pages from `npm run build`,
+# served by `vite preview` on the same clean URLs the SPA routes (so the page
+# measured is the real one, not the SPA's not-found page), under a desktop
+# (lighthouserc.json) and a MOBILE (lighthouserc.mobile.json) profile. It posts
+# a PR comment + Job Summary, and it FAILS when an "error"-level budget is
+# missed: SEO >= 0.95 and accessibility >= 0.9 on both profiles, CLS <= 0.1 on
+# desktop. Performance, LCP, TBT and mobile CLS stay "warn" (mobile CLS on /faq
+# measured 0.124 and 0.000 in two runs of one build, from web-font swap).
+#
+# `prod-ssr` runs weekly (and on demand) against the LIVE edge-SSR pages that
+# carry the search traffic and never exist in dist/: two /condition-index
+# curves, one /blog post, one /cert and /help, picked from the live sitemaps by
+# scripts/lighthouse-prod-urls.mjs. It is report-only (lighthouserc.prod.json is
+# all "warn"): a gate on the network would fail for reasons no PR can fix. The
+# result is posted as a comment on the open "Lighthouse weekly: live SSR pages"
+# issue, which notifies everyone watching the repo, instead of only landing in
+# a Job Summary nobody opens.
 
 on:
   pull_request:
@@ -25,7 +37,6 @@ concurrency:
 
 permissions:
   contents: read
-  pull-requests: write # to upsert the report comment
 
 # Non-secret placeholder config so `npm run build` can prerender (a prerendered
 # route imports the Supabase client, which throws at module load when unset).
@@ -39,8 +50,11 @@ env:
 
 jobs:
   lighthouse:
-    name: Lighthouse (Core Web Vitals report)
+    name: Lighthouse (static pages, gated)
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write # to upsert the report comment
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -53,7 +67,9 @@ jobs:
 
       # Mobile-first indexing makes this the profile that drives ranking, so it
       # runs first. numberOfRuns stays at 1 in each config to keep total runtime
-      # reasonable across the two passes.
+      # reasonable across the two passes. continue-on-error lets the desktop
+      # pass and the report still run after a miss; the last step turns a miss
+      # back into a red job.
       - name: Run Lighthouse CI (mobile)
         id: lhci_mobile
         continue-on-error: true
@@ -130,7 +146,7 @@ jobs:
                 "## 🔦 Lighthouse CI (Core Web Vitals)",
                 "",
                 "Scores are 0–100 across two profiles; the **📱 Mobile** profile is the one that drives Google's mobile-first ranking. Open a report for the per-metric numbers.",
-                "Budgets (non-blocking) — Mobile: **LCP < 4.0s · CLS < 0.1 · TBT < 300ms · Perf ≥ 90**; Desktop: **LCP < 2.5s · CLS < 0.1 · TBT < 200ms · Perf ≥ 90**.",
+                "Gating on both profiles: **SEO >= 95, A11y >= 90**, plus **CLS < 0.1** on desktop. Report-only: Mobile **LCP < 4.0s, CLS < 0.1, TBT < 300ms, Perf >= 90**; Desktop **LCP < 2.5s, TBT < 200ms, Perf >= 90**.",
                 "",
                 ...section("📱 Mobile (mobile-first — ranking signal)", mob, mobileLinks),
                 "",
@@ -159,3 +175,98 @@ jobs:
             } catch (e) {
               core.info(`Lighthouse comment skipped: ${e}`);
             }
+
+      # The gate. An lhci step fails when an "error" assertion misses OR when
+      # collection itself breaks (a URL that 404s). Both used to vanish into
+      # continue-on-error: the old staticDistDir URLs (/pricing/index.html)
+      # did not exist in dist/, whose prerender writes flat /pricing.html.
+      - name: Fail on a missed error-level budget
+        if: always() && (steps.lhci_mobile.outcome == 'failure' || steps.lhci_desktop.outcome == 'failure')
+        run: |
+          echo "::error::Lighthouse missed a gating budget (mobile: ${{ steps.lhci_mobile.outcome }}, desktop: ${{ steps.lhci_desktop.outcome }}). The failing step's log names the assertion."
+          exit 1
+
+  prod-ssr:
+    name: Lighthouse (live SSR pages, weekly report)
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write # to comment on the weekly report issue
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Pick live URLs from the sitemaps
+        id: urls
+        run: node scripts/lighthouse-prod-urls.mjs
+
+      - name: Run Lighthouse CI (live, mobile)
+        id: lhci_prod
+        continue-on-error: true
+        uses: treosh/lighthouse-ci-action@v12
+        with:
+          urls: ${{ steps.urls.outputs.urls }}
+          configPath: ./lighthouserc.prod.json
+          temporaryPublicStorage: true
+          uploadArtifacts: true
+
+      - name: Report to the weekly issue
+        if: always()
+        uses: actions/github-script@v7
+        env:
+          LH_MANIFEST: ${{ steps.lhci_prod.outputs.manifest }}
+          LH_LINKS: ${{ steps.lhci_prod.outputs.links }}
+          LH_URLS: ${{ steps.urls.outputs.urls }}
+          LH_OUTCOME: ${{ steps.lhci_prod.outcome }}
+        with:
+          script: |
+            const parse = (raw, fallback) => { try { return JSON.parse(raw || ""); } catch { return fallback; } };
+            const manifest = parse(process.env.LH_MANIFEST, []);
+            const links = parse(process.env.LH_LINKS, {});
+            const wanted = (process.env.LH_URLS || "").split("\n").filter(Boolean);
+            const pct = (n) => (typeof n === "number" ? Math.round(n * 100) : "-");
+            const pathOf = (u) => { try { return new URL(u).pathname; } catch { return u; } };
+            const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+
+            const measured = new Map();
+            for (const r of Array.isArray(manifest) ? manifest : []) {
+              if (r.isRepresentativeRun === false || measured.has(r.url)) continue;
+              measured.set(r.url, r.summary || {});
+            }
+            const rows = wanted.map((u) => {
+              const s = measured.get(u);
+              if (!s) return `| \`${pathOf(u)}\` | not measured | | | | |`;
+              const report = links[u] ? `[report](${links[u]})` : "";
+              return `| \`${pathOf(u)}\` | ${pct(s.performance)} | ${pct(s.seo)} | ${pct(s.accessibility)} | ${pct(s["best-practices"])} | ${report} |`;
+            });
+            const noCert = !wanted.some((u) => pathOf(u).startsWith("/cert/"));
+            const body = [
+              `### Lighthouse, live SSR pages, ${new Date().toISOString().slice(0, 10)}`,
+              "",
+              "Mobile profile, one run per page. Report-only: nothing here blocks a merge.",
+              "",
+              "| Page | Perf | SEO | A11y | Best Practices | |",
+              "|---|---|---|---|---|---|",
+              ...(rows.length ? rows : ["| no URLs were picked | | | | | |"]),
+              "",
+              ...(noCert ? ["No certificate was measured: /sitemap-certs.xml was empty or unreachable.", ""] : []),
+              ...(process.env.LH_OUTCOME === "failure" ? ["The Lighthouse step failed; the run log says why.", ""] : []),
+              `[Workflow run](${runUrl}). Reports expire after about 7 days.`,
+            ].join("\n");
+
+            await core.summary.addRaw(body).write();
+
+            const title = "Lighthouse weekly: live SSR pages";
+            const { owner, repo } = context.repo;
+            const open = await github.paginate(github.rest.issues.listForRepo, { owner, repo, state: "open", per_page: 100 });
+            let issue = open.find((i) => !i.pull_request && i.title === title);
+            if (!issue) {
+              issue = (await github.rest.issues.create({
+                owner, repo, title,
+                body: "Weekly Lighthouse scores for the edge-SSR pages that carry search traffic (/condition-index, /blog, /cert, /help), one comment per run. Posted by .github/workflows/lighthouse.yml, job `prod-ssr`. Closing this is fine: the next run opens a new one.",
+              })).data;
+            }
+            await github.rest.issues.createComment({ owner, repo, issue_number: issue.number, body });
