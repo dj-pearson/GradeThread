@@ -64,7 +64,49 @@ const gt = new GradeThread({
 | `grades.list({ page, limit, status })` | List grades, paginated | `read` |
 | `sandbox.grades.create(input?)` | Free mock submit (no credits) | `submit` |
 | `sandbox.grades.get(id)` | Free mock fetch | `read` |
-| `webhook.set(url \| null)` | Set the grade-completion webhook | `webhook_manage` |
+| `webhook.set(url \| null)` | Set or clear the grade-completion webhook; the first set returns `signing_secret` once | `webhook_manage` |
+| `webhook.get()` | Read the webhook URL and whether it has a signing secret | `webhook_manage` |
+| `webhook.rotateSecret()` | Mint a new signing secret, returned once | `webhook_manage` |
+| `webhook.deliveries({ limit })` | Recent deliveries: status, attempts, last response code | `webhook_manage` |
+
+## Webhooks
+
+There is one webhook per account, and each finished grade sends one
+`grade.completed` event however many API keys you have. The call that first
+sets a URL returns a `signing_secret` starting `whsec_`. It is shown once, so
+store it then; `webhook.rotateSecret()` gives you a new one.
+
+Deliveries use the [Standard Webhooks](https://www.standardwebhooks.com/)
+format. Every POST carries:
+
+| Header | Value |
+| --- | --- |
+| `webhook-id` | Event id, the same on every retry (and `id` in the body). Use it to drop repeats. |
+| `webhook-timestamp` | Unix seconds when the attempt was signed. |
+| `webhook-signature` | `v1,` + base64 HMAC-SHA256 of `{webhook-id}.{webhook-timestamp}.{raw body}`, keyed by the base64-decoded part of the secret after `whsec_`. |
+
+`verifyWebhook` checks the signature and rejects a timestamp more than five
+minutes off. Give it the raw body, not re-serialised JSON:
+
+```ts
+import express from "express";
+import { verifyWebhook } from "@gradethread/sdk";
+
+app.post("/hooks/gradethread", express.text({ type: "*/*" }), async (req, res) => {
+  if (!(await verifyWebhook(req.body, req.headers, process.env.GT_WEBHOOK_SECRET!))) {
+    return res.status(400).end();
+  }
+  const event = JSON.parse(req.body);
+  // event.id, event.event === "grade.completed", event.data.grade_report
+  res.status(204).end();
+});
+```
+
+Answer with any 2xx within 10 seconds. Anything else is retried after 5 min,
+15 min, 1 h, 3 h and 8 h, then marked failed; `webhook.deliveries()` shows each
+one. A webhook set before signing secrets existed has no `whsec_` secret and
+sends only the deprecated `X-GradeThread-Signature` header until you call
+`webhook.rotateSecret()`.
 
 ## Errors
 

@@ -122,6 +122,17 @@ export const KNOWN_GAPS = new Map([
       "suffix is the safety mechanism (US-2403 — a denied function call " +
       "segfaults the Supabase Postgres image), not an oversight.",
   ],
+  // ── Handed to parallel module-plans branches, 2026-09-23 ──────────────────
+  // 00832 (account webhooks) was written while 00824-00831 were assigned to
+  // other branches of the same run. Self-clearing like the held entries above:
+  // whichever branch lands one of these files deletes its line here.
+  ...["00824", "00825", "00826", "00827", "00828", "00829", "00830", "00831"].map(
+    (v) => [
+      v,
+      "assigned to a parallel module-plans branch (2026-09-23) that had not "
+        + "merged when 00832 was written. The branch that lands it deletes this entry.",
+    ],
+  ),
 ]);
 
 export const SHAPE = /^(\d{5,6})_[a-z0-9_]+\.sql(\.BLOCKED)?$/;

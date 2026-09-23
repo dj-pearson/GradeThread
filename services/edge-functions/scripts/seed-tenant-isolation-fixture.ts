@@ -443,6 +443,27 @@ async function main(): Promise<void> {
   });
   out.TEST_USER_B_API_KEY = bKey.fullKey;
 
+  // 00832: A's account webhook and one recorded delivery. The endpoint has NO
+  // secret on purpose, so "B rotated, and A still has no secret" is a readable
+  // assertion. B gets neither, which is what makes B's reads able to leak.
+  // The URL is never called: nothing in the suite finalizes a grade.
+  const { error: endpointError } = await admin.from("api_webhook_endpoints").insert({
+    user_id: aId,
+    url: "https://tenant-a-fixture.example.com/hook",
+  });
+  if (endpointError) die(`insert into api_webhook_endpoints failed: ${endpointError.message}`);
+  const aWebhookEventId = crypto.randomUUID();
+  await insert("webhook_deliveries", {
+    user_id: aId,
+    event_id: aWebhookEventId,
+    event_type: "grade.completed",
+    subject_id: "tenant-a-fixture-submission",
+    payload: { id: aWebhookEventId, event: "grade.completed", data: {} },
+    status: "delivered",
+    attempts: 1,
+  });
+  out.TEST_USER_A_WEBHOOK_EVENT_ID = aWebhookEventId;
+
   out.TEST_USER_A_TEMPLATE_ID = await insert("listing_templates", {
     user_id: aId,
     name: "Tenant-A template",

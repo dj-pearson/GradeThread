@@ -109,7 +109,7 @@ const CONNECTOR_SCOPES: Array<{ scope: string; grants: string }> = [
     grants:
       "Grade items, write and edit drafts, publish, reprice and end listings. This is the one that spends money.",
   },
-  { scope: "webhook_manage", grants: "Create and remove webhook subscriptions." },
+  { scope: "webhook_manage", grants: "Set or remove your webhook, rotate its signing secret, and read its delivery log." },
 ];
 
 const ENDPOINTS = [
@@ -123,7 +123,10 @@ const ENDPOINTS = [
   { method: "GET", path: "/api/v1/items/:id", scope: "read", desc: "Fetch one inventory item and its attributes." },
   { method: "GET", path: "/api/v1/listings", scope: "read", desc: "List marketplace listings, paginated." },
   { method: "GET", path: "/api/v1/sales", scope: "read", desc: "List completed sales, paginated." },
-  { method: "PATCH", path: "/api/v1/webhook", scope: "webhook_manage", desc: "Set the URL we POST to when a grade completes." },
+  { method: "PATCH", path: "/api/v1/webhook", scope: "webhook_manage", desc: "Set the URL we POST to when a grade completes. The first call returns your signing secret." },
+  { method: "GET", path: "/api/v1/webhook", scope: "webhook_manage", desc: "Read your webhook URL and whether it has a signing secret." },
+  { method: "POST", path: "/api/v1/webhook/secret/rotate", scope: "webhook_manage", desc: "Get a new signing secret. Shown once." },
+  { method: "GET", path: "/api/v1/webhook/deliveries", scope: "webhook_manage", desc: "Recent deliveries: status, attempts and the last response code." },
   { method: "POST", path: "/api/v1/sandbox/grades", scope: "submit", desc: "Free mock submit — returns a sample grade, no credits." },
   { method: "GET", path: "/api/v1/sandbox/grades/:id", scope: "read", desc: "Free mock fetch — returns a sample grade." },
   { method: "GET", path: "/api/v1/price-guide", scope: "read", desc: "List published Resale Condition Index items (the catalog)." },
@@ -164,9 +167,12 @@ const BATCH_EXAMPLE = `curl https://functions.gradethread.com/api/v1/grades/batc
 # Poll GET /api/v1/grades/batch/<batch_id> for per-garment results.`;
 
 const WEBHOOK_EXAMPLE = `POST <your webhook_url>
-X-GradeThread-Signature: <hex HMAC-SHA256 of the raw body>
+webhook-id: 6f1c…            (same on every retry of this event)
+webhook-timestamp: 1757000000
+webhook-signature: v1,<base64 HMAC-SHA256 of "{id}.{timestamp}.{raw body}">
 
 {
+  "id": "6f1c…",
   "event": "grade.completed",
   "data": {
     "submission_id": "…",
@@ -393,14 +399,40 @@ export function DevelopersPage() {
       <Section icon={Webhook} title="Webhooks">
         <p>
           Set a webhook URL with{" "}
-          <code className="rounded bg-muted px-1.5 py-0.5">PATCH /api/v1/webhook</code>{" "}
-          (or in your dashboard). When a grade finalizes we POST a{" "}
+          <code className="rounded bg-muted px-1.5 py-0.5">PATCH /api/v1/webhook</code>.
+          There is one webhook per account, so each grade sends one{" "}
           <code className="rounded bg-muted px-1.5 py-0.5">grade.completed</code>{" "}
-          event. Each delivery carries an{" "}
-          <code className="rounded bg-muted px-1.5 py-0.5">X-GradeThread-Signature</code>{" "}
-          header — an HMAC-SHA256 (hex) of the raw request body, signed with your
-          API key's secret hash — so you can verify authenticity. Failed
-          deliveries retry with backoff (5s / 30s / 120s).
+          event however many API keys you have. The first time you set a URL,
+          the response includes a{" "}
+          <code className="rounded bg-muted px-1.5 py-0.5">signing_secret</code>{" "}
+          that starts with{" "}
+          <code className="rounded bg-muted px-1.5 py-0.5">whsec_</code>. Save it:
+          we show it once. Need a new one? Call{" "}
+          <code className="rounded bg-muted px-1.5 py-0.5">POST /api/v1/webhook/secret/rotate</code>.
+        </p>
+        <p>
+          Deliveries follow the{" "}
+          <a
+            href="https://www.standardwebhooks.com/"
+            className="underline underline-offset-2"
+            rel="noopener noreferrer"
+            target="_blank"
+          >
+            Standard Webhooks
+          </a>{" "}
+          format, so their verification libraries work as-is. To check one by
+          hand, take the base64 part of your secret after{" "}
+          <code className="rounded bg-muted px-1.5 py-0.5">whsec_</code>, decode
+          it, and compute an HMAC-SHA256 over{" "}
+          <code className="rounded bg-muted px-1.5 py-0.5">{"{webhook-id}.{webhook-timestamp}.{raw body}"}</code>.
+          Base64 it and compare with the value after{" "}
+          <code className="rounded bg-muted px-1.5 py-0.5">v1,</code> in{" "}
+          <code className="rounded bg-muted px-1.5 py-0.5">webhook-signature</code>.
+          Reject a timestamp more than five minutes old, and use{" "}
+          <code className="rounded bg-muted px-1.5 py-0.5">webhook-id</code> to
+          ignore repeats. A failed delivery is retried for about 12 hours, and{" "}
+          <code className="rounded bg-muted px-1.5 py-0.5">GET /api/v1/webhook/deliveries</code>{" "}
+          shows every attempt.
         </p>
         <pre className="overflow-x-auto rounded-lg bg-slate-900 p-4 text-xs text-slate-100">
           <code>{WEBHOOK_EXAMPLE}</code>

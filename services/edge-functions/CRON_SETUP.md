@@ -674,4 +674,11 @@ curl -fsS -X POST -H "X-Internal-Job-Secret: $FLIPDESK_INTERNAL_JOB_SECRET" http
 ```bash
 curl -fsS -X POST -H "X-Internal-Job-Secret: $FLIPDESK_INTERNAL_JOB_SECRET" http://localhost:8787/api/jobs/trial-expiry
 ```
+
+### 94. webhook-retry
+**Frequency:** `*/5 * * * *`  ·  _200 with {ok:true, reclaimed, scanned, delivered, retried, exhausted, cancelled, skipped}; exhausted counts customer endpoints that ran out of attempts and is not a failure of this job_
+
+```bash
+curl -fsS -X POST -H "X-Internal-Job-Secret: $FLIPDESK_INTERNAL_JOB_SECRET" http://localhost:8787/api/jobs/webhook-retry
+```
 <!-- cron-setup:end -->
