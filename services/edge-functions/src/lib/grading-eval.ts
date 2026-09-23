@@ -755,6 +755,32 @@ export async function runPromptDryRun(
 }
 
 /**
+ * The eval verdict a prompt-version edit must wipe, or `{}` when it must not.
+ *
+ * `eval_passed`, `qualified_model` and `eval_run_id` describe the text and the
+ * scope that were EVALUATED. The admin PATCH lets an inactive row's
+ * `prompt_text` and `garment_scope` change after a pass, and both serving
+ * gates (activate, canary) read `eval_passed` as it stands, so an edited row
+ * would go live on a verdict it never earned. Clearing all three sends it back
+ * through the eval.
+ *
+ * Only a real change counts: re-saving the same text, or touching only the
+ * name or notes, keeps the verdict. Pure, so the rule is testable without a
+ * database. It never returns `is_active` or anything else that could promote.
+ */
+export function evalResetForPromptEdit(
+  existing: { prompt_text: string | null; garment_scope: string | null },
+  patch: { prompt_text?: unknown; garment_scope?: unknown },
+): { eval_passed?: null; qualified_model?: null; eval_run_id?: null } {
+  const textChanged = patch.prompt_text !== undefined &&
+    patch.prompt_text !== existing.prompt_text;
+  const scopeChanged = patch.garment_scope !== undefined &&
+    (patch.garment_scope ?? null) !== (existing.garment_scope ?? null);
+  if (!textChanged && !scopeChanged) return {};
+  return { eval_passed: null, qualified_model: null, eval_run_id: null };
+}
+
+/**
  * US-2300: THE gate that decides whether a prompt version may take live paid
  * traffic. One implementation, called by every path that routes traffic.
  *

@@ -31,6 +31,7 @@ import {
   runEval,
   runPromptDryRun,
   checkPromptServingEligibility,
+  evalResetForPromptEdit,
 } from "../lib/grading-eval.ts";
 import {
   activateExemplarSet,
@@ -611,7 +612,7 @@ adminGradingRoutes.patch("/prompts/:id", async (c) => {
 
   const { data: existing, error: readErr } = await supabaseAdmin
     .from("ai_prompt_versions")
-    .select("id, is_active, prompt_text")
+    .select("id, is_active, prompt_text, garment_scope")
     .eq("id", id)
     .maybeSingle();
   if (readErr) {
@@ -646,6 +647,10 @@ adminGradingRoutes.patch("/prompts/:id", async (c) => {
   if (Object.keys(patch).length === 0) {
     return c.json({ error: "Nothing to update" }, 400);
   }
+  // A changed text or scope is a different prompt from the one the eval
+  // scored, so its pass (and the model stamp and run it points at) goes too.
+  // Otherwise evaluate, edit, activate serves text no eval ever saw.
+  Object.assign(patch, evalResetForPromptEdit(existing, patch));
 
   const { data, error } = await supabaseAdmin
     .from("ai_prompt_versions")
