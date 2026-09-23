@@ -36,9 +36,9 @@ const REQUIRED: { file: string; id: string; token: string }[] = [
   { file: "src/pages/reset-password.tsx", id: "password", token: "new-password" },
   { file: "src/pages/reset-password.tsx", id: "confirm", token: "new-password" },
 
-  { file: "src/pages/settings.tsx", id: "currentPassword", token: "current-password" },
-  { file: "src/pages/settings.tsx", id: "newPassword", token: "new-password" },
-  { file: "src/pages/settings.tsx", id: "confirmPassword", token: "new-password" },
+  { file: "src/components/settings/security-settings-tab.tsx", id: "currentPassword", token: "current-password" },
+  { file: "src/components/settings/security-settings-tab.tsx", id: "newPassword", token: "new-password" },
+  { file: "src/components/settings/security-settings-tab.tsx", id: "confirmPassword", token: "new-password" },
 ];
 
 /**

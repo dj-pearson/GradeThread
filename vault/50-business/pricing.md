@@ -295,7 +295,7 @@ authoritative one. The hard threshold is not a named constant at all: it is the
 > `users.usage_alert_thresholds jsonb NOT NULL DEFAULT '[80]'` (migration
 > 00071), the setting is `POST /api/payments/usage-alerts` validating against
 > `ALLOWED_THRESHOLDS = {50, 80, 95}`, and the UI is the chooser in
-> `src/pages/settings.tsx`. It is honoured at runtime too, not merely stored —
+> `src/components/settings/notifications-settings-tab.tsx`. It is honoured at runtime too, not merely stored —
 > `usage-alert-watcher.tsx` calls `crossedThreshold(capUsage, usage.thresholds)`.
 > The bullet ten lines below had said so correctly the whole time, so the note
 > contradicted itself for one commit.

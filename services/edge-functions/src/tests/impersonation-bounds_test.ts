@@ -269,7 +269,7 @@ Deno.test("US-2351: the browser no longer decides the password check", () => {
   // Two places deciding the same thing is how one of them drifts, and the
   // browser's answer was never the one that mattered.
   const settings = Deno.readTextFileSync(
-    new URL("../../../../src/pages/settings.tsx", import.meta.url),
+    new URL("../../../../src/components/settings/danger-zone-card.tsx", import.meta.url),
   );
   const at = settings.indexOf("async function handleDelete()");
   assert(at > -1, "handleDelete was renamed");
