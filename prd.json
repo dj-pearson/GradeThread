@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-3471",
+  "nextId": "US-3496",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -2486,9 +2486,10 @@
         "A compound value with no table entry resolves by reading its tokens right to left (Sage Green -> Green, Dark Olive Green -> Green, Heather Charcoal -> Gray)",
         "The file stays a single-file verbatim mirror at src/lib/aspect-normalize.ts; both test suites cover the new step",
         "scripts/aspect-value-coverage.ts reads ebay_category_aspects back and reports, per aspect, which values still resolve to null against the real allowed lists; --reference prints the harvested allowed-value union",
-        "OPERATOR: run scripts/aspect-value-coverage.ts against prod once the cache is warm, and fold any reported misses into the family tables"
+        "OPERATOR: run scripts/aspect-value-coverage.ts against prod once the cache is warm, and fold any reported misses into the family tables",
+        "Seed family and synonym tables for Type, Style, Fit, Closure, Rise, Neckline, Pattern and Color from the 2026-09-23 prod miss list (item-specifics plan): Tee/T Shirt -> T-Shirt, Button Down -> Button-Up, Zipper/Zip Fly -> Zip, Polo Collar/Collar -> Collared, Navy -> Blue, Grey -> Gray, Standard -> Regular, Fitted -> Slim; each maps only to a value the leaf offers, and a case per entry sits in the shared fixture of US-3479"
       ],
-      "notes": "2026-08-30. AC1-AC4 done; AC5 is the operator run and is why this stays open.\n\nFamily tables landed in services/edge-functions/src/lib/aspect-normalize.ts as step 6 of normalizeAspectValue, mirrored verbatim to src/lib/aspect-normalize.ts. Fourteen kinds, picked by the aspect display name with the specific test first, so \"Hardware Color\" reaches colour and \"Sleeve Length\" reaches sleeve rather than hem.\n\nMEASURED, not asserted. 87 descriptive values (the ones the ai-extract prompt hints actually tell the model to produce) run against eBay's real apparel lists: 83/87 resolved on the first pass, and the four misses were real table gaps, not test noise. Knee-Length had no bucket in a Mini/Midi/Maxi skirt list, Henley listed Round Neck but not Crew Neck, Tie-Dye and Houndstooth listed only their own spellings. Adding the fallback buckets took it to 87/87. Edge suite 20 passed / 0 failed, web mirror 11 passed / 0 failed, tsc -b clean, deno lint + check clean.\n\nORDERING CARRIES THE JUDGEMENT, and that is the part to read before editing the tables. Coral is shelved under Pink before Orange and Teal under Blue before Green because those are the buckets eBay buyers filter on. A value that belongs to neither bucket more than the other is deliberately absent from the table, so it falls through to null and a human fills it.\n\nWHAT WAS ALREADY THERE, so nobody rebuilds it: eBay's real allowed values per category have been cached in public.ebay_category_aspects since 00030 (30-day TTL, shared across all users, read-through in lib/ebay-client.ts getCategoryAspects), and the aspect REFINE pass already builds a JSON-schema enum from them (ai-extract.ts buildAspectTool). Neither was the gap. The gap was the five column-owned attributes (Brand/Size/Color/Material/Style) plus the wider canonical set, which the capture pass writes as free text on purpose, and which then had only spelling equivalences to get them onto eBay's list.\n\nAC5, for whoever runs it: deno run --allow-net --allow-env scripts/aspect-value-coverage.ts against prod. It is read-only on one cache table. --reference prints the harvested allowed-value union per aspect, which is the \"one big reference\" without anyone researching eBay by hand. It could not be run here; no prod service-role key is on this box (.env.example only). | 2026-08-30, second pass. The first cut fixed the wrong half, and running AC5 against prod is what showed it.\n\nWHAT THE PROD CACHE SAID. 121 cached categories. Color is FREE_TEXT in 107 of them and still ships 25 allowed values. Pattern FREE_TEXT in 82 with 222 values, Neckline FREE_TEXT in 26 with 16, Sleeve Length FREE_TEXT in 38, Fit in 52, Closure in 67, Rise in 10, Toe Shape in 9, Dress Length in 1. Almost nothing the seller complained about is SELECTION_ONLY.\n\nFREE_TEXT on eBay means \"we will accept a value we did not list\", not \"we listed none\", and its buyer filters are built from the list it did publish. normalizeAspectValue returned raw on line 3 for anything that was not SELECTION_ONLY, so every family table added in the first pass never ran for Color, Pattern, Neckline, Sleeve Length, Fit, Closure, Rise, Toe Shape or Dress Length. Taupe was never dropped. It published fine and then sat outside every Beige search, which is exactly what the seller reported and not what the first pass assumed.\n\nThe early return is gone. An open list now tries to land on a listed value and falls back to the seller's words; a closed list still refuses. Nothing that shipped before stops shipping. Step 5 (whole-word containment) is now closed-list only: prod ships Brand as FREE_TEXT with 27,421 values, Model 17,374, Character 13,713, and a lone containment hit at that size is coincidence more often than intent.\n\nTHREE THINGS PROD CORRECTED that no amount of reading would have. Rise and Heel Height are stated as measured RANGES (\"High (Greater than 12 in)\", \"Mid (2-2.9 in)\"), so matchFamily now also compares a bucket against the label before the parenthesis, and only when exactly one allowed value carries it, so \"Low\" cannot reach \"Ultra Low (Less than 8 in)\". Heel Height and Heel Style are separate aspects taking different answers (a range versus Block/Cone/Cuban/Flat/Kitten/Spool/Stiletto/Wedge) and one table answering both put a wrong value in one of them every time. Leg shape is its own aspect: prod's Fit list is Athletic/Classic/Extra-Slim/Regular/Relaxed/Slim, so Bootcut and Wide Leg could never land there.\n\nMEASURED AGAIN against the verbatim prod lists: 121/135 land on a listed value, up from effectively zero for the FREE_TEXT fields. Of the 14 remaining, four are deliberate refusals (Wedge and Platform and Block are shapes, not heights; Bootcut is a leg shape, not a fit width), one is a value eBay has no bucket for (Neckline has no hood), one is real (Season has no \"All Seasons\"), and five are Pattern values I could not confirm because the sample printed only 14 of its 222 values.\n\nEdge suite 27 passed / 0 failed, web mirror 14 passed / 0 failed, tsc -b clean, deno lint and check clean, mirrors byte-identical.\n\nTHE SCRIPT HAD ITS OWN BUG, worth recording because its output read exactly like a catastrophic failure. It matched an aspect name to a vocabulary in BOTH directions, so the aspect \"Type\" picked up the \"Strap Type\" word list and a shoe category that allows only \"Flat\" was reported 0/160. A vocabulary aimed at the wrong aspect is indistinguishable from broken code in the output. Now matched by exact name plus an explicit alias table. Its Strap Type vocabulary was also wrong on the facts: prod says that aspect belongs to activewear tops (Halter, Racerback, Spaghetti, Strapless, Wide Strap), and bag straps live under Handle Style.\n\nSTILL OPEN: Pattern and Occasion need their full value lists before the last gaps can be judged. Run scripts/aspect-value-coverage.ts --reference --aspect Pattern and the same for Occasion. | 2026-08-30, third pass. Read the full Pattern and Occasion lists back rather than the 14-value sample the audit prints.\n\nFOUR OF THE FIVE PATTERN \"MISSES\" WERE THE SAMPLE, NOT THE CODE. Pattern carries 222 distinct values and the audit prints the first 14 of one category, so Solid, Striped, Polka Dot and Tie Dye all read as dropped when every one of them is on the real list. The lesson is in the audit output, not the mapping: a truncated fixture and a genuine gap are indistinguishable on the page, and I acted on the truncation twice before checking.\n\nTHE ACCENT BUG IS THE ONE WORTH REMEMBERING. loose() reduces to a whitelist of a-z0-9, which DELETES an accented letter rather than folding it. eBay ships \"Ombré\". That reduced to \"ombr\" while our own \"Ombre\" reduced to \"ombre\", so the two never matched, on a pair of strings that look identical in any report. loose() now runs NFD and strips combining marks first. This was never about Pattern; every accented value in the taxonomy had the same silent miss.\n\nTWO REAL MAPPING GAPS, both invisible from the sample. Prod names the animal (Leopard Print, Zebra Print, Snakeskin Print, Cow Print, Tiger Print, Giraffe Print, Dalmation Print) as well as carrying the Animal Print umbrella, so the specific print is now preferred and the umbrella is the fallback for the short lists. And prod has no Heathered and no Marled at all; the cloth they describe is Flecked.\n\nOCCASION IS 25 VALUES, and about a third of the 80 categories carry a workwear-shaped subset with no Formal and no Wedding on it, which is what the first audit was reporting as 20-22/59 misses. Every dressy value now has a Special Occasion fallback, Work reaches Business or Workwear or Wear to Work, Beach reaches Summer/Beach, Club reaches Clubwear. A list with genuinely no dressy bucket still leaves Formal alone, which is right: there is nothing on it that means Formal.\n\nMEASURED: 42/47 against the verbatim lists. All five remaining are correct refusals -- two Pattern values on a 14-value list with no graphic or tie-dye bucket, three Occasion values on a list with no dressy half. Edge suite 31 passed / 0 failed, web mirror 17 passed / 0 failed, tsc -b clean, deno lint and check clean, mirrors byte-identical.\n\nONE TEST EXPECTATION WAS MINE, NOT THE CODE'S: prod carries Cocktail outright, so step 1 returns Cocktail rather than coarsening to Party/Cocktail. The test now asserts both, with a list that lacks the bare value for the compound case.\n\nAC5 IS SATISFIED FOR THE AUDIT ITSELF -- it has been run against prod three times and each run corrected something. What remains before this closes is a rerun after these changes to confirm the numbers, and that rerun is the last thing the story is waiting on. | 2026-08-30, fourth pass. Reran the audit against all 121 categories after the third-pass changes.\n\nTHE NUMBER. Open lists went from 1641/5914 landing to 5707/6028 (321 off-list, down from 4273). Colour, Rise, Dress Length, Skirt Length, Exterior Color and Hardware Color now report \"every value lands on a listed value in every category\". SELECTION_ONLY moved 660/822 to 666/822.\n\nTHE LARGEST REMAINING CAUSE WAS OURS, NOT THE MAPPING. 70 of the 156 SELECTION_ONLY empties are the single value \"All Seasons\", which the CANONICAL_ATTRIBUTES hint in ai-extract.ts asked the model to produce and which eBay does not carry in ANY of the 70 categories that have a Season aspect. The mapping could never have fixed that; the hint was wrong. It now asks for exactly Spring/Summer/Fall/Winter and says to omit a year-round garment. That is the shape worth remembering: an audit that only measures the mapping will keep reporting a prompt defect as a coverage gap.\n\nTWO SMALL REAL FIXES: crossbody now reaches \"Crossbody Strap\" (prod's actual Handle Style value) before falling back to Shoulder Strap, and the audit's own Strap Type vocabulary dropped \"Adjustable\", which is not one of that aspect's five values.\n\nEVERYTHING ELSE LEFT IS A CORRECT REFUSAL, checked one by one. Fit/Bootcut 52/52 and Leg Style/Cargo and Cropped 13/13 are values those lists genuinely do not carry (prod's Leg Style is Bootcut/Flared/Skinny/Straight/Tapered/Wide-Leg, so cargo is a pocket and cropped is a length). Neckline/Hooded 26/26: eBay's Neckline has no hood. Heel Style/Platform 4/4: its list is Block/Cone/Cuban/Flat/Kitten/Spool/Stiletto/Wedge. Occasion still ships empty in about 20 of 59 SELECTION_ONLY categories that carry a workwear-shaped list with no dressy value at all. The remaining Pattern counts (Plaid 4/82, Houndstooth 3/82, Striped 1/82) are odd non-apparel categories with two- or three-value lists.\n\nA STALE FIXTURE FAILED AS A REGRESSION, which is the second time this story has produced that shape. src/lib/__tests__/ebay-prefill.test.ts had a case built on \"Chartreuse\" precisely BECAUSE it was unmappable; the family tables now resolve it to Green, so the column value became expressible and the projection overwrote a manual value exactly as it is designed to. The behaviour is right and the fixture was the thing that aged. It now uses \"Iridescent\", with a second case asserting the overwrite explicitly so the design is pinned rather than resting on a value's accidental unmappability.\n\nVERIFIED: web 1540 passed / 0 failed across 106 files, edge aspect+ebay+publish suites 329 passed / 0 failed, edge extract suites 75 passed / 0 failed, tsc -b clean, deno lint and check clean, mirrors byte-identical. Note the edge suites need -A (or at least --allow-read): several read source files off disk to assert cross-client parity, and without it they fail as NotCapable, which reads like eight broken tests. | 2026-08-30, fifth pass. Different question from the first four: not \"is the value we send usable\" but \"does the field get filled at all\", which is the one that decides whether a listing is findable. Added a --coverage mode to scripts/aspect-value-coverage.ts and ran it against the 121 cached categories.\n\nTWO OF THE THREE SUSPECTED RISKS WERE NOT REAL. The categories average 27 aspects and 0 of 121 exceed MAX_AI_ASPECTS (45), so nothing is being cut by that cap and raising it would buy nothing. I had guessed 40-60 out loud beforehand and was wrong; the measurement is the only reason that guess did not turn into a change.\n\nTHE VALUE CAP WAS REAL AND IT WAS HURTING EVERY LISTING. Exactly three SELECTION_ONLY aspects run past MAX_ALLOWED_VALUES_PER_ASPECT (150): Country of Origin at 244 values in ALL 121 categories, Year Manufactured at 159 in one, Silhouette at 7,286 in two. eBay returns countries in its own order, so a 150-value cut removed most of the late alphabet -- Vietnam, Thailand, Turkey, Taiwan, Sri Lanka, Portugal, Philippines, Pakistan, Romania, Tunisia, United States -- which between them are most of what a resale seller holds. The model was asked where a garment was made and handed a menu with the answer missing. Raised to 300, which clears the first two outright. Silhouette stays capped and always will.\n\nTHE TYPE GAP, WHICH IS THE ONE WORTH UNDERSTANDING. eBay's Type aspect is REQUIRED in 36 of the 121 cached categories and no registry entry could fill it in 33 of them. The cause is not an oversight: the style COLUMN lists [\"Style\", \"Type\"] and ownedAspectName deliberately binds each entry to exactly ONE aspect, because one column writing two aspects is the bug that made Type uneditable on Women's Tops. So wherever both names exist, Style wins and Type is left for the AI -- on a REQUIRED field, where empty blocks the publish.\n\nNothing we captured answered it either. `style` is the marketing style name (Sheath, Trucker), `product_line` is the family (501, Dri-FIT); neither is a Blouse. Added CANONICAL_ATTRIBUTES key `product_type` -- what KIND of item this is in eBay's Type vocabulary -- and an attribute-sourced registry entry mapping it to [\"Type\"]. Attribute-sourced ON PURPOSE: garment_category is a real Postgres ENUM column, and a column entry would flow into reverseColumnAspects, so a seller typing \"Cardigan\" into the Type specific would write an out-of-enum value and 500 the save.\n\nFour behaviours pinned in aspect-registry_test.ts: it fills Type when the style column owns Style; a lowercase capture (\"t-shirt\") takes eBay's casing on a SELECTION_ONLY Type; it STANDS DOWN in the ~3 categories where the style column owns Type, since columnAspectProjection re-asserts the column authoritatively there anyway; and it never overwrites a user-set Type.\n\nTHE COUNT GUARD DID EXACTLY WHAT IT WAS WRITTEN FOR. canonical-attributes_test.ts pins the attribute count and its comment says to bump it only after checking the truncation canary. The canary was run first and passes, so 41 -> 42 is deliberate rather than a red test made green. Both halves of the reason are now in that comment.\n\nSTILL NOT MEASURED, and it is the honest limit of all of this: everything above measures what CAN fill deterministically, not what actually IS filled on live listings. The remaining six unowned required aspects (Outer Shell Material 6 categories, Insect Repellent Treated 3, Inseam 2, Exterior Color 1, Exterior Material 1, Game 1) are all reachable by the AI refine pass, which is asked about every required aspect, so \"AI only\" is not the same as \"empty\". A query over inventory_items.ebay_aspects for real fill rate per aspect is the measurement that would settle it.\n\nVERIFIED: web tsc -b clean and 1540 passed / 0 failed across 106 files; registry, drift, canonical-attribute, priority, normalize, parity and prompt-candidate suites 126+ passed / 0 failed; deno lint clean on all six changed files; vendored src/lib/ebay-aspect-registry.json regenerated via scripts/sync-aspect-registry.mjs and the drift guard is green."
+      "notes": "2026-08-30. AC1-AC4 done; AC5 is the operator run and is why this stays open.\n\nFamily tables landed in services/edge-functions/src/lib/aspect-normalize.ts as step 6 of normalizeAspectValue, mirrored verbatim to src/lib/aspect-normalize.ts. Fourteen kinds, picked by the aspect display name with the specific test first, so \"Hardware Color\" reaches colour and \"Sleeve Length\" reaches sleeve rather than hem.\n\nMEASURED, not asserted. 87 descriptive values (the ones the ai-extract prompt hints actually tell the model to produce) run against eBay's real apparel lists: 83/87 resolved on the first pass, and the four misses were real table gaps, not test noise. Knee-Length had no bucket in a Mini/Midi/Maxi skirt list, Henley listed Round Neck but not Crew Neck, Tie-Dye and Houndstooth listed only their own spellings. Adding the fallback buckets took it to 87/87. Edge suite 20 passed / 0 failed, web mirror 11 passed / 0 failed, tsc -b clean, deno lint + check clean.\n\nORDERING CARRIES THE JUDGEMENT, and that is the part to read before editing the tables. Coral is shelved under Pink before Orange and Teal under Blue before Green because those are the buckets eBay buyers filter on. A value that belongs to neither bucket more than the other is deliberately absent from the table, so it falls through to null and a human fills it.\n\nWHAT WAS ALREADY THERE, so nobody rebuilds it: eBay's real allowed values per category have been cached in public.ebay_category_aspects since 00030 (30-day TTL, shared across all users, read-through in lib/ebay-client.ts getCategoryAspects), and the aspect REFINE pass already builds a JSON-schema enum from them (ai-extract.ts buildAspectTool). Neither was the gap. The gap was the five column-owned attributes (Brand/Size/Color/Material/Style) plus the wider canonical set, which the capture pass writes as free text on purpose, and which then had only spelling equivalences to get them onto eBay's list.\n\nAC5, for whoever runs it: deno run --allow-net --allow-env scripts/aspect-value-coverage.ts against prod. It is read-only on one cache table. --reference prints the harvested allowed-value union per aspect, which is the \"one big reference\" without anyone researching eBay by hand. It could not be run here; no prod service-role key is on this box (.env.example only). | 2026-08-30, second pass. The first cut fixed the wrong half, and running AC5 against prod is what showed it.\n\nWHAT THE PROD CACHE SAID. 121 cached categories. Color is FREE_TEXT in 107 of them and still ships 25 allowed values. Pattern FREE_TEXT in 82 with 222 values, Neckline FREE_TEXT in 26 with 16, Sleeve Length FREE_TEXT in 38, Fit in 52, Closure in 67, Rise in 10, Toe Shape in 9, Dress Length in 1. Almost nothing the seller complained about is SELECTION_ONLY.\n\nFREE_TEXT on eBay means \"we will accept a value we did not list\", not \"we listed none\", and its buyer filters are built from the list it did publish. normalizeAspectValue returned raw on line 3 for anything that was not SELECTION_ONLY, so every family table added in the first pass never ran for Color, Pattern, Neckline, Sleeve Length, Fit, Closure, Rise, Toe Shape or Dress Length. Taupe was never dropped. It published fine and then sat outside every Beige search, which is exactly what the seller reported and not what the first pass assumed.\n\nThe early return is gone. An open list now tries to land on a listed value and falls back to the seller's words; a closed list still refuses. Nothing that shipped before stops shipping. Step 5 (whole-word containment) is now closed-list only: prod ships Brand as FREE_TEXT with 27,421 values, Model 17,374, Character 13,713, and a lone containment hit at that size is coincidence more often than intent.\n\nTHREE THINGS PROD CORRECTED that no amount of reading would have. Rise and Heel Height are stated as measured RANGES (\"High (Greater than 12 in)\", \"Mid (2-2.9 in)\"), so matchFamily now also compares a bucket against the label before the parenthesis, and only when exactly one allowed value carries it, so \"Low\" cannot reach \"Ultra Low (Less than 8 in)\". Heel Height and Heel Style are separate aspects taking different answers (a range versus Block/Cone/Cuban/Flat/Kitten/Spool/Stiletto/Wedge) and one table answering both put a wrong value in one of them every time. Leg shape is its own aspect: prod's Fit list is Athletic/Classic/Extra-Slim/Regular/Relaxed/Slim, so Bootcut and Wide Leg could never land there.\n\nMEASURED AGAIN against the verbatim prod lists: 121/135 land on a listed value, up from effectively zero for the FREE_TEXT fields. Of the 14 remaining, four are deliberate refusals (Wedge and Platform and Block are shapes, not heights; Bootcut is a leg shape, not a fit width), one is a value eBay has no bucket for (Neckline has no hood), one is real (Season has no \"All Seasons\"), and five are Pattern values I could not confirm because the sample printed only 14 of its 222 values.\n\nEdge suite 27 passed / 0 failed, web mirror 14 passed / 0 failed, tsc -b clean, deno lint and check clean, mirrors byte-identical.\n\nTHE SCRIPT HAD ITS OWN BUG, worth recording because its output read exactly like a catastrophic failure. It matched an aspect name to a vocabulary in BOTH directions, so the aspect \"Type\" picked up the \"Strap Type\" word list and a shoe category that allows only \"Flat\" was reported 0/160. A vocabulary aimed at the wrong aspect is indistinguishable from broken code in the output. Now matched by exact name plus an explicit alias table. Its Strap Type vocabulary was also wrong on the facts: prod says that aspect belongs to activewear tops (Halter, Racerback, Spaghetti, Strapless, Wide Strap), and bag straps live under Handle Style.\n\nSTILL OPEN: Pattern and Occasion need their full value lists before the last gaps can be judged. Run scripts/aspect-value-coverage.ts --reference --aspect Pattern and the same for Occasion. | 2026-08-30, third pass. Read the full Pattern and Occasion lists back rather than the 14-value sample the audit prints.\n\nFOUR OF THE FIVE PATTERN \"MISSES\" WERE THE SAMPLE, NOT THE CODE. Pattern carries 222 distinct values and the audit prints the first 14 of one category, so Solid, Striped, Polka Dot and Tie Dye all read as dropped when every one of them is on the real list. The lesson is in the audit output, not the mapping: a truncated fixture and a genuine gap are indistinguishable on the page, and I acted on the truncation twice before checking.\n\nTHE ACCENT BUG IS THE ONE WORTH REMEMBERING. loose() reduces to a whitelist of a-z0-9, which DELETES an accented letter rather than folding it. eBay ships \"Ombré\". That reduced to \"ombr\" while our own \"Ombre\" reduced to \"ombre\", so the two never matched, on a pair of strings that look identical in any report. loose() now runs NFD and strips combining marks first. This was never about Pattern; every accented value in the taxonomy had the same silent miss.\n\nTWO REAL MAPPING GAPS, both invisible from the sample. Prod names the animal (Leopard Print, Zebra Print, Snakeskin Print, Cow Print, Tiger Print, Giraffe Print, Dalmation Print) as well as carrying the Animal Print umbrella, so the specific print is now preferred and the umbrella is the fallback for the short lists. And prod has no Heathered and no Marled at all; the cloth they describe is Flecked.\n\nOCCASION IS 25 VALUES, and about a third of the 80 categories carry a workwear-shaped subset with no Formal and no Wedding on it, which is what the first audit was reporting as 20-22/59 misses. Every dressy value now has a Special Occasion fallback, Work reaches Business or Workwear or Wear to Work, Beach reaches Summer/Beach, Club reaches Clubwear. A list with genuinely no dressy bucket still leaves Formal alone, which is right: there is nothing on it that means Formal.\n\nMEASURED: 42/47 against the verbatim lists. All five remaining are correct refusals -- two Pattern values on a 14-value list with no graphic or tie-dye bucket, three Occasion values on a list with no dressy half. Edge suite 31 passed / 0 failed, web mirror 17 passed / 0 failed, tsc -b clean, deno lint and check clean, mirrors byte-identical.\n\nONE TEST EXPECTATION WAS MINE, NOT THE CODE'S: prod carries Cocktail outright, so step 1 returns Cocktail rather than coarsening to Party/Cocktail. The test now asserts both, with a list that lacks the bare value for the compound case.\n\nAC5 IS SATISFIED FOR THE AUDIT ITSELF -- it has been run against prod three times and each run corrected something. What remains before this closes is a rerun after these changes to confirm the numbers, and that rerun is the last thing the story is waiting on. | 2026-08-30, fourth pass. Reran the audit against all 121 categories after the third-pass changes.\n\nTHE NUMBER. Open lists went from 1641/5914 landing to 5707/6028 (321 off-list, down from 4273). Colour, Rise, Dress Length, Skirt Length, Exterior Color and Hardware Color now report \"every value lands on a listed value in every category\". SELECTION_ONLY moved 660/822 to 666/822.\n\nTHE LARGEST REMAINING CAUSE WAS OURS, NOT THE MAPPING. 70 of the 156 SELECTION_ONLY empties are the single value \"All Seasons\", which the CANONICAL_ATTRIBUTES hint in ai-extract.ts asked the model to produce and which eBay does not carry in ANY of the 70 categories that have a Season aspect. The mapping could never have fixed that; the hint was wrong. It now asks for exactly Spring/Summer/Fall/Winter and says to omit a year-round garment. That is the shape worth remembering: an audit that only measures the mapping will keep reporting a prompt defect as a coverage gap.\n\nTWO SMALL REAL FIXES: crossbody now reaches \"Crossbody Strap\" (prod's actual Handle Style value) before falling back to Shoulder Strap, and the audit's own Strap Type vocabulary dropped \"Adjustable\", which is not one of that aspect's five values.\n\nEVERYTHING ELSE LEFT IS A CORRECT REFUSAL, checked one by one. Fit/Bootcut 52/52 and Leg Style/Cargo and Cropped 13/13 are values those lists genuinely do not carry (prod's Leg Style is Bootcut/Flared/Skinny/Straight/Tapered/Wide-Leg, so cargo is a pocket and cropped is a length). Neckline/Hooded 26/26: eBay's Neckline has no hood. Heel Style/Platform 4/4: its list is Block/Cone/Cuban/Flat/Kitten/Spool/Stiletto/Wedge. Occasion still ships empty in about 20 of 59 SELECTION_ONLY categories that carry a workwear-shaped list with no dressy value at all. The remaining Pattern counts (Plaid 4/82, Houndstooth 3/82, Striped 1/82) are odd non-apparel categories with two- or three-value lists.\n\nA STALE FIXTURE FAILED AS A REGRESSION, which is the second time this story has produced that shape. src/lib/__tests__/ebay-prefill.test.ts had a case built on \"Chartreuse\" precisely BECAUSE it was unmappable; the family tables now resolve it to Green, so the column value became expressible and the projection overwrote a manual value exactly as it is designed to. The behaviour is right and the fixture was the thing that aged. It now uses \"Iridescent\", with a second case asserting the overwrite explicitly so the design is pinned rather than resting on a value's accidental unmappability.\n\nVERIFIED: web 1540 passed / 0 failed across 106 files, edge aspect+ebay+publish suites 329 passed / 0 failed, edge extract suites 75 passed / 0 failed, tsc -b clean, deno lint and check clean, mirrors byte-identical. Note the edge suites need -A (or at least --allow-read): several read source files off disk to assert cross-client parity, and without it they fail as NotCapable, which reads like eight broken tests. | 2026-08-30, fifth pass. Different question from the first four: not \"is the value we send usable\" but \"does the field get filled at all\", which is the one that decides whether a listing is findable. Added a --coverage mode to scripts/aspect-value-coverage.ts and ran it against the 121 cached categories.\n\nTWO OF THE THREE SUSPECTED RISKS WERE NOT REAL. The categories average 27 aspects and 0 of 121 exceed MAX_AI_ASPECTS (45), so nothing is being cut by that cap and raising it would buy nothing. I had guessed 40-60 out loud beforehand and was wrong; the measurement is the only reason that guess did not turn into a change.\n\nTHE VALUE CAP WAS REAL AND IT WAS HURTING EVERY LISTING. Exactly three SELECTION_ONLY aspects run past MAX_ALLOWED_VALUES_PER_ASPECT (150): Country of Origin at 244 values in ALL 121 categories, Year Manufactured at 159 in one, Silhouette at 7,286 in two. eBay returns countries in its own order, so a 150-value cut removed most of the late alphabet -- Vietnam, Thailand, Turkey, Taiwan, Sri Lanka, Portugal, Philippines, Pakistan, Romania, Tunisia, United States -- which between them are most of what a resale seller holds. The model was asked where a garment was made and handed a menu with the answer missing. Raised to 300, which clears the first two outright. Silhouette stays capped and always will.\n\nTHE TYPE GAP, WHICH IS THE ONE WORTH UNDERSTANDING. eBay's Type aspect is REQUIRED in 36 of the 121 cached categories and no registry entry could fill it in 33 of them. The cause is not an oversight: the style COLUMN lists [\"Style\", \"Type\"] and ownedAspectName deliberately binds each entry to exactly ONE aspect, because one column writing two aspects is the bug that made Type uneditable on Women's Tops. So wherever both names exist, Style wins and Type is left for the AI -- on a REQUIRED field, where empty blocks the publish.\n\nNothing we captured answered it either. `style` is the marketing style name (Sheath, Trucker), `product_line` is the family (501, Dri-FIT); neither is a Blouse. Added CANONICAL_ATTRIBUTES key `product_type` -- what KIND of item this is in eBay's Type vocabulary -- and an attribute-sourced registry entry mapping it to [\"Type\"]. Attribute-sourced ON PURPOSE: garment_category is a real Postgres ENUM column, and a column entry would flow into reverseColumnAspects, so a seller typing \"Cardigan\" into the Type specific would write an out-of-enum value and 500 the save.\n\nFour behaviours pinned in aspect-registry_test.ts: it fills Type when the style column owns Style; a lowercase capture (\"t-shirt\") takes eBay's casing on a SELECTION_ONLY Type; it STANDS DOWN in the ~3 categories where the style column owns Type, since columnAspectProjection re-asserts the column authoritatively there anyway; and it never overwrites a user-set Type.\n\nTHE COUNT GUARD DID EXACTLY WHAT IT WAS WRITTEN FOR. canonical-attributes_test.ts pins the attribute count and its comment says to bump it only after checking the truncation canary. The canary was run first and passes, so 41 -> 42 is deliberate rather than a red test made green. Both halves of the reason are now in that comment.\n\nSTILL NOT MEASURED, and it is the honest limit of all of this: everything above measures what CAN fill deterministically, not what actually IS filled on live listings. The remaining six unowned required aspects (Outer Shell Material 6 categories, Insect Repellent Treated 3, Inseam 2, Exterior Color 1, Exterior Material 1, Game 1) are all reachable by the AI refine pass, which is asked about every required aspect, so \"AI only\" is not the same as \"empty\". A query over inventory_items.ebay_aspects for real fill rate per aspect is the measurement that would settle it.\n\nVERIFIED: web tsc -b clean and 1540 passed / 0 failed across 106 files; registry, drift, canonical-attribute, priority, normalize, parity and prompt-candidate suites 126+ passed / 0 failed; deno lint clean on all six changed files; vendored src/lib/ebay-aspect-registry.json regenerated via scripts/sync-aspect-registry.mjs and the drift guard is green. | 2026-09-23: the prod measurement in the item-specifics plan stands in for the OPERATOR coverage run (403 drafts, 133 cached categories). Its miss list is the input for the new table AC. Related: US-3471, US-3474, US-3475, US-3479."
     },
     {
       "id": "US-3025",
@@ -4617,6 +4618,373 @@
         "A buyer persona, which has no FlipDesk board at all, is not offered the FlipDesk view."
       ],
       "priority": 20
+    },
+    {
+      "id": "US-3471",
+      "passes": false,
+      "title": "Aspect matcher: a loose exact-match step so 'T Shirt', 'Tshirt' and 'Boot Cut' land on eBay's 'T-Shirt', 'T-Shirt' and 'Bootcut'",
+      "description": "As a seller, I want an AI value that differs from eBay's only in spacing, hyphens, case, accents or curly quotes to be sent as eBay's exact value, so that my listing lands in the buyer filter for that value. Plan: eBay Item Specifics Action Plan (2026-09-23). Measured on prod read-only that day: 403 GradeThread drafts vs 458 eBay-imported listings; free-text values on eBay's list 61% vs 86%, Style 30% vs 83%, Type 50% vs 92%, recommended fill 42% vs 63%. Full 457-leaf value capture of category 11450 (EBAY_US) pulled the same day.",
+      "acceptanceCriteria": [
+        "normalizeAspectValue in services/edge-functions/src/lib/aspect-normalize.ts gains a step right after the case-insensitive exact match that compares a folded form of both strings: lowercase, NFKD with combining marks removed, curly quotes to straight, U+200B-U+200F and U+FEFF removed, and all spaces, hyphens and punctuation removed",
+        "The folded step never runs on a size or numeric aspect (isSizeAspect, or an aspect whose allowed values are mostly numeric), so '3-4' does not match '34', '1.5' does not match '15', and '2.5 in' does not match '25 in'; a test asserts each of those pairs stays unmatched",
+        "The folded step only returns a value when exactly one allowed value folds to the same string",
+        "Test cases pass against real lists: 'T Shirt' and 'Tshirt' -> 'T-Shirt' on 15687 Type, 'Boot Cut' -> 'Bootcut', 'Extra Slim' -> 'Extra-Slim', 'Off White' -> 'Off-White', 'Boucle' -> 'Boucle' with the accent eBay ships",
+        "src/lib/aspect-normalize.ts carries the identical change and src/test/aspect-normalize-mirror-parity.test.ts stays green"
+      ],
+      "priority": 21
+    },
+    {
+      "id": "US-3472",
+      "passes": false,
+      "title": "ebay_category_aspects: getCategoryName writes an empty aspect list with a fresh fetched_at, so 7 prod categories show no fields for a week",
+      "description": "As a seller, I want every cached eBay category to carry its real item specifics, so that Socks, Hats and the other affected categories are not published with nothing filled. Measured 2026-09-23: 7 of 133 ebay_category_aspects rows on prod hold aspects = {}.",
+      "acceptanceCriteria": [
+        "getCategoryName in services/edge-functions/src/lib/ebay-client.ts no longer inserts a row with aspects = {} and a fresh fetched_at when no row exists; it either fetches aspects or writes the name without touching fetched_at",
+        "getCategoryAspects treats a cached row whose aspects is empty or has no aspects array as a cache miss and refetches",
+        "A Deno test covers both: a name-only write followed by getCategoryAspects returns the fetched aspects, not an empty set",
+        "OPERATOR: after deploy, a read-only query on prod shows zero ebay_category_aspects rows with an empty aspects payload once each affected category has been opened or refreshed"
+      ],
+      "priority": 21
+    },
+    {
+      "id": "US-3473",
+      "passes": false,
+      "title": "Size values snap to eBay's standard list before US Size lists close on 2026-10-20: XXL -> 2XL, Large -> L, 32x30 split into waist and inseam",
+      "description": "As a seller, I want the sizes AutoLister and I enter to already be eBay's standard spellings, so that listings keep publishing when eBay closes Size to custom values. The 2026-09-23 capture shows Size is still FREE_TEXT on all 343 leaves and XXL, Large and 32x30 are on no list.",
+      "acceptanceCriteria": [
+        "The size synonym group in aspect-normalize.ts (both copies) maps XXL/XXXL to 2XL/3XL, Small/Medium/Large/X-Large to S/M/L/XL, and 'Petite' to 'Petites' where only the plural is offered, each only when the target is on that leaf's list",
+        "A value shaped like 32x30 or 32 x 30 on a pants or jeans leaf resolves to the waist on Size and the inseam on Inseam ('30 in') when both targets exist on the leaf",
+        "Size Type + Size combinations are checked against the leaf's valueConstraints where eBay ships them; a Size not allowed for the chosen Size Type is flagged in aspect_review",
+        "Tests use real lists from the 2026-09-23 capture for 15687 Men's T-Shirts, 11483 Men's Jeans and 53159 Women's Tops"
+      ],
+      "priority": 22
+    },
+    {
+      "id": "US-3474",
+      "passes": false,
+      "title": "Run the aspect matcher on FREE_TEXT aspects that ship a value list, keep the value on a miss and flag it 'not an eBay value'",
+      "description": "As a seller, I want free-text specifics that eBay ships a list for to be matched to that list, so that my values land in buyer filters. 76% of free-text aspect rows in the 2026-09-23 capture (5,284 of 6,932) carry a list, and today no production caller matches them. Owner decision 2026-09-23: on a miss, keep our value.",
+      "acceptanceCriteria": [
+        "reconcileGeneratedAspects and reconcilePublishAspects in services/edge-functions/src/lib/aspect-reconcile.ts call normalizeAspectValue for FREE_TEXT aspects that have allowed values, not only for closed lists",
+        "fillAspect in services/edge-functions/src/lib/aspect-registry.ts and fillAspect in src/lib/ebay-prefill.ts do the same",
+        "On a FREE_TEXT miss the original value is kept and sent, and an aspect_review entry with kind 'off_list_value' is recorded; closed-list behaviour is unchanged",
+        "Publish diagnostics list off-list FREE_TEXT values without blocking the publish",
+        "A test walks one FREE_TEXT aspect through generation and publish: 'Regular Fit' on a Fit list that holds 'Regular' is sent as 'Regular'; a value with no match is sent unchanged and flagged"
+      ],
+      "priority": 23,
+      "dependsOn": [
+        "US-3471"
+      ]
+    },
+    {
+      "id": "US-3475",
+      "passes": false,
+      "title": "Aspect matcher: 'Basic T-Shirt' -> 'Basic', 'Slim Fit' -> 'Slim', 'Tank Top' -> 'Tank' when exactly one allowed value is a whole word inside the input",
+      "description": "As a seller, I want an AI value that wraps an eBay value in extra words to be reduced to that value, so that Style, Fit, Closure and Type land on eBay's list. Prod 2026-09-23: 11.3% of GradeThread free-text values were containment misses.",
+      "acceptanceCriteria": [
+        "normalizeAspectValue gains a reverse-containment step: if exactly one allowed value appears as a whole word or phrase inside the input, it is returned; two or more candidates return no match",
+        "Before that step, the leaf's own garment noun (the category's Type values and words such as tee, shirt, t-shirt, top, pants, jacket) is stripped from the input and the match is retried, so 'Basic T-Shirt' on 15687 Style returns 'Basic'",
+        "Noun stripping never removes words that are part of an allowed value, so 'Wrap Dress' stays 'Wrap Dress' on 63861 and 'Bomber' still reaches 'Bomber Jacket' through the forward containment step",
+        "Tests from the prod miss list pass: 'Regular Fit' -> 'Regular', 'Slim Fit' -> 'Slim', 'Tank Top' -> 'Tank' on 53159 Type, 'Zip Fly' -> 'Zip', 'Polo Collar' -> 'Collared', 'High Rise' -> the High band on 11483 Rise",
+        "Both copies of aspect-normalize.ts change together and the mirror parity test stays green"
+      ],
+      "priority": 23,
+      "dependsOn": [
+        "US-3471"
+      ]
+    },
+    {
+      "id": "US-3476",
+      "passes": false,
+      "title": "A batch template replaces the whole generated specifics map instead of merging into it, wiping every AI-filled aspect",
+      "description": "As a seller, I want a listing template's item specifics to add to the AI draft, so that applying a template does not erase what AutoLister filled.",
+      "acceptanceCriteria": [
+        "buildTemplateListingPatch in services/edge-functions/src/lib/listing-template.ts merges template.item_specifics into the existing item_specifics_override: template values fill blanks and override only the aspects the template names",
+        "applyTemplate in routes/flipdesk-autolister.ts recomputes listings.aspect_coverage after the merge",
+        "A template that changes platform_category_id re-runs reconcile against the new category's aspects",
+        "A Deno test: a draft with 12 generated aspects plus a template naming 2 keeps all 12, with the template's 2 values winning"
+      ],
+      "priority": 22
+    },
+    {
+      "id": "US-3477",
+      "passes": false,
+      "title": "Stop the style column writing marketing names onto eBay's Style aspect; the marketing name goes to Model or Product Line and tag codes to MPN",
+      "description": "As a seller, I want eBay's Style field to hold one of eBay's Style values, so that 'Ultra-Stretch Ponte Straight Leg Pants' stops landing in Style on every publish. Owner decision 2026-09-23: the marketing name goes to Model or Product Line. Prod: Style matched eBay's list on 30% of GradeThread drafts.",
+      "acceptanceCriteria": [
+        "forceColumnAspects and the registry projection write the style column onto Style (or Type) only when normalizeAspectValue matches it to that leaf's list; otherwise the Style aspect is left to the AI and resolver",
+        "When the style column holds a marketing or product name that does not match, it is offered to Model if the leaf has Model, else Product Line, fill-only",
+        "GROUND_TRUTH_TO_KNOWN_FIELD in ai-tag-ocr.ts no longer maps style_code to knownFields.style; the code goes to attributes.mpn as it does today",
+        "aspectCarryOver in ai-listing.ts no longer copies a generated Style or Type aspect into an empty item.style column",
+        "A test: an item with style 'Ultra-Stretch Ponte Straight Leg Pants' on 63863 publishes with no custom Style and that name on Model or Product Line",
+        "vault/20-domain/sync-source-of-truth.md is updated in the same commit to say the style column no longer owns Style unconditionally"
+      ],
+      "priority": 24,
+      "dependsOn": [
+        "US-3475"
+      ]
+    },
+    {
+      "id": "US-3478",
+      "passes": false,
+      "title": "Re-key free-text aspect names to eBay's spelling: Colour -> Color, Country/Region of Manufacture -> Country of Origin",
+      "description": "As a seller, I want every specific sent under the name eBay's category uses, so that eBay does not ignore it. Prod 2026-09-23: 27 GradeThread listings carry 'Country/Region of Manufacture', which exists on none of the 457 leaves.",
+      "acceptanceCriteria": [
+        "reconcileGeneratedAspects re-keys FREE_TEXT aspects to the leaf's spec.name using a case- and punctuation-insensitive name match plus an alias map (Colour -> Color, Country/Region of Manufacture and Country of Manufacture -> Country of Origin)",
+        "reconcilePublishAspects applies the same re-keying before sending",
+        "buildAspectCoverage counts a value filed under an alias as filled",
+        "A test: a draft with 'Colour' and 'Country/Region of Manufacture' reaches the payload as 'Color' and 'Country of Origin'"
+      ],
+      "priority": 25
+    },
+    {
+      "id": "US-3479",
+      "passes": false,
+      "title": "Pin the aspect matcher's logic, not just its tables: one shared case fixture for the edge and web copies, plus a lockstep-registry entry",
+      "description": "As an engineer, I want the edge and web matchers proven to give the same answer, so that the composer preview and the publish never disagree about a value.",
+      "acceptanceCriteria": [
+        "src/test/fixtures/aspect-normalize-cases.json holds at least 60 cases (input, aspect, mode, allowed list, expected) including every example from the item-specifics plan and the size collision traps",
+        "services/edge-functions/src/tests/aspect-normalize_test.ts and src/lib/__tests__/aspect-normalize.test.ts both read that fixture and assert every case",
+        "aspect-normalize.ts and aspect-reconcile.ts are registered in the lockstep registry checked by src/lib/__tests__/lockstep-registry.test.ts",
+        "Web isClosedAspect and edge isClosedList are pinned to agree by a shared case list"
+      ],
+      "priority": 26,
+      "dependsOn": [
+        "US-3471"
+      ]
+    },
+    {
+      "id": "US-3480",
+      "passes": false,
+      "title": "Check in a compact copy of eBay's apparel aspect value lists and a refresh script, so tests and the leaf index use real values",
+      "description": "As an engineer, I want eBay's real per-leaf value lists in the repo, so that matcher tests, the leaf index and coverage reports run on real data with no credentials. The 2026-09-11 fixture carries counts only.",
+      "acceptanceCriteria": [
+        "scripts/aspect-demand-cut.mjs (or a sibling script) gains a --values mode that writes scripts/fixtures/ebay-aspect-values-11450.json: per leaf, each aspect's name, mode, usage, required, cardinality and value list, deduplicated by list so the file stays under 5 MB",
+        "The capture date and category tree version are stored in the file",
+        "A test fails if the file is missing a leaf that the 2026-09-11 census lists",
+        "The capture is ASCII-safe for our code but keeps eBay's own characters in values; a test lists any value holding U+200B-U+200F or U+2019 so matchers know to fold them"
+      ],
+      "priority": 20
+    },
+    {
+      "id": "US-3481",
+      "passes": false,
+      "title": "Coverage metric counts values on eBay's list, not just filled fields, and /admin/listing-coverage shows it",
+      "description": "As an operator, I want to see how many filled specifics are actually eBay values, so that 'T Shirt' stops counting as a success.",
+      "acceptanceCriteria": [
+        "buildAspectCoverage (ai-listing.ts) adds on_list and off_list counts per tier to listings.aspect_coverage, where on_list means the value is on the aspect's list or the aspect has no list",
+        "Older rows without the new keys still render",
+        "/admin/listing-coverage shows on-list rate per aspect for the last 200 drafts",
+        "services/edge-functions/scripts/aspect-fill-report.ts reports on-list rate beside fill rate"
+      ],
+      "priority": 27,
+      "dependsOn": [
+        "US-3474"
+      ]
+    },
+    {
+      "id": "US-3482",
+      "passes": false,
+      "title": "Backfill: re-run the aspect matcher over existing drafts' specifics, no AI calls, dry run first",
+      "description": "As a seller, I want my existing unpublished drafts cleaned to eBay's values, so that I do not have to fix them by hand. Owner decision 2026-09-23: drafts only, not live listings.",
+      "acceptanceCriteria": [
+        "services/edge-functions/scripts/backfill-aspect-values.ts selects listings that are not live on eBay (draft status) and re-runs re-keying and normalizeAspectValue over item_specifics_override against the cached category aspects",
+        "Seller-entered (manual provenance) values are never rewritten",
+        "OPERATOR: run --dry-run on prod, share the counts, then --apply"
+      ],
+      "priority": 28,
+      "dependsOn": [
+        "US-3474",
+        "US-3475",
+        "US-3478"
+      ]
+    },
+    {
+      "id": "US-3483",
+      "passes": false,
+      "title": "Refine pass shows eBay's value list for FREE_TEXT aspects and asks for a listed value when one fits",
+      "description": "As a seller, I want the AI to see eBay's words before it answers, so that it picks 'Basic' rather than inventing 'Basic T-Shirt'.",
+      "acceptanceCriteria": [
+        "buildAspectTool in services/edge-functions/src/lib/ai-extract.ts includes the allowed values for FREE_TEXT aspects, either as an enum-or-string schema or in the property description, capped at MAX_ALLOWED_VALUES_PER_ASPECT",
+        "ASPECT_SYSTEM_PROMPT says: for a free-text aspect with listed values, use a listed value when one fits, otherwise write a short value",
+        "The dead SUGGESTED branch is removed or mapped to FREE_TEXT-with-values",
+        "The tool schema keeps its prompt-cache breakpoint; a test asserts the schema for 15687 carries Style's 3 values",
+        "Measured on 30+ prod drafts: Style and Type on-list rate reported before and after in the story notes"
+      ],
+      "priority": 31,
+      "dependsOn": [
+        "US-3474"
+      ]
+    },
+    {
+      "id": "US-3484",
+      "passes": false,
+      "title": "Refine pass may correct first-pass values on aspects that have a value list; tag reads and seller edits stay ground truth",
+      "description": "As a seller, I want a wrong first AI guess to be correctable by the pass that sees eBay's list, so that 'Shirt' in Type does not get locked in.",
+      "acceptanceCriteria": [
+        "ai-listing.ts passes the first-pass item_specifics to extractEbayAspects split in two: values from tag OCR, known fields and manual edits stay under ALREADY-KNOWN (do not contradict); other first-pass values go under a 'first guess, replace if a listed value fits better' block",
+        "The merge at ai-listing.ts step 6 prefers the refined value over a first-guess value for aspects with a value list",
+        "A test with a stubbed model: first pass Type 'Shirt' on 15687, refine returns 'T-Shirt', the draft holds 'T-Shirt'"
+      ],
+      "priority": 32,
+      "dependsOn": [
+        "US-3483"
+      ]
+    },
+    {
+      "id": "US-3485",
+      "passes": false,
+      "title": "Per-leaf Type vs Style guidance in the refine prompt, so the garment noun stops landing in Style",
+      "description": "As a seller, I want the AI told what Type and Style mean on my exact category, so that Style holds a sub-type like Cropped rather than 'Pants' or 'T-Shirt'. Prod 2026-09-23 top Style misses: Pants 15, Casual 14, Sweater 10, Leggings 9, T-Shirt 9, Tank 9.",
+      "acceptanceCriteria": [
+        "When a leaf has both Type and Style, the refine user prompt states both lists and one line: 'Type is the garment; Style is the variety of that garment. Never put the garment noun in Style.'",
+        "When a leaf has Style but no Type, the prompt says Style must be a listed variety, not the garment name",
+        "A prompt-snapshot test covers 15687, 53159 and 63863"
+      ],
+      "priority": 33,
+      "dependsOn": [
+        "US-3483"
+      ]
+    },
+    {
+      "id": "US-3486",
+      "passes": false,
+      "title": "Evidence rules for the blank recommended specifics: Vintage, Season, Fabric Wash, Accents, Lining Material, Performance/Activity, Features",
+      "description": "As a seller, I want the recommended fields my photos and tag answer to be filled, so that my listings match more buyer filters. Prod 2026-09-23: 7.3 recommended fields blank per draft; Vintage blank on 85%, Season 85%, Fabric Wash 97%, Accents 93%. Owner decision: Vintage = No on modern items with a current tag.",
+      "acceptanceCriteria": [
+        "Vintage is set to 'No' when the leaf offers it and the item has a readable current-era tag (tag OCR brand/label present, or a brand pack marks the label current); it is never set to 'Yes' without era evidence, and never set when there is no tag evidence",
+        "The refine prompt carries one evidence rule each for Season (fabric weight and garment type), Fabric Wash (denim only), Accents, Lining Material (visible lining photo), Performance/Activity (activewear leaves) and Features",
+        "Character stays out of scope and is not nudged",
+        "Measured on 30+ prod drafts: recommended fill rate before and after in the story notes; target 60% or better"
+      ],
+      "priority": 34,
+      "dependsOn": [
+        "US-3483"
+      ]
+    },
+    {
+      "id": "US-3487",
+      "passes": false,
+      "title": "Local eBay leaf index: department plus garment type points to a leaf, cross-checked with eBay's suggestion and the visual vote",
+      "description": "As a seller, I want AutoLister to pick the exact eBay category, so that the right specifics and values apply. Men's T-Shirts and Casual Button-Down Shirts require the same 5 fields, so today's scoring ties and falls back to eBay's keyword order.",
+      "acceptanceCriteria": [
+        "A module services/edge-functions/src/lib/ebay-leaf-index.ts built from scripts/fixtures/ebay-aspect-values-11450.json maps (department, garment_category or product_type, vintage flag) to candidate leaf ids",
+        "resolveBatchCategory adds the index candidate to the keyword candidates and scores it with the same rules; the seller's saved choice and a visual leaf vote keep their precedence per identification-precedence.md",
+        "category_method records 'leaf_index' when the index candidate wins",
+        "Tests: a men's crew tee resolves to 15687, a women's blouse to 53159, a men's hoodie to 155183"
+      ],
+      "priority": 41,
+      "dependsOn": [
+        "US-3480"
+      ]
+    },
+    {
+      "id": "US-3488",
+      "passes": false,
+      "title": "Department filters eBay category candidates and visual leaf votes, so a men's item cannot land in a Women's leaf",
+      "description": "As a seller, I want the chosen category to match my item's department, so that Department is never an impossible value. Prod 2026-09-23: 6 of 12 SELECTION_ONLY misses were Department values that did not fit the category.",
+      "acceptanceCriteria": [
+        "rankCategoryCandidates drops candidates whose breadcrumb department (Men, Women, Boys, Girls, Unisex Kids, Baby) conflicts with resolveDepartment(item) when that is known",
+        "tallyLeafCategoryVotes ignores votes for leaves that conflict the same way",
+        "When every candidate conflicts, the choice is left to the seller and flagged, never auto-picked",
+        "Coordinate with US-3352 (confidently wrong department auto-applied); this story does not change how department itself is decided"
+      ],
+      "priority": 42
+    },
+    {
+      "id": "US-3489",
+      "passes": false,
+      "title": "Category scoring uses values that match, breaks ties by leaf name vs garment type, and penalizes 'Other' and non-apparel leaves",
+      "description": "As a seller, I want look-alike categories told apart by more than field names, so that a tee does not land in Button-Down Shirts.",
+      "acceptanceCriteria": [
+        "scoreCategoryCandidate counts a required aspect as filled only when the item's value is on that leaf's list or the aspect has no list",
+        "Ties are broken by a match between the leaf name and product_type or garment_category before eBay's order",
+        "Leaves named 'Other ...' and leaves outside 11450 for a clothing item score below any matching leaf",
+        "Scoring uses the fraction of required aspects filled, so a leaf with more required fields does not win on count alone",
+        "Tests on 15687 vs 57990 vs 185076 with a crew tee, a button-up and a performance tee"
+      ],
+      "priority": 43
+    },
+    {
+      "id": "US-3490",
+      "passes": false,
+      "title": "Every category path uses the same scored picker: single-item extract, publish fallback and Android",
+      "description": "As a seller, I want the same category logic wherever my item is listed from, so that the single-item flow and the phone app do not take eBay's first guess.",
+      "acceptanceCriteria": [
+        "routes/flipdesk-ai.ts category suggestion goes through resolveBatchCategory instead of taking suggestCategories()[0]",
+        "The publish fallback in routes/flipdesk-ebay-publish.ts for an item with no category uses the scored picker",
+        "Android ItemCanvasViewModel no longer silently adopts the comps lookup's first category; it calls the scored suggest endpoint",
+        "Tests cover the extract route and publish fallback paths"
+      ],
+      "priority": 44,
+      "dependsOn": [
+        "US-3489"
+      ]
+    },
+    {
+      "id": "US-3491",
+      "passes": false,
+      "title": "Specifics editors snap a typed value to eBay's list on blur and show 'will send as X' on web, iOS and Android",
+      "description": "As a seller, I want the editor to fix my typing to eBay's value as I go, so that I do not reintroduce misses by hand. Seller typing is never silently rewritten; the snap is shown.",
+      "acceptanceCriteria": [
+        "Web ebay-category-picker.tsx free-text inputs run normalizeAspectValue on blur and show the matched value with an undo",
+        "iOS AspectSuggestField and Android free-text aspect fields do the same with their local copy of the matcher",
+        "An off-list value that does not match stays as typed and shows 'not an eBay value'",
+        "Web test plus one iOS and one Android unit test"
+      ],
+      "priority": 51,
+      "dependsOn": [
+        "US-3474"
+      ]
+    },
+    {
+      "id": "US-3492",
+      "passes": false,
+      "title": "Android specifics editor offers eBay's suggested values for free-text aspects",
+      "description": "As a seller on Android, I want suggestions from eBay's list when I type a free-text specific, so that I pick eBay's spelling like on web and iOS.",
+      "acceptanceCriteria": [
+        "AspectsSection.kt / SpecificsSection.kt show a filtered suggestion list for FREE_TEXT aspects that ship values",
+        "AspectSpec.kt keeps the values for FREE_TEXT aspects instead of discarding them",
+        "Screenshot test updated; npm run verify:android green"
+      ],
+      "priority": 52
+    },
+    {
+      "id": "US-3493",
+      "passes": false,
+      "title": "Size aspects act as closed lists on iOS, Android and the edge registry fill, matching web and the publish reconcile",
+      "description": "As a seller, I want every surface to treat Size as eBay's closed list, so that a custom size is caught before eBay rejects it.",
+      "acceptanceCriteria": [
+        "aspect-registry.ts fillAspect normalizes size-family aspects even when the cached mode is FREE_TEXT",
+        "iOS EbayAspectsTypes selectionOnly is true for size-family aspects with values",
+        "Android AspectSpec selectionOnly is true for size-family aspects with values",
+        "The web isClosedAspect rule is the reference; a shared case list asserts all agree"
+      ],
+      "priority": 53
+    },
+    {
+      "id": "US-3494",
+      "passes": false,
+      "title": "Pickers show a stored off-list value instead of rendering blank while still sending it",
+      "description": "As a seller, I want to see the value a pick-list field actually holds, so that I can fix it instead of publishing something I cannot see.",
+      "acceptanceCriteria": [
+        "Web select in ebay-category-picker.tsx renders a stored value not on the list as a flagged option instead of '- Choose -'",
+        "iOS AspectRowView and Android dropdowns do the same",
+        "A test per surface with an off-list stored value"
+      ],
+      "priority": 54
+    },
+    {
+      "id": "US-3495",
+      "passes": false,
+      "title": "Custom-value rejection self-heal also runs on the multi-variation group revise",
+      "description": "As a seller with variation listings, I want an eBay custom-value rejection healed the same way as single listings, so that size enforcement does not strand my variation listings.",
+      "acceptanceCriteria": [
+        "reviseVariationGroup in routes/flipdesk-ebay-listings.ts calls healCustomValueRejection on a custom-value rejection, as the single-offer paths do",
+        "A Deno test with a stubbed eBay rejection proves the refetch, refit and retry",
+        "vault/30-platform/ebay-standard-size-values.md drops the gap from its not-done list in the same commit"
+      ],
+      "priority": 60
     }
   ]
 }
