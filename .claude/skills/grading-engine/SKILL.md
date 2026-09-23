@@ -114,7 +114,12 @@ inert until they pass the eval gate and are explicitly activated
   it. A label that is genuinely unusable still blocks on its OWN defect: severe
   blur and darkness are core-shot blocks, and those asks are actionable.
   `labelIllegibleFor` in `image-quality.ts` is the one definition; the
-  escalation re-grade must recompute it, never inherit it.
+  escalation re-grade must recompute it, never inherit it, and so must the
+  first pass: the cap is computed from the reads merged AFTER the label
+  re-read (US-3322), which now also runs on a standard grade when a label came
+  back illegible (`labelRereadScope` in `grading-pipeline.ts`). The tagless
+  `legible` definition itself is prompt text, shipped inert behind
+  `GRADING_LEGIBLE_V2` (`+legible2`) pending shadow, eval and canary (US-3321).
 - Caps COMPOSE via min-of-caps; penalties floor at 0. Never raise confidence
   post-composite. New caps: follow `composeConfidenceCap` (peer-norm.ts).
 - **The mechanism, not just the rule (US-2299).** "Never raise post-composite"
