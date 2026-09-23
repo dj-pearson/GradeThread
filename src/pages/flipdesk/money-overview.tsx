@@ -6,6 +6,7 @@ import { useAuthStore } from "@/stores/auth-store";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ErrorState } from "@/components/ui/error-state";
+import { LedgerDriftBanner } from "@/components/finances/ledger-drift-banner";
 import { formatCents } from "@/lib/ledger-math";
 import { ensureLedgerBuilt, fetchLedgerEntries } from "@/lib/ledger";
 import { buildStatement } from "@/lib/pnl-statement";
@@ -272,6 +273,10 @@ export function MoneyOverviewPage() {
 
   return (
     <div className="space-y-4">
+      {/* money.md action 6. First, because every figure below is read from
+          the ledger this says is behind. Renders nothing when it agrees. */}
+      <LedgerDriftBanner periodStart={fiscal.from} />
+
       {/* THE TWO A SELLER CAN ACT ON TODAY. AC4 puts them first, and they are
           set larger and bordered, because an identical grid of four says every
           number matters equally -- which is exactly what this page must not

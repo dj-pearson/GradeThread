@@ -118,6 +118,7 @@ export const LEDGER_QUERY_KEYS = [
   "money-overview-ledger",
   "money-overview-calendar",
   "estimated-tax-entries",
+  "ledger-reconciliation",
 ] as const;
 
 type QueryInvalidator = {
