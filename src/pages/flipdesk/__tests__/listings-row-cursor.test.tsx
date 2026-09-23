@@ -8,15 +8,15 @@ import { useRowCursor, type RowCursorHandlers } from "@/pages/flipdesk/listings-
 
 const ids = ["a", "b", "c", "d"];
 let cursor: number | null = null;
-const h: RowCursorHandlers & { toggle: ReturnType<typeof vi.fn>; selectRange: ReturnType<typeof vi.fn>; quickEdit: ReturnType<typeof vi.fn> } = {
+const h = {
   count: ids.length,
-  idAt: (i) => ids[i],
-  toggle: vi.fn(),
-  selectRange: vi.fn(),
-  quickEdit: vi.fn(),
-  openFull: vi.fn(),
-  scrollTo: vi.fn(),
-};
+  idAt: (i: number) => ids[i],
+  toggle: vi.fn<(id: string) => void>(),
+  selectRange: vi.fn<(ids: string[]) => void>(),
+  quickEdit: vi.fn<(index: number) => void>(),
+  openFull: vi.fn<(index: number) => void>(),
+  scrollTo: vi.fn<(index: number) => void>(),
+} satisfies RowCursorHandlers;
 
 function Harness() {
   cursor = useRowCursor(h).cursor;
