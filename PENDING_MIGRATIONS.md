@@ -76,6 +76,10 @@ section are unchanged and still waiting.
 **What it does.** Demotes duplicate eBay drafts, then adds
 `uq_listings_one_ebay_draft_per_item`, a partial unique index on
 `listings(inventory_item_id) WHERE platform = 'ebay' AND listing_status = 'draft'`.
+Both run in ONE transaction that first takes `LOCK TABLE public.listings IN
+SHARE ROW EXCLUSIVE MODE` (with `SET LOCAL lock_timeout = '15s'`), so no draft
+can be inserted between the demote and the index build. Reads carry on; writes
+to `listings` wait a few seconds for the commit.
 
 **Why.** `generateListing` wrote the draft as select-then-insert with nothing
 behind it, so a generation that outlived its batch timeout and the retry of
@@ -107,10 +111,27 @@ Poshmark pair and the active row untouched. Second apply: `UPDATE 0`, index
 skipped with a NOTICE. A third eBay draft insert then fails with 23505; an
 `ended` one inserts fine.
 
+**Re-proved with the transaction on a clone at 00831 (round-3 review):** same
+seed plus a fourth item with one draft, and a `pg_sleep(4)` spliced in before
+the index build. A second eBay draft for that item inserted from another
+session one second in: against the OLD two-statement file it went in at once
+and the migration died with `could not create unique index` (no index, no
+00832 row, two drafts). Against this file the insert waited 3s, then failed
+with 23505 on the new index, and the migration committed (`UPDATE 3`, index
+built, 00832 recorded). Keepers as before: the scheduled draft, the
+offer-holding draft; Poshmark pair and active row untouched. Applied twice:
+`UPDATE 0`, index skipped with a NOTICE, `INSERT 0 0`. Applied to the clone
+left broken by the old file, it demoted the racing duplicate (`UPDATE 1`) and
+built the index. With another session holding an uncommitted UPDATE on
+`listings`, it gave up after 15s with `canceling statement due to lock
+timeout` and rolled back whole; re-run it when that transaction is gone.
+
 **Risk: LOW-MEDIUM.** Writes existing rows (the demotion). Any path that
 inserts a SECOND eBay draft for an item now gets 23505 instead: the web
-"create drafts" bulk action (`src/pages/flipdesk/listings-actions.ts`) already
-skips drafted items and would report the error per item. Relist, cross-push
+"create drafts" bulk action (`src/pages/flipdesk/listings-actions.ts`) skips
+drafted items, and an item whose row still read undrafted (AutoLister wrote its
+draft) is reported by name as "already had an eBay draft, so no second one was
+made" and moved to drafted, not counted as a failure. Relist, cross-push
 and extension writeback create drafts only for extension channels, so the
 eBay-only predicate leaves them alone.
 

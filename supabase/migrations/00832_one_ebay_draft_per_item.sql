@@ -22,8 +22,24 @@
 -- stamped platform_fields.dedupe_00832 = {kept_listing_id, demoted_at} so the
 -- owner can find, restore or delete exactly these rows later.
 --
+-- One transaction, with listings locked against writes for its length. The
+-- demote and the index build used to be two autocommitted statements, so a
+-- draft inserted between them (AutoLister runs all the time) could recreate a
+-- duplicate and fail CREATE UNIQUE INDEX, or worse, land on an item after the
+-- demote had already picked its keeper. SHARE ROW EXCLUSIVE blocks INSERT,
+-- UPDATE and DELETE from other sessions and still allows reads, and it is
+-- compatible with the SHARE lock CREATE INDEX takes in this same transaction.
+-- Writers wait for the few seconds this takes; nothing is lost. lock_timeout
+-- makes the migration fail loudly (and roll back whole) rather than queue
+-- behind a long transaction while every later writer queues behind it.
+--
 -- Idempotent: on a second run there are no duplicates left, the UPDATE matches
 -- nothing, and the index already exists.
+
+BEGIN;
+
+SET LOCAL lock_timeout = '15s';
+LOCK TABLE public.listings IN SHARE ROW EXCLUSIVE MODE;
 
 WITH ranked AS (
   SELECT
@@ -65,3 +81,5 @@ COMMENT ON INDEX public.uq_listings_one_ebay_draft_per_item IS
   'At most one eBay draft per inventory item. generateListing relies on the 23505 to turn a racing insert into an update (00832).';
 
 insert into public.applied_migrations (version) values ('00832') on conflict do nothing;
+
+COMMIT;
