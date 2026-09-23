@@ -74,12 +74,13 @@ export type SubmitResult =
     /**
      * A machine-readable reason, where there is one worth branching on.
      *
-     * Only `already_submitted` today (US-3214). The screen needs to tell "we
-     * refused because a grade is already running" apart from "the payment
-     * failed", and matching on the sentence is how a copy edit silently turns
-     * one into the other.
+     * `already_submitted` (US-3214): the screen needs to tell "we refused
+     * because a grade is already running" apart from "the payment failed", and
+     * matching on the sentence is how a copy edit silently turns one into the
+     * other. `missing_photos` (US-2304): a required photo is not among the
+     * ones the submission would copy, refused before any charge.
      */
-    code?: "already_submitted";
+    code?: "already_submitted" | "missing_photos";
   };
 
 /**
@@ -195,6 +196,27 @@ export function gradingImageTypeToPhotoType(imageType: string): string {
 export const REQUIRED_GRADING_PHOTO_TYPES = REQUIRED_IMAGE_TYPES.map(
   gradingImageTypeToPhotoType,
 );
+
+/**
+ * US-2304: which REQUIRED grading images are missing from a set of
+ * `image_type`s that will actually be copied into the submission. Returned as
+ * FlipDesk photo names ("tag", not "label"), because that is what the seller
+ * is asked for.
+ *
+ * Readiness answers the same question from item_photos before the batch
+ * starts. This answers it from the photos the loop is about to copy, and it
+ * runs BEFORE the charge, so a photo that disappears between the two (deleted
+ * in another tab, or one the copy cannot reach) is refused for free instead
+ * of costing a charge, a vision call per image and a refund.
+ */
+export function missingRequiredGradingImages(
+  imageTypes: Iterable<string>,
+): string[] {
+  const have = new Set(imageTypes);
+  return REQUIRED_IMAGE_TYPES.filter((t) => !have.has(t)).map(
+    gradingImageTypeToPhotoType,
+  );
+}
 
 // A close-up "detail_*" shot is what lets the grader read the fabric weave/knit,
 // which drives fabric_condition — 30% of the score, the heaviest factor. It is
@@ -450,6 +472,12 @@ export async function buildValidation(
         .from("item_photos")
         .select("inventory_item_id, photo_type, photo_role")
         .in("inventory_item_id", ownedItemIds)
+        // US-2304: count only photos /submit can actually copy. The submit
+        // loop reads item_photos with this same filter, so a tag row with no
+        // storage_path (an imported photo that only has a photo_url) used to
+        // pass readiness here and then vanish at submit. The grade was
+        // charged, ran Claude Vision, and abstained on the missing label.
+        .not("storage_path", "is", null)
     : {
       data: [] as Array<
         { inventory_item_id: string; photo_type: string; photo_role: string | null }
@@ -856,6 +884,50 @@ export async function submitItemsForGrading(
         continue;
       }
 
+      // 0. Load item photos eligible for grading (sort_order ascending so
+      //    detail_1/2/3 land in a sensible order in the submission too).
+      // US-2024: from the batch map (was a per-item query), already filtered to
+      // non-null storage_path and ordered by sort_order.
+      const photos = photosByItem.get(it.id) ?? [];
+
+      const eligible = ((photos ?? []) as Array<{
+        photo_type: string;
+        photo_role: string | null;
+        storage_path: string;
+        sort_order: number;
+      }>)
+        .map((p) => ({
+          ...p,
+          grading: mapPhotoTypeForGrading(p.photo_type, p.photo_role),
+        }))
+        .filter(
+          (
+            p,
+          ): p is typeof p & {
+            grading: { imageType: string; imageRole: string | null };
+          } => p.grading !== null,
+        );
+
+      // US-2304: refuse a missing required photo HERE, before the submissions
+      // row, the lock and the charge. Checked against the photos this loop
+      // will copy, not the readiness read, because those are what the grading
+      // gate (image-quality.ts REQUIRED_IMAGE_TYPES) will see. It blocks on a
+      // missing label only after one vision call per image, so letting this
+      // through meant a charge, AI spend and a refund for a grade that could
+      // never happen.
+      const missingRequired = missingRequiredGradingImages(
+        eligible.map((p) => p.grading.imageType),
+      );
+      if (missingRequired.length > 0) {
+        results.push({
+          ok: false,
+          inventory_item_id: item.inventory_item_id,
+          error: `Missing required photos: ${missingRequired.join(", ")}`,
+          code: "missing_photos",
+        });
+        continue;
+      }
+
       // 1. Create submissions row (keyed on workspace owner so all members see it).
       const { data: subInsert, error: subErr } = await supabaseAdmin
         .from("submissions")
@@ -950,30 +1022,6 @@ export async function submitItemsForGrading(
         continue;
       }
       charged = true;
-
-      // 2. Load item photos eligible for grading (sort_order ascending so
-      //    detail_1/2/3 land in a sensible order in the submission too).
-      // US-2024: from the batch map (was a per-item query), already filtered to
-      // non-null storage_path and ordered by sort_order.
-      const photos = photosByItem.get(it.id) ?? [];
-
-      const eligible = ((photos ?? []) as Array<{
-        photo_type: string;
-        photo_role: string | null;
-        storage_path: string;
-        sort_order: number;
-      }>)
-        .map((p) => ({
-          ...p,
-          grading: mapPhotoTypeForGrading(p.photo_type, p.photo_role),
-        }))
-        .filter(
-          (
-            p,
-          ): p is typeof p & {
-            grading: { imageType: string; imageRole: string | null };
-          } => p.grading !== null,
-        );
 
       // 3. Copy each eligible photo into submission-images
       const imageRecords: Array<{
