@@ -20,6 +20,7 @@ import { BooksReviewCard } from "@/components/finances/books-review-card";
 import {
   ensureLedgerBuilt,
   fetchLedgerEntries,
+  invalidateLedgerQueries,
   rebuildMyLedger,
   type LedgerEntryRow,
 } from "@/lib/ledger";
@@ -170,7 +171,7 @@ export function PnlPage() {
     setRebuilding(true);
     try {
       const n = await rebuildMyLedger();
-      await qc.invalidateQueries({ queryKey: ["pnl-entries"] });
+      await invalidateLedgerQueries(qc);
       toast.success(`Books rebuilt. ${n} entries.`);
     } catch (err) {
       toastError(err, "Couldn't rebuild your books.");
