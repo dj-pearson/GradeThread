@@ -21,6 +21,14 @@
 //                   above 0 -- the per-image loader skips any row missing one,
 //                   so each is another "on but idle" state.
 //
+// Both stages share two more rules for anything that leaves the row shadowing:
+//   - an is_active row is refused. Neither shadow loader filters on is_active,
+//     so the champion would shadow itself: spend that compares a prompt to
+//     itself. activatePromptVersion clears is_shadow on promotion; this is the
+//     same rule from the other side.
+//   - a sample rate or daily cap of 0 is refused. The composite loader skips
+//     those rows exactly as the per-image one does, so "on" would mean idle.
+//
 // Stopping a shadow (is_shadow: false) never needs step-up and is never
 // refused for a missing env var: turning spend OFF must always be easy.
 //
@@ -41,6 +49,7 @@ export interface ShadowToggleRow {
   is_shadow: boolean | null;
   shadow_sample_rate: number | string | null;
   shadow_daily_cap: number | null;
+  is_active?: boolean | null;
 }
 
 export interface ShadowToggleBody {
@@ -87,17 +96,32 @@ export function planShadowToggle(
     return { ok: false, status: 400, error: "Nothing to update" };
   }
 
-  if (stage === "composite") return { ok: true, update, needsStepUp: false };
-
-  // ── per_image ──
   const rate = Number(update.shadow_sample_rate ?? row.shadow_sample_rate ?? 0);
+  const cap = Number(update.shadow_daily_cap ?? row.shadow_daily_cap ?? 0);
   const willRun = update.is_shadow === true ||
     (update.is_shadow === undefined && row.is_shadow === true);
   // A stop, or an edit to a stopped row: spends nothing, so no step-up, no env
-  // requirement and no rate ceiling. A row started by SQL at a wider rate must
-  // still be stoppable from here.
+  // requirement and no rate ceiling. A row started by SQL at a wider rate, or on
+  // the active row, must still be stoppable from here.
   if (!willRun) return { ok: true, update, needsStepUp: false };
 
+  if (row.is_active === true) {
+    return {
+      ok: false,
+      status: 422,
+      error: "This is the active version, so a shadow would compare it to itself. " +
+        "Shadow a draft instead.",
+    };
+  }
+  const idle = !(rate > 0) || !(cap > 0);
+  const idleError = "Set a sample rate and a daily cap above 0, or the shadow will never run";
+
+  if (stage === "composite") {
+    if (idle) return { ok: false, status: 422, error: idleError };
+    return { ok: true, update, needsStepUp: false };
+  }
+
+  // ── per_image ──
   if (rate > PER_IMAGE_SHADOW_MAX_SAMPLE_RATE) {
     return {
       ok: false,
@@ -122,13 +146,6 @@ export function planShadowToggle(
       error: "This version has no prompt text of its own, so there is nothing to compare",
     };
   }
-  const cap = Number(update.shadow_daily_cap ?? row.shadow_daily_cap ?? 0);
-  if (!(rate > 0) || !(cap > 0)) {
-    return {
-      ok: false,
-      status: 422,
-      error: "Set a sample rate and a daily cap above 0, or the shadow will never run",
-    };
-  }
+  if (idle) return { ok: false, status: 422, error: idleError };
   return { ok: true, update, needsStepUp: true };
 }

@@ -18,6 +18,7 @@
 
 import type Anthropic from "@anthropic-ai/sdk";
 import { getAnthropicClient } from "./ai-config.ts";
+import { withAiFeature } from "./ai-feature-context.ts";
 import { runAiCall } from "./ai-limiter.ts";
 import {
   type AiCallContext,
@@ -102,18 +103,19 @@ export class AnthropicProvider implements AiProvider {
       })),
     };
 
-    // The feature context rides on the OPTIONS argument, which is how
-    // ai-config's wrapper picks it up for captureAiUsage — passing it here keeps
-    // the usage ledger populated exactly as the direct calls did.
-    const response = request.onFirstToken
-      ? await this.streamed(client, body, request.onFirstToken, context)
-      : await (client.messages.create as unknown as (
-        b: unknown,
-        o?: unknown,
-      ) => Promise<Anthropic.Message>)(
-        body,
-        context ? { aiFeatureContext: context } : undefined,
-      );
+    // The feature context goes where ai-config's wrapper reads it: the
+    // AsyncLocalStorage scope that currentAiFeature() returns, which is what
+    // makes captureAiUsage write the ai_usage_events row. It used to ride on
+    // the SDK options as `aiFeatureContext`, a key the wrapper never reads, so
+    // it reached the SDK as an unknown request option and recorded nothing.
+    const create = () =>
+      (client.messages.create as unknown as (b: unknown) => Promise<Anthropic.Message>)(body);
+    let response: Anthropic.Message;
+    if (request.onFirstToken) {
+      response = await this.streamed(client, body, request.onFirstToken, context);
+    } else {
+      response = context ? await withAiFeature(context, create) : await create();
+    }
 
     // Concatenate every text block rather than taking the first. A single block
     // is the norm and was what the old call sites assumed, but a reply split
@@ -146,9 +148,11 @@ export class AnthropicProvider implements AiProvider {
    * concurrency slot and retry.ts backoff as the non-streamed calls beside it,
    * and maxRetries 0 keeps retry.ts the only retry authority. A retry re-runs
    * the whole stream; `onFirstToken` fires at most once across attempts.
-   * Nothing is written to ai_usage_events here, which matches the non-stream
-   * path for grading: it records per-grade usage itself (recordAiUsage) and
-   * carries no feature context, so the wrapper recorded nothing either.
+   * Nothing is written to ai_usage_events here: the wrapper's captureAiUsage
+   * never sees a stream. That matches the non-stream path for grading, which
+   * records per-grade usage itself (recordAiUsage) and passes no feature
+   * context. A caller that DOES pass one would lose its usage row silently, so
+   * that is refused here, before anything is sent or spent.
    */
   private streamed(
     client: Anthropic,
@@ -156,6 +160,14 @@ export class AnthropicProvider implements AiProvider {
     onFirstToken: () => void,
     context?: AiCallContext | null,
   ): Promise<Anthropic.Message> {
+    if (context) {
+      return Promise.reject(
+        new Error(
+          `[ai-provider] a streamed call cannot record usage for feature "${context.feature}"; ` +
+            "stream only the grading fan-out, which passes no context",
+        ),
+      );
+    }
     let fired = false;
     return runAiCall(async () => {
       const stream = (client.messages.stream as unknown as (
@@ -164,7 +176,7 @@ export class AnthropicProvider implements AiProvider {
       ) => {
         on: (event: "streamEvent", listener: () => void) => unknown;
         finalMessage: () => Promise<Anthropic.Message>;
-      })(body, { ...(context ? { aiFeatureContext: context } : {}), maxRetries: 0 });
+      })(body, { maxRetries: 0 });
       stream.on("streamEvent", () => {
         if (fired) return;
         fired = true;

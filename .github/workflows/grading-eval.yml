@@ -20,8 +20,14 @@ name: Grading golden-set eval
 # grading through a deploy that clears no gate (src/test/eval-gate-claims.test.ts
 # pins both that and what the public pages say about it).
 #
-# Cost: every run is one real vision grade per active golden case. Weekly keeps
-# that bounded; use workflow_dispatch before a prompt or model change.
+# This job is NOT the only eval run. The Coolify grading-monitor cron
+# (services/edge-functions/CRON_SETUP.md, `0 */12 * * *`) calls the same
+# endpoint, and it runs runEval() too unless MONITOR_RUN_EVAL=false on the edge.
+# So the golden set is graded about 14 times a week by the cron plus once here.
+#
+# Cost: every run, from either caller, is one real vision grade per active
+# golden case. This job adds one run a week to the cron's two a day; use
+# workflow_dispatch before a prompt or model change.
 #
 # Needs the EDGE_JOB_SECRET repo secret (the edge's FLIPDESK_INTERNAL_JOB_SECRET,
 # the same one cron-fleet-watchdog.yml uses). Without it the job SKIPS with a
@@ -70,6 +76,9 @@ jobs:
             -H "X-Internal-Job-Secret: ${EDGE_JOB_SECRET}" \
             --max-time 3300) || code="000"
           echo "HTTP $code"
+          if [ "$code" = "401" ]; then
+            echo "::error::grading-monitor answered 401: the edge refused the job secret. Check that the EDGE_JOB_SECRET repo secret matches the edge service's FLIPDESK_INTERNAL_JOB_SECRET (it may have been rotated on one side only)."
+          fi
           cat /tmp/grading-eval.json 2>/dev/null || true
           echo
           touch /tmp/grading-eval.json
