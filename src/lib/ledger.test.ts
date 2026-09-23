@@ -165,7 +165,8 @@ describe("invalidateLedgerQueries", () => {
   });
 });
 
-// Every useQuery whose queryFn reads fetchLedgerEntries has to be on the list,
+// Every useQuery whose queryFn reads the ledger (its entries or its
+// reconciliation) has to be on the list,
 // or a rebuild leaves that screen on the old books for its staleTime.
 describe("LEDGER_QUERY_KEYS covers every ledger reader", () => {
   const SRC = join(__dirname, "..");
@@ -181,17 +182,18 @@ describe("LEDGER_QUERY_KEYS covers every ledger reader", () => {
     const found = new Set<string>();
     for (const f of files(SRC)) {
       const src = readFileSync(f, "utf8");
-      if (!src.includes("fetchLedgerEntries(")) continue;
+      const reads = ["fetchLedgerEntries(", "fetchLedgerReconciliation("];
+      if (!reads.some((r) => src.includes(r))) continue;
       const parts = src.split(/queryKey:\s*\[/).slice(1);
       for (const part of parts) {
         const key = /^"([^"]+)"/.exec(part)?.[1];
         const body = part.split(/\n\s*\}\);/)[0] ?? "";
-        if (key && body.includes("fetchLedgerEntries(")) found.add(key);
+        if (key && reads.some((r) => body.includes(r))) found.add(key);
       }
     }
     // The scan must see the screens it was written against, or it is passing
     // because it stopped reading them.
-    expect(found.size).toBeGreaterThanOrEqual(4);
+    expect(found.size).toBeGreaterThanOrEqual(5);
     for (const key of found) {
       expect(LEDGER_QUERY_KEYS as readonly string[], key).toContain(key);
     }
