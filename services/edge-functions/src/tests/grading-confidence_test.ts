@@ -449,8 +449,11 @@ Deno.test("US-3320: the escalation re-grade recomputes the flag", () => {
   const src = Deno.readTextFileSync(
     new URL("../lib/grading-pipeline.ts", import.meta.url),
   );
-  assertEquals(src.split("labelIllegibleFor(").length - 1, 1);
-  assert(src.includes("qualityGate.labelIllegible"));
+  // US-3322 changed the other half: the FIRST pass now recomputes it too,
+  // from the reads merged after the label re-read, instead of reading the
+  // gate's first-pass flag. So two calls, and no read of the gate's copy.
+  assertEquals(src.split("labelIllegibleFor(").length - 1, 2);
+  assert(!src.includes("qualityGate.labelIllegible"));
 });
 
 Deno.test("US-3320: the tagless population is countable", () => {

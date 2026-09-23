@@ -44,8 +44,8 @@ out.push("");
 // is the only question worth asking first: what is the SHORTEST thing you can
 // do that unblocks the most stories.
 //
-// It has a mechanical answer. Held migrations are named in PENDING_MIGRATIONS.md
-// with a fixed heading shape, each naming the story it carries. Applying them
+// It has a mechanical answer. Held migrations are listed in
+// supabase/held-migrations.json, each naming the story it carries. Applying them
 // is one sitting. The edge deploy that must follow is a second, and a large
 // share of the remaining criteria are "after the edge deploy, measure X" --
 // they are not separate work at all, they are the same deploy plus a read.
@@ -53,30 +53,26 @@ out.push("");
 // So this section is computed, never hand-maintained: a hand-kept "start here"
 // is out of date the first time a migration lands.
 
-/** Held migrations, oldest first, from PENDING_MIGRATIONS.md's own headings. */
+/**
+ * Held migrations, oldest first, from supabase/held-migrations.json -- the same
+ * registry scripts/held-migration-gate.mjs reads. This used to parse
+ * PENDING_MIGRATIONS.md headings, which is the regex the gate stopped trusting
+ * after it missed a held migration seven times.
+ *
+ * A missing or unreadable registry THROWS. Reading it as empty would print
+ * "No migration is held" into a document the owner acts on.
+ */
 function heldMigrations() {
-  let doc;
-  try {
-    doc = readFileSync(ROOT + "PENDING_MIGRATIONS.md", "utf8");
-  } catch {
-    return [];
+  const registry = JSON.parse(readFileSync(ROOT + "supabase/held-migrations.json", "utf8"));
+  if (!Array.isArray(registry.held)) {
+    throw new Error('supabase/held-migrations.json has no "held" array');
   }
-  const held = [];
-  // `## <hourglass> HELD: 00808_name.sql (US-3197 - what it carries)`
-  const re = /^##\s*\S*\s*HELD:\s*(\d{5})_(\S+?)\.sql\s*\(([^)]*)\)/gim;
-  let m;
-  while ((m = re.exec(doc))) {
-    const inside = m[3];
-    const story = /US-\d+/.exec(inside);
-    held.push({
-      version: m[1],
-      name: m[2],
-      story: story ? story[0] : null,
-      // Everything after the story id and its separator, which is the human
-      // sentence the heading already wrote.
-      what: inside.replace(/^US-\d+\s*[-\u2014:]*\s*/, "").trim(),
-    });
-  }
+  const held = registry.held.map((h) => ({
+    version: h.version,
+    name: h.file.replace(/^\d{5}_/, "").replace(/\.sql$/, ""),
+    story: typeof h.story === "string" && h.story ? h.story : null,
+    what: h.what ?? "",
+  }));
   held.sort((a, b) => a.version.localeCompare(b.version));
   return held;
 }
@@ -106,7 +102,7 @@ function startHere(rows) {
     return lines;
   }
   lines.push(
-    "Computed from PENDING_MIGRATIONS.md and the criteria below, so it is " +
+    "Computed from supabase/held-migrations.json and the criteria below, so it is " +
       "right on the day you read it. Everything under this heading is two " +
       "sittings, and it is the two that move the most stories.",
   );
@@ -121,7 +117,10 @@ function startHere(rows) {
     );
     lines.push("");
     for (const h of held) {
-      const who = h.story ? `${h.story} — ` : "";
+      // A US-nnnn story gets the em dash; a free-text one ("money plan action
+      // 3") keeps the hyphen the PENDING_MIGRATIONS.md heading gives it, so the
+      // line reads the same as the heading the owner is about to open.
+      const who = !h.story ? "" : /^US-\d+$/.test(h.story) ? `${h.story} — ` : `${h.story} - `;
       lines.push(`- \`${h.version}_${h.name}.sql\` — ${who}${h.what}`);
     }
     lines.push("");

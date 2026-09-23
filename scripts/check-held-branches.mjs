@@ -36,15 +36,24 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
  */
 export const REGISTRIES = [
   {
+    file: "supabase/held-migrations.json",
+    why: "the held-migration registry; each `parked` entry names its branch",
+    // Machine-written and machine-read (platform plan action 6, 2026-09-23).
+    // This replaced the PENDING_MIGRATIONS.md merge-order TABLE as the place a
+    // numbered held branch is named. Every branch in it is a live claim.
+    scope: "whole-file",
+  },
+  {
     file: "PENDING_MIGRATIONS.md",
-    why: "the owner's merge-order table",
-    // TABLE ROWS ONLY, and the scoping is what keeps this guard worth running.
-    // This file also NARRATES branches: ones that were superseded, renamed or
-    // deleted on purpose. Those are supposed to be absent from the remote, and
-    // reporting them turns a 6-line finding into a 14-line one where most
-    // entries are correct. A noisy guard is a guard somebody switches off.
-    // A row in the merge-order table is a live claim that the branch is there.
-    scope: "table-rows",
+    why: "the owner's prose, read ONLY for branches that carry no migration",
+    // PROSE ONLY, and never asked about numbered branches. This file NARRATES
+    // branches that were superseded, renamed or deleted on purpose; those are
+    // supposed to be absent from the remote, and reporting them turns a
+    // 4-line finding into a 14-line one where most entries are correct. A
+    // noisy guard is a guard somebody switches off. Numbered branches come
+    // from the registry above; this file is kept only for the one kind of
+    // branch no registry can hold (see KNOWN_ABSENT_UNNUMBERED).
+    scope: "unnumbered-only",
   },
   {
     file: "scripts/migrations-lint.mjs",
@@ -94,7 +103,7 @@ export const KNOWN_ABSENT = new Map([
  * and `KNOWN_GAPS` exists to explain a hole in the numbering. A branch holding
  * finished work and no SQL has nowhere to be named, so it can only appear in
  * PENDING_MIGRATIONS.md PROSE -- and prose is deliberately out of scope, for the
- * good reason in the `table-rows` comment above.
+ * good reason in the `unnumbered-only` comment above.
  *
  * So this guard was green while `held/us-3399-chart-order` (d3ec2de55, the
  * chart-ordering fix plus a `brand-knowledge-chart-order_test.ts` that exists
@@ -159,16 +168,11 @@ const BRANCH_RE = /\bheld(?:-v\d+)?\/[A-Za-z0-9._-]+/g;
 export function namedBranches(root = ROOT) {
   /** @type {Map<string, string[]>} */
   const found = new Map();
-  for (const { file } of REGISTRIES) {
+  for (const { file, scope } of REGISTRIES) {
+    if (scope === "unnumbered-only") continue;
     const p = path.join(root, file);
     if (!existsSync(p)) continue;
     let text = readFileSync(p, "utf8");
-    if (REGISTRIES.find((r) => r.file === file)?.scope === "table-rows") {
-      text = text
-        .split("\n")
-        .filter((l) => l.trimStart().startsWith("|"))
-        .join("\n");
-    }
     // A struck-through name is a record of what the row USED to say. Keeping it
     // readable is the point of the strikethrough; asking the remote for it is
     // not.
@@ -305,8 +309,8 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
     }
     console.error("");
     console.error(
-      "  A held branch with no SQL has no registry: the merge-order table has a\n" +
-        "  version column and KNOWN_GAPS explains a hole in the numbering, and\n" +
+      "  A held branch with no SQL has no registry: held-migrations.json has a\n" +
+        "  version field and KNOWN_GAPS explains a hole in the numbering, and\n" +
         "  this has neither. Nothing else will ever notice it is gone. Push it,\n" +
         "  or land the work, or stop naming it.",
     );

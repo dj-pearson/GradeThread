@@ -1,3 +1,4 @@
+import GradeThreadCore
 import XCTest
 import SwiftData
 @testable import GradeThread

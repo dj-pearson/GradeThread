@@ -46,6 +46,7 @@ import {
   type DefectType,
   FACTOR_ROUTING as CLOTHING_DEFECT_ROUTING,
 } from "./defect-weighting.ts";
+import { roundWeightedToTenth } from "./human-review.ts";
 
 export interface RubricFactor {
   key: string;
@@ -468,7 +469,7 @@ export function routeDefectToRubricFactors(
 // Rubric-driven weighted overall (US-1997, activation checklist step 2)
 // ---------------------------------------------------------------------------
 //
-// The two live weighted-overall implementations — ai-grading.roundToTenth over
+// The two live weighted-overall implementations — ai-grading.computeAiWeightedOverall over
 // FACTOR_WEIGHTS, and human-review.computeWeightedOverall — are both hard-typed
 // to the five CLOTHING factors, in two different key spaces (AI response names
 // vs. grade_reports column names). Neither can score a rubric with a different
@@ -540,9 +541,12 @@ export function computeRubricWeightedOverall(
   rubric: Rubric,
   scores: Record<string, number>,
 ): number {
-  let total = 0;
-  for (const factor of rubric.factors) {
-    total += requireRubricFactor(rubric, scores, factor.key) * factor.weight;
-  }
-  return Math.round(total * 10) / 10;
+  // Same integer, round-half-up rounding as human-review.computeWeightedOverall
+  // (grading-plan action 1), so the clothing rubric stays byte-identical to it
+  // on exact .x5 midpoints too.
+  return roundWeightedToTenth(
+    rubric.factors.map((factor) =>
+      [requireRubricFactor(rubric, scores, factor.key), factor.weight] as const
+    ),
+  );
 }

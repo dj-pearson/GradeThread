@@ -9,6 +9,7 @@
 // argue from a defect the listing never disclosed is a pack that proves the
 // buyer right, so it must not assemble and must offer nothing to copy.
 import assert from "node:assert/strict";
+import { readEbayRouteSource } from "./_ebay-routes.ts";
 
 Deno.env.set("SUPABASE_URL", Deno.env.get("SUPABASE_URL") ?? "http://localhost:54321");
 Deno.env.set("SUPABASE_SERVICE_ROLE_KEY", Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "test-key");
@@ -161,11 +162,12 @@ Deno.test("US-3068: there is still ONE planner", () => {
 
   // And the extracted planner is what the eBay route uses too, rather than a
   // copy left behind.
-  const ebay = Deno.readTextFileSync(new URL("../routes/flipdesk-ebay.ts", import.meta.url));
+  // Every eBay route file (flipdesk-ebay-*.ts), as when it was one module.
+  const ebay = readEbayRouteSource();
   assert.match(ebay, /from "\.\.\/lib\/evidence-plan\.ts"/);
   assert.ok(
     !/async function planEvidence\(/.test(ebay),
-    "flipdesk-ebay.ts kept its own copy of planEvidence after the extraction",
+    "an eBay route file kept its own copy of planEvidence after the extraction",
   );
 });
 

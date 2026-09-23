@@ -137,6 +137,21 @@ at all), `record_style_code_name`, `record_style_code_submission`,
 (use-sku-merge), `community_benchmarks` (community-benchmarks.ts). These need
 `auth.uid() is not null` plus tenant scoping, not a service-role guard.
 
+Where the tenant half stands, checked 2026-09-23:
+
+- `get_or_create_source`: **scoped in 00824.** 00640 shipped only the role
+  guard and the function still trusted `p_user_id` from the browser, so any
+  signed-in account could insert a source into another seller's account or
+  look up that seller's source names. 00824 admits the service role, the
+  account owner, and a `listing_manager`-or-higher workspace member (the same
+  bar as the 00042 sources INSERT policy) and raises 42501 for anyone else.
+  Proof against a real Postgres: `scripts/check-source-tenant-scope.mjs --dsn`.
+- `merge_inventory_items`: **already scoped, no change needed.** The body from
+  00119 (carried into 00640) refuses two items with different owners and then
+  requires `is_workspace_member_with_role(owner, 'listing_manager')`, which is
+  true for the owner too.
+- `community_benchmarks`: not re-checked here.
+
 **Stays anon, by design (1):**
 `peek_workspace_invitation`. Accept-invite reads it BEFORE the invitee has
 signed in. That is the feature. Documented here so the next audit does not

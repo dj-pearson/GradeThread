@@ -1,5 +1,7 @@
 package com.gradethread.app.ai
 
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonPrimitive
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -141,11 +143,11 @@ class AiItemFieldsTest {
         // A jsonb UPDATE replaces the document — writing only new keys would
         // silently delete everything persistCanonicalAttributes wrote.
         val merged = AiItemFields.mergeAttributes(
-            existing = mapOf("country_of_manufacture" to "Vietnam", "fit" to "Regular"),
+            existing = json("country_of_manufacture" to "Vietnam", "fit" to "Regular"),
             updates = mapOf("department" to "Men"),
         )
         assertEquals(
-            mapOf("country_of_manufacture" to "Vietnam", "fit" to "Regular", "department" to "Men"),
+            json("country_of_manufacture" to "Vietnam", "fit" to "Regular", "department" to "Men"),
             merged,
         )
     }
@@ -153,40 +155,40 @@ class AiItemFieldsTest {
     @Test
     fun attributeMergeOverwritesTheSameKey() {
         val merged = AiItemFields.mergeAttributes(
-            existing = mapOf("fit" to "Regular"),
+            existing = json("fit" to "Regular"),
             updates = mapOf("fit" to "Slim"),
         )
-        assertEquals(mapOf("fit" to "Slim"), merged)
+        assertEquals(json("fit" to "Slim"), merged)
     }
 
     @Test
     fun clearedAttributesAreRemovedFromTheDocument() {
         val merged = AiItemFields.mergeAttributes(
-            existing = mapOf("fit" to "Regular", "pattern" to "Plaid"),
+            existing = json("fit" to "Regular", "pattern" to "Plaid"),
             updates = emptyMap(),
             cleared = setOf("pattern"),
         )
-        assertEquals(mapOf("fit" to "Regular"), merged)
+        assertEquals(json("fit" to "Regular"), merged)
     }
 
     @Test
     fun fieldSourcesMergePreservesUnrelatedProvenance() {
         val merged = AiItemFields.mergeFieldSources(
-            existing = mapOf("color" to "photo:front"),
+            existing = json("color" to "photo:front"),
             sources = mapOf("brand" to "photo:tag"),
         )
-        assertEquals(mapOf("color" to "photo:front", "brand" to "photo:tag"), merged)
+        assertEquals(json("color" to "photo:front", "brand" to "photo:tag"), merged)
     }
 
     @Test
     fun undoneFieldsLoseTheirAiProvenance() {
         // Otherwise the item claims the AI set a value the seller reverted.
         val merged = AiItemFields.mergeFieldSources(
-            existing = mapOf("brand" to "photo:tag", "color" to "photo:front"),
+            existing = json("brand" to "photo:tag", "color" to "photo:front"),
             sources = emptyMap(),
             noLongerAiAttributed = setOf("brand"),
         )
-        assertEquals(mapOf("color" to "photo:front"), merged)
+        assertEquals(json("color" to "photo:front"), merged)
     }
 
     @Test
@@ -198,7 +200,7 @@ class AiItemFieldsTest {
             sources = mapOf("brand" to "live-text"),
             noLongerAiAttributed = emptySet(),
         )
-        assertEquals(mapOf("brand" to "live-text"), merged)
+        assertEquals(json("brand" to "live-text"), merged)
     }
 
     // ── end-to-end routing of a realistic review ─────────────────────────
@@ -220,4 +222,8 @@ class AiItemFieldsTest {
         assertEquals(setOf("size"), routed.cleared)
         assertEquals(setOf("garment_type", "mystery"), routed.rejected.keys)
     }
+
+    /** A string-valued jsonb document, as most of these cases read it. */
+    private fun json(vararg entries: Pair<String, String>): Map<String, JsonElement> =
+        entries.associate { (key, value) -> key to JsonPrimitive(value) }
 }

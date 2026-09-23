@@ -34,6 +34,7 @@ import {
   type CaptureSessionState,
   hashCaptureToken,
   isCaptureTargetKind,
+  isDuplicateCaptureInsert,
   isMultiItemCapture,
   isWellFormedCaptureToken,
   newCaptureToken,
@@ -370,6 +371,110 @@ flipdeskPhoneCaptureRoutes.post("/s/:token/next-item", async (c) => {
   });
 });
 
+/** How many times a counter swap re-reads before giving up on a busy session. */
+const COUNTER_SWAP_ATTEMPTS = 8;
+
+type CounterSwap =
+  | { ok: true; session: SessionRow }
+  | { ok: false; status: 404 | 410 | 429 | 503; error: string };
+
+/**
+ * Claim one photo and `bytes` against the session's caps, atomically.
+ *
+ * The caps used to be checked against a row read at the top of the request and
+ * written back as `photo_count: session.photo_count + 1` after the insert. Two
+ * uploads in flight both passed the check on the same stale count and one
+ * increment was lost, so a code could take more than CAPTURE_MAX_PHOTOS.
+ *
+ * This is a compare-and-swap instead: the UPDATE only matches while the
+ * counters still hold the values the cap was checked against, and while the
+ * code is still open. Postgres re-checks that WHERE against the committed row
+ * when two updates race, so exactly one of them wins; the loser re-reads and
+ * is checked again against the new count. No row updated means no slot.
+ */
+async function reserveCaptureSlot(session: SessionRow, bytes: number): Promise<CounterSwap> {
+  let current = session;
+  for (let attempt = 0; attempt < COUNTER_SWAP_ATTEMPTS; attempt++) {
+    const refusal = refuseCapture(current, bytes);
+    if (refusal) return { ok: false, status: refusal.status, error: refusal.error };
+
+    const next = {
+      photo_count: current.photo_count + 1,
+      bytes_total: current.bytes_total + bytes,
+    };
+    const { data, error } = await supabaseAdmin
+      .from("phone_capture_sessions")
+      .update(next)
+      .eq("id", current.id)
+      .eq("photo_count", current.photo_count)
+      .eq("bytes_total", current.bytes_total)
+      .is("ended_at", null)
+      .gt("expires_at", new Date().toISOString())
+      .select("id");
+    if (error) {
+      console.error("[capture] reserve failed:", error.message);
+      return { ok: false, status: 503, error: "That photo could not be saved. Try it again." };
+    }
+    if (Array.isArray(data) && data.length > 0) {
+      return { ok: true, session: { ...current, ...next } };
+    }
+
+    // Somebody else moved the counters (or ended the code) first. Read what
+    // they left and check the caps again against THAT.
+    const { data: fresh, error: readErr } = await supabaseAdmin
+      .from("phone_capture_sessions")
+      .select(SESSION_COLUMNS)
+      .eq("id", current.id)
+      .maybeSingle();
+    if (readErr) {
+      console.error("[capture] reserve re-read failed:", readErr.message);
+      return { ok: false, status: 503, error: "That photo could not be saved. Try it again." };
+    }
+    if (!fresh) return { ok: false, status: 404, error: "That code is not one of ours." };
+    current = fresh as SessionRow;
+  }
+  return { ok: false, status: 503, error: "Too many photos at once. Try that one again." };
+}
+
+/**
+ * Give back a slot claimed by reserveCaptureSlot when the photo did not land.
+ *
+ * Same compare-and-swap, without the cap or open-code conditions: returning a
+ * slot is always allowed. If it cannot be returned the session over-counts,
+ * which refuses a photo early rather than letting one past the cap.
+ */
+async function releaseCaptureSlot(session: SessionRow, bytes: number): Promise<void> {
+  let current = session;
+  for (let attempt = 0; attempt < COUNTER_SWAP_ATTEMPTS; attempt++) {
+    const { data, error } = await supabaseAdmin
+      .from("phone_capture_sessions")
+      .update({
+        photo_count: Math.max(0, current.photo_count - 1),
+        bytes_total: Math.max(0, current.bytes_total - bytes),
+      })
+      .eq("id", current.id)
+      .eq("photo_count", current.photo_count)
+      .eq("bytes_total", current.bytes_total)
+      .select("id");
+    if (error) break;
+    if (Array.isArray(data) && data.length > 0) return;
+    const { data: fresh } = await supabaseAdmin
+      .from("phone_capture_sessions")
+      .select(SESSION_COLUMNS)
+      .eq("id", current.id)
+      .maybeSingle();
+    if (!fresh) break;
+    current = fresh as SessionRow;
+  }
+  console.error("[capture] could not release a slot; session", session.id, "over-counts by one");
+}
+
+/** Drop a staged object whose row was never written. Best effort. */
+async function removeStagedCapture(path: string): Promise<void> {
+  const { error } = await supabaseAdmin.storage.from("item-photos").remove([path]);
+  if (error) console.error("[capture] could not remove orphaned staging object:", error.message);
+}
+
 // POST /s/:token/photos — one photo, multipart, from a phone camera.
 flipdeskPhoneCaptureRoutes.post("/s/:token/photos", async (c) => {
   const found = await sessionForToken(c.req.param("token"));
@@ -425,6 +530,13 @@ flipdeskPhoneCaptureRoutes.post("/s/:token/photos", async (c) => {
 
   const group = session.group_index ?? 0;
   const clean = stripImageMetadata(bytes, valid.format);
+
+  // The caps are claimed BEFORE the object exists, in one statement, so two
+  // uploads in flight cannot both take the last slot.
+  const reserved = await reserveCaptureSlot(session, clean.bytes.length);
+  if (!reserved.ok) return c.json({ error: reserved.error }, reserved.status);
+  const counted = reserved.session;
+
   // Under the OWNER's folder, because that is what the per-user-folder storage
   // RLS reads — not the phone's, which belongs to nobody.
   const path = `${session.owner_user_id}/_staging/phone/${crypto.randomUUID()}.${valid.ext}`;
@@ -432,6 +544,7 @@ flipdeskPhoneCaptureRoutes.post("/s/:token/photos", async (c) => {
   const { error: upErr } = await storage.upload(path, clean.bytes, valid.contentType);
   if (upErr) {
     console.error("[capture] upload failed:", upErr.message);
+    await releaseCaptureSlot(counted, clean.bytes.length);
     return c.json({ error: "That photo could not be saved. Try it again." }, 502);
   }
   const url = storage.publicUrl(path);
@@ -455,33 +568,49 @@ flipdeskPhoneCaptureRoutes.post("/s/:token/photos", async (c) => {
     .select("id")
     .single();
   if (insErr || !inserted) {
-    // A duplicate here means two retries raced; the unique index is the
-    // authority and the first one already counted.
-    return c.json({ ok: true, duplicate: true, url, groupIndex: group });
-  }
+    // Either way no row points at the object just uploaded and this shot did
+    // not add a photo, so the object and the slot both go back.
+    await releaseCaptureSlot(counted, clean.bytes.length);
+    await removeStagedCapture(path);
 
-  // Counters are the caps, so they move in the same breath as the row.
-  await supabaseAdmin
-    .from("phone_capture_sessions")
-    .update({
-      photo_count: session.photo_count + 1,
-      bytes_total: session.bytes_total + clean.bytes.length,
-    })
-    .eq("id", session.id);
+    if (clientKey && isDuplicateCaptureInsert(insErr)) {
+      // Two retries of the same shot raced; the unique index is the authority
+      // and the first one already counted. Answer with THAT row.
+      const { data: existing } = await supabaseAdmin
+        .from("phone_capture_photos")
+        .select("id, public_url, group_index")
+        .eq("session_id", session.id)
+        .eq("client_key", clientKey)
+        .maybeSingle();
+      const row = existing as { id: string; public_url: string; group_index: number | null } | null;
+      return c.json({
+        ok: true,
+        duplicate: true,
+        id: row?.id,
+        url: row?.public_url,
+        groupIndex: typeof row?.group_index === "number" ? row.group_index : group,
+      });
+    }
+
+    // Anything else means the photo did NOT save. Answering ok here is what
+    // left the phone showing a shot the desktop never received.
+    console.error("[capture] photo insert failed:", insErr?.message ?? "no row returned");
+    return c.json({ error: "That photo could not be saved. Try it again." }, 502);
+  }
 
   return c.json({
     ok: true,
     id: (inserted as { id: string }).id,
     url,
-    photosTaken: session.photo_count + 1,
-    photosLeft: Math.max(0, CAPTURE_MAX_PHOTOS - (session.photo_count + 1)),
+    photosTaken: counted.photo_count,
+    photosLeft: Math.max(0, CAPTURE_MAX_PHOTOS - counted.photo_count),
     // US-3185: echoed so the phone's "Item 3 — 2 photos" line moves with the
     // upload rather than waiting for the next full read.
     groupIndex: group,
     // Counted after the insert, so it includes the shot that just landed. A
     // failed count is omitted rather than guessed: the photo DID save, and a
     // wrong number on the phone is worse than the one it already had.
-    photosInGroup: await photosInGroup(session).catch(() => undefined),
+    photosInGroup: await photosInGroup(counted).catch(() => undefined),
     // US-3162: recomputed here so the phone's "still need a back shot" updates
     // as shots land, without a second round trip after every photo. It reflects
     // what the DESKTOP has tagged so far, which is the honest answer — the

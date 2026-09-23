@@ -62,7 +62,7 @@ const KNOWN_BARE_FETCH: Array<[string, number]> = [
   ["src/routes/content-public.ts", 1],
   ["src/routes/content-settings.ts", 1],
   ["src/routes/email-sns.ts", 1],
-  ["src/routes/flipdesk-ebay.ts", 1],
+  ["src/routes/flipdesk-ebay-listings.ts", 1],
   ["src/routes/flipdesk-images.ts", 1],
   ["src/routes/jobs-content-watchdog.ts", 1],
   ["src/routes/webhooks.ts", 1],

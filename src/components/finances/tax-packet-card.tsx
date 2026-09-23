@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { downloadZip } from "client-zip";
 import { AlertTriangle, FileArchive, Printer } from "lucide-react";
 import { toast } from "sonner";
@@ -20,7 +20,11 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { formatCents } from "@/lib/ledger-math";
-import { ensureLedgerBuilt, fetchLedgerEntries } from "@/lib/ledger";
+import {
+  fetchLedgerEntries,
+  invalidateLedgerQueries,
+  rebuildMyLedger,
+} from "@/lib/ledger";
 import { buildStatement } from "@/lib/pnl-statement";
 import { fetchCogsWorksheet } from "@/lib/cogs";
 import { fetchBridge, fetchPlatformsWithSales } from "@/lib/form-1099k";
@@ -64,6 +68,7 @@ interface ReceiptRow {
 
 export function TaxPacketCard() {
   const user = useAuthStore((s) => s.user);
+  const qc = useQueryClient();
   const [year, setYear] = useState(() => new Date().getFullYear() - 1);
   const [building, setBuilding] = useState(false);
   const [progress, setProgress] = useState("");
@@ -84,7 +89,11 @@ export function TaxPacketCard() {
 
   async function gather(): Promise<PacketInput> {
     setProgress("Reading your books");
-    await ensureLedgerBuilt();
+    // Always a full rebuild here, never the freshness check: this is the
+    // packet a seller hands an accountant, and it is pressed rarely enough
+    // that paying for a re-derivation is cheaper than one stale figure.
+    await rebuildMyLedger();
+    void invalidateLedgerQueries(qc);
     const entries = await fetchLedgerEntries(from, to);
     const statement = buildStatement(
       entries.map((e) => ({

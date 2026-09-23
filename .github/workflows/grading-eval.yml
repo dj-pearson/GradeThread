@@ -1,0 +1,85 @@
+name: Grading golden-set eval
+
+# US-2301 (docs/module-plans/grading.md, action 3): a scheduled run of the
+# golden-set eval that goes RED on a regression or on an empty set.
+#
+# The eval runs on the edge, not on the runner. /api/jobs/grading-monitor already
+# calls runEval() against the live composite prompt version, where the Anthropic
+# key, the service-role client and the private submission-images bucket are. So
+# the only secret this job needs is the internal job secret, and no model key or
+# service-role key is ever copied into GitHub.
+#
+# Why this exists beside the Coolify cron that hits the same endpoint: the cron's
+# answer is an email, and on an EMPTY golden set the monitor returns 200 with
+# eval.ran=false by design (throwing would break the cron on a fresh deploy).
+# That is silence-shaped. scripts/grading-eval-ci.mjs turns the same response
+# into a red run: a skipped eval is a failure here, never a pass.
+#
+# This is a MONITOR, not a deploy gate. It runs on a schedule and on demand only,
+# never on push or pull_request, so the code-shipped prompt still reaches live
+# grading through a deploy that clears no gate (src/test/eval-gate-claims.test.ts
+# pins both that and what the public pages say about it).
+#
+# This job is NOT the only eval run. The Coolify grading-monitor cron
+# (services/edge-functions/CRON_SETUP.md, `0 */12 * * *`) calls the same
+# endpoint, and it runs runEval() too unless MONITOR_RUN_EVAL=false on the edge.
+# So the golden set is graded about 14 times a week by the cron plus once here.
+#
+# Cost: every run, from either caller, is one real vision grade per active
+# golden case. This job adds one run a week to the cron's two a day; use
+# workflow_dispatch before a prompt or model change.
+#
+# Needs the EDGE_JOB_SECRET repo secret (the edge's FLIPDESK_INTERNAL_JOB_SECRET,
+# the same one cron-fleet-watchdog.yml uses). Without it the job SKIPS with a
+# notice. Forks never run it: the repository guard below, and forks do not get
+# secrets anyway.
+
+on:
+  schedule:
+    # Mondays 09:41 UTC, off the hour and off the 12-hourly Coolify monitor tick.
+    - cron: "41 9 * * 1"
+  workflow_dispatch:
+
+concurrency:
+  group: grading-eval
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  eval:
+    name: Run the golden-set eval against the live prompt
+    if: github.repository == 'dj-pearson/GradeThread'
+    runs-on: ubuntu-latest
+    # The eval grades cases one after another inside a single request, so a
+    # large golden set is a long request. Raise both limits together.
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: scripts
+          sparse-checkout-cone-mode: true
+
+      - name: Invoke /api/jobs/grading-monitor and judge the eval
+        env:
+          EDGE_JOB_SECRET: ${{ secrets.EDGE_JOB_SECRET }}
+        run: |
+          set -euo pipefail
+          if [ -z "${EDGE_JOB_SECRET:-}" ]; then
+            echo "::notice::EDGE_JOB_SECRET is not set, so the golden-set eval was skipped."
+            echo "Set it to the edge service's FLIPDESK_INTERNAL_JOB_SECRET to arm this job."
+            exit 0
+          fi
+          code=$(curl -sS -o /tmp/grading-eval.json -w '%{http_code}' \
+            -X POST 'https://functions.gradethread.com/api/jobs/grading-monitor' \
+            -H "X-Internal-Job-Secret: ${EDGE_JOB_SECRET}" \
+            --max-time 3300) || code="000"
+          echo "HTTP $code"
+          if [ "$code" = "401" ]; then
+            echo "::error::grading-monitor answered 401: the edge refused the job secret. Check that the EDGE_JOB_SECRET repo secret matches the edge service's FLIPDESK_INTERNAL_JOB_SECRET (it may have been rotated on one side only)."
+          fi
+          cat /tmp/grading-eval.json 2>/dev/null || true
+          echo
+          touch /tmp/grading-eval.json
+          node scripts/grading-eval-ci.mjs "$code" /tmp/grading-eval.json

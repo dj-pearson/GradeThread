@@ -86,29 +86,5 @@ struct PayoutImportResult: Decodable, Equatable {
     let duplicates: Int
 }
 
-// MARK: - Display helpers
-
-enum PayoutDateFormat {
-    /// Parses a date-only (`YYYY-MM-DD`) or full ISO-8601 string.
-    static func parse(_ raw: String?) -> Date? {
-        guard let raw else { return nil }
-        let full = ISO8601DateFormatter()
-        full.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        if let d = full.date(from: raw) { return d }
-        if let d = ISO8601DateFormatter().date(from: raw) { return d }
-        let dateOnly = DateFormatter()
-        dateOnly.locale = Locale(identifier: "en_US_POSIX")
-        dateOnly.timeZone = TimeZone(identifier: "UTC")
-        dateOnly.dateFormat = "yyyy-MM-dd"
-        return dateOnly.date(from: raw)
-    }
-
-    /// Short medium-style display ("Jan 5, 2024"), or "—".
-    static func display(_ raw: String?) -> String {
-        guard let date = parse(raw) else { return "—" }
-        let f = DateFormatter()
-        f.dateStyle = .medium
-        f.timeStyle = .none
-        return f.string(from: date)
-    }
-}
+// `PayoutDateFormat` moved to GradeThreadCore (PayoutDateFormat.swift) so its
+// date-only vs instant rule is asserted by `swift test` on Linux.

@@ -25,9 +25,9 @@
 //
 // Plus one WIRING scan (mode 0 of guards-that-do-not-guard: scans are right for
 // where things are wired and wrong for logic): both per-image fan-outs in
-// grading-pipeline.ts still issue their calls concurrently. If anyone staggers
-// them, this fails and sends them back to US-3345's latency decision instead of
-// letting the cost comment rot into a false statement.
+// grading-pipeline.ts go through staggerFirstCall, gated by
+// gradingCacheStaggerEnabled, and neither awaits a photo call on its own. The
+// ordering itself is driven for real in grading-cache-stagger_test.ts.
 //
 //   deno test --allow-all src/tests/grading-cache-premium_test.ts
 
@@ -355,42 +355,60 @@ function pipelineCode(): string {
     .join("\n");
 }
 
-/** Each fan-out region: from the promise array to the allSettled that drains it. */
+/**
+ * Each fan-out region: from the staggerFirstCall( that builds the promise
+ * array to the allSettled that drains it.
+ */
 function fanOutRegions(code: string): string[] {
   const regions: string[] = [];
-  const opener = "const perImagePromises = imageData.map(";
+  const opener = "staggerFirstCall(";
   const closer = "Promise.allSettled(perImagePromises)";
   let from = 0;
   for (;;) {
     const start = code.indexOf(opener, from);
     if (start === -1) break;
     const end = code.indexOf(closer, start);
-    assert(end !== -1, "a perImagePromises fan-out is never drained by allSettled");
+    assert(end !== -1, "a staggerFirstCall fan-out is never drained by allSettled");
     regions.push(code.slice(start, end + closer.length));
     from = end + closer.length;
   }
   return regions;
 }
 
-Deno.test("US-3345 AC3: both per-image fan-outs are still CONCURRENT", () => {
+Deno.test("US-3345 AC3: both per-image fan-outs stagger ONLY the first call, behind the flag", () => {
   const code = pipelineCode();
+  assert(
+    !/imageData\.map\(\s*\(?[\w, ]*\)?\s*=>\s*(?:\{\s*const callStartedAt[^;]*;\s*return\s+)?analyzeImage\(/
+      .test(code),
+    "a per-image fan-out is a bare imageData.map() again, so it can never be " +
+      "staggered and photos 2..N can never read photo 1's cache write",
+  );
   const regions = fanOutRegions(code);
   assertEquals(
     regions.length,
     2,
     "expected the live fan-out and the escalation re-grade's fan-out; if this " +
-      "count changed, find the new one and decide whether it is concurrent too",
+      "count changed, find the new one and decide whether it staggers too",
   );
   for (const region of regions) {
     assert(
       !/\bawait\s+analyzeImage\s*\(/.test(region),
-      "a per-image call inside the fan-out is now awaited. That is the STAGGER " +
-        "US-3345 deliberately did not ship: it makes the prompt cache readable " +
-        "but costs a whole non-streaming vision call of the seller's wait. If " +
-        "this is intended, it needs the latency measurement AC2 asked for, and " +
-        "the cost comments in grading-pipeline.ts and ai-config.ts stop being true.",
+      "a per-image call inside the fan-out is now awaited. That serialises a " +
+        "WHOLE vision call per photo; the stagger releases 2..N at photo 1's " +
+        "first token, and only when GRADING_CACHE_STAGGER is on.",
+    );
+    assert(
+      /onFirstToken/.test(region),
+      "the fan-out no longer hands onFirstToken to analyzeImage, so the first " +
+        "call cannot stream and the gate only opens when photo 1 finishes",
     );
   }
+  assertEquals(
+    (code.match(/gradingCacheStaggerEnabled\(\)/g) ?? []).length,
+    2,
+    "each fan-out must read the flag; a hard-coded true would ship the latency " +
+      "trade without the owner's decision",
+  );
 });
 
 Deno.test("US-3345 AC2: the per-call latency instrument is still wired", () => {
@@ -400,7 +418,8 @@ Deno.test("US-3345 AC2: the per-call latency instrument is still wired", () => {
     "the per-image stopwatch is gone - AC2's measurement cannot be taken without it",
   );
   assert(
-    code.includes("per_call_ms=[") && code.includes("stagger_ms="),
+    code.includes("per_call_ms=[") && code.includes("stagger_ms=") &&
+      code.includes("gate_ms="),
     "the per-image fan-out no longer LOGS its per-call timings, so the number " +
       "the stagger decision turns on stops reaching the container logs",
   );

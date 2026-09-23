@@ -81,7 +81,7 @@ interface Publisher {
 
 let publisher: Publisher | null = null;
 
-/** Called by routes/flipdesk-ebay.ts at module load. */
+/** Called by routes/flipdesk-ebay-publish.ts at module load. */
 export function registerEbayPublisher(impl: Publisher): void {
   publisher = impl;
 }

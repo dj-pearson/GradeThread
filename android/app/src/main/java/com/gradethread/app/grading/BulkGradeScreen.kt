@@ -237,9 +237,9 @@ private fun ReadyBody(
     Text(
         stringResource(
             R.string.bulkgrade_counts,
-            state.ready.size,
-            state.blocked.size,
-            state.creditBalance,
+            pluralStringResource(R.plurals.bulkgrade_ready, state.ready.size, state.ready.size),
+            pluralStringResource(R.plurals.bulkgrade_blocked, state.blocked.size, state.blocked.size),
+            pluralStringResource(R.plurals.credit_count, state.creditBalance, state.creditBalance),
         ),
         style = MaterialTheme.typography.bodySmall,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -273,7 +273,7 @@ private fun ReadyBody(
             }
             if (state.blocked.size > 5) {
                 Text(
-                    stringResource(R.string.bulkgrade_and_more, state.blocked.size - 5),
+                    pluralStringResource(R.plurals.bulkgrade_and_more, state.blocked.size - 5, state.blocked.size - 5),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )

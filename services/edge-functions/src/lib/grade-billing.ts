@@ -11,6 +11,7 @@ import {
   performPaymentPrecedence,
   type PrecedenceIO,
 } from "./grade-precedence.ts";
+import { resolveDebitKey } from "./ambiguous-debit-refund.ts";
 
 // ── Canonical grade billing (US-207) ─────────────────────────────
 //
@@ -270,6 +271,11 @@ export async function runPaymentPrecedence(
         },
       }),
     debitCredits: async (cost) => {
+      // A key whose debit was REFUNDED on another submission is spent: sending
+      // it again would be answered "already paid" and grade for free. Same key
+      // otherwise, so a true replay still debits nothing. See
+      // lib/ambiguous-debit-refund.ts.
+      idempotencyKey = await resolveDebitKey(userId, submissionId, idempotencyKey);
       const { data: newBalance, error } = await supabaseAdmin.rpc(
         "debit_grade_credits",
         {

@@ -1,5 +1,6 @@
 import { assertEquals } from "@std/assert";
 import { ASPECT_REGISTRY } from "../lib/aspect-registry.ts";
+import { EBAY_ROUTE_FILES, ebayRouteFile } from "./_ebay-routes.ts";
 
 // US-2274 AC7: the publish-time backstop, and why it is worth a test of its own.
 //
@@ -28,14 +29,22 @@ import { ASPECT_REGISTRY } from "../lib/aspect-registry.ts";
 //      whatever the stale store holds, which is the failure AC7 exists to
 //      prevent, on one path only — the hardest kind to notice.
 
-const ROUTE = "src/routes/flipdesk-ebay.ts";
-const source = Deno.readTextFileSync(ROUTE).replace(/\r\n?/g, "\n");
+// The eBay routes are split across flipdesk-ebay-*.ts; each file is searched on
+// its own so a body never runs past the end of the file that declares it.
+const sources = EBAY_ROUTE_FILES.map((f) =>
+  Deno.readTextFileSync(ebayRouteFile(f)).replace(/\r\n?/g, "\n")
+);
+// COLUMN_ASPECT_FALLBACK and forceColumnAspects are shared by the revise and
+// publish paths, so they live in flipdesk-ebay-shared.ts.
+const source = Deno.readTextFileSync(ebayRouteFile("flipdesk-ebay-shared.ts"))
+  .replace(/\r\n?/g, "\n");
 
 /** The body of a top-level function, bounded by the next top-level declaration. */
 function functionBody(name: string): string {
   const re = new RegExp(`^(?:export )?(?:async )?function ${name}\\s*[(<]`, "m");
-  const m = re.exec(source);
-  if (!m) return "";
+  const source = sources.find((s) => re.test(s));
+  const m = source ? re.exec(source) : null;
+  if (!source || !m) return "";
   const start = m.index;
   const after = source.slice(start + m[0].length);
   const next = /^(?:export )?(?:async )?(?:function|const|class) /m.exec(after);

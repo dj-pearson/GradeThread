@@ -5,7 +5,10 @@ type: contract
 status: current
 source_of_truth: code
 code_refs:
-  - services/edge-functions/src/routes/flipdesk-ebay.ts
+  - services/edge-functions/src/routes/flipdesk-ebay-shared.ts
+  - services/edge-functions/src/routes/flipdesk-ebay-listings.ts
+  - services/edge-functions/src/routes/flipdesk-ebay-publish.ts
+  - services/edge-functions/src/routes/flipdesk-ebay-sync.ts
   - services/edge-functions/src/lib/ai-listing.ts
   - services/edge-functions/src/lib/aspect-registry.ts
   - services/edge-functions/src/lib/aspect-provenance.ts
@@ -13,10 +16,16 @@ code_refs:
   - src/lib/aspect-provenance.ts
   - src/test/fixtures/required-aspects-cases.json
   - scripts/aspect-demand-cut.mjs
-reviewed: 2026-09-22
+reviewed: 2026-09-23
 tags: [ebay, publishing, aspects, gotcha]
 summary: Publish fills required item specifics the stored override lacks; revise did not, so listings published fine and then failed every later revise.
 ---
+
+> [!note] Re-reviewed 2026-09-23, no change in behaviour. `flipdesk-ebay.ts`
+> was split into one route file per concern as a pure move (marketplaces
+> module plan, action 5); it now only mounts them. The code this note
+> describes is in `flipdesk-ebay-shared.ts`, `flipdesk-ebay-listings.ts`, `flipdesk-ebay-publish.ts`, `flipdesk-ebay-sync.ts`, so `code_refs` point there.
+> `flipdesk-ebay.ts:NNNN` line numbers quoted below are from before the split.
 
 > [!note] Re-reviewed 2026-09-22, no change. Drift from US-3458, which touches
 > `flipdesk-ebay.ts`. Read the diff rather than the dates: it is confined to

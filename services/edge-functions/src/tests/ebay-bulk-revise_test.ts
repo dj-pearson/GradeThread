@@ -11,6 +11,7 @@
 // and that nothing re-implemented the checks beside it.
 
 import { assert } from "@std/assert";
+import { ebayRouteFile } from "./_ebay-routes.ts";
 
 // Line endings normalized to LF before anything reads these bytes. The blob is
 // LF and a Windows working tree is CRLF, so the `[\s\S]{0,400}` windows below
@@ -18,8 +19,9 @@ import { assert } from "@std/assert";
 // abandon the rest" guard failed locally on untouched code (US-2429). Raising
 // the numbers would have hidden it and made them mean nothing; normalizing
 // keeps a window of 400 the same 400 characters everywhere.
+// Both revise routes live in flipdesk-ebay-listings.ts since the eBay split.
 const SRC = Deno.readTextFileSync(
-  new URL("../routes/flipdesk-ebay.ts", import.meta.url),
+  ebayRouteFile("flipdesk-ebay-listings.ts"),
 ).replace(/\r\n/g, "\n");
 
 /** The body of the bulk-revise handler, bounded by the next route registration. */

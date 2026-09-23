@@ -40,7 +40,20 @@ into the single account below and resolved the disagreement against the code
 | **TTFB** | reported | Diagnostic context for LCP; not budgeted in CI. |
 | Lighthouse **Performance** | ≥ 0.90 | Composite guardrail. |
 
-Thresholds live in `lighthouserc.json` at `warn` level, non-blocking.
+Thresholds live in `lighthouserc.json` (desktop) and `lighthouserc.mobile.json`,
+run by `.github/workflows/lighthouse.yml` against `vite preview` on clean URLs.
+Performance, LCP and TBT are `warn`. SEO (>= 0.95) and accessibility (>= 0.9)
+are `error` on both profiles, and CLS is `error` on desktop only; a miss fails
+the job. Mobile CLS stays `warn` because web-font swap on /faq measured 0.124
+in one run and 0.000 in the next. The edge-SSR pages (/condition-index, /blog,
+/cert, /help) are measured weekly on the live site by the `prod-ssr` job
+(`lighthouserc.prod.json`, all `warn`), which comments on the open "Lighthouse
+weekly: live SSR pages" issue.
+
+Until 2026-09-23 the static configs listed `/pricing/index.html` under
+`staticDistDir`, but the prerender writes flat `dist/pricing.html`, so twelve of
+thirteen pages 404'd and `continue-on-error` hid it. `src/test/lighthouse-config.test.ts`
+now holds the configs to routed `PUBLIC_ROUTES` paths.
 
 ## What ships in code
 

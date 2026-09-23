@@ -13,6 +13,7 @@
 
 import { assertEquals } from "@std/assert";
 import { planComplianceSync } from "../lib/ebay-compliance-plan.ts";
+import { ebayRouteFile, readEbayRouteSource } from "./_ebay-routes.ts";
 
 const violating = (
   entries: Array<[string, number, string[]]>,
@@ -71,9 +72,7 @@ Deno.test("the route writes flags BEFORE it clears anything", () => {
   // The plan can be perfect and the window still exist if the clear runs first.
   // Matched by construct rather than by comment text, and by INDEX rather than
   // by presence — both halves exist either way, so only their order can fail.
-  const src = Deno.readTextFileSync(
-    new URL("../routes/flipdesk-ebay.ts", import.meta.url),
-  );
+  const src = Deno.readTextFileSync(ebayRouteFile("flipdesk-ebay-compliance.ts"));
   const flagAt = src.indexOf("for (const t of plan.toFlag)");
   const clearAt = src.indexOf("plan.toClear.length");
   assertEquals(flagAt > -1, true, "the flag loop is gone");
@@ -85,9 +84,8 @@ Deno.test("the blanket clear-everything update is gone", () => {
   // The exact statement that opened the window: an UPDATE matching every row
   // with a non-zero count. It survives as a SELECT — that read is what makes
   // the diff possible — so this asserts the UPDATE form specifically.
-  const src = Deno.readTextFileSync(
-    new URL("../routes/flipdesk-ebay.ts", import.meta.url),
-  );
+  // A blanket clear anywhere in the eBay routes, not only in the compliance file.
+  const src = readEbayRouteSource();
   const blanket =
     /\.update\(\{[\s\S]{0,200}?compliance_violation_count:\s*0[\s\S]{0,200}?\.gt\("compliance_violation_count"/;
   assertEquals(
@@ -99,9 +97,7 @@ Deno.test("the blanket clear-everything update is gone", () => {
 });
 
 Deno.test("a failed update fails the sync instead of shrinking a counter", () => {
-  const src = Deno.readTextFileSync(
-    new URL("../routes/flipdesk-ebay.ts", import.meta.url),
-  );
+  const src = Deno.readTextFileSync(ebayRouteFile("flipdesk-ebay-compliance.ts"));
   const section = src.slice(src.indexOf('flipdeskEbayRoutes.post("/compliance/sync"'));
   const raw = section.slice(0, section.indexOf("flipdeskEbayRoutes.post", 40));
   // COMMENTS STRIPPED FIRST, and this is not tidiness. The fix's own comment

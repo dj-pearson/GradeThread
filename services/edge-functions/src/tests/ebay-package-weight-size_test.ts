@@ -14,6 +14,7 @@
 // reason - checking either one alone would pass on the mismatch.
 
 import { assert, assertEquals } from "@std/assert";
+import { readEbayRouteSource } from "./_ebay-routes.ts";
 
 // ebay-client.ts constructs the service-role supabase client at import time,
 // which throws without these. Set before the dynamic import, mirroring
@@ -238,7 +239,8 @@ Deno.test("flag OFF: the publish body is byte-identical to the one before this e
 
 // --- The publish path reads the GARMENT category, not merchandising --------
 
-const EBAY_ROUTE = new URL("../routes/flipdesk-ebay.ts", import.meta.url);
+// Every eBay route file (flipdesk-ebay-*.ts): these checks count and pick
+// selects across the whole module, as they did when it was one file.
 
 /** Comments stripped: a paragraph naming a column is not a read of it. */
 function code(src: string): string {
@@ -256,7 +258,7 @@ Deno.test("assemblePublishContext selects garment_category and measurements", ()
   // weight and STILL reports basis ["category"], and eBay is told a confident
   // wrong weight. There is no other detector for that, which is why it is
   // pinned on the select string itself.
-  const src = code(Deno.readTextFileSync(EBAY_ROUTE));
+  const src = code(readEbayRouteSource());
   // Anchored on ebay_epid, which is unique to the publish-context read. An
   // earlier draft anchored on grade_label and matched a DIFFERENT select in
   // this file - a guard that checks the wrong string is a guard that reports
@@ -280,7 +282,7 @@ Deno.test("the estimator is fed garment_category, never the merchandising one", 
   // ["category"], so eBay would be told a confident wrong weight with nothing
   // anywhere reporting a problem. A DB-free test cannot see which column was
   // read any other way, so it is read off the function body.
-  const src = code(Deno.readTextFileSync(EBAY_ROUTE));
+  const src = code(readEbayRouteSource());
   const start = src.indexOf("function predictedPackageForPublish(");
   assert(start >= 0, "predictedPackageForPublish is gone - has the wiring moved?");
   const body = src.slice(start, src.indexOf("\n}", start));
@@ -298,7 +300,7 @@ Deno.test("only the single-SKU publish attaches the field", () => {
   // A variation group is several parcels behind one listing, and revise re-PUTs
   // a listing that is already live. Both are deliberately left alone; a future
   // edit that sprays the field across every PUT should have to delete this.
-  const src = code(Deno.readTextFileSync(EBAY_ROUTE));
+  const src = code(readEbayRouteSource());
   const attachments = src.match(/packageWeightAndSize:/g) ?? [];
   assertEquals(
     attachments.length,

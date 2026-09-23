@@ -27,6 +27,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import com.gradethread.app.R
 import androidx.compose.ui.Modifier
@@ -195,7 +196,12 @@ fun ProspectContent(
         )
 
         Text(
-            stringResource(R.string.prospect_photo_count, state.photos.size, ProspectDisplay.MAX_PHOTOS),
+            pluralStringResource(
+                R.plurals.prospect_photo_count,
+                ProspectDisplay.MAX_PHOTOS,
+                state.photos.size,
+                ProspectDisplay.MAX_PHOTOS,
+            ),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )

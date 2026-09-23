@@ -111,6 +111,20 @@ export function nonEmptyCategories(index: HelpIndexPayload): HelpCategoryPayload
     .sort((a, b) => a.sort_order - b.sort_order);
 }
 
+/**
+ * The hub's robots directive. An index with zero public articles is an empty
+ * shelf, which is thin content, so it is served "noindex, follow" until the
+ * first article is published (web-growth action 1, US-2618). undefined keeps
+ * the renderer's default, which is indexable.
+ *
+ * The SPA hub (src/pages/help/hub.tsx) and helpUrls() in _shared/sitemap.ts
+ * apply the same zero-articles rule, so the page and the sitemap cannot
+ * disagree about whether /help is worth crawling.
+ */
+export function helpHubRobots(index: HelpIndexPayload): string | undefined {
+  return index.articles.length === 0 ? "noindex, follow" : undefined;
+}
+
 export interface HelpSearchHitPayload {
   slug: string;
   title: string;

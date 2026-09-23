@@ -1,5 +1,8 @@
 package com.gradethread.app.ai
 
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonPrimitive
+
 /**
  * US-1334: where each AI-suggested field actually lives on
  * `inventory_items`, and which values are safe to write.
@@ -142,14 +145,19 @@ object AiItemFields {
      * Read-modify-write, because a jsonb column UPDATE REPLACES the whole
      * document — writing only the new keys would silently delete every
      * attribute the server already gap-filled.
+     *
+     * US-3360: [existing] stays as JSON. Only the keys this apply writes
+     * become strings; every other entry goes back exactly as it was read, so a
+     * numeric or array attribute another client wrote is not turned into a
+     * quoted string.
      */
     fun mergeAttributes(
-        existing: Map<String, String>,
+        existing: Map<String, JsonElement>,
         updates: Map<String, String>,
         cleared: Set<String> = emptySet(),
-    ): Map<String, String> {
+    ): Map<String, JsonElement> {
         val merged = existing.toMutableMap()
-        merged.putAll(updates)
+        updates.forEach { (key, value) -> merged[key] = JsonPrimitive(value) }
         cleared.forEach { merged.remove(it) }
         return merged
     }
@@ -158,15 +166,19 @@ object AiItemFields {
      * Merge provenance over the existing `ai_field_sources`, dropping entries
      * for fields that are no longer AI-attributed.
      *
-     * Same replace-not-merge hazard as [mergeAttributes].
+     * Same replace-not-merge hazard as [mergeAttributes], and the same
+     * US-3360 rule: an entry this apply does not touch is passed through as
+     * the JSON it was. Edge, web and iOS write provenance as objects carrying
+     * confidence and acceptance, and flattening those to strings destroyed
+     * both for good.
      */
     fun mergeFieldSources(
-        existing: Map<String, String>,
+        existing: Map<String, JsonElement>,
         sources: Map<String, String>,
         noLongerAiAttributed: Set<String> = emptySet(),
-    ): Map<String, String> {
+    ): Map<String, JsonElement> {
         val merged = existing.toMutableMap()
-        merged.putAll(sources)
+        sources.forEach { (key, value) -> merged[key] = JsonPrimitive(value) }
         noLongerAiAttributed.forEach { merged.remove(it) }
         return merged
     }

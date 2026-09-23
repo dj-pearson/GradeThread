@@ -31,6 +31,8 @@ import {
   runEval,
   runPromptDryRun,
   checkPromptServingEligibility,
+  evalResetForPromptEdit,
+  isLiveCanary,
 } from "../lib/grading-eval.ts";
 import {
   activateExemplarSet,
@@ -104,6 +106,12 @@ import {
   summarizeListingPromptPerformance,
 } from "../lib/listing-acceptance.ts";
 import { type ShadowRow, summarizeComparisons } from "../lib/grading-shadow.ts";
+import {
+  planShadowToggle,
+  type ShadowToggleBody,
+  type ShadowToggleRow,
+} from "../lib/prompt-shadow-toggle.ts";
+import { dailyVisionCap as perImageShadowVisionCap } from "../lib/grading-shadow-per-image.ts";
 import { runGradingRegressionScan } from "../lib/grading-monitor.ts";
 import { computeIrrReport, type ItemRatings } from "../lib/irr.ts";
 import { requireFreshStepUp, requireStepUp } from "../lib/step-up.ts";
@@ -611,7 +619,7 @@ adminGradingRoutes.patch("/prompts/:id", async (c) => {
 
   const { data: existing, error: readErr } = await supabaseAdmin
     .from("ai_prompt_versions")
-    .select("id, is_active, prompt_text")
+    .select("id, is_active, is_canary, rollout_percentage, prompt_text, garment_scope")
     .eq("id", id)
     .maybeSingle();
   if (readErr) {
@@ -646,6 +654,21 @@ adminGradingRoutes.patch("/prompts/:id", async (c) => {
   if (Object.keys(patch).length === 0) {
     return c.json({ error: "Nothing to update" }, 400);
   }
+  // A changed text or scope is a different prompt from the one the eval
+  // scored, so its pass (and the model stamp and run it points at) goes too.
+  // Otherwise evaluate, edit, activate serves text no eval ever saw.
+  const reset = evalResetForPromptEdit(existing, patch);
+  // A live canary is already serving paid traffic and the canary picker never
+  // reads eval_passed, so clearing it would not stop the edited text reaching
+  // customers. Refuse instead; rollout to 0 first, then edit and re-evaluate.
+  if (Object.keys(reset).length > 0 && isLiveCanary(existing)) {
+    return c.json({
+      error:
+        "This version is a LIVE CANARY: its prompt text and scope are serving part of live grading " +
+        "and cannot be edited in place. Set its rollout to 0% first, then edit and re-run the eval.",
+    }, 409);
+  }
+  Object.assign(patch, reset);
 
   const { data, error } = await supabaseAdmin
     .from("ai_prompt_versions")
@@ -2017,56 +2040,40 @@ adminGradingRoutes.post("/listing-prompts/auto-promote", async (c) => {
 
 // ── Shadow / A-B grading (US-330) ────────────────────────────────────
 
-// PATCH /prompts/:id/shadow — mark a candidate composite prompt to run in
-// shadow on live traffic, with cost guardrails. Body:
+// PATCH /prompts/:id/shadow — run a candidate prompt in shadow on live
+// traffic, with cost guardrails. Body:
 //   { is_shadow: bool, shadow_sample_rate?: 0..1, shadow_daily_cap?: int }
-// Shadow runs are advisory only and never affect a customer's grade;
-// activation still requires the eval gate (POST /prompts/:id/activate).
+// Both grading stages: composite re-runs one composite per sampled submission;
+// per_image (US-2443) re-analyzes every photo, so planShadowToggle caps its
+// rate, requires PER_IMAGE_SHADOW_DAILY_VISION_CAP, and asks for step-up
+// before anything that spends. Shadow runs are advisory only and never affect
+// a customer's grade; activation still requires the eval gate.
 adminGradingRoutes.patch("/prompts/:id/shadow", async (c) => {
   const id = c.req.param("id");
-  let body: {
-    is_shadow?: boolean;
-    shadow_sample_rate?: number;
-    shadow_daily_cap?: number;
-  };
+  let body: ShadowToggleBody;
   try {
     body = await c.req.json();
   } catch {
     return c.json({ error: "Invalid JSON body" }, 400);
   }
 
-  // Only composite-stage candidates can be shadowed (per-image shadowing would
-  // require a full re-grade; the composite re-run reuses per-image analyses).
   const { data: row, error: loadErr } = await supabaseAdmin
     .from("ai_prompt_versions")
-    .select("id, stage")
+    .select("id, stage, prompt_text, is_shadow, is_active, shadow_sample_rate, shadow_daily_cap")
     .eq("id", id)
     .maybeSingle();
   if (loadErr) return failSafe(c, 500, "Couldn't load the prompt.", loadErr, "admin.grading.shadow.load");
   if (!row) return c.json({ error: "Prompt version not found" }, 404);
-  if ((row as { stage: string }).stage !== "composite") {
-    return c.json({ error: "Only composite-stage prompts can be shadowed" }, 422);
-  }
 
-  const update: Record<string, unknown> = {};
-  if (typeof body.is_shadow === "boolean") update.is_shadow = body.is_shadow;
-  if (body.shadow_sample_rate !== undefined) {
-    const r = Number(body.shadow_sample_rate);
-    if (!Number.isFinite(r) || r < 0 || r > 1) {
-      return c.json({ error: "shadow_sample_rate must be between 0 and 1" }, 400);
-    }
-    update.shadow_sample_rate = r;
+  const plan = planShadowToggle(row as ShadowToggleRow, body ?? {}, perImageShadowVisionCap());
+  if (!plan.ok) return c.json({ error: plan.error }, plan.status);
+  if (plan.needsStepUp) {
+    // Per-image shadow spends vision calls on live traffic: the same tier as
+    // activate. Stopping one never lands here.
+    const stepUp = requireStepUp(c);
+    if (stepUp) return stepUp;
   }
-  if (body.shadow_daily_cap !== undefined) {
-    const cap = Number(body.shadow_daily_cap);
-    if (!Number.isInteger(cap) || cap < 0) {
-      return c.json({ error: "shadow_daily_cap must be a non-negative integer" }, 400);
-    }
-    update.shadow_daily_cap = cap;
-  }
-  if (Object.keys(update).length === 0) {
-    return c.json({ error: "Nothing to update" }, 400);
-  }
+  const update = plan.update;
 
   const { data, error } = await supabaseAdmin
     .from("ai_prompt_versions")

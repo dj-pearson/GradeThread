@@ -329,8 +329,8 @@ private fun NearbyRow(row: RadarNearbyRow, onClick: () -> Unit) {
             Text(
                 stringResource(
                     R.string.radar_row_activity,
-                    network.scanCount,
-                    network.contributorCount,
+                    pluralStringResource(R.plurals.scan_count, network.scanCount, network.scanCount),
+                    pluralStringResource(R.plurals.person_count, network.contributorCount, network.contributorCount),
                     freshnessLabel(network.daysSinceActivity),
                 ),
                 style = MaterialTheme.typography.bodySmall,

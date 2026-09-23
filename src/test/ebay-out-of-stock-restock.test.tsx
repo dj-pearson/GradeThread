@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { renderToStaticMarkup } from "react-dom/server";
 import { ListingAlertMarkers } from "@/components/flipdesk/listing-alert-markers";
@@ -18,10 +18,23 @@ import type { EbayStateMarker } from "@/lib/listing-origin";
 // one of them coming back reproduces it in full.
 
 const COMPOSER = "src/pages/flipdesk/composer.tsx";
-const SYNC = "services/edge-functions/src/routes/flipdesk-ebay.ts";
+const EBAY_ROUTES_DIR = "services/edge-functions/src/routes";
 
 function read(rel: string): string {
   return readFileSync(resolve(process.cwd(), rel), "utf8");
+}
+
+/**
+ * Every eBay route file joined. flipdesk-ebay.ts only mounts flipdesk-ebay-*.ts
+ * now, and "every call to resolveEbayListingState" below is about the whole
+ * eBay module, not one file of it.
+ */
+function readEbayRoutes(): string {
+  const files = readdirSync(resolve(process.cwd(), EBAY_ROUTES_DIR))
+    .filter((f) => /^flipdesk-ebay(-.+)?\.ts$/.test(f))
+    .sort();
+  expect(files.length).toBeGreaterThan(10);
+  return files.map((f) => read(`${EBAY_ROUTES_DIR}/${f}`)).join("\n");
 }
 
 /**
@@ -98,7 +111,7 @@ describe("the composer stops calling an out-of-stock listing buyable (US-2684)",
 });
 
 describe("the sync agrees with itself about a cancelled order (US-2684)", () => {
-  const src = code(read(SYNC));
+  const src = code(readEbayRoutes());
 
   it("reads the offer quantity, not just the status word", () => {
     // Pinned to the PROPERTY, not to a variable name. This case read

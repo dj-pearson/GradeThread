@@ -223,6 +223,10 @@ describe("prod-diagnostics.sql is safe to paste into prod", () => {
       ["users", ["billing_source", "billing_environment"]],
       ["flipdesk_grading_submissions", ["status", "submission_id", "created_at"]],
       ["grade_credit_transactions", ["reason", "submission_id", "delta", "created_at"]],
+      // §26(b) splits refunds by how the grade was paid (US-2304): an included
+      // refund is a delta-0 row, and without payment_status it read as a
+      // seller who was never repaid.
+      ["submissions", ["payment_status", "refunded_at"]],
     ];
 
     const missing: string[] = [];

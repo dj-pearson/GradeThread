@@ -85,6 +85,12 @@
      5.56:1). Use `text-brand-red-text` for red text; never `text-brand-red`. */
   --color-brand-red-text: var(--brand-red-text);
 
+  /* AA-safe green for grade TEXT (scores on the sample certificate). The
+     Tailwind emerald-500/600 read 2.45:1 and 3.62:1 on the light card in
+     Lighthouse; like brand-red-text this inverts per theme. Use
+     `text-grade-green-text` for green copy; emerald stays for rings and bars. */
+  --color-grade-green-text: var(--grade-green-text);
+
   /* Semantic color mappings */
   --color-background: var(--background);
   --color-foreground: var(--foreground);
@@ -153,6 +159,7 @@
      5.48:1). Inverts in .dark. */
   --destructive: #cc1f3d;
   --brand-red-text: #cc1f3d;
+  --grade-green-text: #047857;
   --border: #e2e8f0;
   --input: #e2e8f0;
   --ring: #0c1e36;
@@ -197,6 +204,7 @@
      enough for white text (6.21:1). */
   --destructive: #fb5e78;
   --brand-red-text: #fb5e78;
+  --grade-green-text: #34d399;
   --border: rgba(255, 255, 255, 0.08);
   --input: rgba(255, 255, 255, 0.12);
   --ring: #f03d5f;
@@ -248,6 +256,7 @@
     --chart-5: #94a3b8;
     --destructive: #cc1f3d;
     --foreground: #0e0e1a;
+    --grade-green-text: #047857;
     --input: #e2e8f0;
     --muted: #f0f4f8;
     --muted-foreground: #64748b;
@@ -652,6 +661,15 @@ html.lenis body {
 }
 .flipdesk-panel {
   scroll-snap-align: center;
+}
+/* The stage panels are also .glass-card, which draws a hairline border AND a
+   0 8px 32px shadow; that pairing is the border-plus-wide-shadow tell. Keep
+   the border (it is the glass edge) and drop the shadow. .glass-card sits
+   outside @layer, so a Tailwind utility cannot do this; these selectors
+   out-rank both theme variants of it. */
+.flipdesk-panel.glass-card,
+:root:not(.dark) .flipdesk-panel.glass-card {
+  box-shadow: none;
 }
 
 /* US-1961: cross-page View Transitions. React Router triggers

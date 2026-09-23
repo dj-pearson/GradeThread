@@ -490,7 +490,8 @@ function ShadowTab() {
   if (versions.length === 0) {
     return (
       <p className="text-sm text-muted-foreground">
-        No shadow results yet — start a shadow run from a draft prompt version and comparisons appear here.
+        No shadow results yet. To start one, use the shadow button on a draft row in the prompt
+        versions table below. Comparisons appear here once sampled live grades come in.
       </p>
     );
   }

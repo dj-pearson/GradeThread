@@ -4,6 +4,15 @@ import { toast } from "sonner";
 import { flushIntakeQueue, queuedIntakeCount } from "@/lib/offline-queue";
 import { ensureServiceWorker } from "@/lib/pwa";
 
+export function offlinePhotosPendingMessage(
+  synced: number,
+  photosPending: number,
+): string {
+  const photos = `${photosPending} photo${photosPending === 1 ? "" : "s"} pending`;
+  if (synced === 0) return `${photos}. Will retry.`;
+  return `Saved ${synced} offline item${synced === 1 ? "" : "s"}, ${photos}. Will retry.`;
+}
+
 // Tracks the offline intake queue and flushes it to Supabase whenever the
 // device reconnects (US-134). Returns the current online state and the count
 // of items still queued so the intake page can surface status.
@@ -38,8 +47,34 @@ export function useOfflineIntakeSync() {
       `Syncing ${total} offline item${total === 1 ? "" : "s"}…`,
     );
     try {
-      const { synced, failed, firstError } = await flushIntakeQueue();
-      if (synced > 0) await qc.invalidateQueries({ queryKey: ["items_full"] });
+      const {
+        synced,
+        failed,
+        firstError,
+        photosDropped,
+        photosPending,
+        firstPhotoError,
+        photosUnprocessable,
+        firstUnprocessableError,
+      } = await flushIntakeQueue();
+      // A flush with synced === 0 can still have uploaded the photos of an item
+      // saved on an earlier flush, so this does not wait for a new item.
+      await qc.invalidateQueries({ queryKey: ["items_full"] });
+      // A queued item can carry a source created offline and its photos.
+      await qc.invalidateQueries({ queryKey: ["sources"] });
+      await qc.invalidateQueries({ queryKey: ["item_photos"] });
+      if (photosDropped > 0) {
+        toast.warning(
+          `${photosDropped} offline photo${photosDropped === 1 ? "" : "s"} could not be uploaded. Add ${photosDropped === 1 ? "it" : "them"} from the item page.`,
+          { duration: 10_000 },
+        );
+      }
+      if (photosUnprocessable > 0) {
+        toast.warning(
+          `${photosUnprocessable} offline photo${photosUnprocessable === 1 ? "" : "s"} could not be prepared on this device. Add ${photosUnprocessable === 1 ? "a different one" : "different ones"} from the item page.`,
+          { description: firstUnprocessableError ?? undefined, duration: 10_000 },
+        );
+      }
       if (failed > 0) {
         // US-2364: name the reason. "Will retry" on its own is fine for a lost
         // connection and actively misleading for a row the server will refuse
@@ -48,6 +83,14 @@ export function useOfflineIntakeSync() {
           `Synced ${synced}, ${failed} still queued — will retry.`,
           { id: toastId, description: firstError ?? undefined, duration: 10_000 },
         );
+      } else if (photosPending > 0) {
+        // The items are saved; only photos are left. Calling that a failure
+        // would send the seller to re-enter an item that already exists.
+        toast.warning(offlinePhotosPendingMessage(synced, photosPending), {
+          id: toastId,
+          description: firstPhotoError ?? undefined,
+          duration: 10_000,
+        });
       } else {
         toast.success(
           `Synced ${synced} offline item${synced === 1 ? "" : "s"}.`,

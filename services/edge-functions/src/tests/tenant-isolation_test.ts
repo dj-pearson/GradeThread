@@ -1122,6 +1122,30 @@ Deno.test({
 });
 
 Deno.test({
+  // Depop's ship route is the same shape as the two above (sale loaded THROUGH
+  // inventory_items.user_id, flipdesk-depop.ts). It had no case until
+  // router-isolation-coverage_test.ts listed it. The route answers 503 before
+  // the ownership check when Depop is off, so tenant-isolation.yml sets dummy
+  // DEPOP_* env to make the 404 reachable; a 503 here fails on purpose, since it
+  // would mean the scoping was never exercised.
+  name: "B cannot mark A's sale shipped via Depop",
+  ignore: !CONFIGURED || !Deno.env.get("TEST_USER_A_SALE_ID"),
+  fn: async () => {
+    const id = Deno.env.get("TEST_USER_A_SALE_ID")!;
+    const res = await fetch(
+      `${BASE}/api/flipdesk/depop/orders/${id}/ship`,
+      {
+        method: "POST",
+        headers: authHeaders(B_JWT!),
+        body: JSON.stringify({ tracking_number: "PWNED123", shipping_provider_id: "USPS" }),
+      },
+    );
+    await res.body?.cancel();
+    assertDenied(res.status, "POST depop order ship");
+  },
+});
+
+Deno.test({
   // US-1659: the Etsy disconnect is a workspace-wide teardown of
   // marketplace_connections, scoped to the owner (.eq user_id) and admin-gated
   // (roleAtLeast admin). A foreign non-admin B must NEVER succeed — the response
@@ -3034,6 +3058,23 @@ Deno.test({
       Array.isArray(rows) && rows.length === 0,
       `B should see 0 messages in A's conversation, got ${JSON.stringify(rows)}`,
     );
+  },
+});
+
+// The two cases above go through PostgREST. The assistant's own edge route
+// reads the same rows with the SERVICE-ROLE client, so RLS does not help it:
+// GET /conversations/:id is scoped only by its .eq("user_id") (support-assistant.ts).
+Deno.test({
+  name: "B cannot read A's support conversation through the assistant route",
+  ignore: !CONFIGURED || !Deno.env.get("TEST_USER_A_CONVERSATION_ID"),
+  fn: async () => {
+    const convId = Deno.env.get("TEST_USER_A_CONVERSATION_ID")!;
+    const res = await fetch(`${BASE}/api/support/assistant/conversations/${convId}`, {
+      headers: authHeaders(B_JWT!),
+    });
+    const body = await res.text();
+    assertDenied(res.status, "GET assistant conversation");
+    assert(!body.includes(convId), "the denial body echoed A's conversation");
   },
 });
 
@@ -6801,6 +6842,74 @@ Deno.test({
 });
 
 Deno.test({
+  // Stale-claim reclaim: /claim and the queue GET now WRITE to rows they did
+  // not hand out, requeueing or failing any claim a dead browser left behind.
+  // That write takes no id from the caller, so the property is that B's drain
+  // can only ever reclaim B's rows. Seeded as a real stale claim of A's, read
+  // back with the service key: if the .eq("user_id", ownerId) on the reclaim is
+  // ever dropped, B's drain requeues A's delist and this sees `queued`.
+  name: "B's queue drain never reclaims A's stale claim",
+  ignore: !CONFIGURED || !Deno.env.get("TEST_USER_A_ID"),
+  fn: async () => {
+    const supabaseUrl = Deno.env.get("SUPABASE_URL");
+    const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+    // Same placeholder skip as the buyer-want readback above.
+    if (!supabaseUrl || !serviceKey || serviceKey === "test-service-key") return;
+    const svc = {
+      Authorization: `Bearer ${serviceKey}`,
+      apikey: serviceKey,
+      "Content-Type": "application/json",
+      Prefer: "return=representation",
+    };
+    const seeded = await fetch(`${supabaseUrl}/rest/v1/extension_work_queue`, {
+      method: "POST",
+      headers: svc,
+      body: JSON.stringify({
+        user_id: Deno.env.get("TEST_USER_A_ID"),
+        kind: "delist",
+        platform: "poshmark",
+        status: "claimed",
+        claimed_at: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(),
+        claimed_by: "isolation-stale",
+        source: "web",
+      }),
+    });
+    const rows = (await seeded.json().catch(() => [])) as { id?: string }[];
+    assert(seeded.ok && rows[0]?.id, `could not seed A's stale claim (${seeded.status})`);
+    const aRow = rows[0].id!;
+    try {
+      for (const req of [
+        { path: "/claim", init: { method: "POST", body: JSON.stringify({ limit: 10 }) } },
+        { path: "", init: { method: "GET" } },
+      ]) {
+        const res = await fetch(`${BASE}/api/flipdesk/extension-queue${req.path}`, {
+          ...req.init,
+          headers: authHeaders(B_JWT!),
+        });
+        await res.body?.cancel();
+      }
+      const check = await fetch(
+        `${supabaseUrl}/rest/v1/extension_work_queue?id=eq.${aRow}&select=status,attempts`,
+        { headers: svc },
+      );
+      const after = (await check.json().catch(() => [])) as { status?: string; attempts?: number }[];
+      assert(check.ok, `readback of A's queue row failed (${check.status})`);
+      assertEquals(
+        after,
+        [{ status: "claimed", attempts: 0 }],
+        "B's drain touched A's stale claim: the reclaim write is not tenant-scoped",
+      );
+    } finally {
+      const del = await fetch(`${supabaseUrl}/rest/v1/extension_work_queue?id=eq.${aRow}`, {
+        method: "DELETE",
+        headers: svc,
+      });
+      await del.body?.cancel();
+    }
+  },
+});
+
+Deno.test({
   // US-3370: the queue GET grew a THIRD list. `finishedNeedsReview` is a second
   // read of extension_work_queue, on a status the route never returned before
   // (`done`), and the service-role client bypasses RLS, so a widened status set
@@ -7120,6 +7229,134 @@ Deno.test({
     const body = await res.text();
     assertEquals(res.status, 200, `owner read failed: ${body.slice(0, 200)}`);
     assert(body.includes(itemId), "the owner's read did not return the item");
+  },
+});
+
+// ── Public API v1: account webhooks (00830) ──────────────────────────
+//
+// The webhook is one row per ACCOUNT now, keyed by the API key owner, and the
+// routes take no id at all. So the cross-tenant question is not "can B name A's
+// row" but "does anything B's key reaches resolve to A's row": the delivery
+// log, the configured URL, and the secret rotation. A holds an endpoint with
+// no secret and one delivery; B holds neither.
+
+Deno.test({
+  name: "B's API key cannot see A's webhook deliveries (GET /api/v1/webhook/deliveries)",
+  ignore: !CONFIGURED || !B_API_KEY || !Deno.env.get("TEST_USER_A_WEBHOOK_EVENT_ID"),
+  fn: async () => {
+    const eventId = Deno.env.get("TEST_USER_A_WEBHOOK_EVENT_ID")!;
+    const res = await fetch(`${BASE}/api/v1/webhook/deliveries?limit=100`, {
+      headers: apiKeyHeaders(B_API_KEY!),
+    });
+    const body = await res.text();
+    assert(!body.includes(eventId), "B's delivery log returned A's event id");
+  },
+});
+
+Deno.test({
+  name: "A's own API key CAN see A's webhook delivery — not a blanket denial",
+  ignore: !CONFIGURED || !A_API_KEY || !Deno.env.get("TEST_USER_A_WEBHOOK_EVENT_ID"),
+  fn: async () => {
+    const eventId = Deno.env.get("TEST_USER_A_WEBHOOK_EVENT_ID")!;
+    const res = await fetch(`${BASE}/api/v1/webhook/deliveries?limit=100`, {
+      headers: apiKeyHeaders(A_API_KEY!),
+    });
+    const body = await res.text();
+    assertEquals(res.status, 200, `owner read failed: ${body.slice(0, 200)}`);
+    assert(body.includes(eventId), "the owner's delivery log did not include the event");
+  },
+});
+
+Deno.test({
+  name: "B's API key does not read A's webhook URL, and B's rotate cannot mint A a secret",
+  ignore: !CONFIGURED || !A_API_KEY || !B_API_KEY || !Deno.env.get("TEST_USER_A_WEBHOOK_EVENT_ID"),
+  fn: async () => {
+    const got = await fetch(`${BASE}/api/v1/webhook`, { headers: apiKeyHeaders(B_API_KEY!) });
+    const gotBody = await got.text();
+    assert(
+      !gotBody.includes("tenant-a-fixture.example.com"),
+      "GET /api/v1/webhook as B returned A's URL",
+    );
+
+    const rotated = await fetch(`${BASE}/api/v1/webhook/secret/rotate`, {
+      method: "POST",
+      headers: apiKeyHeaders(B_API_KEY!),
+    });
+    await rotated.body?.cancel();
+    assertDenied(rotated.status, "POST /api/v1/webhook/secret/rotate as B (B has no webhook)");
+
+    // The write side: A's endpoint must still be secretless after B's call.
+    const mine = await fetch(`${BASE}/api/v1/webhook`, { headers: apiKeyHeaders(A_API_KEY!) });
+    const mineBody = await mine.json();
+    assertEquals(mine.status, 200);
+    assertEquals(mineBody.data.webhook_url, "https://tenant-a-fixture.example.com/hook");
+    assertEquals(mineBody.data.has_signing_secret, false, "B's rotate gave A's webhook a secret");
+  },
+});
+
+// ── Dashboard account webhook (/api/keys/webhook, session auth) ──────
+//
+// The same account row reached with a JWT instead of an API key. The routes
+// take no id, so the question is again whether anything B's session reaches
+// resolves to A's endpoint or A's delivery log.
+
+Deno.test({
+  name: "B's session cannot read A's webhook URL or deliveries (GET /api/keys/webhook*)",
+  ignore: !CONFIGURED || !Deno.env.get("TEST_USER_A_WEBHOOK_EVENT_ID"),
+  fn: async () => {
+    const eventId = Deno.env.get("TEST_USER_A_WEBHOOK_EVENT_ID")!;
+    const cfg = await fetch(`${BASE}/api/keys/webhook`, { headers: authHeaders(B_JWT!) });
+    const cfgBody = await cfg.text();
+    assert(!cfgBody.includes("tenant-a-fixture.example.com"), "GET /api/keys/webhook as B returned A's URL");
+
+    const log = await fetch(`${BASE}/api/keys/webhook/deliveries?limit=100`, { headers: authHeaders(B_JWT!) });
+    const logBody = await log.text();
+    assert(!logBody.includes(eventId), "B's dashboard delivery log returned A's event id");
+  },
+});
+
+Deno.test({
+  name: "A's own session CAN read A's webhook and delivery - not a blanket denial",
+  ignore: !CONFIGURED || !Deno.env.get("TEST_USER_A_WEBHOOK_EVENT_ID"),
+  fn: async () => {
+    const eventId = Deno.env.get("TEST_USER_A_WEBHOOK_EVENT_ID")!;
+    const cfg = await fetch(`${BASE}/api/keys/webhook`, { headers: authHeaders(A_JWT!) });
+    const cfgBody = await cfg.json();
+    assertEquals(cfg.status, 200);
+    assertEquals(cfgBody.data.webhook_url, "https://tenant-a-fixture.example.com/hook");
+
+    const log = await fetch(`${BASE}/api/keys/webhook/deliveries?limit=100`, { headers: authHeaders(A_JWT!) });
+    const logBody = await log.text();
+    assertEquals(log.status, 200, `owner read failed: ${logBody.slice(0, 200)}`);
+    assert(logBody.includes(eventId), "the owner's dashboard delivery log did not include the event");
+  },
+});
+
+Deno.test({
+  name: "B's session cannot rotate A's webhook secret or send A's endpoint a test event",
+  ignore: !CONFIGURED || !Deno.env.get("TEST_USER_A_WEBHOOK_EVENT_ID"),
+  fn: async () => {
+    const rotated = await fetch(`${BASE}/api/keys/webhook/secret/rotate`, {
+      method: "POST",
+      headers: authHeaders(B_JWT!),
+    });
+    await rotated.body?.cancel();
+    assertDenied(rotated.status, "POST /api/keys/webhook/secret/rotate as B (B has no webhook)");
+
+    const test = await fetch(`${BASE}/api/keys/webhook/test`, {
+      method: "POST",
+      headers: authHeaders(B_JWT!),
+    });
+    await test.body?.cancel();
+    assertDenied(test.status, "POST /api/keys/webhook/test as B (B has no webhook)");
+
+    // The write side: A's endpoint is still secretless and got no test event.
+    const cfg = await fetch(`${BASE}/api/keys/webhook`, { headers: authHeaders(A_JWT!) });
+    const cfgBody = await cfg.json();
+    assertEquals(cfgBody.data.has_signing_secret, false, "B's rotate gave A's webhook a secret");
+    const log = await fetch(`${BASE}/api/keys/webhook/deliveries?limit=100`, { headers: authHeaders(A_JWT!) });
+    const logBody = await log.text();
+    assert(!logBody.includes("webhook.test"), "B's test send was delivered as A's event");
   },
 });
 

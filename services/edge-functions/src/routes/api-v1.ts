@@ -12,8 +12,16 @@ import {
 import { decodeBase64Image } from "../lib/validation.ts";
 import { validateImageUpload } from "../lib/upload-validation.ts";
 import { stripImageMetadata } from "../lib/image-metadata.ts";
+import { REQUIRED_IMAGE_TYPES } from "../lib/image-quality.ts";
 import { computePhashFromImage } from "../lib/perceptual-hash.ts";
 import { assertPublicUrl, safeFetch, SsrfError } from "../lib/ssrf.ts";
+import {
+  deliveryLimit,
+  getWebhookConfig,
+  listWebhookDeliveries,
+  rotateWebhookSecret,
+  setWebhookUrl,
+} from "../lib/account-webhook.ts";
 import { isFeatureEnabled } from "../lib/feature-flags.ts";
 import { isAiBudgetExhausted } from "../lib/ai-budget-gate.ts";
 import {
@@ -22,6 +30,8 @@ import {
 } from "../lib/api-grade-ingest.ts";
 import { MAX_BATCH_ITEMS } from "../lib/grading-batch.ts";
 import { processGradeBatch } from "../lib/grading-batch-worker.ts";
+import { markChargeMayHaveHappened } from "../middleware/api-idempotency.ts";
+import { refundAmbiguousDebit } from "../lib/ambiguous-debit-refund.ts";
 import type { ApiKeyScope } from "../lib/api-key.ts";
 import { logEvent, recordMetric } from "../lib/observability.ts";
 import { redactError } from "../lib/log-redact.ts";
@@ -111,7 +121,8 @@ const IMAGE_TYPES = [
   "measurement_chest", "measurement_waist", "measurement_length",
   "measurement_sleeve", "measurement_inseam",
 ] as const;
-const REQUIRED_IMAGE_TYPES = ["front", "back", "label"];
+// REQUIRED_IMAGE_TYPES is imported from lib/image-quality.ts: the quality gate
+// that blocks a grade and this upload check must name the same three shots.
 // Hard ceiling on images per submission — one Claude Vision call is issued per
 // image but the submission is billed as a single grade, so an uncapped count is
 // an AI-cost multiplier. Mirrors grade.ts MAX_IMAGES_PER_SUBMISSION. (HIGH-1)
@@ -442,18 +453,38 @@ apiV1Routes.post("/grades", async (c) => {
   // neither an included grade nor credits cover it, we reject with 402 and
   // clean up the uploaded submission rather than leave it unpaid.
   let precedence: PrecedenceResult;
+  // From here a 5xx is ambiguous: the debit RPC can commit and still come back
+  // as an error, so the Idempotency-Key claim must hold rather than let an
+  // automatic retry charge a second time.
+  markChargeMayHaveHappened(c);
   try {
     precedence = await runPaymentPrecedence(userId, submissionId, tier);
   } catch (err) {
     console.error(`[API v1] Payment precedence failed for ${submissionId}:`, redactError(err));
-    for (const record of imageRecords) {
-      await supabaseAdmin.storage.from("submission-images").remove([record.storage_path]);
+    // The error does not say whether the debit committed. The ledger does:
+    // refund it if it landed, and only delete the submission if it did not
+    // (deleting it would unlink the ledger rows support reads).
+    const debit = await refundAmbiguousDebit(userId, submissionId, "api-v1.grades");
+    if (debit.kind === "not_charged") {
+      for (const record of imageRecords) {
+        await supabaseAdmin.storage.from("submission-images").remove([record.storage_path]);
+      }
+      await supabaseAdmin.from("submissions").delete().eq("id", submissionId);
     }
-    await supabaseAdmin.from("submissions").delete().eq("id", submissionId);
     return c.json({
       data: null,
-      error: { message: "Payment processing error", details: [] },
-      meta: null,
+      error: {
+        message: debit.kind === "refunded"
+          ? `Payment processing error. The ${debit.credits} credit${
+            debit.credits === 1 ? "" : "s"
+          } taken for this request were returned.`
+          : "Payment processing error",
+        details: [],
+      },
+      meta: debit.kind === "not_charged" ? null : {
+        submission_id: submissionId,
+        credits_refunded: debit.kind === "refunded" ? debit.credits : null,
+      },
     }, 500);
   }
 
@@ -596,6 +627,10 @@ apiV1Routes.post("/grades/batch", async (c) => {
     payload: g,
     status: "pending",
   }));
+  // Job rows on a 'running' batch are what the reclaim cron picks up and
+  // charges, and an insert can land even when its response is an error. From
+  // here a 5xx keeps the Idempotency-Key claim instead of releasing it.
+  markChargeMayHaveHappened(c);
   const { error: jobsErr } = await supabaseAdmin.from("grading_batch_jobs").insert(jobRows);
   if (jobsErr) {
     console.error("[API v1] Failed to enqueue grading batch jobs:", redactError(jobsErr));
@@ -1128,8 +1163,9 @@ apiV1Routes.patch("/webhook", async (c) => {
     }
   }
 
-  // Find the user's API keys and update all of them with the webhook URL
-  // (The API key used for this request is identified by userId from the middleware)
+  // The webhook belongs to the ACCOUNT now (00830): one endpoint row, one
+  // delivery per event, however many API keys exist. The endpoint writes live
+  // in lib/account-webhook.ts, shared with the dashboard's /api/keys/webhook.
   const { data: keys, error: fetchError } = await supabaseAdmin
     .from("api_keys")
     .select("id")
@@ -1137,34 +1173,19 @@ apiV1Routes.patch("/webhook", async (c) => {
 
   if (fetchError) {
     console.error("[API v1] Failed to fetch API keys for webhook update:", redactError(fetchError));
-    return c.json({
-      data: null,
-      error: { message: "Failed to update webhook URL", details: [] },
-      meta: null,
-    }, 500);
+    return webhookError(c, "Failed to update webhook URL", 500);
   }
 
   if (!keys || keys.length === 0) {
-    return c.json({
-      data: null,
-      error: { message: "No API keys found", details: [] },
-      meta: null,
-    }, 404);
+    return webhookError(c, "No API keys found", 404);
   }
 
-  // Update all user's API keys with the webhook URL
-  const { error: updateError } = await supabaseAdmin
-    .from("api_keys")
-    .update({ webhook_url: webhook_url ?? null })
-    .eq("user_id", userId);
-
-  if (updateError) {
-    console.error("[API v1] Failed to update webhook URL:", redactError(updateError));
-    return c.json({
-      data: null,
-      error: { message: "Failed to update webhook URL", details: [] },
-      meta: null,
-    }, 500);
+  let signingSecret: string | null;
+  try {
+    ({ signing_secret: signingSecret } = await setWebhookUrl(userId, webhook_url ?? null));
+  } catch (err) {
+    console.error("[API v1] Failed to update webhook endpoint:", redactError(err));
+    return webhookError(c, "Failed to update webhook URL", 500);
   }
 
   console.log(
@@ -1175,8 +1196,64 @@ apiV1Routes.patch("/webhook", async (c) => {
     data: {
       webhook_url: webhook_url ?? null,
       keys_updated: keys.length,
+      // Present only when this call created the endpoint. Store it now.
+      signing_secret: signingSecret,
     },
     error: null,
     meta: null,
   });
+});
+
+function webhookError(c: Context<ApiV1Env>, message: string, status: 404 | 500): Response {
+  return c.json({ data: null, error: { message, details: [] }, meta: null }, status);
+}
+
+// --- GET /api/v1/webhook — Current webhook configuration (never the secret) ---
+apiV1Routes.get("/webhook", async (c) => {
+  if (!hasScope(c.get("apiKeyScopes"), "webhook_manage")) {
+    return c.json(scopeDenied("webhook_manage"), 403);
+  }
+  try {
+    const config = await getWebhookConfig(c.get("userId"));
+    return c.json({ data: config, error: null, meta: null });
+  } catch (err) {
+    console.error("[API v1] Failed to read webhook endpoint:", redactError(err));
+    return webhookError(c, "Failed to read webhook", 500);
+  }
+});
+
+// --- POST /api/v1/webhook/secret/rotate — Mint a new signing secret ---
+// Separate from API key rotation on purpose: rotating a key used to change the
+// signing secret silently. The new secret is returned once and signs every
+// attempt from now on, including retries of events created before it.
+apiV1Routes.post("/webhook/secret/rotate", async (c) => {
+  if (!hasScope(c.get("apiKeyScopes"), "webhook_manage")) {
+    return c.json(scopeDenied("webhook_manage"), 403);
+  }
+  let rotated: Awaited<ReturnType<typeof rotateWebhookSecret>>;
+  try {
+    rotated = await rotateWebhookSecret(c.get("userId"));
+  } catch (err) {
+    console.error("[API v1] Failed to rotate webhook secret:", redactError(err));
+    return webhookError(c, "Failed to rotate webhook secret", 500);
+  }
+  if (!rotated) {
+    return webhookError(c, "No webhook configured. Set one with PATCH /api/v1/webhook first.", 404);
+  }
+  return c.json({ data: rotated, error: null, meta: null });
+});
+
+// --- GET /api/v1/webhook/deliveries — Recent deliveries for this account ---
+apiV1Routes.get("/webhook/deliveries", async (c) => {
+  if (!hasScope(c.get("apiKeyScopes"), "webhook_manage")) {
+    return c.json(scopeDenied("webhook_manage"), 403);
+  }
+  const limit = deliveryLimit(c.req.query("limit"));
+  try {
+    const data = await listWebhookDeliveries(c.get("userId"), limit);
+    return c.json({ data, error: null, meta: { limit } });
+  } catch (err) {
+    console.error("[API v1] Failed to list webhook deliveries:", redactError(err));
+    return webhookError(c, "Failed to list webhook deliveries", 500);
+  }
 });

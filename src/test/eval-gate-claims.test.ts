@@ -187,10 +187,12 @@ describe("US-2107: the model claim on the methodology page is true", () => {
   });
 });
 
-describe("no CI lane runs the golden-set eval", () => {
-  // The reason the pages may not promise an automatic gate. If a workflow ever
-  // does run it, this test fails and the copy can be strengthened deliberately
-  // rather than by someone remembering that it changed.
+describe("no deploy-path lane runs the golden-set eval", () => {
+  // The reason the pages may not promise an automatic gate. grading-eval.yml
+  // does run it, on a schedule (the second case below); the lanes a deploy
+  // passes through must not. If one ever does, this test fails and the copy
+  // can be strengthened deliberately rather than by someone remembering that
+  // it changed.
   it("so the copy may not promise one", () => {
     const workflows = [
       ".github/workflows/ci.yml",
@@ -204,5 +206,21 @@ describe("no CI lane runs the golden-set eval", () => {
           "pages may say the gate is automatic - update them and this test together.",
       ).toBe(false);
     }
+  });
+
+  it("the scheduled eval workflow is a monitor, not a deploy gate", () => {
+    // US-2301: grading-eval.yml DOES run the golden-set eval, on a schedule.
+    // It checks the live prompt after it ships, so the pages' caveat (the
+    // code-shipped prompt reaches live grading through a deploy that clears no
+    // gate) stays true only while it never runs on push or pull_request. If it
+    // is ever wired into the deploy path, the copy can be strengthened.
+    const src = read(".github/workflows/grading-eval.yml");
+    const on = src.match(/^on:\n([\s\S]*?)\n\S/m)?.[1] ?? "";
+    expect(on).toMatch(/schedule:/);
+    expect(
+      /pull_request|push:|workflow_run/.test(on),
+      "grading-eval.yml now runs on the deploy path; the pages still say the " +
+        "code-shipped prompt clears no gate - update them and this test together.",
+    ).toBe(false);
   });
 });

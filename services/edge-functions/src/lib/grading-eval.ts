@@ -755,6 +755,50 @@ export async function runPromptDryRun(
 }
 
 /**
+ * The eval verdict a prompt-version edit must wipe, or `{}` when it must not.
+ *
+ * `eval_passed`, `qualified_model` and `eval_run_id` describe the text and the
+ * scope that were EVALUATED. The admin PATCH lets an inactive row's
+ * `prompt_text` and `garment_scope` change after a pass, and both serving
+ * gates (activate, canary) read `eval_passed` as it stands, so an edited row
+ * would go live on a verdict it never earned. Clearing all three sends it back
+ * through the eval.
+ *
+ * Only a real change counts: re-saving the same text, or touching only the
+ * name or notes, keeps the verdict. Pure, so the rule is testable without a
+ * database. It never returns `is_active` or anything else that could promote.
+ */
+export function evalResetForPromptEdit(
+  existing: { prompt_text: string | null; garment_scope: string | null },
+  patch: { prompt_text?: unknown; garment_scope?: unknown },
+): { eval_passed?: null; qualified_model?: null; eval_run_id?: null } {
+  const textChanged = patch.prompt_text !== undefined &&
+    patch.prompt_text !== existing.prompt_text;
+  const scopeChanged = patch.garment_scope !== undefined &&
+    (patch.garment_scope ?? null) !== (existing.garment_scope ?? null);
+  if (!textChanged && !scopeChanged) return {};
+  return { eval_passed: null, qualified_model: null, eval_run_id: null };
+}
+
+/**
+ * True when `existing` is a canary that is taking live traffic right now.
+ *
+ * Clearing the eval pass (above) only stops a row from going live LATER. A
+ * canary with rollout_percentage > 0 is already live: resolveSlotFromRows
+ * (canary-rollout.ts) serves its prompt_text to that slice of paid grades and
+ * never reads eval_passed. So an edit that changes its text or scope would
+ * reach customers at once, unevaluated, and a scope edit would move the slice
+ * to a different garment slot. PATCH /prompts/:id refuses such an edit with a
+ * 409; the admin sets the rollout to 0 first, which also re-runs the canary
+ * gate when it is turned back on.
+ */
+export function isLiveCanary(
+  existing: { is_active?: boolean | null; is_canary?: boolean | null; rollout_percentage?: number | null },
+): boolean {
+  return !existing.is_active && !!existing.is_canary && (existing.rollout_percentage ?? 0) > 0;
+}
+
+/**
  * US-2300: THE gate that decides whether a prompt version may take live paid
  * traffic. One implementation, called by every path that routes traffic.
  *
@@ -850,10 +894,14 @@ export async function activatePromptVersion(
 
   // US-896: promoting to active = "promote canary to 100%". Clear the canary
   // flags so the now-champion is never ALSO routed to as a canary challenger.
+  // Shadow is cleared for the same reason: neither shadow loader filters on
+  // is_active, so a promoted shadow row would keep grading against itself,
+  // spending vision calls on a comparison that can only ever agree.
   const { error: activateError } = await supabaseAdmin
     .from("ai_prompt_versions")
     .update({
       is_active: true,
+      is_shadow: false,
       is_canary: false,
       rollout_percentage: 0,
       rollout_started_at: null,

@@ -115,7 +115,7 @@ import {
   recordExtractionProvenance,
 } from "./identification-provenance.ts";
 import { withTemplateBlock } from "./listing-template.ts";
-import { withRetry } from "./retry.ts";
+import { isRetryableError, withRetry } from "./retry.ts";
 import { supabaseAdmin } from "./supabase.ts";
 import { CHANNEL_COPY_KEYS, readChannelOverrides } from "./channel-copy.ts";
 import { ensurePassportForGradeReport } from "./passport-write.ts";
@@ -347,6 +347,9 @@ export interface ListingGenInput {
   // system block, never merged into the versioned prompt. Null/absent leaves
   // the prompt byte-identical to today, which is what every eval run passes.
   voicePrompt?: string | null;
+  // Aborts the model request itself (the batch worker's timeout). Absent on
+  // every caller except generateListing's batch path.
+  signal?: AbortSignal;
 }
 
 // US-1529: identification context for listing generation, parsed from the
@@ -1127,6 +1130,7 @@ export async function generateListingFields(
         systemBlocks,
         temperature,
         promptVersion: prompt.versionName,
+        signal: input.signal,
       }),
     assess: (r) => {
       if (r.listing.confidence < cascade.confidenceThreshold) {
@@ -1159,11 +1163,12 @@ interface ListingCallInputs {
   systemBlocks: Anthropic.TextBlockParam[];
   temperature: number | undefined;
   promptVersion: string;
+  signal?: AbortSignal;
 }
 
 async function callListingModel(
   model: string,
-  { client, content, systemBlocks, temperature, promptVersion }: ListingCallInputs,
+  { client, content, systemBlocks, temperature, promptVersion, signal }: ListingCallInputs,
 ): Promise<ListingGenResult> {
   // Retry transient Anthropic rate-limit / overload (429/529/5xx) with
   // exponential backoff so one momentary limit doesn't fail the whole batch.
@@ -1178,8 +1183,10 @@ async function callListingModel(
         ...effortParams(model, "autolister", "medium"),
         tool_choice: { type: "tool", name: "create_ebay_listing" },
         messages: [{ role: "user", content }],
-      }),
+      }, signal ? { signal } : undefined),
     {
+      // An abort is final: retrying it would just throw again after a backoff.
+      isRetryable: (err) => !signal?.aborted && isRetryableError(err),
       onRetry: ({ attempt, delayMs }) =>
         console.warn(
           `[AI Listing] Anthropic call retry #${attempt} after ${delayMs}ms backoff`,
@@ -2111,6 +2118,176 @@ export interface GenerateListingOptions {
   // `listing_description` its `description_blocks` do not produce — briefly on
   // the happy path, permanently if the patch fails.
   templateBoilerplate?: string | null;
+  // The batch worker's timeout. withTimeout only stops WAITING; without this
+  // the generation kept running after its job was marked failed and the quota
+  // refunded, then wrote a draft anyway. Checked between stages and handed to
+  // the main vision call so an abort cancels the request itself.
+  signal?: AbortSignal | null;
+  // The generation job this run belongs to, and the attempt that claimed it.
+  // When set, the draft is written only if that job is still 'running' on
+  // that attempt: a cancelled, failed or re-claimed job gets no draft.
+  job?: { id: string; attempt: number } | null;
+}
+
+/** Thrown when a generation must not write its draft (aborted or job gone). */
+export class DraftWriteAbandonedError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "DraftWriteAbandonedError";
+  }
+}
+
+/** Throw if the caller has stopped waiting for this generation. */
+export function throwIfGenerationAborted(signal: AbortSignal | null | undefined): void {
+  if (!signal?.aborted) return;
+  const reason = signal.reason;
+  throw reason instanceof Error
+    ? reason
+    : new DraftWriteAbandonedError("Listing generation was aborted");
+}
+
+/**
+ * The reads and writes the draft write needs, as an interface so the race
+ * between two generations can be tested without a database. The default is
+ * the service-role client; every call is keyed on an item the caller already
+ * loaded scoped to its owner (US-268).
+ */
+export interface EbayDraftStore {
+  findDraftId(itemId: string): Promise<string | null>;
+  insertDraft(row: Record<string, unknown>): Promise<{ id: string | null; code?: string; message?: string }>;
+  updateDraft(listingId: string, fields: Record<string, unknown>): Promise<{ message?: string } | null>;
+  jobStillRunning(jobId: string, attempt: number, batchId: string | null): Promise<boolean>;
+}
+
+const supabaseDraftStore: EbayDraftStore = {
+  async findDraftId(itemId) {
+    const { data } = await supabaseAdmin
+      .from("listings")
+      .select("id")
+      .eq("inventory_item_id", itemId)
+      .eq("platform", "ebay")
+      .eq("listing_status", "draft")
+      .limit(1)
+      .maybeSingle();
+    return (data as { id?: string } | null)?.id ?? null;
+  },
+  async insertDraft(row) {
+    const { data, error } = await supabaseAdmin
+      .from("listings")
+      .insert(row)
+      .select("id")
+      .single();
+    return {
+      id: (data as { id?: string } | null)?.id ?? null,
+      code: error?.code,
+      message: error?.message,
+    };
+  },
+  async updateDraft(listingId, fields) {
+    const { error } = await supabaseAdmin
+      .from("listings")
+      .update(fields)
+      .eq("id", listingId);
+    return error ? { message: error.message } : null;
+  },
+  jobStillRunning(jobId, attempt, batchId) {
+    return readJobStillRunning(async () => {
+      let q = supabaseAdmin
+        .from("listing_generation_jobs")
+        .select("status, attempts")
+        .eq("id", jobId);
+      if (batchId) q = q.eq("batch_id", batchId);
+      return await q.maybeSingle();
+    }, attempt);
+  },
+};
+
+/**
+ * Is the job still 'running' on `attempt`? A read ERROR is retried once before
+ * failing closed: one network blip at the end of a paid-for generation used to
+ * throw the whole draft away. A read that succeeds and finds no row, or finds
+ * the job in another state, is an answer and is not retried. If both reads
+ * fail we still do not write; the job is left for the reclaim sweeper, which
+ * is the same outcome as a crash here.
+ */
+export async function readJobStillRunning(
+  read: () => Promise<{ data: unknown; error: { message?: string } | null }>,
+  attempt: number,
+): Promise<boolean> {
+  let res: { data: unknown; error: { message?: string } | null };
+  try {
+    res = await read();
+  } catch (err) {
+    res = { data: null, error: { message: err instanceof Error ? err.message : String(err) } };
+  }
+  if (res.error) {
+    console.warn(`[ai-listing] job status read failed, retrying once: ${res.error.message}`);
+    try {
+      res = await read();
+    } catch (err) {
+      res = { data: null, error: { message: err instanceof Error ? err.message : String(err) } };
+    }
+  }
+  if (res.error || !res.data) return false;
+  const row = res.data as { status?: string; attempts?: number | null };
+  return row.status === "running" && (row.attempts ?? 0) === attempt;
+}
+
+/**
+ * Write the one eBay draft for an item: update it if it exists, insert it if
+ * not. 00832's unique index allows one eBay draft per item, so when two
+ * generations race and both find nothing, the second insert fails with 23505
+ * and is turned into an update of the row the first one wrote.
+ *
+ * PostgREST cannot upsert onto a PARTIAL unique index (ON CONFLICT needs the
+ * index predicate, and on_conflict has no way to pass one), which is why this
+ * is insert-then-update on conflict rather than `.upsert()`.
+ *
+ * Before touching anything it re-checks that the caller still wants the draft:
+ * the signal has not fired and, for a batch job, the job is still 'running' on
+ * the attempt that started this generation.
+ */
+export async function writeEbayDraft(
+  itemId: string,
+  draftFields: Record<string, unknown>,
+  insertOnly: Record<string, unknown>,
+  opts: Pick<GenerateListingOptions, "signal" | "job" | "batchId"> = {},
+  store: EbayDraftStore = supabaseDraftStore,
+): Promise<string> {
+  throwIfGenerationAborted(opts.signal);
+  if (opts.job) {
+    const running = await store.jobStillRunning(
+      opts.job.id,
+      opts.job.attempt,
+      opts.batchId ?? null,
+    );
+    if (!running) {
+      throw new DraftWriteAbandonedError(
+        `Job ${opts.job.id} is no longer running on attempt ${opts.job.attempt}; draft not written`,
+      );
+    }
+    // The status read is a network round trip; the timeout may have fired
+    // while it was in flight.
+    throwIfGenerationAborted(opts.signal);
+  }
+
+  const update = async (id: string): Promise<string> => {
+    const err = await store.updateDraft(id, draftFields);
+    if (err) throw new Error(`Failed to update draft listing: ${err.message}`);
+    return id;
+  };
+
+  const existing = await store.findDraftId(itemId);
+  if (existing) return update(existing);
+
+  const inserted = await store.insertDraft({ ...insertOnly, ...draftFields });
+  if (inserted.id) return inserted.id;
+  if (inserted.code === "23505") {
+    // Another generation wrote this item's draft between our read and insert.
+    const winner = await store.findDraftId(itemId);
+    if (winner) return update(winner);
+  }
+  throw new Error(`Failed to create draft listing: ${inserted.message}`);
 }
 
 export interface GenerateListingResult {
@@ -2299,6 +2476,7 @@ export async function generateListing(
     throw new Error(`Item ${itemId} has no photos to generate a listing from`);
   }
   const visionPhotos = selectListingPhotos(photos);
+  throwIfGenerationAborted(opts.signal);
 
   // 2a. US-2778: start the eBay visual pass NOW, and do not await it here.
   //
@@ -2712,6 +2890,7 @@ export async function generateListing(
   // fixes, and a run that produced nothing must not look like a run that never
   // happened.
   const visual = await visualPass;
+  throwIfGenerationAborted(opts.signal);
   if (visual.declined) {
     console.log(
       `[AI Listing] visual pass declined on item ${itemId}: ${visual.declined}`,
@@ -2753,7 +2932,9 @@ export async function generateListing(
     // seller's voice — the whole point of an eval is that the same input gives
     // the same output on every account.
     voicePrompt: await loadListingVoice(ownerId),
+    signal: opts.signal ?? undefined,
   });
+  throwIfGenerationAborted(opts.signal);
   const listing = gen.listing;
 
   // The item as the aspect registry sees it — its columns plus everything the
@@ -2881,6 +3062,7 @@ export async function generateListing(
     }
   }
 
+  throwIfGenerationAborted(opts.signal);
   // 6. US-312: second pass — constrain item_specifics VALUES (not just names)
   //    to the category's allowed aspect set via extractEbayAspects' dynamic
   //    tool schema. Photos + the AI-generated specifics ("known aspects")
@@ -3105,6 +3287,7 @@ export async function generateListing(
     )
     : null;
 
+  throwIfGenerationAborted(opts.signal);
   // 7. Price (US-542): prefer REALIZED/sold comps; price_is_estimated=false ONLY
   // when the price is backed by sold data. Active Browse comps are ASKING prices
   // (systematically high), so when we fall back to them we set the price but
@@ -3485,40 +3668,17 @@ export async function generateListing(
     },
   };
 
-  const { data: existing } = await supabaseAdmin
-    .from("listings")
-    .select("id")
-    .eq("inventory_item_id", itemId)
-    .eq("platform", "ebay")
-    .eq("listing_status", "draft")
-    .limit(1)
-    .maybeSingle();
-
-  let listingId: string;
-  if (existing?.id) {
-    const { error } = await supabaseAdmin
-      .from("listings")
-      .update(draftFields)
-      .eq("id", existing.id);
-    if (error) throw new Error(`Failed to update draft listing: ${error.message}`);
-    listingId = existing.id;
-  } else {
-    const { data: inserted, error } = await supabaseAdmin
-      .from("listings")
-      .insert({
-        inventory_item_id: itemId,
-        platform: "ebay",
-        // US-1077: AutoLister-created draft is GradeThread-originated.
-        listing_origin: "gradethread",
-        ...draftFields,
-      })
-      .select("id")
-      .single();
-    if (error || !inserted) {
-      throw new Error(`Failed to create draft listing: ${error?.message}`);
-    }
-    listingId = inserted.id;
-  }
+  const listingId = await writeEbayDraft(
+    itemId,
+    draftFields,
+    {
+      inventory_item_id: itemId,
+      platform: "ebay",
+      // US-1077: AutoLister-created draft is GradeThread-originated.
+      listing_origin: "gradethread",
+    },
+    opts,
+  );
 
   // 9. Persist category + specifics + AI-generation marker on the item.
   // ebay_aspects is the canonical aspect store the composer's category picker

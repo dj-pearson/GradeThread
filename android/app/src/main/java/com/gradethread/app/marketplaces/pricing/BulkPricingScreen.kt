@@ -149,8 +149,9 @@ fun BulkPricingContent(state: BulkPricingViewModel.State, actions: BulkPricingAc
 
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Text(
-                stringResource(
-                    R.string.bulkpricing_selected_of,
+                pluralStringResource(
+                    R.plurals.bulkpricing_selected_of,
+                    state.selected.size,
                     state.selected.size,
                     state.listings.size,
                 ),

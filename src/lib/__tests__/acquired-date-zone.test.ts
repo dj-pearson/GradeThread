@@ -16,7 +16,8 @@ const read = (p: string) => readFileSync(join(ROOT, p), "utf8");
 /** Every web file that writes inventory_items.acquired_date. */
 const WRITERS = [
   "src/lib/composer-save.ts",
-  "src/pages/flipdesk/intake.tsx",
+  // intake.tsx builds its row in intake-plan.ts (buildIntakeInsert).
+  "src/pages/flipdesk/intake-plan.ts",
   "src/components/flipdesk/bulk-intake.tsx",
   "src/components/flipdesk/snap-catalog.tsx",
 ];

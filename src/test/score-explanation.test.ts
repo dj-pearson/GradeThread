@@ -123,7 +123,15 @@ describe("the arithmetic is visible (US-2871 AC1 + AC4)", () => {
   it("it rounds the way every other site rounds", () => {
     // The vault note on this is blunt: the weighted overall has shipped wrong
     // TWICE from divergent rounding (US-1557, US-2041), once to 0.5.
-    expect(src).toContain("Math.round(total * 10) / 10");
+    // Grading-plan action 1: "the way every other site rounds" is now the
+    // shared integer, round-half-up helper, not a float Math.round of its own
+    // (which sent exact .x5 midpoints like 9/6/8/9/8 = 7.95 down to 7.9).
+    expect(src).toContain('from "@/lib/weighted-grade"');
+    expect(src).toMatch(/const rounded = roundWeightedToTenth\(/);
+    expect(
+      /Math\.round\(total \* 10\) \/ 10/.test(src.replace(/^\s*\/\/.*$/gm, "")),
+      "the explainer rounds a float sum itself again",
+    ).toBe(false);
     expect(
       /Math\.round\(total \* 2\) \/ 2/.test(src),
       "the explainer rounds to 0.5, which is the exact bug US-2041 found",

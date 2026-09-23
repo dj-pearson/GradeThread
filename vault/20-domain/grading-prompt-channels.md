@@ -19,7 +19,8 @@ code_refs:
   - services/edge-functions/src/lib/prompt-blocks.ts
   - services/edge-functions/src/lib/listing-eval.ts
   - supabase/migrations/00563_prompt_block_versions.sql
-reviewed: 2026-09-13
+  - services/edge-functions/src/lib/prompt-shadow-toggle.ts
+reviewed: 2026-09-23
 tags: [grading, prompts, security, injection, contract]
 summary: Everything in a grading prompt is either server-generated trusted context or seller-supplied fenced text; the two channels must never be concatenated, and the test for which one a new block belongs to is who can influence its content.
 ---
@@ -27,6 +28,15 @@ summary: Everything in a grading prompt is either server-generated trusted conte
 > [!note] Re-reviewed 2026-09-11 (US-3329). The only change to this note's code refs since its last review renames the fifth grading factor's LABEL from "Odor & Cleanliness" to "Cleanliness" (and in ai-grading.ts adds the flag-gated GRADING_CLEANLINESS_V2 wording). Checked: nothing this note states depends on that label, the factor key, or its weight.
 
 # The two prompt channels
+
+> [!note] Re-reviewed 2026-09-23. Read the diffs to `ai-grading.ts`, `grading-eval.ts` and
+> `grading-pipeline.ts` since the last review. Three touch this note: US-3321 adds a `+legible2`
+> suffix (now in the suffix list below); `analyzeImage` gained an `onFirstToken` argument for the
+> staggered cache fan-out (US-3345), which is transport and changes no prompt byte; and
+> `activatePromptVersion` now clears `is_shadow` on promotion. The rest (label re-read scope,
+> weighted-overall rounding, eval reset on prompt edit, live-canary edit refusal) does not change
+> which channel a block is in or what the gates cover. Per-image shadow is no longer SQL-only; the
+> admin control is described under the table below.
 
 > [!note] Re-reviewed 2026-08-15 — the drift was a threshold, not a channel
 > `grading-eval.ts` changed, so the guard fired. The change is the eval gate's
@@ -160,7 +170,7 @@ the flag-gated rollout meaningful: with `GRADING_BASELINES` or `GRADING_TAG_OCR`
 off, the prompt is the previously-evaluated one, not a near-copy.
 
 Each block also appends its own `prompt_version` suffix — `+baseline`, `+fabric`,
-`+visual`, `+tag`, `+cat2`, `+roles`, `+clean2`, `+sysschema`, `+scale`, `+anchors`, `+fabriczoom`, in that fixed order — so
+`+visual`, `+tag`, `+cat2`, `+roles`, `+clean2`, `+sysschema`, `+scale`, `+anchors`, `+fabriczoom`, `+legible2`, in that fixed order — so
 accuracy-tracking can attribute an era per block. Suffixes APPEND; reordering them would
 silently reinterpret every version string already recorded against past grades. `+roles`
 (US-2471) went on the end for exactly that reason, not because it belongs last, and
@@ -174,6 +184,11 @@ passing with-versus-without eval), because a trusted block that cannot be measur
 baseline block came to ship without an eval. `+fabriczoom` (US-3338) is not a prompt change at all:
 the same per-image prompt reads the fabric close-up again as tiles, and the stamp marks the read
 those tiles were merged into, so the grade carries it the same way it carries `+scale`.
+`+legible2` (US-3321, flag `GRADING_LEGIBLE_V2`) rewrites the "legible" clause in the resolved
+per-image rules text, so an override carrying the v1 clause gets it too. The grade carries it from
+the per-image stamps, like `+scale`. The block suffix is still computed from the registry's
+resolved blocks, not the rewritten text, so the flag never reports a block override no
+`ai_prompt_versions` row made.
 
 ## The photo role is a SELLER-CHOSEN selector over server-written sentences
 
@@ -256,6 +271,29 @@ submission, so it does nothing at all unless
 `PER_IMAGE_SHADOW_DAILY_VISION_CAP` is set to a positive number AND a candidate
 row carries a non-zero `shadow_sample_rate` and `shadow_daily_cap`. Three
 deliberate switches, because a default here is a vision bill.
+
+**Starting one is an admin action, not hand-written SQL.** Until 2026-09-23
+`PATCH /api/admin/grading/prompts/:id/shadow` refused every `per_image` row, so
+the only way in was `scripts/shadow-footwear-criteria.sql`, which skipped the
+audit row and every check. The route now takes both stages, through
+`planShadowToggle` (`prompt-shadow-toggle.ts`), and the AI models admin page
+has the form. For a per-image row, anything that leaves it shadowing:
+
+- is refused (422) while `PER_IMAGE_SHADOW_DAILY_VISION_CAP` is unset or 0 on
+  the edge, because the orchestrator would do nothing and the toggle would read
+  "on";
+- is capped at a **5%** sample rate (`PER_IMAGE_SHADOW_MAX_SAMPLE_RATE`); wider
+  is a decision for SQL and a conversation, not a form field;
+- needs a non-empty `prompt_text`, a rate above 0 and a daily cap above 0;
+- needs **step-up** (a fresh MFA check when `ADMIN_MFA_ENFORCED` is on), the
+  same tier as activation.
+
+Two rules apply to both stages: a rate or cap of 0 is refused as "on but idle",
+and an **active** row cannot start or retune a shadow, since neither loader
+filters on `is_active` and the champion would be compared to itself
+(`activatePromptVersion` clears `is_shadow` on promotion for the same reason).
+Stopping a shadow is never refused and never asks for step-up: turning spend
+off must stay easy, including for a row started by SQL at a wider rate.
 
 ### What a flag carries, and what it does not
 

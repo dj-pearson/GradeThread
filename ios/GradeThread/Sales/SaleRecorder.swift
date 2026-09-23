@@ -1,4 +1,5 @@
 import Foundation
+import GradeThreadCore
 
 /// Records a sale: the `sales` row, the item's status, and closing out whatever
 /// the item was listed on.

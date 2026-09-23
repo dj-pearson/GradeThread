@@ -965,6 +965,11 @@ export async function helpUrls(env: PagesEnv): Promise<SitemapUrl[]> {
   const dateOf = (a: { updated_at: string; reviewed_at?: string | null }) =>
     (a.reviewed_at ?? a.updated_at)?.slice(0, 10);
 
+  // An empty Help Center lists NOTHING, the hub included. The hub serves
+  // "noindex, follow" while it has zero articles (helpHubRobots), and a
+  // sitemap entry for a noindex page is a contradiction Search Console reports.
+  if (articles.length === 0) return [];
+
   const urls: SitemapUrl[] = [
     { loc: `${base}/help`, changefreq: "weekly", priority: 0.7 },
   ];

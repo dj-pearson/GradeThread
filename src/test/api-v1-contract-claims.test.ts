@@ -26,6 +26,7 @@ import { join } from "node:path";
 
 const SPEC = "services/edge-functions/src/lib/openapi-spec.ts";
 const ROUTES = "services/edge-functions/src/routes/api-v1.ts";
+const QUALITY = "services/edge-functions/src/lib/image-quality.ts";
 const RATE = "services/edge-functions/src/middleware/api-v1-rate.ts";
 const IDEMPOTENCY = "services/edge-functions/src/middleware/api-idempotency.ts";
 const BATCH = "services/edge-functions/src/lib/grading-batch.ts";
@@ -55,8 +56,13 @@ describe("US-2640: the API's public contract matches the code", () => {
   });
 
   it("the required set the spec names is the set the code enforces", () => {
+    // api-v1 imports the list from the quality gate rather than keeping a copy,
+    // so read it where it is declared, and pin that the route still imports it.
+    expect(read(ROUTES)).toMatch(
+      /import \{ REQUIRED_IMAGE_TYPES \} from "\.\.\/lib\/image-quality\.ts"/,
+    );
     const required = [
-      ...read(ROUTES).matchAll(/const REQUIRED_IMAGE_TYPES = \[([^\]]+)\]/g),
+      ...read(QUALITY).matchAll(/const REQUIRED_IMAGE_TYPES = \[([^\]]+)\]/g),
     ]
       .flatMap((m) => [...m[1]!.matchAll(/"([^"]+)"/g)].map((t) => t[1]!))
       .sort();

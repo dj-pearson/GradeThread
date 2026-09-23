@@ -1,3 +1,4 @@
+import GradeThreadCore
 import XCTest
 @testable import GradeThread
 

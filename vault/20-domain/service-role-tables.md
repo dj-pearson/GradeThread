@@ -10,7 +10,9 @@ code_refs:
   - supabase/migrations/00810_revoke_operator_grants_a_credentials.sql
   - supabase/migrations/00811_revoke_operator_grants_b_people.sql
   - supabase/migrations/00812_revoke_operator_grants_c_platform.sql
-reviewed: 2026-09-20
+  - scripts/replay-migration-privileges.mjs
+  - scripts/check-service-role-grants.mjs
+reviewed: 2026-09-23
 tags: [security, rls, tenant-isolation, contract]
 summary: rls-guard discovers tenant tables by regex on the CREATE TABLE block - any column ending in user_id or owner_id - so an operator table must be registered in SERVICE_ROLE_ONLY; the same file also enforces the (select auth.uid()) initplan form, with a five-entry exemption list whose entries fall into two DIFFERENT cases - a negligible table, and a policy already superseded by a corrective migration. Of the two layers an operator table is supposed to have, only RLS-with-zero-policies was load-bearing until 00810-00812: 88 of the 142 registered tables carried no REVOKE at all. Those 88 are listed here by name and grouped by what a policy would expose, and the retrofit is written as three held migrations covering 94 tables (the 88 plus six that revoked only their writes), because prod's anon OpenAPI document already publishes 87 of them and 941 column names. service-role-grant-posture_test.ts now asserts both that every registered table has a REVOKE and that no later GRANT has undone it.
 ---
@@ -127,6 +129,19 @@ The two integration workflows (`tenant-isolation.yml`, `money-cert-integration.y
 run `GRANT ALL ON ALL TABLES IN SCHEMA public TO anon, authenticated, service_role`
 before seeding, and CLAUDE.md tells operators to run that same block locally. It
 re-grants every revoke in the schema.
+
+Both workflows now follow the grant with `scripts/replay-migration-privileges.mjs`,
+which replays every migration GRANT and REVOKE in file order, then
+`scripts/check-service-role-grants.mjs`, which asks Postgres whether anon or
+authenticated holds anything on a `SERVICE_ROLE_ONLY` table. The same check runs
+in the db-migrations lane, where no GRANT ALL has happened. Measured 2026-09-23 on
+a local Postgres 16 built with the Supabase default privileges: after GRANT ALL
+plus the replay, the privilege map for all three roles matched the never-granted
+build on every one of 1,905 rows. The revokes-only replay CLAUDE.md used to
+describe got 16 wrong: it cannot read the `EXECUTE 'REVOKE ...'` form (00475,
+00531, 00711), so four operator tables stayed open, and it drops 00726's
+re-grant, which leaves `pollable_ebay_owner_ids` denied to anon, the crash
+shape of the function-revoke section below.
 
 The ACL ordering is the proof, and it is free to re-take:
 

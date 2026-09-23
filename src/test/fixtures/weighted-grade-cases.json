@@ -1,5 +1,5 @@
 {
-  "_comment": "US-2034 SHARED FIXTURE. The weighted-overall formula exists in two projects that cannot import each other: src/lib/weighted-grade.ts (web) and services/edge-functions/src/lib/human-review.ts (edge). Both suites assert against THIS table, so the mirrors cannot drift silently. A drift here previously shipped twice (US-1557, then US-2034 disputes.tsx). Weights: fabric .30 / structural .25 / cosmetic .20 / functional .15 / odor .10; result rounded to 0.1 — NOT 0.5.",
+  "_comment": "US-2034 SHARED FIXTURE. The weighted-overall formula exists in two projects that cannot import each other: src/lib/weighted-grade.ts (web) and services/edge-functions/src/lib/human-review.ts (edge). Both suites assert against THIS table, so the mirrors cannot drift silently. A drift here previously shipped twice (US-1557, then US-2034 disputes.tsx). Weights: fabric .30 / structural .25 / cosmetic .20 / functional .15 / odor .10; result rounded to 0.1 — NOT 0.5. Grading-plan action 1: the last three cases are exact .x5 midpoints and round HALF UP. 9/6/8/9/8 is exactly 7.95 -> 8.0 (the float sum 7.949999999999998 used to give 7.9, one tier low); 5/5/5/9/5.5 is exactly 5.65 -> 5.7 (float gave 5.6); 6/6/6/6/6.5 is exactly 6.05 -> 6.1 (float already rounded this one up, and it must stay up).",
   "cases": [
     {
       "factors": {
@@ -150,6 +150,36 @@
         "odor_cleanliness_score": 8
       },
       "expected_overall": 6.8
+    },
+    {
+      "factors": {
+        "fabric_condition_score": 9,
+        "structural_integrity_score": 6,
+        "cosmetic_appearance_score": 8,
+        "functional_elements_score": 9,
+        "odor_cleanliness_score": 8
+      },
+      "expected_overall": 8
+    },
+    {
+      "factors": {
+        "fabric_condition_score": 5,
+        "structural_integrity_score": 5,
+        "cosmetic_appearance_score": 5,
+        "functional_elements_score": 9,
+        "odor_cleanliness_score": 5.5
+      },
+      "expected_overall": 5.7
+    },
+    {
+      "factors": {
+        "fabric_condition_score": 6,
+        "structural_integrity_score": 6,
+        "cosmetic_appearance_score": 6,
+        "functional_elements_score": 6,
+        "odor_cleanliness_score": 6.5
+      },
+      "expected_overall": 6.1
     }
   ],
   "refusal_cases_comment": "US-2386. Inputs on which BOTH implementations must THROW rather than return a number. Before this, the web coalesced a missing factor to 0 and the edge let it fall out as NaN — two mirrors that must agree byte-for-byte, disagreeing on the one input neither suite covered. Coalescing is the worse half: fabric alone is 30% of the blend, so a missing fabric score drags a genuine 8.4 to a plausible ~5.4 that nothing flags, and the reseal then certifies it with a tamper-evident hash. All five columns are NOT NULL on grade_reports (00001), so a missing key is a programming error and refusing is correct. Each case lists the factors object as given; the runner passes it through the cast its call sites use, because a type that is bypassed at every real call site cannot be the guard. TWO ENCODING NOTES, because a fixture that lies about its own inputs is worse than no fixture: JSON cannot express undefined (the key is simply dropped on write, so an \"undefined\" case is indistinguishable from an omitted one), and it cannot express NaN (encoded as the sentinel string \"__NaN__\", which each runner MUST replace with a real NaN before calling — a runner that forgets asserts on a string instead, which still throws, so the test would pass for the wrong reason; assert the sentinel is translated).",

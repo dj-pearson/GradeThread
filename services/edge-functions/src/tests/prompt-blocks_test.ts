@@ -924,9 +924,16 @@ Deno.test("US-2438: analyzeImage resolves blocks and passes them to the builder"
   // pins `blocks` as the final argument — only that it is still an argument.
   // Anchoring on "last" would fail every time the signature grows, which is a
   // guard against edits rather than against the regression it names.
+  // US-3321: what reaches the builder is `renderBlocks`, which is `blocks`
+  // itself unless the flag-gated legible wording rewrote the rules text, so pin
+  // both halves of that: it is passed, and it is derived from the resolved set.
   assert(
-    /buildUserPrompt\([^)]*\bblocks,/s.test(body),
+    /buildUserPrompt\([^)]*\b(?:blocks|renderBlocks),/s.test(body),
     "the resolved blocks are no longer passed to buildUserPrompt — the seam is dead code",
+  );
+  assert(
+    /const renderBlocks: PromptBlockOverrides = [^;]*\{\s*\.\.\.blocks,[^;]*: blocks;/s.test(body),
+    "renderBlocks no longer derives from the resolved blocks",
   );
   // US-3329 appended a flag-gated "+clean2" after the block suffix, and US-3150
   // appended "+sysschema" after that. Both are APPENDS, never insertions, which

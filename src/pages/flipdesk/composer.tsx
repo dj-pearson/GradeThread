@@ -125,7 +125,10 @@ import {
 } from "@/lib/composer-dirty";
 import { deriveListingOrigin, type EbayStateMarker } from "@/lib/listing-origin";
 import { ebayPathToItemCategory } from "@/lib/ebay-category-map";
-import { previewGradingReadiness } from "@/lib/grading-readiness";
+import {
+  gradablePhotoTypes,
+  previewGradingReadiness,
+} from "@/lib/grading-readiness";
 import { garmentPatchForCategoryChange } from "@/lib/garment-mapping";
 import { planEbayPrepRefresh } from "@/lib/ai-ebay-prep";
 import type { AspectSourceMap } from "@/lib/aspect-provenance";
@@ -710,7 +713,7 @@ export function FlipdeskComposerPage({
         garment_type: ebayMapping?.garment_type ?? null,
         garment_category: ebayMapping?.garment_category ?? null,
         title,
-        photoTypes: new Set(photos.map((p) => p.photo_type)),
+        photoTypes: gradablePhotoTypes(photos),
       }),
     [
       ebayMapping?.garment_type,

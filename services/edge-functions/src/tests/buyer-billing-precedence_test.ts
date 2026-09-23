@@ -144,8 +144,10 @@ Deno.test("US-2456 AC4: EVERY subscription purchase is gated — discovered, not
   const sites: number[] = [];
   const re = /mode: "subscription"/g;
   for (let m = re.exec(PAYMENTS); m; m = re.exec(PAYMENTS)) sites.push(m.index);
+  // Two since the legacy POST /subscribe alias was removed (money.md action 4):
+  // /flipdesk/subscribe and /buyer/subscribe.
   assert(
-    sites.length >= 3,
+    sites.length >= 2,
     `expected the known subscription checkouts, found ${sites.length} — the scan ` +
       "has probably stopped working rather than the routes having been deleted",
   );

@@ -1,5 +1,6 @@
 // US-3468: an eBay breadcrumb decides the vertical an adopted item lands in,
 // and every eBay root has a home.
+import "./_env.ts";
 import { assert, assertEquals } from "@std/assert";
 import {
   EBAY_ROOT_CATEGORIES,

@@ -285,6 +285,9 @@ const IOS_GUARDS = [
   // sites still used it; every guard above passed, because none of them asks
   // whether a symbol exists. iOS CI found it a push later.
   ["every Type.member resolves", "check-symbol-resolution.py"],
+  // Mobile plan action 6: logic moving into GradeThreadCore turns app types
+  // into another module's types, and every consumer then needs the import.
+  ["every Core type user imports GradeThreadCore", "check-core-imports.py"],
   // US-3281: the in-app delist tells App Review seven things about itself. Each
   // is a sentence a small, sensible-looking change would make false, and a
   // 5.2.2 rejection is resolved by authorization from the marketplace that does
@@ -615,6 +618,34 @@ if (on("db")) {
     run(
       "db: a dispute cannot name another seller's report (US-2670)",
       "node scripts/check-dispute-report-ownership.mjs",
+    );
+    // 00824: get_or_create_source is SECURITY DEFINER, so RLS never sees it,
+    // and the browser hands it p_user_id. Both directions again: a stranger is
+    // refused, the owner and a listing_manager member still get through.
+    run(
+      "db: get_or_create_source is tenant-scoped (00824)",
+      "node scripts/check-source-tenant-scope.mjs",
+    );
+    // 00831: source_item_counts is SECURITY INVOKER and takes p_user_id from
+    // the browser, so RLS is the boundary. A stranger naming another workspace
+    // gets no rows; the owner and a viewer member get the real counts.
+    run(
+      "db: source item counts are tenant-scoped (00831)",
+      "node scripts/check-source-item-counts.mjs",
+    );
+    // 00825: api-key-auth trusts rate_tier and monthly_quota off the row, so
+    // no client UPDATE or INSERT policy may exist on api_keys. The owner still
+    // reads and deletes; the service role still mints.
+    run(
+      "db: an API key owner cannot raise their own tier or quota (00825)",
+      "node scripts/check-api-key-self-upgrade.mjs",
+    );
+    // US-3355: the SERVICE_ROLE_ONLY tables must be closed to anon and
+    // authenticated in the migrated database itself; the posture test in the
+    // edge suite only scores the migration text.
+    run(
+      "db: service-role-only tables keep their REVOKE (US-3355)",
+      "node scripts/check-service-role-grants.mjs",
     );
     // US-3318: 00806 is the one held migration that rewrites seller data. This
     // runs its six worked examples against real rows and checks that

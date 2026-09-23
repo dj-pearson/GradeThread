@@ -40,6 +40,7 @@ import {
   type SkuIndexListing,
 } from "../routes/flipdesk-ebay.ts";
 import { deriveInventorySku } from "../lib/ebay-sku.ts";
+import { ebayRouteFile } from "./_ebay-routes.ts";
 
 // A real-shaped uuid, because deriveInventorySku slices the first 8 characters
 // of it and the whole Minted class turns on that string.
@@ -379,9 +380,8 @@ Deno.test("US-3362 a Foreign SKU is never skipped, because no item stamps it", (
 // wiring, calls for logic.
 
 Deno.test("US-3362 doListingsPull resolves through the index and stamps by id", async () => {
-  const src = await Deno.readTextFile(
-    new URL("../routes/flipdesk-ebay.ts", import.meta.url),
-  );
+  // doListingsPull lives in flipdesk-ebay-sync.ts.
+  const src = await Deno.readTextFile(ebayRouteFile("flipdesk-ebay-sync.ts"));
   const code = src
     .replace(/\/\*[\s\S]*?\*\//g, "")
     .split("\n")

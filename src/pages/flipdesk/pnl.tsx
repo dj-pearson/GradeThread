@@ -17,9 +17,11 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { ErrorState } from "@/components/ui/error-state";
 import { CogsWorksheetCard } from "@/components/finances/cogs-worksheet-card";
 import { BooksReviewCard } from "@/components/finances/books-review-card";
+import { LedgerDriftBanner } from "@/components/finances/ledger-drift-banner";
 import {
   ensureLedgerBuilt,
   fetchLedgerEntries,
+  invalidateLedgerQueries,
   rebuildMyLedger,
   type LedgerEntryRow,
 } from "@/lib/ledger";
@@ -170,7 +172,7 @@ export function PnlPage() {
     setRebuilding(true);
     try {
       const n = await rebuildMyLedger();
-      await qc.invalidateQueries({ queryKey: ["pnl-entries"] });
+      await invalidateLedgerQueries(qc);
       toast.success(`Books rebuilt. ${n} entries.`);
     } catch (err) {
       toastError(err, "Couldn't rebuild your books.");
@@ -377,6 +379,10 @@ td{padding:6px 10px;border-bottom:1px solid #e5e5e5;font-size:13px}
         </div>
       ) : (
         <>
+          {/* money.md action 6. Above the statement for the same reason the
+              review queue is: it says the numbers below may be wrong. */}
+          <LedgerDriftBanner periodStart={range.from} periodEnd={range.to} />
+
           <Card>
             <CardContent className="p-0">
               <table className="w-full text-sm">

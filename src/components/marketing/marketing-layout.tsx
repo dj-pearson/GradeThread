@@ -148,7 +148,9 @@ export function MarketingLayout({
               className="bg-brand-red text-white hover:bg-brand-red/90"
             >
               Get Started
-              <ArrowRight className="ml-1 h-4 w-4" />
+              {/* Arrow hidden below sm: at 375px it pushed the header 7px past
+                  the viewport (e2e/public-pages.spec.ts). */}
+              <ArrowRight className="ml-1 hidden h-4 w-4 sm:block" />
             </Button>
           </Link>
         </div>

@@ -37,7 +37,8 @@ import { edgeEnv, isProductionEnv } from "./env.ts";
 import { EXPECTED_MIGRATIONS, FOOTER_ERA_START } from "./migration-manifest.ts";
 
 // Bump this in the SAME commit that adds a migration. = highest NNNNN in
-// supabase/migrations/. (00634_listings_listed_at_nullable.sql)
+// supabase/migrations/. (No file name here on purpose: one sat here naming
+// 00634 while the tree was at 00823.)
 //
 // ⚠ 00527 IS SKIPPED HERE ON PURPOSE. 00527_revoke_public_function_execute.sql
 // carries a .BLOCKED suffix (US-2403: denying a function to a supautils hint
@@ -58,13 +59,14 @@ import { EXPECTED_MIGRATIONS, FOOTER_ERA_START } from "./migration-manifest.ts";
 // "match" off prod's pre-existing row even if this migration never applied —
 // exactly the failure the guard exists to catch. See PENDING_MIGRATIONS.md.
 //
-// ⚠ 00793 THROUGH 00795 ARE SKIPPED, and are NOT phantoms. Each is claimed by a
-// held migration parked on another branch that had not merged when 00796 was
-// written (US-3404; 00795 is US-3398's, the story this one came out of).
-// Numbering jumped rather than colliding: two files with the same NNNNN is
-// unrecoverable, a gap is not. The manifest lists what THIS tree ships, so a
-// prod row for 00794 reads as "ahead", which is the safe direction.
-export const EXPECTED_SCHEMA_VERSION = "00823";
+// ⚠ 00794, 00795, 00798 AND 00799 ARE SKIPPED, and are NOT phantoms. Each is
+// claimed by a held migration parked on a side branch (the `parked` list in
+// supabase/held-migrations.json; 00795 is US-3398's). 00793 was skipped the same
+// way until US-3387 rebuilt it into the tree on 2026-09-18. Numbering jumped
+// rather than colliding: two files with the same NNNNN is unrecoverable, a gap
+// is not. The manifest lists what THIS tree ships, so a prod row for 00794
+// reads as "ahead", which is the safe direction.
+export const EXPECTED_SCHEMA_VERSION = "00832";
 
 export type SchemaVersionComparison = "match" | "behind" | "ahead" | "unknown";
 

@@ -10,6 +10,7 @@ import {
 } from "@/components/marketing/marketing-layout";
 import { HelpCategoryLink } from "@/components/marketing/help-category-link";
 import { FLIPDESK_PLANS } from "@/lib/constants";
+import { SDK_INSTALL_COMMAND, SDK_PUBLISHED, SDK_SUPPORT_MAILTO } from "@/lib/sdk-release";
 
 // US-9126: the Claude connector.
 //
@@ -109,7 +110,7 @@ const CONNECTOR_SCOPES: Array<{ scope: string; grants: string }> = [
     grants:
       "Grade items, write and edit drafts, publish, reprice and end listings. This is the one that spends money.",
   },
-  { scope: "webhook_manage", grants: "Create and remove webhook subscriptions." },
+  { scope: "webhook_manage", grants: "Set or remove your webhook, rotate its signing secret, and read its delivery log." },
 ];
 
 const ENDPOINTS = [
@@ -123,7 +124,10 @@ const ENDPOINTS = [
   { method: "GET", path: "/api/v1/items/:id", scope: "read", desc: "Fetch one inventory item and its attributes." },
   { method: "GET", path: "/api/v1/listings", scope: "read", desc: "List marketplace listings, paginated." },
   { method: "GET", path: "/api/v1/sales", scope: "read", desc: "List completed sales, paginated." },
-  { method: "PATCH", path: "/api/v1/webhook", scope: "webhook_manage", desc: "Set the URL we POST to when a grade completes." },
+  { method: "PATCH", path: "/api/v1/webhook", scope: "webhook_manage", desc: "Set the URL we POST to when a grade completes. The first call returns your signing secret." },
+  { method: "GET", path: "/api/v1/webhook", scope: "webhook_manage", desc: "Read your webhook URL and whether it has a signing secret." },
+  { method: "POST", path: "/api/v1/webhook/secret/rotate", scope: "webhook_manage", desc: "Get a new signing secret. Shown once." },
+  { method: "GET", path: "/api/v1/webhook/deliveries", scope: "webhook_manage", desc: "Recent deliveries: status, attempts and the last response code." },
   { method: "POST", path: "/api/v1/sandbox/grades", scope: "submit", desc: "Free mock submit — returns a sample grade, no credits." },
   { method: "GET", path: "/api/v1/sandbox/grades/:id", scope: "read", desc: "Free mock fetch — returns a sample grade." },
   { method: "GET", path: "/api/v1/price-guide", scope: "read", desc: "List published Resale Condition Index items (the catalog)." },
@@ -164,9 +168,12 @@ const BATCH_EXAMPLE = `curl https://functions.gradethread.com/api/v1/grades/batc
 # Poll GET /api/v1/grades/batch/<batch_id> for per-garment results.`;
 
 const WEBHOOK_EXAMPLE = `POST <your webhook_url>
-X-GradeThread-Signature: <hex HMAC-SHA256 of the raw body>
+webhook-id: 6f1c…            (same on every retry of this event)
+webhook-timestamp: 1757000000
+webhook-signature: v1,<base64 HMAC-SHA256 of "{id}.{timestamp}.{raw body}">
 
 {
+  "id": "6f1c…",
   "event": "grade.completed",
   "data": {
     "submission_id": "…",
@@ -191,6 +198,11 @@ const PRICE_GUIDE_EXAMPLE = `curl https://functions.gradethread.com/api/v1/price
 #                    "valueLowCents": 6500, "valueMedianCents": 8200,
 #                    "valueHighCents": 9800, "sellThrough": 0.78 }, ... ] } }`;
 
+// Whether this page gives `npm install` or says the SDK is unpublished is
+// SDK_PUBLISHED in src/lib/sdk-release.ts, the same switch the SDK README reads.
+// The page used to give a `git clone` of the GradeThread repository as the
+// install path, but the repository is private, so that command fails for every
+// outside customer.
 const SDK_EXAMPLE = `import { GradeThread } from "@gradethread/sdk";
 
 const gt = new GradeThread({ apiKey: process.env.GRADETHREAD_API_KEY });
@@ -287,30 +299,30 @@ export function DevelopersPage() {
           <li>
             <strong className="text-foreground">Create an API key.</strong> In your
             dashboard under Account → API keys (Business plan), create a key and
-            grant only the scopes you need (<code className="rounded bg-muted px-1 py-0.5">submit</code>,{" "}
-            <code className="rounded bg-muted px-1 py-0.5">read</code>,{" "}
-            <code className="rounded bg-muted px-1 py-0.5">webhook_manage</code>). The
+            grant only the scopes you need (<code className="rounded bg-muted px-1 py-0.5 text-foreground">submit</code>,{" "}
+            <code className="rounded bg-muted px-1 py-0.5 text-foreground">read</code>,{" "}
+            <code className="rounded bg-muted px-1 py-0.5 text-foreground">webhook_manage</code>). The
             secret is shown once — store it safely. Rotate or revoke it anytime.
           </li>
           <li>
             <strong className="text-foreground">Try it free in the sandbox.</strong>{" "}
-            Call <code className="rounded bg-muted px-1 py-0.5">/api/v1/sandbox/grades</code>{" "}
+            Call <code className="rounded bg-muted px-1 py-0.5 text-foreground">/api/v1/sandbox/grades</code>{" "}
             (below) — deterministic sample grades, zero credits, same shapes as
             production.
           </li>
           <li>
             <strong className="text-foreground">Go live.</strong> Drop the{" "}
-            <code className="rounded bg-muted px-1 py-0.5">/sandbox</code> path, attach
+            <code className="rounded bg-muted px-1 py-0.5 text-foreground">/sandbox</code> path, attach
             real photos (front, back and label are required; a detail close-up is
             recommended), and submit to{" "}
-            <code className="rounded bg-muted px-1 py-0.5">/api/v1/grades</code>. Poll{" "}
-            <code className="rounded bg-muted px-1 py-0.5">/api/v1/grades/:id</code> or
+            <code className="rounded bg-muted px-1 py-0.5 text-foreground">/api/v1/grades</code>. Poll{" "}
+            <code className="rounded bg-muted px-1 py-0.5 text-foreground">/api/v1/grades/:id</code> or
             receive a webhook.
           </li>
           <li>
             <strong className="text-foreground">Scale up.</strong> Grade up to 50
             garments per call with{" "}
-            <code className="rounded bg-muted px-1 py-0.5">/api/v1/grades/batch</code>{" "}
+            <code className="rounded bg-muted px-1 py-0.5 text-foreground">/api/v1/grades/batch</code>{" "}
             and let webhooks push each result as it finishes.
           </li>
         </ol>
@@ -319,14 +331,14 @@ export function DevelopersPage() {
       <Section icon={KeyRound} title="Authentication">
         <p>
           Every request authenticates with an API key in the{" "}
-          <code className="rounded bg-muted px-1.5 py-0.5">X-API-Key</code> header.
+          <code className="rounded bg-muted px-1.5 py-0.5 text-foreground">X-API-Key</code> header.
           Keys are created in your dashboard under Account → API keys (Business
           plan), are shown once, and can be scoped to{" "}
-          <code className="rounded bg-muted px-1.5 py-0.5">read</code>,{" "}
-          <code className="rounded bg-muted px-1.5 py-0.5">submit</code>, and{" "}
-          <code className="rounded bg-muted px-1.5 py-0.5">webhook_manage</code>.
+          <code className="rounded bg-muted px-1.5 py-0.5 text-foreground">read</code>,{" "}
+          <code className="rounded bg-muted px-1.5 py-0.5 text-foreground">submit</code>, and{" "}
+          <code className="rounded bg-muted px-1.5 py-0.5 text-foreground">webhook_manage</code>.
           Rotate or revoke a key at any time. Base URL:{" "}
-          <code className="rounded bg-muted px-1.5 py-0.5">https://functions.gradethread.com</code>.
+          <code className="rounded bg-muted px-1.5 py-0.5 text-foreground">https://functions.gradethread.com</code>.
         </p>
       </Section>
 
@@ -355,7 +367,7 @@ export function DevelopersPage() {
         </div>
         <p>
           All responses share one envelope:{" "}
-          <code className="rounded bg-muted px-1.5 py-0.5">{`{ data, error, meta }`}</code>.
+          <code className="rounded bg-muted px-1.5 py-0.5 text-foreground">{`{ data, error, meta }`}</code>.
         </p>
         <p className="flex items-center gap-2">
           <FileJson className="h-4 w-4 flex-shrink-0 text-brand-navy dark:text-foreground" />
@@ -379,7 +391,7 @@ export function DevelopersPage() {
           Grade up to 50 garments in one call. The batch is durable and async:
           you get a batch id back immediately, each garment is graded and charged
           independently (partial success is fine), and a{" "}
-          <code className="rounded bg-muted px-1.5 py-0.5">grade.completed</code>{" "}
+          <code className="rounded bg-muted px-1.5 py-0.5 text-foreground">grade.completed</code>{" "}
           webhook fires per garment. Poll the batch-status endpoint for
           per-garment results. Every garment is validated the same way as a single
           grade — an invalid garment rejects the whole request up front. Prefer
@@ -393,14 +405,40 @@ export function DevelopersPage() {
       <Section icon={Webhook} title="Webhooks">
         <p>
           Set a webhook URL with{" "}
-          <code className="rounded bg-muted px-1.5 py-0.5">PATCH /api/v1/webhook</code>{" "}
-          (or in your dashboard). When a grade finalizes we POST a{" "}
-          <code className="rounded bg-muted px-1.5 py-0.5">grade.completed</code>{" "}
-          event. Each delivery carries an{" "}
-          <code className="rounded bg-muted px-1.5 py-0.5">X-GradeThread-Signature</code>{" "}
-          header — an HMAC-SHA256 (hex) of the raw request body, signed with your
-          API key's secret hash — so you can verify authenticity. Failed
-          deliveries retry with backoff (5s / 30s / 120s).
+          <code className="rounded bg-muted px-1.5 py-0.5 text-foreground">PATCH /api/v1/webhook</code>.
+          There is one webhook per account, so each grade sends one{" "}
+          <code className="rounded bg-muted px-1.5 py-0.5 text-foreground">grade.completed</code>{" "}
+          event however many API keys you have. The first time you set a URL,
+          the response includes a{" "}
+          <code className="rounded bg-muted px-1.5 py-0.5 text-foreground">signing_secret</code>{" "}
+          that starts with{" "}
+          <code className="rounded bg-muted px-1.5 py-0.5 text-foreground">whsec_</code>. Save it:
+          we show it once. Need a new one? Call{" "}
+          <code className="rounded bg-muted px-1.5 py-0.5 text-foreground">POST /api/v1/webhook/secret/rotate</code>.
+        </p>
+        <p>
+          Deliveries follow the{" "}
+          <a
+            href="https://www.standardwebhooks.com/"
+            className="underline underline-offset-2"
+            rel="noopener noreferrer"
+            target="_blank"
+          >
+            Standard Webhooks
+          </a>{" "}
+          format, so their verification libraries work as-is. To check one by
+          hand, take the base64 part of your secret after{" "}
+          <code className="rounded bg-muted px-1.5 py-0.5 text-foreground">whsec_</code>, decode
+          it, and compute an HMAC-SHA256 over{" "}
+          <code className="rounded bg-muted px-1.5 py-0.5 text-foreground">{"{webhook-id}.{webhook-timestamp}.{raw body}"}</code>.
+          Base64 it and compare with the value after{" "}
+          <code className="rounded bg-muted px-1.5 py-0.5 text-foreground">v1,</code> in{" "}
+          <code className="rounded bg-muted px-1.5 py-0.5 text-foreground">webhook-signature</code>.
+          Reject a timestamp more than five minutes old, and use{" "}
+          <code className="rounded bg-muted px-1.5 py-0.5 text-foreground">webhook-id</code> to
+          ignore repeats. A failed delivery is retried for about 12 hours, and{" "}
+          <code className="rounded bg-muted px-1.5 py-0.5 text-foreground">GET /api/v1/webhook/deliveries</code>{" "}
+          shows every attempt.
         </p>
         <pre className="overflow-x-auto rounded-lg bg-slate-900 p-4 text-xs text-slate-100">
           <code>{WEBHOOK_EXAMPLE}</code>
@@ -439,11 +477,32 @@ export function DevelopersPage() {
 
       <Section icon={Package} title="JavaScript SDK">
         <p>
-          A zero-dependency, typed client for Node and the browser.
+          A zero-dependency, typed client for Node 20+ and the browser. It
+          sends an Idempotency-Key on every grade submission and retries rate
+          limits and outages without charging twice.
         </p>
-        <pre className="overflow-x-auto rounded-lg bg-slate-900 p-4 text-xs text-slate-100">
-          <code>npm install @gradethread/sdk</code>
-        </pre>
+        {SDK_PUBLISHED ? (
+          <>
+            <p>Install it from npm:</p>
+            <pre className="overflow-x-auto rounded-lg bg-slate-900 p-4 text-xs text-slate-100">
+              <code>{SDK_INSTALL_COMMAND}</code>
+            </pre>
+            <p>Then:</p>
+          </>
+        ) : (
+          <p>
+            <strong>The SDK is not published yet.</strong> Until it is, call the
+            REST API directly with the examples above, or email{" "}
+            <a
+              href={SDK_SUPPORT_MAILTO}
+              className="font-medium text-brand-navy hover:underline dark:text-foreground"
+            >
+              support@gradethread.com
+            </a>{" "}
+            and we'll let you know when it's available. Once it is, usage looks
+            like this:
+          </p>
+        )}
         <pre className="overflow-x-auto rounded-lg bg-slate-900 p-4 text-xs text-slate-100">
           <code>{SDK_EXAMPLE}</code>
         </pre>
@@ -453,8 +512,8 @@ export function DevelopersPage() {
         <p>
           Limits are enforced per API key in a 60-second sliding window, with
           separate budgets for reads (GET) and writes (POST/PATCH). Exceeding a
-          budget returns <code className="rounded bg-muted px-1.5 py-0.5">429</code>{" "}
-          with a <code className="rounded bg-muted px-1.5 py-0.5">retry_after_seconds</code>{" "}
+          budget returns <code className="rounded bg-muted px-1.5 py-0.5 text-foreground">429</code>{" "}
+          with a <code className="rounded bg-muted px-1.5 py-0.5 text-foreground">retry_after_seconds</code>{" "}
           hint. Live usage is shown on your dashboard.
         </p>
         <div className="overflow-x-auto rounded-lg border">
@@ -488,7 +547,7 @@ export function DevelopersPage() {
         <p>
           Render any grade certificate inside your own platform, under your brand.
           Set your company name, color, and logo in the dashboard and copy the
-          generated <code className="rounded bg-muted px-1.5 py-0.5">&lt;iframe&gt;</code>{" "}
+          generated <code className="rounded bg-muted px-1.5 py-0.5 text-foreground">&lt;iframe&gt;</code>{" "}
           snippet — buyers see the grade in your brand with a small
           &quot;Verified by GradeThread&quot; trust mark.
         </p>
@@ -527,7 +586,7 @@ export function DevelopersPage() {
         <p>
           In the Claude web or desktop app: <strong>Settings → Connectors → Add
           custom connector</strong>, then paste{" "}
-          <code className="rounded bg-muted px-1.5 py-0.5">
+          <code className="rounded bg-muted px-1.5 py-0.5 text-foreground">
             https://functions.gradethread.com/mcp
           </code>
           . Either way you will be sent to GradeThread to sign in and choose what
@@ -547,7 +606,7 @@ export function DevelopersPage() {
               {CONNECTOR_SCOPES.map((s) => (
                 <tr key={s.scope} className="border-b last:border-0">
                   <td className="py-2 pr-4 align-top">
-                    <code className="rounded bg-muted px-1.5 py-0.5">{s.scope}</code>
+                    <code className="rounded bg-muted px-1.5 py-0.5 text-foreground">{s.scope}</code>
                   </td>
                   <td className="py-2 align-top">{s.grants}</td>
                 </tr>
@@ -575,7 +634,7 @@ export function DevelopersPage() {
               {CONNECTOR_TOOLS.map((t) => (
                 <tr key={t.name} className="border-b last:border-0">
                   <td className="py-2 pr-4 align-top">
-                    <code className="rounded bg-muted px-1.5 py-0.5">{t.name}</code>
+                    <code className="rounded bg-muted px-1.5 py-0.5 text-foreground">{t.name}</code>
                   </td>
                   <td className="py-2 pr-4 align-top italic">{t.prompt}</td>
                   <td className="py-2 pr-4 align-top">{t.does}</td>

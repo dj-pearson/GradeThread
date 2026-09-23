@@ -9,7 +9,9 @@ code_refs:
   - services/edge-functions/src/lib/human-review.ts
   - services/edge-functions/src/lib/ai-grading.ts
   - src/test/fixtures/weighted-grade-cases.json
-reviewed: 2026-09-13
+  - src/lib/rubrics.ts
+  - services/edge-functions/src/lib/rubric.ts
+reviewed: 2026-09-23
 tags: [grading, rounding, lockstep, contract]
 summary: One client helper and one edge helper compute the weighted overall; they must agree exactly, and the formula has shipped wrong twice when copies drifted.
 ---
@@ -21,9 +23,12 @@ summary: One client helper and one edge helper compute the weighted overall; the
 Every surface that shows or stores a weighted overall computes:
 
 ```
-overall = round(Σ factor × weight, 1 decimal)   clamped to 1.0 … 10.0
+overall = round_half_up(Σ factor × weight, 1 decimal)   clamped to 1.0 … 10.0
 weights: fabric .30 · structural .25 · cosmetic .20 · functional .15 · odor .10
 ```
+
+The sum and the rounding are done in **integers**, not floats (see
+[Midpoints round half up](#midpoints-round-half-up-integer-arithmetic) below).
 
 **The number an operator sees while adjusting factor scores must be the number
 the server persists to the certificate.** Grade tier is a pricing-band input and
@@ -39,8 +44,10 @@ There are **two** implementations, not a scatter of copies:
 | **Client** | `src/lib/weighted-grade.ts` → `computeWeightedOverall` (US-2034) | `admin/grading.tsx` (the Review Queue) and `admin/disputes.tsx`, both importing it |
 | **Edge** | `services/edge-functions/src/lib/human-review.ts` → `computeWeightedOverall` | `grade-adjustment.ts`, `routes/admin-disputes.ts`, `routes/admin-grading.ts` |
 
-Plus `ai-grading.ts`, which does the original composite parse with its own
-`roundToTenth` — the score the AI report ships with before any human touches it.
+Plus `ai-grading.ts`, which does the original composite parse through
+`computeAiWeightedOverall` (formerly a private `roundToTenth`), the score the AI
+report ships with before any human touches it. It rounds through human-review's
+`roundWeightedToTenth`.
 
 **Adding a new surface? Import one of the two. Do not write a third.**
 
@@ -48,9 +55,7 @@ Plus `ai-grading.ts`, which does the original composite parse with its own
 > on 2026-08-14 (US-2505): `/admin/reviews` and `/admin/grading` were two UIs
 > over the same data, two operators could finalize the same report from them, and
 > the Review Queue in `admin/grading.tsx` is the superset that survived. The
-> lockstep did not change, only the count of pages holding it. Older prose here
-> and the "admin reviews UI's computeWeightedScore" line in `ai-grading.ts`'s
-> `roundToTenth` comment both still name the retired page.
+> lockstep did not change, only the count of pages holding it.
 
 ### The weight table in `ai-grading.ts` (US-2306)
 
@@ -111,6 +116,53 @@ Related: the admin pages no longer re-declare `FactorScores` locally and
 no longer cast into `WeightedFactorScores`. The cast was harmless only while the
 shapes happened to match; it would have swallowed a dropped or renamed key
 silently, which is the compile-time half of this same defect.
+
+## Midpoints round half up (integer arithmetic)
+
+Both helpers, and everything that delegates to them, round through one function
+per project: `roundWeightedToTenth` in `src/lib/weighted-grade.ts` (web) and in
+`services/edge-functions/src/lib/human-review.ts` (edge). It takes each score in
+hundredths of a point and each weight in basis points, so every product and the
+sum are exact integers, then rounds half up on that integer. One tenth is
+100,000 units.
+
+**Why integers and not an epsilon nudge.** Until grading-plan action 1 every
+site computed `Math.round(floatSum * 10) / 10`. A float sum of .30/.25/.20/.15/.10
+products cannot hold an exact .x5 midpoint, so it lands a hair low or a hair
+high more or less at random. Measured over all 19^5 = 2,476,099 half-step factor
+sets: **72,858** were wrong, every one a midpoint that rounded DOWN. With every
+factor in 6.0-10.0 it was 2,011 of 59,049, and five of those crossed the 8.0
+tier line: 9/6/8/9/8 is exactly 7.95 and was stored as 7.9 Very Good instead of
+8.0 Excellent. An epsilon added before `Math.round` fixes the half-step inputs
+but is a tolerance someone has to reason about for every new weight table;
+integer units make the midpoint decision exact by construction, and the rubric
+weights (all whole percents) fit them with room to spare.
+
+Every copy agreed with every other, which is why the lockstep fixture stayed
+green through all of it: **agreement is not correctness.** So the fixture now
+carries three midpoint cases (9/6/8/9/8 -> 8.0, 5/5/5/9/5.5 -> 5.7, and
+6/6/6/6/6.5 -> 6.1, a midpoint the float already rounded up and must keep), and
+each project runs an exhaustive check of every half-step set against an integer
+reference: `src/lib/__tests__/weighted-grade-midpoint.test.ts` and
+`services/edge-functions/src/tests/weighted-grade-midpoint_test.ts`.
+
+What runs through the helper:
+
+- Edge: `human-review.computeWeightedOverall`, `ai-grading.computeAiWeightedOverall`
+  (was the private `roundToTenth`), `rubric.computeRubricWeightedOverall`.
+- Web: `computeWeightedOverall`, `rubrics.computeRubricWeightedOverall`, the
+  certificate's `ScoreExplainer` and `example-account.exampleWeightedScore`.
+- iOS and Android compute no overall; both render the stored `overall_score`.
+
+**Already-issued grades are unchanged.** The fix affects new grades and new
+human adjustments only. A stored overall that was rounded down at a midpoint
+stays as stored, and so does its certificate hash. **Decided by the owner
+2026-09-23 (US-3470, option c): certificates issued before commit `9c53872`
+keep their stored overall and are not resealed.** So a support question
+about a certificate that shows 7.9 but recomputes as 8.0 from its factors has
+this answer: it was issued under the old float rounding, which could round an
+exact midpoint down by 0.1, and issued certificates are left as issued. A
+human adjustment made after the fix recomputes with the new rounding.
 
 ## Why this note exists: it has shipped wrong twice
 

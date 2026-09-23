@@ -1,4 +1,5 @@
 import Foundation
+import GradeThreadCore
 
 /// US-3014 AC3 — reading a receipt on the phone uses the SAME edge extraction
 /// the web uses.

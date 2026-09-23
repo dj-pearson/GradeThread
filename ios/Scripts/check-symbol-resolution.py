@@ -65,6 +65,19 @@ OWNED = {
     # nowhere else, so a wrong member in one of them is invisible on Windows
     # until CI says so twenty minutes later.
     "NotificationCategoryID": "GradeThread/Notifications/NotificationCategories.swift",
+    # Mobile plan action 6 moved it into the Core package. Members now need
+    # `public` as well as existence, and this answers the existence half.
+    "PayoutDateFormat": "Packages/GradeThreadCore/Sources/GradeThreadCore/PayoutDateFormat.swift",
+    # Moved to Core in the same action, but its SwiftUI `dayPicker` adapter
+    # stays in an app-side extension because the package may not import
+    # SwiftUI. So its members live in TWO files, and a tuple lists both: a
+    # member resolves if either file declares it on MoneyDate. It is the most
+    # used type in the Money screens (about 190 call sites across the app,
+    # tests and package), which is why leaving it out was the bigger gap.
+    "MoneyDate": (
+        "Packages/GradeThreadCore/Sources/GradeThreadCore/MoneyDate.swift",
+        "GradeThread/Money/MoneyDate.swift",
+    ),
 }
 
 DECL = re.compile(
@@ -224,23 +237,52 @@ def self_check() -> list[str]:
             "declare it — member lookup has gone back to file scope and this "
             "guard would now pass on the bug it was widened for"
         )
+
+    # MoneyDate is split between the package and an app-side extension. If
+    # TYPE_HEAD ever stops reading `extension MoneyDate`, `dayPicker` (19 call
+    # sites) would drop out of the member set; assert the split still parses.
+    ext = IOS / "GradeThread/Money/MoneyDate.swift"
+    if ext.is_file() and "dayPicker" not in declared_members(
+        ext.read_text(encoding="utf-8"), "MoneyDate"
+    ):
+        out.append(
+            "self-check: dayPicker no longer parses out of the app-side "
+            "`extension MoneyDate`, so the two-file MoneyDate entry in OWNED "
+            "is not being read the way it claims"
+        )
     return out
 
 
 def main() -> int:
     problems: list[str] = self_check()
 
-    for type_name, rel in OWNED.items():
-        decl_path = IOS / rel
-        if not decl_path.is_file():
+    for type_name, decl in OWNED.items():
+        rels = (decl,) if isinstance(decl, str) else tuple(decl)
+        rel = " + ".join(rels)
+        missing = [r for r in rels if not (IOS / r).is_file()]
+        if missing:
             problems.append(
-                f"{type_name}: this guard names {rel} and it does not exist. "
+                f"{type_name}: this guard names {', '.join(missing)} and it does not exist. "
                 "Renamed or moved? Update OWNED rather than deleting the entry, "
                 "or the type stops being checked and nothing says so."
             )
             continue
 
-        members = declared_members(decl_path.read_text(encoding="utf-8"), type_name)
+        members: set[str] = set()
+        empty: list[str] = []
+        for r in rels:
+            found = declared_members((IOS / r).read_text(encoding="utf-8"), type_name)
+            if not found:
+                empty.append(r)
+            members |= found
+        if empty and len(rels) > 1:
+            # Every listed file must still declare something on the type, or a
+            # file that stopped extending it keeps being counted as coverage.
+            problems.append(
+                f"{type_name}: no members parsed out of {', '.join(empty)}; "
+                "drop it from OWNED if the declarations moved"
+            )
+            continue
         if not members:
             problems.append(
                 f"{type_name}: no members parsed out of {rel} — either the type "

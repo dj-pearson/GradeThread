@@ -77,6 +77,52 @@ check("the close returns an id", val("closed period id"), "true");
 // would produce closed years with no Part III figures.
 check("it takes the inventory snapshot in the same action", val("snapshot taken by the close"), 1);
 check("and records the figures as they stood", val("closing figures recorded"), "true");
+// 00826: the ledger is rebuilt on demand, not by a trigger. A close that did
+// not rebuild first froze figures missing every sale since the last build.
+check(
+  "it rebuilds the ledger first, so a sale added after the last build is in it",
+  val("late sale in the ledger at close"),
+  "true",
+);
+check(
+  "and the frozen figures include that sale",
+  val("closing figures include the late sale"),
+  "true",
+);
+
+// 00829. close_period is SECURITY DEFINER, so figures it computed through the
+// RLS-scoped reconciliation functions covered every seller in the database.
+// The fixture's second seller has a sale and stock in the same year; the
+// first seller's figures must be their own: ledger net, dashboard net, sold
+// item count, gross purchases. The first seller's own figures include the
+// 00826 late sale ($250 less $10 cost), hence two sold items and $60 of
+// purchases; the second seller would add 40000 net, a third item and $170.
+check(
+  "closing figures cover only the seller who closed (not a second seller's sale)",
+  val("closing figures cover the caller only"),
+  "29700,29700,2,6000",
+);
+
+// 00828. home_office_years has no lock trigger, so this is the input a
+// rebuild could quietly move. The check halves it after the close.
+console.log("\nA rebuild does not move a closed period (00828):");
+check(
+  "the closed year keeps its $1,000 home office after the source is halved",
+  val("closed-year home office after rebuild"),
+  -100000,
+);
+check(
+  "and its ledger still equals closing_figures",
+  val("closed-year ledger still matches closing_figures"),
+  "true",
+);
+// 00829 computes the COGS block inline; for the seller themself it must be
+// exactly what cogs_worksheet returns under RLS.
+check(
+  "the recorded COGS block equals cogs_worksheet for that seller",
+  val("closing cogs equals cogs_worksheet for the seller"),
+  "true",
+);
 
 console.log("\nTHE LOCK, ALL AS `postgres` (service-role privilege) — AC2:");
 expectNotice("an expense in a closed year cannot be edited", "OK: expense edit refused");
@@ -108,6 +154,12 @@ expectNotice("a reason reopens it", "OK: reopened with a reason");
 // fact from one never closed.
 check("the audit row survives the reopen", val("audit row kept after reopen"), 1);
 expectNotice("and writes work again", "OK: writes work again after reopening");
+// The escape hatch for 00828: once reopened, the year rebuilds from source.
+check(
+  "and a rebuild after reopening picks up the halved home office",
+  val("reopened-year home office after rebuild"),
+  -50000,
+);
 
 if (failures.length) {
   console.error(`\n✗ ${failures.length} check(s) failed:\n  - ${failures.join("\n  - ")}`);

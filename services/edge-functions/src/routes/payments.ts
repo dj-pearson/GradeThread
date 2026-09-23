@@ -102,7 +102,7 @@ const TIER_CREDIT_COST: Record<"standard" | "premium" | "express", number> = {
   express: 5,
 };
 
-// Legacy per-grade unit prices kept for /checkout-session backward-compat.
+// Per-grade unit prices charged by /gradethread/per-grade.
 const LEGACY_TIER_PRICES: Record<string, number> = {
   standard: 299,
   premium: 799,
@@ -1425,116 +1425,12 @@ async function perGradeCheckout(c: Ctx) {
 
 paymentRoutes.post("/gradethread/per-grade", perGradeCheckout);
 
-// ── Legacy compat aliases ────────────────────────────────────────
-// Old frontend code may still POST /api/payments/checkout-session and
-// /api/payments/subscribe. Keep them working for one release window.
-
-// Old: POST /checkout-session { submissionId, tier } → identical to /gradethread/per-grade.
-paymentRoutes.post("/checkout-session", perGradeCheckout);
-
-// Old: POST /subscribe { plan: 'starter'|'professional' } → maps to the new
-// FlipDesk subscribe (professional → pro), monthly interval.
-paymentRoutes.post("/subscribe", async (c) => {
-  let body: { plan?: string };
-  try {
-    body = await c.req.json();
-  } catch {
-    return c.json({ error: "Invalid JSON body" }, 400);
-  }
-
-  const legacy = body.plan;
-  const mapped: "starter" | "pro" | "business" | undefined =
-    legacy === "professional"
-      ? "pro"
-      : legacy === "enterprise"
-        ? "business"
-        : legacy === "starter" || legacy === "pro" || legacy === "business"
-          ? legacy
-          : undefined;
-
-  if (!mapped) {
-    return c.json({
-      error: "plan must be one of: starter, professional, enterprise",
-    }, 400);
-  }
-
-  const userId = c.get("userId");
-  const { data: user, error: userError } = await loadUser(userId);
-  if (userError || !user) return c.json({ error: "User not found" }, 404);
-
-  // US-2456: the legacy alias creates a REAL subscription and had none of the
-  // double-billing precedence /flipdesk/subscribe has carried since US-807 and
-  // US-2126. Found by the derived guard in buyer-billing-precedence_test.ts on
-  // its first run — a compat shim is exactly the route a per-route audit walks
-  // past, and it charges the same money as the one it aliases.
-  if (appstoreSubscriptionBlocksStripe(user)) {
-    return c.json(
-      { error: "ACTIVE_APPSTORE_SUBSCRIPTION", action: "manage_in_ios" },
-      409,
-    );
-  }
-  if (googleplaySubscriptionActive(user)) {
-    return c.json(
-      { error: "ACTIVE_GOOGLEPLAY_SUBSCRIPTION", action: "manage_in_play" },
-      409,
-    );
-  }
-
-  const FLIPDESK_PRICE_IDS = await getFlipdeskPriceIds();
-  const priceId = FLIPDESK_PRICE_IDS[mapped]?.monthly;
-  if (!priceId) {
-    console.error(`Missing Stripe price ID for ${mapped} monthly`);
-    return c.json({ error: "Pricing not configured" }, 503);
-  }
-
-  const stripe = getStripe();
-  if (!stripe) return c.json({ error: "Payment service unavailable" }, 503);
-
-  try {
-    let trialEndUnix: number | undefined;
-    if (
-      user.trial_ends_at &&
-      !user.flipdesk_subscription_id &&
-      new Date(user.trial_ends_at).getTime() > Date.now()
-    ) {
-      trialEndUnix = Math.floor(new Date(user.trial_ends_at).getTime() / 1000);
-    }
-
-    const sessionParams: Stripe.Checkout.SessionCreateParams = {
-      mode: "subscription",
-      payment_method_types: ["card"],
-      line_items: [{ price: priceId, quantity: 1 }],
-      metadata: {
-        user_id: userId,
-        product: "flipdesk",
-        plan: mapped,
-        interval: "monthly",
-        legacy_alias: "true",
-      },
-      subscription_data: {
-        metadata: { user_id: userId, product: "flipdesk", plan: mapped, interval: "monthly" },
-        ...(trialEndUnix ? { trial_end: trialEndUnix } : {}),
-      },
-      success_url: `${siteUrl()}/dashboard/billing?checkout=success&product=flipdesk`,
-      cancel_url: `${siteUrl()}/dashboard/billing?checkout=cancelled`,
-      automatic_tax: { enabled: true },
-      // US-389: collect a billing address so automatic_tax can be computed.
-      billing_address_collection: "required",
-      allow_promotion_codes: true,
-    };
-
-    // US-391: bind to the single Stripe customer (created lazily) instead of
-    // letting Checkout mint a fresh one.
-    sessionParams.customer = await ensureStripeCustomer(stripe, user);
-    sessionParams.customer_update = { name: "auto", address: "auto" };
-
-    const session = await stripe.checkout.sessions.create(sessionParams);
-    return c.json({ sessionId: session.id, url: session.url });
-  } catch (err) {
-    console.error("Legacy subscribe checkout failed:", err);
-    return c.json({ error: "Failed to create subscription checkout" }, 500);
-  }
-});
+// ── Legacy compat aliases: removed ───────────────────────────────
+// POST /checkout-session and POST /subscribe used to live here. /subscribe
+// opened a subscription Checkout with no live-subscription guard and no
+// idempotency key, so it could start a second paid subscription beside a
+// live one. No client called either path. payments-legacy-routes_test.ts
+// fails if either comes back.
 
 // ── GET /catalog ─────────────────────────────────────────────────
 //

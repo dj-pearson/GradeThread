@@ -1641,6 +1641,9 @@ export interface ListingRow {
   // US-1552 (00086): the publish-worker lease. A non-null value means a worker
   // holds this row; the reclaim compares it against the stale threshold.
   publish_claimed_at: string | null;
+  // 00827: scheduled-publish tries. The publish-due tick increments it on each
+  // claim and stops at its cap, so a permanently broken draft stops retrying.
+  publish_attempts: number;
   // US-2170 (00476): the listing quality score and its block flag. Publishing
   // is refused while `quality_blocked` is true.
   quality_score: number | null;
@@ -3132,6 +3135,11 @@ export interface AiPromptVersionRow {
   rollout_percentage: number;
   is_canary: boolean;
   rollout_started_at: string | null;
+  // US-330 / US-2443: shadow-compare on live traffic (00115). Written only
+  // through PATCH /api/admin/grading/prompts/:id/shadow.
+  is_shadow: boolean;
+  shadow_sample_rate: number;
+  shadow_daily_cap: number;
   created_at: string;
 }
 

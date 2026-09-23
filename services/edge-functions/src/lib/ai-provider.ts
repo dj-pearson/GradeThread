@@ -84,6 +84,17 @@ export interface AiMessageRequest {
   temperature?: number;
   jsonSchema?: AiJsonSchema;
   effort?: AiEffort;
+  /**
+   * US-3345: called once, as soon as the provider knows generation has begun
+   * (for Anthropic, the first streamed event, which arrives after prefill and
+   * so after any prompt-cache write). The grading fan-out waits on it before
+   * firing photos 2..N, so they can read the cache photo 1 just wrote.
+   *
+   * A HINT like `cache`: a provider that cannot stream never calls it, and the
+   * caller must also treat the call SETTLING as the signal. Absent, the
+   * provider makes the plain non-streaming call it always made.
+   */
+  onFirstToken?: () => void;
 }
 
 /**

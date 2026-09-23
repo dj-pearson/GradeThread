@@ -235,6 +235,7 @@ import { handleEbayRateLimitsCron } from "./routes/jobs-ebay-rate-limits.ts";
 import { handleEbayRetentionCron } from "./routes/jobs-ebay-retention.ts";
 import { handleSupplySampleCron } from "./routes/jobs-supply-sample.ts";
 import { handleExtensionQueueStaleCron } from "./routes/jobs-extension-queue-stale.ts";
+import { handleWebhookRetryCron } from "./routes/jobs-webhook-retry.ts";
 import { handleDelistNudgeCron } from "./routes/jobs-delist-nudge.ts";
 import { adminSeoRoutes, handleGscSyncCron } from "./routes/admin-seo.ts";
 import { adminGrowthRoutes, handleGrowthDispatchCron } from "./routes/admin-growth.ts";
@@ -1078,6 +1079,17 @@ app.use(
 // US-1572: calibration is CPU-bound image decode + CV (no model call) — cap
 // enough for a capture-review loop without letting one client hog the worker.
 app.use("/api/flipdesk/measure/*", rateLimiter(15, 60_000, "flipdesk-measure"));
+// US-3161: the phone-capture upload is PUBLIC (the scanned token is the whole
+// credential), so it is keyed per IP and fails closed like the other public
+// writes. 120/min sits well above one honest burst: a full 40-photo code plus
+// its "Next item" taps, with room for two phones on one shop's wifi.
+app.use(
+  "/api/flipdesk/capture/s/*",
+  rateLimiter(120, 60_000, "flipdesk-capture-public", undefined, {
+    methods: ["POST"],
+    failClosed: true,
+  }),
+);
 // US-2958: two buckets, because the two costs are nothing alike. Preview is a
 // render fired on a 400ms debounce as the seller types, so it needs headroom;
 // regenerate is a model call and gets the tight one. The regenerate rule is
@@ -1927,6 +1939,7 @@ app.post("/api/jobs/ebay-retention", (c) => handleEbayRetentionCron(c));
 app.post("/api/jobs/supply-sample", (c) => handleSupplySampleCron(c));
 // US-3198 AC4: the daily "your extension queue is still waiting" push.
 app.post("/api/jobs/extension-queue-stale", (c) => handleExtensionQueueStaleCron(c));
+app.post("/api/jobs/webhook-retry", (c) => handleWebhookRetryCron(c));
 // US-3453: the half-hourly "a delist is still waiting and no browser has run"
 // nudge, the second sentence after the sale-time notice.
 app.post("/api/jobs/delist-nudge", (c) => handleDelistNudgeCron(c));

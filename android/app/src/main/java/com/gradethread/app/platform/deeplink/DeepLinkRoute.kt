@@ -43,6 +43,12 @@ sealed class DeepLinkRoute {
      */
     data class PendingDelists(val itemId: String?) : DeepLinkRoute()
 
+    /**
+     * US-3449: eBay returns, inquiries, cases, cancellations and payment
+     * disputes, where every post-order push lands.
+     */
+    object EbayCases : DeepLinkRoute()
+
     companion object {
 
         /** Parse an inbound Uri; null = not ours (fall through to other handlers). */
@@ -107,6 +113,7 @@ sealed class DeepLinkRoute {
                 "capture" -> CaptureItem
                 "add" -> AddItem
                 "shipping" -> Shipping
+                "cases" -> EbayCases
                 else -> null
             }
         }
@@ -141,6 +148,7 @@ sealed class DeepLinkRoute {
         is SupportTickets -> ticketId?.let { "support/$it" } ?: "support"
         Shipping -> "shipping"
         is PendingDelists -> itemId?.let { "pending-delists/$it" } ?: "pending-delists"
+        EbayCases -> "cases"
     }
 
     /**
@@ -177,5 +185,6 @@ sealed class DeepLinkRoute {
         // item id narrows the section once it arrives — see
         // MarketplacesViewModel.focusPendingDelists.
         is PendingDelists -> ShellSection.MARKETPLACES.route
+        EbayCases -> ShellRoutes.EBAY_CASES
     }
 }

@@ -220,6 +220,47 @@ describe("FlipDesk pipeline state machine", () => {
     ).toBeNull();
   });
 
+  it("requires front+back photos before Photographed, matching auto-advance", () => {
+    expect(
+      validateStatusChange(
+        makeItem({ status: "measured", has_required_photos: false, photo_count: 3 }),
+        "photographed",
+      ),
+    ).toMatch(/front and back photo/i);
+    expect(
+      validateStatusChange(
+        makeItem({ status: "measured", has_required_photos: true, photo_count: 2 }),
+        "photographed",
+      ),
+    ).toBeNull();
+  });
+
+  it("blocks a BACKWARD drag into Photographed too when the photos are gone", () => {
+    // Decided: the gate is direction-agnostic. A Photographed card is one batch
+    // advance away from paid grading, so it must have its front and back.
+    for (const from of ["graded", "comped", "drafted", "listed"] as ItemStatus[]) {
+      expect(
+        validateStatusChange(
+          makeItem({ status: from, has_required_photos: false }),
+          "photographed",
+        ),
+      ).toMatch(/front and back photo/i);
+      expect(
+        validateStatusChange(
+          makeItem({ status: from, has_required_photos: true }),
+          "photographed",
+        ),
+      ).toBeNull();
+    }
+    // Moving further back, below the photo stage, stays open.
+    expect(
+      validateStatusChange(
+        makeItem({ status: "drafted", has_required_photos: false, measurements: { chest: 21 } }),
+        "measured",
+      ),
+    ).toBeNull();
+  });
+
   it("requires a price before Listed and a sale before Shipped", () => {
     expect(
       validateStatusChange(

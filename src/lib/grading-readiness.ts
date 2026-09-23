@@ -81,6 +81,21 @@ export function hasFabricCloseup(have: Set<string>): boolean {
   return qualified.length === 0;
 }
 
+/**
+ * US-2304: the photo types a grade can actually use, which is the ones with a
+ * storage_path. /submit copies only those into the submission, and /validate
+ * counts only those, so a tag photo that has just a photo_url (an imported
+ * listing photo) must not make this card say "ready". If it did, the seller
+ * would press Grade and be refused for a missing tag they can see on screen.
+ */
+export function gradablePhotoTypes(
+  photos: ReadonlyArray<{ photo_type: string; storage_path?: string | null }>,
+): Set<string> {
+  return new Set(
+    photos.filter((p) => !!p.storage_path).map((p) => p.photo_type),
+  );
+}
+
 export function previewGradingReadiness(
   input: GradingReadinessInput,
 ): GradingReadiness {

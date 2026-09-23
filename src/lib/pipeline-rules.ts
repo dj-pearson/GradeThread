@@ -1,23 +1,6 @@
 import type { ItemStatus } from "@/types/database";
 import type { ItemListRow } from "@/lib/item-list-columns";
 
-// Statuses participating in the main selling pipeline (the Kanban view).
-const PIPELINE_ORDER: ItemStatus[] = [
-  "sourced",
-  "cataloged",
-  "measured",
-  "photographed",
-  "grading",
-  "graded",
-  "comped",
-  "drafted",
-  "listed",
-  "sold",
-  "shipped",
-  "completed",
-  "returned",
-];
-
 // Optional preflight: blocks moves that don't have prerequisites met.
 // Returns null on success, or a reason string to surface in the toast.
 export function validateStatusChange(
@@ -48,6 +31,20 @@ export function validateStatusChange(
     }
   }
 
+  // Same rule the auto-advance uses (workflow.ts earnedStatus): Photographed is
+  // earned by has_required_photos, which is a front AND a back photo. Without
+  // this a card with zero photos could be dragged here, and batch advance
+  // sends Photographed cards straight into paid bulk grading.
+  //
+  // The gate does not look at direction, and a BACKWARD drag (say Drafted back
+  // to Photographed after the photos were deleted) is blocked too. That is on
+  // purpose: the column promises the photos exist, and batch advance would send
+  // the card on to paid grading with nothing to grade. Move it to Measured, or
+  // add the photos first.
+  if (next === "photographed" && item.has_required_photos !== true) {
+    return "Add a front and back photo before moving to Photographed.";
+  }
+
   if (next === "listed") {
     // To go live: either we have a comp/target price or at least an entered
     // list price. Without one, the user probably hasn't drafted yet.
@@ -64,17 +61,6 @@ export function validateStatusChange(
     if (item.sale_price == null) {
       return "Record a sale before marking the item Shipped.";
     }
-  }
-
-  // Skip-ahead rule: allow forward jumps within the order, but flag big
-  // jumps (3+ stages ahead) so the user confirms they didn't drop on the
-  // wrong column.
-  const fromIdx = PIPELINE_ORDER.indexOf(item.status);
-  const toIdx = PIPELINE_ORDER.indexOf(next);
-  if (fromIdx >= 0 && toIdx >= 0 && toIdx - fromIdx >= 4) {
-    // Soft warning — return null to allow, but the UI can choose to confirm.
-    // We allow it; the user is explicitly dragging, so trust the choice.
-    return null;
   }
 
   return null;

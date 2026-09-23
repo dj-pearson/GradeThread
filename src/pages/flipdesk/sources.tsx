@@ -71,6 +71,11 @@ interface FormState {
   notes: string;
 }
 
+interface SourceItemCount {
+  source_id: string | null;
+  item_count: number | string;
+}
+
 const EMPTY: FormState = {
   id: null,
   name: "",
@@ -94,27 +99,34 @@ export function FlipdeskSourcesPage() {
   const [saving, setSaving] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState<SourceRow | null>(null);
 
-  // Item counts per source — small extra query, grouped client-side.
-  const { data: itemRows } = useQuery({
-    queryKey: ["inventory_items_source_counts", user?.id],
-    enabled: !!user,
-    queryFn: async (): Promise<Array<{ source_id: string | null }>> => {
-      const { data, error: qErr } = await supabase
-        .from("inventory_items")
-        .select("source_id");
+  // Item counts per source, aggregated in SQL (00831). This used to select
+  // source_id for every inventory row and count in the browser: one row per
+  // item just to print a number, and under a row cap the delete dialog would
+  // under-report how many items get unlinked. The function is SECURITY
+  // INVOKER, so RLS decides what is counted.
+  const { data: countRows } = useQuery({
+    queryKey: ["inventory_items_source_counts", workspaceOwnerId],
+    enabled: !!user && !!workspaceOwnerId,
+    queryFn: async (): Promise<SourceItemCount[]> => {
+      if (!workspaceOwnerId) return [];
+      const { data, error: qErr } = await supabase.rpc("source_item_counts", {
+        p_user_id: workspaceOwnerId,
+      } as never);
       if (qErr) throw qErr;
-      return (data ?? []) as Array<{ source_id: string | null }>;
+      return (data ?? []) as SourceItemCount[];
     },
   });
 
   const itemCountBySource = useMemo(() => {
     const counts = new Map<string, number>();
-    for (const r of itemRows ?? []) {
+    for (const r of countRows ?? []) {
       if (!r.source_id) continue;
-      counts.set(r.source_id, (counts.get(r.source_id) ?? 0) + 1);
+      // bigint arrives as a number from PostgREST, but a string is legal JSON
+      // for it too; Number() takes either.
+      counts.set(r.source_id, Number(r.item_count) || 0);
     }
     return counts;
-  }, [itemRows]);
+  }, [countRows]);
 
   async function save() {
     if (!user || !workspaceOwnerId || !editing) return;

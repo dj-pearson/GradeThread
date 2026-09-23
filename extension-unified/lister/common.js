@@ -806,7 +806,7 @@
    * only when the payload carried none.
    */
   GT.splitCategoryPath = function (category) {
-    const parts = String(category || "").split(/\s*[>\/|]\s*/).map(function (p) {
+    const parts = String(category || "").split(/\s*[>/|]\s*/).map(function (p) {
       return p.trim();
     }).filter(Boolean);
     let department = null;
@@ -926,20 +926,6 @@
     await GT.pickerWait(cfg.settleMs);
     return GT.foldOption(pickerText(dd)).indexOf(GT.foldOption(nodeText(rows[i]))) !== -1
       ? "selected" : "not-found";
-  }
-
-  async function pickFromList(dd, cfg, value, itemSel, maxPass) {
-    if (!dd) return "not-found";
-    if (!pickerIsBlank(dd)) return "already-set";
-    if (!value) return "no-value";
-    openPicker(dd);
-    await GT.pickerWait(cfg.settleMs);
-    const rows = Array.prototype.slice.call(dd.querySelectorAll(itemSel));
-    const i = GT.matchOption(value, rows.map(nodeText), maxPass);
-    if (i === -1) { closePicker(); return "not-found"; }
-    rows[i].click();
-    await GT.pickerWait(cfg.settleMs);
-    return pickerIsBlank(dd) ? "not-found" : "selected";
   }
 
   /** Poshmark's optional sub-category: named, or the one the hints point to. */

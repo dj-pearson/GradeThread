@@ -485,8 +485,9 @@ private fun RoiPanel(buckets: List<RoiBucket>) {
                         // Refusing to answer is the honest option. A "+$40 from
                         // grading" built on one sale is how someone talks
                         // themselves into a spending decision on noise.
-                        stringResource(
-                            R.string.analytics_roi_not_enough,
+                        pluralStringResource(
+                            R.plurals.analytics_roi_not_enough,
+                            bucket.gradedCount,
                             bucket.gradedCount,
                             bucket.ungradedCount,
                         )

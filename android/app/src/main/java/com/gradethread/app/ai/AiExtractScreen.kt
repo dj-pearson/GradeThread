@@ -17,6 +17,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.gradethread.app.R
@@ -153,7 +154,7 @@ private fun Progress(phase: AiExtractPhase?, onBackground: () -> Unit) {
                     style = MaterialTheme.typography.titleMedium,
                 )
                 Text(
-                    stringResource(R.string.aiextract_uploaded_count, phase.done, phase.total),
+                    pluralStringResource(R.plurals.aiextract_uploaded_count, phase.done, phase.done, phase.total),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )

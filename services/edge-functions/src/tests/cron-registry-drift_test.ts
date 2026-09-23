@@ -10,6 +10,7 @@
 //      renderCronDocs() output between the cron-registry markers, so the
 //      operator docs can never drift from the code again.
 import { assert, assertEquals } from "@std/assert";
+import { EBAY_ROUTE_FILES, readEbayRouteSource } from "./_ebay-routes.ts";
 
 Deno.env.set("SUPABASE_URL", Deno.env.get("SUPABASE_URL") ?? "http://localhost:54321");
 Deno.env.set(
@@ -22,7 +23,6 @@ const { CRON_REGISTRY, nextCronRun, renderCronDocs, renderCronSetupGuide } = awa
 );
 
 const MAIN_TS = new URL("../main.ts", import.meta.url);
-const EBAY_ROUTES = new URL("../routes/flipdesk-ebay.ts", import.meta.url);
 const COOLIFY = new URL("../../COOLIFY.md", import.meta.url);
 const CHECKLIST = new URL("../../../../vault/10-ops/launch-checklist.md", import.meta.url);
 const CRON_SETUP = new URL("../../CRON_SETUP.md", import.meta.url);
@@ -88,8 +88,9 @@ Deno.test("US-1561: every /api/jobs/* route in main.ts is registered (and none i
   }
 });
 
-Deno.test("US-1561: the eBay sub-router cron endpoints are registered", async () => {
-  const src = await Deno.readTextFile(EBAY_ROUTES);
+Deno.test("US-1561: the eBay sub-router cron endpoints are registered", () => {
+  // Every eBay route file (flipdesk-ebay-*.ts), not just the mount file.
+  const src = readEbayRouteSource();
   const jobPaths = new Set(
     [...src.matchAll(/"(\/jobs\/[^"]+)"/g)].map(
       (m) => `/api/flipdesk/ebay${m[1]}`,
@@ -253,7 +254,7 @@ Deno.test("US-2012: launch-checklist does not hardcode a migration version", asy
 
 /** Route files that can serve a registered cron endpoint. */
 const ROUTE_FILES = [
-  "flipdesk-ebay.ts",
+  ...EBAY_ROUTE_FILES,
   "flipdesk-images.ts",
   "flipdesk-reconciliation.ts",
   "flipdesk-listings.ts",

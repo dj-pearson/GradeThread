@@ -48,7 +48,8 @@ describe("US-2102: emitted preference anchors resolve", () => {
   });
 
   it("every emitted #fragment exists as an id in the frontend", () => {
-    const settings = read("src/pages/settings.tsx");
+    // The Notifications tab component carries the preference controls.
+    const settings = read("src/components/settings/notifications-settings-tab.tsx");
     const account = read("src/pages/account.tsx");
     const haystack = settings + account;
     for (const url of emittedAppUrls()) {

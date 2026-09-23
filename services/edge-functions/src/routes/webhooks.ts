@@ -10,7 +10,16 @@ import {
   failIfDbError,
   isTransientWebhookError,
   releaseWebhookEvent,
+  TransientWebhookError,
 } from "../lib/webhook-idempotency.ts";
+import {
+  ignoredEventType,
+  judgeSubscriptionEvent,
+  latestEventCreated,
+  needsStoredStatus,
+  type StoredSubscriptionStatus,
+  type SubscriptionEventKind,
+} from "../lib/subscription-event-guard.ts";
 import {
   sendCreditPackPurchasedEmail,
   sendPaymentActionRequiredEmail,
@@ -518,6 +527,122 @@ async function linkStripeCustomer(userId: string, customerId: string): Promise<v
   }
 }
 
+// ── Subscription event guard (out-of-order + non-current) ───────
+//
+// See lib/subscription-event-guard.ts for the rules. This half does the I/O:
+// the watermark read from the audit trail and, only when an event names a
+// different subscription than the stored one, a Stripe lookup of the stored
+// one. Both failures are retryable rather than guessed through, since the
+// wrong guess either demotes a paying customer or re-points their account.
+
+/** Seam for tests: Stripe's status for the user's stored subscription. */
+export const subscriptionGuardDeps = {
+  async retrieveStatus(subscriptionId: string): Promise<StoredSubscriptionStatus> {
+    const stripe = getStripe();
+    if (!stripe) {
+      throw new TransientWebhookError(
+        `cannot check stored subscription ${subscriptionId}: Stripe not configured`,
+      );
+    }
+    try {
+      const stored = await stripe.subscriptions.retrieve(subscriptionId);
+      return stored.status;
+    } catch (err) {
+      if ((err as { code?: string } | null)?.code === "resource_missing") return "missing";
+      throw new TransientWebhookError(
+        `retrieve stored subscription ${subscriptionId}: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      );
+    }
+  },
+};
+
+/** Newest event.created already applied for this subscription (audit trail). */
+async function lastAppliedEventCreated(
+  userId: string,
+  subscriptionId: string,
+): Promise<number | null> {
+  const { data, error } = await supabaseAdmin
+    .from("flipdesk_subscription_events")
+    .select("raw_payload")
+    .eq("user_id", userId)
+    .eq("raw_payload->>subscription_id", subscriptionId)
+    .not("raw_payload->event_created", "is", null);
+  failIfDbError(error, `subscription event watermark for user ${userId}`);
+  return latestEventCreated(
+    ((data ?? []) as Array<{ raw_payload: { event_created?: unknown } | null }>)
+      .map((r) => ({ event_created: r.raw_payload?.event_created })),
+  );
+}
+
+/**
+ * True when this subscription event may write billing state. When it may not,
+ * writes an `ignored.*` audit row (no raw status and to_plan = current plan, so
+ * the billing reconciler reads it as "no change") and returns false.
+ */
+async function passesSubscriptionGuard(
+  user: {
+    id: string;
+    flipdesk_plan: FlipdeskPlan | null;
+    flipdesk_subscription_id?: string | null;
+    buyer_subscription_id?: string | null;
+  },
+  sub: Stripe.Subscription,
+  event: Stripe.Event,
+  kind: SubscriptionEventKind,
+  product: "seller" | "buyer",
+): Promise<boolean> {
+  const stored = product === "buyer"
+    ? user.buyer_subscription_id ?? null
+    : user.flipdesk_subscription_id ?? null;
+  const storedSubscriptionStatus = needsStoredStatus(kind, sub.id, stored)
+    ? await subscriptionGuardDeps.retrieveStatus(stored as string)
+    : null;
+  const lastApplied = kind === "change" ? await lastAppliedEventCreated(user.id, sub.id) : null;
+
+  const verdict = judgeSubscriptionEvent({
+    kind,
+    incomingSubscriptionId: sub.id,
+    eventCreated: event.created,
+    storedSubscriptionId: stored,
+    lastAppliedEventCreated: lastApplied,
+    storedSubscriptionStatus,
+  });
+  if (verdict.apply) return true;
+
+  console.warn(
+    `[Webhook] ignoring ${event.type} (${event.id}) for ${product} sub ${sub.id}: ` +
+      `${verdict.reason} (current=${stored ?? "none"}, created=${event.created}, ` +
+      `last_applied=${lastApplied ?? "none"})`,
+  );
+  void captureServer(user.id, "billing.subscription_event_ignored", {
+    reason: verdict.reason,
+    event_type: event.type,
+    product,
+    subscription_id: sub.id,
+    current_subscription_id: stored,
+  });
+  const auditType = ignoredEventType(event.type);
+  await recordEvent(
+    user.id,
+    product === "buyer" ? buyerEventType(auditType) : auditType,
+    event.id,
+    user.flipdesk_plan,
+    user.flipdesk_plan,
+    {
+      subscription_id: sub.id,
+      current_subscription_id: stored,
+      reason: verdict.reason,
+      product,
+      // Not `event_created`: an ignored event must never become the watermark.
+      ignored_event_created: event.created,
+      last_applied_event_created: lastApplied,
+    },
+  );
+  return false;
+}
+
 // ── Subscription handlers ────────────────────────────────────────
 
 async function handleSubscriptionChange(event: Stripe.Event) {
@@ -531,11 +656,33 @@ async function handleSubscriptionChange(event: Stripe.Event) {
   if (!user) user = await loadUserByCustomerId(customerId);
   if (!user) return;
 
+  // Out-of-order and non-current events stop here, before any write, email or
+  // alert. Checked against the product's own column (buyer vs seller).
+  const product = subscriptionIsBuyer(sub) ? "buyer" : "seller";
+  if (!(await passesSubscriptionGuard(user, sub, event, "change", product))) return;
+
   // US-1799: a BUYER subscription rides on the same customer as the seller sub.
   // Resolve the product FIRST and, when it's the buyer product, write ONLY the
   // buyer_* columns and return — never touch flipdesk_* or run the seller-only
   // side effects (grade/AI resets, trial conversion, drip, downgrade schedule).
   if (subscriptionIsBuyer(sub)) {
+    // Audit row, namespaced as buyer (US-2457), so the buyer sub has the same
+    // event_created ordering watermark the seller sub does. Written here, not
+    // in applyBuyerSubscriptionChange, because the audit table's plan columns
+    // are the seller's and that function must never read seller state.
+    await recordEvent(
+      user.id,
+      buyerEventType(event.type),
+      event.id,
+      user.flipdesk_plan,
+      user.flipdesk_plan,
+      {
+        subscription_id: sub.id,
+        product: "buyer",
+        status: sub.status,
+        event_created: event.created,
+      },
+    );
     // US-2453: the event is passed so the lifecycle acknowledgements can tell a
     // purchase from a renewal. Everything else about this branch is unchanged.
     await applyBuyerSubscriptionChange(user, sub, customerId, event);
@@ -610,7 +757,8 @@ async function handleSubscriptionChange(event: Stripe.Event) {
     event.id,
     user.flipdesk_plan,
     plan,
-    { subscription_id: sub.id, status: sub.status, plan, interval },
+    // event_created is the ordering watermark passesSubscriptionGuard reads.
+    { subscription_id: sub.id, status: sub.status, plan, interval, event_created: event.created },
     // US-2117 AC3: the gap 00215's own comment recorded. from_plan/to_plan
     // alone cannot distinguish a monthly→yearly switch from a no-op, so a plan
     // change was ambiguous in the ledger.
@@ -1009,6 +1157,11 @@ async function handleSubscriptionDeleted(event: Stripe.Event) {
   const user = await loadUserByCustomerId(customerId);
   if (!user) return;
 
+  // Deleting a subscription that is not the user's current one (a duplicate or
+  // an old one) must not demote them while their current one is live.
+  const product = subscriptionIsBuyer(sub) ? "buyer" : "seller";
+  if (!(await passesSubscriptionGuard(user, sub, event, "delete", product))) return;
+
   // US-1799: a buyer-sub deletion must reset ONLY the buyer_* columns — never
   // free the seller plan on the shared customer.
   if (subscriptionIsBuyer(sub)) {
@@ -1031,6 +1184,7 @@ async function handleSubscriptionDeleted(event: Stripe.Event) {
         product: "buyer",
         from_buyer_plan: (user as { buyer_plan?: string | null }).buyer_plan ?? null,
         to_buyer_plan: "free",
+        event_created: event.created,
       },
     );
     const { error: buyerErr } = await supabaseAdmin
@@ -1055,7 +1209,7 @@ async function handleSubscriptionDeleted(event: Stripe.Event) {
     event.id,
     user.flipdesk_plan,
     "free",
-    { subscription_id: sub.id },
+    { subscription_id: sub.id, event_created: event.created },
   );
 
   const { error } = await supabaseAdmin

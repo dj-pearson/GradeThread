@@ -1,6 +1,6 @@
 ---
 name: grading-engine
-description: "Use when editing ANY grading code or data: services/edge-functions/src/lib/ai-grading.ts, grading-pipeline.ts, grading-eval.ts, grading-shadow.ts, accuracy-tracking.ts, human-review*, few-shot-exemplars.ts, peer-norm.ts, fabric-criteria.ts, garment-baselines.ts, defect-weighting.ts, routes/admin-grading.ts, the admin reviews UI (src/pages/admin/reviews.tsx, grading.tsx), grade_reports/human_reviews migrations, or grading prompts. Encodes the grading domain contract: factor weights, rounding lockstep, prompt-version lifecycle, golden set, exemplar privacy, review thresholds."
+description: "Use when editing ANY grading code or data: services/edge-functions/src/lib/ai-grading.ts, grading-pipeline.ts, grading-eval.ts, grading-shadow.ts, accuracy-tracking.ts, human-review*, few-shot-exemplars.ts, peer-norm.ts, fabric-criteria.ts, garment-baselines.ts, defect-weighting.ts, routes/admin-grading.ts, the admin review UI (src/pages/admin/grading.tsx, disputes.tsx), grade_reports/human_reviews migrations, or grading prompts. Encodes the grading domain contract: factor weights, rounding lockstep, prompt-version lifecycle, golden set, exemplar privacy, review thresholds."
 metadata:
   author: gradethread
   version: "1.0.0"
@@ -33,15 +33,18 @@ The weighted-overall computation exists in TWO real implementations that must
 stay byte-for-byte equivalent (same weights, same 0.1 rounding). Changing one
 means changing the other in the same commit:
 
-1. `services/edge-functions/src/lib/ai-grading.ts` → `roundToTenth`
+1. `services/edge-functions/src/lib/ai-grading.ts` → `computeAiWeightedOverall`
+   (was `roundToTenth`; rounds through human-review's `roundWeightedToTenth`,
+   integer units, half up)
 2. `services/edge-functions/src/lib/human-review.ts` → `computeWeightedOverall`
 
-The third site people still look for, `src/pages/admin/reviews.tsx` →
-`computeWeightedScore`, is now a ONE-LINE DELEGATION to the shared helper. It is
-not a third copy and must not be edited as one. `references/rounding-sites.md`
-has said so for a while; this body had not caught up (US-2308). If you find
-yourself changing arithmetic in reviews.tsx, you are re-forking the copy that
-delegation removed.
+The client side is ONE helper, `src/lib/weighted-grade.ts` →
+`computeWeightedOverall` (US-2034). `src/pages/admin/grading.tsx` (the Review
+Queue) and `src/pages/admin/disputes.tsx` each wrap it in a one-line
+`computeWeightedScore` DELEGATION. Those wrappers are not copies and must not be
+edited as one. `src/pages/admin/reviews.tsx`, which older notes still name as a
+third site, was deleted in US-2505 (2026-08-14). If you find yourself changing
+arithmetic in a page file, you are re-forking the copy that delegation removed.
 
 The lockstep map (which implementations exist, and why it shipped wrong
 twice) is `vault/20-domain/weighted-overall-lockstep.md` — a drift-guarded
@@ -112,7 +115,12 @@ inert until they pass the eval gate and are explicitly activated
   it. A label that is genuinely unusable still blocks on its OWN defect: severe
   blur and darkness are core-shot blocks, and those asks are actionable.
   `labelIllegibleFor` in `image-quality.ts` is the one definition; the
-  escalation re-grade must recompute it, never inherit it.
+  escalation re-grade must recompute it, never inherit it, and so must the
+  first pass: the cap is computed from the reads merged AFTER the label
+  re-read (US-3322), which now also runs on a standard grade when a label came
+  back illegible (`labelRereadScope` in `grading-pipeline.ts`). The tagless
+  `legible` definition itself is prompt text, shipped inert behind
+  `GRADING_LEGIBLE_V2` (`+legible2`) pending shadow, eval and canary (US-3321).
 - Caps COMPOSE via min-of-caps; penalties floor at 0. Never raise confidence
   post-composite. New caps: follow `composeConfidenceCap` (peer-norm.ts).
 - **The mechanism, not just the rule (US-2299).** "Never raise post-composite"

@@ -4,13 +4,19 @@ type: runbook
 status: current
 source_of_truth: code
 code_refs:
-  - services/edge-functions/src/routes/flipdesk-ebay.ts
+  - services/edge-functions/src/routes/flipdesk-ebay-sync.ts
   - services/edge-functions/src/lib/sync-watermark.ts
   - services/edge-functions/src/routes/jobs-ebay-order-backstop.ts
-reviewed: 2026-09-05
+reviewed: 2026-09-23
 tags: [ebay, flipdesk, sync, recovery]
 summary: How to recover eBay orders that a pre-US-2320 sync skipped past, how to tell whether a seller lost any, and why the run status field is the wrong thing to check.
 ---
+
+> [!note] Re-reviewed 2026-09-23, no change in behaviour. `flipdesk-ebay.ts`
+> was split into one route file per concern as a pure move (marketplaces
+> module plan, action 5); it now only mounts them. The code this note
+> describes is in `flipdesk-ebay-sync.ts`, so `code_refs` point there.
+> `flipdesk-ebay.ts:NNNN` line numbers quoted below are from before the split.
 
 # eBay orders backfill after a lost sync window
 
