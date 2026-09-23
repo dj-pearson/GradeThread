@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { ChevronDown } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { roundWeightedToTenth } from "@/lib/weighted-grade";
 
 // US-2871. Where the number comes from.
 //
@@ -14,8 +15,8 @@ import { cn } from "@/lib/utils";
 //
 // EVERY NUMBER IS DERIVED. The weights are passed in by the caller (from
 // GRADE_FACTORS on the seller report, from the grade's own rubric on the
-// certificate) and the rounding is the same Math.round(total * 10) / 10 the
-// shared helpers use. The vault
+// certificate) and the rounding is the same roundWeightedToTenth the shared
+// helpers use. The vault
 // note on this (grading-scale-and-weights.md) is blunt about why: this
 // calculation has shipped wrong twice from having N copies, so this component
 // computes nothing the app does not already compute -- it only shows the work.
@@ -57,7 +58,7 @@ export function ScoreExplainer({
     contribution: contribution(f.score, f.weight),
   }));
   const total = rows.reduce((sum, r) => sum + r.score * r.weight, 0);
-  const rounded = Math.round(total * 10) / 10;
+  const rounded = roundWeightedToTenth(rows.map((r) => [r.score, r.weight] as const));
 
   return (
     <div className={cn("rounded-lg border", className)}>

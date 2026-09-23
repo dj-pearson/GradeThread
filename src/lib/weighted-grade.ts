@@ -59,11 +59,44 @@ export const WEIGHTED_FACTOR_KEYS = Object.keys(
  * with the value the server stores.
  */
 export function computeWeightedOverall(factors: WeightedFactorScores): number {
-  let total = 0;
-  for (const key of WEIGHTED_FACTOR_KEYS) {
-    total += requireFactor(factors, key) * WEIGHTED_FACTOR_WEIGHTS[key];
+  return roundWeightedToTenth(
+    WEIGHTED_FACTOR_KEYS.map(
+      (key) => [requireFactor(factors, key), WEIGHTED_FACTOR_WEIGHTS[key]] as const,
+    ),
+  );
+}
+
+// Scores in hundredths of a point, weights in basis points: every product and
+// the sum are exact integers. One tenth of a point is 100 * 10_000 / 10 units.
+const SCORE_UNITS_PER_POINT = 100;
+const WEIGHT_UNITS_PER_ONE = 10_000;
+const UNITS_PER_TENTH = (SCORE_UNITS_PER_POINT * WEIGHT_UNITS_PER_ONE) / 10;
+
+/**
+ * sum(score x weight) rounded to 0.1, in INTEGER units, round-half-up.
+ *
+ * Grading-plan action 1. This used to be `Math.round(total * 10) / 10` over a
+ * float sum, and a float sum of 0.30/0.25/... products cannot hold an exact
+ * .x5 midpoint: 9/6/8/9/8 is exactly 7.95, the float sum is
+ * 7.949999999999998, and it rounded to 7.9 (Very Good) where 8.0 (Excellent)
+ * is correct, while other midpoints happened to land a hair high and rounded
+ * up. Doing the sum on integers makes the midpoint decision exact.
+ *
+ * The edge mirror is `roundWeightedToTenth` in
+ * `services/edge-functions/src/lib/human-review.ts`; both suites run the shared
+ * fixture's midpoint cases and an exhaustive check over every 0.5-step factor
+ * set against an integer reference.
+ */
+export function roundWeightedToTenth(
+  terms: ReadonlyArray<readonly [score: number, weight: number]>,
+): number {
+  let units = 0;
+  for (const [score, weight] of terms) {
+    units +=
+      Math.round(score * SCORE_UNITS_PER_POINT) *
+      Math.round(weight * WEIGHT_UNITS_PER_ONE);
   }
-  return Math.round(total * 10) / 10;
+  return Math.floor((units + UNITS_PER_TENTH / 2) / UNITS_PER_TENTH) / 10;
 }
 
 /**

@@ -33,7 +33,9 @@ The weighted-overall computation exists in TWO real implementations that must
 stay byte-for-byte equivalent (same weights, same 0.1 rounding). Changing one
 means changing the other in the same commit:
 
-1. `services/edge-functions/src/lib/ai-grading.ts` → `roundToTenth`
+1. `services/edge-functions/src/lib/ai-grading.ts` → `computeAiWeightedOverall`
+   (was `roundToTenth`; rounds through human-review's `roundWeightedToTenth`,
+   integer units, half up)
 2. `services/edge-functions/src/lib/human-review.ts` → `computeWeightedOverall`
 
 The third site people still look for, `src/pages/admin/reviews.tsx` →

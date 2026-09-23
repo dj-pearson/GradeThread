@@ -1,4 +1,5 @@
 import { GRADE_FACTORS, type GradeFactorKey } from "@/lib/constants";
+import { roundWeightedToTenth } from "@/lib/weighted-grade";
 
 // Category-specific grading rubrics (client view).
 //
@@ -204,9 +205,13 @@ export function computeRubricWeightedOverall(
   rubric: Rubric,
   scores: Record<string, number>,
 ): number {
-  let total = 0;
-  for (const factor of rubric.factors) {
-    total += requireRubricFactor(rubric, scores, factor.key) * factor.weight;
-  }
-  return Math.round(total * 10) / 10;
+  // Same integer, round-half-up rounding as computeWeightedOverall
+  // (grading-plan action 1), so the clothing rubric stays byte-identical to it
+  // on exact .x5 midpoints too.
+  return roundWeightedToTenth(
+    rubric.factors.map(
+      (factor) =>
+        [requireRubricFactor(rubric, scores, factor.key), factor.weight] as const,
+    ),
+  );
 }

@@ -71,6 +71,7 @@ import {
   clampScore,
   computeWeightedOverall,
   type FactorScores as ReportFactorScores,
+  roundWeightedToTenth,
 } from "./human-review.ts";
 import { findLimitingFlaw, type LimitingFlaw } from "./limiting-flaw.ts";
 
@@ -2487,10 +2488,17 @@ function roundToHalf(value: number): number {
 // The 5 FACTORS are graded in 0.5 steps, but the OVERALL is the weighted
 // aggregate and is rounded to 0.1 (e.g. 8.6) — so a single-factor correction in
 // human review actually moves the overall instead of being swallowed by 0.5
-// rounding. Keep this in lockstep with human-review.computeWeightedOverall and
-// the admin reviews UI's computeWeightedScore.
-function roundToTenth(value: number): number {
-  return Math.round(value * 10) / 10;
+// rounding. Keep this in lockstep with human-review.computeWeightedOverall:
+// the rounding itself is human-review.roundWeightedToTenth (integer units,
+// round-half-up), the same one the web's src/lib/weighted-grade.ts mirrors. This used to be Math.round(sum * 10) / 10 over
+// a float sum, which sent some exact .x5 midpoints DOWN (9/6/8/9/8 = 7.95 -> 7.9).
+export function computeAiWeightedOverall(factors: FactorScores): number {
+  const overall = roundWeightedToTenth(
+    FACTOR_KEYS.map((key) => [factors[key], FACTOR_WEIGHTS[key]] as const),
+  );
+  // Clamping after rounding equals clamping before: 1.0 and 10.0 sit on the
+  // 0.1 grid and the rounding is monotonic.
+  return Math.max(1.0, Math.min(10.0, overall));
 }
 
 // US-483: when the composite model returns an invalid/missing factor value we
@@ -3479,13 +3487,7 @@ export async function compositeGrade(
     // Recalculate overall_score from the (defect-weighted) factor scores. The
     // overall is rounded to 0.1 (factors stay 0.5) so the aggregate is granular
     // enough that a one-factor human correction nudges it.
-    let weightedSum = 0;
-    for (const key of FACTOR_KEYS) {
-      weightedSum += parsed.factor_scores[key] * FACTOR_WEIGHTS[key];
-    }
-    const calculatedScore = roundToTenth(
-      Math.max(1.0, Math.min(10.0, weightedSum)),
-    );
+    const calculatedScore = computeAiWeightedOverall(parsed.factor_scores);
 
     // Use calculated score (authoritative) and derive tier from it
     const overallScore = calculatedScore;

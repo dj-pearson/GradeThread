@@ -53,8 +53,8 @@ export function clampScore(n: number): number {
 // Weighted overall, rounded to the nearest 0.1 (the 5 factors stay in 0.5 steps,
 // but the aggregate is granular so a single-factor human correction actually
 // moves the overall — e.g. 8.6 — instead of being swallowed by 0.5 rounding).
-// Matches ai-grading.roundToTenth(weightedSum) and the admin reviews UI's
-// computeWeightedScore.
+// ai-grading.computeAiWeightedOverall and src/lib/weighted-grade.ts compute
+// the same number through roundWeightedToTenth below.
 //
 // US-2386: a missing or non-finite factor REFUSES. This used to fall out as
 // NaN while the web mirror (src/lib/weighted-grade.ts) coalesced the same input
@@ -66,9 +66,37 @@ export function clampScore(n: number): number {
 // NULL on grade_reports (00001), so a missing key is a bug, not a data state.
 // The refusal cases live in the shared fixture both suites assert.
 export function computeWeightedOverall(f: FactorScores): number {
-  let total = 0;
-  for (const k of FACTOR_KEYS) total += requireFactor(f, k) * FACTOR_WEIGHTS[k];
-  return Math.round(total * 10) / 10;
+  return roundWeightedToTenth(
+    FACTOR_KEYS.map((k) => [requireFactor(f, k), FACTOR_WEIGHTS[k]] as const),
+  );
+}
+
+// Grading-plan action 1: sum(score x weight) rounded to 0.1, in INTEGER units,
+// round-half-up. Mirrors roundWeightedToTenth in src/lib/weighted-grade.ts
+// byte for byte; both suites run the shared fixture and an exhaustive check
+// over every 0.5-step factor set against an integer reference.
+//
+// The old form was Math.round(total * 10) / 10 over a float sum, and a float
+// sum of 0.30/0.25/... products cannot hold an exact .x5 midpoint. 9/6/8/9/8
+// is exactly 7.95; the float sum is 7.949999999999998, so it rounded to 7.9
+// (Very Good) where 8.0 (Excellent) is correct, while other midpoints happened
+// to land a hair high and rounded up. Scores are taken in hundredths of a
+// point and weights in basis points, so each product and the sum are exact
+// integers and the midpoint decision is made on an integer.
+const SCORE_UNITS_PER_POINT = 100;
+const WEIGHT_UNITS_PER_ONE = 10_000;
+// One tenth of a point, in (score unit x weight unit)s.
+const UNITS_PER_TENTH = (SCORE_UNITS_PER_POINT * WEIGHT_UNITS_PER_ONE) / 10;
+
+export function roundWeightedToTenth(
+  terms: ReadonlyArray<readonly [score: number, weight: number]>,
+): number {
+  let units = 0;
+  for (const [score, weight] of terms) {
+    units += Math.round(score * SCORE_UNITS_PER_POINT) *
+      Math.round(weight * WEIGHT_UNITS_PER_ONE);
+  }
+  return Math.floor((units + UNITS_PER_TENTH / 2) / UNITS_PER_TENTH) / 10;
 }
 
 // Map a 1.0–10.0 score to its tier (mirrors ai-grading.scoreToGradeTier and

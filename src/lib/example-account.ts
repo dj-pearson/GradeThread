@@ -1,4 +1,5 @@
 import { GRADE_FACTORS, type GradeFactorKey } from "@/lib/constants";
+import { roundWeightedToTenth } from "@/lib/weighted-grade";
 
 // US-2865. ONE worked example of what GradeThread produces, so a brand-new
 // account is something to read rather than seven zeros.
@@ -181,9 +182,7 @@ export function exampleProfitCents(): number {
  * -- the whole point of an example is that a seller can follow the arithmetic.
  */
 export function exampleWeightedScore(): number {
-  const total = EXAMPLE_FACTORS.reduce(
-    (sum, f) => sum + f.score * GRADE_FACTORS[f.key].weight,
-    0,
+  return roundWeightedToTenth(
+    EXAMPLE_FACTORS.map((f) => [f.score, GRADE_FACTORS[f.key].weight] as const),
   );
-  return Math.round(total * 10) / 10;
 }

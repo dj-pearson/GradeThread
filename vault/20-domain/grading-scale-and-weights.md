@@ -12,7 +12,7 @@ code_refs:
   - services/edge-functions/src/lib/human-review.ts
   - services/edge-functions/src/lib/defect-weighting.ts
   - services/edge-functions/src/tests/weighted-grade-parity_test.ts
-reviewed: 2026-09-22
+reviewed: 2026-09-23
 tags: [grading, contract]
 summary: The 1.0-10.0 scale, the five weighted factors, the rounding rule that has now shipped wrong twice, and which engine criteria are published and therefore no longer free to tune.
 ---
@@ -123,8 +123,12 @@ direction for the two to disagree in.
 
 ## The rounding rule, and why it has its own section
 
-**The weighted overall rounds to 0.1 — `Math.round(total * 10) / 10` — at every
-site, without exception.**
+**The weighted overall rounds to 0.1, half up, at every site, without
+exception.** The sum and the rounding are done in integer units by
+`roundWeightedToTenth` (one per project), because the old
+`Math.round(total * 10) / 10` over a float sum sent some exact .x5 midpoints
+down (9/6/8/9/8 = 7.95 was stored as 7.9). The mechanism and the measurement are
+in [[weighted-overall-lockstep]].
 
 This has shipped wrong **twice**:
 
