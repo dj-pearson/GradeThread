@@ -11,6 +11,7 @@ import {
   debitKeyAfterRefund,
   paymentErrorBody,
   refundAmbiguousDebit,
+  refundChargedGrade,
 } from "../lib/ambiguous-debit-refund.ts";
 
 interface LedgerRow {
@@ -26,6 +27,7 @@ function fakeDb(opts: {
   debitUser?: string;
   ledgerReadFails?: boolean;
   refundFails?: boolean;
+  refundRefused?: boolean;
 }) {
   const SUB = "sub-1";
   const state = {
@@ -63,12 +65,24 @@ function fakeDb(opts: {
       const s = state.submission;
       if (s.id === submissionId && s.user_id === userId && s.payment_status === "unpaid") {
         s.payment_status = "credits";
+        return Promise.resolve({ error: null, flipped: true });
       }
-      return Promise.resolve({ error: null });
+      return Promise.resolve({ error: null, flipped: false });
+    },
+    readPayment: (userId, submissionId) => {
+      const s = state.submission;
+      if (s.id !== submissionId || s.user_id !== userId) {
+        return Promise.resolve({ error: "submission not found" });
+      }
+      return Promise.resolve({ paymentStatus: s.payment_status, refundedAt: s.refunded_at });
     },
     // refund_grade, as 00536 writes it.
     refundGrade: (submissionId) => {
       if (opts.refundFails) return Promise.resolve({ result: null, error: "timeout" });
+      // supabase-js hands a refused RPC back as { error }, it does not throw.
+      if (opts.refundRefused) {
+        return Promise.resolve({ result: null, error: "refund_grade: permission denied" });
+      }
       const s = state.submission;
       if (s.refunded_at) return Promise.resolve({ result: "already_refunded", error: null });
       if (s.payment_status !== "credits") {
@@ -89,7 +103,10 @@ function fakeDb(opts: {
       s.refunded_at = "now";
       return Promise.resolve({ result: "refunded_credits", error: null });
     },
-    markFailed: (_userId, _submissionId) => {
+    markFailed: (_userId, _submissionId, o) => {
+      if (o?.onlyIfUnpaid && state.submission.payment_status !== "unpaid") {
+        return Promise.resolve();
+      }
       state.submission.status = "failed";
       return Promise.resolve();
     },
@@ -180,8 +197,37 @@ Deno.test("refund_grade answering 'no_refund_*' is not a refund: reported, and t
   const out = await refundAmbiguousDebit("owner-a", SUB, "test", io);
   assertEquals(out.kind, "unknown");
   assertEquals(state.submission.payment_status, "paid_stripe", "the flip overwrote another payment");
+  assert(state.submission.status !== "failed", "a Stripe-paid grade was parked as failed");
   assertEquals(state.reports.length, 1);
   assertEquals(refunds(state.ledger).length, 0);
+});
+
+Deno.test("a concurrent /pay already paid it: that debit is the payment, so nothing is refunded and the grade is not parked", async () => {
+  // Two /pay calls share the key grade_pay:<id>. A's debit lands and A flips
+  // the row to 'credits' and starts grading; B's call errors. The ledger has
+  // ONE grade_debit row for the submission, and it is A's payment.
+  const { state, io, SUB } = fakeDb({ debitLanded: true, credits: 2 });
+  state.submission.payment_status = "credits";
+  state.submission.status = "processing";
+
+  const out = await refundAmbiguousDebit("owner-a", SUB, "grade.pay", io);
+
+  assertEquals(out, { kind: "paid" });
+  assertEquals(state.balance, 8, "the running grade's payment was handed back");
+  assertEquals(refunds(state.ledger).length, 0);
+  assertEquals(state.submission.refunded_at, null);
+  assertEquals(state.submission.status, "processing", "a paid, running grade was parked as failed");
+  assertEquals(state.reports, []);
+});
+
+Deno.test("a failed ledger read never parks a submission another call has paid", async () => {
+  const { state, io, SUB } = fakeDb({ debitLanded: true, ledgerReadFails: true });
+  state.submission.payment_status = "credits";
+  state.submission.status = "processing";
+  const out = await refundAmbiguousDebit("owner-a", SUB, "grade.pay", io);
+  assertEquals(out.kind, "unknown");
+  assertEquals(state.submission.status, "processing");
+  assertEquals(state.reports.length, 1);
 });
 
 Deno.test("never throws, even when the IO does", async () => {
@@ -283,4 +329,54 @@ Deno.test("paymentErrorBody: unchanged when nothing moved, names the refund when
   assertEquals(r.submissionId, "s");
   assert(r.error.includes("1 credit taken"));
   assertEquals(paymentErrorBody({ kind: "unknown", error: "x" }, "s").submissionId, "s");
+});
+
+// ── The bulk path's refund of a charge that DID succeed ─────────────────────
+
+Deno.test("charged refund: a refused refund_grade ({ error }, no throw) is reported, not swallowed", async () => {
+  const { state, io, SUB } = fakeDb({ debitLanded: true, refundRefused: true });
+  state.submission.payment_status = "credits";
+  const out = await refundChargedGrade("owner-a", SUB, "flipdesk-grading.bulk", io);
+  assertEquals(out.ok, false);
+  assertEquals(state.reports.length, 1, "a refused refund went unreported");
+  assert(state.reports[0].includes("refund_grade refused"));
+});
+
+Deno.test("charged refund: a normal refund is quiet and moves the credits once", async () => {
+  const { state, io, SUB } = fakeDb({ debitLanded: true, credits: 2 });
+  state.submission.payment_status = "credits";
+  const out = await refundChargedGrade("owner-a", SUB, "flipdesk-grading.bulk", io);
+  assertEquals(out, { ok: true, result: "refunded_credits", error: null });
+  assertEquals(state.balance, 10);
+  assertEquals(state.reports, []);
+});
+
+Deno.test("charged refund: a paid-flip that did not stick ('no_refund_unpaid') still gets the credits back", async () => {
+  // The precedence's markPaid does not check its write, so a debit can land on
+  // a row still reading 'unpaid', and refund_grade then declines.
+  const { state, io, SUB } = fakeDb({ debitLanded: true, credits: 2 });
+  const out = await refundChargedGrade("owner-a", SUB, "flipdesk-grading.bulk", io);
+  assertEquals(out.ok, true);
+  assertEquals(state.balance, 10);
+  assertEquals(refunds(state.ledger).length, 1);
+});
+
+Deno.test("charged refund: any other non-refund answer is reported", async () => {
+  const { state, io, SUB } = fakeDb({ debitLanded: true });
+  state.submission.payment_status = "paid_stripe";
+  const out = await refundChargedGrade("owner-a", SUB, "flipdesk-grading.bulk", io);
+  assertEquals(out.ok, false);
+  assertEquals(state.reports.length, 1);
+});
+
+Deno.test("wiring: the bulk path's charged refund reads refund_grade's answer", () => {
+  const bulk = read("../lib/grading-submit.ts");
+  const at = bulk.indexOf("if (charged && submissionId) {");
+  assert(at !== -1);
+  const block = bulk.slice(at, at + 600);
+  assert(
+    block.includes(`refundChargedGrade(`),
+    "the charged refund calls refund_grade directly again, and a refused refund is silent",
+  );
+  assert(!/rpc\("refund_grade"/.test(block));
 });

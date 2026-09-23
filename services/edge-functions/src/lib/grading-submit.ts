@@ -35,7 +35,7 @@ import {
   type GradeTier,
 } from "./grade-billing.ts";
 import { includedAllowance } from "./grade-pricing.ts";
-import { refundAmbiguousDebit } from "./ambiguous-debit-refund.ts";
+import { refundAmbiguousDebit, refundChargedGrade } from "./ambiguous-debit-refund.ts";
 import { type FlipdeskPlan, getPlanMatrix } from "./pricing-config.ts";
 
 // Local alias keeps the existing interface names readable.
@@ -1121,14 +1121,17 @@ export async function submitItemsForGrading(
       // so the customer isn't billed for a submission that never ran. The
       // refund_grade RPC is idempotent.
       if (charged && submissionId) {
-        try {
-          await supabaseAdmin.rpc("refund_grade", {
-            p_submission_id: submissionId,
-          });
-        } catch (refundErr) {
+        // refund_grade answers a refusal as `{ error }`, not a throw, so the
+        // helper reads the answer and reports anything that is not a refund.
+        const refund = await refundChargedGrade(
+          ownerId,
+          submissionId,
+          "flipdesk-grading.bulk",
+        );
+        if (!refund.ok) {
           console.error(
-            `[flipdesk-grading] refund failed for ${submissionId} — manual review needed:`,
-            refundErr instanceof Error ? refundErr.message : String(refundErr),
+            `[flipdesk-grading] refund failed for ${submissionId}, manual review needed:`,
+            refund.error ?? refund.result,
           );
         }
       } else if (chargeAttempted && submissionId) {
