@@ -44,15 +44,14 @@ read that from `SDK_PUBLISHED` in `src/lib/sdk-release.ts`.
    Secrets and variables > Actions). Without it, a tag push still runs and ends
    with the notice "SDK publish skipped: NPM_TOKEN is not set" rather than a red
    run.
-4. **Decide the license.** `package.json` says `MIT` but the repository has no
-   LICENSE file, so the tarball ships without one. Add
-   `sdk/gradethread-js/LICENSE` if MIT is right; npm includes it automatically.
+4. **License: MIT** (owner, 2026-09-23). `sdk/gradethread-js/LICENSE` holds
+   the text and npm packs it automatically.
 
 ## Every release
 
 1. Rehearse: Actions > SDK publish > Run workflow, leave `dry_run` ticked. It
    builds, runs the dist smoke test and prints the exact tarball contents
-   (README, `dist/index.js`, `dist/index.d.ts`, `package.json`).
+   (LICENSE, README, `dist/index.js`, `dist/index.d.ts`, `package.json`).
 2. Bump `version` in `sdk/gradethread-js/package.json` and commit.
 3. Tag and push: `git tag sdk-v0.1.0 && git push origin sdk-v0.1.0`. The
    workflow refuses a tag whose version differs from `package.json`, and a
