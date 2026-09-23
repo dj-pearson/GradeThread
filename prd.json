@@ -4681,19 +4681,6 @@
       ]
     },
     {
-      "id": "US-3476",
-      "passes": false,
-      "title": "A batch template replaces the whole generated specifics map instead of merging into it, wiping every AI-filled aspect",
-      "description": "As a seller, I want a listing template's item specifics to add to the AI draft, so that applying a template does not erase what AutoLister filled.",
-      "acceptanceCriteria": [
-        "buildTemplateListingPatch in services/edge-functions/src/lib/listing-template.ts merges template.item_specifics into the existing item_specifics_override: template values fill blanks and override only the aspects the template names",
-        "applyTemplate in routes/flipdesk-autolister.ts recomputes listings.aspect_coverage after the merge",
-        "A template that changes platform_category_id re-runs reconcile against the new category's aspects",
-        "A Deno test: a draft with 12 generated aspects plus a template naming 2 keeps all 12, with the template's 2 values winning"
-      ],
-      "priority": 22
-    },
-    {
       "id": "US-3477",
       "passes": false,
       "title": "Stop the style column writing marketing names onto eBay's Style aspect; the marketing name goes to Model or Product Line and tag codes to MPN",

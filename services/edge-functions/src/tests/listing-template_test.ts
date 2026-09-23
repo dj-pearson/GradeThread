@@ -3,6 +3,7 @@
 import { assert, assertEquals } from "@std/assert";
 import {
   buildTemplateListingPatch,
+  mergeTemplateSpecifics,
   type ListingTemplateRow,
   normalizeTemplateInput,
   TEMPLATE_NAME_MAX,
@@ -191,4 +192,33 @@ Deno.test("boilerplate survives a re-render from the stored blocks", () => {
   const secondPass = renderDescription(blocks, ctx);
   assert(secondPass.includes("Ships in 1 business day."));
   assertEquals(firstPass, secondPass);
+});
+
+// US-3476: a template's specifics MERGE into what generation wrote. The overlay
+// used to assign the template's map outright, so a template naming two aspects
+// left a twelve-aspect draft with two.
+Deno.test("US-3476: template specifics merge into a generated draft, template wins on its own names", () => {
+  const generated: Record<string, string[]> = {
+    Brand: ["Levi's"], Size: ["32"], Color: ["Blue"], Material: ["Cotton"],
+    Style: ["Straight"], Department: ["Men"], "Size Type": ["Regular"],
+    Inseam: ["30 in"], Rise: ["Mid (10-12 in)"], Fit: ["Regular"],
+    Closure: ["Button"], Pattern: ["Solid"],
+  };
+  const patch = buildTemplateListingPatch(
+    row({ item_specifics: { department: "Unisex Adults", "Country of Origin": "Mexico" } }),
+    { item_specifics_override: generated },
+  );
+  const merged = patch.item_specifics_override as Record<string, string[]>;
+  // 12 generated + 1 new from the template; Department is replaced, not duplicated.
+  assertEquals(Object.keys(merged).length, 13);
+  assertEquals(merged.Brand, ["Levi's"]);
+  assertEquals(merged.Pattern, ["Solid"]);
+  assertEquals(merged.Department, undefined);
+  assertEquals(merged.department, ["Unisex Adults"]);
+  assertEquals(merged["Country of Origin"], ["Mexico"]);
+});
+
+Deno.test("US-3476: a legacy string-valued draft map is coerced, not dropped", () => {
+  const merged = mergeTemplateSpecifics({ Fit: "Slim", Blank: "  " }, { Brand: "Gap" });
+  assertEquals(merged, { Fit: ["Slim"], Brand: ["Gap"] });
 });

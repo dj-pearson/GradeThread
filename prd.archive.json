@@ -49548,6 +49548,20 @@
       ],
       "priority": 21,
       "notes": "Done 2026-09-23. Step 2b in normalizeAspectValue (both copies): fold both strings with the existing loose() (NFD accent fold, lowercase, keep a-z0-9, which also drops curly quotes and zero-width characters) and return only when exactly one allowed value folds alike. AC2 was met by a VALUE rule rather than a NAME rule: the step never runs when the input holds a digit, which is exactly where folding collides (3-4/34, 1.5/15, 2.5 in/25 in); a size name with no digit ('X Large' -> 'X-Large') is still helped. Tests: 4 new edge cases and 3 web cases with lists from the 2026-09-23 capture (15687 Type, 11483 Style, Fit, Fabric Type, the curly-apostrophe and zero-width values eBay ships). Sabotage: replacing the digit guard with 'true' turns 'a value holding a digit is never folded' red; restored. Verified: edge aspect/size/visual/canonical suites 238 passed / 0 failed; web src/lib/__tests__ + src/test/aspect* 2323 passed, the 2 reds on the first run (lockstep-registry, platform-label-copies) passed on rerun with the same diff and on a clean stash, so they came from something transient in the shared tree; tsc -b, eslint, deno lint, deno check clean. Note: this alone changes no production output for FREE_TEXT aspects, because no caller runs the matcher on them yet; that is US-3474."
+    },
+    {
+      "id": "US-3476",
+      "passes": true,
+      "title": "A batch template replaces the whole generated specifics map instead of merging into it, wiping every AI-filled aspect",
+      "description": "As a seller, I want a listing template's item specifics to add to the AI draft, so that applying a template does not erase what AutoLister filled.",
+      "acceptanceCriteria": [
+        "buildTemplateListingPatch in services/edge-functions/src/lib/listing-template.ts merges template.item_specifics into the existing item_specifics_override: template values fill blanks and override only the aspects the template names",
+        "applyTemplate in routes/flipdesk-autolister.ts recomputes listings.aspect_coverage after the merge",
+        "A template that changes platform_category_id re-runs reconcile against the new category's aspects",
+        "A Deno test: a draft with 12 generated aspects plus a template naming 2 keeps all 12, with the template's 2 values winning"
+      ],
+      "priority": 22,
+      "notes": "Done 2026-09-23. buildTemplateListingPatch takes the listing's current item_specifics_override and merges via the new mergeTemplateSpecifics (draft keeps every aspect the template does not name; template wins case-insensitively on the ones it does). applyTemplate in routes/flipdesk-autolister.ts now reads the listing first (scoped id + user_id), and when specifics or category changed, fetches the leaf's aspects: on a category change it runs reconcileGeneratedAspects against the template's leaf and writes aspect_review; in both cases it recomputes aspect_coverage with buildAspectCoverage. The recount is best-effort and logs on failure; the merge still lands. The update is now also scoped by user_id. Tests: 2 new cases in listing-template_test.ts (12 generated + 2 template -> 13, Department replaced; legacy string map coerced); sabotaging the keep-unnamed branch reddens both. The recount/reconcile branch in the route is covered by deno check only, not a DB test. deno check + lint clean on all three files."
     }
   ]
 }

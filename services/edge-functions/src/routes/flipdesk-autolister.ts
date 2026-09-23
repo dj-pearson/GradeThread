@@ -6,10 +6,19 @@ import { failSafe } from "../lib/http-errors.ts";
 // when the whole batch is looked at at once.
 import { findDuplicatesWithinBatch } from "../lib/title-similarity.ts";
 import {
+  buildAspectCoverage,
+  buildAspectSpecsForCategory,
   DraftWriteAbandonedError,
   generateListing,
   generatePlatformVariants,
+  rankedAspectSpecs,
 } from "../lib/ai-listing.ts";
+import {
+  normalizeAspectMap,
+  reconcileGeneratedAspects,
+  specsFromEbayAspectSpecs,
+} from "../lib/aspect-reconcile.ts";
+import { getCategoryAspects } from "../lib/ebay-client.ts";
 import { channelCopyForDraft } from "../lib/platform-description.ts";
 import { generateKitForDraft } from "../lib/cross-list-kit.ts";
 import { assemblePublishContext, publishItemForOwner } from "./flipdesk-ebay.ts";
@@ -450,9 +459,54 @@ async function processBatch(
    */
   async function applyTemplate(listingId: string): Promise<void> {
     if (!template) return;
-    const patch = buildTemplateListingPatch(template);
+    // US-3476: read what generation wrote so the template's specifics MERGE
+    // into it rather than replace it, and so coverage can be recounted.
+    const { data: current } = await supabaseAdmin
+      .from("listings")
+      .select("item_specifics_override, platform_category_id")
+      .eq("id", listingId)
+      .eq("user_id", ownerId)
+      .maybeSingle();
+    const patch = buildTemplateListingPatch(template, current);
     if (Object.keys(patch).length === 0) return;
-    await supabaseAdmin.from("listings").update(patch).eq("id", listingId);
+
+    const specificsChanged = "item_specifics_override" in patch;
+    const newCategory = (patch.platform_category_id as string | undefined) ?? null;
+    const categoryChanged = newCategory !== null &&
+      newCategory !== (current?.platform_category_id ?? null);
+    const categoryId = newCategory ?? (current?.platform_category_id as string | null) ?? null;
+    if ((specificsChanged || categoryChanged) && categoryId) {
+      try {
+        const raw = await getCategoryAspects(categoryId);
+        let specifics = normalizeAspectMap(
+          (patch.item_specifics_override ?? current?.item_specifics_override) as
+            | Record<string, unknown>
+            | null,
+        );
+        if (categoryChanged) {
+          // The draft was generated against a different leaf; check every
+          // value against the template's leaf the way generation would.
+          const reconciled = reconcileGeneratedAspects(
+            specifics,
+            specsFromEbayAspectSpecs(buildAspectSpecsForCategory(raw)),
+          );
+          specifics = reconciled.aspects;
+          patch.item_specifics_override = specifics;
+          patch.aspect_review = reconciled.review.length > 0 ? reconciled.review : null;
+        }
+        patch.aspect_coverage = buildAspectCoverage(
+          rankedAspectSpecs(raw),
+          specifics,
+          categoryId,
+          new Date().toISOString(),
+        );
+      } catch (err) {
+        // Best-effort: the merge still lands; only the recount is skipped.
+        console.error(`[autolister] template coverage recount failed for ${listingId}:`, err);
+      }
+    }
+
+    await supabaseAdmin.from("listings").update(patch).eq("id", listingId).eq("user_id", ownerId);
   }
 
   async function runJob(

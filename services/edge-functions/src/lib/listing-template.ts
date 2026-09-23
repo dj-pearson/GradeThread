@@ -157,6 +157,29 @@ export function withTemplateBlock(
 }
 
 /**
+ * US-3476: overlay a template's specifics onto a draft's existing ones. The
+ * draft keeps every aspect the template does not name; the template's value
+ * wins on each aspect it does name (matched case-insensitively, stored under
+ * the template's spelling).
+ */
+export function mergeTemplateSpecifics(
+  existing: unknown,
+  templateSpecifics: Record<string, unknown>,
+): Record<string, string[]> {
+  const base = existing && typeof existing === "object"
+    ? normalizeAspectMap(existing as Record<string, unknown>)
+    : {};
+  const overlay = normalizeAspectMap(templateSpecifics);
+  const out: Record<string, string[]> = {};
+  const overlayKeys = new Set(Object.keys(overlay).map((k) => k.toLowerCase().trim()));
+  for (const [name, values] of Object.entries(base)) {
+    if (!overlayKeys.has(name.toLowerCase().trim())) out[name] = values;
+  }
+  for (const [name, values] of Object.entries(overlay)) out[name] = values;
+  return out;
+}
+
+/**
  * Build the `listings` patch that applies a template to an AutoLister-generated
  * draft. Condition / category / specifics / policies are set only when the
  * template provides them, so a sparse template leaves the AI result intact.
@@ -171,6 +194,7 @@ export function withTemplateBlock(
  */
 export function buildTemplateListingPatch(
   template: ListingTemplateRow,
+  current?: { item_specifics_override?: unknown } | null,
 ): Record<string, unknown> {
   const patch: Record<string, unknown> = {};
 
@@ -185,7 +209,15 @@ export function buildTemplateListingPatch(
     // US-1505: persist item_specifics_override as string[] values (the shape
     // every edge publish/revise consumer expects), not the template's raw
     // {String:String}. normalizeAspectMap drops blank values too.
-    patch.item_specifics_override = normalizeAspectMap(template.item_specifics);
+    //
+    // US-3476: MERGE into what generation wrote, never replace it. The old
+    // assignment dropped every AI-filled specific the template did not name,
+    // so a template carrying one line ("Department: Women") left a draft with
+    // one specific. The template still wins on the aspects it names.
+    patch.item_specifics_override = mergeTemplateSpecifics(
+      current?.item_specifics_override,
+      template.item_specifics,
+    );
   }
   // The listing's category lives in `platform_category_id` — that's what
   // assemblePublishContext reads (listing.platform_category_id ?? item.ebay_category_id).
