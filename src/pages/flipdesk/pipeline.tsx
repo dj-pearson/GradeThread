@@ -89,13 +89,15 @@ import { validateStatusChange } from "@/lib/pipeline-rules";
 import {
   boardFiltersActive,
   boardMoreLink,
-  nextPipelineStatus,
-  pipelineColumnFor,
-  planBatchAdvance,
   type BatchResult,
   type BoardFilters,
 } from "@/lib/pipeline-board";
 import { chunk } from "@/lib/chunk";
+import {
+  moveCardOptimistically,
+  pipelineColumnFor,
+  planBatchAdvance,
+} from "@/pages/flipdesk/pipeline-plan";
 import {
   useValidateGradingBulk,
   useSubmitGradingBulk,
@@ -386,39 +388,30 @@ export function FlipdeskPipelinePage() {
       return;
     }
 
-    // Optimistic update: write the new status into the cache, then save.
-    // US-1633: cancel any in-flight ["items_full"] refetch first, or it could
-    // land after the optimistic write and clobber it.
-    const originalStatus = item.status;
-    await qc.cancelQueries({ queryKey: ["items_full"] });
-    qc.setQueryData<ItemListRow[]>(itemsListQueryKey(user?.id), (old) =>
-      (old ?? []).map((i) =>
-        i.id === itemId ? { ...i, status: targetStatus } : i,
-      ),
-    );
-
-    try {
-      const { error } = await supabase
-        .from("inventory_items")
-        .update({ status: targetStatus } as never)
-        .eq("id", itemId);
-      if (error) throw error;
-      toast.success(
-        `Moved to ${FLIPDESK_PIPELINE.find((s) => s.status === targetStatus)?.label ?? targetStatus}.`,
-      );
-      // Light invalidation so timestamps refresh on next paint.
-      await qc.invalidateQueries({ queryKey: ["items_full"] });
-    } catch (err) {
-      // US-1633: roll back ONLY the dragged item (not the whole array snapshot),
-      // so a concurrent drag/edit of a DIFFERENT item isn't reverted with it.
-      qc.setQueryData<ItemListRow[]>(itemsListQueryKey(user?.id), (old) =>
-        (old ?? []).map((i) =>
-          i.id === itemId ? { ...i, status: originalStatus } : i,
-        ),
-      );
+    // Optimistic update: write the new status into the cache, then save. On
+    // failure only the dragged card is rolled back (US-1633, pipeline-plan.ts).
+    const err = await moveCardOptimistically({
+      qc,
+      listKey: itemsListQueryKey(user?.id),
+      itemId,
+      from: item.status,
+      to: targetStatus,
+      save: () =>
+        supabase
+          .from("inventory_items")
+          .update({ status: targetStatus } as never)
+          .eq("id", itemId),
+    });
+    if (err) {
       const msg = err instanceof Error ? err.message : String(err);
       toast.error(`Move failed: ${msg}`);
+      return;
     }
+    toast.success(
+      `Moved to ${FLIPDESK_PIPELINE.find((s) => s.status === targetStatus)?.label ?? targetStatus}.`,
+    );
+    // Light invalidation so timestamps refresh on next paint.
+    await qc.invalidateQueries({ queryKey: ["items_full"] });
   }
 
   // Advance every selected item one stage, validating each. Failures surface
@@ -427,28 +420,22 @@ export function FlipdeskPipelinePage() {
     const selected = items.filter((i) => selectedIds.has(i.id));
     if (selected.length === 0) return;
 
-    // US-1458: the stage after Photographed is grading, which is owned by the
-    // grade-submission flow (validateStatusChange always rejects a plain move
-    // into it). Peel those items off and route them into the bulk-grade dialog
-    // rather than reporting a guaranteed failure for every one.
-    const gradingBound = selected.filter(
-      (it) => nextPipelineStatus(it.status) === "grading" && it.grade_value == null,
-    );
-    const toMove = selected.filter((it) => !gradingBound.includes(it));
+    // US-1458: grading-bound cards go to the bulk-grade dialog rather than
+    // failing validation one by one (planBatchAdvance, pipeline-plan.ts).
+    const { toMove, groups, gradingBound, refused } = planBatchAdvance(selected);
 
-    if (toMove.length === 0 && gradingBound.length > 0) {
+    if (toMove.length === 0 && refused.length === 0 && gradingBound.length > 0) {
       // Nothing to advance by status — go straight to grading.
       setGradeItems(gradingBound);
       return;
     }
 
     setBatchRunning(true);
-    const plan = planBatchAdvance(toMove);
-    const results: BatchResult[] = [...plan.refused];
+    const results: BatchResult[] = [...refused];
     try {
       // One UPDATE per target stage (chunked to keep the id list in the URL
       // short) instead of one round trip per card.
-      for (const group of plan.groups) {
+      for (const group of groups) {
         const label = ITEM_STATUS_LABELS[group.status];
         for (const part of chunk(group.items, BATCH_WRITE_SIZE)) {
           const { data, error } = await supabase
