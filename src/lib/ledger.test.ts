@@ -76,6 +76,7 @@ beforeEach(() => {
     home_office_years: null,
     shipments: BEFORE,
     ebay_payouts: null,
+    inventory_items: BEFORE,
   };
   rpc.mockReset();
   rpc.mockResolvedValue({ data: 41, error: null });
@@ -108,6 +109,8 @@ describe("ensureLedgerBuilt", () => {
     "home_office_years",
     "shipments",
     "ebay_payouts",
+    // A cost typed in after the sale is the COGS line (00777 'cogs','cogs').
+    "inventory_items",
   ])("rebuilds when %s changed after the last build", async (table) => {
     newest[table] = AFTER;
     await ensureLedgerBuilt();
@@ -142,6 +145,8 @@ describe("ensureLedgerBuilt", () => {
     }
     const ship = reads.find((x) => x.table === "shipments");
     expect(ship?.filters).toContainEqual(["eq", "sales.user_id", USER]);
+    const item = reads.find((x) => x.table === "inventory_items");
+    expect(item?.filters).toContainEqual(["eq", "sales.user_id", USER]);
   });
 
   it("shares one check between concurrent callers", async () => {

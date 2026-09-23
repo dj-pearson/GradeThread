@@ -132,10 +132,13 @@ export async function invalidateLedgerQueries(qc: QueryInvalidator): Promise<voi
 }
 
 /**
- * The seller-owned tables rebuild_ledger_for_user (00777) derives entries
- * from, each with a trigger-maintained updated_at. shipments is read
- * separately because it has no user_id. mileage_rates is left out: it is a
- * shared rate table, not a seller's row.
+ * Seller-owned tables rebuild_ledger_for_user (00777) derives entries from,
+ * each with a trigger-maintained updated_at and a user_id to scope by. Two more
+ * inputs are read through their sale in newestLedgerSourceChange: shipments
+ * (no user_id) and inventory_items (acquired_price is the COGS line, and a
+ * seller often types the cost in after the item sells). mileage_rates is left
+ * out: it is a shared rate table, not a seller's row. listings.platform (which
+ * sales-tax branch applies) is also an input and is not watched.
  */
 const LEDGER_SOURCE_TABLES = [
   "sales",
@@ -194,6 +197,16 @@ async function newestLedgerSourceChange(userId: string): Promise<number | null> 
       .order("updated_at", { ascending: false })
       .limit(1),
   );
+  // An item's cost becomes the sale's COGS entry. Read through the sale so a
+  // cost edit on a sold item counts, and edits to unsold items do not.
+  reads.push(
+    client
+      .from("inventory_items")
+      .select("updated_at, sales!inner(user_id)")
+      .eq("sales.user_id", userId)
+      .order("updated_at", { ascending: false })
+      .limit(1),
+  );
   let newest: number | null = null;
   for (const { data, error } of await Promise.all(reads)) {
     if (error) throw new Error(error.message);
@@ -207,7 +220,7 @@ async function newestLedgerSourceChange(userId: string): Promise<number | null> 
  * Make sure the ledger is built and not older than the rows it derives from.
  *
  * Rebuilds when the ledger is EMPTY, or when any sale, expense, trip, home
- * office year, shipment or payout changed after the last build. The last build
+ * office year, shipment, payout or sold item changed after the last build. The last build
  * is the newest derived entry's created_at: rebuild_ledger_for_user deletes and
  * re-inserts every non-adjustment row, so that stamp is the build time.
  * Adjustments are left out because a seller adds them by hand between builds.
