@@ -3,7 +3,9 @@ import {
   ALL_CLEAR,
   ATTENTION_HREF,
   buildAttentionChips,
+  isPlanGateError,
   oldestUpdatedAt,
+  railState,
 } from "@/lib/attention-rail";
 
 // US-3079 AC4: the rail's ordering, its zero-count rule and the all-clear case,
@@ -199,5 +201,53 @@ describe("oldestUpdatedAt", () => {
     expect(oldestUpdatedAt([])).toBeNull();
     expect(oldestUpdatedAt([0, 0])).toBeNull();
     expect(oldestUpdatedAt([Number.NaN])).toBeNull();
+  });
+});
+
+describe("railState (DASH-1)", () => {
+  const chip = {
+    id: "stale",
+    label: "stale listings",
+    count: 1,
+    href: "/dashboard/x",
+    hint: null,
+  };
+
+  it("is error, never all-clear, when a source failed and there are no chips", () => {
+    expect(
+      railState({ chips: [], failed: ["sync conflicts"], loading: false, partial: false }),
+    ).toBe("error");
+  });
+
+  it("is error when a read was only partial", () => {
+    expect(
+      railState({ chips: [], failed: [], loading: false, partial: true }),
+    ).toBe("error");
+  });
+
+  it("shows the chips that loaded even when another source failed", () => {
+    expect(
+      railState({ chips: [chip], failed: ["drafts"], loading: false, partial: false }),
+    ).toBe("chips");
+  });
+
+  it("is loading while a source is in flight", () => {
+    expect(
+      railState({ chips: [], failed: [], loading: true, partial: false }),
+    ).toBe("loading");
+  });
+
+  it("is all-clear only when every source answered and nothing is waiting", () => {
+    expect(
+      railState({ chips: [], failed: [], loading: false, partial: false }),
+    ).toBe("all-clear");
+  });
+
+  it("recognises a plan gate by its status", () => {
+    expect(isPlanGateError({ status: 402 })).toBe(true);
+    expect(isPlanGateError({ status: 403 })).toBe(true);
+    expect(isPlanGateError({ status: 500 })).toBe(false);
+    expect(isPlanGateError(new Error("x"))).toBe(false);
+    expect(isPlanGateError(null)).toBe(false);
   });
 });

@@ -20,7 +20,9 @@ import {
 import {
   ALL_CLEAR,
   buildAttentionChips,
+  isPlanGateError,
   oldestUpdatedAt,
+  railState,
   type AttentionChip,
 } from "@/lib/attention-rail";
 
@@ -166,6 +168,29 @@ export function AttentionRail(
   const refreshing = sources.some((q) => q.isFetching) ||
     (isFlipdesk && needsYou.isFetching);
 
+  // A source that failed is UNKNOWN, not zero. Its count above falls back to 0
+  // so the other chips still render, and this list is what stops the rail
+  // turning that 0 into "All clear". A plan-gated conflicts read (402/403) is
+  // not applicable to the account, so it is not a failure.
+  const failed: string[] = [];
+  if (isFlipdesk) {
+    if (conflicts.isError && !isPlanGateError(conflicts.error)) {
+      failed.push("sync conflicts");
+    }
+    if (queue.isError) failed.push("extension jobs");
+    if (drafts.isError) failed.push("drafts");
+    if (overview.isError) failed.push("inventory");
+    if (needsYou.isError || needsYou.isPartial) failed.push("eBay queues");
+  } else if (grading.isError) {
+    failed.push("submissions");
+  }
+  const state = railState({
+    chips,
+    failed,
+    loading,
+    partial: isFlipdesk && needsYou.isPartial,
+  });
+
   /**
    * Refresh everything the board reads, by invalidating the queryKey prefixes
    * the registry declares — not a hand-kept list here. A widget added later is
@@ -181,6 +206,9 @@ export function AttentionRail(
       void queryClient.invalidateQueries({ queryKey: [p] });
     }
     if (isFlipdesk) needsYou.refetch();
+    // The rail's own reads are not registry widgets, so a failed one is
+    // retried directly; the "Could not check" chip's Retry depends on it.
+    for (const q of sources) if (q.isError) void q.refetch();
   };
 
   return (
@@ -194,33 +222,62 @@ export function AttentionRail(
       role="region"
       aria-label="Needs your attention"
     >
-      {loading
-        ? (
-          <span className="text-sm text-muted-foreground">
-            Checking what needs you…
-          </span>
-        )
-        : chips.length === 0
-        ? <span className="text-sm font-medium">{ALL_CLEAR}</span>
-        : (
-          chips.map((chip) => (
-            <Link
-              key={chip.id}
-              to={chip.href}
-              className="inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-sm transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-            >
-              <span className="font-semibold tabular-nums">{chip.count}</span>
-              <span>{chip.label}</span>
-              {chip.hint
+      <div
+        aria-live="polite"
+        className="flex flex-wrap items-center gap-x-3 gap-y-2"
+      >
+        {state === "loading"
+          ? (
+            <span className="text-sm text-muted-foreground">
+              Checking what needs you…
+            </span>
+          )
+          : state === "all-clear"
+          ? <span className="text-sm font-medium">{ALL_CLEAR}</span>
+          : (
+            <>
+              {chips.map((chip) => (
+                <Link
+                  key={chip.id}
+                  to={chip.href}
+                  className="inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-sm transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                >
+                  <span className="font-semibold tabular-nums">
+                    {chip.count}
+                  </span>
+                  <span>{chip.label}</span>
+                  {chip.hint
+                    ? (
+                      <span className="text-muted-foreground">
+                        · {chip.hint}
+                      </span>
+                    )
+                    : null}
+                </Link>
+              ))}
+              {failed.length > 0
                 ? (
-                  <span className="text-muted-foreground">
-                    · {chip.hint}
+                  <span
+                    className="inline-flex items-center gap-1.5 rounded-full border border-destructive/40 px-3 py-1 text-sm"
+                    title={`Could not check: ${failed.join(", ")}`}
+                  >
+                    <span>
+                      Could not check {failed.length}{" "}
+                      {failed.length === 1 ? "source" : "sources"}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={refreshAll}
+                      className="font-medium underline underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-sm"
+                    >
+                      Retry
+                    </button>
                   </span>
                 )
                 : null}
-            </Link>
-          ))
-        )}
+            </>
+          )}
+      </div>
 
       <div className="ml-auto flex items-center gap-2">
         {updatedLabel

@@ -49,7 +49,12 @@ export function useSyncConflicts() {
       });
       const json = await res.json().catch(() => ({}));
       if (!res.ok) {
-        throw new Error(json.error || "Failed to load sync conflicts.");
+        // Carry the status so a caller can tell a plan gate (402/403, not
+        // applicable to this account) from a real failure.
+        throw Object.assign(
+          new Error(json.error || "Failed to load sync conflicts."),
+          { status: res.status },
+        );
       }
       return json as SyncConflictsResponse;
     },

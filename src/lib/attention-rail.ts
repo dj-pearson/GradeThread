@@ -147,3 +147,40 @@ export function oldestUpdatedAt(stamps: readonly number[]): number | null {
   if (real.length === 0) return null;
   return Math.min(...real);
 }
+
+/** What the rail's chip area shows. */
+export type RailState = "loading" | "all-clear" | "chips" | "error";
+
+export interface RailStateInput {
+  chips: readonly AttentionChip[];
+  /** Names of the sources whose read failed. */
+  failed: readonly string[];
+  loading: boolean;
+  /** A source answered with only part of its data (useNeedsYou.isPartial). */
+  partial: boolean;
+}
+
+/**
+ * Which of the four states the rail is in.
+ *
+ * The rule this exists for: "All clear" is a claim that every source was
+ * checked and every count was zero. A failed or partial read is not zero, it
+ * is unknown, so it can never produce 'all-clear'. With chips to show the rail
+ * shows them and adds a "Could not check" chip; with none it is an error.
+ */
+export function railState(input: RailStateInput): RailState {
+  if (input.loading) return "loading";
+  const unsure = input.failed.length > 0 || input.partial;
+  if (input.chips.length > 0) return "chips";
+  return unsure ? "error" : "all-clear";
+}
+
+/**
+ * True for an error that means "this account's plan does not include this
+ * read" rather than "the read failed". A plan-gated source is not applicable,
+ * so it must not count as a source the rail could not check.
+ */
+export function isPlanGateError(err: unknown): boolean {
+  const status = (err as { status?: unknown } | null)?.status;
+  return status === 402 || status === 403;
+}
