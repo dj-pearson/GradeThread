@@ -107,11 +107,11 @@ function viewerTimeZone(): string {
   }
 }
 
-export function useFlipdeskOverview(range: OverviewRangeId) {
+export function useFlipdeskOverview(range: OverviewRangeId, enabled = true) {
   const user = useAuthStore((s) => s.user);
   return useQuery({
     queryKey: ["items_full", "overview_metrics", user?.id, range],
-    enabled: !!user,
+    enabled: enabled && !!user,
     staleTime: 5 * 60 * 1000,
     queryFn: async (): Promise<OverviewMetrics> => {
       // Bounds are computed at FETCH time, not at render time: a tab left open

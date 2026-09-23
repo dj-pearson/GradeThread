@@ -192,3 +192,29 @@ describe("AttentionRail: a failed source is never All clear", () => {
     expect(container.querySelector('[aria-live="polite"]')).not.toBeNull();
   });
 });
+
+describe("AttentionRail: FlipDesk reads are gated off the grading view (DASH-6)", () => {
+  it("disables the conflicts and overview reads on grading", async () => {
+    await render("grading");
+    expect(state.calls.conflictsEnabled.length).toBeGreaterThan(0);
+    expect(state.calls.conflictsEnabled.every((e) => e === false)).toBe(true);
+    expect(state.calls.overviewEnabled.every((e) => e === false)).toBe(true);
+  });
+
+  it("enables them on flipdesk", async () => {
+    await render("flipdesk");
+    expect(state.calls.conflictsEnabled.every((e) => e === true)).toBe(true);
+    expect(state.calls.overviewEnabled.every((e) => e === true)).toBe(true);
+  });
+
+  it("Refresh invalidates the rail's own grading count", async () => {
+    const spy = vi.spyOn(client, "invalidateQueries");
+    await render("grading");
+    const refresh = [...container.querySelectorAll("button")].find((b) =>
+      b.textContent?.includes("Refresh")
+    )!;
+    await act(async () => refresh.click());
+    const keys = spy.mock.calls.map((c) => (c[0] as { queryKey: unknown[] }).queryKey[0]);
+    expect(keys).toContain("attention-rail-grading");
+  });
+});

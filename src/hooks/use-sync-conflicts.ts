@@ -34,11 +34,11 @@ export interface SyncConflictsResponse {
   has_more: boolean;
 }
 
-export function useSyncConflicts() {
+export function useSyncConflicts(enabled = true) {
   const user = useAuthStore((s) => s.user);
   return useQuery({
     queryKey: ["sync_conflicts", user?.id],
-    enabled: !!user,
+    enabled: enabled && !!user,
     staleTime: 30_000,
     queryFn: async (): Promise<SyncConflictsResponse> => {
       // silentGate: this read runs on page mount (tab badge) — a non-Business

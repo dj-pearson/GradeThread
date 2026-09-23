@@ -22,6 +22,7 @@ import {
   buildAttentionChips,
   isPlanGateError,
   oldestUpdatedAt,
+  RAIL_QUERY_KEYS,
   railState,
   type AttentionChip,
 } from "@/lib/attention-rail";
@@ -56,7 +57,7 @@ const GRADING_STATUS = {
 function useGradingAttentionCounts(enabled: boolean) {
   const user = useAuthStore((s) => s.user);
   return useQuery({
-    queryKey: ["attention-rail-grading", user?.id],
+    queryKey: [RAIL_QUERY_KEYS[0], user?.id],
     enabled: enabled && !!user,
     staleTime: 60_000,
     queryFn: async () => {
@@ -112,10 +113,12 @@ export function AttentionRail(
   const queryClient = useQueryClient();
 
   const needsYou = useNeedsYou(isFlipdesk);
-  const conflicts = useSyncConflicts();
+  // Gated like every other FlipDesk read here: the grading view must not fire
+  // the aggregate RPC and a 500-row conflicts read it never shows.
+  const conflicts = useSyncConflicts(isFlipdesk);
   const queue = useExtensionQueue(isFlipdesk);
   const drafts = useAutolisterDrafts(isFlipdesk);
-  const overview = useFlipdeskOverview(range);
+  const overview = useFlipdeskOverview(range, isFlipdesk);
   const grading = useGradingAttentionCounts(!isFlipdesk);
 
   const chips = useMemo<AttentionChip[]>(() => {
@@ -202,6 +205,7 @@ export function AttentionRail(
     for (const w of widgetsForSurface(surface)) {
       for (const k of w.queryKeys) prefixes.add(k);
     }
+    for (const k of RAIL_QUERY_KEYS) prefixes.add(k);
     for (const p of prefixes) {
       void queryClient.invalidateQueries({ queryKey: [p] });
     }

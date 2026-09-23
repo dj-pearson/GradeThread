@@ -66,17 +66,33 @@ export interface AttentionInputs {
  * src/routes/index.tsx; a chip that links nowhere is worse than no chip,
  * because it costs a click to learn that.
  */
+/**
+ * Where sync conflicts are resolved. Shared by the rail chip and the
+ * flipdesk.sync-conflicts widget so the two cannot point at different pages;
+ * /marketplaces renders no conflicts at all.
+ */
+export const SYNC_CONFLICTS_HREF =
+  "/dashboard/flipdesk/money?view=reconcile&tab=cross-source";
+
 export const ATTENTION_HREF = {
   needsYou: "/dashboard/flipdesk/post-sale",
   draftsToReview: "/dashboard/flipdesk/autolister?view=drafts",
-  syncConflicts: "/dashboard/flipdesk/marketplaces",
+  syncConflicts: SYNC_CONFLICTS_HREF,
   extensionJobs: "/dashboard/flipdesk/marketplaces",
   aging: "/dashboard/flipdesk/inventory",
-  stale: "/dashboard/flipdesk/inventory",
+  // Same destination as the flipdesk.stale widget's own "see all" link.
+  stale: "/dashboard/flipdesk/analytics/performance",
   inReview: "/dashboard/submissions?status=pending_review",
   failed: "/dashboard/submissions?status=failed",
   disputed: "/dashboard/submissions?status=disputed",
 } as const;
+
+/**
+ * The query-key prefixes the rail reads that are NOT registry widgets'. The
+ * Refresh control unions these into its invalidations, or the rail's own
+ * counts would be the one thing on the page it does not refresh.
+ */
+export const RAIL_QUERY_KEYS = ["attention-rail-grading"] as const;
 
 /** What the rail says when every count is zero. */
 export const ALL_CLEAR = "All clear";
