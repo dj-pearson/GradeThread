@@ -31,7 +31,7 @@ import { supabaseAdmin } from "./supabase.ts";
 import {
   MIN_CLAIM_TTL_MS,
   planStaleClaimReclaim,
-  STALE_CLAIM_ERROR,
+  staleClaimPatch,
   type StaleClaimCandidate,
 } from "./extension-queue-reclaim.ts";
 import { resolveSellerEntitlement } from "./buyer-entitlements.ts";
@@ -180,14 +180,8 @@ export async function reclaimStaleClaims(ownerId: string, nowMs: number): Promis
   const plan = planStaleClaimReclaim((data ?? []) as StaleClaimCandidate[], nowMs);
   const nowIso = new Date(nowMs).toISOString();
   for (const step of plan) {
-    const patch = step.action === "requeue"
-      ? { status: "queued", attempts: step.attempts, claimed_at: null, claimed_by: null }
-      : {
-        status: "failed",
-        attempts: step.attempts,
-        completed_at: nowIso,
-        result: { ok: false, stale: true, error: STALE_CLAIM_ERROR },
-      };
+    // claimed_at is kept on a requeue: it is the drain proof (staleClaimPatch).
+    const patch = staleClaimPatch(step, nowIso);
     const { error: writeError } = await supabaseAdmin
       .from("extension_work_queue")
       .update(patch)

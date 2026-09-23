@@ -344,7 +344,10 @@ Two rules the queue adds:
   filled form is a duplicate listing) and count it in `attempts`. The third
   stale claim fails the row with a `result.error` the delist log shows. The
   rules are pure in `lib/extension-queue-reclaim.ts`; the write is
-  owner-scoped and compare-and-sets on the `claimed_at` it read. `/complete`
+  owner-scoped and compare-and-sets on the `claimed_at` it read. A requeue
+  leaves `claimed_at` in place: it is the drain proof that `lastDrainedAt` and
+  the US-3198 stale-queue cron read, and clearing it told a seller whose first
+  drain died that no extension had ever run. `/complete`
   follows from it: a `done` row is final, a success lands from any other state
   (the work happened), and a failure on a requeued row, or from another install
   than the current holder, is answered 2xx and dropped so it cannot cancel the

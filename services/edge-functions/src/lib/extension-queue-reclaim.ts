@@ -127,3 +127,30 @@ export function decideQueueCompletion(
   }
   return "apply";
 }
+
+/**
+ * The row update for one reclaim step. Pure.
+ *
+ * A requeue leaves `claimed_at` exactly as it was. That timestamp is the only
+ * proof a browser ever drained this seller's queue: `lastDrainedAt` in
+ * routes/flipdesk-extension-queue.ts and the US-3198 stale-queue cron both read
+ * max(claimed_at) over every status. Clearing it on a seller whose first-ever
+ * drain died mid-job made the tray say no extension had ever run and made the
+ * cron answer `never_drained` and skip its push. Keeping it is safe for the
+ * compare-and-set: the reclaim reads only `claimed` rows and /claim reads only
+ * `queued` ones and restamps `claimed_at` when it takes the row again.
+ */
+export function staleClaimPatch(
+  step: StaleClaimAction,
+  nowIso: string,
+): Record<string, unknown> {
+  if (step.action === "requeue") {
+    return { status: "queued", attempts: step.attempts, claimed_by: null };
+  }
+  return {
+    status: "failed",
+    attempts: step.attempts,
+    completed_at: nowIso,
+    result: { ok: false, stale: true, error: STALE_CLAIM_ERROR },
+  };
+}

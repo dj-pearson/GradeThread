@@ -19,6 +19,7 @@ import {
   MIN_CLAIM_TTL_MS,
   planStaleClaimReclaim,
   STALE_CLAIM_ERROR,
+  staleClaimPatch,
 } from "../lib/extension-queue-reclaim.ts";
 
 const NOW = Date.parse("2026-09-23T12:00:00Z");
@@ -137,6 +138,45 @@ Deno.test("complete: the holder's own failure, or an unlabelled one, still recor
   );
 });
 
+// max(claimed_at) over every row, non-null only: the read lastDrainedAt and the
+// US-3198 stale-queue cron make to decide whether an extension has ever run.
+function lastDrained(rows: { claimed_at: string | null }[]): string | null {
+  const stamps = rows.map((r) => r.claimed_at).filter((x): x is string => x !== null);
+  return stamps.length ? stamps.sort().at(-1)! : null;
+}
+
+Deno.test("reclaim: a requeued row still proves a browser drained the queue", () => {
+  // A seller's first-ever drain claims a delist and the browser dies. Clearing
+  // claimed_at on the requeue made the tray say no extension had ever run and
+  // the stale-queue cron answer never_drained.
+  const row = {
+    id: "a",
+    kind: "delist",
+    attempts: 0,
+    claimed_at: ago(16 * MIN),
+    claimed_by: "install-1" as string | null,
+    status: "claimed",
+  };
+  const [step] = planStaleClaimReclaim([row], NOW);
+  assertEquals(step.action, "requeue");
+  const after = { ...row, ...staleClaimPatch(step, new Date(NOW).toISOString()) };
+  assertEquals(after.status, "queued");
+  assertEquals(after.claimed_by, null);
+  assertEquals(lastDrained([after]), row.claimed_at);
+
+  // And a seller with an older done row keeps the newer stamp.
+  const older = { claimed_at: ago(3 * 24 * 60 * MIN) };
+  assertEquals(lastDrained([older, after]), row.claimed_at);
+});
+
+Deno.test("reclaim: a terminally failed row keeps its drain stamp too", () => {
+  const row = { id: "a", kind: "delist", attempts: 2, claimed_at: ago(16 * MIN) };
+  const [step] = planStaleClaimReclaim([row], NOW);
+  const patch = staleClaimPatch(step, new Date(NOW).toISOString());
+  assertEquals(patch.status, "failed");
+  assert(!("claimed_at" in patch));
+});
+
 // --- the DB half, read from source ------------------------------------------
 
 const ENQUEUE = await Deno.readTextFile(new URL("../lib/extension-enqueue.ts", import.meta.url));
@@ -157,6 +197,12 @@ Deno.test("reclaimStaleClaims: scoped, compare-and-set, and no .or() on the writ
   assertEquals(scopes.length, 2, "the read AND the write must be tenant-scoped (US-268)");
   assertMatch(body, /\.eq\("status", "claimed"\)\s*\n\s*\.eq\("claimed_at", step\.claimed_at\)/);
   assert(!body.includes(".or("), "no .or() on a mutation (US-1552)");
+});
+
+Deno.test("reclaimStaleClaims: the write never clears claimed_at", () => {
+  const body = fnBody(ENQUEUE, "export async function reclaimStaleClaims(");
+  assert(body.includes("staleClaimPatch(step"), "the write must use the tested patch");
+  assert(!/claimed_at:\s*null/.test(body), "claimed_at is the drain proof; do not clear it");
 });
 
 Deno.test("/claim reclaims stale claims before it reads the queue", () => {
