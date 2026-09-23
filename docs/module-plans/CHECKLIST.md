@@ -54,7 +54,7 @@ Each line names the plan file and action number.
 - [x] Sources page counts in SQL (flipdesk-inventory 7), migration 00831
 - [x] Board batch advance and filters (flipdesk-inventory 8)
 - [x] AutoLister timeout stops work, no duplicate eBay drafts (marketplaces 3), migration 00832
-- [~] Split flipdesk-ebay.ts by concern (marketplaces 5), round 4
+- [x] Split flipdesk-ebay.ts by concern (marketplaces 5), round 4
 - [x] Marketplaces page render test (marketplaces 6)
 - [x] Show ledger-vs-dashboard disagreement to the seller (money 6)
 - [x] Nested cards on the homepage (web-growth 3)
@@ -75,13 +75,22 @@ Each line names the plan file and action number.
 
 - [x] Guard test held a literal backspace instead of \b, so it never matched (grading-cache-premium_test)
 - [x] ensureLedgerBuilt dropped a getSession error (unchecked-read baseline)
-- [~] Offline intake: photo failures, idempotent photo retries, attempt counting; board facet case
-- [~] AutoLister: abandoned-draft test, read retry, friendly duplicate-draft errors, 00832 made race-safe
-- [~] Grading: shadow refusal on active rows, vault note, eval workflow hints, streamed-call context
-- [~] Web: export state across tabs, elevation test, Lighthouse report matching, 2 contrast failures, drift banner on past ranges
-- [~] Platform: worklist and session hook read held-migrations.json, restore 12 lost lines
-- [~] iOS test target links Core, symbol guards; SDK 5xx retry vs idempotency; developers page install copy
+- [x] Offline intake: photo failures, idempotent photo retries, attempt counting; board facet case
+- [x] AutoLister: abandoned-draft test, read retry, friendly duplicate-draft errors, 00832 made race-safe
+- [x] Grading: shadow refusal on active rows, vault note, eval workflow hints, streamed-call context
+- [x] Web: export state across tabs, elevation test, Lighthouse report matching, 2 contrast failures, drift banner on past ranges
+- [x] Platform: worklist and session hook read held-migrations.json, restore 12 lost lines
+- [x] iOS test target links Core, symbol guards; SDK 5xx retry vs idempotency; developers page install copy
+- [x] Split flipdesk-ebay.ts into 12 route files, same 124 routes (marketplaces 5)
 - [owner] Publish the SDK to npm (the developers page will say it is not published yet)
 - [owner] Native speaker review of the flagged Spanish Android strings
 - [owner] Raise the iOS coverage floor to the first green Mac CI number
 - [owner] Decide whether to reseal certificates graded with the old rounding (US-3470)
+- [owner] Refund policy when an API grade debit errors but may have gone through (credits could be lost; no double charge now)
+- [owner] Say whether 00823 was applied on prod (the gate still lists it as held while it is on main)
+
+## Round 5: last reds and loose ends
+
+- [~] sold-at-provenance red from the SDK commit; notification-surface matrix parser; sku-sequences DSN test
+- [~] eBay /promotions/:id swallows /performance and /stack-check; per-file plan-gate check for sync and post-sale
+- [~] Offline queue retry edge cases, export flag per user, codex hook and worklist read the held registry, SDK README
