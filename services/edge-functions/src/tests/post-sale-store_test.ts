@@ -69,6 +69,7 @@ Deno.test("returnToCaseInput carries the summary through and closes on a termina
       creationDate: "2026-08-20T00:00:00.000Z",
       respondBy: "2026-08-28T00:00:00.000Z",
       buyerUsername: "buyer_one",
+      sellerActions: null,
     },
     NOW,
   );
@@ -88,6 +89,7 @@ Deno.test("returnToCaseInput carries the summary through and closes on a termina
       creationDate: null,
       respondBy: null,
       buyerUsername: null,
+      sellerActions: null,
     },
     NOW,
   );

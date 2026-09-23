@@ -60,6 +60,11 @@
   // for now" rather than guessing at a form.
   if (!cfg || !cfg.enabled) return;
 
+  // How long run() waits for a Sold table to draw before reporting it empty.
+  const SETTLE_MAX = 5;
+  const SETTLE_MS = 1500;
+  let settleTries = 0;
+
   function hostAllowed() {
     // resolvePlatform already matched a host to get here; this re-states it so
     // the three refusals below read in one place.
@@ -137,17 +142,63 @@
     } catch (_e) {
       return { rows: rows, ok: false };
     }
+    const f = flow.fields || {};
+    const ex = flow.extract || {};
     for (const node of nodes) {
-      const f = flow.fields || {};
-      rows.push({
-        listingUrl: hrefOf(node, f.listingUrl),
+      if (skipRow(node, flow.skipRowIf)) continue;
+      const row = {
+        listingUrl: ex.listingUrl ? extractOf(node, f.listingUrl, ex.listingUrl) : hrefOf(node, f.listingUrl),
         title: textOf(node, f.title),
         priceText: textOf(node, f.priceText),
         dateText: textOf(node, f.dateText),
-        orderRef: textOf(node, f.orderRef),
-      });
+        orderRef: ex.orderRef ? extractOf(node, f.orderRef, ex.orderRef) : textOf(node, f.orderRef),
+      };
+      // A loading skeleton row, not a sale. Mercari renders a few of these
+      // before its data arrives.
+      if (!row.listingUrl && !row.title) continue;
+      rows.push(row);
     }
     return { rows: rows, ok: true };
+  }
+
+  /**
+   * Read one attribute of the first match and keep the first group of
+   * `spec.match`, optionally substituted into `spec.build`. Used where the page
+   * carries the value in markup rather than text, such as Poshmark's listing id
+   * living only in the thumbnail path. Null on any miss.
+   */
+  function extractOf(scope, selector, spec) {
+    if (!selector || !spec || !spec.attr) return null;
+    let el;
+    try {
+      el = scope.querySelector(selector);
+    } catch (_e) {
+      return null;
+    }
+    if (!el || typeof el.getAttribute !== "function") return null;
+    const raw = el.getAttribute(spec.attr);
+    if (!raw) return null;
+    if (!spec.match) return raw;
+    let m;
+    try {
+      m = new RegExp(spec.match).exec(raw);
+    } catch (_e) {
+      return null;
+    }
+    if (!m || !m[1]) return null;
+    return spec.build ? spec.build.replace(/\$1/g, m[1]) : m[1];
+  }
+
+  /** True when the row's `rule.selector` text matches `rule.pattern`. */
+  function skipRow(node, rule) {
+    if (!rule || !rule.selector || !rule.pattern) return false;
+    const t = textOf(node, rule.selector);
+    if (!t) return false;
+    try {
+      return new RegExp(rule.pattern, "i").test(t);
+    } catch (_e) {
+      return false;
+    }
   }
 
   /**
@@ -262,6 +313,17 @@
     const soldRead = onSold ? readSold() : { rows: [], ok: false };
     const closet = onCloset ? readCloset() : null;
 
+    // Both marketplaces render the Sold table after document_idle, so the first
+    // read of a page that does have sales often sees none. Look again a few
+    // times before reporting an empty list. This is a bounded wait for ONE page
+    // view to finish drawing, not a poll: it stops at SETTLE_MAX and resets only
+    // when the seller navigates.
+    if (onSold && soldRead.ok && soldRead.rows.length === 0 && settleTries < SETTLE_MAX) {
+      settleTries += 1;
+      setTimeout(run, SETTLE_MS);
+      return;
+    }
+
     // Nothing recognised on either page: say nothing rather than report an empty
     // closet. A silent no-op and a confident "you have zero listings" are very
     // different claims, and only one of them can trigger a channel-failing state
@@ -287,6 +349,7 @@
   function maybeRun() {
     if (location.href === lastHref) return;
     lastHref = location.href;
+    settleTries = 0;
     run();
   }
 
@@ -301,6 +364,7 @@
     ext.runtime.onMessage.addListener(function (msg, _sender, sendResponse) {
       if (!msg || msg.type !== "GT_SYNC_RUN") return undefined;
       lastHref = null;
+      settleTries = 0;
       try {
         run();
         sendResponse({ ok: true, read: true });

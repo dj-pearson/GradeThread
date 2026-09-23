@@ -1672,7 +1672,9 @@ export interface TitleVariantRow {
 export interface AspectReviewEntry {
   aspect: string;
   values: string[];
-  reason: "unknown_aspect" | "unmatched_value";
+  // US-3474: off_list_value = a FREE_TEXT value not on eBay's list. It is
+  // kept AND published; it is a hint, never a blocker.
+  reason: "unknown_aspect" | "unmatched_value" | "off_list_value";
 }
 
 // US-2424: one eBay leaf AutoLister weighed before choosing this draft's

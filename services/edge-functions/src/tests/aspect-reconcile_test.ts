@@ -316,3 +316,46 @@ Deno.test("a size aspect eBay shipped no values for still takes free text", () =
   const r = reconcilePublishAspects({ Size: ["32x30"] }, specs);
   assertEquals(r.aspects["Size"], ["32x30"]);
 });
+
+// ── US-3474: FREE_TEXT aspects that ship a list are matched to it ──────────
+// 76% of free-text aspect rows in the 2026-09-23 capture carry a list, and
+// eBay's buyer filters are built from it. A value the matcher can land is sent
+// in eBay's spelling; a miss is KEPT and sent (owner decision 2026-09-23) with
+// a soft `off_list_value` flag that never blocks.
+const FIT_LIST: ReconcileSpec = {
+  name: "Fit",
+  mode: "FREE_TEXT",
+  allowedValues: ["Athletic", "Classic", "Extra-Slim", "Regular", "Relaxed", "Slim"],
+};
+const STYLE_LIST: ReconcileSpec = {
+  name: "Style",
+  mode: "FREE_TEXT",
+  allowedValues: ["Bootcut", "Skinny", "Straight", "Wide-Leg"],
+};
+
+Deno.test("US-3474 generation: a free-text value with a list lands on eBay's spelling", () => {
+  const r = reconcileGeneratedAspects({ fit: ["Extra Slim"], Style: ["Boot Cut"] }, [FIT_LIST, STYLE_LIST]);
+  assertEquals(r.aspects["Fit"], ["Extra-Slim"]);
+  assertEquals(r.aspects["Style"], ["Bootcut"]);
+  assertEquals(r.review, []);
+});
+
+Deno.test("US-3474 generation: a miss is kept and flagged off_list_value, never unmatched_value", () => {
+  const r = reconcileGeneratedAspects({ Style: ["Carpenter"] }, [STYLE_LIST]);
+  assertEquals(r.aspects["Style"], ["Carpenter"]);
+  assertEquals(r.review, [{ aspect: "Style", values: ["Carpenter"], reason: "off_list_value" }]);
+});
+
+Deno.test("US-3474 publish: matched values go out in eBay's spelling, misses go out as written", () => {
+  const r = reconcilePublishAspects({ Fit: ["Extra Slim"], Style: ["Carpenter"] }, [FIT_LIST, STYLE_LIST]);
+  assertEquals(r.aspects["Fit"], ["Extra-Slim"]);
+  assertEquals(r.aspects["Style"], ["Carpenter"]);
+  assertEquals(r.omitted, [], "an off-list free-text value is never omitted");
+  assertEquals(r.offList, [{ aspect: "Style", omittedValues: ["Carpenter"], reason: "off_list_value" }]);
+});
+
+Deno.test("US-3474: free text with no list still passes through untouched and unflagged", () => {
+  const r = reconcilePublishAspects({ Theme: ["Retro Racing"] }, [{ name: "Theme", mode: "FREE_TEXT" }]);
+  assertEquals(r.aspects["Theme"], ["Retro Racing"]);
+  assertEquals(r.offList, []);
+});

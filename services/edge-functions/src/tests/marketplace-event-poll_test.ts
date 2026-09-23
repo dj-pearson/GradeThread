@@ -74,6 +74,7 @@ function makeDeps(over: Partial<MarketplacePollDeps> = {}) {
           creationDate: null,
           respondBy: "2026-09-03T00:00:00.000Z",
           buyerUsername: "b",
+          sellerActions: null,
         },
       ]),
     fetchDisputes: () =>

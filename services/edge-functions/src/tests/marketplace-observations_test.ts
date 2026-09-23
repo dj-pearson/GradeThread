@@ -9,6 +9,7 @@ import { assertEquals } from "@std/assert";
 import {
   BREAKER_FLOOR,
   BREAKER_SHARE,
+  canonicalUrl,
   dedupeKeyFor,
   planObservations,
   planSaleEffects,
@@ -448,4 +449,23 @@ Deno.test("a claim does not make OTHER unknown URLs match", () => {
   // it goes to review and never to a delist.
   assertEquals(plan.confirmed.length, 0);
   assertEquals(plan.review.filter((r) => r.reason === "probable_match").length, 1);
+});
+
+// Poshmark's Sold table yields only the bare listing id (read from the
+// thumbnail path) while its closet links carry a title slug, and Mercari links
+// both /us/item/m123 and /item/m123. Each pair must be ONE string, or a sale
+// can never match the listing it sold.
+Deno.test("canonicalUrl: one listing, one string, whatever the spelling", () => {
+  const id = "6a9a0c1f2b3d4e5f60718293";
+  assertEquals(
+    canonicalUrl(`https://poshmark.com/listing/Lululemon-ABC-Pants-${id}?utm=x`),
+    canonicalUrl(`https://poshmark.com/listing/${id}`),
+  );
+  assertEquals(canonicalUrl(`https://www.poshmark.com/listing/${id}/`), `https://poshmark.com/listing/${id}`);
+  assertEquals(
+    canonicalUrl("https://www.mercari.com/us/item/m12345678901/"),
+    canonicalUrl("https://mercari.com/item/m12345678901"),
+  );
+  // Other hosts keep their full path.
+  assertEquals(canonicalUrl("https://www.ebay.com/itm/Some-Title/123"), "https://ebay.com/itm/some-title/123");
 });

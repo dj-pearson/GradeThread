@@ -620,6 +620,21 @@ function fillAspect(aspect: RegistryAspect, values: string[], entryMulti: boolea
     if (matched.length === 0) return [];
     return allowMulti ? matched : [matched[0]!];
   }
+  // US-3474: free text that still ships a list. Land on eBay's spelling where
+  // the matcher can ("Regular Fit" -> "Regular"); keep the value as written
+  // where it cannot. Nothing is dropped on this branch.
+  if ((aspect.allowedValues ?? []).some((v) => v && v.trim().length > 0)) {
+    const out: string[] = [];
+    for (const v of values) {
+      const hit = normalizeAspectValue(v, {
+        name: aspect.name,
+        mode: aspect.mode,
+        allowedValues: aspect.allowedValues,
+      }) ?? v;
+      if (!out.includes(hit)) out.push(hit);
+    }
+    return allowMulti ? out : [out[0]!];
+  }
   return allowMulti ? values : [values[0]!];
 }
 

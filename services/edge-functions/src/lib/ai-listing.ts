@@ -3574,7 +3574,9 @@ export async function generateListing(
   }
   const needsReview =
     listingNeedsReview(listing.confidence, fieldConfidence) ||
-    aspectReview.length > 0 ||
+    // US-3474: an off-list FREE_TEXT value is kept and publishes fine, so it
+    // is a hint for the seller, not a reason to hold the draft for review.
+    aspectReview.some((r) => r.reason !== "off_list_value") ||
     conditionUnresolved;
 
   // US-956: record the price confidence under listing_price so the estimated-flag

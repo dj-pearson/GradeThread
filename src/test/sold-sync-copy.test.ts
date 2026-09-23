@@ -46,6 +46,16 @@ describe("syncStateCopy", () => {
     expect(copy.detail).toContain("sold page");
   });
 
+  it("a channel with no sold reader does not send the seller to its sold page", () => {
+    // Vinted had 4 live listings and was told to open a page nothing reads.
+    const copy = syncStateCopy(
+      channel({ platform: "vinted", status: "never", listings_seen: null, live_listings: 4 }),
+    );
+    expect(copy.detail).not.toContain("sold page");
+    expect(copy.detail).toContain("cannot read");
+    expect(copy.detail).toContain("4");
+  });
+
   it("never-synced with nothing live does not invent a chore", () => {
     const copy = syncStateCopy(
       channel({ status: "never", listings_seen: null, live_listings: 0 }),

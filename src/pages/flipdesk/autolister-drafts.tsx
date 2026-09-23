@@ -82,6 +82,7 @@ import { titleQuality } from "@/lib/title-quality";
 import { estimateListingProfit } from "@/lib/listing-profit";
 import { EmptyState } from "@/components/ui/empty-state";
 import { ErrorState } from "@/components/ui/error-state";
+import { blockingAspectReview } from "@/lib/aspect-review";
 
 // US-548: persistent AutoLister "Drafts" cockpit. The generation queue lives
 // only at a ?batch= URL, so a reseller who generates today and reviews tomorrow
@@ -1036,16 +1037,16 @@ export function FlipdeskAutolisterDraftsPage() {
                             variant="outline"
                             className="border-amber-500/40 bg-amber-500/10 text-[10px] text-amber-700 dark:text-amber-300"
                             title={
-                              d.aspect_review && d.aspect_review.length > 0
-                                ? `eBay specifics to fix: ${d.aspect_review
+                              blockingAspectReview(d.aspect_review).length > 0
+                                ? `eBay specifics to fix: ${blockingAspectReview(d.aspect_review)
                                     .map((a) => a.aspect)
                                     .join(", ")}`
                                 : undefined
                             }
                           >
                             {/* US-828: show how many specifics need reconciling. */}
-                            {d.aspect_review && d.aspect_review.length > 0
-                              ? `${d.aspect_review.length} to fix`
+                            {blockingAspectReview(d.aspect_review).length > 0
+                              ? `${blockingAspectReview(d.aspect_review).length} to fix`
                               : "Needs review"}
                           </Badge>
                         ) : (

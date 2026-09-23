@@ -413,6 +413,8 @@ export interface PublishContextOk {
   // US-828: aspect values omitted from the eBay payload for value-validation
   // reasons, so the client can surface "X was not sent" (empty = nothing dropped).
   aspectDiagnostics: PublishAspectDiagnostic[];
+  /** US-3474: free-text values sent as written, off eBay's list. Never blocks. */
+  aspectOffList: PublishAspectDiagnostic[];
   // US-1897: raw signals for the Listing Quality Score — NOT a score. They are
   // values this function already computes for blockers/warnings; surfacing them
   // structured keeps the scorer off string-matching the blocker array, which

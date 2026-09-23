@@ -152,10 +152,30 @@ export function canonicalUrl(raw: string | null): string | null {
   try {
     const u = new URL(trimmed);
     const path = u.pathname.replace(/\/+$/, "");
-    return `${u.protocol}//${u.host.toLowerCase()}${path}`.toLowerCase();
+    const host = u.host.toLowerCase().replace(/^www\./, "");
+    return `${u.protocol}//${host}${listingIdPath(host, path)}`.toLowerCase();
   } catch {
     return trimmed.toLowerCase().replace(/[?#].*$/, "").replace(/\/+$/, "");
   }
+}
+
+/**
+ * Reduce a listing path to the marketplace's id, so every spelling of one
+ * listing is one string. Poshmark's closet links carry a title slug
+ * (/listing/Blue-Jacket-<id>) while its Sold table only yields the bare id;
+ * Mercari links both /us/item/m123 and /item/m123. Mirrors
+ * extension-unified/sync/observe.js.
+ */
+function listingIdPath(host: string, path: string): string {
+  if (host === "poshmark.com") {
+    const m = path.match(/^\/listing\/(?:.*-)?([0-9a-f]{24})$/i);
+    if (m) return `/listing/${m[1]}`;
+  }
+  if (host === "mercari.com") {
+    const m = path.match(/^(?:\/us)?\/item\/(m\d+)$/i);
+    if (m) return `/item/${m[1]}`;
+  }
+  return path;
 }
 
 /**

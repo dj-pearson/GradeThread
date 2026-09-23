@@ -10,6 +10,7 @@ import {
   StatTileSkeleton,
   WidgetLoadError,
 } from "@/components/dashboard/widgets/flipdesk-shared";
+import { blockingAspectReview } from "@/lib/aspect-review";
 
 // US-3077 AC6: AutoLister drafts still waiting on a human.
 //
@@ -80,7 +81,7 @@ export function FlipdeskAutolisterDraftsWidget() {
 
   const rows = drafts.data?.rows ?? [];
   const needsFixing = rows.filter(
-    (r) => r.needs_review || (r.aspect_review?.length ?? 0) > 0,
+    (r) => r.needs_review || blockingAspectReview(r.aspect_review).length > 0,
   ).length;
 
   return (

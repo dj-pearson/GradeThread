@@ -46,7 +46,12 @@ export interface ReconcileSpec {
   dataType?: string;
 }
 
-export type AspectReviewReason = "unknown_aspect" | "unmatched_value";
+/**
+ * `off_list_value` (US-3474) is the soft one: a FREE_TEXT aspect whose value
+ * eBay would accept but that is not on the list eBay ships for it, so it sits
+ * outside that value's buyer filter. It is kept and sent; it never blocks.
+ */
+export type AspectReviewReason = "unknown_aspect" | "unmatched_value" | "off_list_value";
 
 /** One aspect (or one set of values) that couldn't be matched to the spec. */
 export interface AspectReviewEntry {
@@ -221,8 +226,20 @@ export function reconcileGeneratedAspects(
     }
 
     if (!isClosedList(spec)) {
-      // Free text — eBay accepts whatever the model wrote.
-      aspects[name] = values;
+      if (!hasAllowedValues(spec)) {
+        // Free text with no list at all: nothing to match against.
+        aspects[name] = values;
+        continue;
+      }
+      // US-3474: free text WITH a list. 76% of free-text aspect rows in the
+      // 2026-09-23 capture ship one, and buyer filters are built from it, so
+      // land on a listed value where the matcher can. A miss is kept as the
+      // model wrote it (owner decision 2026-09-23) and flagged softly.
+      const { resolved, offList } = matchOpenList(values, spec);
+      aspects[spec.name] = resolved;
+      if (offList.length > 0) {
+        review.push({ aspect: spec.name, values: offList, reason: "off_list_value" });
+      }
       continue;
     }
 
@@ -263,6 +280,36 @@ export interface PublishReconcileResult {
   aspects: Record<string, string[]>;
   /** What was omitted, so the client can surface "X was not sent". */
   omitted: PublishAspectDiagnostic[];
+  /**
+   * US-3474: FREE_TEXT values that were SENT but are not on eBay's list for
+   * the aspect. Informational only; nothing here blocks a publish.
+   */
+  offList: PublishAspectDiagnostic[];
+}
+
+/**
+ * US-3474: match each value of a FREE_TEXT aspect that ships a list. A value
+ * the matcher lands on a listed value is replaced by eBay's spelling; one it
+ * cannot is kept verbatim and reported in `offList`.
+ */
+function matchOpenList(
+  values: string[],
+  spec: ReconcileSpec,
+): { resolved: string[]; offList: string[] } {
+  const allowed = new Set((spec.allowedValues ?? []).map((v) => v.trim()));
+  const resolved: string[] = [];
+  const offList: string[] = [];
+  for (const v of values) {
+    const norm = normalizeAspectValue(v, {
+      name: spec.name,
+      mode: spec.mode,
+      allowedValues: spec.allowedValues,
+    });
+    const out = norm ?? v;
+    if (!allowed.has(out.trim())) offList.push(v);
+    if (!resolved.includes(out)) resolved.push(out);
+  }
+  return { resolved, offList };
 }
 
 /**
@@ -315,6 +362,7 @@ export function reconcilePublishAspects(
   const idx = buildSpecIndex(specs);
   const aspects: Record<string, string[]> = {};
   const omitted: PublishAspectDiagnostic[] = [];
+  const offList: PublishAspectDiagnostic[] = [];
 
   for (const [name, rawValues] of Object.entries(aspectMap)) {
     // Defensive: DB rows may carry a bare string (US-1505) rather than string[].
@@ -349,8 +397,18 @@ export function reconcilePublishAspects(
       }
       continue;
     }
+    if (spec && !isClosedList(spec) && hasAllowedValues(spec)) {
+      // US-3474: free text with a list — same matching as generation, and the
+      // seller's value still goes out when nothing on the list fits.
+      const m = matchOpenList(values, spec);
+      aspects[spec.name] = m.resolved;
+      if (m.offList.length > 0) {
+        offList.push({ aspect: spec.name, omittedValues: m.offList, reason: "off_list_value" });
+      }
+      continue;
+    }
     if (!spec || !isClosedList(spec)) {
-      // Unknown name or free-text aspect — pass through as today.
+      // Unknown name or free-text aspect with no list — pass through as today.
       aspects[name] = values;
       continue;
     }
@@ -377,5 +435,5 @@ export function reconcilePublishAspects(
     }
   }
 
-  return { aspects, omitted };
+  return { aspects, omitted, offList };
 }

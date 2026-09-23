@@ -17,11 +17,11 @@
 
 const GT_SYNC_SELECTORS = {
   poshmark: {
-    // NOT VERIFIED. Written from the public structure of the pages; no human has
-    // loaded a logged-in closet against it. See the header.
-    enabled: false,
-    version: "2026.08.1-draft",
-    lastVerified: null,
+    // VERIFIED 2026-09-23 against a logged-in seller's own /order/sales table
+    // and /closet/{handle}, and against a stranger's closet for ownClosetTell.
+    enabled: true,
+    version: "2026.09.1",
+    lastVerified: "2026-09-23",
 
     // The delist guard's host rule applies here too: a page outside this list is
     // never read, so a lookalike domain cannot feed us observations.
@@ -51,7 +51,8 @@ const GT_SYNC_SELECTORS = {
       // a URL that arrived in a message is a URL somebody else chose.
       pollUrl: "https://poshmark.com/order/sales",
       required: ["row"],
-      row: '[data-test="order-item"], [data-et-name="order_item"], .order-item',
+      // The sales page is a desktop TABLE, one <tr> per order.
+      row: "tr.my-sales-desktop-table__row",
       // Fields, all read as TEXT and handed to sync/observe.js to parse.
       //
       // There is deliberately no selector for the buyer, the recipient or the
@@ -59,18 +60,35 @@ const GT_SYNC_SELECTORS = {
       // could not emit them anyway (ALLOWED_SOLD_FIELDS), and naming them here
       // would be the first half of someone doing so.
       fields: {
-        listingUrl: 'a[href*="/listing/"]',
-        title: '[data-test="order-title"], .order-item__title, a[href*="/listing/"]',
-        priceText: '[data-test="order-price"], .order-item__price',
-        dateText: '[data-test="order-date"], .order-item__date, time',
-        orderRef: '[data-test="order-number"], .order-item__number',
+        // The row has NO link to the listing: the title links to the ORDER.
+        // The listing id is the folder in the thumbnail path
+        // (/posts/2026/09/04/<listingId>/m_<imageId>.jpeg); `extract` below
+        // turns it back into a listing URL.
+        listingUrl: "img.my-sales-desktop-table__thumb",
+        title: "a.my-sales-desktop-table__item-title",
+        priceText: "td.my-sales-desktop-table__price-col",
+        dateText: "td.my-sales-desktop-table__date-col",
+        orderRef: "a.my-sales-desktop-table__item-title",
       },
+      // Fields read from an attribute rather than as text. `match` runs on the
+      // attribute and keeps its first group; `build` substitutes it for $1.
+      extract: {
+        listingUrl: {
+          attr: "src",
+          match: "/posts/\\d{4}/\\d{2}/\\d{2}/([0-9a-f]{24})/",
+          build: "https://poshmark.com/listing/$1",
+        },
+        orderRef: { attr: "href", match: "/order/sales/([0-9a-f]{24})" },
+      },
+      // A cancelled order puts the listing back up for sale, so it is not a
+      // sale and must not end the item's other listings.
+      skipRowIf: { selector: "td.my-sales-desktop-table__status-col", pattern: "cancel" },
       // How the list paginates, so coverage can be reported honestly.
       pagination: {
-        nextButton: '[data-test="pagination-next"], button[aria-label="Next"]',
-        // Present when there are no further pages. Absence of `nextButton` is
-        // also treated as the end; this is the positive signal when it exists.
-        endMarker: '[data-test="pagination-end"]',
+        nextButton: ".my-sales-desktop-table__pagination-btn:last-child",
+        // The table has no positive end marker; its pager prints "Showing 1-20
+        // of N" instead. No marker reads as not-the-end, which under-claims.
+        endMarker: null,
       },
     },
 
@@ -87,10 +105,12 @@ const GT_SYNC_SELECTORS = {
       // own, and would make every one of the seller's real listings look absent.
       // This is the owner-only affordance, the same shape as the eBay
       // owner-only Revise controls in test/own-listing.test.cjs.
-      ownClosetTell: '[data-test="closet-edit"], [data-test="bulk-actions"], a[href="/edit-profile"]',
-      tile: '[data-test="closet-item"], .tile, [data-et-name="listing"]',
+      // "Edit Profile" in the closet header. Checked 2026-09-23: present on the
+      // seller's own closet, absent on a stranger's.
+      ownClosetTell: '.closet__header__edit-profile a[href*="/edit-profile"], a[href="/user/edit-profile"]',
+      tile: '.tile-grid-redesign[data-et-name="listing"]',
       fields: {
-        listingUrl: 'a[href*="/listing/"]',
+        listingUrl: "a.tile__covershot",
       },
       // A sold overlay on a closet tile means the tile is not evidence of a LIVE
       // listing. Counting it as live would make a sold item look present and
@@ -114,14 +134,15 @@ const GT_SYNC_SELECTORS = {
   // between "the extension observes" and "the server decides" would have been
   // in the wrong place.
   //
-  // ⚠️ NOT VERIFIED, same as Poshmark. The selectors file for the LISTER says to
-  // assume monthly breakage on Mercari specifically -- it rewrites its React
-  // field ids often -- so this adapter is the one most likely to be stale by the
-  // time anyone reads it. Re-check before trusting the date.
+  // VERIFIED 2026-09-23 against a logged-in seller's own My listings pages.
+  // The selectors file for the LISTER says to assume monthly breakage on Mercari
+  // specifically, so this is the adapter most likely to go stale. The class
+  // names are styled-components hashes and are never used here; everything
+  // hangs off data-testid or table structure.
   mercari: {
-    enabled: false,
-    version: "2026.08.1-draft",
-    lastVerified: null,
+    enabled: true,
+    version: "2026.09.1",
+    lastVerified: "2026-09-23",
 
     // mercari.com only. The .jp property is a different company and a different
     // app; matching it would be a new host permission for a site we cannot read.
@@ -134,19 +155,28 @@ const GT_SYNC_SELECTORS = {
       // The seller's own sold transactions. Under /mypage/, which is
       // owner-scoped by construction -- unlike a closet, there is no version of
       // this page belonging to somebody else.
-      urlPattern: "mercari\\.com/mypage/(listings/sold|transactions)",
-      pollUrl: "https://www.mercari.com/mypage/listings/sold",
+      // "Sold" in the My listings sidebar is TWO pages: In progress (sold, not
+      // yet rated) and Complete. A new sale lands in In progress first, so both
+      // are read. There is no /listings/sold page; that URL 404s.
+      urlPattern: "mercari\\.com/(us/)?mypage/listings/(in_progress|complete)",
+      pollUrl: "https://www.mercari.com/mypage/listings/in_progress/",
       required: ["row"],
-      row: '[data-testid="ListingCard"], [data-testid="TransactionCard"], li[data-testid*="item"]',
-      // No buyer selector, deliberately: the transaction row names the buyer,
-      // and ALLOWED_SOLD_FIELDS could not emit it anyway. A selector for it here
-      // would be the first half of someone trying.
+      // One <tr> per item. The table first renders empty skeleton rows, which
+      // have no ItemLink; the reader drops rows with neither a URL nor a title.
+      row: '[data-testid="Listings"] tbody tr',
+      // No buyer selector, deliberately: ALLOWED_SOLD_FIELDS could not emit one
+      // anyway, and a selector for it here would be the first half of trying.
       fields: {
-        listingUrl: 'a[href*="/item/"]',
-        title: '[data-testid="ListingCard__ItemName"], [data-testid="item-name"]',
-        priceText: '[data-testid="ListingCard__Price"], [data-testid="item-price"]',
-        dateText: '[data-testid="ListingCard__Date"], time',
-        orderRef: '[data-testid="TransactionCard__OrderId"]',
+        listingUrl: 'a[data-testid="ItemLink"]',
+        title: 'a[data-testid="ItemLink"]',
+        priceText: '[data-testid="ItemPrice"]',
+        // The "Updated" column, which on a sold row is the sale date (MM/DD/YY).
+        dateText: "td:nth-child(6)",
+        orderRef: 'a[data-testid="ViewOrderButton"]',
+      },
+      extract: {
+        // /transaction/order_status/m123/ - the item id, which sells once.
+        orderRef: { attr: "href", match: "/transaction/order_status/(m\\d+)" },
       },
       pagination: {
         // Mercari pages its sold list rather than infinite-scrolling it, which
@@ -160,17 +190,19 @@ const GT_SYNC_SELECTORS = {
 
     closet: {
       // The seller's own listing list, also under /mypage/.
-      urlPattern: "mercari\\.com/mypage/listings",
+      // Active only. The sold pages share the /mypage/listings prefix and must
+      // not also read as a closet.
+      urlPattern: "mercari\\.com/(us/)?mypage/listings/active",
       required: ["tile", "ownClosetTell"],
-      tile: '[data-testid="ListingCard"], li[data-testid*="item"]',
+      tile: '[data-testid="Listings"] tbody tr',
       // /mypage/ is owner-only by URL, but asserting it rather than assuming it
       // costs one selector and removes a whole class of "we read the wrong
       // page" from the failure surface.
-      ownClosetTell: '[data-testid="mypage-nav"], a[href*="/mypage/listings"], [data-testid="EditListingButton"]',
+      ownClosetTell: 'a[href*="/mypage/listings/active"]',
       fields: {
-        listingUrl: 'a[href*="/item/"]',
+        listingUrl: 'a[data-testid="ItemLink"]',
       },
-      soldBadge: '[data-testid="ListingCard__SoldBadge"], [data-testid="sold-label"]',
+      soldBadge: '[data-testid="ItemStatusDecoration"]',
       pagination: {
         nextButton: '[data-testid="pagination-next"], button[aria-label="Next"], a[rel="next"]',
         endMarker: '[data-testid="pagination-last-active"]',

@@ -148,6 +148,13 @@ export interface SyncStateCopy {
 }
 
 /**
+ * Channels the extension has a verified Sold-page reader for
+ * (extension-unified/sync/selectors.js, `enabled: true`). Telling a seller to
+ * "open your sold page" on any other channel sends them to a page nothing reads.
+ */
+export const SOLD_READER_PLATFORMS: ReadonlySet<string> = new Set(["poshmark", "mercari"]);
+
+/**
  * What a channel's state says to the seller.
  *
  * Pure and exported so the wording is held by a test. The distinction that
@@ -192,9 +199,11 @@ export function syncStateCopy(channel: SyncChannel): SyncStateCopy {
     default:
       return {
         label: "Not synced yet",
-        detail: channel.live_listings > 0
+        detail: channel.live_listings === 0
+          ? "Nothing to sync here yet."
+          : SOLD_READER_PLATFORMS.has(channel.platform)
           ? `Open your ${label(channel.platform)} sold page once and we will start tracking your ${channel.live_listings} listing${channel.live_listings === 1 ? "" : "s"}.`
-          : "Nothing to sync here yet.",
+          : `GradeThread cannot read ${label(channel.platform)} sales yet. When one of these ${channel.live_listings} sells, end its other listings yourself.`,
         tone: "idle",
       };
   }

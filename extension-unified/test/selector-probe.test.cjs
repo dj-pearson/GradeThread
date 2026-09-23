@@ -753,9 +753,9 @@ const matchNone = () => false;
   );
 
   // The report states the enable posture, because a clean report is what earns
-  // a lastVerified date and the reader needs to know none is set yet.
-  assert.strictEqual(clean.enabled, false);
-  assert.strictEqual(clean.lastVerified, null);
+  // a lastVerified date and the reader needs to know which one it is.
+  assert.strictEqual(clean.enabled, SYNC.poshmark.enabled);
+  assert.strictEqual(clean.lastVerified, SYNC.poshmark.lastVerified);
   assert.ok(clean.version, "the report must name the selector version");
 
   // No page content, and specifically no buyer identity.

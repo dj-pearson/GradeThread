@@ -1933,6 +1933,7 @@ flipdeskEbayRoutes.post("/listings/validate", async (c) => {
     // US-828: aspects that won't be sent for value-validation reasons, so the
     // composer can warn "X was not sent" before the seller publishes.
     aspectDiagnostics: result.aspectDiagnostics,
+    aspectOffList: result.aspectOffList,
     // US-1895: recommended-aspect coverage (N/M + ranked missing) for the meter.
     recommendedCoverage: result.recommendedCoverage,
     // US-1897 (AC2): the 0-100 Listing Quality Score + component breakdown,

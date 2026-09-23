@@ -211,6 +211,28 @@ function fillAspect(
     const out = allowMulti ? matched : [matched[0]!];
     return { values: out, rewrites: rewrites.filter((r) => out.includes(r.to)) };
   }
+  // US-3474: free text that still ships a list. Land on eBay's spelling where
+  // the matcher can and report the rewrite; keep the value as written where it
+  // cannot. Mirrors the edge registry's fillAspect.
+  if (allowedForMode.length > 0) {
+    const matched: string[] = [];
+    const rewrites: AspectRewrite[] = [];
+    for (const v of values) {
+      const hit = normalizeAspectValue(v, {
+        name: aspect.localizedAspectName,
+        mode: aspect.aspectConstraint?.aspectMode,
+        allowedValues: allowedForMode,
+      }) ?? v;
+      if (!matched.includes(hit)) {
+        matched.push(hit);
+        if (hit.trim().toLowerCase() !== v.trim().toLowerCase()) {
+          rewrites.push({ from: v, to: hit });
+        }
+      }
+    }
+    const out = allowMulti ? matched : [matched[0]!];
+    return { values: out, rewrites: rewrites.filter((r) => out.includes(r.to)) };
+  }
   return { values: allowMulti ? values : [values[0]!], rewrites: [] };
 }
 

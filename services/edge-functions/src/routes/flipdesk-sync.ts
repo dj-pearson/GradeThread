@@ -55,6 +55,7 @@ interface ListingRow {
   listing_title: string | null;
   listing_price: number | null;
   listing_status: string;
+  inventory_items: { user_id: string; title: string | null } | null;
 }
 
 function str(v: unknown): string | null {
@@ -416,7 +417,7 @@ flipdeskSyncRoutes.post("/observations", async (c) => {
     const { data: rawListings, error: listErr } = await supabaseAdmin
       .from("listings")
       .select(
-        "id, inventory_item_id, platform, listing_url, listing_title, listing_price, listing_status, inventory_items!inner(user_id)",
+        "id, inventory_item_id, platform, listing_url, listing_title, listing_price, listing_status, inventory_items!inner(user_id, title)",
       )
       .eq("platform", batch.platform)
       .eq("inventory_items.user_id", ownerId);
@@ -427,7 +428,11 @@ flipdeskSyncRoutes.post("/observations", async (c) => {
       itemId: l.inventory_item_id,
       platform: l.platform,
       listingUrl: l.listing_url,
-      title: l.listing_title,
+      // Extension-listed rows rarely carry their own listing_title (measured
+      // 2026-09-23: 2 of 35 Poshmark/Mercari/Vinted rows), so the item title
+      // is what a Sold row's title can actually be compared against. The
+      // match it feeds only ever lands in review, never auto-confirms.
+      title: l.listing_title ?? l.inventory_items?.title ?? null,
       // listings.listing_price is a decimal in MAJOR units (00002). The
       // planner compares cents, so convert here rather than teaching the
       // pure module about one table's units.

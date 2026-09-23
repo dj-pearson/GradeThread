@@ -37,6 +37,7 @@ import type {
   ItemFullRow,
   ListingPlatform,
 } from "@/types/database";
+import { blockingAspectReview } from "@/lib/aspect-review";
 
 // US-1568: draft listing metadata not on items_full (from the listings table).
 interface DraftMetaRow {
@@ -193,7 +194,7 @@ export function usePageRowDetails({
             listingPrice: row.listing_price,
             priceIsEstimated: row.price_is_estimated === true,
             priceCompSource: row.price_comp_source ?? null,
-            aspectCount: Array.isArray(row.aspect_review) ? row.aspect_review.length : 0,
+            aspectCount: Array.isArray(row.aspect_review) ? blockingAspectReview(row.aspect_review).length : 0,
             batchId: row.batch_id ?? null,
             scheduledPublishAt: row.scheduled_publish_at ?? null,
           });

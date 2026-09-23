@@ -56,10 +56,29 @@
     try {
       const u = new URL(s);
       const path = u.pathname.replace(/\/+$/, "");
-      return (u.protocol + "//" + u.host.toLowerCase() + path).toLowerCase();
+      const host = u.host.toLowerCase().replace(/^www\./, "");
+      return (u.protocol + "//" + host + listingIdPath(host, path)).toLowerCase();
     } catch (_e) {
       return s.toLowerCase().replace(/[?#].*$/, "").replace(/\/+$/, "");
     }
+  }
+
+  /**
+   * Reduce a listing path to the marketplace's id, so every spelling of one
+   * listing is one string. Poshmark's closet links carry a title slug
+   * (/listing/Blue-Jacket-<id>) while the Sold table only yields the bare id;
+   * Mercari links both /us/item/m123 and /item/m123. Mirrors the server.
+   */
+  function listingIdPath(host, path) {
+    if (host === "poshmark.com") {
+      const m = path.match(/^\/listing\/(?:.*-)?([0-9a-f]{24})$/i);
+      if (m) return "/listing/" + m[1];
+    }
+    if (host === "mercari.com") {
+      const m = path.match(/^(?:\/us)?\/item\/(m\d+)$/i);
+      if (m) return "/item/" + m[1];
+    }
+    return path;
   }
 
   /**
@@ -100,6 +119,17 @@
     const iso = Date.parse(s);
     if (/^\d{4}-\d{2}-\d{2}/.test(s) && Number.isFinite(iso)) {
       return new Date(iso).toISOString();
+    }
+
+    // "09/21/26" / "9/21/2026" -- Mercari's My listings table. US month-first,
+    // which is the only order the US-only hosts in sync/selectors.js print.
+    const slash = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2}|\d{4})$/);
+    if (slash) {
+      const month = Number(slash[1]) - 1;
+      const dayNum = Number(slash[2]);
+      const year = slash[3].length === 2 ? 2000 + Number(slash[3]) : Number(slash[3]);
+      if (month < 0 || month > 11 || dayNum < 1 || dayNum > 31) return null;
+      return new Date(Date.UTC(year, month, dayNum)).toISOString();
     }
 
     const lower = s.toLowerCase();

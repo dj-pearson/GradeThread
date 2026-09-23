@@ -247,3 +247,27 @@ describe("normalizeAspectValue folded match (US-3471)", () => {
     expect(normalizeAspectValue("One Piece", sel("Type", ["OnePiece", "One-Piece"]))).toBeNull();
   });
 });
+
+// US-3474: the web prefill matches FREE_TEXT aspects that ship a list, the
+// same way the edge registry fill does, and never drops a miss.
+describe("deriveAspectsFromItem on free-text aspects with a list (US-3474)", () => {
+  const openAspect = (name: string, allowed: string[]): EbayAspect => ({
+    localizedAspectName: name,
+    aspectConstraint: { aspectMode: "FREE_TEXT", itemToAspectCardinality: "SINGLE" },
+    aspectValues: allowed.map((localizedValue) => ({ localizedValue })),
+  });
+
+  it("lands a near-miss on eBay's spelling and reports the rewrite", () => {
+    const item: ItemAspectSource = { ...base, color: "Off White" };
+    const rewrites: Record<string, AspectRewrite> = {};
+    const out = deriveAspectsFromItem(item, [openAspect("Color", ["Black", "Off-White"])], {}, rewrites);
+    expect(out).toEqual({ Color: ["Off-White"] });
+    expect(rewrites.Color).toEqual({ from: "Off White", to: "Off-White" });
+  });
+
+  it("keeps a value nothing on the list fits", () => {
+    const item: ItemAspectSource = { ...base, color: "Chartreuse" };
+    const out = deriveAspectsFromItem(item, [openAspect("Color", ["Red", "Blue"])], {}, {});
+    expect(out).toEqual({ Color: ["Chartreuse"] });
+  });
+});

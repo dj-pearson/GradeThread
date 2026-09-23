@@ -46,11 +46,11 @@ function makeDocument(hits) {
  * a live page, and a test that flipped that flag would be asserting against a
  * config nobody has checked.
  */
-function runContent({ href, hits, selectors }) {
+function runContent({ href, hits, selectors, timer }) {
   const sent = [];
   const sandbox = {
     console,
-    setTimeout,
+    setTimeout: timer || setTimeout,
     clearTimeout,
     Date,
     RegExp,
@@ -279,6 +279,88 @@ function soldRow({ url, title, price, date, ref }) {
     "a human check must not be posted to the server: nothing was read, and an " +
       "empty batch would overwrite the channel's last_ok_at with a read that " +
       "never happened",
+  );
+}
+
+// ── 6. Attribute extraction, cancelled orders and skeleton rows ────────────
+//
+// Poshmark's Sold table has no link to the listing (the title links to the
+// ORDER), so the listing id is read out of the thumbnail path. A cancelled
+// order is not a sale, and a Mercari loading skeleton is not a row.
+{
+  const attrEl = (attrs, text) => ({
+    textContent: text || "",
+    getAttribute: (k) => (Object.prototype.hasOwnProperty.call(attrs, k) ? attrs[k] : null),
+  });
+  const row = (hits) => makeDocument(hits);
+  const ID = "6a9a0c1f2b3d4e5f60718293";
+  const OID = "6ab0000000000000000000ff";
+
+  const adapter = JSON.parse(JSON.stringify(ADAPTER));
+  adapter.poshmark.sold.fields = {
+    listingUrl: "img.thumb",
+    title: "a.title",
+    priceText: ".price",
+    dateText: ".date",
+    orderRef: "a.title",
+  };
+  adapter.poshmark.sold.extract = {
+    listingUrl: {
+      attr: "src",
+      match: "/posts/\\d{4}/\\d{2}/\\d{2}/([0-9a-f]{24})/",
+      build: "https://poshmark.com/listing/$1",
+    },
+    orderRef: { attr: "href", match: "/order/sales/([0-9a-f]{24})" },
+  };
+  adapter.poshmark.sold.skipRowIf = { selector: ".status", pattern: "cancel" };
+
+  const sent = runContent({
+    href: "https://poshmark.com/order/sales",
+    hits: {
+      ".order-row": [
+        row({
+          "img.thumb": [attrEl({ src: `https://cdn.example/posts/2026/09/04/${ID}/m_${ID}.jpeg` })],
+          "a.title": [attrEl({ href: `/order/sales/${OID}` }, "Lululemon ABC Pants")],
+          ".price": [{ textContent: "$35" }],
+          ".date": [{ textContent: "Sep 11, 2026" }],
+          ".status": [{ textContent: "Order Complete" }],
+        }),
+        row({
+          "img.thumb": [attrEl({ src: `https://cdn.example/posts/2026/09/01/${OID}/m_x.jpeg` })],
+          "a.title": [attrEl({ href: `/order/sales/${ID}` }, "Cancelled thing")],
+          ".status": [{ textContent: "Cancelled" }],
+        }),
+        // A skeleton: nothing in it resolves.
+        row({}),
+      ],
+    },
+    selectors: adapter,
+  });
+
+  const msg = sent.find((m) => m.type === "GT_SYNC_OBSERVE");
+  assert.ok(msg, "a readable Sold page must report");
+  assert.strictEqual(msg.batch.sold.length, 1, "the cancelled row and the skeleton must both be dropped");
+  const s = msg.batch.sold[0];
+  assert.strictEqual(s.listingUrl, `https://poshmark.com/listing/${ID}`, "listing id not recovered from the thumbnail path");
+  assert.strictEqual(s.orderRef, OID, "order id not recovered from the title link");
+  assert.strictEqual(s.soldPriceCents, 3500);
+  assert.strictEqual(s.title, "Lululemon ABC Pants");
+}
+
+// ── 7. An empty Sold table waits for the page to draw before reporting ─────
+//
+// Both marketplaces render the table after document_idle. Reporting the first,
+// empty read would record "no sales" on every visit.
+{
+  const sent = runContent({
+    href: "https://poshmark.com/order/sales",
+    hits: { ".order-row": [] },
+    selectors: ADAPTER,
+    timer: () => 0,
+  });
+  assert.ok(
+    !sent.some((m) => m.type === "GT_SYNC_OBSERVE"),
+    "an empty first read was reported immediately instead of waiting for the table",
   );
 }
 

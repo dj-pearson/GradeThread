@@ -1619,6 +1619,8 @@ export async function assemblePublishContext(
   // US-823 normalizer). Surfaced in the publish/validate response so the client
   // can say "X was not sent" instead of the value vanishing silently.
   let aspectDiagnostics: PublishAspectDiagnostic[] = [];
+  // US-3474: free-text values sent as written because nothing on eBay's list fit.
+  let aspectOffList: PublishAspectDiagnostic[] = [];
   // The map actually sent to eBay — `aspectMap` minus value-validation omissions
   // (with near-misses normalized). Kept separate from the PERSISTED aspectMap so
   // the draft retains the seller's flagged values for them to fix (US-828 keeps
@@ -1725,6 +1727,13 @@ export async function assemblePublishContext(
       const reconciled = reconcilePublishAspects(aspectMap, reconcileSpecs);
       sanitizedAspects = reconciled.aspects;
       aspectDiagnostics = reconciled.omitted;
+      aspectOffList = reconciled.offList;
+      if (aspectOffList.length > 0) {
+        console.info(
+          `[flipdesk-ebay] ${aspectOffList.length} free-text aspect value(s) sent off eBay's list for ` +
+            `item ${itemId} (category ${categoryId}): ` + JSON.stringify(aspectOffList),
+        );
+      }
       if (aspectDiagnostics.length > 0) {
         console.warn(
           `[flipdesk-ebay] omitted ${aspectDiagnostics.length} aspect value(s) for ` +
@@ -2145,6 +2154,7 @@ export async function assemblePublishContext(
     photoNudge,
     recommendedCoverage,
     aspectDiagnostics,
+    aspectOffList,
     sku,
     summary,
     // US-1897: structured inputs for the Listing Quality Score. Deliberately
