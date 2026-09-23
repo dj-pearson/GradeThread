@@ -182,9 +182,23 @@ describe("an RPC called from both the browser and the edge means two things", ()
     // The parser has been wrong before. Pin it against a function whose shape is
     // known, so a slicer that starts returning "" cannot make the case above
     // pass by finding nothing to object to.
+    //
+    // Both detectors are pinned in BOTH directions. get_or_create_source takes
+    // p_user_id AND, since 00824, branches on `auth.role() = 'service_role'`, so
+    // it is the positive case for each. qbo_payout_sales (00705) takes p_user_id
+    // and never looks at the role inside its body (its `service_role` grant sits
+    // after the closing $fn$), so it is the negative case for the second.
     const text = functionText("get_or_create_source");
     expect(text.length, "get_or_create_source did not parse").toBeGreaterThan(200);
     expect(takesExplicitUser(text), "the explicit-user check stopped matching").toBe(true);
-    expect(branchesOnServiceRole(text), "false positive on the service-role check").toBe(false);
+    expect(
+      branchesOnServiceRole(text),
+      "the service-role check missed get_or_create_source's 00824 branch",
+    ).toBe(true);
+
+    const plain = functionText("qbo_payout_sales");
+    expect(plain.length, "qbo_payout_sales did not parse").toBeGreaterThan(200);
+    expect(takesExplicitUser(plain), "the explicit-user check stopped matching").toBe(true);
+    expect(branchesOnServiceRole(plain), "false positive on the service-role check").toBe(false);
   });
 });
