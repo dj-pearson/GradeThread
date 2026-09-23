@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import type { Context } from "hono";
 import { supabaseAdmin } from "../lib/supabase.ts";
 import { failSafe } from "../lib/http-errors.ts";
+import { roleAtLeast, type WorkspaceRole } from "../lib/workspace-roles.ts";
 import { redactError } from "../lib/log-redact.ts";
 import {
   type AdapterResult,
@@ -106,7 +107,13 @@ import {
 // a verbatim copy of the eBay draft. Missing variants are generated on demand.
 
 export const flipdeskListingsRoutes = new Hono<{
-  Variables: { userId: string; workspaceOwnerId: string };
+  Variables: {
+    userId: string;
+    workspaceOwnerId: string;
+    // Set by workspaceMiddleware (mounted on /api/flipdesk/listings/* in
+    // main.ts). INV-4 reads it to gate the hard delete.
+    workspaceRole?: WorkspaceRole;
+  };
 }>();
 
 interface SourceDraftRow {
@@ -1023,18 +1030,34 @@ flipdeskListingsRoutes.post("/bulk-relist", async (c) => {
 // SECURITY (US-268): the item is loaded AND deleted scoped to the owner
 // (workspaceOwnerId ?? userId) — an id from the request alone never deletes
 // another tenant's row.
+//
+// INV-4: two more rules.
+//   • ROLE. RLS reserves DELETE on inventory_items for workspace admins (00042),
+//     but this route writes through the service-role client, which skips RLS.
+//     So the route enforces the same floor itself: admin or owner, else 403.
+//   • FAIL CLOSED. Every guard read checks its error. A dropped error on the
+//     listings or sales read used to look like "no rows", which let both guards
+//     pass and the delete cascade sales and orphan a live listing. A read that
+//     fails now stops the delete with a 500 before anything is removed.
 flipdeskListingsRoutes.delete("/item/:id", async (c) => {
   const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
   if (!ownerId) return c.json({ error: "Unauthorized" }, 401);
+  const role = c.get("workspaceRole");
+  if (!role || !roleAtLeast(role, "admin")) {
+    return c.json({ error: "This action requires admin access or higher" }, 403);
+  }
   const itemId = c.req.param("id");
   if (!itemId) return c.json({ error: "item id is required" }, 400);
 
-  const { data: item } = await supabaseAdmin
+  const { data: item, error: itemErr } = await supabaseAdmin
     .from("inventory_items")
     .select("id, title")
     .eq("id", itemId)
     .eq("user_id", ownerId)
     .maybeSingle();
+  if (itemErr) {
+    return failSafe(c, 500, "Could not load the item.", itemErr, "flipdesk.delete-item.item");
+  }
   if (!item) return c.json({ error: "Item not found." }, 404);
 
   // GUARD 1: a genuinely LIVE listing must be ended first (never orphan a live
@@ -1044,13 +1067,22 @@ flipdeskListingsRoutes.delete("/item/:id", async (c) => {
   // is now correctly is_active=false) because the published-DRAFT case below —
   // a row still in 'draft' status that nonetheless reached the marketplace — is
   // live yet is_active=false, so is_active alone would under-report it.
-  const { data: listings } = await supabaseAdmin
+  const { data: listings, error: listingsErr } = await supabaseAdmin
     .from("listings")
     .select(
       "id, platform, listing_status, listing_url, platform_offer_id, " +
         "platform_listing_id, synced_to_ebay_at",
     )
     .eq("inventory_item_id", itemId);
+  if (listingsErr) {
+    return failSafe(
+      c,
+      500,
+      "Could not check the item's listings, so nothing was deleted.",
+      listingsErr,
+      "flipdesk.delete-item.listings",
+    );
+  }
   type DeleteBlockRow = {
     id: string;
     platform: string | null;
@@ -1100,10 +1132,19 @@ flipdeskListingsRoutes.delete("/item/:id", async (c) => {
   }
 
   // GUARD 2: never cascade-delete a sale (accounting record).
-  const { count: saleCount } = await supabaseAdmin
+  const { count: saleCount, error: salesErr } = await supabaseAdmin
     .from("sales")
     .select("id", { count: "exact", head: true })
     .eq("inventory_item_id", itemId);
+  if (salesErr) {
+    return failSafe(
+      c,
+      500,
+      "Could not check the item's sales, so nothing was deleted.",
+      salesErr,
+      "flipdesk.delete-item.sales",
+    );
+  }
   if ((saleCount ?? 0) > 0) {
     return c.json({
       error:

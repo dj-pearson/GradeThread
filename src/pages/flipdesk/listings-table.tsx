@@ -160,6 +160,11 @@ interface Props {
   setShipItem: (it: ItemFullRow | null) => void;
   setEndTarget: (it: ItemFullRow | null) => void;
   setDeleteTarget: (it: ItemFullRow | null) => void;
+  /**
+   * INV-4: hard delete is admin-only (the edge route returns 403 below admin),
+   * so the row's Delete is not offered to anyone who would only be refused.
+   */
+  canDelete?: boolean;
 
   ebayConnection: ReturnType<typeof useEbayConnection>["data"];
   navigate: NavigateFunction;
@@ -258,6 +263,7 @@ export function ListingsTable({
   setShipItem,
   setEndTarget,
   setDeleteTarget,
+  canDelete = true,
   ebayConnection,
   navigate,
 }: Props) {
@@ -1536,7 +1542,7 @@ export function ListingsTable({
                           accounting tabs (sold/shipped/returned) where a
                           hard delete is never appropriate; the server
                           still guards live listings + any sale. */}
-                      {!isSold && !isShipped && tab !== "returned" && (
+                      {canDelete && !isSold && !isShipped && tab !== "returned" && (
                         <Button
                           variant="ghost"
                           size="icon"

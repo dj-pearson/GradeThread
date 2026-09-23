@@ -3831,6 +3831,24 @@ function viewerHeaders(): HeadersInit {
 }
 
 Deno.test({
+  // INV-4: hard-deleting an inventory item is admin-only, matching the RLS
+  // DELETE policy (00042) that the service-role client skips. A member below
+  // admin inside the owner's workspace is refused before any read. The
+  // listing_manager/member half is driven in delete-item-guards_test.ts.
+  name: "C3: viewer cannot hard-delete the owner's inventory item (requires admin)",
+  ignore: !VIEWER_READY || !Deno.env.get("TEST_USER_A_ITEM_ID"),
+  fn: async () => {
+    const id = Deno.env.get("TEST_USER_A_ITEM_ID")!;
+    const res = await fetch(`${BASE}/api/flipdesk/listings/item/${id}`, {
+      method: "DELETE",
+      headers: viewerHeaders(),
+    });
+    await res.body?.cancel();
+    assertDenied(res.status, "DELETE inventory item as viewer");
+  },
+});
+
+Deno.test({
   name: "C3: viewer cannot POST a consignor payout (requires admin)",
   ignore: !VIEWER_READY,
   fn: async () => {

@@ -76,6 +76,7 @@ import {
 import { supabase } from "@/lib/supabase";
 import { itemRowLabel } from "@/lib/item-row-label";
 import { useAuthStore } from "@/stores/auth-store";
+import { useWorkspace } from "@/hooks/use-workspace";
 import { ItemDetailDialog } from "@/components/flipdesk/item-detail-dialog";
 import { useKeyboardShortcuts } from "@/hooks/use-keyboard-shortcuts";
 import { useUrlPageState, useUrlParamState, useUrlSearchInput } from "@/hooks/use-url-param-state";
@@ -229,6 +230,9 @@ export function FlipdeskListingsPage() {
   // INV-3: bulk writes resolve the selection against, and scope to, the
   // workspace on screen.
   const ownerId = useAuthStore((s) => s.activeWorkspaceOwnerId) ?? user?.id ?? "";
+  // INV-4: hard delete is admin-only on the server; don't offer it below that.
+  const { can } = useWorkspace();
+  const canDeleteItems = can("delete_inventory");
   const qc = useQueryClient();
   const [searchParams, setSearchParams] = useSearchParams();
   // US-1429: an explicit `?tab=` wins; otherwise honor a `?status=` deep-link
@@ -1626,6 +1630,7 @@ export function FlipdeskListingsPage() {
                 setShipItem={setShipItem}
                 setEndTarget={setEndTarget}
                 setDeleteTarget={setDeleteTarget}
+                canDelete={canDeleteItems}
                 ebayConnection={ebayConnection}
                 navigate={navigate}
               />
@@ -1770,7 +1775,12 @@ export function FlipdeskListingsPage() {
                   <Button
                     variant="destructive"
                     onClick={() => setBulkDeleteOpen(true)}
-                    disabled={busy}
+                    disabled={busy || !canDeleteItems}
+                    title={
+                      canDeleteItems
+                        ? undefined
+                        : "Only a workspace admin or the owner can delete items."
+                    }
                   >
                     {busy && bulkDeleteProgress ? (
                       <Loader2 className="mr-2 h-4 w-4 animate-spin" />
