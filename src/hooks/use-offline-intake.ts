@@ -38,8 +38,20 @@ export function useOfflineIntakeSync() {
       `Syncing ${total} offline item${total === 1 ? "" : "s"}…`,
     );
     try {
-      const { synced, failed, firstError } = await flushIntakeQueue();
-      if (synced > 0) await qc.invalidateQueries({ queryKey: ["items_full"] });
+      const { synced, failed, firstError, photosDropped } =
+        await flushIntakeQueue();
+      if (synced > 0) {
+        await qc.invalidateQueries({ queryKey: ["items_full"] });
+        // A queued item can carry a source created offline and its photos.
+        await qc.invalidateQueries({ queryKey: ["sources"] });
+        await qc.invalidateQueries({ queryKey: ["item_photos"] });
+      }
+      if (photosDropped > 0) {
+        toast.warning(
+          `${photosDropped} offline photo${photosDropped === 1 ? "" : "s"} could not be uploaded. Add ${photosDropped === 1 ? "it" : "them"} from the item page.`,
+          { duration: 10_000 },
+        );
+      }
       if (failed > 0) {
         // US-2364: name the reason. "Will retry" on its own is fine for a lost
         // connection and actively misleading for a row the server will refuse
