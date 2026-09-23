@@ -5,7 +5,11 @@ import { failSafe } from "../lib/http-errors.ts";
 // US-2677: a batch of nine template-written titles is only visible as a problem
 // when the whole batch is looked at at once.
 import { findDuplicatesWithinBatch } from "../lib/title-similarity.ts";
-import { generateListing, generatePlatformVariants } from "../lib/ai-listing.ts";
+import {
+  DraftWriteAbandonedError,
+  generateListing,
+  generatePlatformVariants,
+} from "../lib/ai-listing.ts";
 import { channelCopyForDraft } from "../lib/platform-description.ts";
 import { generateKitForDraft } from "../lib/cross-list-kit.ts";
 import { assemblePublishContext, publishItemForOwner } from "./flipdesk-ebay.ts";
@@ -238,12 +242,27 @@ export function needsAiReservation(
 // already import it from this path.
 export { insufficientAiActionsBody } from "../lib/autolister-enqueue.ts";
 
-/** Reject with a clear error if `promise` doesn't settle within `ms` (US-526). */
-export function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+/**
+ * Reject with a clear error if `promise` doesn't settle within `ms` (US-526).
+ *
+ * A race only stops the WAITING. Pass `abort` and the timeout also aborts that
+ * controller with the same error, so work that honors its signal actually
+ * stops instead of finishing after its job was already marked failed.
+ */
+export function withTimeout<T>(
+  promise: Promise<T>,
+  ms: number,
+  label: string,
+  abort?: AbortController,
+): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   const timeout = new Promise<never>((_, reject) => {
     timer = setTimeout(
-      () => reject(new Error(`${label} timed out after ${Math.round(ms / 1000)}s`)),
+      () => {
+        const err = new Error(`${label} timed out after ${Math.round(ms / 1000)}s`);
+        abort?.abort(err);
+        reject(err);
+      },
       ms,
     );
   });
@@ -483,6 +502,10 @@ async function processBatch(
       await markJobReserved(job.id);
     }
 
+    // The timeout aborts this, so the generation stops at its next checkpoint
+    // (and the model request itself) instead of writing a draft after the job
+    // below has been marked failed and its AI action refunded.
+    const abort = new AbortController();
     try {
       const result = await withTimeout(
         generateListing(job.inventory_item_id, ownerId, {
@@ -491,9 +514,14 @@ async function processBatch(
           // US-2967: the boilerplate has to be present when the blocks are
           // first written, not bolted onto the rendered string afterwards.
           templateBoilerplate: template?.description_template ?? null,
+          signal: abort.signal,
+          // The draft is written only while this job is still 'running' on
+          // the attempt this worker claimed.
+          job: { id: job.id, attempt: attempts + 1 },
         }),
         GENERATION_TIMEOUT_MS,
         "Listing generation",
+        abort,
       );
       // US-1923: the success write is CONDITIONAL on the job still being
       // 'running'. If an operator cancel (adminCancelGenerationBatch) flipped
@@ -576,6 +604,16 @@ async function processBatch(
         console.error("[flipdesk-autolister] defect annotation failed:", annErr);
       }
     } catch (err) {
+      if (err instanceof DraftWriteAbandonedError) {
+        // The job stopped being ours before the draft write (an operator
+        // cancel flipped it to 'failed'). Same settlement as the cancelled
+        // branch above: no draft was written, so reconcile the reservation,
+        // and do NOT mark the job failed again over the cancel's own error.
+        console.log(`[flipdesk-autolister] job ${job.id}: ${err.message}; refunding reservation`);
+        await refundAiAction(ownerId);
+        await releaseJobReservation(job.id);
+        return;
+      }
       // Generation failed (incl. timeout) — give the reserved quota slot back
       // and clear the per-job reservation flag so a later reclaim/retry reserves
       // afresh rather than reusing a now-refunded reservation (US-1931).

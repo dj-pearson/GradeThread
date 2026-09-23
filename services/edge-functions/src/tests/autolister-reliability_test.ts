@@ -194,3 +194,120 @@ Deno.test("withTimeout: rejects with a labeled error when too slow", async () =>
   );
   assert(err instanceof Error);
 });
+
+// ── marketplaces plan action 3: a timeout stops the work, one eBay draft ──
+//
+// withTimeout used to be a bare Promise.race: the job was marked failed and
+// its AI action refunded while generateListing kept running and then wrote a
+// draft anyway. And the draft write was select-then-insert, so an orphan and a
+// retry could both see no draft and both insert one (00832 is the index).
+
+const { DraftWriteAbandonedError, writeEbayDraft } = await import("../lib/ai-listing.ts");
+type EbayDraftStore = import("../lib/ai-listing.ts").EbayDraftStore;
+
+/**
+ * An in-memory listings table with 00832's rule: at most one eBay draft per
+ * item, a second insert answers 23505. Every call yields first, so two
+ * concurrent writers interleave the way two workers on two replicas do.
+ */
+function fakeDraftStore(jobRunning = true) {
+  const rows: { id: string; inventory_item_id: string; fields: Record<string, unknown> }[] = [];
+  let next = 1;
+  const tick = () => new Promise((r) => setTimeout(r, 0));
+  const store: EbayDraftStore = {
+    async findDraftId(itemId) {
+      await tick();
+      return rows.find((r) => r.inventory_item_id === itemId)?.id ?? null;
+    },
+    async insertDraft(row) {
+      await tick();
+      const itemId = String(row.inventory_item_id);
+      if (rows.some((r) => r.inventory_item_id === itemId)) {
+        return { id: null, code: "23505", message: "duplicate key value violates unique constraint" };
+      }
+      const id = `listing-${next++}`;
+      rows.push({ id, inventory_item_id: itemId, fields: { ...row } });
+      return { id };
+    },
+    async updateDraft(listingId, fields) {
+      await tick();
+      const r = rows.find((x) => x.id === listingId);
+      if (!r) return { message: "not found" };
+      Object.assign(r.fields, fields);
+      return null;
+    },
+    async jobStillRunning() {
+      await tick();
+      return jobRunning;
+    },
+  };
+  return { store, rows };
+}
+
+const INSERT_ONLY = { inventory_item_id: "item-1", platform: "ebay" };
+
+Deno.test("withTimeout: a timeout aborts the controller with the timeout error", async () => {
+  const abort = new AbortController();
+  let release!: () => void;
+  const hung = new Promise<string>((r) => (release = () => r("late")));
+  await assertRejects(
+    () => withTimeout(hung, 10, "Listing generation", abort),
+    Error,
+    "Listing generation timed out",
+  );
+  assert(abort.signal.aborted, "the timeout must abort the work, not only stop waiting");
+  assert(String((abort.signal.reason as Error).message).includes("timed out"));
+  release();
+});
+
+Deno.test("a timed-out generation writes no draft", async () => {
+  const { store, rows } = fakeDraftStore();
+  const abort = new AbortController();
+  let finishModelCall!: () => void;
+  const modelCall = new Promise<void>((r) => (finishModelCall = r));
+  // The generation: a slow model call, then the draft write. It outlives the
+  // timeout, exactly like an Anthropic call on its third 120s retry.
+  const generation = (async () => {
+    await modelCall;
+    return await writeEbayDraft("item-1", { listing_title: "t" }, INSERT_ONLY, {
+      signal: abort.signal,
+    }, store);
+  })();
+  await assertRejects(() => withTimeout(generation, 10, "Listing generation", abort));
+  finishModelCall();
+  await assertRejects(() => generation, Error, "timed out");
+  assertEquals(rows.length, 0);
+});
+
+Deno.test("a job that is no longer running on this attempt gets no draft", async () => {
+  const { store, rows } = fakeDraftStore(false);
+  await assertRejects(
+    () =>
+      writeEbayDraft("item-1", { listing_title: "t" }, INSERT_ONLY, {
+        job: { id: "job-1", attempt: 1 },
+        batchId: "batch-1",
+      }, store),
+    DraftWriteAbandonedError,
+  );
+  assertEquals(rows.length, 0);
+});
+
+Deno.test("two concurrent generations for one item leave one eBay draft", async () => {
+  const { store, rows } = fakeDraftStore();
+  const [a, b] = await Promise.all([
+    writeEbayDraft("item-1", { listing_title: "first" }, INSERT_ONLY, {}, store),
+    writeEbayDraft("item-1", { listing_title: "second" }, INSERT_ONLY, {}, store),
+  ]);
+  assertEquals(rows.length, 1);
+  assertEquals(a, b);
+  assertEquals(rows[0].fields.platform, "ebay");
+});
+
+Deno.test("an existing draft is updated in place, not duplicated", async () => {
+  const { store, rows } = fakeDraftStore();
+  const first = await writeEbayDraft("item-1", { listing_title: "v1" }, INSERT_ONLY, {}, store);
+  const second = await writeEbayDraft("item-1", { listing_title: "v2" }, INSERT_ONLY, {}, store);
+  assertEquals(first, second);
+  assertEquals(rows.length, 1);
+  assertEquals(rows[0].fields.listing_title, "v2");
+});
