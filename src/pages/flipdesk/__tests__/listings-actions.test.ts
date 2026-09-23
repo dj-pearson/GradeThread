@@ -30,8 +30,12 @@ interface Op {
   kind: "insert" | "update" | "delete" | "select";
   payload?: unknown;
   eq?: [string, string];
+  /** Every .eq() in call order; `eq` stays the first one. */
+  eqs?: [string, string][];
   in?: [string, string[]];
 }
+/** `${table}` -> rows an UPDATE ... .select("id") returns. Default: echo the ids. */
+let updateReturn: Record<string, { id: string }[]> = {};
 const ops: Op[] = [];
 /** `${table}:${kind}` -> the error that call should return. */
 let failures: Record<string, { message: string; code?: string }> = {};
@@ -50,8 +54,17 @@ function builder(table: string, kind: Op["kind"], payload?: unknown) {
   const result = { data: null as unknown, error: err };
   const chain = {
     eq(col: string, val: string) {
-      op.eq = [col, val];
+      op.eq ??= [col, val];
+      (op.eqs ??= []).push([col, val]);
       return Object.assign(Promise.resolve(result), chain);
+    },
+    select() {
+      const echo = op.in
+        ? op.in[1].map((id) => ({ id }))
+        : op.eq
+          ? [{ id: op.eq[1] }]
+          : [];
+      return Promise.resolve({ data: err ? null : updateReturn[table] ?? echo, error: err });
     },
     in(col: string, vals: string[]) {
       op.in = [col, vals];
@@ -118,6 +131,7 @@ type Row = Deps["items"][number];
 function item(over: Partial<Row> = {}): Row {
   return {
     id: "i1",
+    user_id: "u1",
     item_title: "Nike Polo",
     status: "listed",
     listing_id: "L1",
@@ -147,6 +161,7 @@ function deps(over: Partial<Deps> = {}): Deps {
     items: [item()],
     selected: new Set<string>(),
     setSelected: () => {},
+    ownerId: "u1",
     tab: "active",
     search: "",
     soldFilter: "all",
@@ -192,6 +207,7 @@ beforeEach(() => {
   failures = {};
   failQueue = {};
   selectRows = {};
+  updateReturn = {};
   invalidations = 0;
   rpcError = null;
 });
@@ -621,6 +637,7 @@ describe("US-2173: bulk actions", () => {
   });
 
   it("bulkDeleteItems names the first real reason when some are skipped", async () => {
+    selectRows["items_full"] = [item()];
     const a = makeListingsActions(
       deps({
         selected: new Set(["i1"]),
@@ -633,6 +650,10 @@ describe("US-2173: bulk actions", () => {
   });
 
   it("bulkSetStatus skips rows already at the target and records undo only for writes", async () => {
+    selectRows["items_full"] = [
+      item({ id: "i1", status: "listed" as never }),
+      item({ id: "i2", status: "archived" as never }),
+    ];
     const a = makeListingsActions(
       deps({
         selected: new Set(["i1", "i2"]),
@@ -671,6 +692,106 @@ describe("US-2173: bulk actions", () => {
   });
 });
 
+// ── INV-3: bulk writes resolve, scope and count honestly ───────────────────
+
+describe("INV-3: bulk writes count what the server changed", () => {
+  const five = ["a", "b", "c", "d", "e"].map((id) =>
+    item({ id, status: "listed" as never }),
+  );
+
+  it("bulkSetStatus toasts '3 of 5 updated, 2 could not be changed' and undoes only the 3", async () => {
+    selectRows["items_full"] = five;
+    // The server changes a, b, c and returns no row for d and e.
+    const written: string[] = [];
+    let n = 0;
+    updateReturn = {};
+    const origFrom = supabase.from;
+    supabase.from = (table: string) => {
+      const t = origFrom(table);
+      if (table !== "inventory_items") return t;
+      return {
+        ...t,
+        update: (payload: unknown) => {
+          const b = t.update(payload);
+          const idx = n++;
+          updateReturn["inventory_items"] = idx < 3 ? [{ id: five[idx]!.id }] : [];
+          written.push(five[idx]!.id);
+          return b;
+        },
+      };
+    };
+    try {
+      const a = makeListingsActions(
+        deps({ items: five, selected: new Set(five.map((r) => r.id)) } as Partial<Deps>),
+      );
+      await a.bulkSetStatus("archived" as never);
+    } finally {
+      supabase.from = origFrom;
+    }
+    const outcome = toasts.find((t) => t.level === "warning")!;
+    expect(outcome.msg).toBe("3 of 5 updated, 2 could not be changed.");
+    const action = (outcome.opts as { action?: { onClick: () => void } }).action;
+    expect(action).toBeDefined();
+    // Undo re-reads and restores; it must only name the three that changed.
+    selectRows["items_full"] = five.map((r) => ({ ...r, status: "archived" }));
+    ops.length = 0;
+    action!.onClick();
+    await new Promise((r) => setTimeout(r, 0));
+    const reread = ops.find((o) => o.table === "items_full" && o.kind === "select");
+    expect(reread?.in?.[1]).toEqual(["a", "b", "c"]);
+  });
+
+  it("drops ids the workspace does not own before any write", async () => {
+    // i2 belongs to another owner; the resolve read does not return it.
+    selectRows["items_full"] = [item({ id: "i1", status: "listed" as never })];
+    const a = makeListingsActions(
+      deps({
+        items: [item({ id: "i1" }), item({ id: "i2", user_id: "someone-else" } as never)],
+        selected: new Set(["i1", "i2"]),
+      } as Partial<Deps>),
+    );
+    await a.bulkSetStatus("archived" as never);
+    const writes = ops.filter((o) => o.table === "inventory_items" && o.kind === "update");
+    expect(writes.map((w) => w.eq?.[1])).toEqual(["i1"]);
+    expect(writes[0]?.eqs).toContainEqual(["user_id", "u1"]);
+    const resolve = ops.find((o) => o.table === "items_full" && o.kind === "select");
+    expect(resolve?.eq).toEqual(["user_id", "u1"]);
+    expect(last().msg).toBe("1 of 2 updated, 1 not found or no permission.");
+  });
+
+  it("bulkSetFields counts returned rows, not rows sent", async () => {
+    selectRows["items_full"] = five;
+    updateReturn["inventory_items"] = [{ id: "a" }, { id: "b" }, { id: "c" }];
+    const a = makeListingsActions(
+      deps({ items: five, selected: new Set(five.map((r) => r.id)) } as Partial<Deps>),
+    );
+    await a.bulkSetFields({ location_bin: "A1" });
+    expect(last().level).toBe("warning");
+    expect(last().msg).toBe("3 of 5 updated, 2 could not be changed.");
+    const w = ops.find((o) => o.table === "inventory_items" && o.kind === "update");
+    expect(w?.eqs).toContainEqual(["user_id", "u1"]);
+  });
+
+  it("bulkDeleteItems sends only resolved ids to the delete route", async () => {
+    selectRows["items_full"] = [item({ id: "i1" })];
+    const deleted: string[] = [];
+    const a = makeListingsActions(
+      deps({
+        selected: new Set(["i1", "foreign"]),
+        deleteItemApi: {
+          mutateAsync: ({ itemId }: { itemId: string }) => {
+            deleted.push(itemId);
+            return Promise.resolve({});
+          },
+        },
+      } as Partial<Deps>),
+    );
+    await a.bulkDeleteItems();
+    expect(deleted).toEqual(["i1"]);
+    expect(last().msg).toBe("1 of 2 deleted, 1 not found or no permission.");
+  });
+});
+
 // ── the CSV export ─────────────────────────────────────────────────────────
 
 describe("bulkCreateDrafts: an item that already has its eBay draft", () => {
@@ -684,6 +805,7 @@ describe("bulkCreateDrafts: an item that already has its eBay draft", () => {
   ];
 
   it("keeps the existing draft and says so by name instead of reporting a failure", async () => {
+    selectRows["items_full"] = undrafted;
     failQueue["listings:insert"] = [null, DUP];
     const a = makeListingsActions(
       deps({ items: undrafted, selected: new Set(["a", "b"]) } as Partial<Deps>),
@@ -700,6 +822,7 @@ describe("bulkCreateDrafts: an item that already has its eBay draft", () => {
   });
 
   it("still reports any other insert error as a failure", async () => {
+    selectRows["items_full"] = undrafted;
     failQueue["listings:insert"] = [DUP, { message: "permission denied for table listings" }];
     const a = makeListingsActions(
       deps({ items: undrafted, selected: new Set(["a", "b"]) } as Partial<Deps>),

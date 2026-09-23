@@ -226,6 +226,9 @@ const VIRTUALIZE_ROW_THRESHOLD = 60;
 
 export function FlipdeskListingsPage() {
   const user = useAuthStore((s) => s.user);
+  // INV-3: bulk writes resolve the selection against, and scope to, the
+  // workspace on screen.
+  const ownerId = useAuthStore((s) => s.activeWorkspaceOwnerId) ?? user?.id ?? "";
   const qc = useQueryClient();
   const [searchParams, setSearchParams] = useSearchParams();
   // US-1429: an explicit `?tab=` wins; otherwise honor a `?status=` deep-link
@@ -907,6 +910,7 @@ export function FlipdeskListingsPage() {
     items: actionItems,
     selected,
     setSelected,
+    ownerId,
     tab,
     search,
     soldFilter,

@@ -138,7 +138,9 @@ export type DemotePlan =
  * Terminal listing states (sold, ended) are never rewound either: a sold
  * listing is a record, not a state to move.
  */
-export function planListingDemote(it: ItemFullRow): DemotePlan {
+export function planListingDemote(
+  it: Pick<ItemFullRow, "listing_id" | "listing_status" | "link">,
+): DemotePlan {
   if (!it.listing_id || !it.listing_status) return { action: "none" };
   if (it.listing_status === "sold" || it.listing_status === "ended") {
     return { action: "none" };
