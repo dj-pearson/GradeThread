@@ -72,6 +72,38 @@ stronger claim for one of them, `check-prod-migration.ts` is the tool.
 Nothing below 00786 was touched, and the six genuinely-held branches in the next
 section are unchanged and still waiting.
 
+## HELD: 00829_close_period_figures_caller_only.sql (SECURITY - closing figures covered every seller)
+
+**What it does.** `CREATE OR REPLACE` of `close_period`, same signature. The
+`closing_figures` ledger and COGS blocks are computed inline with
+`user_id = v_uid` on every read instead of calling `ledger_reconciliation()`
+and `cogs_worksheet()`. Same JSON keys. The dashboard net comes from
+`sale_pnl` filtered to the seller. Carries 00826's
+`PERFORM rebuild_ledger_for_user(v_uid)` forward, so **00826 must be applied
+first** (it is below this number, so membership ordering does that).
+
+**Why.** `close_period` is SECURITY DEFINER; the two functions it called are
+SECURITY INVOKER and rely on RLS, which a definer bypasses. Locally, seller
+A's close recorded ledger net 45700 cents, 2 sold items and $220 purchases
+where A's own books were 5700, 1 and $50: seller B's sale and stock were in
+A's filed record, which A can read.
+
+**Proof.** `node scripts/check-period-close.mjs --dsn ...` seeds a second
+seller. Before 00829: `got 45700,45700,2,22000, expected 5700,5700,1,5000`.
+After: green, and the recorded COGS block equals `cogs_worksheet()` run as the
+seller. Sabotage (drop the `sale_pnl` and `inventory_items` user filters): 3
+checks red. Applied twice in a row with no error.
+
+**Existing rows.** Periods already closed on prod keep their leaked
+figures; this file does not rewrite them. Owner decision: reopen and re-close
+each, or leave them (nothing computes from `closing_figures` today, it is a
+record the seller reads). A read to count them:
+`select count(*) from closed_periods;`
+
+**Risk: LOW.** One function replaced in place. **Order.** After 00826 and
+00828, before the edge redeploy (boot guard expects 00829). Then
+`NOTIFY pgrst, 'reload schema';` (migrate:prod sends it).
+
 ## HELD: 00828_ledger_rebuild_skips_closed_periods.sql (money plan action 3 - a rebuild must not move a closed period)
 
 **What it does.** `CREATE OR REPLACE` of `rebuild_ledger_for_user`, same

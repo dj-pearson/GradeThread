@@ -23,6 +23,10 @@
 --   6. A rebuild does not move a closed period (00828). home_office_years has
 --      no lock trigger, so the check changes it after the close, rebuilds,
 --      and reads the closed year's ledger back against closing_figures.
+--   7. closing_figures cover the CALLER only (00829). close_period is SECURITY
+--      DEFINER, so the RLS-scoped ledger_reconciliation / cogs_worksheet it
+--      used to call saw every seller's rows. A second seller with a sale and
+--      stock in the same year must not show up in the first seller's figures.
 begin;
 
 insert into auth.users (id, email, instance_id, aud, role)
@@ -70,6 +74,28 @@ on conflict (id) do nothing;
 
 select public.rebuild_ledger_for_user('a0000000-0000-0000-0000-0000000c1053');
 
+-- 7: a SECOND seller, active in the same year, with a built ledger. Nothing of
+-- theirs may reach the first seller's closing figures.
+insert into auth.users (id, email, instance_id, aud, role)
+values ('a0000000-0000-0000-0000-0000000c1054', 'other-seller@example.com',
+        '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated')
+on conflict (id) do nothing;
+
+insert into public.inventory_items (id, user_id, title, acquired_price, acquired_date, status)
+values ('b3000000-0000-0000-0000-000000000003', 'a0000000-0000-0000-0000-0000000c1054',
+        'Other seller sold', 100.00, '2025-02-01', 'sold'),
+       ('b3000000-0000-0000-0000-000000000004', 'a0000000-0000-0000-0000-0000000c1054',
+        'Other seller held', 70.00, '2025-03-01', 'listed')
+on conflict (id) do nothing;
+
+insert into public.sales
+  (id, user_id, inventory_item_id, sale_price, platform_fees, sale_date, status)
+values ('c3000000-0000-0000-0000-000000000002', 'a0000000-0000-0000-0000-0000000c1054',
+        'b3000000-0000-0000-0000-000000000003', 500.00, 0.00, '2025-07-01', 'completed')
+on conflict (id) do nothing;
+
+select public.rebuild_ledger_for_user('a0000000-0000-0000-0000-0000000c1054');
+
 -- 5: close 2025. As the seller, because close_period is SECURITY INVOKER.
 set local role authenticated;
 set local request.jwt.claims = '{"sub":"a0000000-0000-0000-0000-0000000c1053","role":"authenticated"}';
@@ -82,6 +108,19 @@ select 'snapshot taken by the close' as q, count(*)::text as a
 
 select 'closing figures recorded' as q,
        (closing_figures ? 'ledger' and closing_figures ? 'cogs')::text as a
+  from public.closed_periods
+ where user_id = 'a0000000-0000-0000-0000-0000000c1053' and reopened_at is null;
+
+-- 7: the first seller's figures are the first seller's alone. Their own
+-- books: one $100 sale, $13 fees, $30 cost = 5700 cents net, one sold item,
+-- $50 of 2025 purchases. The other seller would add 40000 net, a second sold
+-- item and $170 of purchases.
+select 'closing figures cover the caller only' as q,
+       concat_ws(',',
+         closing_figures -> 'ledger' ->> 'ledger_sale_net_cents',
+         closing_figures -> 'ledger' ->> 'dashboard_net_cents',
+         closing_figures -> 'cogs' ->> 'sold_item_count',
+         closing_figures -> 'cogs' ->> 'line_36_gross_purchases_cents') as a
   from public.closed_periods
  where user_id = 'a0000000-0000-0000-0000-0000000c1053' and reopened_at is null;
 
@@ -106,7 +145,17 @@ select 'closed-year ledger still matches closing_figures' as q,
        (select bool_and((cp.closing_figures -> 'ledger' ->> k)
                         = (public.ledger_reconciliation('2025-01-01'::timestamptz) ->> k))
           from unnest(array['true_net_cents','overhead_cents',
-                            'ledger_sale_net_cents','entry_count']) k)::text as a
+                            'ledger_sale_net_cents','entry_count',
+                            'dashboard_net_cents','variance_cents']) k)::text as a
+  from public.closed_periods cp
+ where cp.user_id = 'a0000000-0000-0000-0000-0000000c1053' and cp.reopened_at is null;
+
+-- 7, the other half: scoping must not change the figures for the seller
+-- themself. 00829 computes the COGS block inline rather than calling
+-- cogs_worksheet, so it has to equal what cogs_worksheet returns under RLS.
+select 'closing cogs equals cogs_worksheet for the seller' as q,
+       ((cp.closing_figures -> 'cogs')
+          = public.cogs_worksheet('2025-01-01', '2026-01-01'))::text as a
   from public.closed_periods cp
  where cp.user_id = 'a0000000-0000-0000-0000-0000000c1053' and cp.reopened_at is null;
 reset role;

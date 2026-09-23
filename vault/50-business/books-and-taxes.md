@@ -55,6 +55,7 @@ code_refs:
   - scripts/check-statement-import.mjs
   - supabase/migrations/00702_period_close.sql
   - supabase/migrations/00828_ledger_rebuild_skips_closed_periods.sql
+  - supabase/migrations/00829_close_period_figures_caller_only.sql
   - src/lib/period-close.ts
   - scripts/check-period-close.mjs
   - supabase/migrations/00690_inventory_writeoffs.sql
@@ -1209,6 +1210,20 @@ US-2986 exists to prevent.
 It also records `closing_figures`: the ledger reconciliation and COGS worksheet
 as they stood, so a later recomputation can be COMPARED against what was filed
 rather than silently replacing it.
+
+**Those figures are computed inside `close_period`, filtered to the caller,
+and must stay that way** (migration 00829). `close_period` is SECURITY
+DEFINER, so RLS does not apply inside it. It used to call
+`ledger_reconciliation()` and `cogs_worksheet()`, which are SECURITY INVOKER
+with no user filter of their own, and inside the definer they summed every
+seller in the database: locally, seller A's close recorded seller B's sale,
+cost and stock. 00829 inlines both with `user_id = v_uid` on every read, and
+takes the dashboard net from `sale_pnl` (the same net as `finances_dashboard`,
+held equal by `check-sale-pnl-invariant.mjs`). **Any SECURITY DEFINER function
+that calls an RLS-scoped reader gets every tenant's rows**; name the user
+explicitly. `check-period-close.mjs` seeds a second seller and asserts the
+first seller's figures exclude them, and that the recorded COGS block still
+equals `cogs_worksheet()` run as that seller.
 
 ### A rebuild does not move a closed period
 

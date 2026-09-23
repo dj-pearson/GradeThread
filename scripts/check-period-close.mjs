@@ -78,6 +78,17 @@ check("the close returns an id", val("closed period id"), "true");
 check("it takes the inventory snapshot in the same action", val("snapshot taken by the close"), 1);
 check("and records the figures as they stood", val("closing figures recorded"), "true");
 
+// 00829. close_period is SECURITY DEFINER, so figures it computed through the
+// RLS-scoped reconciliation functions covered every seller in the database.
+// The fixture's second seller has a sale and stock in the same year; the
+// first seller's figures must be their own: ledger net, dashboard net, sold
+// item count, gross purchases.
+check(
+  "closing figures cover only the seller who closed (not a second seller's sale)",
+  val("closing figures cover the caller only"),
+  "5700,5700,1,5000",
+);
+
 // 00828. home_office_years has no lock trigger, so this is the input a
 // rebuild could quietly move. The check halves it after the close.
 console.log("\nA rebuild does not move a closed period (00828):");
@@ -89,6 +100,13 @@ check(
 check(
   "and its ledger still equals closing_figures",
   val("closed-year ledger still matches closing_figures"),
+  "true",
+);
+// 00829 computes the COGS block inline; for the seller themself it must be
+// exactly what cogs_worksheet returns under RLS.
+check(
+  "the recorded COGS block equals cogs_worksheet for that seller",
+  val("closing cogs equals cogs_worksheet for the seller"),
   "true",
 );
 
