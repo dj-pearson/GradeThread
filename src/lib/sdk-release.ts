@@ -18,7 +18,7 @@
 // loads it with plain Node type stripping.
 
 /** True once @gradethread/sdk is on npm (see the runbook for the order). */
-export const SDK_PUBLISHED = false;
+export const SDK_PUBLISHED = true;
 
 export const SDK_PACKAGE_NAME = "@gradethread/sdk";
 export const SDK_INSTALL_COMMAND = `npm install ${SDK_PACKAGE_NAME}`;
