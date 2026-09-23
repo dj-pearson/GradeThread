@@ -220,6 +220,21 @@ describe("FlipDesk pipeline state machine", () => {
     ).toBeNull();
   });
 
+  it("requires front+back photos before Photographed, matching auto-advance", () => {
+    expect(
+      validateStatusChange(
+        makeItem({ status: "measured", has_required_photos: false, photo_count: 3 }),
+        "photographed",
+      ),
+    ).toMatch(/front and back photo/i);
+    expect(
+      validateStatusChange(
+        makeItem({ status: "measured", has_required_photos: true, photo_count: 2 }),
+        "photographed",
+      ),
+    ).toBeNull();
+  });
+
   it("requires a price before Listed and a sale before Shipped", () => {
     expect(
       validateStatusChange(
