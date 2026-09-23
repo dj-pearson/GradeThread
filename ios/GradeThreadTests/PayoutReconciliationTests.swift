@@ -164,4 +164,31 @@ final class PayoutReconciliationTests: XCTestCase {
         XCTAssertNil(PayoutDateFormat.parse(nil))
         XCTAssertEqual(PayoutDateFormat.display(nil), "—")
     }
+
+    /// payout_date is a Postgres `date`. West of UTC it used to render one
+    /// day early ("Paid Jan 5" showed "Jan 4") because the UTC-midnight
+    /// anchor was formatted in the device zone.
+    func test_display_dateOnly_keepsCalendarDayWestOfUTC() throws {
+        let saved = NSTimeZone.default
+        NSTimeZone.default = try XCTUnwrap(TimeZone(identifier: "America/Los_Angeles"))
+        defer { NSTimeZone.default = saved }
+
+        // 2023 so the year holds no 4 or 5: any locale's medium style of
+        // Jan 5 then contains a 5 and no 4.
+        let shown = PayoutDateFormat.display("2023-01-05")
+        XCTAssertTrue(shown.contains("5"), shown)
+        XCTAssertFalse(shown.contains("4"), shown)
+
+        // A full timestamp is a real instant and stays in the device zone:
+        // 02:00 UTC on the 5th is still the 4th in Los Angeles.
+        let instant = PayoutDateFormat.display("2023-01-05T02:00:00Z")
+        XCTAssertTrue(instant.contains("4"), instant)
+        XCTAssertFalse(instant.contains("5"), instant)
+    }
+
+    func test_isDateOnly() {
+        XCTAssertTrue(PayoutDateFormat.isDateOnly("2024-01-05"))
+        XCTAssertFalse(PayoutDateFormat.isDateOnly("2024-01-05T12:00:00Z"))
+        XCTAssertFalse(PayoutDateFormat.isDateOnly("2024-01-05 "))
+    }
 }
