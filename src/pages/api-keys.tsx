@@ -610,7 +610,7 @@ export function ApiKeysPage() {
             <div>
               <p className="text-sm font-medium">JavaScript SDK</p>
               <p className="text-xs text-muted-foreground">
-                <code className="rounded bg-muted px-1">npm i @gradethread/sdk</code>
+                Typed Node and browser client. Build it from the repo.
               </p>
             </div>
           </Link>
