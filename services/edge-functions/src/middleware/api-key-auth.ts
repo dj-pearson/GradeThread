@@ -77,6 +77,34 @@ export type ApiKeyResolution =
   | { ok: true; identity: ApiKeyIdentity }
   | { ok: false; failure: ApiKeyAuthFailure };
 
+/** Owner columns the plan tiering reads, embedded in the key lookup. */
+const API_KEY_OWNER_COLUMNS = "role, flipdesk_plan, subscription_status, trial_ends_at, past_due_since";
+
+interface ApiKeyOwner {
+  role: string | null;
+  flipdesk_plan: string;
+  subscription_status: string | null;
+  trial_ends_at: string | null;
+  past_due_since: string | null;
+}
+
+/** A many-to-one embed reads back as an object; tolerate a one-element array. */
+function embeddedOwner(value: unknown): ApiKeyOwner | null {
+  const row = Array.isArray(value) ? value[0] : value;
+  return row && typeof row === "object" ? row as ApiKeyOwner : null;
+}
+
+/** last_used_at is advisory (shown in the key list), so minute resolution is plenty. */
+export const LAST_USED_WRITE_INTERVAL_MS = 60_000;
+
+/** Whether a request should write last_used_at, given the stored value. */
+export function shouldTouchLastUsed(lastUsedAt: string | null | undefined, now: Date): boolean {
+  if (!lastUsedAt) return true;
+  const last = new Date(lastUsedAt).getTime();
+  if (Number.isNaN(last)) return true;
+  return now.getTime() - last >= LAST_USED_WRITE_INTERVAL_MS;
+}
+
 /**
  * Turn a raw key into a caller identity, or say why it cannot.
  *
@@ -93,47 +121,62 @@ export async function resolveApiKeyIdentity(rawKey: string | undefined): Promise
   // Hash the provided key (HMAC-with-pepper when configured) to match storage.
   const keyHash = await hashApiKey(rawKey);
 
+  // One round trip for the key AND its owner. The owner columns used to be a
+  // second SELECT on users; api_keys.user_id is the only FK from api_keys to
+  // users, so PostgREST resolves the `owner:users(...)` embed unambiguously.
   const { data: keyRecord, error: lookupError } = await supabaseAdmin
     .from("api_keys")
-    .select("id, user_id, expires_at, scopes, monthly_quota, rate_tier")
+    .select(
+      `id, user_id, expires_at, last_used_at, scopes, monthly_quota, rate_tier, owner:users(${API_KEY_OWNER_COLUMNS})`,
+    )
     .eq("key_hash", keyHash)
     .single();
 
   if (lookupError || !keyRecord) return { ok: false, failure: { kind: "unknown" } };
 
+  const now = new Date();
   if (keyRecord.expires_at) {
     const expiresAt = new Date(keyRecord.expires_at);
-    if (expiresAt <= new Date()) return { ok: false, failure: { kind: "expired" } };
+    if (expiresAt <= now) return { ok: false, failure: { kind: "expired" } };
   }
 
-  // Update last_used_at (fire-and-forget, don't block the request)
-  supabaseAdmin
-    .from("api_keys")
-    .update({ last_used_at: new Date().toISOString() })
-    .eq("id", keyRecord.id)
-    .then(({ error }) => {
+  // Update last_used_at (fire-and-forget, don't block the request), but only
+  // when the stored value is null or at least LAST_USED_WRITE_INTERVAL_MS old,
+  // so a busy key costs one write a minute instead of one per call. The same
+  // condition sits in the filter, so requests racing past the check still land
+  // one write. No .or() on an UPDATE (US-1552): null and stale are two
+  // single-condition statements, and only one of them is ever sent.
+  if (shouldTouchLastUsed(keyRecord.last_used_at, now)) {
+    const touch = supabaseAdmin
+      .from("api_keys")
+      .update({ last_used_at: now.toISOString() })
+      .eq("id", keyRecord.id);
+    const guarded = keyRecord.last_used_at == null
+      ? touch.is("last_used_at", null)
+      : touch.lt(
+        "last_used_at",
+        new Date(now.getTime() - LAST_USED_WRITE_INTERVAL_MS).toISOString(),
+      );
+    guarded.then(({ error }) => {
       if (error) {
         console.error("Failed to update last_used_at for API key:", keyRecord.id, error);
       }
     });
+  }
 
   // Resolve the owner's effective plan for rate-limit tiering (US-800). Mirrors
   // plan-gate's resolution so a paused/expired-trial/past-due owner is tiered at
   // their real (downgraded) plan rather than the plan they once paid for. A
-  // failed lookup falls back to "free" (the tightest tier) rather than blocking
+  // missing owner falls back to "free" (the tightest tier) rather than blocking
   // the request — rate limiting is best-effort, not an entitlement gate.
   let apiKeyPlan = "free";
-  const { data: owner } = await supabaseAdmin
-    .from("users")
-    .select("role, flipdesk_plan, subscription_status, trial_ends_at, past_due_since")
-    .eq("id", keyRecord.user_id)
-    .single();
+  const owner = embeddedOwner((keyRecord as { owner?: unknown }).owner);
   if (owner) {
     apiKeyPlan = owner.role === "super_admin" ? "super_admin" : effectivePlanFor(
       owner.flipdesk_plan,
       owner.subscription_status,
       owner.trial_ends_at,
-      new Date(),
+      now,
       owner.past_due_since,
     );
   }
@@ -148,7 +191,6 @@ export async function resolveApiKeyIdentity(rawKey: string | undefined): Promise
   // = unlimited (the historical behavior for every existing key).
   const monthlyQuota = (keyRecord as { monthly_quota?: number | null }).monthly_quota ?? null;
   if (monthlyQuota != null) {
-    const now = new Date();
     const { count } = await supabaseAdmin
       .from("api_usage_events")
       .select("id", { count: "exact", head: true })
