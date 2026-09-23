@@ -1385,7 +1385,9 @@ export function makeListingsActions(d: ListingsActionDeps) {
         const { error } = await supabase
           .from("inventory_items")
           .update({ status: e.previousStatus } as never)
-          .eq("id", e.itemId);
+          .eq("id", e.itemId)
+          // INV-3: the same workspace scope the forward write carried.
+          .eq("user_id", ownerId);
         if (error) {
           failures.push(error.message);
           continue;

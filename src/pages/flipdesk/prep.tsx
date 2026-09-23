@@ -206,7 +206,10 @@ export function FlipdeskPrepPage() {
 
   // INV-8: a failed read is not an empty queue. Saying "Prep queue is clear"
   // over an error sends the seller off to Unlisted with work still waiting.
-  if (isError) {
+  // Only when there is nothing to show: a failed BACKGROUND refetch keeps the
+  // cached queue, and swapping it for an error would unmount the item the
+  // seller is typing into.
+  if (isError && items.length === 0) {
     return (
       <div className="space-y-6">
         <PrepHeader

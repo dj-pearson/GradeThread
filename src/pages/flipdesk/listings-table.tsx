@@ -1614,11 +1614,16 @@ export function ListingsTable({
                           has_required_photos:
                             coverByItem.get(it.id)?.hasRequiredPhotos ?? false,
                         };
+                        // A step with nowhere to go (waiting on grading, a
+                        // buyer, or nothing left) stays a plain badge rather
+                        // than a button that does nothing when pressed.
+                        const hasTarget =
+                          nextActionTarget(nextAction(facts).kind, it.id) != null;
                         return (
                           <NextActionBadge
                             item={facts}
                             label={rowLabel}
-                            onActivate={(kind) => {
+                            onActivate={hasTarget ? (kind) => {
                               const target = nextActionTarget(kind, it.id);
                               if (!target) return;
                               if ("publish" in target) {
@@ -1635,7 +1640,7 @@ export function ListingsTable({
                                   state: { from: `${window.location.pathname}${window.location.search}` },
                                 });
                               }
-                            }}
+                            } : undefined}
                           />
                         );
                       })()}

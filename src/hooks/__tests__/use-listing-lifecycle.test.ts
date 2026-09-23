@@ -398,6 +398,32 @@ describe("useBulkEndListings above the route's 100-id cap (INV-5)", () => {
     expect(res.results).toHaveLength(250);
     expect(progress).toEqual([[100, 250], [200, 250], [250, 250]]);
   });
+
+  it("a later chunk failing says how many were already sent", async () => {
+    const ids = Array.from({ length: 150 }, (_, i) => `l${i}`);
+    let call = 0;
+    edgeFetch.mockImplementation((_path: string, opts: { json: { listing_ids: string[] } }) => {
+      call++;
+      const part = opts.json.listing_ids;
+      if (call === 2) return Promise.resolve(jsonResponse({ error: "Rate limited." }, 429));
+      return Promise.resolve(
+        jsonResponse({
+          ok: true,
+          total: part.length,
+          succeeded: part.length,
+          failed: 0,
+          results: part.map((id) => ({ listing_id: id, ok: true, ended_upstream: true })),
+        }),
+      );
+    });
+    const hook = useBulkEndListings() as unknown as MutationLike<
+      { listingIds: string[] },
+      unknown
+    >;
+    await expect(hook.mutationFn({ listingIds: ids })).rejects.toThrow(
+      "Rate limited. (100 of 150 were already sent.)",
+    );
+  });
 });
 
 describe("undoableFrom (US-2172)", () => {

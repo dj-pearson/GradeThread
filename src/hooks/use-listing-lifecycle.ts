@@ -289,7 +289,16 @@ export function useBulkEndListings() {
           method: "POST",
           json: { listing_ids: part },
         });
-        parts.push(await readOrThrow<BulkEndResponse>(res, "Bulk end failed."));
+        try {
+          parts.push(await readOrThrow<BulkEndResponse>(res, "Bulk end failed."));
+        } catch (err) {
+          // A later chunk failing after earlier ones ended listings must not
+          // read as "nothing changed": those listings are already down.
+          if (parts.length > 0 && err instanceof Error) {
+            err.message = `${err.message} (${done} of ${listingIds.length} were already sent.)`;
+          }
+          throw err;
+        }
         done += part.length;
         onProgress?.(done, listingIds.length);
       }

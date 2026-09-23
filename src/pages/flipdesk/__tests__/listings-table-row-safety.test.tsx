@@ -242,6 +242,25 @@ describe("INV-14: grade chip and Next column", () => {
     expect(html).toMatch(/<button[^>]*aria-label="Grade it: Nike Windbreaker"/);
   });
 
+  it("a step with nowhere to go is a plain badge, not a dead button", () => {
+    const html = render({
+      tab: "all",
+      isAged: false,
+      coverByItem: new Map([["i1", { thumbnail_url: null, photo_url: null, hasRequiredPhotos: true }]]),
+      pageRows: [
+        row({
+          status: "grading",
+          measurements: { chest: 20 },
+          listing_id: null,
+          listing_status: null,
+          grade_value: null,
+        } as Partial<ItemFullRow>),
+      ],
+    });
+    expect(html).toContain(">Next<");
+    expect(html).not.toMatch(/<button[^>]*aria-label="[^"]*: Nike Windbreaker"/);
+  });
+
   it("does not say 'Add photos' before the page's photo read has answered", () => {
     const html = render({ tab: "unlisted", isUnlisted: true, isAged: false });
     expect(html).toContain(">Next<");

@@ -109,4 +109,14 @@ describe("Prep", () => {
     expect(host.textContent).toContain("Couldn't load your prep queue");
     expect(host.textContent).not.toContain("Prep queue is clear");
   });
+
+  it("a failed BACKGROUND refetch keeps the item and what was typed", () => {
+    render();
+    type(priceInput(), "55");
+    // TanStack keeps the cached rows and flips isError when a refetch fails.
+    mocks.list = { ...mocks.list, isError: true };
+    render();
+    expect(host.textContent).not.toContain("Couldn't load your prep queue");
+    expect(priceInput().value).toBe("55");
+  });
 });
