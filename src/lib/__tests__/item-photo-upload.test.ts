@@ -13,6 +13,7 @@ const h = vi.hoisted(() => ({
   uploadError: null as unknown,
   inserted: [] as Array<Record<string, unknown>>,
   compress: vi.fn(),
+  normalize: vi.fn(async (f: File) => f),
 }));
 
 vi.mock("@/lib/supabase", () => {
@@ -45,7 +46,7 @@ vi.mock("@/lib/supabase", () => {
 vi.mock("@/lib/image-utils", () => ({ compressImage: h.compress }));
 
 vi.mock("@/lib/media-intake", () => ({
-  normalizeToImageFile: async (f: File) => f,
+  normalizeToImageFile: (f: File) => h.normalize(f),
 }));
 
 vi.mock("@/lib/macro-photo-quality", () => ({
@@ -54,7 +55,7 @@ vi.mock("@/lib/macro-photo-quality", () => ({
   uploadMaxWidthFor: () => 2400,
 }));
 
-import { uploadItemPhoto } from "@/lib/item-photo-upload";
+import { PhotoPrepError, uploadItemPhoto } from "@/lib/item-photo-upload";
 
 function original(): File {
   return new File([new Uint8Array([0xff, 0xd8, 1, 2, 3])], "IMG_0001.jpg", {
@@ -196,5 +197,83 @@ describe("a photoId makes a retry idempotent", () => {
       uploadItemPhoto({ ...baseInput, file: original(), photoId: PHOTO_ID }),
     ).rejects.toBe(h.insertError);
     expect(h.removed).toHaveLength(1);
+  });
+});
+
+describe("what counts as already stored", () => {
+  const PHOTO_ID = "11111111-2222-3333-4444-555555555555";
+  function encodes() {
+    h.compress.mockResolvedValue({
+      blob: new Blob([new Uint8Array([9, 9, 9])], { type: "image/webp" }),
+      width: 10,
+      height: 10,
+    });
+  }
+
+  it("a message that only says duplicate is a failure, not an earlier upload", async () => {
+    encodes();
+    h.uploadError = { statusCode: "400", message: "duplicate content hash rejected" };
+    await expect(
+      uploadItemPhoto({ ...baseInput, file: original(), photoId: PHOTO_ID }),
+    ).rejects.toBe(h.uploadError);
+    expect(h.inserted).toHaveLength(0);
+  });
+
+  it("a 409 without the already-exists message is a failure too", async () => {
+    encodes();
+    h.uploadError = { statusCode: "409", message: "Conflicting upload in progress" };
+    await expect(
+      uploadItemPhoto({ ...baseInput, file: original(), photoId: PHOTO_ID }),
+    ).rejects.toBe(h.uploadError);
+    expect(h.inserted).toHaveLength(0);
+  });
+
+  it("a numeric status 409 with the already-exists message counts as stored", async () => {
+    encodes();
+    h.uploadError = { status: 409, message: "The resource already exists" };
+    await expect(
+      uploadItemPhoto({ ...baseInput, file: original(), photoId: PHOTO_ID }),
+    ).resolves.toMatchObject({ storedSize: 3 });
+  });
+
+  it("a later insert failure does not delete objects an earlier attempt stored", async () => {
+    encodes();
+    // Both uploads find the objects already there: an earlier attempt put them.
+    h.uploadError = { statusCode: "409", message: "The resource already exists" };
+    const insErr = { message: "insert refused", code: "42501" };
+    h.insertError = insErr;
+    await expect(
+      uploadItemPhoto({ ...baseInput, file: original(), photoId: PHOTO_ID }),
+    ).rejects.toBe(insErr);
+    expect(h.removed).toHaveLength(0);
+  });
+});
+
+describe("local preparation failures are marked as such", () => {
+  it("a compress failure throws PhotoPrepError", async () => {
+    h.compress.mockRejectedValue(new Error("canvas decode failed"));
+    const err = await uploadItemPhoto({ ...baseInput, file: original() }).catch((e) => e);
+    expect(err).toBeInstanceOf(PhotoPrepError);
+  });
+
+  it("a HEIC or video conversion failure throws PhotoPrepError with its own message", async () => {
+    h.normalize.mockRejectedValueOnce(
+      new Error("HEIC conversion failed. Re-export as JPEG and add it again."),
+    );
+    const err = await uploadItemPhoto({ ...baseInput, file: original() }).catch((e) => e);
+    expect(err).toBeInstanceOf(PhotoPrepError);
+    expect((err as Error).message).toMatch(/^HEIC conversion failed/);
+    expect(h.uploads).toHaveLength(0);
+  });
+
+  it("a storage refusal is not a PhotoPrepError", async () => {
+    h.compress.mockResolvedValue({
+      blob: new Blob([new Uint8Array([9])], { type: "image/webp" }),
+      width: 1,
+      height: 1,
+    });
+    h.uploadError = { statusCode: "403", message: "new row violates row-level security policy" };
+    const err = await uploadItemPhoto({ ...baseInput, file: original() }).catch((e) => e);
+    expect(err).not.toBeInstanceOf(PhotoPrepError);
   });
 });

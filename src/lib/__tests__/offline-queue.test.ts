@@ -8,13 +8,17 @@ const upsert = vi.fn();
 vi.mock("@/lib/supabase", () => ({
   supabase: {
     rpc: (...args: unknown[]) => rpc(...args),
-    from: () => ({ upsert: (...args: unknown[]) => upsert(...args) }),
+    // upsert(...).select("id"): the rows it returns say whether the row is new.
+    from: () => ({
+      upsert: (...args: unknown[]) => ({ select: () => upsert(...args) }),
+    }),
   },
 }));
 vi.mock("@/lib/sentry", () => ({ captureException: vi.fn() }));
 const uploadItemPhoto = vi.fn();
 vi.mock("@/lib/item-photo-upload", () => ({
   uploadItemPhoto: (...args: unknown[]) => uploadItemPhoto(...args),
+  PhotoPrepError: class PhotoPrepError extends Error {},
 }));
 
 import {
@@ -23,6 +27,7 @@ import {
   MAX_PHOTO_ATTEMPTS,
   queuedIntakeCount,
 } from "@/lib/offline-queue";
+import { PhotoPrepError } from "@/lib/item-photo-upload";
 import type { InventoryItemInsert } from "@/types/database";
 
 const OWNER = "00000000-0000-0000-0000-00000000000a";
@@ -38,7 +43,7 @@ const photo = (name: string, sortOrder: number) => ({
 async function drain() {
   // Leave nothing queued between tests.
   rpc.mockResolvedValue({ data: "src-new", error: null });
-  upsert.mockResolvedValue({ error: null });
+  upsert.mockImplementation(async (row: { id: string }) => ({ data: [{ id: row.id }], error: null }));
   uploadItemPhoto.mockResolvedValue({});
   while ((await queuedIntakeCount()) > 0) await flushIntakeQueue();
 }
@@ -49,7 +54,7 @@ beforeEach(async () => {
   upsert.mockReset();
   uploadItemPhoto.mockReset();
   rpc.mockResolvedValue({ data: "src-new", error: null });
-  upsert.mockResolvedValue({ error: null });
+  upsert.mockImplementation(async (row: { id: string }) => ({ data: [{ id: row.id }], error: null }));
   uploadItemPhoto.mockResolvedValue({});
 });
 
@@ -182,6 +187,58 @@ describe("flushIntakeQueue", () => {
     }
     expect(await flushIntakeQueue()).toMatchObject({ photosPending: 0 });
     expect(uploadItemPhoto).toHaveBeenCalledTimes(1);
+  });
+
+  it("a photo this device cannot prepare is set aside at once, with its reason", async () => {
+    await enqueueIntake(payload, { photos: [photo("IMG_1.heic", 0), photo("b.jpg", 1)] });
+    uploadItemPhoto.mockImplementation(async ({ file }: { file: File }) => {
+      if (file.name === "IMG_1.heic") throw new PhotoPrepError("HEIC conversion failed.");
+      return {};
+    });
+
+    const res = await flushIntakeQueue();
+    // One flush, not MAX_PHOTO_ATTEMPTS: nothing was sent, so there is no
+    // server verdict to wait for, and the same bytes fail the same way again.
+    expect(res).toMatchObject({
+      synced: 1,
+      photosDropped: 0,
+      photosPending: 0,
+      photosUnprocessable: 1,
+      firstUnprocessableError: "HEIC conversion failed.",
+      firstPhotoError: null,
+    });
+    expect(uploadItemPhoto).toHaveBeenCalledTimes(2);
+    expect(await queuedIntakeCount()).toBe(0);
+  });
+
+  it("a replay after the itemSaved write failed does not count the item again", async () => {
+    await enqueueIntake(payload, { photos: [photo("a.jpg", 0)] });
+    // The item row is inserted, then IndexedDB refuses to record itemSaved.
+    const put = vi
+      .spyOn(IDBObjectStore.prototype, "put")
+      .mockImplementationOnce(() => {
+        throw new Error("QuotaExceededError");
+      });
+    try {
+      const first = await flushIntakeQueue();
+      expect(first).toMatchObject({ synced: 1, photosPending: 1 });
+    } finally {
+      put.mockRestore();
+    }
+    expect(uploadItemPhoto).not.toHaveBeenCalled();
+
+    // The server already has the row: the ignore-duplicates upsert returns none.
+    upsert.mockResolvedValue({ data: [], error: null });
+    const second = await flushIntakeQueue();
+    expect(second).toMatchObject({ synced: 0, failed: 0, photosPending: 0 });
+    // Same id both times, so the server matched the existing row, and the
+    // photo went to that item.
+    const ids = upsert.mock.calls.map((c) => (c[0] as { id: string }).id);
+    expect(ids).toHaveLength(2);
+    expect(ids[1]).toBe(ids[0]);
+    expect(uploadItemPhoto).toHaveBeenCalledTimes(1);
+    expect((uploadItemPhoto.mock.calls[0]![0] as { itemId: string }).itemId).toBe(ids[0]);
+    expect(await queuedIntakeCount()).toBe(0);
   });
 
   it("leaves the item queued when the source RPC fails", async () => {

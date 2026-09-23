@@ -1,7 +1,8 @@
-// The two readers of held-migration state outside the gate --
-// scripts/operator-worklist.mjs (the "Start here" list) and
-// .claude/hooks/session-context.mjs (the session banner) -- read
-// supabase/held-migrations.json, not PENDING_MIGRATIONS.md headings.
+// The readers of held-migration state outside the gate --
+// scripts/operator-worklist.mjs (the "Start here" list) and the session
+// banner hooks .claude/hooks/session-context.mjs and
+// .codex/hooks/session-context.mjs -- read supabase/held-migrations.json, not
+// PENDING_MIGRATIONS.md headings.
 //
 // Each script is copied into a throwaway root whose registry and headings
 // DISAGREE on purpose: the registry holds 00901 and 00902, and the only HELD
@@ -23,6 +24,8 @@ const REGISTRY = {
   parked: [],
 };
 
+const HOOKS = [".claude/hooks/session-context.mjs", ".codex/hooks/session-context.mjs"];
+
 const PENDING = "# Pending\n\n## HELD: 00900_heading_only.sql (US-9000 - only the heading has this)\n";
 
 function fixture({ registry = REGISTRY } = {}) {
@@ -30,12 +33,11 @@ function fixture({ registry = REGISTRY } = {}) {
   mkdirSync(join(dir, "scripts"));
   mkdirSync(join(dir, "docs"));
   mkdirSync(join(dir, "supabase", "migrations"), { recursive: true });
-  mkdirSync(join(dir, ".claude", "hooks"), { recursive: true });
   copyFileSync(join(ROOT, "scripts/operator-worklist.mjs"), join(dir, "scripts/operator-worklist.mjs"));
-  copyFileSync(
-    join(ROOT, ".claude/hooks/session-context.mjs"),
-    join(dir, ".claude/hooks/session-context.mjs"),
-  );
+  for (const hook of HOOKS) {
+    mkdirSync(join(dir, hook, ".."), { recursive: true });
+    copyFileSync(join(ROOT, hook), join(dir, hook));
+  }
   writeFileSync(join(dir, "PENDING_MIGRATIONS.md"), PENDING);
   writeFileSync(join(dir, "prd.json"), JSON.stringify({ nextId: "US-9999", userStories: [] }));
   if (registry !== null) {
@@ -64,6 +66,9 @@ describe("operator-worklist.mjs reads the registry", () => {
       expect(block).toContain("- `00902_second_thing.sql` — money plan action 9 - the second thing");
       expect(block.indexOf("00901_")).toBeLessThan(block.indexOf("00902_"));
       expect(block, "a heading-only migration is not held").not.toContain("00900");
+      // The sentence saying where the list comes from names the registry.
+      expect(block).toContain("Computed from supabase/held-migrations.json and the criteria below");
+      expect(block).not.toContain("Computed from PENDING_MIGRATIONS.md");
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
@@ -80,11 +85,11 @@ describe("operator-worklist.mjs reads the registry", () => {
   });
 });
 
-describe("session-context hook reads the registry", () => {
+describe.each(HOOKS)("%s reads the registry", (hook) => {
   it("names the registry's held migrations newest first, and not the heading-only one", () => {
     const dir = fixture();
     try {
-      const out = JSON.parse(run(dir, ".claude/hooks/session-context.mjs"));
+      const out = JSON.parse(run(dir, hook));
       const ctx = out.hookSpecificOutput.additionalContext;
       expect(ctx).toContain(
         "2 migration(s) HELD (not yet applied to prod): 00902_second_thing, 00901_first_thing.",
@@ -99,7 +104,7 @@ describe("session-context hook reads the registry", () => {
     // The hook's contract is that it never breaks a session.
     const dir = fixture({ registry: null });
     try {
-      const out = run(dir, ".claude/hooks/session-context.mjs");
+      const out = run(dir, hook);
       expect(out).not.toMatch(/HELD/);
     } finally {
       rmSync(dir, { recursive: true, force: true });

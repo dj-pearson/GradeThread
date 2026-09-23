@@ -11,7 +11,7 @@ import { buildAccountExport } from "@/lib/account-export";
 import { edgeFetch } from "@/lib/edge-fetch";
 import { toastError } from "@/lib/toast-error";
 import { readStored } from "@/lib/safe-storage";
-import { useAccountExportStore } from "@/stores/account-export-store";
+import { isExportingFor, useAccountExportStore } from "@/stores/account-export-store";
 
 const EXPORT_COOLDOWN_MS = 24 * 60 * 60 * 1000;
 
@@ -22,13 +22,14 @@ export function DataSettingsTab() {
 
   // In a store, not useState: switching Settings tabs unmounts this one, and
   // the flag has to survive that or a second export can start mid-flight.
-  const exporting = useAccountExportStore((s) => s.exporting);
+  // Keyed by user: another account's export on this browser never blocks this one.
+  const exporting = useAccountExportStore((s) => isExportingFor(s, user?.id));
   const exportStage = useAccountExportStore((s) => s.stage);
   const exportPct = useAccountExportStore((s) => s.pct);
   const [filingRequest, setFilingRequest] = useState<"export" | "delete" | null>(null);
 
   async function handleExportData() {
-    if (!user || useAccountExportStore.getState().exporting) return;
+    if (!user) return;
     const key = `gt-last-export-${user.id}`;
     const last = Number(readStored(key) ?? 0);
     const sinceLast = Date.now() - last;
@@ -43,10 +44,12 @@ export function DataSettingsTab() {
     }
 
     const store = useAccountExportStore.getState();
-    if (!store.begin()) return;
+    // begin() is the one in-flight check: it refuses while this user's
+    // export is running, and it is atomic with claiming the slot.
+    if (!store.begin(user.id)) return;
     try {
       const blob = await buildAccountExport((stage, pct) => {
-        store.progress(stage, pct);
+        store.progress(user.id, stage, pct);
       });
       localStorage.setItem(key, String(Date.now()));
 
@@ -59,7 +62,7 @@ export function DataSettingsTab() {
     } catch (err) {
       toastError(err, "Failed to export data.");
     } finally {
-      store.finish();
+      store.finish(user.id);
     }
   }
 

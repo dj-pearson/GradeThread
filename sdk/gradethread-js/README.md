@@ -8,21 +8,16 @@ Zero dependencies. Works in Node 20+ and the browser.
 
 ## Install
 
-The package is not on the npm registry yet. Until it is, build a tarball from
-this repository and install that:
+The SDK is not published to npm yet, and the GradeThread repository is
+private, so there is no install command that works for an outside customer
+today. Until it is published, call the HTTP API directly: the endpoints,
+scopes, auth header and request examples are on the developers page at
+<https://gradethread.com/developers>. Email
+[support@gradethread.com](mailto:support@gradethread.com?subject=JavaScript%20SDK%20access)
+and we'll let you know when the package is available.
 
-```bash
-git clone https://github.com/dj-pearson/GradeThread
-cd GradeThread/sdk/gradethread-js
-npm install        # TypeScript, for the build
-npm pack           # builds dist/ and writes gradethread-sdk-0.1.0.tgz
-
-# in your project
-npm install /path/to/GradeThread/sdk/gradethread-js/gradethread-sdk-0.1.0.tgz
-```
-
-Once it is published this becomes `npm install @gradethread/sdk`; the import
-path is the same either way.
+Once it is published this becomes `npm install @gradethread/sdk`, and the
+examples below work unchanged.
 
 ## Quick start
 

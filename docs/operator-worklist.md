@@ -6,7 +6,7 @@ This is not a list of blocked work. Most of these stories have buildable criteri
 
 ## Start here
 
-Computed from PENDING_MIGRATIONS.md and the criteria below, so it is right on the day you read it. Everything under this heading is two sittings, and it is the two that move the most stories.
+Computed from supabase/held-migrations.json and the criteria below, so it is right on the day you read it. Everything under this heading is two sittings, and it is the two that move the most stories.
 
 **1. Apply the 10 held migrations, oldest first.** `npm run migrate:prod` reads what prod already has; `npm run migrate:prod -- --apply --yes` takes a backup and applies. Each entry in PENDING_MIGRATIONS.md carries its own risk note and its own readback -- run the readback, do not assume the apply.
 

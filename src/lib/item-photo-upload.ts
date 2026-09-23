@@ -30,11 +30,28 @@ function extForBlobType(mimeType: string, fallback: string): string {
 }
 
 // Storage answers an upsert:false upload onto an existing path with 409
-// "The resource already exists".
+// "The resource already exists". Both halves are required: a bare 409, or a
+// message that merely says "duplicate", is some other refusal and must not be
+// taken as proof that an earlier attempt stored this object.
 function isAlreadyStored(err: unknown): boolean {
   const e = err as { statusCode?: unknown; status?: unknown; message?: unknown };
-  if (String(e.statusCode) === "409" || e.status === 409) return true;
-  return typeof e.message === "string" && /already exists|duplicate/i.test(e.message);
+  const is409 = String(e.statusCode) === "409" || e.status === 409;
+  return is409 && typeof e.message === "string" && /already exists/i.test(e.message);
+}
+
+/**
+ * The photo could not be turned into something uploadable on THIS device:
+ * HEIC or video conversion failed, or the canvas re-encode did. Nothing was
+ * sent, so the server has not judged it, and retrying the same bytes on the
+ * same device will fail the same way. The message is written for the seller.
+ */
+export class PhotoPrepError extends Error {
+  readonly cause: unknown;
+  constructor(message: string, options?: { cause?: unknown }) {
+    super(message);
+    this.name = "PhotoPrepError";
+    this.cause = options?.cause;
+  }
 }
 
 // A unique violation on the row id or on (item, storage_path): either way the
@@ -89,7 +106,19 @@ export async function uploadItemPhoto({
   // US-1300: normalize odd iPhone inputs first — a Live Photo exported as a
   // .mov/.mp4 video becomes a still JPEG frame and HEIC/HEIF becomes JPEG, so
   // the canvas compress/upload path below gets a decodable image.
-  const file = await normalizeToImageFile(picked);
+  let file: File;
+  try {
+    file = await normalizeToImageFile(picked);
+  } catch (normErr) {
+    // Keep the conversion's own message (it says what to do), but mark it as
+    // a local failure so a retrying caller does not count it against the server.
+    throw new PhotoPrepError(
+      normErr instanceof Error && normErr.message
+        ? normErr.message
+        : `Couldn't convert ${picked.name || "this photo"}. Take it again or pick a different photo.`,
+      { cause: normErr },
+    );
+  }
 
   const originalSize = file.size;
   // item-photos is the one PUBLIC bucket and the browser writes to it directly,
@@ -146,8 +175,9 @@ export async function uploadItemPhoto({
     if (import.meta.env.DEV) {
       console.warn("[item-photo-upload] compress failed:", compressErr);
     }
-    throw new Error(
+    throw new PhotoPrepError(
       `Couldn't prepare ${file.name || "this photo"} for upload. Take it again or pick a different photo.`,
+      { cause: compressErr },
     );
   }
 
@@ -164,6 +194,10 @@ export async function uploadItemPhoto({
     .from("item-photos")
     .upload(path, body, { upsert: false, contentType: bodyType || undefined });
   if (upErr && !(photoId && isAlreadyStored(upErr))) throw upErr;
+  // A 409 taken as success means the object is an EARLIER attempt's upload,
+  // which a row from that attempt may already point at. Only objects this call
+  // created are ours to clean up.
+  const createdPaths: string[] = upErr ? [] : [path];
 
   const { data: pub } = supabase.storage.from("item-photos").getPublicUrl(path);
 
@@ -188,6 +222,7 @@ export async function uploadItemPhoto({
       }
       thumbnailPath = null;
     } else {
+      if (!thumbUpErr) createdPaths.push(thumbnailPath);
       thumbnailUrl = supabase.storage
         .from("item-photos")
         .getPublicUrl(thumbnailPath).data.publicUrl;
@@ -217,15 +252,18 @@ export async function uploadItemPhoto({
   // so they must not be cleaned up as orphans.
   const alreadyRecorded = Boolean(photoId && insErr && isPhotoRowDuplicate(insErr));
   if (insErr && !alreadyRecorded) {
-    // No row points at these objects, so nothing would ever list or delete
-    // them. Remove them before reporting; a failed cleanup must not hide the
-    // insert error the caller needs to see.
-    const orphans = thumbnailPath ? [path, thumbnailPath] : [path];
-    try {
-      await supabase.storage.from("item-photos").remove(orphans);
-    } catch (cleanupErr) {
-      if (import.meta.env.DEV) {
-        console.warn("[item-photo-upload] orphan cleanup failed:", cleanupErr);
+    // No row points at the objects this call uploaded, so nothing would ever
+    // list or delete them. Remove them before reporting; a failed cleanup must
+    // not hide the insert error the caller needs to see. An object found
+    // already stored (409) is left alone: it may be the one an earlier,
+    // successful attempt's row points at.
+    if (createdPaths.length > 0) {
+      try {
+        await supabase.storage.from("item-photos").remove(createdPaths);
+      } catch (cleanupErr) {
+        if (import.meta.env.DEV) {
+          console.warn("[item-photo-upload] orphan cleanup failed:", cleanupErr);
+        }
       }
     }
     throw insErr;

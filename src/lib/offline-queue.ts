@@ -3,7 +3,7 @@
 // flushed to Supabase once the device comes back online.
 import { supabase } from "@/lib/supabase";
 import { captureException } from "@/lib/sentry";
-import { uploadItemPhoto } from "@/lib/item-photo-upload";
+import { PhotoPrepError, uploadItemPhoto } from "@/lib/item-photo-upload";
 import { isOffline } from "@/lib/friendly-error";
 import type { FlipdeskPhotoType, InventoryItemInsert } from "@/types/database";
 
@@ -52,7 +52,10 @@ export interface QueuedIntake {
 // photo is dropped and the seller is told to add it from the item page.
 // Without a cap, one photo the server refuses every time stays queued forever.
 // A try that never reached the server (offline, fetch rejected) does not
-// count: a dead zone is not a verdict on the photo.
+// count: a dead zone is not a verdict on the photo. Neither does a photo this
+// device cannot convert or re-encode (PhotoPrepError): nothing was sent, and
+// the same bytes fail the same way every time, so it is set aside at once as
+// unprocessable, with the reason, instead of spending five flushes on it.
 export const MAX_PHOTO_ATTEMPTS = 5;
 
 export interface FlushResult {
@@ -73,6 +76,14 @@ export interface FlushResult {
   photosPending: number;
   /** Why the first photo upload failed, kept apart from item failures. */
   firstPhotoError: string | null;
+  /**
+   * Photos set aside because this device could not prepare them for upload
+   * (HEIC or video conversion, or the re-encode, failed). Not in photosDropped:
+   * they never reached the server and the fix is a different photo.
+   */
+  photosUnprocessable: number;
+  /** The seller-facing reason the first unprocessable photo was set aside. */
+  firstUnprocessableError: string | null;
 }
 
 function openDb(): Promise<IDBDatabase> {
@@ -161,6 +172,8 @@ export async function flushIntakeQueue(
   let photosPending = 0;
   let firstError: string | null = null;
   let firstPhotoError: string | null = null;
+  let photosUnprocessable = 0;
+  let firstUnprocessableError: string | null = null;
   const report = (err: unknown, record: QueuedIntake, area: string) => {
     const message = err instanceof Error ? err.message : String(err);
     if (area === "offline-intake-photo") firstPhotoError ??= message;
@@ -174,6 +187,7 @@ export async function flushIntakeQueue(
     let record = queued[i]!;
     let payload: InventoryItemInsert = record.payload;
     if (!record.itemSaved) {
+      let alreadySaved = false;
       try {
         // A source created while offline. get_or_create_source is keyed on the
         // name, so a replay after a lost response finds the same row.
@@ -198,11 +212,19 @@ export async function flushIntakeQueue(
         // once (the lock is per-tab) inserted the SAME intake twice — a duplicate
         // inventory item. Use the stable queue-record id as the item id and
         // upsert-ignore-duplicates so a replay is a no-op.
+        //
+        // The same id also answers "did an earlier flush already save this?".
+        // If that flush inserted the row and then failed to record itemSaved
+        // (IndexedDB refused the write), this replay's upsert hits the existing
+        // row, ignoreDuplicates returns no rows, and the item is treated as
+        // saved rather than counted as a second new item.
         const row = { ...payload, id: record.id } as never;
-        const { error } = await supabase
+        const { data: insertedRows, error } = await supabase
           .from("inventory_items")
-          .upsert(row, { onConflict: "id", ignoreDuplicates: true });
+          .upsert(row, { onConflict: "id", ignoreDuplicates: true })
+          .select("id");
         if (error) throw error;
+        alreadySaved = (insertedRows?.length ?? 0) === 0;
       } catch (err) {
         // US-2364: keep the reason. Discarding it made the two failure modes
         // indistinguishable, and they need opposite responses: a lost connection
@@ -216,7 +238,7 @@ export async function flushIntakeQueue(
         onProgress?.(i + 1, queued.length);
         continue;
       }
-      synced++;
+      if (!alreadySaved) synced++;
     }
 
     try {
@@ -253,6 +275,16 @@ export async function flushIntakeQueue(
             photoId: photo.id,
           });
         } catch (err) {
+          if (err instanceof PhotoPrepError) {
+            // Never left the device, and will not convert next time either.
+            photosUnprocessable++;
+            firstUnprocessableError ??= err.message;
+            captureException(err, {
+              tags: { area: "offline-intake-photo-prep" },
+              extra: { queueRecordId: record.id },
+            });
+            continue;
+          }
           report(err, record, "offline-intake-photo");
           const attempts = (photo.attempts ?? 0) + (isOffline(err) ? 0 : 1);
           if (attempts >= MAX_PHOTO_ATTEMPTS) photosDropped++;
@@ -273,5 +305,14 @@ export async function flushIntakeQueue(
     }
     onProgress?.(i + 1, queued.length);
   }
-  return { synced, failed, firstError, photosDropped, photosPending, firstPhotoError };
+  return {
+    synced,
+    failed,
+    firstError,
+    photosDropped,
+    photosPending,
+    firstPhotoError,
+    photosUnprocessable,
+    firstUnprocessableError,
+  };
 }

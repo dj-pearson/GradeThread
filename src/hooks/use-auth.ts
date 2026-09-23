@@ -3,6 +3,7 @@ import { supabase } from "@/lib/supabase";
 import { queryClient } from "@/lib/query-client";
 import { captureException } from "@/lib/sentry";
 import { useAuthStore } from "@/stores/auth-store";
+import { useAccountExportStore } from "@/stores/account-export-store";
 import { redeemStoredAffiliateRef } from "@/lib/affiliate";
 import { sendWelcomeEmailOnce } from "@/lib/welcome-email";
 import { confirmSignupConsentOnce } from "@/lib/signup-consent";
@@ -249,6 +250,9 @@ function initAuth() {
       // Clear the idle-logout activity stamp so it can't be read as ">12h idle"
       // for the next user who signs in on this shared browser.
       clearIdleActivity();
+      // The previous user's in-flight ZIP export must not disable the button
+      // for whoever signs in next.
+      useAccountExportStore.getState().clear();
       s.reset();
     }
   });
