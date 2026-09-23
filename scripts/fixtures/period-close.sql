@@ -22,6 +22,13 @@
 --   5. Closing takes the inventory snapshot in the same action (AC5).
 --   6. Closing rebuilds the ledger first, so a sale recorded after the last
 --      build is in the frozen figures (00826).
+--   7. A rebuild does not move a closed period (00828). home_office_years has
+--      no lock trigger, so the check changes it after the close, rebuilds,
+--      and reads the closed year's ledger back against closing_figures.
+--   8. closing_figures cover the CALLER only (00829). close_period is SECURITY
+--      DEFINER, so the RLS-scoped ledger_reconciliation / cogs_worksheet it
+--      used to call saw every seller's rows. A second seller with a sale and
+--      stock in the same year must not show up in the first seller's figures.
 begin;
 
 insert into auth.users (id, email, instance_id, aud, role)
@@ -60,6 +67,13 @@ values ('73000000-0000-0000-0000-000000000001', 'a0000000-0000-0000-0000-0000000
         '2025-04-01', 20.0, 'Sourcing in the closed year')
 on conflict (id) do nothing;
 
+-- 7: an input the lock triggers do NOT cover. 200 sq ft for 2025 is a
+-- $1,000 deduction dated 2025-12-31, inside the year about to be closed.
+insert into public.home_office_years (id, user_id, tax_year, square_feet, months_used)
+values ('63000000-0000-0000-0000-000000000001', 'a0000000-0000-0000-0000-0000000c1053',
+        2025, 200, 12)
+on conflict (id) do nothing;
+
 select public.rebuild_ledger_for_user('a0000000-0000-0000-0000-0000000c1053');
 
 -- 6: A SALE RECORDED AFTER THE LEDGER WAS LAST BUILT. The ledger is rebuilt on
@@ -85,6 +99,28 @@ select coalesce(sum(e.amount_cents) filter (
   join public.ledger_accounts a on a.id = e.account_id
  where e.user_id = 'a0000000-0000-0000-0000-0000000c1053'
    and e.entry_date >= '2025-01-01';
+
+-- 8: a SECOND seller, active in the same year, with a built ledger. Nothing of
+-- theirs may reach the first seller's closing figures.
+insert into auth.users (id, email, instance_id, aud, role)
+values ('a0000000-0000-0000-0000-0000000c1054', 'other-seller@example.com',
+        '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated')
+on conflict (id) do nothing;
+
+insert into public.inventory_items (id, user_id, title, acquired_price, acquired_date, status)
+values ('b3000000-0000-0000-0000-000000000004', 'a0000000-0000-0000-0000-0000000c1054',
+        'Other seller sold', 100.00, '2025-02-01', 'sold'),
+       ('b3000000-0000-0000-0000-000000000005', 'a0000000-0000-0000-0000-0000000c1054',
+        'Other seller held', 70.00, '2025-03-01', 'listed')
+on conflict (id) do nothing;
+
+insert into public.sales
+  (id, user_id, inventory_item_id, sale_price, platform_fees, sale_date, status)
+values ('c3000000-0000-0000-0000-000000000003', 'a0000000-0000-0000-0000-0000000c1054',
+        'b3000000-0000-0000-0000-000000000004', 500.00, 0.00, '2025-07-01', 'completed')
+on conflict (id) do nothing;
+
+select public.rebuild_ledger_for_user('a0000000-0000-0000-0000-0000000c1054');
 
 -- 5: close 2025. As the seller, because close_period is SECURITY INVOKER.
 set local role authenticated;
@@ -119,6 +155,56 @@ select 'closing figures include the late sale' as q,
        )::text as a
   from public.closed_periods cp, _pc_before b
  where cp.user_id = 'a0000000-0000-0000-0000-0000000c1053' and cp.reopened_at is null;
+
+-- 8: the first seller's figures are the first seller's alone. Their own
+-- books: a $100 sale less $13 fees and $30 cost (5700 cents) plus check 6's
+-- late $250 sale less $10 cost (24000 cents) = 29700 cents net, two sold
+-- items, $60 of 2025 purchases. The other seller would add 40000 net, a third
+-- sold item and $170 of purchases.
+select 'closing figures cover the caller only' as q,
+       concat_ws(',',
+         closing_figures -> 'ledger' ->> 'ledger_sale_net_cents',
+         closing_figures -> 'ledger' ->> 'dashboard_net_cents',
+         closing_figures -> 'cogs' ->> 'sold_item_count',
+         closing_figures -> 'cogs' ->> 'line_36_gross_purchases_cents') as a
+  from public.closed_periods
+ where user_id = 'a0000000-0000-0000-0000-0000000c1053' and reopened_at is null;
+
+-- ── 7: A REBUILD DOES NOT MOVE A CLOSED PERIOD (00828) ─────────────────────
+-- Halve the 2025 home office AFTER the close, rebuild, and the closed year's
+-- ledger must still read what closing_figures recorded. Before 00828 the
+-- rebuild deleted and re-derived every entry, so the deduction silently fell
+-- from $1,000 to $500 in a year already filed.
+update public.home_office_years set square_feet = 100
+ where id = '63000000-0000-0000-0000-000000000001';
+select public.rebuild_ledger_for_user('a0000000-0000-0000-0000-0000000c1053');
+
+select 'closed-year home office after rebuild' as q, amount_cents::text as a
+  from public.ledger_entries
+ where user_id = 'a0000000-0000-0000-0000-0000000c1053'
+   and source_kind = 'expense' and source_detail = 'home_office';
+
+-- The same figure closing_figures holds, recomputed now, as the seller.
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"a0000000-0000-0000-0000-0000000c1053","role":"authenticated"}';
+select 'closed-year ledger still matches closing_figures' as q,
+       (select bool_and((cp.closing_figures -> 'ledger' ->> k)
+                        = (public.ledger_reconciliation('2025-01-01'::timestamptz) ->> k))
+          from unnest(array['true_net_cents','overhead_cents',
+                            'ledger_sale_net_cents','entry_count',
+                            'dashboard_net_cents','variance_cents']) k)::text as a
+  from public.closed_periods cp
+ where cp.user_id = 'a0000000-0000-0000-0000-0000000c1053' and cp.reopened_at is null;
+
+-- 8, the other half: scoping must not change the figures for the seller
+-- themself. 00829 computes the COGS block inline rather than calling
+-- cogs_worksheet, so it has to equal what cogs_worksheet returns under RLS.
+select 'closing cogs equals cogs_worksheet for the seller' as q,
+       ((cp.closing_figures -> 'cogs')
+          = public.cogs_worksheet('2025-01-01', '2026-01-01'))::text as a
+  from public.closed_periods cp
+ where cp.user_id = 'a0000000-0000-0000-0000-0000000c1053' and cp.reopened_at is null;
+reset role;
 
 -- ── 1: THE REFUSALS, ALL AS `postgres` (the service role's privilege level) ──
 do $$
@@ -235,5 +321,14 @@ begin
   exception when others then raise notice 'FAIL: still locked after reopen - %', SQLERRM;
   end;
 end $$;
+
+-- 7, the other half: reopening is the escape hatch, so the next rebuild
+-- re-derives the reopened year from its sources and the halved home office
+-- lands. Without this, "the rebuild never touches 2025" would pass too.
+select public.rebuild_ledger_for_user('a0000000-0000-0000-0000-0000000c1053');
+select 'reopened-year home office after rebuild' as q, amount_cents::text as a
+  from public.ledger_entries
+ where user_id = 'a0000000-0000-0000-0000-0000000c1053'
+   and source_kind = 'expense' and source_detail = 'home_office';
 
 rollback;

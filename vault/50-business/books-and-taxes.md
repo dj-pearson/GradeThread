@@ -55,6 +55,8 @@ code_refs:
   - scripts/check-statement-import.mjs
   - supabase/migrations/00702_period_close.sql
   - supabase/migrations/00826_close_period_rebuilds_ledger.sql
+  - supabase/migrations/00828_ledger_rebuild_skips_closed_periods.sql
+  - supabase/migrations/00829_close_period_figures_caller_only.sql
   - src/lib/period-close.ts
   - scripts/check-period-close.mjs
   - supabase/migrations/00690_inventory_writeoffs.sql
@@ -290,6 +292,13 @@ source_detail)` refuses a duplicate -- the same shape as migration 00565's
 recurrence slot index. It needs no bookkeeping column, can catch up after an
 outage and can race a second instance; the worst outcome is a rejected insert
 rather than a seller's totals doubling.
+
+**Entries inside a closed period are never touched by a rebuild either**
+(migration 00828). The DELETE keeps any row whose `entry_date` falls in a
+`closed_periods` row with `reopened_at IS NULL`, and every INSERT skips those
+dates and is `ON CONFLICT DO NOTHING`, so a source whose date moved out of a
+closed period leaves the closed entry standing until the period is reopened.
+See "A rebuild does not move a closed period" below for why.
 
 **Adjustments are never touched by a rebuild.** They are the correction
 mechanism, and the browser can write nothing else: the only INSERT policy on
@@ -1208,6 +1217,36 @@ US-2986 exists to prevent.
 It also records `closing_figures`: the ledger reconciliation and COGS worksheet
 as they stood, so a later recomputation can be COMPARED against what was filed
 rather than silently replacing it.
+
+**Those figures are computed inside `close_period`, filtered to the caller,
+and must stay that way** (migration 00829). `close_period` is SECURITY
+DEFINER, so RLS does not apply inside it. It used to call
+`ledger_reconciliation()` and `cogs_worksheet()`, which are SECURITY INVOKER
+with no user filter of their own, and inside the definer they summed every
+seller in the database: locally, seller A's close recorded seller B's sale,
+cost and stock. 00829 inlines both with `user_id = v_uid` on every read, and
+takes the dashboard net from `sale_pnl` (the same net as `finances_dashboard`,
+held equal by `check-sale-pnl-invariant.mjs`). **Any SECURITY DEFINER function
+that calls an RLS-scoped reader gets every tenant's rows**; name the user
+explicitly. `check-period-close.mjs` seeds a second seller and asserts the
+first seller's figures exclude them, and that the recorded COGS block still
+equals `cogs_worksheet()` run as that seller.
+
+### A rebuild does not move a closed period
+
+The lock triggers cover four inputs: expenses, mileage trips, sales and a sold
+item's cost. The rebuild reads more than that: `home_office_years`,
+`shipments`, `ebay_payouts` and `mileage_rates` are all unlocked. Until 00828
+the rebuild deleted and re-derived every entry, so halving a 2025 home office
+after closing 2025 moved that year's deduction from $1,000 to $500 on the next
+rebuild, with `closing_figures` still saying $1,000.
+
+The fix skips the DATES rather than locking more tables, so an input added
+later is covered with no new trigger. Reopening is the escape hatch: once
+`reopened_at` is set, the next rebuild re-derives that year from its sources.
+`check-period-close.mjs` proves both halves: the closed year keeps -100000
+cents after the source is halved and its ledger still equals
+`closing_figures`, and after the reopen the rebuild lands -50000.
 
 ### Reopening keeps the row
 
