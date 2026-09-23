@@ -21,7 +21,9 @@ const read = (p: string) => readFileSync(resolve(ROOT, p), "utf8");
 const STATE = "ios/GradeThread/Onboarding/OnboardingState.swift";
 const CONTENT = "ios/GradeThread/ContentView.swift";
 const CHECKLIST = "ios/GradeThread/Onboarding/ActivationChecklist.swift";
-const WEB_SETTINGS = "src/pages/settings.tsx";
+// The web replays live in the FlipDesk tab of Settings (web-growth action 6
+// moved them out of src/pages/settings.tsx).
+const WEB_SETTINGS = "src/components/settings/flipdesk-settings-tab.tsx";
 
 /** Swift and TSX comments both, so a scan never fires on its own prose. */
 const stripComments = (s: string) =>
