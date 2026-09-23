@@ -1,5 +1,15 @@
-import { Hono } from "hono";
+import { type Context, Hono } from "hono";
 import { supabaseAdmin } from "../lib/supabase.ts";
+import {
+  deliveryLimit,
+  getWebhookConfig,
+  listWebhookDeliveries,
+  rotateWebhookSecret,
+  sendTestWebhook,
+  setWebhookUrl,
+} from "../lib/account-webhook.ts";
+import { assertPublicUrl, SsrfError } from "../lib/ssrf.ts";
+import { redactError } from "../lib/log-redact.ts";
 import { generateApiKey, normalizeScopes } from "../lib/api-key.ts";
 import { requireFlipdesk } from "../lib/plan-gate.ts";
 import { effectivePlanFor } from "../lib/grade-pricing.ts";
@@ -206,6 +216,117 @@ apiKeyRoutes.put("/branding", async (c) => {
     return c.json({ error: "Failed to save branding" }, 500);
   }
   return c.json({ data: branding });
+});
+
+// ── Account webhook, from the dashboard (extensions-api plan, action 5) ──
+//
+// The same one-endpoint-per-account webhook /api/v1/webhook manages with an API
+// key, here with the session, so a customer can set the URL, send a signed test
+// event and read the delivery log without writing code. Owner/admin only, like
+// every other route in this file, and always the workspace OWNER's endpoint.
+// The logic is lib/account-webhook.ts, shared with the public API.
+
+function webhookManager(c: Context<ApiKeysEnv>): { ownerId: string } | Response {
+  const role = c.get("workspaceRole") ?? "owner";
+  if (role !== "owner" && role !== "admin") {
+    return c.json({ error: "Only the workspace owner and admins can manage the webhook" }, 403);
+  }
+  return { ownerId: c.get("workspaceOwnerId") ?? c.get("userId") };
+}
+
+apiKeyRoutes.get("/webhook", async (c) => {
+  const who = webhookManager(c);
+  if (who instanceof Response) return who;
+  try {
+    return c.json({ data: await getWebhookConfig(who.ownerId) });
+  } catch (err) {
+    console.error("Failed to read webhook:", redactError(err));
+    return c.json({ error: "Failed to load webhook" }, 500);
+  }
+});
+
+// Body { url: string | null }. null clears it. The response carries
+// signing_secret only when this call created the endpoint.
+apiKeyRoutes.put("/webhook", async (c) => {
+  const who = webhookManager(c);
+  if (who instanceof Response) return who;
+  const gate = await requireFlipdesk(c, { feature: "apiAccess", userId: who.ownerId });
+  if (gate) return gate;
+
+  let body: { url?: unknown };
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: "Invalid JSON body" }, 400);
+  }
+  const raw = body.url;
+  let url: string | null;
+  if (raw === null || raw === undefined || (typeof raw === "string" && raw.trim() === "")) {
+    url = null;
+  } else if (typeof raw !== "string" || raw.length > 2000) {
+    return c.json({ error: "url must be a string of 2000 characters or fewer, or null" }, 400);
+  } else {
+    url = raw.trim();
+    // US-345: same set-time SSRF check as PATCH /api/v1/webhook.
+    try {
+      await assertPublicUrl(url);
+    } catch (err) {
+      return c.json({
+        error: err instanceof SsrfError ? `URL rejected: ${err.message}` : "That is not a valid URL",
+      }, 400);
+    }
+  }
+
+  try {
+    const { signing_secret } = await setWebhookUrl(who.ownerId, url);
+    return c.json({ data: { ...(await getWebhookConfig(who.ownerId)), signing_secret } });
+  } catch (err) {
+    console.error("Failed to save webhook:", redactError(err));
+    return c.json({ error: "Failed to save webhook" }, 500);
+  }
+});
+
+apiKeyRoutes.post("/webhook/secret/rotate", async (c) => {
+  const who = webhookManager(c);
+  if (who instanceof Response) return who;
+  const gate = await requireFlipdesk(c, { feature: "apiAccess", userId: who.ownerId });
+  if (gate) return gate;
+  try {
+    const rotated = await rotateWebhookSecret(who.ownerId);
+    if (!rotated) return c.json({ error: "No webhook is set" }, 404);
+    return c.json({ data: rotated });
+  } catch (err) {
+    console.error("Failed to rotate webhook secret:", redactError(err));
+    return c.json({ error: "Failed to rotate webhook secret" }, 500);
+  }
+});
+
+// Sends one signed webhook.test event now and answers with how it went. It is
+// logged as a delivery, with a single attempt so a dead endpoint is not retried.
+apiKeyRoutes.post("/webhook/test", async (c) => {
+  const who = webhookManager(c);
+  if (who instanceof Response) return who;
+  const gate = await requireFlipdesk(c, { feature: "apiAccess", userId: who.ownerId });
+  if (gate) return gate;
+  try {
+    const result = await sendTestWebhook(who.ownerId);
+    if (!result) return c.json({ error: "No webhook is set" }, 404);
+    return c.json({ data: result });
+  } catch (err) {
+    console.error("Failed to send test webhook:", redactError(err));
+    return c.json({ error: "Failed to send test event" }, 500);
+  }
+});
+
+apiKeyRoutes.get("/webhook/deliveries", async (c) => {
+  const who = webhookManager(c);
+  if (who instanceof Response) return who;
+  try {
+    return c.json({ data: await listWebhookDeliveries(who.ownerId, deliveryLimit(c.req.query("limit"))) });
+  } catch (err) {
+    console.error("Failed to list webhook deliveries:", redactError(err));
+    return c.json({ error: "Failed to load deliveries" }, 500);
+  }
 });
 
 // Create a new API key

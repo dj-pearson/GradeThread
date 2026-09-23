@@ -197,6 +197,14 @@ const PRICE_GUIDE_EXAMPLE = `curl https://functions.gradethread.com/api/v1/price
 #                    "valueLowCents": 6500, "valueMedianCents": 8200,
 #                    "valueHighCents": 9800, "sellThrough": 0.78 }, ... ] } }`;
 
+// The package is not published yet (registry.npmjs.org answers 404 for the
+// name), so the docs give the build-from-source path rather than an install
+// that fails. Swap this for `npm install @gradethread/sdk` once it is.
+const SDK_INSTALL = `git clone https://github.com/dj-pearson/GradeThread
+cd GradeThread/sdk/gradethread-js && npm install && npm pack
+# then, in your project:
+npm install /path/to/GradeThread/sdk/gradethread-js/gradethread-sdk-0.1.0.tgz`;
+
 const SDK_EXAMPLE = `import { GradeThread } from "@gradethread/sdk";
 
 const gt = new GradeThread({ apiKey: process.env.GRADETHREAD_API_KEY });
@@ -471,10 +479,13 @@ export function DevelopersPage() {
 
       <Section icon={Package} title="JavaScript SDK">
         <p>
-          A zero-dependency, typed client for Node and the browser.
+          A zero-dependency, typed client for Node 20+ and the browser. It
+          sends an Idempotency-Key on every grade submission and retries rate
+          limits and outages without charging twice. It isn't on the npm
+          registry yet, so build it from the repository:
         </p>
         <pre className="overflow-x-auto rounded-lg bg-slate-900 p-4 text-xs text-slate-100">
-          <code>npm install @gradethread/sdk</code>
+          <code>{SDK_INSTALL}</code>
         </pre>
         <pre className="overflow-x-auto rounded-lg bg-slate-900 p-4 text-xs text-slate-100">
           <code>{SDK_EXAMPLE}</code>

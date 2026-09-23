@@ -7294,6 +7294,72 @@ Deno.test({
   },
 });
 
+// ── Dashboard account webhook (/api/keys/webhook, session auth) ──────
+//
+// The same account row reached with a JWT instead of an API key. The routes
+// take no id, so the question is again whether anything B's session reaches
+// resolves to A's endpoint or A's delivery log.
+
+Deno.test({
+  name: "B's session cannot read A's webhook URL or deliveries (GET /api/keys/webhook*)",
+  ignore: !CONFIGURED || !Deno.env.get("TEST_USER_A_WEBHOOK_EVENT_ID"),
+  fn: async () => {
+    const eventId = Deno.env.get("TEST_USER_A_WEBHOOK_EVENT_ID")!;
+    const cfg = await fetch(`${BASE}/api/keys/webhook`, { headers: authHeaders(B_JWT!) });
+    const cfgBody = await cfg.text();
+    assert(!cfgBody.includes("tenant-a-fixture.example.com"), "GET /api/keys/webhook as B returned A's URL");
+
+    const log = await fetch(`${BASE}/api/keys/webhook/deliveries?limit=100`, { headers: authHeaders(B_JWT!) });
+    const logBody = await log.text();
+    assert(!logBody.includes(eventId), "B's dashboard delivery log returned A's event id");
+  },
+});
+
+Deno.test({
+  name: "A's own session CAN read A's webhook and delivery - not a blanket denial",
+  ignore: !CONFIGURED || !Deno.env.get("TEST_USER_A_WEBHOOK_EVENT_ID"),
+  fn: async () => {
+    const eventId = Deno.env.get("TEST_USER_A_WEBHOOK_EVENT_ID")!;
+    const cfg = await fetch(`${BASE}/api/keys/webhook`, { headers: authHeaders(A_JWT!) });
+    const cfgBody = await cfg.json();
+    assertEquals(cfg.status, 200);
+    assertEquals(cfgBody.data.webhook_url, "https://tenant-a-fixture.example.com/hook");
+
+    const log = await fetch(`${BASE}/api/keys/webhook/deliveries?limit=100`, { headers: authHeaders(A_JWT!) });
+    const logBody = await log.text();
+    assertEquals(log.status, 200, `owner read failed: ${logBody.slice(0, 200)}`);
+    assert(logBody.includes(eventId), "the owner's dashboard delivery log did not include the event");
+  },
+});
+
+Deno.test({
+  name: "B's session cannot rotate A's webhook secret or send A's endpoint a test event",
+  ignore: !CONFIGURED || !Deno.env.get("TEST_USER_A_WEBHOOK_EVENT_ID"),
+  fn: async () => {
+    const rotated = await fetch(`${BASE}/api/keys/webhook/secret/rotate`, {
+      method: "POST",
+      headers: authHeaders(B_JWT!),
+    });
+    await rotated.body?.cancel();
+    assertDenied(rotated.status, "POST /api/keys/webhook/secret/rotate as B (B has no webhook)");
+
+    const test = await fetch(`${BASE}/api/keys/webhook/test`, {
+      method: "POST",
+      headers: authHeaders(B_JWT!),
+    });
+    await test.body?.cancel();
+    assertDenied(test.status, "POST /api/keys/webhook/test as B (B has no webhook)");
+
+    // The write side: A's endpoint is still secretless and got no test event.
+    const cfg = await fetch(`${BASE}/api/keys/webhook`, { headers: authHeaders(A_JWT!) });
+    const cfgBody = await cfg.json();
+    assertEquals(cfgBody.data.has_signing_secret, false, "B's rotate gave A's webhook a secret");
+    const log = await fetch(`${BASE}/api/keys/webhook/deliveries?limit=100`, { headers: authHeaders(A_JWT!) });
+    const logBody = await log.text();
+    assert(!logBody.includes("webhook.test"), "B's test send was delivered as A's event");
+  },
+});
+
 // ── MCP connector tools (US-9112) ──────────────────────────────────
 //
 // Every tool in the registry is exercised here as tenant B against tenant A's

@@ -4,13 +4,25 @@ Official JavaScript/TypeScript SDK for the [GradeThread](https://gradethread.com
 **Grade-as-a-Service API** — embed AI-powered clothing condition grading into your
 marketplace, resale app, or internal tooling.
 
-Zero dependencies. Works in Node 18+ and the browser.
+Zero dependencies. Works in Node 20+ and the browser.
 
 ## Install
 
+The package is not on the npm registry yet. Until it is, build a tarball from
+this repository and install that:
+
 ```bash
-npm install @gradethread/sdk
+git clone https://github.com/dj-pearson/GradeThread
+cd GradeThread/sdk/gradethread-js
+npm install        # TypeScript, for the build
+npm pack           # builds dist/ and writes gradethread-sdk-0.1.0.tgz
+
+# in your project
+npm install /path/to/GradeThread/sdk/gradethread-js/gradethread-sdk-0.1.0.tgz
 ```
+
+Once it is published this becomes `npm install @gradethread/sdk`; the import
+path is the same either way.
 
 ## Quick start
 
@@ -59,15 +71,45 @@ const gt = new GradeThread({
 
 | Method | Description | Scope |
 | --- | --- | --- |
-| `grades.create(input)` | Submit a garment for grading | `submit` |
+| `grades.create(input, { idempotencyKey? })` | Submit a garment for grading | `submit` |
+| `grades.batch(garments, { idempotencyKey? })` | Submit many garments as one batch | `submit` |
+| `grades.getBatch(id)` | Batch status and per-garment results | `read` |
 | `grades.get(id)` | Fetch a submission + grade report | `read` |
 | `grades.list({ page, limit, status })` | List grades, paginated | `read` |
+| `items.list({ status, brand, category, search, listed, limit, cursor, ... })` | Inventory, cursor-paginated | `read` |
+| `items.get(id)` | One item with its photos | `read` |
+| `listings.list({ marketplace, status, limit, cursor, ... })` | Each item's latest listing | `read` |
+| `sales.list({ sold_after, sold_before, marketplace, status, limit, cursor })` | Sales, with totals over the whole match | `read` |
+| `usage.get()` | This key's usage this month against its quota | `read` |
+| `priceGuide.list()` / `priceGuide.get(slug)` | Resale value range and sell-through by grade band | `read` |
 | `sandbox.grades.create(input?)` | Free mock submit (no credits) | `submit` |
 | `sandbox.grades.get(id)` | Free mock fetch | `read` |
+| `sandbox.priceGuide.list()` / `sandbox.priceGuide.get(slug)` | Free sample price guide | `read` |
 | `webhook.set(url \| null)` | Set or clear the grade-completion webhook; the first set returns `signing_secret` once | `webhook_manage` |
 | `webhook.get()` | Read the webhook URL and whether it has a signing secret | `webhook_manage` |
 | `webhook.rotateSecret()` | Mint a new signing secret, returned once | `webhook_manage` |
 | `webhook.deliveries({ limit })` | Recent deliveries: status, attempts, last response code | `webhook_manage` |
+
+Cursor-paginated lists return `{ data, meta }`; pass `meta.next_cursor` back as
+`cursor` for the next page.
+
+## Retries and idempotency
+
+`grades.create` and `grades.batch` send an `Idempotency-Key` header, a fresh
+UUID per call that is reused on that call's own retries, so a retry after a
+timeout replays the first response instead of charging again. Pass
+`{ idempotencyKey }` yourself to carry that protection across a crash or a
+restart of your own process.
+
+The client retries up to `maxRetries` times (default 2):
+
+- a `429`, on any request, waiting for `Retry-After`;
+- a `5xx` or a network error, on reads and on the two keyed submissions only;
+- a `409 IDEMPOTENCY_IN_PROGRESS`, which means the first attempt is still running.
+
+Other writes (`webhook.set`, `webhook.rotateSecret`, `sandbox.grades.create`)
+are not re-sent after a `5xx` or a dropped connection, since the first attempt
+may have landed. Set `maxRetries: 0` to turn retries off.
 
 ## Webhooks
 
@@ -110,7 +152,8 @@ sends only the deprecated `X-GradeThread-Signature` header until you call
 
 ## Errors
 
-Any non-2xx response throws a `GradeThreadError` with `.status` and `.details`:
+Any non-2xx response throws a `GradeThreadError` with `.status`, `.code` (when
+the API sends one, such as `IDEMPOTENCY_KEY_REQUIRED`) and `.details`:
 
 ```ts
 import { GradeThread, GradeThreadError } from "@gradethread/sdk";
@@ -119,7 +162,7 @@ try {
   await gt.grades.create(/* ... */);
 } catch (err) {
   if (err instanceof GradeThreadError) {
-    console.error(err.status, err.message, err.details);
+    console.error(err.status, err.code, err.message, err.details);
   }
 }
 ```
@@ -128,7 +171,8 @@ try {
 
 Limits are enforced per API key in a 60-second window, with separate read/write
 budgets by plan (Business: 240 reads/min, 40 writes/min). Exceeding a budget
-returns `429` with a `retry_after_seconds` hint in `meta`. See the
+returns `429` with a `Retry-After` header, which the client waits out before
+retrying. See the
 [developer docs](https://gradethread.com/developers) for the full reference.
 
 ## License
