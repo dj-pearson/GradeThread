@@ -5,7 +5,10 @@ type: contract
 status: current
 source_of_truth: code
 code_refs:
-  - services/edge-functions/src/routes/flipdesk-ebay.ts
+  - services/edge-functions/src/routes/flipdesk-ebay-sync.ts
+  - services/edge-functions/src/routes/flipdesk-ebay-listings.ts
+  - services/edge-functions/src/routes/flipdesk-ebay-publish.ts
+  - services/edge-functions/src/routes/flipdesk-ebay-shared.ts
   - services/edge-functions/src/lib/ebay-client.ts
   - services/edge-functions/src/lib/ebay-sku.ts
   - services/edge-functions/src/routes/flipdesk-automations.ts
@@ -17,10 +20,16 @@ code_refs:
   - services/edge-functions/src/lib/ebay-notification-subscriptions.ts
   - services/edge-functions/src/routes/flipdesk-webhooks.ts
   - services/edge-functions/src/routes/jobs-ebay-notification-reconcile.ts
-reviewed: 2026-09-22
+reviewed: 2026-09-23
 tags: [ebay, listings, sync, gotcha]
 summary: A listing eBay ended or removed used to stay "active" locally with End and Relist as silent no-ops; the fix is to treat "already not live" as success, not as an error - and to keep WHICH of those it was, since ended and removed-by-eBay need opposite actions.
 ---
+
+> [!note] Re-reviewed 2026-09-23, no change in behaviour. `flipdesk-ebay.ts`
+> was split into one route file per concern as a pure move (marketplaces
+> module plan, action 5); it now only mounts them. The code this note
+> describes is in `flipdesk-ebay-sync.ts`, `flipdesk-ebay-listings.ts`, `flipdesk-ebay-publish.ts`, `flipdesk-ebay-shared.ts`, so `code_refs` point there.
+> `flipdesk-ebay.ts:NNNN` line numbers quoted below are from before the split.
 
 
 > [!note] Re-reviewed 2026-09-22, and one rule this note owns GREW (US-3458).

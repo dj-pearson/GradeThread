@@ -134,7 +134,7 @@ Deno.test("US-2351 AC3: the destructive routes are guarded, by enumeration", () 
     ["../routes/account.ts", "Deleting an account"],
     ["../routes/payments.ts", "Cancelling a subscription"],
     ["../routes/payments.ts", "Opening the billing portal"],
-    ["../routes/flipdesk-ebay.ts", "Disconnecting a marketplace"],
+    ["../routes/flipdesk-ebay-oauth.ts", "Disconnecting a marketplace"],
     ["../routes/flipdesk-depop.ts", "Disconnecting a marketplace"],
     ["../routes/flipdesk-etsy.ts", "Disconnecting a marketplace"],
     ["../routes/flipdesk-google.ts", "Disconnecting a marketplace"],

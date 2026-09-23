@@ -17,6 +17,7 @@
 import { assertEquals } from "@std/assert";
 import { planOrdersWatermark } from "../lib/sync-watermark.ts";
 import { assert } from "@std/assert";
+import { readEbayRouteSource } from "./_ebay-routes.ts";
 
 const NOW = "2026-08-01T12:00:00.000Z";
 
@@ -112,14 +113,14 @@ Deno.test("US-2320: a bogus future timestamp can never push the cursor past now"
   assertEquals(plan, { advance: true, to: NOW, reason: "rewound" });
 });
 
-Deno.test("US-2320: the eBay route gates its cursor on this decision", async () => {
+Deno.test("US-2320: the eBay route gates its cursor on this decision", () => {
   // Source assertions, because the defect was an ABSENT condition — there is no
   // wrong value to catch, only an `await update({ last_synced_at: ... })` with
   // nothing in front of it. Each of these pins one link of the chain that made
   // the loss silent and permanent.
-  const src = await Deno.readTextFile(
-    new URL("../routes/flipdesk-ebay.ts", import.meta.url),
-  );
+  // Every eBay route file (flipdesk-ebay-*.ts): the "no unconditional stamp"
+  // check is about the whole module, as it was when it was one file.
+  const src = readEbayRouteSource();
 
   assert(src.includes("planOrdersWatermark("), "the cursor must be planned, not stamped");
   assert(

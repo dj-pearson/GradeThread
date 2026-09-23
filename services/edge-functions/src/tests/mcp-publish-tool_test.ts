@@ -385,7 +385,8 @@ Deno.test("importing the eBay route registers a publisher", async () => {
   await import("../routes/flipdesk-ebay.ts");
   assert(
     port.hasEbayPublisher(),
-    "routes/flipdesk-ebay.ts no longer calls registerEbayPublisher, so the publish " +
+    "routes/flipdesk-ebay.ts (via flipdesk-ebay-publish.ts) no longer calls " +
+      "registerEbayPublisher, so the publish " +
       "tool now refuses every call — which reads as an outage, not as a wiring bug",
   );
 });

@@ -14,7 +14,7 @@ const ROOT = new URL("../", import.meta.url);
 const read = (p: string) => Deno.readTextFileSync(new URL(p, ROOT));
 
 const CLIENT = read("lib/ebay-client.ts");
-const ROUTE = read("routes/flipdesk-ebay.ts");
+const ROUTE = read("routes/flipdesk-ebay-policies.ts");
 
 // The body of one route handler, bounded by the NEXT route registration rather
 // than by a character count. A fixed slice quietly stops covering the end of a

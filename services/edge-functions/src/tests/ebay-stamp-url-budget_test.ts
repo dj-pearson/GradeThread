@@ -31,6 +31,7 @@ import {
   chunkIdsForInFilter,
   IN_FILTER_CHAR_BUDGET,
 } from "../routes/flipdesk-ebay.ts";
+import { readEbayRouteSource } from "./_ebay-routes.ts";
 
 /** What the ids actually cost once PostgREST puts them in the query string. */
 function encodedCost(chunk: readonly string[]): number {
@@ -177,10 +178,9 @@ export function unbudgetedStamps(source: string): string[] {
   return bad;
 }
 
-Deno.test("both bulk stamps route through the budgeted chunker", async () => {
-  const src = await Deno.readTextFile(
-    new URL("../routes/flipdesk-ebay.ts", import.meta.url),
-  );
+Deno.test("both bulk stamps route through the budgeted chunker", () => {
+  // Every eBay route file (flipdesk-ebay-*.ts), as when it was one module.
+  const src = readEbayRouteSource();
   assertEquals(
     unbudgetedStamps(src),
     [],
@@ -254,9 +254,7 @@ Deno.test("the guard passes the shape that is actually correct", () => {
 Deno.test("no fixed-size chunk constant survives beside the stamps", () => {
   // The specific shape that broke: `const CHUNK = 400` counted rows, and the
   // key type changed underneath it. A row count is not a URL length.
-  const src = Deno.readTextFileSync(
-    new URL("../routes/flipdesk-ebay.ts", import.meta.url),
-  ).replace(/\r\n/g, "\n");
+  const src = readEbayRouteSource().replace(/\r\n/g, "\n");
   assert(
     !/const\s+CHUNK\s*=\s*\d+/.test(src),
     "a row-count chunk size is back; measure characters, not rows",

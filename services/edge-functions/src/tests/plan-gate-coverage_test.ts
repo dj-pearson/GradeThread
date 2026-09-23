@@ -21,18 +21,24 @@
 //   deno test --allow-read src/tests/plan-gate-coverage_test.ts
 
 import { assertEquals } from "@std/assert";
+import { EBAY_ROUTE_FILES, readEbayRouteSource } from "./_ebay-routes.ts";
 
 async function routeFiles(): Promise<Array<{ name: string; text: string }>> {
   const dir = new URL("../routes/", import.meta.url);
   const out: Array<{ name: string; text: string }> = [];
   for await (const e of Deno.readDir(dir)) {
     if (e.isFile && e.name.endsWith(".ts")) {
+      // The eBay module is judged as ONE unit, as it was before it was split
+      // into flipdesk-ebay-*.ts: these drift checks ask "does the module that
+      // does X also do Y", and the split did not change what the module does.
+      if (EBAY_ROUTE_FILES.includes(e.name)) continue;
       out.push({
         name: e.name,
         text: await Deno.readTextFile(new URL(e.name, dir)),
       });
     }
   }
+  out.push({ name: "flipdesk-ebay.ts", text: readEbayRouteSource() });
   return out;
 }
 

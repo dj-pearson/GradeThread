@@ -15,6 +15,7 @@ import {
   publishAttemptsOf,
   publishDueDeadlineReached,
 } from "../lib/publish-due-policy.ts";
+import { ebayRouteFile } from "./_ebay-routes.ts";
 
 Deno.test("cap matches AutoLister's bulk publish cap of 5", () => {
   assertEquals(MAX_SCHEDULED_PUBLISH_ATTEMPTS, 5);
@@ -102,7 +103,7 @@ Deno.test("publishDueDeadlineReached: stops claiming with the reserve left on th
 // publish-due handler's source and check the wiring, so reverting the route
 // change goes red here even though the helpers still pass.
 Deno.test("publish-due route: claims count attempts under the cap and failures use the plan", async () => {
-  const src = await Deno.readTextFile(new URL("../routes/flipdesk-ebay.ts", import.meta.url));
+  const src = await Deno.readTextFile(ebayRouteFile("flipdesk-ebay-publish-due.ts"));
   const start = src.indexOf('flipdeskEbayRoutes.post("/jobs/publish-due"');
   assert(start > -1, "publish-due handler not found");
   const end = src.indexOf("flipdeskEbayRoutes.", start + 10);

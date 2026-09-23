@@ -20,6 +20,7 @@ import {
   planOrphanAdoption,
   resolveItemCategories,
 } from "../lib/ebay-orphan-adopt.ts";
+import { ebayRouteFile } from "./_ebay-routes.ts";
 
 function orphan(
   over: Partial<OrphanCandidate> & { ebay_item_id: string },
@@ -285,9 +286,7 @@ Deno.test("adoptOrphans scopes every tenant-table query to the owner", async () 
 });
 
 Deno.test("the pull adopts orphans only on a catalog pass, and reads the owner's unmatched set", async () => {
-  const route = await Deno.readTextFile(
-    new URL("../routes/flipdesk-ebay.ts", import.meta.url),
-  );
+  const route = await Deno.readTextFile(ebayRouteFile("flipdesk-ebay-sync.ts"));
   const at = route.indexOf("const plan = planOrphanAdoption(");
   assert(at > 0, "doListingsPull no longer calls planOrphanAdoption");
   const block = route.slice(
@@ -318,9 +317,7 @@ Deno.test("the pull adopts orphans only on a catalog pass, and reads the owner's
 });
 
 Deno.test("both active-listing passes fall back to the listing id, after the SKU index", async () => {
-  const route = await Deno.readTextFile(
-    new URL("../routes/flipdesk-ebay.ts", import.meta.url),
-  );
+  const route = await Deno.readTextFile(ebayRouteFile("flipdesk-ebay-sync.ts"));
   // The helper consults the SKU index first and the listing-id map second.
   const helper = route.slice(
     route.indexOf("const resolveListedItemId = ("),

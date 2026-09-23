@@ -15,6 +15,7 @@
 import "./_env.ts";
 import { assert, assertEquals } from "@std/assert";
 import { PUSH_CONTRACT, payloadKeysFor } from "../lib/transactional-push.ts";
+import { ebayRouteFile } from "./_ebay-routes.ts";
 
 const PUSH = await Deno.readTextFile(
   new URL("../lib/transactional-push.ts", import.meta.url),
@@ -117,9 +118,8 @@ Deno.test("US-3275 AC2: the sale caller actually has a sale id to pass", () => {
   // The id is free at the call site -- it comes off the insert a few lines
   // above -- and passing `null` here would leave the button hidden while the
   // wiring looked done.
-  const route = Deno.readTextFileSync(
-    new URL("../routes/flipdesk-ebay.ts", import.meta.url),
-  );
+  // The eBay sync (doListingsPull) lives in flipdesk-ebay-sync.ts.
+  const route = Deno.readTextFileSync(ebayRouteFile("flipdesk-ebay-sync.ts"));
   const call = /notifySaleRecorded\(userId, \{([\s\S]{0,400}?)\}\)/.exec(route);
   assert(call, "the eBay sync no longer calls notifySaleRecorded");
   assert(

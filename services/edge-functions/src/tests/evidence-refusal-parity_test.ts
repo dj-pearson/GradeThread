@@ -16,8 +16,8 @@
 // it, and that is what this checks.
 
 import { assert, assertEquals } from "@std/assert";
+import { readEbayRouteSource } from "./_ebay-routes.ts";
 
-const ROUTE = new URL("../routes/flipdesk-ebay.ts", import.meta.url);
 
 /** Comments stripped: a paragraph about a refusal is not a refusal. */
 function code(src: string): string {
@@ -29,7 +29,9 @@ function code(src: string): string {
     .join("\n");
 }
 
-const src = code(Deno.readTextFileSync(ROUTE));
+// Every eBay route file (flipdesk-ebay-*.ts). Handlers are cut out by brace
+// matching, and the "no second planner" check is about the whole module.
+const src = code(readEbayRouteSource());
 
 // US-3068: the planner lives here now, so "is there exactly one" has to look at
 // both files. The rule never was "one planner in the route file".
@@ -159,7 +161,7 @@ Deno.test("US-2707: one planner answers for both, not two that must agree", () =
   );
   assert(
     !/async function planEvidence\(/.test(src),
-    "flipdesk-ebay.ts has its own planner again",
+    "an eBay route file has its own planner again",
   );
 });
 

@@ -30,6 +30,7 @@ import {
   MAX_LOGGED_UNSTAMPED_SKUS,
   unstampedOfferCoverage,
 } from "../routes/flipdesk-ebay.ts";
+import { ebayRouteFile } from "./_ebay-routes.ts";
 
 Deno.test("full coverage reports no gap and an empty sample", () => {
   const c = unstampedOfferCoverage(["a", "b", "c"], ["a", "b", "c"]);
@@ -142,9 +143,8 @@ function stripComments(src: string): string {
 
 Deno.test("the offer stamp asks PostgREST which rows it hit", async () => {
   const src = stripComments(
-    await Deno.readTextFile(
-      new URL("../routes/flipdesk-ebay.ts", import.meta.url),
-    ),
+    // The pull (and so the stamp) lives in flipdesk-ebay-sync.ts.
+    await Deno.readTextFile(ebayRouteFile("flipdesk-ebay-sync.ts")),
   );
   // Scoped to the OFFER stamp. The specifics stamp a few lines below is a
   // sibling with the same shape, and a whole-file scan would pass on it.

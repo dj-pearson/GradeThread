@@ -27,11 +27,14 @@ import {
   ebayAuthMiddleware,
   isEbaySelfAuthenticating,
 } from "../middleware/ebay-auth.ts";
+import { EBAY_ROUTE_FILES, ebayRouteFile } from "./_ebay-routes.ts";
 
 const MAIN = await Deno.readTextFile(new URL("../main.ts", import.meta.url));
-const ROUTES = await Deno.readTextFile(
-  new URL("../routes/flipdesk-ebay.ts", import.meta.url),
-);
+// The eBay routes are split across flipdesk-ebay-*.ts. Each file is kept apart
+// so a handler slice below never runs off the end of its own file into the
+// next one's imports (which name requireJobSecret).
+const ROUTE_SOURCES = EBAY_ROUTE_FILES.map((f) => Deno.readTextFileSync(ebayRouteFile(f)));
+const ROUTES = ROUTE_SOURCES.join("\n");
 
 const EBAY_PREFIX = "/api/flipdesk/ebay";
 
@@ -100,9 +103,10 @@ Deno.test("every self-authenticating exemption still proves its mechanism", () =
     const decl = new RegExp(
       `flipdeskEbayRoutes\\.(get|post|put|patch|delete)\\(\\s*"${path.replace(/\//g, "\\/")}"`,
     );
-    const m = decl.exec(ROUTES);
+    const src = ROUTE_SOURCES.find((s) => decl.test(s)) ?? "";
+    const m = decl.exec(src);
     assert(m, `no route declaration found for exempted path ${path}`);
-    const body = ROUTES.slice(m!.index, m!.index + 900);
+    const body = src.slice(m!.index, m!.index + 900);
     const guarded = /requireJobSecret/.test(body) ||
       /c\.req\.query\("state"\)/.test(body);
     assert(
@@ -123,21 +127,24 @@ Deno.test("every job-secret route is on the skip-list", () => {
   // Coolify's cron sends a job secret, not a JWT — so it 401s on every fire,
   // forever, with no test failure and no user to complain. That is precisely
   // the outcome the earlier pass cited when it deferred this inversion.
-  const decls = [
-    ...ROUTES.matchAll(
-      /flipdeskEbayRoutes\.(?:get|post|put|patch|delete)\(\s*"([^"]+)"/g,
-    ),
-  ];
-  assert(decls.length > 50, `parsed only ${decls.length} eBay routes — regex broke`);
-
+  let total = 0;
   const jobSecretRoutes: string[] = [];
-  for (let i = 0; i < decls.length; i++) {
-    const start = decls[i]!.index!;
-    const end = i + 1 < decls.length ? decls[i + 1]!.index! : ROUTES.length;
-    if (/requireJobSecret/.test(ROUTES.slice(start, end))) {
-      jobSecretRoutes.push(decls[i]![1]!);
+  for (const src of ROUTE_SOURCES) {
+    const decls = [
+      ...src.matchAll(
+        /flipdeskEbayRoutes\.(?:get|post|put|patch|delete)\(\s*"([^"]+)"/g,
+      ),
+    ];
+    total += decls.length;
+    for (let i = 0; i < decls.length; i++) {
+      const start = decls[i]!.index!;
+      const end = i + 1 < decls.length ? decls[i + 1]!.index! : src.length;
+      if (/requireJobSecret/.test(src.slice(start, end))) {
+        jobSecretRoutes.push(decls[i]![1]!);
+      }
     }
   }
+  assert(total > 50, `parsed only ${total} eBay routes — regex broke`);
   assert(jobSecretRoutes.length > 0, "expected at least one requireJobSecret route");
 
   const missing = jobSecretRoutes.filter(

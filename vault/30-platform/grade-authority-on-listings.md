@@ -5,16 +5,25 @@ type: contract
 status: current
 source_of_truth: code
 code_refs:
-  - services/edge-functions/src/routes/flipdesk-ebay.ts
+  - services/edge-functions/src/routes/flipdesk-ebay-shared.ts
+  - services/edge-functions/src/routes/flipdesk-ebay-publish.ts
+  - services/edge-functions/src/routes/flipdesk-ebay-listings.ts
+  - services/edge-functions/src/routes/flipdesk-ebay-sync.ts
   - services/edge-functions/src/lib/cert-number.ts
   - services/edge-functions/src/lib/gt-grade-standard.ts
   - src/lib/listing-templates.ts
   - src/test/no-dead-column-writes.test.ts
   - src/components/flipdesk/composer/photos-card.tsx
-reviewed: 2026-09-22
+reviewed: 2026-09-23
 tags: [ebay, listings, grading, policy, contract]
 summary: A grade reaches a marketplace listing as text and a structured specific only — never burned into a photo, never as a QR slab image, never as a link.
 ---
+
+> [!note] Re-reviewed 2026-09-23, no change in behaviour. `flipdesk-ebay.ts`
+> was split into one route file per concern as a pure move (marketplaces
+> module plan, action 5); it now only mounts them. The code this note
+> describes is in `flipdesk-ebay-shared.ts`, `flipdesk-ebay-publish.ts`, `flipdesk-ebay-listings.ts`, `flipdesk-ebay-sync.ts`, so `code_refs` point there.
+> `flipdesk-ebay.ts:NNNN` line numbers quoted below are from before the split.
 
 > [!note] Re-reviewed 2026-09-22, no change. Drift from US-3458, which touches
 > `flipdesk-ebay.ts`. Read the diff rather than the dates: it is confined to

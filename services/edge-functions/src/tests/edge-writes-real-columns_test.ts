@@ -24,6 +24,7 @@
 //   deno test --allow-read src/tests/edge-writes-real-columns_test.ts
 import { assert, assertEquals } from "@std/assert";
 import { columnsOf, migrationFileCount, viewNames } from "./_migration-columns.ts";
+import { EBAY_ROUTE_FILES } from "./_ebay-routes.ts";
 
 const SRC = new URL("../", import.meta.url);
 const REPO_PREFIX = "services/edge-functions/src/";
@@ -268,7 +269,7 @@ Deno.test("US-3363: the files that actually do this are in the scanned set", () 
   for (
     const f of [
       "routes/flipdesk-sync.ts",
-      "routes/flipdesk-ebay.ts",
+      ...EBAY_ROUTE_FILES.map((f) => `routes/${f}`),
       "routes/grade.ts",
       "lib/cross-listings.ts",
       "lib/shopify-orders.ts",
