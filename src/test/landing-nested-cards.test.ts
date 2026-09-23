@@ -42,4 +42,35 @@ describe("homepage has no card inside a card (web-growth action 3)", () => {
       expect(mock).not.toMatch(CARD_CHROME);
     });
   }
+
+  // Plan step: "Pick a border or a shadow on the flipdesk-panel outer card, not
+  // both." The panel is .glass-card, which sets border AND a wide shadow outside
+  // any @layer, so removing a Tailwind shadow-* utility changes nothing. The
+  // override in index.css has to exist and has to out-rank both theme rules.
+  it("the flipdesk-panel outer card drops glass-card's shadow in both themes", () => {
+    const css = read("src/index.css").replace(/\/\*[\s\S]*?\*\//g, "");
+    const rule = /([^{}]*)\{([^{}]*)\}/g;
+    const selectors: string[] = [];
+    for (let m = rule.exec(css); m; m = rule.exec(css)) {
+      const [, sel = "", body = ""] = m;
+      if (/box-shadow:\s*none/.test(body)) {
+        selectors.push(...sel.split(",").map((x) => x.trim()));
+      }
+    }
+    expect(selectors).toContain(".flipdesk-panel.glass-card");
+    expect(selectors).toContain(":root:not(.dark) .flipdesk-panel.glass-card");
+    // Source order matters too: the override must come after .glass-card.
+    expect(css.indexOf(".flipdesk-panel.glass-card")).toBeGreaterThan(
+      css.indexOf(":root:not(.dark) .glass-card"),
+    );
+    for (const file of [
+      "src/pages/landing.tsx",
+      "src/components/marketing/flipdesk-pipeline-preview.tsx",
+    ]) {
+      const panel =
+        /className="(flipdesk-panel [^"]*)"/.exec(read(file))?.[1] ?? "";
+      expect(panel, file).toMatch(/(^|\s)glass-card(\s|$)/);
+      expect(panel, file).not.toMatch(/(^|\s)shadow(-|\s|$)/);
+    }
+  });
 });

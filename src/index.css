@@ -653,6 +653,15 @@ html.lenis body {
 .flipdesk-panel {
   scroll-snap-align: center;
 }
+/* The stage panels are also .glass-card, which draws a hairline border AND a
+   0 8px 32px shadow; that pairing is the border-plus-wide-shadow tell. Keep
+   the border (it is the glass edge) and drop the shadow. .glass-card sits
+   outside @layer, so a Tailwind utility cannot do this; these selectors
+   out-rank both theme variants of it. */
+.flipdesk-panel.glass-card,
+:root:not(.dark) .flipdesk-panel.glass-card {
+  box-shadow: none;
+}
 
 /* US-1961: cross-page View Transitions. React Router triggers
    document.startViewTransition on nav Links tagged `viewTransition`; here we
