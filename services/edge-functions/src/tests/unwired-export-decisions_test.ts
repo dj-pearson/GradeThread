@@ -18,6 +18,7 @@
 // outlives the function; both are below.
 
 import { assertEquals, assertStringIncludes } from "@std/assert";
+import { EBAY_ROUTE_FILES } from "./_ebay-routes.ts";
 
 const read = (rel: string) =>
   Deno.readTextFileSync(new URL(rel, import.meta.url));
@@ -86,7 +87,10 @@ Deno.test("every exported eBay bulk helper has a caller", () => {
   // make this pass by finding nothing to check.
   assertEquals(names.length > 0, true, "no bulk helpers found — scan is broken");
 
-  const callers = ["../routes/flipdesk-ebay.ts", "../lib/ebay-bulk.ts"]
+  const callers = [
+    ...EBAY_ROUTE_FILES.map((f) => `../routes/${f}`),
+    "../lib/ebay-bulk.ts",
+  ]
     .map((p) => {
       try {
         return read(p);

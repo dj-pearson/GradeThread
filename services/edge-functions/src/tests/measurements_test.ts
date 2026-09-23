@@ -15,6 +15,7 @@ import {
   forceMeasurementAspects,
   resolveMeasurementAspects,
 } from "../lib/measurements.ts";
+import { ebayRouteFile } from "./_ebay-routes.ts";
 
 // ── Unit formatting (US-648) ────────────────────────────────────────────────
 
@@ -269,9 +270,7 @@ Deno.test("US-1578: variants + generation + revise all consume the store (source
     "the stripper must recognise the measurements heading it is removing",
   );
 
-  const ebay = await Deno.readTextFile(
-    new URL("../routes/flipdesk-ebay.ts", import.meta.url),
-  );
+  const ebay = await Deno.readTextFile(ebayRouteFile("flipdesk-ebay-listings.ts"));
   // Revise path re-applies with provenance.
   assert(ebay.includes("hasCalibratedMeasurements"));
 });

@@ -10,6 +10,7 @@ import {
   trackingPatch,
 } from "../lib/ship-deadline.ts";
 import { parseOrderTracking } from "../lib/ebay-client.ts";
+import { ebayRouteFile } from "./_ebay-routes.ts";
 
 Deno.test("resolveShipBy: eBay's own date wins over the derived one", () => {
   // A handling time that would derive a LATER date is deliberately supplied:
@@ -110,9 +111,8 @@ Deno.test("normalizeHandlingDays: whole days in range, else null", () => {
 // somebody adds a field to salePayload, reformats the call, and the second lock
 // goes with it. This pins the predicate to the source.
 Deno.test("US-3189: the order-sync sales update filters by user_id, not id alone", async () => {
-  const src = await Deno.readTextFile(
-    new URL("../routes/flipdesk-ebay.ts", import.meta.url),
-  );
+  // The order sync (doListingsPull) lives in flipdesk-ebay-sync.ts.
+  const src = await Deno.readTextFile(ebayRouteFile("flipdesk-ebay-sync.ts"));
   const call = src.match(
     /\.from\("sales"\)\s*\n\s*\.update\(salePayload\)[\s\S]{0,240}?;/,
   );

@@ -11,11 +11,18 @@ code_refs:
   - src/pages/flipdesk/grid-columns.ts
   - src/pages/flipdesk/use-grid-listings.ts
   - src/lib/title-sync-patch.ts
-  - services/edge-functions/src/routes/flipdesk-ebay.ts
-reviewed: 2026-09-22
+  - services/edge-functions/src/routes/flipdesk-ebay-publish.ts
+  - services/edge-functions/src/routes/flipdesk-ebay-sync.ts
+reviewed: 2026-09-23
 tags: [flipdesk, listings, publishing, contract]
 summary: Publish prefers the listings-row snapshot over the item, so any surface writing the item's title, description or price must reach the draft row too.
 ---
+
+> [!note] Re-reviewed 2026-09-23, no change in behaviour. `flipdesk-ebay.ts`
+> was split into one route file per concern as a pure move (marketplaces
+> module plan, action 5); it now only mounts them. The code this note
+> describes is in `flipdesk-ebay-publish.ts`, `flipdesk-ebay-sync.ts`, so `code_refs` point there.
+> `flipdesk-ebay.ts:NNNN` line numbers quoted below are from before the split.
 
 
 > [!note] Re-reviewed 2026-09-20. Two drifts, both from the US-2855 eBay policy

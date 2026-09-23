@@ -52,7 +52,8 @@ describe("the composer writes the item title on every save", () => {
 });
 
 describe("the eBay revise carries the same rule server-side", () => {
-  const route = read("services/edge-functions/src/routes/flipdesk-ebay.ts");
+  // The revise path lives in flipdesk-ebay-listings.ts since the eBay split.
+  const route = read("services/edge-functions/src/routes/flipdesk-ebay-listings.ts");
 
   it("updates inventory_items.title when the revise changes the title", () => {
     expect(route).toMatch(/const revisedTitle = hasTitle \? \(nextTitle as string\)\.trim\(\) : "";/);

@@ -10,8 +10,9 @@
 // Run: deno test --allow-read --allow-env src/tests/ebay-connect-pull_test.ts
 
 import { assert } from "@std/assert";
+import { ebayRouteFile } from "./_ebay-routes.ts";
 
-const ROUTE = new URL("../routes/flipdesk-ebay.ts", import.meta.url);
+const ROUTE = ebayRouteFile("flipdesk-ebay-oauth.ts");
 
 async function callbackHandler(): Promise<string> {
   const src = await Deno.readTextFile(ROUTE);

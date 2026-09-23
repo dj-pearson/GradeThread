@@ -4,6 +4,7 @@
 //
 //   deno test --allow-env src/tests/listing-variations_test.ts
 import { assertEquals } from "@std/assert";
+import { readEbayRouteSource } from "./_ebay-routes.ts";
 
 // flipdesk-ebay.ts loads the service-role supabase client at import, so set
 // dummy env BEFORE the dynamic import (same pattern as publish-due-batch_test).
@@ -231,9 +232,9 @@ Deno.test("US-2395: revise and end answer the same question the same way", () =>
 // branch shipped it would be a lie, so the assertion that it STAYS is now the
 // assertion that it is GONE.
 
-const EBAY_SRC = Deno.readTextFileSync(
-  new URL("../routes/flipdesk-ebay.ts", import.meta.url),
-);
+// Every eBay route file (flipdesk-ebay-*.ts); the revise path is in
+// flipdesk-ebay-listings.ts, and the absence checks cover the whole module.
+const EBAY_SRC = readEbayRouteSource();
 
 Deno.test("US-2395: the variation refusal is gone, because it is no longer true", () => {
   assertEquals(

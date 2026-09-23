@@ -587,6 +587,7 @@ Deno.test("a failing seller is stamped so they cannot wedge the queue", async ()
 // ── US-2973: the arrival moment ─────────────────────────────────────────────
 
 import { ARRIVAL_MIN_LEVEL, arrivalIsDue } from "../lib/rewards-pipeline.ts";
+import { ebayRouteFile } from "./_ebay-routes.ts";
 
 Deno.test("a seller who has never acknowledged an arrival, at level 2+, is due one", () => {
   assert(arrivalIsDue(null, 2));
@@ -664,7 +665,7 @@ Deno.test("markComped is set-once in the FILTER, not by reading first", async ()
 });
 
 Deno.test("the comps route stamps only AFTER a successful search", async () => {
-  const src = await Deno.readTextFile(new URL("../routes/flipdesk-ebay.ts", import.meta.url));
+  const src = await Deno.readTextFile(ebayRouteFile("flipdesk-ebay-catalog.ts"));
   const route = src.slice(src.indexOf('flipdeskEbayRoutes.get("/comps"'));
   const body = route.slice(0, route.indexOf("\n});\n") + 1);
   assert(body.includes('c.req.query("item_id")'), "the route must accept item_id");
@@ -684,7 +685,7 @@ Deno.test("the comps route stamps only AFTER a successful search", async () => {
 Deno.test("item_id is optional: a loose comp lookup still works", async () => {
   // The endpoint takes brand/size/category and is used for lookups with no item
   // behind them. Requiring an id would break those callers.
-  const src = await Deno.readTextFile(new URL("../routes/flipdesk-ebay.ts", import.meta.url));
+  const src = await Deno.readTextFile(ebayRouteFile("flipdesk-ebay-catalog.ts"));
   const route = src.slice(src.indexOf('flipdeskEbayRoutes.get("/comps"'));
   const body = route.slice(0, route.indexOf("\n});\n") + 1);
   assert(body.includes("if (compItemId)"), "the stamp must be conditional");

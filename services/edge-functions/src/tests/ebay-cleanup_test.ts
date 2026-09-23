@@ -16,6 +16,7 @@
 // ebay-client.ts constructs the supabase client at load → dummy env first (the
 // same pattern as denim-content_test.ts).
 import { assert, assertEquals } from "@std/assert";
+import { readEbayRouteSource } from "./_ebay-routes.ts";
 
 Deno.env.set("SUPABASE_URL", Deno.env.get("SUPABASE_URL") ?? "http://localhost:54321");
 Deno.env.set(
@@ -266,9 +267,9 @@ Deno.test("US-2166: the owned-listing load actually selects those columns", () =
 // builds call them and cannot be redeployed — so these pin both halves: the
 // route is still registered, and it forwards rather than re-implementing.
 
-const ebayRoute = Deno.readTextFileSync(
-  new URL("../routes/flipdesk-ebay.ts", import.meta.url),
-);
+// Every eBay route file: the "must not still push the price itself" check
+// below is about the whole module, so it reads all of flipdesk-ebay-*.ts.
+const ebayRoute = readEbayRouteSource();
 
 Deno.test("US-2166: the eBay price path forwards to the shared core", () => {
   assert(

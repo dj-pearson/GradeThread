@@ -12,10 +12,13 @@
 // EXTENSION_DELIST_PLATFORMS drift. Both were "just remember to call it".
 
 import { assert, assertEquals } from "@std/assert";
+import { ebayRouteFile } from "./_ebay-routes.ts";
 
 const CLIENT = new URL("../lib/ebay-client.ts", import.meta.url);
 const REFRESH = new URL("../routes/jobs-credentials-refresh.ts", import.meta.url);
-const EBAY_ROUTE = new URL("../routes/flipdesk-ebay.ts", import.meta.url);
+// publishItemForOwner, the publish path this guard reads, is in
+// flipdesk-ebay-publish.ts since the eBay route split.
+const EBAY_ROUTE = ebayRouteFile("flipdesk-ebay-publish.ts");
 
 const FUNNEL = "recordPublication";
 

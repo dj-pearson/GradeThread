@@ -454,8 +454,10 @@ const REGISTRY: Record<string, readonly Site[]> = {
       why: "processed_at, else created_at; both ISO 8601 instants.",
     },
   ],
-  "services/edge-functions/src/routes/flipdesk-ebay.ts": [
+  "services/edge-functions/src/routes/flipdesk-ebay-finances.ts": [
     { text: "sold_at: string | null;", kind: "shape" },
+  ],
+  "services/edge-functions/src/routes/flipdesk-ebay-sync.ts": [
     {
       text: "sold_at: order.creationDate,",
       kind: "other_table_write",
@@ -537,7 +539,7 @@ const SALES_WRITE_FILES = [
   "services/edge-functions/src/lib/etsy-orders.ts",
   "services/edge-functions/src/lib/orphan-sale-match.ts",
   "services/edge-functions/src/lib/shopify-orders.ts",
-  "services/edge-functions/src/routes/flipdesk-ebay.ts",
+  "services/edge-functions/src/routes/flipdesk-ebay-sync.ts",
   "services/edge-functions/src/routes/flipdesk-import.ts",
   "services/edge-functions/src/routes/flipdesk-sync.ts",
   "ios/GradeThread/Sales/SaleRecorder.swift",
@@ -670,7 +672,7 @@ Deno.test("US-3315: every sales writer declares a provenance, and the nine are t
   assertEquals(
     writers.length,
     9,
-    "nine sites assign sales.sold_at; flipdesk-ebay.ts and flipdesk-sync.ts " +
+    "nine sites assign sales.sold_at; flipdesk-ebay-sync.ts and flipdesk-sync.ts " +
       "each also write a same-named column on another table",
   );
 
