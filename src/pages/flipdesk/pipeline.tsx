@@ -118,7 +118,6 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { LoadingRegion } from "@/components/ui/skeletons";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ItemDetailDialog } from "@/components/flipdesk/item-detail-dialog";
-import { InventoryViewSwitcher } from "@/components/flipdesk/inventory-view-switcher";
 import { NextActionBadge } from "@/components/flipdesk/next-action-badge";
 import { FilterBuilder } from "@/components/flipdesk/filter-builder";
 import { SaveViewDialog } from "@/components/flipdesk/save-view-dialog";
@@ -575,21 +574,13 @@ export function FlipdeskPipelinePage() {
         </Link>
       )}
       <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="space-y-3">
-          <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-brand-navy text-white">
-              <LayoutGrid className="h-5 w-5" />
-            </div>
-            <div>
-              <h1 className="text-2xl font-bold tracking-tight">Inventory</h1>
-              <HelpLink slug="the-flipdesk-pipeline" label="Help: the FlipDesk pipeline" />
-              <p className="text-sm text-muted-foreground">
-                Drag a card to advance its status, or select cards for a batch
-                move. Click a card for full details.
-              </p>
-            </div>
-          </div>
-          <InventoryViewSwitcher current="kanban" />
+        {/* INV-13: the title and mode switcher live in the Inventory shell. */}
+        <div>
+          <HelpLink slug="the-flipdesk-pipeline" label="Help: the FlipDesk pipeline" />
+          <p className="text-sm text-muted-foreground">
+            Drag a card to advance its status, or select cards for a batch
+            move. Click a card for full details.
+          </p>
         </div>
         <div className="flex flex-wrap gap-2">
           <Button variant="outline" onClick={() => setSettingsOpen(true)}>

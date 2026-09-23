@@ -4,7 +4,6 @@ import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { toastError } from "@/lib/toast-error";
 import {
-  Hammer,
   ChevronLeft,
   ChevronRight,
   SkipForward,
@@ -35,7 +34,6 @@ import { useItemsList, useItemFull } from "@/hooks/use-items-full";
 import { PhotoUploader } from "@/components/flipdesk/photo-uploader";
 import { MeasurementForm } from "@/components/flipdesk/measurement-form";
 import { SoldCompRecommendation } from "@/components/flipdesk/sold-comp-recommendation";
-import { InventoryViewSwitcher } from "@/components/flipdesk/inventory-view-switcher";
 import { SortMenu } from "@/components/flipdesk/sort-menu";
 import { useUrlParamState } from "@/hooks/use-url-param-state";
 import {
@@ -523,12 +521,9 @@ function PrepHeader({
 }) {
   return (
     <div className="space-y-3">
-      <div className="flex items-center gap-3">
-        <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-brand-navy text-white">
-          <Hammer className="h-5 w-5" />
-        </div>
+      {/* INV-13: the title and mode switcher live in the Inventory shell. */}
+      <div className="flex flex-wrap items-center gap-3">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight">Inventory</h1>
           <p className="text-sm text-muted-foreground">
             {queueLength > 0
               ? `Prepping ${queueLength} item${queueLength === 1 ? "" : "s"} — currently on item ${index + 1}.`
@@ -550,7 +545,6 @@ function PrepHeader({
           </div>
         )}
       </div>
-      <InventoryViewSwitcher current="prep" />
     </div>
   );
 }

@@ -53,6 +53,11 @@ const VIEWS: ViewEntry[] = [
 
 interface Props {
   current: InventoryView;
+  /**
+   * INV-13: called on pointer-enter and focus so the shell can start loading a
+   * mode's chunk before the click.
+   */
+  onPrefetch?: (view: InventoryView) => void;
 }
 
 // Shared tab strip mounted at the top of every Inventory surface so the four
@@ -61,7 +66,7 @@ interface Props {
 // navigating to a separate route — so the shared filters/search/sort/tab params
 // (and the in-memory selection) survive the switch. Each tab is still a real
 // Link so browser back/forward + middle-click open-in-new-tab keep working.
-export function InventoryViewSwitcher({ current }: Props) {
+export function InventoryViewSwitcher({ current, onPrefetch }: Props) {
   const [searchParams] = useSearchParams();
   return (
     <div className="flex flex-wrap items-center gap-1 rounded-lg border bg-muted/30 p-1">
@@ -92,6 +97,8 @@ export function InventoryViewSwitcher({ current }: Props) {
             to={to}
             title={v.description}
             aria-current={active ? "page" : undefined}
+            onPointerEnter={active ? undefined : () => onPrefetch?.(v.id)}
+            onFocus={active ? undefined : () => onPrefetch?.(v.id)}
             className={cn(
               "inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium transition-colors",
               active

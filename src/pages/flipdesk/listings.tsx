@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef, useState, useEffect } from "react";
+import { lazy, Suspense, useCallback, useMemo, useRef, useState, useEffect, type ReactNode } from "react";
 import { Link, useSearchParams, useNavigate } from "react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useVirtualizer } from "@tanstack/react-virtual";
@@ -77,7 +77,7 @@ import { supabase } from "@/lib/supabase";
 import { itemRowLabel } from "@/lib/item-row-label";
 import { useAuthStore } from "@/stores/auth-store";
 import { useWorkspace } from "@/hooks/use-workspace";
-import { ItemDetailDialog } from "@/components/flipdesk/item-detail-dialog";
+import { useMediaQuery } from "@/hooks/use-media-query";
 import { useKeyboardShortcuts } from "@/hooks/use-keyboard-shortcuts";
 import { useUrlPageState, useUrlParamState, useUrlSearchInput } from "@/hooks/use-url-param-state";
 import { useInventorySelection } from "@/stores/inventory-selection";
@@ -85,21 +85,8 @@ import { useInventoryStatusCounts } from "@/hooks/use-inventory-status-counts";
 import { useAgedThreshold } from "@/hooks/use-aged-threshold";
 import { AgedStrip } from "@/components/flipdesk/aged-strip";
 import { listingsEmptyState } from "@/pages/flipdesk/listings-empty-state";
-import { MarkListedDialog } from "@/components/flipdesk/mark-listed-dialog";
-import { PublishToEbayDialog } from "@/components/flipdesk/publish-to-ebay-dialog";
-import { RecordSaleDialog } from "@/components/flipdesk/record-sale-dialog";
-import { ShipOrderDialog } from "@/components/flipdesk/ship-order-dialog";
-import { InventoryViewSwitcher } from "@/components/flipdesk/inventory-view-switcher";
-import { BulkAiEnrichDialog } from "@/components/flipdesk/bulk-ai-enrich-dialog";
-import { BulkCrossListDialog } from "@/components/flipdesk/bulk-cross-list-dialog";
 import { useCrossPushBulk } from "@/hooks/use-cross-listing";
-import { BulkRepriceDialog } from "@/components/flipdesk/bulk-reprice-dialog";
-import { BulkPromoteDialog } from "@/components/flipdesk/bulk-promote-dialog";
-import { BulkEditDialog } from "@/components/flipdesk/bulk-edit-dialog";
-import { BulkFieldsDialog } from "@/components/flipdesk/bulk-fields-dialog";
-import { PrepareShipmentDialog } from "@/components/flipdesk/prepare-shipment-dialog";
 import { FilterBuilder } from "@/components/flipdesk/filter-builder";
-import { SaveViewDialog } from "@/components/flipdesk/save-view-dialog";
 import { useSavedViews } from "@/hooks/use-saved-views";
 import {
   EMPTY_QUERY,
@@ -184,6 +171,60 @@ import { cn } from "@/lib/utils";
 import type { ItemFullRow, ItemStatus } from "@/types/database";
 import { PageHelp } from "@/components/help/page-help";
 
+// INV-13: the row and bulk dialogs load on first open instead of riding in
+// the table's chunk. LazyMount keeps one mounted after that, so a dialog that
+// is still working (AI enrich, a chunked reprice) is not unmounted on close.
+const ItemDetailDialog = lazy(() =>
+  import("@/components/flipdesk/item-detail-dialog").then((m) => ({ default: m.ItemDetailDialog })),
+);
+const MarkListedDialog = lazy(() =>
+  import("@/components/flipdesk/mark-listed-dialog").then((m) => ({ default: m.MarkListedDialog })),
+);
+const PublishToEbayDialog = lazy(() =>
+  import("@/components/flipdesk/publish-to-ebay-dialog").then((m) => ({ default: m.PublishToEbayDialog })),
+);
+const RecordSaleDialog = lazy(() =>
+  import("@/components/flipdesk/record-sale-dialog").then((m) => ({ default: m.RecordSaleDialog })),
+);
+const ShipOrderDialog = lazy(() =>
+  import("@/components/flipdesk/ship-order-dialog").then((m) => ({ default: m.ShipOrderDialog })),
+);
+const BulkAiEnrichDialog = lazy(() =>
+  import("@/components/flipdesk/bulk-ai-enrich-dialog").then((m) => ({ default: m.BulkAiEnrichDialog })),
+);
+const BulkCrossListDialog = lazy(() =>
+  import("@/components/flipdesk/bulk-cross-list-dialog").then((m) => ({ default: m.BulkCrossListDialog })),
+);
+const BulkRepriceDialog = lazy(() =>
+  import("@/components/flipdesk/bulk-reprice-dialog").then((m) => ({ default: m.BulkRepriceDialog })),
+);
+const BulkPromoteDialog = lazy(() =>
+  import("@/components/flipdesk/bulk-promote-dialog").then((m) => ({ default: m.BulkPromoteDialog })),
+);
+const BulkEditDialog = lazy(() =>
+  import("@/components/flipdesk/bulk-edit-dialog").then((m) => ({ default: m.BulkEditDialog })),
+);
+const BulkFieldsDialog = lazy(() =>
+  import("@/components/flipdesk/bulk-fields-dialog").then((m) => ({ default: m.BulkFieldsDialog })),
+);
+const PrepareShipmentDialog = lazy(() =>
+  import("@/components/flipdesk/prepare-shipment-dialog").then((m) => ({ default: m.PrepareShipmentDialog })),
+);
+const SaveViewDialog = lazy(() =>
+  import("@/components/flipdesk/save-view-dialog").then((m) => ({ default: m.SaveViewDialog })),
+);
+
+/**
+ * INV-13: render `children` once `when` has been true, and keep them after.
+ * The first open loads the dialog's chunk; closing it later keeps the close
+ * animation and any work in flight.
+ */
+function LazyMount({ when, children }: { when: boolean; children: ReactNode }) {
+  const [seen, setSeen] = useState(when);
+  if (when && !seen) setSeen(true);
+  return seen || when ? <Suspense fallback={null}>{children}</Suspense> : null;
+}
+
 /**
  * The per-tab sort menu, rendered once in the desktop toolbar and once in the
  * mobile Filters sheet. While a column header sort is active the menu shows a
@@ -239,6 +280,8 @@ export function FlipdeskListingsPage() {
   // INV-4: hard delete is admin-only on the server; don't offer it below that.
   const { can } = useWorkspace();
   const canDeleteItems = can("delete_inventory");
+  // INV-13: Tailwind's md breakpoint; decides table vs card list below.
+  const isDesktop = useMediaQuery("(min-width: 768px)");
   const qc = useQueryClient();
   const [searchParams, setSearchParams] = useSearchParams();
   // US-1429: an explicit `?tab=` wins; otherwise honor a `?status=` deep-link
@@ -1041,16 +1084,9 @@ export function FlipdeskListingsPage() {
 
   return (
     <div className={cn("space-y-6", selectable && selected.size > 0 && "pb-24")}>
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="space-y-3">
-          <div>
-            <h1 className="text-2xl font-bold tracking-tight">Inventory</h1>
-            <p className="text-sm text-muted-foreground">
-              Triage surface — focus on items by their selling stage.
-            </p>
-          </div>
-          <InventoryViewSwitcher current="table" />
-        </div>
+      {/* INV-13: the title and mode switcher live in the Inventory shell
+          (inventory.tsx); this row is the Table's own actions. */}
+      <div className="flex flex-wrap items-start justify-end gap-3">
         <div className="flex flex-wrap gap-2">
           <PageHelp slug="the-four-inventory-views" />
           <Button
@@ -1549,87 +1585,97 @@ export function FlipdeskListingsPage() {
                 inert={isPlaceholderData || undefined}
                 className={cn(isPlaceholderData && "opacity-60 transition-opacity")}
               >
-                {/* Mobile: card list (the wide table is unusable on a phone). */}
-                <div className="md:hidden">
-                  {selectable && (
-                    <label className="flex cursor-pointer items-center gap-2 border-b px-4 py-2">
-                      <input
-                        type="checkbox"
-                        checked={allOnPageSelected}
-                        onChange={toggleSelectAll}
-                        className="h-4 w-4 cursor-pointer"
-                        aria-label="Select all on page"
+                {/* INV-13: one list per breakpoint. Both used to mount on every
+                    screen size with CSS hiding one of them, doubling the rows
+                    React rendered. */}
+                {isDesktop ? (
+                  <>
+                    {/* US-2173 AC3: the desktop table is its own component now. The
+                        US-733 virtualization decision stays here — the hook must be
+                        created on every render, and this component is not mounted on
+                        mobile — so its output is passed down rather than computed
+                        there. */}
+                    <ListingsTable
+                      pageRows={pageRows}
+                      tab={tab}
+                      isActive={isActive}
+                      isAged={isAgedTab}
+                      isUnlisted={isUnlisted}
+                      isShipped={isShipped}
+                      isSold={isSold}
+                      selectable={selectable}
+                      selected={selected}
+                      allOnPageSelected={allOnPageSelected}
+                      toggleSelected={toggleSelected}
+                      toggleSelectAll={toggleSelectAll}
+                      columnSort={columnSort}
+                      toggleColumnSort={toggleColumnSort}
+                      tableScrollRef={tableScrollRef}
+                      virtualize={virtualize}
+                      virtualItems={virtualItems}
+                      rowVirtualizer={rowVirtualizer}
+                      vPadTop={vPadTop}
+                      vPadBottom={vPadBottom}
+                      platformsByItem={platformsByItem}
+                      draftMetaByItem={draftMetaByItem}
+                      publishIssuesByItem={publishIssuesByItem}
+                      coverByItem={coverByItem}
+                      metricsByItem={metricsByItem}
+                      qualityByListing={qualityByListing}
+                      scoreById={scoreById}
+                      buyerCounts={buyerCounts}
+                      updateTracking={updateTracking}
+                      updateListingPrice={updateListingPrice}
+                      updateItemStatus={updateItemStatus}
+                      updateItemMoney={updateItemMoney}
+                      updateItemNotes={updateItemNotes}
+                      onQuickEdit={setQuickEditItem}
+                      markDelivered={markDelivered}
+                      setPublishItem={setPublishItem}
+                      setMarkListedItem={setMarkListedItem}
+                      setRecordSaleItem={setRecordSaleItem}
+                      setShipItem={setShipItem}
+                      setEndTarget={setEndTarget}
+                      setDeleteTarget={setDeleteTarget}
+                      canDelete={canDeleteItems}
+                      ebayConnection={ebayConnection}
+                      navigate={navigate}
+                    />
+                  </>
+                ) : (
+                  <>
+                    {/* Mobile: card list (the wide table is unusable on a phone). */}
+                    <div className="md:hidden">
+                      {selectable && (
+                        <label className="flex cursor-pointer items-center gap-2 border-b px-4 py-2">
+                          <input
+                            type="checkbox"
+                            checked={allOnPageSelected}
+                            onChange={toggleSelectAll}
+                            className="h-4 w-4 cursor-pointer"
+                            aria-label="Select all on page"
+                          />
+                          <span className="text-xs text-muted-foreground">
+                            {selected.size > 0
+                              ? `${selected.size} selected`
+                              : "Select all on page"}
+                          </span>
+                        </label>
+                      )}
+                      <ItemCardList
+                        items={pageRows}
+                        onOpen={setDetailItem}
+                        selectable={selectable}
+                        selectedIds={selected}
+                        onToggleSelect={toggleSelected}
+                        onQuickEdit={setQuickEditItem}
+                        // US-3122: the phone list shows the sourcer while the page is
+                        // ordered by it, the same rule the desktop column follows.
+                        showSourcer={columnSort?.field === "sourced_by"}
                       />
-                      <span className="text-xs text-muted-foreground">
-                        {selected.size > 0
-                          ? `${selected.size} selected`
-                          : "Select all on page"}
-                      </span>
-                    </label>
-                  )}
-                  <ItemCardList
-                    items={pageRows}
-                    onOpen={setDetailItem}
-                    selectable={selectable}
-                    selectedIds={selected}
-                    onToggleSelect={toggleSelected}
-                    onQuickEdit={setQuickEditItem}
-                    // US-3122: the phone list shows the sourcer while the page is
-                    // ordered by it, the same rule the desktop column follows.
-                    showSourcer={columnSort?.field === "sourced_by"}
-                  />
-                </div>
-                {/* US-2173 AC3: the desktop table is its own component now. The
-                    US-733 virtualization decision stays here — the hook must be
-                    created on every render, and this component is not mounted on
-                    mobile — so its output is passed down rather than computed
-                    there. */}
-                <ListingsTable
-                  pageRows={pageRows}
-                  tab={tab}
-                  isActive={isActive}
-                  isAged={isAgedTab}
-                  isUnlisted={isUnlisted}
-                  isShipped={isShipped}
-                  isSold={isSold}
-                  selectable={selectable}
-                  selected={selected}
-                  allOnPageSelected={allOnPageSelected}
-                  toggleSelected={toggleSelected}
-                  toggleSelectAll={toggleSelectAll}
-                  columnSort={columnSort}
-                  toggleColumnSort={toggleColumnSort}
-                  tableScrollRef={tableScrollRef}
-                  virtualize={virtualize}
-                  virtualItems={virtualItems}
-                  rowVirtualizer={rowVirtualizer}
-                  vPadTop={vPadTop}
-                  vPadBottom={vPadBottom}
-                  platformsByItem={platformsByItem}
-                  draftMetaByItem={draftMetaByItem}
-                  publishIssuesByItem={publishIssuesByItem}
-                  coverByItem={coverByItem}
-                  metricsByItem={metricsByItem}
-                  qualityByListing={qualityByListing}
-                  scoreById={scoreById}
-                  buyerCounts={buyerCounts}
-                  updateTracking={updateTracking}
-                  updateListingPrice={updateListingPrice}
-                  updateItemStatus={updateItemStatus}
-                  updateItemMoney={updateItemMoney}
-                  updateItemNotes={updateItemNotes}
-                  onQuickEdit={setQuickEditItem}
-                  markDelivered={markDelivered}
-                  setPublishItem={setPublishItem}
-                  setMarkListedItem={setMarkListedItem}
-                  setRecordSaleItem={setRecordSaleItem}
-                  setShipItem={setShipItem}
-                  setEndTarget={setEndTarget}
-                  setDeleteTarget={setDeleteTarget}
-                  canDelete={canDeleteItems}
-                  ebayConnection={ebayConnection}
-                  navigate={navigate}
-                />
+                    </div>
+                  </>
+                )}
               </div>
 
               <div className="flex flex-wrap items-center justify-between gap-3 border-t px-4 py-3 text-xs">
@@ -2187,7 +2233,9 @@ export function FlipdeskListingsPage() {
         </AlertDialogContent>
       </AlertDialog>
 
-      <ItemDetailDialog item={detailItem} onClose={() => setDetailItem(null)} />
+      <LazyMount when={!!detailItem}>
+        <ItemDetailDialog item={detailItem} onClose={() => setDetailItem(null)} />
+      </LazyMount>
 
       {/* US-3467: the row click on desktop and the edit button on phone both
           open this panel. It reads the row from the live page, so a save that
@@ -2211,109 +2259,133 @@ export function FlipdeskListingsPage() {
         actions={{ patchItemColumns, updateItemStatus, updateListingPrice }}
       />
 
-      <MarkListedDialog
-        item={markListedItem}
-        onClose={() => setMarkListedItem(null)}
-      />
+      <LazyMount when={!!markListedItem}>
+        <MarkListedDialog
+          item={markListedItem}
+          onClose={() => setMarkListedItem(null)}
+        />
+      </LazyMount>
 
       {publishItem && (
-        <PublishToEbayDialog
-          open={!!publishItem}
-          onOpenChange={(o) => !o && setPublishItem(null)}
-          itemId={publishItem.id}
-          // Relist when the item was previously listed: an ended draft, or a
-          // still-live listing being replaced. A never-listed draft publishes
-          // normally.
-          relist={
-            publishItem.listing_status === "ended" ||
-            publishItem.listing_status === "active"
-          }
-          listingActive={publishItem.listing_status === "active"}
-        />
+        <Suspense fallback={null}>
+          <PublishToEbayDialog
+            open={!!publishItem}
+            onOpenChange={(o) => !o && setPublishItem(null)}
+            itemId={publishItem.id}
+            // Relist when the item was previously listed: an ended draft, or a
+            // still-live listing being replaced. A never-listed draft publishes
+            // normally.
+            relist={
+              publishItem.listing_status === "ended" ||
+              publishItem.listing_status === "active"
+            }
+            listingActive={publishItem.listing_status === "active"}
+          />
+        </Suspense>
       )}
 
-      <RecordSaleDialog
-        item={recordSaleItem}
-        onClose={() => setRecordSaleItem(null)}
-      />
-      <ShipOrderDialog item={shipItem} onClose={() => setShipItem(null)} />
+      <LazyMount when={!!recordSaleItem}>
+        <RecordSaleDialog
+          item={recordSaleItem}
+          onClose={() => setRecordSaleItem(null)}
+        />
+      </LazyMount>
+      <LazyMount when={!!shipItem}>
+        <ShipOrderDialog item={shipItem} onClose={() => setShipItem(null)} />
+      </LazyMount>
 
-      <SaveViewDialog
-        open={saveViewOpen}
-        onOpenChange={setSaveViewOpen}
-        query={filterQuery}
-      />
+      <LazyMount when={saveViewOpen}>
+        <SaveViewDialog
+          open={saveViewOpen}
+          onOpenChange={setSaveViewOpen}
+          query={filterQuery}
+        />
+      </LazyMount>
 
-      <BulkRepriceDialog
-        open={repriceOpen}
-        onOpenChange={setRepriceOpen}
-        listingIds={selectedListingIds}
-        onApplied={() => {
-          setSelected(new Set());
-          void qc.invalidateQueries({ queryKey: ["items_full"] });
-        }}
-      />
+      <LazyMount when={repriceOpen}>
+        <BulkRepriceDialog
+          open={repriceOpen}
+          onOpenChange={setRepriceOpen}
+          listingIds={selectedListingIds}
+          onApplied={() => {
+            setSelected(new Set());
+            void qc.invalidateQueries({ queryKey: ["items_full"] });
+          }}
+        />
+      </LazyMount>
 
-      <BulkPromoteDialog
-        open={promoteOpen}
-        onOpenChange={setPromoteOpen}
-        listingIds={selectedListingIds}
-        selectionValueCents={(() => {
-          // Null when ANY selected item has no price: a fee estimate that
-          // silently omits the items it could not price reads as complete.
-          const rows = selectedRows;
-          if (rows.length === 0 || rows.some((r) => r.list_price == null)) return null;
-          return rows.reduce((sum, r) => sum + Math.round(Number(r.list_price) * 100), 0);
-        })()}
-      />
+      <LazyMount when={promoteOpen}>
+        <BulkPromoteDialog
+          open={promoteOpen}
+          onOpenChange={setPromoteOpen}
+          listingIds={selectedListingIds}
+          selectionValueCents={(() => {
+            // Null when ANY selected item has no price: a fee estimate that
+            // silently omits the items it could not price reads as complete.
+            const rows = selectedRows;
+            if (rows.length === 0 || rows.some((r) => r.list_price == null)) return null;
+            return rows.reduce((sum, r) => sum + Math.round(Number(r.list_price) * 100), 0);
+          })()}
+        />
+      </LazyMount>
 
-      <BulkFieldsDialog
-        open={bulkFieldsOpen}
-        count={selected.size}
-        onOpenChange={setBulkFieldsOpen}
-        onApply={bulkSetFields}
-      />
+      <LazyMount when={bulkFieldsOpen}>
+        <BulkFieldsDialog
+          open={bulkFieldsOpen}
+          count={selected.size}
+          onOpenChange={setBulkFieldsOpen}
+          onApply={bulkSetFields}
+        />
+      </LazyMount>
 
-      <BulkEditDialog
-        open={bulkEditOpen}
-        onOpenChange={setBulkEditOpen}
-        listingIds={selectedListingIds}
-        onApplied={() => {
-          setSelected(new Set());
-          void qc.invalidateQueries({ queryKey: ["items_full"] });
-        }}
-      />
+      <LazyMount when={bulkEditOpen}>
+        <BulkEditDialog
+          open={bulkEditOpen}
+          onOpenChange={setBulkEditOpen}
+          listingIds={selectedListingIds}
+          onApplied={() => {
+            setSelected(new Set());
+            void qc.invalidateQueries({ queryKey: ["items_full"] });
+          }}
+        />
+      </LazyMount>
 
-      <PrepareShipmentDialog
-        open={prepareShipOpen}
-        onOpenChange={setPrepareShipOpen}
-        items={selectedRows}
-        onApplied={() => setSelected(new Set())}
-      />
+      <LazyMount when={prepareShipOpen}>
+        <PrepareShipmentDialog
+          open={prepareShipOpen}
+          onOpenChange={setPrepareShipOpen}
+          items={selectedRows}
+          onApplied={() => setSelected(new Set())}
+        />
+      </LazyMount>
 
-      <BulkCrossListDialog
-        open={bulkCrossListOpen}
-        onOpenChange={setBulkCrossListOpen}
-        itemCount={selectedDrafted}
-        ebayConnected={!!ebayConnection}
-        running={busy || crossPushBulk.isPending}
-        onConfirm={(choice) => void bulkCrossList(choice)}
-      />
-      <BulkAiEnrichDialog
-        open={aiEnrichOpen}
-        onOpenChange={setAiEnrichOpen}
-        itemIds={Array.from(selected)}
-        itemLabel={(itemId) => itemRowLabel(actionItems.find((i) => i.id === itemId) ?? { id: itemId })}
-        onReviewItem={(itemId) => {
-          const it = actionItems.find((i) => i.id === itemId);
-          if (it) setDetailItem(it);
-          setAiEnrichOpen(false);
-        }}
-        onDone={() => {
-          qc.invalidateQueries({ queryKey: ["items_full"] });
-          setSelected(new Set());
-        }}
-      />
+      <LazyMount when={bulkCrossListOpen}>
+        <BulkCrossListDialog
+          open={bulkCrossListOpen}
+          onOpenChange={setBulkCrossListOpen}
+          itemCount={selectedDrafted}
+          ebayConnected={!!ebayConnection}
+          running={busy || crossPushBulk.isPending}
+          onConfirm={(choice) => void bulkCrossList(choice)}
+        />
+      </LazyMount>
+      <LazyMount when={aiEnrichOpen}>
+        <BulkAiEnrichDialog
+          open={aiEnrichOpen}
+          onOpenChange={setAiEnrichOpen}
+          itemIds={Array.from(selected)}
+          itemLabel={(itemId) => itemRowLabel(actionItems.find((i) => i.id === itemId) ?? { id: itemId })}
+          onReviewItem={(itemId) => {
+            const it = actionItems.find((i) => i.id === itemId);
+            if (it) setDetailItem(it);
+            setAiEnrichOpen(false);
+          }}
+          onDone={() => {
+            qc.invalidateQueries({ queryKey: ["items_full"] });
+            setSelected(new Set());
+          }}
+        />
+      </LazyMount>
     </div>
   );
 }

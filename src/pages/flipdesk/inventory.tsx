@@ -1,8 +1,12 @@
 import { lazy, Suspense, useEffect, useLayoutEffect, useRef } from "react";
 import { Navigate, useLocation, useSearchParams } from "react-router";
-import type { InventoryView } from "@/components/flipdesk/inventory-view-switcher";
+import {
+  InventoryViewSwitcher,
+  type InventoryView,
+} from "@/components/flipdesk/inventory-view-switcher";
 import { delistRedirectTarget } from "@/lib/delist-links";
 import { LoadingRegion, TableLoadingSkeleton } from "@/components/ui/skeletons";
+import { Skeleton } from "@/components/ui/skeleton";
 import { useAuthStore } from "@/stores/auth-store";
 import { useInventorySelection } from "@/stores/inventory-selection";
 import { inventoryViewKey, readInventoryView, writeInventoryView } from "./inventory-last-view";
@@ -20,18 +24,23 @@ import { SkuExhaustedBanner } from "@/components/flipdesk/sku-auto-hint";
 //
 // Views are lazy so each mode stays its own chunk (no bundle bloat from
 // hosting all four behind one route).
-const TableView = lazy(() =>
-  import("./listings").then((m) => ({ default: m.FlipdeskListingsPage })),
-);
-const GridView = lazy(() =>
-  import("./grid").then((m) => ({ default: m.FlipdeskGridPage })),
-);
-const KanbanView = lazy(() =>
-  import("./pipeline").then((m) => ({ default: m.FlipdeskPipelinePage })),
-);
-const PrepView = lazy(() =>
-  import("./prep").then((m) => ({ default: m.FlipdeskPrepPage })),
-);
+// INV-13: one loader per mode, shared by React.lazy and the switcher's
+// hover/focus prefetch, so a prefetched chunk is the chunk lazy() resolves.
+const LOADERS = {
+  table: () => import("./listings").then((m) => ({ default: m.FlipdeskListingsPage })),
+  grid: () => import("./grid").then((m) => ({ default: m.FlipdeskGridPage })),
+  kanban: () => import("./pipeline").then((m) => ({ default: m.FlipdeskPipelinePage })),
+  prep: () => import("./prep").then((m) => ({ default: m.FlipdeskPrepPage })),
+} satisfies Record<InventoryView, () => Promise<{ default: () => React.ReactNode }>>;
+const TableView = lazy(LOADERS.table);
+const GridView = lazy(LOADERS.grid);
+const KanbanView = lazy(LOADERS.kanban);
+const PrepView = lazy(LOADERS.prep);
+
+function prefetchMode(view: InventoryView) {
+  // Fire and forget: a failed prefetch just means lazy() fetches on click.
+  void LOADERS[view]().catch(() => {});
+}
 
 function resolveMode(raw: string | null): InventoryView {
   switch (raw) {
@@ -93,15 +102,50 @@ function InventoryWorkspace({ storageKey }: { storageKey: string | null }) {
           bargain, and it sits in the shell so it shows on every inventory view
           rather than only on the one the seller happens to be using. */}
       <SkuExhaustedBanner />
-      <Suspense
-        fallback={
-          <LoadingRegion label="Loading inventory" className="space-y-4">
-            <TableLoadingSkeleton rows={8} columns={6} className="rounded-lg border" />
-          </LoadingRegion>
-        }
-      >
+      {/* INV-13: the shell owns the title and the mode switcher, above the
+          Suspense boundary, so a cold switch to another mode keeps the header
+          in place instead of blanking the page to a table skeleton. */}
+      <div className="mb-6 space-y-3">
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight">Inventory</h1>
+          <p className="text-sm text-muted-foreground">
+            Find items by stage, then act on one or many.
+          </p>
+        </div>
+        <InventoryViewSwitcher current={mode} onPrefetch={prefetchMode} />
+      </div>
+      <Suspense fallback={<ModeFallback mode={mode} />}>
         <View />
       </Suspense>
     </>
+  );
+}
+
+/** INV-13: a loading shape that matches the mode being opened. */
+function ModeFallback({ mode }: { mode: InventoryView }) {
+  if (mode === "kanban") {
+    return (
+      <LoadingRegion label="Loading the board" className="grid gap-3 md:grid-cols-4">
+        {Array.from({ length: 4 }, (_, i) => (
+          <Skeleton key={i} className="h-64 w-full rounded-lg" />
+        ))}
+      </LoadingRegion>
+    );
+  }
+  if (mode === "prep") {
+    return (
+      <LoadingRegion label="Loading prep queue" className="space-y-4">
+        <Skeleton className="h-64 w-full rounded-lg" />
+      </LoadingRegion>
+    );
+  }
+  return (
+    <LoadingRegion label="Loading inventory" className="space-y-4">
+      <TableLoadingSkeleton
+        rows={8}
+        columns={mode === "grid" ? 10 : 6}
+        className="rounded-lg border"
+      />
+    </LoadingRegion>
   );
 }

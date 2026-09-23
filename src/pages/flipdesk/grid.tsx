@@ -7,7 +7,6 @@ import {
 import { toast } from "sonner";
 import { toastWarning } from "@/lib/toast-error";
 import {
-  Grid3x3,
   Search,
   ChevronLeft,
   ChevronRight,
@@ -36,7 +35,6 @@ import {
   resolveSortOptionForMode,
   sortOptionsForMode,
 } from "@/pages/flipdesk/inventory-sort";
-import { InventoryViewSwitcher } from "@/components/flipdesk/inventory-view-switcher";
 import { GridSheet } from "./grid-sheet";
 import { GRID_COLS as COLS, COMMON_ASPECTS, DEFAULT_GRID_KEYS, aspectColumn, cellLock, isListingColumn, validateGridValue, type GridCol, type GridRow } from "./grid-columns";
 import { useGridListings, useSaveGridListing } from "./use-grid-listings";
@@ -519,22 +517,10 @@ export function FlipdeskGridPage() {
 
   return (
     <div className={cn("min-w-0 max-w-full space-y-4", staged.size > 0 && "pb-32")}>
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="space-y-3">
-          <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-brand-navy text-white">
-              <Grid3x3 className="h-5 w-5" />
-            </div>
-            <div>
-              <h1 className="text-2xl font-bold tracking-tight">Inventory</h1>
-              <p className="text-sm text-muted-foreground">
-                Edit inventory and eBay listings in bulk. Choose columns, make changes, then review and save.
-              </p>
-            </div>
-          </div>
-          <InventoryViewSwitcher current="grid" />
-        </div>
-      </div>
+      {/* INV-13: the title and mode switcher live in the Inventory shell. */}
+      <p className="text-sm text-muted-foreground">
+        Edit inventory and eBay listings in bulk. Choose columns, make changes, then review and save.
+      </p>
 
       <div className="flex flex-wrap items-center gap-2">
         <SearchInput
