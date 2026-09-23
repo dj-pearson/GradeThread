@@ -12,8 +12,13 @@
 //
 // The edge asserts this same fixture in
 // services/edge-functions/src/tests/grading-readiness-parity_test.ts.
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
-import { previewGradingReadiness } from "@/lib/grading-readiness";
+import {
+  gradablePhotoTypes,
+  previewGradingReadiness,
+} from "@/lib/grading-readiness";
 import fixture from "../../test/fixtures/grading-readiness-cases.json";
 
 describe("grading readiness (shared fixture)", () => {
@@ -73,5 +78,49 @@ describe("grading readiness (shared fixture)", () => {
       photoTypes: ["front", "back", "detail"],
     });
     expect(got.blockers).toContain("Missing title");
+  });
+});
+
+describe("gradablePhotoTypes (US-2304)", () => {
+  it("counts only photos with a storage_path, the ones /submit can copy", () => {
+    const types = gradablePhotoTypes([
+      { photo_type: "front", storage_path: "u/1/front.webp" },
+      { photo_type: "back", storage_path: "u/1/back.webp" },
+      // An imported photo: a URL and nothing to copy.
+      { photo_type: "tag", storage_path: null },
+    ]);
+    expect([...types].sort()).toEqual(["back", "front"]);
+    const r = previewGradingReadiness({
+      garment_type: "tops",
+      garment_category: "t-shirt",
+      title: "Tee",
+      photoTypes: types,
+    });
+    expect(r.ready).toBe(false);
+    expect(r.blockers).toContain("Missing required photos: tag");
+  });
+
+  it("a stored tag photo satisfies the requirement", () => {
+    const types = gradablePhotoTypes([
+      { photo_type: "front", storage_path: "a" },
+      { photo_type: "back", storage_path: "b" },
+      { photo_type: "tag", storage_path: "c" },
+    ]);
+    expect(
+      previewGradingReadiness({
+        garment_type: "tops",
+        garment_category: "t-shirt",
+        title: "Tee",
+        photoTypes: types,
+      }).blockers,
+    ).toEqual([]);
+  });
+
+  it("the composer feeds the readiness card through it", () => {
+    const src = readFileSync(
+      resolve(__dirname, "../../pages/flipdesk/composer.tsx"),
+      "utf8",
+    );
+    expect(src).toMatch(/photoTypes:\s*gradablePhotoTypes\(photos\)/);
   });
 });

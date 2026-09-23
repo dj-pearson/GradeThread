@@ -1153,19 +1153,27 @@ ORDER BY 1;
 \echo '-- (b) The refunds that followed, i.e. the ones that actually cost a call'
 \echo '-- and gave the money back. Joined through submission_id, which is the'
 \echo '-- only link between the FlipDesk bridge row and the credit ledger.'
+\echo '-- Split by HOW the grade was paid. refund_grade() writes an INCLUDED'
+\echo '-- refund as a delta-0 row: the grade goes back to the monthly bundle'
+\echo '-- (users.grades_used_this_month - 1), not to the credit balance. So'
+\echo '-- credits_returned = 0 on an included row is the refund WORKING. Only a'
+\echo '-- credits row with credits_returned 0 would mean a seller was not repaid.'
 SELECT
   to_char(date_trunc('month', t.created_at), 'YYYY-MM') AS month,
+  s.payment_status::text                                AS paid_with,
   count(*)                                              AS refunds,
-  sum(t.delta)                                          AS credits_returned
+  sum(t.delta)                                          AS credits_returned,
+  count(*) FILTER (WHERE s.refunded_at IS NOT NULL)     AS marked_refunded
 FROM public.grade_credit_transactions t
+JOIN public.submissions s ON s.id = t.submission_id
 WHERE t.reason = 'refund'
   AND t.submission_id IN (
     SELECT submission_id
     FROM public.flipdesk_grading_submissions
     WHERE status = 'needs_photos' AND submission_id IS NOT NULL
   )
-GROUP BY 1
-ORDER BY 1;
+GROUP BY 1, 2
+ORDER BY 1, 2;
 
 \echo ''
 \echo '-- READING THIS: (a) with an empty (b) means the abstention happened and'
