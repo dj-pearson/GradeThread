@@ -264,3 +264,39 @@ describe("INV-14: grade chip and Next column", () => {
     }
   });
 });
+
+describe("INV-15: table semantics for the keyboard cursor", () => {
+  it("the active sort header carries aria-sort, the others do not", () => {
+    const html = render({
+      tab: "active",
+      isActive: true,
+      isAged: false,
+      columnSort: { field: "list_price", dir: "desc" },
+    });
+    expect(html.match(/aria-sort="descending"/g)).toHaveLength(1);
+    expect(html).not.toContain('aria-sort="ascending"');
+  });
+
+  it("the cursor row is marked aria-current", () => {
+    const html = render({ cursorId: "i1" } as Partial<TableProps>);
+    expect(html).toMatch(/<tr[^>]*aria-current="true"/);
+  });
+
+  it("empty headers have screen-reader text", () => {
+    const html = render({ tab: "unlisted", isUnlisted: true, isAged: false });
+    const heads = html.match(/<th[ >](?:(?!<\/th>).)*<\/th>/g) ?? [];
+    expect(heads.length).toBeGreaterThan(5);
+    for (const th of heads) {
+      const named = /aria-label="[^"]+"/.test(th) || th.replace(/<[^>]+>/g, "").trim().length > 0;
+      expect(named, th).toBe(true);
+    }
+  });
+
+  it("Days listed tints against the seller's threshold", () => {
+    const html = render({
+      agedThresholdDays: 100,
+      pageRows: [row({ list_date: new Date(Date.now() - 80 * 86_400_000).toISOString() } as Partial<ItemFullRow>)],
+    } as Partial<TableProps>);
+    expect(html).toContain("text-amber-700");
+  });
+});

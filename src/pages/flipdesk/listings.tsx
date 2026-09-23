@@ -79,6 +79,7 @@ import { useAuthStore } from "@/stores/auth-store";
 import { useWorkspace } from "@/hooks/use-workspace";
 import { useMediaQuery } from "@/hooks/use-media-query";
 import { useKeyboardShortcuts } from "@/hooks/use-keyboard-shortcuts";
+import { dialogIsOpen, useRowCursor } from "@/pages/flipdesk/listings-row-cursor";
 import { useUrlPageState, useUrlParamState, useUrlSearchInput } from "@/hooks/use-url-param-state";
 import { useInventorySelection } from "@/stores/inventory-selection";
 import { useInventoryStatusCounts } from "@/hooks/use-inventory-status-counts";
@@ -558,7 +559,8 @@ export function FlipdeskListingsPage() {
     {
       key: "a",
       handler: () => {
-        if (selectable) toggleSelectAll();
+        // INV-15: never under an open dialog or sheet.
+        if (selectable && !dialogIsOpen()) toggleSelectAll();
       },
     },
   ]);
@@ -1049,6 +1051,50 @@ export function FlipdeskListingsPage() {
       return next;
     });
   }
+
+  // INV-15: a keyboard row cursor over the desktop table's rows.
+  const { cursor: cursorIndex } = useRowCursor(
+    {
+      count: pageRows.length,
+      idAt: (i) => pageRows[i]?.id,
+      toggle: (id) => {
+        if (selectable) toggleSelected(id);
+      },
+      selectRange: (ids) => {
+        if (!selectable) return;
+        setSelected((prev) => {
+          const next = new Set(prev);
+          for (const id of ids) next.add(id);
+          return next;
+        });
+      },
+      quickEdit: (i) => {
+        const it = pageRows[i];
+        if (it) setQuickEditItem(it);
+      },
+      openFull: (i) => {
+        const it = pageRows[i];
+        if (it) {
+          navigate(`/dashboard/flipdesk/items/${it.id}/draft`, {
+            state: { from: `${window.location.pathname}${window.location.search}` },
+          });
+        }
+      },
+      scrollTo: (i) => {
+        if (virtualize) rowVirtualizer.scrollToIndex(i, { align: "auto" });
+        else {
+          const id = pageRows[i]?.id;
+          if (id) {
+            document
+              .querySelector(`[data-row-id="${CSS.escape(id)}"]`)
+              ?.scrollIntoView?.({ block: "nearest" });
+          }
+        }
+      },
+    },
+    isDesktop,
+  );
+  const cursorId = cursorIndex != null ? (pageRows[cursorIndex]?.id ?? null) : null;
 
   // US-3467: Gmail-style "select all N matching", across every page of the
   // current tab, search and filter. Capped so one click cannot pull a whole
@@ -1620,6 +1666,8 @@ export function FlipdeskListingsPage() {
                       draftMetaByItem={draftMetaByItem}
                       publishIssuesByItem={publishIssuesByItem}
                       coverByItem={coverByItem}
+                      cursorId={cursorId}
+                      agedThresholdDays={agedThresholdDays}
                       metricsByItem={metricsByItem}
                       qualityByListing={qualityByListing}
                       scoreById={scoreById}
