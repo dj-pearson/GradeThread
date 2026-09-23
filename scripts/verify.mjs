@@ -285,6 +285,9 @@ const IOS_GUARDS = [
   // sites still used it; every guard above passed, because none of them asks
   // whether a symbol exists. iOS CI found it a push later.
   ["every Type.member resolves", "check-symbol-resolution.py"],
+  // Mobile plan action 6: logic moving into GradeThreadCore turns app types
+  // into another module's types, and every consumer then needs the import.
+  ["every Core type user imports GradeThreadCore", "check-core-imports.py"],
   // US-3281: the in-app delist tells App Review seven things about itself. Each
   // is a sentence a small, sensible-looking change would make false, and a
   // 5.2.2 rejection is resolved by authorization from the marketplace that does

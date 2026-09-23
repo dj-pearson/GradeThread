@@ -1,4 +1,5 @@
 import Foundation
+import GradeThreadCore
 import SwiftUI
 import XCTest
 @testable import GradeThread

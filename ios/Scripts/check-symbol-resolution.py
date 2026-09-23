@@ -65,6 +65,11 @@ OWNED = {
     # nowhere else, so a wrong member in one of them is invisible on Windows
     # until CI says so twenty minutes later.
     "NotificationCategoryID": "GradeThread/Notifications/NotificationCategories.swift",
+    # Mobile plan action 6 moved it into the Core package. Members now need
+    # `public` as well as existence, and this answers the existence half.
+    # (MoneyDate moved too but is not listed: its SwiftUI `dayPicker` lives in
+    # an app extension, a second file this one-file map cannot express.)
+    "PayoutDateFormat": "Packages/GradeThreadCore/Sources/GradeThreadCore/PayoutDateFormat.swift",
 }
 
 DECL = re.compile(

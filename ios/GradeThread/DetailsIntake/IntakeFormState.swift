@@ -1,4 +1,5 @@
 import Foundation
+import GradeThreadCore
 import Observation
 
 /// Form state for the manual intake screen. All fields are exposed as

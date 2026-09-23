@@ -1,4 +1,5 @@
 import Foundation
+import GradeThreadCore
 
 /// US-3014 — a mileage trip, entered at the shop rather than on a laptop three
 /// weeks later.

@@ -68,6 +68,7 @@ code_refs:
   - src/components/finances/filing-walkthrough-card.tsx
   - ios/GradeThread/Money/TripDraft.swift
   - ios/GradeThread/Money/MoneyDate.swift
+  - ios/Packages/GradeThreadCore/Sources/GradeThreadCore/MoneyDate.swift
   - ios/GradeThread/Money/MileageStore.swift
   - ios/GradeThread/Money/ReceiptScanService.swift
 reviewed: 2026-09-07
