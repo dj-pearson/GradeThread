@@ -53,7 +53,14 @@ function StageCard({ stage, index }: { stage: FlipdeskStage; index: number }) {
 
 export function FlipDeskPipelinePreview() {
   return (
-    <div className="gt-hscroll overflow-x-auto">
+    // Focusable + labelled so a keyboard user can scroll it (axe
+    // scrollable-region-focusable, e2e/public-pages.spec.ts).
+    <div
+      className="gt-hscroll overflow-x-auto"
+      tabIndex={0}
+      role="region"
+      aria-label="FlipDesk pipeline stages"
+    >
       <ol className="flex w-max gap-6 px-6 md:px-[9vw]">
         {FLIPDESK_STAGES.map((stage, i) => (
           <StageCard key={stage.title} stage={stage} index={i} />
