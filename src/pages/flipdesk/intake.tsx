@@ -83,15 +83,15 @@ import {
   INTAKE_STATUSES,
   ITEM_STATUS_LABELS,
 } from "@/lib/constants";
-import type {
-  InventoryItemInsert,
-  ItemStatus,
-  ItemCategory,
-  AiFieldSource,
-} from "@/types/database";
-import { deriveGarmentDefaults } from "@/lib/garment-mapping";
+import {
+  buildIntakeInsert,
+  photoShortfallMessage,
+  priceOrNull,
+  resolveIntakeSource,
+  type IntakeFormState,
+} from "@/pages/flipdesk/intake-plan";
+import type { ItemStatus, ItemCategory } from "@/types/database";
 import { todayLocalDate } from "@/lib/local-date";
-import { acquiredDateZoneFor } from "@/lib/acquired-date-zone";
 import { garmentDescriptorFor } from "@/lib/measurement-templates";
 import { PageHelp } from "@/components/help/page-help";
 
@@ -112,25 +112,7 @@ const AI_FIELD_LABELS: Record<string, string> = {
   condition_notes: "Internal notes",
 };
 
-interface FormState {
-  title: string;
-  sku: string;
-  container: string;
-  brand: string;
-  style: string;
-  size: string;
-  color: string;
-  material: string;
-  item_category: ItemCategory | "";
-  source_id: string;
-  source_new: string; // new source name (used when source_id === "__new")
-  sourced_by: string;
-  purchase_date: string;
-  purchase_price: string;
-  description: string;
-  condition_notes: string;
-  status: ItemStatus;
-}
+type FormState = IntakeFormState;
 
 const INITIAL: FormState = {
   title: "",
@@ -151,18 +133,6 @@ const INITIAL: FormState = {
   condition_notes: "",
   status: "cataloged",
 };
-
-function priceOrNull(v: string): number | null {
-  const t = v.trim();
-  if (!t) return null;
-  const n = Number(t);
-  return Number.isFinite(n) ? n : null;
-}
-
-function trimOrNull(v: string): string | null {
-  const t = v.trim();
-  return t === "" ? null : t;
-}
 
 export function FlipdeskIntakePage() {
   const navigate = useNavigate();
@@ -384,7 +354,8 @@ export function FlipdeskIntakePage() {
     try {
       // Resolve source: existing id, new (via RPC), or none.
       let sourceId: string | null = null;
-      if (form.source_id === "__new" && form.source_new.trim()) {
+      const sourceChoice = resolveIntakeSource(form);
+      if (sourceChoice.kind === "new") {
         const supabaseAny = supabase as unknown as {
           rpc: (
             fn: string,
@@ -395,65 +366,28 @@ export function FlipdeskIntakePage() {
           "get_or_create_source",
           {
             p_user_id: workspaceOwnerId,
-            p_name: form.source_new.trim(),
+            p_name: sourceChoice.name,
             p_source_type: "other",
           },
         );
         if (error) throw error;
         sourceId = data;
-      } else if (form.source_id && form.source_id !== "__none") {
-        sourceId = form.source_id;
+      } else if (sourceChoice.kind === "existing") {
+        sourceId = sourceChoice.id;
       }
 
-      // Record which fields were AI-filled (and still are) for provenance.
-      const aiFieldSources: Record<string, AiFieldSource> = {};
-      for (const field of aiFields) {
-        const meta = aiMeta[field];
-        aiFieldSources[field] = {
-          source: meta?.source ?? "text",
-          confidence: meta?.confidence ?? 0,
-          accepted: true,
-        };
-      }
-      const hasAiFields = Object.keys(aiFieldSources).length > 0;
-
-      // US-1423: grading requires garment_type + garment_category, which intake
-      // never asked for — so every clothing item had to be re-classified in
-      // ItemCanvas before it could be graded. Derive them here (preferring any
-      // garment values the AI extractor returned) so catalog captures them once.
-      const itemCategory = form.item_category === "" ? null : form.item_category;
-      const garment = deriveGarmentDefaults(itemCategory, {
-        garment_type: aiResult?.suggestions?.garment_type?.value ?? null,
-        garment_category: aiResult?.suggestions?.garment_category?.value ?? null,
+      const insert = buildIntakeInsert({
+        form,
+        ownerId: workspaceOwnerId,
+        sourceId,
+        aiFields,
+        aiMeta,
+        aiGarment: {
+          garment_type: aiResult?.suggestions?.garment_type?.value ?? null,
+          garment_category: aiResult?.suggestions?.garment_category?.value ?? null,
+        },
+        measurements,
       });
-
-      const insert: InventoryItemInsert = {
-        user_id: workspaceOwnerId,
-        title: form.title.trim(),
-        sku: trimOrNull(form.sku),
-        container: trimOrNull(form.container),
-        brand: trimOrNull(form.brand),
-        style: trimOrNull(form.style),
-        size: trimOrNull(form.size),
-        color: trimOrNull(form.color),
-        material: trimOrNull(form.material),
-        item_category: itemCategory,
-        garment_type: garment.garment_type,
-        garment_category: garment.garment_category,
-        source_id: sourceId,
-        sourced_by: trimOrNull(form.sourced_by),
-        acquired_date: form.purchase_date || null,
-        acquired_date_tz: acquiredDateZoneFor(form.purchase_date),
-        acquired_price: priceOrNull(form.purchase_price),
-        description: trimOrNull(form.description),
-        condition_notes: trimOrNull(form.condition_notes),
-        status: form.status,
-        // US-2546 AC4: captured at intake rather than on a later visit to prep.
-        measurements:
-          Object.keys(measurements).length > 0 ? measurements : undefined,
-        ai_field_sources: hasAiFields ? aiFieldSources : undefined,
-        ai_enriched_at: hasAiFields ? new Date().toISOString() : undefined,
-      };
 
       // Offline: persist to the IndexedDB queue and flush on reconnect.
       if (!navigator.onLine) {
@@ -512,13 +446,8 @@ export function FlipdeskIntakePage() {
           }
         }
         await qc.invalidateQueries({ queryKey: ["item_photos", newId] });
-        if (uploaded < stagedPhotos.length) {
-          toast.warning(
-            `Saved the item, but ${stagedPhotos.length - uploaded} photo${
-              stagedPhotos.length - uploaded === 1 ? "" : "s"
-            } didn't upload. Add them from the item page.`,
-          );
-        }
+        const shortfall = photoShortfallMessage(stagedPhotos.length, uploaded);
+        if (shortfall) toast.warning(shortfall);
       }
 
       await qc.invalidateQueries({ queryKey: ["items_full"] });

@@ -9,6 +9,9 @@ import { resolve } from "node:path";
 // pipeline status, and "required" was an asterisk typed into a label.
 
 const INTAKE = "src/pages/flipdesk/intake.tsx";
+// The row and the photo-shortfall message are built here; their behaviour is
+// tested in src/pages/flipdesk/__tests__/intake-plan.test.ts.
+const INTAKE_PLAN = "src/pages/flipdesk/intake-plan.ts";
 const UPLOADER = "src/components/flipdesk/photo-uploader.tsx";
 const CORE = "src/lib/item-photo-upload.ts";
 
@@ -50,8 +53,8 @@ describe("photos can be taken at intake (US-2546 AC2)", () => {
   it("a failed photo does not read as a failed save", () => {
     // The item row already exists at that point. Reporting "save failed" would
     // send the seller to catalogue it a second time.
-    const src = read(INTAKE);
-    expect(src).toMatch(/didn't upload\. Add them from the item page/);
+    expect(read(INTAKE_PLAN)).toMatch(/didn't upload\. Add them from the item page/);
+    expect(read(INTAKE)).toMatch(/toast\.warning\(shortfall\)/);
   });
 });
 
@@ -86,8 +89,8 @@ describe("measurements can be entered at intake (US-2546 AC4)", () => {
   it("and they are actually written to the row", () => {
     // Mounting the form without persisting it would be worse than not having
     // it: the seller types numbers that silently vanish.
-    const src = read(INTAKE);
-    expect(src).toMatch(/measurements:\s*\n?\s*Object\.keys\(measurements\)\.length > 0/);
+    expect(read(INTAKE_PLAN)).toMatch(/measurements:\s*\n?\s*Object\.keys\(measurements\)\.length > 0/);
+    expect(read(INTAKE)).toMatch(/buildIntakeInsert\(\{[\s\S]*?\bmeasurements,/);
   });
 
   it("staged work is cleared by Save & Add another", () => {
