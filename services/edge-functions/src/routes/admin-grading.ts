@@ -31,6 +31,8 @@ import {
   runEval,
   runPromptDryRun,
   checkPromptServingEligibility,
+  evalResetForPromptEdit,
+  isLiveCanary,
 } from "../lib/grading-eval.ts";
 import {
   activateExemplarSet,
@@ -611,7 +613,7 @@ adminGradingRoutes.patch("/prompts/:id", async (c) => {
 
   const { data: existing, error: readErr } = await supabaseAdmin
     .from("ai_prompt_versions")
-    .select("id, is_active, prompt_text")
+    .select("id, is_active, is_canary, rollout_percentage, prompt_text, garment_scope")
     .eq("id", id)
     .maybeSingle();
   if (readErr) {
@@ -646,6 +648,21 @@ adminGradingRoutes.patch("/prompts/:id", async (c) => {
   if (Object.keys(patch).length === 0) {
     return c.json({ error: "Nothing to update" }, 400);
   }
+  // A changed text or scope is a different prompt from the one the eval
+  // scored, so its pass (and the model stamp and run it points at) goes too.
+  // Otherwise evaluate, edit, activate serves text no eval ever saw.
+  const reset = evalResetForPromptEdit(existing, patch);
+  // A live canary is already serving paid traffic and the canary picker never
+  // reads eval_passed, so clearing it would not stop the edited text reaching
+  // customers. Refuse instead; rollout to 0 first, then edit and re-evaluate.
+  if (Object.keys(reset).length > 0 && isLiveCanary(existing)) {
+    return c.json({
+      error:
+        "This version is a LIVE CANARY: its prompt text and scope are serving part of live grading " +
+        "and cannot be edited in place. Set its rollout to 0% first, then edit and re-run the eval.",
+    }, 409);
+  }
+  Object.assign(patch, reset);
 
   const { data, error } = await supabaseAdmin
     .from("ai_prompt_versions")
