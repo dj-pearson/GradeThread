@@ -1,5 +1,5 @@
 ---
-title: The grading eval gate — what it blocks, and why it is not a CI check
+title: The grading eval gate — what it blocks, and why it is not a PR check
 type: contract
 status: current
 source_of_truth: code
@@ -7,9 +7,11 @@ code_refs:
   - services/edge-functions/src/lib/grading-eval.ts
   - services/edge-functions/src/lib/grading-monitor.ts
   - services/edge-functions/src/tests/grading-eval-gate_test.ts
-reviewed: 2026-09-10
+  - scripts/grading-eval-ci.mjs
+  - .github/workflows/grading-eval.yml
+reviewed: 2026-09-23
 tags: [grading, eval, ci, accuracy]
-summary: The golden-set eval gates prompt ACTIVATION, not the build, and cannot gate a PR because every run spends real vision calls on a set that must not be synthetic.
+summary: The golden-set eval gates prompt ACTIVATION, not the build; it cannot gate a PR (real vision calls, a set that must not be synthetic), but a weekly scheduled workflow fails on regression or an empty set.
 ---
 
 # The grading eval gate
@@ -43,7 +45,7 @@ silent default stays strict.
 > follows automatically — but it also means loosening the gate loosens a public
 > claim.
 
-## Why it is not a CI check (US-2301 AC2)
+## Why it is not a PR check (US-2301 AC2)
 
 The acceptance criterion offered two outcomes: run it in CI and fail the build
 on regression, **or write down why it cannot**. This is the second, and the
@@ -74,6 +76,23 @@ graders — the lifecycle is draft → shadow → eval → canary → active
 **What CI does enforce**, so the gap is narrower than "no CI coverage":
 `grading-eval-gate_test.ts` pins the thresholds themselves, and US-2301 AC5
 enforces that prompt text cannot ship without a corresponding evaluated version.
+
+**The scheduled run (grading plan action 3, 2026-09-23).** Reasons 1 and 2 rule
+out a per-push gate, not a periodic one. `.github/workflows/grading-eval.yml`
+runs weekly (and on `workflow_dispatch`) and POSTs `/api/jobs/grading-monitor`,
+so the eval runs on the edge against the live composite version and GitHub
+holds only `EDGE_JOB_SECRET`, never a model or service-role key.
+`scripts/grading-eval-ci.mjs` judges the response, and it is stricter than the
+monitor on purpose: the monitor answers an empty set with a 200 and
+`eval.ran: false`, which this job treats as a **failure**, along with any other
+skip, a failed threshold, a regression against the previous run, a shrunk set
+and an unqualified live model. Production-metric alerts only warn. Without the
+secret it skips with exit 0; forks never run it. It is a monitor, not a deploy
+gate: it never runs on push or pull_request, which is what keeps the public
+pages' "the code-shipped prompt clears no gate" caveat true
+(`src/test/eval-gate-claims.test.ts` pins that). Until the owner promotes real
+cases and seeds rows for the live code defaults, this job is expected to be
+red, and that red is the accurate reading.
 
 ## The thing that actually makes this hollow
 
