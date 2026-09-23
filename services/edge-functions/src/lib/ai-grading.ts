@@ -2490,8 +2490,11 @@ function roundToHalf(value: number): number {
 // human review actually moves the overall instead of being swallowed by 0.5
 // rounding. Keep this in lockstep with human-review.computeWeightedOverall:
 // the rounding itself is human-review.roundWeightedToTenth (integer units,
-// round-half-up), the same one the web's src/lib/weighted-grade.ts mirrors. This used to be Math.round(sum * 10) / 10 over
-// a float sum, which sent some exact .x5 midpoints DOWN (9/6/8/9/8 = 7.95 -> 7.9).
+// round-half-up), the same one the web's src/lib/weighted-grade.ts mirrors.
+// On the web, src/pages/admin/grading.tsx and admin/disputes.tsx delegate to
+// that helper; admin/reviews.tsx was deleted in US-2505. This used to be
+// Math.round(sum * 10) / 10 over a float sum, which sent some exact .x5
+// midpoints DOWN (9/6/8/9/8 = 7.95 -> 7.9).
 export function computeAiWeightedOverall(factors: FactorScores): number {
   const overall = roundWeightedToTenth(
     FACTOR_KEYS.map((key) => [factors[key], FACTOR_WEIGHTS[key]] as const),

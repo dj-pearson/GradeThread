@@ -16,6 +16,7 @@ import { computePhashFromImage } from "./perceptual-hash.ts";
 import { safeFetch } from "./ssrf.ts";
 import { GARMENT_CATEGORIES, GARMENT_TYPES } from "./ai-extract.ts";
 import { type GradeTier, isGradeTier } from "./grade-billing.ts";
+import { REQUIRED_IMAGE_TYPES } from "./image-quality.ts";
 
 export interface GradeImageInput {
   image_type: string;
@@ -35,7 +36,8 @@ export const GRADE_IMAGE_TYPES = [
   "measurement_chest", "measurement_waist", "measurement_length",
   "measurement_sleeve", "measurement_inseam",
 ] as const;
-export const GRADE_REQUIRED_IMAGE_TYPES = ["front", "back", "label"] as const;
+// The required shots come from the quality gate, not a fourth copy of the list.
+export const GRADE_REQUIRED_IMAGE_TYPES = REQUIRED_IMAGE_TYPES;
 export const GRADE_MAX_IMAGES_PER_SUBMISSION = GRADE_IMAGE_TYPES.length;
 
 export interface GradeGarmentInput {
