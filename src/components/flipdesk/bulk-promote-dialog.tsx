@@ -14,7 +14,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { edgeFetch } from "@/lib/edge-fetch";
+import { sendPromoteInChunks, type BulkResult } from "@/components/flipdesk/bulk-promote-send";
 
 // US-2948: change a hundred ad rates in one call instead of a hundred.
 //
@@ -29,11 +29,6 @@ import { edgeFetch } from "@/lib/edge-fetch";
 // is a change to what every future sale in it costs, and a number after the
 // fact is a number the seller cannot decline.
 
-interface BulkResult {
-  listingId: string;
-  ok: boolean;
-  error: string | null;
-}
 
 export function BulkPromoteDialog({
   open,
@@ -67,19 +62,7 @@ export function BulkPromoteDialog({
     Error,
     { mode: "create" | "update" }
   >({
-    mutationFn: async ({ mode }) => {
-      const res = await edgeFetch("/api/flipdesk/ebay/marketing/ads/bulk", {
-        method: "POST",
-        body: JSON.stringify({
-          listing_ids: listingIds,
-          bid_percentage: pct,
-          mode,
-        }),
-      });
-      const json = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(json.detail || json.error || "eBay rejected the change.");
-      return json;
-    },
+    mutationFn: ({ mode }) => sendPromoteInChunks(listingIds, pct, mode),
     onSuccess: (res) => {
       setFailures(res.results.filter((r) => !r.ok));
       if (res.failed === 0) {
