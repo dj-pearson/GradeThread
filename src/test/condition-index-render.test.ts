@@ -1,7 +1,11 @@
 import { describe, it, expect } from "vitest";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import {
   conditionDatasetLd,
   conditionFaqs,
+  conditionIndexTitle,
+  CONDITION_INDEX_TITLE_MAX,
   fmtGrade,
   gradeTier,
   GRADING_FACTOR_LINKS,
@@ -207,5 +211,40 @@ describe("valueProductLd (US-1748)", () => {
       points: [{ grade: 5, lowCents: null, medianCents: null, highCents: null, sampleSize: 0 }],
     };
     expect(valueProductLd(empty, canonical)).toBeNull();
+  });
+});
+
+// US-3412 AC2: the /condition-index/:slug SSR title fits the ~60-char SERP cap
+// for a typical label and leads with the answer, not the brand suffix. The old
+// template ('<label> resale value by condition - GradeThread Condition Index')
+// was 72+ chars and 35 pages ranked at 7.7 with zero clicks.
+describe("conditionIndexTitle (US-3412)", () => {
+  it("leads with the answer for a typical label", () => {
+    const t = conditionIndexTitle("Patagonia Better Sweater");
+    expect(t).toBe("What a Patagonia Better Sweater Sells For, by Condition");
+    expect(t.length).toBeLessThanOrEqual(CONDITION_INDEX_TITLE_MAX);
+    expect(t).not.toMatch(/GradeThread/);
+  });
+
+  it("falls back to shorter phrasings as the label grows, keeping the label whole", () => {
+    const mid = "Patagonia Nano Puff Hoody Womens"; // 32 chars
+    expect(conditionIndexTitle(mid)).toBe(`${mid} Resale Value by Condition`);
+    const longer = "Arc'teryx Beta AR Gore-Tex Pro Shell Jacket";
+    expect(conditionIndexTitle(longer)).toBe(`${longer} Resale Value`);
+    const long = "A".repeat(70);
+    expect(conditionIndexTitle(long)).toBe(`${long} Resale Value`);
+  });
+
+  it("never exceeds the cap when any phrasing can fit", () => {
+    for (let n = 1; n <= 47; n++) {
+      expect(conditionIndexTitle("x".repeat(n)).length).toBeLessThanOrEqual(
+        CONDITION_INDEX_TITLE_MAX,
+      );
+    }
+  });
+
+  it("the SSR page uses it", () => {
+    const src = readFileSync(join(process.cwd(), "functions/condition-index/[[path]].ts"), "utf8");
+    expect(src).toContain("title: conditionIndexTitle(curve.label)");
   });
 });
