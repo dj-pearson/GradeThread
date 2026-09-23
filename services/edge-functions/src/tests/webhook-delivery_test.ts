@@ -460,18 +460,28 @@ Deno.test("the sweep never reports a customer's dead endpoint as this job failin
 
 const API_V1 = await Deno.readTextFile(new URL("../routes/api-v1.ts", import.meta.url));
 
-Deno.test("every webhook table access in api-v1.ts is scoped by the key owner", () => {
+// The endpoint reads and writes moved to lib/account-webhook.ts when the
+// dashboard got its own routes (/api/keys/webhook), so the scan follows them
+// there. account-webhook_test.ts checks the same thing by running each query.
+const ACCOUNT_WEBHOOK = await Deno.readTextFile(new URL("../lib/account-webhook.ts", import.meta.url));
+
+Deno.test("every webhook table access is scoped by the owner", () => {
   const pattern = /\.from\("(api_webhook_endpoints|webhook_deliveries)"\)([\s\S]*?);/g;
+  assertEquals(
+    [...API_V1.matchAll(pattern)].length,
+    0,
+    "api-v1.ts queries a webhook table directly again; go through lib/account-webhook.ts",
+  );
   let n = 0;
-  for (const m of API_V1.matchAll(pattern)) {
+  for (const m of ACCOUNT_WEBHOOK.matchAll(pattern)) {
     n++;
     const chain = m[2]!;
     assert(
-      /\.eq\("user_id", userId\)/.test(chain) || /user_id: userId/.test(chain),
-      `unscoped ${m[1]} access in api-v1.ts: ${chain.slice(0, 120)}`,
+      /\.eq\("user_id", ownerId\)/.test(chain) || /user_id: ownerId/.test(chain),
+      `unscoped ${m[1]} access in account-webhook.ts: ${chain.slice(0, 120)}`,
     );
   }
-  assert(n >= 6, `expected the webhook routes' table accesses, found ${n}`);
+  assert(n >= 7, `expected the account webhook's table accesses, found ${n}`);
 });
 
 Deno.test("the webhook routes never touch key_hash", () => {

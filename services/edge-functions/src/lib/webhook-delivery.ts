@@ -210,6 +210,8 @@ export interface WebhookStore {
     event_type: string;
     subject_id: string;
     payload: Record<string, unknown>;
+    /** Omitted: the column default (6). */
+    max_attempts?: number;
   }): Promise<DeliveryRow | null>;
   loadEndpoint(userId: string): Promise<EndpointRow | null>;
   /** Compare-and-set pending -> running, attempts+1. Null when lost. */
@@ -489,7 +491,8 @@ export async function enqueueWebhookEvent(
   subjectId: string,
   data: Record<string, unknown>,
   deps: WebhookDeps = realWebhookDeps,
-): Promise<{ deliveryId: string; outcome: AttemptOutcome } | null> {
+  opts: { maxAttempts?: number } = {},
+): Promise<{ deliveryId: string; eventId: string; outcome: AttemptOutcome } | null> {
   const endpoint = await deps.store.loadEndpoint(ownerId);
   if (!endpoint) return null;
 
@@ -503,11 +506,12 @@ export async function enqueueWebhookEvent(
     event_type: eventType,
     subject_id: subjectId,
     payload: { id: eventId, event: eventType, data, timestamp: deps.now().toISOString() },
+    ...(opts.maxAttempts !== undefined ? { max_attempts: opts.maxAttempts } : {}),
   });
   if (!row) return null;
 
   const outcome = await attemptDelivery(row, deps);
-  return { deliveryId: row.id, outcome };
+  return { deliveryId: row.id, eventId: row.event_id, outcome };
 }
 
 export interface SweepResult {

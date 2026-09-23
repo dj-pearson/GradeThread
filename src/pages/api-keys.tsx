@@ -39,6 +39,7 @@ import { ApiUsagePanel } from "@/components/api/api-usage-panel";
 import { ApiOverageCard } from "@/components/api/api-overage-card";
 import { WhiteLabelPanel } from "@/components/api/white-label-panel";
 import { ConnectedAppsPanel } from "@/components/api/connected-apps-panel";
+import { WebhookPanel } from "@/components/api/webhook-panel";
 import { HelpLink } from "@/components/help/help-link";
 
 interface ApiKeyItem {
@@ -634,6 +635,9 @@ export function ApiKeysPage() {
           account" is one question and answering it twice means one answer
           gets forgotten. Renders nothing when nothing is connected. */}
       <ConnectedAppsPanel />
+
+      {/* The account webhook: URL, test send, delivery log, signing secret. */}
+      <WebhookPanel />
 
       {/* Usage / billing dashboard (US-596). */}
       <ApiUsagePanel />

@@ -14,7 +14,13 @@ import { validateImageUpload } from "../lib/upload-validation.ts";
 import { stripImageMetadata } from "../lib/image-metadata.ts";
 import { computePhashFromImage } from "../lib/perceptual-hash.ts";
 import { assertPublicUrl, safeFetch, SsrfError } from "../lib/ssrf.ts";
-import { encryptWebhookSecret, generateWebhookSecret } from "../lib/webhook-delivery.ts";
+import {
+  deliveryLimit,
+  getWebhookConfig,
+  listWebhookDeliveries,
+  rotateWebhookSecret,
+  setWebhookUrl,
+} from "../lib/account-webhook.ts";
 import { isFeatureEnabled } from "../lib/feature-flags.ts";
 import { isAiBudgetExhausted } from "../lib/ai-budget-gate.ts";
 import {
@@ -1130,8 +1136,8 @@ apiV1Routes.patch("/webhook", async (c) => {
   }
 
   // The webhook belongs to the ACCOUNT now (00830): one endpoint row, one
-  // delivery per event, however many API keys exist. api_keys.webhook_url is
-  // still written so a rolled-back edge keeps delivering; nothing new reads it.
+  // delivery per event, however many API keys exist. The endpoint writes live
+  // in lib/account-webhook.ts, shared with the dashboard's /api/keys/webhook.
   const { data: keys, error: fetchError } = await supabaseAdmin
     .from("api_keys")
     .select("id")
@@ -1146,65 +1152,12 @@ apiV1Routes.patch("/webhook", async (c) => {
     return webhookError(c, "No API keys found", 404);
   }
 
-  let signingSecret: string | null = null;
-  if (webhook_url === null || webhook_url === undefined) {
-    const { error: deleteError } = await supabaseAdmin
-      .from("api_webhook_endpoints")
-      .delete()
-      .eq("user_id", userId); // US-268
-    if (deleteError) {
-      console.error("[API v1] Failed to clear webhook endpoint:", redactError(deleteError));
-      return webhookError(c, "Failed to update webhook URL", 500);
-    }
-  } else {
-    const { data: existing, error: readError } = await supabaseAdmin
-      .from("api_webhook_endpoints")
-      .select("user_id")
-      .eq("user_id", userId) // US-268
-      .maybeSingle();
-    if (readError) {
-      console.error("[API v1] Failed to read webhook endpoint:", redactError(readError));
-      return webhookError(c, "Failed to update webhook URL", 500);
-    }
-    if (existing) {
-      // Changing the URL never changes the secret. A legacy endpoint with no
-      // secret keeps the legacy signature until its owner rotates.
-      const { error: updateError } = await supabaseAdmin
-        .from("api_webhook_endpoints")
-        .update({ url: webhook_url })
-        .eq("user_id", userId); // US-268
-      if (updateError) {
-        console.error("[API v1] Failed to update webhook endpoint:", redactError(updateError));
-        return webhookError(c, "Failed to update webhook URL", 500);
-      }
-    } else {
-      // A new endpoint gets its secret now, and this response is the only
-      // place it is ever shown.
-      signingSecret = generateWebhookSecret();
-      const { error: insertError } = await supabaseAdmin
-        .from("api_webhook_endpoints")
-        .insert({
-          user_id: userId,
-          url: webhook_url,
-          secret_ciphertext: await encryptWebhookSecret(signingSecret, userId),
-          secret_created_at: new Date().toISOString(),
-        });
-      if (insertError) {
-        console.error("[API v1] Failed to create webhook endpoint:", redactError(insertError));
-        return webhookError(c, "Failed to update webhook URL", 500);
-      }
-    }
-  }
-
-  const { error: mirrorError } = await supabaseAdmin
-    .from("api_keys")
-    .update({ webhook_url: webhook_url ?? null })
-    .eq("user_id", userId);
-
-  if (mirrorError) {
-    // The endpoint row is the source of truth and is already written; the
-    // mirror on api_keys only matters to a rolled-back edge.
-    console.error("[API v1] Failed to mirror webhook URL onto api_keys:", redactError(mirrorError));
+  let signingSecret: string | null;
+  try {
+    ({ signing_secret: signingSecret } = await setWebhookUrl(userId, webhook_url ?? null));
+  } catch (err) {
+    console.error("[API v1] Failed to update webhook endpoint:", redactError(err));
+    return webhookError(c, "Failed to update webhook URL", 500);
   }
 
   console.log(
@@ -1232,29 +1185,13 @@ apiV1Routes.get("/webhook", async (c) => {
   if (!hasScope(c.get("apiKeyScopes"), "webhook_manage")) {
     return c.json(scopeDenied("webhook_manage"), 403);
   }
-  const userId = c.get("userId");
-  const { data, error } = await supabaseAdmin
-    .from("api_webhook_endpoints")
-    .select("url, secret_ciphertext, secret_created_at, updated_at")
-    .eq("user_id", userId) // US-268
-    .maybeSingle();
-  if (error) {
-    console.error("[API v1] Failed to read webhook endpoint:", redactError(error));
+  try {
+    const config = await getWebhookConfig(c.get("userId"));
+    return c.json({ data: config, error: null, meta: null });
+  } catch (err) {
+    console.error("[API v1] Failed to read webhook endpoint:", redactError(err));
     return webhookError(c, "Failed to read webhook", 500);
   }
-  const row = data as
-    | { url: string; secret_ciphertext: string | null; secret_created_at: string | null; updated_at: string }
-    | null;
-  return c.json({
-    data: {
-      webhook_url: row?.url ?? null,
-      has_signing_secret: Boolean(row?.secret_ciphertext),
-      secret_created_at: row?.secret_created_at ?? null,
-      updated_at: row?.updated_at ?? null,
-    },
-    error: null,
-    meta: null,
-  });
 });
 
 // --- POST /api/v1/webhook/secret/rotate — Mint a new signing secret ---
@@ -1265,29 +1202,17 @@ apiV1Routes.post("/webhook/secret/rotate", async (c) => {
   if (!hasScope(c.get("apiKeyScopes"), "webhook_manage")) {
     return c.json(scopeDenied("webhook_manage"), 403);
   }
-  const userId = c.get("userId");
-  const secret = generateWebhookSecret();
-  const createdAt = new Date().toISOString();
-  const { data, error } = await supabaseAdmin
-    .from("api_webhook_endpoints")
-    .update({
-      secret_ciphertext: await encryptWebhookSecret(secret, userId),
-      secret_created_at: createdAt,
-    })
-    .eq("user_id", userId) // US-268
-    .select("user_id");
-  if (error) {
-    console.error("[API v1] Failed to rotate webhook secret:", redactError(error));
+  let rotated: Awaited<ReturnType<typeof rotateWebhookSecret>>;
+  try {
+    rotated = await rotateWebhookSecret(c.get("userId"));
+  } catch (err) {
+    console.error("[API v1] Failed to rotate webhook secret:", redactError(err));
     return webhookError(c, "Failed to rotate webhook secret", 500);
   }
-  if (!data || data.length === 0) {
+  if (!rotated) {
     return webhookError(c, "No webhook configured. Set one with PATCH /api/v1/webhook first.", 404);
   }
-  return c.json({
-    data: { signing_secret: secret, secret_created_at: createdAt },
-    error: null,
-    meta: null,
-  });
+  return c.json({ data: rotated, error: null, meta: null });
 });
 
 // --- GET /api/v1/webhook/deliveries — Recent deliveries for this account ---
@@ -1295,21 +1220,12 @@ apiV1Routes.get("/webhook/deliveries", async (c) => {
   if (!hasScope(c.get("apiKeyScopes"), "webhook_manage")) {
     return c.json(scopeDenied("webhook_manage"), 403);
   }
-  const userId = c.get("userId");
-  const raw = Number(c.req.query("limit") ?? "20");
-  const limit = Number.isFinite(raw) ? Math.min(Math.max(Math.trunc(raw), 1), 100) : 20;
-  const { data, error } = await supabaseAdmin
-    .from("webhook_deliveries")
-    .select(
-      "event_id, event_type, subject_id, status, attempts, max_attempts, next_attempt_at, " +
-        "last_attempt_at, last_status_code, last_error, delivered_at, created_at",
-    )
-    .eq("user_id", userId) // US-268
-    .order("created_at", { ascending: false })
-    .limit(limit);
-  if (error) {
-    console.error("[API v1] Failed to list webhook deliveries:", redactError(error));
+  const limit = deliveryLimit(c.req.query("limit"));
+  try {
+    const data = await listWebhookDeliveries(c.get("userId"), limit);
+    return c.json({ data, error: null, meta: { limit } });
+  } catch (err) {
+    console.error("[API v1] Failed to list webhook deliveries:", redactError(err));
     return webhookError(c, "Failed to list webhook deliveries", 500);
   }
-  return c.json({ data: data ?? [], error: null, meta: { limit } });
 });
