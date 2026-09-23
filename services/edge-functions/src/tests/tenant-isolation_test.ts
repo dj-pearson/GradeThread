@@ -1122,6 +1122,30 @@ Deno.test({
 });
 
 Deno.test({
+  // Depop's ship route is the same shape as the two above (sale loaded THROUGH
+  // inventory_items.user_id, flipdesk-depop.ts). It had no case until
+  // router-isolation-coverage_test.ts listed it. The route answers 503 before
+  // the ownership check when Depop is off, so tenant-isolation.yml sets dummy
+  // DEPOP_* env to make the 404 reachable; a 503 here fails on purpose, since it
+  // would mean the scoping was never exercised.
+  name: "B cannot mark A's sale shipped via Depop",
+  ignore: !CONFIGURED || !Deno.env.get("TEST_USER_A_SALE_ID"),
+  fn: async () => {
+    const id = Deno.env.get("TEST_USER_A_SALE_ID")!;
+    const res = await fetch(
+      `${BASE}/api/flipdesk/depop/orders/${id}/ship`,
+      {
+        method: "POST",
+        headers: authHeaders(B_JWT!),
+        body: JSON.stringify({ tracking_number: "PWNED123", shipping_provider_id: "USPS" }),
+      },
+    );
+    await res.body?.cancel();
+    assertDenied(res.status, "POST depop order ship");
+  },
+});
+
+Deno.test({
   // US-1659: the Etsy disconnect is a workspace-wide teardown of
   // marketplace_connections, scoped to the owner (.eq user_id) and admin-gated
   // (roleAtLeast admin). A foreign non-admin B must NEVER succeed — the response
@@ -3034,6 +3058,23 @@ Deno.test({
       Array.isArray(rows) && rows.length === 0,
       `B should see 0 messages in A's conversation, got ${JSON.stringify(rows)}`,
     );
+  },
+});
+
+// The two cases above go through PostgREST. The assistant's own edge route
+// reads the same rows with the SERVICE-ROLE client, so RLS does not help it:
+// GET /conversations/:id is scoped only by its .eq("user_id") (support-assistant.ts).
+Deno.test({
+  name: "B cannot read A's support conversation through the assistant route",
+  ignore: !CONFIGURED || !Deno.env.get("TEST_USER_A_CONVERSATION_ID"),
+  fn: async () => {
+    const convId = Deno.env.get("TEST_USER_A_CONVERSATION_ID")!;
+    const res = await fetch(`${BASE}/api/support/assistant/conversations/${convId}`, {
+      headers: authHeaders(B_JWT!),
+    });
+    const body = await res.text();
+    assertDenied(res.status, "GET assistant conversation");
+    assert(!body.includes(convId), "the denial body echoed A's conversation");
   },
 });
 

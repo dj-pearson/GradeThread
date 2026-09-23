@@ -99,6 +99,15 @@ jobs:
           GRANT ALL ON ALL FUNCTIONS IN SCHEMA public TO anon, authenticated, service_role;
           SQL
 
+      # The grant above also undoes every REVOKE (and function EXECUTE revoke)
+      # the migrations made, US-3350. Put them back in file order so the suites
+      # run against the privileges prod has, and prove the operator tables are
+      # closed again. Same step as tenant-isolation.yml.
+      - name: Restore the migrations' privileges (US-3350)
+        run: |
+          node scripts/replay-migration-privileges.mjs --dsn "$SUPABASE_DB_URL"
+          node scripts/check-service-role-grants.mjs --dsn "$SUPABASE_DB_URL"
+
       # Seed the money/cert fixture. Emits TEST_* KEY=VALUE lines on stdout; any
       # failure (including schema drift) exits non-zero and fails the job.
       # pipefail is REQUIRED — without it the `| tee` pipeline reports tee's exit
