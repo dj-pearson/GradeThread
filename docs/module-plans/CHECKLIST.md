@@ -91,6 +91,15 @@ Each line names the plan file and action number.
 
 ## Round 5: last reds and loose ends
 
-- [~] sold-at-provenance red from the SDK commit; notification-surface matrix parser; sku-sequences DSN test
-- [~] eBay /promotions/:id swallows /performance and /stack-check; per-file plan-gate check for sync and post-sale
-- [~] Offline queue retry edge cases, export flag per user, codex hook and worklist read the held registry, SDK README
+- [x] sold-at-provenance red from the SDK commit; notification-surface matrix parser; sku-sequences DSN test
+- [x] eBay /promotions/:id swallows /performance and /stack-check; per-file plan-gate check for sync and post-sale
+- [x] Offline queue retry edge cases, export flag per user, codex hook and worklist read the held registry, SDK README
+- [x] Two old lint errors in extension-unified/lister/common.js (dead pickFromList, useless escape)
+
+## Final state (2026-09-23)
+
+- Type check clean. Lint 0 errors. UI check clean.
+- Web tests: 11,297 passed, 3 failed. All 3 were red before this work: cross-post-setup, mobile-tab-bar, reselling-guide-links.
+- Script tests: 985 passed, 4 failed. All 4 need esm.sh, which this cloud box blocks.
+- Edge tests: only the known imagescript stand-in failures (text rendering and rotate).
+- Held migrations waiting on the owner: 00823 through 00832.
