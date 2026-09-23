@@ -5,10 +5,12 @@ on:
     branches: [main]
     paths:
       - "ios/**"
+      - "scripts/ios-coverage-floor.mjs"
       - ".github/workflows/ios-ci.yml"
   pull_request:
     paths:
       - "ios/**"
+      - "scripts/ios-coverage-floor.mjs"
       - ".github/workflows/ios-ci.yml"
   workflow_dispatch:
 
@@ -141,6 +143,12 @@ jobs:
       - name: Lint — every Type.member resolves (US-2889)
         run: python3 ios/Scripts/check-symbol-resolution.py
 
+      # Mobile plan action 6. Logic moving into GradeThreadCore becomes another
+      # module's type, and every file that uses it then needs the import. A
+      # missed one is "cannot find 'X' in scope" twenty minutes into the build.
+      - name: Lint — every Core type user imports GradeThreadCore
+        run: python3 ios/Scripts/check-core-imports.py
+
       # US-3281. The in-app delist makes seven claims to App Review about what
       # it does not do - no credential field, nothing scheduled, nothing
       # fetched. Each is one sensible-looking commit away from being false, and
@@ -186,10 +194,22 @@ jobs:
             -configuration Debug \
             -destination 'platform=iOS Simulator,name=iPhone 16,OS=latest' \
             -enableCodeCoverage YES \
+            -resultBundlePath build/TestResults.xcresult \
             CODE_SIGN_IDENTITY="" \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGNING_ALLOWED=NO \
             clean test | xcbeautify --renderer github-actions
+
+      # Mobile plan action 6: coverage was gathered and never read, so the
+      # suite could shrink by half and stay green. The floor lives in
+      # scripts/ios-coverage-floor.mjs with how it was chosen; the per-target
+      # figures print either way so the next ratchet has a number to use.
+      - name: Coverage floor
+        working-directory: ios
+        run: |
+          set -euo pipefail
+          xcrun xccov view --report --json build/TestResults.xcresult > build/coverage.json
+          node ../scripts/ios-coverage-floor.mjs build/coverage.json
 
       - name: Build app-extension targets (US-1224)
         working-directory: ios
@@ -218,6 +238,8 @@ jobs:
           name: test-results
           path: |
             ios/build/Logs/Test/*.xcresult
+            ios/build/TestResults.xcresult
+            ios/build/coverage.json
           if-no-files-found: ignore
           retention-days: 7
 
