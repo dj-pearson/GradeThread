@@ -4,8 +4,11 @@
 export interface HeldBranchRegistry {
   file: string;
   why: string;
-  /** "table-rows" reads only markdown table rows; "whole-file" reads everything. */
-  scope: "table-rows" | "whole-file";
+  /**
+   * "whole-file" is read for every held branch; "unnumbered-only" is read only
+   * for branches carrying no migration number (PENDING_MIGRATIONS.md prose).
+   */
+  scope: "whole-file" | "unnumbered-only";
 }
 
 export const REGISTRIES: HeldBranchRegistry[];
@@ -22,7 +25,7 @@ export const KNOWN_ABSENT: Map<string, string>;
  */
 export const KNOWN_ABSENT_UNNUMBERED: Map<string, string>;
 
-/** Branch name -> the registry files that name it. Table rows only. */
+/** Branch name -> the registry files that name it. Skips "unnumbered-only" files. */
 export function namedBranches(root?: string): Map<string, string[]>;
 
 /**

@@ -36,7 +36,8 @@ prod-apply runbook; this command is the sequence, not the contract.
    spot-check anything the `PENDING_MIGRATIONS.md` entry flagged as unverified,
    and tell them to redeploy the edge on Coolify.
 6. Only then flip the applied entries in `PENDING_MIGRATIONS.md` to
-   `## ✅ APPLIED <date>:`, and say which migrations are now clear to push behind.
+   `## ✅ APPLIED <date>:` AND delete them from `supabase/held-migrations.json`
+   in the same commit, and say which migrations are now clear to push behind.
 
 If a migration fails mid-run, stop. Do not apply the rest — report which
 succeeded, which failed, and the error.

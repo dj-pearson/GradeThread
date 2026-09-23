@@ -18,7 +18,11 @@
 // Everything runs inside a transaction that is ROLLED BACK, so the stack is
 // left exactly as found.
 
+//   node scripts/db-rls-initplan-check.mjs                 # the docker stack
+//   node scripts/db-rls-initplan-check.mjs --dsn "<dsn>"    # any Postgres
+
 import { execFileSync, spawnSync } from "node:child_process";
+import { usesInitPlan } from "./lib/initplan-plan.mjs";
 
 // US-2788: bounded, so a wedged daemon fails this lane instead of hanging it.
 import {
@@ -55,19 +59,28 @@ function dbContainer() {
 
 // spawnSync, not execFileSync: psql writes errors to stderr and execFileSync
 // returns stdout only, which would silently assert against a truncated plan.
-function psql(container, sql) {
-  const res = spawnSync(
-    "docker",
-    ["exec", "-i", container, "psql", "-U", "postgres", "-d", "postgres", "-v", "ON_ERROR_STOP=1"],
-    { input: sql, encoding: "utf8", timeout: DOCKER_QUERY_MS },
-  );
+//
+// `--dsn` runs the same SQL through a local psql instead of `docker exec`, so
+// the check runs on any Postgres carrying the migrations (the cloud-session
+// cluster has no Docker images). Same flags either way: aligned output and
+// ON_ERROR_STOP, because the plan text is what gets asserted on.
+function psql(container, sql, dsn) {
+  const [cmd, argv] = dsn
+    ? ["psql", [dsn, "-v", "ON_ERROR_STOP=1"]]
+    : [
+        "docker",
+        ["exec", "-i", container, "psql", "-U", "postgres", "-d", "postgres", "-v", "ON_ERROR_STOP=1"],
+      ];
+  const res = spawnSync(cmd, argv, { input: sql, encoding: "utf8", timeout: DOCKER_QUERY_MS });
   // Throw rather than hand back a null status, which the caller would read as
   // an ordinary psql failure and report as a plan difference.
   if (dockerTimedOut(res)) throw wedgedDaemonError("psql inside the db container");
   return { text: `${res.stdout ?? ""}${res.stderr ?? ""}`, status: res.status };
 }
 
-const container = dbContainer();
+const dsnAt = process.argv.indexOf("--dsn");
+const dsn = dsnAt >= 0 ? process.argv[dsnAt + 1] : undefined;
+const container = dsn ? null : dbContainer();
 
 const sql = `
 begin;
@@ -126,7 +139,7 @@ explain (analyze, verbose, costs off, timing off, summary off)
 rollback;
 `;
 
-const { text, status } = psql(container, sql);
+const { text, status } = psql(container, sql, dsn);
 const sections = text.split(MARK).slice(1);
 
 if (status !== 0 || sections.length < 3) {
@@ -136,11 +149,6 @@ if (status !== 0 || sections.length < 3) {
 }
 
 const [goodPlan, barePlan, realPlan] = sections;
-
-// "InitPlan" appearing anywhere is not enough — it has to be what the row
-// filter actually references, which is the difference between hoisted and
-// merely present.
-const usesInitPlan = (plan) => /InitPlan/.test(plan) && /\(InitPlan \d+\)\.col\d+/.test(plan);
 
 const failures = [];
 if (!usesInitPlan(goodPlan)) {

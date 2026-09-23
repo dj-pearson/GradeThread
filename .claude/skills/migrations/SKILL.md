@@ -92,9 +92,10 @@ before creating the file, and never renumber an already-committed migration.
 **What it protects is `origin/main`, and only `origin/main`.** That is the
 branch Cloudflare Pages builds, and the next Coolify edge deploy boot-guards
 the schema version. So a migration must not reach **main** until the user has
-applied the SQL to prod. Package every held migration in
+applied the SQL to prod. Add every held migration to the `held` array in
+`supabase/held-migrations.json` (the gate's only input) AND package it in
 `PENDING_MIGRATIONS.md`: what it does, risk level, apply order, and the
-`NOTIFY pgrst, 'reload schema';` reminder. If code in the same commit READS
+`NOTIFY pgrst, 'reload schema';` reminder. A test fails if the two disagree. If code in the same commit READS
 the new column/enum from the CLIENT side, say so loudly — that's what breaks
 the moment the frontend auto-deploys.
 
@@ -114,8 +115,8 @@ the moment the frontend auto-deploys.
 > **What is still forbidden:** merging or pushing a held migration to
 > `main` before the owner has applied the SQL.
 >
-> **The pre-push hook blocks the push anyway**, because it keys on the HELD
-> heading rather than on the target branch (`scripts/held-migration-gate.mjs`,
+> **The pre-push hook blocks the push anyway**, because it keys on
+> `supabase/held-migrations.json` rather than on the target branch (`scripts/held-migration-gate.mjs`,
 > and note its `--upstream` default). On a side branch, `--no-verify` is the
 > intended bypass and the only one — never use it to push to main, and never
 > use it to skip anything else the hook checks. Say in the commit or the

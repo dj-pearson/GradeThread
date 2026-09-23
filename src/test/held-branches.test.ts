@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { readFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import {
   REGISTRIES,
@@ -40,18 +41,21 @@ describe("held-branch registries (US-3421)", () => {
 
   it("every registry still contributes at least one name", () => {
     // A registry that stops matching is the quiet failure: it reads exactly
-    // like a registry with nothing left to check.
-    for (const { file } of REGISTRIES) {
+    // like a registry with nothing left to check. PENDING_MIGRATIONS.md is
+    // read only for migration-less branches, so it is checked in the block
+    // below rather than here.
+    for (const { file } of REGISTRIES.filter((r) => r.scope !== "unnumbered-only")) {
       const from = [...named.values()].filter((files) => files.includes(file));
       expect(from.length, `${file} contributes no branch name any more`).toBeGreaterThan(0);
     }
   });
 
-  it("reads the merge-order table and NOT the prose around it", () => {
+  it("never asks about a numbered branch PENDING_MIGRATIONS.md names in prose", () => {
     // The scoping is what keeps this worth running. PENDING_MIGRATIONS.md
-    // narrates branches that were superseded, renamed or deleted on purpose —
+    // narrates branches that were superseded, renamed or deleted on purpose -
     // those SHOULD be absent, and reporting them turned a 5-line finding into a
-    // 14-line one where most entries were correct.
+    // 14-line one where most entries were correct. Since 2026-09-23 numbered
+    // branches come from supabase/held-migrations.json only.
     const doc = readFileSync(join(ROOT, "PENDING_MIGRATIONS.md"), "utf8");
     expect(doc, "the fixture for this case is gone").toContain("held/us-3324-00792");
     expect(
@@ -60,10 +64,38 @@ describe("held-branch registries (US-3421)", () => {
     ).not.toContain("held/us-3324-00792");
   });
 
-  it("ignores a struck-through name, which is a record of what a row used to say", () => {
+  it("the owner's merge-order table and the registry's parked list name the same branches", () => {
+    // Transition guard for platform plan action 6. The table in
+    // PENDING_MIGRATIONS.md is what the owner reads; the registry is what the
+    // guard reads. Struck-through cells are history, not claims.
     const doc = readFileSync(join(ROOT, "PENDING_MIGRATIONS.md"), "utf8");
-    expect(doc).toMatch(/~~`?held-v3\/us-3256-00797`?~~/);
-    expect([...named.keys()]).not.toContain("held-v3/us-3256-00797");
+    const rows = doc
+      .split("\n")
+      .filter((l) => l.trimStart().startsWith("|"))
+      .join("\n")
+      .replace(/~~[^~]*~~/g, "");
+    const inTable = new Set(
+      [...rows.matchAll(/\bheld(?:-v\d+)?\/[A-Za-z0-9._-]+/g)].map((m) => m[0]),
+    );
+    const registry = JSON.parse(
+      readFileSync(join(ROOT, "supabase/held-migrations.json"), "utf8"),
+    ) as { parked: { branch: string }[] };
+    const parked = new Set(registry.parked.map((p) => p.branch));
+    expect(inTable.size, "the merge-order table is gone; this case is vacuous").toBeGreaterThan(0);
+    expect([...inTable].sort()).toEqual([...parked].sort());
+  });
+
+  it("ignores a struck-through name, which is a record of what a row used to say", () => {
+    const dir = mkdtempSync(join(tmpdir(), "held-branches-"));
+    try {
+      writeFileSync(
+        join(dir, "PENDING_MIGRATIONS.md"),
+        "~~`held/old-thing`~~ was rebuilt; `held/new-thing` is live\n",
+      );
+      expect([...unnumberedBranches(dir).keys()]).toEqual(["held/new-thing"]);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   it("reports a named branch the remote does not have", () => {
