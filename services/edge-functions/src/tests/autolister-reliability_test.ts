@@ -23,6 +23,7 @@ const {
   MAX_PUBLISH_BATCH_ITEMS,
   needsAiReservation,
   settleAfterGeneration,
+  settleFailedGeneration,
   withTimeout,
 } = await import("../routes/flipdesk-autolister.ts");
 
@@ -202,7 +203,9 @@ Deno.test("withTimeout: rejects with a labeled error when too slow", async () =>
 // draft anyway. And the draft write was select-then-insert, so an orphan and a
 // retry could both see no draft and both insert one (00832 is the index).
 
-const { DraftWriteAbandonedError, writeEbayDraft } = await import("../lib/ai-listing.ts");
+const { DraftWriteAbandonedError, readJobStillRunning, writeEbayDraft } = await import(
+  "../lib/ai-listing.ts"
+);
 type EbayDraftStore = import("../lib/ai-listing.ts").EbayDraftStore;
 
 /**
@@ -310,4 +313,98 @@ Deno.test("an existing draft is updated in place, not duplicated", async () => {
   assertEquals(first, second);
   assertEquals(rows.length, 1);
   assertEquals(rows[0].fields.listing_title, "v2");
+});
+
+// -- round-3 review: settling a job whose generation threw --
+
+function recordingDeps() {
+  const calls: string[] = [];
+  return {
+    calls,
+    deps: {
+      refund: () => {
+        calls.push("refund");
+        return Promise.resolve();
+      },
+      release: (id: string) => {
+        calls.push(`release:${id}`);
+        return Promise.resolve();
+      },
+      markFailed: (id: string, msg: string) => {
+        calls.push(`markFailed:${id}:${msg}`);
+        return Promise.resolve();
+      },
+    },
+  };
+}
+
+Deno.test("an abandoned draft write refunds and releases but does not mark the job failed", async () => {
+  const { calls, deps } = recordingDeps();
+  await settleFailedGeneration(
+    new DraftWriteAbandonedError("Job job-1 is no longer running on attempt 2; draft not written"),
+    "job-1",
+    deps,
+  );
+  // markFailed would overwrite an operator cancel's error, or fail a job a
+  // reclaim now owns on a newer attempt.
+  assertEquals(calls, ["refund", "release:job-1"]);
+});
+
+Deno.test("a real generation failure refunds, releases and marks the job failed", async () => {
+  const { calls, deps } = recordingDeps();
+  await settleFailedGeneration(new Error("Listing generation timed out after 240s"), "job-2", deps);
+  assertEquals(calls, [
+    "refund",
+    "release:job-2",
+    "markFailed:job-2:Listing generation timed out after 240s",
+  ]);
+});
+
+// -- round-3 review: one read blip no longer throws a paid-for draft away --
+
+type ReadAnswer = { data: unknown; error: { message: string } | null } | Error;
+
+function scriptedReads(...answers: ReadAnswer[]) {
+  let n = 0;
+  const read = () => {
+    const a = answers[Math.min(n++, answers.length - 1)];
+    return a instanceof Error ? Promise.reject(a) : Promise.resolve(a);
+  };
+  return { read, count: () => n };
+}
+
+const RUNNING_ON_2 = { data: { status: "running", attempts: 2 }, error: null };
+
+Deno.test("jobStillRunning: a read error is retried once and the retry decides", async () => {
+  const r = scriptedReads({ data: null, error: { message: "fetch failed" } }, RUNNING_ON_2);
+  assertEquals(await readJobStillRunning(r.read, 2), true);
+  assertEquals(r.count(), 2);
+});
+
+Deno.test("jobStillRunning: a thrown read is retried once too", async () => {
+  const r = scriptedReads(new Error("connection reset"), RUNNING_ON_2);
+  assertEquals(await readJobStillRunning(r.read, 2), true);
+  assertEquals(r.count(), 2);
+});
+
+Deno.test("jobStillRunning: two failed reads fail closed", async () => {
+  const r = scriptedReads(
+    { data: null, error: { message: "fetch failed" } },
+    { data: null, error: { message: "fetch failed" } },
+    RUNNING_ON_2,
+  );
+  assertEquals(await readJobStillRunning(r.read, 2), false);
+  assertEquals(r.count(), 2);
+});
+
+Deno.test("jobStillRunning: a clean answer is not retried", async () => {
+  const gone = scriptedReads({ data: null, error: null }, RUNNING_ON_2);
+  assertEquals(await readJobStillRunning(gone.read, 2), false);
+  assertEquals(gone.count(), 1);
+  const reclaimed = scriptedReads({ data: { status: "running", attempts: 3 }, error: null }, RUNNING_ON_2);
+  assertEquals(await readJobStillRunning(reclaimed.read, 2), false);
+  assertEquals(reclaimed.count(), 1);
+  const cancelled = scriptedReads({ data: { status: "failed", attempts: 2 }, error: null }, RUNNING_ON_2);
+  assertEquals(await readJobStillRunning(cancelled.read, 2), false);
+  assertEquals(cancelled.count(), 1);
 });

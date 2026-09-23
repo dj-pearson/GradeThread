@@ -221,6 +221,40 @@ export function settleAfterGeneration(
 }
 
 /**
+ * Settle a job whose generation threw. Exported with its side effects injected
+ * so the branch is testable without a database.
+ *
+ * DraftWriteAbandonedError means the job stopped being ours before the draft
+ * write (an operator cancel flipped it to 'failed', or a reclaim took it on a
+ * newer attempt). No draft was written, so the reservation is reconciled, but
+ * the job is NOT marked failed: that would overwrite the cancel's own error or
+ * fail a job another worker now owns.
+ *
+ * Anything else (incl. the timeout) is a real failure: give the reserved quota
+ * slot back, clear the per-job reservation flag so a later reclaim/retry
+ * reserves afresh rather than reusing a refunded one (US-1931), and fail the job.
+ */
+export async function settleFailedGeneration(
+  err: unknown,
+  jobId: string,
+  deps: {
+    refund: () => Promise<unknown>;
+    release: (jobId: string) => Promise<unknown>;
+    markFailed: (jobId: string, message: string) => Promise<unknown>;
+  },
+): Promise<void> {
+  if (err instanceof DraftWriteAbandonedError) {
+    console.log(`[flipdesk-autolister] job ${jobId}: ${err.message}; refunding reservation`);
+    await deps.refund();
+    await deps.release(jobId);
+    return;
+  }
+  await deps.refund();
+  await deps.release(jobId);
+  await deps.markFailed(jobId, err instanceof Error ? err.message : "Generation failed");
+}
+
+/**
  * US-1931: decide whether runJob must reserve an AI action for this job.
  *
  * The reservation is IDEMPOTENT per job id, keyed off the persisted
@@ -604,22 +638,11 @@ async function processBatch(
         console.error("[flipdesk-autolister] defect annotation failed:", annErr);
       }
     } catch (err) {
-      if (err instanceof DraftWriteAbandonedError) {
-        // The job stopped being ours before the draft write (an operator
-        // cancel flipped it to 'failed'). Same settlement as the cancelled
-        // branch above: no draft was written, so reconcile the reservation,
-        // and do NOT mark the job failed again over the cancel's own error.
-        console.log(`[flipdesk-autolister] job ${job.id}: ${err.message}; refunding reservation`);
-        await refundAiAction(ownerId);
-        await releaseJobReservation(job.id);
-        return;
-      }
-      // Generation failed (incl. timeout) — give the reserved quota slot back
-      // and clear the per-job reservation flag so a later reclaim/retry reserves
-      // afresh rather than reusing a now-refunded reservation (US-1931).
-      await refundAiAction(ownerId);
-      await releaseJobReservation(job.id);
-      await markJobFailed(job.id, err instanceof Error ? err.message : "Generation failed");
+      await settleFailedGeneration(err, job.id, {
+        refund: () => refundAiAction(ownerId),
+        release: releaseJobReservation,
+        markFailed: markJobFailed,
+      });
     }
   }
 
