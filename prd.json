@@ -4630,7 +4630,8 @@
         "A Deno test covers both: a name-only write followed by getCategoryAspects returns the fetched aspects, not an empty set",
         "OPERATOR: after deploy, a read-only query on prod shows zero ebay_category_aspects rows with an empty aspects payload once each affected category has been opened or refreshed"
       ],
-      "priority": 21
+      "priority": 21,
+      "notes": "Partial 2026-09-23: code ACs 1-3 done. getCategoryName now only UPDATEs category_name on an existing row, and on a new row upserts nameOnlyAspectCacheRow() (fetched_at at the epoch, ignoreDuplicates) so the first aspects read fetches. getCategoryAspects serves a cached row only when aspectCacheRowIsUsable(): inside the TTL AND aspects.aspects is an array. New src/tests/ebay-aspect-cache_test.ts, 6 cases; sabotaging the array check to 'return true' reddens the empty-payload case. deno check + lint clean. OPEN: the OPERATOR AC (prod shows zero empty rows) needs an edge deploy; the 7 existing {} rows heal on first read after deploy because they now count as a miss."
     },
     {
       "id": "US-3473",

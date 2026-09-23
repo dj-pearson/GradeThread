@@ -1659,18 +1659,27 @@ export async function getCategoryName(
   const bc = await fetchCategoryBreadcrumb(categoryId);
   if (!bc) return null;
 
-  // Cache it for next time. Don't clobber aspects when they're already present.
-  await supabaseAdmin.from("ebay_category_aspects").upsert(
-    {
-      marketplace_id: marketplaceId,
-      category_tree_id: treeId,
-      category_id: categoryId,
-      category_name: bc.path,
-      aspects: cached?.aspects ?? {},
-      fetched_at: new Date().toISOString(),
-    },
-    { onConflict: "marketplace_id,category_tree_id,category_id" }
-  );
+  // Cache the name for next time WITHOUT claiming the aspects are fresh
+  // (US-3472). This used to upsert `aspects: cached?.aspects ?? {}` with a new
+  // fetched_at, so a category first seen through its NAME (sync, orphan
+  // adoption, the catalog route) was cached as having no item specifics at
+  // all, and getCategoryAspects served that empty set for the whole TTL.
+  // Measured 2026-09-23: 7 of 133 prod rows held `{}` (Socks, Hats, ...).
+  // A row that already exists only gets its name; a new row is stamped as
+  // already stale so the first aspects read fetches for real.
+  if (cached) {
+    await supabaseAdmin
+      .from("ebay_category_aspects")
+      .update({ category_name: bc.path })
+      .eq("marketplace_id", marketplaceId)
+      .eq("category_tree_id", treeId)
+      .eq("category_id", categoryId);
+  } else {
+    await supabaseAdmin.from("ebay_category_aspects").upsert(
+      nameOnlyAspectCacheRow(marketplaceId, treeId, categoryId, bc.path),
+      { onConflict: "marketplace_id,category_tree_id,category_id", ignoreDuplicates: true }
+    );
+  }
 
   return { id: categoryId, name: bc.name, path: bc.path };
 }
@@ -1684,6 +1693,44 @@ export async function getCategoryName(
 // refreshes a category on the spot when eBay rejects a custom value
 // (lib/ebay-size-enforcement.ts).
 const ASPECT_TTL_MS = 7 * 24 * 60 * 60_000;
+
+/**
+ * A cached Taxonomy payload is usable only when it is inside the TTL AND
+ * actually holds eBay's aspects array (US-3472). An empty `{}` is what a
+ * name-only cache write used to leave behind; reading it as "this category
+ * has no item specifics" is the defect, so it counts as a miss.
+ */
+export function aspectCacheRowIsUsable(
+  row: { aspects?: unknown; fetched_at?: unknown } | null | undefined,
+  nowMs: number,
+): boolean {
+  if (!row) return false;
+  const fetched = new Date(String(row.fetched_at ?? "")).getTime();
+  if (!Number.isFinite(fetched) || nowMs - fetched >= ASPECT_TTL_MS) return false;
+  const aspects = row.aspects as { aspects?: unknown } | null | undefined;
+  return Array.isArray(aspects?.aspects);
+}
+
+/**
+ * The row getCategoryName writes when a category has never been cached: the
+ * name only, with fetched_at at the epoch so the aspects are read as stale
+ * and fetched on first use rather than served empty for a week.
+ */
+export function nameOnlyAspectCacheRow(
+  marketplaceId: string,
+  treeId: string,
+  categoryId: string,
+  path: string,
+): Record<string, unknown> {
+  return {
+    marketplace_id: marketplaceId,
+    category_tree_id: treeId,
+    category_id: categoryId,
+    category_name: path,
+    aspects: {},
+    fetched_at: new Date(0).toISOString(),
+  };
+}
 
 /**
  * Drop a category's cached Taxonomy payload so the next read fetches it live.
@@ -1723,11 +1770,7 @@ export async function getCategoryAspects(
     .eq("category_id", categoryId)
     .maybeSingle();
 
-  if (
-    !opts.fresh &&
-    cached &&
-    Date.now() - new Date(cached.fetched_at as string).getTime() < ASPECT_TTL_MS
-  ) {
+  if (!opts.fresh && cached && aspectCacheRowIsUsable(cached, Date.now())) {
     // Lazily backfill the breadcrumb if this entry was cached aspects-only
     // (category_name null) — so already-saved categories show the human path
     // instead of a raw id without waiting for the 30-day aspect TTL to lapse.
