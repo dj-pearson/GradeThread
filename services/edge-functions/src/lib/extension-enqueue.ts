@@ -28,6 +28,12 @@
 // tabs it will not stop opening.
 
 import { supabaseAdmin } from "./supabase.ts";
+import {
+  MIN_CLAIM_TTL_MS,
+  planStaleClaimReclaim,
+  staleClaimPatch,
+  type StaleClaimCandidate,
+} from "./extension-queue-reclaim.ts";
 import { resolveSellerEntitlement } from "./buyer-entitlements.ts";
 import {
   createRelistDraft,
@@ -139,6 +145,53 @@ export async function expireStaleQueueRows(ownerId: string, nowIso: string): Pro
       .eq("user_id", ownerId) // US-268
       .eq("status", status)
       .lt("expires_at", nowIso);
+  }
+}
+
+/**
+ * Take back claims a browser never finished, for this tenant only.
+ *
+ * `/claim` reads only `queued` rows, so a row whose tab or browser died after
+ * the claim and before any result existed used to sit `claimed` until
+ * expires_at, seven days out. For a delist that is a sold garment still live on
+ * another marketplace. The rules (per-kind TTL, the stale-claim cap, the
+ * terminal result) are pure in extension-queue-reclaim.ts.
+ *
+ * Each write is a compare-and-set on `status = 'claimed'` AND the `claimed_at`
+ * that was read, so two replicas reclaiming at once count one stale claim once,
+ * and a row a browser re-claimed or completed in between is left alone. Errors
+ * are logged, never thrown: a drain that 500s because a reclaim failed is worse
+ * than a drain that hands out the queued rows it can.
+ *
+ * Sequential `.eq()` filters, never `.or()` on a mutation (US-1552).
+ */
+export async function reclaimStaleClaims(ownerId: string, nowMs: number): Promise<void> {
+  const { data, error } = await supabaseAdmin
+    .from("extension_work_queue")
+    .select("id, kind, attempts, claimed_at")
+    .eq("user_id", ownerId) // US-268
+    .eq("status", "claimed")
+    .lt("claimed_at", new Date(nowMs - MIN_CLAIM_TTL_MS).toISOString())
+    .limit(MAX_QUEUE_DEPTH);
+  if (error) {
+    console.error("extension-queue.reclaim: could not read claims", error.message);
+    return;
+  }
+  const plan = planStaleClaimReclaim((data ?? []) as StaleClaimCandidate[], nowMs);
+  const nowIso = new Date(nowMs).toISOString();
+  for (const step of plan) {
+    // claimed_at is kept on a requeue: it is the drain proof (staleClaimPatch).
+    const patch = staleClaimPatch(step, nowIso);
+    const { error: writeError } = await supabaseAdmin
+      .from("extension_work_queue")
+      .update(patch)
+      .eq("id", step.id)
+      .eq("user_id", ownerId) // US-268
+      .eq("status", "claimed")
+      .eq("claimed_at", step.claimed_at);
+    if (writeError) {
+      console.error("extension-queue.reclaim: could not", step.action, step.id, writeError.message);
+    }
   }
 }
 

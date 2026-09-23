@@ -23,7 +23,9 @@ import {
   enqueueExtensionWork,
   expireStaleQueueRows,
   QUEUE_SELECT_COLS,
+  reclaimStaleClaims,
 } from "../lib/extension-enqueue.ts";
+import { decideQueueCompletion } from "../lib/extension-queue-reclaim.ts";
 import { getMarketplaceSpec } from "../lib/marketplace-specs.ts";
 import { parseFillRequest } from "../lib/extension-queue-fill.ts";
 import { getVapidConfig } from "../lib/web-push.ts";
@@ -229,6 +231,9 @@ flipdeskExtensionQueueRoutes.get("/", async (c) => {
   const now = Date.now();
   const nowIso = new Date(now).toISOString();
   await expireStaleQueueRows(ownerId, nowIso);
+  // A dead browser's claim reads as queued again here too, so the phone stops
+  // saying a browser has it once nothing is running it.
+  await reclaimStaleClaims(ownerId, now);
 
   const { data, error } = await supabaseAdmin
     .from("extension_work_queue")
@@ -736,8 +741,12 @@ flipdeskExtensionQueueRoutes.post("/claim", async (c) => {
   const claimedBy = String((body as { installId?: unknown }).installId ?? "")
     .slice(0, 64) || null;
 
-  const nowIso = new Date().toISOString();
+  const nowMs = Date.now();
+  const nowIso = new Date(nowMs).toISOString();
   await expireStaleQueueRows(ownerId, nowIso);
+  // Before the read, so a claim a dead browser left behind is back in the
+  // queue this drain instead of in seven days.
+  await reclaimStaleClaims(ownerId, nowMs);
 
   const { data: available, error: readError } = await supabaseAdmin
     .from("extension_work_queue")
@@ -813,6 +822,31 @@ flipdeskExtensionQueueRoutes.post("/:id/complete", async (c) => {
     return c.json({ error: `result may not contain "${result.rejectedKey}".` }, 400);
   }
 
+  const installId = String((body as { installId?: unknown }).installId ?? "")
+    .slice(0, 64) || null;
+
+  // The row as it stands, owner-scoped (US-268). A stale-claim reclaim means the
+  // browser reporting may no longer hold it, so a report is not always a write:
+  // see decideQueueCompletion.
+  const { data: current, error: readError } = await supabaseAdmin
+    .from("extension_work_queue")
+    .select("id, status, claimed_by")
+    .eq("id", id)
+    .eq("user_id", ownerId) // US-268
+    .maybeSingle();
+  if (readError) {
+    return failSafe(c, 500, "Could not record that result.", readError, "flipdesk.queue.complete");
+  }
+  if (!current) return c.json({ error: "Not found." }, 404);
+  const row = current as { id: string; status: string; claimed_by: string | null };
+
+  if (decideQueueCompletion(row, { ok, installId }) === "ignore") {
+    // Settled as far as the reporter is concerned. The extension drops an
+    // unsent result only on a 2xx naming this id, and replaying it would change
+    // nothing.
+    return c.json({ updated: { id: row.id, status: row.status }, ignored: true });
+  }
+
   const { data, error } = await supabaseAdmin
     .from("extension_work_queue")
     .update({
@@ -822,13 +856,18 @@ flipdeskExtensionQueueRoutes.post("/:id/complete", async (c) => {
     })
     .eq("id", id)
     .eq("user_id", ownerId) // US-268
+    .eq("status", row.status) // compare-and-set against a reclaim in between
     .select("id, status, kind, listing_id, inventory_item_id, platform")
     .maybeSingle();
 
   if (error) {
     return failSafe(c, 500, "Could not record that result.", error, "flipdesk.queue.complete");
   }
-  if (!data) return c.json({ error: "Not found." }, 404);
+  if (!data) {
+    // The row moved between the read and the write. It is ours, so not a 404:
+    // the extension keeps the result and replays it against the new state.
+    return c.json({ error: "That job changed while it was being reported. Try again." }, 409);
+  }
 
   // US-9202: a drained revise reports into the same marker the web reads. The
   // row's own listing_id is used, owner-scoped through confirmRevise; nothing

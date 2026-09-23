@@ -6801,6 +6801,74 @@ Deno.test({
 });
 
 Deno.test({
+  // Stale-claim reclaim: /claim and the queue GET now WRITE to rows they did
+  // not hand out, requeueing or failing any claim a dead browser left behind.
+  // That write takes no id from the caller, so the property is that B's drain
+  // can only ever reclaim B's rows. Seeded as a real stale claim of A's, read
+  // back with the service key: if the .eq("user_id", ownerId) on the reclaim is
+  // ever dropped, B's drain requeues A's delist and this sees `queued`.
+  name: "B's queue drain never reclaims A's stale claim",
+  ignore: !CONFIGURED || !Deno.env.get("TEST_USER_A_ID"),
+  fn: async () => {
+    const supabaseUrl = Deno.env.get("SUPABASE_URL");
+    const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+    // Same placeholder skip as the buyer-want readback above.
+    if (!supabaseUrl || !serviceKey || serviceKey === "test-service-key") return;
+    const svc = {
+      Authorization: `Bearer ${serviceKey}`,
+      apikey: serviceKey,
+      "Content-Type": "application/json",
+      Prefer: "return=representation",
+    };
+    const seeded = await fetch(`${supabaseUrl}/rest/v1/extension_work_queue`, {
+      method: "POST",
+      headers: svc,
+      body: JSON.stringify({
+        user_id: Deno.env.get("TEST_USER_A_ID"),
+        kind: "delist",
+        platform: "poshmark",
+        status: "claimed",
+        claimed_at: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(),
+        claimed_by: "isolation-stale",
+        source: "web",
+      }),
+    });
+    const rows = (await seeded.json().catch(() => [])) as { id?: string }[];
+    assert(seeded.ok && rows[0]?.id, `could not seed A's stale claim (${seeded.status})`);
+    const aRow = rows[0].id!;
+    try {
+      for (const req of [
+        { path: "/claim", init: { method: "POST", body: JSON.stringify({ limit: 10 }) } },
+        { path: "", init: { method: "GET" } },
+      ]) {
+        const res = await fetch(`${BASE}/api/flipdesk/extension-queue${req.path}`, {
+          ...req.init,
+          headers: authHeaders(B_JWT!),
+        });
+        await res.body?.cancel();
+      }
+      const check = await fetch(
+        `${supabaseUrl}/rest/v1/extension_work_queue?id=eq.${aRow}&select=status,attempts`,
+        { headers: svc },
+      );
+      const after = (await check.json().catch(() => [])) as { status?: string; attempts?: number }[];
+      assert(check.ok, `readback of A's queue row failed (${check.status})`);
+      assertEquals(
+        after,
+        [{ status: "claimed", attempts: 0 }],
+        "B's drain touched A's stale claim: the reclaim write is not tenant-scoped",
+      );
+    } finally {
+      const del = await fetch(`${supabaseUrl}/rest/v1/extension_work_queue?id=eq.${aRow}`, {
+        method: "DELETE",
+        headers: svc,
+      });
+      await del.body?.cancel();
+    }
+  },
+});
+
+Deno.test({
   // US-3370: the queue GET grew a THIRD list. `finishedNeedsReview` is a second
   // read of extension_work_queue, on a status the route never returned before
   // (`done`), and the service-role client bypasses RLS, so a widened status set

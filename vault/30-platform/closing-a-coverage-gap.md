@@ -10,10 +10,11 @@ code_refs:
   - services/edge-functions/src/lib/pending-revises.ts
   - services/edge-functions/src/lib/extension-relist.ts
   - services/edge-functions/src/lib/cross-push.ts
+  - services/edge-functions/src/lib/extension-queue-reclaim.ts
   - services/edge-functions/src/lib/listing-lifecycle.ts
   - extension-unified/lister/job-store.js
   - src/lib/constants.ts
-reviewed: 2026-09-11
+reviewed: 2026-09-23
 tags: [runbook, marketplaces, extension, process]
 summary: The eight steps that take a marketplace from "a label in the UI" to a channel a seller can publish and delist on, in the order that makes a half-finished one impossible to ship.
 ---
@@ -333,6 +334,24 @@ Two rules the queue adds:
   is one the seller is told to check when it sells elsewhere; a draft they
   forgot is one they are not. The cap gate still applies, and a refused prefill
   falls back to the old draft record rather than blocking a form already filled.
+
+- **A claim a browser never finishes goes back to the queue.** `/claim` reads
+  only `queued` rows, so a tab or browser that died after claiming used to
+  leave the row `claimed` until `expires_at`, seven days out, which for a
+  delist is a sold garment live elsewhere for a week. Now `/claim` (before its
+  read) and the queue GET requeue any claim older than its kind's TTL (15 min
+  for delist and revise, 60 min for list and relist, because re-running a
+  filled form is a duplicate listing) and count it in `attempts`. The third
+  stale claim fails the row with a `result.error` the delist log shows. The
+  rules are pure in `lib/extension-queue-reclaim.ts`; the write is
+  owner-scoped and compare-and-sets on the `claimed_at` it read. A requeue
+  leaves `claimed_at` in place: it is the drain proof that `lastDrainedAt` and
+  the US-3198 stale-queue cron read, and clearing it told a seller whose first
+  drain died that no extension had ever run. `/complete`
+  follows from it: a `done` row is final, a success lands from any other state
+  (the work happened), and a failure on a requeued row, or from another install
+  than the current holder, is answered 2xx and dropped so it cannot cancel the
+  retry.
 
 ## The mirror rule (while it lasts)
 
