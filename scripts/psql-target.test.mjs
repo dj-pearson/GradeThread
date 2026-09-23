@@ -115,6 +115,27 @@ describe("looksUnreachable", () => {
     expect(looksUnreachable("Error response from daemon: No such container: x", 1)).toBe(true);
   });
 
+  it("is true when the Docker CLI cannot reach a daemon, in either wording", async () => {
+    // Docker 29 says "failed to connect to the docker API"; older clients say
+    // "Cannot connect to the Docker daemon". Missing the new wording made
+    // check-sku-sequences report a fixture problem on a box with no daemon.
+    const { looksUnreachable } = await import("./lib/psql-target.mjs");
+    expect(
+      looksUnreachable(
+        "failed to connect to the docker API at unix:///var/run/docker.sock; check if the " +
+          "path is correct and if the daemon is running: dial unix /var/run/docker.sock: " +
+          "connect: no such file or directory",
+        1,
+      ),
+    ).toBe(true);
+    expect(
+      looksUnreachable(
+        "Cannot connect to the Docker daemon at unix:///var/run/docker.sock. Is the docker daemon running?",
+        1,
+      ),
+    ).toBe(true);
+  });
+
   it("is FALSE for a fixture that ran and failed an assertion", async () => {
     // The other direction, and the one that matters more: a database that
     // answered must not be reported as unreachable, or a real failure reads as

@@ -316,6 +316,18 @@ const REGISTRY: Record<string, readonly Site[]> = {
   // range, and nothing in the planner tree writes a sale.
   "src/hooks/use-planner.ts": [{ text: "sold_at: string | null;", kind: "shape" }],
   "src/hooks/use-ship-queue.ts": [{ text: "sold_at: string | null;", kind: "shape" }],
+  // The published JS SDK's SaleSummary: the typed shape of a row from
+  // GET /api/v1/sales. `sdk` is one of SOURCE_ROOTS on purpose, and this is a
+  // field declaration, not a write. The SDK has no way to write a sale.
+  "sdk/gradethread-js/src/index.ts": [
+    {
+      text: "sold_at: string | null;",
+      kind: "shape",
+      why:
+        "mirrors the public API's sold_at, which openapi-spec.ts declares " +
+        "date-time; a manual sale still arrives as 00:00:00Z through it.",
+    },
+  ],
   "src/hooks/use-sold-sync.ts": [
     {
       text: "sold_at: string | null;",

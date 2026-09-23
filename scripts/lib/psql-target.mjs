@@ -57,9 +57,14 @@ export function psqlTarget(argv = process.argv.slice(2), env = process.env) {
  * and the caller fell through to "the fixture printed no result object". The
  * operator then reads a fixture problem where there is a connection problem.
  */
+//
+// ⚠ The Docker CLI reworded its no-daemon error. Docker 29 prints "failed to
+// connect to the docker API at unix:///var/run/docker.sock"; older clients
+// print "Cannot connect to the Docker daemon". Matching only the old wording
+// sent a box with no daemon down the same "printed no result object" path.
 export function looksUnreachable(out, status) {
   if (status === 0) return false;
-  return /connection to server|could not connect|Connection refused|no such host|Cannot connect to the Docker daemon|No such container|Error response from daemon|is not running/i
+  return /connection to server|could not connect|Connection refused|no such host|Cannot connect to the Docker daemon|failed to connect to the docker API|No such container|Error response from daemon|is not running/i
     .test(out);
 }
 

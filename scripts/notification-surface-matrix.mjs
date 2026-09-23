@@ -83,9 +83,17 @@ export function catalogPrefKeys(text = read(SRC.prefs)) {
 
 // ── the push-category vocabulary ────────────────────────────────────────────
 
-/** Dotted categories the edge actually stamps on a device push. */
+/**
+ * Dotted categories the edge actually stamps on a device push.
+ *
+ * Since US-3279 a sender no longer spells `category: "x.y"` itself; it calls
+ * `describe("x.y")`, which builds the category and payload from PUSH_CONTRACT.
+ * Matching the call rather than the contract's keys is deliberate: a contract
+ * row nothing calls is not a push anybody receives. `marketing` has no dot and
+ * is sent from admin-growth.ts, so it is outside this vocabulary either way.
+ */
 export const emittedCategories = (text = read(SRC.push)) =>
-  [...new Set([...text.matchAll(/category:\s*"([a-z_]+\.[a-z_]+)"/g)].map((m) => m[1]))].sort();
+  [...new Set([...text.matchAll(/describe\(\s*"([a-z_]+\.[a-z_]+)"/g)].map((m) => m[1]))].sort();
 
 /** Categories the iOS app declares. */
 export const iosCategories = (text = read(SRC.ios)) =>
