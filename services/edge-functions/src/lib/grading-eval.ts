@@ -894,10 +894,14 @@ export async function activatePromptVersion(
 
   // US-896: promoting to active = "promote canary to 100%". Clear the canary
   // flags so the now-champion is never ALSO routed to as a canary challenger.
+  // Shadow is cleared for the same reason: neither shadow loader filters on
+  // is_active, so a promoted shadow row would keep grading against itself,
+  // spending vision calls on a comparison that can only ever agree.
   const { error: activateError } = await supabaseAdmin
     .from("ai_prompt_versions")
     .update({
       is_active: true,
+      is_shadow: false,
       is_canary: false,
       rollout_percentage: 0,
       rollout_started_at: null,

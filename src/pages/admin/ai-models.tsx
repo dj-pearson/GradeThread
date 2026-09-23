@@ -1562,7 +1562,7 @@ export function AdminAiModelsPage() {
                           >
                             <FlaskConical className="h-3.5 w-3.5" />
                           </Button>
-                          {!version.is_active && version.stage !== "listing_gen" && (
+                          {(!version.is_active || version.is_shadow) && version.stage !== "listing_gen" && (
                             <Button
                               variant="ghost"
                               size="sm"
@@ -2158,10 +2158,14 @@ export function AdminAiModelsPage() {
                     Stop shadow run
                   </Button>
                 )}
-                <Button onClick={handleShadowSave} disabled={shadowLoading}>
-                  {shadowLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                  {shadowTarget.is_shadow ? "Save settings" : "Start shadow run"}
-                </Button>
+                {/* An active row that is still shadowing (promoted before
+                    activation cleared the flag) can only be stopped. */}
+                {!shadowTarget.is_active && (
+                  <Button onClick={handleShadowSave} disabled={shadowLoading}>
+                    {shadowLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                    {shadowTarget.is_shadow ? "Save settings" : "Start shadow run"}
+                  </Button>
+                )}
               </div>
             </div>
           )}

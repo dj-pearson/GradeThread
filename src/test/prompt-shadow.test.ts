@@ -75,6 +75,18 @@ describe("the admin page can do what the Shadow tab says", () => {
     expect(page).toContain("is_shadow: false");
   });
 
+  it("an active row that is still shadowing keeps a way to stop it", () => {
+    // Rows promoted before activation cleared is_shadow are active AND
+    // shadowing. Gating the button on !is_active alone left them a Shadow badge
+    // with no control, so stopping one took SQL again.
+    const page = read("src/pages/admin/ai-models.tsx");
+    expect(page).toContain(
+      '{(!version.is_active || version.is_shadow) && version.stage !== "listing_gen" && (',
+    );
+    // ...and the dialog offers only Stop on such a row, never a retune.
+    expect(page).toMatch(/\{!shadowTarget\.is_active && \(\s*<Button onClick=\{handleShadowSave\}/);
+  });
+
   it("the empty state points at the control that exists", () => {
     const panel = read("src/components/admin/grading-accuracy-panel.tsx");
     expect(panel).not.toContain("start a shadow run from a draft prompt version and");

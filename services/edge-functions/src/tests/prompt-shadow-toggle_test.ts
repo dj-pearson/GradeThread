@@ -240,3 +240,29 @@ Deno.test("route: a per_image stop needs neither env nor step-up", async () => {
   assertEquals(r.status, 200);
   assertEquals(r.writes, [{ is_shadow: false }]);
 });
+
+// ── promotion ends the shadow run ───────────────────────────────────────────
+
+// Neither shadow loader filters on is_active, so a shadowed draft that is later
+// promoted kept shadowing itself: about 7 vision calls per sampled per_image
+// grade comparing the champion to itself. activatePromptVersion now clears
+// is_shadow the same way US-896 clears the canary flags.
+Deno.test("activatePromptVersion clears is_shadow on the promoted row", async () => {
+  const { activatePromptVersion } = await import("../lib/grading-eval.ts");
+  const { servingModelForStage } = await import("../lib/ai-config.ts");
+  currentRow = {
+    id: "pv-1",
+    ...PER_IMAGE,
+    is_shadow: true,
+    shadow_sample_rate: 0.02,
+    garment_scope: null,
+    eval_passed: true,
+    qualified_model: servingModelForStage("per_image"),
+  } as ShadowToggleRow & { id: string };
+  writes.length = 0;
+  const result = await activatePromptVersion("pv-1");
+  assertEquals(result, { ok: true });
+  const promote = writes.find((w) => w.is_active === true);
+  assert(promote, `no activating write in ${JSON.stringify(writes)}`);
+  assertEquals(promote.is_shadow, false);
+});
