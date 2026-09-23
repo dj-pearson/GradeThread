@@ -116,6 +116,11 @@ jobs:
           EBAY_CERT_ID: ci-dummy-cert-id
           EBAY_RU_NAME: ci-dummy-ru-name
           FLIPDESK_INTERNAL_JOB_SECRET: ci-dummy-job-secret
+          # Depop answers 503 before its ownership check while disabled, so the
+          # depop ship case would never reach the scoping it exists to prove.
+          DEPOP_ENABLED: "true"
+          DEPOP_CLIENT_ID: ci-dummy-depop-client
+          DEPOP_CLIENT_SECRET: ci-dummy-depop-secret
         run: |
           deno run --allow-net --allow-env --allow-read src/main.ts &
           echo "EDGE_PID=$!" >> "$GITHUB_ENV"
