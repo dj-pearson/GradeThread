@@ -96,9 +96,12 @@ import {
 } from "@/lib/pipeline-board";
 import { chunk } from "@/lib/chunk";
 import {
+  CHANGED_SINCE_LOADED,
   moveCardOptimistically,
   pipelineColumnFor,
   planBatchAdvance,
+  writeStageMove,
+  type StageWriteClient,
 } from "@/pages/flipdesk/pipeline-plan";
 import {
   useValidateGradingBulk,
@@ -400,15 +403,25 @@ export function FlipdeskPipelinePage() {
       itemId,
       from: item.status,
       to: targetStatus,
+      // INV-8: the write carries the status the board showed. A stale board
+      // (the item sold or moved in another tab) changes zero rows rather than
+      // dragging a sold item backwards.
       save: () =>
-        supabase
-          .from("inventory_items")
-          .update({ status: targetStatus } as never)
-          .eq("id", itemId),
+        writeStageMove(
+          supabase as unknown as StageWriteClient,
+          itemId,
+          item.status,
+          targetStatus,
+        ),
     });
     if (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      toast.error(`Move failed: ${msg}`);
+      if (msg === CHANGED_SINCE_LOADED) {
+        toast.error(`${CHANGED_SINCE_LOADED} Refreshing it now.`);
+        await qc.invalidateQueries({ queryKey: ["items_full"] });
+      } else {
+        toast.error(`Move failed: ${msg}`);
+      }
       return;
     }
     toast.success(
@@ -441,29 +454,39 @@ export function FlipdeskPipelinePage() {
       // short) instead of one round trip per card.
       for (const group of groups) {
         const label = ITEM_STATUS_LABELS[group.status];
-        for (const part of chunk(group.items, BATCH_WRITE_SIZE)) {
-          const { data, error } = await supabase
-            .from("inventory_items")
-            .update({ status: group.status } as never)
-            .in(
-              "id",
-              part.map((it) => it.id),
-            )
-            .select("id");
-          const updated = new Set(
-            ((data ?? []) as Array<{ id: string }>).map((r) => r.id),
-          );
-          for (const it of part) {
-            if (error) {
-              results.push({ title: it.item_title, ok: false, detail: error.message });
-            } else if (!updated.has(it.id)) {
-              results.push({
-                title: it.item_title,
-                ok: false,
-                detail: "Not updated. It may have been moved or deleted; refresh and try again.",
-              });
-            } else {
-              results.push({ title: it.item_title, ok: true, detail: `→ ${label}` });
+        // INV-8: grouped by the status each card was read at as well, so each
+        // UPDATE carries `.eq("status", from)` and a card that moved since the
+        // board loaded is left where it is.
+        const byFrom = new Map<ItemStatus, ItemListRow[]>();
+        for (const it of group.items) {
+          byFrom.set(it.status, [...(byFrom.get(it.status) ?? []), it]);
+        }
+        for (const [from, fromItems] of byFrom) {
+          for (const part of chunk(fromItems, BATCH_WRITE_SIZE)) {
+            const { data, error } = await supabase
+              .from("inventory_items")
+              .update({ status: group.status } as never)
+              .in(
+                "id",
+                part.map((it) => it.id),
+              )
+              .eq("status", from)
+              .select("id");
+            const updated = new Set(
+              ((data ?? []) as Array<{ id: string }>).map((r) => r.id),
+            );
+            for (const it of part) {
+              if (error) {
+                results.push({ title: it.item_title, ok: false, detail: error.message });
+              } else if (!updated.has(it.id)) {
+                results.push({
+                  title: it.item_title,
+                  ok: false,
+                  detail: `Not updated. ${CHANGED_SINCE_LOADED}`,
+                });
+              } else {
+                results.push({ title: it.item_title, ok: true, detail: `→ ${label}` });
+              }
             }
           }
         }
