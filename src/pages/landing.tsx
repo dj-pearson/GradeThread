@@ -348,7 +348,9 @@ function GradeThreadPricingBlock() {
             <div className="text-lg font-semibold">
               Buy in packs and save up to {bestSavings.toFixed(0)}%
             </div>
-            <p className="text-sm text-muted-foreground">
+            {/* Not muted-foreground: slate on the navy tint measured 4.13:1
+                in axe (e2e/public-pages.spec.ts), under the 4.5:1 AA floor. */}
+            <p className="text-sm text-foreground/80">
               Credits never expire. Use one for Standard, three for Premium,
               five for Express. Mix and match.
             </p>
@@ -662,7 +664,9 @@ export function LandingPage() {
               className="bg-brand-red text-white hover:bg-brand-red/90"
             >
               Get Started
-              <ArrowRight className="ml-1 h-4 w-4" />
+              {/* Arrow hidden below sm: at 375px it pushed the header 11px past
+                  the viewport (e2e/public-pages.spec.ts). */}
+              <ArrowRight className="ml-1 hidden h-4 w-4 sm:block" />
             </Button>
           </Link>
         </div>
@@ -945,7 +949,15 @@ export function LandingPage() {
         {/* Default: a swipeable horizontal scroller (mobile / reduced-motion /
             no-engine). On a capable desktop, flipdesk-scene.ts pins the section
             and scrubs this track horizontally as you scroll vertically. */}
-        <div data-flipdesk-viewport className="gt-hscroll mt-12 overflow-x-auto">
+        {/* Focusable + labelled so a keyboard user can scroll it (axe
+            scrollable-region-focusable, e2e/public-pages.spec.ts). */}
+        <div
+          data-flipdesk-viewport
+          className="gt-hscroll mt-12 overflow-x-auto"
+          tabIndex={0}
+          role="region"
+          aria-label="FlipDesk pipeline stages"
+        >
           <ol
             data-flipdesk-track
             className="flex w-max gap-6 px-6 md:px-[9vw]"
