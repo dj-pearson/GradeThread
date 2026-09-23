@@ -20,6 +20,9 @@
 --      everything.
 --   4. Reopening restores writes and keeps the audit row.
 --   5. Closing takes the inventory snapshot in the same action (AC5).
+--   6. A rebuild does not move a closed period (00828). home_office_years has
+--      no lock trigger, so the check changes it after the close, rebuilds,
+--      and reads the closed year's ledger back against closing_figures.
 begin;
 
 insert into auth.users (id, email, instance_id, aud, role)
@@ -58,6 +61,13 @@ values ('73000000-0000-0000-0000-000000000001', 'a0000000-0000-0000-0000-0000000
         '2025-04-01', 20.0, 'Sourcing in the closed year')
 on conflict (id) do nothing;
 
+-- 6: an input the lock triggers do NOT cover. 200 sq ft for 2025 is a
+-- $1,000 deduction dated 2025-12-31, inside the year about to be closed.
+insert into public.home_office_years (id, user_id, tax_year, square_feet, months_used)
+values ('63000000-0000-0000-0000-000000000001', 'a0000000-0000-0000-0000-0000000c1053',
+        2025, 200, 12)
+on conflict (id) do nothing;
+
 select public.rebuild_ledger_for_user('a0000000-0000-0000-0000-0000000c1053');
 
 -- 5: close 2025. As the seller, because close_period is SECURITY INVOKER.
@@ -74,6 +84,32 @@ select 'closing figures recorded' as q,
        (closing_figures ? 'ledger' and closing_figures ? 'cogs')::text as a
   from public.closed_periods
  where user_id = 'a0000000-0000-0000-0000-0000000c1053' and reopened_at is null;
+
+-- ── 6: A REBUILD DOES NOT MOVE A CLOSED PERIOD (00828) ─────────────────────
+-- Halve the 2025 home office AFTER the close, rebuild, and the closed year's
+-- ledger must still read what closing_figures recorded. Before 00828 the
+-- rebuild deleted and re-derived every entry, so the deduction silently fell
+-- from $1,000 to $500 in a year already filed.
+update public.home_office_years set square_feet = 100
+ where id = '63000000-0000-0000-0000-000000000001';
+select public.rebuild_ledger_for_user('a0000000-0000-0000-0000-0000000c1053');
+
+select 'closed-year home office after rebuild' as q, amount_cents::text as a
+  from public.ledger_entries
+ where user_id = 'a0000000-0000-0000-0000-0000000c1053'
+   and source_kind = 'expense' and source_detail = 'home_office';
+
+-- The same figure closing_figures holds, recomputed now, as the seller.
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"a0000000-0000-0000-0000-0000000c1053","role":"authenticated"}';
+select 'closed-year ledger still matches closing_figures' as q,
+       (select bool_and((cp.closing_figures -> 'ledger' ->> k)
+                        = (public.ledger_reconciliation('2025-01-01'::timestamptz) ->> k))
+          from unnest(array['true_net_cents','overhead_cents',
+                            'ledger_sale_net_cents','entry_count']) k)::text as a
+  from public.closed_periods cp
+ where cp.user_id = 'a0000000-0000-0000-0000-0000000c1053' and cp.reopened_at is null;
+reset role;
 
 -- ── 1: THE REFUSALS, ALL AS `postgres` (the service role's privilege level) ──
 do $$
@@ -190,5 +226,14 @@ begin
   exception when others then raise notice 'FAIL: still locked after reopen - %', SQLERRM;
   end;
 end $$;
+
+-- 6, the other half: reopening is the escape hatch, so the next rebuild
+-- re-derives the reopened year from its sources and the halved home office
+-- lands. Without this, "the rebuild never touches 2025" would pass too.
+select public.rebuild_ledger_for_user('a0000000-0000-0000-0000-0000000c1053');
+select 'reopened-year home office after rebuild' as q, amount_cents::text as a
+  from public.ledger_entries
+ where user_id = 'a0000000-0000-0000-0000-0000000c1053'
+   and source_kind = 'expense' and source_detail = 'home_office';
 
 rollback;

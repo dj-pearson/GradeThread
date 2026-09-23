@@ -78,6 +78,20 @@ check("the close returns an id", val("closed period id"), "true");
 check("it takes the inventory snapshot in the same action", val("snapshot taken by the close"), 1);
 check("and records the figures as they stood", val("closing figures recorded"), "true");
 
+// 00828. home_office_years has no lock trigger, so this is the input a
+// rebuild could quietly move. The check halves it after the close.
+console.log("\nA rebuild does not move a closed period (00828):");
+check(
+  "the closed year keeps its $1,000 home office after the source is halved",
+  val("closed-year home office after rebuild"),
+  -100000,
+);
+check(
+  "and its ledger still equals closing_figures",
+  val("closed-year ledger still matches closing_figures"),
+  "true",
+);
+
 console.log("\nTHE LOCK, ALL AS `postgres` (service-role privilege) — AC2:");
 expectNotice("an expense in a closed year cannot be edited", "OK: expense edit refused");
 expectNotice("nor deleted", "OK: expense delete refused");
@@ -108,6 +122,12 @@ expectNotice("a reason reopens it", "OK: reopened with a reason");
 // fact from one never closed.
 check("the audit row survives the reopen", val("audit row kept after reopen"), 1);
 expectNotice("and writes work again", "OK: writes work again after reopening");
+// The escape hatch for 00828: once reopened, the year rebuilds from source.
+check(
+  "and a rebuild after reopening picks up the halved home office",
+  val("reopened-year home office after rebuild"),
+  -50000,
+);
 
 if (failures.length) {
   console.error(`\n✗ ${failures.length} check(s) failed:\n  - ${failures.join("\n  - ")}`);

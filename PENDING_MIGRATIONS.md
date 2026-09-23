@@ -72,6 +72,29 @@ stronger claim for one of them, `check-prod-migration.ts` is the tool.
 Nothing below 00786 was touched, and the six genuinely-held branches in the next
 section are unchanged and still waiting.
 
+## HELD: 00828_ledger_rebuild_skips_closed_periods.sql (money plan action 3 - a rebuild must not move a closed period)
+
+**What it does.** `CREATE OR REPLACE` of `rebuild_ledger_for_user`, same
+signature. The DELETE keeps ledger rows dated inside a closed period
+(`closed_periods` row with `reopened_at IS NULL`, via `is_period_closed`), and
+every INSERT skips those dates and is `ON CONFLICT DO NOTHING`. Everything
+else is 00777 byte for byte, including the safeupdate TRUNCATE fix. Grants
+re-issued, no REVOKE.
+
+**Why.** The lock triggers cover expenses, mileage, sales and sold-item cost.
+The rebuild also reads home_office_years, shipments, ebay_payouts and
+mileage_rates, none locked, so the next rebuild silently moved a closed year
+away from its `closing_figures`.
+
+**Proof.** `node scripts/check-period-close.mjs --dsn ...`: without 00828 the
+two new checks go red (home office -50000 instead of -100000, ledger no longer
+equals `closing_figures`); with it, all green, and a rebuild after reopening
+picks up the change. Applied twice in a row with no error.
+
+**Risk: LOW.** One function replaced in place. A seller with no closed period
+sees no change. **Order.** Apply before the edge redeploy (boot guard expects
+00828). Then `NOTIFY pgrst, 'reload schema';` (migrate:prod sends it).
+
 ## HELD: 00823_imported_sales_shipped.sql (US-3465 - old imported sales out of the Ship queue)
 
 **What it does.** One UPDATE on `public.sales`: sets `shipped_at` to the sale
