@@ -20,8 +20,9 @@ const buildAccountExport = vi.fn(
     }),
 );
 
+let currentUserId = "user-1";
 vi.mock("@/hooks/use-auth", () => ({
-  useAuth: () => ({ user: { id: "user-1" } }),
+  useAuth: () => ({ user: { id: currentUserId } }),
 }));
 vi.mock("@/lib/account-export", () => ({
   buildAccountExport: () => buildAccountExport(),
@@ -64,7 +65,8 @@ function exportButton(): HTMLButtonElement {
 
 afterEach(() => {
   unmount();
-  useAccountExportStore.getState().finish();
+  useAccountExportStore.getState().clear();
+  currentUserId = "user-1";
   buildAccountExport.mockClear();
   resolveExport = null;
   localStorage.clear();
@@ -98,5 +100,59 @@ describe("DataSettingsTab export in-flight state", () => {
       resolveExport!(new Blob(["zip"]));
     });
     expect(exportButton().disabled).toBe(false);
+  });
+
+  it("does not block a different user on the same browser", async () => {
+    mount();
+    await act(async () => {
+      exportButton().click();
+    });
+    expect(exportButton().disabled).toBe(true);
+    const firstExport = resolveExport!;
+
+    // user-1 leaves without the store being cleared (worst case); user-2 arrives.
+    unmount();
+    currentUserId = "user-2";
+    mount();
+    expect(exportButton().disabled).toBe(false);
+    await act(async () => {
+      exportButton().click();
+    });
+    expect(buildAccountExport).toHaveBeenCalledTimes(2);
+    expect(exportButton().disabled).toBe(true);
+
+    // user-1's export settling late does not free user-2's slot.
+    await act(async () => {
+      firstExport(new Blob(["zip"]));
+    });
+    expect(exportButton().disabled).toBe(true);
+  });
+});
+
+describe("useAccountExportStore", () => {
+  it("clear() frees the slot, and a stale owner's progress and finish are ignored", () => {
+    const store = useAccountExportStore.getState();
+    expect(store.begin("user-1")).toBe(true);
+    expect(store.begin("user-1")).toBe(false);
+    store.clear();
+    expect(useAccountExportStore.getState().exporting).toBe(false);
+
+    expect(store.begin("user-2")).toBe(true);
+    store.progress("user-1", "Old stage", 90);
+    store.finish("user-1");
+    expect(useAccountExportStore.getState()).toMatchObject({
+      ownerId: "user-2",
+      exporting: true,
+      pct: 0,
+    });
+    store.finish("user-2");
+    expect(useAccountExportStore.getState().exporting).toBe(false);
+  });
+
+  it("is cleared on the sign-out branch of use-auth", async () => {
+    const { readFileSync } = await import("node:fs");
+    const src = readFileSync("src/hooks/use-auth.ts", "utf8");
+    const signedOut = src.slice(src.indexOf("// SIGNED_OUT:"));
+    expect(signedOut).toMatch(/useAccountExportStore\.getState\(\)\.clear\(\)/);
   });
 });
