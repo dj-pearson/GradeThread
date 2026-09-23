@@ -69,8 +69,10 @@ import { itemCategoryFromEbayPath } from "../lib/ebay-item-category.ts";
 import {
   adoptOrphans,
   type OrphanCandidate,
+  orphanAdoptionCap,
   planOrphanAdoption,
 } from "../lib/ebay-orphan-adopt.ts";
+import { capacityHeadroom } from "../lib/plan-gate.ts";
 import { requireJobSecret } from "../lib/job-auth.ts";
 import { claimSyncRun, failSyncRun } from "../lib/sync-run-lock.ts";
 import { failSafe } from "../lib/http-errors.ts";
@@ -2175,9 +2177,17 @@ async function doListingsPull(
     if (orphanReadError) {
       errors.push(`orphan adopt (read): ${orphanReadError.message.slice(0, 160)}`);
     } else {
+      // Every adopted orphan is a new 'listed' item, so it spends an
+      // activeListings slot: adopt only as many as the owner's plan has room
+      // for. The rest are counted in orphans_deferred and wait, unmatched, for
+      // a later pass. See orphanAdoptionCap.
+      const orphanCap = orphanAdoptionCap(
+        await capacityHeadroom(userId, "activeListings"),
+      );
       const plan = planOrphanAdoption(
         (orphanRows ?? []) as unknown as OrphanCandidate[],
         allItems,
+        orphanCap,
       );
       orphansHeld = plan.held.length;
       orphansDeferred = plan.deferred;
@@ -3084,7 +3094,8 @@ async function doListingsPull(
       // US-3458: adopted = new items from orphans this pass; linked = orphans
       // that already had a listing row (crash recovery or a manual link);
       // held = orphans left for the seller because an item with the same title
-      // exists; deferred = adoptable orphans past the per-pass cap.
+      // exists; deferred = adoptable orphans past the per-pass cap or past
+      // the plan's activeListings headroom (orphanAdoptionCap).
       `orphans_adopted=${orphansAdopted} orphans_linked=${orphansLinked} ` +
       `orphans_held=${orphansHeld} orphans_deferred=${orphansDeferred} ` +
       `conflicts_recorded=${conflictsRecorded} conflicts_resolved=${conflictsResolved} ` +

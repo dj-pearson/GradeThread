@@ -16,6 +16,7 @@ import {
   buildAdoptionRows,
   MAX_ORPHAN_ADOPTIONS_PER_SYNC,
   normalizeTitle,
+  orphanAdoptionCap,
   type OrphanCandidate,
   planOrphanAdoption,
   resolveItemCategories,
@@ -138,6 +139,34 @@ Deno.test("the per-pass cap defers the rest and counts them", () => {
     MAX_ORPHAN_ADOPTIONS_PER_SYNC >= 500,
     "the default cap must clear a real catalog in a few passes",
   );
+});
+
+// Every adopted orphan is a new 'listed' item, which is what the activeListings
+// cap counts, so a pass may adopt no more than the plan has room for.
+Deno.test("orphanAdoptionCap spends only the plan's activeListings headroom", () => {
+  const room = (used: number, limit: number) => ({
+    plan: "free" as const,
+    used,
+    limit,
+    headroom: Math.max(0, limit - used),
+  });
+  assertEquals(orphanAdoptionCap(room(0, 25)), 25, "an empty Free account adopts 25");
+  assertEquals(orphanAdoptionCap(room(20, 25)), 5);
+  assertEquals(orphanAdoptionCap(room(25, 25)), 0, "a full account adopts nothing");
+  assertEquals(orphanAdoptionCap(room(30, 25)), 0, "an over-cap account adopts nothing");
+  assertEquals(
+    orphanAdoptionCap({ plan: "pro", used: 0, limit: -1, headroom: null }),
+    MAX_ORPHAN_ADOPTIONS_PER_SYNC,
+    "unlimited is still bounded per pass",
+  );
+  assertEquals(orphanAdoptionCap(room(0, 5000)), MAX_ORPHAN_ADOPTIONS_PER_SYNC);
+  assertEquals(orphanAdoptionCap(null), 0, "an unknown allowance is never unlimited");
+
+  // Through the planner: 400 orphans against 5 free slots.
+  const many = Array.from({ length: 400 }, (_, i) => orphan({ ebay_item_id: String(1000 + i) }));
+  const plan = planOrphanAdoption(many, [], orphanAdoptionCap(room(20, 25)));
+  assertEquals(plan.adopt.length, 5);
+  assertEquals(plan.deferred, 395);
 });
 
 Deno.test("two orphans with the same title both become items in one pass", () => {
@@ -296,6 +325,15 @@ Deno.test("the pull adopts orphans only on a catalog pass, and reads the owner's
   assert(
     block.includes("if (catalogPass) {"),
     "adoption must sit behind the catalog-pass gate",
+  );
+  // The planner's cap must come from the owner's plan headroom. Without the
+  // third argument it defaults to the per-pass bound and a Free account
+  // adopts up to 1,000 'listed' items against a cap of 25.
+  const call = route.slice(at, route.indexOf(");", at));
+  assert(
+    /orphanAdoptionCap\(\s*await capacityHeadroom\(userId, "activeListings"\),?\s*\)/
+      .test(block) && /allItems,\s*orphanCap,/.test(call),
+    "planOrphanAdoption must be capped by the owner's activeListings headroom",
   );
   assert(
     block.includes('.from("flipdesk_ebay_listings")') &&

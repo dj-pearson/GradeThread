@@ -8,8 +8,9 @@ code_refs:
   - services/edge-functions/src/lib/active-listings.ts
   - services/edge-functions/src/tests/plan-gate-coverage_test.ts
   - services/edge-functions/src/routes/flipdesk-closet-import.ts
+  - services/edge-functions/src/lib/ebay-orphan-adopt.ts
   - src/lib/constants.ts
-reviewed: 2026-09-22
+reviewed: 2026-09-23
 tags: [flipdesk, plans, billing, contract]
 summary: Every FlipDesk endpoint touching a gated capacity or feature calls requireFlipdesk; the 80%-warning and 402 responses are a protocol two frontends depend on.
 ---
@@ -17,6 +18,13 @@ summary: Every FlipDesk endpoint touching a gated capacity or feature calls requ
 > [!note] Re-reviewed 2026-09-11 (US-3329). The only change to this note's code refs since its last review renames the fifth grading factor's LABEL from "Odor & Cleanliness" to "Cleanliness" (and in ai-grading.ts adds the flag-gated GRADING_CLEANLINESS_V2 wording). Checked: nothing this note states depends on that label, the factor key, or its weight.
 
 # FlipDesk plan gating contract
+
+> **Re-reviewed 2026-09-23.** `plan-gate-coverage_test.ts` now judges each
+> `flipdesk-ebay-*.ts` file on its own instead of pooling them, which exposed
+> two files with no gate or release of their own. The sync file's status
+> flips and the post-sale refund path are exempt by design, with reasons in
+> the test. The sync file's orphan adoption was a real gap and is now capped
+> by plan headroom; see "eBay orphan adoption" below.
 
 > **Re-reviewed 2026-09-22.** Drift flagged `src/lib/constants.ts` on
 > 3b252aa1 (US-3450). The change is one exported type alias,
@@ -147,6 +155,22 @@ NOT already hold, before the run row is created. A re-read of the same closet
 has a delta of zero. Because the extension, not the browser, receives that
 response, the 80% header is also copied into the JSON body as `plan_warning` for
 the web page to toast.
+
+**eBay orphan adoption spends headroom (2026-09-23).** Since US-3458 the eBay
+catalog pull turns every unmatched eBay listing into an `inventory_items` row in
+status `listed`, with no click. That is an import, and until this date it took
+no account of the plan: a Free account connecting a 400-listing store held 400
+of 25 slots after its first pull. The pull now caps each pass at
+`orphanAdoptionCap(capacityHeadroom(owner, "activeListings"))`
+(`lib/ebay-orphan-adopt.ts`): the first `headroom` orphans become items and the
+rest stay `unmatched` and show in `orphans_deferred`, to be picked up by a later
+pass once there is room. An unknown allowance adopts nothing. The sync's OTHER
+`listed` writes are not gated and should not be: they record listings eBay
+already reports live, so there is nothing to refuse, and skipping them would
+only make the count read low. A listing made in Seller Hub therefore counts,
+and blocks the seller's next FlipDesk publish, which is the cap doing its job.
+The Reconciliation page's manual "Create all" still inserts `listed` items from
+the browser with no gate; that is a known gap, not a decision.
 
 **An account with NO seller plan is bounded instead of gated (US-3263,
 2026-09-09).** It used to be refused outright with a `FEATURE_LOCKED` 402. Now

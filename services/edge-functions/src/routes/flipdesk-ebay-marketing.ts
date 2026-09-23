@@ -154,28 +154,6 @@ function parseItemPromotionInput(raw: unknown): ItemPromotionInput | { error: st
   return input;
 }
 
-// US-1979 (AC2): GET /promotions/:promotionId — the FULL promotion.
-//
-// The list endpoint above returns summaries only (id/name/type/status/dates). An
-// edit UI must read the whole promotion first, because updateItemPromotion is a PUT
-// that REPLACES it: prefilling an edit form from the list shape would send back a
-// body with no listings, no percent, no minSpend and no coupon code, silently
-// wiping the promotion's targeting and discount while it keeps its id and looks
-// like it saved. This is the read that makes the PUT safe.
-flipdeskEbayRoutes.get("/promotions/:promotionId", async (c) => {
-  const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
-  if (!isEbayConfigured()) {
-    return c.json({ error: "eBay is not configured on this server." }, 503);
-  }
-  try {
-    const promotion = await getItemPromotion(ownerId, c.req.param("promotionId"));
-    return c.json({ promotion });
-  } catch (err) {
-    if (isAnalyticsAccessDenied(err)) return c.json({ access: false }, 403);
-    return failSafe(c, 502, "Couldn't load that promotion.", err, "ebay.promotions.get_one");
-  }
-});
-
 flipdeskEbayRoutes.post("/promotions", async (c) => {
   const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
   if (!isEbayConfigured()) {
@@ -682,6 +660,33 @@ flipdeskEbayRoutes.get("/promotions/stack-check", async (c) => {
       err,
       "ebay.promotions.stack_check",
     );
+  }
+});
+
+// US-1979 (AC2): GET /promotions/:promotionId — the FULL promotion.
+//
+// The list endpoint above returns summaries only (id/name/type/status/dates). An
+// edit UI must read the whole promotion first, because updateItemPromotion is a PUT
+// that REPLACES it: prefilling an edit form from the list shape would send back a
+// body with no listings, no percent, no minSpend and no coupon code, silently
+// wiping the promotion's targeting and discount while it keeps its id and looks
+// like it saved. This is the read that makes the PUT safe.
+//
+// Registered AFTER the literal GET /promotions/performance and
+// /promotions/stack-check above: Hono serves the first match, and ahead of them
+// this route took "performance" and "stack-check" as promotion ids.
+// ebay-promotions-route-order_test.ts holds the order.
+flipdeskEbayRoutes.get("/promotions/:promotionId", async (c) => {
+  const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
+  if (!isEbayConfigured()) {
+    return c.json({ error: "eBay is not configured on this server." }, 503);
+  }
+  try {
+    const promotion = await getItemPromotion(ownerId, c.req.param("promotionId"));
+    return c.json({ promotion });
+  } catch (err) {
+    if (isAnalyticsAccessDenied(err)) return c.json({ access: false }, 403);
+    return failSafe(c, 502, "Couldn't load that promotion.", err, "ebay.promotions.get_one");
   }
 });
 
