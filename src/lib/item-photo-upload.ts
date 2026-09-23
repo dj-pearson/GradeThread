@@ -64,8 +64,13 @@ export async function uploadItemPhoto({
   const file = await normalizeToImageFile(picked);
 
   const originalSize = file.size;
-  let body: Blob = file;
-  let bodyType = file.type;
+  // item-photos is the one PUBLIC bucket and the browser writes to it directly,
+  // so the server's stripImageMetadata never runs on this path. The canvas pass
+  // in compressImage is the only thing that drops EXIF/GPS. There is therefore
+  // no fallback to the picked file: if it cannot be re-encoded, the upload
+  // fails instead of publishing the camera original.
+  let body: Blob;
+  let bodyType: string;
   let ext = extOf(file);
   let width: number | null = null;
   let height: number | null = null;
@@ -86,11 +91,12 @@ export async function uploadItemPhoto({
     // image renders the right way up everywhere — including eBay, which ignores
     // EXIF orientation tags. Falling back to the original to dodge a marginally
     // larger file would re-introduce sideways photos, so correctness wins.
-    if (main.blob.size > 0) {
-      body = main.blob;
-      bodyType = main.blob.type || "image/webp";
-      ext = extForBlobType(bodyType, ext);
+    if (!(main.blob.size > 0)) {
+      throw new Error("compressImage returned an empty image");
     }
+    body = main.blob;
+    bodyType = main.blob.type || "image/webp";
+    ext = extForBlobType(bodyType, ext);
     width = main.width;
     height = main.height;
 
@@ -110,11 +116,11 @@ export async function uploadItemPhoto({
     }
   } catch (compressErr) {
     if (import.meta.env.DEV) {
-      console.warn(
-        "[item-photo-upload] compress failed, uploading original:",
-        compressErr,
-      );
+      console.warn("[item-photo-upload] compress failed:", compressErr);
     }
+    throw new Error(
+      `Couldn't prepare ${file.name || "this photo"} for upload. Take it again or pick a different photo.`,
+    );
   }
 
   // Millisecond timestamp alone collides when a bulk batch uploads several
@@ -175,7 +181,20 @@ export async function uploadItemPhoto({
     height,
     bytes: body.size,
   } as never);
-  if (insErr) throw insErr;
+  if (insErr) {
+    // No row points at these objects, so nothing would ever list or delete
+    // them. Remove them before reporting; a failed cleanup must not hide the
+    // insert error the caller needs to see.
+    const orphans = thumbnailPath ? [path, thumbnailPath] : [path];
+    try {
+      await supabase.storage.from("item-photos").remove(orphans);
+    } catch (cleanupErr) {
+      if (import.meta.env.DEV) {
+        console.warn("[item-photo-upload] orphan cleanup failed:", cleanupErr);
+      }
+    }
+    throw insErr;
+  }
 
   // US-2136: assess the macro slots (tag, serial, marking, surface, …) on the
   // bytes we actually STORED, not the camera original — compressImage caps at
