@@ -29,6 +29,8 @@ on:
       - "scripts/check-created-by.mjs"
       - "scripts/check-sku-sequences.mjs"
       - "scripts/check-dispute-report-ownership.mjs"
+      - "scripts/check-source-tenant-scope.mjs"
+      - "scripts/check-api-key-self-upgrade.mjs"
       - "scripts/check-work-session-storage.mjs"
       - "scripts/check-work-override-storage.mjs"
       - "scripts/check-one-open-grade.mjs"
@@ -68,6 +70,8 @@ on:
       - "scripts/check-created-by.mjs"
       - "scripts/check-sku-sequences.mjs"
       - "scripts/check-dispute-report-ownership.mjs"
+      - "scripts/check-source-tenant-scope.mjs"
+      - "scripts/check-api-key-self-upgrade.mjs"
       - "scripts/check-work-session-storage.mjs"
       - "scripts/check-work-override-storage.mjs"
       - "scripts/check-one-open-grade.mjs"
@@ -193,6 +197,16 @@ jobs:
       # real dispute.
       - name: A dispute cannot name another seller's report (US-2670)
         run: node scripts/check-dispute-report-ownership.mjs
+      # 00824: get_or_create_source is SECURITY DEFINER and trusts p_user_id
+      # from the browser. A stranger is refused with 42501; the owner, a
+      # listing_manager member and the service role still get through.
+      - name: get_or_create_source is tenant-scoped (00824)
+        run: node scripts/check-source-tenant-scope.mjs
+      # 00825: api-key-auth trusts api_keys.rate_tier and monthly_quota, so a
+      # client must not be able to write either. The owner can still read and
+      # delete, and the service role still mints (POST /api/keys).
+      - name: An API key owner cannot raise their own tier or quota (00825)
+        run: node scripts/check-api-key-self-upgrade.mjs
       # US-3167: the work-session rules that only a database can hold. Two tabs
       # pressing Start, a retried timing event, a revision-scoped write, a
       # deleted item, an erased account -- every one passes a check-then-write

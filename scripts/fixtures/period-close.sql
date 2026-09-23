@@ -20,6 +20,8 @@
 --      everything.
 --   4. Reopening restores writes and keeps the audit row.
 --   5. Closing takes the inventory snapshot in the same action (AC5).
+--   6. Closing rebuilds the ledger first, so a sale recorded after the last
+--      build is in the frozen figures (00826).
 begin;
 
 insert into auth.users (id, email, instance_id, aud, role)
@@ -60,6 +62,30 @@ on conflict (id) do nothing;
 
 select public.rebuild_ledger_for_user('a0000000-0000-0000-0000-0000000c1053');
 
+-- 6: A SALE RECORDED AFTER THE LEDGER WAS LAST BUILT. The ledger is rebuilt on
+-- demand, not by a trigger, so without a rebuild inside close_period this sale
+-- would be missing from the figures the close freezes (00826).
+insert into public.inventory_items (id, user_id, title, acquired_price, acquired_date, status)
+values ('b3000000-0000-0000-0000-000000000003', 'a0000000-0000-0000-0000-0000000c1053',
+        'Sold after the first build', 10.00, '2025-02-01', 'sold')
+on conflict (id) do nothing;
+insert into public.sales
+  (id, user_id, inventory_item_id, sale_price, platform_fees, sale_date, status)
+values ('c3000000-0000-0000-0000-000000000002', 'a0000000-0000-0000-0000-0000000c1053',
+        'b3000000-0000-0000-0000-000000000003', 250.00, 0, '2025-09-01', 'completed')
+on conflict (id) do nothing;
+
+-- The ledger's sale net for this seller as it stood BEFORE the close, using
+-- the same filter ledger_reconciliation applies.
+create temp table _pc_before on commit drop as
+select coalesce(sum(e.amount_cents) filter (
+         where a.flow <> 'excluded' and a.flow <> 'asset'
+           and e.source_kind <> 'expense'), 0) as net
+  from public.ledger_entries e
+  join public.ledger_accounts a on a.id = e.account_id
+ where e.user_id = 'a0000000-0000-0000-0000-0000000c1053'
+   and e.entry_date >= '2025-01-01';
+
 -- 5: close 2025. As the seller, because close_period is SECURITY INVOKER.
 set local role authenticated;
 set local request.jwt.claims = '{"sub":"a0000000-0000-0000-0000-0000000c1053","role":"authenticated"}';
@@ -74,6 +100,25 @@ select 'closing figures recorded' as q,
        (closing_figures ? 'ledger' and closing_figures ? 'cogs')::text as a
   from public.closed_periods
  where user_id = 'a0000000-0000-0000-0000-0000000c1053' and reopened_at is null;
+
+select 'late sale in the ledger at close' as q,
+       (count(*) > 0)::text as a
+  from public.ledger_entries
+ where source_id = 'c3000000-0000-0000-0000-000000000002';
+
+-- The frozen figure moved by exactly the late sale's own entries.
+select 'closing figures include the late sale' as q,
+       ((cp.closing_figures -> 'ledger' ->> 'ledger_sale_net_cents')::bigint - b.net
+          = (select coalesce(sum(e.amount_cents), 0)
+               from public.ledger_entries e
+               join public.ledger_accounts a on a.id = e.account_id
+              where e.source_id = 'c3000000-0000-0000-0000-000000000002'
+                and a.flow <> 'excluded' and a.flow <> 'asset'
+                and e.source_kind <> 'expense')
+        and b.net <> (cp.closing_figures -> 'ledger' ->> 'ledger_sale_net_cents')::bigint
+       )::text as a
+  from public.closed_periods cp, _pc_before b
+ where cp.user_id = 'a0000000-0000-0000-0000-0000000c1053' and cp.reopened_at is null;
 
 -- ── 1: THE REFUSALS, ALL AS `postgres` (the service role's privilege level) ──
 do $$

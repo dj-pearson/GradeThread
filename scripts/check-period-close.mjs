@@ -77,6 +77,18 @@ check("the close returns an id", val("closed period id"), "true");
 // would produce closed years with no Part III figures.
 check("it takes the inventory snapshot in the same action", val("snapshot taken by the close"), 1);
 check("and records the figures as they stood", val("closing figures recorded"), "true");
+// 00826: the ledger is rebuilt on demand, not by a trigger. A close that did
+// not rebuild first froze figures missing every sale since the last build.
+check(
+  "it rebuilds the ledger first, so a sale added after the last build is in it",
+  val("late sale in the ledger at close"),
+  "true",
+);
+check(
+  "and the frozen figures include that sale",
+  val("closing figures include the late sale"),
+  "true",
+);
 
 console.log("\nTHE LOCK, ALL AS `postgres` (service-role privilege) — AC2:");
 expectNotice("an expense in a closed year cannot be edited", "OK: expense edit refused");

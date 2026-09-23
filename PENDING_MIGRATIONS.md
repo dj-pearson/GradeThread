@@ -72,6 +72,116 @@ stronger claim for one of them, `check-prod-migration.ts` is the tool.
 Nothing below 00786 was touched, and the six genuinely-held branches in the next
 section are unchanged and still waiting.
 
+## HELD: 00827_listings_publish_attempts.sql (marketplaces - cap scheduled-publish retries)
+
+**What it does.** `ALTER TABLE public.listings ADD COLUMN IF NOT EXISTS
+publish_attempts integer NOT NULL DEFAULT 0`, plus a column comment. Column
+only; metadata-only on Postgres 11+, so no table rewrite.
+
+**Why.** The eBay publish-due tick reclaims a failed scheduled draft every 10
+minutes forever (about 144 tries a day on a permanent blocker). The edge change
+that increments and caps this counter ships separately and reads exactly this
+column name.
+
+**Proved on a local Postgres 16 with all migrations applied:** inside a
+rolled-back transaction, an existing listing reads 0 after the apply, a new
+row defaults to 0, an increment works, NULL is refused, and applying the file
+twice in a row succeeds (the second run skips with a NOTICE).
+
+**Risk: LOW.** Additive. `src/types/database.ts` ListingRow carries the field
+so `listing-row-schema-parity.test.ts` stays green; no client code reads it.
+
+**Order.** Apply BEFORE any edge deploy whose publish-due code filters on
+`publish_attempts` (that code 42703s without it) and before the edge redeploy
+(the boot guard expects 00827). Then `NOTIFY pgrst, 'reload schema';`
+(migrate:prod sends it).
+
+## HELD: 00826_close_period_rebuilds_ledger.sql (money - closing a period froze stale ledger figures)
+
+**What it does.** `CREATE OR REPLACE` of `public.close_period`, same signature,
+same body as 00702 plus one line: `PERFORM public.rebuild_ledger_for_user(v_uid)`
+before the inventory snapshot and the closing figures. The 00702 grants are
+restated unchanged. No REVOKE (US-3002 / US-2403 pattern).
+
+**Why.** `closing_figures` comes from `ledger_reconciliation()`, which reads
+`ledger_entries`, and those rows only change when something calls
+`rebuild_ledger_for_user`. Nothing on the close path did, so a seller could
+freeze a year missing every sale since the ledger was last built.
+
+**Proved on a local Postgres 16 with all migrations applied:**
+`node scripts/check-period-close.mjs --dsn ...` now adds a sale after the first
+build. Before 00826 both new checks are red (the sale has no ledger entries
+and the frozen figure did not move); after, all 19 checks pass. Applied twice
+with no error.
+
+**Risk: LOW.** A close now does one rebuild of the seller's own ledger, the
+same call the Money pages already make. Known and NOT changed here: a rebuild
+rewrites entries dated inside an earlier closed period too (money plan,
+action 3).
+
+**Order.** Apply any time, BEFORE the edge redeploy (the boot guard expects
+00826). Then `NOTIFY pgrst, 'reload schema';` (migrate:prod sends it).
+
+## HELD: 00825_api_keys_no_client_writes.sql (security - a key owner could raise their own API tier and clear their quota)
+
+**What it does.** Drops three RLS policies on `public.api_keys`: "Users can
+update own API keys" (00005/00322), "Users can create API keys" (00001) and
+"Workspace admins can create api keys" (00042). SELECT and DELETE policies stay.
+No table change, no grant change.
+
+**Why.** `api-key-auth.ts` trusts `rate_tier` ('enterprise' is the top
+per-minute tier) and reads a NULL `monthly_quota` as unlimited. The UPDATE
+policy had no column limit, so any key owner could PATCH both through
+PostgREST. The INSERT policies let a client write both on a new row. Every
+write to `api_keys` in the code goes through the edge's service-role client
+(`routes/api-keys.ts`, `api-v1.ts` webhook, `admin-compliance.ts`); `src/`,
+`ios/` and `android/` never write the table.
+
+**Proved on a local Postgres 16 with all migrations applied:**
+`node scripts/check-api-key-self-upgrade.mjs --dsn ...` goes red before 00825
+(owner UPDATE changes 1 row, owner and admin INSERT allowed, key ends
+`enterprise/null`) and green after (0 rows, both inserts REFUSED_42501, key
+stays `null/100`; owner still reads and deletes, service role still inserts).
+Applied twice with no error.
+
+**Risk: LOW.** Nothing in the client writes the table. Not covered here:
+POST /api/keys still mints keys with no quota, so deleting a capped key and
+minting a new one escapes the cap (extensions-api plan, account-level quota).
+
+**After applying, confirm on prod** that the three policies are gone
+(`select polname from pg_policy where polrelid = 'public.api_keys'::regclass`).
+A local cluster cannot answer that.
+
+**Order.** Apply any time, BEFORE the edge redeploy (the boot guard expects
+00825). Then `NOTIFY pgrst, 'reload schema';` (migrate:prod sends it).
+
+## HELD: 00824_get_or_create_source_tenant_scope.sql (security - a signed-in user could write another seller's sources)
+
+**What it does.** `CREATE OR REPLACE` of `public.get_or_create_source`, same
+signature, same body as 00640, plus one check after the role guard: the caller
+must be the service role, the account owner (`p_user_id = auth.uid()`), or a
+`listing_manager`-or-higher member of that workspace. Anyone else gets 42501.
+No table change, no grant change, no REVOKE.
+
+**Why.** The function is SECURITY DEFINER and the browser passes `p_user_id`
+itself (intake, bulk intake). Before this, any signed-in account could insert a
+source into another seller's account, or look up one of their source names and
+get the row id back. Live on prod for every signed-in account.
+
+**Proved on a local Postgres 16 with all migrations applied:**
+`node scripts/check-source-tenant-scope.mjs --dsn ...` goes red before 00824
+(stranger ALLOWED, 1 planted row) and green after (stranger and viewer
+REFUSED_42501; owner, listing_manager and service role ALLOWED). Applied twice
+in a row with no error.
+
+**Risk: LOW.** Same signature, so existing grants stand. The only callers are
+the web intake pages, which pass the seller's own id or the workspace owner's
+id for a member; a viewer-role member calling it was already refused by the
+sources INSERT policy on the direct path.
+
+**Order.** Apply any time, BEFORE the edge redeploy (the boot guard expects
+00824). Then `NOTIFY pgrst, 'reload schema';` (migrate:prod sends it).
+
 ## HELD: 00823_imported_sales_shipped.sql (US-3465 - old imported sales out of the Ship queue)
 
 **What it does.** One UPDATE on `public.sales`: sets `shipped_at` to the sale
