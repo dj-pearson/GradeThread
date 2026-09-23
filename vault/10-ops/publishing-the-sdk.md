@@ -1,6 +1,6 @@
 ---
 title: Publishing the SDK
-aliases: [npm publish, "@gradethread/sdk", NPM_TOKEN, SDK_PUBLISHED, sdk-publish]
+aliases: [npm publish, "@gradethread/sdk", NPM_ACCESS_TOKEN, SDK_PUBLISHED, sdk-publish]
 type: runbook
 status: current
 source_of_truth: code
@@ -40,10 +40,13 @@ read that from `SDK_PUBLISHED` in `src/lib/sdk-release.ts`.
    `@gradethread/sdk` (before the first publish, scope it to the `gradethread`
    org instead, then narrow it once the package exists). Set an expiry and record
    it with the other secrets in [[key-rotation]].
-3. **Add it as a GitHub Actions secret** named `NPM_TOKEN` (repo Settings >
-   Secrets and variables > Actions). Without it, a tag push still runs and ends
-   with the notice "SDK publish skipped: NPM_TOKEN is not set" rather than a red
-   run.
+3. **Store it in Infisical** as `NPM_ACCESS_TOKEN` (project `grade-thread`, env
+   `prod`, path `/`), the same place the iOS and Android release secrets live.
+   The workflow imports it with the three `INFISICAL_*` GitHub secrets, and only
+   on a real publish; a dry run never asks for it. Without it, a tag push still
+   runs and ends with the notice "SDK publish skipped: NPM_ACCESS_TOKEN is not
+   in Infisical" rather than a red run. There is no package to create on npm
+   first: the first publish creates `@gradethread/sdk` inside the org.
 4. **License: MIT** (owner, 2026-09-23). `sdk/gradethread-js/LICENSE` holds
    the text and npm packs it automatically.
 

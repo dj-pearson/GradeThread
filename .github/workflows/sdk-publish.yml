@@ -7,10 +7,11 @@ name: SDK publish
 # dry_run left on, which builds, tests and runs `npm publish --dry-run`.
 # Runbook: vault/10-ops/publishing-the-sdk.md.
 #
-# NPM_TOKEN is a granular npm access token with publish rights on
-# @gradethread/sdk, stored as a GitHub Actions secret. Without it a real
-# publish skips with a notice instead of failing, so the workflow can land
-# before the npm org exists.
+# NPM_ACCESS_TOKEN is a granular npm access token with publish rights on the
+# gradethread org, stored in self-hosted Infisical (project grade-thread, env
+# prod, path /) like the iOS and Android release secrets. Only the three
+# INFISICAL_* values live in GitHub Actions secrets. Without the token a real
+# publish skips with a notice instead of failing.
 
 on:
   push:
@@ -44,13 +45,24 @@ jobs:
       # A tag push is always a real publish; a manual run is a dry run unless
       # the box is unticked.
       DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run && 'true' || 'false' }}
-      HAS_NPM_TOKEN: ${{ secrets.NPM_TOKEN != '' && 'true' || 'false' }}
       REPO_PRIVATE: ${{ github.event.repository.private && 'true' || 'false' }}
     steps:
       - uses: actions/checkout@v4
         with:
           sparse-checkout: |
             sdk/gradethread-js
+
+      # A dry run needs no token, so it never touches Infisical.
+      - name: Import the npm token from Infisical
+        if: env.DRY_RUN != 'true'
+        uses: Infisical/secrets-action@v1.0.16
+        with:
+          client-id: ${{ secrets.INFISICAL_CLIENT_ID }}
+          client-secret: ${{ secrets.INFISICAL_CLIENT_SECRET }}
+          domain: ${{ secrets.INFISICAL_DOMAIN }}
+          project-slug: grade-thread
+          env-slug: prod
+          secret-path: /
 
       - uses: actions/setup-node@v4
         with:
@@ -67,8 +79,8 @@ jobs:
           if [ "$DRY_RUN" = "true" ]; then
             echo "Dry run: will build, test and run npm publish --dry-run."
             echo "go=true" >> "$GITHUB_OUTPUT"
-          elif [ "$HAS_NPM_TOKEN" != "true" ]; then
-            echo "::notice title=SDK publish skipped::NPM_TOKEN is not set. Add it under Settings > Secrets and variables > Actions, then re-push the tag. See vault/10-ops/publishing-the-sdk.md."
+          elif [ -z "${NPM_ACCESS_TOKEN:-}" ]; then
+            echo "::notice title=SDK publish skipped::NPM_ACCESS_TOKEN is not in Infisical (grade-thread, prod, /). Add it there, then re-run this job. See vault/10-ops/publishing-the-sdk.md."
             echo "go=false" >> "$GITHUB_OUTPUT"
           elif [ "$GITHUB_REF_TYPE" != "tag" ]; then
             echo "::error::A real publish runs from an sdk-v* tag. Push the tag, or run this workflow with dry_run on."
@@ -126,7 +138,7 @@ jobs:
       - name: Publish
         if: steps.gate.outputs.go == 'true' && env.DRY_RUN != 'true'
         env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          NODE_AUTH_TOKEN: ${{ env.NPM_ACCESS_TOKEN }}
         run: |
           if [ "$REPO_PRIVATE" = "true" ]; then
             npm publish --access public
