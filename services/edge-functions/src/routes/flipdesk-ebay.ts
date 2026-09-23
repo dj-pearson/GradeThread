@@ -482,6 +482,14 @@ import { validateImageUpload } from "../lib/upload-validation.ts";
 import { stripImageMetadata } from "../lib/image-metadata.ts";
 import { requireFlipdesk } from "../lib/plan-gate.ts";
 import { registerEbayPublisher } from "../lib/ebay-publish-port.ts";
+import {
+  canClaimScheduledPublish,
+  MAX_SCHEDULED_PUBLISH_ATTEMPTS,
+  planScheduledPublishFailure,
+  PUBLISH_DUE_LEASE_SECONDS,
+  publishAttemptsOf,
+  publishDueDeadlineReached,
+} from "../lib/publish-due-policy.ts";
 import { capacityAllowedForUser } from "../lib/plan-gate.ts";
 import { pushTokenExpiring } from "../lib/transactional-push.ts";
 import {
@@ -12225,12 +12233,13 @@ flipdeskEbayRoutes.post("/jobs/publish-due", async (c) => {
   // (Per-row publish_claimed_at claim-lock below — US-528 — is the resource-
   // level idempotency; this just stops a wasteful overlapping scan.) 4-min lease
   // < the 5-min cadence so a crashed run frees the lock before the next tick.
-  const lock = await acquireJobLock("publish-due", 240);
+  const lock = await acquireJobLock("publish-due", PUBLISH_DUE_LEASE_SECONDS);
   if (!lock.acquired) {
     return c.json({ skipped: true, reason: lock.reason, scanned: 0, published: 0 });
   }
   try {
-  const now = new Date().toISOString();
+  const tickStartedMs = Date.now();
+  const now = new Date(tickStartedMs).toISOString();
   // US-528: a claim older than this is "stale" and reclaimable — covers a
   // publish whose container crashed/redeployed mid-run so the draft isn't
   // stranded. Must comfortably exceed the worst-case publish wall-time.
@@ -12244,10 +12253,11 @@ flipdeskEbayRoutes.post("/jobs/publish-due", async (c) => {
   // NULL scheduled_publish_at rows.
   const { data: dueRows, error } = await supabaseAdmin
     .from("listings")
-    .select("id, inventory_item_id")
+    .select("id, inventory_item_id, publish_attempts")
     .lte("scheduled_publish_at", now)
     .is("synced_to_ebay_at", null)
     .eq("listing_status", "draft")
+    .lt("publish_attempts", MAX_SCHEDULED_PUBLISH_ATTEMPTS)
     .or(`publish_claimed_at.is.null,publish_claimed_at.lt.${staleBefore}`)
     .order("scheduled_publish_at", { ascending: true })
     .limit(batchLimit + 1);
@@ -12256,7 +12266,11 @@ flipdeskEbayRoutes.post("/jobs/publish-due", async (c) => {
     return c.json({ error: "Scan failed" }, 500);
   }
 
-  const allDue = (dueRows ?? []) as { id: string; inventory_item_id: string }[];
+  const allDue = (dueRows ?? []) as {
+    id: string;
+    inventory_item_id: string;
+    publish_attempts: number | null;
+  }[];
   // US-407: we asked for batchLimit+1; a full extra row means the backlog
   // exceeds one tick. Process only batchLimit this invocation; the next cron
   // tick picks up the rest. `more` lets ops/monitoring see the backlog draining.
@@ -12279,10 +12293,24 @@ flipdeskEbayRoutes.post("/jobs/publish-due", async (c) => {
   let published = 0;
   let failed = 0;
   let skipped = 0;
+  let deferred = 0;
+  let exhausted = 0;
   for (const row of due) {
+    // Stop claiming once the tick nears the job-lock lease, so a publish taken
+    // now is not still running when the lock expires and the next tick starts.
+    // Unreached rows stay due; the next tick picks them up.
+    if (publishDueDeadlineReached(tickStartedMs, Date.now())) {
+      deferred = due.length - (published + failed + skipped);
+      break;
+    }
     const owner = ownerByItem.get(row.inventory_item_id);
     if (!owner) {
       failed += 1;
+      continue;
+    }
+    const attempts = publishAttemptsOf(row.publish_attempts);
+    if (!canClaimScheduledPublish(attempts)) {
+      skipped += 1;
       continue;
     }
 
@@ -12297,23 +12325,33 @@ flipdeskEbayRoutes.post("/jobs/publish-due", async (c) => {
     // US-1552: two sequential conditional updates, NOT `.or()` — the prod
     // PostgREST rejects logical operators on mutations (42703 from the
     // update-CTE alias), which silently skipped every claim.
+    // Each claim counts one attempt. PostgREST cannot write
+    // publish_attempts + 1, so the claim writes the scanned value + 1 and
+    // matches on the scanned value: a tick holding a stale count claims
+    // nothing, and the cap is re-checked in the same statement.
+    const attemptsAfterClaim = attempts + 1;
+    const claimPatch = { publish_claimed_at: claimedAt, publish_attempts: attemptsAfterClaim };
     let { data: claimed, error: claimErr } = await supabaseAdmin
       .from("listings")
-      .update({ publish_claimed_at: claimedAt })
+      .update(claimPatch)
       .eq("id", row.id)
       .eq("listing_status", "draft")
       .is("synced_to_ebay_at", null)
       .is("publish_claimed_at", null)
+      .eq("publish_attempts", attempts)
+      .lt("publish_attempts", MAX_SCHEDULED_PUBLISH_ATTEMPTS)
       .select("id")
       .maybeSingle();
     if (!claimErr && !claimed) {
       ({ data: claimed, error: claimErr } = await supabaseAdmin
         .from("listings")
-        .update({ publish_claimed_at: claimedAt })
+        .update(claimPatch)
         .eq("id", row.id)
         .eq("listing_status", "draft")
         .is("synced_to_ebay_at", null)
         .lt("publish_claimed_at", staleBefore)
+        .eq("publish_attempts", attempts)
+        .lt("publish_attempts", MAX_SCHEDULED_PUBLISH_ATTEMPTS)
         .select("id")
         .maybeSingle());
     }
@@ -12329,33 +12367,42 @@ flipdeskEbayRoutes.post("/jobs/publish-due", async (c) => {
       continue;
     }
 
+    let failureMsg: string | null = null;
     try {
       const result = await publishItemForOwner(owner, row.inventory_item_id);
       if (result.ok) {
         published += 1;
       } else {
-        failed += 1;
         const b = result.body;
-        const msg = (b.detail ?? b.error ??
+        failureMsg = (b.detail ?? b.error ??
           (Array.isArray(b.blockers) ? (b.blockers as string[]).join("; ") : "Publish failed")) as string;
-        await supabaseAdmin
-          .from("listings")
-          .update({ publish_error: msg.slice(0, 1000), publish_failed_at: now })
-          .eq("id", row.id);
       }
     } catch (err) {
+      failureMsg = err instanceof Error ? err.message : String(err);
+    }
+    if (failureMsg !== null) {
       failed += 1;
-      await supabaseAdmin
+      // Stamp the moment THIS publish failed, not the scan-time `now`. On the
+      // last attempt the plan also clears scheduled_publish_at so the draft
+      // stops being due; publish_error stays for the seller to read. There is
+      // no publish-failure notification helper yet, so the seller learns of it
+      // from the draft's publish_error banner and the pipeline-issue view.
+      const plan = planScheduledPublishFailure(attemptsAfterClaim, failureMsg, new Date());
+      if (plan.terminal) exhausted += 1;
+      const { error: failErr } = await supabaseAdmin
         .from("listings")
-        .update({
-          publish_error: (err instanceof Error ? err.message : String(err)).slice(0, 1000),
-          publish_failed_at: now,
-        })
-        .eq("id", row.id);
+        .update(plan.patch)
+        .eq("id", row.id)
+        .eq("inventory_item_id", row.inventory_item_id);
+      if (failErr) {
+        console.error(
+          `[flipdesk-ebay] scheduled-publish failure write failed for listing ${row.id}: ${failErr.message}`,
+        );
+      }
     }
   }
 
-  return c.json({ scanned: due.length, published, failed, skipped, more });
+  return c.json({ scanned: due.length, published, failed, skipped, exhausted, deferred, more });
   } finally {
     await lock.release();
   }
