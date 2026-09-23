@@ -43,7 +43,9 @@ read that from `SDK_PUBLISHED` in `src/lib/sdk-release.ts`.
 3. **Store it in Infisical** as `NPM_ACCESS_TOKEN` (project `grade-thread`, env
    `prod`, path `/`), the same place the iOS and Android release secrets live.
    The workflow imports it with the three `INFISICAL_*` GitHub secrets, and only
-   on a real publish; a dry run never asks for it. Without it, a tag push still
+   on a real publish, after install, build and test: the import loads every
+   secret at that path into the job, so it waits until no dependency script is
+   left to run. A dry run never asks for it. Without it, a tag push still
    runs and ends with the notice "SDK publish skipped: NPM_ACCESS_TOKEN is not
    in Infisical" rather than a red run. There is no package to create on npm
    first: the first publish creates `@gradethread/sdk` inside the org.

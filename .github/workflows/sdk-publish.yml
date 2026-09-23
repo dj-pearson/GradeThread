@@ -52,18 +52,6 @@ jobs:
           sparse-checkout: |
             sdk/gradethread-js
 
-      # A dry run needs no token, so it never touches Infisical.
-      - name: Import the npm token from Infisical
-        if: env.DRY_RUN != 'true'
-        uses: Infisical/secrets-action@v1.0.16
-        with:
-          client-id: ${{ secrets.INFISICAL_CLIENT_ID }}
-          client-secret: ${{ secrets.INFISICAL_CLIENT_SECRET }}
-          domain: ${{ secrets.INFISICAL_DOMAIN }}
-          project-slug: grade-thread
-          env-slug: prod
-          secret-path: /
-
       - uses: actions/setup-node@v4
         with:
           # 22, not the SDK's engines floor of 20: react-router-8-contract.test.ts
@@ -79,11 +67,8 @@ jobs:
           if [ "$DRY_RUN" = "true" ]; then
             echo "Dry run: will build, test and run npm publish --dry-run."
             echo "go=true" >> "$GITHUB_OUTPUT"
-          elif [ -z "${NPM_ACCESS_TOKEN:-}" ]; then
-            echo "::notice title=SDK publish skipped::NPM_ACCESS_TOKEN is not in Infisical (grade-thread, prod, /). Add it there, then re-run this job. See vault/10-ops/publishing-the-sdk.md."
-            echo "go=false" >> "$GITHUB_OUTPUT"
           elif [ "$GITHUB_REF_TYPE" != "tag" ]; then
-            echo "::error::A real publish runs from an sdk-v* tag. Push the tag, or run this workflow with dry_run on."
+            echo "::error::A real publish runs from an sdk-v* tag, not from Run workflow. Run it with dry_run ticked to rehearse, or push a tag (git tag sdk-v0.1.0 && git push origin sdk-v0.1.0) to publish."
             exit 1
           else
             echo "go=true" >> "$GITHUB_OUTPUT"
@@ -122,6 +107,32 @@ jobs:
             exit 1
           fi
 
+      # Imported only here, after npm ci, build and test. The action loads
+      # EVERY secret at grade-thread/prod/ (Stripe, service role, Anthropic...)
+      # into the job env, and dependency install scripts and tests should never
+      # run with those in reach. A dry run never touches Infisical at all.
+      - name: Import the npm token from Infisical
+        if: steps.gate.outputs.go == 'true' && env.DRY_RUN != 'true'
+        uses: Infisical/secrets-action@v1.0.16
+        with:
+          client-id: ${{ secrets.INFISICAL_CLIENT_ID }}
+          client-secret: ${{ secrets.INFISICAL_CLIENT_SECRET }}
+          domain: ${{ secrets.INFISICAL_DOMAIN }}
+          project-slug: grade-thread
+          env-slug: prod
+          secret-path: /
+
+      - name: Check the npm token arrived
+        id: token
+        if: steps.gate.outputs.go == 'true' && env.DRY_RUN != 'true'
+        run: |
+          if [ -z "${NPM_ACCESS_TOKEN:-}" ]; then
+            echo "::notice title=SDK publish skipped::NPM_ACCESS_TOKEN is not in Infisical (grade-thread, prod, /). Add it there, then re-run this job. See vault/10-ops/publishing-the-sdk.md."
+            echo "ok=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "ok=true" >> "$GITHUB_OUTPUT"
+          fi
+
       # npm refuses provenance from a private repository. package.json asks for
       # it, so on a private repo it is switched off for this run only (the
       # checkout is thrown away) and the run says so.
@@ -136,7 +147,7 @@ jobs:
         run: npm publish --dry-run --access public
 
       - name: Publish
-        if: steps.gate.outputs.go == 'true' && env.DRY_RUN != 'true'
+        if: steps.gate.outputs.go == 'true' && env.DRY_RUN != 'true' && steps.token.outputs.ok == 'true'
         env:
           NODE_AUTH_TOKEN: ${{ env.NPM_ACCESS_TOKEN }}
         run: |
