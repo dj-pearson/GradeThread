@@ -55,6 +55,11 @@ import { PwaInstallBanner } from "@/components/flipdesk/pwa-install-banner";
 import { useOfflineIntakeSync } from "@/hooks/use-offline-intake";
 import { enqueueIntake } from "@/lib/offline-queue";
 import {
+  offlineSavedMessage,
+  planIntakeSave,
+  resolveIntakeSourceChoice,
+} from "@/lib/intake-save-plan";
+import {
   AiFillPanel,
   type AcceptedField,
 } from "@/components/flipdesk/ai-fill-panel";
@@ -372,19 +377,18 @@ export function FlipdeskIntakePage() {
       toast.error("Enter a name for the new source.");
       return;
     }
-    // Creating a brand-new source needs the network (a server-side RPC).
-    if (!navigator.onLine && form.source_id === "__new") {
-      toast.error(
-        "You're offline — pick an existing source, or reconnect to add a new one.",
-      );
-      return;
-    }
+    // Decide the route before any network call: offline, a new source is
+    // created by name at flush time and staged photos are queued as bytes.
+    const plan = planIntakeSave({
+      online: navigator.onLine,
+      source: resolveIntakeSourceChoice(form.source_id, form.source_new),
+      photoCount: stagedPhotos.length,
+    });
 
     setSaving(true);
     try {
-      // Resolve source: existing id, new (via RPC), or none.
-      let sourceId: string | null = null;
-      if (form.source_id === "__new" && form.source_new.trim()) {
+      let sourceId: string | null = plan.sourceId;
+      if (plan.route === "insert" && plan.newSourceName) {
         const supabaseAny = supabase as unknown as {
           rpc: (
             fn: string,
@@ -395,14 +399,12 @@ export function FlipdeskIntakePage() {
           "get_or_create_source",
           {
             p_user_id: workspaceOwnerId,
-            p_name: form.source_new.trim(),
+            p_name: plan.newSourceName,
             p_source_type: "other",
           },
         );
         if (error) throw error;
         sourceId = data;
-      } else if (form.source_id && form.source_id !== "__none") {
-        sourceId = form.source_id;
       }
 
       // Record which fields were AI-filled (and still are) for provenance.
@@ -456,12 +458,19 @@ export function FlipdeskIntakePage() {
       };
 
       // Offline: persist to the IndexedDB queue and flush on reconnect.
-      if (!navigator.onLine) {
-        await enqueueIntake(insert);
+      if (plan.route === "queue") {
+        await enqueueIntake(insert, {
+          newSourceName: plan.newSourceName,
+          photos: stagedPhotos.map((p, i) => ({
+            blob: p.file,
+            name: p.file.name,
+            photoType: p.photoType,
+            photoRole: p.photoRole ?? null,
+            sortOrder: i,
+          })),
+        });
         await offline.refresh();
-        toast.success(
-          `Saved "${form.title.trim()}" offline — it'll sync when you reconnect.`,
-        );
+        toast.success(offlineSavedMessage(form.title.trim(), plan));
         setForm({
           ...INITIAL,
           source_id: form.source_id === "__new" ? "" : form.source_id,
