@@ -128,9 +128,10 @@ describe("the bulk edit endpoint contract", () => {
   const hook = readFileSync(resolve(process.cwd(), "src/hooks/use-ebay.ts"), "utf8");
 
   it("accepts both the shared-edit and per-listing shapes", () => {
+    // INV-5: both shapes are sent in chunks of BULK_EDIT_MAX now.
     expect(hook).toContain('"items" in input');
-    expect(hook).toContain("{ items: input.items }");
-    expect(hook).toContain("{ listing_ids: input.listingIds, edit: input.edit }");
+    expect(hook).toContain("{ items: input.items.slice(i, i + BULK_EDIT_MAX) }");
+    expect(hook).toMatch(/listing_ids: input\.listingIds\.slice\(i, i \+ BULK_EDIT_MAX\),\s*edit: input\.edit,/);
   });
 
   it("surfaces the per-row prior values the undo needs", () => {
