@@ -38,6 +38,11 @@ import type {
   ListingPlatform,
 } from "@/types/database";
 import { blockingAspectReview } from "@/lib/aspect-review";
+import type { FilterQuery } from "@/lib/item-filter";
+import type { TabId } from "@/pages/flipdesk/inventory-tabs";
+import type { SoldFilter, SortPreset } from "@/pages/flipdesk/listings-filter";
+import type { UnlistedFilter } from "@/pages/flipdesk/inventory-tabs";
+import { LISTINGS_COLUMN_LIST } from "@/pages/flipdesk/listings-columns";
 
 // US-1568: draft listing metadata not on items_full (from the listings table).
 interface DraftMetaRow {
@@ -57,6 +62,47 @@ interface DraftMetaRow {
  * shape: the page renders it, and listings-actions.ts replays the same RPC to
  * build the CSV export. A second hand-written copy is how the two would drift.
  */
+/** Everything that decides WHICH rows the listing page shows. */
+export interface ListingPageCriteria {
+  tab: TabId;
+  search: string;
+  soldFilter: SoldFilter;
+  unlistedFilter: UnlistedFilter;
+  filterQuery: FilterQuery;
+  columnSort: { field: keyof ItemFullRow; dir: "asc" | "desc" } | null;
+  sortPreset: SortPreset;
+  agedThresholdDays: number;
+}
+
+/**
+ * INV-6: the `flipdesk_listing_page` arguments for a set of criteria, minus
+ * `p_limit` / `p_offset`. The page query and the select-all / CSV export both
+ * build their call from this, so the two cannot disagree about which rows
+ * match. They did: the export and select-all left out the Unlisted chip and the
+ * seller's Aged threshold, so "Select all" on Unlisted > Ready picked undrafted
+ * rows and then offered Publish.
+ */
+export function listingPageArgs(c: ListingPageCriteria) {
+  return {
+    p_tab: c.tab,
+    p_search: c.search,
+    p_sold_filter: c.soldFilter,
+    // Only consulted on the Unlisted tab, like p_sold_filter on Sold.
+    p_unlisted_filter: c.unlistedFilter,
+    p_filter: c.filterQuery,
+    p_column_sort: c.columnSort,
+    p_sort_preset: c.sortPreset,
+    // "Year to date" means the VIEWER's year; the database cannot know it.
+    p_ytd_start: new Date(new Date().getFullYear(), 0, 1).toISOString(),
+    // The projection stays in ONE place (listings-columns.ts) and is sent to
+    // the server rather than restated in SQL, where it would drift the first
+    // time a column was added.
+    p_columns: LISTINGS_COLUMN_LIST,
+    // US-3195: only consulted on the Aged tab.
+    p_aged_threshold_days: c.agedThresholdDays,
+  };
+}
+
 export interface ListingPageResult {
   total: number;
   rows: ItemFullRow[];

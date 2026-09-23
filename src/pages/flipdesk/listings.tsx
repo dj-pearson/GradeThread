@@ -141,11 +141,11 @@ import {
   writeLastInventoryTab,
 } from "@/pages/flipdesk/inventory-last-tab";
 import {
+  listingPageArgs,
   usePageRowDetails,
   type ListingPageResult,
 } from "@/pages/flipdesk/listings-page-queries";
 import { makeListingsActions } from "@/pages/flipdesk/listings-actions";
-import { LISTINGS_COLUMN_LIST } from "@/pages/flipdesk/listings-columns";
 import { ListingsTable } from "@/pages/flipdesk/listings-table";
 import { fmtMoney } from "@/pages/flipdesk/listings-format";
 import {
@@ -680,26 +680,19 @@ export function FlipdeskListingsPage() {
     // scopes this to the caller exactly as the direct read did.
     queryFn: async (): Promise<ListingPageResult> => {
       const { data, error } = await supabase.rpc("flipdesk_listing_page", {
-        p_tab: tab,
-        p_search: search,
-        p_sold_filter: soldFilter,
-        p_unlisted_filter: unlistedFilter,
-        p_filter: filterQuery,
-        p_column_sort: columnSort,
-        p_sort_preset: sortPreset,
-        // "Year to date" means the VIEWER's year; the database cannot know it.
-        p_ytd_start: new Date(new Date().getFullYear(), 0, 1).toISOString(),
+        // INV-6: the same argument builder select-all and CSV export use.
+        ...listingPageArgs({
+          tab,
+          search,
+          soldFilter,
+          unlistedFilter,
+          filterQuery,
+          columnSort,
+          sortPreset,
+          agedThresholdDays,
+        }),
         p_limit: pageSize,
         p_offset: (page - 1) * pageSize,
-        // The projection stays in ONE place (listings-columns.ts) and is sent
-        // to the server rather than restated in SQL, where it would drift the
-        // first time a column was added. Without it the RPC returns every
-        // items_full column, including the four heavy detail-only ones this
-        // table never renders.
-        p_columns: LISTINGS_COLUMN_LIST,
-        // US-3195: only consulted on the Aged tab, the same way p_sold_filter
-        // is only consulted on Sold.
-        p_aged_threshold_days: agedThresholdDays,
       } as never);
       if (error) throw error;
       return (data ?? { total: 0, rows: [] }) as ListingPageResult;
@@ -923,9 +916,11 @@ export function FlipdeskListingsPage() {
     tab,
     search,
     soldFilter,
+    unlistedFilter,
     filterQuery,
     columnSort,
     sortPreset,
+    agedThresholdDays,
     setExporting,
     setBusy,
     setDropProgress,

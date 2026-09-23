@@ -122,6 +122,7 @@ vi.mock("@/lib/items-csv", () => ({
 }));
 
 const { makeListingsActions } = await import("@/pages/flipdesk/listings-actions");
+const { listingPageArgs } = await import("@/pages/flipdesk/listings-page-queries");
 type Deps = Parameters<typeof makeListingsActions>[0];
 
 // ── fixtures ────────────────────────────────────────────────────────────────
@@ -165,9 +166,11 @@ function deps(over: Partial<Deps> = {}): Deps {
     tab: "active",
     search: "",
     soldFilter: "all",
+    unlistedFilter: "all",
     filterQuery: { match: "all", rules: [] },
     columnSort: null,
     sortPreset: "listability",
+    agedThresholdDays: 60,
     setExporting: () => {},
     setBusy: () => {},
     setDropProgress: () => {},
@@ -789,6 +792,32 @@ describe("INV-3: bulk writes count what the server changed", () => {
     await a.bulkDeleteItems();
     expect(deleted).toEqual(["i1"]);
     expect(last().msg).toBe("1 of 2 deleted, 1 not found or no permission.");
+  });
+});
+
+describe("INV-6: select-all and export ask for the page's own rows", () => {
+  it("sends the same arguments as the page query, apart from limit and offset", async () => {
+    rpcPages = [{ total: 1, rows: [item()] }];
+    const criteria = {
+      tab: "unlisted" as const,
+      search: "levi",
+      soldFilter: "all" as const,
+      unlistedFilter: "ready" as const,
+      filterQuery: { match: "all" as const, rules: [] },
+      columnSort: null,
+      sortPreset: "oldest" as const,
+      agedThresholdDays: 45,
+    };
+    const a = makeListingsActions(deps(criteria as unknown as Partial<Deps>));
+    await a.fetchMatchingRows(2000);
+    const { p_limit, p_offset, p_ytd_start, ...sent } = rpcCalls[0]!.args;
+    const { p_ytd_start: pageYtd, ...page } = listingPageArgs(criteria as never);
+    expect(sent).toEqual(page);
+    expect(p_ytd_start).toBe(pageYtd);
+    expect(sent.p_unlisted_filter).toBe("ready");
+    expect(sent.p_aged_threshold_days).toBe(45);
+    expect(typeof p_limit).toBe("number");
+    expect(p_offset).toBe(0);
   });
 });
 

@@ -51,8 +51,11 @@ import {
   type SoldFilter,
   type SortPreset,
 } from "@/pages/flipdesk/listings-filter";
-import { LISTINGS_COLUMN_LIST } from "@/pages/flipdesk/listings-columns";
-import type { ListingPageResult } from "@/pages/flipdesk/listings-page-queries";
+import type { UnlistedFilter } from "@/pages/flipdesk/inventory-tabs";
+import {
+  listingPageArgs,
+  type ListingPageResult,
+} from "@/pages/flipdesk/listings-page-queries";
 import {
   type BulkPriceResponse,
   type BulkEndResponse,
@@ -224,9 +227,13 @@ export interface ListingsActionDeps {
   tab: TabId;
   search: string;
   soldFilter: SoldFilter;
+  /** INV-6: the Unlisted chip. Select-all and export must honour it. */
+  unlistedFilter: UnlistedFilter;
   filterQuery: FilterQuery;
   columnSort: { field: keyof ItemFullRow; dir: "asc" | "desc" } | null;
   sortPreset: SortPreset;
+  /** INV-6: the seller's Aged threshold, which the page query also sends. */
+  agedThresholdDays: number;
 
   setExporting: (v: boolean) => void;
   setBusy: (v: boolean) => void;
@@ -296,9 +303,11 @@ export function makeListingsActions(d: ListingsActionDeps) {
     tab,
     search,
     soldFilter,
+    unlistedFilter,
     filterQuery,
     columnSort,
     sortPreset,
+    agedThresholdDays,
     setExporting,
     setBusy,
     setDropProgress,
@@ -386,16 +395,20 @@ export function makeListingsActions(d: ListingsActionDeps) {
     const all: ItemFullRow[] = [];
     for (let offset = 0; ; offset += PAGE) {
       const { data, error } = await supabase.rpc("flipdesk_listing_page", {
-        p_tab: tab,
-        p_search: search,
-        p_sold_filter: soldFilter,
-        p_filter: filterQuery,
-        p_column_sort: columnSort,
-        p_sort_preset: sortPreset,
-        p_ytd_start: new Date(new Date().getFullYear(), 0, 1).toISOString(),
+        // INV-6: the page query's own argument builder, so select-all and the
+        // export match exactly the rows the seller is looking at.
+        ...listingPageArgs({
+          tab,
+          search,
+          soldFilter,
+          unlistedFilter,
+          filterQuery,
+          columnSort,
+          sortPreset,
+          agedThresholdDays,
+        }),
         p_limit: PAGE,
         p_offset: offset,
-        p_columns: LISTINGS_COLUMN_LIST,
       } as never);
       if (error) throw error;
       const batch = ((data ?? {}) as ListingPageResult).rows ?? [];
