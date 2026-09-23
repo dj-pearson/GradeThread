@@ -47,11 +47,18 @@ export function HelpHubPage() {
     .filter((c) => c.count > 0)
     .sort((a, b) => a.sort_order - b.sort_order);
 
+  // An empty hub is thin content, so it is noindex until the first article is
+  // published. Same zero-articles rule as the SSR hub (helpHubRobots in
+  // functions/_shared/help-render.ts) and the sitemap (helpUrls). Only a loaded
+  // payload can say "empty"; loading and error states keep the default.
+  const emptyHub = data !== undefined && data.articles.length === 0;
+
   return (
     <MarketingLayout
       title={HELP_HUB_TITLE}
       description={HELP_HUB_DESCRIPTION}
       canonicalPath={helpHubPath()}
+      noindex={emptyHub}
       jsonLd={[
         helpCollectionLd({
           name: HELP_HUB_TITLE,

@@ -57,6 +57,7 @@ import {
   HELP_HUB_TITLE,
   HELP_STATIC_OG_ALT,
   HELP_STATIC_OG_PATH,
+  helpHubRobots,
   OG_CARD_HEIGHT,
   OG_CARD_WIDTH,
   nonEmptyCategories,
@@ -210,6 +211,8 @@ ${renderCategoryGrid(index)}
       title: `${HELP_HUB_TITLE} — GradeThread`,
       description: HELP_HUB_DESCRIPTION,
       canonicalUrl: canonical,
+      // An empty hub is thin content: noindex, follow until an article exists.
+      robots: helpHubRobots(index),
       ogType: "website",
       ogImage: `${base}${HELP_STATIC_OG_PATH}`,
       ogImageAlt: HELP_STATIC_OG_ALT,
