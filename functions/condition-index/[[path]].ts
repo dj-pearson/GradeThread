@@ -27,6 +27,7 @@ import {
 import {
   conditionDatasetLd,
   conditionFaqs,
+  conditionIndexTitle,
   type ExampleCert,
   renderExampleCertificates,
   renderGradingFactors,
@@ -73,23 +74,6 @@ const EM_DASH = "—";
 function dollars(cents: number | null): string {
   if (cents == null) return EM_DASH;
   return `${(cents / 100).toFixed(0)}`;
-}
-
-// Google shows roughly 60 characters of a title. The phrasings below run from
-// most persuasive to shortest; take the first that fits so a long garment label
-// loses the framing rather than losing its own name.
-const SERP_TITLE_MAX = 60;
-
-function fitTitle(label: string): string {
-  const shortest = `${label} Resale Value`;
-  const candidates = [
-    `What a ${label} Sells For, by Condition`,
-    `${label} Resale Value by Condition`,
-    shortest,
-  ];
-  // A label long enough to bust the cap on its own keeps its name and loses the
-  // framing; there is nothing shorter left to try.
-  return candidates.find((c) => c.length <= SERP_TITLE_MAX) ?? shortest;
 }
 
 type Ctx = EventContext<PagesEnv, "path", Record<string, unknown>>;
@@ -174,7 +158,7 @@ export const onRequestGet: PagesFunction<PagesEnv> = async (context: Ctx) => {
         // it mid-brand and the value promise never reached the SERP. 35 of these
         // pages ranked at position 7.7 with zero clicks. Lead with the answer,
         // and fall back down the list until one fits the ~60-char cap.
-        title: fitTitle(curve.label),
+        title: conditionIndexTitle(curve.label),
         description:
           headline === EM_DASH
             ? `What a ${curve.label} sells for at each condition grade, from condition-matched comps. Updated ${formatDate(curve.refreshedAt)}.`

@@ -8,6 +8,7 @@ import {
   canonicalArticleUrl,
   helpArticlePath,
   helpCategoryPath,
+  helpHubRobots,
   nonEmptyCategories,
   pillarLabel,
   renderArticleList,
@@ -307,6 +308,20 @@ describe("search (US-2577)", () => {
     const src = readFileSync(join(root, "functions/help/[[path]].ts"), "utf8");
     const block = src.slice(src.indexOf("async function renderSearch"));
     expect(block).toContain('robots: "noindex, follow"');
+  });
+
+  it("an EMPTY hub is noindex, follow; a hub with articles keeps the default", () => {
+    // web-growth action 1 (US-2618): prod /help rendered zero articles and was
+    // served as indexable thin content.
+    expect(helpHubRobots(index({ articles: [] }))).toBe("noindex, follow");
+    expect(helpHubRobots(index())).toBeUndefined();
+  });
+
+  it("the hub passes helpHubRobots to the renderer", () => {
+    const src = readFileSync(join(root, "functions/help/[[path]].ts"), "utf8");
+    const start = src.indexOf("async function renderHub");
+    const block = src.slice(start, src.indexOf("async function renderSearch"));
+    expect(block).toContain("robots: helpHubRobots(index)");
   });
 
   it("the search page skips the edge cache entirely", () => {

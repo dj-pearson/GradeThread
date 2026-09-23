@@ -280,6 +280,25 @@ export function conditionDatasetLd(
 // above). Returns null when the curve has no priced points (never a fabricated
 // offer). Optionally scoped to one condition band's range.
 /**
+ * SERP title for a /condition-index/{slug} page (US-3412). Google shows roughly
+ * 60 characters of a title. The phrasings run from most persuasive to shortest;
+ * take the first that fits so a long garment label loses the framing rather
+ * than losing its own name. No brand suffix: the answer leads.
+ */
+export const CONDITION_INDEX_TITLE_MAX = 60;
+export function conditionIndexTitle(label: string): string {
+  const shortest = `${label} Resale Value`;
+  const candidates = [
+    `What a ${label} Sells For, by Condition`,
+    `${label} Resale Value by Condition`,
+    shortest,
+  ];
+  // A label long enough to bust the cap on its own keeps its name and loses the
+  // framing; there is nothing shorter left to try.
+  return candidates.find((c) => c.length <= CONDITION_INDEX_TITLE_MAX) ?? shortest;
+}
+
+/**
  * SERP title for a /value/{brand}/{item} page (US-9017). Google truncates
  * around 60 characters, so a long curve label falls back to the plain form
  * rather than being cut off mid-promise.

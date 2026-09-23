@@ -139,6 +139,13 @@ describe("helpUrls", () => {
     expect(locs).toEqual(["https://gradethread.com/help"]);
   });
 
+  it("lists NOTHING, not even the hub, while there are zero articles", async () => {
+    // The empty hub serves noindex (helpHubRobots); a sitemap entry for a
+    // noindex page is a contradiction Search Console reports.
+    mockIndex({ categories: [{ key: "grading", slug: "grading" }], articles: [] });
+    expect(await helpUrls(ENV)).toEqual([]);
+  });
+
   it("reads the ANONYMOUS endpoint, which is what makes it public-only", async () => {
     // Visibility is deliberately not re-filtered here. The endpoint cannot
     // return a members-only or internal article, and a second copy of that rule
