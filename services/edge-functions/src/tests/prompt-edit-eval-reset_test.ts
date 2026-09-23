@@ -13,6 +13,7 @@ import { assert, assertEquals } from "@std/assert";
 import {
   checkPromptServingEligibility,
   evalResetForPromptEdit,
+  isLiveCanary,
 } from "../lib/grading-eval.ts";
 
 const PASSED = {
@@ -69,11 +70,45 @@ Deno.test("PATCH /prompts/:id applies the reset before it writes", () => {
   assert(write > start, "PATCH /prompts/:id no longer writes .update(patch)");
   const body = src.slice(start, write);
   assert(
-    /Object\.assign\(\s*patch\s*,\s*evalResetForPromptEdit\(\s*existing\s*,\s*patch\s*\)\s*\)/.test(body),
+    /const\s+reset\s*=\s*evalResetForPromptEdit\(\s*existing\s*,\s*patch\s*\)/.test(body) &&
+      /Object\.assign\(\s*patch\s*,\s*reset\s*\)/.test(body),
     "PATCH /prompts/:id must merge evalResetForPromptEdit(existing, patch) into the update, " +
       "or an evaluated prompt can be edited and then served on its old pass",
   );
   // The comparison needs the stored scope, not just the stored text.
   const select = body.match(/\.select\("([^"]+)"\)/);
   assert(select && /\bgarment_scope\b/.test(select[1]), "the existing-row read must select garment_scope");
+});
+
+// A canary with rollout > 0 is ALREADY live, and resolveSlotFromRows serves
+// its prompt_text without reading eval_passed. Clearing the pass does not stop
+// that, so the route must refuse the edit outright.
+Deno.test("isLiveCanary: only a non-active canary with rollout > 0 is live", () => {
+  assert(isLiveCanary({ is_active: false, is_canary: true, rollout_percentage: 10 }));
+  assertEquals(isLiveCanary({ is_active: false, is_canary: true, rollout_percentage: 0 }), false);
+  assertEquals(isLiveCanary({ is_active: false, is_canary: true, rollout_percentage: null }), false);
+  assertEquals(isLiveCanary({ is_active: false, is_canary: false, rollout_percentage: 10 }), false);
+  // Active rows have their own 409; a promoted row is not routed as a canary.
+  assertEquals(isLiveCanary({ is_active: true, is_canary: true, rollout_percentage: 10 }), false);
+});
+
+Deno.test("PATCH /prompts/:id refuses a text or scope edit on a live canary before it writes", () => {
+  const src = Deno.readTextFileSync(new URL("../routes/admin-grading.ts", import.meta.url));
+  const start = src.indexOf('adminGradingRoutes.patch("/prompts/:id",');
+  const write = src.indexOf(".update(patch)", start);
+  const body = src.slice(start, write);
+  const select = body.match(/\.select\("([^"]+)"\)/);
+  assert(
+    select && /\bis_canary\b/.test(select[1]) && /\brollout_percentage\b/.test(select[1]),
+    "the existing-row read must select is_canary and rollout_percentage",
+  );
+  const guard = body.search(
+    /if\s*\(\s*Object\.keys\(\s*reset\s*\)\.length\s*>\s*0\s*&&\s*isLiveCanary\(\s*existing\s*\)\s*\)\s*\{[^}]*\}\s*,\s*409\s*\)/,
+  );
+  assert(
+    guard > 0,
+    "PATCH /prompts/:id must return 409 when a text/scope edit hits a live canary, " +
+      "or the edited text serves paid traffic with no eval",
+  );
+  assert(guard < body.search(/Object\.assign\(\s*patch\s*,\s*reset\s*\)/), "the canary refusal must come before the patch is built");
 });

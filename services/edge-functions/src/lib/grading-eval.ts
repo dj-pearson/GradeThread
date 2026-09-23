@@ -781,6 +781,24 @@ export function evalResetForPromptEdit(
 }
 
 /**
+ * True when `existing` is a canary that is taking live traffic right now.
+ *
+ * Clearing the eval pass (above) only stops a row from going live LATER. A
+ * canary with rollout_percentage > 0 is already live: resolveSlotFromRows
+ * (canary-rollout.ts) serves its prompt_text to that slice of paid grades and
+ * never reads eval_passed. So an edit that changes its text or scope would
+ * reach customers at once, unevaluated, and a scope edit would move the slice
+ * to a different garment slot. PATCH /prompts/:id refuses such an edit with a
+ * 409; the admin sets the rollout to 0 first, which also re-runs the canary
+ * gate when it is turned back on.
+ */
+export function isLiveCanary(
+  existing: { is_active?: boolean | null; is_canary?: boolean | null; rollout_percentage?: number | null },
+): boolean {
+  return !existing.is_active && !!existing.is_canary && (existing.rollout_percentage ?? 0) > 0;
+}
+
+/**
  * US-2300: THE gate that decides whether a prompt version may take live paid
  * traffic. One implementation, called by every path that routes traffic.
  *
