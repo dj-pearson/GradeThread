@@ -72,6 +72,30 @@ stronger claim for one of them, `check-prod-migration.ts` is the tool.
 Nothing below 00786 was touched, and the six genuinely-held branches in the next
 section are unchanged and still waiting.
 
+## HELD: 00827_listings_publish_attempts.sql (marketplaces - cap scheduled-publish retries)
+
+**What it does.** `ALTER TABLE public.listings ADD COLUMN IF NOT EXISTS
+publish_attempts integer NOT NULL DEFAULT 0`, plus a column comment. Column
+only; metadata-only on Postgres 11+, so no table rewrite.
+
+**Why.** The eBay publish-due tick reclaims a failed scheduled draft every 10
+minutes forever (about 144 tries a day on a permanent blocker). The edge change
+that increments and caps this counter ships separately and reads exactly this
+column name.
+
+**Proved on a local Postgres 16 with all migrations applied:** inside a
+rolled-back transaction, an existing listing reads 0 after the apply, a new
+row defaults to 0, an increment works, NULL is refused, and applying the file
+twice in a row succeeds (the second run skips with a NOTICE).
+
+**Risk: LOW.** Additive. `src/types/database.ts` ListingRow carries the field
+so `listing-row-schema-parity.test.ts` stays green; no client code reads it.
+
+**Order.** Apply BEFORE any edge deploy whose publish-due code filters on
+`publish_attempts` (that code 42703s without it) and before the edge redeploy
+(the boot guard expects 00827). Then `NOTIFY pgrst, 'reload schema';`
+(migrate:prod sends it).
+
 ## HELD: 00826_close_period_rebuilds_ledger.sql (money - closing a period froze stale ledger figures)
 
 **What it does.** `CREATE OR REPLACE` of `public.close_period`, same signature,
