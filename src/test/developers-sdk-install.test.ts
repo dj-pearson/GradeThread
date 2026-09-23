@@ -27,3 +27,20 @@ describe("/developers SDK install copy", () => {
     expect(CODE).toMatch(/mailto:support@gradethread\.com/);
   });
 });
+
+// The SDK's own README carried the same git clone after the page stopped.
+describe("sdk/gradethread-js/README.md install section", () => {
+  const README = readFileSync(resolve(process.cwd(), "sdk/gradethread-js/README.md"), "utf8");
+  const install = README.slice(README.indexOf("## Install"), README.indexOf("## Quick start"));
+
+  it("does not give a git clone of the private repository", () => {
+    expect(install).not.toMatch(/git clone/);
+    expect(install).not.toMatch(/github\.com\/dj-pearson\/GradeThread/);
+  });
+
+  it("says the SDK is unpublished and points at the HTTP API docs", () => {
+    expect(install).toMatch(/not published to npm yet/);
+    expect(install).toContain("https://gradethread.com/developers");
+    expect(install).toMatch(/mailto:support@gradethread\.com/);
+  });
+});
