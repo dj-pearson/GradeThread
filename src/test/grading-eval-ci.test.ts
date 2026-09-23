@@ -136,6 +136,24 @@ describe(".github/workflows/grading-eval.yml", () => {
     expect(wf.slice(skip, curl)).toMatch(/exit 0/);
   });
 
+  it("on a 401 names the repo secret to check, before the verdict fails the job", () => {
+    // A rotated FLIPDESK_INTERNAL_JOB_SECRET turns this job red with only
+    // "HTTP 401" to go on. The hint says which of the two secrets to compare.
+    const hint = wf.indexOf('if [ "$code" = "401" ]');
+    const verdict = wf.indexOf("node scripts/grading-eval-ci.mjs");
+    expect(hint).toBeGreaterThan(-1);
+    expect(hint).toBeLessThan(verdict);
+    expect(wf.slice(hint, verdict)).toMatch(/::error::[^\n]*EDGE_JOB_SECRET/);
+  });
+
+  it("does not present itself as the only eval run", () => {
+    // The Coolify grading-monitor cron hits the same endpoint every 12h and
+    // runs runEval() each time, so a comment pricing "weekly" as the whole
+    // spend undercounts it about fifteen-fold.
+    expect(wf).toMatch(/NOT the only eval run/);
+    expect(wf).toMatch(/0 \*\/12 \* \* \*/);
+  });
+
   it("hands the response to the verdict script rather than a bare status check", () => {
     expect(wf).toMatch(/node scripts\/grading-eval-ci\.mjs "\$code"/);
     expect(wf).toMatch(/\/api\/jobs\/grading-monitor/);
