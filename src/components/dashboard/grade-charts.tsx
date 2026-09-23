@@ -1,10 +1,13 @@
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/lib/supabase";
-import { CHART_PALETTE, GRADE_TIERS } from "@/lib/constants";
-import type { SubmissionRow, GradeReportRow, GarmentType } from "@/types/database";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { CHART_PALETTE } from "@/lib/constants";
+import {
+  processChartData,
+  type ChartReport,
+  type ChartSubmission,
+} from "@/lib/grade-chart-data";
 import { Skeleton } from "@/components/ui/skeleton";
-import { BarChart3, TrendingUp, PieChart as PieChartIcon } from "lucide-react";
+import { WidgetLoadError } from "@/components/dashboard/widgets/flipdesk-shared";
 import {
   BarChart,
   Bar,
@@ -21,16 +24,6 @@ import {
   Legend,
 } from "recharts";
 
-const TIER_COLORS: Record<string, string> = {
-  NWT: CHART_PALETTE.emerald,
-  NWOT: CHART_PALETTE.green,
-  Excellent: CHART_PALETTE.blue,
-  "Very Good": CHART_PALETTE.indigo,
-  Good: CHART_PALETTE.violet,
-  Fair: CHART_PALETTE.amber,
-  Poor: CHART_PALETTE.red,
-};
-
 const PIE_COLORS = [
   CHART_PALETTE.navy,
   CHART_PALETTE.red,
@@ -40,147 +33,58 @@ const PIE_COLORS = [
   CHART_PALETTE.violet,
 ];
 
-function formatGarmentType(type: string): string {
-  return type.charAt(0).toUpperCase() + type.slice(1);
-}
+/**
+ * One tooltip style for all three charts. The theme tokens are HEX values
+ * (src/index.css), so they are used as var(--card) directly; wrapping them in
+ * hsl() produced invalid CSS and a tooltip with no background.
+ */
+const TOOLTIP_STYLE = {
+  backgroundColor: "var(--card)",
+  border: "1px solid var(--border)",
+  borderRadius: "var(--radius)",
+  fontSize: 12,
+} as const;
 
-interface ChartData {
-  gradeDistribution: Array<{ tier: string; count: number; fill: string }>;
-  avgGradeOverTime: Array<{ week: string; average: number }>;
-  garmentTypeBreakdown: Array<{ name: string; value: number }>;
-  hasData: boolean;
-}
-
-// US-2204: the charts read four submission columns and three report columns, so
-// the queries project exactly those. Naming the projection in the types — rather
-// than casting the rows back to the full Row — is what makes the narrowing safe:
-// tsc fails here if a chart later reaches for a column the select stopped
-// fetching, instead of the field silently arriving as undefined at runtime.
-type ChartSubmission = Pick<
-  SubmissionRow,
-  "id" | "status" | "created_at" | "garment_type"
->;
-type ChartReport = Pick<GradeReportRow, "grade_tier" | "overall_score"> & {
-  submission_id: string;
-};
-
-const CHART_SUBMISSION_COLUMNS = "id, status, created_at, garment_type";
+const CHART_SUBMISSION_COLUMNS = "id, status, created_at, garment_type, superseded_at";
 const CHART_REPORT_COLUMNS = "submission_id, grade_tier, overall_score";
 
-function processChartData(
-  submissions: ChartSubmission[],
-  reports: ChartReport[]
-): ChartData {
-  const completedSubmissions = submissions.filter((s) => s.status === "completed");
-
-  if (completedSubmissions.length === 0 || reports.length === 0) {
-    return { gradeDistribution: [], avgGradeOverTime: [], garmentTypeBreakdown: [], hasData: false };
-  }
-
-  // Build a map of submission_id -> report for easy lookup
-  const reportMap = new Map(reports.map((r) => [r.submission_id, r]));
-
-  // Grade distribution by tier
-  const tierCounts: Record<string, number> = {};
-  for (const tier of GRADE_TIERS) {
-    tierCounts[tier] = 0;
-  }
-  for (const report of reports) {
-    const current = tierCounts[report.grade_tier];
-    if (current !== undefined) {
-      tierCounts[report.grade_tier] = current + 1;
-    }
-  }
-  const gradeDistribution = GRADE_TIERS.map((tier) => ({
-    tier: tier as string,
-    count: tierCounts[tier] ?? 0,
-    fill: TIER_COLORS[tier] ?? CHART_PALETTE.slate,
-  }));
-
-  // Average grade over time (last 30 days, weekly buckets)
-  const now = new Date();
-  const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
-
-  const weekBuckets: Array<{ start: Date; end: Date; label: string; scores: number[] }> = [];
-  for (let i = 0; i < 4; i++) {
-    const bucketEnd = new Date(now.getTime() - i * 7 * 24 * 60 * 60 * 1000);
-    const bucketStart = new Date(bucketEnd.getTime() - 7 * 24 * 60 * 60 * 1000);
-    weekBuckets.unshift({
-      start: bucketStart,
-      end: bucketEnd,
-      label: `${bucketStart.getMonth() + 1}/${bucketStart.getDate()}`,
-      scores: [],
-    });
-  }
-
-  for (const sub of completedSubmissions) {
-    const subDate = new Date(sub.created_at);
-    if (subDate < thirtyDaysAgo) continue;
-    const report = reportMap.get(sub.id);
-    if (!report) continue;
-
-    for (const bucket of weekBuckets) {
-      if (subDate >= bucket.start && subDate < bucket.end) {
-        bucket.scores.push(report.overall_score);
-        break;
-      }
-    }
-  }
-
-  const avgGradeOverTime = weekBuckets.map((bucket) => ({
-    week: bucket.label,
-    average:
-      bucket.scores.length > 0
-        ? Math.round((bucket.scores.reduce((a, b) => a + b, 0) / bucket.scores.length) * 10) / 10
-        : 0,
-  }));
-
-  // Submissions by garment type
-  const typeCounts: Record<string, number> = {};
-  for (const sub of submissions) {
-    const t = sub.garment_type as GarmentType;
-    typeCounts[t] = (typeCounts[t] ?? 0) + 1;
-  }
-  const garmentTypeBreakdown = Object.entries(typeCounts)
-    .map(([name, value]) => ({ name: formatGarmentType(name), value }))
-    .sort((a, b) => b.value - a.value);
-
-  return { gradeDistribution, avgGradeOverTime, garmentTypeBreakdown, hasData: true };
-}
-
 export function GradeCharts() {
-  const { data: chartData, isLoading } = useQuery({
+  const { data: chartData, isLoading, isError, refetch, isFetching } = useQuery({
     queryKey: ["dashboard-charts"],
     queryFn: async () => {
-      // Fetch all user submissions
+      // Live submissions only: a retake supersedes the original.
       const { data: subs, error: subsError } = await supabase
         .from("submissions")
         .select(CHART_SUBMISSION_COLUMNS)
+        .is("superseded_at", null)
         .order("created_at", { ascending: false });
 
       if (subsError) throw subsError;
       const submissions = (subs ?? []) as ChartSubmission[];
 
-      // Fetch all grade reports for completed submissions
       const completedIds = submissions
         .filter((s) => s.status === "completed")
         .map((s) => s.id);
 
-      let reports: ChartReport[] = [];
-      if (completedIds.length > 0) {
-        // Batch fetch in chunks of 100 to avoid query limits
-        for (let i = 0; i < completedIds.length; i += 100) {
-          const chunk = completedIds.slice(i, i + 100);
-          const { data: reportData, error: reportError } = await supabase
+      // Chunks of 100 keep each URL under the proxy limit; they are
+      // independent, so they run together rather than one after another.
+      const chunks: string[][] = [];
+      for (let i = 0; i < completedIds.length; i += 100) {
+        chunks.push(completedIds.slice(i, i + 100));
+      }
+      const results = await Promise.all(
+        chunks.map((chunk) =>
+          supabase
             .from("grade_reports")
             .select(CHART_REPORT_COLUMNS)
             .in("submission_id", chunk)
-            .is("superseded_at", null); // US-479: active report per submission
-
-          if (reportError) throw reportError;
-          const rows = (reportData ?? []) as ChartReport[];
-          reports = reports.concat(rows);
-        }
+            .is("superseded_at", null) // US-479: active report per submission
+        ),
+      );
+      const reports: ChartReport[] = [];
+      for (const { data: reportData, error: reportError } of results) {
+        if (reportError) throw reportError;
+        reports.push(...((reportData ?? []) as ChartReport[]));
       }
 
       return processChartData(submissions, reports);
@@ -190,172 +94,132 @@ export function GradeCharts() {
 
   if (isLoading) {
     return (
-      <div className="grid gap-4 lg:grid-cols-2">
+      <div className="grid gap-6 lg:grid-cols-2">
         {Array.from({ length: 3 }).map((_, i) => (
-          <Card key={i} className={i === 2 ? "lg:col-span-2" : ""}>
-            <CardHeader>
-              <Skeleton className="h-5 w-40" />
-              <Skeleton className="h-4 w-60" />
-            </CardHeader>
-            <CardContent>
-              <Skeleton className="h-[250px] w-full" />
-            </CardContent>
-          </Card>
+          <div key={i} className={i === 2 ? "space-y-2 lg:col-span-2" : "space-y-2"}>
+            <Skeleton className="h-4 w-40" />
+            <Skeleton className="h-[250px] w-full" />
+          </div>
         ))}
       </div>
     );
   }
 
+  // Before the empty check: a failed read is not "no data yet".
+  if (isError) {
+    return (
+      <WidgetLoadError
+        what="your grade trends"
+        onRetry={() => void refetch()}
+        retrying={isFetching}
+      />
+    );
+  }
+
   if (!chartData?.hasData) {
     return (
-      <Card>
-        <CardContent className="flex flex-col items-center justify-center py-12 text-center">
-          <BarChart3 className="h-12 w-12 text-muted-foreground/50" />
-          <h3 className="mt-4 text-lg font-medium">No analytics data yet</h3>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Complete some grading submissions to see your analytics charts here.
-          </p>
-        </CardContent>
-      </Card>
+      <div className="rounded-xl border border-dashed px-4 py-6 text-center">
+        <p className="text-sm font-medium">No grades to chart yet</p>
+        <p className="mt-1 text-sm text-muted-foreground">
+          Complete a grading submission and your trends show up here.
+        </p>
+      </div>
     );
   }
 
   return (
-    <div className="grid gap-4 lg:grid-cols-2">
-      {/* Grade Distribution Histogram */}
-      <Card>
-        <CardHeader className="flex flex-row items-center justify-between pb-2">
-          <div>
-            <CardTitle className="text-base">Grade Distribution</CardTitle>
-            <CardDescription>Count of grades by tier</CardDescription>
-          </div>
-          <BarChart3 className="h-4 w-4 text-muted-foreground" />
-        </CardHeader>
-        <CardContent>
-          <ResponsiveContainer width="100%" height={250}>
-            <BarChart data={chartData.gradeDistribution} margin={{ top: 5, right: 5, bottom: 5, left: -10 }}>
-              <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
-              <XAxis
-                dataKey="tier"
-                fontSize={11}
-                tickLine={false}
-                axisLine={false}
-              />
-              <YAxis
-                fontSize={11}
-                tickLine={false}
-                axisLine={false}
-                allowDecimals={false}
-              />
-              <Tooltip
-                contentStyle={{
-                  backgroundColor: "hsl(var(--card))",
-                  border: "1px solid hsl(var(--border))",
-                  borderRadius: "var(--radius)",
-                  fontSize: 12,
-                }}
-              />
-              <Bar dataKey="count" radius={[4, 4, 0, 0]}>
-                {chartData.gradeDistribution.map((entry, index) => (
-                  <Cell key={index} fill={entry.fill} />
-                ))}
-              </Bar>
-            </BarChart>
-          </ResponsiveContainer>
-        </CardContent>
-      </Card>
+    <div className="grid gap-6 lg:grid-cols-2">
+      <section>
+        <h4 className="text-sm font-medium">Grade distribution</h4>
+        <p className="mb-2 text-xs text-muted-foreground">Count of grades by tier</p>
+        <ResponsiveContainer width="100%" height={250}>
+          <BarChart data={chartData.gradeDistribution} margin={{ top: 5, right: 5, bottom: 5, left: -10 }}>
+            <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
+            <XAxis
+              dataKey="tier"
+              fontSize={11}
+              tickLine={false}
+              axisLine={false}
+            />
+            <YAxis
+              fontSize={11}
+              tickLine={false}
+              axisLine={false}
+              allowDecimals={false}
+            />
+            <Tooltip contentStyle={TOOLTIP_STYLE} />
+            <Bar dataKey="count" radius={[4, 4, 0, 0]}>
+              {chartData.gradeDistribution.map((entry, index) => (
+                <Cell key={index} fill={entry.fill} />
+              ))}
+            </Bar>
+          </BarChart>
+        </ResponsiveContainer>
+      </section>
 
-      {/* Average Grade Over Time */}
-      <Card>
-        <CardHeader className="flex flex-row items-center justify-between pb-2">
-          <div>
-            <CardTitle className="text-base">Average Grade Over Time</CardTitle>
-            <CardDescription>Weekly average (last 30 days)</CardDescription>
-          </div>
-          <TrendingUp className="h-4 w-4 text-muted-foreground" />
-        </CardHeader>
-        <CardContent>
-          <ResponsiveContainer width="100%" height={250}>
-            <LineChart data={chartData.avgGradeOverTime} margin={{ top: 5, right: 5, bottom: 5, left: -10 }}>
-              <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
-              <XAxis
-                dataKey="week"
-                fontSize={11}
-                tickLine={false}
-                axisLine={false}
-              />
-              <YAxis
-                fontSize={11}
-                tickLine={false}
-                axisLine={false}
-                domain={[0, 10]}
-              />
-              <Tooltip
-                contentStyle={{
-                  backgroundColor: "hsl(var(--card))",
-                  border: "1px solid hsl(var(--border))",
-                  borderRadius: "var(--radius)",
-                  fontSize: 12,
-                }}
-                formatter={(value) => [Number(value).toFixed(1), "Avg Grade"]}
-              />
-              <Line
-                type="monotone"
-                dataKey="average"
-                stroke={CHART_PALETTE.navy}
-                strokeWidth={2}
-                dot={{ r: 4, fill: CHART_PALETTE.navy }}
-                activeDot={{ r: 6 }}
-                connectNulls={false}
-              />
-            </LineChart>
-          </ResponsiveContainer>
-        </CardContent>
-      </Card>
+      <section>
+        <h4 className="text-sm font-medium">Average grade over time</h4>
+        <p className="mb-2 text-xs text-muted-foreground">Weekly average, last 4 weeks</p>
+        <ResponsiveContainer width="100%" height={250}>
+          <LineChart data={chartData.avgGradeOverTime} margin={{ top: 5, right: 5, bottom: 5, left: -10 }}>
+            <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
+            <XAxis
+              dataKey="week"
+              fontSize={11}
+              tickLine={false}
+              axisLine={false}
+            />
+            <YAxis
+              fontSize={11}
+              tickLine={false}
+              axisLine={false}
+              domain={[1, 10]}
+            />
+            <Tooltip
+              contentStyle={TOOLTIP_STYLE}
+              formatter={(value) => [Number(value).toFixed(1), "Avg Grade"]}
+            />
+            <Line
+              type="monotone"
+              dataKey="average"
+              stroke={CHART_PALETTE.navy}
+              strokeWidth={2}
+              dot={{ r: 4, fill: CHART_PALETTE.navy }}
+              activeDot={{ r: 6 }}
+              connectNulls={false}
+            />
+          </LineChart>
+        </ResponsiveContainer>
+      </section>
 
-      {/* Submissions by Garment Type */}
-      <Card className="lg:col-span-2">
-        <CardHeader className="flex flex-row items-center justify-between pb-2">
-          <div>
-            <CardTitle className="text-base">Submissions by Garment Type</CardTitle>
-            <CardDescription>Breakdown of all submissions</CardDescription>
-          </div>
-          <PieChartIcon className="h-4 w-4 text-muted-foreground" />
-        </CardHeader>
-        <CardContent>
-          <ResponsiveContainer width="100%" height={300}>
-            <PieChart>
-              <Pie
-                data={chartData.garmentTypeBreakdown}
-                cx="50%"
-                cy="50%"
-                innerRadius={60}
-                outerRadius={100}
-                paddingAngle={2}
-                dataKey="value"
-                label={({ name, percent }) =>
-                  `${name} ${((percent ?? 0) * 100).toFixed(0)}%`
-                }
-                labelLine={true}
-                fontSize={12}
-              >
-                {chartData.garmentTypeBreakdown.map((_, index) => (
-                  <Cell key={index} fill={PIE_COLORS[index % PIE_COLORS.length]} />
-                ))}
-              </Pie>
-              <Tooltip
-                contentStyle={{
-                  backgroundColor: "hsl(var(--card))",
-                  border: "1px solid hsl(var(--border))",
-                  borderRadius: "var(--radius)",
-                  fontSize: 12,
-                }}
-              />
-              <Legend fontSize={12} />
-            </PieChart>
-          </ResponsiveContainer>
-        </CardContent>
-      </Card>
+      <section className="lg:col-span-2">
+        <h4 className="text-sm font-medium">Submissions by garment type</h4>
+        <p className="mb-2 text-xs text-muted-foreground">Breakdown of all submissions</p>
+        <ResponsiveContainer width="100%" height={300}>
+          <PieChart>
+            <Pie
+              data={chartData.garmentTypeBreakdown}
+              cx="50%"
+              cy="50%"
+              innerRadius={60}
+              outerRadius={100}
+              paddingAngle={2}
+              dataKey="value"
+              label={({ name, percent }) =>
+                `${name} ${((percent ?? 0) * 100).toFixed(0)}%`
+              }
+              labelLine={true}
+              fontSize={12}
+            >
+              {chartData.garmentTypeBreakdown.map((_, index) => (
+                <Cell key={index} fill={PIE_COLORS[index % PIE_COLORS.length]} />
+              ))}
+            </Pie>
+            <Tooltip contentStyle={TOOLTIP_STYLE} />
+            <Legend fontSize={12} />
+          </PieChart>
+        </ResponsiveContainer>
+      </section>
     </div>
   );
 }
