@@ -27,6 +27,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.lifecycleScope
@@ -163,7 +164,7 @@ private fun ShareScreen(uris: List<Uri>, onCancel: () -> Unit, onSave: (List<Pho
             )
             Text(
                 if (uris.size > capped.size) {
-                    stringResource(R.string.intake_share_capped, capped.size, uris.size)
+                    pluralStringResource(R.plurals.intake_share_capped, capped.size, capped.size, uris.size)
                 } else {
                     stringResource(R.string.intake_share_pick)
                 },

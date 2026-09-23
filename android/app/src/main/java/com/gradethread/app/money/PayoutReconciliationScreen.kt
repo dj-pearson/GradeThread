@@ -223,7 +223,7 @@ fun PayoutReconciliationContent(
                 if (queue.hasMore) {
                     // Reported, not silently truncated: a seller with 200
                     // unmatched deposits must not think they cleared the list.
-                    stringResource(R.string.payouts_queue_truncated, queue.showing, queue.total)
+                    pluralStringResource(R.plurals.payouts_queue_truncated, queue.total, queue.showing, queue.total)
                 } else {
                     pluralStringResource(R.plurals.payouts_queue_count, queue.total, queue.total)
                 },
@@ -244,9 +244,13 @@ fun PayoutReconciliationContent(
                 Text(
                     stringResource(
                         R.string.payouts_sweep_result,
-                        sweep.autoMatched,
-                        sweep.ambiguous,
-                        sweep.noCandidates,
+                        pluralStringResource(R.plurals.payouts_sweep_matched, sweep.autoMatched, sweep.autoMatched),
+                        pluralStringResource(R.plurals.payouts_sweep_ambiguous, sweep.ambiguous, sweep.ambiguous),
+                        pluralStringResource(
+                            R.plurals.payouts_sweep_no_candidates,
+                            sweep.noCandidates,
+                            sweep.noCandidates,
+                        ),
                     ),
                     style = MaterialTheme.typography.bodySmall,
                 )
@@ -276,9 +280,9 @@ fun PayoutReconciliationContent(
                     // counted twice, or they will go looking for the money.
                     stringResource(
                         R.string.payouts_import_result,
-                        result.imported,
-                        result.duplicates,
-                        result.skipped,
+                        pluralStringResource(R.plurals.payouts_import_added, result.imported, result.imported),
+                        pluralStringResource(R.plurals.payouts_import_already, result.duplicates, result.duplicates),
+                        pluralStringResource(R.plurals.payouts_import_not_payouts, result.skipped, result.skipped),
                     ),
                     style = MaterialTheme.typography.bodySmall,
                 )
@@ -425,7 +429,7 @@ private fun PayoutCard(entry: PayoutReconciliation.Reconciled, onOpenItem: (Stri
             SaleLine(sale, Money.format(sale.salePrice), onOpenItem)
         }
         if (entry.sales.size > 5) {
-            Hint(stringResource(R.string.payouts_more_sales, entry.sales.size - 5))
+            Hint(pluralStringResource(R.plurals.payouts_more_sales, entry.sales.size - 5, entry.sales.size - 5))
         }
     }
 }

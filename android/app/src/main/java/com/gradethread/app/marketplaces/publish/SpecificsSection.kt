@@ -11,6 +11,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import com.gradethread.app.R
 import com.gradethread.app.inventory.AspectSpecState
@@ -133,8 +134,9 @@ private fun SpecificField(
     }
     if (field.values.any { AspectSync.willBeTruncated(it) }) {
         Hint(
-            stringResource(
-                R.string.specifics_truncated,
+            pluralStringResource(
+                R.plurals.specifics_truncated,
+                AspectSync.EBAY_ASPECT_VALUE_MAX_LEN,
                 AspectSync.EBAY_ASPECT_VALUE_MAX_LEN,
             ),
         )

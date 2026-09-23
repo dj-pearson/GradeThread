@@ -23,6 +23,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import com.gradethread.app.R
 import androidx.compose.ui.Alignment
@@ -290,8 +291,16 @@ fun SettingsContent(
                 title = stringResource(R.string.settings_grading_credits),
                 subtitle = stringResource(
                     R.string.settings_credits_subtitle,
-                    profile.creditBalance,
-                    profile.gradesUsedThisMonth,
+                    pluralStringResource(
+                        R.plurals.settings_credits_available,
+                        profile.creditBalance,
+                        profile.creditBalance,
+                    ),
+                    pluralStringResource(
+                        R.plurals.settings_credits_used,
+                        profile.gradesUsedThisMonth,
+                        profile.gradesUsedThisMonth,
+                    ),
                 ),
                 onClick = actions.openCredits,
             )

@@ -681,7 +681,7 @@ private fun VerifiedEditor(
             onValueChange = onBio,
             label = { Text(stringResource(R.string.verified_bio_label)) },
             supportingText = {
-                Text(stringResource(R.string.verified_bio_help, editor.bio.length, MAX_BIO))
+                Text(pluralStringResource(R.plurals.verified_bio_help, MAX_BIO, editor.bio.length, MAX_BIO))
             },
             isError = editor.bio.length > MAX_BIO,
             modifier = Modifier.fillMaxWidth(),

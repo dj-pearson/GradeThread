@@ -94,8 +94,9 @@ fun CommunityInsightsContent(
             // The privacy promise, said plainly and up front. People are being
             // asked to look at other sellers' numbers; they deserve to know
             // theirs work the same way.
-            stringResource(
-                R.string.community_privacy_note,
+            pluralStringResource(
+                R.plurals.community_privacy_note,
+                CommunityRecommendations.MIN_SELLERS,
                 CommunityRecommendations.MIN_SELLERS,
             ),
             style = MaterialTheme.typography.bodySmall,
@@ -219,7 +220,11 @@ private fun YouCard(state: CommunityInsightsViewModel.State, data: CommunityBenc
     ) {
         Text(stringResource(R.string.community_text), style = MaterialTheme.typography.titleMedium)
         Text(
-            stringResource(R.string.community_you_row, data.you.listed, data.you.sold),
+            stringResource(
+                R.string.community_you_row,
+                pluralStringResource(R.plurals.listed_count, data.you.listed, data.you.listed),
+                pluralStringResource(R.plurals.sold_count, data.you.sold, data.you.sold),
+            ),
             style = MaterialTheme.typography.bodyLarge,
         )
         val standing = state.peerStanding
@@ -290,9 +295,8 @@ private fun BrandPriceRow(brand: BrandBenchmark, onOpenBrand: (String) -> Unit) 
             Text(
                 stringResource(
                     R.string.community_brand_row,
-                    brand.sellers,
-                    brand.sold,
-                    brand.listed,
+                    pluralStringResource(R.plurals.seller_count, brand.sellers, brand.sellers),
+                    pluralStringResource(R.plurals.community_sold_of, brand.sold, brand.sold, brand.listed),
                 ),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -328,8 +332,8 @@ private fun CategoryRow(trend: CategoryTrend) {
                 // "up 0%" would state a fact nobody measured.
                 ?: stringResource(
                     R.string.community_trend_flat,
-                    trend.soldRecent,
-                    trend.sellers,
+                    pluralStringResource(R.plurals.community_sold_30d, trend.soldRecent, trend.soldRecent),
+                    pluralStringResource(R.plurals.seller_count, trend.sellers, trend.sellers),
                 ),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,

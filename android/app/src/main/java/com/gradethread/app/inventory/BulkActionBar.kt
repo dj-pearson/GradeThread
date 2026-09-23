@@ -191,7 +191,7 @@ fun BulkResultBar(result: BulkActionResult, onDismiss: () -> Unit, modifier: Mod
         }
         if (result.failures.size > 4) {
             Text(
-                stringResource(R.string.bulk_more_failures, result.failures.size - 4),
+                pluralStringResource(R.plurals.bulk_more_failures, result.failures.size - 4, result.failures.size - 4),
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )

@@ -405,7 +405,7 @@ internal fun MoneyContent(
                         state.timeOnMarket.averageDays?.let { Math.round(it).toInt() } ?: 0
                     Panel(stringResource(R.string.money_time_on_market_title)) {
                         Text(
-                            // The resource takes `%1$d` and averageDays is a
+                            // The day_count plural takes `%1$d` and averageDays is a
                             // nullable Double, so passing it straight through is
                             // not just a type error — it would throw
                             // IllegalFormatConversionException when the panel is
@@ -413,8 +413,12 @@ internal fun MoneyContent(
                             // branch is unreachable in practice.
                             stringResource(
                                 R.string.money_time_on_market_summary,
-                                averageDaysShown,
-                                state.timeOnMarket.soldCount,
+                                pluralStringResource(R.plurals.day_count, averageDaysShown, averageDaysShown),
+                                pluralStringResource(
+                                    R.plurals.sale_count,
+                                    state.timeOnMarket.soldCount,
+                                    state.timeOnMarket.soldCount,
+                                ),
                             ),
                             style = MaterialTheme.typography.bodyMedium,
                         )
@@ -743,8 +747,9 @@ private fun SourceRoiRowView(row: SourceRoiRow) {
         Column(Modifier.weight(1f)) {
             Text(row.sourceName, style = MaterialTheme.typography.bodyMedium)
             Text(
-                stringResource(
-                    R.string.money_source_row_detail,
+                pluralStringResource(
+                    R.plurals.money_source_row_detail,
+                    row.soldCount,
                     row.soldCount,
                     row.acquiredCount,
                     Money.format(row.spend),

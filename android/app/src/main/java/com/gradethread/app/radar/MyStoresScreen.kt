@@ -18,6 +18,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -151,8 +152,16 @@ fun MyStoresContent(state: MyStoresViewModel.State, actions: MyStoresActions, mo
                         Text(
                             stringResource(
                                 R.string.stores_unattributed,
-                                stores.unattributedItems,
-                                stores.unplacedVisits,
+                                pluralStringResource(
+                                    R.plurals.stores_items_no_shop,
+                                    stores.unattributedItems,
+                                    stores.unattributedItems,
+                                ),
+                                pluralStringResource(
+                                    R.plurals.stores_visits_unplaced,
+                                    stores.unplacedVisits,
+                                    stores.unplacedVisits,
+                                ),
                             ),
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -214,7 +223,11 @@ private fun StoreCard(store: MyStore) {
             )
         }
         Text(
-            stringResource(R.string.stores_counts, store.itemsSourced, store.itemsSold),
+            stringResource(
+                R.string.stores_counts,
+                pluralStringResource(R.plurals.stores_items_bought, store.itemsSourced, store.itemsSourced),
+                pluralStringResource(R.plurals.sold_count, store.itemsSold, store.itemsSold),
+            ),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )

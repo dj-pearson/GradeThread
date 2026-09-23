@@ -26,6 +26,10 @@ THREE RULES, and the third is the one a person would not think to add:
      is the cheap way out of both rules above and it hides a real
      contradiction: after it, nobody can tell an intentional plurals id from a
      genuine wrong-resource bug, which is the thing `ResourceType` is for.
+     The same goes for `PluralsCandidate` (mobile plan action 7): the 35 rows
+     it carried were each a count sentence Spanish could not inflect, and they
+     were converted to <plurals> or marked `tools:ignore` on the string with a
+     reason. Baselining a new one hides exactly that again.
   4. Nothing renders `someMessage.res` itself. Use `text()`.
 
      ⚠ RULE 4 IS THE ONE THAT IS NOT OBVIOUS, and it is the cost of the split.
@@ -123,20 +127,36 @@ def scan_tree():
     return problems
 
 
+#: Lint ids that may never be absorbed into the baseline, and what to do instead.
+BANNED_BASELINE_IDS = {
+    "ResourceType": "US-3115 forbids baselining this rule; fix the call site instead",
+    "PluralsCandidate": (
+        "a count sentence needs <plurals> in values/ and values-es/, or "
+        "tools:ignore=\"PluralsCandidate\" on the string when the number is "
+        "not a count (a row number, a percent)"
+    ),
+}
+
+
+def scan_baseline_xml(xml):
+    """Rule 3 over the baseline's text."""
+    problems = []
+    for rule, fix in BANNED_BASELINE_IDS.items():
+        count = len(re.findall(r'id="%s"' % rule, xml))
+        if count:
+            problems.append(
+                f"app/lint-baseline.xml: {count} {rule} entr"
+                f"{'y' if count == 1 else 'ies'} - {fix}"
+            )
+    return problems
+
+
 def scan_baseline():
     """Rule 3."""
     if not os.path.isfile(LINT_BASELINE):
         return []
     with open(LINT_BASELINE, encoding="utf8") as handle:
-        xml = handle.read()
-    count = len(re.findall(r'id="ResourceType"', xml))
-    if not count:
-        return []
-    return [
-        f"app/lint-baseline.xml: {count} ResourceType entr"
-        f"{'y' if count == 1 else 'ies'} - US-3115 forbids baselining this "
-        f"rule; fix the call site instead"
-    ]
+        return scan_baseline_xml(handle.read())
 
 
 def self_test():
@@ -167,6 +187,14 @@ def self_test():
         ("control: an unrelated stringResource",
          'Text(stringResource(R.string.title))', False),
     ]
+    baseline_cases = [
+        ("a ResourceType row in the baseline",
+         '<issues><issue id="ResourceType" message="x"/></issues>', True),
+        ("a PluralsCandidate row in the baseline",
+         '<issues><issue\n        id="PluralsCandidate"\n        message="x"/></issues>', True),
+        ("control: a baseline of other rules",
+         '<issues><issue id="UseKtx" message="x"/></issues>', False),
+    ]
     failures = []
     for name, src, should_flag in cases:
         flagged = bool(scan_source(src, "case.kt"))
@@ -175,6 +203,13 @@ def self_test():
                 f"  self-test: {name} - expected "
                 f"{'a finding' if should_flag else 'no finding'}, got the opposite"
             )
+    for name, xml, should_flag in baseline_cases:
+        if bool(scan_baseline_xml(xml)) != should_flag:
+            failures.append(
+                f"  self-test: {name} - expected "
+                f"{'a finding' if should_flag else 'no finding'}, got the opposite"
+            )
+    cases = cases + baseline_cases
     if failures:
         print("no-plurals-as-string self-test FAILED:")
         print("\n".join(failures))

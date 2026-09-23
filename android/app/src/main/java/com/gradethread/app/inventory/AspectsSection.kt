@@ -18,6 +18,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import com.gradethread.app.R
@@ -207,8 +208,9 @@ private fun FreeTextAspect(
             // an item specific at 65 characters and the edge truncates at its
             // own chokepoint, so silence would just lose the tail.
             Text(
-                stringResource(
-                    R.string.aspects_truncated,
+                pluralStringResource(
+                    R.plurals.aspects_truncated,
+                    AspectSync.EBAY_ASPECT_VALUE_MAX_LEN,
                     AspectSync.EBAY_ASPECT_VALUE_MAX_LEN,
                 ),
                 style = MaterialTheme.typography.labelSmall,

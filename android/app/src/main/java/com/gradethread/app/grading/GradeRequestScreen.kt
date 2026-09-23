@@ -218,8 +218,10 @@ private fun ReadyBody(
     Text(
         stringResource(
             R.string.graderequest_balance,
-            state.creditBalance,
-            state.validation?.user?.includedRemaining ?: 0,
+            pluralStringResource(R.plurals.credit_count, state.creditBalance, state.creditBalance),
+            (state.validation?.user?.includedRemaining ?: 0).let { left ->
+                pluralStringResource(R.plurals.graderequest_included_left, left, left)
+            },
         ),
         style = MaterialTheme.typography.bodySmall,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
