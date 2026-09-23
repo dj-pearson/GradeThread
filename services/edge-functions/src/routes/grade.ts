@@ -11,6 +11,7 @@ import {
 } from "../lib/verified-capture.ts";
 import { validateImageUpload } from "../lib/upload-validation.ts";
 import { stripImageMetadata } from "../lib/image-metadata.ts";
+import { REQUIRED_IMAGE_TYPES } from "../lib/image-quality.ts";
 import { validateVideoUpload } from "../lib/video-validation.ts";
 import {
   clampFrameCount,
@@ -116,7 +117,8 @@ const IMAGE_TYPES = [
   "measurement_chest", "measurement_waist", "measurement_length",
   "measurement_sleeve", "measurement_inseam",
 ] as const;
-const REQUIRED_IMAGE_TYPES = ["front", "back", "label"];
+// REQUIRED_IMAGE_TYPES is imported from lib/image-quality.ts: the quality gate
+// that blocks a grade and this upload check must name the same three shots.
 
 // Hard ceiling on images accepted per submission. The grading pipeline issues
 // one Claude Vision call PER image, but a submission is billed as a single

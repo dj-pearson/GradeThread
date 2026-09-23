@@ -3135,6 +3135,11 @@ export interface AiPromptVersionRow {
   rollout_percentage: number;
   is_canary: boolean;
   rollout_started_at: string | null;
+  // US-330 / US-2443: shadow-compare on live traffic (00115). Written only
+  // through PATCH /api/admin/grading/prompts/:id/shadow.
+  is_shadow: boolean;
+  shadow_sample_rate: number;
+  shadow_daily_cap: number;
   created_at: string;
 }
 

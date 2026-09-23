@@ -12,6 +12,7 @@ import {
 import { decodeBase64Image } from "../lib/validation.ts";
 import { validateImageUpload } from "../lib/upload-validation.ts";
 import { stripImageMetadata } from "../lib/image-metadata.ts";
+import { REQUIRED_IMAGE_TYPES } from "../lib/image-quality.ts";
 import { computePhashFromImage } from "../lib/perceptual-hash.ts";
 import { assertPublicUrl, safeFetch, SsrfError } from "../lib/ssrf.ts";
 import { encryptWebhookSecret, generateWebhookSecret } from "../lib/webhook-delivery.ts";
@@ -112,7 +113,8 @@ const IMAGE_TYPES = [
   "measurement_chest", "measurement_waist", "measurement_length",
   "measurement_sleeve", "measurement_inseam",
 ] as const;
-const REQUIRED_IMAGE_TYPES = ["front", "back", "label"];
+// REQUIRED_IMAGE_TYPES is imported from lib/image-quality.ts: the quality gate
+// that blocks a grade and this upload check must name the same three shots.
 // Hard ceiling on images per submission — one Claude Vision call is issued per
 // image but the submission is billed as a single grade, so an uncapped count is
 // an AI-cost multiplier. Mirrors grade.ts MAX_IMAGES_PER_SUBMISSION. (HIGH-1)

@@ -34,6 +34,7 @@ import { GradingCanaryPanel } from "@/components/admin/grading-canary-panel";
 import { GradingAccuracyPanel } from "@/components/admin/grading-accuracy-panel";
 import { ListingPromptPerformancePanel } from "@/components/admin/listing-prompt-performance-panel";
 import { edgeFetch } from "@/lib/edge-fetch";
+import { buildShadowStartBody, maxShadowPercent } from "@/lib/prompt-shadow";
 import {
   type AccuracyReportRow,
   type AccuracyReviewRow,
@@ -87,6 +88,7 @@ import {
   BarChart3,
   RefreshCw,
   FileDown,
+  Radar,
 } from "lucide-react";
 import { SearchInput } from "@/components/search-input";
 import { toast } from "sonner";
@@ -260,6 +262,13 @@ export function AdminAiModelsPage() {
   const [stepUpOpen, setStepUpOpen] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<EnrichedPromptVersion | null>(null);
   const [actionLoading, setActionLoading] = useState(false);
+
+  // Shadow run (grading.md action 6): start/stop a live shadow-compare for a
+  // draft version, both stages. The edge owns every rule; see lib/prompt-shadow.
+  const [shadowTarget, setShadowTarget] = useState<EnrichedPromptVersion | null>(null);
+  const [shadowRate, setShadowRate] = useState("");
+  const [shadowCap, setShadowCap] = useState("");
+  const [shadowLoading, setShadowLoading] = useState(false);
 
   // Test prompt dialog (US-590: real dry-run, candidate vs active)
   const [testTarget, setTestTarget] = useState<EnrichedPromptVersion | null>(null);
@@ -570,6 +579,68 @@ export function AdminAiModelsPage() {
       });
     } finally {
       setActionLoading(false);
+    }
+  }
+
+  function openShadow(version: EnrichedPromptVersion) {
+    setShadowTarget(version);
+    const stage = version.stage === "per_image" ? "per_image" : "composite";
+    // Start from the row's own numbers; an unset per_image rate starts at 1%.
+    const pct = Number(version.shadow_sample_rate ?? 0) * 100;
+    setShadowRate(pct > 0 ? String(Math.min(pct, maxShadowPercent(stage))) : stage === "per_image" ? "1" : "5");
+    setShadowCap(String(version.shadow_daily_cap > 0 ? version.shadow_daily_cap : 50));
+  }
+
+  async function handleShadowSave() {
+    if (!shadowTarget || shadowTarget.stage === "listing_gen") return;
+    const built = buildShadowStartBody(shadowTarget.stage, {
+      ratePercent: shadowRate,
+      dailyCap: shadowCap,
+    });
+    if (!built.ok) {
+      toast.error("Check the shadow settings", { description: built.error });
+      return;
+    }
+    setShadowLoading(true);
+    try {
+      // A per_image start asks for step-up; edgeFetch prompts and retries.
+      await promptsApi(`/${shadowTarget.id}/shadow`, {
+        method: "PATCH",
+        body: JSON.stringify(built.body),
+      });
+      toast.success(shadowTarget.is_shadow ? "Shadow settings saved" : "Shadow run started", {
+        description: `"${shadowTarget.version_name}" is compared on sampled live grades. Sellers never see it.`,
+      });
+      queryClient.invalidateQueries({ queryKey: ["admin-ai-models"] });
+      setShadowTarget(null);
+    } catch (err) {
+      toast.error("Couldn't start the shadow run", {
+        description: err instanceof Error ? err.message : "Unknown error",
+      });
+    } finally {
+      setShadowLoading(false);
+    }
+  }
+
+  async function handleShadowStop() {
+    if (!shadowTarget) return;
+    setShadowLoading(true);
+    try {
+      await promptsApi(`/${shadowTarget.id}/shadow`, {
+        method: "PATCH",
+        body: JSON.stringify({ is_shadow: false }),
+      });
+      toast.success("Shadow run stopped", {
+        description: `"${shadowTarget.version_name}" no longer runs on live grades.`,
+      });
+      queryClient.invalidateQueries({ queryKey: ["admin-ai-models"] });
+      setShadowTarget(null);
+    } catch (err) {
+      toast.error("Couldn't stop the shadow run", {
+        description: err instanceof Error ? err.message : "Unknown error",
+      });
+    } finally {
+      setShadowLoading(false);
     }
   }
 
@@ -1434,11 +1505,14 @@ export function AdminAiModelsPage() {
                         {version.version_name}
                       </TableCell>
                       <TableCell>
-                        {version.is_active ? (
-                          <Badge className="bg-green-100 text-green-700 dark:bg-green-950/50 dark:text-green-300">Active</Badge>
-                        ) : (
-                          <Badge variant="secondary">Inactive</Badge>
-                        )}
+                        <div className="flex flex-wrap items-center gap-1">
+                          {version.is_active ? (
+                            <Badge className="bg-green-100 text-green-700 dark:bg-green-950/50 dark:text-green-300">Active</Badge>
+                          ) : (
+                            <Badge variant="secondary">Inactive</Badge>
+                          )}
+                          {version.is_shadow && <Badge variant="outline">Shadow</Badge>}
+                        </div>
                       </TableCell>
                       <TableCell className="tabular-nums">
                         <span
@@ -1488,6 +1562,18 @@ export function AdminAiModelsPage() {
                           >
                             <FlaskConical className="h-3.5 w-3.5" />
                           </Button>
+                          {(!version.is_active || version.is_shadow) && version.stage !== "listing_gen" && (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-7 w-7 p-0"
+                              aria-label={`Shadow run for ${version.version_name}`}
+                              title={version.is_shadow ? "Shadow run (on)" : "Start a shadow run"}
+                              onClick={() => openShadow(version)}
+                            >
+                              <Radar className="h-3.5 w-3.5" />
+                            </Button>
+                          )}
                           {version.is_active ? (
                             <Button
                               variant="ghost"
@@ -2020,6 +2106,71 @@ export function AdminAiModelsPage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* ─── Shadow Run ─────────────────────────────────────────────── */}
+      <Dialog open={!!shadowTarget} onOpenChange={(o) => !o && setShadowTarget(null)}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Shadow run</DialogTitle>
+            <DialogDescription>
+              Grades a sample of live submissions with{" "}
+              <strong>{shadowTarget?.version_name}</strong> beside the active prompt and
+              records both. Sellers only ever get the active prompt's grade. Results show
+              in the Shadow tab of the accuracy panel above.
+            </DialogDescription>
+          </DialogHeader>
+          {shadowTarget && shadowTarget.stage !== "listing_gen" && (
+            <div className="space-y-4">
+              {shadowTarget.stage === "per_image" && (
+                <p className="text-sm text-muted-foreground">
+                  A per-image shadow re-reads every photo, about 7 vision calls per sampled
+                  grade. The rate is capped at {maxShadowPercent("per_image")}%, the server must
+                  have PER_IMAGE_SHADOW_DAILY_VISION_CAP set, and starting asks you to
+                  re-verify your second factor.
+                </p>
+              )}
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <Label htmlFor="shadow-rate">Sample rate (%)</Label>
+                  <Input
+                    id="shadow-rate"
+                    inputMode="decimal"
+                    value={shadowRate}
+                    onChange={(e) => setShadowRate(e.target.value)}
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Up to {maxShadowPercent(shadowTarget.stage)}%
+                  </p>
+                </div>
+                <div className="space-y-1">
+                  <Label htmlFor="shadow-cap">Daily cap (grades)</Label>
+                  <Input
+                    id="shadow-cap"
+                    inputMode="numeric"
+                    value={shadowCap}
+                    onChange={(e) => setShadowCap(e.target.value)}
+                  />
+                </div>
+              </div>
+              <div className="flex justify-end gap-2">
+                {shadowTarget.is_shadow && (
+                  <Button variant="outline" onClick={handleShadowStop} disabled={shadowLoading}>
+                    Stop shadow run
+                  </Button>
+                )}
+                {/* An active row that is still shadowing (promoted before
+                    activation cleared the flag) can only be stopped. */}
+                {!shadowTarget.is_active && (
+                  <Button onClick={handleShadowSave} disabled={shadowLoading}>
+                    {shadowLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                    {shadowTarget.is_shadow ? "Save settings" : "Start shadow run"}
+                  </Button>
+                )}
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
 
       {/* ─── Delete Confirmation ────────────────────────────────────── */}
       <AlertDialog open={!!deleteTarget} onOpenChange={() => setDeleteTarget(null)}>
