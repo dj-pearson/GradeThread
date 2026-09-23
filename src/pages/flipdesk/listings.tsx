@@ -140,6 +140,7 @@ import {
   readLastInventoryTab,
   writeLastInventoryTab,
 } from "@/pages/flipdesk/inventory-last-tab";
+import { listingIdsOf, selectedRowsFrom } from "@/pages/flipdesk/listings-selection";
 import {
   listingPageArgs,
   usePageRowDetails,
@@ -971,6 +972,14 @@ export function FlipdeskListingsPage() {
 
   const allOnPageSelected =
     pageRowIds.length > 0 && pageRowIds.every((id) => selected.has(id));
+
+  // INV-7: every selected row, including ones remembered from other pages, so
+  // the dialogs below act on the whole selection the bar is counting.
+  const selectedRows = useMemo(
+    () => selectedRowsFrom(actionItems, selected),
+    [actionItems, selected],
+  );
+  const selectedListingIds = useMemo(() => listingIdsOf(selectedRows), [selectedRows]);
 
   // On Unlisted the bulk bar follows the SELECTION, not the tab: a mixed pick
   // of undrafted and drafted rows gets both "Create drafts" (for the first
@@ -2245,9 +2254,7 @@ export function FlipdeskListingsPage() {
       <BulkRepriceDialog
         open={repriceOpen}
         onOpenChange={setRepriceOpen}
-        listingIds={Array.from(selected)
-          .map((id) => items.find((i) => i.id === id)?.listing_id)
-          .filter((v): v is string => !!v)}
+        listingIds={selectedListingIds}
         onApplied={() => {
           setSelected(new Set());
           void qc.invalidateQueries({ queryKey: ["items_full"] });
@@ -2257,15 +2264,11 @@ export function FlipdeskListingsPage() {
       <BulkPromoteDialog
         open={promoteOpen}
         onOpenChange={setPromoteOpen}
-        listingIds={Array.from(selected)
-          .map((id) => items.find((i) => i.id === id)?.listing_id)
-          .filter((v): v is string => !!v)}
+        listingIds={selectedListingIds}
         selectionValueCents={(() => {
           // Null when ANY selected item has no price: a fee estimate that
           // silently omits the items it could not price reads as complete.
-          const rows = Array.from(selected)
-            .map((id) => items.find((i) => i.id === id))
-            .filter((r): r is NonNullable<typeof r> => !!r);
+          const rows = selectedRows;
           if (rows.length === 0 || rows.some((r) => r.list_price == null)) return null;
           return rows.reduce((sum, r) => sum + Math.round(Number(r.list_price) * 100), 0);
         })()}
@@ -2281,9 +2284,7 @@ export function FlipdeskListingsPage() {
       <BulkEditDialog
         open={bulkEditOpen}
         onOpenChange={setBulkEditOpen}
-        listingIds={Array.from(selected)
-          .map((id) => items.find((i) => i.id === id)?.listing_id)
-          .filter((v): v is string => !!v)}
+        listingIds={selectedListingIds}
         onApplied={() => {
           setSelected(new Set());
           void qc.invalidateQueries({ queryKey: ["items_full"] });
@@ -2293,9 +2294,7 @@ export function FlipdeskListingsPage() {
       <PrepareShipmentDialog
         open={prepareShipOpen}
         onOpenChange={setPrepareShipOpen}
-        items={Array.from(selected)
-          .map((id) => items.find((i) => i.id === id))
-          .filter((v): v is ItemFullRow => !!v)}
+        items={selectedRows}
         onApplied={() => setSelected(new Set())}
       />
 
@@ -2311,9 +2310,9 @@ export function FlipdeskListingsPage() {
         open={aiEnrichOpen}
         onOpenChange={setAiEnrichOpen}
         itemIds={Array.from(selected)}
-        itemLabel={(itemId) => itemRowLabel(items.find((i) => i.id === itemId) ?? { id: itemId })}
+        itemLabel={(itemId) => itemRowLabel(actionItems.find((i) => i.id === itemId) ?? { id: itemId })}
         onReviewItem={(itemId) => {
-          const it = items.find((i) => i.id === itemId);
+          const it = actionItems.find((i) => i.id === itemId);
           if (it) setDetailItem(it);
           setAiEnrichOpen(false);
         }}
